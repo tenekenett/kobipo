@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic'
+import Link from 'next/link'
 
 export default function NotFound() {
   return (
@@ -7,9 +7,9 @@ export default function NotFound() {
       <p className="text-muted-foreground mb-4">
         Aradığınız sayfa mevcut değil.
       </p>
-      <a href="/" className="text-blue-500 hover:underline">
+      <Link href="/" className="text-blue-500 hover:underline">
         Ana sayfaya dön
-      </a>
+      </Link>
     </div>
   )
 }
