@@ -4,6 +4,9 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 
+export const dynamic = 'force-dynamic'
+
+
 export async function GET(request: Request) {
   try {
     const user = await getCurrentUser()

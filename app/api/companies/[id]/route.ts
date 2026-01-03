@@ -3,6 +3,8 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 
+
+export const dynamic = 'force-dynamic'
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }

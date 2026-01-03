@@ -5,6 +5,8 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 import { Decimal } from "@prisma/client/runtime/library"
 
+
+export const dynamic = 'force-dynamic'
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
