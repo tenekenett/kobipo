@@ -1,0 +1,289 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  companies     UserCompany[]
+  accounts      Account[]
+  sessions      Session[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  name        String
+  taxNumber   String?  @unique
+  taxOffice   String?
+  address     String?  @db.Text
+  city        String?
+  country     String   @default("TR")
+  phone       String?
+  email       String?
+  website     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       UserCompany[]
+  customers   Customer[]
+  suppliers   Supplier[]
+  products    Product[]
+  financialAccounts FinancialAccount[]
+  transactions Transaction[]
+  invoices    Invoice[]
+  stockMovements StockMovement[]
+
+  @@map("companies")
+}
+
+model UserCompany {
+  id        String   @id @default(cuid())
+  userId    String
+  companyId String
+  role      String   @default("USER") // ADMIN, USER
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@map("user_companies")
+}
+
+model Customer {
+  id          String   @id @default(cuid())
+  companyId   String
+  code        String?
+  name        String
+  taxNumber   String?
+  taxOffice   String?
+  address     String?  @db.Text
+  city        String?
+  country     String   @default("TR")
+  phone       String?
+  email       String?
+  contactPerson String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoices    Invoice[]
+  transactions Transaction[]
+
+  @@map("customers")
+}
+
+model Supplier {
+  id          String   @id @default(cuid())
+  companyId   String
+  code        String?
+  name        String
+  taxNumber   String?
+  taxOffice   String?
+  address     String?  @db.Text
+  city        String?
+  country     String   @default("TR")
+  phone       String?
+  email       String?
+  contactPerson String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoices    Invoice[]
+  transactions Transaction[]
+
+  @@map("suppliers")
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  companyId   String
+  code        String?
+  name        String
+  barcode     String?
+  unit        String   @default("ADET")
+  vatRate     Decimal  @default(20) @db.Decimal(5, 2)
+  purchasePrice Decimal? @db.Decimal(10, 2)
+  salePrice   Decimal? @db.Decimal(10, 2)
+  stockQuantity Decimal @default(0) @db.Decimal(10, 2)
+  isService   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockMovements StockMovement[]
+  invoiceItems InvoiceItem[]
+
+  @@map("products")
+}
+
+model StockMovement {
+  id          String   @id @default(cuid())
+  companyId   String
+  productId   String
+  type        String   // IN, OUT, TRANSFER, ADJUSTMENT
+  quantity    Decimal  @db.Decimal(10, 2)
+  unitPrice   Decimal? @db.Decimal(10, 2)
+  description String?  @db.Text
+  reference   String?  // Invoice ID, etc.
+  createdAt   DateTime @default(now())
+  createdBy   String?
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("stock_movements")
+}
+
+model FinancialAccount {
+  id          String   @id @default(cuid())
+  companyId   String
+  code        String?
+  name        String
+  type        String   // CASH, BANK
+  bankName    String?
+  accountNumber String?
+  iban        String?
+  currency    String   @default("TRY")
+  balance     Decimal  @default(0) @db.Decimal(15, 2)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@map("financial_accounts")
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  companyId   String
+  accountId   String
+  type        String   // INCOME, EXPENSE, TRANSFER
+  amount      Decimal  @db.Decimal(15, 2)
+  currency    String   @default("TRY")
+  description String?  @db.Text
+  date        DateTime @default(now())
+  reference   String?
+  customerId  String?
+  supplierId  String?
+  createdAt   DateTime @default(now())
+  createdBy   String?
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  account     FinancialAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier    Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@map("transactions")
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  companyId   String
+  invoiceNo   String
+  type        String   // SALES, PURCHASE
+  invoiceType String   // E_INVOICE, E_ARCHIVE
+  status      String   @default("DRAFT") // DRAFT, SENT, CANCELLED
+  customerId  String?
+  supplierId  String?
+  date        DateTime @default(now())
+  dueDate     DateTime?
+  totalAmount Decimal  @db.Decimal(15, 2)
+  vatAmount   Decimal  @db.Decimal(15, 2)
+  netAmount   Decimal  @db.Decimal(15, 2)
+  currency    String   @default("TRY")
+  uuid        String?  @unique // E-Fatura UUID
+  integrationId String? // Entegratör ID
+  integrationStatus String? // Entegratör durumu
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier    Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  items       InvoiceItem[]
+
+  @@unique([companyId, invoiceNo])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  productId   String?
+  description String
+  quantity    Decimal  @db.Decimal(10, 2)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  vatRate     Decimal  @db.Decimal(5, 2)
+  vatAmount   Decimal  @db.Decimal(10, 2)
+  totalAmount Decimal  @db.Decimal(10, 2)
+  order       Int      @default(0)
+
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@map("invoice_items")
+}
+
