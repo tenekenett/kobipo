@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
+import { Decimal } from "@prisma/client/runtime/library"
 
 export async function GET(
   request: Request,
@@ -78,23 +79,23 @@ export async function PUT(
     const { customerId, supplierId, date, dueDate, items, notes } = body
 
     // Recalculate totals if items changed
-    let netAmount: number = Number(invoice.netAmount)
-    let vatAmount: number = Number(invoice.vatAmount)
-    let totalAmount: number = Number(invoice.totalAmount)
+    let netAmount: Decimal = invoice.netAmount
+    let vatAmount: Decimal = invoice.vatAmount
+    let totalAmount: Decimal = invoice.totalAmount
 
     if (items && items.length > 0) {
-      netAmount = 0
-      vatAmount = 0
-      totalAmount = 0
+      netAmount = new Decimal(0)
+      vatAmount = new Decimal(0)
+      totalAmount = new Decimal(0)
 
       items.forEach((item: any) => {
-        const itemNet = item.quantity * item.unitPrice
-        const itemVat = itemNet * (item.vatRate / 100)
-        const itemTotal = itemNet + itemVat
+        const itemNet = new Decimal(item.quantity).times(item.unitPrice)
+        const itemVat = itemNet.times(item.vatRate).dividedBy(100)
+        const itemTotal = itemNet.plus(itemVat)
 
-        netAmount += itemNet
-        vatAmount += itemVat
-        totalAmount += itemTotal
+        netAmount = netAmount.plus(itemNet)
+        vatAmount = vatAmount.plus(itemVat)
+        totalAmount = totalAmount.plus(itemTotal)
       })
     }
 
