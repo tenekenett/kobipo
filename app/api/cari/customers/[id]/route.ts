@@ -7,7 +7,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 export const dynamic = 'force-dynamic'
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -15,8 +15,9 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const resolvedParams = await params
     const customer = await prisma.customer.findUnique({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       include: {
         invoices: {
           orderBy: { date: "desc" },
@@ -79,7 +80,7 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -87,8 +88,9 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const resolvedParams = await params
     const customer = await prisma.customer.findUnique({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
     })
 
     if (!customer) {
@@ -111,7 +113,7 @@ export async function PUT(
     } = body
 
     const updated = await prisma.customer.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: {
         code,
         name,
@@ -140,7 +142,7 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -148,8 +150,9 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const resolvedParams = await params
     const customer = await prisma.customer.findUnique({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
     })
 
     if (!customer) {
@@ -159,7 +162,7 @@ export async function DELETE(
     await ensureCompanyAccess(customer.companyId)
 
     await prisma.customer.delete({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
     })
 
     return NextResponse.json({ message: "Customer deleted" })

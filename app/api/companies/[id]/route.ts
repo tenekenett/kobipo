@@ -7,18 +7,20 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 export const dynamic = 'force-dynamic'
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, {
+    const resolvedParams = await params;
+     status: 401 })
     }
 
-    await ensureCompanyAccess(params.id)
+    await ensureCompanyAccess(resolvedParams.id)
 
     const company = await prisma.company.findUnique({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
     })
 
     if (!company) {
@@ -40,28 +42,16 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const userCompany = await ensureCompanyAccess(params.id)
-
-    if (userCompany.role !== "ADMIN") {
-      return NextResponse.json(
-        { error: "Only admins can update company" },
-        { status: 403 }
-      )
-    }
-
-    const body = await request.json()
-    const { name, taxNumber, taxOffice, address, city, phone, email } = body
-
-    const company = await prisma.company.update({
-      where: { id: params.id },
+      return NextResponse.json({ error: "Unauthorized" }, {
+    
+    const resolvedParams = await params
+    const company = await prisma.company.findUnique({
+      where: { id: resolvedParams.id },
       data: {
         name,
         taxNumber,

@@ -9,7 +9,7 @@ import { Decimal } from "@prisma/client/runtime/library"
 export const dynamic = 'force-dynamic'
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -18,7 +18,11 @@ export async function GET(
     }
 
     const invoice = await prisma.invoice.findUnique({
-      where: { id: params.id },
+      where: {
+    
+    const resolvedParams = await params
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: resolvedParams.id },
       include: {
         customer: true,
         supplier: true,
@@ -52,7 +56,7 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -61,7 +65,11 @@ export async function PUT(
     }
 
     const invoice = await prisma.invoice.findUnique({
-      where: { id: params.id },
+      where: {
+    
+    const resolvedParams = await params
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: resolvedParams.id },
     })
 
     if (!invoice) {
@@ -103,7 +111,7 @@ export async function PUT(
 
     // Update invoice
     const updated = await prisma.invoice.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: {
         customerId: customerId !== undefined ? customerId : invoice.customerId,
         supplierId: supplierId !== undefined ? supplierId : invoice.supplierId,
@@ -120,13 +128,13 @@ export async function PUT(
     if (items && items.length > 0) {
       // Delete existing items
       await prisma.invoiceItem.deleteMany({
-        where: { invoiceId: params.id },
+        where: { invoiceId: resolvedParams.id },
       })
 
       // Create new items
       await prisma.invoiceItem.createMany({
         data: items.map((item: any, index: number) => ({
-          invoiceId: params.id,
+          invoiceId: resolvedParams.id,
           productId: item.productId || null,
           description: item.description,
           quantity: parseFloat(item.quantity),
@@ -140,7 +148,7 @@ export async function PUT(
     }
 
     const invoiceWithItems = await prisma.invoice.findUnique({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       include: {
         customer: true,
         supplier: true,
@@ -168,7 +176,7 @@ export async function PUT(
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -177,7 +185,11 @@ export async function POST(
     }
 
     const invoice = await prisma.invoice.findUnique({
-      where: { id: params.id },
+      where: {
+    
+    const resolvedParams = await params
+    const invoiceWithItems = await prisma.invoice.findUnique({
+      where: { id: resolvedParams.id },
       include: {
         customer: true,
         supplier: true,
@@ -250,7 +262,7 @@ export async function POST(
     }
 
     const updated = await prisma.invoice.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: {
         uuid: response.uuid,
         status: "SENT",

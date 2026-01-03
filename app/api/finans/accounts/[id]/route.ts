@@ -7,7 +7,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 export const dynamic = 'force-dynamic'
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -16,7 +16,11 @@ export async function GET(
     }
 
     const account = await prisma.financialAccount.findUnique({
-      where: { id: params.id },
+      where: {
+    
+    const resolvedParams = await params
+    const account = await prisma.financialAccount.findUnique({
+      where: { id: resolvedParams.id },
       include: {
         transactions: {
           orderBy: { date: "desc" },
@@ -46,7 +50,7 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -55,7 +59,11 @@ export async function PUT(
     }
 
     const account = await prisma.financialAccount.findUnique({
-      where: { id: params.id },
+      where: {
+    
+    const resolvedParams = await params
+    const account = await prisma.financialAccount.findUnique({
+      where: { id: resolvedParams.id },
     })
 
     if (!account) {
@@ -77,7 +85,7 @@ export async function PUT(
     } = body
 
     const updated = await prisma.financialAccount.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: {
         code,
         name,
@@ -105,7 +113,7 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -114,7 +122,11 @@ export async function DELETE(
     }
 
     const account = await prisma.financialAccount.findUnique({
-      where: { id: params.id },
+      where: {
+    
+    const resolvedParams = await params
+    const account = await prisma.financialAccount.findUnique({
+      where: { id: resolvedParams.id },
     })
 
     if (!account) {
@@ -124,7 +136,7 @@ export async function DELETE(
     await ensureCompanyAccess(account.companyId)
 
     await prisma.financialAccount.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: {
         isActive: false,
       },

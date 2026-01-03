@@ -7,7 +7,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 export const dynamic = 'force-dynamic'
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -16,7 +16,11 @@ export async function GET(
     }
 
     const supplier = await prisma.supplier.findUnique({
-      where: { id: params.id },
+      where: {
+    
+    const resolvedParams = await params
+    const supplier = await prisma.supplier.findUnique({
+      where: { id: resolvedParams.id },
       include: {
         invoices: {
           orderBy: { date: "desc" },
@@ -79,7 +83,7 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -88,7 +92,11 @@ export async function PUT(
     }
 
     const supplier = await prisma.supplier.findUnique({
-      where: { id: params.id },
+      where: {
+    
+    const resolvedParams = await params
+    const supplier = await prisma.supplier.findUnique({
+      where: { id: resolvedParams.id },
     })
 
     if (!supplier) {
@@ -111,7 +119,7 @@ export async function PUT(
     } = body
 
     const updated = await prisma.supplier.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: {
         code,
         name,
@@ -140,7 +148,7 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await getCurrentUser()
@@ -149,7 +157,11 @@ export async function DELETE(
     }
 
     const supplier = await prisma.supplier.findUnique({
-      where: { id: params.id },
+      where: {
+    
+    const resolvedParams = await params
+    const supplier = await prisma.supplier.findUnique({
+      where: { id: resolvedParams.id },
     })
 
     if (!supplier) {
@@ -159,7 +171,7 @@ export async function DELETE(
     await ensureCompanyAccess(supplier.companyId)
 
     await prisma.supplier.delete({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
     })
 
     return NextResponse.json({ message: "Supplier deleted" })
