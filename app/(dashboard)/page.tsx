@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import { getSession } from "@/lib/auth/session"
-import { getUserCompanies } from "@/lib/middleware/company"
+import { getAuthContext, getDashboardPath } from "@/lib/middleware/authorization"
 import { prisma } from "@/lib/db/prisma"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
@@ -27,17 +27,38 @@ export default async function DashboardPage() {
   const session = await getSession()
 
   if (!session) {
-    redirect("/auth/signin")
+    redirect("/signin")
   }
 
-  const companies = await getUserCompanies()
+  // Yetki bilgilerini al
+  const authContext = await getAuthContext()
 
-  if (companies.length === 0) {
+  if (!authContext) {
+    redirect("/signin")
+  }
+
+  // Firmaya bağlı değilse firma oluşturma sayfasına yönlendir
+  if (authContext.companies.length === 0) {
     redirect("/companies/new")
   }
 
+  // Rol bazlı dashboard'a yönlendir
+  if (authContext.activeCompany) {
+    const dashboardPath = getDashboardPath(authContext.activeCompany.role)
+    redirect(dashboardPath)
+  }
+
   // İlk firmayı seç (veya cookie'den al)
-  const activeCompany = companies[0]
+  const activeCompany = authContext.companies[0]
+  
+  // Firma bilgilerini al
+  const company = await prisma.company.findUnique({
+    where: { id: activeCompany.companyId }
+  })
+
+  if (!company) {
+    redirect("/companies/new")
+  }
 
   // Dashboard verileri
   const [
@@ -49,22 +70,22 @@ export default async function DashboardPage() {
     incomeTotal,
     expenseTotal,
   ] = await Promise.all([
-    prisma.customer.count({ where: { companyId: activeCompany.id } }),
-    prisma.supplier.count({ where: { companyId: activeCompany.id } }),
-    prisma.product.count({ where: { companyId: activeCompany.id } }),
-    prisma.invoice.count({ where: { companyId: activeCompany.id } }),
+    prisma.customer.count({ where: { companyId: activeCompany.companyId } }),
+    prisma.supplier.count({ where: { companyId: activeCompany.companyId } }),
+    prisma.product.count({ where: { companyId: activeCompany.companyId } }),
+    prisma.invoice.count({ where: { companyId: activeCompany.companyId } }),
     prisma.invoice.findMany({
-      where: { companyId: activeCompany.id },
+      where: { companyId: activeCompany.companyId },
       orderBy: { createdAt: "desc" },
       take: 5,
       include: { customer: true, supplier: true },
     }),
     prisma.transaction.aggregate({
-      where: { companyId: activeCompany.id, type: "INCOME" },
+      where: { companyId: activeCompany.companyId, type: "INCOME" },
       _sum: { amount: true },
     }),
     prisma.transaction.aggregate({
-      where: { companyId: activeCompany.id, type: "EXPENSE" },
+      where: { companyId: activeCompany.companyId, type: "EXPENSE" },
       _sum: { amount: true },
     }),
   ])
@@ -76,7 +97,7 @@ export default async function DashboardPage() {
       const [incomeResult, expenseResult] = await Promise.all([
         prisma.transaction.aggregate({
           where: {
-            companyId: activeCompany.id,
+            companyId: activeCompany.companyId,
             type: "INCOME",
             date: { gte: start, lte: end },
           },
@@ -84,7 +105,7 @@ export default async function DashboardPage() {
         }),
         prisma.transaction.aggregate({
           where: {
-            companyId: activeCompany.id,
+            companyId: activeCompany.companyId,
             type: "EXPENSE",
             date: { gte: start, lte: end },
           },
@@ -115,7 +136,7 @@ export default async function DashboardPage() {
         </div>
         <div className="text-right">
           <p className="text-sm text-muted-foreground">Aktif Firma</p>
-          <p className="font-semibold">{activeCompany.name}</p>
+          <p className="font-semibold">{activeCompany.companyName}</p>
         </div>
       </div>
 

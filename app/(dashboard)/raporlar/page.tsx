@@ -177,6 +177,10 @@ export default function RaporlarPage() {
         <TabsList>
           <TabsTrigger value="vat">KDV Raporu</TabsTrigger>
           <TabsTrigger value="income-expense">Gelir-Gider</TabsTrigger>
+          <TabsTrigger value="profit-loss">Kar/Zarar</TabsTrigger>
+          <TabsTrigger value="balance-sheet">Bilanço</TabsTrigger>
+          <TabsTrigger value="cash-flow">Nakit Akışı</TabsTrigger>
+          <TabsTrigger value="taxes">Vergi Beyannameleri</TabsTrigger>
         </TabsList>
 
         <TabsContent value="vat">
@@ -380,6 +384,62 @@ export default function RaporlarPage() {
                   Veri bulunamadı
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="profit-loss">
+          <Card>
+            <CardHeader>
+              <CardTitle>Kar/Zarar Tablosu</CardTitle>
+              <CardDescription>Detaylı kar/zarar analizi için ayrı sayfaya gidin</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild>
+                <a href={`/raporlar/kar-zarar?company=${companyId}`}>Kar/Zarar Tablosunu Görüntüle</a>
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="balance-sheet">
+          <Card>
+            <CardHeader>
+              <CardTitle>Bilanço</CardTitle>
+              <CardDescription>Detaylı bilanço analizi için ayrı sayfaya gidin</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild>
+                <a href={`/raporlar/bilanco?company=${companyId}`}>Bilançoyu Görüntüle</a>
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="cash-flow">
+          <Card>
+            <CardHeader>
+              <CardTitle>Nakit Akış Tablosu</CardTitle>
+              <CardDescription>Detaylı nakit akış analizi için ayrı sayfaya gidin</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild>
+                <a href={`/raporlar/nakit-akisi?company=${companyId}`}>Nakit Akış Tablosunu Görüntüle</a>
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="taxes">
+          <Card>
+            <CardHeader>
+              <CardTitle>Vergi Beyannameleri</CardTitle>
+              <CardDescription>KDV, Muhtasar ve Ba-Bs formu hazırlık raporları</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild>
+                <a href={`/raporlar/vergiler?company=${companyId}`}>Vergi Beyannamelerini Görüntüle</a>
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>

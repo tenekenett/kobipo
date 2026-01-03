@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
+import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 
 export const dynamic = 'force-dynamic'
 
@@ -50,6 +51,11 @@ export async function GET(request: Request) {
             product: true,
           },
         },
+        payments: {
+          select: {
+            amount: true,
+          },
+        },
       },
       orderBy: { date: "desc" },
     })
@@ -89,7 +95,7 @@ export async function POST(request: Request) {
       sendInvoice,
     } = body
 
-    if (!companyId || !invoiceNo || !type || !invoiceType || !items || items.length === 0) {
+    if (!companyId || !type || !invoiceType || !items || items.length === 0) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -97,6 +103,16 @@ export async function POST(request: Request) {
     }
 
     await ensureCompanyAccess(companyId)
+
+    // Fatura numarası yoksa otomatik oluştur
+    let finalInvoiceNo = invoiceNo
+    if (!finalInvoiceNo) {
+      finalInvoiceNo = await generateInvoiceNumber(
+        companyId,
+        type as "SALES" | "PURCHASE",
+        date ? new Date(date) : undefined
+      )
+    }
 
     // Calculate totals
     let netAmount = 0
@@ -117,7 +133,7 @@ export async function POST(request: Request) {
     const invoice = await prisma.invoice.create({
       data: {
         companyId,
-        invoiceNo,
+        invoiceNo: finalInvoiceNo,
         type,
         invoiceType,
         customerId: customerId || null,

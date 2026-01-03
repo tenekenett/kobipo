@@ -1,8 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { signIn } from "next-auth/react"
+import { signIn, useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,9 +13,21 @@ import { useToast } from "@/components/ui/use-toast"
 export default function SignInPage() {
   const router = useRouter()
   const { toast } = useToast()
+  const { data: session, status } = useSession()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+
+  // Zaten giriş yapmışsa yönlendir
+  useEffect(() => {
+    if (status === "authenticated" && session) {
+      if (session.user?.isSuperAdmin) {
+        router.push("/system-admin")
+      } else {
+        router.push("/cari")
+      }
+    }
+  }, [session, status, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -34,7 +47,7 @@ export default function SignInPage() {
           variant: "destructive",
         })
       } else {
-        router.push("/dashboard")
+        // Başarılı giriş - session yüklenene kadar bekle
         router.refresh()
       }
     } catch (error) {
@@ -91,7 +104,7 @@ export default function SignInPage() {
               type="button"
               variant="link"
               className="w-full"
-              onClick={() => router.push("/auth/signup")}
+              onClick={() => router.push("/signup")}
             >
               Hesabınız yok mu? Kayıt olun
             </Button>

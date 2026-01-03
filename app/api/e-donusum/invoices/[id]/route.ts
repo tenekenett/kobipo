@@ -29,6 +29,20 @@ export async function GET(
           },
           orderBy: { order: "asc" },
         },
+        payments: {
+          include: {
+            account: {
+              select: {
+                id: true,
+                name: true,
+                type: true,
+              },
+            },
+          },
+          orderBy: {
+            paymentDate: "desc",
+          },
+        },
       },
     })
 
