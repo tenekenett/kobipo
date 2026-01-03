@@ -49,10 +49,10 @@ export async function POST(request: Request) {
       { message: "Kullanıcı başarıyla oluşturuldu", userId: user.id },
       { status: 201 }
     )
-  } catch (error) {
+  } catch (error: any) {
     console.error("Signup error:", error)
     return NextResponse.json(
-      { error: "Bir hata oluştu" },
+      { error: error.message || "Bir hata oluştu. Lütfen tekrar deneyin." },
       { status: 500 }
     )
   }

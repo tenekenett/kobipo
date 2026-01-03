@@ -57,7 +57,7 @@ export default function SignUpPage() {
         description: "Hesabınız oluşturuldu. Giriş yapabilirsiniz.",
       })
 
-      router.push("/auth/signin")
+      router.push("/signin")
     } catch (error: any) {
       toast({
         title: "Hata",
@@ -135,7 +135,7 @@ export default function SignUpPage() {
               type="button"
               variant="link"
               className="w-full"
-              onClick={() => router.push("/auth/signin")}
+              onClick={() => router.push("/signin")}
             >
               Zaten hesabınız var mı? Giriş yapın
             </Button>

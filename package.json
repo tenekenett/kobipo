@@ -23,6 +23,7 @@
     "supabase:gen:types": "supabase gen types typescript --linked > types/supabase.ts",
     "supabase:gen:types:local": "supabase gen types typescript --local > types/supabase.ts",
     "sync:prisma-to-supabase": "node scripts/sync-prisma-to-supabase.js",
+    "demo:user": "node scripts/create-demo-user.js",
     "vercel:dev": "vercel dev",
     "vercel:deploy": "vercel",
     "vercel:prod": "vercel --prod",
