@@ -15,9 +15,6 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const supplier = await prisma.supplier.findUnique({
-      where: {
-    
     const resolvedParams = await params
     const supplier = await prisma.supplier.findUnique({
       where: { id: resolvedParams.id },
@@ -91,9 +88,6 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const supplier = await prisma.supplier.findUnique({
-      where: {
-    
     const resolvedParams = await params
     const supplier = await prisma.supplier.findUnique({
       where: { id: resolvedParams.id },
@@ -156,9 +150,6 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const supplier = await prisma.supplier.findUnique({
-      where: {
-    
     const resolvedParams = await params
     const supplier = await prisma.supplier.findUnique({
       where: { id: resolvedParams.id },

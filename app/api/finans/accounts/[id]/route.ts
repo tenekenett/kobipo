@@ -15,9 +15,6 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const account = await prisma.financialAccount.findUnique({
-      where: {
-    
     const resolvedParams = await params
     const account = await prisma.financialAccount.findUnique({
       where: { id: resolvedParams.id },
@@ -58,9 +55,6 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const account = await prisma.financialAccount.findUnique({
-      where: {
-    
     const resolvedParams = await params
     const account = await prisma.financialAccount.findUnique({
       where: { id: resolvedParams.id },
@@ -121,9 +115,6 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const account = await prisma.financialAccount.findUnique({
-      where: {
-    
     const resolvedParams = await params
     const account = await prisma.financialAccount.findUnique({
       where: { id: resolvedParams.id },

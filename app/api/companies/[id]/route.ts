@@ -12,11 +12,10 @@ export async function GET(
   try {
     const user = await getCurrentUser()
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, {
-    const resolvedParams = await params;
-     status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const resolvedParams = await params
     await ensureCompanyAccess(resolvedParams.id)
 
     const company = await prisma.company.findUnique({
@@ -47,10 +46,16 @@ export async function PUT(
   try {
     const user = await getCurrentUser()
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, {
-    
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const resolvedParams = await params
-    const company = await prisma.company.findUnique({
+    const userCompany = await ensureCompanyAccess(resolvedParams.id)
+
+    const body = await request.json()
+    const { name, taxNumber, taxOffice, address, city, phone, email } = body
+
+    const company = await prisma.company.update({
       where: { id: resolvedParams.id },
       data: {
         name,

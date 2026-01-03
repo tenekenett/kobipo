@@ -3,6 +3,8 @@ import { getSession } from "@/lib/auth/session"
 import { DashboardNav } from "@/components/dashboard/nav"
 import { CompanySelector } from "@/components/dashboard/company-selector"
 
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardLayout({
   children,
 }: {

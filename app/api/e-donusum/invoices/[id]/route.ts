@@ -17,9 +17,6 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const invoice = await prisma.invoice.findUnique({
-      where: {
-    
     const resolvedParams = await params
     const invoice = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id },
@@ -64,9 +61,6 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const invoice = await prisma.invoice.findUnique({
-      where: {
-    
     const resolvedParams = await params
     const invoice = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id },
@@ -100,7 +94,7 @@ export async function PUT(
 
       items.forEach((item: any) => {
         const itemNet = new Decimal(item.quantity).times(item.unitPrice)
-        const itemVat = itemNet.times(item.vatRate).dividedBy(100)
+        const itemVat = itemNet.times(new Decimal(item.vatRate).div(100))
         const itemTotal = itemNet.plus(itemVat)
 
         netAmount = netAmount.plus(itemNet)
@@ -137,11 +131,11 @@ export async function PUT(
           invoiceId: resolvedParams.id,
           productId: item.productId || null,
           description: item.description,
-          quantity: parseFloat(item.quantity),
-          unitPrice: parseFloat(item.unitPrice),
-          vatRate: parseFloat(item.vatRate),
-          vatAmount: item.quantity * item.unitPrice * (item.vatRate / 100),
-          totalAmount: item.quantity * item.unitPrice * (1 + item.vatRate / 100),
+          quantity: new Decimal(item.quantity),
+          unitPrice: new Decimal(item.unitPrice),
+          vatRate: new Decimal(item.vatRate),
+          vatAmount: new Decimal(item.quantity).times(item.unitPrice).times(new Decimal(item.vatRate).div(100)),
+          totalAmount: new Decimal(item.quantity).times(item.unitPrice).times(new Decimal(1).plus(new Decimal(item.vatRate).div(100))),
           order: index,
         })),
       })
@@ -184,9 +178,6 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const invoice = await prisma.invoice.findUnique({
-      where: {
-    
     const resolvedParams = await params
     const invoiceWithItems = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id },
@@ -197,20 +188,20 @@ export async function POST(
       },
     })
 
-    if (!invoice) {
+    if (!invoiceWithItems) {
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(invoice.companyId)
+    await ensureCompanyAccess(invoiceWithItems.companyId)
 
-    if (invoice.status !== "DRAFT") {
+    if (invoiceWithItems.status !== "DRAFT") {
       return NextResponse.json(
         { error: "Only draft invoices can be sent" },
         { status: 400 }
       )
     }
 
-    if (invoice.invoiceType !== "E_INVOICE" && invoice.invoiceType !== "E_ARCHIVE") {
+    if (invoiceWithItems.invoiceType !== "E_INVOICE" && invoiceWithItems.invoiceType !== "E_ARCHIVE") {
       return NextResponse.json(
         { error: "Only E-Invoice or E-Archive invoices can be sent" },
         { status: 400 }
@@ -219,37 +210,37 @@ export async function POST(
 
     const provider = createEInvoiceProvider()
     const invoiceData = {
-      invoiceNo: invoice.invoiceNo,
-      date: invoice.date,
-      dueDate: invoice.dueDate || undefined,
-      customer: invoice.customer
+      invoiceNo: invoiceWithItems.invoiceNo,
+      date: invoiceWithItems.date,
+      dueDate: invoiceWithItems.dueDate || undefined,
+      customer: invoiceWithItems.customer
         ? {
-            name: invoice.customer.name,
-            taxNumber: invoice.customer.taxNumber || undefined,
-            taxOffice: invoice.customer.taxOffice || undefined,
-            address: invoice.customer.address || undefined,
-            city: invoice.customer.city || undefined,
-            country: invoice.customer.country || undefined,
+            name: invoiceWithItems.customer.name,
+            taxNumber: invoiceWithItems.customer.taxNumber || undefined,
+            taxOffice: invoiceWithItems.customer.taxOffice || undefined,
+            address: invoiceWithItems.customer.address || undefined,
+            city: invoiceWithItems.customer.city || undefined,
+            country: invoiceWithItems.customer.country || undefined,
           }
         : undefined,
-      supplier: invoice.supplier
+      supplier: invoiceWithItems.supplier
         ? {
-            name: invoice.supplier.name,
-            taxNumber: invoice.supplier.taxNumber || undefined,
-            taxOffice: invoice.supplier.taxOffice || undefined,
-            address: invoice.supplier.address || undefined,
-            city: invoice.supplier.city || undefined,
-            country: invoice.supplier.country || undefined,
+            name: invoiceWithItems.supplier.name,
+            taxNumber: invoiceWithItems.supplier.taxNumber || undefined,
+            taxOffice: invoiceWithItems.supplier.taxOffice || undefined,
+            address: invoiceWithItems.supplier.address || undefined,
+            city: invoiceWithItems.supplier.city || undefined,
+            country: invoiceWithItems.supplier.country || undefined,
           }
         : undefined,
-      items: invoice.items.map((item) => ({
+      items: invoiceWithItems.items.map((item) => ({
         description: item.description,
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
         vatRate: Number(item.vatRate),
         productId: item.productId || undefined,
       })),
-      notes: invoice.notes || undefined,
+      notes: invoiceWithItems.notes || undefined,
     }
 
     const response = await provider.sendInvoice(invoiceData)
