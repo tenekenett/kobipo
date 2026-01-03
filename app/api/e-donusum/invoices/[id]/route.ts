@@ -78,9 +78,9 @@ export async function PUT(
     const { customerId, supplierId, date, dueDate, items, notes } = body
 
     // Recalculate totals if items changed
-    let netAmount = invoice.netAmount
-    let vatAmount = invoice.vatAmount
-    let totalAmount = invoice.totalAmount
+    let netAmount: number = Number(invoice.netAmount)
+    let vatAmount: number = Number(invoice.vatAmount)
+    let totalAmount: number = Number(invoice.totalAmount)
 
     if (items && items.length > 0) {
       netAmount = 0
@@ -106,9 +106,9 @@ export async function PUT(
         supplierId: supplierId !== undefined ? supplierId : invoice.supplierId,
         date: date ? new Date(date) : invoice.date,
         dueDate: dueDate !== undefined ? (dueDate ? new Date(dueDate) : null) : invoice.dueDate,
-        totalAmount,
-        vatAmount,
-        netAmount,
+        totalAmount: totalAmount,
+        vatAmount: vatAmount,
+        netAmount: netAmount,
         notes: notes !== undefined ? notes : invoice.notes,
       },
     })
