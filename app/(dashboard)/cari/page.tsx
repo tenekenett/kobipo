@@ -23,7 +23,8 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Search } from "lucide-react"
+import { Plus, Search, Eye } from "lucide-react"
+import Link from "next/link"
 
 interface Customer {
   id: string
@@ -337,12 +338,13 @@ export default function CariPage() {
                 <TableHead>Telefon</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead className="text-right">Bakiye</TableHead>
+                <TableHead>İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {currentData.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center">
+                  <TableCell colSpan={7} className="text-center">
                     Kayıt bulunamadı
                   </TableCell>
                 </TableRow>
@@ -361,6 +363,14 @@ export default function CariPage() {
                             currency: "TRY",
                           }).format(item.balance)
                         : "-"}
+                    </TableCell>
+                    <TableCell>
+                      <Link href={`/cari/${activeTab}/${item.id}?company=${companyId}`}>
+                        <Button variant="ghost" size="sm">
+                          <Eye className="h-4 w-4 mr-1" />
+                          Detay
+                        </Button>
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))

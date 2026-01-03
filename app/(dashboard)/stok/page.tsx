@@ -23,7 +23,8 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Search } from "lucide-react"
+import { Plus, Search, Eye } from "lucide-react"
+import Link from "next/link"
 
 interface Product {
   id: string
@@ -340,12 +341,13 @@ export default function StokPage() {
                 <TableHead className="text-right">Satış Fiyatı</TableHead>
                 <TableHead className="text-right">Stok</TableHead>
                 <TableHead>Tip</TableHead>
+                <TableHead>İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {products.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center">
+                  <TableCell colSpan={10} className="text-center">
                     Kayıt bulunamadı
                   </TableCell>
                 </TableRow>
@@ -387,6 +389,14 @@ export default function StokPage() {
                       ) : (
                         <span className="text-green-600">Ürün</span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <Link href={`/stok/${product.id}?company=${companyId}`}>
+                        <Button variant="ghost" size="sm">
+                          <Eye className="h-4 w-4 mr-1" />
+                          Detay
+                        </Button>
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))

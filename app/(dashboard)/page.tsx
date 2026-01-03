@@ -4,6 +4,24 @@ import { getUserCompanies } from "@/lib/middleware/company"
 import { prisma } from "@/lib/db/prisma"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
+import { RevenueChart } from "@/components/dashboard/revenue-chart"
+
+export const dynamic = "force-dynamic"
+
+// Son 6 ayın adlarını al
+function getLastSixMonths() {
+  const months = []
+  const now = new Date()
+  for (let i = 5; i >= 0; i--) {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    months.push({
+      month: date.toLocaleDateString("tr-TR", { month: "short", year: "2-digit" }),
+      start: new Date(date.getFullYear(), date.getMonth(), 1),
+      end: new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59),
+    })
+  }
+  return months
+}
 
 export default async function DashboardPage() {
   const session = await getSession()
@@ -50,6 +68,36 @@ export default async function DashboardPage() {
       _sum: { amount: true },
     }),
   ])
+
+  // Aylık trend verileri
+  const months = getLastSixMonths()
+  const chartData = await Promise.all(
+    months.map(async ({ month, start, end }) => {
+      const [incomeResult, expenseResult] = await Promise.all([
+        prisma.transaction.aggregate({
+          where: {
+            companyId: activeCompany.id,
+            type: "INCOME",
+            date: { gte: start, lte: end },
+          },
+          _sum: { amount: true },
+        }),
+        prisma.transaction.aggregate({
+          where: {
+            companyId: activeCompany.id,
+            type: "EXPENSE",
+            date: { gte: start, lte: end },
+          },
+          _sum: { amount: true },
+        }),
+      ])
+      return {
+        month,
+        income: Number(incomeResult._sum.amount || 0),
+        expense: Number(expenseResult._sum.amount || 0),
+      }
+    })
+  )
 
   const income = Number(incomeTotal._sum.amount || 0)
   const expense = Number(expenseTotal._sum.amount || 0)
@@ -183,6 +231,9 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Grafik */}
+      <RevenueChart data={chartData} />
 
       {/* Son Faturalar ve Hızlı Erişim */}
       <div className="grid gap-4 lg:grid-cols-2">

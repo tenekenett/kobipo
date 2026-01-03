@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Table,
   TableBody,
@@ -11,10 +14,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Send } from "lucide-react"
-import Link from "next/link"
+import { Plus, Send, Trash2, FileText } from "lucide-react"
 
 interface Invoice {
   id: string
@@ -29,22 +46,71 @@ interface Invoice {
   uuid?: string
 }
 
+interface Customer {
+  id: string
+  name: string
+  taxNumber?: string
+}
+
+interface Supplier {
+  id: string
+  name: string
+  taxNumber?: string
+}
+
+interface Product {
+  id: string
+  name: string
+  code?: string
+  salePrice?: number
+  vatRate: number
+}
+
+interface InvoiceItem {
+  productId?: string
+  description: string
+  quantity: number
+  unitPrice: number
+  vatRate: number
+}
+
 export default function EDönüşümPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  
+  // Form state
+  const [formData, setFormData] = useState({
+    type: "SALES",
+    invoiceType: "E_ARCHIVE",
+    customerId: "",
+    supplierId: "",
+    date: new Date().toISOString().split("T")[0],
+    dueDate: "",
+    notes: "",
+  })
+  const [items, setItems] = useState<InvoiceItem[]>([
+    { description: "", quantity: 1, unitPrice: 0, vatRate: 20 }
+  ])
 
   useEffect(() => {
     if (companyId) {
       fetchInvoices()
+      fetchCustomers()
+      fetchSuppliers()
+      fetchProducts()
     }
   }, [companyId])
 
   const fetchInvoices = async () => {
     if (!companyId) return
-
     try {
       const response = await fetch(`/api/e-donusum/invoices?companyId=${companyId}`)
       if (response.ok) {
@@ -53,6 +119,45 @@ export default function EDönüşümPage() {
       }
     } catch (error) {
       console.error("Error fetching invoices:", error)
+    }
+  }
+
+  const fetchCustomers = async () => {
+    if (!companyId) return
+    try {
+      const response = await fetch(`/api/cari/customers?companyId=${companyId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setCustomers(data)
+      }
+    } catch (error) {
+      console.error("Error fetching customers:", error)
+    }
+  }
+
+  const fetchSuppliers = async () => {
+    if (!companyId) return
+    try {
+      const response = await fetch(`/api/cari/suppliers?companyId=${companyId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setSuppliers(data)
+      }
+    } catch (error) {
+      console.error("Error fetching suppliers:", error)
+    }
+  }
+
+  const fetchProducts = async () => {
+    if (!companyId) return
+    try {
+      const response = await fetch(`/api/stok/products?companyId=${companyId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setProducts(data)
+      }
+    } catch (error) {
+      console.error("Error fetching products:", error)
     }
   }
 
@@ -88,6 +193,133 @@ export default function EDönüşümPage() {
     }
   }
 
+  const addItem = () => {
+    setItems([...items, { description: "", quantity: 1, unitPrice: 0, vatRate: 20 }])
+  }
+
+  const removeItem = (index: number) => {
+    if (items.length > 1) {
+      setItems(items.filter((_, i) => i !== index))
+    }
+  }
+
+  const updateItem = (index: number, field: keyof InvoiceItem, value: any) => {
+    const newItems = [...items]
+    newItems[index] = { ...newItems[index], [field]: value }
+    setItems(newItems)
+  }
+
+  const selectProduct = (index: number, productId: string) => {
+    const product = products.find(p => p.id === productId)
+    if (product) {
+      const newItems = [...items]
+      newItems[index] = {
+        ...newItems[index],
+        productId: product.id,
+        description: product.name,
+        unitPrice: Number(product.salePrice) || 0,
+        vatRate: Number(product.vatRate) || 20,
+      }
+      setItems(newItems)
+    }
+  }
+
+  const calculateTotals = () => {
+    let netAmount = 0
+    let vatAmount = 0
+    
+    items.forEach(item => {
+      const itemNet = item.quantity * item.unitPrice
+      const itemVat = itemNet * (item.vatRate / 100)
+      netAmount += itemNet
+      vatAmount += itemVat
+    })
+    
+    return {
+      netAmount,
+      vatAmount,
+      totalAmount: netAmount + vatAmount,
+    }
+  }
+
+  const handleSubmit = async () => {
+    if (items.length === 0 || items.every(item => !item.description)) {
+      toast({
+        title: "Hata",
+        description: "En az bir kalem ekleyin",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (formData.type === "SALES" && !formData.customerId) {
+      toast({
+        title: "Hata",
+        description: "Müşteri seçin",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (formData.type === "PURCHASE" && !formData.supplierId) {
+      toast({
+        title: "Hata",
+        description: "Tedarikçi seçin",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const response = await fetch("/api/e-donusum/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId,
+          ...formData,
+          items: items.filter(item => item.description),
+        }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: "Başarılı",
+          description: "Fatura oluşturuldu",
+        })
+        setIsModalOpen(false)
+        resetForm()
+        fetchInvoices()
+      } else {
+        const data = await response.json()
+        throw new Error(data.error || "Oluşturulamadı")
+      }
+    } catch (error: any) {
+      toast({
+        title: "Hata",
+        description: error.message || "Bir hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      type: "SALES",
+      invoiceType: "E_ARCHIVE",
+      customerId: "",
+      supplierId: "",
+      date: new Date().toISOString().split("T")[0],
+      dueDate: "",
+      notes: "",
+    })
+    setItems([{ description: "", quantity: 1, unitPrice: 0, vatRate: 20 }])
+  }
+
+  const totals = calculateTotals()
+
   if (!companyId) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -105,12 +337,10 @@ export default function EDönüşümPage() {
             E-Fatura ve E-Arşiv fatura yönetimi
           </p>
         </div>
-        <Link href={`/dashboard/e-donusum/yeni?company=${companyId}`}>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Yeni Fatura
-          </Button>
-        </Link>
+        <Button onClick={() => setIsModalOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          Yeni Fatura
+        </Button>
       </div>
 
       <Card>
@@ -137,8 +367,12 @@ export default function EDönüşümPage() {
             <TableBody>
               {invoices.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center">
-                    Kayıt bulunamadı
+                  <TableCell colSpan={8} className="text-center py-8">
+                    <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+                    <p className="text-muted-foreground">Henüz fatura oluşturulmamış</p>
+                    <Button variant="link" onClick={() => setIsModalOpen(true)}>
+                      İlk faturanızı oluşturun
+                    </Button>
                   </TableCell>
                 </TableRow>
               ) : (
@@ -169,7 +403,7 @@ export default function EDönüşümPage() {
                           invoice.status === "SENT"
                             ? "bg-green-100 text-green-800"
                             : invoice.status === "DRAFT"
-                            ? "bg-gray-100 text-gray-800"
+                            ? "bg-yellow-100 text-yellow-800"
                             : "bg-red-100 text-red-800"
                         }`}
                       >
@@ -182,11 +416,6 @@ export default function EDönüşümPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-2">
-                        <Link href={`/dashboard/e-donusum/${invoice.id}?company=${companyId}`}>
-                          <Button variant="outline" size="sm">
-                            Görüntüle
-                          </Button>
-                        </Link>
                         {invoice.status === "DRAFT" &&
                           (invoice.invoiceType === "E_INVOICE" ||
                             invoice.invoiceType === "E_ARCHIVE") && (
@@ -209,7 +438,254 @@ export default function EDönüşümPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Fatura Oluşturma Modal */}
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Yeni Fatura Oluştur</DialogTitle>
+            <DialogDescription>
+              Fatura bilgilerini girin ve kalemlerini ekleyin
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Fatura Bilgileri */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Label>Fatura Tipi</Label>
+                <Select
+                  value={formData.type}
+                  onValueChange={(value) => setFormData({ ...formData, type: value, customerId: "", supplierId: "" })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SALES">Satış Faturası</SelectItem>
+                    <SelectItem value="PURCHASE">Alış Faturası</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Fatura Türü</Label>
+                <Select
+                  value={formData.invoiceType}
+                  onValueChange={(value) => setFormData({ ...formData, invoiceType: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="E_ARCHIVE">E-Arşiv</SelectItem>
+                    <SelectItem value="E_INVOICE">E-Fatura</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Fatura Tarihi</Label>
+                <Input
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Vade Tarihi</Label>
+                <Input
+                  type="date"
+                  value={formData.dueDate}
+                  onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {/* Müşteri/Tedarikçi Seçimi */}
+            <div className="space-y-2">
+              <Label>{formData.type === "SALES" ? "Müşteri" : "Tedarikçi"}</Label>
+              {formData.type === "SALES" ? (
+                <Select
+                  value={formData.customerId}
+                  onValueChange={(value) => setFormData({ ...formData, customerId: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Müşteri seçin" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {customers.map((customer) => (
+                      <SelectItem key={customer.id} value={customer.id}>
+                        {customer.name} {customer.taxNumber && `(${customer.taxNumber})`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Select
+                  value={formData.supplierId}
+                  onValueChange={(value) => setFormData({ ...formData, supplierId: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Tedarikçi seçin" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {suppliers.map((supplier) => (
+                      <SelectItem key={supplier.id} value={supplier.id}>
+                        {supplier.name} {supplier.taxNumber && `(${supplier.taxNumber})`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {/* Fatura Kalemleri */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-semibold">Fatura Kalemleri</Label>
+                <Button type="button" variant="outline" size="sm" onClick={addItem}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Kalem Ekle
+                </Button>
+              </div>
+
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="w-[200px]">Ürün</TableHead>
+                      <TableHead>Açıklama</TableHead>
+                      <TableHead className="w-[100px]">Miktar</TableHead>
+                      <TableHead className="w-[120px]">Birim Fiyat</TableHead>
+                      <TableHead className="w-[100px]">KDV %</TableHead>
+                      <TableHead className="w-[120px] text-right">Tutar</TableHead>
+                      <TableHead className="w-[50px]"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {items.map((item, index) => (
+                      <TableRow key={index}>
+                        <TableCell>
+                          <Select
+                            value={item.productId || ""}
+                            onValueChange={(value) => selectProduct(index, value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Seçin" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {products.map((product) => (
+                                <SelectItem key={product.id} value={product.id}>
+                                  {product.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            value={item.description}
+                            onChange={(e) => updateItem(index, "description", e.target.value)}
+                            placeholder="Açıklama"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.quantity}
+                            onChange={(e) => updateItem(index, "quantity", parseFloat(e.target.value) || 0)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.unitPrice}
+                            onChange={(e) => updateItem(index, "unitPrice", parseFloat(e.target.value) || 0)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={String(item.vatRate)}
+                            onValueChange={(value) => updateItem(index, "vatRate", parseFloat(value))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="0">%0</SelectItem>
+                              <SelectItem value="1">%1</SelectItem>
+                              <SelectItem value="10">%10</SelectItem>
+                              <SelectItem value="20">%20</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          ₺{(item.quantity * item.unitPrice * (1 + item.vatRate / 100)).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeItem(index)}
+                            disabled={items.length === 1}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Toplamlar */}
+              <div className="flex justify-end">
+                <div className="w-64 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Ara Toplam:</span>
+                    <span>₺{totals.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">KDV Toplam:</span>
+                    <span>₺{totals.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-lg border-t pt-2">
+                    <span>Genel Toplam:</span>
+                    <span className="text-green-600">₺{totals.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Notlar */}
+            <div className="space-y-2">
+              <Label>Notlar</Label>
+              <Textarea
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                placeholder="Fatura ile ilgili notlar..."
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsModalOpen(false)}>
+              İptal
+            </Button>
+            <Button onClick={handleSubmit} disabled={isLoading}>
+              {isLoading ? "Oluşturuluyor..." : "Fatura Oluştur"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
-
