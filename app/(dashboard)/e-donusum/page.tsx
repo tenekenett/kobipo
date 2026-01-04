@@ -568,27 +568,44 @@ export default function EDönüşümPage() {
                     {items.map((item, index) => (
                       <TableRow key={index}>
                         <TableCell>
-                          <Select
-                            value={item.productId || ""}
-                            onValueChange={(value) => selectProduct(index, value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Seçin" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {products.map((product) => (
-                                <SelectItem key={product.id} value={product.id}>
-                                  {product.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <div className="flex gap-2">
+                            <Select
+                              value={item.productId || ""}
+                              onValueChange={(value) => {
+                                if (value === "manual") {
+                                  // Manuel giriş modu
+                                  const newItems = [...items]
+                                  newItems[index] = {
+                                    ...newItems[index],
+                                    productId: undefined,
+                                    description: "",
+                                  }
+                                  setItems(newItems)
+                                } else {
+                                  selectProduct(index, value)
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="w-[150px]">
+                                <SelectValue placeholder="Ürün seç" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="manual">Manuel Giriş</SelectItem>
+                                {products.map((product) => (
+                                  <SelectItem key={product.id} value={product.id}>
+                                    {product.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <Input
                             value={item.description}
                             onChange={(e) => updateItem(index, "description", e.target.value)}
-                            placeholder="Açıklama"
+                            placeholder="Açıklama (zorunlu)"
+                            required
                           />
                         </TableCell>
                         <TableCell>

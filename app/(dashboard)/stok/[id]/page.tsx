@@ -19,7 +19,7 @@ import Link from "next/link"
 interface StockMovement {
   id: string
   date: string
-  type: "IN" | "OUT" | "ADJUSTMENT"
+  type: "IN" | "OUT" | "ADJUSTMENT" | "TRANSFER"
   quantity: number
   unitPrice: number
   totalAmount: number
@@ -315,22 +315,24 @@ export default function ProductDetailPage() {
                     </TableCell>
                     <TableCell>
                       <span className={`px-2 py-1 rounded text-xs ${
-                        movement.type === "IN" ? "bg-green-100 text-green-800" :
-                        movement.type === "OUT" ? "bg-red-100 text-red-800" :
+                        movement.type === "IN" || (movement.type === "TRANSFER" && movement.quantity > 0) ? "bg-green-100 text-green-800" :
+                        movement.type === "OUT" || (movement.type === "TRANSFER" && movement.quantity < 0) ? "bg-red-100 text-red-800" :
                         "bg-yellow-100 text-yellow-800"
                       }`}>
                         {movement.type === "IN" ? "Giriş" :
                          movement.type === "OUT" ? "Çıkış" :
+                         movement.type === "TRANSFER" ? "Transfer" :
                          "Düzeltme"}
                       </span>
                     </TableCell>
-                    <TableCell>{movement.description}</TableCell>
+                    <TableCell>{movement.description || "-"}</TableCell>
                     <TableCell>{movement.referenceNo || "-"}</TableCell>
                     <TableCell className={`text-right ${
-                      movement.type === "IN" ? "text-green-600" : 
-                      movement.type === "OUT" ? "text-red-600" : ""
+                      movement.type === "IN" || (movement.type === "TRANSFER" && movement.quantity > 0) ? "text-green-600" : 
+                      movement.type === "OUT" || (movement.type === "TRANSFER" && movement.quantity < 0) ? "text-red-600" : ""
                     }`}>
-                      {movement.type === "IN" ? "+" : movement.type === "OUT" ? "-" : ""}
+                      {(movement.type === "IN" || (movement.type === "TRANSFER" && movement.quantity > 0)) ? "+" : 
+                       (movement.type === "OUT" || (movement.type === "TRANSFER" && movement.quantity < 0)) ? "-" : ""}
                       {formatNumber(movement.quantity)} {product.unit}
                     </TableCell>
                     <TableCell className="text-right">

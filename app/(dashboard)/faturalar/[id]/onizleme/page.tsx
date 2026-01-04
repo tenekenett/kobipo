@@ -70,7 +70,13 @@ export default function FaturaOnizlemePage() {
       const response = await fetch(`/api/e-donusum/invoices/${invoiceId}`)
       if (response.ok) {
         const data = await response.json()
+        // Ensure items array exists
+        if (!data.items) {
+          data.items = []
+        }
         setInvoice(data)
+      } else {
+        console.error("Failed to fetch invoice:", response.status)
       }
     } catch (error) {
       console.error("Error fetching invoice:", error)
@@ -223,19 +229,27 @@ export default function FaturaOnizlemePage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoice.items.map((item, index) => (
-                <TableRow key={item.id}>
-                  <TableCell>{index + 1}</TableCell>
-                  <TableCell>{item.description}</TableCell>
-                  <TableCell className="text-right">
-                    {item.quantity.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
+              {invoice.items && invoice.items.length > 0 ? (
+                invoice.items.map((item: any, index: number) => (
+                  <TableRow key={item.id || index}>
+                    <TableCell>{index + 1}</TableCell>
+                    <TableCell>{item.description || "-"}</TableCell>
+                    <TableCell className="text-right">
+                      {Number(item.quantity || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
+                    </TableCell>
+                    <TableCell className="text-right">{formatCurrency(Number(item.unitPrice || 0))}</TableCell>
+                    <TableCell className="text-right">%{Number(item.vatRate || 0)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(Number(item.vatAmount || 0))}</TableCell>
+                    <TableCell className="text-right font-medium">{formatCurrency(Number(item.totalAmount || 0))}</TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    Fatura kalemi bulunamadı
                   </TableCell>
-                  <TableCell className="text-right">{formatCurrency(item.unitPrice)}</TableCell>
-                  <TableCell className="text-right">%{item.vatRate}</TableCell>
-                  <TableCell className="text-right">{formatCurrency(item.vatAmount)}</TableCell>
-                  <TableCell className="text-right font-medium">{formatCurrency(item.totalAmount)}</TableCell>
                 </TableRow>
-              ))}
+              )}
             </TableBody>
           </Table>
 

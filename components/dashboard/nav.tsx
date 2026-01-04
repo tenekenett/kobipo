@@ -21,6 +21,7 @@ import {
   FileCheck,
   Warehouse,
   BookOpen,
+  Settings,
 } from "lucide-react"
 import { useState, useEffect } from "react"
 import {
@@ -93,6 +94,12 @@ const allNavItems = [
     label: "Raporlar", 
     icon: BarChart3,
     roles: ["ADMIN", "ACCOUNTANT", "STOCK", "SALES", "VIEWER"]
+  },
+  { 
+    href: "/finans/hareketler", 
+    label: "Finans Hareketleri", 
+    icon: Wallet,
+    roles: ["ADMIN", "ACCOUNTANT"]
   },
 ]
 
@@ -204,8 +211,8 @@ export function DashboardNav() {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/companies/new" className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4" />
+                  <Link href="/ayarlar/firma" className="flex items-center gap-2">
+                    <Settings className="h-4 w-4" />
                     Firma Ayarları
                   </Link>
                 </DropdownMenuItem>

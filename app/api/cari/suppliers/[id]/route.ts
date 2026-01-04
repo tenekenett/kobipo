@@ -36,21 +36,31 @@ export async function GET(
 
     await ensureCompanyAccess(supplier.companyId)
 
-    // Calculate balance
-    const invoices = await prisma.invoice.findMany({
+    // Get all invoices and payments
+    const allInvoices = await prisma.invoice.findMany({
       where: { supplierId: supplier.id },
+      include: {
+        payments: {
+          select: {
+            amount: true,
+          },
+        },
+      },
     })
 
     const transactions = await prisma.transaction.findMany({
       where: { supplierId: supplier.id },
+      include: {
+        account: true,
+      },
     })
 
+    // Calculate balance (unpaid invoices - payments)
     let balance = 0
-    invoices.forEach((inv) => {
+    allInvoices.forEach((inv) => {
       if (inv.type === "PURCHASE") {
-        balance += Number(inv.totalAmount)
-      } else {
-        balance -= Number(inv.totalAmount)
+        const totalPaid = inv.payments.reduce((sum, p) => sum + Number(p.amount), 0)
+        balance += Number(inv.totalAmount) - totalPaid
       }
     })
 
@@ -62,9 +72,44 @@ export async function GET(
       }
     })
 
+    // Format transactions for display
+    const formattedTransactions = [
+      ...allInvoices.map((inv) => ({
+        id: inv.id,
+        date: inv.date.toISOString(),
+        type: "INVOICE",
+        description: `Fatura ${inv.invoiceNo}`,
+        debit: 0,
+        credit: inv.type === "PURCHASE" ? Number(inv.totalAmount) : 0,
+        balance: 0,
+        invoiceNo: inv.invoiceNo,
+      })),
+      ...transactions.map((trx) => ({
+        id: trx.id,
+        date: trx.date.toISOString(),
+        type: trx.type === "EXPENSE" ? "PAYMENT" : "INCOME",
+        description: trx.description || `${trx.type} - ${trx.account?.name || ""}`,
+        debit: trx.type === "EXPENSE" ? Number(trx.amount) : 0,
+        credit: 0,
+        balance: 0,
+        invoiceNo: null,
+      })),
+    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+    // Calculate running balance
+    let runningBalance = 0
+    formattedTransactions.forEach((tx) => {
+      runningBalance += tx.credit - tx.debit
+      tx.balance = runningBalance
+    })
+
     return NextResponse.json({
       ...supplier,
       balance,
+      totalDebit: formattedTransactions.reduce((sum, t) => sum + t.debit, 0),
+      totalCredit: formattedTransactions.reduce((sum, t) => sum + t.credit, 0),
+      invoiceCount: allInvoices.length,
+      transactions: formattedTransactions,
     })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {

@@ -53,7 +53,7 @@ export async function PUT(
     const userCompany = await ensureCompanyAccess(resolvedParams.id)
 
     const body = await request.json()
-    const { name, taxNumber, taxOffice, address, city, phone, email } = body
+    const { name, taxNumber, taxOffice, address, city, phone, email, website } = body
 
     const company = await prisma.company.update({
       where: { id: resolvedParams.id },
@@ -65,6 +65,7 @@ export async function PUT(
         city,
         phone,
         email,
+        website,
       },
     })
 

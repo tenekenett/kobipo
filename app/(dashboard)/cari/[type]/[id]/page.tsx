@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown } from "lucide-react"
+import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus } from "lucide-react"
 import Link from "next/link"
 
 interface Transaction {
@@ -136,6 +136,12 @@ export default function CustomerSupplierDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link href={`/finans/hareketler?company=${companyId}&${isCustomer ? "customerId" : "supplierId"}=${id}`}>
+            <Button variant="default" size="sm">
+              <Plus className="mr-2 h-4 w-4" />
+              {isCustomer ? "Tahsilat Ekle" : "Ödeme Ekle"}
+            </Button>
+          </Link>
           {data.email && (
             <a href={`mailto:${data.email}`}>
               <Button variant="outline" size="sm">
@@ -322,7 +328,7 @@ export default function CustomerSupplierDetailPage() {
                     <TableCell>{tx.description}</TableCell>
                     <TableCell>
                       {tx.invoiceNo ? (
-                        <Link href={`/e-donusum/${tx.id}?company=${companyId}`} className="text-blue-600 hover:underline">
+                        <Link href={`/faturalar/${tx.id}/onizleme?company=${companyId}`} className="text-blue-600 hover:underline">
                           {tx.invoiceNo}
                         </Link>
                       ) : "-"}

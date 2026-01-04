@@ -17,6 +17,8 @@ export async function GET(request: Request) {
     const companyId = searchParams.get("companyId")
     const accountId = searchParams.get("accountId")
     const type = searchParams.get("type")
+    const customerId = searchParams.get("customerId")
+    const supplierId = searchParams.get("supplierId")
     const startDate = searchParams.get("startDate")
     const endDate = searchParams.get("endDate")
 
@@ -39,6 +41,14 @@ export async function GET(request: Request) {
 
     if (type) {
       where.type = type
+    }
+
+    if (customerId) {
+      where.customerId = customerId
+    }
+
+    if (supplierId) {
+      where.supplierId = supplierId
     }
 
     if (startDate || endDate) {
