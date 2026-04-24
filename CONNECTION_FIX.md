@@ -28,6 +28,14 @@ DIRECT_URL="postgresql://postgres.[REF]:[PASSWORD]@aws-0-eu-central-1.pooler.sup
 
 **`db.[REF].supabase.co:6543`** ile Vercel’de hâlâ “can’t reach” alıyorsanız, **`DATABASE_URL`’i mutlaka paneldeki `aws-0-...pooler...:6543` string ile değiştirin.**
 
+## `FATAL: Tenant or user not found`
+
+Paylaşımlı pooler (`*.pooler.supabase.com`) kullanıcı adını **kiracı (tenant)** olarak bekler. **`postgres`** yeterli değildir.
+
+- Doğru kullanıcı: **`postgres.<PROJECT-REF>`** (ör. `postgres.ueftuxhtdfckhureqccy`).
+- **Connect → Transaction** (veya Session) URI’yi panelden kopyalarsanız bu format genelde zaten doğru gelir; elle `postgres:` yazmayın.
+- Şifrede `@`, `#`, `:` vb. varsa tam URI’yi panelden kopyalayın (URL-encode edilmiş olur).
+
 Şifreyi her zaman Dashboard’dan kopyalayın; özel karakterler orada encode edilir.
 
 ### Migration
