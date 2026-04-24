@@ -6,8 +6,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Serverless (Vercel): use Transaction pooler :6543 + ?pgbouncer=true (IPv4-friendly).
+  // Migrations / db push: set DIRECT_URL to Session pooler or Direct (see CONNECTION_FIX.md).
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // Kullanıcı rolleri

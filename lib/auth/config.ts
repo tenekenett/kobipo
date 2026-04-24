@@ -81,6 +81,7 @@ export const authOptions: NextAuthOptions = {
       return session
     },
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  // Vercel: set NEXTAUTH_SECRET or AUTH_SECRET in Project → Settings → Environment Variables
+  secret: process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET,
 }
 

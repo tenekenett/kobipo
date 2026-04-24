@@ -1,61 +1,40 @@
 # Supabase Bağlantı Sorunu Çözümü
 
 ## Sorun
-Veritabanına bağlanılamıyor: `Can't reach database server`
+`Can't reach database server at db.[PROJECT].supabase.co:5432`
 
-## Çözüm Adımları
+## Neden
+Supabase **doğrudan bağlantı** (`db.*.supabase.co:5432`) çoğunlukla **IPv6** kullanır. **Vercel** ve birçok IPv4-only ortam bu hosta TCP ile ulaşamaz; Prisma da bu hatayı verir.
 
-### 1. Supabase Dashboard'dan Connection String Alın
+Resmi özet: [Connect to Postgres](https://supabase.com/docs/guides/database/connecting-to-postgres) — sunucusuz için **Transaction pooler** (port **6543**), kalıcı / migrate için **Session pooler** veya doğrudan bağlantı.
 
-1. **Supabase Dashboard**'a gidin: https://supabase.com/dashboard
-2. Projenizi seçin
-3. **Settings** (Sol menüden) > **Database**
-4. **Connection string** sekmesine tıklayın
-5. **Transaction mode** seçin (migrations için)
-6. **URI** formatını seçin
-7. Connection string'i **kopyalayın**
+## Çözüm (Prisma + Vercel)
 
-### 2. Connection String Formatı
+1. Dashboard’da projenizi açın → üstten **Connect** → **ORMs** / **Connection string**.
+2. **`DATABASE_URL` (uygulama + Vercel):** **Transaction** modu, URI. Sonuna mutlaka **`pgbouncer=true`** ekleyin (Prisma, hazırlıklı ifadeleri kapatır). Örnek biçim:
+   `postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:6543/postgres?pgbouncer=true&sslmode=require`
+3. **`DIRECT_URL` (migrate / `db push` / introspection):** **Session** pooler (çoğu zaman `aws-0-[REGION].pooler.supabase.com:5432` ve kullanıcı `postgres.[PROJECT-REF]`) **veya** IPv6 erişiminiz varsa **Direct** `db.*:5432`. [Prisma + Supabase](https://supabase.com/docs/guides/database/prisma).
+4. Bu repoda `prisma/schema.prisma` içinde `directUrl = env("DIRECT_URL")` tanımlıdır. **Vercel**’de hem `DATABASE_URL` hem `DIRECT_URL` ekleyin (Production). `DIRECT_URL` sadece build’de migrate kullanıyorsanız şarttır; yalnızca `prisma generate` için gerekmez ama şema alanı dolu olduğu için env’de bulunmalıdır.
 
-Supabase'den aldığınız connection string şu formatta olacak:
-```
-postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true
-```
+### .env örneği
 
-VEYA direkt connection:
-```
-postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
+```env
+DATABASE_URL="postgresql://...@db.[REF].supabase.co:6543/postgres?pgbouncer=true&sslmode=require"
+DIRECT_URL="postgresql://postgres.[REF]:...@aws-0-[REGION].pooler.supabase.com:5432/postgres?sslmode=require"
 ```
 
-### 3. .env Dosyasını Güncelleyin
+Şifreyi her zaman Dashboard’dan kopyalayın; özel karakterler orada encode edilir.
 
-Supabase dashboard'dan kopyaladığınız connection string'i `.env` dosyasındaki `DATABASE_URL` değeriyle değiştirin.
-
-**ÖNEMLİ:** Password otomatik olarak doğru encode edilmiş olacaktır.
-
-### 4. Alternatif: Connection Pooling Kullanın
-
-Eğer direkt connection çalışmazsa, **Session mode** (port 6543) connection string'i deneyin:
-
-```
-postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
-```
-
-### 5. Migration'ı Tekrar Çalıştırın
+### Migration
 
 ```bash
-npm run db:migrate
-```
-
-VEYA
-
-```bash
+npx prisma migrate dev
+# veya
 npx prisma db push
 ```
 
 ## Notlar
 
-- Password'taki özel karakterler (`+`, `@`, `#`, vb.) Supabase dashboard'dan alınan connection string'de otomatik olarak encode edilir
-- Eğer hala bağlanamıyorsanız, Supabase dashboard'da **Settings > Database > Network restrictions** bölümünden IP whitelist ayarlarını kontrol edin
-- Bazı durumlarda Supabase'in **Connection pooling** özelliğini kullanmanız gerekebilir
+- **Network restrictions** açıksa Vercel çıkış IP’lerini whitelist etmek gerekebilir (nadir).
+- IPv4 zorunluluğu için [IPv4 add-on](https://supabase.com/docs/guides/platform/ipv4-address) alternatifi de vardır; çoğu uygulama için pooler yeterlidir.
 
