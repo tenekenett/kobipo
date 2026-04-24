@@ -1,27 +1,32 @@
 # Supabase Bağlantı Sorunu Çözümü
 
 ## Sorun
-`Can't reach database server at db.[PROJECT].supabase.co:5432`
+`Can't reach database server at db.[PROJECT].supabase.co:5432` **veya** `...:6543`
 
 ## Neden
-Supabase **doğrudan bağlantı** (`db.*.supabase.co:5432`) çoğunlukla **IPv6** kullanır. **Vercel** ve birçok IPv4-only ortam bu hosta TCP ile ulaşamaz; Prisma da bu hatayı verir.
+- **5432 + `db.*.supabase.co`:** doğrudan Postgres; çoğu ortamda **IPv6** beklentisi — **Vercel** sık sık buraya IPv4 ile ulaşamaz.
+- **6543 + `db.*.supabase.co`:** dokümantasyonda örnek görünse bile bazı ağlardan (özellikle Vercel) yine **TCP erişimi olmayabilir**. Supabase panelinin ürettiği **paylaşımlı pooler** adresi farklıdır.
 
-Resmi özet: [Connect to Postgres](https://supabase.com/docs/guides/database/connecting-to-postgres) — sunucusuz için **Transaction pooler** (port **6543**), kalıcı / migrate için **Session pooler** veya doğrudan bağlantı.
+Resmi özet: [Connect to Postgres](https://supabase.com/docs/guides/database/connecting-to-postgres) — sunucusuz için **Transaction pooler**; [Prisma + Supabase](https://supabase.com/docs/guides/database/prisma).
 
 ## Çözüm (Prisma + Vercel)
 
-1. Dashboard’da projenizi açın → üstten **Connect** → **ORMs** / **Connection string**.
-2. **`DATABASE_URL` (uygulama + Vercel):** **Transaction** modu, URI. Sonuna mutlaka **`pgbouncer=true`** ekleyin (Prisma, hazırlıklı ifadeleri kapatır). Örnek biçim:
-   `postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:6543/postgres?pgbouncer=true&sslmode=require`
-3. **`DIRECT_URL` (migrate / `db push` / introspection):** **Session** pooler (çoğu zaman `aws-0-[REGION].pooler.supabase.com:5432` ve kullanıcı `postgres.[PROJECT-REF]`) **veya** IPv6 erişiminiz varsa **Direct** `db.*:5432`. [Prisma + Supabase](https://supabase.com/docs/guides/database/prisma).
-4. Bu repoda `prisma/schema.prisma` içinde `directUrl = env("DIRECT_URL")` tanımlıdır. **Vercel**’de hem `DATABASE_URL` hem `DIRECT_URL` ekleyin (Production). `DIRECT_URL` sadece build’de migrate kullanıyorsanız şarttır; yalnızca `prisma generate` için gerekmez ama şema alanı dolu olduğu için env’de bulunmalıdır.
+1. Dashboard → proje → üstte **Connect** → **Connection string** (veya **ORMs / Prisma**).
+2. **`DATABASE_URL`:** **Transaction** modunu seçin ve gösterilen **URI’yi hiç ellemeden kopyalayın**. Çoğu projede host şuna benzer (bölge değişir):
+   - `aws-0-<REGION>.pooler.supabase.com` ve port **`6543`**
+   - Kullanıcı adı çoğu zaman **`postgres.<PROJECT-REF>`** (`postgres` tek başına değil).
+3. Sona Prisma için **`?pgbouncer=true`** ekleyin (panelde yoksa). Örnek: `.../postgres?pgbouncer=true&sslmode=require&connect_timeout=30`
+4. **`DIRECT_URL`:** **Session** pooler URI (aynı Connect ekranından, port **5432**, yine `aws-0-<REGION>.pooler...`) veya migrate’i sadece lokalden yapıyorsanız uygun doğrudan / session string. [Prisma + Supabase](https://supabase.com/docs/guides/database/prisma).
+5. `prisma/schema.prisma` içinde `directUrl = env("DIRECT_URL")` olduğu için **Vercel Production**’da `DIRECT_URL` de tanımlı olmalı (şema bunu ister).
 
-### .env örneği
+### .env örneği (host’u panelden alın; aşağıdaki region örnek)
 
 ```env
-DATABASE_URL="postgresql://...@db.[REF].supabase.co:6543/postgres?pgbouncer=true&sslmode=require"
-DIRECT_URL="postgresql://postgres.[REF]:...@aws-0-[REGION].pooler.supabase.com:5432/postgres?sslmode=require"
+DATABASE_URL="postgresql://postgres.[REF]:[PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&connect_timeout=30"
+DIRECT_URL="postgresql://postgres.[REF]:[PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require"
 ```
+
+**`db.[REF].supabase.co:6543`** ile Vercel’de hâlâ “can’t reach” alıyorsanız, **`DATABASE_URL`’i mutlaka paneldeki `aws-0-...pooler...:6543` string ile değiştirin.**
 
 Şifreyi her zaman Dashboard’dan kopyalayın; özel karakterler orada encode edilir.
 
