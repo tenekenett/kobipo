@@ -68,8 +68,14 @@ export default function RaporlarPage() {
   const [vatReport, setVatReport] = useState<VATReport | null>(null)
   const [incomeExpenseReport, setIncomeExpenseReport] = useState<IncomeExpenseReport | null>(null)
   const [period, setPeriod] = useState("monthly")
-  const [startDate, setStartDate] = useState("")
-  const [endDate, setEndDate] = useState("")
+  const [startDate, setStartDate] = useState(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0]
+  })
+  const [endDate, setEndDate] = useState(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0]
+  })
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {

@@ -53,7 +53,12 @@ export default async function DashboardPage() {
   
   // Firma bilgilerini al
   const company = await prisma.company.findUnique({
-    where: { id: activeCompany.companyId }
+    where: { id: activeCompany.companyId },
+    select: {
+      id: true,
+      name: true,
+      isActive: true,
+    },
   })
 
   if (!company) {

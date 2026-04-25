@@ -95,6 +95,7 @@ export async function POST(request: Request) {
     const {
       companyId,
       accountId,
+      transferAccountId,
       type,
       amount,
       currency,
@@ -108,6 +109,12 @@ export async function POST(request: Request) {
     if (!companyId || !accountId || !type || !amount) {
       return NextResponse.json(
         { error: "companyId, accountId, type, and amount are required" },
+        { status: 400 }
+      )
+    }
+    if (type === "TRANSFER" && !transferAccountId) {
+      return NextResponse.json(
+        { error: "transferAccountId is required for transfer" },
         { status: 400 }
       )
     }
@@ -135,7 +142,7 @@ export async function POST(request: Request) {
         currency: currency || "TRY",
         description,
         date: date ? new Date(date) : new Date(),
-        reference,
+        reference: reference || (type === "TRANSFER" ? `TRANSFER:${transferAccountId}` : undefined),
         customerId,
         supplierId,
         createdBy: user.id,
@@ -148,6 +155,8 @@ export async function POST(request: Request) {
       newBalance += parseFloat(amount)
     } else if (type === "EXPENSE") {
       newBalance -= parseFloat(amount)
+    } else if (type === "TRANSFER") {
+      newBalance -= parseFloat(amount)
     }
 
     await prisma.financialAccount.update({
@@ -156,6 +165,34 @@ export async function POST(request: Request) {
         balance: newBalance,
       },
     })
+
+    if (type === "TRANSFER" && transferAccountId) {
+      const targetAccount = await prisma.financialAccount.findUnique({
+        where: { id: transferAccountId },
+      })
+      if (!targetAccount || targetAccount.companyId !== companyId) {
+        return NextResponse.json({ error: "Transfer account not found" }, { status: 404 })
+      }
+
+      await prisma.financialAccount.update({
+        where: { id: transferAccountId },
+        data: { balance: Number(targetAccount.balance) + parseFloat(amount) },
+      })
+
+      await prisma.transaction.create({
+        data: {
+          companyId,
+          accountId: transferAccountId,
+          type: "INCOME",
+          amount: parseFloat(amount),
+          currency: currency || "TRY",
+          description: description || "Hesaplar arası virman (giriş)",
+          date: date ? new Date(date) : new Date(),
+          reference: `TRANSFER:${accountId}`,
+          createdBy: user.id,
+        },
+      })
+    }
 
     return NextResponse.json(transaction, { status: 201 })
   } catch (error: any) {

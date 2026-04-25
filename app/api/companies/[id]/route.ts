@@ -20,6 +20,23 @@ export async function GET(
 
     const company = await prisma.company.findUnique({
       where: { id: resolvedParams.id },
+      select: {
+        id: true,
+        name: true,
+        taxNumber: true,
+        taxOffice: true,
+        address: true,
+        city: true,
+        country: true,
+        phone: true,
+        email: true,
+        website: true,
+        isEDonusumEnabled: true,
+        invoiceSeriesPrefix: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     })
 
     if (!company) {
@@ -53,7 +70,7 @@ export async function PUT(
     const userCompany = await ensureCompanyAccess(resolvedParams.id)
 
     const body = await request.json()
-    const { name, taxNumber, taxOffice, address, city, phone, email, website } = body
+    const { name, taxNumber, taxOffice, address, city, phone, email, website, isEDonusumEnabled, invoiceSeriesPrefix } = body
 
     const company = await prisma.company.update({
       where: { id: resolvedParams.id },
@@ -66,6 +83,8 @@ export async function PUT(
         phone,
         email,
         website,
+        isEDonusumEnabled: isEDonusumEnabled !== undefined ? Boolean(isEDonusumEnabled) : undefined,
+        invoiceSeriesPrefix: invoiceSeriesPrefix || null,
       },
     })
 

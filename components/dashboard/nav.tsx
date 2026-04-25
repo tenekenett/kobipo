@@ -16,12 +16,15 @@ import {
   Menu,
   X,
   ChevronDown,
-  Building2,
   Receipt,
   FileCheck,
   Warehouse,
   BookOpen,
   Settings,
+  Bell,
+  Moon,
+  Sun,
+  Search,
 } from "lucide-react"
 import { useState, useEffect } from "react"
 import {
@@ -36,7 +39,7 @@ import {
 // Tüm menü öğeleri ve erişebilecek roller
 const allNavItems = [
   { 
-    href: "/", 
+    href: "/dashboard", 
     label: "Dashboard", 
     icon: LayoutDashboard,
     roles: ["ADMIN", "ACCOUNTANT", "STOCK", "SALES", "VIEWER"]
@@ -103,15 +106,14 @@ const allNavItems = [
   },
 ]
 
-interface NavItemsProps {
-  userRole: string
-}
-
 export function DashboardNav() {
   const pathname = usePathname()
   const { data: session } = useSession()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userRole, setUserRole] = useState<string>("VIEWER")
+  const [isDark, setIsDark] = useState(false)
+  const [notifCount, setNotifCount] = useState(0)
+  const [globalQuery, setGlobalQuery] = useState("")
 
   // Kullanıcı rolünü al
   useEffect(() => {
@@ -128,57 +130,109 @@ export function DashboardNav() {
     }
     if (session) {
       fetchRole()
+      setIsDark(document.documentElement.classList.contains("dark"))
     }
   }, [session])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const companyId = params.get("company")
+    if (!companyId) return
+    fetch(`/api/notifications?companyId=${companyId}`).then(async (res) => {
+      if (!res.ok) return
+      const list = await res.json()
+      setNotifCount(list.filter((n: any) => !n.isRead).length)
+    })
+  }, [pathname])
+
+  const toggleTheme = () => {
+    const root = document.documentElement
+    root.classList.toggle("dark")
+    setIsDark(root.classList.contains("dark"))
+  }
+
+  const runGlobalSearch = () => {
+    const query = globalQuery.trim().toLowerCase()
+    if (!query) return
+    const found = allNavItems.find((item) => item.label.toLowerCase().includes(query))
+    if (found) {
+      window.location.href = found.href + window.location.search
+    }
+  }
 
   // Role göre filtrelenmiş menü öğeleri
   const navItems = allNavItems.filter(item => item.roles.includes(userRole))
 
   return (
     <>
-      <nav className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          {/* Logo */}
-          <div className="flex items-center gap-6">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">M</span>
-              </div>
-              <span className="font-bold text-lg hidden sm:block">Muhasebe</span>
-            </Link>
-
-            {/* Desktop Navigation */}
-            <div className="hidden lg:flex items-center gap-1">
-              {navItems.map((item) => {
-                const Icon = item.icon
-                const isActive = pathname === item.href || 
-                  (item.href !== "/" && pathname.startsWith(item.href)) ||
-                  (item.href === "/muhasebe/yevmiye" && pathname.startsWith("/muhasebe"))
-                
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all",
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </Link>
-                )
-              })}
+      <div className="fixed left-0 top-0 z-40 hidden h-screen w-72 border-r bg-background lg:flex lg:flex-col">
+        <div className="border-b p-4">
+          <Link href="/dashboard" className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500">
+              <span className="text-sm font-bold text-white">M</span>
             </div>
+            <div>
+              <p className="text-lg font-bold">Muhasebe</p>
+              <p className="text-xs text-muted-foreground">Ön Muhasebe Paneli</p>
+            </div>
+          </Link>
+        </div>
+        <div className="border-b p-3 space-y-2">
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" className="w-full justify-start">
+              <Bell className="mr-2 h-4 w-4" /> Bildirim ({notifCount})
+            </Button>
+            <Button variant="outline" size="icon" onClick={toggleTheme}>
+              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
           </div>
+          <div className="flex gap-2">
+            <input
+              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+              placeholder="Global arama (⌘K)"
+              value={globalQuery}
+              onChange={(e) => setGlobalQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && runGlobalSearch()}
+            />
+            <Button variant="outline" size="icon" onClick={runGlobalSearch}>
+              <Search className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
 
-          {/* Right Side */}
-          <div className="flex items-center gap-2">
-            {/* Role Badge */}
+        <div className="flex-1 overflow-y-auto p-3">
+          <div className="space-y-1">
+            {navItems.map((item) => {
+              const Icon = item.icon
+              const isActive = pathname === item.href ||
+                (item.href !== "/dashboard" && pathname.startsWith(item.href)) ||
+                (item.href === "/muhasebe/yevmiye" && pathname.startsWith("/muhasebe"))
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
+                    isActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="border-t p-3">
+          <div className="mb-3 rounded-lg bg-muted p-2 text-xs">
+            <p className="font-medium text-foreground">{session?.user?.name || "Kullanıcı"}</p>
+            <p className="truncate text-muted-foreground">{session?.user?.email}</p>
             <span className={cn(
-              "hidden sm:inline-flex px-2 py-1 rounded-full text-xs font-medium",
+              "mt-2 inline-flex rounded-full px-2 py-1 text-[11px] font-medium",
               userRole === "ADMIN" && "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
               userRole === "ACCOUNTANT" && "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
               userRole === "STOCK" && "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
@@ -191,52 +245,52 @@ export function DashboardNav() {
               {userRole === "SALES" && "Satış"}
               {userRole === "VIEWER" && "Görüntüleyici"}
             </span>
-
-            {/* User Menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-2">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white font-medium text-sm">
-                    {session?.user?.name?.charAt(0) || session?.user?.email?.charAt(0) || "U"}
-                  </div>
-                  <ChevronDown className="h-4 w-4 hidden sm:block" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>
-                  <div>
-                    <p className="font-medium">{session?.user?.name || "Kullanıcı"}</p>
-                    <p className="text-xs text-muted-foreground">{session?.user?.email}</p>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/ayarlar/firma" className="flex items-center gap-2">
-                    <Settings className="h-4 w-4" />
-                    Firma Ayarları
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem 
-                  onClick={() => signOut({ callbackUrl: "/signin" })}
-                  className="text-red-600 focus:text-red-600"
-                >
-                  <LogOut className="h-4 w-4 mr-2" />
-                  Çıkış Yap
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Mobile Menu Button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="lg:hidden"
-              onClick={() => setMobileMenuOpen(true)}
-            >
-              <Menu className="h-5 w-5" />
-            </Button>
           </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="w-full justify-between">
+                Hesap
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Hesap İşlemleri</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/ayarlar/firma" className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  Firma Ayarları
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => signOut({ callbackUrl: "/signin" })}
+                className="text-red-600 focus:text-red-600"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Çıkış Yap
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      <nav className="fixed left-0 right-0 top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:hidden">
+        <div className="flex h-16 items-center justify-between px-4">
+          <Link href="/dashboard" className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500">
+              <span className="text-sm font-bold text-white">M</span>
+            </div>
+            <span className="text-lg font-bold">Muhasebe</span>
+          </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setMobileMenuOpen(true)}
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
         </div>
       </nav>
 
@@ -255,7 +309,7 @@ export function DashboardNav() {
               {navItems.map((item) => {
                 const Icon = item.icon
                 const isActive = pathname === item.href || 
-                  (item.href !== "/" && pathname.startsWith(item.href)) ||
+                  (item.href !== "/dashboard" && pathname.startsWith(item.href)) ||
                   (item.href === "/muhasebe/yevmiye" && pathname.startsWith("/muhasebe"))
                 
                 return (

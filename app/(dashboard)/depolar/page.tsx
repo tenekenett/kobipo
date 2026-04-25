@@ -32,6 +32,7 @@ interface Warehouse {
   name: string
   address?: string
   city?: string
+  isDefault?: boolean
   isActive: boolean
 }
 
@@ -191,13 +192,14 @@ export default function DepolarPage() {
                 <TableHead>Adres</TableHead>
                 <TableHead>Şehir</TableHead>
                 <TableHead>Durum</TableHead>
+                <TableHead>Varsayılan</TableHead>
                 <TableHead>İşlemler</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {warehouses.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
                     Henüz depo bulunmuyor
                   </TableCell>
                 </TableRow>
@@ -212,6 +214,13 @@ export default function DepolarPage() {
                       <Badge variant={warehouse.isActive ? "default" : "secondary"}>
                         {warehouse.isActive ? "Aktif" : "Pasif"}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {warehouse.isDefault ? (
+                        <Badge variant="outline">Ana Depo</Badge>
+                      ) : (
+                        "-"
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">

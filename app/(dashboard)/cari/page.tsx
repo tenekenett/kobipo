@@ -23,7 +23,8 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Search, Eye } from "lucide-react"
+import { Plus, Search, Eye, AlertCircle, Pencil, Trash2 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import Link from "next/link"
 
 interface Customer {
@@ -34,6 +35,9 @@ interface Customer {
   email?: string
   phone?: string
   balance?: number
+  paymentDueDays?: number
+  isAlsoSupplier?: boolean
+  isAlsoCustomer?: boolean
 }
 
 export default function CariPage() {
@@ -45,6 +49,7 @@ export default function CariPage() {
   const [activeTab, setActiveTab] = useState<"customers" | "suppliers">("customers")
   const [search, setSearch] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
     code: "",
@@ -56,6 +61,9 @@ export default function CariPage() {
     phone: "",
     email: "",
     contactPerson: "",
+    paymentDueDays: "",
+    isAlsoSupplier: false,
+    isAlsoCustomer: false,
   })
 
   useEffect(() => {
@@ -92,8 +100,8 @@ export default function CariPage() {
     setIsLoading(true)
     try {
       const endpoint = activeTab === "customers" ? "customers" : "suppliers"
-      const response = await fetch(`/api/cari/${endpoint}`, {
-        method: "POST",
+      const response = await fetch(`/api/cari/${endpoint}${editingId ? `/${editingId}` : ""}`, {
+        method: editingId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...formData, companyId }),
       })
@@ -101,9 +109,10 @@ export default function CariPage() {
       if (response.ok) {
         toast({
           title: "Başarılı",
-          description: `${activeTab === "customers" ? "Müşteri" : "Tedarikçi"} oluşturuldu`,
+          description: `${activeTab === "customers" ? "Müşteri" : "Tedarikçi"} ${editingId ? "güncellendi" : "oluşturuldu"}`,
         })
         setIsDialogOpen(false)
+        setEditingId(null)
         setFormData({
           code: "",
           name: "",
@@ -114,6 +123,9 @@ export default function CariPage() {
           phone: "",
           email: "",
           contactPerson: "",
+          paymentDueDays: "",
+          isAlsoSupplier: false,
+          isAlsoCustomer: false,
         })
         fetchData()
       } else {
@@ -130,7 +142,45 @@ export default function CariPage() {
     }
   }
 
+  const startEdit = (item: Customer) => {
+    setEditingId(item.id)
+    setFormData({
+      code: item.code || "",
+      name: item.name || "",
+      taxNumber: item.taxNumber || "",
+      taxOffice: "",
+      address: "",
+      city: "",
+      phone: item.phone || "",
+      email: item.email || "",
+      contactPerson: "",
+      paymentDueDays: String(item.paymentDueDays || ""),
+      isAlsoSupplier: Boolean(item.isAlsoSupplier),
+      isAlsoCustomer: Boolean(item.isAlsoCustomer),
+    })
+    setIsDialogOpen(true)
+  }
+
+  const deleteItem = async (id: string) => {
+    if (!confirm("Bu kaydı silmek istediğinize emin misiniz?")) return
+    const endpoint = activeTab === "customers" ? "customers" : "suppliers"
+    const response = await fetch(`/api/cari/${endpoint}/${id}`, { method: "DELETE" })
+    if (response.ok) {
+      toast({ title: "Başarılı", description: "Kayıt silindi" })
+      fetchData()
+    } else {
+      toast({ title: "Hata", description: "Kayıt silinemedi", variant: "destructive" })
+    }
+  }
+
   const currentData = activeTab === "customers" ? customers : suppliers
+  const agingRows = currentData
+    .filter((item) => Number(item.balance || 0) !== 0)
+    .map((item) => {
+      const dueDays = Number(item.paymentDueDays || 0)
+      const bucket = dueDays <= 30 ? "0-30" : dueDays <= 60 ? "31-60" : dueDays <= 90 ? "61-90" : "90+"
+      return { ...item, dueDays, bucket }
+    })
 
   if (!companyId) {
     return (
@@ -153,13 +203,13 @@ export default function CariPage() {
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
-              Yeni {activeTab === "customers" ? "Müşteri" : "Tedarikçi"}
+                Yeni {activeTab === "customers" ? "Müşteri" : "Tedarikçi"}
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                Yeni {activeTab === "customers" ? "Müşteri" : "Tedarikçi"}
+                {editingId ? "Kaydı Düzenle" : `Yeni ${activeTab === "customers" ? "Müşteri" : "Tedarikçi"}`}
               </DialogTitle>
               <DialogDescription>
                 {activeTab === "customers" ? "Müşteri" : "Tedarikçi"} bilgilerini
@@ -270,12 +320,57 @@ export default function CariPage() {
                     disabled={isLoading}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="paymentDueDays">Vade Günü</Label>
+                  <Input
+                    id="paymentDueDays"
+                    type="number"
+                    min="0"
+                    value={formData.paymentDueDays}
+                    onChange={(e) =>
+                      setFormData({ ...formData, paymentDueDays: e.target.value })
+                    }
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-3 md:col-span-2 rounded-md border p-3">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="linked-role-switch">
+                      {activeTab === "customers" ? "Aynı zamanda Tedarikçi" : "Aynı zamanda Müşteri"}
+                    </Label>
+                    <Switch
+                      id="linked-role-switch"
+                      checked={
+                        activeTab === "customers"
+                          ? formData.isAlsoSupplier
+                          : formData.isAlsoCustomer
+                      }
+                      onCheckedChange={(checked) =>
+                        setFormData({
+                          ...formData,
+                          isAlsoSupplier: activeTab === "customers" ? checked : false,
+                          isAlsoCustomer: activeTab === "suppliers" ? checked : false,
+                        })
+                      }
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    {activeTab === "customers"
+                      ? "Bu seçenek ile müşteri hesabını aynı zamanda tedarikçi hesabı olarak tek hesap düzeninde takip edebilirsiniz."
+                      : "Bu seçenek ile tedarikçi hesabını aynı zamanda müşteri hesabı olarak tek hesap düzeninde takip edebilirsiniz."}
+                  </p>
+                </div>
               </div>
               <div className="flex justify-end space-x-2">
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setIsDialogOpen(false)}
+                  onClick={() => {
+                    setIsDialogOpen(false)
+                    setEditingId(null)
+                  }}
                   disabled={isLoading}
                 >
                   İptal
@@ -365,12 +460,66 @@ export default function CariPage() {
                         : "-"}
                     </TableCell>
                     <TableCell>
-                      <Link href={`/cari/${activeTab}/${item.id}?company=${companyId}`}>
-                        <Button variant="ghost" size="sm">
-                          <Eye className="h-4 w-4 mr-1" />
-                          Detay
+                      <div className="flex gap-1">
+                        <Link href={`/cari/${activeTab}/${item.id}?company=${companyId}`}>
+                          <Button variant="ghost" size="sm">
+                            <Eye className="h-4 w-4 mr-1" />
+                            Detay
+                          </Button>
+                        </Link>
+                        <Button variant="ghost" size="sm" onClick={() => startEdit(item)}>
+                          <Pencil className="h-4 w-4 mr-1" />
+                          Düzenle
                         </Button>
-                      </Link>
+                        <Button variant="ghost" size="sm" onClick={() => deleteItem(item.id)}>
+                          <Trash2 className="h-4 w-4 mr-1 text-red-600" />
+                          Sil
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Cari Yaşlandırma</CardTitle>
+          <CardDescription>
+            Vade günü ve bakiyeye göre yaşlandırma görünümü
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Hesap</TableHead>
+                <TableHead>Vade Günü</TableHead>
+                <TableHead>Yaşlandırma Dilimi</TableHead>
+                <TableHead className="text-right">Bakiye</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {agingRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                    Yaşlandırma için bakiye verisi bulunamadı
+                  </TableCell>
+                </TableRow>
+              ) : (
+                agingRows.map((row) => (
+                  <TableRow key={`aging-${row.id}`}>
+                    <TableCell className="font-medium">{row.name}</TableCell>
+                    <TableCell>{row.dueDays}</TableCell>
+                    <TableCell>{row.bucket} gün</TableCell>
+                    <TableCell className="text-right">
+                      {new Intl.NumberFormat("tr-TR", {
+                        style: "currency",
+                        currency: "TRY",
+                      }).format(Number(row.balance || 0))}
                     </TableCell>
                   </TableRow>
                 ))

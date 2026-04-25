@@ -21,6 +21,18 @@ export async function GET(
     const invoice = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id },
       include: {
+        company: {
+          select: {
+            id: true,
+            name: true,
+            taxNumber: true,
+            taxOffice: true,
+            address: true,
+            city: true,
+            phone: true,
+            email: true,
+          },
+        },
         customer: true,
         supplier: true,
         items: {
@@ -218,6 +230,13 @@ export async function POST(
     if (invoiceWithItems.invoiceType !== "E_INVOICE" && invoiceWithItems.invoiceType !== "E_ARCHIVE") {
       return NextResponse.json(
         { error: "Only E-Invoice or E-Archive invoices can be sent" },
+        { status: 400 }
+      )
+    }
+
+    if (invoiceWithItems.type !== "SALES") {
+      return NextResponse.json(
+        { error: "Only sales invoices can be sent" },
         { status: 400 }
       )
     }

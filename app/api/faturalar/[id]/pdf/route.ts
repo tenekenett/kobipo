@@ -19,6 +19,8 @@ export async function GET(
 
     const resolvedParams = await params
     const invoiceId = resolvedParams.id
+    const { searchParams } = new URL(request.url)
+    const template = searchParams.get("template") || "standart"
 
     const invoice = await prisma.invoice.findUnique({
       where: { id: invoiceId },
@@ -33,7 +35,18 @@ export async function GET(
             order: "asc",
           },
         },
-        company: true,
+        company: {
+          select: {
+            id: true,
+            name: true,
+            taxNumber: true,
+            taxOffice: true,
+            address: true,
+            city: true,
+            phone: true,
+            email: true,
+          },
+        },
       },
     })
 
@@ -118,6 +131,10 @@ export async function GET(
     doc.setFont("helvetica", "bold")
     const invoiceTitle = invoiceData.invoiceType === "E_INVOICE" ? "E-FATURA" : "E-ARŞİV FATURA"
     doc.text(invoiceTitle, 140, 20)
+    if (template !== "standart") {
+      doc.setFontSize(9)
+      doc.text(`Şablon: ${template}`, 140, 24)
+    }
     
     doc.setFontSize(10)
     doc.setFont("helvetica", "normal")
@@ -173,7 +190,7 @@ export async function GET(
         cellPadding: 3,
       },
       headStyles: {
-        fillColor: [59, 130, 246],
+        fillColor: template === "kurumsal" ? [22, 101, 52] : [59, 130, 246],
         textColor: 255,
         fontStyle: "bold",
       },

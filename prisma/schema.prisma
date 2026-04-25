@@ -30,6 +30,8 @@ model User {
   emailVerified DateTime?
   image         String?
   isSuperAdmin  Boolean   @default(false) // Sistem yöneticisi
+  twoFactorSecret String?
+  twoFactorEnabled Boolean @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -37,6 +39,8 @@ model User {
   accounts      Account[]
   sessions      Session[]
   systemLogs    SystemLog[]
+  subscriptions Subscription[]
+  supportTickets SupportTicket[] @relation("SupportTicketCreatedBy")
 
   @@map("users")
 }
@@ -91,6 +95,8 @@ model Company {
   phone       String?
   email       String?
   website     String?
+  isEDonusumEnabled Boolean @default(false)
+  invoiceSeriesPrefix String?
   isActive    Boolean  @default(true) // Firma aktif/pasif durumu
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -112,6 +118,11 @@ model Company {
   waybills    Waybill[]
   bankStatements BankStatement[]
   cashCounts  CashCount[]
+  subscriptions Subscription[]
+  usageLimits UsageLimit[]
+  notifications Notification[]
+  attachments Attachment[]
+  supportTickets SupportTicket[]
 
   @@map("companies")
 }
@@ -121,6 +132,8 @@ model UserCompany {
   userId    String
   companyId String
   role      Role     @default(VIEWER) // Varsayılan: görüntüleyici
+  invitedBy String?
+  invitedAt DateTime?
   createdAt DateTime @default(now())
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -143,16 +156,21 @@ model Customer {
   phone       String?
   email       String?
   contactPerson String?
+  paymentDueDays Int?
+  isAlsoSupplier Boolean @default(false)
+  linkedSupplierId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  linkedSupplier Supplier? @relation("CustomerSupplierLink", fields: [linkedSupplierId], references: [id], onDelete: SetNull)
   invoices    Invoice[]
   transactions Transaction[]
   checks      Check[]
   promissoryNotes PromissoryNote[]
   waybills    Waybill[]
 
+  @@unique([linkedSupplierId])
   @@map("customers")
 }
 
@@ -169,10 +187,14 @@ model Supplier {
   phone       String?
   email       String?
   contactPerson String?
+  paymentDueDays Int?
+  isAlsoCustomer Boolean @default(false)
+  linkedCustomerId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  linkedCustomers Customer[] @relation("CustomerSupplierLink")
   invoices    Invoice[]
   transactions Transaction[]
   checks      Check[]
@@ -193,6 +215,7 @@ model Product {
   purchasePrice Decimal? @db.Decimal(10, 2)
   salePrice   Decimal? @db.Decimal(10, 2)
   stockQuantity Decimal @default(0) @db.Decimal(10, 2)
+  minStockLevel Decimal? @db.Decimal(10, 2)
   isService   Boolean  @default(false)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
@@ -235,6 +258,7 @@ model Warehouse {
   name        String
   address     String?  @db.Text
   city        String?
+  isDefault   Boolean  @default(false)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -394,6 +418,8 @@ model Invoice {
   vatAmount   Decimal  @db.Decimal(15, 2)
   netAmount   Decimal  @db.Decimal(15, 2)
   currency    String   @default("TRY")
+  exchangeRate Decimal? @db.Decimal(12, 4)
+  exchangeRateDate DateTime?
   uuid        String?  @unique // E-Fatura UUID
   integrationId String? // Entegratör ID
   integrationStatus String? // Entegratör durumu
@@ -422,6 +448,10 @@ model InvoiceItem {
   unitPrice   Decimal  @db.Decimal(10, 2)
   vatRate     Decimal  @db.Decimal(5, 2)
   vatAmount   Decimal  @db.Decimal(10, 2)
+  withholdingRate Decimal? @db.Decimal(5, 2)
+  withholdingAmount Decimal? @db.Decimal(10, 2)
+  exciseRate Decimal? @db.Decimal(5, 2)
+  exciseAmount Decimal? @db.Decimal(10, 2)
   totalAmount Decimal  @db.Decimal(10, 2)
   order       Int      @default(0)
 
@@ -631,5 +661,112 @@ model SystemLog {
   @@index([userId])
   @@index([action])
   @@map("system_logs")
+}
+
+model Plan {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  monthlyPrice Decimal @default(0) @db.Decimal(10, 2)
+  yearlyPrice  Decimal? @db.Decimal(10, 2)
+  maxCompanies Int      @default(1)
+  maxUsers     Int      @default(1)
+  maxInvoicesPerMonth Int @default(100)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String
+  companyId   String
+  planId      String
+  provider    String   @default("NONE")
+  providerSubscriptionId String?
+  status      String   @default("TRIAL")
+  trialEndsAt DateTime?
+  periodStart DateTime?
+  periodEnd   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan        Plan     @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, status])
+  @@map("subscriptions")
+}
+
+model UsageLimit {
+  id          String   @id @default(cuid())
+  companyId   String
+  key         String
+  currentValue Int     @default(0)
+  maxValue    Int
+  periodStart DateTime
+  periodEnd   DateTime
+  updatedAt   DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key, periodStart])
+  @@map("usage_limits")
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  companyId   String
+  title       String
+  message     String
+  type        String   @default("INFO")
+  isRead      Boolean  @default(false)
+  link        String?
+  createdAt   DateTime @default(now())
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, isRead])
+  @@map("notifications")
+}
+
+model Attachment {
+  id          String   @id @default(cuid())
+  companyId   String
+  entityType  String
+  entityId    String
+  fileName    String
+  filePath    String
+  mimeType    String?
+  sizeBytes   Int?
+  createdAt   DateTime @default(now())
+  createdBy   String?
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, entityType, entityId])
+  @@map("attachments")
+}
+
+model SupportTicket {
+  id          String   @id @default(cuid())
+  companyId   String
+  subject     String
+  message     String   @db.Text
+  status      String   @default("OPEN")
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation("SupportTicketCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@map("support_tickets")
 }
 

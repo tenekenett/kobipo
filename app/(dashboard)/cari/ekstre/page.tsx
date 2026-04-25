@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface EkstreEntry {
   type: string
@@ -35,6 +36,8 @@ export default function EkstrePage() {
   const [finalBalance, setFinalBalance] = useState(0)
   const [customerId, setCustomerId] = useState("")
   const [supplierId, setSupplierId] = useState("")
+  const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([])
+  const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([])
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -42,6 +45,7 @@ export default function EkstrePage() {
   useEffect(() => {
     if (companyId) {
       fetchEkstre()
+      fetchCariOptions()
     }
   }, [companyId, customerId, supplierId, startDate, endDate])
 
@@ -73,6 +77,20 @@ export default function EkstrePage() {
     }
   }
 
+  const fetchCariOptions = async () => {
+    if (!companyId) return
+    const [customerResponse, supplierResponse] = await Promise.all([
+      fetch(`/api/cari/customers?companyId=${companyId}`),
+      fetch(`/api/cari/suppliers?companyId=${companyId}`),
+    ])
+    if (customerResponse.ok) {
+      setCustomers(await customerResponse.json())
+    }
+    if (supplierResponse.ok) {
+      setSuppliers(await supplierResponse.json())
+    }
+  }
+
   if (!companyId) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -95,22 +113,28 @@ export default function EkstrePage() {
         <CardContent>
           <div className="grid gap-4 md:grid-cols-4">
             <div className="space-y-2">
-              <Label htmlFor="customerId">Müşteri ID</Label>
-              <Input
-                id="customerId"
-                value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
-                placeholder="Müşteri ID"
-              />
+              <Label htmlFor="customerId">Müşteri</Label>
+              <Select value={customerId} onValueChange={(value) => setCustomerId(value === "all" ? "" : value)}>
+                <SelectTrigger id="customerId"><SelectValue placeholder="Müşteri seçin" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tümü</SelectItem>
+                  {customers.map((customer) => (
+                    <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="supplierId">Tedarikçi ID</Label>
-              <Input
-                id="supplierId"
-                value={supplierId}
-                onChange={(e) => setSupplierId(e.target.value)}
-                placeholder="Tedarikçi ID"
-              />
+              <Label htmlFor="supplierId">Tedarikçi</Label>
+              <Select value={supplierId} onValueChange={(value) => setSupplierId(value === "all" ? "" : value)}>
+                <SelectTrigger id="supplierId"><SelectValue placeholder="Tedarikçi seçin" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tümü</SelectItem>
+                  {suppliers.map((supplier) => (
+                    <SelectItem key={supplier.id} value={supplier.id}>{supplier.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="startDate">Başlangıç Tarihi</Label>

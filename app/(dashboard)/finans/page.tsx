@@ -69,6 +69,7 @@ export default function FinansPage() {
   })
   const [transactionFormData, setTransactionFormData] = useState({
     accountId: "",
+    transferAccountId: "",
     type: "INCOME",
     amount: "",
     currency: "TRY",
@@ -178,6 +179,7 @@ export default function FinansPage() {
         setIsTransactionDialogOpen(false)
         setTransactionFormData({
           accountId: "",
+          transferAccountId: "",
           type: "INCOME",
           amount: "",
           currency: "TRY",
@@ -421,7 +423,7 @@ export default function FinansPage() {
                     <DialogHeader>
                       <DialogTitle>Yeni İşlem</DialogTitle>
                       <DialogDescription>
-                        Gelir veya gider kaydı oluşturun
+                        Gelir, gider veya virman kaydı oluşturun
                       </DialogDescription>
                     </DialogHeader>
                     <form onSubmit={handleTransactionSubmit} className="space-y-4">
@@ -460,8 +462,33 @@ export default function FinansPage() {
                           >
                             <option value="INCOME">Gelir</option>
                             <option value="EXPENSE">Gider</option>
+                            <option value="TRANSFER">Virman</option>
                           </select>
                         </div>
+                        {transactionFormData.type === "TRANSFER" && (
+                          <div className="space-y-2">
+                            <Label htmlFor="transferAccountId">Hedef Hesap *</Label>
+                            <select
+                              id="transferAccountId"
+                              value={transactionFormData.transferAccountId}
+                              onChange={(e) =>
+                                setTransactionFormData({ ...transactionFormData, transferAccountId: e.target.value })
+                              }
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              required
+                              disabled={isLoading}
+                            >
+                              <option value="">Seçiniz</option>
+                              {accounts
+                                .filter((acc) => acc.id !== transactionFormData.accountId)
+                                .map((acc) => (
+                                  <option key={acc.id} value={acc.id}>
+                                    {acc.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                        )}
                         <div className="space-y-2">
                           <Label htmlFor="amount">Tutar *</Label>
                           <Input
@@ -558,6 +585,8 @@ export default function FinansPage() {
                         <TableCell>
                           {transaction.type === "INCOME" ? (
                             <span className="text-green-600">Gelir</span>
+                          ) : transaction.type === "TRANSFER" ? (
+                            <span className="text-blue-600">Virman</span>
                           ) : (
                             <span className="text-red-600">Gider</span>
                           )}

@@ -24,13 +24,32 @@ export async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
-    const warehouses = await prisma.warehouse.findMany({
+    let warehouses = await prisma.warehouse.findMany({
       where: {
         companyId,
         isActive: true,
       },
-      orderBy: { name: "asc" },
+      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
     })
+
+    if (warehouses.length === 0) {
+      await prisma.warehouse.create({
+        data: {
+          companyId,
+          code: "ANA",
+          name: "Ana Depo",
+          isDefault: true,
+        },
+      })
+
+      warehouses = await prisma.warehouse.findMany({
+        where: {
+          companyId,
+          isActive: true,
+        },
+        orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+      })
+    }
 
     return NextResponse.json(warehouses)
   } catch (error: any) {
@@ -53,7 +72,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { companyId, code, name, address, city } = body
+    const { companyId, code, name, address, city, isDefault } = body
 
     if (!companyId || !name) {
       return NextResponse.json(
@@ -64,14 +83,24 @@ export async function POST(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
-    const warehouse = await prisma.warehouse.create({
-      data: {
-        companyId,
-        code: code || null,
-        name,
-        address: address || null,
-        city: city || null,
-      },
+    const warehouse = await prisma.$transaction(async (tx) => {
+      if (isDefault) {
+        await tx.warehouse.updateMany({
+          where: { companyId },
+          data: { isDefault: false },
+        })
+      }
+
+      return tx.warehouse.create({
+        data: {
+          companyId,
+          code: code || null,
+          name,
+          address: address || null,
+          city: city || null,
+          isDefault: Boolean(isDefault),
+        },
+      })
     })
 
     return NextResponse.json(warehouse, { status: 201 })

@@ -111,6 +111,7 @@ export async function PUT(
       vatRate,
       purchasePrice,
       salePrice,
+      minStockLevel,
       isService,
       isActive,
     } = body
@@ -125,6 +126,7 @@ export async function PUT(
         vatRate: vatRate ? parseFloat(vatRate) : product.vatRate,
         purchasePrice: purchasePrice ? parseFloat(purchasePrice) : null,
         salePrice: salePrice ? parseFloat(salePrice) : null,
+        minStockLevel: minStockLevel ? parseFloat(minStockLevel) : null,
         isService: isService !== undefined ? isService : product.isService,
         isActive: isActive !== undefined ? isActive : product.isActive,
       },

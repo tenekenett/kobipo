@@ -229,7 +229,9 @@ export default function InvoiceDetailPage() {
             <Download className="mr-2 h-4 w-4" />
             PDF İndir
           </Button>
-          {invoice.status === "DRAFT" && (
+          {invoice.status === "DRAFT" &&
+            invoice.type === "SALES" &&
+            (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
             <Button onClick={handleSendInvoice} disabled={isSending}>
               <Send className="mr-2 h-4 w-4" />
               {isSending ? "Gönderiliyor..." : "Gönder"}
@@ -323,7 +325,7 @@ export default function InvoiceDetailPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoice.items.map((item, index) => (
+              {(invoice.items || []).map((item, index) => (
                 <TableRow key={item.id}>
                   <TableCell>{index + 1}</TableCell>
                   <TableCell className="font-medium">{item.description}</TableCell>

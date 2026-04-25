@@ -11,7 +11,12 @@ export async function generateInvoiceNumber(
 ): Promise<string> {
   const invoiceDate = date || new Date()
   const year = invoiceDate.getFullYear()
-  const prefix = type === "SALES" ? "SAT" : "ALI"
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { invoiceSeriesPrefix: true },
+  })
+  const defaultPrefix = type === "SALES" ? "SAT" : "ALI"
+  const prefix = company?.invoiceSeriesPrefix || defaultPrefix
 
   // Bu yıl için aynı tip faturaların sayısını bul
   const startOfYear = new Date(year, 0, 1)

@@ -16,6 +16,7 @@ export async function GET(request: Request) {
     const companyId = searchParams.get("companyId")
     const year = searchParams.get("year") || new Date().getFullYear().toString()
     const month = searchParams.get("month") || (new Date().getMonth() + 1).toString()
+    const format = searchParams.get("format")
 
     if (!companyId) {
       return NextResponse.json(
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
       return sum + Number(payment.amount) * 0.15
     }, 0)
 
-    return NextResponse.json({
+    const payload = {
       period: {
         year: parseInt(year),
         month: parseInt(month),
@@ -71,7 +72,19 @@ export async function GET(request: Request) {
       })),
       totalWithholding,
       totalPayments: payments.reduce((sum, p) => sum + Number(p.amount), 0),
-    })
+    }
+
+    if (format === "csv") {
+      const rows = ["Tarih,Tedarikci,Tutar,Stopaj"]
+      payload.payments.forEach((payment) => {
+        rows.push(`${payment.date},${payment.supplier?.name || ""},${payment.amount},${(payment.amount * 0.15).toFixed(2)}`)
+      })
+      return new NextResponse(rows.join("\n"), {
+        headers: { "Content-Type": "text/csv; charset=utf-8" },
+      })
+    }
+
+    return NextResponse.json(payload)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })

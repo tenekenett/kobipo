@@ -19,9 +19,11 @@ export default async function DashboardLayout({
   return (
     <div className="min-h-screen bg-background">
       <DashboardNav />
-      <div className="container mx-auto p-4 md:p-6 lg:p-8">
+      <div className="pt-20 lg:pl-72 lg:pt-0">
+        <div className="container mx-auto p-4 md:p-6 lg:p-8">
         <CompanySelector />
         <div className="mt-4">{children}</div>
+        </div>
       </div>
     </div>
   )

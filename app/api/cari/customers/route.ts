@@ -41,10 +41,43 @@ export async function GET(request: Request) {
 
     const customers = await prisma.customer.findMany({
       where,
+      include: {
+        invoices: {
+          where: { type: "SALES" },
+          select: {
+            totalAmount: true,
+            payments: {
+              select: { amount: true },
+            },
+          },
+        },
+        transactions: {
+          select: {
+            type: true,
+            amount: true,
+          },
+        },
+      },
       orderBy: { name: "asc" },
     })
 
-    return NextResponse.json(customers)
+    const customersWithBalance = customers.map((customer) => {
+      const invoiceBalance = customer.invoices.reduce((sum, inv) => {
+        const paid = inv.payments.reduce((paymentSum, p) => paymentSum + Number(p.amount), 0)
+        return sum + (Number(inv.totalAmount) - paid)
+      }, 0)
+
+      const transactionEffect = customer.transactions.reduce((sum, trx) => {
+        return trx.type === "INCOME" ? sum - Number(trx.amount) : sum + Number(trx.amount)
+      }, 0)
+
+      return {
+        ...customer,
+        balance: invoiceBalance + transactionEffect,
+      }
+    })
+
+    return NextResponse.json(customersWithBalance)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
@@ -76,6 +109,8 @@ export async function POST(request: Request) {
       phone,
       email,
       contactPerson,
+      paymentDueDays,
+      isAlsoSupplier,
     } = body
 
     if (!companyId || !name) {
@@ -87,19 +122,50 @@ export async function POST(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
-    const customer = await prisma.customer.create({
-      data: {
-        companyId,
-        code,
-        name,
-        taxNumber,
-        taxOffice,
-        address,
-        city,
-        phone,
-        email,
-        contactPerson,
-      },
+    const customer = await prisma.$transaction(async (tx) => {
+      const createdCustomer = await tx.customer.create({
+        data: {
+          companyId,
+          code,
+          name,
+          taxNumber,
+          taxOffice,
+          address,
+          city,
+          phone,
+          email,
+          contactPerson,
+          paymentDueDays: paymentDueDays ? Number(paymentDueDays) : null,
+          isAlsoSupplier: Boolean(isAlsoSupplier),
+        },
+      })
+
+      if (isAlsoSupplier) {
+        const linkedSupplier = await tx.supplier.create({
+          data: {
+            companyId,
+            code,
+            name,
+            taxNumber,
+            taxOffice,
+            address,
+            city,
+            phone,
+            email,
+            contactPerson,
+            paymentDueDays: paymentDueDays ? Number(paymentDueDays) : null,
+            isAlsoCustomer: true,
+            linkedCustomerId: createdCustomer.id,
+          },
+        })
+
+        return tx.customer.update({
+          where: { id: createdCustomer.id },
+          data: { linkedSupplierId: linkedSupplier.id },
+        })
+      }
+
+      return createdCustomer
     })
 
     return NextResponse.json(customer, { status: 201 })

@@ -82,6 +82,40 @@ export async function GET(request: Request) {
       orderBy: { date: "desc" },
     })
 
+    const checks = await prisma.check.findMany({
+      where: {
+        companyId,
+        ...(customerId && { customerId }),
+        ...(supplierId && { supplierId }),
+        ...(startDate || endDate
+          ? {
+              dueDate: {
+                ...(startDate && { gte: new Date(startDate) }),
+                ...(endDate && { lte: new Date(endDate) }),
+              },
+            }
+          : {}),
+      },
+      orderBy: { dueDate: "desc" },
+    })
+
+    const promissoryNotes = await prisma.promissoryNote.findMany({
+      where: {
+        companyId,
+        ...(customerId && { customerId }),
+        ...(supplierId && { supplierId }),
+        ...(startDate || endDate
+          ? {
+              dueDate: {
+                ...(startDate && { gte: new Date(startDate) }),
+                ...(endDate && { lte: new Date(endDate) }),
+              },
+            }
+          : {}),
+      },
+      orderBy: { dueDate: "desc" },
+    })
+
     // Combine and sort by date
     const entries = [
       ...invoices.map((inv) => ({
@@ -106,6 +140,28 @@ export async function GET(request: Request) {
         reference: trx.reference,
         data: trx,
       })),
+      ...checks.map((check) => ({
+        type: "CHECK",
+        id: check.id,
+        date: check.dueDate,
+        description: `Çek ${check.checkNo}`,
+        debit: check.customerId ? Number(check.amount) : 0,
+        credit: check.supplierId ? Number(check.amount) : 0,
+        balance: 0,
+        reference: check.checkNo,
+        data: check,
+      })),
+      ...promissoryNotes.map((note) => ({
+        type: "PROMISSORY_NOTE",
+        id: note.id,
+        date: note.dueDate,
+        description: `Senet ${note.noteNo}`,
+        debit: note.customerId ? Number(note.amount) : 0,
+        credit: note.supplierId ? Number(note.amount) : 0,
+        balance: 0,
+        reference: note.noteNo,
+        data: note,
+      })),
     ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
     // Calculate running balance
@@ -115,11 +171,38 @@ export async function GET(request: Request) {
       entry.balance = runningBalance
     })
 
+    const now = new Date()
+    const aging = {
+      current: 0,
+      days_0_30: 0,
+      days_31_60: 0,
+      days_61_90: 0,
+      days_90_plus: 0,
+    }
+
+    entries.forEach((entry) => {
+      const openAmount = entry.debit - entry.credit
+      if (openAmount === 0) return
+      const ageDays = Math.floor((now.getTime() - new Date(entry.date).getTime()) / (1000 * 60 * 60 * 24))
+      if (ageDays < 0) {
+        aging.current += openAmount
+      } else if (ageDays <= 30) {
+        aging.days_0_30 += openAmount
+      } else if (ageDays <= 60) {
+        aging.days_31_60 += openAmount
+      } else if (ageDays <= 90) {
+        aging.days_61_90 += openAmount
+      } else {
+        aging.days_90_plus += openAmount
+      }
+    })
+
     return NextResponse.json({
       entries,
       totalDebit: entries.reduce((sum, e) => sum + e.debit, 0),
       totalCredit: entries.reduce((sum, e) => sum + e.credit, 0),
       finalBalance: runningBalance,
+      aging,
     })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {

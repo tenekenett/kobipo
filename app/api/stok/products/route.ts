@@ -79,6 +79,7 @@ export async function POST(request: Request) {
       purchasePrice,
       salePrice,
       stockQuantity,
+      minStockLevel,
       isService,
     } = body
 
@@ -102,6 +103,7 @@ export async function POST(request: Request) {
         purchasePrice: purchasePrice ? parseFloat(purchasePrice) : null,
         salePrice: salePrice ? parseFloat(salePrice) : null,
         stockQuantity: stockQuantity ? parseFloat(stockQuantity) : 0,
+        minStockLevel: minStockLevel ? parseFloat(minStockLevel) : null,
         isService: isService || false,
       },
     })

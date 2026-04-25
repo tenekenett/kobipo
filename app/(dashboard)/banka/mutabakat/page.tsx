@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Plus } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface BankStatement {
   id: string
@@ -32,11 +35,20 @@ export default function BankaMutabakatPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const [statements, setStatements] = useState<BankStatement[]>([])
+  const [accounts, setAccounts] = useState<Array<{ id: string; name: string }>>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [form, setForm] = useState({
+    accountId: "",
+    statementDate: "",
+    openingBalance: "",
+    closingBalance: "",
+  })
 
   useEffect(() => {
     if (companyId) {
       fetchStatements()
+      fetchAccounts()
     }
   }, [companyId])
 
@@ -53,6 +65,43 @@ export default function BankaMutabakatPage() {
       console.error("Error fetching statements:", error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const fetchAccounts = async () => {
+    if (!companyId) return
+    const response = await fetch(`/api/finans/accounts?companyId=${companyId}`)
+    if (response.ok) {
+      const data = await response.json()
+      setAccounts(data.filter((item: any) => item.type === "BANK"))
+    }
+  }
+
+  const createStatement = async () => {
+    if (!companyId || !form.accountId || !form.statementDate) return
+    const response = await fetch("/api/banka/mutabakat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        companyId,
+        accountId: form.accountId,
+        statementDate: form.statementDate,
+        openingBalance: form.openingBalance || "0",
+        closingBalance: form.closingBalance || "0",
+        items: [
+          {
+            transactionDate: form.statementDate,
+            description: "Açılış kaydı",
+            amount: Number(form.closingBalance || 0) - Number(form.openingBalance || 0),
+            balance: Number(form.closingBalance || 0),
+          },
+        ],
+      }),
+    })
+    if (response.ok) {
+      setIsCreateOpen(false)
+      setForm({ accountId: "", statementDate: "", openingBalance: "", closingBalance: "" })
+      fetchStatements()
     }
   }
 
@@ -83,10 +132,29 @@ export default function BankaMutabakatPage() {
               <CardTitle>Banka Mutabakatı</CardTitle>
               <CardDescription>Banka ekstreleri ve mutabakat işlemleri</CardDescription>
             </div>
-            <Button disabled>
-              <Plus className="mr-2 h-4 w-4" />
-              Yeni Ekstre
-            </Button>
+            <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Yeni Ekstre
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Yeni Banka Ekstresi</DialogTitle></DialogHeader>
+                <div className="space-y-3">
+                  <Select value={form.accountId} onValueChange={(value) => setForm((prev) => ({ ...prev, accountId: value }))}>
+                    <SelectTrigger><SelectValue placeholder="Banka hesabı seçin" /></SelectTrigger>
+                    <SelectContent>
+                      {accounts.map((account) => <SelectItem key={account.id} value={account.id}>{account.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Input type="date" value={form.statementDate} onChange={(e) => setForm((prev) => ({ ...prev, statementDate: e.target.value }))} />
+                  <Input type="number" placeholder="Açılış bakiyesi" value={form.openingBalance} onChange={(e) => setForm((prev) => ({ ...prev, openingBalance: e.target.value }))} />
+                  <Input type="number" placeholder="Kapanış bakiyesi" value={form.closingBalance} onChange={(e) => setForm((prev) => ({ ...prev, closingBalance: e.target.value }))} />
+                  <Button className="w-full" onClick={createStatement}>Kaydet</Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </CardHeader>
         <CardContent>

@@ -18,7 +18,25 @@ export async function GET(request: Request) {
         userId: user.id,
       },
       include: {
-        company: true,
+        company: {
+          select: {
+            id: true,
+            name: true,
+            taxNumber: true,
+            taxOffice: true,
+            address: true,
+            city: true,
+            country: true,
+            phone: true,
+            email: true,
+            website: true,
+            isEDonusumEnabled: true,
+            invoiceSeriesPrefix: true,
+            isActive: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
       },
     })
 
@@ -42,7 +60,16 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { name, taxNumber, taxOffice, address, city, phone, email } = body
+    const {
+      name,
+      taxNumber,
+      taxOffice,
+      address,
+      city,
+      phone,
+      email,
+      isEDonusumEnabled,
+    } = body
 
     if (!name) {
       return NextResponse.json(
@@ -51,24 +78,38 @@ export async function POST(request: Request) {
       )
     }
 
-    const company = await prisma.company.create({
-      data: {
-        name,
-        taxNumber,
-        taxOffice,
-        address,
-        city,
-        phone,
-        email,
-      },
-    })
+    const company = await prisma.$transaction(async (tx) => {
+      const createdCompany = await tx.company.create({
+        data: {
+          name,
+          taxNumber,
+          taxOffice,
+          address,
+          city,
+          phone,
+          email,
+          isEDonusumEnabled: Boolean(isEDonusumEnabled),
+        },
+      })
 
-    await prisma.userCompany.create({
-      data: {
-        userId: user.id,
-        companyId: company.id,
-        role: "ADMIN",
-      },
+      await tx.userCompany.create({
+        data: {
+          userId: user.id,
+          companyId: createdCompany.id,
+          role: "ADMIN",
+        },
+      })
+
+      await tx.warehouse.create({
+        data: {
+          companyId: createdCompany.id,
+          code: "ANA",
+          name: "Ana Depo",
+          isDefault: true,
+        },
+      })
+
+      return createdCompany
     })
 
     return NextResponse.json(company, { status: 201 })

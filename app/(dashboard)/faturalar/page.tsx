@@ -30,6 +30,11 @@ interface Invoice {
   payments?: Array<{ amount: number }>
 }
 
+interface Company {
+  id: string
+  isEDonusumEnabled?: boolean
+}
+
 export default function FaturalarPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -37,13 +42,27 @@ export default function FaturalarPage() {
   const { toast } = useToast()
   
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [company, setCompany] = useState<Company | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
     if (companyId) {
       fetchInvoices()
+      fetchCompany()
     }
   }, [companyId])
+
+  const fetchCompany = async () => {
+    if (!companyId) return
+    try {
+      const response = await fetch("/api/companies")
+      if (!response.ok) return
+      const companies = (await response.json()) as Company[]
+      setCompany(companies.find((item) => item.id === companyId) || null)
+    } catch (error) {
+      console.error("Error fetching company:", error)
+    }
+  }
 
   const fetchInvoices = async () => {
     if (!companyId) return
@@ -106,6 +125,14 @@ export default function FaturalarPage() {
     return new Date(dateString).toLocaleDateString("tr-TR")
   }
 
+  const handleCreateInvoice = () => {
+    if (!companyId) return
+    const target = company?.isEDonusumEnabled
+      ? `/e-donusum?company=${companyId}`
+      : `/e-donusum?company=${companyId}&manual=1`
+    router.push(target)
+  }
+
   if (!companyId) {
     return (
       <Card>
@@ -126,12 +153,10 @@ export default function FaturalarPage() {
               <CardTitle>Faturalar</CardTitle>
               <CardDescription>Tüm faturalarınızı görüntüleyin ve yönetin</CardDescription>
             </div>
-            <Link href={`/e-donusum?company=${companyId}`}>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Yeni Fatura
-              </Button>
-            </Link>
+            <Button onClick={handleCreateInvoice}>
+              <Plus className="mr-2 h-4 w-4" />
+              Yeni Fatura
+            </Button>
           </div>
         </CardHeader>
         <CardContent>

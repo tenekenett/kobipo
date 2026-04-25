@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Download, ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface Invoice {
   id: string
@@ -56,8 +58,13 @@ export default function FaturaOnizlemePage() {
   const params = useParams()
   const searchParams = useSearchParams()
   const invoiceId = params.id as string
+  const companyId = searchParams.get("company")
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [template, setTemplate] = useState("standart")
+  const [email, setEmail] = useState("")
+  const [attachments, setAttachments] = useState<any[]>([])
+  const [attachmentName, setAttachmentName] = useState("")
 
   useEffect(() => {
     if (invoiceId) {
@@ -67,7 +74,7 @@ export default function FaturaOnizlemePage() {
 
   const fetchInvoice = async () => {
     try {
-      const response = await fetch(`/api/e-donusum/invoices/${invoiceId}`)
+      const response = await fetch(`/api/e-donusum/invoices/${invoiceId}?companyId=${companyId || ""}`)
       if (response.ok) {
         const data = await response.json()
         // Ensure items array exists
@@ -75,6 +82,7 @@ export default function FaturaOnizlemePage() {
           data.items = []
         }
         setInvoice(data)
+        fetchAttachments()
       } else {
         console.error("Failed to fetch invoice:", response.status)
       }
@@ -85,8 +93,46 @@ export default function FaturaOnizlemePage() {
     }
   }
 
+  const fetchAttachments = async () => {
+    if (!companyId) return
+    const response = await fetch(`/api/attachments?companyId=${companyId}&entityType=invoice&entityId=${invoiceId}`)
+    if (response.ok) setAttachments(await response.json())
+  }
+
   const handleDownloadPDF = () => {
-    window.open(`/api/faturalar/${invoiceId}/pdf`, "_blank")
+    window.open(`/api/faturalar/${invoiceId}/pdf?template=${template}`, "_blank")
+  }
+
+  const handleSendEmail = async () => {
+    const response = await fetch(`/api/faturalar/${invoiceId}/email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    })
+    if (!response.ok) {
+      alert("E-posta gönderilemedi")
+      return
+    }
+    alert("E-posta gönderimi kuyruğa alındı")
+  }
+
+  const createAttachment = async () => {
+    if (!attachmentName || !companyId) return
+    const response = await fetch("/api/attachments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        companyId,
+        entityType: "invoice",
+        entityId: invoiceId,
+        fileName: attachmentName,
+        mimeType: "application/octet-stream",
+      }),
+    })
+    if (response.ok) {
+      setAttachmentName("")
+      fetchAttachments()
+    }
   }
 
   const formatCurrency = (amount: number) => {
@@ -116,7 +162,7 @@ export default function FaturaOnizlemePage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href="/faturalar">
+          <Link href={`/faturalar?company=${companyId || ""}`}>
             <Button variant="outline" size="sm">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Geri
@@ -127,10 +173,21 @@ export default function FaturaOnizlemePage() {
             <p className="text-muted-foreground">Fatura No: {invoice.invoiceNo}</p>
           </div>
         </div>
-        <Button onClick={handleDownloadPDF}>
-          <Download className="h-4 w-4 mr-2" />
-          PDF İndir
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select value={template} onValueChange={setTemplate}>
+            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="standart">Standart</SelectItem>
+              <SelectItem value="kurumsal">Kurumsal</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input className="w-56" placeholder="E-posta (opsiyonel)" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Button variant="outline" onClick={handleSendEmail}>E-posta Gönder</Button>
+          <Button onClick={handleDownloadPDF}>
+            <Download className="h-4 w-4 mr-2" />
+            PDF İndir
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -276,6 +333,20 @@ export default function FaturaOnizlemePage() {
               <p className="text-sm text-muted-foreground">{invoice.notes}</p>
             </div>
           )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>Ek Belgeler</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex gap-2">
+            <Input placeholder="Dosya adı (simülasyon)" value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)} />
+            <Button onClick={createAttachment}>Ekle</Button>
+          </div>
+          {attachments.map((attachment) => (
+            <div key={attachment.id} className="rounded border p-2 text-sm">
+              {attachment.fileName} - <span className="text-muted-foreground">{attachment.filePath}</span>
+            </div>
+          ))}
         </CardContent>
       </Card>
     </div>

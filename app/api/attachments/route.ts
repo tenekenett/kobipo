@@ -1,0 +1,37 @@
+import { NextResponse } from "next/server"
+import { getCurrentUser } from "@/lib/auth/session"
+import { prisma } from "@/lib/db/prisma"
+import { ensureCompanyAccess } from "@/lib/middleware/company"
+
+export const dynamic = "force-dynamic"
+
+export async function GET(request: Request) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const sp = new URL(request.url).searchParams
+  const companyId = sp.get("companyId")
+  const entityType = sp.get("entityType")
+  const entityId = sp.get("entityId")
+  if (!companyId || !entityType || !entityId) {
+    return NextResponse.json({ error: "companyId, entityType, entityId are required" }, { status: 400 })
+  }
+  await ensureCompanyAccess(companyId)
+  const attachments = await prisma.attachment.findMany({
+    where: { companyId, entityType, entityId },
+    orderBy: { createdAt: "desc" },
+  })
+  return NextResponse.json(attachments)
+}
+
+export async function POST(request: Request) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const body = await request.json()
+  const { companyId, entityType, entityId, fileName, mimeType, sizeBytes } = body
+  await ensureCompanyAccess(companyId)
+  const filePath = `supabase://attachments/${companyId}/${Date.now()}-${fileName}`
+  const created = await prisma.attachment.create({
+    data: { companyId, entityType, entityId, fileName, filePath, mimeType, sizeBytes, createdBy: user.id },
+  })
+  return NextResponse.json(created, { status: 201 })
+}

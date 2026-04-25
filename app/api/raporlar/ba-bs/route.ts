@@ -16,6 +16,7 @@ export async function GET(request: Request) {
     const companyId = searchParams.get("companyId")
     const year = searchParams.get("year") || new Date().getFullYear().toString()
     const month = searchParams.get("month") || (new Date().getMonth() + 1).toString()
+    const format = searchParams.get("format")
 
     if (!companyId) {
       return NextResponse.json(
@@ -64,7 +65,7 @@ export async function GET(request: Request) {
     const purchaseVAT = purchaseInvoices.reduce((sum, inv) => sum + Number(inv.vatAmount || 0), 0)
     const purchaseNet = purchaseInvoices.reduce((sum, inv) => sum + Number(inv.netAmount || 0), 0)
 
-    return NextResponse.json({
+    const payload = {
       period: {
         year: parseInt(year),
         month: parseInt(month),
@@ -105,7 +106,22 @@ export async function GET(request: Request) {
           totalAmount: Number(inv.totalAmount),
         })),
       },
-    })
+    }
+
+    if (format === "csv") {
+      const rows = ["Tip,FaturaNo,Tarih,KarsiTaraf,Net,KDV,Toplam"]
+      payload.sales.invoices.forEach((invoice) => {
+        rows.push(`SATIS,${invoice.invoiceNo},${invoice.date},${invoice.customer?.name || ""},${invoice.netAmount},${invoice.vatAmount},${invoice.totalAmount}`)
+      })
+      payload.purchases.invoices.forEach((invoice) => {
+        rows.push(`ALIS,${invoice.invoiceNo},${invoice.date},${invoice.supplier?.name || ""},${invoice.netAmount},${invoice.vatAmount},${invoice.totalAmount}`)
+      })
+      return new NextResponse(rows.join("\n"), {
+        headers: { "Content-Type": "text/csv; charset=utf-8" },
+      })
+    }
+
+    return NextResponse.json(payload)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })

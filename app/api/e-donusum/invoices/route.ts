@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
+import { ensureUsageLimit } from "@/lib/middleware/usage"
 
 export const dynamic = 'force-dynamic'
 
@@ -28,6 +29,7 @@ export async function GET(request: Request) {
     }
 
     await ensureCompanyAccess(companyId)
+    await ensureUsageLimit(companyId, "invoices_monthly", 1)
 
     const where: any = {
       companyId,
@@ -90,6 +92,9 @@ export async function POST(request: Request) {
       supplierId,
       date,
       dueDate,
+      currency,
+      exchangeRate,
+      exchangeRateDate,
       items,
       notes,
       sendInvoice,
@@ -114,15 +119,36 @@ export async function POST(request: Request) {
       )
     }
 
+    const normalizedItems = (items as any[])
+      .filter((item) => item?.description && String(item.description).trim() !== "")
+      .map((item) => ({
+        productId: item.productId || null,
+        description: String(item.description).trim(),
+        quantity: parseFloat(item.quantity) || 0,
+        unitPrice: parseFloat(item.unitPrice) || 0,
+        vatRate: parseFloat(item.vatRate) || 0,
+        withholdingRate: parseFloat(item.withholdingRate) || 0,
+        exciseRate: parseFloat(item.exciseRate) || 0,
+      }))
+
+    if (normalizedItems.length === 0) {
+      return NextResponse.json(
+        { error: "At least one valid invoice item is required" },
+        { status: 400 }
+      )
+    }
+
     // Calculate totals
     let netAmount = 0
     let vatAmount = 0
     let totalAmount = 0
 
-    items.forEach((item: any) => {
+    normalizedItems.forEach((item) => {
       const itemNet = item.quantity * item.unitPrice
       const itemVat = itemNet * (item.vatRate / 100)
-      const itemTotal = itemNet + itemVat
+      const itemWithholding = itemNet * (item.withholdingRate / 100)
+      const itemExcise = itemNet * (item.exciseRate / 100)
+      const itemTotal = itemNet + itemVat + itemExcise - itemWithholding
 
       netAmount += itemNet
       vatAmount += itemVat
@@ -140,6 +166,9 @@ export async function POST(request: Request) {
         supplierId: supplierId || null,
         date: new Date(date),
         dueDate: dueDate ? new Date(dueDate) : null,
+        currency: currency || "TRY",
+        exchangeRate: exchangeRate ? Number(exchangeRate) : null,
+        exchangeRateDate: exchangeRateDate ? new Date(exchangeRateDate) : null,
         totalAmount,
         vatAmount,
         netAmount,
@@ -147,14 +176,19 @@ export async function POST(request: Request) {
         status: "DRAFT",
         createdBy: user.id,
         items: {
-          create: items.map((item: any, index: number) => ({
+          create: normalizedItems.map((item, index: number) => ({
             productId: item.productId || null,
             description: item.description,
-            quantity: parseFloat(item.quantity),
-            unitPrice: parseFloat(item.unitPrice),
-            vatRate: parseFloat(item.vatRate),
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            vatRate: item.vatRate,
             vatAmount: item.quantity * item.unitPrice * (item.vatRate / 100),
-            totalAmount: item.quantity * item.unitPrice * (1 + item.vatRate / 100),
+            withholdingRate: item.withholdingRate || null,
+            withholdingAmount: item.quantity * item.unitPrice * (item.withholdingRate / 100),
+            exciseRate: item.exciseRate || null,
+            exciseAmount: item.quantity * item.unitPrice * (item.exciseRate / 100),
+            totalAmount:
+              item.quantity * item.unitPrice * (1 + item.vatRate / 100 + item.exciseRate / 100 - item.withholdingRate / 100),
             order: index,
           })),
         },
@@ -166,8 +200,65 @@ export async function POST(request: Request) {
       },
     })
 
+    // Otomatik muhasebe fişi: Satış faturaları için temel kayıt.
+    if (type === "SALES") {
+      const companyPlans = await prisma.accountPlan.findMany({
+        where: { companyId, code: { in: ["120", "600", "391"] } },
+        select: { id: true, code: true },
+      })
+      const plan120 = companyPlans.find((plan) => plan.code === "120")
+      const plan600 = companyPlans.find((plan) => plan.code === "600")
+      const plan391 = companyPlans.find((plan) => plan.code === "391")
+
+      if (plan120 && plan600 && Number(netAmount) > 0) {
+        const lastEntry = await prisma.accountingEntry.findFirst({
+          where: { companyId },
+          orderBy: { createdAt: "desc" },
+          select: { entryNo: true },
+        })
+        const nextNo = (Number(lastEntry?.entryNo || 0) + 1).toString().padStart(6, "0")
+
+        await prisma.accountingEntry.create({
+          data: {
+            companyId,
+            entryNo: nextNo,
+            date: new Date(date),
+            description: `${invoice.invoiceNo} satış faturası otomatik fişi`,
+            debitAccountId: plan120.id,
+            creditAccountId: plan600.id,
+            amount: Number(netAmount),
+            reference: invoice.id,
+            referenceType: "INVOICE_AUTO",
+            createdBy: user.id,
+          },
+        })
+
+        if (plan391 && Number(vatAmount) > 0) {
+          const vatNo = (Number(nextNo) + 1).toString().padStart(6, "0")
+          await prisma.accountingEntry.create({
+            data: {
+              companyId,
+              entryNo: vatNo,
+              date: new Date(date),
+              description: `${invoice.invoiceNo} KDV otomatik fişi`,
+              debitAccountId: plan120.id,
+              creditAccountId: plan391.id,
+              amount: Number(vatAmount),
+              reference: invoice.id,
+              referenceType: "INVOICE_AUTO_VAT",
+              createdBy: user.id,
+            },
+          })
+        }
+      }
+    }
+
     // Send invoice if requested
-    if (sendInvoice && (invoiceType === "E_INVOICE" || invoiceType === "E_ARCHIVE")) {
+    if (
+      sendInvoice &&
+      type === "SALES" &&
+      (invoiceType === "E_INVOICE" || invoiceType === "E_ARCHIVE")
+    ) {
       try {
         const provider = createEInvoiceProvider()
         const invoiceData = {

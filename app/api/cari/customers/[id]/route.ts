@@ -155,6 +155,8 @@ export async function PUT(
       phone,
       email,
       contactPerson,
+      paymentDueDays,
+      isAlsoSupplier,
     } = body
 
     const updated = await prisma.customer.update({
@@ -169,6 +171,8 @@ export async function PUT(
         phone,
         email,
         contactPerson,
+        paymentDueDays: paymentDueDays !== undefined ? Number(paymentDueDays) : undefined,
+        isAlsoSupplier: isAlsoSupplier !== undefined ? Boolean(isAlsoSupplier) : undefined,
       },
     })
 

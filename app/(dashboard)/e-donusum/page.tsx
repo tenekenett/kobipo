@@ -31,7 +31,8 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Send, Trash2, FileText } from "lucide-react"
+import { Plus, Send, Trash2, FileText, Eye } from "lucide-react"
+import Link from "next/link"
 
 interface Invoice {
   id: string
@@ -72,11 +73,19 @@ interface InvoiceItem {
   quantity: number
   unitPrice: number
   vatRate: number
+  withholdingRate?: number
+  exciseRate?: number
+}
+
+interface CompanySettings {
+  id: string
+  isEDonusumEnabled?: boolean
 }
 
 export default function EDönüşümPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
+  const manualMode = searchParams.get("manual") === "1"
   const { toast } = useToast()
   
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -85,6 +94,7 @@ export default function EDönüşümPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
   
   // Form state
   const [formData, setFormData] = useState({
@@ -94,10 +104,13 @@ export default function EDönüşümPage() {
     supplierId: "",
     date: new Date().toISOString().split("T")[0],
     dueDate: "",
+    currency: "TRY",
+    exchangeRate: "",
+    exchangeRateDate: "",
     notes: "",
   })
   const [items, setItems] = useState<InvoiceItem[]>([
-    { description: "", quantity: 1, unitPrice: 0, vatRate: 20 }
+    { description: "", quantity: 1, unitPrice: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }
   ])
 
   useEffect(() => {
@@ -106,8 +119,16 @@ export default function EDönüşümPage() {
       fetchCustomers()
       fetchSuppliers()
       fetchProducts()
+      fetchCompanySettings()
     }
   }, [companyId])
+
+  useEffect(() => {
+    if (manualMode) {
+      setFormData((prev) => ({ ...prev, invoiceType: "MANUAL" }))
+      setIsModalOpen(true)
+    }
+  }, [manualMode])
 
   const fetchInvoices = async () => {
     if (!companyId) return
@@ -161,6 +182,22 @@ export default function EDönüşümPage() {
     }
   }
 
+  const fetchCompanySettings = async () => {
+    if (!companyId) return
+    try {
+      const response = await fetch("/api/companies")
+      if (!response.ok) return
+      const companies = (await response.json()) as CompanySettings[]
+      const currentCompany = companies.find((company) => company.id === companyId) || null
+      setCompanySettings(currentCompany)
+      if (currentCompany && !currentCompany.isEDonusumEnabled) {
+        setFormData((prev) => ({ ...prev, invoiceType: "MANUAL" }))
+      }
+    } catch (error) {
+      console.error("Error fetching company settings:", error)
+    }
+  }
+
   const handleSendInvoice = async (invoiceId: string) => {
     if (!confirm("Faturayı göndermek istediğinize emin misiniz?")) {
       return
@@ -194,7 +231,7 @@ export default function EDönüşümPage() {
   }
 
   const addItem = () => {
-    setItems([...items, { description: "", quantity: 1, unitPrice: 0, vatRate: 20 }])
+    setItems([...items, { description: "", quantity: 1, unitPrice: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }])
   }
 
   const removeItem = (index: number) => {
@@ -219,6 +256,8 @@ export default function EDönüşümPage() {
         description: product.name,
         unitPrice: Number(product.salePrice) || 0,
         vatRate: Number(product.vatRate) || 20,
+        withholdingRate: 0,
+        exciseRate: 0,
       }
       setItems(newItems)
     }
@@ -227,18 +266,26 @@ export default function EDönüşümPage() {
   const calculateTotals = () => {
     let netAmount = 0
     let vatAmount = 0
+    let withholdingAmount = 0
+    let exciseAmount = 0
     
     items.forEach(item => {
       const itemNet = item.quantity * item.unitPrice
       const itemVat = itemNet * (item.vatRate / 100)
+      const itemWithholding = itemNet * ((item.withholdingRate || 0) / 100)
+      const itemExcise = itemNet * ((item.exciseRate || 0) / 100)
       netAmount += itemNet
       vatAmount += itemVat
+      withholdingAmount += itemWithholding
+      exciseAmount += itemExcise
     })
     
     return {
       netAmount,
       vatAmount,
-      totalAmount: netAmount + vatAmount,
+      withholdingAmount,
+      exciseAmount,
+      totalAmount: netAmount + vatAmount + exciseAmount - withholdingAmount,
     }
   }
 
@@ -308,14 +355,17 @@ export default function EDönüşümPage() {
   const resetForm = () => {
     setFormData({
       type: "SALES",
-      invoiceType: "E_ARCHIVE",
+      invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL",
       customerId: "",
       supplierId: "",
       date: new Date().toISOString().split("T")[0],
       dueDate: "",
+      currency: "TRY",
+      exchangeRate: "",
+      exchangeRateDate: "",
       notes: "",
     })
-    setItems([{ description: "", quantity: 1, unitPrice: 0, vatRate: 20 }])
+    setItems([{ description: "", quantity: 1, unitPrice: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }])
   }
 
   const totals = calculateTotals()
@@ -416,7 +466,14 @@ export default function EDönüşümPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-2">
+                        <Link href={`/e-donusum/${invoice.id}?company=${companyId}`}>
+                          <Button variant="outline" size="sm">
+                            <Eye className="mr-1 h-3 w-3" />
+                            Önizle
+                          </Button>
+                        </Link>
                         {invoice.status === "DRAFT" &&
+                          invoice.type === "SALES" &&
                           (invoice.invoiceType === "E_INVOICE" ||
                             invoice.invoiceType === "E_ARCHIVE") && (
                             <Button
@@ -473,11 +530,13 @@ export default function EDönüşümPage() {
                 <Select
                   value={formData.invoiceType}
                   onValueChange={(value) => setFormData({ ...formData, invoiceType: value })}
+                  disabled={companySettings ? !companySettings.isEDonusumEnabled : false}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="MANUAL">Manuel</SelectItem>
                     <SelectItem value="E_ARCHIVE">E-Arşiv</SelectItem>
                     <SelectItem value="E_INVOICE">E-Fatura</SelectItem>
                   </SelectContent>
@@ -500,6 +559,18 @@ export default function EDönüşümPage() {
                   value={formData.dueDate}
                   onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>Para Birimi</Label>
+                <Input value={(formData as any).currency} onChange={(e) => setFormData({ ...(formData as any), currency: e.target.value.toUpperCase() })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Döviz Kuru</Label>
+                <Input type="number" step="0.0001" value={(formData as any).exchangeRate} onChange={(e) => setFormData({ ...(formData as any), exchangeRate: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Kur Tarihi</Label>
+                <Input type="date" value={(formData as any).exchangeRateDate} onChange={(e) => setFormData({ ...(formData as any), exchangeRateDate: e.target.value })} />
               </div>
             </div>
 
@@ -555,11 +626,13 @@ export default function EDönüşümPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
-                      <TableHead className="w-[200px]">Ürün</TableHead>
+                      <TableHead className="w-[200px]">Ürün/Hizmet</TableHead>
                       <TableHead>Açıklama</TableHead>
                       <TableHead className="w-[100px]">Miktar</TableHead>
                       <TableHead className="w-[120px]">Birim Fiyat</TableHead>
                       <TableHead className="w-[100px]">KDV %</TableHead>
+                      <TableHead className="w-[110px]">Tevkifat %</TableHead>
+                      <TableHead className="w-[90px]">OTV %</TableHead>
                       <TableHead className="w-[120px] text-right">Tutar</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
@@ -570,7 +643,7 @@ export default function EDönüşümPage() {
                         <TableCell>
                           <div className="flex gap-2">
                             <Select
-                              value={item.productId || ""}
+                              value={item.productId || "manual"}
                               onValueChange={(value) => {
                                 if (value === "manual") {
                                   // Manuel giriş modu
@@ -642,8 +715,26 @@ export default function EDönüşümPage() {
                             </SelectContent>
                           </Select>
                         </TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.withholdingRate || 0}
+                            onChange={(e) => updateItem(index, "withholdingRate", parseFloat(e.target.value) || 0)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.exciseRate || 0}
+                            onChange={(e) => updateItem(index, "exciseRate", parseFloat(e.target.value) || 0)}
+                          />
+                        </TableCell>
                         <TableCell className="text-right font-medium">
-                          ₺{(item.quantity * item.unitPrice * (1 + item.vatRate / 100)).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
+                          ₺{(item.quantity * item.unitPrice * (1 + item.vatRate / 100 + (item.exciseRate || 0) / 100 - (item.withholdingRate || 0) / 100)).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
                         </TableCell>
                         <TableCell>
                           <Button
@@ -676,6 +767,14 @@ export default function EDönüşümPage() {
                   <div className="flex justify-between font-bold text-lg border-t pt-2">
                     <span>Genel Toplam:</span>
                     <span className="text-green-600">₺{totals.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Tevkifat:</span>
+                    <span>- ₺{totals.withholdingAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">OTV:</span>
+                    <span>+ ₺{totals.exciseAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
               </div>

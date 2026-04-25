@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { Save } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 
 interface Company {
   id: string
@@ -19,6 +20,8 @@ interface Company {
   phone?: string
   email?: string
   website?: string
+  isEDonusumEnabled?: boolean
+  invoiceSeriesPrefix?: string
 }
 
 export default function FirmaAyarlariPage() {
@@ -36,6 +39,8 @@ export default function FirmaAyarlariPage() {
     phone: "",
     email: "",
     website: "",
+    isEDonusumEnabled: false,
+    invoiceSeriesPrefix: "",
   })
 
   useEffect(() => {
@@ -60,6 +65,8 @@ export default function FirmaAyarlariPage() {
           phone: data.phone || "",
           email: data.email || "",
           website: data.website || "",
+          isEDonusumEnabled: Boolean(data.isEDonusumEnabled),
+          invoiceSeriesPrefix: data.invoiceSeriesPrefix || "",
         })
       }
     } catch (error) {
@@ -196,6 +203,27 @@ export default function FirmaAyarlariPage() {
                   disabled={isLoading}
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="invoiceSeriesPrefix">Fatura Seri Prefix</Label>
+                <Input
+                  id="invoiceSeriesPrefix"
+                  placeholder="SAT / ALI yerine kullanılacak ortak prefix"
+                  value={formData.invoiceSeriesPrefix}
+                  onChange={(e) => setFormData({ ...formData, invoiceSeriesPrefix: e.target.value.toUpperCase() })}
+                  disabled={isLoading}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div>
+                <p className="text-sm font-medium">E-Dönüşüm Aktif</p>
+                <p className="text-xs text-muted-foreground">E-fatura/e-arşiv gönderim özelliğini aktif eder</p>
+              </div>
+              <Switch
+                checked={formData.isEDonusumEnabled}
+                onCheckedChange={(checked) => setFormData({ ...formData, isEDonusumEnabled: checked })}
+                disabled={isLoading}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="address">Adres</Label>

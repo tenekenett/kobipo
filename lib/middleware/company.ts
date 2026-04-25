@@ -13,7 +13,25 @@ export async function getCurrentCompany(companyId: string) {
       companyId: companyId,
     },
     include: {
-      company: true,
+      company: {
+        select: {
+          id: true,
+          name: true,
+          taxNumber: true,
+          taxOffice: true,
+          address: true,
+          city: true,
+          country: true,
+          phone: true,
+          email: true,
+          website: true,
+          isEDonusumEnabled: true,
+          invoiceSeriesPrefix: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
     },
   })
 
@@ -35,7 +53,25 @@ export async function getUserCompanies() {
       userId: user.id,
     },
     include: {
-      company: true,
+      company: {
+        select: {
+          id: true,
+          name: true,
+          taxNumber: true,
+          taxOffice: true,
+          address: true,
+          city: true,
+          country: true,
+          phone: true,
+          email: true,
+          website: true,
+          isEDonusumEnabled: true,
+          invoiceSeriesPrefix: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
     },
   })
 
