@@ -1,13 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { signIn, useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
 
 export default function SignInPage() {
@@ -18,7 +13,6 @@ export default function SignInPage() {
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
-  // Zaten giriş yapmışsa yönlendir
   useEffect(() => {
     if (status === "authenticated" && session) {
       if (session.user?.isSuperAdmin) {
@@ -47,7 +41,6 @@ export default function SignInPage() {
           variant: "destructive",
         })
       } else {
-        // Başarılı giriş - session yüklenene kadar bekle
         router.refresh()
       }
     } catch (error) {
@@ -62,56 +55,42 @@ export default function SignInPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Giriş Yap</CardTitle>
-          <CardDescription>
-            Hesabınıza giriş yapmak için email ve şifrenizi girin
-          </CardDescription>
-        </CardHeader>
-        <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="ornek@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={isLoading}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Şifre</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={isLoading}
-              />
-            </div>
-          </CardContent>
-          <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Giriş yapılıyor..." : "Giriş Yap"}
-            </Button>
-            <Button
-              type="button"
-              variant="link"
-              className="w-full"
-              onClick={() => router.push("/signup")}
-            >
-              Hesabınız yok mu? Kayıt olun
-            </Button>
-          </CardFooter>
-        </form>
-      </Card>
+    <div className="bg-white rounded-2xl border border-kobipo-border shadow-card p-8">
+      <h1 className="mb-1 text-2xl font-extrabold tracking-tight text-kobipo-navy">Giriş Yap</h1>
+      <p className="mb-6 text-sm text-kobipo-gray">Hesabınıza erişmek için bilgilerinizi girin.</p>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label htmlFor="email" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">E-posta</label>
+          <input
+            id="email"
+            type="email"
+            placeholder="ornek@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            disabled={isLoading}
+            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+          />
+        </div>
+        <div>
+          <label htmlFor="password" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Şifre</label>
+          <input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            disabled={isLoading}
+            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+          />
+        </div>
+        <button type="submit" className="w-full mt-5 rounded-lg bg-kobipo-blue py-2.5 text-sm font-semibold text-white transition-colors hover:bg-kobipo-mid" disabled={isLoading}>
+          {isLoading ? "Giriş yapılıyor..." : "Giriş Yap"}
+        </button>
+        <button type="button" className="text-xs font-semibold text-kobipo-blue hover:text-kobipo-mid" onClick={() => router.push("/signup")}>
+          Hesabınız yok mu? Kayıt olun
+        </button>
+      </form>
     </div>
   )
 }
-

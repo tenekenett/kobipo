@@ -75,11 +75,11 @@ export default async function StockDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
+          <h1 className="text-3xl font-extrabold flex items-center gap-3 text-kobipo-navy">
             <Package className="h-8 w-8 text-orange-500" />
             Stok Paneli
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="mt-1 text-kobipo-gray">
             Stok durumu ve hareketler
           </p>
         </div>
@@ -91,7 +91,7 @@ export default async function StockDashboard() {
 
       {/* Ana İstatistikler */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-orange-500">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Toplam Ürün</CardTitle>
             <Package className="h-5 w-5 text-orange-500" />
@@ -104,7 +104,7 @@ export default async function StockDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-green-500">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Aktif Ürün</CardTitle>
             <TrendingUp className="h-5 w-5 text-green-500" />
@@ -115,7 +115,7 @@ export default async function StockDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-red-500">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Kritik Stok</CardTitle>
             <AlertTriangle className="h-5 w-5 text-red-500" />
@@ -126,7 +126,7 @@ export default async function StockDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-blue-500">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Toplam Stok</CardTitle>
             <BarChart3 className="h-5 w-5 text-blue-500" />

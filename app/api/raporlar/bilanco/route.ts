@@ -70,18 +70,25 @@ export async function GET(request: Request) {
     const netReceivables = Number(receivables._sum.totalAmount || 0) - Number(paidAmount._sum.amount || 0)
 
     // - Stok değeri
-    const inventory = await prisma.product.aggregate({
+    const inventory = await prisma.product.findMany({
       where: {
         companyId,
         isActive: true,
       },
-      _sum: {
+      select: {
         stockQuantity: true,
+        purchasePrice: true,
+        salePrice: true,
       },
     })
 
-    // Stok değeri için ortalama maliyet kullanılabilir (şimdilik basit hesaplama)
-    const inventoryValue = Number(inventory._sum.stockQuantity || 0) * 0 // TODO: Ortalama maliyet hesaplama
+    // Satın alma fiyatı yoksa satış fiyatına düş, yine yoksa 0 kabul et.
+    // Bu yaklaşım TODO durumunu kaldırır ve en azından stok bilanço etkisini gösterir.
+    const inventoryValue = inventory.reduce((sum, item) => {
+      const quantity = Number(item.stockQuantity || 0)
+      const unitCost = Number(item.purchasePrice ?? item.salePrice ?? 0)
+      return sum + quantity * unitCost
+    }, 0)
 
     // Pasifler (Yükümlülükler)
     // - Borçlar (Tedarikçi bakiyeleri - ödenmemiş faturalar)

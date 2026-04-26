@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { supplierHasBusinessReferences } from "@/lib/cari/dual-role"
 
 
 export const dynamic = 'force-dynamic'
@@ -159,21 +160,118 @@ export async function PUT(
       isAlsoSupplier,
     } = body
 
-    const updated = await prisma.customer.update({
-      where: { id: resolvedParams.id },
-      data: {
-        code,
-        name,
-        taxNumber,
-        taxOffice,
-        address,
-        city,
-        phone,
-        email,
-        contactPerson,
-        paymentDueDays: paymentDueDays !== undefined ? Number(paymentDueDays) : undefined,
-        isAlsoSupplier: isAlsoSupplier !== undefined ? Boolean(isAlsoSupplier) : undefined,
-      },
+    const paymentDueDaysVal =
+      paymentDueDays !== undefined && paymentDueDays !== "" && paymentDueDays !== null
+        ? Number(paymentDueDays)
+        : null
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const current = await tx.customer.findUnique({
+        where: { id: resolvedParams.id },
+      })
+      if (!current) throw new Error("Customer not found")
+
+      const merged = {
+        code: code !== undefined ? code : current.code,
+        name: name !== undefined ? name : current.name,
+        taxNumber: taxNumber !== undefined ? taxNumber : current.taxNumber,
+        taxOffice: taxOffice !== undefined ? taxOffice : current.taxOffice,
+        address: address !== undefined ? address : current.address,
+        city: city !== undefined ? city : current.city,
+        phone: phone !== undefined ? phone : current.phone,
+        email: email !== undefined ? email : current.email,
+        contactPerson: contactPerson !== undefined ? contactPerson : current.contactPerson,
+        paymentDueDays:
+          paymentDueDays !== undefined
+            ? paymentDueDaysVal
+            : current.paymentDueDays,
+      }
+
+      let linkedSupplierId = current.linkedSupplierId
+      let nextIsAlsoSupplier =
+        isAlsoSupplier !== undefined ? Boolean(isAlsoSupplier) : current.isAlsoSupplier
+
+      if (isAlsoSupplier === false && current.linkedSupplierId) {
+        const sid = current.linkedSupplierId
+        await tx.customer.update({
+          where: { id: current.id },
+          data: { linkedSupplierId: null, isAlsoSupplier: false },
+        })
+        linkedSupplierId = null
+        nextIsAlsoSupplier = false
+        const hasRefs = await supplierHasBusinessReferences(tx, sid)
+        if (hasRefs) {
+          await tx.supplier.update({
+            where: { id: sid },
+            data: { linkedCustomerId: null, isAlsoCustomer: false },
+          })
+        } else {
+          await tx.supplier.delete({ where: { id: sid } })
+        }
+      }
+
+      /* nextIsAlsoSupplier: bayrak true ama link yoksa (yetim) tedarikçi oluştur — sadece === true değil */
+      if (nextIsAlsoSupplier && !linkedSupplierId) {
+        const linkedSupplier = await tx.supplier.create({
+          data: {
+            companyId: current.companyId,
+            code: merged.code,
+            name: merged.name,
+            taxNumber: merged.taxNumber,
+            taxOffice: merged.taxOffice,
+            address: merged.address,
+            city: merged.city,
+            phone: merged.phone,
+            email: merged.email,
+            contactPerson: merged.contactPerson,
+            paymentDueDays: merged.paymentDueDays,
+            isAlsoCustomer: true,
+            linkedCustomerId: current.id,
+          },
+        })
+        linkedSupplierId = linkedSupplier.id
+        nextIsAlsoSupplier = true
+      }
+
+      const saved = await tx.customer.update({
+        where: { id: resolvedParams.id },
+        data: {
+          code: merged.code,
+          name: merged.name,
+          taxNumber: merged.taxNumber,
+          taxOffice: merged.taxOffice,
+          address: merged.address,
+          city: merged.city,
+          phone: merged.phone,
+          email: merged.email,
+          contactPerson: merged.contactPerson,
+          paymentDueDays: merged.paymentDueDays,
+          isAlsoSupplier: nextIsAlsoSupplier,
+          linkedSupplierId,
+        },
+      })
+
+      if (saved.linkedSupplierId) {
+        await tx.supplier.update({
+          where: { id: saved.linkedSupplierId },
+          data: {
+            code: saved.code,
+            name: saved.name,
+            taxNumber: saved.taxNumber,
+            taxOffice: saved.taxOffice,
+            address: saved.address,
+            city: saved.city,
+            phone: saved.phone,
+            email: saved.email,
+            contactPerson: saved.contactPerson,
+            paymentDueDays: saved.paymentDueDays,
+            isAlsoCustomer: true,
+            linkedCustomerId: saved.id,
+          },
+        })
+      }
+
+      return saved
     })
 
     return NextResponse.json(updated)

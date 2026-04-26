@@ -4,28 +4,41 @@ import bcrypt from "bcryptjs"
 
 export const dynamic = 'force-dynamic'
 
+const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { name, email, password } = body
+    const { name, email, password, companyOrPersonName, phone } = body
+    const trimmedName = String(name || "").trim()
+    const normalizedEmail = String(email || "").trim().toLowerCase()
+    const trimmedCompanyOrPersonName = String(companyOrPersonName || "").trim()
+    const trimmedPhone = String(phone || "").trim()
 
-    if (!name || !email || !password) {
+    if (!trimmedName || !normalizedEmail || !password || !trimmedCompanyOrPersonName || !trimmedPhone) {
       return NextResponse.json(
-        { error: "Tüm alanlar zorunludur" },
+        { error: "Ad soyad, firma/şahıs adı, telefon, e-mail ve şifre zorunludur" },
         { status: 400 }
       )
     }
 
-    if (password.length < 6) {
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
       return NextResponse.json(
-        { error: "Şifre en az 6 karakter olmalıdır" },
+        { error: "Geçerli bir e-mail adresi girin" },
+        { status: 400 }
+      )
+    }
+
+    if (!PASSWORD_REGEX.test(password)) {
+      return NextResponse.json(
+        { error: "Şifre en az 8 karakter olmalı, en az bir büyük harf, bir rakam ve bir özel karakter içermelidir" },
         { status: 400 }
       )
     }
 
     const existingUser = await prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
     })
 
     if (existingUser) {
@@ -39,9 +52,11 @@ export async function POST(request: Request) {
 
     const user = await prisma.user.create({
       data: {
-        name,
-        email,
+        name: trimmedName,
+        email: normalizedEmail,
         password: hashedPassword,
+        companyDisplayName: trimmedCompanyOrPersonName,
+        phone: trimmedPhone,
       },
     })
 

@@ -1,37 +1,59 @@
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
+import type { ReactNode } from "react"
 
-import { cn } from "@/lib/utils"
+type KobipoBadgeVariant = "aktif" | "odendi" | "bekliyor" | "gecikti"
 
-const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-  {
-    variants: {
-      variant: {
-        default:
-          "border-transparent bg-primary text-primary-foreground hover:bg-primary/80",
-        secondary:
-          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        destructive:
-          "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
-        outline: "text-foreground",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-    },
-  }
-)
+type BadgeVariant =
+  | KobipoBadgeVariant
+  | "default"
+  | "secondary"
+  | "destructive"
+  | "outline"
 
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {}
-
-function Badge({ className, variant, ...props }: BadgeProps) {
-  return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props} />
-  )
+const styles: Record<KobipoBadgeVariant, { wrap: string; dot: string; label: string }> = {
+  aktif: { wrap: "bg-kobipo-pale text-kobipo-blue", dot: "bg-kobipo-blue", label: "Aktif" },
+  odendi: {
+    wrap: "bg-kobipo-green-light text-kobipo-green-dark",
+    dot: "bg-kobipo-green",
+    label: "Ödendi",
+  },
+  bekliyor: { wrap: "bg-amber-50 text-amber-700", dot: "bg-amber-400", label: "Bekliyor" },
+  gecikti: { wrap: "bg-red-50 text-red-700", dot: "bg-red-500", label: "Gecikmiş" },
 }
 
-export { Badge, badgeVariants }
+type BadgeProps = {
+  variant: BadgeVariant
+  children?: ReactNode
+}
+
+const fallbackStyles: Record<"default" | "secondary" | "destructive" | "outline", string> = {
+  default: "bg-kobipo-pale text-kobipo-blue",
+  secondary: "bg-kobipo-offwhite text-kobipo-gray border border-kobipo-border",
+  destructive: "bg-red-50 text-red-700",
+  outline: "border border-kobipo-border text-kobipo-text",
+}
+
+export function Badge({ variant, children }: BadgeProps) {
+  if (variant === "default" || variant === "secondary" || variant === "destructive" || variant === "outline") {
+    return (
+      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${fallbackStyles[variant]}`}>
+        {children}
+      </span>
+    )
+  }
+
+  const s = styles[variant]
+  return (
+    <span
+      className={`
+      inline-flex items-center gap-1.5
+      px-2.5 py-0.5 rounded-full
+      text-[11px] font-semibold
+      ${s.wrap}
+    `}
+    >
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.dot}`} />
+      {children ?? s.label}
+    </span>
+  )
+}
 

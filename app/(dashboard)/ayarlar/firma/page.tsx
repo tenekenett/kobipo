@@ -30,6 +30,7 @@ export default function FirmaAyarlariPage() {
   const { toast } = useToast()
   const [company, setCompany] = useState<Company | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
     taxNumber: "",
@@ -56,6 +57,7 @@ export default function FirmaAyarlariPage() {
       if (response.ok) {
         const data = await response.json()
         setCompany(data)
+        setIsEditing(false)
         setFormData({
           name: data.name || "",
           taxNumber: data.taxNumber || "",
@@ -91,6 +93,7 @@ export default function FirmaAyarlariPage() {
           title: "Başarılı",
           description: "Firma bilgileri güncellendi",
         })
+        setIsEditing(false)
         fetchCompany()
       } else {
         const data = await response.json()
@@ -130,8 +133,17 @@ export default function FirmaAyarlariPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Firma Bilgileri</CardTitle>
-          <CardDescription>Firma bilgilerinizi görüntüleyin ve düzenleyin</CardDescription>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle>Firma Bilgileri</CardTitle>
+              <CardDescription>Firma bilgilerinizi görüntüleyin ve düzenleyin</CardDescription>
+            </div>
+            {!isEditing && (
+              <Button type="button" variant="outline" onClick={() => setIsEditing(true)}>
+                Düzenleme Yap
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -143,7 +155,7 @@ export default function FirmaAyarlariPage() {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   required
-                  disabled={isLoading}
+                  disabled={isLoading || !isEditing}
                 />
               </div>
               <div className="space-y-2">
@@ -152,7 +164,7 @@ export default function FirmaAyarlariPage() {
                   id="taxNumber"
                   value={formData.taxNumber}
                   onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
-                  disabled={isLoading}
+                  disabled={isLoading || !isEditing}
                 />
               </div>
               <div className="space-y-2">
@@ -161,7 +173,7 @@ export default function FirmaAyarlariPage() {
                   id="taxOffice"
                   value={formData.taxOffice}
                   onChange={(e) => setFormData({ ...formData, taxOffice: e.target.value })}
-                  disabled={isLoading}
+                  disabled={isLoading || !isEditing}
                 />
               </div>
               <div className="space-y-2">
@@ -170,7 +182,7 @@ export default function FirmaAyarlariPage() {
                   id="city"
                   value={formData.city}
                   onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                  disabled={isLoading}
+                  disabled={isLoading || !isEditing}
                 />
               </div>
               <div className="space-y-2">
@@ -180,7 +192,7 @@ export default function FirmaAyarlariPage() {
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  disabled={isLoading}
+                  disabled={isLoading || !isEditing}
                 />
               </div>
               <div className="space-y-2">
@@ -190,7 +202,7 @@ export default function FirmaAyarlariPage() {
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  disabled={isLoading}
+                  disabled={isLoading || !isEditing}
                 />
               </div>
               <div className="space-y-2">
@@ -200,7 +212,7 @@ export default function FirmaAyarlariPage() {
                   type="url"
                   value={formData.website}
                   onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                  disabled={isLoading}
+                  disabled={isLoading || !isEditing}
                 />
               </div>
               <div className="space-y-2">
@@ -210,7 +222,7 @@ export default function FirmaAyarlariPage() {
                   placeholder="SAT / ALI yerine kullanılacak ortak prefix"
                   value={formData.invoiceSeriesPrefix}
                   onChange={(e) => setFormData({ ...formData, invoiceSeriesPrefix: e.target.value.toUpperCase() })}
-                  disabled={isLoading}
+                  disabled={isLoading || !isEditing}
                 />
               </div>
             </div>
@@ -222,7 +234,7 @@ export default function FirmaAyarlariPage() {
               <Switch
                 checked={formData.isEDonusumEnabled}
                 onCheckedChange={(checked) => setFormData({ ...formData, isEDonusumEnabled: checked })}
-                disabled={isLoading}
+                disabled={isLoading || !isEditing}
               />
             </div>
             <div className="space-y-2">
@@ -231,11 +243,21 @@ export default function FirmaAyarlariPage() {
                 id="address"
                 value={formData.address}
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                disabled={isLoading}
+                disabled={isLoading || !isEditing}
               />
             </div>
-            <div className="flex justify-end">
-              <Button type="submit" disabled={isLoading}>
+            <div className="flex justify-end gap-2">
+              {isEditing && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={fetchCompany}
+                  disabled={isLoading}
+                >
+                  Vazgeç
+                </Button>
+              )}
+              <Button type="submit" disabled={isLoading || !isEditing}>
                 <Save className="mr-2 h-4 w-4" />
                 {isLoading ? "Kaydediliyor..." : "Kaydet"}
               </Button>

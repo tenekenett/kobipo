@@ -4,118 +4,23 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut, useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
+import { Logo } from "@/components/ui/Logo"
 import { cn } from "@/lib/utils"
-import {
-  LayoutDashboard,
-  Users,
-  Package,
-  Wallet,
-  FileText,
-  BarChart3,
-  LogOut,
-  Menu,
-  X,
-  ChevronDown,
-  Receipt,
-  FileCheck,
-  Warehouse,
-  BookOpen,
-  Settings,
-  Bell,
-  Moon,
-  Sun,
-  Search,
-} from "lucide-react"
-import { useState, useEffect } from "react"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-
-// Tüm menü öğeleri ve erişebilecek roller
-const allNavItems = [
-  { 
-    href: "/dashboard", 
-    label: "Dashboard", 
-    icon: LayoutDashboard,
-    roles: ["ADMIN", "ACCOUNTANT", "STOCK", "SALES", "VIEWER"]
-  },
-  { 
-    href: "/cari", 
-    label: "Cari Hesaplar", 
-    icon: Users,
-    roles: ["ADMIN", "ACCOUNTANT", "SALES"]
-  },
-  { 
-    href: "/stok", 
-    label: "Stok", 
-    icon: Package,
-    roles: ["ADMIN", "STOCK", "SALES"]
-  },
-  { 
-    href: "/finans", 
-    label: "Finans", 
-    icon: Wallet,
-    roles: ["ADMIN", "ACCOUNTANT"]
-  },
-  { 
-    href: "/e-donusum", 
-    label: "E-Dönüşüm", 
-    icon: FileText,
-    roles: ["ADMIN", "ACCOUNTANT", "SALES"]
-  },
-  { 
-    href: "/faturalar", 
-    label: "Faturalar", 
-    icon: Receipt,
-    roles: ["ADMIN", "ACCOUNTANT", "SALES"]
-  },
-  { 
-    href: "/cek-senet", 
-    label: "Çek/Senet", 
-    icon: FileCheck,
-    roles: ["ADMIN", "ACCOUNTANT"]
-  },
-  { 
-    href: "/depolar", 
-    label: "Depolar", 
-    icon: Warehouse,
-    roles: ["ADMIN", "STOCK"]
-  },
-  { 
-    href: "/muhasebe/yevmiye", 
-    label: "Muhasebe", 
-    icon: BookOpen,
-    roles: ["ADMIN", "ACCOUNTANT"]
-  },
-  { 
-    href: "/raporlar", 
-    label: "Raporlar", 
-    icon: BarChart3,
-    roles: ["ADMIN", "ACCOUNTANT", "STOCK", "SALES", "VIEWER"]
-  },
-  { 
-    href: "/finans/hareketler", 
-    label: "Finans Hareketleri", 
-    icon: Wallet,
-    roles: ["ADMIN", "ACCOUNTANT"]
-  },
-]
-
+import { LogOut, Menu, X, ChevronDown, Building2 } from "lucide-react"
+import { allNavItems, navGroups, navItemActive, type NavItemDef } from "@/components/dashboard/nav-config"
+import { NewBranchDialog } from "@/components/dashboard/new-branch-dialog"
+import { useState, useEffect, useCallback, useMemo } from "react"
 export function DashboardNav() {
   const pathname = usePathname()
   const { data: session } = useSession()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userRole, setUserRole] = useState<string>("VIEWER")
-  const [isDark, setIsDark] = useState(false)
-  const [notifCount, setNotifCount] = useState(0)
-  const [globalQuery, setGlobalQuery] = useState("")
+  const [isEDonusumEnabled, setIsEDonusumEnabled] = useState(true)
+  /** Grup başlığı -> kapalıysa true (varsayılan: tüm gruplar kapalı) */
+  const [navGroupClosed, setNavGroupClosed] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(navGroups.map((g) => [g.title, true]))
+  )
 
-  // Kullanıcı rolünü al
   useEffect(() => {
     async function fetchRole() {
       try {
@@ -130,160 +35,156 @@ export function DashboardNav() {
     }
     if (session) {
       fetchRole()
-      setIsDark(document.documentElement.classList.contains("dark"))
     }
   }, [session])
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const companyId = params.get("company")
-    if (!companyId) return
-    fetch(`/api/notifications?companyId=${companyId}`).then(async (res) => {
-      if (!res.ok) return
-      const list = await res.json()
-      setNotifCount(list.filter((n: any) => !n.isRead).length)
-    })
+    async function fetchCompanySettings() {
+      const params = new URLSearchParams(window.location.search)
+      const companyId = params.get("company")
+      if (!companyId) {
+        setIsEDonusumEnabled(true)
+        return
+      }
+      try {
+        const response = await fetch("/api/companies")
+        if (!response.ok) return
+        const companies = await response.json()
+        const selectedCompany = companies.find((item: any) => item.id === companyId)
+        setIsEDonusumEnabled(Boolean(selectedCompany?.isEDonusumEnabled))
+      } catch (error) {
+        console.error("Error fetching company settings:", error)
+      }
+    }
+
+    fetchCompanySettings()
   }, [pathname])
 
-  const toggleTheme = () => {
-    const root = document.documentElement
-    root.classList.toggle("dark")
-    setIsDark(root.classList.contains("dark"))
-  }
-
-  const runGlobalSearch = () => {
-    const query = globalQuery.trim().toLowerCase()
-    if (!query) return
-    const found = allNavItems.find((item) => item.label.toLowerCase().includes(query))
-    if (found) {
-      window.location.href = found.href + window.location.search
-    }
-  }
-
   // Role göre filtrelenmiş menü öğeleri
-  const navItems = allNavItems.filter(item => item.roles.includes(userRole))
+  const navItems = useMemo(
+    () =>
+      allNavItems.filter((item) => {
+        if (item.href === "/e-donusum" && !isEDonusumEnabled) {
+          return false
+        }
+        return item.roles.includes(userRole)
+      }),
+    [userRole, isEDonusumEnabled]
+  )
+
+  const groupedItems = useMemo(
+    () =>
+      navGroups
+        .map((group) => ({
+          ...group,
+          items: group.hrefs
+            .map((href) => navItems.find((item) => item.href === href))
+            .filter((item): item is NavItemDef => Boolean(item)),
+        }))
+        .filter((group) => group.items.length > 0),
+    [navItems]
+  )
+
+  useEffect(() => {
+    setNavGroupClosed(() => {
+      const next: Record<string, boolean> = {}
+      for (const group of groupedItems) {
+        const hasActive = group.items.some((item) => navItemActive(pathname, item.href))
+        next[group.title] = !hasActive
+      }
+      return next
+    })
+  }, [pathname, groupedItems])
+
+  const isGroupOpen = useCallback(
+    (title: string) => navGroupClosed[title] !== true,
+    [navGroupClosed]
+  )
+
+  const toggleGroup = (title: string) => {
+    setNavGroupClosed((prev) => {
+      const group = groupedItems.find((g) => g.title === title)
+      if (!group) return prev
+
+      const isOpen = prev[title] !== true
+      if (isOpen) {
+        return { ...prev, [title]: true }
+      }
+      const next: Record<string, boolean> = {}
+      for (const g of groupedItems) {
+        next[g.title] = g.title === title ? false : true
+      }
+      return next
+    })
+  }
 
   return (
     <>
-      <div className="fixed left-0 top-0 z-40 hidden h-screen w-72 border-r bg-background lg:flex lg:flex-col">
-        <div className="border-b p-4">
-          <Link href="/dashboard" className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500">
-              <span className="text-sm font-bold text-white">M</span>
-            </div>
-            <div>
-              <p className="text-lg font-bold">Muhasebe</p>
-              <p className="text-xs text-muted-foreground">Ön Muhasebe Paneli</p>
-            </div>
-          </Link>
+      <div className="fixed left-0 top-0 z-40 hidden h-dvh max-h-dvh w-56 flex-col overflow-hidden border-r border-white/10 bg-kobipo-navy lg:flex">
+        <div className="flex h-14 shrink-0 items-center border-b border-white/10 px-4">
+          <Logo variant="dark" size="sm" href="/dashboard" />
         </div>
-        <div className="border-b p-3 space-y-2">
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" className="w-full justify-start">
-              <Bell className="mr-2 h-4 w-4" /> Bildirim ({notifCount})
-            </Button>
-            <Button variant="outline" size="icon" onClick={toggleTheme}>
-              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-          </div>
-          <div className="flex gap-2">
-            <input
-              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-              placeholder="Global arama (⌘K)"
-              value={globalQuery}
-              onChange={(e) => setGlobalQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && runGlobalSearch()}
-            />
-            <Button variant="outline" size="icon" onClick={runGlobalSearch}>
-              <Search className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-3">
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-3 [-webkit-overflow-scrolling:touch]">
           <div className="space-y-1">
-            {navItems.map((item) => {
-              const Icon = item.icon
-              const isActive = pathname === item.href ||
-                (item.href !== "/dashboard" && pathname.startsWith(item.href)) ||
-                (item.href === "/muhasebe/yevmiye" && pathname.startsWith("/muhasebe"))
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
-                    isActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
+            {groupedItems.map((group) => (
+              <div key={group.title} className="rounded-lg border border-white/10 bg-white/[0.04]">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.title)}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-white/70 hover:bg-white/[0.06] hover:text-white"
                 >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                </Link>
-              )
-            })}
-          </div>
-        </div>
+                  {group.title}
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 shrink-0 text-white/50 transition-transform duration-200",
+                      isGroupOpen(group.title) ? "rotate-0" : "-rotate-90"
+                    )}
+                  />
+                </button>
+                {isGroupOpen(group.title) && (
+                  <div className="space-y-0.5 border-t border-white/10 px-1.5 py-2">
+                    {group.items.map((item: any) => {
+                      const Icon = item.icon
+                      const isActive = navItemActive(pathname, item.href)
 
-        <div className="border-t p-3">
-          <div className="mb-3 rounded-lg bg-muted p-2 text-xs">
-            <p className="font-medium text-foreground">{session?.user?.name || "Kullanıcı"}</p>
-            <p className="truncate text-muted-foreground">{session?.user?.email}</p>
-            <span className={cn(
-              "mt-2 inline-flex rounded-full px-2 py-1 text-[11px] font-medium",
-              userRole === "ADMIN" && "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
-              userRole === "ACCOUNTANT" && "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-              userRole === "STOCK" && "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-              userRole === "SALES" && "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-              userRole === "VIEWER" && "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400",
-            )}>
-              {userRole === "ADMIN" && "Yönetici"}
-              {userRole === "ACCOUNTANT" && "Muhasebeci"}
-              {userRole === "STOCK" && "Stokçu"}
-              {userRole === "SALES" && "Satış"}
-              {userRole === "VIEWER" && "Görüntüleyici"}
-            </span>
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className={cn(
+                            "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
+                            isActive
+                              ? "bg-kobipo-blue font-semibold text-white"
+                              : "font-medium text-white/55 hover:bg-white/[0.08] hover:text-white"
+                          )}
+                        >
+                          <Icon className="h-4 w-4 shrink-0" />
+                          {item.label}
+                        </Link>
+                      )
+                    })}
+                    {group.title === "Ayarlar" && (
+                      <NewBranchDialog>
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white"
+                        >
+                          <Building2 className="h-4 w-4 shrink-0" />
+                          Yeni Şube
+                        </button>
+                      </NewBranchDialog>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="w-full justify-between">
-                Hesap
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>Hesap İşlemleri</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/ayarlar/firma" className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  Firma Ayarları
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => signOut({ callbackUrl: "/signin" })}
-                className="text-red-600 focus:text-red-600"
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                Çıkış Yap
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </div>
 
-      <nav className="fixed left-0 right-0 top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:hidden">
-        <div className="flex h-16 items-center justify-between px-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500">
-              <span className="text-sm font-bold text-white">M</span>
-            </div>
-            <span className="text-lg font-bold">Muhasebe</span>
-          </Link>
+      <nav className="fixed left-0 right-0 top-0 z-40 h-14 border-b border-kobipo-border bg-white lg:hidden">
+        <div className="flex h-14 items-center justify-between px-6">
+          <Logo variant="light" size="sm" href="/" />
           <Button
             variant="ghost"
             size="icon"
@@ -297,39 +198,69 @@ export function DashboardNav() {
       {/* Mobile Menu */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
-          <div className="fixed inset-y-0 right-0 w-full max-w-xs bg-background shadow-lg">
-            <div className="flex items-center justify-between p-4 border-b">
-              <span className="font-bold">Menü</span>
+          <div className="fixed inset-0 bg-kobipo-navy/40 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
+          <div className="fixed inset-y-0 right-0 w-full max-w-xs bg-white shadow-lg">
+            <div className="flex items-center justify-between border-b border-kobipo-border p-4">
+              <span className="font-semibold text-kobipo-navy">Menü</span>
               <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(false)}>
                 <X className="h-5 w-5" />
               </Button>
             </div>
-            <div className="p-4 space-y-2">
-              {navItems.map((item) => {
-                const Icon = item.icon
-                const isActive = pathname === item.href || 
-                  (item.href !== "/dashboard" && pathname.startsWith(item.href)) ||
-                  (item.href === "/muhasebe/yevmiye" && pathname.startsWith("/muhasebe"))
-                
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={cn(
-                      "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all",
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                    )}
+            <div className="space-y-2 overflow-y-auto p-4">
+              {groupedItems.map((group) => (
+                <div key={`mobile-${group.title}`} className="rounded-lg border border-kobipo-border bg-kobipo-offwhite/80">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.title)}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-kobipo-gray"
                   >
-                    <Icon className="h-5 w-5" />
-                    {item.label}
-                  </Link>
-                )
-              })}
-              <div className="pt-4 border-t">
+                    {group.title}
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 shrink-0 transition-transform duration-200",
+                        isGroupOpen(group.title) ? "rotate-0" : "-rotate-90"
+                      )}
+                    />
+                  </button>
+                  {isGroupOpen(group.title) && (
+                    <div className="space-y-0.5 border-t border-kobipo-border px-1 py-2">
+                      {group.items.map((item: any) => {
+                        const Icon = item.icon
+                        const isActive = navItemActive(pathname, item.href)
+
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            onClick={() => setMobileMenuOpen(false)}
+                            className={cn(
+                              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
+                              isActive
+                                ? "bg-kobipo-pale font-semibold text-kobipo-blue"
+                                : "font-medium text-kobipo-gray hover:bg-kobipo-pale hover:text-kobipo-blue"
+                            )}
+                          >
+                            <Icon className="h-5 w-5 shrink-0" />
+                            {item.label}
+                          </Link>
+                        )
+                      })}
+                      {group.title === "Ayarlar" && (
+                        <NewBranchDialog>
+                          <button
+                            type="button"
+                            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-kobipo-gray transition-colors hover:bg-kobipo-pale hover:text-kobipo-blue"
+                          >
+                            <Building2 className="h-5 w-5 shrink-0" />
+                            Yeni Şube
+                          </button>
+                        </NewBranchDialog>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="border-t border-kobipo-border pt-4">
                 <Button
                   variant="ghost"
                   className="w-full justify-start text-red-600 hover:text-red-600 hover:bg-red-50"

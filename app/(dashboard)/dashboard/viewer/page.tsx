@@ -85,11 +85,11 @@ export default async function ViewerDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
+          <h1 className="text-3xl font-extrabold flex items-center gap-3 text-kobipo-navy">
             <Eye className="h-8 w-8 text-slate-500" />
             Görüntüleme Paneli
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="mt-1 text-kobipo-gray">
             Firma istatistikleri ve raporlar (salt okunur)
           </p>
         </div>
@@ -100,7 +100,7 @@ export default async function ViewerDashboard() {
       </div>
 
       {/* Bilgi Notu */}
-      <Card className="bg-slate-100 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700">
+      <Card className="rounded-2xl border border-kobipo-border bg-kobipo-pale/50 shadow-card">
         <CardContent className="py-4">
           <div className="flex items-center gap-3">
             <Eye className="h-5 w-5 text-slate-500" />
@@ -113,7 +113,7 @@ export default async function ViewerDashboard() {
 
       {/* Ana İstatistikler */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Müşteriler</CardTitle>
             <Users className="h-5 w-5 text-blue-500" />
@@ -123,7 +123,7 @@ export default async function ViewerDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Tedarikçiler</CardTitle>
             <Users className="h-5 w-5 text-purple-500" />
@@ -133,7 +133,7 @@ export default async function ViewerDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Ürünler</CardTitle>
             <Package className="h-5 w-5 text-orange-500" />
@@ -143,7 +143,7 @@ export default async function ViewerDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Faturalar</CardTitle>
             <FileText className="h-5 w-5 text-green-500" />

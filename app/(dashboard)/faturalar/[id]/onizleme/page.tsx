@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, ArrowLeft } from "lucide-react"
+import { Download, ArrowLeft, Pencil } from "lucide-react"
 import Link from "next/link"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
@@ -48,6 +48,8 @@ interface Invoice {
     description: string
     quantity: number
     unitPrice: number
+    discountRate?: number
+    discountAmount?: number
     vatRate: number
     vatAmount: number
     totalAmount: number
@@ -61,33 +63,50 @@ export default function FaturaOnizlemePage() {
   const companyId = searchParams.get("company")
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [template, setTemplate] = useState("standart")
   const [email, setEmail] = useState("")
   const [attachments, setAttachments] = useState<any[]>([])
   const [attachmentName, setAttachmentName] = useState("")
 
   useEffect(() => {
-    if (invoiceId) {
-      fetchInvoice()
-    }
-  }, [invoiceId])
+    if (!invoiceId) return
+    setIsLoading(true)
+    setLoadError(null)
+    setInvoice(null)
+    void fetchInvoice()
+  }, [invoiceId, companyId])
 
   const fetchInvoice = async () => {
     try {
-      const response = await fetch(`/api/e-donusum/invoices/${invoiceId}?companyId=${companyId || ""}`)
+      const qs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""
+      const response = await fetch(`/api/e-donusum/invoices/${invoiceId}${qs}`)
       if (response.ok) {
         const data = await response.json()
-        // Ensure items array exists
         if (!data.items) {
           data.items = []
         }
         setInvoice(data)
         fetchAttachments()
-      } else {
-        console.error("Failed to fetch invoice:", response.status)
+        setLoadError(null)
+        return
       }
+      const body = await response.json().catch(() => ({}))
+      const msg =
+        response.status === 401
+          ? "Oturum süresi dolmuş olabilir. Lütfen tekrar giriş yapın."
+          : response.status === 403
+            ? "Bu faturaya erişim yetkiniz yok."
+            : response.status === 400 && body.code === "COMPANY_MISMATCH"
+              ? body.error ||
+                "Bu fatura seçili firmaya ait değil. Üstten doğru şubeyi seçin veya Faturalar listesinden açın."
+              : response.status === 404
+                ? "Fatura bulunamadı veya silinmiş."
+                : body.error || `Fatura yüklenemedi (${response.status}).`
+      setLoadError(msg)
     } catch (error) {
       console.error("Error fetching invoice:", error)
+      setLoadError("Fatura yüklenirken bir hata oluştu.")
     } finally {
       setIsLoading(false)
     }
@@ -152,8 +171,17 @@ export default function FaturaOnizlemePage() {
 
   if (!invoice) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-muted-foreground">Fatura bulunamadı</p>
+      <div className="mx-auto max-w-lg space-y-4 p-8 text-center">
+        <p className="text-muted-foreground">{loadError || "Fatura bulunamadı"}</p>
+        {companyId ? (
+          <Button variant="outline" asChild>
+            <Link href={`/faturalar?company=${encodeURIComponent(companyId)}`}>Faturalara dön</Link>
+          </Button>
+        ) : (
+          <Button variant="outline" asChild>
+            <Link href="/faturalar">Faturalara dön</Link>
+          </Button>
+        )}
       </div>
     )
   }
@@ -174,6 +202,16 @@ export default function FaturaOnizlemePage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {invoice.status === "DRAFT" && (
+            <Link
+              href={`/e-donusum/${invoiceId}/duzenle?company=${encodeURIComponent(companyId || "")}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`}
+            >
+              <Button variant="outline">
+                <Pencil className="h-4 w-4 mr-2" />
+                Düzenle
+              </Button>
+            </Link>
+          )}
           <Select value={template} onValueChange={setTemplate}>
             <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -193,10 +231,20 @@ export default function FaturaOnizlemePage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {invoice.invoiceType === "E_INVOICE" ? "E-FATURA" : "E-ARŞİV FATURA"}
+            {invoice.invoiceType === "E_INVOICE"
+              ? "E-FATURA"
+              : invoice.invoiceType === "E_ARCHIVE"
+                ? "E-ARŞİV FATURA"
+                : "FATURA"}
           </CardTitle>
           <CardDescription>
-            {invoice.type === "SALES" ? "Satış Faturası" : "Alış Faturası"}
+            {invoice.type === "SALES"
+              ? "Satış Faturası"
+              : invoice.type === "PURCHASE"
+                ? "Alış Faturası"
+                : invoice.type === "RETURN"
+                  ? "İade Faturası"
+                  : invoice.type}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -280,6 +328,7 @@ export default function FaturaOnizlemePage() {
                 <TableHead>Açıklama</TableHead>
                 <TableHead className="text-right">Miktar</TableHead>
                 <TableHead className="text-right">Birim Fiyat</TableHead>
+                <TableHead className="text-right">Iskonto</TableHead>
                 <TableHead className="text-right">KDV %</TableHead>
                 <TableHead className="text-right">KDV Tutarı</TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
@@ -295,6 +344,12 @@ export default function FaturaOnizlemePage() {
                       {Number(item.quantity || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-right">{formatCurrency(Number(item.unitPrice || 0))}</TableCell>
+                    <TableCell className="text-right">
+                      -{formatCurrency(Number(item.discountAmount || 0))}
+                      {Number(item.discountRate || 0) > 0 && (
+                        <div className="text-xs text-muted-foreground">%{Number(item.discountRate || 0)}</div>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">%{Number(item.vatRate || 0)}</TableCell>
                     <TableCell className="text-right">{formatCurrency(Number(item.vatAmount || 0))}</TableCell>
                     <TableCell className="text-right font-medium">{formatCurrency(Number(item.totalAmount || 0))}</TableCell>
@@ -302,7 +357,7 @@ export default function FaturaOnizlemePage() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     Fatura kalemi bulunamadı
                   </TableCell>
                 </TableRow>

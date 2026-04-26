@@ -26,6 +26,8 @@ model User {
   id            String    @id @default(cuid())
   email         String    @unique
   name          String?
+  companyDisplayName String?
+  phone         String?
   password      String
   emailVerified DateTime?
   image         String?
@@ -108,6 +110,8 @@ model Company {
   financialAccounts FinancialAccount[]
   transactions Transaction[]
   invoices    Invoice[]
+  quotes      Quote[]
+  paymentLinks PaymentLink[]
   stockMovements StockMovement[]
   invoicePayments InvoicePayment[]
   checks      Check[]
@@ -165,6 +169,7 @@ model Customer {
   company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   linkedSupplier Supplier? @relation("CustomerSupplierLink", fields: [linkedSupplierId], references: [id], onDelete: SetNull)
   invoices    Invoice[]
+  quotes      Quote[]
   transactions Transaction[]
   checks      Check[]
   promissoryNotes PromissoryNote[]
@@ -196,6 +201,7 @@ model Supplier {
   company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   linkedCustomers Customer[] @relation("CustomerSupplierLink")
   invoices    Invoice[]
+  quotes      Quote[]
   transactions Transaction[]
   checks      Check[]
   promissoryNotes PromissoryNote[]
@@ -224,6 +230,7 @@ model Product {
   company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   stockMovements StockMovement[]
   invoiceItems InvoiceItem[]
+  quoteItems  QuoteItem[]
   warehouseStocks WarehouseStock[]
   waybillItems WaybillItem[]
 
@@ -433,10 +440,64 @@ model Invoice {
   supplier    Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   items       InvoiceItem[]
   payments    InvoicePayment[]
+  paymentLinks PaymentLink[]
+  convertedFromQuotes Quote[]
   waybills    Waybill[]
 
   @@unique([companyId, invoiceNo])
   @@map("invoices")
+}
+
+model Quote {
+  id          String   @id @default(cuid())
+  companyId   String
+  quoteNo     String
+  status      String   @default("DRAFT") // DRAFT, SENT, APPROVED, REJECTED, EXPIRED, CONVERTED
+  customerId  String?
+  supplierId  String?
+  date        DateTime @default(now())
+  validUntil  DateTime?
+  totalAmount Decimal  @db.Decimal(15, 2)
+  vatAmount   Decimal  @db.Decimal(15, 2)
+  netAmount   Decimal  @db.Decimal(15, 2)
+  currency    String   @default("TRY")
+  notes       String?  @db.Text
+  convertedInvoiceId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier    Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  convertedInvoice Invoice? @relation(fields: [convertedInvoiceId], references: [id], onDelete: SetNull)
+  items       QuoteItem[]
+
+  @@unique([companyId, quoteNo])
+  @@index([companyId])
+  @@index([date])
+  @@index([status])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id          String   @id @default(cuid())
+  quoteId     String
+  productId   String?
+  description String
+  quantity    Decimal  @db.Decimal(10, 2)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  discountRate Decimal? @db.Decimal(5, 2)
+  discountAmount Decimal? @db.Decimal(10, 2)
+  vatRate     Decimal  @db.Decimal(5, 2)
+  vatAmount   Decimal  @db.Decimal(10, 2)
+  totalAmount Decimal  @db.Decimal(10, 2)
+  order       Int      @default(0)
+
+  quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@map("quote_items")
 }
 
 model InvoiceItem {
@@ -444,8 +505,11 @@ model InvoiceItem {
   invoiceId   String
   productId   String?
   description String
+  unit        String   @default("ADET")
   quantity    Decimal  @db.Decimal(10, 2)
   unitPrice   Decimal  @db.Decimal(10, 2)
+  discountRate Decimal? @db.Decimal(5, 2)
+  discountAmount Decimal? @db.Decimal(10, 2)
   vatRate     Decimal  @db.Decimal(5, 2)
   vatAmount   Decimal  @db.Decimal(10, 2)
   withholdingRate Decimal? @db.Decimal(5, 2)
@@ -482,6 +546,27 @@ model InvoicePayment {
   @@index([companyId])
   @@index([paymentDate])
   @@map("invoice_payments")
+}
+
+model PaymentLink {
+  id          String   @id @default(cuid())
+  companyId   String
+  invoiceId   String
+  token       String   @unique
+  amount      Decimal  @db.Decimal(15, 2)
+  currency    String   @default("TRY")
+  status      String   @default("ACTIVE") // ACTIVE, PAID, EXPIRED, CANCELLED
+  expiresAt   DateTime?
+  paidAt      DateTime?
+  createdAt   DateTime @default(now())
+  createdBy   String?
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@index([invoiceId])
+  @@map("payment_links")
 }
 
 model Waybill {

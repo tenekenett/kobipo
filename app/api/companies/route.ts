@@ -71,17 +71,43 @@ export async function POST(request: Request) {
       isEDonusumEnabled,
     } = body
 
-    if (!name) {
+    const trimmedName = String(name || "").trim()
+    if (!trimmedName) {
       return NextResponse.json(
         { error: "Firma adı zorunludur" },
         { status: 400 }
       )
     }
 
+    const userCompanyCount = await prisma.userCompany.count({
+      where: { userId: user.id },
+    })
+
+    const currentSubscription = await prisma.subscription.findFirst({
+      where: {
+        userId: user.id,
+        status: { in: ["TRIAL", "ACTIVE"] },
+      },
+      include: { plan: true },
+      orderBy: { createdAt: "desc" },
+    })
+
+    const currentMaxCompanies = currentSubscription?.plan?.maxCompanies ?? 1
+    if (userCompanyCount >= currentMaxCompanies) {
+      return NextResponse.json(
+        {
+          error: "Yeni sube eklemek icin abonelik yukseltilmelidir",
+          code: "PLAN_LIMIT_EXCEEDED",
+          maxCompanies: currentMaxCompanies,
+        },
+        { status: 402 }
+      )
+    }
+
     const company = await prisma.$transaction(async (tx) => {
       const createdCompany = await tx.company.create({
         data: {
-          name,
+          name: trimmedName,
           taxNumber,
           taxOffice,
           address,
@@ -108,6 +134,46 @@ export async function POST(request: Request) {
           isDefault: true,
         },
       })
+
+      if (userCompanyCount === 0) {
+        const now = new Date()
+        const trialEndsAt = new Date(now)
+        trialEndsAt.setFullYear(trialEndsAt.getFullYear() + 1)
+
+        const freePlan = await tx.plan.upsert({
+          where: { code: "FREE_1Y" },
+          update: {
+            name: "Ucretsiz (1 Yil)",
+            monthlyPrice: 0,
+            maxCompanies: 1,
+            maxUsers: 1,
+            maxInvoicesPerMonth: 100,
+            isActive: true,
+          },
+          create: {
+            code: "FREE_1Y",
+            name: "Ucretsiz (1 Yil)",
+            monthlyPrice: 0,
+            maxCompanies: 1,
+            maxUsers: 1,
+            maxInvoicesPerMonth: 100,
+            isActive: true,
+          },
+        })
+
+        await tx.subscription.create({
+          data: {
+            userId: user.id,
+            companyId: createdCompany.id,
+            planId: freePlan.id,
+            provider: "NONE",
+            status: "TRIAL",
+            trialEndsAt,
+            periodStart: now,
+            periodEnd: trialEndsAt,
+          },
+        })
+      }
 
       return createdCompany
     })

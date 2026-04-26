@@ -62,7 +62,7 @@ export async function GET(
       date: invoice.date.toISOString(),
       dueDate: invoice.dueDate?.toISOString(),
       type: invoice.type as "SALES" | "PURCHASE",
-      invoiceType: invoice.invoiceType as "E_INVOICE" | "E_ARCHIVE",
+      invoiceType: invoice.invoiceType as "E_INVOICE" | "E_ARCHIVE" | "MANUAL",
       customer: invoice.customer ? {
         name: invoice.customer.name,
         taxNumber: invoice.customer.taxNumber || undefined,
@@ -94,6 +94,8 @@ export async function GET(
         description: item.description,
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
+        discountRate: Number(item.discountRate || 0),
+        discountAmount: Number(item.discountAmount || 0),
         vatRate: Number(item.vatRate),
         total: Number(item.totalAmount),
       })),
@@ -129,7 +131,12 @@ export async function GET(
     // Invoice Info (Top Right)
     doc.setFontSize(20)
     doc.setFont("helvetica", "bold")
-    const invoiceTitle = invoiceData.invoiceType === "E_INVOICE" ? "E-FATURA" : "E-ARŞİV FATURA"
+    const invoiceTitle =
+      invoiceData.invoiceType === "E_INVOICE"
+        ? "E-FATURA"
+        : invoiceData.invoiceType === "E_ARCHIVE"
+          ? "E-ARSIV FATURA"
+          : "MANUEL FATURA"
     doc.text(invoiceTitle, 140, 20)
     if (template !== "standart") {
       doc.setFontSize(9)
@@ -177,13 +184,14 @@ export async function GET(
       item.description,
       item.quantity.toLocaleString("tr-TR", { minimumFractionDigits: 2 }),
       `₺${item.unitPrice.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`,
+      `-₺${item.discountAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`,
       `%${item.vatRate}`,
       `₺${item.total.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`,
     ])
     
     autoTable(doc, {
       startY: 90,
-      head: [["#", "Açıklama", "Miktar", "Birim Fiyat", "KDV", "Tutar"]],
+      head: [["#", "Açıklama", "Miktar", "Birim Fiyat", "Iskonto", "KDV", "Tutar"]],
       body: tableData,
       styles: {
         fontSize: 9,
@@ -199,8 +207,9 @@ export async function GET(
         1: { cellWidth: "auto" },
         2: { cellWidth: 25, halign: "right" },
         3: { cellWidth: 30, halign: "right" },
-        4: { cellWidth: 20, halign: "center" },
-        5: { cellWidth: 35, halign: "right" },
+        4: { cellWidth: 24, halign: "right" },
+        5: { cellWidth: 18, halign: "center" },
+        6: { cellWidth: 28, halign: "right" },
       },
       alternateRowStyles: {
         fillColor: [249, 250, 251],
@@ -217,14 +226,18 @@ export async function GET(
     doc.text("Ara Toplam:", totalsX, finalY)
     doc.text(`₺${invoiceData.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY, { align: "right" })
     
-    doc.text("KDV Toplam:", totalsX, finalY + 6)
-    doc.text(`₺${invoiceData.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 6, { align: "right" })
+    const discountTotal = invoice.items.reduce((sum, item) => sum + Number(item.discountAmount || 0), 0)
+    doc.text("Iskonto:", totalsX, finalY + 6)
+    doc.text(`-₺${discountTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 6, { align: "right" })
+    
+    doc.text("KDV Toplam:", totalsX, finalY + 12)
+    doc.text(`₺${invoiceData.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 12, { align: "right" })
     
     doc.setFont("helvetica", "bold")
     doc.setFontSize(12)
-    doc.text("GENEL TOPLAM:", totalsX, finalY + 14)
+    doc.text("GENEL TOPLAM:", totalsX, finalY + 20)
     doc.setTextColor(34, 197, 94)
-    doc.text(`₺${invoiceData.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 14, { align: "right" })
+    doc.text(`₺${invoiceData.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 20, { align: "right" })
     doc.setTextColor(0, 0, 0)
     
     // Notes

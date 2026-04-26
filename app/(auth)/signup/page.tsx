@@ -2,10 +2,6 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
 
 export default function SignUpPage() {
@@ -13,6 +9,8 @@ export default function SignUpPage() {
   const { toast } = useToast()
   const [formData, setFormData] = useState({
     name: "",
+    companyOrPersonName: "",
+    phone: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -21,11 +19,30 @@ export default function SignUpPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/
+
+    if (!formData.name.trim() || !formData.companyOrPersonName.trim() || !formData.phone.trim() || !formData.email.trim()) {
+      toast({
+        title: "Hata",
+        description: "Ad soyad, firma/şahıs adı, telefon ve e-mail zorunludur",
+        variant: "destructive",
+      })
+      return
+    }
 
     if (formData.password !== formData.confirmPassword) {
       toast({
         title: "Hata",
         description: "Şifreler eşleşmiyor",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!passwordRegex.test(formData.password)) {
+      toast({
+        title: "Hata",
+        description: "Şifre en az 8 karakter olmalı, en az bir büyük harf, bir rakam ve bir özel karakter içermelidir",
         variant: "destructive",
       })
       return
@@ -40,8 +57,10 @@ export default function SignUpPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          name: formData.name,
-          email: formData.email,
+          name: formData.name.trim(),
+          companyOrPersonName: formData.companyOrPersonName.trim(),
+          phone: formData.phone.trim(),
+          email: formData.email.trim(),
           password: formData.password,
         }),
       })
@@ -70,79 +89,96 @@ export default function SignUpPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Kayıt Ol</CardTitle>
-          <CardDescription>
-            Yeni bir hesap oluşturmak için bilgilerinizi girin
-          </CardDescription>
-        </CardHeader>
-        <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Ad Soyad</Label>
-              <Input
-                id="name"
-                type="text"
-                placeholder="Adınız Soyadınız"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                required
-                disabled={isLoading}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="ornek@email.com"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                required
-                disabled={isLoading}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Şifre</Label>
-              <Input
-                id="password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                required
-                disabled={isLoading}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Şifre Tekrar</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                value={formData.confirmPassword}
-                onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                required
-                disabled={isLoading}
-              />
-            </div>
-          </CardContent>
-          <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Kayıt yapılıyor..." : "Kayıt Ol"}
-            </Button>
-            <Button
-              type="button"
-              variant="link"
-              className="w-full"
-              onClick={() => router.push("/signin")}
-            >
-              Zaten hesabınız var mı? Giriş yapın
-            </Button>
-          </CardFooter>
-        </form>
-      </Card>
+    <div className="bg-white rounded-2xl border border-kobipo-border shadow-card p-8">
+      <h1 className="mb-1 text-2xl font-extrabold tracking-tight text-kobipo-navy">Kayıt Ol</h1>
+      <p className="mb-6 text-sm text-kobipo-gray">Yeni bir hesap oluşturun ve hemen kullanmaya başlayın.</p>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label htmlFor="name" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Ad Soyad</label>
+          <input
+            id="name"
+            type="text"
+            placeholder="Adınız Soyadınız"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            required
+            disabled={isLoading}
+            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+          />
+        </div>
+        <div>
+          <label htmlFor="companyOrPersonName" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Firma/Şahıs Adı</label>
+          <input
+            id="companyOrPersonName"
+            type="text"
+            placeholder="Firma veya şahıs adı"
+            value={formData.companyOrPersonName}
+            onChange={(e) => setFormData({ ...formData, companyOrPersonName: e.target.value })}
+            required
+            disabled={isLoading}
+            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+          />
+        </div>
+        <div>
+          <label htmlFor="phone" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Telefon Numarası</label>
+          <input
+            id="phone"
+            type="tel"
+            placeholder="05xx xxx xx xx"
+            value={formData.phone}
+            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            required
+            disabled={isLoading}
+            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+          />
+        </div>
+        <div>
+          <label htmlFor="email" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">E-posta</label>
+          <input
+            id="email"
+            type="email"
+            placeholder="ornek@email.com"
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            required
+            disabled={isLoading}
+            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+          />
+        </div>
+        <div>
+          <label htmlFor="password" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Şifre</label>
+          <input
+            id="password"
+            type="password"
+            value={formData.password}
+            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+            required
+            disabled={isLoading}
+            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+          />
+          <p className="text-xs text-kobipo-gray">
+            En az 8 karakter, bir buyuk harf, bir rakam ve bir ozel karakter icermelidir.
+          </p>
+        </div>
+        <div>
+          <label htmlFor="confirmPassword" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Şifre Tekrar</label>
+          <input
+            id="confirmPassword"
+            type="password"
+            value={formData.confirmPassword}
+            onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+            required
+            disabled={isLoading}
+            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+          />
+        </div>
+        <button type="submit" className="w-full mt-5 rounded-lg bg-kobipo-blue py-2.5 text-sm font-semibold text-white transition-colors hover:bg-kobipo-mid" disabled={isLoading}>
+          {isLoading ? "Kayıt yapılıyor..." : "Kayıt Ol"}
+        </button>
+        <button type="button" className="text-xs font-semibold text-kobipo-blue hover:text-kobipo-mid" onClick={() => router.push("/signin")}>
+          Zaten hesabınız var mı? Giriş yapın
+        </button>
+      </form>
     </div>
   )
 }
-

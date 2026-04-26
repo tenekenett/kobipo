@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>Kobipo Favicon 32px</title>
+  <defs>
+    <clipPath id="fav-clip">
+      <rect width="32" height="32" rx="8"/>
+    </clipPath>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="#185FA5"/>
+  <polygon points="0,32 32,0 32,32" fill="#0C3B6B" clip-path="url(#fav-clip)"/>
+  <path d="M4,20 A12,12 0 1,1 28,20" fill="none" stroke="white" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M26,12 L28,20 L22,18" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="16" cy="22" r="4.5" fill="#52B788"/>
+</svg>

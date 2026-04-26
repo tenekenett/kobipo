@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { customerHasBusinessReferences } from "@/lib/cari/dual-role"
 
 
 export const dynamic = 'force-dynamic'
@@ -159,21 +160,138 @@ export async function PUT(
       isAlsoCustomer,
     } = body
 
-    const updated = await prisma.supplier.update({
-      where: { id: resolvedParams.id },
-      data: {
-        code,
-        name,
-        taxNumber,
-        taxOffice,
-        address,
-        city,
-        phone,
-        email,
-        contactPerson,
-        paymentDueDays: paymentDueDays !== undefined ? Number(paymentDueDays) : undefined,
-        isAlsoCustomer: isAlsoCustomer !== undefined ? Boolean(isAlsoCustomer) : undefined,
-      },
+    const paymentDueDaysVal =
+      paymentDueDays !== undefined && paymentDueDays !== "" && paymentDueDays !== null
+        ? Number(paymentDueDays)
+        : null
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const current = await tx.supplier.findUnique({
+        where: { id: resolvedParams.id },
+      })
+      if (!current) throw new Error("Supplier not found")
+
+      const merged = {
+        code: code !== undefined ? code : current.code,
+        name: name !== undefined ? name : current.name,
+        taxNumber: taxNumber !== undefined ? taxNumber : current.taxNumber,
+        taxOffice: taxOffice !== undefined ? taxOffice : current.taxOffice,
+        address: address !== undefined ? address : current.address,
+        city: city !== undefined ? city : current.city,
+        phone: phone !== undefined ? phone : current.phone,
+        email: email !== undefined ? email : current.email,
+        contactPerson: contactPerson !== undefined ? contactPerson : current.contactPerson,
+        paymentDueDays:
+          paymentDueDays !== undefined
+            ? paymentDueDaysVal
+            : current.paymentDueDays,
+      }
+
+      let nextIsAlsoCustomer =
+        isAlsoCustomer !== undefined ? Boolean(isAlsoCustomer) : current.isAlsoCustomer
+
+      if (isAlsoCustomer === false) {
+        const linked = await tx.customer.findFirst({
+          where: { linkedSupplierId: current.id },
+        })
+        if (linked) {
+          await tx.customer.update({
+            where: { id: linked.id },
+            data: { linkedSupplierId: null, isAlsoSupplier: false },
+          })
+          nextIsAlsoCustomer = false
+          const hasRefs = await customerHasBusinessReferences(tx, linked.id)
+          if (hasRefs) {
+            await tx.supplier.update({
+              where: { id: current.id },
+              data: { linkedCustomerId: null, isAlsoCustomer: false },
+            })
+          } else {
+            await tx.customer.delete({ where: { id: linked.id } })
+            await tx.supplier.update({
+              where: { id: current.id },
+              data: { linkedCustomerId: null, isAlsoCustomer: false },
+            })
+          }
+        }
+      }
+
+      const stillLinkedForCreate = await tx.customer.findFirst({
+        where: { linkedSupplierId: current.id },
+      })
+      if (nextIsAlsoCustomer && !stillLinkedForCreate) {
+        const created = await tx.customer.create({
+          data: {
+            companyId: current.companyId,
+            code: merged.code,
+            name: merged.name,
+            taxNumber: merged.taxNumber,
+            taxOffice: merged.taxOffice,
+            address: merged.address,
+            city: merged.city,
+            phone: merged.phone,
+            email: merged.email,
+            contactPerson: merged.contactPerson,
+            paymentDueDays: merged.paymentDueDays,
+            isAlsoSupplier: true,
+            linkedSupplierId: current.id,
+          },
+        })
+        await tx.supplier.update({
+          where: { id: current.id },
+          data: { linkedCustomerId: created.id, isAlsoCustomer: true },
+        })
+        nextIsAlsoCustomer = true
+      }
+
+      const saved = await tx.supplier.update({
+        where: { id: resolvedParams.id },
+        data: {
+          code: merged.code,
+          name: merged.name,
+          taxNumber: merged.taxNumber,
+          taxOffice: merged.taxOffice,
+          address: merged.address,
+          city: merged.city,
+          phone: merged.phone,
+          email: merged.email,
+          contactPerson: merged.contactPerson,
+          paymentDueDays: merged.paymentDueDays,
+          isAlsoCustomer: nextIsAlsoCustomer,
+        },
+      })
+
+      const mirrorCustomer = await tx.customer.findFirst({
+        where: { linkedSupplierId: saved.id },
+      })
+      if (mirrorCustomer) {
+        await tx.customer.update({
+          where: { id: mirrorCustomer.id },
+          data: {
+            code: saved.code,
+            name: saved.name,
+            taxNumber: saved.taxNumber,
+            taxOffice: saved.taxOffice,
+            address: saved.address,
+            city: saved.city,
+            phone: saved.phone,
+            email: saved.email,
+            contactPerson: saved.contactPerson,
+            paymentDueDays: saved.paymentDueDays,
+            isAlsoSupplier: true,
+            linkedSupplierId: saved.id,
+          },
+        })
+        await tx.supplier.update({
+          where: { id: saved.id },
+          data: {
+            linkedCustomerId: mirrorCustomer.id,
+            isAlsoCustomer: true,
+          },
+        })
+      }
+
+      return tx.supplier.findUnique({ where: { id: resolvedParams.id } })
     })
 
     return NextResponse.json(updated)

@@ -23,6 +23,8 @@ interface Waybill {
   customer?: { name: string }
   supplier?: { name: string }
   invoice?: { invoiceNo: string }
+  uuid?: string
+  integrationStatus?: string
 }
 
 export default function EirsaliyePage() {
@@ -123,6 +125,30 @@ export default function EirsaliyePage() {
         description: "",
       })
       fetchWaybills()
+    }
+  }
+
+  const sendWaybill = async (waybillId: string) => {
+    const response = await fetch(`/api/e-irsaliye/${waybillId}/send`, {
+      method: "POST",
+    })
+    if (response.ok) {
+      fetchWaybills()
+    } else {
+      const data = await response.json()
+      alert(data.error || "Gönderim başarısız")
+    }
+  }
+
+  const checkWaybillStatus = async (waybillId: string) => {
+    const response = await fetch(`/api/e-irsaliye/${waybillId}/status`, {
+      method: "POST",
+    })
+    if (response.ok) {
+      fetchWaybills()
+    } else {
+      const data = await response.json()
+      alert(data.error || "Durum sorgulanamadı")
     }
   }
 
@@ -229,6 +255,8 @@ export default function EirsaliyePage() {
                   <TableHead>Tarih</TableHead>
                   <TableHead>Taşıyıcı</TableHead>
                   <TableHead>Durum</TableHead>
+                  <TableHead>Entegrasyon</TableHead>
+                  <TableHead>İşlemler</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -255,6 +283,27 @@ export default function EirsaliyePage() {
                          waybill.status === "DELIVERED" ? "Teslim Edildi" :
                          waybill.status === "CANCELLED" ? "İptal" : "Taslak"}
                       </Badge>
+                    </TableCell>
+                    <TableCell>{waybill.integrationStatus || "-"}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={waybill.status !== "DRAFT"}
+                          onClick={() => sendWaybill(waybill.id)}
+                        >
+                          Gönder
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={!waybill.uuid}
+                          onClick={() => checkWaybillStatus(waybill.id)}
+                        >
+                          Durum
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

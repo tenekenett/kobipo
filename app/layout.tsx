@@ -1,14 +1,21 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
 import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
 import { SessionProvider } from '@/components/providers/session-provider'
 
-const inter = Inter({ subsets: ['latin'] })
-
 export const metadata: Metadata = {
-  title: 'Ön Muhasebe SaaS',
-  description: 'Bulut tabanlı ön muhasebe platformu',
+  title: "Kobipo — Az laf, doğru rakam.",
+  description:
+    "KOBİ'lerin dijital muhasebe ve proje yönetim platformu. Cari hesaplar, stok takibi, e-fatura ve finansal raporlar tek platformda.",
+  icons: {
+    icon: "/assets/icons/kobipo-favicon-32.svg",
+    apple: "/assets/icons/kobipo-ikon-512.svg",
+  },
+  openGraph: {
+    title: "Kobipo — Az laf, doğru rakam.",
+    description: "KOBİ'lerin dijital muhasebe platformu.",
+    siteName: "Kobipo",
+  },
 }
 
 export default function RootLayout({
@@ -18,7 +25,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="tr">
-      <body className={inter.className}>
+      <body>
         <SessionProvider>
           {children}
         </SessionProvider>

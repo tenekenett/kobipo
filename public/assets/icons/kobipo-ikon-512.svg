@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Kobipo 0kon 512px</title>
+  <defs>
+    <clipPath id="ikon512-clip">
+      <rect width="512" height="512" rx="112"/>
+    </clipPath>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#185FA5"/>
+  <polygon points="0,512 512,0 512,512" fill="#0C3B6B" clip-path="url(#ikon512-clip)"/>
+  <path d="M72,316 A184,184 0 1,1 440,316" fill="none" stroke="white" stroke-width="40" stroke-linecap="round"/>
+  <path d="M412,200 L440,316 L344,290" fill="none" stroke="white" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="256" cy="356" r="68" fill="#52B788"/>
+</svg>

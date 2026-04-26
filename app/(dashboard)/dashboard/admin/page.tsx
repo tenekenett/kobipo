@@ -108,11 +108,11 @@ export default async function AdminDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
+          <h1 className="text-3xl font-extrabold flex items-center gap-3 text-kobipo-navy">
             <Settings className="h-8 w-8 text-purple-500" />
             Yönetici Paneli
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="mt-1 text-kobipo-gray">
             Hoş geldiniz, {authContext.name || authContext.email}
           </p>
         </div>
@@ -124,7 +124,7 @@ export default async function AdminDashboard() {
 
       {/* Ana İstatistikler */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-blue-500">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Müşteriler</CardTitle>
             <Users className="h-5 w-5 text-blue-500" />
@@ -137,7 +137,7 @@ export default async function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-purple-500">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Tedarikçiler</CardTitle>
             <Building2 className="h-5 w-5 text-purple-500" />
@@ -150,7 +150,7 @@ export default async function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-orange-500">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Ürünler</CardTitle>
             <Package className="h-5 w-5 text-orange-500" />
@@ -163,7 +163,7 @@ export default async function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-green-500">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Faturalar</CardTitle>
             <FileText className="h-5 w-5 text-green-500" />
@@ -176,7 +176,7 @@ export default async function AdminDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-pink-500">
+        <Card className="rounded-2xl border border-kobipo-border shadow-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Kullanıcılar</CardTitle>
             <Users className="h-5 w-5 text-pink-500" />

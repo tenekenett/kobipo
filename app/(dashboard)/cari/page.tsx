@@ -43,10 +43,14 @@ interface Customer {
 export default function CariPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
+  const editId = searchParams.get("edit")
+  const tabQuery = searchParams.get("tab")
   const { toast } = useToast()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [suppliers, setSuppliers] = useState<Customer[]>([])
-  const [activeTab, setActiveTab] = useState<"customers" | "suppliers">("customers")
+  const [activeTab, setActiveTab] = useState<"customers" | "suppliers">(
+    tabQuery === "suppliers" ? "suppliers" : "customers"
+  )
   const [search, setSearch] = useState("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -129,12 +133,23 @@ export default function CariPage() {
         })
         fetchData()
       } else {
-        throw new Error("Oluşturulamadı")
+        let message = "İşlem tamamlanamadı"
+        try {
+          const data = await response.json()
+          if (typeof data?.error === "string") message = data.error
+        } catch {
+          /* ignore */
+        }
+        toast({
+          title: "Hata",
+          description: message,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       toast({
         title: "Hata",
-        description: "Bir hata oluştu",
+        description: error instanceof Error ? error.message : "Bir hata oluştu",
         variant: "destructive",
       })
     } finally {
@@ -161,6 +176,15 @@ export default function CariPage() {
     setIsDialogOpen(true)
   }
 
+  useEffect(() => {
+    if (!editId) return
+    const list = activeTab === "customers" ? customers : suppliers
+    const item = list.find((entry) => entry.id === editId)
+    if (item) {
+      startEdit(item)
+    }
+  }, [editId, activeTab, customers, suppliers])
+
   const deleteItem = async (id: string) => {
     if (!confirm("Bu kaydı silmek istediğinize emin misiniz?")) return
     const endpoint = activeTab === "customers" ? "customers" : "suppliers"
@@ -169,7 +193,14 @@ export default function CariPage() {
       toast({ title: "Başarılı", description: "Kayıt silindi" })
       fetchData()
     } else {
-      toast({ title: "Hata", description: "Kayıt silinemedi", variant: "destructive" })
+      let message = "Kayıt silinemedi"
+      try {
+        const data = await response.json()
+        if (typeof data?.error === "string") message = data.error
+      } catch {
+        /* ignore */
+      }
+      toast({ title: "Hata", description: message, variant: "destructive" })
     }
   }
 

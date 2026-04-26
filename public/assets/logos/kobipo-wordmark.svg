@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="60" viewBox="0 0 260 60">
+  <title>Kobipo Wordmark</title>
+  <defs>
+    <clipPath id="wm-clip">
+      <rect x="0" y="4" width="52" height="52" rx="13"/>
+    </clipPath>
+  </defs>
+  <rect x="0" y="4" width="52" height="52" rx="13" fill="#185FA5"/>
+  <polygon points="0,56 52,4 52,56" fill="#0C3B6B" clip-path="url(#wm-clip)"/>
+  <path d="M8,34 A18,18 0 1,1 44,34" fill="none" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  <path d="M41,22 L44,34 L35,31" fill="none" stroke="white" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="26" cy="38" r="6" fill="#52B788"/>
+  <text x="64" y="36" font-family="'DM Sans', 'Helvetica Neue', Arial, sans-serif" font-size="32" font-weight="800" fill="#0C3B6B" letter-spacing="-1">kobi</text>
+  <text x="154" y="36" font-family="'DM Sans', 'Helvetica Neue', Arial, sans-serif" font-size="32" font-weight="300" fill="#185FA5" letter-spacing="-1">po</text>
+</svg>

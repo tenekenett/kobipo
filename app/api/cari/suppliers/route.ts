@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { repairOrphanDualRoleSuppliers, toBool } from "@/lib/cari/repair-dual-role"
 
 export const dynamic = 'force-dynamic'
 
@@ -25,6 +26,8 @@ export async function GET(request: Request) {
     }
 
     await ensureCompanyAccess(companyId)
+
+    await repairOrphanDualRoleSuppliers(companyId)
 
     const where: any = {
       companyId,
@@ -136,11 +139,11 @@ export async function POST(request: Request) {
           email,
           contactPerson,
           paymentDueDays: paymentDueDays ? Number(paymentDueDays) : null,
-          isAlsoCustomer: Boolean(isAlsoCustomer),
+          isAlsoCustomer: toBool(isAlsoCustomer),
         },
       })
 
-      if (isAlsoCustomer) {
+      if (toBool(isAlsoCustomer)) {
         const linkedCustomer = await tx.customer.create({
           data: {
             companyId,

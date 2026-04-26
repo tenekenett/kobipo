@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db/prisma"
  */
 export async function generateInvoiceNumber(
   companyId: string,
-  type: "SALES" | "PURCHASE",
+  type: "SALES" | "PURCHASE" | "RETURN",
   date?: Date
 ): Promise<string> {
   const invoiceDate = date || new Date()
@@ -15,8 +15,8 @@ export async function generateInvoiceNumber(
     where: { id: companyId },
     select: { invoiceSeriesPrefix: true },
   })
-  const defaultPrefix = type === "SALES" ? "SAT" : "ALI"
-  const prefix = company?.invoiceSeriesPrefix || defaultPrefix
+  const defaultPrefix = type === "SALES" ? "SAT" : type === "RETURN" ? "IAD" : "ALI"
+  const prefix = type === "RETURN" ? defaultPrefix : company?.invoiceSeriesPrefix || defaultPrefix
 
   // Bu yıl için aynı tip faturaların sayısını bul
   const startOfYear = new Date(year, 0, 1)

@@ -14,7 +14,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
-import { Eye, Plus, FileText } from "lucide-react"
+import { Eye, Plus, FileText, Pencil } from "lucide-react"
 import Link from "next/link"
 
 interface Invoice {
@@ -44,6 +44,7 @@ export default function FaturalarPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [company, setCompany] = useState<Company | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
 
   useEffect(() => {
     if (companyId) {
@@ -67,11 +68,11 @@ export default function FaturalarPage() {
   const fetchInvoices = async () => {
     if (!companyId) return
     setIsLoading(true)
+    setListError(null)
     try {
       const response = await fetch(`/api/e-donusum/invoices?companyId=${companyId}`)
       if (response.ok) {
         const data = await response.json()
-        // Ödeme bilgilerini de al
         const invoicesWithPayments = await Promise.all(
           data.map(async (invoice: Invoice) => {
             const paymentsRes = await fetch(
@@ -85,9 +86,24 @@ export default function FaturalarPage() {
           })
         )
         setInvoices(invoicesWithPayments)
+        return
       }
+      const body = await response.json().catch(() => ({}))
+      const msg =
+        response.status === 401
+          ? "Oturum süresi dolmuş olabilir. Lütfen tekrar giriş yapın."
+          : body.error || `Faturalar yüklenemedi (${response.status}).`
+      setListError(msg)
+      setInvoices([])
+      toast({
+        title: "Faturalar yüklenemedi",
+        description: msg,
+        variant: "destructive",
+      })
     } catch (error) {
       console.error("Error fetching invoices:", error)
+      setListError("Faturalar yüklenirken bir hata oluştu.")
+      setInvoices([])
       toast({
         title: "Hata",
         description: "Faturalar yüklenirken bir hata oluştu",
@@ -127,11 +143,15 @@ export default function FaturalarPage() {
 
   const handleCreateInvoice = () => {
     if (!companyId) return
+    const fromParam = `&from=${encodeURIComponent("/faturalar")}`
     const target = company?.isEDonusumEnabled
-      ? `/e-donusum?company=${companyId}`
-      : `/e-donusum?company=${companyId}&manual=1`
+      ? `/e-donusum/yeni?company=${encodeURIComponent(companyId)}${fromParam}`
+      : `/e-donusum/yeni?company=${encodeURIComponent(companyId)}&manual=1${fromParam}`
     router.push(target)
   }
+
+  const invoiceTypeLabel = (type: string) =>
+    type === "SALES" ? "Satış" : type === "PURCHASE" ? "Alış" : type === "RETURN" ? "İade" : type
 
   if (!companyId) {
     return (
@@ -162,6 +182,8 @@ export default function FaturalarPage() {
         <CardContent>
           {isLoading ? (
             <div className="text-center py-8">Yükleniyor...</div>
+          ) : listError ? (
+            <div className="space-y-2 py-8 text-center text-sm text-destructive">{listError}</div>
           ) : invoices.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               Henüz fatura bulunmuyor
@@ -196,7 +218,7 @@ export default function FaturalarPage() {
                       </TableCell>
                       <TableCell>
                         <Badge variant={invoice.type === "SALES" ? "default" : "secondary"}>
-                          {invoice.type === "SALES" ? "Satış" : "Alış"}
+                          {invoiceTypeLabel(invoice.type)}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -231,6 +253,16 @@ export default function FaturalarPage() {
                               Ödemeler
                             </Button>
                           </Link>
+                          {invoice.status === "DRAFT" && (
+                            <Link
+                              href={`/e-donusum/${invoice.id}/duzenle?company=${encodeURIComponent(companyId)}&from=${encodeURIComponent("/faturalar")}`}
+                            >
+                              <Button variant="outline" size="sm">
+                                <Pencil className="h-4 w-4 mr-1" />
+                                Düzenle
+                              </Button>
+                            </Link>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

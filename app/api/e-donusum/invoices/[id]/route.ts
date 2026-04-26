@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
+import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { Decimal } from "@prisma/client/runtime/library"
 
 
@@ -18,6 +19,9 @@ export async function GET(
     }
 
     const resolvedParams = await params
+    const { searchParams } = new URL(request.url)
+    const queryCompanyId = searchParams.get("companyId")?.trim() || null
+
     const invoice = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id },
       include: {
@@ -64,14 +68,33 @@ export async function GET(
 
     await ensureCompanyAccess(invoice.companyId)
 
+    if (queryCompanyId && queryCompanyId !== invoice.companyId) {
+      return NextResponse.json(
+        {
+          error:
+            "Bu fatura URL'deki firmaya ait değil. Üstten doğru şubeyi seçin veya Faturalar listesinden açın.",
+          code: "COMPANY_MISMATCH",
+        },
+        { status: 400 }
+      )
+    }
+    const company = await prisma.company.findUnique({
+      where: { id: invoice.companyId },
+      select: { isEDonusumEnabled: true },
+    })
+    if (!company) {
+      return NextResponse.json({ error: "Company not found" }, { status: 404 })
+    }
+
     return NextResponse.json(invoice)
   } catch (error: any) {
-    if (error.message.includes("Access denied")) {
+    const message: string = typeof error?.message === "string" ? error.message : ""
+    if (message.toLowerCase().includes("access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
     console.error("Error fetching invoice:", error)
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: message || "Internal server error" },
       { status: 500 }
     )
   }
@@ -119,9 +142,13 @@ export async function PUT(
       totalAmount = new Decimal(0)
 
       items.forEach((item: any) => {
-        const itemNet = new Decimal(item.quantity).times(item.unitPrice)
+        const itemGross = new Decimal(item.quantity).times(item.unitPrice)
+        const itemDiscount = itemGross.times(new Decimal(item.discountRate || 0).div(100))
+        const itemNet = itemGross.minus(itemDiscount)
         const itemVat = itemNet.times(new Decimal(item.vatRate).div(100))
-        const itemTotal = itemNet.plus(itemVat)
+        const itemWithholding = itemNet.times(new Decimal(item.withholdingRate || 0).div(100))
+        const itemExcise = itemNet.times(new Decimal(item.exciseRate || 0).div(100))
+        const itemTotal = itemNet.plus(itemVat).plus(itemExcise).minus(itemWithholding)
 
         netAmount = netAmount.plus(itemNet)
         vatAmount = vatAmount.plus(itemVat)
@@ -129,12 +156,11 @@ export async function PUT(
       })
     }
 
-    // Update invoice
     const updated = await prisma.invoice.update({
       where: { id: resolvedParams.id },
       data: {
-        customerId: customerId !== undefined ? customerId : invoice.customerId,
-        supplierId: supplierId !== undefined ? supplierId : invoice.supplierId,
+        customerId: customerId !== undefined ? (customerId || null) : invoice.customerId,
+        supplierId: supplierId !== undefined ? (supplierId || null) : invoice.supplierId,
         date: date ? new Date(date) : invoice.date,
         dueDate: dueDate !== undefined ? (dueDate ? new Date(dueDate) : null) : invoice.dueDate,
         totalAmount: totalAmount,
@@ -157,11 +183,38 @@ export async function PUT(
           invoiceId: resolvedParams.id,
           productId: item.productId || null,
           description: item.description,
+          unit:
+            typeof item.unit === "string" && item.unit.trim()
+              ? String(item.unit).trim().toUpperCase()
+              : "ADET",
           quantity: new Decimal(item.quantity),
           unitPrice: new Decimal(item.unitPrice),
+          discountRate: item.discountRate !== undefined ? new Decimal(item.discountRate) : null,
+          discountAmount: new Decimal(item.quantity).times(item.unitPrice).times(new Decimal(item.discountRate || 0).div(100)),
           vatRate: new Decimal(item.vatRate),
-          vatAmount: new Decimal(item.quantity).times(item.unitPrice).times(new Decimal(item.vatRate).div(100)),
-          totalAmount: new Decimal(item.quantity).times(item.unitPrice).times(new Decimal(1).plus(new Decimal(item.vatRate).div(100))),
+          vatAmount: new Decimal(item.quantity)
+            .times(item.unitPrice)
+            .times(new Decimal(1).minus(new Decimal(item.discountRate || 0).div(100)))
+            .times(new Decimal(item.vatRate).div(100)),
+          withholdingRate: item.withholdingRate !== undefined ? new Decimal(item.withholdingRate) : null,
+          withholdingAmount: new Decimal(item.quantity)
+            .times(item.unitPrice)
+            .times(new Decimal(1).minus(new Decimal(item.discountRate || 0).div(100)))
+            .times(new Decimal(item.withholdingRate || 0).div(100)),
+          exciseRate: item.exciseRate !== undefined ? new Decimal(item.exciseRate) : null,
+          exciseAmount: new Decimal(item.quantity)
+            .times(item.unitPrice)
+            .times(new Decimal(1).minus(new Decimal(item.discountRate || 0).div(100)))
+            .times(new Decimal(item.exciseRate || 0).div(100)),
+          totalAmount: new Decimal(item.quantity)
+            .times(item.unitPrice)
+            .times(new Decimal(1).minus(new Decimal(item.discountRate || 0).div(100)))
+            .times(
+              new Decimal(1)
+                .plus(new Decimal(item.vatRate).div(100))
+                .plus(new Decimal(item.exciseRate || 0).div(100))
+                .minus(new Decimal(item.withholdingRate || 0).div(100))
+            ),
           order: index,
         })),
       })
@@ -183,12 +236,13 @@ export async function PUT(
 
     return NextResponse.json(invoiceWithItems)
   } catch (error: any) {
-    if (error.message.includes("Access denied")) {
+    const message: string = typeof error?.message === "string" ? error.message : ""
+    if (message.toLowerCase().includes("access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
     console.error("Error updating invoice:", error)
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: message || "Internal server error" },
       { status: 500 }
     )
   }
@@ -219,6 +273,13 @@ export async function POST(
     }
 
     await ensureCompanyAccess(invoiceWithItems.companyId)
+    const company = await prisma.company.findUnique({
+      where: { id: invoiceWithItems.companyId },
+      select: { isEDonusumEnabled: true },
+    })
+    if (!company) {
+      return NextResponse.json({ error: "Company not found" }, { status: 404 })
+    }
 
     if (invoiceWithItems.status !== "DRAFT") {
       return NextResponse.json(
@@ -234,6 +295,13 @@ export async function POST(
       )
     }
 
+    if (!company.isEDonusumEnabled) {
+      return NextResponse.json(
+        { error: "Bu firmada e-fatura ozelligi kapali" },
+        { status: 400 }
+      )
+    }
+
     if (invoiceWithItems.type !== "SALES") {
       return NextResponse.json(
         { error: "Only sales invoices can be sent" },
@@ -241,6 +309,7 @@ export async function POST(
       )
     }
 
+    assertEInvoiceRuntimeReady()
     const provider = createEInvoiceProvider()
     const invoiceData = {
       invoiceNo: invoiceWithItems.invoiceNo,
@@ -279,6 +348,10 @@ export async function POST(
     const response = await provider.sendInvoice(invoiceData)
 
     if (!response.success) {
+      await prisma.invoice.update({
+        where: { id: resolvedParams.id },
+        data: { integrationStatus: `ERROR:${response.error || "UNKNOWN"}` },
+      })
       return NextResponse.json(
         { error: response.error || "Failed to send invoice" },
         { status: 400 }
@@ -297,12 +370,13 @@ export async function POST(
 
     return NextResponse.json(updated)
   } catch (error: any) {
-    if (error.message.includes("Access denied")) {
+    const message: string = typeof error?.message === "string" ? error.message : ""
+    if (message.toLowerCase().includes("access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
     console.error("Error sending invoice:", error)
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: message || "Internal server error" },
       { status: 500 }
     )
   }

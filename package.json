@@ -25,6 +25,7 @@
     "sync:prisma-to-supabase": "node scripts/sync-prisma-to-supabase.js",
     "demo:user": "node scripts/create-demo-user.js",
     "admin:create": "node scripts/create-admin.js",
+    "kobipo:export-png": "node scripts/export-kobipo-pngs.mjs",
     "vercel:dev": "vercel dev",
     "vercel:deploy": "vercel",
     "vercel:prod": "vercel --prod",
@@ -51,6 +52,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "date-fns": "^3.0.0",
+    "fast-xml-parser": "^5.7.2",
     "jspdf": "^3.0.4",
     "jspdf-autotable": "^5.0.2",
     "lucide-react": "^0.303.0",
@@ -62,6 +64,7 @@
     "recharts": "^2.15.4",
     "tailwind-merge": "^2.2.0",
     "tailwindcss-animate": "^1.0.7",
+    "xlsx": "^0.18.5",
     "zod": "^3.22.4"
   },
   "devDependencies": {
@@ -76,6 +79,7 @@
     "pg": "^8.16.3",
     "postcss": "^8.4.32",
     "prisma": "^5.7.1",
+    "sharp": "^0.34.5",
     "supabase": "^1.200.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.3.3",

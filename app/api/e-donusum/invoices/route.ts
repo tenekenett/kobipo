@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
+import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
 
@@ -29,7 +30,13 @@ export async function GET(request: Request) {
     }
 
     await ensureCompanyAccess(companyId)
-    await ensureUsageLimit(companyId, "invoices_monthly", 1)
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { isEDonusumEnabled: true },
+    })
+    if (!company) {
+      return NextResponse.json({ error: "Company not found" }, { status: 404 })
+    }
 
     const where: any = {
       companyId,
@@ -64,12 +71,13 @@ export async function GET(request: Request) {
 
     return NextResponse.json(invoices)
   } catch (error: any) {
-    if (error.message.includes("Access denied")) {
+    const message: string = typeof error?.message === "string" ? error.message : ""
+    if (message.toLowerCase().includes("access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
     console.error("Error fetching invoices:", error)
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: message || "Internal server error" },
       { status: 500 }
     )
   }
@@ -108,13 +116,33 @@ export async function POST(request: Request) {
     }
 
     await ensureCompanyAccess(companyId)
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { isEDonusumEnabled: true },
+    })
+    if (!company) {
+      return NextResponse.json({ error: "Company not found" }, { status: 404 })
+    }
 
-    // Fatura numarası yoksa otomatik oluştur
+    if (!company.isEDonusumEnabled && (invoiceType === "E_INVOICE" || invoiceType === "E_ARCHIVE")) {
+      return NextResponse.json(
+        { error: "Bu firmada e-fatura ozelligi kapali" },
+        { status: 400 }
+      )
+    }
+
+    if (type !== "SALES" && type !== "PURCHASE" && type !== "RETURN") {
+      return NextResponse.json(
+        { error: "Geçersiz fatura tipi" },
+        { status: 400 }
+      )
+    }
+
     let finalInvoiceNo = invoiceNo
     if (!finalInvoiceNo) {
       finalInvoiceNo = await generateInvoiceNumber(
         companyId,
-        type as "SALES" | "PURCHASE",
+        type as "SALES" | "PURCHASE" | "RETURN",
         date ? new Date(date) : undefined
       )
     }
@@ -124,8 +152,10 @@ export async function POST(request: Request) {
       .map((item) => ({
         productId: item.productId || null,
         description: String(item.description).trim(),
+        unit: typeof item.unit === "string" && item.unit.trim() ? String(item.unit).trim().toUpperCase() : "ADET",
         quantity: parseFloat(item.quantity) || 0,
         unitPrice: parseFloat(item.unitPrice) || 0,
+        discountRate: parseFloat(item.discountRate) || 0,
         vatRate: parseFloat(item.vatRate) || 0,
         withholdingRate: parseFloat(item.withholdingRate) || 0,
         exciseRate: parseFloat(item.exciseRate) || 0,
@@ -144,7 +174,9 @@ export async function POST(request: Request) {
     let totalAmount = 0
 
     normalizedItems.forEach((item) => {
-      const itemNet = item.quantity * item.unitPrice
+      const itemGross = item.quantity * item.unitPrice
+      const itemDiscount = itemGross * (item.discountRate / 100)
+      const itemNet = itemGross - itemDiscount
       const itemVat = itemNet * (item.vatRate / 100)
       const itemWithholding = itemNet * (item.withholdingRate / 100)
       const itemExcise = itemNet * (item.exciseRate / 100)
@@ -155,7 +187,15 @@ export async function POST(request: Request) {
       totalAmount += itemTotal
     })
 
-    // Create invoice
+    try {
+      await ensureUsageLimit(companyId, "invoices_monthly", 1)
+    } catch (limitErr: any) {
+      return NextResponse.json(
+        { error: limitErr?.message || "Aylik fatura limiti asildi" },
+        { status: 429 }
+      )
+    }
+
     const invoice = await prisma.invoice.create({
       data: {
         companyId,
@@ -179,16 +219,20 @@ export async function POST(request: Request) {
           create: normalizedItems.map((item, index: number) => ({
             productId: item.productId || null,
             description: item.description,
+            unit: item.unit,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
+            discountRate: item.discountRate || null,
+            discountAmount: item.quantity * item.unitPrice * (item.discountRate / 100),
             vatRate: item.vatRate,
-            vatAmount: item.quantity * item.unitPrice * (item.vatRate / 100),
+            vatAmount: (item.quantity * item.unitPrice - item.quantity * item.unitPrice * (item.discountRate / 100)) * (item.vatRate / 100),
             withholdingRate: item.withholdingRate || null,
-            withholdingAmount: item.quantity * item.unitPrice * (item.withholdingRate / 100),
+            withholdingAmount: (item.quantity * item.unitPrice - item.quantity * item.unitPrice * (item.discountRate / 100)) * (item.withholdingRate / 100),
             exciseRate: item.exciseRate || null,
-            exciseAmount: item.quantity * item.unitPrice * (item.exciseRate / 100),
+            exciseAmount: (item.quantity * item.unitPrice - item.quantity * item.unitPrice * (item.discountRate / 100)) * (item.exciseRate / 100),
             totalAmount:
-              item.quantity * item.unitPrice * (1 + item.vatRate / 100 + item.exciseRate / 100 - item.withholdingRate / 100),
+              (item.quantity * item.unitPrice - item.quantity * item.unitPrice * (item.discountRate / 100)) *
+              (1 + item.vatRate / 100 + item.exciseRate / 100 - item.withholdingRate / 100),
             order: index,
           })),
         },
@@ -255,11 +299,13 @@ export async function POST(request: Request) {
 
     // Send invoice if requested
     if (
+      company.isEDonusumEnabled &&
       sendInvoice &&
       type === "SALES" &&
       (invoiceType === "E_INVOICE" || invoiceType === "E_ARCHIVE")
     ) {
       try {
+        assertEInvoiceRuntimeReady()
         const provider = createEInvoiceProvider()
         const invoiceData = {
           invoiceNo: invoice.invoiceNo,
@@ -314,8 +360,18 @@ export async function POST(request: Request) {
             status: "SENT",
           })
         }
+        if (!response.success) {
+          await prisma.invoice.update({
+            where: { id: invoice.id },
+            data: { integrationStatus: `ERROR:${response.error || "UNKNOWN"}` },
+          })
+        }
       } catch (error) {
         console.error("Error sending invoice:", error)
+        await prisma.invoice.update({
+          where: { id: invoice.id },
+          data: { integrationStatus: `ERROR:${(error as Error).message}` },
+        })
         // Continue with invoice creation even if sending fails
       }
     }

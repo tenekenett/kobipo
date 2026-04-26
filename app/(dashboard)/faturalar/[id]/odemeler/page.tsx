@@ -66,6 +66,16 @@ interface FinancialAccount {
   type: string
 }
 
+interface PaymentLink {
+  id: string
+  token: string
+  amount: number
+  status: string
+  expiresAt?: string
+  createdAt: string
+  paymentUrl?: string
+}
+
 export default function FaturaOdemelerPage() {
   const params = useParams()
   const searchParams = useSearchParams()
@@ -79,6 +89,9 @@ export default function FaturaOdemelerPage() {
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [paymentLinks, setPaymentLinks] = useState<PaymentLink[]>([])
+  const [linkAmount, setLinkAmount] = useState("")
+  const [linkExpiresAt, setLinkExpiresAt] = useState("")
 
   const [formData, setFormData] = useState({
     amount: "",
@@ -94,6 +107,7 @@ export default function FaturaOdemelerPage() {
       fetchInvoice()
       fetchPayments()
       fetchAccounts()
+      fetchPaymentLinks()
     }
   }, [invoiceId, companyId])
 
@@ -135,6 +149,15 @@ export default function FaturaOdemelerPage() {
       }
     } catch (error) {
       console.error("Error fetching accounts:", error)
+    }
+  }
+
+  const fetchPaymentLinks = async () => {
+    if (!invoiceId) return
+    const response = await fetch(`/api/faturalar/${invoiceId}/payment-link`)
+    if (response.ok) {
+      const data = await response.json()
+      setPaymentLinks(data)
     }
   }
 
@@ -215,6 +238,37 @@ export default function FaturaOdemelerPage() {
       toast({
         title: "Hata",
         description: "Bir hata oluştu",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const createPaymentLink = async () => {
+    const response = await fetch(`/api/faturalar/${invoiceId}/payment-link`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: linkAmount ? Number(linkAmount) : undefined,
+        expiresAt: linkExpiresAt ? new Date(linkExpiresAt).toISOString() : undefined,
+      }),
+    })
+    if (response.ok) {
+      const data = await response.json()
+      if (data.paymentUrl) {
+        navigator.clipboard.writeText(`${window.location.origin}${data.paymentUrl}`).catch(() => {})
+      }
+      setLinkAmount("")
+      setLinkExpiresAt("")
+      fetchPaymentLinks()
+      toast({
+        title: "Başarılı",
+        description: "Ödeme linki oluşturuldu ve panoya kopyalandı",
+      })
+    } else {
+      const data = await response.json()
+      toast({
+        title: "Hata",
+        description: data.error || "Ödeme linki oluşturulamadı",
         variant: "destructive",
       })
     }
@@ -355,6 +409,75 @@ export default function FaturaOdemelerPage() {
                         onClick={() => handleDelete(payment.id)}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Online Tahsilat Linkleri</CardTitle>
+          <CardDescription>
+            Link oluşturup müşteriye gönderin. Ödeme sonrası kayıt otomatik oluşur.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Input
+              type="number"
+              step="0.01"
+              placeholder="Tutar (boş bırakılırsa kalan)"
+              value={linkAmount}
+              onChange={(e) => setLinkAmount(e.target.value)}
+            />
+            <Input
+              type="datetime-local"
+              value={linkExpiresAt}
+              onChange={(e) => setLinkExpiresAt(e.target.value)}
+            />
+            <Button onClick={createPaymentLink} disabled={remaining <= 0}>
+              Ödeme Linki Oluştur
+            </Button>
+          </div>
+
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Token</TableHead>
+                <TableHead>Tutar</TableHead>
+                <TableHead>Durum</TableHead>
+                <TableHead>Son Kullanım</TableHead>
+                <TableHead>İşlem</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {paymentLinks.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    Link bulunamadı
+                  </TableCell>
+                </TableRow>
+              ) : (
+                paymentLinks.map((link) => (
+                  <TableRow key={link.id}>
+                    <TableCell className="font-mono text-xs">{link.token.slice(0, 12)}...</TableCell>
+                    <TableCell>{formatCurrency(Number(link.amount))}</TableCell>
+                    <TableCell>{link.status}</TableCell>
+                    <TableCell>{link.expiresAt ? formatDate(link.expiresAt) : "-"}</TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          navigator.clipboard.writeText(`${window.location.origin}/pay/${link.token}`)
+                        }
+                      >
+                        URL Kopyala
                       </Button>
                     </TableCell>
                   </TableRow>

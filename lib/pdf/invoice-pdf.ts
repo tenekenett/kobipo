@@ -16,7 +16,7 @@ interface InvoiceData {
   date: string
   dueDate?: string
   type: "SALES" | "PURCHASE"
-  invoiceType: "E_INVOICE" | "E_ARCHIVE"
+  invoiceType: "E_INVOICE" | "E_ARCHIVE" | "MANUAL"
   customer?: {
     name: string
     taxNumber?: string
@@ -77,7 +77,12 @@ export function generateInvoicePDF(data: InvoiceData): void {
   // Invoice Info (Top Right)
   doc.setFontSize(20)
   doc.setFont("helvetica", "bold")
-  const invoiceTitle = data.invoiceType === "E_INVOICE" ? "E-FATURA" : "E-ARŞİV FATURA"
+  const invoiceTitle =
+    data.invoiceType === "E_INVOICE"
+      ? "E-FATURA"
+      : data.invoiceType === "E_ARCHIVE"
+        ? "E-ARSIV FATURA"
+        : "MANUEL FATURA"
   doc.text(invoiceTitle, 140, 20)
   
   doc.setFontSize(10)

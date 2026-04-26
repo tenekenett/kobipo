@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus } from "lucide-react"
+import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil } from "lucide-react"
 import Link from "next/link"
 
 interface Transaction {
@@ -136,6 +136,12 @@ export default function CustomerSupplierDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link href={`/cari?company=${companyId}&tab=${type}&edit=${id}`}>
+            <Button variant="outline" size="sm">
+              <Pencil className="mr-2 h-4 w-4" />
+              Düzenle
+            </Button>
+          </Link>
           <Link href={`/finans/hareketler?company=${companyId}&${isCustomer ? "customerId" : "supplierId"}=${id}`}>
             <Button variant="default" size="sm">
               <Plus className="mr-2 h-4 w-4" />
