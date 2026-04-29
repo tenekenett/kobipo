@@ -139,7 +139,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
       exciseRate: 0,
     },
   ])
-  const [lineExtras, setLineExtras] = useState<LineExtraKey[][]>([["description"]])
+  const [lineExtras, setLineExtras] = useState<LineExtraKey[][]>([[]])
 
   const listHref = backHref || `/e-donusum?company=${encodeURIComponent(companyId)}`
 
@@ -295,7 +295,6 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
           if ((it.discountRate || 0) > 0) extras.push("discountRate")
           if ((it.withholdingRate || 0) > 0) extras.push("withholdingRate")
           if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
-          if (extras.length === 0) extras.push("description")
           return extras
         })
       )
@@ -326,7 +325,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
         exciseRate: 0,
       },
     ])
-    setLineExtras((prev) => [...prev, ["description"]])
+    setLineExtras((prev) => [...prev, []])
   }
 
   const removeItem = (index: number) => {
@@ -347,7 +346,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
   const addLineExtra = (index: number, key: LineExtraKey) => {
     setLineExtras((prev) => {
       const next = prev.map((arr, i) => (i === index ? [...arr, key] : arr))
-      while (next.length < items.length) next.push(["description"])
+      while (next.length < items.length) next.push([])
       return next
     })
   }
@@ -365,7 +364,6 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
     newItems[index] = {
       ...newItems[index],
       productId: product.id,
-      description: product.name,
       unit: (product.unit || "ADET").toUpperCase(),
       unitPrice: Number(product.salePrice) || 0,
       discountRate: 0,
@@ -374,9 +372,6 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
       exciseRate: 0,
     }
     setItems(newItems)
-    setLineExtras((prev) =>
-      prev.map((arr, i) => (i === index && !arr.includes("description") ? [...arr, "description"] : arr))
-    )
   }
 
   const mergeProductIntoList = (product: Product) => {
@@ -440,7 +435,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
         exciseRate: 0,
       },
     ])
-    setLineExtras([["description"]])
+    setLineExtras([[]])
   }
 
   const isEDonusumActive = Boolean(companySettings?.isEDonusumEnabled)
@@ -486,7 +481,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
   ])
 
   const handleSubmit = async () => {
-    if (items.length === 0 || items.every((item) => !item.description)) {
+    if (items.length === 0) {
       toast({
         title: "Hata",
         description: "En az bir kalem ekleyin",
@@ -525,7 +520,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
             companyId,
             ...formData,
             invoiceType: effectiveInvoiceType,
-            items: items.filter((item) => item.description),
+            items,
           }),
         }
       )
@@ -709,12 +704,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
             </Button>
           </div>
 
-          <div className="w-full min-w-0 space-y-3 rounded-lg border p-3">
+          <div className="w-full min-w-0 space-y-2 rounded-lg border p-2">
             {items.map((item, index) => {
               const extras = getLineExtras(index)
               const available = LINE_EXTRA_ORDER.filter((k) => !extras.includes(k))
               return (
-                <div key={index} className="space-y-2 rounded-md border bg-card p-3 shadow-sm">
+                <div key={index} className="space-y-1.5 rounded-md border bg-card p-2 shadow-sm">
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-12 md:items-end">
                     <div className="col-span-2 md:col-span-4">
                       <Label className="text-xs text-muted-foreground">Ürün / Hizmet</Label>
@@ -797,7 +792,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
                     </div>
                     <div className="col-span-1 text-right md:col-span-2">
                       <Label className="text-xs text-muted-foreground">Tutar</Label>
-                      <div className="flex h-9 items-center justify-end font-medium tabular-nums">
+                      <div className="flex h-8 items-center justify-end font-medium tabular-nums">
                         ₺
                         {(
                           item.quantity *
@@ -847,7 +842,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
                     </div>
                   </div>
                   {extras.length > 0 ? (
-                    <div className="grid grid-cols-1 gap-2 border-t pt-2 sm:grid-cols-2 md:grid-cols-12 md:items-end">
+                    <div className="grid grid-cols-1 gap-2 border-t pt-1.5 sm:grid-cols-2 md:grid-cols-12 md:items-end">
                       {LINE_EXTRA_ORDER.filter((k) => extras.includes(k)).map((key) => {
                         const removable = (
                           <button
@@ -864,14 +859,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
                           return (
                             <div key={key} className="md:col-span-12">
                               <div className="mb-1 flex items-center">
-                                <Label className="text-xs text-muted-foreground">Satır açıklaması (zorunlu)</Label>
+                                <Label className="text-xs text-muted-foreground">Satır açıklaması</Label>
                                 {removable}
                               </div>
                               <Input
                                 value={item.description}
                                 onChange={(e) => updateItem(index, "description", e.target.value)}
                                 placeholder="Bu satır için açıklama"
-                                required
                               />
                             </div>
                           )

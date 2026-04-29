@@ -2,74 +2,35 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { signOut, useSession } from "next-auth/react"
+import { signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/ui/Logo"
 import { cn } from "@/lib/utils"
-import { LogOut, Menu, X, ChevronDown, Building2 } from "lucide-react"
+import { LogOut, Menu, X, ChevronDown, Building2, Loader2 } from "lucide-react"
 import { allNavItems, navGroups, navItemActive, type NavItemDef } from "@/components/dashboard/nav-config"
 import { NewBranchDialog } from "@/components/dashboard/new-branch-dialog"
 import { useState, useEffect, useCallback, useMemo } from "react"
+import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 export function DashboardNav() {
   const pathname = usePathname()
-  const { data: session } = useSession()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [userRole, setUserRole] = useState<string>("VIEWER")
-  const [isEDonusumEnabled, setIsEDonusumEnabled] = useState(true)
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
+  const { userRole, selectedCompany } = useDashboardCompany()
   /** Grup başlığı -> kapalıysa true (varsayılan: tüm gruplar kapalı) */
   const [navGroupClosed, setNavGroupClosed] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(navGroups.map((g) => [g.title, true]))
   )
 
-  useEffect(() => {
-    async function fetchRole() {
-      try {
-        const response = await fetch("/api/auth/user-role")
-        if (response.ok) {
-          const data = await response.json()
-          setUserRole(data.role || "VIEWER")
-        }
-      } catch (error) {
-        console.error("Error fetching role:", error)
-      }
-    }
-    if (session) {
-      fetchRole()
-    }
-  }, [session])
-
-  useEffect(() => {
-    async function fetchCompanySettings() {
-      const params = new URLSearchParams(window.location.search)
-      const companyId = params.get("company")
-      if (!companyId) {
-        setIsEDonusumEnabled(true)
-        return
-      }
-      try {
-        const response = await fetch("/api/companies")
-        if (!response.ok) return
-        const companies = await response.json()
-        const selectedCompany = companies.find((item: any) => item.id === companyId)
-        setIsEDonusumEnabled(Boolean(selectedCompany?.isEDonusumEnabled))
-      } catch (error) {
-        console.error("Error fetching company settings:", error)
-      }
-    }
-
-    fetchCompanySettings()
-  }, [pathname])
-
   // Role göre filtrelenmiş menü öğeleri
   const navItems = useMemo(
     () =>
       allNavItems.filter((item) => {
-        if (item.href === "/e-donusum" && !isEDonusumEnabled) {
+        if (item.href === "/e-donusum" && !selectedCompany?.isEDonusumEnabled) {
           return false
         }
         return item.roles.includes(userRole)
       }),
-    [userRole, isEDonusumEnabled]
+    [selectedCompany?.isEDonusumEnabled, userRole]
   )
 
   const groupedItems = useMemo(
@@ -95,6 +56,10 @@ export function DashboardNav() {
       return next
     })
   }, [pathname, groupedItems])
+
+  useEffect(() => {
+    setPendingHref(null)
+  }, [pathname])
 
   const isGroupOpen = useCallback(
     (title: string) => navGroupClosed[title] !== true,
@@ -151,14 +116,20 @@ export function DashboardNav() {
                         <Link
                           key={item.href}
                           href={item.href}
+                          onClick={() => setPendingHref(item.href)}
                           className={cn(
                             "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
+                            pendingHref === item.href && "opacity-80",
                             isActive
                               ? "bg-kobipo-blue font-semibold text-white"
                               : "font-medium text-white/55 hover:bg-white/[0.08] hover:text-white"
                           )}
                         >
-                          <Icon className="h-4 w-4 shrink-0" />
+                          {pendingHref === item.href ? (
+                            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                          ) : (
+                            <Icon className="h-4 w-4 shrink-0" />
+                          )}
                           {item.label}
                         </Link>
                       )
@@ -232,15 +203,23 @@ export function DashboardNav() {
                           <Link
                             key={item.href}
                             href={item.href}
-                            onClick={() => setMobileMenuOpen(false)}
+                            onClick={() => {
+                              setPendingHref(item.href)
+                              setMobileMenuOpen(false)
+                            }}
                             className={cn(
                               "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
+                              pendingHref === item.href && "opacity-80",
                               isActive
                                 ? "bg-kobipo-pale font-semibold text-kobipo-blue"
                                 : "font-medium text-kobipo-gray hover:bg-kobipo-pale hover:text-kobipo-blue"
                             )}
                           >
-                            <Icon className="h-5 w-5 shrink-0" />
+                            {pendingHref === item.href ? (
+                              <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
+                            ) : (
+                              <Icon className="h-5 w-5 shrink-0" />
+                            )}
                             {item.label}
                           </Link>
                         )

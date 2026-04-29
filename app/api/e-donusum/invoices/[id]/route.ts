@@ -8,6 +8,32 @@ import { Decimal } from "@prisma/client/runtime/library"
 
 
 export const dynamic = 'force-dynamic'
+
+function isMeaningfulInvoiceItem(item: any) {
+  if (!item || typeof item !== "object") return false
+  const hasProduct = typeof item.productId === "string" && item.productId.trim() !== ""
+  const quantity = parseFloat(item.quantity) || 0
+  const unitPrice = parseFloat(item.unitPrice) || 0
+  const hasDescription = typeof item.description === "string" && item.description.trim() !== ""
+  return hasProduct || quantity > 0 || unitPrice > 0 || hasDescription
+}
+
+function normalizeInvoiceItem(item: any) {
+  return {
+    productId: item.productId || null,
+    description: typeof item.description === "string" ? String(item.description).trim() : "",
+    unit:
+      typeof item.unit === "string" && item.unit.trim()
+        ? String(item.unit).trim().toUpperCase()
+        : "ADET",
+    quantity: parseFloat(item.quantity) || 0,
+    unitPrice: parseFloat(item.unitPrice) || 0,
+    discountRate: parseFloat(item.discountRate) || 0,
+    vatRate: parseFloat(item.vatRate) || 0,
+    withholdingRate: parseFloat(item.withholdingRate) || 0,
+    exciseRate: parseFloat(item.exciseRate) || 0,
+  }
+}
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -131,17 +157,29 @@ export async function PUT(
     const body = await request.json()
     const { customerId, supplierId, date, dueDate, items, notes } = body
 
+    const normalizedItems =
+      Array.isArray(items) && items.length > 0
+        ? items.filter((item: any) => isMeaningfulInvoiceItem(item)).map((item: any) => normalizeInvoiceItem(item))
+        : null
+
+    if (Array.isArray(items) && items.length > 0 && normalizedItems && normalizedItems.length === 0) {
+      return NextResponse.json(
+        { error: "En az bir anlamlı fatura kalemi gerekli" },
+        { status: 400 }
+      )
+    }
+
     // Recalculate totals if items changed
     let netAmount: Decimal = invoice.netAmount
     let vatAmount: Decimal = invoice.vatAmount
     let totalAmount: Decimal = invoice.totalAmount
 
-    if (items && items.length > 0) {
+    if (normalizedItems && normalizedItems.length > 0) {
       netAmount = new Decimal(0)
       vatAmount = new Decimal(0)
       totalAmount = new Decimal(0)
 
-      items.forEach((item: any) => {
+      normalizedItems.forEach((item) => {
         const itemGross = new Decimal(item.quantity).times(item.unitPrice)
         const itemDiscount = itemGross.times(new Decimal(item.discountRate || 0).div(100))
         const itemNet = itemGross.minus(itemDiscount)
@@ -171,7 +209,7 @@ export async function PUT(
     })
 
     // Update items if provided
-    if (items && items.length > 0) {
+    if (normalizedItems && normalizedItems.length > 0) {
       // Delete existing items
       await prisma.invoiceItem.deleteMany({
         where: { invoiceId: resolvedParams.id },
@@ -179,29 +217,26 @@ export async function PUT(
 
       // Create new items
       await prisma.invoiceItem.createMany({
-        data: items.map((item: any, index: number) => ({
+        data: normalizedItems.map((item, index: number) => ({
           invoiceId: resolvedParams.id,
           productId: item.productId || null,
           description: item.description,
-          unit:
-            typeof item.unit === "string" && item.unit.trim()
-              ? String(item.unit).trim().toUpperCase()
-              : "ADET",
+          unit: item.unit,
           quantity: new Decimal(item.quantity),
           unitPrice: new Decimal(item.unitPrice),
-          discountRate: item.discountRate !== undefined ? new Decimal(item.discountRate) : null,
+          discountRate: new Decimal(item.discountRate),
           discountAmount: new Decimal(item.quantity).times(item.unitPrice).times(new Decimal(item.discountRate || 0).div(100)),
           vatRate: new Decimal(item.vatRate),
           vatAmount: new Decimal(item.quantity)
             .times(item.unitPrice)
             .times(new Decimal(1).minus(new Decimal(item.discountRate || 0).div(100)))
             .times(new Decimal(item.vatRate).div(100)),
-          withholdingRate: item.withholdingRate !== undefined ? new Decimal(item.withholdingRate) : null,
+          withholdingRate: new Decimal(item.withholdingRate),
           withholdingAmount: new Decimal(item.quantity)
             .times(item.unitPrice)
             .times(new Decimal(1).minus(new Decimal(item.discountRate || 0).div(100)))
             .times(new Decimal(item.withholdingRate || 0).div(100)),
-          exciseRate: item.exciseRate !== undefined ? new Decimal(item.exciseRate) : null,
+          exciseRate: new Decimal(item.exciseRate),
           exciseAmount: new Decimal(item.quantity)
             .times(item.unitPrice)
             .times(new Decimal(1).minus(new Decimal(item.discountRate || 0).div(100)))

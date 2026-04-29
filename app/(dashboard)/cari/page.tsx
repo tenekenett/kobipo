@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,18 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Search, Eye, AlertCircle, Pencil, Trash2 } from "lucide-react"
-import { Switch } from "@/components/ui/switch"
+import { Plus, Search, Eye, Pencil, Trash2, Loader2 } from "lucide-react"
 import Link from "next/link"
 
 interface Customer {
@@ -32,10 +22,16 @@ interface Customer {
   code?: string
   name: string
   taxNumber?: string
+  taxOffice?: string
+  address?: string
+  city?: string
   email?: string
   phone?: string
+  contactPerson?: string
   balance?: number
   paymentDueDays?: number
+  openingBalanceAmount?: number
+  openingBalanceType?: "DEBIT" | "CREDIT"
   isAlsoSupplier?: boolean
   isAlsoCustomer?: boolean
 }
@@ -43,7 +39,6 @@ interface Customer {
 export default function CariPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
-  const editId = searchParams.get("edit")
   const tabQuery = searchParams.get("tab")
   const { toast } = useToast()
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -52,138 +47,53 @@ export default function CariPage() {
     tabQuery === "suppliers" ? "suppliers" : "customers"
   )
   const [search, setSearch] = useState("")
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [formData, setFormData] = useState({
-    code: "",
-    name: "",
-    taxNumber: "",
-    taxOffice: "",
-    address: "",
-    city: "",
-    phone: "",
-    email: "",
-    contactPerson: "",
-    paymentDueDays: "",
-    isAlsoSupplier: false,
-    isAlsoCustomer: false,
-  })
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [isPending, startTransition] = useTransition()
+  const fetchAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    if (companyId) {
-      fetchData()
-    }
-  }, [companyId, activeTab, search])
+    const handle = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(handle)
+  }, [search])
 
-  const fetchData = async () => {
-    if (!companyId) return
-
-    try {
-      const endpoint = activeTab === "customers" ? "customers" : "suppliers"
-      const response = await fetch(
-        `/api/cari/${endpoint}?companyId=${companyId}&search=${search}`
-      )
-      if (response.ok) {
-        const data = await response.json()
-        if (activeTab === "customers") {
-          setCustomers(data)
-        } else {
-          setSuppliers(data)
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching data:", error)
-    }
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!companyId) return
-
-    setIsLoading(true)
-    try {
-      const endpoint = activeTab === "customers" ? "customers" : "suppliers"
-      const response = await fetch(`/api/cari/${endpoint}${editingId ? `/${editingId}` : ""}`, {
-        method: editingId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, companyId }),
-      })
-
-      if (response.ok) {
-        toast({
-          title: "Başarılı",
-          description: `${activeTab === "customers" ? "Müşteri" : "Tedarikçi"} ${editingId ? "güncellendi" : "oluşturuldu"}`,
-        })
-        setIsDialogOpen(false)
-        setEditingId(null)
-        setFormData({
-          code: "",
-          name: "",
-          taxNumber: "",
-          taxOffice: "",
-          address: "",
-          city: "",
-          phone: "",
-          email: "",
-          contactPerson: "",
-          paymentDueDays: "",
-          isAlsoSupplier: false,
-          isAlsoCustomer: false,
-        })
-        fetchData()
-      } else {
-        let message = "İşlem tamamlanamadı"
-        try {
+  const fetchData = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!companyId) return
+      try {
+        const endpoint = activeTab === "customers" ? "customers" : "suppliers"
+        const response = await fetch(
+          `/api/cari/${endpoint}?companyId=${companyId}&search=${encodeURIComponent(debouncedSearch)}`,
+          { signal, cache: "no-store" }
+        )
+        if (response.ok) {
           const data = await response.json()
-          if (typeof data?.error === "string") message = data.error
-        } catch {
-          /* ignore */
+          if (activeTab === "customers") {
+            setCustomers(data)
+          } else {
+            setSuppliers(data)
+          }
+        } else {
+          throw new Error("Veriler yenilenemedi")
         }
-        toast({
-          title: "Hata",
-          description: message,
-          variant: "destructive",
-        })
+      } catch (error) {
+        if ((error as { name?: string })?.name === "AbortError") return
+        console.error("Error fetching data:", error)
+        throw error
       }
-    } catch (error) {
-      toast({
-        title: "Hata",
-        description: error instanceof Error ? error.message : "Bir hata oluştu",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const startEdit = (item: Customer) => {
-    setEditingId(item.id)
-    setFormData({
-      code: item.code || "",
-      name: item.name || "",
-      taxNumber: item.taxNumber || "",
-      taxOffice: "",
-      address: "",
-      city: "",
-      phone: item.phone || "",
-      email: item.email || "",
-      contactPerson: "",
-      paymentDueDays: String(item.paymentDueDays || ""),
-      isAlsoSupplier: Boolean(item.isAlsoSupplier),
-      isAlsoCustomer: Boolean(item.isAlsoCustomer),
-    })
-    setIsDialogOpen(true)
-  }
+    },
+    [companyId, activeTab, debouncedSearch]
+  )
 
   useEffect(() => {
-    if (!editId) return
-    const list = activeTab === "customers" ? customers : suppliers
-    const item = list.find((entry) => entry.id === editId)
-    if (item) {
-      startEdit(item)
-    }
-  }, [editId, activeTab, customers, suppliers])
+    if (!companyId) return
+    fetchAbortRef.current?.abort()
+    const controller = new AbortController()
+    fetchAbortRef.current = controller
+    startTransition(() => {
+      void fetchData(controller.signal).catch(() => {})
+    })
+    return () => controller.abort()
+  }, [companyId, activeTab, debouncedSearch, fetchData])
 
   const deleteItem = async (id: string) => {
     if (!confirm("Bu kaydı silmek istediğinize emin misiniz?")) return
@@ -191,7 +101,13 @@ export default function CariPage() {
     const response = await fetch(`/api/cari/${endpoint}/${id}`, { method: "DELETE" })
     if (response.ok) {
       toast({ title: "Başarılı", description: "Kayıt silindi" })
-      fetchData()
+      void fetchData().catch(() => {
+        toast({
+          title: "Uyarı",
+          description: "Kayıt silindi ancak liste yenilenemedi. Sayfayı yenileyin.",
+          variant: "destructive",
+        })
+      })
     } else {
       let message = "Kayıt silinemedi"
       try {
@@ -230,204 +146,33 @@ export default function CariPage() {
             Müşteri ve tedarikçi yönetimi
           </p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-                Yeni {activeTab === "customers" ? "Müşteri" : "Tedarikçi"}
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>
-                {editingId ? "Kaydı Düzenle" : `Yeni ${activeTab === "customers" ? "Müşteri" : "Tedarikçi"}`}
-              </DialogTitle>
-              <DialogDescription>
-                {activeTab === "customers" ? "Müşteri" : "Tedarikçi"} bilgilerini
-                girin
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="code">Kod</Label>
-                  <Input
-                    id="code"
-                    value={formData.code}
-                    onChange={(e) =>
-                      setFormData({ ...formData, code: e.target.value })
-                    }
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="name">Ad *</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, name: e.target.value })
-                    }
-                    required
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="taxNumber">Vergi No</Label>
-                  <Input
-                    id="taxNumber"
-                    value={formData.taxNumber}
-                    onChange={(e) =>
-                      setFormData({ ...formData, taxNumber: e.target.value })
-                    }
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="taxOffice">Vergi Dairesi</Label>
-                  <Input
-                    id="taxOffice"
-                    value={formData.taxOffice}
-                    onChange={(e) =>
-                      setFormData({ ...formData, taxOffice: e.target.value })
-                    }
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Telefon</Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) =>
-                      setFormData({ ...formData, phone: e.target.value })
-                    }
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) =>
-                      setFormData({ ...formData, email: e.target.value })
-                    }
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="address">Adres</Label>
-                  <Input
-                    id="address"
-                    value={formData.address}
-                    onChange={(e) =>
-                      setFormData({ ...formData, address: e.target.value })
-                    }
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="city">Şehir</Label>
-                  <Input
-                    id="city"
-                    value={formData.city}
-                    onChange={(e) =>
-                      setFormData({ ...formData, city: e.target.value })
-                    }
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="contactPerson">İletişim Kişisi</Label>
-                  <Input
-                    id="contactPerson"
-                    value={formData.contactPerson}
-                    onChange={(e) =>
-                      setFormData({ ...formData, contactPerson: e.target.value })
-                    }
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="paymentDueDays">Vade Günü</Label>
-                  <Input
-                    id="paymentDueDays"
-                    type="number"
-                    min="0"
-                    value={formData.paymentDueDays}
-                    onChange={(e) =>
-                      setFormData({ ...formData, paymentDueDays: e.target.value })
-                    }
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-3 md:col-span-2 rounded-md border p-3">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="linked-role-switch">
-                      {activeTab === "customers" ? "Aynı zamanda Tedarikçi" : "Aynı zamanda Müşteri"}
-                    </Label>
-                    <Switch
-                      id="linked-role-switch"
-                      checked={
-                        activeTab === "customers"
-                          ? formData.isAlsoSupplier
-                          : formData.isAlsoCustomer
-                      }
-                      onCheckedChange={(checked) =>
-                        setFormData({
-                          ...formData,
-                          isAlsoSupplier: activeTab === "customers" ? checked : false,
-                          isAlsoCustomer: activeTab === "suppliers" ? checked : false,
-                        })
-                      }
-                      disabled={isLoading}
-                    />
-                  </div>
-                  <p className="flex items-start gap-2 text-xs text-muted-foreground">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    {activeTab === "customers"
-                      ? "Bu seçenek ile müşteri hesabını aynı zamanda tedarikçi hesabı olarak tek hesap düzeninde takip edebilirsiniz."
-                      : "Bu seçenek ile tedarikçi hesabını aynı zamanda müşteri hesabı olarak tek hesap düzeninde takip edebilirsiniz."}
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-end space-x-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setIsDialogOpen(false)
-                    setEditingId(null)
-                  }}
-                  disabled={isLoading}
-                >
-                  İptal
-                </Button>
-                <Button type="submit" disabled={isLoading}>
-                  {isLoading ? "Kaydediliyor..." : "Kaydet"}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <Link href={`/cari/${activeTab}/new?company=${companyId}`}>
+          <Button>
+            <Plus className="mr-2 h-4 w-4" />
+            Yeni {activeTab === "customers" ? "Müşteri" : "Tedarikçi"}
+          </Button>
+        </Link>
       </div>
 
       <div className="flex space-x-2 border-b">
         <Button
           variant={activeTab === "customers" ? "default" : "ghost"}
-          onClick={() => setActiveTab("customers")}
+          onClick={() => startTransition(() => setActiveTab("customers"))}
         >
           Müşteriler
         </Button>
         <Button
           variant={activeTab === "suppliers" ? "default" : "ghost"}
-          onClick={() => setActiveTab("suppliers")}
+          onClick={() => startTransition(() => setActiveTab("suppliers"))}
         >
           Tedarikçiler
         </Button>
+        {isPending && (
+          <span className="ml-2 inline-flex items-center gap-1.5 self-center text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Yükleniyor...
+          </span>
+        )}
       </div>
 
       <Card>
@@ -448,8 +193,11 @@ export default function CariPage() {
                   placeholder="Ara..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-8 w-64"
+                  className="pl-8 pr-8 w-64"
                 />
+                {(isPending || search !== debouncedSearch) && (
+                  <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                )}
               </div>
             </div>
           </div>
@@ -463,6 +211,7 @@ export default function CariPage() {
                 <TableHead>Vergi No</TableHead>
                 <TableHead>Telefon</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>Açılış Bakiyesi</TableHead>
                 <TableHead className="text-right">Bakiye</TableHead>
                 <TableHead>İşlem</TableHead>
               </TableRow>
@@ -470,7 +219,7 @@ export default function CariPage() {
             <TableBody>
               {currentData.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center">
+                  <TableCell colSpan={8} className="text-center">
                     Kayıt bulunamadı
                   </TableCell>
                 </TableRow>
@@ -482,6 +231,16 @@ export default function CariPage() {
                     <TableCell>{item.taxNumber || "-"}</TableCell>
                     <TableCell>{item.phone || "-"}</TableCell>
                     <TableCell>{item.email || "-"}</TableCell>
+                    <TableCell>
+                      {item.openingBalanceAmount !== undefined
+                        ? `${new Intl.NumberFormat("tr-TR", {
+                            style: "currency",
+                            currency: "TRY",
+                          }).format(item.openingBalanceAmount)} ${
+                            item.openingBalanceType === "CREDIT" ? "(Alacak)" : "(Borç)"
+                          }`
+                        : "-"}
+                    </TableCell>
                     <TableCell className="text-right">
                       {item.balance !== undefined
                         ? new Intl.NumberFormat("tr-TR", {
@@ -498,10 +257,12 @@ export default function CariPage() {
                             Detay
                           </Button>
                         </Link>
-                        <Button variant="ghost" size="sm" onClick={() => startEdit(item)}>
-                          <Pencil className="h-4 w-4 mr-1" />
-                          Düzenle
-                        </Button>
+                        <Link href={`/cari/${activeTab}/${item.id}/edit?company=${companyId}`}>
+                          <Button variant="ghost" size="sm">
+                            <Pencil className="h-4 w-4 mr-1" />
+                            Düzenle
+                          </Button>
+                        </Link>
                         <Button variant="ghost" size="sm" onClick={() => deleteItem(item.id)}>
                           <Trash2 className="h-4 w-4 mr-1 text-red-600" />
                           Sil
@@ -559,6 +320,7 @@ export default function CariPage() {
           </Table>
         </CardContent>
       </Card>
+
     </div>
   )
 }

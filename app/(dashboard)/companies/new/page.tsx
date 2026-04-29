@@ -35,9 +35,23 @@ export default function NewCompanyPage() {
         body: JSON.stringify(formData),
       })
 
-      const data = await response.json()
+      let data: { id?: string; error?: string; code?: string } = {}
+      try {
+        data = await response.json()
+      } catch {
+        data = {}
+      }
 
       if (!response.ok) {
+        if (data.code === "PLAN_LIMIT_EXCEEDED") {
+          throw new Error("Bu paketle yeni şirket ekleyemezsiniz. Lütfen paketinizi yükseltin.")
+        }
+        if (data.code === "COMPANY_TAX_NUMBER_CONFLICT") {
+          throw new Error("Bu vergi numarası ile kayıtlı bir firma zaten var.")
+        }
+        if (data.code === "DB_SCHEMA_MISMATCH") {
+          throw new Error("Sistem güncellemesi gerekiyor. Lütfen biraz sonra tekrar deneyin.")
+        }
         throw new Error(data.error || "Firma oluşturulamadı")
       }
 
@@ -46,7 +60,7 @@ export default function NewCompanyPage() {
         description: "Firma başarıyla oluşturuldu",
       })
 
-      router.push(`/dashboard?company=${data.id}`)
+      router.push(`/companies/onboarding?company=${data.id}`)
     } catch (error: any) {
       toast({
         title: "Hata",

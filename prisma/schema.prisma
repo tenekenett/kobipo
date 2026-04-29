@@ -22,6 +22,16 @@ enum Role {
   VIEWER      // Görüntüleyici - sadece okuma
 }
 
+enum EDonusumIntegrator {
+  GIB_PORTAL
+  OZEL_ENTEGRATOR
+}
+
+enum CompanyDefinitionType {
+  CLASS_1
+  CLASS_2
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -43,6 +53,8 @@ model User {
   systemLogs    SystemLog[]
   subscriptions Subscription[]
   supportTickets SupportTicket[] @relation("SupportTicketCreatedBy")
+  authorizedCustomers Customer[] @relation("AuthorizedCustomerUser")
+  authorizedSuppliers Supplier[] @relation("AuthorizedSupplierUser")
 
   @@map("users")
 }
@@ -64,6 +76,7 @@ model Account {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  @@index([userId])
   @@map("accounts")
 }
 
@@ -74,6 +87,7 @@ model Session {
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("sessions")
 }
 
@@ -98,7 +112,22 @@ model Company {
   email       String?
   website     String?
   isEDonusumEnabled Boolean @default(false)
+  eDonusumIntegrator EDonusumIntegrator @default(GIB_PORTAL)
+  eDonusumProvider String?
+  eDonusumApiUsername String?
+  eDonusumApiPassword String? @db.Text
+  eDonusumAlias String?
+  eDonusumApiUrl String?
+  eDonusumLastTestedAt DateTime?
+  eDonusumLastTestSuccess Boolean?
   invoiceSeriesPrefix String?
+  sector      String?
+  businessModel String?
+  employeeRange String?
+  monthlyInvoiceVolume String?
+  primaryBusinessNeed String?
+  usesEDonusumBefore Boolean?
+  onboardingCompletedAt DateTime?
   isActive    Boolean  @default(true) // Firma aktif/pasif durumu
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -127,6 +156,8 @@ model Company {
   notifications Notification[]
   attachments Attachment[]
   supportTickets SupportTicket[]
+  invitations CompanyInvitation[]
+  definitions CompanyDefinition[]
 
   @@map("companies")
 }
@@ -147,6 +178,24 @@ model UserCompany {
   @@map("user_companies")
 }
 
+model CompanyInvitation {
+  id          String   @id @default(cuid())
+  companyId   String
+  email       String
+  role        Role
+  token       String   @unique
+  invitedBy   String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([email])
+  @@map("company_invitations")
+}
+
 model Customer {
   id          String   @id @default(cuid())
   companyId   String
@@ -161,6 +210,14 @@ model Customer {
   email       String?
   contactPerson String?
   paymentDueDays Int?
+  openingBalanceAmount Decimal @default(0) @db.Decimal(14, 2)
+  openingBalanceType String @default("DEBIT")
+  riskLimit   Decimal? @db.Decimal(14, 2)
+  bankInfo    String?  @db.Text
+  note        String?  @db.Text
+  classification1Id String?
+  classification2Id String?
+  authorizedUserId String?
   isAlsoSupplier Boolean @default(false)
   linkedSupplierId String?
   createdAt   DateTime @default(now())
@@ -174,8 +231,16 @@ model Customer {
   checks      Check[]
   promissoryNotes PromissoryNote[]
   waybills    Waybill[]
+  branches    CustomerBranch[]
+  classification1 CompanyDefinition? @relation("CustomerClassification1", fields: [classification1Id], references: [id], onDelete: SetNull)
+  classification2 CompanyDefinition? @relation("CustomerClassification2", fields: [classification2Id], references: [id], onDelete: SetNull)
+  authorizedUser User? @relation("AuthorizedCustomerUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
 
   @@unique([linkedSupplierId])
+  @@index([companyId])
+  @@index([classification1Id])
+  @@index([classification2Id])
+  @@index([authorizedUserId])
   @@map("customers")
 }
 
@@ -193,6 +258,14 @@ model Supplier {
   email       String?
   contactPerson String?
   paymentDueDays Int?
+  openingBalanceAmount Decimal @default(0) @db.Decimal(14, 2)
+  openingBalanceType String @default("DEBIT")
+  riskLimit   Decimal? @db.Decimal(14, 2)
+  bankInfo    String?  @db.Text
+  note        String?  @db.Text
+  classification1Id String?
+  classification2Id String?
+  authorizedUserId String?
   isAlsoCustomer Boolean @default(false)
   linkedCustomerId String?
   createdAt   DateTime @default(now())
@@ -206,8 +279,49 @@ model Supplier {
   checks      Check[]
   promissoryNotes PromissoryNote[]
   waybills    Waybill[]
+  classification1 CompanyDefinition? @relation("SupplierClassification1", fields: [classification1Id], references: [id], onDelete: SetNull)
+  classification2 CompanyDefinition? @relation("SupplierClassification2", fields: [classification2Id], references: [id], onDelete: SetNull)
+  authorizedUser User? @relation("AuthorizedSupplierUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
 
+  @@index([companyId])
+  @@index([classification1Id])
+  @@index([classification2Id])
+  @@index([authorizedUserId])
   @@map("suppliers")
+}
+
+model CompanyDefinition {
+  id         String   @id @default(cuid())
+  companyId  String
+  type       CompanyDefinitionType
+  label      String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerClass1Items Customer[] @relation("CustomerClassification1")
+  customerClass2Items Customer[] @relation("CustomerClassification2")
+  supplierClass1Items Supplier[] @relation("SupplierClassification1")
+  supplierClass2Items Supplier[] @relation("SupplierClassification2")
+
+  @@index([companyId, type, isActive])
+  @@unique([companyId, type, label])
+  @@map("company_definitions")
+}
+
+model CustomerBranch {
+  id         String   @id @default(cuid())
+  customerId String
+  name       String
+  address    String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_branches")
 }
 
 model Product {
@@ -234,6 +348,7 @@ model Product {
   warehouseStocks WarehouseStock[]
   waybillItems WaybillItem[]
 
+  @@index([companyId])
   @@map("products")
 }
 
@@ -255,6 +370,8 @@ model StockMovement {
   warehouse   Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   @@index([warehouseId])
+  @@index([productId])
+  @@index([companyId, createdAt])
   @@map("stock_movements")
 }
 
@@ -315,6 +432,7 @@ model FinancialAccount {
   bankStatements BankStatement[]
   cashCounts CashCount[]
 
+  @@index([companyId])
   @@map("financial_accounts")
 }
 
@@ -407,6 +525,11 @@ model Transaction {
   customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   supplier    Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
 
+  @@index([companyId, date])
+  @@index([companyId, type, date])
+  @@index([accountId])
+  @@index([customerId])
+  @@index([supplierId])
   @@map("transactions")
 }
 
@@ -445,6 +568,10 @@ model Invoice {
   waybills    Waybill[]
 
   @@unique([companyId, invoiceNo])
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, status])
+  @@index([customerId])
+  @@index([supplierId])
   @@map("invoices")
 }
 
@@ -497,6 +624,8 @@ model QuoteItem {
   quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
+  @@index([quoteId])
+  @@index([productId])
   @@map("quote_items")
 }
 
@@ -522,6 +651,8 @@ model InvoiceItem {
   invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
+  @@index([invoiceId])
+  @@index([productId])
   @@map("invoice_items")
 }
 

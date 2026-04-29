@@ -67,43 +67,285 @@ function getNodeValue(node: any, fallback = ""): string {
   return fallback
 }
 
+function firstNonEmpty(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    const trimmed = String(value || "").trim()
+    if (trimmed) return trimmed
+  }
+  return ""
+}
+
+function pickNodeValueByKeySuffix(obj: any, keySuffix: string): string {
+  if (!obj || typeof obj !== "object") return ""
+
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === keySuffix || key.endsWith(`:${keySuffix}`)) {
+      const resolved = getNodeValue(value as any).trim()
+      if (resolved) return resolved
+    }
+  }
+
+  return ""
+}
+
+function pickNodeByKeySuffix(obj: any, keySuffix: string): any {
+  if (!obj || typeof obj !== "object") return undefined
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === keySuffix || key.endsWith(`:${keySuffix}`)) {
+      return value
+    }
+  }
+  return undefined
+}
+
+function collectNodeValuesByKeySuffix(obj: any, keySuffix: string): string[] {
+  const values: string[] = []
+
+  const walk = (node: any) => {
+    if (node == null) return
+    if (Array.isArray(node)) {
+      node.forEach(walk)
+      return
+    }
+    if (typeof node !== "object") return
+
+    for (const [key, value] of Object.entries(node)) {
+      if (key === keySuffix || key.endsWith(`:${keySuffix}`)) {
+        const resolved = getNodeValue(value as any).trim()
+        if (resolved) values.push(resolved)
+      }
+      walk(value)
+    }
+  }
+
+  walk(obj)
+  return values
+}
+
+function collectDecimalValuesByKeySuffix(obj: any, keySuffix: string): number[] {
+  return collectNodeValuesByKeySuffix(obj, keySuffix)
+    .map((value) => parseDecimal(value, Number.NaN))
+    .filter((value) => Number.isFinite(value))
+}
+
+function normalizeTaxNumber(value: string | null | undefined) {
+  return String(value || "").replace(/\D/g, "")
+}
+
+function parseDecimal(value: any, fallback = 0) {
+  const raw = String(value ?? "").trim()
+  if (!raw) return fallback
+
+  const normalized = raw
+    .replace(/\s+/g, "")
+    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(/,(?=\d{3}(\D|$))/g, "")
+    .replace(",", ".")
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function normalizeHeader(value: string) {
+  return String(value || "")
+    .toLocaleLowerCase("tr-TR")
+    .replace(/ı/g, "i")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "")
+}
+
+function parseOpeningBalanceType(value: string) {
+  const normalized = normalizeHeader(value)
+  if (["alacak", "credit", "c"].includes(normalized)) return "CREDIT"
+  return "DEBIT"
+}
+
 function parseUblInvoices(xml: string) {
   const parser = new XMLParser({ ignoreAttributes: false })
   const parsed = parser.parse(xml)
-  const root = parsed.Invoice || parsed["ubl:Invoice"]
+  const root = parsed.Invoice || parsed["ubl:Invoice"] || parsed["Invoice"] || parsed["inv:Invoice"]
   if (!root) {
     throw new Error("Geçerli bir UBL Invoice XML bulunamadı")
   }
 
-  const invoiceNo = getNodeValue(root.ID)
-  const date = getNodeValue(root.IssueDate)
-  const currency = getNodeValue(root.DocumentCurrencyCode, "TRY")
+  const invoiceNo = firstNonEmpty(
+    getNodeValue(root.ID),
+    getNodeValue(root["cbc:ID"]),
+    pickNodeValueByKeySuffix(root, "ID")
+  )
+  const date = firstNonEmpty(
+    getNodeValue(root.IssueDate),
+    getNodeValue(root["cbc:IssueDate"]),
+    pickNodeValueByKeySuffix(root, "IssueDate")
+  )
+  const currency = firstNonEmpty(
+    getNodeValue(root.DocumentCurrencyCode, "TRY"),
+    getNodeValue(root["cbc:DocumentCurrencyCode"], "TRY"),
+    pickNodeValueByKeySuffix(root, "DocumentCurrencyCode"),
+    "TRY"
+  )
 
-  const accountingCustomerParty = root.AccountingCustomerParty || {}
-  const accountingSupplierParty = root.AccountingSupplierParty || {}
-  const customerName =
-    getNodeValue(
-      accountingCustomerParty?.Party?.PartyName?.Name ||
-        accountingCustomerParty?.Party?.PartyLegalEntity?.RegistrationName
-    ) || ""
-  const supplierName =
-    getNodeValue(
-      accountingSupplierParty?.Party?.PartyName?.Name ||
-        accountingSupplierParty?.Party?.PartyLegalEntity?.RegistrationName
-    ) || ""
+  const accountingCustomerParty =
+    root.AccountingCustomerParty ||
+    root["cac:AccountingCustomerParty"] ||
+    pickNodeByKeySuffix(root, "AccountingCustomerParty") ||
+    {}
+  const accountingSupplierParty =
+    root.AccountingSupplierParty ||
+    root["cac:AccountingSupplierParty"] ||
+    pickNodeByKeySuffix(root, "AccountingSupplierParty") ||
+    {}
+  const customerParty =
+    accountingCustomerParty?.Party ||
+    accountingCustomerParty?.["cac:Party"] ||
+    pickNodeByKeySuffix(accountingCustomerParty, "Party") ||
+    {}
+  const supplierParty =
+    accountingSupplierParty?.Party ||
+    accountingSupplierParty?.["cac:Party"] ||
+    pickNodeByKeySuffix(accountingSupplierParty, "Party") ||
+    {}
 
-  const linesRaw = root.InvoiceLine
+  const resolvePartyName = (party: any) =>
+    firstNonEmpty(
+      getNodeValue(party?.PartyName?.Name),
+      getNodeValue(party?.PartyName?.["cbc:Name"]),
+      getNodeValue(party?.["cac:PartyName"]?.Name),
+      getNodeValue(party?.["cac:PartyName"]?.["cbc:Name"]),
+      getNodeValue(party?.PartyLegalEntity?.RegistrationName),
+      getNodeValue(party?.PartyLegalEntity?.["cbc:RegistrationName"]),
+      getNodeValue(party?.["cac:PartyLegalEntity"]?.RegistrationName),
+      getNodeValue(party?.["cac:PartyLegalEntity"]?.["cbc:RegistrationName"]),
+      ...collectNodeValuesByKeySuffix(party, "RegistrationName"),
+      ...collectNodeValuesByKeySuffix(party, "Name")
+    )
+
+  const resolvePartyTaxNumber = (party: any) =>
+    firstNonEmpty(
+      getNodeValue(party?.PartyTaxScheme?.CompanyID),
+      getNodeValue(party?.PartyTaxScheme?.["cbc:CompanyID"]),
+      getNodeValue(party?.["cac:PartyTaxScheme"]?.CompanyID),
+      getNodeValue(party?.["cac:PartyTaxScheme"]?.["cbc:CompanyID"]),
+      getNodeValue(party?.PartyIdentification?.ID),
+      getNodeValue(party?.PartyIdentification?.["cbc:ID"]),
+      getNodeValue(Array.isArray(party?.PartyIdentification) ? party?.PartyIdentification?.[0]?.ID : ""),
+      getNodeValue(Array.isArray(party?.["cac:PartyIdentification"]) ? party?.["cac:PartyIdentification"]?.[0]?.ID : ""),
+      ...collectNodeValuesByKeySuffix(party, "CompanyID"),
+      ...collectNodeValuesByKeySuffix(party, "ID")
+    )
+
+  const customerName = resolvePartyName(customerParty)
+  const supplierName = resolvePartyName(supplierParty)
+  const customerTaxNumber = resolvePartyTaxNumber(customerParty)
+  const supplierTaxNumber = resolvePartyTaxNumber(supplierParty)
+
+  const legalMonetaryTotal =
+    root.LegalMonetaryTotal ||
+    root["cac:LegalMonetaryTotal"] ||
+    pickNodeByKeySuffix(root, "LegalMonetaryTotal") ||
+    {}
+  const rootTaxTotal = root.TaxTotal || root["cac:TaxTotal"] || pickNodeByKeySuffix(root, "TaxTotal") || {}
+
+  const rootVatAmount = parseDecimal(
+    firstNonEmpty(
+      getNodeValue(rootTaxTotal?.TaxAmount),
+      getNodeValue(rootTaxTotal?.["cbc:TaxAmount"]),
+      pickNodeValueByKeySuffix(rootTaxTotal, "TaxAmount"),
+      "0"
+    )
+  )
+  const rootNetAmount = parseDecimal(
+    firstNonEmpty(
+      getNodeValue(legalMonetaryTotal?.TaxExclusiveAmount),
+      getNodeValue(legalMonetaryTotal?.["cbc:TaxExclusiveAmount"]),
+      pickNodeValueByKeySuffix(legalMonetaryTotal, "TaxExclusiveAmount"),
+      "0"
+    )
+  )
+  const rootTotalAmount = parseDecimal(
+    firstNonEmpty(
+      getNodeValue(legalMonetaryTotal?.TaxInclusiveAmount),
+      getNodeValue(legalMonetaryTotal?.["cbc:TaxInclusiveAmount"]),
+      pickNodeValueByKeySuffix(legalMonetaryTotal, "TaxInclusiveAmount"),
+      "0"
+    )
+  )
+
+  const linesRaw = root.InvoiceLine || root["cac:InvoiceLine"] || pickNodeByKeySuffix(root, "InvoiceLine")
   const lines = Array.isArray(linesRaw) ? linesRaw : linesRaw ? [linesRaw] : []
   const items = lines.map((line: any) => {
-    const quantity = Number(getNodeValue(line.InvoicedQuantity, "0")) || 0
-    const unitPrice = Number(getNodeValue(line.Price?.PriceAmount, "0")) || 0
-    const vatRate = Number(getNodeValue(line.TaxTotal?.TaxSubtotal?.Percent, "20")) || 20
-    const description = getNodeValue(line.Item?.Name, "Kalem")
+    const quantityCandidates = [
+      parseDecimal(getNodeValue(line.InvoicedQuantity), Number.NaN),
+      parseDecimal(getNodeValue(line["cbc:InvoicedQuantity"]), Number.NaN),
+      parseDecimal(pickNodeValueByKeySuffix(line, "InvoicedQuantity"), Number.NaN),
+      ...collectDecimalValuesByKeySuffix(line, "InvoicedQuantity"),
+      ...collectDecimalValuesByKeySuffix(line, "Quantity"),
+      ...collectDecimalValuesByKeySuffix(line, "BaseQuantity"),
+    ].filter((value) => Number.isFinite(value) && value > 0)
+    const quantity = quantityCandidates[0] || 0
+
+    const priceNode = line.Price || line["cac:Price"] || pickNodeByKeySuffix(line, "Price")
+    const unitPriceCandidates = [
+      parseDecimal(getNodeValue(priceNode?.PriceAmount), Number.NaN),
+      parseDecimal(getNodeValue(priceNode?.["cbc:PriceAmount"]), Number.NaN),
+      parseDecimal(pickNodeValueByKeySuffix(priceNode, "PriceAmount"), Number.NaN),
+      ...collectDecimalValuesByKeySuffix(priceNode, "PriceAmount"),
+      ...collectDecimalValuesByKeySuffix(line, "PriceAmount"),
+    ].filter((value) => Number.isFinite(value) && value > 0)
+    let unitPrice = unitPriceCandidates[0] || 0
+
+    const taxTotalNode = line.TaxTotal || line["cac:TaxTotal"] || pickNodeByKeySuffix(line, "TaxTotal")
+    const taxSubtotalNode =
+      taxTotalNode?.TaxSubtotal ||
+      taxTotalNode?.["cac:TaxSubtotal"] ||
+      pickNodeByKeySuffix(taxTotalNode, "TaxSubtotal")
+    const vatRate = parseDecimal(
+      firstNonEmpty(
+        getNodeValue(taxSubtotalNode?.Percent, "20"),
+        getNodeValue(taxSubtotalNode?.["cbc:Percent"], "20"),
+        pickNodeValueByKeySuffix(taxSubtotalNode, "Percent"),
+        "20"
+      )
+    , 20)
+
+    const itemNode = line.Item || line["cac:Item"] || pickNodeByKeySuffix(line, "Item")
+    const lineNetCandidates = [
+      parseDecimal(getNodeValue(line.LineExtensionAmount), Number.NaN),
+      parseDecimal(getNodeValue(line["cbc:LineExtensionAmount"]), Number.NaN),
+      parseDecimal(pickNodeValueByKeySuffix(line, "LineExtensionAmount"), Number.NaN),
+      ...collectDecimalValuesByKeySuffix(line, "LineExtensionAmount"),
+    ].filter((value) => Number.isFinite(value) && value > 0)
+    const lineNetAmount = lineNetCandidates[0] || 0
+    const lineVatAmount = parseDecimal(
+      firstNonEmpty(
+        getNodeValue(taxTotalNode?.TaxAmount, "0"),
+        getNodeValue(taxTotalNode?.["cbc:TaxAmount"], "0"),
+        pickNodeValueByKeySuffix(taxTotalNode, "TaxAmount"),
+        "0"
+      )
+    )
+    if (unitPrice <= 0 && quantity > 0 && lineNetAmount > 0) {
+      unitPrice = lineNetAmount / quantity
+    }
+    const description = firstNonEmpty(
+      getNodeValue(itemNode?.Description),
+      getNodeValue(itemNode?.["cbc:Description"]),
+      getNodeValue(itemNode?.Name),
+      getNodeValue(itemNode?.["cbc:Name"]),
+      ...collectNodeValuesByKeySuffix(itemNode, "Description"),
+      ...collectNodeValuesByKeySuffix(itemNode, "Name"),
+      ...collectNodeValuesByKeySuffix(line, "Description"),
+      ...collectNodeValuesByKeySuffix(line, "Name"),
+      "Kalem"
+    )
     return {
       description,
       quantity,
       unitPrice,
       vatRate,
+      lineNetAmount,
+      lineVatAmount,
       discountRate: 0,
       withholdingRate: 0,
       exciseRate: 0,
@@ -116,6 +358,11 @@ function parseUblInvoices(xml: string) {
     currency,
     customerName,
     supplierName,
+    customerTaxNumber: normalizeTaxNumber(customerTaxNumber),
+    supplierTaxNumber: normalizeTaxNumber(supplierTaxNumber),
+    rootNetAmount,
+    rootVatAmount,
+    rootTotalAmount,
     items,
   }
 }
@@ -131,6 +378,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "companyId and module are required" }, { status: 400 })
   }
   await ensureCompanyAccess(companyId)
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { name: true, taxNumber: true },
+  })
+  const companyTaxNumber = normalizeTaxNumber(company?.taxNumber)
   const errors: Array<{ row: number; error: string }> = []
   let imported = 0
 
@@ -160,10 +412,37 @@ export async function POST(request: Request) {
         throw new Error(`Bu fatura zaten içe aktarılmış: ${normalizedInvoiceNo}`)
       }
 
+      const isCustomerOurCompany =
+        Boolean(companyTaxNumber) &&
+        Boolean(ublInvoice.customerTaxNumber) &&
+        companyTaxNumber === ublInvoice.customerTaxNumber
+      const isSupplierOurCompany =
+        Boolean(companyTaxNumber) &&
+        Boolean(ublInvoice.supplierTaxNumber) &&
+        companyTaxNumber === ublInvoice.supplierTaxNumber
+      const detectedType: "PURCHASE" | "SALES" = isCustomerOurCompany ? "PURCHASE" : isSupplierOurCompany ? "SALES" : "PURCHASE"
+
+      const counterpartyCustomerName = String(ublInvoice.customerName || "").trim()
+      const counterpartySupplierName = String(ublInvoice.supplierName || "").trim()
+      const customerDisplayName =
+        detectedType === "SALES"
+          ? counterpartyCustomerName || `Müşteri ${ublInvoice.customerTaxNumber || "Bilinmeyen"}`
+          : ""
+      const supplierDisplayName =
+        detectedType === "PURCHASE"
+          ? counterpartySupplierName || `Tedarikçi ${ublInvoice.supplierTaxNumber || "Bilinmeyen"}`
+          : ""
+
       let customerId: string | null = null
-      if (ublInvoice.customerName) {
+      if (detectedType === "SALES" && customerDisplayName) {
         const existingCustomer = await prisma.customer.findFirst({
-          where: { companyId, name: ublInvoice.customerName },
+          where: {
+            companyId,
+            OR: [
+              { taxNumber: ublInvoice.customerTaxNumber || undefined },
+              { name: customerDisplayName },
+            ],
+          },
         })
         if (existingCustomer) {
           customerId = existingCustomer.id
@@ -171,7 +450,8 @@ export async function POST(request: Request) {
           const created = await prisma.customer.create({
             data: {
               companyId,
-              name: ublInvoice.customerName,
+              name: customerDisplayName,
+              taxNumber: ublInvoice.customerTaxNumber || null,
               createdAt: new Date(),
               updatedAt: new Date(),
             },
@@ -181,9 +461,15 @@ export async function POST(request: Request) {
       }
 
       let supplierId: string | null = null
-      if (ublInvoice.supplierName) {
+      if (detectedType === "PURCHASE" && supplierDisplayName) {
         const existingSupplier = await prisma.supplier.findFirst({
-          where: { companyId, name: ublInvoice.supplierName },
+          where: {
+            companyId,
+            OR: [
+              { taxNumber: ublInvoice.supplierTaxNumber || undefined },
+              { name: supplierDisplayName },
+            ],
+          },
         })
         if (existingSupplier) {
           supplierId = existingSupplier.id
@@ -191,7 +477,8 @@ export async function POST(request: Request) {
           const created = await prisma.supplier.create({
             data: {
               companyId,
-              name: ublInvoice.supplierName,
+              name: supplierDisplayName,
+              taxNumber: ublInvoice.supplierTaxNumber || null,
               createdAt: new Date(),
               updatedAt: new Date(),
             },
@@ -200,24 +487,36 @@ export async function POST(request: Request) {
         }
       }
 
-      let netAmount = 0
-      let vatAmount = 0
-      let totalAmount = 0
-      ublInvoice.items.forEach((item) => {
-        const lineNet = item.quantity * item.unitPrice
-        const lineVat = lineNet * (item.vatRate / 100)
-        netAmount += lineNet
-        vatAmount += lineVat
-        totalAmount += lineNet + lineVat
-      })
+      let netAmount = Number(ublInvoice.rootNetAmount || 0)
+      let vatAmount = Number(ublInvoice.rootVatAmount || 0)
+      let totalAmount = Number(ublInvoice.rootTotalAmount || 0)
+      if (netAmount <= 0 || totalAmount <= 0) {
+        netAmount = 0
+        vatAmount = 0
+        totalAmount = 0
+        ublInvoice.items.forEach((item) => {
+          const lineNet = item.lineNetAmount > 0 ? item.lineNetAmount : item.quantity * item.unitPrice
+          const lineVat = item.lineVatAmount > 0 ? item.lineVatAmount : lineNet * (item.vatRate / 100)
+          netAmount += lineNet
+          vatAmount += lineVat
+          totalAmount += lineNet + lineVat
+        })
+      }
 
       const preview = {
         invoiceNo: normalizedInvoiceNo,
         date: ublInvoice.date,
         currency: ublInvoice.currency || "TRY",
-        customerName: ublInvoice.customerName || null,
-        supplierName: ublInvoice.supplierName || null,
+        invoiceDirection: detectedType,
+        customerName: customerDisplayName || null,
+        supplierName: supplierDisplayName || null,
         itemCount: ublInvoice.items.length,
+        items: ublInvoice.items.map((item) => ({
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          vatRate: item.vatRate,
+        })),
         netAmount,
         vatAmount,
         totalAmount,
@@ -239,7 +538,7 @@ export async function POST(request: Request) {
         data: {
           companyId,
           invoiceNo: normalizedInvoiceNo,
-          type: "PURCHASE",
+          type: detectedType,
           invoiceType: "MANUAL",
           status: "DRAFT",
           customerId,
@@ -252,21 +551,33 @@ export async function POST(request: Request) {
           notes: "UBL/XML içe aktarımdan oluşturuldu",
           createdBy: user.id,
           items: {
-            create: ublInvoice.items.map((item, index) => ({
-              description: item.description,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              discountRate: item.discountRate,
-              discountAmount: item.quantity * item.unitPrice * (item.discountRate / 100),
-              vatRate: item.vatRate,
-              vatAmount: item.quantity * item.unitPrice * (item.vatRate / 100),
-              withholdingRate: item.withholdingRate,
-              withholdingAmount: 0,
-              exciseRate: item.exciseRate,
-              exciseAmount: 0,
-              totalAmount: item.quantity * item.unitPrice * (1 + item.vatRate / 100),
-              order: index,
-            })),
+            create: ublInvoice.items.map((item, index) => {
+              const safeQuantity = item.quantity > 0 ? item.quantity : 0
+              const safeUnitPrice =
+                item.unitPrice > 0
+                  ? item.unitPrice
+                  : item.lineNetAmount > 0 && safeQuantity > 0
+                    ? item.lineNetAmount / safeQuantity
+                    : 0
+              const lineNet = safeQuantity * safeUnitPrice
+              const lineVat = lineNet * (item.vatRate / 100)
+
+              return {
+                description: item.description,
+                quantity: safeQuantity,
+                unitPrice: safeUnitPrice,
+                discountRate: item.discountRate,
+                discountAmount: lineNet * (item.discountRate / 100),
+                vatRate: item.vatRate,
+                vatAmount: lineVat,
+                withholdingRate: item.withholdingRate,
+                withholdingAmount: 0,
+                exciseRate: item.exciseRate,
+                exciseAmount: 0,
+                totalAmount: lineNet + lineVat,
+                order: index,
+              }
+            }),
           },
         },
       })
@@ -283,16 +594,74 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Dosya başlık ve en az bir satır içermeli" }, { status: 400 })
   }
 
-  const headers = rows[0].map((value) => String(value).toLowerCase())
+  const headers = rows[0].map((value) => normalizeHeader(String(value)))
   const dataRows = rows.slice(1)
+
+  const customerHeaderAliases: Record<string, string[]> = {
+    code: ["code", "kod"],
+    name: ["name", "ad", "unvan"],
+    taxnumber: ["taxnumber", "vergino", "vkn", "tckn"],
+    taxoffice: ["taxoffice", "vergidairesi"],
+    phone: ["phone", "telefon"],
+    email: ["email", "eposta", "mail"],
+    address: ["address", "adres"],
+    city: ["city", "sehir", "il"],
+    contactperson: ["contactperson", "yetkilikisi"],
+    paymentduedays: ["paymentduedays", "vadegun", "vade"],
+    openingbalance: ["openingbalance", "acilisbakiyesi"],
+    openingbalancetype: ["openingbalancetype", "bakiyeturu"],
+    risklimit: ["risklimit", "risklimiti"],
+    bankinfo: ["bankinfo", "bankabilgisi"],
+    note: ["note", "not"],
+  }
+
+  const supplierHeaderAliases: Record<string, string[]> = {
+    ...customerHeaderAliases,
+  }
+
+  const productHeaderAliases: Record<string, string[]> = {
+    code: ["code", "kod"],
+    name: ["name", "ad"],
+    barcode: ["barcode", "barkod"],
+    unit: ["unit", "birim"],
+    stockquantity: ["stockquantity", "stokmiktari"],
+    purchaseprice: ["purchaseprice", "alisfiyati"],
+    saleprice: ["saleprice", "satisfiyati"],
+    vatrate: ["vatrate", "kdvorani"],
+  }
+
+  const invoiceHeaderAliases: Record<string, string[]> = {
+    invoiceno: ["invoiceno", "faturano"],
+    date: ["date", "tarih"],
+    type: ["type", "tip"],
+    invoicetype: ["invoicetype", "faturatipi"],
+    netamount: ["netamount", "nettutar"],
+    vatamount: ["vatamount", "kdvtutari"],
+    totalamount: ["totalamount", "toplamtutar"],
+    currency: ["currency", "parabirimi"],
+    notes: ["notes", "aciklama", "notlar"],
+  }
+
+  const getValueByAliases = (row: string[], aliases: Record<string, string[]>, key: string) => {
+    const candidates = aliases[key] || [key]
+    for (const candidate of candidates) {
+      const idx = headers.indexOf(candidate)
+      if (idx >= 0) {
+        return String(row[idx] || "").trim()
+      }
+    }
+    return ""
+  }
 
   if (module === "customers") {
     for (let index = 0; index < dataRows.length; index++) {
       const row = dataRows[index]
       try {
-        const get = (name: string) => row[headers.indexOf(name)] || ""
+        const get = (name: string) => getValueByAliases(row, customerHeaderAliases, name)
         const name = get("name")
         if (!name) throw new Error("name is required")
+        const openingBalanceAmount = parseDecimal(get("openingbalance"), 0)
+        const openingBalanceType = parseOpeningBalanceType(get("openingbalancetype"))
 
         await prisma.customer.create({
           data: {
@@ -300,10 +669,18 @@ export async function POST(request: Request) {
             code: get("code") || null,
             name,
             taxNumber: get("taxnumber") || null,
+            taxOffice: get("taxoffice") || null,
             phone: get("phone") || null,
             email: get("email") || null,
             address: get("address") || null,
             city: get("city") || null,
+            contactPerson: get("contactperson") || null,
+            paymentDueDays: get("paymentduedays") ? Math.max(0, Math.trunc(parseDecimal(get("paymentduedays"), 0))) : null,
+            openingBalanceAmount,
+            openingBalanceType,
+            riskLimit: get("risklimit") ? parseDecimal(get("risklimit"), 0) : null,
+            bankInfo: get("bankinfo") || null,
+            note: get("note") || null,
             createdAt: new Date(),
             updatedAt: new Date(),
           },
@@ -317,7 +694,7 @@ export async function POST(request: Request) {
     for (let index = 0; index < dataRows.length; index++) {
       const row = dataRows[index]
       try {
-        const get = (name: string) => row[headers.indexOf(name)] || ""
+        const get = (name: string) => getValueByAliases(row, productHeaderAliases, name)
         const name = get("name")
         if (!name) throw new Error("name is required")
 
@@ -328,10 +705,10 @@ export async function POST(request: Request) {
             name,
             barcode: get("barcode") || null,
             unit: get("unit") || "ADET",
-            stockQuantity: Number(get("stockquantity") || 0),
-            purchasePrice: get("purchaseprice") ? Number(get("purchaseprice")) : null,
-            salePrice: get("saleprice") ? Number(get("saleprice")) : null,
-            vatRate: Number(get("vatrate") || 20),
+            stockQuantity: parseDecimal(get("stockquantity"), 0),
+            purchasePrice: get("purchaseprice") ? parseDecimal(get("purchaseprice")) : null,
+            salePrice: get("saleprice") ? parseDecimal(get("saleprice")) : null,
+            vatRate: parseDecimal(get("vatrate"), 20),
             createdAt: new Date(),
             updatedAt: new Date(),
           },
@@ -345,9 +722,11 @@ export async function POST(request: Request) {
     for (let index = 0; index < dataRows.length; index++) {
       const row = dataRows[index]
       try {
-        const get = (name: string) => row[headers.indexOf(name)] || ""
+        const get = (name: string) => getValueByAliases(row, supplierHeaderAliases, name)
         const name = get("name")
         if (!name) throw new Error("name is required")
+        const openingBalanceAmount = parseDecimal(get("openingbalance"), 0)
+        const openingBalanceType = parseOpeningBalanceType(get("openingbalancetype"))
 
         await prisma.supplier.create({
           data: {
@@ -355,10 +734,18 @@ export async function POST(request: Request) {
             code: get("code") || null,
             name,
             taxNumber: get("taxnumber") || null,
+            taxOffice: get("taxoffice") || null,
             phone: get("phone") || null,
             email: get("email") || null,
             address: get("address") || null,
             city: get("city") || null,
+            contactPerson: get("contactperson") || null,
+            paymentDueDays: get("paymentduedays") ? Math.max(0, Math.trunc(parseDecimal(get("paymentduedays"), 0))) : null,
+            openingBalanceAmount,
+            openingBalanceType,
+            riskLimit: get("risklimit") ? parseDecimal(get("risklimit"), 0) : null,
+            bankInfo: get("bankinfo") || null,
+            note: get("note") || null,
             createdAt: new Date(),
             updatedAt: new Date(),
           },
@@ -372,15 +759,15 @@ export async function POST(request: Request) {
     for (let index = 0; index < dataRows.length; index++) {
       const row = dataRows[index]
       try {
-        const get = (name: string) => row[headers.indexOf(name)] || ""
+        const get = (name: string) => getValueByAliases(row, invoiceHeaderAliases, name)
         const invoiceNo = String(get("invoiceno") || "").trim()
         if (!invoiceNo) throw new Error("invoiceNo is required")
         const date = String(get("date") || "")
         const type = String(get("type") || "SALES").toUpperCase()
         const invoiceType = String(get("invoicetype") || "MANUAL").toUpperCase()
-        const netAmount = Number(get("netamount") || 0)
-        const vatAmount = Number(get("vatamount") || 0)
-        const totalAmount = Number(get("totalamount") || 0)
+        const netAmount = parseDecimal(get("netamount"), 0)
+        const vatAmount = parseDecimal(get("vatamount"), 0)
+        const totalAmount = parseDecimal(get("totalamount"), 0)
 
         const duplicateInvoice = await prisma.invoice.findFirst({
           where: { companyId, invoiceNo },

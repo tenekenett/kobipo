@@ -2,6 +2,9 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
 import { SessionProvider } from '@/components/providers/session-provider'
+import { RouteProgress } from '@/components/ui/route-progress'
+import { SpeedInsights } from '@vercel/speed-insights/next'
+import { Analytics } from '@vercel/analytics/next'
 
 export const metadata: Metadata = {
   title: "Kobipo — Az laf, doğru rakam.",
@@ -26,10 +29,13 @@ export default function RootLayout({
   return (
     <html lang="tr">
       <body>
+        <RouteProgress />
         <SessionProvider>
           {children}
         </SessionProvider>
         <Toaster />
+        <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   )

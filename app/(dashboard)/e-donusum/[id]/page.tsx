@@ -147,7 +147,7 @@ export default function InvoiceDetailPage() {
     }
   }
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     if (!invoice) return
 
     const pdfData = {
@@ -172,7 +172,7 @@ export default function InvoiceDetailPage() {
       notes: invoice.notes,
     }
 
-    generateInvoicePDF(pdfData)
+    await generateInvoicePDF(pdfData)
     
     toast({
       title: "PDF İndirildi",

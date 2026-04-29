@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -24,6 +24,32 @@ export default function VeriAktarimPage() {
   const [fileName, setFileName] = useState("")
   const [dryRun, setDryRun] = useState(false)
 
+  const importFormatOptions = useMemo(() => {
+    if (module === "invoices-ubl") {
+      return [{ value: "xml", label: "UBL/XML" }]
+    }
+    return [
+      { value: "xlsx", label: "XLSX" },
+      { value: "csv", label: "CSV" },
+    ]
+  }, [module])
+
+  const importAccept = useMemo(() => {
+    if (importFormat === "xml") return ".xml,text/xml,application/xml"
+    if (importFormat === "csv") return ".csv,text/csv"
+    return ".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+  }, [importFormat])
+
+  useEffect(() => {
+    const allowed = importFormatOptions.map((option) => option.value)
+    if (!allowed.includes(importFormat)) {
+      setImportFormat(allowed[0])
+    }
+    setFileBase64("")
+    setFileName("")
+    setCsv("")
+  }, [importFormat, importFormatOptions])
+
   async function runImport() {
     if (!companyId) return
     const response = await fetch("/api/import", {
@@ -32,6 +58,92 @@ export default function VeriAktarimPage() {
       body: JSON.stringify({ companyId, module, csv, fileBase64, format: importFormat, dryRun }),
     })
     setImportResult(await response.json())
+  }
+
+  async function downloadImportTemplate() {
+    const templateRowsByModule: Record<string, Record<string, string | number>[]> = {
+      customers: [
+        {
+          Kod: "CARI-001",
+          Ad: "ABC Müşteri A.Ş.",
+          "Vergi No": "1234567890",
+          "Vergi Dairesi": "Mecidiyeköy VD",
+          Telefon: "0212 000 00 00",
+          Eposta: "musteri@example.com",
+          Adres: "Örnek Mah. No:1",
+          Sehir: "İstanbul",
+          "Yetkili Kişi": "Ahmet Yılmaz",
+          "Vade (Gün)": 30,
+          "Açılış Bakiyesi": 15000,
+          "Bakiye Türü": "Borç",
+          "Risk Limiti": 50000,
+          "Banka Bilgisi": "TR00 0000 0000 0000 0000 0000 00",
+          Not: "Örnek müşteri notu",
+        },
+      ],
+      suppliers: [
+        {
+          Kod: "TED-001",
+          Ad: "XYZ Tedarik Ltd.",
+          "Vergi No": "0987654321",
+          "Vergi Dairesi": "Çankaya VD",
+          Telefon: "0312 000 00 00",
+          Eposta: "tedarikci@example.com",
+          Adres: "Sanayi Cad. No:15",
+          Sehir: "Ankara",
+          "Yetkili Kişi": "Ayşe Kaya",
+          "Vade (Gün)": 45,
+          "Açılış Bakiyesi": 5000,
+          "Bakiye Türü": "Alacak",
+          "Risk Limiti": 30000,
+          "Banka Bilgisi": "TR11 1111 1111 1111 1111 1111 11",
+          Not: "Örnek tedarikçi notu",
+        },
+      ],
+      products: [
+        {
+          Kod: "URUN-001",
+          Ad: "Örnek Ürün",
+          Barkod: "8690000000001",
+          Birim: "ADET",
+          "Stok Miktarı": 10,
+          "Alış Fiyatı": 100,
+          "Satış Fiyatı": 150,
+          "KDV Oranı": 20,
+        },
+      ],
+      invoices: [
+        {
+          "Fatura No": "FAT-2026-0001",
+          Tarih: "2026-01-01",
+          Tip: "SALES",
+          "Fatura Tipi": "MANUAL",
+          "Net Tutar": 1000,
+          "KDV Tutarı": 200,
+          "Toplam Tutar": 1200,
+          "Para Birimi": "TRY",
+          Açıklama: "Örnek fatura",
+        },
+      ],
+    }
+
+    const rows = templateRowsByModule[module]
+    if (!rows || rows.length === 0) return
+
+    const XLSX = await import("xlsx")
+    const worksheet = XLSX.utils.json_to_sheet(rows)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "template")
+    const fileBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" })
+    const blob = new Blob([fileBuffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `${module}-template.xlsx`
+    link.click()
+    URL.revokeObjectURL(url)
   }
 
   async function handleFileChange(file: File | null) {
@@ -83,7 +195,9 @@ export default function VeriAktarimPage() {
       <Card>
         <CardHeader>
           <CardTitle>Toplu Veri İçe Aktarım</CardTitle>
-          <CardDescription>XLSX, CSV ve UBL/XML import desteklenir.</CardDescription>
+          <CardDescription>
+            Modüle göre desteklenen dosya formatını seçip yükleyin.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 md:grid-cols-3">
@@ -104,17 +218,34 @@ export default function VeriAktarimPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="xlsx">XLSX</SelectItem>
-                <SelectItem value="csv">CSV</SelectItem>
-                <SelectItem value="xml">UBL/XML</SelectItem>
+                {importFormatOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Input
               type="file"
-              accept={importFormat === "xml" ? ".xml,text/xml,application/xml" : importFormat === "csv" ? ".csv,text/csv" : ".xlsx"}
+              accept={importAccept}
               onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
             />
           </div>
+          <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+            <p className="font-medium text-foreground">Desteklenen formatlar</p>
+            <p>
+              {module === "invoices-ubl"
+                ? "UBL Fatura içe aktarma için yalnızca XML kabul edilir. (Tek XML = tek fatura)"
+                : "Müşteri, tedarikçi, ürün ve fatura içe aktarmada CSV veya XLSX kullanın."}
+            </p>
+          </div>
+          {module !== "invoices-ubl" && (
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={downloadImportTemplate}>
+                Örnek Şablon İndir (XLSX)
+              </Button>
+            </div>
+          )}
           {fileName && <p className="text-xs text-muted-foreground">Seçilen dosya: {fileName}</p>}
           <Textarea
             rows={8}

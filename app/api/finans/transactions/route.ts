@@ -63,10 +63,20 @@ export async function GET(request: Request) {
 
     const transactions = await prisma.transaction.findMany({
       where,
-      include: {
-        account: true,
-        customer: true,
-        supplier: true,
+      select: {
+        id: true,
+        date: true,
+        type: true,
+        amount: true,
+        currency: true,
+        description: true,
+        reference: true,
+        accountId: true,
+        customerId: true,
+        supplierId: true,
+        account: { select: { id: true, name: true, currency: true } },
+        customer: { select: { id: true, name: true } },
+        supplier: { select: { id: true, name: true } },
       },
       orderBy: { date: "desc" },
     })

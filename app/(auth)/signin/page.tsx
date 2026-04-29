@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { signIn, useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
+import { roleToDashboardPath } from "@/lib/auth/role-paths"
 
 export default function SignInPage() {
   const router = useRouter()
@@ -14,13 +15,23 @@ export default function SignInPage() {
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
-    if (status === "authenticated" && session) {
-      if (session.user?.isSuperAdmin) {
-        router.push("/system-admin")
-      } else {
-        router.push("/cari")
-      }
+    if (status !== "authenticated" || !session) return
+
+    if (session.user?.isSuperAdmin) {
+      router.push("/system-admin")
+      return
     }
+
+    const defaultCompanyId = session.user?.defaultCompanyId
+    const defaultRole = session.user?.defaultRole
+
+    if (defaultCompanyId && defaultRole) {
+      const params = new URLSearchParams({ company: defaultCompanyId })
+      router.push(`${roleToDashboardPath(defaultRole)}?${params.toString()}`)
+      return
+    }
+
+    router.push("/dashboard")
   }, [session, status, router])
 
   const handleSubmit = async (e: React.FormEvent) => {

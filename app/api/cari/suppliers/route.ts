@@ -6,6 +6,22 @@ import { repairOrphanDualRoleSuppliers, toBool } from "@/lib/cari/repair-dual-ro
 
 export const dynamic = 'force-dynamic'
 
+function parseOpeningBalanceType(value: unknown) {
+  return String(value || "").toUpperCase() === "CREDIT" ? "CREDIT" : "DEBIT"
+}
+
+function parsePaymentDueDays(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseDecimalOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 
 export async function GET(request: Request) {
   try {
@@ -76,7 +92,12 @@ export async function GET(request: Request) {
 
       return {
         ...supplier,
-        balance: invoiceBalance + transactionEffect,
+        balance:
+          invoiceBalance +
+          transactionEffect +
+          (supplier.openingBalanceType === "CREDIT"
+            ? -Number(supplier.openingBalanceAmount)
+            : Number(supplier.openingBalanceAmount)),
       }
     })
 
@@ -113,6 +134,14 @@ export async function POST(request: Request) {
       email,
       contactPerson,
       paymentDueDays,
+      openingBalanceAmount,
+      openingBalanceType,
+      riskLimit,
+      bankInfo,
+      note,
+      classification1Id,
+      classification2Id,
+      authorizedUserId,
       isAlsoCustomer,
     } = body
 
@@ -124,8 +153,40 @@ export async function POST(request: Request) {
     }
 
     await ensureCompanyAccess(companyId)
+    const parsedOpeningBalanceAmount =
+      openingBalanceAmount !== undefined && openingBalanceAmount !== null && openingBalanceAmount !== ""
+        ? Number(openingBalanceAmount)
+        : 0
+    const parsedRiskLimit = parseDecimalOrNull(riskLimit)
+    const parsedOpeningBalanceType = parseOpeningBalanceType(openingBalanceType)
 
     const supplier = await prisma.$transaction(async (tx) => {
+      const normalizedClassification1Id = classification1Id ? String(classification1Id) : null
+      const normalizedClassification2Id = classification2Id ? String(classification2Id) : null
+      const normalizedAuthorizedUserId = authorizedUserId ? String(authorizedUserId) : null
+
+      if (normalizedClassification1Id) {
+        const classification1 = await tx.companyDefinition.findFirst({
+          where: { id: normalizedClassification1Id, companyId, type: "CLASS_1", isActive: true },
+          select: { id: true },
+        })
+        if (!classification1) throw new Error("Sınıflandırma 1 kaydı bulunamadı")
+      }
+      if (normalizedClassification2Id) {
+        const classification2 = await tx.companyDefinition.findFirst({
+          where: { id: normalizedClassification2Id, companyId, type: "CLASS_2", isActive: true },
+          select: { id: true },
+        })
+        if (!classification2) throw new Error("Sınıflandırma 2 kaydı bulunamadı")
+      }
+      if (normalizedAuthorizedUserId) {
+        const member = await tx.userCompany.findFirst({
+          where: { companyId, userId: normalizedAuthorizedUserId },
+          select: { id: true },
+        })
+        if (!member) throw new Error("Seçilen çalışan bu firmaya ait değil")
+      }
+
       const createdSupplier = await tx.supplier.create({
         data: {
           companyId,
@@ -138,7 +199,15 @@ export async function POST(request: Request) {
           phone,
           email,
           contactPerson,
-          paymentDueDays: paymentDueDays ? Number(paymentDueDays) : null,
+          paymentDueDays: parsePaymentDueDays(paymentDueDays),
+          openingBalanceAmount: Number.isFinite(parsedOpeningBalanceAmount) ? parsedOpeningBalanceAmount : 0,
+          openingBalanceType: parsedOpeningBalanceType,
+          riskLimit: parsedRiskLimit,
+          bankInfo: bankInfo ?? null,
+          note: note ?? null,
+          classification1Id: normalizedClassification1Id,
+          classification2Id: normalizedClassification2Id,
+          authorizedUserId: normalizedAuthorizedUserId,
           isAlsoCustomer: toBool(isAlsoCustomer),
         },
       })
@@ -156,7 +225,15 @@ export async function POST(request: Request) {
             phone,
             email,
             contactPerson,
-            paymentDueDays: paymentDueDays ? Number(paymentDueDays) : null,
+            paymentDueDays: parsePaymentDueDays(paymentDueDays),
+            openingBalanceAmount: Number.isFinite(parsedOpeningBalanceAmount) ? parsedOpeningBalanceAmount : 0,
+            openingBalanceType: parsedOpeningBalanceType,
+            riskLimit: parsedRiskLimit,
+            bankInfo: bankInfo ?? null,
+            note: note ?? null,
+            classification1Id: normalizedClassification1Id,
+            classification2Id: normalizedClassification2Id,
+            authorizedUserId: normalizedAuthorizedUserId,
             isAlsoSupplier: true,
             linkedSupplierId: createdSupplier.id,
           },

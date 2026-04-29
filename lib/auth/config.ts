@@ -70,6 +70,20 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id
         token.isSuperAdmin = (user as { isSuperAdmin?: boolean }).isSuperAdmin || false
+
+        try {
+          const userCompany = await prisma.userCompany.findFirst({
+            where: { userId: user.id },
+            orderBy: { createdAt: "asc" },
+            select: { companyId: true, role: true },
+          })
+          token.defaultCompanyId = userCompany?.companyId ?? null
+          token.defaultRole = userCompany?.role ?? null
+        } catch (error) {
+          console.error("jwt: defaultCompanyId lookup failed", error)
+          token.defaultCompanyId = null
+          token.defaultRole = null
+        }
       }
       return token
     },
@@ -77,6 +91,8 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = token.id as string
         session.user.isSuperAdmin = token.isSuperAdmin as boolean
+        session.user.defaultCompanyId = (token.defaultCompanyId ?? null) as string | null
+        session.user.defaultRole = (token.defaultRole ?? null) as typeof token.defaultRole
       }
       return session
     },

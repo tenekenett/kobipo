@@ -1,8 +1,5 @@
 "use client"
 
-import jsPDF from "jspdf"
-import autoTable from "jspdf-autotable"
-
 interface InvoiceItem {
   description: string
   quantity: number
@@ -51,7 +48,11 @@ interface InvoiceData {
   notes?: string
 }
 
-export function generateInvoicePDF(data: InvoiceData): void {
+export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ])
   const doc = new jsPDF()
   
   // Company Info (Top Left)

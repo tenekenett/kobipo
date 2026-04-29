@@ -15,6 +15,7 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil } from "lucide-react"
 import Link from "next/link"
+import { TransactionDialog } from "@/components/cari/transaction-dialog"
 
 interface Transaction {
   id: string
@@ -46,6 +47,12 @@ interface CustomerSupplierDetail {
   transactions: Transaction[]
 }
 
+interface FinancialAccount {
+  id: string
+  name: string
+  bankName?: string
+}
+
 export default function CustomerSupplierDetailPage() {
   const params = useParams()
   const searchParams = useSearchParams()
@@ -57,7 +64,9 @@ export default function CustomerSupplierDetailPage() {
   const companyId = searchParams.get("company")
   
   const [data, setData] = useState<CustomerSupplierDetail | null>(null)
+  const [accounts, setAccounts] = useState<FinancialAccount[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isTransactionDialogOpen, setIsTransactionDialogOpen] = useState(false)
 
   const isCustomer = type === "customers"
   const entityLabel = isCustomer ? "Müşteri" : "Tedarikçi"
@@ -65,6 +74,7 @@ export default function CustomerSupplierDetailPage() {
   useEffect(() => {
     if (id && companyId) {
       fetchData()
+      fetchAccounts()
     }
   }, [id, companyId])
 
@@ -92,6 +102,19 @@ export default function CustomerSupplierDetailPage() {
       })
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const fetchAccounts = async () => {
+    if (!companyId) return
+    try {
+      const response = await fetch(`/api/finans/accounts?companyId=${companyId}`)
+      if (response.ok) {
+        const result = await response.json()
+        setAccounts(result)
+      }
+    } catch (error) {
+      console.error("Error fetching accounts:", error)
     }
   }
 
@@ -136,18 +159,16 @@ export default function CustomerSupplierDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link href={`/cari?company=${companyId}&tab=${type}&edit=${id}`}>
+          <Link href={`/cari/${type}/${id}/edit?company=${companyId}`}>
             <Button variant="outline" size="sm">
               <Pencil className="mr-2 h-4 w-4" />
               Düzenle
             </Button>
           </Link>
-          <Link href={`/finans/hareketler?company=${companyId}&${isCustomer ? "customerId" : "supplierId"}=${id}`}>
-            <Button variant="default" size="sm">
-              <Plus className="mr-2 h-4 w-4" />
-              {isCustomer ? "Tahsilat Ekle" : "Ödeme Ekle"}
-            </Button>
-          </Link>
+          <Button variant="default" size="sm" onClick={() => setIsTransactionDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            {isCustomer ? "Tahsilat Ekle" : "Ödeme Ekle"}
+          </Button>
           {data.email && (
             <a href={`mailto:${data.email}`}>
               <Button variant="outline" size="sm">
@@ -324,10 +345,12 @@ export default function CustomerSupplierDetailPage() {
                       <span className={`px-2 py-1 rounded text-xs ${
                         tx.type === "INVOICE" ? "bg-blue-100 text-blue-800" :
                         tx.type === "PAYMENT" ? "bg-green-100 text-green-800" :
+                        tx.type === "OPENING" ? "bg-amber-100 text-amber-800" :
                         "bg-gray-100 text-gray-800"
                       }`}>
                         {tx.type === "INVOICE" ? "Fatura" :
                          tx.type === "PAYMENT" ? "Ödeme" :
+                         tx.type === "OPENING" ? "Açılış" :
                          tx.type}
                       </span>
                     </TableCell>
@@ -355,6 +378,24 @@ export default function CustomerSupplierDetailPage() {
           </Table>
         </CardContent>
       </Card>
+      {companyId && (
+        <TransactionDialog
+          open={isTransactionDialogOpen}
+          onOpenChange={setIsTransactionDialogOpen}
+          companyId={companyId}
+          title={isCustomer ? "Yeni Tahsilat" : "Yeni Ödeme"}
+          description={
+            isCustomer
+              ? "Müşteri hesabına tahsilat işlemi ekleyin"
+              : "Tedarikçi hesabına ödeme işlemi ekleyin"
+          }
+          lockedType={isCustomer ? "INCOME" : "EXPENSE"}
+          customerId={isCustomer ? id : null}
+          supplierId={isCustomer ? null : id}
+          accounts={accounts}
+          onSuccess={fetchData}
+        />
+      )}
     </div>
   )
 }

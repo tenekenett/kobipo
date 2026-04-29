@@ -1,14 +1,15 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { Save } from "lucide-react"
-import { Switch } from "@/components/ui/switch"
+import Link from "next/link"
+import { getFirstAccessibleCompanyId } from "@/lib/company/client-selection"
 
 interface Company {
   id: string
@@ -20,16 +21,17 @@ interface Company {
   phone?: string
   email?: string
   website?: string
-  isEDonusumEnabled?: boolean
   invoiceSeriesPrefix?: string
 }
 
 export default function FirmaAyarlariPage() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
   const [company, setCompany] = useState<Company | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isResolvingCompany, setIsResolvingCompany] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
@@ -40,15 +42,53 @@ export default function FirmaAyarlariPage() {
     phone: "",
     email: "",
     website: "",
-    isEDonusumEnabled: false,
     invoiceSeriesPrefix: "",
   })
 
   useEffect(() => {
     if (companyId) {
+      setIsResolvingCompany(false)
       fetchCompany()
+      return
     }
-  }, [companyId])
+
+    let isMounted = true
+
+    const resolveCompany = async () => {
+      setIsResolvingCompany(true)
+      try {
+        const response = await fetch("/api/companies")
+        if (!response.ok) {
+          throw new Error("Failed to fetch companies")
+        }
+
+        const companies: Company[] = await response.json()
+        if (!isMounted) return
+
+        const firstCompanyId = getFirstAccessibleCompanyId(companies)
+        if (firstCompanyId) {
+          router.replace(`/ayarlar/firma?company=${firstCompanyId}`)
+        } else {
+          router.replace("/companies/new")
+        }
+      } catch (error) {
+        console.error("Error resolving company:", error)
+        if (isMounted) {
+          router.replace("/dashboard")
+        }
+      } finally {
+        if (isMounted) {
+          setIsResolvingCompany(false)
+        }
+      }
+    }
+
+    resolveCompany()
+
+    return () => {
+      isMounted = false
+    }
+  }, [companyId, router])
 
   const fetchCompany = async () => {
     if (!companyId) return
@@ -67,12 +107,33 @@ export default function FirmaAyarlariPage() {
           phone: data.phone || "",
           email: data.email || "",
           website: data.website || "",
-          isEDonusumEnabled: Boolean(data.isEDonusumEnabled),
           invoiceSeriesPrefix: data.invoiceSeriesPrefix || "",
         })
+      } else if (response.status === 403 || response.status === 404) {
+        // Stale or unauthorized company id in URL/localStorage; recover to first valid company.
+        const companiesResponse = await fetch("/api/companies")
+        if (!companiesResponse.ok) {
+          throw new Error("Firma erişimi doğrulanamadı")
+        }
+        const companies: Company[] = await companiesResponse.json()
+        const firstCompanyId = getFirstAccessibleCompanyId(companies)
+        if (firstCompanyId) {
+          router.replace(`/ayarlar/firma?company=${firstCompanyId}`)
+          return
+        }
+        router.replace("/companies/new")
+        return
+      } else {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || "Firma bilgisi alınamadı")
       }
     } catch (error) {
       console.error("Error fetching company:", error)
+      toast({
+        title: "Hata",
+        description: "Firma bilgisi yüklenemedi",
+        variant: "destructive",
+      })
     }
   }
 
@@ -110,14 +171,11 @@ export default function FirmaAyarlariPage() {
     }
   }
 
-  if (!companyId) {
+  if (!companyId || isResolvingCompany) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Firma Ayarları</CardTitle>
-          <CardDescription>Firma seçiniz</CardDescription>
-        </CardHeader>
-      </Card>
+      <div className="flex items-center justify-center p-8">
+        <p className="text-muted-foreground">Yönlendiriliyor...</p>
+      </div>
     )
   }
 
@@ -226,16 +284,14 @@ export default function FirmaAyarlariPage() {
                 />
               </div>
             </div>
-            <div className="flex items-center justify-between rounded-md border p-3">
-              <div>
-                <p className="text-sm font-medium">E-Dönüşüm Aktif</p>
-                <p className="text-xs text-muted-foreground">E-fatura/e-arşiv gönderim özelliğini aktif eder</p>
-              </div>
-              <Switch
-                checked={formData.isEDonusumEnabled}
-                onCheckedChange={(checked) => setFormData({ ...formData, isEDonusumEnabled: checked })}
-                disabled={isLoading || !isEditing}
-              />
+            <div className="rounded-md border p-3">
+              <p className="text-sm font-medium">E-Dönüşüm Ayarları</p>
+              <p className="text-xs text-muted-foreground">
+                E-Dönüşüm aktivasyonu ve entegratör bilgileri artık ayrı sayfada yönetilir.
+              </p>
+              <Link href={`/ayarlar/e-donusum?company=${companyId}`} className="mt-2 inline-block text-sm text-blue-600 hover:underline">
+                Ayarlar {'>'} E-Dönüşüm sayfasına git
+              </Link>
             </div>
             <div className="space-y-2">
               <Label htmlFor="address">Adres</Label>

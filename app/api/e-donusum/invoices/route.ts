@@ -9,6 +9,14 @@ import { ensureUsageLimit } from "@/lib/middleware/usage"
 
 export const dynamic = 'force-dynamic'
 
+function isMeaningfulInvoiceItem(item: any) {
+  if (!item || typeof item !== "object") return false
+  const hasProduct = typeof item.productId === "string" && item.productId.trim() !== ""
+  const quantity = parseFloat(item.quantity) || 0
+  const unitPrice = parseFloat(item.unitPrice) || 0
+  const hasDescription = typeof item.description === "string" && item.description.trim() !== ""
+  return hasProduct || quantity > 0 || unitPrice > 0 || hasDescription
+}
 
 export async function GET(request: Request) {
   try {
@@ -148,10 +156,10 @@ export async function POST(request: Request) {
     }
 
     const normalizedItems = (items as any[])
-      .filter((item) => item?.description && String(item.description).trim() !== "")
+      .filter((item) => isMeaningfulInvoiceItem(item))
       .map((item) => ({
         productId: item.productId || null,
-        description: String(item.description).trim(),
+        description: typeof item.description === "string" ? String(item.description).trim() : "",
         unit: typeof item.unit === "string" && item.unit.trim() ? String(item.unit).trim().toUpperCase() : "ADET",
         quantity: parseFloat(item.quantity) || 0,
         unitPrice: parseFloat(item.unitPrice) || 0,
@@ -163,7 +171,7 @@ export async function POST(request: Request) {
 
     if (normalizedItems.length === 0) {
       return NextResponse.json(
-        { error: "At least one valid invoice item is required" },
+        { error: "En az bir anlamlı fatura kalemi gerekli" },
         { status: 400 }
       )
     }

@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { usePathname, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { signOut, useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import {
@@ -19,31 +19,12 @@ import { allNavItems } from "@/components/dashboard/nav-config"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 
 export function DashboardHeader() {
-  const pathname = usePathname()
   const searchParams = useSearchParams()
   const { data: session } = useSession()
-  const { selectedCompany, isLoading: companyLoading } = useDashboardCompany()
-  const [userRole, setUserRole] = useState<string>("VIEWER")
+  const { selectedCompany, isLoading: companyLoading, userRole } = useDashboardCompany()
   const [isDark, setIsDark] = useState(false)
   const [notifCount, setNotifCount] = useState(0)
   const [globalQuery, setGlobalQuery] = useState("")
-
-  useEffect(() => {
-    async function fetchRole() {
-      try {
-        const response = await fetch("/api/auth/user-role")
-        if (response.ok) {
-          const data = await response.json()
-          setUserRole(data.role || "VIEWER")
-        }
-      } catch (error) {
-        console.error("Error fetching role:", error)
-      }
-    }
-    if (session) {
-      fetchRole()
-    }
-  }, [session])
 
   useEffect(() => {
     if (session) {
@@ -52,15 +33,49 @@ export function DashboardHeader() {
   }, [session])
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const companyId = params.get("company")
+    const companyId = selectedCompany?.id
     if (!companyId) return
-    fetch(`/api/notifications?companyId=${companyId}`).then(async (res) => {
-      if (!res.ok) return
-      const list = await res.json()
-      setNotifCount(list.filter((n: { isRead?: boolean }) => !n.isRead).length)
-    })
-  }, [pathname])
+
+    let cancelled = false
+    let lastFetchedAt = 0
+    const POLL_INTERVAL_MS = 5 * 60 * 1000
+    const MIN_REFETCH_GAP_MS = 30 * 1000
+
+    const fetchNotifications = async (force = false) => {
+      if (cancelled) return
+      if (document.visibilityState !== "visible") return
+      const now = Date.now()
+      if (!force && now - lastFetchedAt < MIN_REFETCH_GAP_MS) return
+      lastFetchedAt = now
+      try {
+        const response = await fetch(`/api/notifications?companyId=${companyId}`, {
+          cache: "no-store",
+        })
+        if (!response.ok || cancelled) return
+        const list = await response.json()
+        if (!cancelled) {
+          setNotifCount(list.filter((n: { isRead?: boolean }) => !n.isRead).length)
+        }
+      } catch {
+        // network errors: silently retry on next interval/visibility
+      }
+    }
+
+    fetchNotifications(true)
+    const interval = setInterval(() => fetchNotifications(false), POLL_INTERVAL_MS)
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        fetchNotifications(false)
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [selectedCompany?.id])
 
   const toggleTheme = () => {
     const root = document.documentElement

@@ -1,12 +1,13 @@
 import { getServerSession } from "next-auth"
+import { cache } from "react"
 import { authOptions } from "./config"
 
-export async function getSession() {
+export const getSession = cache(async function getSession() {
   return await getServerSession(authOptions)
-}
+})
 
-export async function getCurrentUser() {
+export const getCurrentUser = cache(async function getCurrentUser() {
   const session = await getSession()
   return session?.user
-}
+})
 

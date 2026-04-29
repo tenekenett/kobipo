@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation"
-import { getSession } from "@/lib/auth/session"
+import { getUserContext } from "@/lib/auth/user-context"
 import { DashboardNav } from "@/components/dashboard/nav"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { CompanySelector } from "@/components/dashboard/company-selector"
@@ -12,14 +12,20 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
-  const session = await getSession()
-
-  if (!session) {
+  const userContext = await getUserContext()
+  if (!userContext) {
     redirect("/signin")
   }
 
+  const initialCompanies = userContext.companies.map((entry) => ({
+    id: entry.companyId,
+    name: entry.companyName,
+    isEDonusumEnabled: entry.isEDonusumEnabled,
+  }))
+  const initialRole = userContext.companies[0]?.role ?? "VIEWER"
+
   return (
-    <DashboardCompanyProvider>
+    <DashboardCompanyProvider initialCompanies={initialCompanies} initialRole={initialRole}>
       <div className="min-h-screen bg-kobipo-offwhite">
         <DashboardNav />
         <div className="min-w-0 pt-14 lg:pl-56 lg:pt-0">

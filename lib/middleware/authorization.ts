@@ -1,7 +1,5 @@
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth/config"
-import { prisma } from "@/lib/db/prisma"
 import { Role } from "@prisma/client"
+import { getUserContext } from "@/lib/auth/user-context"
 
 // Modül bazlı erişim izinleri
 export const modulePermissions: Record<string, Role[]> = {
@@ -57,41 +55,23 @@ export interface AuthContext {
 
 // Kullanıcı yetki bilgilerini al
 export async function getAuthContext(): Promise<AuthContext | null> {
-  const session = await getServerSession(authOptions)
-
-  if (!session?.user?.email) {
-    return null
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-    include: {
-      companies: {
-        include: {
-          company: {
-            select: { id: true, name: true, isActive: true }
-          }
-        }
-      }
-    }
-  })
-
+  const user = await getUserContext()
   if (!user) {
     return null
   }
 
-  const companies: UserRole[] = user.companies.map(uc => ({
-    companyId: uc.company.id,
-    companyName: uc.company.name,
-    role: uc.role,
-    isActive: uc.company.isActive
+  const companies: UserRole[] = user.companies.map((company) => ({
+    companyId: company.companyId,
+    companyName: company.companyName,
+    role: company.role,
+    isActive: company.isActive,
   }))
 
   // Aktif firma (ilk aktif firma veya ilk firma)
   const activeCompany = companies.find(c => c.isActive) || companies[0] || null
 
   return {
-    userId: user.id,
+    userId: user.userId,
     email: user.email,
     name: user.name,
     isSuperAdmin: user.isSuperAdmin,

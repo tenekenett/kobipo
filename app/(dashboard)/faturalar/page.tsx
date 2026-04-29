@@ -72,20 +72,10 @@ export default function FaturalarPage() {
     try {
       const response = await fetch(`/api/e-donusum/invoices?companyId=${companyId}`)
       if (response.ok) {
-        const data = await response.json()
-        const invoicesWithPayments = await Promise.all(
-          data.map(async (invoice: Invoice) => {
-            const paymentsRes = await fetch(
-              `/api/faturalar/odemeler?companyId=${companyId}&invoiceId=${invoice.id}`
-            )
-            if (paymentsRes.ok) {
-              const payments = await paymentsRes.json()
-              return { ...invoice, payments }
-            }
-            return invoice
-          })
-        )
-        setInvoices(invoicesWithPayments)
+        const data = (await response.json()) as Invoice[]
+        // The /api/e-donusum/invoices endpoint already includes `payments: [{ amount }]`
+        // for each invoice, so no per-invoice payment fetch is needed.
+        setInvoices(data)
         return
       }
       const body = await response.json().catch(() => ({}))
