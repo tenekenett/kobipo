@@ -83,7 +83,6 @@ export async function POST(
         quantity: -item.quantity, // Satış: stok azal
         description: `${invoiceNo} - Satış faturası`,
         reference: invoice.id,
-        referenceType: "INVOICE",
         createdBy: user.id,
       },
     })
