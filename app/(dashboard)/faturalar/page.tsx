@@ -14,7 +14,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
-import { Eye, Plus, FileText, Pencil } from "lucide-react"
+import { Eye, Plus, FileText, Pencil, Trash2 } from "lucide-react" // Trash2 eklendi
 import Link from "next/link"
 
 interface Invoice {
@@ -73,8 +73,6 @@ export default function FaturalarPage() {
       const response = await fetch(`/api/e-donusum/invoices?companyId=${companyId}`)
       if (response.ok) {
         const data = (await response.json()) as Invoice[]
-        // The /api/e-donusum/invoices endpoint already includes `payments: [{ amount }]`
-        // for each invoice, so no per-invoice payment fetch is needed.
         setInvoices(data)
         return
       }
@@ -101,6 +99,40 @@ export default function FaturalarPage() {
       })
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // YENİ EKLENEN SİLME FONKSİYONU
+  const handleDeleteInvoice = async (invoiceId: string) => {
+    if (!confirm("Bu faturayı silmek/iptal etmek istediğinize emin misiniz? (Bu işlem stokları ve bakiyeleri geri alacaktır)")) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/e-donusum/invoices/${invoiceId}?companyId=${companyId}`, {
+        method: "DELETE",
+      })
+
+      if (response.ok) {
+        toast({
+          title: "Başarılı",
+          description: "Fatura başarıyla silindi.",
+        })
+        fetchInvoices() // Listeyi yenile
+      } else {
+        const data = await response.json()
+        toast({
+          title: "Hata",
+          description: data.error || "Fatura silinemedi",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: "Silme işlemi sırasında bir hata oluştu",
+        variant: "destructive",
+      })
     }
   }
 
@@ -232,27 +264,33 @@ export default function FaturalarPage() {
                       <TableCell>
                         <div className="flex gap-2">
                           <Link href={`/faturalar/${invoice.id}/onizleme?company=${companyId}`}>
-                            <Button variant="outline" size="sm">
-                              <FileText className="h-4 w-4 mr-1" />
-                              Önizleme
+                            <Button variant="outline" size="sm" title="Önizleme">
+                              <FileText className="h-4 w-4" />
                             </Button>
                           </Link>
                           <Link href={`/faturalar/${invoice.id}/odemeler?company=${companyId}`}>
-                            <Button variant="outline" size="sm">
-                              <Eye className="h-4 w-4 mr-1" />
-                              Ödemeler
+                            <Button variant="outline" size="sm" title="Ödemeler">
+                              <Eye className="h-4 w-4" />
                             </Button>
                           </Link>
                           {invoice.status === "DRAFT" && (
                             <Link
                               href={`/e-donusum/${invoice.id}/duzenle?company=${encodeURIComponent(companyId)}&from=${encodeURIComponent("/faturalar")}`}
                             >
-                              <Button variant="outline" size="sm">
-                                <Pencil className="h-4 w-4 mr-1" />
-                                Düzenle
+                              <Button variant="outline" size="sm" title="Düzenle">
+                                <Pencil className="h-4 w-4" />
                               </Button>
                             </Link>
                           )}
+                          {/* YENİ SİLME BUTONU */}
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => handleDeleteInvoice(invoice.id)}
+                            title="Sil / İptal Et"
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -266,4 +304,3 @@ export default function FaturalarPage() {
     </div>
   )
 }
-

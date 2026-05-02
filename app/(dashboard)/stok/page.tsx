@@ -122,12 +122,13 @@ export default function StokPage() {
         })
         fetchProducts()
       } else {
-        throw new Error("Oluşturulamadı")
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Oluşturulamadı")
       }
     } catch (error) {
       toast({
         title: "Hata",
-        description: "Bir hata oluştu",
+        description: error instanceof Error ? error.message : "Bir hata oluştu",
         variant: "destructive",
       })
     } finally {

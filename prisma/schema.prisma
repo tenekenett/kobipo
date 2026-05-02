@@ -238,6 +238,7 @@ model Customer {
 
   @@unique([linkedSupplierId])
   @@index([companyId])
+  @@index([companyId, name])
   @@index([classification1Id])
   @@index([classification2Id])
   @@index([authorizedUserId])
@@ -284,6 +285,7 @@ model Supplier {
   authorizedUser User? @relation("AuthorizedSupplierUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
+  @@index([companyId, name])
   @@index([classification1Id])
   @@index([classification2Id])
   @@index([authorizedUserId])
@@ -527,6 +529,8 @@ model Transaction {
 
   @@index([companyId, date])
   @@index([companyId, type, date])
+  @@index([companyId, type, customerId])
+  @@index([companyId, type, supplierId])
   @@index([accountId])
   @@index([customerId])
   @@index([supplierId])
@@ -570,6 +574,8 @@ model Invoice {
   @@unique([companyId, invoiceNo])
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, status])
+  @@index([companyId, type, customerId])
+  @@index([companyId, type, supplierId])
   @@index([customerId])
   @@index([supplierId])
   @@map("invoices")

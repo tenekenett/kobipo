@@ -1,28 +1,30 @@
 import { NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth/config"
+import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions)
+    const userSession = await getCurrentUser()
 
-    if (!session?.user?.email) {
+    if (!userSession?.id) {
       return NextResponse.json({ role: "VIEWER" }, { status: 401 })
     }
 
     const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      include: {
+      where: { id: userSession.id },
+      select: {
+        isSuperAdmin: true,
         companies: {
-          include: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            role: true,
+            companyId: true,
             company: {
-              select: { id: true, name: true, isActive: true }
-            }
+              select: { name: true, isActive: true },
+            },
           },
-          orderBy: { createdAt: "asc" }
-        }
-      }
+        },
+      },
     })
 
     if (!user) {

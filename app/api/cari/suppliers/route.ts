@@ -2,9 +2,11 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { repairOrphanDualRoleSuppliers, toBool } from "@/lib/cari/repair-dual-role"
+import { Prisma } from "@prisma/client"
 
 export const dynamic = 'force-dynamic'
+const LIST_CACHE_TTL_MS = 15000
+const listCache = new Map<string, { expiresAt: number; payload: unknown }>()
 
 function parseOpeningBalanceType(value: unknown) {
   return String(value || "").toUpperCase() === "CREDIT" ? "CREDIT" : "DEBIT"
@@ -22,6 +24,16 @@ function parseDecimalOrNull(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function toBool(value: unknown): boolean {
+  if (value === true || value === 1) return true
+  if (value === false || value === 0 || value === null || value === undefined || value === "") return false
+  if (typeof value === "string") {
+    const normalized = value.toLowerCase().trim()
+    return normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on"
+  }
+  return Boolean(value)
+}
+
 
 export async function GET(request: Request) {
   try {
@@ -33,6 +45,9 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const companyId = searchParams.get("companyId")
     const search = searchParams.get("search")
+    const page = Number(searchParams.get("page") || "1")
+    const pageSize = Number(searchParams.get("pageSize") || "50")
+    const usePagination = searchParams.has("page") || searchParams.has("pageSize")
 
     if (!companyId) {
       return NextResponse.json(
@@ -43,64 +58,148 @@ export async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
-    await repairOrphanDualRoleSuppliers(companyId)
+    const safePage = Number.isFinite(page) && page > 0 ? page : 1
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(pageSize, 200) : 50
+    const offset = (safePage - 1) * safePageSize
+    const hasSearch = Boolean(search && search.trim().length > 0)
+    const searchLike = `%${search?.trim() || ""}%`
+    const cacheKey = `${companyId}|${searchLike}|${safePage}|${safePageSize}|${usePagination ? "1" : "0"}`
 
-    const where: any = {
-      companyId,
+    const now = Date.now()
+    const cached = listCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) {
+      return NextResponse.json(cached.payload)
     }
 
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { code: { contains: search, mode: "insensitive" } },
-        { taxNumber: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-      ]
-    }
+    const [suppliers, countRows] = await Promise.all([
+      prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      WITH filtered_suppliers AS (
+        SELECT s.*
+        FROM suppliers s
+        WHERE s."companyId" = ${companyId}
+          ${hasSearch
+            ? Prisma.sql`AND (
+              s.name ILIKE ${searchLike}
+              OR s.code ILIKE ${searchLike}
+              OR s."taxNumber" ILIKE ${searchLike}
+              OR s.email ILIKE ${searchLike}
+            )`
+            : Prisma.empty}
+      ),
+      paged_suppliers AS (
+        SELECT *
+        FROM filtered_suppliers
+        ORDER BY name ASC
+        ${usePagination ? Prisma.sql`LIMIT ${safePageSize} OFFSET ${offset}` : Prisma.empty}
+      ),
+      invoice_totals AS (
+        SELECT i."supplierId", SUM(i."totalAmount") AS total_amount_sum
+        FROM invoices i
+        INNER JOIN paged_suppliers ps ON ps.id = i."supplierId"
+        WHERE i.type = 'PURCHASE'
+        GROUP BY i."supplierId"
+      ),
+      payment_totals AS (
+        SELECT inv."supplierId", SUM(ip.amount) AS payment_amount_sum
+        FROM invoice_payments ip
+        INNER JOIN invoices inv ON inv.id = ip."invoiceId"
+        INNER JOIN paged_suppliers ps ON ps.id = inv."supplierId"
+        WHERE inv.type = 'PURCHASE'
+        GROUP BY inv."supplierId"
+      ),
+      income_totals AS (
+        SELECT t."supplierId", SUM(t.amount) AS amount_sum
+        FROM transactions t
+        INNER JOIN paged_suppliers ps ON ps.id = t."supplierId"
+        WHERE t.type = 'INCOME'
+        GROUP BY t."supplierId"
+      ),
+      expense_totals AS (
+        SELECT t."supplierId", SUM(t.amount) AS amount_sum
+        FROM transactions t
+        INNER JOIN paged_suppliers ps ON ps.id = t."supplierId"
+        WHERE t.type = 'EXPENSE'
+        GROUP BY t."supplierId"
+      )
+      SELECT
+        ps.id,
+        ps."companyId",
+        ps.code,
+        ps.name,
+        ps."taxNumber",
+        ps."taxOffice",
+        ps.address,
+        ps.city,
+        ps.country,
+        ps.phone,
+        ps.email,
+        ps."contactPerson",
+        ps."paymentDueDays",
+        ps."openingBalanceAmount",
+        ps."openingBalanceType",
+        ps."riskLimit",
+        ps."bankInfo",
+        ps.note,
+        ps."classification1Id",
+        ps."classification2Id",
+        ps."authorizedUserId",
+        ps."isAlsoCustomer",
+        ps."linkedCustomerId",
+        ps."createdAt",
+        ps."updatedAt",
+        COALESCE(CAST(i.total_amount_sum AS NUMERIC), 0) AS "invoiceTotal",
+        COALESCE(CAST(p.payment_amount_sum AS NUMERIC), 0) AS "paymentTotal",
+        COALESCE(CAST(t_in.amount_sum AS NUMERIC), 0) AS "incomeTotal",
+        COALESCE(CAST(t_ex.amount_sum AS NUMERIC), 0) AS "expenseTotal"
+      FROM paged_suppliers ps
+      LEFT JOIN invoice_totals i ON i."supplierId" = ps.id
+      LEFT JOIN payment_totals p ON p."supplierId" = ps.id
+      LEFT JOIN income_totals t_in ON t_in."supplierId" = ps.id
+      LEFT JOIN expense_totals t_ex ON t_ex."supplierId" = ps.id
+      ORDER BY ps.name ASC
+    `),
+      usePagination
+        ? prisma.$queryRaw<Array<{ total_count: bigint | number }>>(Prisma.sql`
+            SELECT COUNT(*) AS total_count
+            FROM suppliers s
+            WHERE s."companyId" = ${companyId}
+            ${hasSearch
+              ? Prisma.sql`AND (
+                s.name ILIKE ${searchLike}
+                OR s.code ILIKE ${searchLike}
+                OR s."taxNumber" ILIKE ${searchLike}
+                OR s.email ILIKE ${searchLike}
+              )`
+              : Prisma.empty}
+          `)
+        : Promise.resolve([] as Array<{ total_count: bigint | number }>),
+    ])
 
-    const suppliers = await prisma.supplier.findMany({
-      where,
-      include: {
-        invoices: {
-          where: { type: "PURCHASE" },
-          select: {
-            totalAmount: true,
-            payments: {
-              select: { amount: true },
-            },
-          },
-        },
-        transactions: {
-          select: {
-            type: true,
-            amount: true,
-          },
-        },
-      },
-      orderBy: { name: "asc" },
-    })
+    const suppliersWithBalance = suppliers.map((row) => {
+      const balance =
+        Number(row.invoiceTotal || 0) -
+        Number(row.paymentTotal || 0) +
+        Number(row.expenseTotal || 0) -
+        Number(row.incomeTotal || 0) +
+        (row.openingBalanceType === "CREDIT"
+          ? -Number(row.openingBalanceAmount || 0)
+          : Number(row.openingBalanceAmount || 0))
 
-    const suppliersWithBalance = suppliers.map((supplier) => {
-      const invoiceBalance = supplier.invoices.reduce((sum, inv) => {
-        const paid = inv.payments.reduce((paymentSum, p) => paymentSum + Number(p.amount), 0)
-        return sum + (Number(inv.totalAmount) - paid)
-      }, 0)
-
-      const transactionEffect = supplier.transactions.reduce((sum, trx) => {
-        return trx.type === "EXPENSE" ? sum + Number(trx.amount) : sum - Number(trx.amount)
-      }, 0)
-
+      const { invoiceTotal, paymentTotal, incomeTotal, expenseTotal, ...supplier } = row
       return {
         ...supplier,
-        balance:
-          invoiceBalance +
-          transactionEffect +
-          (supplier.openingBalanceType === "CREDIT"
-            ? -Number(supplier.openingBalanceAmount)
-            : Number(supplier.openingBalanceAmount)),
+        balance,
       }
     })
 
+    if (usePagination) {
+      const totalCount = Number(countRows[0]?.total_count || 0)
+      const payload = { items: suppliersWithBalance, totalCount, page: safePage, pageSize: safePageSize }
+      listCache.set(cacheKey, { expiresAt: now + LIST_CACHE_TTL_MS, payload })
+      return NextResponse.json(payload)
+    }
+
+    listCache.set(cacheKey, { expiresAt: now + LIST_CACHE_TTL_MS, payload: suppliersWithBalance })
     return NextResponse.json(suppliersWithBalance)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
@@ -260,4 +359,5 @@ export async function POST(request: Request) {
     )
   }
 }
+
 

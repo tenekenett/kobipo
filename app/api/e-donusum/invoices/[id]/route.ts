@@ -416,4 +416,125 @@ export async function POST(
     )
   }
 }
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getCurrentUser()
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
 
+    const resolvedParams = await params
+    const invoiceId = resolvedParams.id
+
+    // 1. Silinecek faturayı, içindeki ürünlerle (items) ve stokla bağlantılı olarak çekelim
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        items: true,
+      },
+    })
+
+    if (!invoice) {
+      return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
+    }
+
+    await ensureCompanyAccess(invoice.companyId)
+
+    // Sadece DRAFT (Taslak) veya iptal edilmiş faturaların silinmesine izin verebilirsin, 
+    // ama sistem yöneticisiysen her faturayı silebilirsin. Şimdilik sınır koymuyoruz, 
+    // ama istersen `if (invoice.status === 'SENT') return error` diyebilirsin.
+
+    const safeType = String(invoice.type || "").trim().toUpperCase()
+
+    // 2. Stokları GERİ İADE ETME MANTIĞI
+    for (const item of invoice.items) {
+      const safeProductId = item.productId || null
+      if (!safeProductId) continue // Ürün ID yoksa geç
+
+      let stockQuantityChange = 0
+      let moveType = "UNKNOWN"
+
+      // DİKKAT: Oluşturmanın TAM TERSİNİ yapıyoruz!
+      if (safeType === "SALES") {
+        stockQuantityChange = Number(item.quantity) // Satış silindi: Stoğa Geri Ekle (+)
+        moveType = "SALE_CANCEL"
+      } else if (safeType === "PURCHASE") {
+        stockQuantityChange = -Number(item.quantity) // Alış silindi: Stoktan Geri Çıkar (-)
+        moveType = "PURCHASE_CANCEL"
+      } else if (safeType === "RETURN") {
+        stockQuantityChange = -Number(item.quantity) // İade silindi: Stoktan Geri Çıkar (-)
+        moveType = "RETURN_CANCEL"
+      }
+
+      if (stockQuantityChange !== 0) {
+        try {
+          // Geri iade hareketi (StockMovement) oluştur
+          await prisma.stockMovement.create({
+            data: {
+              companyId: invoice.companyId,
+              productId: safeProductId,
+              type: moveType,
+              quantity: stockQuantityChange,
+              description: `${invoice.invoiceNo} numaralı faturanın silinmesi (İptal)`,
+              reference: invoice.id,
+              createdBy: user.id,
+            },
+          })
+
+          // Ürünün mevcut stoğunu güncelle
+          await prisma.product.update({
+            where: { id: safeProductId },
+            data: {
+              stockQuantity: {
+                increment: stockQuantityChange,
+              },
+            },
+          })
+          
+        } catch (stockError) {
+          console.error(`[Stok İade Hatası] ${safeProductId} iade edilirken hata:`, stockError)
+        }
+      }
+    }
+
+    // 3. İlgili otomatik muhasebe fişlerini (AccountingEntry) sil (varsa)
+    // Otomatik muhasebe fişlerini 'reference' ve 'referenceType' ile bulup temizleyebiliriz
+    try {
+       await prisma.accountingEntry.deleteMany({
+          where: { 
+             companyId: invoice.companyId,
+             reference: invoice.id,
+             referenceType: { in: ["INVOICE_AUTO", "INVOICE_AUTO_VAT"] }
+          }
+       });
+    } catch(accError) {
+       console.log("Muhasebe fişi silinirken hata veya fiş yok:", accError);
+    }
+
+    // 4. Son olarak Faturayı veritabanından tamamen sil
+    // Çift tıklama / ağ gecikmesi durumunda uygulamanın çökmemesi için try-catch
+    try {
+      await prisma.invoice.delete({
+        where: { id: invoiceId },
+      });
+    } catch (deleteError: any) {
+      if (deleteError.code === 'P2025') {
+        console.warn(`[Silme Uyarısı] Fatura zaten silinmiş veya bulunamadı. ID: ${invoiceId}`);
+        // Fatura zaten yoksa, stok hareketlerini de yapıp yapmadığımıza bakmaksızın başarılı dönüyoruz
+        return NextResponse.json({ success: true, message: "Fatura zaten silinmiş." });
+      }
+      throw deleteError; // Eğer P2025 (kayıt yok) dışında bir hataysa yukarıya fırlat
+    }
+
+    return NextResponse.json({ success: true, message: "Fatura ve stok hareketleri silindi/geri alındı." })
+  } catch (error: any) {
+    console.error("Error deleting invoice:", error)
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
+}

@@ -252,6 +252,64 @@ export async function POST(request: Request) {
       },
     })
 
+    // Stok hareketi: Satış, Satın alma, İade işlemlerinde stok güncelle
+    for (const item of invoice.items) {
+      // 1. Ürün ID'sini garantiye al
+      const safeProductId = item.productId || (item as any).product?.id || null;
+      if (!safeProductId) {
+        console.warn(`[Stok Uyarı] Ürün ID bulunamadı. Fatura Kalemi Atlandı: ${item.description}`);
+        continue; 
+      }
+
+      // 2. Fatura Tipini büyük harfe zorla ve boşlukları temizle
+      const safeType = String(type || "").trim().toUpperCase();
+
+      let stockQuantityChange = 0;
+      let moveType = "UNKNOWN";
+
+      if (safeType === "SALES") {
+        stockQuantityChange = -Number(item.quantity); 
+        moveType = "SALE";
+      } else if (safeType === "PURCHASE") {
+        stockQuantityChange = Number(item.quantity);  
+        moveType = "PURCHASE";
+      } else if (safeType === "RETURN") {
+        stockQuantityChange = Number(item.quantity);  
+        moveType = "RETURN";
+      }
+
+      if (stockQuantityChange !== 0) {
+        try {
+          // Stok hareketi oluştur
+          await prisma.stockMovement.create({
+            data: {
+              companyId,
+              productId: safeProductId,
+              type: moveType,
+              quantity: stockQuantityChange,
+              description: `${invoice.invoiceNo} - ${safeType === "SALES" ? "Satış" : safeType === "PURCHASE" ? "Satın alma" : "İade"} faturası`,
+              reference: invoice.id,
+              //referenceType: "INVOICE",
+              createdBy: user.id,
+            },
+          });
+
+          // Ürünün stok miktarını güncelle
+          await prisma.product.update({
+            where: { id: safeProductId },
+            data: {
+              stockQuantity: {
+                increment: stockQuantityChange,
+              },
+            },
+          });
+          
+          console.log(`[Stok Başarılı] ${safeProductId} ID'li ürünün stoğu ${stockQuantityChange} kadar güncellendi.`);
+        } catch (stockError) {
+          console.error("[Stok Hata] Stok işlemi sırasında veritabanı hatası oluştu: ", stockError);
+        }
+      }
+    }
     // Otomatik muhasebe fişi: Satış faturaları için temel kayıt.
     if (type === "SALES") {
       const companyPlans = await prisma.accountPlan.findMany({

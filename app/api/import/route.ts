@@ -597,6 +597,17 @@ export async function POST(request: Request) {
   const headers = rows[0].map((value) => normalizeHeader(String(value)))
   const dataRows = rows.slice(1)
 
+  const getValueByAliases = (row: string[], aliases: Record<string, string[]>, key: string) => {
+    const candidates = aliases[key] || [key]
+    for (const candidate of candidates) {
+      const idx = headers.indexOf(candidate)
+      if (idx >= 0) {
+        return String(row[idx] || "").trim()
+      }
+    }
+    return ""
+  }
+
   const customerHeaderAliases: Record<string, string[]> = {
     code: ["code", "kod"],
     name: ["name", "ad", "unvan"],
@@ -642,17 +653,6 @@ export async function POST(request: Request) {
     notes: ["notes", "aciklama", "notlar"],
   }
 
-  const getValueByAliases = (row: string[], aliases: Record<string, string[]>, key: string) => {
-    const candidates = aliases[key] || [key]
-    for (const candidate of candidates) {
-      const idx = headers.indexOf(candidate)
-      if (idx >= 0) {
-        return String(row[idx] || "").trim()
-      }
-    }
-    return ""
-  }
-
   if (module === "customers") {
     for (let index = 0; index < dataRows.length; index++) {
       const row = dataRows[index]
@@ -660,6 +660,25 @@ export async function POST(request: Request) {
         const get = (name: string) => getValueByAliases(row, customerHeaderAliases, name)
         const name = get("name")
         if (!name) throw new Error("name is required")
+
+        const taxNumber = get("taxnumber") || null
+
+        // Duplicate kontrolü: aynı ad veya vergi numarası varsa
+        const existingCustomer = await prisma.customer.findFirst({
+          where: {
+            companyId,
+            OR: [
+              { name: name.trim() },
+              ...(taxNumber ? [{ taxNumber: taxNumber.trim() }] : []),
+            ],
+          },
+          select: { id: true, name: true },
+        })
+
+        if (existingCustomer) {
+          throw new Error(`Çift cari bulundu: "${existingCustomer.name}" zaten mevcut`)
+        }
+
         const openingBalanceAmount = parseDecimal(get("openingbalance"), 0)
         const openingBalanceType = parseOpeningBalanceType(get("openingbalancetype"))
 
@@ -668,7 +687,7 @@ export async function POST(request: Request) {
             companyId,
             code: get("code") || null,
             name,
-            taxNumber: get("taxnumber") || null,
+            taxNumber,
             taxOffice: get("taxoffice") || null,
             phone: get("phone") || null,
             email: get("email") || null,
@@ -698,12 +717,30 @@ export async function POST(request: Request) {
         const name = get("name")
         if (!name) throw new Error("name is required")
 
+        const barcode = get("barcode") || null
+
+        // Duplicate kontrolü: aynı ad veya barkod varsa
+        const existingProduct = await prisma.product.findFirst({
+          where: {
+            companyId,
+            OR: [
+              { name: name.trim() },
+              ...(barcode ? [{ barcode: barcode.trim() }] : []),
+            ],
+          },
+          select: { id: true, name: true, barcode: true },
+        })
+
+        if (existingProduct) {
+          throw new Error(`Çift ürün bulundu: "${existingProduct.name}" zaten mevcut`)
+        }
+
         await prisma.product.create({
           data: {
             companyId,
             code: get("code") || null,
             name,
-            barcode: get("barcode") || null,
+            barcode,
             unit: get("unit") || "ADET",
             stockQuantity: parseDecimal(get("stockquantity"), 0),
             purchasePrice: get("purchaseprice") ? parseDecimal(get("purchaseprice")) : null,

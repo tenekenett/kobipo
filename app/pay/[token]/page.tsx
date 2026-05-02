@@ -30,27 +30,48 @@ export default function PublicPaymentPage() {
 
   async function fetchLink() {
     setLoading(true)
-    const response = await fetch(`/api/pay/${token}`)
-    if (response.ok) {
-      setData(await response.json())
-      setError("")
-    } else {
-      const payload = await response.json()
-      setError(payload.error || "Link bulunamadı")
+    try {
+      const response = await fetch(`/api/pay/${token}`)
+      const text = await response.text()
+      const payload = text ? JSON.parse(text) : {}
+
+      if (response.ok) {
+        setData(payload)
+        setError("")
+      } else {
+        setError(payload.error || "Link bulunamadı")
+      }
+    } catch (err) {
+      setError("Bağlantı hatası oluştu.")
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   async function completePayment() {
     setPaying(true)
-    const response = await fetch(`/api/pay/${token}`, { method: "POST" })
-    if (!response.ok) {
-      const payload = await response.json()
-      setError(payload.error || "Ödeme başarısız")
-    } else {
-      await fetchLink()
+    setError("")
+
+    try {
+      const response = await fetch(`/api/pay/${token}`, { 
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}) // API'nin boş da olsa json okumasını sağlar
+      })
+
+      const text = await response.text()
+      const payload = text ? JSON.parse(text) : {}
+
+      if (!response.ok) {
+        setError(payload.error || "Ödeme başarısız")
+      } else {
+        await fetchLink()
+      }
+    } catch (err) {
+      setError("Bir ağ hatası oluştu.")
+    } finally {
+      setPaying(false)
     }
-    setPaying(false)
   }
 
   useEffect(() => {

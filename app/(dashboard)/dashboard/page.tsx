@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation"
-import { getSession } from "@/lib/auth/session"
 import { getAuthContext } from "@/lib/middleware/authorization"
 import { prisma } from "@/lib/db/prisma"
+import { Prisma } from "@prisma/client"
+import { unstable_cache } from "next/cache"
 import Link from "next/link"
 import { format } from "date-fns"
 import { tr } from "date-fns/locale"
@@ -70,17 +71,87 @@ function buildCashflowSeries(
   return out
 }
 
+const getDashboardDataCached = unstable_cache(
+  async (companyId: string, chartStartIso: string) => {
+    const chartStart = new Date(chartStartIso)
+    const [statsRows, recentInvoices, cashflowRows] = await Promise.all([
+      prisma.$queryRaw<
+        Array<{
+          customer_count: bigint | number
+          supplier_count: bigint | number
+          product_count: bigint | number
+          invoice_count: bigint | number
+          draft_count: bigint | number
+          sent_count: bigint | number
+          quote_open_count: bigint | number
+          income_total: unknown
+          expense_total: unknown
+        }>
+      >(Prisma.sql`
+        SELECT
+          (SELECT COUNT(*)::INT FROM customers c WHERE c."companyId" = ${companyId}) AS customer_count,
+          (SELECT COUNT(*)::INT FROM suppliers s WHERE s."companyId" = ${companyId}) AS supplier_count,
+          (SELECT COUNT(*)::INT FROM products p WHERE p."companyId" = ${companyId}) AS product_count,
+          (SELECT COUNT(*)::INT FROM invoices i WHERE i."companyId" = ${companyId}) AS invoice_count,
+          (SELECT COUNT(*)::INT FROM invoices i WHERE i."companyId" = ${companyId} AND i.status = 'DRAFT') AS draft_count,
+          (SELECT COUNT(*)::INT FROM invoices i WHERE i."companyId" = ${companyId} AND i.status = 'SENT') AS sent_count,
+          (
+            SELECT COUNT(*)::INT FROM quotes q
+            WHERE q."companyId" = ${companyId}
+              AND q.status IN ('DRAFT', 'SENT', 'APPROVED')
+          ) AS quote_open_count,
+          (
+            SELECT COALESCE(SUM(t.amount), 0)
+            FROM transactions t
+            WHERE t."companyId" = ${companyId}
+              AND t.type = 'INCOME'
+          ) AS income_total,
+          (
+            SELECT COALESCE(SUM(t.amount), 0)
+            FROM transactions t
+            WHERE t."companyId" = ${companyId}
+              AND t.type = 'EXPENSE'
+          ) AS expense_total
+      `),
+      prisma.invoice.findMany({
+        where: { companyId },
+        orderBy: { date: "desc" },
+        take: 6,
+        select: {
+          id: true,
+          invoiceNo: true,
+          status: true,
+          date: true,
+          totalAmount: true,
+          type: true,
+          customer: { select: { name: true } },
+          supplier: { select: { name: true } },
+        },
+      }),
+      prisma.$queryRaw<Array<{ day: Date; income: unknown; expense: unknown }>>`
+        SELECT
+          (DATE_TRUNC('day', "date"))::date AS day,
+          COALESCE(SUM(CASE WHEN "type" = 'INCOME' THEN "amount" ELSE 0 END), 0) AS income,
+          COALESCE(SUM(CASE WHEN "type" = 'EXPENSE' THEN "amount" ELSE 0 END), 0) AS expense
+        FROM transactions
+        WHERE "companyId" = ${companyId}
+          AND "date" >= ${chartStart}
+        GROUP BY 1
+        ORDER BY 1
+      `,
+    ])
+
+    return { statsRows, recentInvoices, cashflowRows }
+  },
+  ["dashboard-data-v2"],
+  { revalidate: 20 }
+)
+
 export default async function DashboardIndexPage({
   searchParams,
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const session = await getSession()
-
-  if (!session) {
-    redirect("/signin")
-  }
-
   const authContext = await getAuthContext()
 
   if (!authContext) {
@@ -105,69 +176,21 @@ export default async function DashboardIndexPage({
   chartStart.setHours(0, 0, 0, 0)
   chartStart.setDate(chartStart.getDate() - DAYS_CHART)
 
-  const [
-    customerCount,
-    supplierCount,
-    productCount,
-    invoiceCount,
-    draftCount,
-    sentCount,
-    quoteOpenCount,
-    incomeTotal,
-    expenseTotal,
-    recentInvoices,
-    cashflowRows,
-  ] = await Promise.all([
-    prisma.customer.count({ where: { companyId } }),
-    prisma.supplier.count({ where: { companyId } }),
-    prisma.product.count({ where: { companyId } }),
-    prisma.invoice.count({ where: { companyId } }),
-    prisma.invoice.count({ where: { companyId, status: "DRAFT" } }),
-    prisma.invoice.count({ where: { companyId, status: "SENT" } }),
-    prisma.quote.count({
-      where: {
-        companyId,
-        status: { in: ["DRAFT", "SENT", "APPROVED"] },
-      },
-    }),
-    prisma.transaction.aggregate({
-      where: { companyId, type: "INCOME" },
-      _sum: { amount: true },
-    }),
-    prisma.transaction.aggregate({
-      where: { companyId, type: "EXPENSE" },
-      _sum: { amount: true },
-    }),
-    prisma.invoice.findMany({
-      where: { companyId },
-      orderBy: { date: "desc" },
-      take: 6,
-      select: {
-        id: true,
-        invoiceNo: true,
-        status: true,
-        date: true,
-        totalAmount: true,
-        type: true,
-        customer: { select: { name: true } },
-        supplier: { select: { name: true } },
-      },
-    }),
-    prisma.$queryRaw<Array<{ day: Date; income: unknown; expense: unknown }>>`
-      SELECT
-        (DATE_TRUNC('day', "date"))::date AS day,
-        COALESCE(SUM(CASE WHEN "type" = 'INCOME' THEN "amount" ELSE 0 END), 0) AS income,
-        COALESCE(SUM(CASE WHEN "type" = 'EXPENSE' THEN "amount" ELSE 0 END), 0) AS expense
-      FROM transactions
-      WHERE "companyId" = ${companyId}
-        AND "date" >= ${chartStart}
-      GROUP BY 1
-      ORDER BY 1
-    `,
-  ])
+  const { statsRows, recentInvoices, cashflowRows } = await getDashboardDataCached(
+    companyId,
+    chartStart.toISOString()
+  )
 
-  const income = Number(incomeTotal._sum.amount || 0)
-  const expense = Number(expenseTotal._sum.amount || 0)
+  const stats = statsRows[0]
+  const customerCount = Number(stats?.customer_count || 0)
+  const supplierCount = Number(stats?.supplier_count || 0)
+  const productCount = Number(stats?.product_count || 0)
+  const invoiceCount = Number(stats?.invoice_count || 0)
+  const draftCount = Number(stats?.draft_count || 0)
+  const sentCount = Number(stats?.sent_count || 0)
+  const quoteOpenCount = Number(stats?.quote_open_count || 0)
+  const income = Number(stats?.income_total || 0)
+  const expense = Number(stats?.expense_total || 0)
   const balance = income - expense
   const flowTotal = income + expense
   const incomeSharePct = flowTotal > 0 ? Math.round((income / flowTotal) * 100) : 0

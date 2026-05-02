@@ -51,10 +51,18 @@ export async function GET(
         invoices: {
           orderBy: { date: "desc" },
           take: 10,
+          include: {
+            payments: {
+              select: { amount: true },
+            },
+          },
         },
         transactions: {
           orderBy: { date: "desc" },
           take: 10,
+          include: {
+            account: true,
+          },
         },
       },
     })
@@ -65,45 +73,51 @@ export async function GET(
 
     await ensureCompanyAccess(customer.companyId)
 
-    // Get all invoices and payments
-    const allInvoices = await prisma.invoice.findMany({
-      where: { customerId: customer.id },
-      include: {
-        payments: {
-          select: {
-            amount: true,
+    // Calculate balance using database aggregation to avoid N+1 queries
+    const [invoiceAggregate, paymentAggregate, incomeTransactionAggregate, expenseTransactionAggregate] = await Promise.all([
+      prisma.invoice.aggregate({
+        where: { customerId: customer.id, type: "SALES" },
+        _sum: { totalAmount: true },
+      }),
+      prisma.invoicePayment.aggregate({
+        where: { invoice: { customerId: customer.id, type: "SALES" } },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: { customerId: customer.id, type: "INCOME" },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: { customerId: customer.id, type: "EXPENSE" },
+        _sum: { amount: true },
+      }),
+    ])
+
+    // Calculate balance: unpaid invoices + expenses - income + opening balance
+    let balance = Number(invoiceAggregate._sum.totalAmount || 0) - Number(paymentAggregate._sum.amount || 0) + Number(expenseTransactionAggregate._sum.amount || 0) - Number(incomeTransactionAggregate._sum.amount || 0)
+    balance += customer.openingBalanceType === "CREDIT"
+      ? -Number(customer.openingBalanceAmount || 0)
+      : Number(customer.openingBalanceAmount || 0)
+
+    // Get all invoices and transactions for display (with payments included to avoid N+1)
+    const [allInvoices, allTransactions] = await Promise.all([
+      prisma.invoice.findMany({
+        where: { customerId: customer.id },
+        include: {
+          payments: {
+            select: { amount: true },
           },
         },
-      },
-    })
-
-    const transactions = await prisma.transaction.findMany({
-      where: { customerId: customer.id },
-      include: {
-        account: true,
-      },
-    })
-
-    // Calculate balance (unpaid invoices - payments)
-    let balance = 0
-    allInvoices.forEach((inv) => {
-      if (inv.type === "SALES") {
-        const totalPaid = inv.payments.reduce((sum, p) => sum + Number(p.amount), 0)
-        balance += Number(inv.totalAmount) - totalPaid
-      }
-    })
-
-    transactions.forEach((trx) => {
-      if (trx.type === "INCOME") {
-        balance -= Number(trx.amount)
-      } else {
-        balance += Number(trx.amount)
-      }
-    })
-    balance +=
-      customer.openingBalanceType === "CREDIT"
-        ? -Number(customer.openingBalanceAmount)
-        : Number(customer.openingBalanceAmount)
+        orderBy: { date: "asc" }, // For chronological order in formatted transactions
+      }),
+      prisma.transaction.findMany({
+        where: { customerId: customer.id },
+        include: {
+          account: true,
+        },
+        orderBy: { date: "asc" },
+      }),
+    ])
 
     // Format transactions for display
     const openingAmount = Number(customer.openingBalanceAmount || 0)
@@ -136,7 +150,7 @@ export async function GET(
         balance: 0,
         invoiceNo: inv.invoiceNo,
       })),
-      ...transactions.map((trx) => ({
+      ...allTransactions.map((trx) => ({
         id: trx.id,
         date: trx.date.toISOString(),
         type: trx.type === "INCOME" ? "PAYMENT" : "EXPENSE",

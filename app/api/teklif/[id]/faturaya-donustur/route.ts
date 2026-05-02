@@ -67,7 +67,37 @@ export async function POST(
         })),
       },
     },
+    include: { items: true },
   })
+
+  // Stok hareketi: Satış faturası için stok azalt
+  for (const item of quote.items) {
+    if (!item.productId) continue
+
+    // Stok hareketi oluştur
+    await prisma.stockMovement.create({
+      data: {
+        companyId: quote.companyId,
+        productId: item.productId,
+        type: "SALE",
+        quantity: -item.quantity, // Satış: stok azal
+        description: `${invoiceNo} - Satış faturası`,
+        reference: invoice.id,
+        referenceType: "INVOICE",
+        createdBy: user.id,
+      },
+    })
+
+    // Ürünün stok miktarını güncelle
+    await prisma.product.update({
+      where: { id: item.productId },
+      data: {
+        stockQuantity: {
+          decrement: item.quantity,
+        },
+      },
+    })
+  }
 
   await prisma.quote.update({
     where: { id: quote.id },

@@ -313,14 +313,14 @@ export default function ProductDetailPage() {
                     <TableCell>
                       {new Date(movement.date).toLocaleDateString("tr-TR")}
                     </TableCell>
-                    <TableCell>
+                  <TableCell>
                       <span className={`px-2 py-1 rounded text-xs ${
-                        movement.type === "IN" || (movement.type === "TRANSFER" && movement.quantity > 0) ? "bg-green-100 text-green-800" :
-                        movement.type === "OUT" || (movement.type === "TRANSFER" && movement.quantity < 0) ? "bg-red-100 text-red-800" :
+                        ["IN", "PURCHASE", "SALE_CANCEL", "RETURN"].includes(movement.type) || movement.quantity > 0 ? "bg-green-100 text-green-800" :
+                        ["OUT", "SALE", "PURCHASE_CANCEL", "RETURN_CANCEL"].includes(movement.type) || movement.quantity < 0 ? "bg-red-100 text-red-800" :
                         "bg-yellow-100 text-yellow-800"
                       }`}>
-                        {movement.type === "IN" ? "Giriş" :
-                         movement.type === "OUT" ? "Çıkış" :
+                        {["IN", "PURCHASE", "SALE_CANCEL", "RETURN"].includes(movement.type) || movement.quantity > 0 ? "Giriş" :
+                         ["OUT", "SALE", "PURCHASE_CANCEL", "RETURN_CANCEL"].includes(movement.type) || movement.quantity < 0 ? "Çıkış" :
                          movement.type === "TRANSFER" ? "Transfer" :
                          "Düzeltme"}
                       </span>
@@ -328,12 +328,11 @@ export default function ProductDetailPage() {
                     <TableCell>{movement.description || "-"}</TableCell>
                     <TableCell>{movement.referenceNo || "-"}</TableCell>
                     <TableCell className={`text-right ${
-                      movement.type === "IN" || (movement.type === "TRANSFER" && movement.quantity > 0) ? "text-green-600" : 
-                      movement.type === "OUT" || (movement.type === "TRANSFER" && movement.quantity < 0) ? "text-red-600" : ""
+                      ["IN", "PURCHASE", "SALE_CANCEL", "RETURN"].includes(movement.type) || movement.quantity > 0 ? "text-green-600" : 
+                      ["OUT", "SALE", "PURCHASE_CANCEL", "RETURN_CANCEL"].includes(movement.type) || movement.quantity < 0 ? "text-red-600" : ""
                     }`}>
-                      {(movement.type === "IN" || (movement.type === "TRANSFER" && movement.quantity > 0)) ? "+" : 
-                       (movement.type === "OUT" || (movement.type === "TRANSFER" && movement.quantity < 0)) ? "-" : ""}
-                      {formatNumber(movement.quantity)} {product.unit}
+                      {movement.quantity > 0 ? "+" : movement.quantity < 0 ? "-" : ""}
+                      {formatNumber(Math.abs(movement.quantity))} {product.unit}
                     </TableCell>
                     <TableCell className="text-right">
                       {formatCurrency(movement.unitPrice)}

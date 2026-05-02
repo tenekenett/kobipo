@@ -52,7 +52,7 @@ export default function SignInPage() {
           variant: "destructive",
         })
       } else {
-        router.refresh()
+        router.replace("/dashboard")
       }
     } catch (error) {
       toast({

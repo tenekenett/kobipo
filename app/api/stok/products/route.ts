@@ -92,6 +92,38 @@ export async function POST(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
+    // Barkod kontrolü
+    if (barcode && barcode.trim()) {
+      const existingByBarcode = await prisma.product.findFirst({
+        where: {
+          companyId,
+          barcode: barcode.trim(),
+        },
+      })
+      if (existingByBarcode) {
+        return NextResponse.json(
+          { error: `Aynı barkoda (${barcode}) sahip ürün zaten mevcut` },
+          { status: 409 }
+        )
+      }
+    }
+
+    // İsim kontrolü
+    if (name && name.trim()) {
+      const existingByName = await prisma.product.findFirst({
+        where: {
+          companyId,
+          name: name.trim(),
+        },
+      })
+      if (existingByName) {
+        return NextResponse.json(
+          { error: `Aynı isimde (${name}) ürün zaten mevcut` },
+          { status: 409 }
+        )
+      }
+    }
+
     const product = await prisma.product.create({
       data: {
         companyId,

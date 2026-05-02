@@ -47,7 +47,18 @@ export async function POST(
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params
-  const body = await request.json()
+  
+  // GÜVENLİ JSON OKUMA: Body boş gelirse hata vermemesi için try-catch
+  let body: any = {}
+  try {
+    const contentType = request.headers.get("content-type")
+    if (contentType && contentType.includes("application/json")) {
+      body = await request.json()
+    }
+  } catch (e) {
+    body = {} 
+  }
+
   const { paymentMethod = "VIRTUAL_POS", accountId, reference, notes } = body
 
   const link = await prisma.paymentLink.findUnique({

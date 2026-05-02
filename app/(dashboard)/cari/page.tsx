@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,6 +16,39 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/components/ui/use-toast"
 import { Plus, Search, Eye, Pencil, Trash2, Loader2 } from "lucide-react"
 import Link from "next/link"
+
+function TableSkeleton({ rows = 8 }: { rows?: number }) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="h-10 w-24 animate-pulse rounded bg-muted" />
+          <TableHead className="h-10 w-32 animate-pulse rounded bg-muted" />
+          <TableHead className="h-10 w-32 animate-pulse rounded bg-muted" />
+          <TableHead className="h-10 w-24 animate-pulse rounded bg-muted" />
+          <TableHead className="h-10 w-32 animate-pulse rounded bg-muted" />
+          <TableHead className="h-10 w-24 animate-pulse rounded bg-muted" />
+          <TableHead className="h-10 w-24 animate-pulse rounded bg-muted" />
+          <TableHead className="h-10 w-20 animate-pulse rounded bg-muted" />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {Array.from({ length: rows }).map((_, i) => (
+          <TableRow key={i}>
+            <TableCell><div className="h-4 w-16 animate-pulse rounded bg-muted/60" /></TableCell>
+            <TableCell><div className="h-4 w-24 animate-pulse rounded bg-muted/60" /></TableCell>
+            <TableCell><div className="h-4 w-20 animate-pulse rounded bg-muted/60" /></TableCell>
+            <TableCell><div className="h-4 w-16 animate-pulse rounded bg-muted/60" /></TableCell>
+            <TableCell><div className="h-4 w-24 animate-pulse rounded bg-muted/60" /></TableCell>
+            <TableCell><div className="h-4 w-20 animate-pulse rounded bg-muted/60" /></TableCell>
+            <TableCell><div className="h-4 w-20 animate-pulse rounded bg-muted/60" /></TableCell>
+            <TableCell><div className="h-4 w-12 animate-pulse rounded bg-muted/60" /></TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  )
+}
 
 interface Customer {
   id: string
@@ -48,8 +81,22 @@ export default function CariPage() {
   )
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize] = useState(50)
+  const [totalCount, setTotalCount] = useState<number | null>(null)
+  const [refreshNonce, setRefreshNonce] = useState(0)
+  const [isLoading, setIsLoading] = useState(false)
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [isPending, startTransition] = useTransition()
   const fetchAbortRef = useRef<AbortController | null>(null)
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat("tr-TR", {
+        style: "currency",
+        currency: "TRY",
+      }),
+    []
+  )
 
   useEffect(() => {
     const handle = setTimeout(() => setDebouncedSearch(search), 300)
@@ -59,19 +106,27 @@ export default function CariPage() {
   const fetchData = useCallback(
     async (signal?: AbortSignal) => {
       if (!companyId) return
+      setIsLoading(true)
       try {
         const endpoint = activeTab === "customers" ? "customers" : "suppliers"
         const response = await fetch(
-          `/api/cari/${endpoint}?companyId=${companyId}&search=${encodeURIComponent(debouncedSearch)}`,
+          `/api/cari/${endpoint}?companyId=${companyId}&search=${encodeURIComponent(debouncedSearch)}&page=${page}&pageSize=${pageSize}`,
           { signal, cache: "no-store" }
         )
         if (response.ok) {
           const data = await response.json()
+          const items = Array.isArray(data) ? data : data.items
           if (activeTab === "customers") {
-            setCustomers(data)
+            setCustomers(items)
           } else {
-            setSuppliers(data)
+            setSuppliers(items)
           }
+          if (!Array.isArray(data)) {
+            setTotalCount(data.totalCount)
+          } else {
+            setTotalCount(null)
+          }
+          setHasLoadedOnce(true)
         } else {
           throw new Error("Veriler yenilenemedi")
         }
@@ -79,10 +134,30 @@ export default function CariPage() {
         if ((error as { name?: string })?.name === "AbortError") return
         console.error("Error fetching data:", error)
         throw error
+      } finally {
+        if (!signal?.aborted) {
+          setIsLoading(false)
+        }
       }
     },
-    [companyId, activeTab, debouncedSearch]
+    [companyId, activeTab, debouncedSearch, page, pageSize]
   )
+
+  useEffect(() => {
+    if (!companyId) return
+    setPage(1)
+  }, [companyId, activeTab, debouncedSearch])
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && companyId) {
+        setRefreshNonce((prev) => prev + 1)
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
+  }, [companyId])
 
   useEffect(() => {
     if (!companyId) return
@@ -93,7 +168,7 @@ export default function CariPage() {
       void fetchData(controller.signal).catch(() => {})
     })
     return () => controller.abort()
-  }, [companyId, activeTab, debouncedSearch, fetchData])
+  }, [companyId, activeTab, debouncedSearch, page, refreshNonce, fetchData])
 
   const deleteItem = async (id: string) => {
     if (!confirm("Bu kaydı silmek istediğinize emin misiniz?")) return
@@ -167,7 +242,20 @@ export default function CariPage() {
         >
           Tedarikçiler
         </Button>
-        {isPending && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setPage(1)
+            setSearch("")
+            setDebouncedSearch("")
+            setRefreshNonce((prev) => prev + 1)
+          }}
+          disabled={isPending}
+        >
+          Yenile
+        </Button>
+        {(isPending || isLoading) && (
           <span className="ml-2 inline-flex items-center gap-1.5 self-center text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Yükleniyor...
@@ -203,79 +291,106 @@ export default function CariPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Kod</TableHead>
-                <TableHead>Ad</TableHead>
-                <TableHead>Vergi No</TableHead>
-                <TableHead>Telefon</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Açılış Bakiyesi</TableHead>
-                <TableHead className="text-right">Bakiye</TableHead>
-                <TableHead>İşlem</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {currentData.length === 0 ? (
+          {!hasLoadedOnce && isLoading ? (
+            <TableSkeleton rows={8} />
+          ) : (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center">
-                    Kayıt bulunamadı
-                  </TableCell>
+                  <TableHead>Kod</TableHead>
+                  <TableHead>Ad</TableHead>
+                  <TableHead>Vergi No</TableHead>
+                  <TableHead>Telefon</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Açılış Bakiyesi</TableHead>
+                  <TableHead className="text-right">Bakiye</TableHead>
+                  <TableHead>İşlem</TableHead>
                 </TableRow>
-              ) : (
-                currentData.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.code || "-"}</TableCell>
-                    <TableCell className="font-medium">{item.name}</TableCell>
-                    <TableCell>{item.taxNumber || "-"}</TableCell>
-                    <TableCell>{item.phone || "-"}</TableCell>
-                    <TableCell>{item.email || "-"}</TableCell>
-                    <TableCell>
-                      {item.openingBalanceAmount !== undefined
-                        ? `${new Intl.NumberFormat("tr-TR", {
-                            style: "currency",
-                            currency: "TRY",
-                          }).format(item.openingBalanceAmount)} ${
-                            item.openingBalanceType === "CREDIT" ? "(Alacak)" : "(Borç)"
-                          }`
-                        : "-"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {item.balance !== undefined
-                        ? new Intl.NumberFormat("tr-TR", {
-                            style: "currency",
-                            currency: "TRY",
-                          }).format(item.balance)
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Link href={`/cari/${activeTab}/${item.id}?company=${companyId}`}>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4 mr-1" />
-                            Detay
-                          </Button>
-                        </Link>
-                        <Link href={`/cari/${activeTab}/${item.id}/edit?company=${companyId}`}>
-                          <Button variant="ghost" size="sm">
-                            <Pencil className="h-4 w-4 mr-1" />
-                            Düzenle
-                          </Button>
-                        </Link>
-                        <Button variant="ghost" size="sm" onClick={() => deleteItem(item.id)}>
-                          <Trash2 className="h-4 w-4 mr-1 text-red-600" />
-                          Sil
-                        </Button>
-                      </div>
+              </TableHeader>
+              <TableBody>
+                {currentData.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center">
+                      {isLoading ? "Kayıtlar yükleniyor..." : "Kayıt bulunamadı"}
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  currentData.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.code || "-"}</TableCell>
+                      <TableCell className="font-medium">{item.name}</TableCell>
+                      <TableCell>{item.taxNumber || "-"}</TableCell>
+                      <TableCell>{item.phone || "-"}</TableCell>
+                      <TableCell>{item.email || "-"}</TableCell>
+                      <TableCell>
+                        {item.openingBalanceAmount !== undefined
+                          ? `${currencyFormatter.format(item.openingBalanceAmount)} ${
+                              item.openingBalanceType === "CREDIT" ? "(Alacak)" : "(Borç)"
+                            }`
+                          : "-"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {item.balance !== undefined
+                          ? currencyFormatter.format(item.balance)
+                          : "-"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Link href={`/cari/${activeTab}/${item.id}?company=${companyId}`}>
+                            <Button variant="ghost" size="sm">
+                              <Eye className="h-4 w-4 mr-1" />
+                              Detay
+                            </Button>
+                          </Link>
+                          <Link href={`/cari/${activeTab}/${item.id}/edit?company=${companyId}`}>
+                            <Button variant="ghost" size="sm">
+                              <Pencil className="h-4 w-4 mr-1" />
+                              Düzenle
+                            </Button>
+                          </Link>
+                          <Button variant="ghost" size="sm" onClick={() => deleteItem(item.id)}>
+                            <Trash2 className="h-4 w-4 mr-1 text-red-600" />
+                            Sil
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
+
+      <div className="flex items-center justify-between gap-4">
+        <div className="text-sm text-muted-foreground">
+          {totalCount !== null
+            ? `Toplam ${totalCount} kayıt`
+            : `Toplam ${currentData.length} kayıt`}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+          >
+            Önceki
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Sayfa {page}{totalCount ? ` / ${Math.max(1, Math.ceil(totalCount / pageSize))}` : ""}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={totalCount !== null && page >= Math.ceil(totalCount / pageSize)}
+            onClick={() => setPage((prev) => prev + 1)}
+          >
+            Sonraki
+          </Button>
+        </div>
+      </div>
 
       <Card>
         <CardHeader>
@@ -285,39 +400,40 @@ export default function CariPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Hesap</TableHead>
-                <TableHead>Vade Günü</TableHead>
-                <TableHead>Yaşlandırma Dilimi</TableHead>
-                <TableHead className="text-right">Bakiye</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {agingRows.length === 0 ? (
+          {!hasLoadedOnce && isLoading ? (
+            <TableSkeleton rows={6} />
+          ) : (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground">
-                    Yaşlandırma için bakiye verisi bulunamadı
-                  </TableCell>
+                  <TableHead>Hesap</TableHead>
+                  <TableHead>Vade Günü</TableHead>
+                  <TableHead>Yaşlandırma Dilimi</TableHead>
+                  <TableHead className="text-right">Bakiye</TableHead>
                 </TableRow>
-              ) : (
-                agingRows.map((row) => (
-                  <TableRow key={`aging-${row.id}`}>
-                    <TableCell className="font-medium">{row.name}</TableCell>
-                    <TableCell>{row.dueDays}</TableCell>
-                    <TableCell>{row.bucket} gün</TableCell>
-                    <TableCell className="text-right">
-                      {new Intl.NumberFormat("tr-TR", {
-                        style: "currency",
-                        currency: "TRY",
-                      }).format(Number(row.balance || 0))}
+              </TableHeader>
+              <TableBody>
+                {agingRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground">
+                      Yaşlandırma için bakiye verisi bulunamadı
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  agingRows.map((row) => (
+                    <TableRow key={`aging-${row.id}`}>
+                      <TableCell className="font-medium">{row.name}</TableCell>
+                      <TableCell>{row.dueDays}</TableCell>
+                      <TableCell>{row.bucket} gün</TableCell>
+                      <TableCell className="text-right">
+                        {currencyFormatter.format(Number(row.balance || 0))}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 

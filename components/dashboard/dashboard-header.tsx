@@ -25,6 +25,11 @@ export function DashboardHeader() {
   const [isDark, setIsDark] = useState(false)
   const [notifCount, setNotifCount] = useState(0)
   const [globalQuery, setGlobalQuery] = useState("")
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     if (session) {
@@ -48,13 +53,13 @@ export function DashboardHeader() {
       if (!force && now - lastFetchedAt < MIN_REFETCH_GAP_MS) return
       lastFetchedAt = now
       try {
-        const response = await fetch(`/api/notifications?companyId=${companyId}`, {
+        const response = await fetch(`/api/notifications?companyId=${companyId}&mode=count`, {
           cache: "no-store",
         })
         if (!response.ok || cancelled) return
-        const list = await response.json()
+        const data = await response.json()
         if (!cancelled) {
-          setNotifCount(list.filter((n: { isRead?: boolean }) => !n.isRead).length)
+          setNotifCount(Number(data?.unreadCount || 0))
         }
       } catch {
         // network errors: silently retry on next interval/visibility
@@ -140,32 +145,34 @@ export function DashboardHeader() {
               {userRole === "VIEWER" && "Görüntüleyici"}
             </span>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="w-full justify-between sm:w-[min(100%,11rem)]">
-                Hesap
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>Hesap İşlemleri</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/ayarlar/firma" className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  Firma Ayarları
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => signOut({ callbackUrl: "/signin" })}
-                className="text-red-600 focus:text-red-600"
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                Çıkış Yap
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {mounted && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="w-full justify-between sm:w-[min(100%,11rem)]">
+                  Hesap
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Hesap İşlemleri</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/ayarlar/firma" className="flex items-center gap-2">
+                    <Settings className="h-4 w-4" />
+                    Firma Ayarları
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => signOut({ callbackUrl: "/signin" })}
+                  className="text-red-600 focus:text-red-600"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Çıkış Yap
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <p className="text-xs text-muted-foreground sm:text-right">
             {companyLoading ? (
               "Firma bilgisi yükleniyor…"
