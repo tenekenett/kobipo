@@ -402,13 +402,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
   return (
     <>
       <Card className="w-full min-w-0">
-        <CardHeader>
-          <CardTitle>{isEditMode ? "Fatura Düzenle" : "Yeni Fatura Oluştur"}</CardTitle>
-          <CardDescription>
-            {isEditMode ? "Fatura bilgilerini güncelleyin ve kalemlerini düzenleyin" : "Fatura bilgilerini girin ve kalemlerini ekleyin"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-8">
+        <CardContent className="space-y-8 pt-6">
           
           {/* HATA MESAJLARI BÖLÜMÜ */}
           {isEDonusumActive && E_DOC_TYPES.has(effectiveInvoiceType) && eInvoiceMissingMessages.length > 0 && (
@@ -484,30 +478,44 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
           </div>
 
           {/* --- FATURA KALEMLERİ (TABLO GÖRÜNÜMÜ) --- */}
+          {/* --- FATURA KALEMLERİ (KUSURSUZ RESPONSIVE YAPI) --- */}
           <div className="space-y-3">
             <Label className="text-base font-semibold">Fatura Kalemleri</Label>
 
-            <div className="w-full min-w-0 rounded-lg border overflow-hidden shadow-sm" style={{ borderColor: BRAND_COLOR }}>
-              <div className="hidden md:grid grid-cols-12 gap-2 p-3 font-semibold text-sm items-center" style={{ backgroundColor: BRAND_COLOR, color: "white" }}>
+            <div className="w-full min-w-0 rounded-xl border border-slate-200 overflow-hidden shadow-sm bg-slate-50/30">
+              
+              {/* --- MASAÜSTÜ BAŞLIKLAR (Mobilde tamamen gizlenir) --- */}
+              <div 
+                className="hidden md:grid grid-cols-12 gap-2 p-3 font-semibold text-sm items-center" 
+                style={{ backgroundColor: BRAND_COLOR, color: "white" }}
+              >
                 <div className="col-span-4 pl-1">Ürün / Hizmet</div>
                 <div className="col-span-1">Birim</div>
-                <div className="col-span-1">Miktar</div>
+                <div className="col-span-1 text-center">Miktar</div>
                 <div className="col-span-2 text-right pr-2">Birim Fiyat</div>
                 <div className="col-span-1 text-center">KDV %</div>
                 <div className="col-span-2 text-right">Tutar</div>
                 <div className="col-span-1 text-center">İşlem</div>
               </div>
 
-              <div className="divide-y divide-gray-200">
+              {/* --- KALEMLER LİSTESİ --- */}
+              <div className="flex flex-col md:divide-y md:divide-gray-200 p-2 md:p-0 gap-3 md:gap-0">
                 {items.map((item, index) => {
                   const extras = getLineExtras(index)
                   const available = LINE_EXTRA_ORDER.filter((k) => !extras.includes(k))
+                  
                   return (
-                    <div key={index} className="p-3 bg-white hover:bg-slate-50 transition-colors">
-                      <div className="grid grid-cols-2 gap-3 md:grid-cols-12 md:gap-2 md:items-start">
+                    <div 
+                      key={index} 
+                      // Mobilde: Gölgesi olan şık bir KART. Masaüstünde: Gölgesiz, kenarlıksız düz bir SATIR.
+                      className="p-4 md:p-3 bg-white hover:bg-slate-50/80 transition-all rounded-xl md:rounded-none border border-slate-200 md:border-0 shadow-sm md:shadow-none"
+                    >
+                      {/* 12 KOLONLU ANA GRID (Mobilde ve PC'de Ortak) */}
+                      <div className="grid grid-cols-12 gap-y-4 gap-x-3 md:gap-x-2 md:items-start">
                         
-                        <div className="col-span-2 md:col-span-4 mt-1">
-                          <Label className="md:hidden text-xs text-muted-foreground mb-1 block">Ürün / Hizmet</Label>
+                        {/* 1. ÜRÜN */}
+                        <div className="col-span-12 md:col-span-4">
+                          <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Ürün / Hizmet</Label>
                           <ProductCombobox
                             companyId={companyId}
                             products={products}
@@ -519,76 +527,90 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
                           />
                         </div>
 
-                        <div className="col-span-1 md:col-span-1 mt-1">
-                          <Label className="md:hidden text-xs text-muted-foreground mb-1 block">Birim</Label>
+                        {/* 2. BİRİM */}
+                        <div className="col-span-4 md:col-span-1">
+                          <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Birim</Label>
                           <Select value={(item.unit || "ADET").toUpperCase()} onValueChange={(v) => updateItem(index, "unit", v)}>
-                            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="w-full font-medium"><SelectValue /></SelectTrigger>
                             <SelectContent>{INVOICE_UNIT_OPTIONS.map((u) => (<SelectItem key={u} value={u}>{u}</SelectItem>))}</SelectContent>
                           </Select>
                         </div>
 
-                        <div className="col-span-1 md:col-span-1 mt-1">
-                          <Label className="md:hidden text-xs text-muted-foreground mb-1 block">Miktar</Label>
-                          <Input type="number" min="0" step="0.01" className="md:text-center" value={item.quantity || ""} onChange={(e) => updateItem(index, "quantity", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)} onFocus={(e) => (e.target as HTMLInputElement).select()} />
+                        {/* 3. MİKTAR */}
+                        <div className="col-span-4 md:col-span-1">
+                          <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Miktar</Label>
+                          <Input type="number" min="0" step="0.01" className="md:text-center font-medium" value={item.quantity || ""} onChange={(e) => updateItem(index, "quantity", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)} onFocus={(e) => (e.target as HTMLInputElement).select()} />
                         </div>
 
-                        {/* BİRİM FİYAT VE ÖNCEKİ FİYATLAR LİNKİ BURADA */}
-                        <div className="col-span-1 md:col-span-2">
-                          <Label className="md:hidden text-xs text-muted-foreground mb-1 block">Birim Fiyat</Label>
-                          <div className="flex flex-col gap-1 mt-1">
-                            <Input type="number" min="0" step="0.01" className="md:text-right" value={item.unitPrice || ""} onChange={(e) => updateItem(index, "unitPrice", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)} onFocus={(e) => (e.target as HTMLInputElement).select()} />
+                        {/* 4. FİYAT VE GEÇMİŞ LİNKİ */}
+                        <div className="col-span-4 md:col-span-2">
+                          <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Birim Fiyat</Label>
+                          <Input type="number" min="0" step="0.01" className="text-right font-medium" value={item.unitPrice || ""} onChange={(e) => updateItem(index, "unitPrice", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)} onFocus={(e) => (e.target as HTMLInputElement).select()} />
+                          <div className="flex justify-end mt-1.5">
                             <button
                               type="button"
-                              className="text-xs text-left text-green-600 hover:text-green-700 hover:underline flex items-center justify-end"
+                              className="text-[11px] font-semibold text-[#48c79c] hover:text-[#38a37f] transition-colors flex items-center"
                               onClick={() => handleOpenPricesModal(index, item.productId)}
                               disabled={!item.productId}
                             >
-                              <Clock className="w-3 h-3 mr-1" /> önceki fiyatlar
+                              <Clock className="w-3 h-3 mr-1" /> geçmiş
                             </button>
                           </div>
                         </div>
 
-                        <div className="col-span-1 md:col-span-1 mt-1">
-                          <Label className="md:hidden text-xs text-muted-foreground mb-1 block">KDV %</Label>
+                        {/* 5. KDV */}
+                        <div className="col-span-4 md:col-span-1">
+                          <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">KDV %</Label>
                           <Select value={String(item.vatRate)} onValueChange={(v) => updateItem(index, "vatRate", parseFloat(v))}>
-                            <SelectTrigger className="w-full md:text-center"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="w-full md:text-center font-medium"><SelectValue /></SelectTrigger>
                             <SelectContent><SelectItem value="0">%0</SelectItem><SelectItem value="1">%1</SelectItem><SelectItem value="8">%8</SelectItem><SelectItem value="10">%10</SelectItem><SelectItem value="18">%18</SelectItem><SelectItem value="20">%20</SelectItem></SelectContent>
                           </Select>
                         </div>
 
-                        <div className="col-span-2 md:col-span-2 mt-1">
-                          <Label className="md:hidden text-xs text-muted-foreground mb-1 block">Tutar</Label>
-                          <div className="flex h-10 items-center bg-muted/30 md:bg-transparent rounded px-2 md:px-0 justify-end font-medium tabular-nums md:text-right">
+                        {/* 6. TUTAR */}
+                        <div className="col-span-8 md:col-span-2">
+                          <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Toplam Tutar</Label>
+                          <div 
+                            className="flex h-10 items-center justify-end px-3 md:px-0 bg-slate-100/70 md:bg-transparent rounded-md md:rounded-none font-bold tabular-nums text-right text-[15px] md:text-sm"
+                            style={{ color: BRAND_COLOR }}
+                          >
                             ₺{(item.quantity * item.unitPrice * (1 - (item.discountRate || 0) / 100) * (1 + item.vatRate / 100 + (item.exciseRate || 0) / 100 - (item.withholdingRate || 0) / 100)).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
                           </div>
                         </div>
 
-                        <div className="col-span-2 flex items-center justify-end gap-2 md:col-span-1 md:justify-center mt-2 md:mt-1">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" disabled={available.length === 0} title="Ekle"><Plus className="h-4 w-4 text-muted-foreground" /></Button></DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">{available.map((key) => (<DropdownMenuItem key={key} onSelect={(e) => { e.preventDefault(); addLineExtra(index, key) }}>{LINE_EXTRA_LABEL[key]}</DropdownMenuItem>))}</DropdownMenuContent>
-                          </DropdownMenu>
-                          <Button type="button" variant="ghost" size="icon" onClick={() => removeItem(index)} disabled={items.length === 1} title="Sil"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        {/* 7. İŞLEMLER */}
+                        <div className="col-span-12 md:col-span-1 flex items-center justify-between md:justify-center pt-3 md:pt-0 border-t md:border-0 mt-1 md:mt-0 border-slate-100">
+                          <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest">İşlemler</span>
+                          <div className="flex gap-2 md:gap-1">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild><Button type="button" variant="outline" size="icon" className="h-9 w-9 border-slate-200" disabled={available.length === 0} title="Satır Eklentisi (İskonto, ÖTV vb)"><Plus className="h-4 w-4 text-slate-500" /></Button></DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">{available.map((key) => (<DropdownMenuItem key={key} onSelect={(e) => { e.preventDefault(); addLineExtra(index, key) }}>{LINE_EXTRA_LABEL[key]}</DropdownMenuItem>))}</DropdownMenuContent>
+                            </DropdownMenu>
+                            <Button type="button" variant="outline" size="icon" className="h-9 w-9 border-red-100 bg-red-50 hover:bg-red-100" onClick={() => removeItem(index)} disabled={items.length === 1} title="Satırı Sil"><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                          </div>
                         </div>
+
                       </div>
 
+                      {/* --- SATIR EKLENTİLERİ (İskonto, Açıklama vb.) --- */}
                       {extras.length > 0 && (
-                        <div className="grid grid-cols-1 gap-3 mt-4 border-t pt-4 sm:grid-cols-2 md:grid-cols-12 bg-slate-50/50 -mx-3 px-3 pb-2 rounded-b">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-100 bg-slate-50/50 -mx-4 md:-mx-3 px-4 md:px-3 pb-3 rounded-b-xl md:rounded-b-none">
                           {LINE_EXTRA_ORDER.filter((k) => extras.includes(k)).map((key) => {
-                            const removable = (<button type="button" className="ml-auto inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-muted" onClick={() => removeLineExtra(index, key)}><X className="h-3 w-3" /></button>)
+                            const removable = (<button type="button" className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors" onClick={() => removeLineExtra(index, key)}><X className="h-3.5 w-3.5" /></button>)
+                            
                             if (key === "description") {
                               return (
-                                <div key={key} className="md:col-span-12 space-y-1">
-                                  <div className="flex items-center"><Label className="text-xs text-muted-foreground">Satır Açıklaması</Label>{removable}</div>
-                                  <Input value={item.description} onChange={(e) => updateItem(index, "description", e.target.value)} placeholder="Satır için not..." />
+                                <div key={key} className="col-span-2 md:col-span-4 space-y-1.5">
+                                  <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Satır Açıklaması</Label>{removable}</div>
+                                  <Input className="h-9 text-sm" value={item.description} onChange={(e) => updateItem(index, "description", e.target.value)} placeholder="Müşterinin faturada göreceği satır notu..." />
                                 </div>
                               )
                             }
                             const numericProps = key === "discountRate" ? { label: "İskonto (%)", value: item.discountRate || "", onChange: (v: string) => updateItem(index, "discountRate", v === "" ? 0 : parseFloat(v) || 0) } : key === "withholdingRate" ? { label: "Tevkifat (%)", value: item.withholdingRate || "", onChange: (v: string) => updateItem(index, "withholdingRate", v === "" ? 0 : parseFloat(v) || 0) } : { label: "ÖTV (%)", value: item.exciseRate || "", onChange: (v: string) => updateItem(index, "exciseRate", v === "" ? 0 : parseFloat(v) || 0) }
                             return (
-                              <div key={key} className="md:col-span-4 space-y-1">
-                                <div className="flex items-center"><Label className="text-xs text-muted-foreground">{numericProps.label}</Label>{removable}</div>
-                                <Input type="number" min="0" step="0.01" value={numericProps.value} onChange={(e) => numericProps.onChange(e.target.value)} />
+                              <div key={key} className="col-span-1 md:col-span-1 space-y-1.5">
+                                <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{numericProps.label}</Label>{removable}</div>
+                                <Input type="number" className="h-9 font-medium" min="0" step="0.01" value={numericProps.value} onChange={(e) => numericProps.onChange(e.target.value)} />
                               </div>
                             )
                           })}
@@ -599,9 +621,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
                 })}
               </div>
 
-              <div className="bg-slate-50 p-2 border-t flex justify-start">
-                <Button type="button" variant="ghost" size="sm" onClick={addItem} style={{ color: BRAND_COLOR }} className="hover:bg-blue-50">
-                  <Plus className="mr-1 h-4 w-4" /> Yeni Satır Ekle
+              {/* YENİ SATIR EKLE BUTONU */}
+              <div className="bg-slate-50 p-2 md:border-t flex justify-start border-slate-200">
+                <Button type="button" variant="ghost" size="sm" onClick={addItem} style={{ color: BRAND_COLOR }} className="hover:bg-blue-50 font-semibold tracking-wide">
+                  <Plus className="mr-1.5 h-4 w-4" /> YENİ SATIR EKLE
                 </Button>
               </div>
             </div>
