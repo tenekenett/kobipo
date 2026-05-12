@@ -16,7 +16,7 @@
     "supabase:reset": "supabase db reset",
     "supabase:status": "supabase status",
     "supabase:link": "supabase link",
-    "supabase:db:push": "supabase db push -p \"0rnhlsWoFvyr58Wu\"",
+    "supabase:db:push": "supabase db push",
     "supabase:db:reset": "supabase db reset",
     "supabase:db:diff": "supabase db diff",
     "supabase:migration:new": "supabase migration new",
