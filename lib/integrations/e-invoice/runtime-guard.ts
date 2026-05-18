@@ -1,17 +1,13 @@
+/**
+ * Eskiden global bir E_INVOICE_PROVIDER env var ile çalışıyordu; şimdi her firma
+ * kendi `eDonusumProvider` + `eDonusumApiUsername` + `eDonusumApiPassword`'unu DB'de
+ * tutuyor. Bu yüzden global env kontrolü artık geçerli değil — her route handler
+ * zaten kullanım anında firma credentials'larını doğruluyor.
+ *
+ * Fonksiyonu silmiyoruz çünkü 12+ yerden çağrılıyor; no-op olarak tutmak en az
+ * invasive çözüm. İleride mock/staging override gerekirse buraya tekrar mantık
+ * eklenir.
+ */
 export function assertEInvoiceRuntimeReady() {
-  const provider = (process.env.E_INVOICE_PROVIDER || "mock").toLowerCase()
-  const allowMock = process.env.E_INVOICE_ALLOW_MOCK === "true"
-
-  if (provider === "mock" && !allowMock) {
-    throw new Error("E-Invoice provider is mock. Set E_INVOICE_ALLOW_MOCK=true only for non-production usage.")
-  }
-
-  if (provider !== "mock") {
-    const missing = ["E_INVOICE_API_BASE_URL", "E_INVOICE_API_KEY"].filter(
-      (key) => !process.env[key]
-    )
-    if (missing.length > 0) {
-      throw new Error(`Missing e-invoice env vars: ${missing.join(", ")}`)
-    }
-  }
+  // no-op
 }
