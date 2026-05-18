@@ -412,16 +412,25 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
     setIsLoading(true)
     try {
       const isEditing = Boolean(editingInvoiceId)
+      // sendInvoice: false → fatura DRAFT olarak kaydedilir. Mysoft'a göndermek
+      // için kullanıcı önizleme sayfasındaki "Mysoft'a Gönder" butonuna basar.
+      // Bu sayede kesilen her fatura önce gözden geçirilir, sonra GİB'e gider.
       const response = await fetch(isEditing ? `/api/e-donusum/invoices/${editingInvoiceId}` : "/api/e-donusum/invoices", {
         method: isEditing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, ...formData, invoiceType: effectiveInvoiceType, items,sendInvoice: true }),
+        body: JSON.stringify({ companyId, ...formData, invoiceType: effectiveInvoiceType, items, sendInvoice: false }),
       })
 
       if (response.ok) {
+        const saved = await response.json().catch(() => null)
+        const savedId: string | undefined = saved?.id || editingInvoiceId
         toast({ title: "Başarılı", description: isEditing ? "Fatura güncellendi" : "Fatura oluşturuldu" })
         resetForm()
-        router.push(listHref)
+        if (savedId) {
+          router.push(`/faturalar/${savedId}/onizleme?company=${encodeURIComponent(companyId)}`)
+        } else {
+          router.push(listHref)
+        }
       } else {
         const data = await response.json()
         throw new Error(data.error || "Oluşturulamadı")

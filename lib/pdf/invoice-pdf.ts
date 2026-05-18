@@ -49,19 +49,23 @@ interface InvoiceData {
 }
 
 export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
-  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ default: jsPDF }, { default: autoTable }, { registerTurkishFontClient, TURKISH_PDF_FONT }] = await Promise.all([
     import("jspdf"),
     import("jspdf-autotable"),
+    import("./unicode-font"),
   ])
   const doc = new jsPDF()
-  
+  // Türkçe karakter desteği için Unicode font yükle (public/fonts/*)
+  await registerTurkishFontClient(doc)
+  const FONT = TURKISH_PDF_FONT
+
   // Company Info (Top Left)
   doc.setFontSize(18)
-  doc.setFont("helvetica", "bold")
+  doc.setFont(FONT, "bold")
   doc.text(data.company.name, 14, 20)
   
   doc.setFontSize(9)
-  doc.setFont("helvetica", "normal")
+  doc.setFont(FONT, "normal")
   if (data.company.taxNumber) {
     doc.text(`VKN: ${data.company.taxNumber}`, 14, 26)
   }
@@ -77,7 +81,7 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
   
   // Invoice Info (Top Right)
   doc.setFontSize(20)
-  doc.setFont("helvetica", "bold")
+  doc.setFont(FONT, "bold")
   const invoiceTitle =
     data.invoiceType === "E_INVOICE"
       ? "E-FATURA"
@@ -87,7 +91,7 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
   doc.text(invoiceTitle, 140, 20)
   
   doc.setFontSize(10)
-  doc.setFont("helvetica", "normal")
+  doc.setFont(FONT, "normal")
   doc.text(`Fatura No: ${data.invoiceNo}`, 140, 28)
   doc.text(`Tarih: ${new Date(data.date).toLocaleDateString("tr-TR")}`, 140, 34)
   if (data.dueDate) {
@@ -103,11 +107,11 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
   doc.rect(14, 55, 182, 25, "F")
   
   doc.setFontSize(11)
-  doc.setFont("helvetica", "bold")
+  doc.setFont(FONT, "bold")
   doc.text(recipientLabel, 18, 62)
   
   doc.setFontSize(10)
-  doc.setFont("helvetica", "normal")
+  doc.setFont(FONT, "normal")
   if (recipient) {
     doc.text(recipient.name || "", 18, 68)
     if (recipient.taxNumber) {
@@ -136,10 +140,12 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
     head: [["#", "Açıklama", "Miktar", "Birim Fiyat", "KDV", "Tutar"]],
     body: tableData,
     styles: {
+      font: FONT,
       fontSize: 9,
       cellPadding: 3,
     },
     headStyles: {
+      font: FONT,
       fillColor: [59, 130, 246],
       textColor: 255,
       fontStyle: "bold",
@@ -170,7 +176,7 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
   doc.text("KDV Toplam:", totalsX, finalY + 6)
   doc.text(`₺${data.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 6, { align: "right" })
   
-  doc.setFont("helvetica", "bold")
+  doc.setFont(FONT, "bold")
   doc.setFontSize(12)
   doc.text("GENEL TOPLAM:", totalsX, finalY + 14)
   doc.setTextColor(34, 197, 94)
@@ -179,7 +185,7 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
   
   // Notes
   if (data.notes) {
-    doc.setFont("helvetica", "normal")
+    doc.setFont(FONT, "normal")
     doc.setFontSize(9)
     doc.text("Notlar:", 14, finalY + 30)
     doc.text(data.notes, 14, finalY + 36)

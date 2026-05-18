@@ -516,18 +516,35 @@ const invoiceData = {
         }
         if (!response.success) {
           const rawError: string = response.error || "UNKNOWN"
-          // Mysoft "numaratör bulunamadı" hatasını kullanıcıya açıklayıcı şekilde yansıt.
-          // UI tarafı bu mesajda "numaratör" geçtiğinde Seri No sayfasına CTA gösterir.
           const lower = rawError.toLowerCase()
           const isNumeratorError =
             lower.includes("numaratör") ||
             lower.includes("numarator") ||
             lower.includes("aktif numaratör tanımlı değil")
-          const friendlyError = isNumeratorError
-            ? resolvedPrefix
-              ? `${rawError} → "${resolvedPrefix}" prefix'i Mysoft panelinde tanımlı/aktif değil. Seri No Tanımları sayfasından doğru prefix'i seçin veya yeni numaratör ekleyin.`
-              : `${rawError} Seri No Tanımları sayfasından bu belge tipi için aktif bir numaratör ekleyin.`
-            : rawError
+          const isPkNotFoundError =
+            lower.includes("fatura pk") ||
+            lower.includes("pk bilgisi bulunamadı")
+          let friendlyError: string
+          if (isNumeratorError) {
+            // E-Fatura için "uygun numaratör bulunamadı" mesajı yanıltıcı: alıcının
+            // GİB'de e-Fatura mükellefi olmaması da bu hatayı tetikliyor.
+            if (invoiceType === "E_INVOICE") {
+              friendlyError = resolvedPrefix
+                ? `${rawError} → İki olası sebep: (1) "${resolvedPrefix}" prefix'i Mysoft panelinde E-Fatura için tanımlı/aktif değil. (2) Müşterinin VKN'si GİB'de kayıtlı bir e-Fatura mükellefi değil — bu durumda fatura E-Arşiv olarak kesilmeli.`
+                : `${rawError} → (1) Mysoft'ta E-Fatura numaratörü yok, veya (2) müşteri GİB'de e-Fatura mükellefi değil → E-Arşiv olarak kesin.`
+            } else {
+              friendlyError = resolvedPrefix
+                ? `${rawError} → "${resolvedPrefix}" prefix'i Mysoft panelinde tanımlı/aktif değil. Seri No Tanımları sayfasından doğru prefix'i seçin veya yeni numaratör ekleyin.`
+                : `${rawError} Seri No Tanımları sayfasından bu belge tipi için aktif bir numaratör ekleyin.`
+            }
+          } else if (isPkNotFoundError) {
+            friendlyError =
+              invoiceType === "E_INVOICE"
+                ? `${rawError} → Müşteri GİB'de kayıtlı bir e-Fatura mükellefi değil. Müşteri VKN/TCKN'sini kontrol edin; mükellef değilse E-Arşiv olarak gönderin.`
+                : `${rawError} → Müşterinin VKN/TCKN bilgisini Müşteri Kartı'ndan kontrol edin.`
+          } else {
+            friendlyError = rawError
+          }
           await prisma.invoice.update({
             where: { id: invoice.id },
             data: { integrationStatus: `ERROR:${friendlyError}` },

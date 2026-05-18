@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
+import { registerTurkishFont, TURKISH_PDF_FONT } from "@/lib/pdf/unicode-font"
 
 export const dynamic = 'force-dynamic'
 
@@ -107,14 +108,16 @@ export async function GET(
 
     // Generate PDF
     const doc = new jsPDF()
-    
+    // Türkçe karakterler için Unicode font yükle (helvetica WinAnsi — Türkçe yok)
+    await registerTurkishFont(doc)
+
     // Company Info (Top Left)
     doc.setFontSize(18)
-    doc.setFont("helvetica", "bold")
+    doc.setFont(TURKISH_PDF_FONT, "bold")
     doc.text(invoiceData.company.name, 14, 20)
     
     doc.setFontSize(9)
-    doc.setFont("helvetica", "normal")
+    doc.setFont(TURKISH_PDF_FONT, "normal")
     if (invoiceData.company.taxNumber) {
       doc.text(`VKN: ${invoiceData.company.taxNumber}`, 14, 26)
     }
@@ -130,7 +133,7 @@ export async function GET(
     
     // Invoice Info (Top Right)
     doc.setFontSize(20)
-    doc.setFont("helvetica", "bold")
+    doc.setFont(TURKISH_PDF_FONT, "bold")
     const invoiceTitle =
       invoiceData.invoiceType === "E_INVOICE"
         ? "E-FATURA"
@@ -144,7 +147,7 @@ export async function GET(
     }
     
     doc.setFontSize(10)
-    doc.setFont("helvetica", "normal")
+    doc.setFont(TURKISH_PDF_FONT, "normal")
     doc.text(`Fatura No: ${invoiceData.invoiceNo}`, 140, 28)
     doc.text(`Tarih: ${new Date(invoiceData.date).toLocaleDateString("tr-TR")}`, 140, 34)
     if (invoiceData.dueDate) {
@@ -160,11 +163,11 @@ export async function GET(
     doc.rect(14, 55, 182, 25, "F")
     
     doc.setFontSize(11)
-    doc.setFont("helvetica", "bold")
+    doc.setFont(TURKISH_PDF_FONT, "bold")
     doc.text(recipientLabel, 18, 62)
     
     doc.setFontSize(10)
-    doc.setFont("helvetica", "normal")
+    doc.setFont(TURKISH_PDF_FONT, "normal")
     if (recipient) {
       doc.text(recipient.name || "", 18, 68)
       if (recipient.taxNumber) {
@@ -194,10 +197,12 @@ export async function GET(
       head: [["#", "Açıklama", "Miktar", "Birim Fiyat", "Iskonto", "KDV", "Tutar"]],
       body: tableData,
       styles: {
+        font: TURKISH_PDF_FONT,
         fontSize: 9,
         cellPadding: 3,
       },
       headStyles: {
+        font: TURKISH_PDF_FONT,
         fillColor: template === "kurumsal" ? [22, 101, 52] : [59, 130, 246],
         textColor: 255,
         fontStyle: "bold",
@@ -233,7 +238,7 @@ export async function GET(
     doc.text("KDV Toplam:", totalsX, finalY + 12)
     doc.text(`₺${invoiceData.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 12, { align: "right" })
     
-    doc.setFont("helvetica", "bold")
+    doc.setFont(TURKISH_PDF_FONT, "bold")
     doc.setFontSize(12)
     doc.text("GENEL TOPLAM:", totalsX, finalY + 20)
     doc.setTextColor(34, 197, 94)
@@ -242,7 +247,7 @@ export async function GET(
     
     // Notes
     if (invoiceData.notes) {
-      doc.setFont("helvetica", "normal")
+      doc.setFont(TURKISH_PDF_FONT, "normal")
       doc.setFontSize(9)
       doc.text("Notlar:", 14, finalY + 30)
       doc.text(invoiceData.notes, 14, finalY + 36)

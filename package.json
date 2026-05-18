@@ -54,6 +54,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "date-fns": "^3.0.0",
+    "dejavu-fonts-ttf": "^2.37.3",
     "fast-xml-parser": "^5.7.2",
     "jspdf": "^3.0.4",
     "jspdf-autotable": "^5.0.2",

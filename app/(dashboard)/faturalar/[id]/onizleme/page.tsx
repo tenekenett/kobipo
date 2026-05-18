@@ -77,6 +77,7 @@ export default function FaturaOnizlemePage() {
   const [isCheckingStatus, setIsCheckingStatus] = useState(false)
   const [isDownloadingGibPdf, setIsDownloadingGibPdf] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
+  const [isSendingToProvider, setIsSendingToProvider] = useState(false)
 
   useEffect(() => {
     if (!invoiceId) return
@@ -210,6 +211,34 @@ export default function FaturaOnizlemePage() {
     }
   }
 
+  const handleSendToProvider = async () => {
+    if (!invoice) return
+    if (!confirm("Bu faturayı göndermek istediğinize emin misiniz?\n\nGönderildikten sonra fatura yasal olarak kesilmiş sayılır.")) return
+    setIsSendingToProvider(true)
+    try {
+      const response = await fetch(`/api/e-donusum/invoices/${invoice.id}`, {
+        method: "POST",
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data?.error || "Gönderilemedi")
+      }
+      toast({
+        title: "Fatura gönderildi",
+        description: data.uuid ? `ETTN: ${data.uuid}` : "Fatura başarıyla iletildi.",
+      })
+      fetchInvoice()
+    } catch (error: any) {
+      toast({
+        title: "Gönderim başarısız",
+        description: error?.message || "Bilinmeyen hata",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSendingToProvider(false)
+    }
+  }
+
   const handleSendEmail = async () => {
     const response = await fetch(`/api/faturalar/${invoiceId}/email`, {
       method: "POST",
@@ -300,6 +329,22 @@ export default function FaturaOnizlemePage() {
               </Button>
             </Link>
           )}
+          {invoice.status === "DRAFT" &&
+            !invoice.uuid &&
+            (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
+              <Button
+                onClick={handleSendToProvider}
+                disabled={isSendingToProvider}
+                className="bg-kobipo-blue hover:bg-kobipo-blue/90 dark:bg-primary dark:hover:bg-primary/90"
+              >
+                {isSendingToProvider ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <ShieldCheck className="mr-2 h-4 w-4" />
+                )}
+                Gönder
+              </Button>
+            )}
           <Select value={template} onValueChange={setTemplate}>
             <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
             <SelectContent>

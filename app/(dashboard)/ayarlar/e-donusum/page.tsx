@@ -32,6 +32,7 @@ import {
 
 interface Company {
   id: string
+  taxNumber?: string | null
   isEDonusumEnabled?: boolean
   eDonusumIntegrator?: string
   eDonusumProvider?: string
@@ -81,6 +82,8 @@ export default function EDonusumAyarlariPage() {
   const [isVerifying, setIsVerifying] = useState(false)
   const [discoveredTenants, setDiscoveredTenants] = useState<DiscoveredTenant[] | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  // JWT'den çıkan tüm tenant adayları (kullanıcı tek tek deneyebilsin).
+  const [jwtCandidates, setJwtCandidates] = useState<string[]>([])
 
   useEffect(() => {
     if (!companyId) return
@@ -98,7 +101,11 @@ export default function EDonusumAyarlariPage() {
     setLastTestedAt(data.eDonusumLastTestedAt || null)
     setLastTestSuccess(typeof data.eDonusumLastTestSuccess === "boolean" ? data.eDonusumLastTestSuccess : null)
     const savedVkn = (data.eDonusumTenantVkn || "").replace(/\D/g, "")
-    setTenantVkn(savedVkn)
+    // Kayıtlı/doğrulanmış VKN yoksa firma VKN'sini öneri olarak doldur.
+    // Production'da firma VKN'si = Mysoft mükellef VKN'si (aynı tüzel kişi). Sen
+    // sadece "Doğrula"ya basarsın. Farklıysa (örn. paylaşımlı test tenant'ı) üzerine yaz.
+    const fallback = (data.taxNumber || "").replace(/\D/g, "")
+    setTenantVkn(savedVkn || fallback)
     setSavedTenantVkn(savedVkn || null)
     setFormData({
       isEDonusumEnabled: Boolean(data.isEDonusumEnabled),
@@ -197,6 +204,7 @@ export default function EDonusumAyarlariPage() {
     if (!companyId) return
     setIsDiscovering(true)
     setDiscoveredTenants(null)
+    setJwtCandidates([])
     try {
       const res = await fetch("/api/e-donusum/discover-tenant-vkn", {
         method: "POST",
@@ -208,6 +216,8 @@ export default function EDonusumAyarlariPage() {
 
       const tenants: DiscoveredTenant[] = Array.isArray(data.tenants) ? data.tenants : []
       const jwtCandidate: string | null = data.jwtCandidate || null
+      const allCandidates: string[] = Array.isArray(data.jwtCandidates) ? data.jwtCandidates : []
+      setJwtCandidates(allCandidates)
 
       if (tenants.length === 1) {
         setTenantVkn(tenants[0].vknTckn)
@@ -545,8 +555,32 @@ export default function EDonusumAyarlariPage() {
               </p>
             </div>
           )}
+          {jwtCandidates.length > 1 && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">
+                JWT'de birden fazla aday bulundu — tek tek deneyebilirsin:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {jwtCandidates.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setTenantVkn(c)}
+                    disabled={isVerifying || isDiscovering}
+                    className={`rounded-full border px-2.5 py-1 font-mono text-xs transition ${
+                      tenantVkn === c
+                        ? "border-kobipo-blue bg-kobipo-blue/10 text-kobipo-navy dark:border-primary dark:bg-primary/15 dark:text-primary"
+                        : "border-muted-foreground/20 hover:bg-muted"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
-            VKN'nizi Mysoft müşteri panelinizde <span className="font-medium text-foreground">Firma Bilgileri</span> sayfasından öğrenebilirsiniz. Kobipo firma VKN'nizden farklı olabilir.
+            Genelde <span className="font-medium text-foreground">Kobipo firma VKN'nizle aynıdır</span> — Mysoft'a kayıt olurken şirketinizin gerçek VKN'sini bildirmişsinizdir. Otomatik dolu geliyor, "Doğrula"ya basın. Bulamazsan vergi levhandan kontrol et.
           </p>
         </CardContent>
       </Card>

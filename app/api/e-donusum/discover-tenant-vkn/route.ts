@@ -74,14 +74,24 @@ export async function POST(request: Request) {
           }))
       : []
 
-    // 2) JWT keşif (aday — doğrulanması şart)
+    // 2) JWT keşif (aday — doğrulanması şart). Tüm 10/11 haneli claim adaylarını
+    //    döndür; biri tenant, diğeri userId/customerId olabilir. Kullanıcı seçer.
     const jwt = await provider.discoverTenantFromToken()
-    const jwtCandidate =
-      jwt.success && typeof jwt.vknFromToken === "string" ? jwt.vknFromToken : null
+    const jwtCandidates: string[] = jwt.success && Array.isArray(jwt.candidateValues)
+      ? Array.from(
+          new Set(
+            jwt.candidateValues
+              .map((c) => (typeof c.value === "string" ? c.value : ""))
+              .filter((v) => /^\d{10,11}$/.test(v)),
+          ),
+        )
+      : []
+    const jwtCandidate = jwtCandidates[0] || null
 
     return NextResponse.json({
       tenants,
       jwtCandidate,
+      jwtCandidates,
       tenantListError: tenantsRes.success ? null : tenantsRes.error || null,
     })
   } catch (error: any) {

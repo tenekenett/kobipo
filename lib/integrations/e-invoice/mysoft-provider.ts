@@ -153,9 +153,13 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // Default e-Arşiv (gerçek kişi müşteri); açıkça E_INVOICE belirtildiyse e-Fatura.
       const isEFatura = invoiceData.invoiceType === "E_INVOICE"
       const eDocumentType = isEFatura ? "EFATURA" : "EARSIVFATURA"
-      // Profile: Postman örneği EFATURA için "TICARIFATURA" kullanıyor (alıcıdan yanıt bekliyor),
-      // "TEMELFATURA" (yanıt beklemez) de geçerli — değiştirmek istersen burası.
-      const profile = isEFatura ? "TICARIFATURA" : "EARSIVFATURA"
+      // Profile: E-Fatura için iki seçenek var: TEMELFATURA (alıcı yanıtı beklemez)
+      // ve TICARIFATURA (alıcı yanıtı bekler). Bazı Mysoft tenant'larında numaratör
+      // sadece TEMELFATURA için tanımlı; TICARIFATURA gönderirsek "00018 uygun
+      // numaratör bulunamadı" döner. Stratejimiz: önce TICARIFATURA dene, 00018
+      // alırsak TEMELFATURA'ya düş ve aynı payload'ı tekrar gönder.
+      const initialProfile = isEFatura ? "TICARIFATURA" : "EARSIVFATURA"
+      let profile = initialProfile
 
       // Alıcı VKN/TCKN ön doğrulaması:
       //  - Eksik veya format hatalı (10/11 haneden farklı, rakam değil) → her iki belge tipi için blokla.
@@ -293,21 +297,39 @@ async sendInvoice(invoiceData: any): Promise<any> {
       };
 
 
-      // 3. MYSOFT'A GÖNDER
-      // Tam payload'ı stdout'a yaz — Mysoft hata verince tam olarak ne gönderdiğimizi görebilelim.
-      console.log("[Mysoft] sendInvoice payload →", JSON.stringify(payload, null, 2))
+      // 3. MYSOFT'A GÖNDER (profile fallback ile)
+      const sendOnce = async (currentPayload: any) => {
+        console.log("[Mysoft] sendInvoice payload →", JSON.stringify(currentPayload, null, 2))
+        const res = await fetch(`${this.baseUrl}/api/InvoiceOutbox/invoiceOutbox`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${tokenData.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(currentPayload),
+        });
+        const r = await res.json();
+        console.log("[Mysoft] sendInvoice response ←", JSON.stringify(r, null, 2))
+        return r;
+      };
 
-      const invoiceRes = await fetch(`${this.baseUrl}/api/InvoiceOutbox/invoiceOutbox`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${tokenData.access_token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
+      let result = await sendOnce(payload);
 
-      const result = await invoiceRes.json();
-      console.log("[Mysoft] sendInvoice response ←", JSON.stringify(result, null, 2))
+      // E-Fatura için 00018 ("uygun numaratör bulunamadı") gelirse TEMELFATURA
+      // profile'ı ile bir kez daha dene. Bazı Mysoft tenant'ları numaratörü sadece
+      // TEMELFATURA için tanımlamış oluyor — TICARIFATURA reddediliyor.
+      if (
+        !result?.succeed &&
+        isEFatura &&
+        result?.errorCode === "00018" &&
+        profile === "TICARIFATURA"
+      ) {
+        profile = "TEMELFATURA";
+        payload.profile = profile;
+        console.log("[Mysoft] 00018 alındı, TEMELFATURA ile retry deneniyor…")
+        result = await sendOnce(payload);
+      }
+
       if (!result.succeed) return { success: false, error: result.message };
 
       // Mysoft v8 normalde data.invoiceETTN döner; sürüm farklılıklarına karşı
