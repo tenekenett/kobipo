@@ -54,7 +54,7 @@ export async function POST(
       createdBy: user.id,
       items: {
         create: quote.items.map((item, index) => ({
-          productId: item.productId,
+          ...(item.productId ? { product: { connect: { id: item.productId } } } : {}),
           description: item.description,
           quantity: item.quantity,
           unitPrice: item.unitPrice,

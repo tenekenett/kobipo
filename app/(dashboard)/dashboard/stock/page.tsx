@@ -236,7 +236,7 @@ export default async function StockDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-extrabold flex items-center gap-3 text-kobipo-navy">
+          <h1 className="text-3xl font-extrabold flex items-center gap-3 text-kobipo-navy dark:text-foreground">
             <Package className="h-8 w-8 text-orange-500" />
             Stok Paneli
           </h1>

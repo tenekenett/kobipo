@@ -14,7 +14,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
-import { Eye, Plus, FileText, Pencil, Trash2 } from "lucide-react" // Trash2 eklendi
+import { Eye, Plus, FileText, Pencil, Trash2, ShieldCheck, Loader2, FileDown } from "lucide-react"
 import Link from "next/link"
 
 interface Invoice {
@@ -25,6 +25,9 @@ interface Invoice {
   date: string
   dueDate?: string
   totalAmount: number
+  uuid?: string | null
+  invoiceType?: string
+  integrationStatus?: string | null
   customer?: { name: string }
   supplier?: { name: string }
   payments?: Array<{ amount: number }>
@@ -39,12 +42,15 @@ export default function FaturalarPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const companyId = searchParams.get("company")
+  const typeFilter = searchParams.get("type")?.toUpperCase()
   const { toast } = useToast()
   
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [company, setCompany] = useState<Company | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [listError, setListError] = useState<string | null>(null)
+  const [checkingStatusId, setCheckingStatusId] = useState<string | null>(null)
+  const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null)
 
   useEffect(() => {
     if (companyId) {
@@ -102,7 +108,71 @@ export default function FaturalarPage() {
     }
   }
 
-  // YENİ EKLENEN SİLME FONKSİYONU
+  const handleDownloadGibPdf = async (invoiceId: string, invoiceNo: string) => {
+    setDownloadingPdfId(invoiceId)
+    try {
+      const response = await fetch(`/api/e-donusum/invoices/${invoiceId}/pdf`)
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        toast({
+          title: "PDF indirilemedi",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+        return
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `Fatura_${invoiceNo}_GIB.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast({ title: "Resmî PDF indirildi" })
+    } catch (error: any) {
+      toast({
+        title: "Hata",
+        description: error?.message || "PDF indirilirken hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setDownloadingPdfId(null)
+    }
+  }
+
+  const handleCheckStatus = async (invoiceId: string) => {
+    setCheckingStatusId(invoiceId)
+    try {
+      const response = await fetch(`/api/e-donusum/invoices/${invoiceId}/check-status`, {
+        method: "POST",
+      })
+      const data = await response.json()
+      if (response.ok) {
+        toast({
+          title: `Durum: ${data.message}`,
+          description: data.rawText ? `Mysoft kodu: ${data.rawText}` : undefined,
+        })
+        fetchInvoices()
+      } else {
+        toast({
+          title: "Sorgulanamadı",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+      }
+    } catch (error: any) {
+      toast({
+        title: "Hata",
+        description: error?.message || "Durum sorgulanırken bir hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setCheckingStatusId(null)
+    }
+  }
+
   const handleDeleteInvoice = async (invoiceId: string) => {
     if (!confirm("Bu faturayı silmek/iptal etmek istediğinize emin misiniz? (Bu işlem stokları ve bakiyeleri geri alacaktır)")) {
       return
@@ -192,8 +262,20 @@ export default function FaturalarPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Faturalar</CardTitle>
-              <CardDescription>Tüm faturalarınızı görüntüleyin ve yönetin</CardDescription>
+              <CardTitle>
+                {typeFilter === "SALES"
+                  ? "Satış Faturaları"
+                  : typeFilter === "PURCHASE"
+                  ? "Alış Faturaları"
+                  : "Faturalar"}
+              </CardTitle>
+              <CardDescription>
+                {typeFilter === "SALES"
+                  ? "Müşterilerinize kestiğiniz satış faturalarını yönetin"
+                  : typeFilter === "PURCHASE"
+                  ? "Tedarikçilerden gelen alış faturalarını yönetin"
+                  : "Tüm faturalarınızı görüntüleyin ve yönetin"}
+              </CardDescription>
             </div>
             <Button onClick={handleCreateInvoice}>
               <Plus className="mr-2 h-4 w-4" />
@@ -202,15 +284,26 @@ export default function FaturalarPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <div className="text-center py-8">Yükleniyor...</div>
-          ) : listError ? (
-            <div className="space-y-2 py-8 text-center text-sm text-destructive">{listError}</div>
-          ) : invoices.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              Henüz fatura bulunmuyor
-            </div>
-          ) : (
+          {(() => {
+            const visibleInvoices = typeFilter
+              ? invoices.filter((inv) => inv.type === typeFilter)
+              : invoices
+            if (isLoading) {
+              return <div className="text-center py-8">Yükleniyor...</div>
+            }
+            if (listError) {
+              return <div className="space-y-2 py-8 text-center text-sm text-destructive">{listError}</div>
+            }
+            if (visibleInvoices.length === 0) {
+              return (
+                <div className="text-center py-8 text-muted-foreground">
+                  {typeFilter
+                    ? `Henüz ${typeFilter === "SALES" ? "satış" : "alış"} faturası bulunmuyor`
+                    : "Henüz fatura bulunmuyor"}
+                </div>
+              )
+            }
+            return (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -225,7 +318,7 @@ export default function FaturalarPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {invoices.map((invoice) => {
+                {visibleInvoices.map((invoice) => {
                   const paymentStatus = getPaymentStatus(invoice)
                   const totalPaid = invoice.payments?.reduce(
                     (sum, p) => sum + Number(p.amount),
@@ -273,15 +366,72 @@ export default function FaturalarPage() {
                               <Eye className="h-4 w-4" />
                             </Button>
                           </Link>
-                          {invoice.status === "DRAFT" && (
-                            <Link
-                              href={`/e-donusum/${invoice.id}/duzenle?company=${encodeURIComponent(companyId)}&from=${encodeURIComponent("/faturalar")}`}
-                            >
-                              <Button variant="outline" size="sm" title="Düzenle">
+                          {(() => {
+                            const editable = invoice.status === "DRAFT"
+                            const editBtn = (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                title={editable ? "Düzenle" : "Sadece taslak faturalar düzenlenebilir"}
+                                disabled={!editable}
+                              >
                                 <Pencil className="h-4 w-4" />
                               </Button>
-                            </Link>
-                          )}
+                            )
+                            return editable ? (
+                              <Link
+                                href={`/e-donusum/${invoice.id}/duzenle?company=${encodeURIComponent(companyId)}&from=${encodeURIComponent("/faturalar")}`}
+                              >
+                                {editBtn}
+                              </Link>
+                            ) : (
+                              editBtn
+                            )
+                          })()}
+                          {(() => {
+                            const isEDoc = invoice.invoiceType === "E_ARCHIVE" || invoice.invoiceType === "E_INVOICE"
+                            const canCheck = Boolean(invoice.uuid && isEDoc)
+                            const isLoading = checkingStatusId === invoice.id
+                            return (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                title={
+                                  !isEDoc
+                                    ? "Sadece e-Fatura / e-Arşiv için"
+                                    : !invoice.uuid
+                                    ? "Henüz Mysoft'a gönderilmemiş"
+                                    : "GİB Durum Sorgula"
+                                }
+                                onClick={() => canCheck && handleCheckStatus(invoice.id)}
+                                disabled={!canCheck || isLoading}
+                              >
+                                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                              </Button>
+                            )
+                          })()}
+                          {(() => {
+                            const isEDoc = invoice.invoiceType === "E_ARCHIVE" || invoice.invoiceType === "E_INVOICE"
+                            const canDownload = Boolean(invoice.uuid && isEDoc)
+                            const isLoading = downloadingPdfId === invoice.id
+                            return (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                title={
+                                  !isEDoc
+                                    ? "Sadece e-Fatura / e-Arşiv için"
+                                    : !invoice.uuid
+                                    ? "Henüz Mysoft'a gönderilmemiş"
+                                    : "Resmî PDF (GİB) İndir"
+                                }
+                                onClick={() => canDownload && handleDownloadGibPdf(invoice.id, invoice.invoiceNo)}
+                                disabled={!canDownload || isLoading}
+                              >
+                                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                              </Button>
+                            )
+                          })()}
                           {/* YENİ SİLME BUTONU */}
                           <Button 
                             variant="outline" 
@@ -298,7 +448,8 @@ export default function FaturalarPage() {
                 })}
               </TableBody>
             </Table>
-          )}
+            )
+          })()}
         </CardContent>
       </Card>
     </div>

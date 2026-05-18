@@ -31,8 +31,8 @@ export function DashboardCashflowChart({ data }: { data: CashflowPoint[] }) {
 
   if (!hasData) {
     return (
-      <div className="flex h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-kobipo-border bg-kobipo-offwhite/60 text-center">
-        <p className="text-sm font-medium text-kobipo-navy">Henüz hareket yok</p>
+      <div className="flex h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-kobipo-border bg-kobipo-offwhite/60 text-center dark:bg-muted/30">
+        <p className="text-sm font-medium text-kobipo-navy dark:text-foreground">Henüz hareket yok</p>
         <p className="mt-1 max-w-xs text-xs text-kobipo-gray">
           Son 14 günde kayıtlı gelir veya gider işlemi bulunmuyor. Finans modülünden işlem ekledikçe grafik burada
           canlanacak.

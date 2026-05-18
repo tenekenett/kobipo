@@ -259,7 +259,7 @@ export default async function DashboardIndexPage({
       <section
         className={cn(
           "relative isolate overflow-hidden rounded-3xl border border-kobipo-border/90",
-          "bg-gradient-to-br from-white via-white to-kobipo-pale/50 p-8 shadow-[0_20px_60px_-24px_rgba(12,59,107,0.18)] md:p-10",
+          "bg-gradient-to-br from-card via-card to-kobipo-pale/50 p-8 shadow-[0_20px_60px_-24px_rgba(12,59,107,0.18)] dark:shadow-[0_20px_60px_-24px_rgba(0,0,0,0.6)] md:p-10",
         )}
       >
         <div
@@ -276,7 +276,7 @@ export default async function DashboardIndexPage({
               <Sparkles className="h-4 w-4" aria-hidden />
               {greeting}
             </p>
-            <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-kobipo-navy md:text-4xl lg:text-[2.35rem] lg:leading-tight">
+            <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-kobipo-navy dark:text-foreground md:text-4xl lg:text-[2.35rem] lg:leading-tight">
               Bugün işletmenizde neler oluyor?
             </h1>
             <p className="mt-2 text-sm font-medium capitalize text-kobipo-gray md:text-base">{dateLine}</p>
@@ -289,6 +289,7 @@ export default async function DashboardIndexPage({
           <div
             className={cn(
               "relative w-full max-w-sm shrink-0 rounded-2xl border border-white/60 bg-white/70 p-5 shadow-card backdrop-blur-md",
+              "dark:border-border dark:bg-card/70",
               "animate-fade-up [animation-delay:90ms]",
             )}
           >
@@ -296,21 +297,21 @@ export default async function DashboardIndexPage({
             <p
               className={cn(
                 "mt-1 font-mono text-3xl font-bold tracking-tight md:text-[2rem]",
-                balance >= 0 ? "text-kobipo-navy" : "text-orange-700",
+                balance >= 0 ? "text-kobipo-navy dark:text-foreground" : "text-orange-700",
               )}
             >
               ₺{balance.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
             <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-              <div className="rounded-xl bg-kobipo-green-light/50 px-3 py-2">
-                <p className="font-medium text-kobipo-green-dark">Gelir</p>
-                <p className="font-mono text-sm font-semibold text-kobipo-navy">
+              <div className="rounded-xl bg-kobipo-green-light/50 px-3 py-2 dark:bg-emerald-950/40">
+                <p className="font-medium text-kobipo-green-dark dark:text-emerald-300">Gelir</p>
+                <p className="font-mono text-sm font-semibold text-kobipo-navy dark:text-foreground">
                   ₺{income.toLocaleString("tr-TR", { maximumFractionDigits: 0 })}
                 </p>
               </div>
-              <div className="rounded-xl bg-red-50/80 px-3 py-2">
-                <p className="font-medium text-red-800/90">Gider</p>
-                <p className="font-mono text-sm font-semibold text-kobipo-navy">
+              <div className="rounded-xl bg-red-50/80 px-3 py-2 dark:bg-red-950/40">
+                <p className="font-medium text-red-800/90 dark:text-red-300">Gider</p>
+                <p className="font-mono text-sm font-semibold text-kobipo-navy dark:text-foreground">
                   ₺{expense.toLocaleString("tr-TR", { maximumFractionDigits: 0 })}
                 </p>
               </div>
@@ -319,7 +320,7 @@ export default async function DashboardIndexPage({
               <div className="mt-4">
                 <div className="mb-1 flex justify-between text-[11px] font-medium text-kobipo-gray">
                   <span>Gelir payı</span>
-                  <span className="text-kobipo-navy">{incomeSharePct}%</span>
+                  <span className="text-kobipo-navy dark:text-foreground">{incomeSharePct}%</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-kobipo-border">
                   <div
@@ -364,7 +365,7 @@ export default async function DashboardIndexPage({
             label: "Fatura",
             value: invoiceCount,
             icon: FileText,
-            accent: "text-kobipo-navy",
+            accent: "text-kobipo-navy dark:text-foreground",
             bg: "bg-slate-100/80",
             delay: "135ms",
           },
@@ -372,7 +373,7 @@ export default async function DashboardIndexPage({
           <div
             key={k.label}
             className={cn(
-              "group relative overflow-hidden rounded-2xl border border-kobipo-border/80 bg-white p-5 shadow-card",
+              "group relative overflow-hidden rounded-2xl border border-kobipo-border/80 bg-card p-5 shadow-card",
               "transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_40px_-16px_rgba(12,59,107,0.15)]",
               "animate-fade-up",
             )}
@@ -381,7 +382,7 @@ export default async function DashboardIndexPage({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-kobipo-gray">{k.label}</p>
-                <p className="mt-2 font-mono text-3xl font-extrabold tabular-nums text-kobipo-navy">{k.value}</p>
+                <p className="mt-2 font-mono text-3xl font-extrabold tabular-nums text-kobipo-navy dark:text-foreground">{k.value}</p>
               </div>
               <span className={cn("rounded-xl p-2.5", k.bg, k.accent)}>
                 <k.icon className="h-5 w-5" aria-hidden />
@@ -398,11 +399,11 @@ export default async function DashboardIndexPage({
       {/* Bento: chart + status */}
       <section className="grid gap-4 lg:grid-cols-12">
         <div
-          className="lg:col-span-8 animate-fade-up rounded-3xl border border-kobipo-border/90 bg-white p-6 shadow-card [animation-delay:120ms]"
+          className="lg:col-span-8 animate-fade-up rounded-3xl border border-kobipo-border/90 bg-card p-6 shadow-card [animation-delay:120ms]"
         >
           <div className="flex flex-wrap items-end justify-between gap-3 border-b border-kobipo-border/60 pb-4">
             <div>
-              <h2 className="text-lg font-bold text-kobipo-navy">Nakit akışı</h2>
+              <h2 className="text-lg font-bold text-kobipo-navy dark:text-foreground">Nakit akışı</h2>
               <p className="text-sm text-kobipo-gray">Son 14 gün — gelir ve gider (işlem tarihine göre)</p>
             </div>
             <div className="flex items-center gap-4 text-xs font-medium">
@@ -426,18 +427,18 @@ export default async function DashboardIndexPage({
             className={cn(
               "flex flex-1 flex-col justify-between rounded-3xl border p-6 shadow-card animate-fade-up [animation-delay:160ms]",
               draftCount > 0
-                ? "border-amber-200/90 bg-gradient-to-br from-amber-50/90 to-white"
-                : "border-kobipo-border/90 bg-gradient-to-br from-kobipo-pale/40 to-white",
+                ? "border-amber-200/90 bg-gradient-to-br from-amber-50/90 to-card dark:border-amber-900/40 dark:from-amber-950/40"
+                : "border-kobipo-border/90 bg-gradient-to-br from-kobipo-pale/40 to-card",
             )}
           >
             <div>
-              <h2 className="text-lg font-bold text-kobipo-navy">Operasyon</h2>
+              <h2 className="text-lg font-bold text-kobipo-navy dark:text-foreground">Operasyon</h2>
               <p className="mt-1 text-sm text-kobipo-gray">Fatura ve teklif durumu</p>
             </div>
             <ul className="mt-6 space-y-4">
               <li className="flex items-center justify-between gap-3">
                 <span className="text-sm font-medium text-kobipo-text">Gönderilmiş fatura</span>
-                <span className="font-mono text-lg font-bold text-kobipo-navy">{sentCount}</span>
+                <span className="font-mono text-lg font-bold text-kobipo-navy dark:text-foreground">{sentCount}</span>
               </li>
               <li className="flex items-center justify-between gap-3 border-t border-kobipo-border/50 pt-4">
                 <span className="text-sm font-medium text-kobipo-text">Taslak fatura</span>
@@ -452,7 +453,7 @@ export default async function DashboardIndexPage({
               </li>
               <li className="flex items-center justify-between gap-3 border-t border-kobipo-border/50 pt-4">
                 <span className="text-sm font-medium text-kobipo-text">Açık teklif</span>
-                <span className="font-mono text-lg font-bold text-kobipo-navy">{quoteOpenCount}</span>
+                <span className="font-mono text-lg font-bold text-kobipo-navy dark:text-foreground">{quoteOpenCount}</span>
               </li>
             </ul>
             {draftCount > 0 && (
@@ -468,7 +469,7 @@ export default async function DashboardIndexPage({
 
           <div
             className={cn(
-              "rounded-3xl border border-kobipo-border/90 bg-white p-6 shadow-card animate-fade-up [animation-delay:200ms]",
+              "rounded-3xl border border-kobipo-border/90 bg-card p-6 shadow-card animate-fade-up [animation-delay:200ms]",
               "flex items-center gap-4",
             )}
           >
@@ -489,10 +490,10 @@ export default async function DashboardIndexPage({
 
       {/* Recent invoices + quick tiles */}
       <section className="grid gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-7 animate-fade-up rounded-3xl border border-kobipo-border/90 bg-white shadow-card [animation-delay:220ms]">
+        <div className="lg:col-span-7 animate-fade-up rounded-3xl border border-kobipo-border/90 bg-card shadow-card [animation-delay:220ms]">
           <div className="flex items-center justify-between border-b border-kobipo-border/60 px-6 py-4">
             <div>
-              <h2 className="text-lg font-bold text-kobipo-navy">Son faturalar</h2>
+              <h2 className="text-lg font-bold text-kobipo-navy dark:text-foreground">Son faturalar</h2>
               <p className="text-sm text-kobipo-gray">En güncel altı kayıt</p>
             </div>
             <Link
@@ -516,11 +517,11 @@ export default async function DashboardIndexPage({
                   <Link
                     key={inv.id}
                     href={`/faturalar/${inv.id}/onizleme${companyQuery}`}
-                    className="flex flex-col gap-2 px-6 py-4 transition hover:bg-kobipo-offwhite/80 sm:flex-row sm:items-center sm:justify-between"
+                    className="flex flex-col gap-2 px-6 py-4 transition hover:bg-kobipo-offwhite/80 dark:hover:bg-muted/40 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-sm font-bold text-kobipo-navy">{inv.invoiceNo}</span>
+                        <span className="font-mono text-sm font-bold text-kobipo-navy dark:text-foreground">{inv.invoiceNo}</span>
                         <Badge variant={invoiceStatusBadge(inv.status)}>{invoiceStatusText(inv.status)}</Badge>
                       </div>
                       <p className="mt-1 truncate text-sm text-kobipo-gray">
@@ -530,7 +531,7 @@ export default async function DashboardIndexPage({
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
-                      <span className="font-mono text-sm font-semibold text-kobipo-navy">
+                      <span className="font-mono text-sm font-semibold text-kobipo-navy dark:text-foreground">
                         ₺{Number(inv.totalAmount).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
                       </span>
                       <ArrowUpRight className="h-4 w-4 text-kobipo-gray opacity-60" aria-hidden />
@@ -543,7 +544,7 @@ export default async function DashboardIndexPage({
         </div>
 
         <div className="lg:col-span-5">
-          <h2 className="mb-3 text-lg font-bold text-kobipo-navy animate-fade-up [animation-delay:240ms]">
+          <h2 className="mb-3 text-lg font-bold text-kobipo-navy dark:text-foreground animate-fade-up [animation-delay:240ms]">
             Hızlı erişim
           </h2>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -552,7 +553,7 @@ export default async function DashboardIndexPage({
                 key={tile.href}
                 href={tile.href}
                 className={cn(
-                  "group relative overflow-hidden rounded-2xl border border-kobipo-border/80 bg-white p-4 shadow-card",
+                  "group relative overflow-hidden rounded-2xl border border-kobipo-border/80 bg-card p-4 shadow-card",
                   "transition duration-200 hover:-translate-y-0.5 hover:border-kobipo-mid/30 hover:shadow-lg",
                   "animate-fade-up",
                 )}
@@ -565,9 +566,9 @@ export default async function DashboardIndexPage({
                     tile.ring,
                   )}
                 >
-                  <tile.icon className="h-5 w-5 text-kobipo-navy" aria-hidden />
+                  <tile.icon className="h-5 w-5 text-kobipo-navy dark:text-foreground" aria-hidden />
                 </div>
-                <p className="font-semibold text-kobipo-navy">{tile.label}</p>
+                <p className="font-semibold text-kobipo-navy dark:text-foreground">{tile.label}</p>
                 <p className="mt-0.5 text-xs text-kobipo-gray">{tile.sub}</p>
                 <ArrowUpRight className="absolute right-3 top-3 h-4 w-4 text-kobipo-gray opacity-0 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:opacity-100" />
               </Link>

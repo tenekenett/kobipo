@@ -57,6 +57,7 @@
     "fast-xml-parser": "^5.7.2",
     "jspdf": "^3.0.4",
     "jspdf-autotable": "^5.0.2",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.303.0",
     "next": "^16.1.1",
     "next-auth": "^4.24.5",

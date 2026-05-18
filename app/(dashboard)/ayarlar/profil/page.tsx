@@ -7,10 +7,25 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
+import { useTheme } from "@/components/providers/theme-provider"
+import { cn } from "@/lib/utils"
+import { Laptop, Moon, Sun } from "lucide-react"
 
 export default function ProfilPage() {
   const { toast } = useToast()
+  const { theme, setTheme } = useTheme()
   const [isSaving, setIsSaving] = useState(false)
+  const [themeMounted, setThemeMounted] = useState(false)
+
+  useEffect(() => {
+    setThemeMounted(true)
+  }, [])
+
+  const themeChoices: Array<{ value: "light" | "dark" | "system"; label: string; description: string; icon: typeof Sun }> = [
+    { value: "light", label: "Aydınlık", description: "Klasik açık tema", icon: Sun },
+    { value: "dark", label: "Karanlık", description: "Gözleri yormayan koyu tema", icon: Moon },
+    { value: "system", label: "Sistem", description: "Cihazın tercihine uyar", icon: Laptop },
+  ]
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -77,6 +92,40 @@ export default function ProfilPage() {
   }
 
   return (
+    <div className="space-y-6">
+    <Card>
+      <CardHeader>
+        <CardTitle>Görünüm</CardTitle>
+        <CardDescription>Arayüz temasını seçin</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {themeChoices.map((choice) => {
+            const Icon = choice.icon
+            const active = themeMounted && theme === choice.value
+            return (
+              <button
+                key={choice.value}
+                type="button"
+                onClick={() => setTheme(choice.value)}
+                className={cn(
+                  "flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-colors",
+                  active
+                    ? "border-primary bg-primary/5 ring-1 ring-primary"
+                    : "border-border hover:border-primary/40 hover:bg-muted/40"
+                )}
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-foreground">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="text-sm font-semibold">{choice.label}</span>
+                <span className="text-xs text-muted-foreground">{choice.description}</span>
+              </button>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
     <Card>
       <CardHeader>
         <CardTitle>Profil ve Güvenlik</CardTitle>
@@ -113,5 +162,6 @@ export default function ProfilPage() {
         <Button onClick={save} disabled={isSaving}>{isSaving ? "Kaydediliyor..." : "Kaydet"}</Button>
       </CardContent>
     </Card>
+    </div>
   )
 }

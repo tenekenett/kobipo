@@ -2,8 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
-import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
+import { sendInvoiceToProvider } from "@/lib/integrations/e-invoice/send-invoice-helper"
 import { Decimal } from "@prisma/client/runtime/library"
 
 
@@ -32,6 +31,14 @@ function normalizeInvoiceItem(item: any) {
     vatRate: parseFloat(item.vatRate) || 0,
     withholdingRate: parseFloat(item.withholdingRate) || 0,
     exciseRate: parseFloat(item.exciseRate) || 0,
+    taxExemptionReasonCode:
+      typeof item.taxExemptionReasonCode === "string" && item.taxExemptionReasonCode.trim()
+        ? item.taxExemptionReasonCode.trim()
+        : null,
+    taxExemptionReason:
+      typeof item.taxExemptionReason === "string" && item.taxExemptionReason.trim()
+        ? item.taxExemptionReason.trim()
+        : null,
   }
 }
 export async function GET(
@@ -250,6 +257,8 @@ export async function PUT(
                 .plus(new Decimal(item.exciseRate || 0).div(100))
                 .minus(new Decimal(item.withholdingRate || 0).div(100))
             ),
+          taxExemptionReasonCode: item.taxExemptionReasonCode,
+          taxExemptionReason: item.taxExemptionReason,
           order: index,
         })),
       })
@@ -284,7 +293,7 @@ export async function PUT(
 }
 
 export async function POST(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -294,122 +303,51 @@ export async function POST(
     }
 
     const resolvedParams = await params
-    const invoiceWithItems = await prisma.invoice.findUnique({
-      where: { id: resolvedParams.id },
-      include: {
-        customer: true,
-        supplier: true,
-        items: true,
-      },
-    })
 
-    if (!invoiceWithItems) {
+    // Yetki kontrolü için faturanın companyId'sini önce çek.
+    const existing = await prisma.invoice.findUnique({
+      where: { id: resolvedParams.id },
+      select: { companyId: true, uuid: true },
+    })
+    if (!existing) {
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
     }
+    await ensureCompanyAccess(existing.companyId)
 
-    await ensureCompanyAccess(invoiceWithItems.companyId)
-    const company = await prisma.company.findUnique({
-      where: { id: invoiceWithItems.companyId },
-      select: { isEDonusumEnabled: true },
-    })
-    if (!company) {
-      return NextResponse.json({ error: "Company not found" }, { status: 404 })
-    }
-
-    if (invoiceWithItems.status !== "DRAFT") {
+    // Çift gönderim koruması: zaten Mysoft'a iletilmiş (uuid var) faturayı yeniden gönderme.
+    if (existing.uuid) {
       return NextResponse.json(
-        { error: "Only draft invoices can be sent" },
+        {
+          error:
+            "Bu fatura zaten Mysoft'a gönderilmiş (ETTN mevcut). Yeniden göndermek için önce iptal edin.",
+        },
         { status: 400 }
       )
     }
 
-    if (invoiceWithItems.invoiceType !== "E_INVOICE" && invoiceWithItems.invoiceType !== "E_ARCHIVE") {
+    const result = await sendInvoiceToProvider(resolvedParams.id)
+    if (!result.ok) {
       return NextResponse.json(
-        { error: "Only E-Invoice or E-Archive invoices can be sent" },
-        { status: 400 }
+        { error: result.error, integrationStatus: result.integrationStatus },
+        { status: result.status }
       )
     }
 
-    if (!company.isEDonusumEnabled) {
-      return NextResponse.json(
-        { error: "Bu firmada e-fatura ozelligi kapali" },
-        { status: 400 }
-      )
-    }
-
-    if (invoiceWithItems.type !== "SALES") {
-      return NextResponse.json(
-        { error: "Only sales invoices can be sent" },
-        { status: 400 }
-      )
-    }
-
-    assertEInvoiceRuntimeReady()
-    const provider = createEInvoiceProvider()
-    const invoiceData = {
-      invoiceNo: invoiceWithItems.invoiceNo,
-      date: invoiceWithItems.date,
-      dueDate: invoiceWithItems.dueDate || undefined,
-      customer: invoiceWithItems.customer
-        ? {
-            name: invoiceWithItems.customer.name,
-            taxNumber: invoiceWithItems.customer.taxNumber || undefined,
-            taxOffice: invoiceWithItems.customer.taxOffice || undefined,
-            address: invoiceWithItems.customer.address || undefined,
-            city: invoiceWithItems.customer.city || undefined,
-            country: invoiceWithItems.customer.country || undefined,
-          }
-        : undefined,
-      supplier: invoiceWithItems.supplier
-        ? {
-            name: invoiceWithItems.supplier.name,
-            taxNumber: invoiceWithItems.supplier.taxNumber || undefined,
-            taxOffice: invoiceWithItems.supplier.taxOffice || undefined,
-            address: invoiceWithItems.supplier.address || undefined,
-            city: invoiceWithItems.supplier.city || undefined,
-            country: invoiceWithItems.supplier.country || undefined,
-          }
-        : undefined,
-      items: invoiceWithItems.items.map((item) => ({
-        description: item.description,
-        quantity: Number(item.quantity),
-        unitPrice: Number(item.unitPrice),
-        vatRate: Number(item.vatRate),
-        productId: item.productId || undefined,
-      })),
-      notes: invoiceWithItems.notes || undefined,
-    }
-
-    const response = await provider.sendInvoice(invoiceData)
-
-    if (!response.success) {
-      await prisma.invoice.update({
-        where: { id: resolvedParams.id },
-        data: { integrationStatus: `ERROR:${response.error || "UNKNOWN"}` },
-      })
-      return NextResponse.json(
-        { error: response.error || "Failed to send invoice" },
-        { status: 400 }
-      )
-    }
-
-    const updated = await prisma.invoice.update({
+    const updated = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id },
-      data: {
-        uuid: response.uuid,
-        status: "SENT",
-        integrationId: provider.name,
-        integrationStatus: "SENT",
-      },
     })
-
-    return NextResponse.json(updated)
+    return NextResponse.json({
+      success: true,
+      uuid: result.uuid,
+      integrationId: result.providerName,
+      invoice: updated,
+    })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
-    console.error("Error sending invoice:", error)
+    console.error("Error resending invoice:", error)
     return NextResponse.json(
       { error: message || "Internal server error" },
       { status: 500 }

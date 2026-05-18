@@ -1,29 +1,38 @@
 import { EInvoiceProvider } from "./types"
 import { MockEInvoiceProvider } from "./mock"
 import { RestEInvoiceProvider } from "./rest-provider"
+import { MysoftEInvoiceProvider } from "./mysoft-provider" // Yeni ekledik
 
-export function createEInvoiceProvider(providerName?: string): EInvoiceProvider {
-  const provider = providerName || process.env.E_INVOICE_PROVIDER || "mock"
+export interface ProviderConfig {
+  providerName?: string;
+  username?: string;
+  passwordText?: string;
+  apiUrl?: string;
+  vknTckn?: string;
+}
 
-  const createRestProvider = (name: string) => {
-    const baseUrl = process.env.E_INVOICE_API_BASE_URL
-    const apiKey = process.env.E_INVOICE_API_KEY
-    if (!baseUrl || !apiKey) {
-      return null
-    }
-    return new RestEInvoiceProvider({ name, baseUrl, apiKey })
-  }
+export function createEInvoiceProvider(config?: ProviderConfig): EInvoiceProvider {
+  const provider = config?.providerName || "mock"
 
   switch (provider.toLowerCase()) {
+    case "mysoft":
+      if (!config?.username || !config?.passwordText) {
+         console.warn("Mysoft bilgileri eksik, Mock provider'a düşüldü.");
+         return new MockEInvoiceProvider();
+      }
+      return new MysoftEInvoiceProvider({
+         username: config.username,
+         passwordText: config.passwordText,
+         baseUrl: config.apiUrl,
+         vknTckn: config.vknTckn,
+      });
+      
+    // Diğer entegratörlerin kodları (İleride onları da güncellersin)
     case "logo":
-      return createRestProvider("Logo") || new MockEInvoiceProvider()
     case "turkcell":
-      return createRestProvider("Turkcell") || new MockEInvoiceProvider()
     case "veriban":
-      return createRestProvider("Veriban") || new MockEInvoiceProvider()
     case "mock":
     default:
       return new MockEInvoiceProvider()
   }
 }
-

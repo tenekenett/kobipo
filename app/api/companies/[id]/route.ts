@@ -42,6 +42,9 @@ export async function GET(
         eDonusumLastTestedAt: true,
         eDonusumLastTestSuccess: true,
         invoiceSeriesPrefix: true,
+        eFaturaPrefix: true,
+        eArchivePrefix: true,
+        eDonusumTenantVkn: true,
         sector: true,
         businessModel: true,
         employeeRange: true,
@@ -100,6 +103,9 @@ export async function PUT(
       website,
       isEDonusumEnabled,
       invoiceSeriesPrefix,
+      eFaturaPrefix,
+      eArchivePrefix,
+      eDonusumTenantVkn,
       eDonusumIntegrator,
       eDonusumProvider,
       eDonusumApiUsername,
@@ -130,15 +136,48 @@ export async function PUT(
         website,
         isEDonusumEnabled: isEDonusumEnabled !== undefined ? Boolean(isEDonusumEnabled) : undefined,
         invoiceSeriesPrefix: invoiceSeriesPrefix || null,
+        eFaturaPrefix:
+          eFaturaPrefix !== undefined
+            ? (typeof eFaturaPrefix === "string" && eFaturaPrefix.trim()
+                ? eFaturaPrefix.trim().toUpperCase().slice(0, 3)
+                : null)
+            : undefined,
+        eArchivePrefix:
+          eArchivePrefix !== undefined
+            ? (typeof eArchivePrefix === "string" && eArchivePrefix.trim()
+                ? eArchivePrefix.trim().toUpperCase().slice(0, 3)
+                : null)
+            : undefined,
+        eDonusumTenantVkn:
+          eDonusumTenantVkn !== undefined
+            ? (typeof eDonusumTenantVkn === "string" && eDonusumTenantVkn.trim()
+                ? eDonusumTenantVkn.trim().replace(/\D/g, "").slice(0, 11)
+                : null)
+            : undefined,
         eDonusumIntegrator: eDonusumIntegrator || undefined,
         eDonusumProvider: eDonusumProvider || null,
-        eDonusumApiUsername: eDonusumApiUsername || null,
+        // Username/URL/Alias: form'da bu alan gönderilmediyse (undefined) DB'deki değeri
+        // ezmiyoruz. Yalnızca açıkça boş string gönderilirse temizliyoruz. Bu sayede
+        // Firma Ayarları'nın başka bir sekmesinden kaydetmek E-Dönüşüm credentials'ını
+        // silmiyor (password için aynı koruma zaten vardı).
+        eDonusumApiUsername:
+          eDonusumApiUsername === undefined
+            ? undefined
+            : (typeof eDonusumApiUsername === "string" && eDonusumApiUsername.trim()
+                ? eDonusumApiUsername.trim()
+                : null),
         eDonusumApiPassword:
           typeof eDonusumApiPassword === "string" && eDonusumApiPassword.trim() && eDonusumApiPassword !== "***"
             ? encryptSecret(eDonusumApiPassword.trim())
             : undefined,
-        eDonusumAlias: eDonusumAlias || null,
-        eDonusumApiUrl: eDonusumApiUrl || null,
+        eDonusumAlias:
+          eDonusumAlias === undefined
+            ? undefined
+            : (typeof eDonusumAlias === "string" && eDonusumAlias.trim() ? eDonusumAlias.trim() : null),
+        eDonusumApiUrl:
+          eDonusumApiUrl === undefined
+            ? undefined
+            : (typeof eDonusumApiUrl === "string" && eDonusumApiUrl.trim() ? eDonusumApiUrl.trim() : null),
         eDonusumLastTestedAt: eDonusumLastTestedAt ? new Date(eDonusumLastTestedAt) : undefined,
         eDonusumLastTestSuccess:
           typeof eDonusumLastTestSuccess === "boolean" ? eDonusumLastTestSuccess : undefined,

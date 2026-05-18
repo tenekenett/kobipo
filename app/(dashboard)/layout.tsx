@@ -26,10 +26,10 @@ export default async function DashboardLayout({
 
   return (
     <DashboardCompanyProvider initialCompanies={initialCompanies} initialRole={initialRole}>
-      <div className="min-h-screen bg-kobipo-offwhite">
+      <div className="min-h-screen bg-kobipo-offwhite dark:bg-background">
         <DashboardNav />
         <div className="min-w-0 pt-14 lg:pl-56 lg:pt-0">
-          <div className="min-h-screen flex-1 bg-kobipo-offwhite">
+          <div className="min-h-screen flex-1 bg-kobipo-offwhite dark:bg-background">
             <DashboardHeader />
             <div className="w-full min-w-0 p-6">
               <CompanySelector />

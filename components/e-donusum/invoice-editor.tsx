@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import { ProductCombobox } from "@/components/e-donusum/product-combobox"
 
+
 type LineExtraKey = "description" | "discountRate" | "withholdingRate" | "exciseRate"
 
 const LINE_EXTRA_LABEL: Record<LineExtraKey, string> = {
@@ -52,10 +53,20 @@ const INVOICE_UNIT_OPTIONS = ["ADET", "KG", "MT", "M2", "M3", "LT", "SA", "GUN",
 const E_DOC_TYPES = new Set(["E_INVOICE", "E_ARCHIVE"])
 const BRAND_COLOR = "#143d6b"
 
+// GİB KDV İstisna Kodları (yaygın olanlar). 0% KDV seçildiğinde zorunlu.
+// Tam liste için: https://efatura.gov.tr (KDV istisna kodları)
+const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
+  { code: "351", label: "351 - Diğer istisnalar (genel)" },
+  { code: "350", label: "350 - KDV Kanunu kapsamında istisna" },
+  { code: "319", label: "319 - Eğitim / öğretim hizmetleri" },
+  { code: "325", label: "325 - Sağlık hizmetleri" },
+  { code: "301", label: "301 - İhracat (uyarı: IHRACAT profili + gümrük alanları gerekir)" },
+]
+
 interface Customer { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Supplier { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Product { id: string; name: string; code?: string; salePrice?: number; vatRate: number; unit?: string }
-export interface InvoiceItem { productId?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; vatRate: number; withholdingRate?: number; exciseRate?: number }
+export interface InvoiceItem { productId?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; vatRate: number; withholdingRate?: number; exciseRate?: number; taxExemptionReasonCode?: string; taxExemptionReason?: string }
 interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean }
 
 export type InvoiceEditorMode = "create" | "edit"
@@ -162,13 +173,21 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
   const fetchCompanySettings = async () => {
     if (!companyId) return
     try {
-      const res = await fetch("/api/companies")
+     
+      const res = await fetch(`/api/companies/${companyId}`)
+      
       if (!res.ok) return
-      const comps = (await res.json()) as CompanySettings[]
-      const current = comps.find((c) => c.id === companyId) || null
+      
+      // Artık listeden bulmamıza gerek yok, direkt o şirket geldi
+      const current = await res.json()
+      
       setCompanySettings(current)
-      if (current && !current.isEDonusumEnabled) setFormData((prev) => ({ ...prev, invoiceType: "MANUAL" }))
-    } catch (e) { console.error("Error fetching company settings:", e) }
+      if (current && !current.isEDonusumEnabled) {
+        setFormData((prev) => ({ ...prev, invoiceType: "MANUAL" }))
+      }
+    } catch (e) { 
+      console.error("Error fetching company settings:", e) 
+    }
   }
 
   const fetchInvoiceForEdit = async (id: string) => {
@@ -204,6 +223,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
             vatRate: Number(item.vatRate) || 20,
             withholdingRate: Number(item.withholdingRate) || 0,
             exciseRate: Number(item.exciseRate) || 0,
+            taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
+            taxExemptionReason: item.taxExemptionReason || undefined,
           })) : []
 
       const finalItems: InvoiceItem[] = editItems.length > 0 ? editItems : [{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }]
@@ -271,6 +292,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
   const updateItem = (index: number, field: keyof InvoiceItem, value: any) => {
     const newItems = [...items]
     newItems[index] = { ...newItems[index], [field]: value }
+    // KDV oranı 0 dışı bir değere geçildiyse istisna alanlarını temizle
+    if (field === "vatRate" && Number(value) !== 0) {
+      newItems[index].taxExemptionReasonCode = undefined
+      newItems[index].taxExemptionReason = undefined
+    }
     setItems(newItems)
   }
 
@@ -370,13 +396,26 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
     if (!formData.customerId && !formData.supplierId) return toast({ title: "Hata", description: "Müşteri veya tedarikçi seçin", variant: "destructive" })
     if (isEDonusumActive && E_DOC_TYPES.has(effectiveInvoiceType) && eInvoiceMissingMessages.length > 0) return toast({ title: "E-fatura için eksik bilgi", description: eInvoiceMissingMessages.join(" · "), variant: "destructive" })
 
+    // KDV %0 olan kalemlerde istisna sebebi zorunlu (Şematron kuralı)
+    const isEDocument = E_DOC_TYPES.has(effectiveInvoiceType)
+    if (isEDocument) {
+      const missingExemption = items.findIndex((it) => Number(it.vatRate) === 0 && (!it.taxExemptionReasonCode || !it.taxExemptionReason?.trim()))
+      if (missingExemption >= 0) {
+        return toast({
+          title: "İstisna sebebi gerekli",
+          description: `${missingExemption + 1}. kalem KDV %0 — istisna kodu ve sebebi zorunlu.`,
+          variant: "destructive",
+        })
+      }
+    }
+
     setIsLoading(true)
     try {
       const isEditing = Boolean(editingInvoiceId)
       const response = await fetch(isEditing ? `/api/e-donusum/invoices/${editingInvoiceId}` : "/api/e-donusum/invoices", {
         method: isEditing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, ...formData, invoiceType: effectiveInvoiceType, items }),
+        body: JSON.stringify({ companyId, ...formData, invoiceType: effectiveInvoiceType, items,sendInvoice: true }),
       })
 
       if (response.ok) {
@@ -591,6 +630,42 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
                         </div>
 
                       </div>
+
+                      {/* --- KDV %0 İSTİSNA SEBEBİ (zorunlu, e-belge ise) --- */}
+                      {Number(item.vatRate) === 0 && E_DOC_TYPES.has(effectiveInvoiceType) && (
+                        <div
+                          className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4 pt-4 border-t -mx-4 md:-mx-3 px-4 md:px-3 pb-3 rounded-b-xl md:rounded-b-none"
+                          style={{ borderTopColor: BRAND_COLOR, backgroundColor: "rgba(20,61,107,0.05)" }}
+                        >
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: BRAND_COLOR }}>
+                              KDV İstisna Kodu <span className="text-red-500">*</span>
+                            </Label>
+                            <Select
+                              value={item.taxExemptionReasonCode || ""}
+                              onValueChange={(v) => updateItem(index, "taxExemptionReasonCode", v)}
+                            >
+                              <SelectTrigger className="h-9 bg-white"><SelectValue placeholder="Seçiniz..." /></SelectTrigger>
+                              <SelectContent>
+                                {TAX_EXEMPTION_CODES.map((opt) => (
+                                  <SelectItem key={opt.code} value={opt.code}>{opt.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="md:col-span-2 space-y-1.5">
+                            <Label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: BRAND_COLOR }}>
+                              İstisna Sebebi (açıklama) <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                              className="h-9 bg-white text-sm"
+                              value={item.taxExemptionReason || ""}
+                              onChange={(e) => updateItem(index, "taxExemptionReason", e.target.value)}
+                              placeholder="Örn: KDV Kanunu 17/2-b kapsamında istisna"
+                            />
+                          </div>
+                        </div>
+                      )}
 
                       {/* --- SATIR EKLENTİLERİ (İskonto, Açıklama vb.) --- */}
                       {extras.length > 0 && (

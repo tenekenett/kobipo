@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
 import { SessionProvider } from '@/components/providers/session-provider'
+import { ThemeProvider } from '@/components/providers/theme-provider'
 import { RouteProgress } from '@/components/ui/route-progress'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { Analytics } from '@vercel/analytics/next'
@@ -21,19 +22,36 @@ export const metadata: Metadata = {
   },
 }
 
+const themeInitScript = `
+(function() {
+  try {
+    var stored = localStorage.getItem('kobipo-theme');
+    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var resolved = stored === 'dark' || (stored !== 'light' && prefersDark) ? 'dark' : 'light';
+    if (resolved === 'dark') document.documentElement.classList.add('dark');
+    document.documentElement.style.colorScheme = resolved;
+  } catch (e) {}
+})();
+`
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
   return (
-    <html lang="tr">
+    <html lang="tr" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body>
-        <RouteProgress />
-        <SessionProvider>
-          {children}
-        </SessionProvider>
-        <Toaster />
+        <ThemeProvider>
+          <RouteProgress />
+          <SessionProvider>
+            {children}
+          </SessionProvider>
+          <Toaster />
+        </ThemeProvider>
         <SpeedInsights />
         <Analytics />
       </body>

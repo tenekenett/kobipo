@@ -33,7 +33,7 @@ export default async function AdminDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-extrabold flex items-center gap-3 text-kobipo-navy">
+          <h1 className="text-3xl font-extrabold flex items-center gap-3 text-kobipo-navy dark:text-foreground">
             <Settings className="h-8 w-8 text-purple-500" />
             Yönetici Paneli
           </h1>

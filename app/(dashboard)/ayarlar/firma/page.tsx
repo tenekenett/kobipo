@@ -22,6 +22,8 @@ interface Company {
   email?: string
   website?: string
   invoiceSeriesPrefix?: string
+  eFaturaPrefix?: string | null
+  eArchivePrefix?: string | null
 }
 
 export default function FirmaAyarlariPage() {
@@ -274,7 +276,7 @@ export default function FirmaAyarlariPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="invoiceSeriesPrefix">Fatura Seri Prefix</Label>
+                <Label htmlFor="invoiceSeriesPrefix">Fatura Seri Prefix (Kobipo iç)</Label>
                 <Input
                   id="invoiceSeriesPrefix"
                   placeholder="SAT / ALI yerine kullanılacak ortak prefix"
@@ -282,6 +284,10 @@ export default function FirmaAyarlariPage() {
                   onChange={(e) => setFormData({ ...formData, invoiceSeriesPrefix: e.target.value.toUpperCase() })}
                   disabled={isLoading || !isEditing}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Bu alan Kobipo iç fatura numarası içindir (ör. <code className="rounded bg-muted px-1 py-0.5 font-mono">SAT-2026-0001</code>).
+                  E-Fatura / E-Arşiv için Mysoft'a gönderilen prefix bundan farklıdır — aşağıdaki kartı kullanın.
+                </p>
               </div>
             </div>
             <div className="rounded-md border p-3">
@@ -292,6 +298,53 @@ export default function FirmaAyarlariPage() {
               <Link href={`/ayarlar/e-donusum?company=${companyId}`} className="mt-2 inline-block text-sm text-blue-600 hover:underline">
                 Ayarlar {'>'} E-Dönüşüm sayfasına git
               </Link>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">E-Fatura / E-Arşiv Prefix'leri (Mysoft)</p>
+                  <p className="text-xs text-muted-foreground">
+                    Mysoft tarafında tanımlı numaratörler. Boş bırakılırsa Kobipo fatura kesim
+                    anında Mysoft'tan aktif default numaratörü otomatik kullanır.
+                  </p>
+                </div>
+                <Link
+                  href={`/e-donusum/seri-no?company=${companyId}`}
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  Seri No Tanımları'na git →
+                </Link>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    E-Fatura
+                  </p>
+                  {company?.eFaturaPrefix ? (
+                    <span className="mt-1 inline-flex h-7 items-center rounded-md bg-muted px-2 font-mono text-sm font-bold tracking-widest">
+                      {company.eFaturaPrefix}
+                    </span>
+                  ) : (
+                    <span className="mt-1 inline-flex h-7 items-center rounded-md border border-dashed px-2 text-xs text-muted-foreground">
+                      Otomatik (Mysoft default)
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    E-Arşiv
+                  </p>
+                  {company?.eArchivePrefix ? (
+                    <span className="mt-1 inline-flex h-7 items-center rounded-md bg-muted px-2 font-mono text-sm font-bold tracking-widest">
+                      {company.eArchivePrefix}
+                    </span>
+                  ) : (
+                    <span className="mt-1 inline-flex h-7 items-center rounded-md border border-dashed px-2 text-xs text-muted-foreground">
+                      Otomatik (Mysoft default)
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="address">Adres</Label>

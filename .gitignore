@@ -50,3 +50,6 @@ supabase/.temp
 # migration dumps (canlı veri içerebilir, commit etme)
 /migration/
 
+# Mysoft Swagger şeması (lokal referans, gerekirse tekrar indirilebilir)
+/mysoft-swagger.json
+

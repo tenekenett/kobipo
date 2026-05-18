@@ -74,6 +74,7 @@ interface Supplier {
 export default function CekSenetPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
+  const initialTab = searchParams.get("tab") === "notes" ? "notes" : "checks"
   const { toast } = useToast()
 
   const [checks, setChecks] = useState<Check[]>([])
@@ -384,7 +385,7 @@ export default function CekSenetPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="checks" className="w-full">
+          <Tabs defaultValue={initialTab} className="w-full">
             <TabsList>
               <TabsTrigger value="checks">Çekler ({checks.length})</TabsTrigger>
               <TabsTrigger value="notes">Senetler ({notes.length})</TabsTrigger>

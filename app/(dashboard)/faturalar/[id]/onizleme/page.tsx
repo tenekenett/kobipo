@@ -4,11 +4,13 @@ import { useEffect, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, ArrowLeft, Pencil } from "lucide-react"
+import { Download, ArrowLeft, Pencil, ShieldCheck, FileDown, Ban, Loader2, CheckCircle2, XCircle, Clock, AlertTriangle, Hash } from "lucide-react"
 import Link from "next/link"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useToast } from "@/components/ui/use-toast"
+import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 
 interface Invoice {
   id: string
@@ -22,6 +24,9 @@ interface Invoice {
   vatAmount: number
   totalAmount: number
   notes?: string
+  uuid?: string | null
+  integrationStatus?: string | null
+  integrationId?: string | null
   customer?: {
     name: string
     taxNumber?: string
@@ -61,6 +66,7 @@ export default function FaturaOnizlemePage() {
   const searchParams = useSearchParams()
   const invoiceId = params.id as string
   const companyId = searchParams.get("company")
+  const { toast } = useToast()
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -68,6 +74,9 @@ export default function FaturaOnizlemePage() {
   const [email, setEmail] = useState("")
   const [attachments, setAttachments] = useState<any[]>([])
   const [attachmentName, setAttachmentName] = useState("")
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false)
+  const [isDownloadingGibPdf, setIsDownloadingGibPdf] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
 
   useEffect(() => {
     if (!invoiceId) return
@@ -120,6 +129,85 @@ export default function FaturaOnizlemePage() {
 
   const handleDownloadPDF = () => {
     window.open(`/api/faturalar/${invoiceId}/pdf?template=${template}`, "_blank")
+  }
+
+  const handleCheckStatus = async () => {
+    if (!invoice) return
+    setIsCheckingStatus(true)
+    try {
+      const response = await fetch(`/api/e-donusum/invoices/${invoice.id}/check-status`, { method: "POST" })
+      const data = await response.json()
+      if (response.ok) {
+        toast({
+          title: `GİB Durumu: ${data.message}`,
+          description: data.rawText ? `Mysoft kodu: ${data.rawText}` : undefined,
+        })
+        fetchInvoice()
+      } else {
+        toast({ title: "Sorgulanamadı", description: data.error || "Bilinmeyen hata", variant: "destructive" })
+      }
+    } catch (error: any) {
+      toast({ title: "Hata", description: error?.message || "Hata oluştu", variant: "destructive" })
+    } finally {
+      setIsCheckingStatus(false)
+    }
+  }
+
+  const handleDownloadGibPdf = async () => {
+    if (!invoice) return
+    setIsDownloadingGibPdf(true)
+    try {
+      const response = await fetch(`/api/e-donusum/invoices/${invoice.id}/pdf`)
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        toast({ title: "PDF indirilemedi", description: data.error || "Bilinmeyen hata", variant: "destructive" })
+        return
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `Fatura_${invoice.invoiceNo}_GIB.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast({ title: "Resmî PDF indirildi" })
+    } catch (error: any) {
+      toast({ title: "Hata", description: error?.message || "PDF indirilirken hata oluştu", variant: "destructive" })
+    } finally {
+      setIsDownloadingGibPdf(false)
+    }
+  }
+
+  const handleCancelInvoice = async () => {
+    if (!invoice) return
+    const note = window.prompt("İptal sebebi girin (en az 3 karakter):", "Kullanıcı tarafından iptal edildi")
+    if (note === null) return
+    if (note.trim().length < 3) {
+      toast({ title: "İptal sebebi en az 3 karakter olmalı", variant: "destructive" })
+      return
+    }
+    if (!confirm("e-Arşiv faturayı iptal etmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return
+    setIsCancelling(true)
+    try {
+      const response = await fetch(`/api/e-donusum/invoices/${invoice.id}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancelNote: note.trim() }),
+      })
+      const data = await response.json()
+      if (response.ok) {
+        toast({ title: "Fatura iptal edildi", description: data.message })
+        fetchInvoice()
+      } else {
+        toast({ title: "İptal edilemedi", description: data.error || "Bilinmeyen hata", variant: "destructive" })
+      }
+    } catch (error: any) {
+      toast({ title: "Hata", description: error?.message || "İptal sırasında hata oluştu", variant: "destructive" })
+    } finally {
+      setIsCancelling(false)
+    }
   }
 
   const handleSendEmail = async () => {
@@ -201,7 +289,7 @@ export default function FaturaOnizlemePage() {
             <p className="text-muted-foreground">Fatura No: {invoice.invoiceNo}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {invoice.status === "DRAFT" && (
             <Link
               href={`/e-donusum/${invoiceId}/duzenle?company=${encodeURIComponent(companyId || "")}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`}
@@ -225,8 +313,115 @@ export default function FaturaOnizlemePage() {
             <Download className="h-4 w-4 mr-2" />
             PDF İndir
           </Button>
+          {invoice.uuid && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
+            <>
+              <Button variant="outline" onClick={handleCheckStatus} disabled={isCheckingStatus}>
+                {isCheckingStatus ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+                GİB Durumu
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleDownloadGibPdf}
+                disabled={isDownloadingGibPdf}
+                title="Mysoft / GİB tarafından üretilen yasal PDF"
+              >
+                {isDownloadingGibPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+                Resmî PDF (GİB)
+              </Button>
+              {invoice.invoiceType === "E_ARCHIVE" && invoice.status !== "CANCELLED" && (
+                <Button
+                  variant="outline"
+                  onClick={handleCancelInvoice}
+                  disabled={isCancelling}
+                  className="border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                >
+                  {isCancelling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Ban className="mr-2 h-4 w-4" />}
+                  İptal Et
+                </Button>
+              )}
+            </>
+          )}
         </div>
       </div>
+
+      {/* Durum şeridi: iç status + GİB durumu + ETTN */}
+      {(invoice.uuid || invoice.integrationStatus) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className={`px-3 py-1 rounded-full text-sm font-medium ${
+              invoice.status === "SENT"
+                ? "bg-sky-100 text-sky-800"
+                : invoice.status === "DRAFT"
+                ? "bg-yellow-100 text-yellow-800"
+                : invoice.status === "CANCELLED"
+                ? "bg-gray-200 text-gray-700"
+                : "bg-red-100 text-red-800"
+            }`}
+          >
+            {invoice.status === "SENT"
+              ? "Gönderildi"
+              : invoice.status === "DRAFT"
+              ? "Taslak"
+              : invoice.status === "CANCELLED"
+              ? "İptal Edildi"
+              : invoice.status}
+          </span>
+          {(() => {
+            const gib = parseGibStatus(invoice.integrationStatus)
+            if (!gib) return null
+            const style = gib.bucket === "approved"
+              ? { wrap: "border-emerald-300 bg-emerald-50 text-emerald-800", Icon: CheckCircle2 }
+              : gib.bucket === "rejected"
+              ? { wrap: "border-red-300 bg-red-50 text-red-800", Icon: XCircle }
+              : gib.bucket === "cancelled"
+              ? { wrap: "border-gray-300 bg-gray-100 text-gray-700", Icon: Ban }
+              : gib.bucket === "processing"
+              ? { wrap: "border-amber-300 bg-amber-50 text-amber-800", Icon: Clock }
+              : { wrap: "border-slate-300 bg-slate-50 text-slate-700", Icon: ShieldCheck }
+            const Icon = style.Icon
+            return (
+              <span
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium border ${style.wrap}`}
+                title={gib.detail || undefined}
+              >
+                <Icon className="h-4 w-4" />
+                GİB: {gib.label}
+              </span>
+            )
+          })()}
+          {invoice.uuid && (
+            <span className="text-xs text-muted-foreground font-mono">
+              ETTN: {invoice.uuid}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Hatalı entegrasyon durumunda kullanıcıya somut bir CTA göster */}
+      {typeof invoice.integrationStatus === "string" &&
+        invoice.integrationStatus.startsWith("ERROR:") && (() => {
+          const errMsg = invoice.integrationStatus!.replace(/^ERROR:/, "")
+          const isNumeratorError = /numarat[öo]r/i.test(errMsg)
+          return (
+            <div className="flex flex-wrap items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold">Mysoft gönderimi başarısız</p>
+                <p className="mt-1 break-words">{errMsg}</p>
+                {isNumeratorError && companyId && (
+                  <div className="mt-2">
+                    <Button variant="outline" size="sm" asChild>
+                      <Link href={`/e-donusum/seri-no?company=${encodeURIComponent(companyId)}`}>
+                        <Hash className="mr-2 h-4 w-4" />
+                        Seri No Tanımları'na git
+                      </Link>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
 
       <Card>
         <CardHeader>

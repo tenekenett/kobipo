@@ -254,7 +254,7 @@ export default async function AccountantDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-extrabold flex items-center gap-3 text-kobipo-navy">
+          <h1 className="text-3xl font-extrabold flex items-center gap-3 text-kobipo-navy dark:text-foreground">
             <Calculator className="h-8 w-8 text-blue-500" />
             Muhasebe Paneli
           </h1>

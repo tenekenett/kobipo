@@ -121,6 +121,12 @@ model Company {
   eDonusumLastTestedAt DateTime?
   eDonusumLastTestSuccess Boolean?
   invoiceSeriesPrefix String?
+  eFaturaPrefix       String?
+  eArchivePrefix      String?
+  eDonusumTenantVkn   String?
+  eDonusumConnectorGuid String?
+  eDonusumPkAlias     String?
+  eDonusumGbAlias     String?
   sector      String?
   businessModel String?
   employeeRange String?
@@ -652,6 +658,8 @@ model InvoiceItem {
   exciseRate Decimal? @db.Decimal(5, 2)
   exciseAmount Decimal? @db.Decimal(10, 2)
   totalAmount Decimal  @db.Decimal(10, 2)
+  taxExemptionReasonCode String? @db.VarChar(10)
+  taxExemptionReason     String? @db.VarChar(255)
   order       Int      @default(0)
 
   invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)

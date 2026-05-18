@@ -6,9 +6,8 @@ import { signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/ui/Logo"
 import { cn } from "@/lib/utils"
-import { LogOut, Menu, X, ChevronDown, Building2, Loader2 } from "lucide-react"
-import { allNavItems, navGroups, navItemActive, type NavItemDef } from "@/components/dashboard/nav-config"
-import { NewBranchDialog } from "@/components/dashboard/new-branch-dialog"
+import { LogOut, Menu, X, ChevronDown, Loader2 } from "lucide-react"
+import { allNavItems, navGroups, navItemActive, standaloneNavHrefs, type NavItemDef } from "@/components/dashboard/nav-config"
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 export function DashboardNav() {
@@ -43,6 +42,14 @@ export function DashboardNav() {
             .filter((item): item is NavItemDef => Boolean(item)),
         }))
         .filter((group) => group.items.length > 0),
+    [navItems]
+  )
+
+  const standaloneItems = useMemo(
+    () =>
+      standaloneNavHrefs
+        .map((href) => navItems.find((item) => item.href === href))
+        .filter((item): item is NavItemDef => Boolean(item)),
     [navItems]
   )
 
@@ -85,7 +92,7 @@ export function DashboardNav() {
 
   return (
     <>
-      <div className="fixed left-0 top-0 z-40 hidden h-dvh max-h-dvh w-56 flex-col overflow-hidden border-r border-white/10 bg-kobipo-navy lg:flex">
+      <div className="fixed left-0 top-0 z-40 hidden h-dvh max-h-dvh w-56 flex-col overflow-hidden border-r border-white/10 bg-kobipo-navy dark:border-border dark:bg-card lg:flex">
         <div className="flex h-14 shrink-0 items-center border-b border-white/10 px-4">
           <Logo variant="dark" size="sm" href="/dashboard" />
         </div>
@@ -134,26 +141,44 @@ export function DashboardNav() {
                         </Link>
                       )
                     })}
-                    {group.title === "Ayarlar" && (
-                      <NewBranchDialog>
-                        <button
-                          type="button"
-                          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white"
-                        >
-                          <Building2 className="h-4 w-4 shrink-0" />
-                          Yeni Şube
-                        </button>
-                      </NewBranchDialog>
-                    )}
                   </div>
                 )}
               </div>
             ))}
+            {standaloneItems.length > 0 && (
+              <div className="mt-2 space-y-0.5 border-t border-white/10 pt-3">
+                {standaloneItems.map((item) => {
+                  const Icon = item.icon
+                  const isActive = navItemActive(pathname, item.href)
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setPendingHref(item.href)}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
+                        pendingHref === item.href && "opacity-80",
+                        isActive
+                          ? "bg-kobipo-blue font-semibold text-white"
+                          : "font-medium text-white/70 hover:bg-white/[0.08] hover:text-white"
+                      )}
+                    >
+                      {pendingHref === item.href ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      ) : (
+                        <Icon className="h-4 w-4 shrink-0" />
+                      )}
+                      {item.label}
+                    </Link>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      <nav className="fixed left-0 right-0 top-0 z-40 h-14 border-b border-kobipo-border bg-white lg:hidden">
+      <nav className="fixed left-0 right-0 top-0 z-40 h-14 border-b border-kobipo-border bg-white dark:border-border dark:bg-card lg:hidden">
         <div className="flex h-14 items-center justify-between px-6">
           <Logo variant="light" size="sm" href="/" />
           <Button
@@ -169,21 +194,21 @@ export function DashboardNav() {
       {/* Mobile Menu */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="fixed inset-0 bg-kobipo-navy/40 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
-          <div className="fixed inset-y-0 right-0 w-full max-w-xs bg-white shadow-lg">
-            <div className="flex items-center justify-between border-b border-kobipo-border p-4">
-              <span className="font-semibold text-kobipo-navy">Menü</span>
+          <div className="fixed inset-0 bg-kobipo-navy/40 backdrop-blur-sm dark:bg-black/60" onClick={() => setMobileMenuOpen(false)} />
+          <div className="fixed inset-y-0 right-0 w-full max-w-xs bg-white shadow-lg dark:bg-card">
+            <div className="flex items-center justify-between border-b border-kobipo-border p-4 dark:border-border">
+              <span className="font-semibold text-kobipo-navy dark:text-foreground">Menü</span>
               <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(false)}>
                 <X className="h-5 w-5" />
               </Button>
             </div>
             <div className="space-y-2 overflow-y-auto p-4">
               {groupedItems.map((group) => (
-                <div key={`mobile-${group.title}`} className="rounded-lg border border-kobipo-border bg-kobipo-offwhite/80">
+                <div key={`mobile-${group.title}`} className="rounded-lg border border-kobipo-border bg-kobipo-offwhite/80 dark:border-border dark:bg-muted/30">
                   <button
                     type="button"
                     onClick={() => toggleGroup(group.title)}
-                    className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-kobipo-gray"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-kobipo-gray dark:text-muted-foreground"
                   >
                     {group.title}
                     <ChevronDown
@@ -194,7 +219,7 @@ export function DashboardNav() {
                     />
                   </button>
                   {isGroupOpen(group.title) && (
-                    <div className="space-y-0.5 border-t border-kobipo-border px-1 py-2">
+                    <div className="space-y-0.5 border-t border-kobipo-border px-1 py-2 dark:border-border">
                       {group.items.map((item: any) => {
                         const Icon = item.icon
                         const isActive = navItemActive(pathname, item.href)
@@ -211,8 +236,8 @@ export function DashboardNav() {
                               "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
                               pendingHref === item.href && "opacity-80",
                               isActive
-                                ? "bg-kobipo-pale font-semibold text-kobipo-blue"
-                                : "font-medium text-kobipo-gray hover:bg-kobipo-pale hover:text-kobipo-blue"
+                                ? "bg-kobipo-pale font-semibold text-kobipo-blue dark:bg-primary/15 dark:text-primary"
+                                : "font-medium text-kobipo-gray hover:bg-kobipo-pale hover:text-kobipo-blue dark:text-muted-foreground dark:hover:bg-muted/40 dark:hover:text-foreground"
                             )}
                           >
                             {pendingHref === item.href ? (
@@ -224,25 +249,46 @@ export function DashboardNav() {
                           </Link>
                         )
                       })}
-                      {group.title === "Ayarlar" && (
-                        <NewBranchDialog>
-                          <button
-                            type="button"
-                            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-kobipo-gray transition-colors hover:bg-kobipo-pale hover:text-kobipo-blue"
-                          >
-                            <Building2 className="h-5 w-5 shrink-0" />
-                            Yeni Şube
-                          </button>
-                        </NewBranchDialog>
-                      )}
                     </div>
                   )}
                 </div>
               ))}
-              <div className="border-t border-kobipo-border pt-4">
+              {standaloneItems.length > 0 && (
+                <div className="border-t border-kobipo-border pt-2 space-y-0.5 dark:border-border">
+                  {standaloneItems.map((item) => {
+                    const Icon = item.icon
+                    const isActive = navItemActive(pathname, item.href)
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => {
+                          setPendingHref(item.href)
+                          setMobileMenuOpen(false)
+                        }}
+                        className={cn(
+                          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
+                          pendingHref === item.href && "opacity-80",
+                          isActive
+                            ? "bg-kobipo-pale font-semibold text-kobipo-blue dark:bg-primary/15 dark:text-primary"
+                            : "font-medium text-kobipo-gray hover:bg-kobipo-pale hover:text-kobipo-blue dark:text-muted-foreground dark:hover:bg-muted/40 dark:hover:text-foreground"
+                        )}
+                      >
+                        {pendingHref === item.href ? (
+                          <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
+                        ) : (
+                          <Icon className="h-5 w-5 shrink-0" />
+                        )}
+                        {item.label}
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+              <div className="border-t border-kobipo-border pt-4 dark:border-border">
                 <Button
                   variant="ghost"
-                  className="w-full justify-start text-red-600 hover:text-red-600 hover:bg-red-50"
+                  className="w-full justify-start text-red-600 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
                   onClick={() => signOut({ callbackUrl: "/signin" })}
                 >
                   <LogOut className="h-5 w-5 mr-3" />

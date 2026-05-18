@@ -6,6 +6,8 @@ import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
+import { decryptSecret } from "@/lib/crypto/secrets"
+
 
 export const dynamic = 'force-dynamic'
 
@@ -38,10 +40,24 @@ export async function GET(request: Request) {
     }
 
     await ensureCompanyAccess(companyId)
-    const company = await prisma.company.findUnique({
-      where: { id: companyId },
-      select: { isEDonusumEnabled: true },
-    })
+const company = await prisma.company.findUnique({
+  where: { id: companyId },
+  select: { 
+    isEDonusumEnabled: true,
+    name: true,         
+    taxNumber: true,    
+    taxOffice: true,    
+    address: true,      
+    city: true,         
+    eDonusumIntegrator: true,
+    eDonusumProvider: true,
+    eDonusumApiUsername: true,
+    eDonusumApiPassword: true,
+    eDonusumApiUrl: true,
+    invoiceSeriesPrefix: true
+    
+  },
+})
     if (!company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 })
     }
@@ -124,10 +140,27 @@ export async function POST(request: Request) {
     }
 
     await ensureCompanyAccess(companyId)
-    const company = await prisma.company.findUnique({
-      where: { id: companyId },
-      select: { isEDonusumEnabled: true },
-    })
+
+const company = await prisma.company.findUnique({
+  where: { id: companyId },
+  select: { 
+    isEDonusumEnabled: true,
+    eDonusumIntegrator: true, 
+    eDonusumProvider: true,   
+    eDonusumApiUsername: true, 
+    eDonusumApiPassword: true, 
+    eDonusumApiUrl: true,
+    eDonusumTenantVkn: true,
+    invoiceSeriesPrefix: true,
+    eFaturaPrefix: true,
+    eArchivePrefix: true,
+    name: true,
+    taxNumber: true,
+    taxOffice: true,
+    address: true,
+    city: true,
+  },
+})
     if (!company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 })
     }
@@ -167,6 +200,14 @@ export async function POST(request: Request) {
         vatRate: parseFloat(item.vatRate) || 0,
         withholdingRate: parseFloat(item.withholdingRate) || 0,
         exciseRate: parseFloat(item.exciseRate) || 0,
+        taxExemptionReasonCode:
+          typeof item.taxExemptionReasonCode === "string" && item.taxExemptionReasonCode.trim()
+            ? item.taxExemptionReasonCode.trim()
+            : null,
+        taxExemptionReason:
+          typeof item.taxExemptionReason === "string" && item.taxExemptionReason.trim()
+            ? item.taxExemptionReason.trim()
+            : null,
       }))
 
     if (normalizedItems.length === 0) {
@@ -225,7 +266,7 @@ export async function POST(request: Request) {
         createdBy: user.id,
         items: {
           create: normalizedItems.map((item, index: number) => ({
-            productId: item.productId || null,
+            ...(item.productId ? { product: { connect: { id: item.productId } } } : {}),
             description: item.description,
             unit: item.unit,
             quantity: item.quantity,
@@ -241,6 +282,8 @@ export async function POST(request: Request) {
             totalAmount:
               (item.quantity * item.unitPrice - item.quantity * item.unitPrice * (item.discountRate / 100)) *
               (1 + item.vatRate / 100 + item.exciseRate / 100 - item.withholdingRate / 100),
+            taxExemptionReasonCode: item.taxExemptionReasonCode,
+            taxExemptionReason: item.taxExemptionReason,
             order: index,
           })),
         },
@@ -372,40 +415,85 @@ export async function POST(request: Request) {
     ) {
       try {
         assertEInvoiceRuntimeReady()
-        const provider = createEInvoiceProvider()
-        const invoiceData = {
-          invoiceNo: invoice.invoiceNo,
-          date: invoice.date,
-          dueDate: invoice.dueDate || undefined,
-          customer: invoice.customer
-            ? {
-                name: invoice.customer.name,
-                taxNumber: invoice.customer.taxNumber || undefined,
-                taxOffice: invoice.customer.taxOffice || undefined,
-                address: invoice.customer.address || undefined,
-                city: invoice.customer.city || undefined,
-                country: invoice.customer.country || undefined,
-              }
-            : undefined,
-          supplier: invoice.supplier
-            ? {
-                name: invoice.supplier.name,
-                taxNumber: invoice.supplier.taxNumber || undefined,
-                taxOffice: invoice.supplier.taxOffice || undefined,
-                address: invoice.supplier.address || undefined,
-                city: invoice.supplier.city || undefined,
-                country: invoice.supplier.country || undefined,
-              }
-            : undefined,
-          items: invoice.items.map((item) => ({
-            description: item.description,
-            quantity: Number(item.quantity),
-            unitPrice: Number(item.unitPrice),
-            vatRate: Number(item.vatRate),
-            productId: item.productId || undefined,
-          })),
-          notes: invoice.notes || undefined,
-        }
+        
+        // Şifreyi çöz
+        const plainPassword = company.eDonusumApiPassword ? decryptSecret(company.eDonusumApiPassword) : "";
+        
+        const tenantVkn = (company.eDonusumTenantVkn || "").replace(/\D/g, "")
+        const provider = createEInvoiceProvider({
+           providerName: "mysoft",
+           username: company.eDonusumApiUsername || "",
+           passwordText: plainPassword,
+           apiUrl: company.eDonusumApiUrl || undefined,
+           vknTckn: tenantVkn || undefined,
+        })
+
+// Belge tipine göre prefix seç:
+// E_INVOICE → eFaturaPrefix, E_ARCHIVE → eArchivePrefix
+// invoiceSeriesPrefix Kobipo iç fatura numarası içindir (SAT-2026-XXXX),
+// Mysoft numaratörü DEĞİL — buraya KARIŞTIRMA. Kullanıcı seçmediyse undefined geç:
+// provider Mysoft'tan aktif default numaratörü otomatik seçecek.
+const resolvedPrefix: string | undefined =
+  invoiceType === "E_INVOICE"
+    ? company.eFaturaPrefix || undefined
+    : company.eArchivePrefix || undefined
+
+const invoiceData = {
+  // Mysoft'a belge tipini açıkça gönder (EFATURA vs EARSIVFATURA seçimi için)
+  invoiceType,
+  prefix: resolvedPrefix,
+  tenantIdentifierNumber: tenantVkn || undefined,
+  // connectorGuid/pkAlias/gbAlias — Mysoft tenantIdentifierNumber'dan kendi
+  // seçer. Sample payload'dan gelen random/generic değerleri göndermiyoruz.
+  invoiceNo: invoice.invoiceNo,
+  date: invoice.date,
+  dueDate: invoice.dueDate || undefined,
+  // GÖNDEREN (Sistemi Kullanan Firma)
+  sender: {
+    name: company.name,
+    taxNumber: company.taxNumber,
+    taxOffice: company.taxOffice,
+    address: company.address,
+    city: company.city,
+  },
+  
+  // MÜŞTERİ (Faturanın Kesildiği Kişi/Firma)
+  customer: invoice.customer
+    ? {
+        name: invoice.customer.name,
+        taxNumber: invoice.customer.taxNumber || undefined,
+        taxOffice: invoice.customer.taxOffice || undefined,
+        address: invoice.customer.address || undefined,
+        city: invoice.customer.city || undefined,
+        country: invoice.customer.country || undefined,
+      }
+    : undefined,
+    
+  // TEDARİKÇİ (Alış Faturasıysa)
+  supplier: invoice.supplier
+    ? {
+        name: invoice.supplier.name,
+        taxNumber: invoice.supplier.taxNumber || undefined,
+        taxOffice: invoice.supplier.taxOffice || undefined,
+        address: invoice.supplier.address || undefined,
+        city: invoice.supplier.city || undefined,
+        country: invoice.supplier.country || undefined,
+      }
+    : undefined,
+    
+  // FATURA KALEMLERİ (Ürünler)
+  items: invoice.items.map((item) => ({
+    description: item.description,
+    quantity: Number(item.quantity),
+    unitPrice: Number(item.unitPrice),
+    vatRate: Number(item.vatRate),
+    productId: item.productId || undefined,
+    taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
+    taxExemptionReason: item.taxExemptionReason || undefined,
+  })),
+  
+  notes: invoice.notes || undefined,
+};
 
         const response = await provider.sendInvoice(invoiceData)
 
@@ -427,9 +515,22 @@ export async function POST(request: Request) {
           })
         }
         if (!response.success) {
+          const rawError: string = response.error || "UNKNOWN"
+          // Mysoft "numaratör bulunamadı" hatasını kullanıcıya açıklayıcı şekilde yansıt.
+          // UI tarafı bu mesajda "numaratör" geçtiğinde Seri No sayfasına CTA gösterir.
+          const lower = rawError.toLowerCase()
+          const isNumeratorError =
+            lower.includes("numaratör") ||
+            lower.includes("numarator") ||
+            lower.includes("aktif numaratör tanımlı değil")
+          const friendlyError = isNumeratorError
+            ? resolvedPrefix
+              ? `${rawError} → "${resolvedPrefix}" prefix'i Mysoft panelinde tanımlı/aktif değil. Seri No Tanımları sayfasından doğru prefix'i seçin veya yeni numaratör ekleyin.`
+              : `${rawError} Seri No Tanımları sayfasından bu belge tipi için aktif bir numaratör ekleyin.`
+            : rawError
           await prisma.invoice.update({
             where: { id: invoice.id },
-            data: { integrationStatus: `ERROR:${response.error || "UNKNOWN"}` },
+            data: { integrationStatus: `ERROR:${friendlyError}` },
           })
         }
       } catch (error) {
