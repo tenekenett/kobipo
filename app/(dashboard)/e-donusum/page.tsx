@@ -188,7 +188,11 @@ export default function EDönüşümPage() {
                 </TableRow>
               ) : (
                 invoices.map((invoice) => (
-                  <TableRow key={invoice.id}>
+                  <TableRow
+                    key={invoice.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => router.push(`/e-donusum/${invoice.id}?company=${companyId}`)}
+                  >
                     <TableCell className="font-medium">{invoice.invoiceNo}</TableCell>
                     <TableCell>
                       {invoice.type === "SALES"
@@ -227,7 +231,7 @@ export default function EDönüşümPage() {
                         {invoice.status === "SENT" ? "Gönderildi" : invoice.status === "DRAFT" ? "Taslak" : invoice.status}
                       </span>
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center space-x-2">
                         <Link href={`/e-donusum/${invoice.id}?company=${companyId}`}>
                           <Button variant="outline" size="sm">

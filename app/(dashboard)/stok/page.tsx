@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -41,6 +41,7 @@ interface Product {
 }
 
 export default function StokPage() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
@@ -402,7 +403,11 @@ export default function StokPage() {
                 </TableRow>
               ) : (
                 products.map((product) => (
-                  <TableRow key={product.id}>
+                  <TableRow
+                    key={product.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => router.push(`/stok/${product.id}?company=${companyId}`)}
+                  >
                     <TableCell>{product.code || "-"}</TableCell>
                     <TableCell className="font-medium">{product.name}</TableCell>
                     <TableCell>{product.barcode || "-"}</TableCell>
@@ -439,7 +444,7 @@ export default function StokPage() {
                         <span className="text-green-600">Ürün</span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex gap-1">
                         <Link href={`/stok/${product.id}?company=${companyId}`}>
                           <Button variant="ghost" size="sm">

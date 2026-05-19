@@ -327,7 +327,13 @@ export default function FaturalarPage() {
                   const remaining = Number(invoice.totalAmount) - totalPaid
 
                   return (
-                    <TableRow key={invoice.id}>
+                    <TableRow
+                      key={invoice.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() =>
+                        router.push(`/faturalar/${invoice.id}/onizleme?company=${companyId}`)
+                      }
+                    >
                       <TableCell className="font-medium">
                         {invoice.invoiceNo}
                       </TableCell>
@@ -354,7 +360,7 @@ export default function FaturalarPage() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <div className="flex gap-2">
                           <Link href={`/faturalar/${invoice.id}/onizleme?company=${companyId}`}>
                             <Button variant="outline" size="sm" title="Önizleme">

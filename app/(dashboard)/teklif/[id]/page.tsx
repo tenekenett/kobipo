@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { useParams, useSearchParams } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Loader2, Minus, Plus, Save } from "lucide-react"
+import { ArrowLeft, Building2, Download, FileText, Landmark, Loader2, Minus, Plus, Save } from "lucide-react"
 
 type QuoteItem = {
   id?: string
@@ -45,8 +45,41 @@ type QuoteDetail = {
   vatAmount: number
   totalAmount: number
   convertedInvoiceId?: string | null
-  customer?: { id: string; name: string } | null
+  customer?: {
+    id: string
+    name: string
+    taxNumber?: string | null
+    taxOffice?: string | null
+    address?: string | null
+    city?: string | null
+    phone?: string | null
+    email?: string | null
+  } | null
   items: QuoteItem[]
+}
+
+type CompanyInfo = {
+  id: string
+  name: string
+  taxNumber?: string | null
+  taxOffice?: string | null
+  address?: string | null
+  city?: string | null
+  phone?: string | null
+  email?: string | null
+  website?: string | null
+}
+
+type BankAccount = {
+  id: string
+  code?: string | null
+  name: string
+  type: string
+  bankName?: string | null
+  accountNumber?: string | null
+  iban?: string | null
+  currency: string
+  isActive: boolean
 }
 
 type ItemLine = {
@@ -81,6 +114,7 @@ function statusLabel(status: string) {
 
 export default function TeklifDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const searchParams = useSearchParams()
   const id = params.id as string
   const companyId = searchParams.get("company")
@@ -89,8 +123,12 @@ export default function TeklifDetailPage() {
   const [quote, setQuote] = useState<QuoteDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [converting, setConverting] = useState(false)
+  const [updatingStatus, setUpdatingStatus] = useState(false)
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([])
   const [products, setProducts] = useState<Array<{ id: string; name: string; salePrice?: number | null }>>([])
+  const [company, setCompany] = useState<CompanyInfo | null>(null)
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
 
   const [customerId, setCustomerId] = useState("")
   const [currency, setCurrency] = useState("TRY")
@@ -146,6 +184,12 @@ export default function TeklifDetailPage() {
     })
     fetch(`/api/stok/products?companyId=${companyId}`).then(async (res) => {
       if (res.ok) setProducts(await res.json())
+    })
+    fetch(`/api/companies/${companyId}`).then(async (res) => {
+      if (res.ok) setCompany(await res.json())
+    })
+    fetch(`/api/finans/accounts?companyId=${companyId}&type=BANK`).then(async (res) => {
+      if (res.ok) setBankAccounts(await res.json())
     })
   }, [companyId])
 
@@ -214,6 +258,67 @@ export default function TeklifDetailPage() {
     }
   }
 
+  function handleDownloadPdf() {
+    if (!quote) return
+    window.open(`/api/teklif/${quote.id}/pdf`, "_blank")
+  }
+
+  async function handleConvertToInvoice() {
+    if (!quote || !companyId) return
+    if (!confirm("Bu teklifi faturaya dönüştürmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return
+    setConverting(true)
+    try {
+      const res = await fetch(`/api/teklif/${quote.id}/faturaya-donustur`, { method: "POST" })
+      if (!res.ok) {
+        let message = "Dönüştürülemedi"
+        try {
+          const data = await res.json()
+          if (typeof data?.error === "string") message = data.error
+        } catch {
+          /* ignore */
+        }
+        toast({ title: "Hata", description: message, variant: "destructive" })
+        return
+      }
+      const invoice = await res.json()
+      toast({ title: "Fatura oluşturuldu" })
+      if (invoice?.id) {
+        router.push(`/faturalar/${invoice.id}/onizleme?company=${encodeURIComponent(companyId)}`)
+      } else {
+        await load()
+      }
+    } finally {
+      setConverting(false)
+    }
+  }
+
+  async function handleStatusChange(next: string) {
+    if (!quote || next === quote.status) return
+    setUpdatingStatus(true)
+    try {
+      const res = await fetch(`/api/teklif/${quote.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: next }),
+      })
+      if (!res.ok) {
+        let message = "Güncellenemedi"
+        try {
+          const data = await res.json()
+          if (typeof data?.error === "string") message = data.error
+        } catch {
+          /* ignore */
+        }
+        toast({ title: "Hata", description: message, variant: "destructive" })
+        return
+      }
+      toast({ title: "Durum güncellendi" })
+      await load()
+    } finally {
+      setUpdatingStatus(false)
+    }
+  }
+
   if (!companyId) {
     return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
   }
@@ -251,12 +356,136 @@ export default function TeklifDetailPage() {
           </Link>
         </Button>
         <h1 className="text-2xl font-bold">{quote.quoteNo}</h1>
-        <Badge variant="secondary">{statusLabel(quote.status)}</Badge>
-        {quote.convertedInvoiceId && (
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/faturalar/${quote.convertedInvoiceId}/onizleme${companyQs}`}>Faturayı aç</Link>
-          </Button>
+        {quote.status === "CONVERTED" ? (
+          <Badge variant="secondary">{statusLabel(quote.status)}</Badge>
+        ) : (
+          <Select
+            value={quote.status}
+            disabled={updatingStatus}
+            onValueChange={handleStatusChange}
+          >
+            <SelectTrigger className="h-8 w-[150px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="DRAFT">Taslak</SelectItem>
+              <SelectItem value="SENT">Gönderildi</SelectItem>
+              <SelectItem value="APPROVED">Onaylandı</SelectItem>
+              <SelectItem value="REJECTED">Reddedildi</SelectItem>
+              <SelectItem value="EXPIRED">Süresi doldu</SelectItem>
+            </SelectContent>
+          </Select>
         )}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {quote.convertedInvoiceId ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/faturalar/${quote.convertedInvoiceId}/onizleme${companyQs}`}>
+                <FileText className="mr-2 h-4 w-4" />
+                Faturayı aç
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleConvertToInvoice}
+              disabled={converting}
+            >
+              {converting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="mr-2 h-4 w-4" />
+              )}
+              Faturaya Dönüştür
+            </Button>
+          )}
+          <Button onClick={handleDownloadPdf} size="sm">
+            <Download className="mr-2 h-4 w-4" />
+            PDF İndir
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-2 space-y-0">
+            <Building2 className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-base">Firma Bilgileri</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            {company ? (
+              <>
+                <p className="text-base font-semibold">{company.name}</p>
+                {company.taxNumber && (
+                  <p className="text-muted-foreground">
+                    VKN: {company.taxNumber}
+                    {company.taxOffice ? ` / ${company.taxOffice}` : ""}
+                  </p>
+                )}
+                {company.address && (
+                  <p className="text-muted-foreground">{company.address}</p>
+                )}
+                {company.city && (
+                  <p className="text-muted-foreground">{company.city}</p>
+                )}
+                {company.phone && (
+                  <p className="text-muted-foreground">Tel: {company.phone}</p>
+                )}
+                {company.email && (
+                  <p className="text-muted-foreground">E-posta: {company.email}</p>
+                )}
+                {company.website && (
+                  <p className="text-muted-foreground">{company.website}</p>
+                )}
+              </>
+            ) : (
+              <p className="text-muted-foreground">Firma bilgileri yükleniyor…</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-2 space-y-0">
+            <Landmark className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-base">Banka Hesapları</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {bankAccounts.length === 0 ? (
+              <p className="text-muted-foreground">
+                Aktif banka hesabı tanımlı değil.{" "}
+                <Link
+                  href={`/finans?company=${encodeURIComponent(companyId)}`}
+                  className="text-primary hover:underline"
+                >
+                  Finans hesaplarından
+                </Link>{" "}
+                ekleyebilirsiniz.
+              </p>
+            ) : (
+              bankAccounts.map((acc) => (
+                <div key={acc.id} className="rounded-md border p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium">{acc.name}</p>
+                      {acc.bankName && (
+                        <p className="text-xs text-muted-foreground">{acc.bankName}</p>
+                      )}
+                    </div>
+                    <Badge variant="outline">{acc.currency}</Badge>
+                  </div>
+                  {acc.iban && (
+                    <p className="mt-2 font-mono text-xs">IBAN: {acc.iban}</p>
+                  )}
+                  {!acc.iban && acc.accountNumber && (
+                    <p className="mt-2 font-mono text-xs">
+                      Hesap No: {acc.accountNumber}
+                    </p>
+                  )}
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <Card>

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -70,6 +70,7 @@ interface Customer {
 }
 
 export default function CariPage() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const tabQuery = searchParams.get("tab")
@@ -316,7 +317,13 @@ export default function CariPage() {
                   </TableRow>
                 ) : (
                   currentData.map((item) => (
-                    <TableRow key={item.id}>
+                    <TableRow
+                      key={item.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() =>
+                        router.push(`/cari/${activeTab}/${item.id}?company=${companyId}`)
+                      }
+                    >
                       <TableCell>{item.code || "-"}</TableCell>
                       <TableCell className="font-medium">{item.name}</TableCell>
                       <TableCell>{item.taxNumber || "-"}</TableCell>
@@ -334,7 +341,7 @@ export default function CariPage() {
                           ? currencyFormatter.format(item.balance)
                           : "-"}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <div className="flex gap-1">
                           <Link href={`/cari/${activeTab}/${item.id}?company=${companyId}`}>
                             <Button variant="ghost" size="sm">

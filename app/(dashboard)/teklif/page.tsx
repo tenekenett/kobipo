@@ -204,46 +204,6 @@ export default function TeklifPage() {
     }
   }
 
-  async function convertToInvoice(quoteId: string) {
-    const res = await fetch(`/api/teklif/${quoteId}/faturaya-donustur`, { method: "POST" })
-    if (res.ok) {
-      const invoice = await res.json()
-      toast({ title: "Fatura oluşturuldu" })
-      fetchQuotes()
-      if (invoice?.id && companyId) {
-        router.push(`/faturalar/${invoice.id}/onizleme?company=${companyId}`)
-      }
-    } else {
-      let message = "Dönüştürülemedi"
-      try {
-        const data = await res.json()
-        if (typeof data?.error === "string") message = data.error
-      } catch {
-        /* ignore */
-      }
-      toast({ title: "Hata", description: message, variant: "destructive" })
-    }
-  }
-
-  async function updateStatus(quoteId: string, status: string) {
-    const res = await fetch(`/api/teklif/${quoteId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    })
-    if (res.ok) fetchQuotes()
-    else {
-      let message = "Güncellenemedi"
-      try {
-        const data = await res.json()
-        if (typeof data?.error === "string") message = data.error
-      } catch {
-        /* ignore */
-      }
-      toast({ title: "Hata", description: message, variant: "destructive" })
-    }
-  }
-
   async function removeQuote(quoteId: string) {
     if (!confirm("Bu teklifi silmek istediğinize emin misiniz?")) return
     const res = await fetch(`/api/teklif/${quoteId}`, { method: "DELETE" })
@@ -463,16 +423,21 @@ export default function TeklifPage() {
                   <TableHead>Müşteri</TableHead>
                   <TableHead>Durum</TableHead>
                   <TableHead className="text-right">Toplam</TableHead>
-                  <TableHead className="w-[280px]">İşlem</TableHead>
+                  <TableHead className="w-[100px] text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {quotes.map((quote) => (
-                  <TableRow key={quote.id}>
+                  <TableRow
+                    key={quote.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => router.push(`/teklif/${quote.id}${companyQs}`)}
+                  >
                     <TableCell className="font-medium">
                       <Link
                         href={`/teklif/${quote.id}${companyQs}`}
                         className="text-primary hover:underline"
+                        onClick={(e) => e.stopPropagation()}
                       >
                         {quote.quoteNo}
                       </Link>
@@ -488,42 +453,23 @@ export default function TeklifPage() {
                     <TableCell className="text-right font-medium">
                       {Number(quote.totalAmount).toFixed(2)} {quote.currency || "TRY"}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-1">
-                        <Button size="sm" variant="outline" asChild>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button size="sm" variant="ghost" asChild title="Detayı aç">
                           <Link href={`/teklif/${quote.id}${companyQs}`}>
                             <Eye className="h-4 w-4" />
                           </Link>
-                        </Button>
-                        <Select
-                          value={quote.status}
-                          disabled={quote.status === "CONVERTED"}
-                          onValueChange={(value) => updateStatus(quote.id, value)}
-                        >
-                          <SelectTrigger className="h-8 w-[130px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="DRAFT">Taslak</SelectItem>
-                            <SelectItem value="SENT">Gönderildi</SelectItem>
-                            <SelectItem value="APPROVED">Onaylandı</SelectItem>
-                            <SelectItem value="REJECTED">Reddedildi</SelectItem>
-                            <SelectItem value="EXPIRED">Süresi doldu</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={quote.status === "CONVERTED"}
-                          onClick={() => convertToInvoice(quote.id)}
-                        >
-                          Faturaya
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
                           disabled={quote.status === "CONVERTED"}
                           onClick={() => removeQuote(quote.id)}
+                          title={
+                            quote.status === "CONVERTED"
+                              ? "Faturalanmış teklif silinemez"
+                              : "Sil"
+                          }
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
