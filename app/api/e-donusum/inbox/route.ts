@@ -1,0 +1,153 @@
+import { NextResponse } from "next/server"
+import { getCurrentUser } from "@/lib/auth/session"
+import { prisma } from "@/lib/db/prisma"
+import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
+import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
+import { decryptSecret } from "@/lib/crypto/secrets"
+
+export const dynamic = "force-dynamic"
+
+/**
+ * Gelen e-fatura listesi.
+ *
+ * Default kaynak: DB (önceden sync ile çekilmiş kayıtlar). Hızlıdır, paginate edilebilir.
+ * source=live verilirse Mysoft'a canlı çağrı yapar — DB'ye yazmaz, ham snapshot döner.
+ *
+ * Query params:
+ *  - companyId   (zorunlu)
+ *  - source      ("db" default | "live")
+ *  - status      ("KABUL" | "RED" | ...) DB modunda filtre
+ *  - days        DB modunda son N gün; live modda çağrı aralığı (default 30)
+ *  - startDate   ISO; verilirse days override
+ *  - endDate     ISO
+ *  - raw         "1" → live modda Mysoft ham JSON da döner
+ */
+export async function GET(request: Request) {
+  try {
+    const user = await getCurrentUser()
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const url = new URL(request.url)
+    const companyId = url.searchParams.get("companyId")
+    if (!companyId) {
+      return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
+    }
+
+    await ensureCompanyAccess(companyId)
+
+    const source = url.searchParams.get("source") === "live" ? "live" : "db"
+    const days = Number(url.searchParams.get("days") || "30")
+    const endParam = url.searchParams.get("endDate")
+    const startParam = url.searchParams.get("startDate")
+    const end = endParam ? new Date(endParam) : new Date()
+    const start = startParam
+      ? new Date(startParam)
+      : new Date(end.getTime() - Math.max(1, days) * 24 * 60 * 60 * 1000)
+
+    if (source === "db") {
+      const status = url.searchParams.get("status") || undefined
+      const records = await prisma.incomingInvoice.findMany({
+        where: {
+          companyId,
+          docDate: { gte: start, lte: end },
+          ...(status ? { status } : {}),
+        },
+        orderBy: { docDate: "desc" },
+        take: 500,
+      })
+      return NextResponse.json({
+        source: "db",
+        dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
+        count: records.length,
+        data: records.map((r) => ({
+          id: r.id,
+          uuid: r.uuid,
+          invoiceNo: r.invoiceNo,
+          date: r.docDate ? r.docDate.toISOString() : null,
+          sender: { name: r.senderName, taxNumber: r.senderTaxNumber },
+          profile: r.profile,
+          invoiceType: r.invoiceType,
+          currency: r.currencyCode,
+          taxExclusiveAmount: r.taxExclusiveAmount,
+          vatAmount: r.vatAmount,
+          totalAmount: r.payableAmount,
+          status: r.status,
+          envelopeStatusCode: r.envelopeStatusCode,
+          envelopeStatusDesc: r.envelopeStatusDesc,
+          isArchived: r.isArchived,
+          isLinkedToPurchase: r.isLinkedToPurchase,
+          linkedInvoiceId: r.linkedInvoiceId,
+          syncedAt: r.syncedAt.toISOString(),
+        })),
+      })
+    }
+
+    // source = live → Mysoft canlı (DB yazımı yok)
+    assertEInvoiceRuntimeReady()
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        eDonusumApiUsername: true,
+        eDonusumApiPassword: true,
+        eDonusumApiUrl: true,
+        eDonusumTenantVkn: true,
+      },
+    })
+    if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) {
+      return NextResponse.json(
+        { error: "Önce E-Dönüşüm Ayarları'na API kullanıcı adı/şifresini yazıp kaydedin." },
+        { status: 400 },
+      )
+    }
+
+    let passwordText: string
+    try {
+      passwordText = decryptSecret(company.eDonusumApiPassword)
+    } catch {
+      return NextResponse.json(
+        { error: "Kayıtlı şifre çözülemedi. Şifreyi tekrar girip kaydedin." },
+        { status: 400 },
+      )
+    }
+
+    const provider = new MysoftEInvoiceProvider({
+      username: company.eDonusumApiUsername,
+      passwordText,
+      baseUrl: company.eDonusumApiUrl || undefined,
+      vknTckn: company.eDonusumTenantVkn || undefined,
+    })
+
+    const wantRaw = url.searchParams.get("raw") === "1"
+    const result = await provider.listIncomingInvoices({
+      startDate: start,
+      endDate: end,
+      raw: wantRaw,
+    })
+
+    if (!result.success) {
+      return NextResponse.json(
+        { error: result.error, rawResponse: result.rawResponse ?? null },
+        { status: 400 },
+      )
+    }
+
+    return NextResponse.json({
+      source: "live",
+      dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
+      count: result.data.length,
+      data: result.data,
+      rawResponse: wantRaw ? result.rawResponse ?? null : undefined,
+    })
+  } catch (error: any) {
+    const message: string = typeof error?.message === "string" ? error.message : ""
+    if (message.toLowerCase().includes("access denied")) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+    console.error("inbox route error:", error)
+    return NextResponse.json(
+      { error: message || "Gelen fatura listesi alınırken hata oluştu." },
+      { status: 500 },
+    )
+  }
+}

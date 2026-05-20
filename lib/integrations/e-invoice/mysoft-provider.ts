@@ -445,8 +445,152 @@ async sendInvoice(invoiceData: any): Promise<any> {
     }
   }
 
-  async getIncomingInvoices(params: any): Promise<any[]> {
-    return [];
+  /**
+   * EInvoiceProvider interface uyumu için stub — gerçek listeleme
+   * listIncomingInvoices() üzerinden yapılır (zengin tip + raw response).
+   */
+  async getIncomingInvoices(_params: any): Promise<any[]> {
+    return []
+  }
+
+  /**
+   * Mysoft'tan gelen (alıcı tarafa düşen) e-faturaları çeker.
+   *
+   * Swagger v8: POST /api/InvoiceInbox/getInvoiceInboxWithHeaderInfoListForPeriod
+   * Header info'lu varyantı seçtik — döküman özet bilgileri (gönderici VKN, isim,
+   * tutarlar, tarih, vs.) item içinde bir kerede gelir. Diğer alternatif paging'li
+   * versiyon (...ForPeriodPaging) — şimdilik ihtiyaç yok.
+   *
+   * Bu metod DB'ye yazmaz, yalnızca ham veriyi mapper'dan geçirir. Test hesabında
+   * inbox boş olabilir — { success: true, data: [] } dönmesi normaldir.
+   */
+  async listIncomingInvoices(params: {
+    startDate?: Date
+    endDate?: Date
+    raw?: boolean
+  } = {}): Promise<
+    | {
+        success: true
+        data: Array<{
+          uuid: string
+          invoiceNo: string | null
+          date: string | null
+          totalAmount: number | null
+          taxExclusiveAmount: number | null
+          taxInclusiveAmount: number | null
+          vatAmount: number | null
+          netAmount: number | null
+          currency: string | null
+          currencyRate: number | null
+          status: string | null
+          invoiceType: string | null
+          profile: string | null
+          envelopeStatusCode: string | null
+          envelopeStatusDesc: string | null
+          isArchived: boolean
+          sender: { name: string | null; taxNumber: string | null }
+          raw: Record<string, any>
+        }>
+        rawResponse?: any
+      }
+    | { success: false; error: string; rawResponse?: any }
+  > {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const end = params.endDate || new Date()
+      const start = params.startDate || new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+      const url = `${this.baseUrl}/api/InvoiceInbox/getInvoiceInboxWithHeaderInfoListForPeriod`
+      const body = {
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+      }
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      })
+
+      const result = await res.json().catch(() => null)
+      if (!result || result.succeed === false) {
+        return {
+          success: false,
+          error: result?.message || `HTTP ${res.status}`,
+          rawResponse: result,
+        }
+      }
+
+      const items: any[] = Array.isArray(result.data)
+        ? result.data
+        : Array.isArray(result.data?.items)
+        ? result.data.items
+        : []
+
+      // Defensive mapping — Mysoft'un farklı sürümlerinde alan isimleri değişebiliyor.
+      // Yaygın olası isimlerin hepsini deniyor, ilk dolu olanı kullanıyoruz. Ham JSON
+      // ayrıca raw alanında saklanıyor (debug için).
+      const pick = (obj: any, ...keys: string[]): any => {
+        for (const k of keys) {
+          if (obj && obj[k] !== undefined && obj[k] !== null && obj[k] !== "") return obj[k]
+        }
+        return null
+      }
+      const num = (v: any): number | null => {
+        if (v === null || v === undefined || v === "") return null
+        const n = typeof v === "string" ? Number(v.replace(",", ".")) : Number(v)
+        return Number.isFinite(n) ? n : null
+      }
+
+      // Gerçek Mysoft InvoiceInbox şemasına göre mapping (v8 test ortamından doğrulandı):
+      //  - Gönderici VKN: root.vknTckn (nested sender objesi YOK)
+      //  - Gönderici İsim: root.accountName
+      //  - UUID: root.ettn (outbox'taki invoiceETTN değil — sadece "ettn")
+      //  - Toplam: root.payableAmount, KDV: root.taxTotalTra
+      //  - Net (KDV hariç): root.taxExclusiveAmount, Brüt: root.taxInclusiveAmount
+      const mapped = items.map((item: any) => ({
+        uuid: String(pick(item, "ettn", "invoiceETTN", "invoiceEttn", "uuid") ?? ""),
+        invoiceNo: pick(item, "docNo", "documentNo", "invoiceNo") as string | null,
+        date: pick(item, "docDate", "documentDate", "invoiceDate", "issueDate") as string | null,
+        totalAmount: num(pick(item, "payableAmount", "payableAmountTra", "totalAmount")),
+        taxExclusiveAmount: num(pick(item, "taxExclusiveAmount", "amtTra", "netAmount")),
+        taxInclusiveAmount: num(pick(item, "taxInclusiveAmount")),
+        vatAmount: num(pick(item, "taxTotalTra", "amtVatTra", "vatAmount", "totalVatAmount")),
+        netAmount: num(pick(item, "taxExclusiveAmount", "lineExtensionAmount", "netAmount")),
+        currency: pick(item, "currencyCode", "currency") as string | null,
+        currencyRate: num(pick(item, "currencyRate")),
+        status: pick(item, "invoiceStatusText", "envelopeStatusText", "status") as string | null,
+        invoiceType: pick(item, "invoiceType") as string | null,
+        profile: pick(item, "profile") as string | null,
+        envelopeStatusCode: pick(item, "envelopeStatusCode") as string | null,
+        envelopeStatusDesc: pick(item, "envelopeStatusDesc") as string | null,
+        isArchived: Boolean(pick(item, "isArchived")),
+        sender: {
+          name: pick(item, "accountName", "senderName", "senderTitle") as string | null,
+          taxNumber: pick(
+            item,
+            "vknTckn",
+            "senderVknTckn",
+            "senderVkn",
+            "senderTaxNumber",
+          ) as string | null,
+        },
+        raw: item,
+      }))
+
+      return {
+        success: true,
+        data: mapped,
+        rawResponse: params.raw ? result : undefined,
+      }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen hata" }
+    }
   }
 
   private async getToken(): Promise<string | null> {
@@ -619,6 +763,50 @@ async sendInvoice(invoiceData: any): Promise<any> {
       return { success: true, message: result?.message || "Fatura iptal edildi." };
     } catch (error: any) {
       return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." };
+    }
+  }
+
+  /**
+   * Gelen e-fatura için resmî GİB PDF'i Mysoft Inbox'tan indirir.
+   *
+   * Swagger v8: GET /api/InvoiceInbox/getInvoiceInboxPdfAsZip?invoiceETTN={uuid}
+   * Yanıt: StringResultModel { data: base64-zip } — zip içinde .pdf dosyası.
+   * Outbox tarafındaki getInvoicePdf ile aynı kalıp.
+   */
+  async getIncomingInvoicePdf(
+    uuid: string,
+  ): Promise<{ success: true; pdfBuffer: Buffer } | { success: false; error: string }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const url = new URL(`${this.baseUrl}/api/InvoiceInbox/getInvoiceInboxPdfAsZip`)
+      url.searchParams.set("invoiceETTN", uuid)
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      })
+
+      const result = await res.json()
+      if (!result?.succeed || !result?.data) {
+        return { success: false, error: result?.message || "PDF alınamadı." }
+      }
+
+      const zipBuffer = Buffer.from(result.data, "base64")
+      const JSZip = (await import("jszip")).default
+      const zip = await JSZip.loadAsync(zipBuffer)
+      const pdfEntry = Object.values(zip.files).find(
+        (f) => !f.dir && f.name.toLowerCase().endsWith(".pdf"),
+      )
+      if (!pdfEntry) return { success: false, error: "Zip içinde PDF bulunamadı." }
+      const pdfBuffer = await pdfEntry.async("nodebuffer")
+      return { success: true, pdfBuffer }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "PDF indirilirken hata oluştu." }
     }
   }
 

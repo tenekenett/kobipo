@@ -57,8 +57,13 @@ export const allNavItems: NavItemDef[] = [
     roles: ALL_ROLES,
   },
 
-  // Satış
+  // Faturalar — birleşik bakış + tüm fatura tipleri tek başlık altında
+  { href: "/faturalar", label: "Faturalar", icon: FileText, roles: ["ADMIN", "ACCOUNTANT", "SALES"] },
   { href: "/satis/fatura", label: "Satış Faturası", icon: Receipt, roles: ["ADMIN", "ACCOUNTANT", "SALES"] },
+  { href: "/alis/fatura", label: "Alış Faturası", icon: Receipt, roles: ["ADMIN", "ACCOUNTANT"] },
+  { href: "/alis/gelen-e-faturalar", label: "Gelen E-Faturalar", icon: Inbox, roles: ["ADMIN", "ACCOUNTANT"] },
+
+  // Satış
   { href: "/cari/musteri", label: "Müşteri", icon: Users, roles: ["ADMIN", "ACCOUNTANT", "SALES"] },
   { href: "/satis/irsaliye", label: "Satış İrsaliyesi", icon: Truck, roles: ["ADMIN", "ACCOUNTANT", "SALES", "STOCK"] },
   { href: "/satis/siparis", label: "Satış Siparişi", icon: ClipboardList, roles: ["ADMIN", "ACCOUNTANT", "SALES"] },
@@ -66,8 +71,6 @@ export const allNavItems: NavItemDef[] = [
   { href: "/teklif", label: "Teklif", icon: ScrollText, roles: ["ADMIN", "ACCOUNTANT", "SALES"] },
 
   // Alış
-  { href: "/alis/fatura", label: "Alış Faturası", icon: Receipt, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/alis/gelen-e-faturalar", label: "Gelen E-Faturalar", icon: Inbox, roles: ["ADMIN", "ACCOUNTANT"] },
   { href: "/cari/tedarikci", label: "Tedarikçi", icon: UserRound, roles: ["ADMIN", "ACCOUNTANT"] },
   { href: "/alis/irsaliye", label: "Alış İrsaliyesi", icon: Truck, roles: ["ADMIN", "ACCOUNTANT", "STOCK"] },
   { href: "/alis/siparis", label: "Alış Siparişi", icon: ClipboardList, roles: ["ADMIN", "ACCOUNTANT"] },
@@ -123,9 +126,17 @@ export const allNavItems: NavItemDef[] = [
 
 export const navGroups: Array<{ title: string; hrefs: string[] }> = [
   {
+    title: "Faturalar",
+    hrefs: [
+      "/faturalar",
+      "/satis/fatura",
+      "/alis/fatura",
+      "/alis/gelen-e-faturalar",
+    ],
+  },
+  {
     title: "Satış",
     hrefs: [
-      "/satis/fatura",
       "/cari/musteri",
       "/satis/irsaliye",
       "/satis/siparis",
@@ -136,8 +147,6 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
   {
     title: "Alış",
     hrefs: [
-      "/alis/fatura",
-      "/alis/gelen-e-faturalar",
       "/cari/tedarikci",
       "/alis/irsaliye",
       "/alis/siparis",

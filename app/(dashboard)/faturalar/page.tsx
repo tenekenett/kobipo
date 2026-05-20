@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,25 +12,47 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/use-toast"
-import { Eye, Plus, FileText, Pencil, Trash2, ShieldCheck, Loader2, FileDown } from "lucide-react"
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Eye,
+  FileText,
+  FileDown,
+  Inbox,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react"
 import Link from "next/link"
 
-interface Invoice {
+interface FaturaRow {
   id: string
-  invoiceNo: string
-  type: string
-  status: string
-  date: string
-  dueDate?: string
-  totalAmount: number
-  uuid?: string | null
-  invoiceType?: string
-  integrationStatus?: string | null
-  customer?: { name: string }
-  supplier?: { name: string }
-  payments?: Array<{ amount: number }>
+  direction: "incoming" | "outgoing"
+  source: "mysoft_inbox" | "manual_purchase" | "manual_sales"
+  date: string | null
+  invoiceNo: string | null
+  uuid: string | null
+  counterparty: { name: string | null; taxNumber: string | null }
+  currency: string | null
+  netAmount: number | null
+  vatAmount: number | null
+  totalAmount: number | null
+  status: string | null
+  profile: string | null
+  invoiceType: string | null
+  meta: Record<string, any>
+}
+
+interface Totals {
+  all: { count: number; sum: number }
+  incoming: { count: number; sum: number }
+  outgoing: { count: number; sum: number }
 }
 
 interface Company {
@@ -38,199 +60,121 @@ interface Company {
   isEDonusumEnabled?: boolean
 }
 
+const directionTabs = [
+  { value: "all" as const, label: "Hepsi", icon: FileText },
+  { value: "incoming" as const, label: "Gelen", icon: ArrowDownToLine },
+  { value: "outgoing" as const, label: "Giden", icon: ArrowUpFromLine },
+]
+
 export default function FaturalarPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const companyId = searchParams.get("company")
-  const typeFilter = searchParams.get("type")?.toUpperCase()
   const { toast } = useToast()
-  
-  const [invoices, setInvoices] = useState<Invoice[]>([])
+
+  const [rows, setRows] = useState<FaturaRow[]>([])
+  const [totals, setTotals] = useState<Totals>({
+    all: { count: 0, sum: 0 },
+    incoming: { count: 0, sum: 0 },
+    outgoing: { count: 0, sum: 0 },
+  })
   const [company, setCompany] = useState<Company | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [listError, setListError] = useState<string | null>(null)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [direction, setDirection] = useState<"all" | "incoming" | "outgoing">("all")
+  const [days, setDays] = useState(90)
+  const [search, setSearch] = useState("")
   const [checkingStatusId, setCheckingStatusId] = useState<string | null>(null)
   const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null)
+  const [downloadingInboxPdfUuid, setDownloadingInboxPdfUuid] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (companyId) {
-      fetchInvoices()
-      fetchCompany()
-    }
-  }, [companyId])
-
-  const fetchCompany = async () => {
+  const fetchCompany = useCallback(async () => {
     if (!companyId) return
     try {
       const response = await fetch("/api/companies")
       if (!response.ok) return
       const companies = (await response.json()) as Company[]
       setCompany(companies.find((item) => item.id === companyId) || null)
-    } catch (error) {
-      console.error("Error fetching company:", error)
+    } catch {
+      // ignore
     }
-  }
+  }, [companyId])
 
-  const fetchInvoices = async () => {
+  const fetchList = useCallback(async () => {
     if (!companyId) return
     setIsLoading(true)
-    setListError(null)
     try {
-      const response = await fetch(`/api/e-donusum/invoices?companyId=${companyId}`)
-      if (response.ok) {
-        const data = (await response.json()) as Invoice[]
-        setInvoices(data)
+      const params = new URLSearchParams({
+        companyId,
+        direction,
+        days: String(days),
+      })
+      if (search.trim()) params.set("search", search.trim())
+      const res = await fetch(`/api/faturalar?${params.toString()}`)
+      const data = await res.json()
+      if (!res.ok) {
+        toast({
+          title: "Faturalar yüklenemedi",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+        setRows([])
         return
       }
-      const body = await response.json().catch(() => ({}))
-      const msg =
-        response.status === 401
-          ? "Oturum süresi dolmuş olabilir. Lütfen tekrar giriş yapın."
-          : body.error || `Faturalar yüklenemedi (${response.status}).`
-      setListError(msg)
-      setInvoices([])
-      toast({
-        title: "Faturalar yüklenemedi",
-        description: msg,
-        variant: "destructive",
-      })
-    } catch (error) {
-      console.error("Error fetching invoices:", error)
-      setListError("Faturalar yüklenirken bir hata oluştu.")
-      setInvoices([])
+      setRows(data.data || [])
+      setTotals(data.totals || totals)
+    } catch (e: any) {
       toast({
         title: "Hata",
-        description: "Faturalar yüklenirken bir hata oluştu",
+        description: e?.message || "Liste yüklenirken hata",
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, direction, days, search, toast])
 
-  const handleDownloadGibPdf = async (invoiceId: string, invoiceNo: string) => {
-    setDownloadingPdfId(invoiceId)
+  useEffect(() => {
+    fetchCompany()
+  }, [fetchCompany])
+
+  useEffect(() => {
+    fetchList()
+  }, [fetchList])
+
+  const handleSyncInbox = async () => {
+    if (!companyId) return
+    setIsSyncing(true)
     try {
-      const response = await fetch(`/api/e-donusum/invoices/${invoiceId}/pdf`)
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
+      const res = await fetch("/api/e-donusum/inbox/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, days }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
         toast({
-          title: "PDF indirilemedi",
+          title: "Senkronizasyon başarısız",
           description: data.error || "Bilinmeyen hata",
           variant: "destructive",
         })
         return
       }
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `Fatura_${invoiceNo}_GIB.pdf`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      toast({ title: "Resmî PDF indirildi" })
-    } catch (error: any) {
+      toast({
+        title: "Mysoft Inbox senkronize edildi",
+        description: `${data.fetched} kayıt · ${data.inserted} yeni · ${data.updated} güncel`,
+      })
+      await fetchList()
+    } catch (e: any) {
       toast({
         title: "Hata",
-        description: error?.message || "PDF indirilirken hata oluştu",
+        description: e?.message || "Sync sırasında hata",
         variant: "destructive",
       })
     } finally {
-      setDownloadingPdfId(null)
+      setIsSyncing(false)
     }
-  }
-
-  const handleCheckStatus = async (invoiceId: string) => {
-    setCheckingStatusId(invoiceId)
-    try {
-      const response = await fetch(`/api/e-donusum/invoices/${invoiceId}/check-status`, {
-        method: "POST",
-      })
-      const data = await response.json()
-      if (response.ok) {
-        toast({
-          title: `Durum: ${data.message}`,
-          description: data.rawText ? `Mysoft kodu: ${data.rawText}` : undefined,
-        })
-        fetchInvoices()
-      } else {
-        toast({
-          title: "Sorgulanamadı",
-          description: data.error || "Bilinmeyen hata",
-          variant: "destructive",
-        })
-      }
-    } catch (error: any) {
-      toast({
-        title: "Hata",
-        description: error?.message || "Durum sorgulanırken bir hata oluştu",
-        variant: "destructive",
-      })
-    } finally {
-      setCheckingStatusId(null)
-    }
-  }
-
-  const handleDeleteInvoice = async (invoiceId: string) => {
-    if (!confirm("Bu faturayı silmek/iptal etmek istediğinize emin misiniz? (Bu işlem stokları ve bakiyeleri geri alacaktır)")) {
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/e-donusum/invoices/${invoiceId}?companyId=${companyId}`, {
-        method: "DELETE",
-      })
-
-      if (response.ok) {
-        toast({
-          title: "Başarılı",
-          description: "Fatura başarıyla silindi.",
-        })
-        fetchInvoices() // Listeyi yenile
-      } else {
-        const data = await response.json()
-        toast({
-          title: "Hata",
-          description: data.error || "Fatura silinemedi",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      toast({
-        title: "Hata",
-        description: "Silme işlemi sırasında bir hata oluştu",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const getPaymentStatus = (invoice: Invoice) => {
-    const totalPaid = invoice.payments?.reduce(
-      (sum, p) => sum + Number(p.amount),
-      0
-    ) || 0
-    const remaining = Number(invoice.totalAmount) - totalPaid
-
-    if (remaining <= 0) {
-      return { status: "ODENMIS", label: "Ödendi", variant: "default" as const }
-    } else if (totalPaid > 0) {
-      return { status: "KISMEN_ODENDI", label: "Kısmen Ödendi", variant: "secondary" as const }
-    } else {
-      return { status: "ODENMEDI", label: "Ödenmedi", variant: "destructive" as const }
-    }
-  }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("tr-TR", {
-      style: "currency",
-      currency: "TRY",
-    }).format(amount)
-  }
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("tr-TR")
   }
 
   const handleCreateInvoice = () => {
@@ -242,8 +186,138 @@ export default function FaturalarPage() {
     router.push(target)
   }
 
-  const invoiceTypeLabel = (type: string) =>
-    type === "SALES" ? "Satış" : type === "PURCHASE" ? "Alış" : type === "RETURN" ? "İade" : type
+  const handleDeleteInvoice = async (rawInvoiceId: string) => {
+    if (
+      !confirm(
+        "Bu faturayı silmek/iptal etmek istediğinize emin misiniz? (Bu işlem stokları ve bakiyeleri geri alacaktır)",
+      )
+    ) {
+      return
+    }
+    try {
+      const res = await fetch(
+        `/api/e-donusum/invoices/${rawInvoiceId}?companyId=${companyId}`,
+        { method: "DELETE" },
+      )
+      if (res.ok) {
+        toast({ title: "Başarılı", description: "Fatura silindi." })
+        fetchList()
+      } else {
+        const data = await res.json()
+        toast({
+          title: "Hata",
+          description: data.error || "Fatura silinemedi",
+          variant: "destructive",
+        })
+      }
+    } catch {
+      toast({
+        title: "Hata",
+        description: "Silme işlemi sırasında bir hata oluştu",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleCheckStatus = async (rawInvoiceId: string) => {
+    setCheckingStatusId(rawInvoiceId)
+    try {
+      const res = await fetch(`/api/e-donusum/invoices/${rawInvoiceId}/check-status`, {
+        method: "POST",
+      })
+      const data = await res.json()
+      if (res.ok) {
+        toast({
+          title: `Durum: ${data.message}`,
+          description: data.rawText ? `Mysoft kodu: ${data.rawText}` : undefined,
+        })
+        fetchList()
+      } else {
+        toast({
+          title: "Sorgulanamadı",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+      }
+    } catch (e: any) {
+      toast({
+        title: "Hata",
+        description: e?.message || "Durum sorgulanamadı",
+        variant: "destructive",
+      })
+    } finally {
+      setCheckingStatusId(null)
+    }
+  }
+
+  const handleDownloadIncomingPdf = async (uuid: string, invoiceNo: string | null) => {
+    if (!companyId || !uuid) return
+    setDownloadingInboxPdfUuid(uuid)
+    try {
+      const res = await fetch(
+        `/api/e-donusum/inbox/${encodeURIComponent(uuid)}/pdf?companyId=${encodeURIComponent(
+          companyId,
+        )}`,
+      )
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        toast({
+          title: "PDF indirilemedi",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, "_blank", "noopener")
+      // Cleanup biraz sonra
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      toast({ title: `PDF açıldı${invoiceNo ? ` · ${invoiceNo}` : ""}` })
+    } catch (e: any) {
+      toast({
+        title: "Hata",
+        description: e?.message || "PDF açılırken hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setDownloadingInboxPdfUuid(null)
+    }
+  }
+
+  const handleDownloadGibPdf = async (rawInvoiceId: string, invoiceNo: string) => {
+    setDownloadingPdfId(rawInvoiceId)
+    try {
+      const res = await fetch(`/api/e-donusum/invoices/${rawInvoiceId}/pdf`)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        toast({
+          title: "PDF indirilemedi",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `Fatura_${invoiceNo}_GIB.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast({ title: "Resmî PDF indirildi" })
+    } catch (e: any) {
+      toast({
+        title: "Hata",
+        description: e?.message || "PDF indirilirken hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setDownloadingPdfId(null)
+    }
+  }
 
   if (!companyId) {
     return (
@@ -256,206 +330,332 @@ export default function FaturalarPage() {
     )
   }
 
+  const fmt = (v: number | null | undefined, ccy = "TRY") =>
+    v === null || v === undefined
+      ? "-"
+      : new Intl.NumberFormat("tr-TR", { style: "currency", currency: ccy }).format(Number(v))
+
+  const formatDate = (d: string | null) =>
+    d ? new Date(d).toLocaleDateString("tr-TR") : "-"
+
+  const directionBadge = (row: FaturaRow) => {
+    if (row.direction === "incoming") {
+      return (
+        <span className="inline-flex items-center rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
+          <ArrowDownToLine className="mr-1 h-3 w-3" />
+          Gelen
+        </span>
+      )
+    }
+    return (
+      <span className="inline-flex items-center rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800">
+        <ArrowUpFromLine className="mr-1 h-3 w-3" />
+        Giden
+      </span>
+    )
+  }
+
+  const statusBadge = (status: string | null) => {
+    if (!status) return <span className="text-xs text-muted-foreground">-</span>
+    const s = status.toUpperCase()
+    const cls =
+      s === "KABUL" || s === "APPROVED" || s === "SENT"
+        ? "bg-emerald-100 text-emerald-800"
+        : s === "RED" || s === "REJECTED" || s === "CANCELLED"
+          ? "bg-red-100 text-red-800"
+          : s === "DRAFT"
+            ? "bg-yellow-100 text-yellow-800"
+            : "bg-slate-100 text-slate-700"
+    return <span className={`rounded px-2 py-0.5 text-[10px] font-medium ${cls}`}>{status}</span>
+  }
+
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h1 className="text-3xl font-bold">Faturalar</h1>
+          <p className="text-muted-foreground">
+            Tüm gelen ve giden faturalarınızı tek ekrandan yönetin
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            className="rounded border px-2 py-1 text-sm"
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            disabled={isLoading || isSyncing}
+          >
+            <option value={30}>Son 30 gün</option>
+            <option value={90}>Son 90 gün</option>
+            <option value={180}>Son 6 ay</option>
+            <option value={365}>Son 1 yıl</option>
+          </select>
+          <Button
+            variant="outline"
+            onClick={handleSyncInbox}
+            disabled={isSyncing}
+            title="Mysoft InvoiceInbox'tan gelen e-faturaları çek"
+          >
+            {isSyncing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Inbox className="mr-2 h-4 w-4" />
+            )}
+            Mysoft Inbox Senkronize
+          </Button>
+          <Button variant="outline" onClick={fetchList} disabled={isLoading}>
+            {isLoading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Yenile
+          </Button>
+          <Button onClick={handleCreateInvoice}>
+            <Plus className="mr-2 h-4 w-4" />
+            Yeni Fatura
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <Card>
+          <CardContent className="flex items-center justify-between pt-6">
             <div>
-              <CardTitle>
-                {typeFilter === "SALES"
-                  ? "Satış Faturaları"
-                  : typeFilter === "PURCHASE"
-                  ? "Alış Faturaları"
-                  : "Faturalar"}
-              </CardTitle>
-              <CardDescription>
-                {typeFilter === "SALES"
-                  ? "Müşterilerinize kestiğiniz satış faturalarını yönetin"
-                  : typeFilter === "PURCHASE"
-                  ? "Tedarikçilerden gelen alış faturalarını yönetin"
-                  : "Tüm faturalarınızı görüntüleyin ve yönetin"}
-              </CardDescription>
+              <p className="text-xs text-muted-foreground">Toplam</p>
+              <p className="text-2xl font-bold">{totals.all.count}</p>
+              <p className="text-xs text-muted-foreground">{fmt(totals.all.sum)}</p>
             </div>
-            <Button onClick={handleCreateInvoice}>
-              <Plus className="mr-2 h-4 w-4" />
-              Yeni Fatura
-            </Button>
+            <FileText className="h-8 w-8 text-muted-foreground/30" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center justify-between pt-6">
+            <div>
+              <p className="text-xs text-muted-foreground">Gelen</p>
+              <p className="text-2xl font-bold text-emerald-700">{totals.incoming.count}</p>
+              <p className="text-xs text-muted-foreground">{fmt(totals.incoming.sum)}</p>
+            </div>
+            <ArrowDownToLine className="h-8 w-8 text-emerald-300" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center justify-between pt-6">
+            <div>
+              <p className="text-xs text-muted-foreground">Giden</p>
+              <p className="text-2xl font-bold text-sky-700">{totals.outgoing.count}</p>
+              <p className="text-xs text-muted-foreground">{fmt(totals.outgoing.sum)}</p>
+            </div>
+            <ArrowUpFromLine className="h-8 w-8 text-sky-300" />
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            {directionTabs.map((tab) => {
+              const Icon = tab.icon
+              const active = direction === tab.value
+              return (
+                <Button
+                  key={tab.value}
+                  variant={active ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setDirection(tab.value)}
+                >
+                  <Icon className="mr-1 h-3 w-3" />
+                  {tab.label}
+                </Button>
+              )
+            })}
+            <div className="relative ml-auto flex-1 max-w-md">
+              <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Fatura no / karşı taraf / VKN / ETTN ara..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-8"
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {(() => {
-            const visibleInvoices = typeFilter
-              ? invoices.filter((inv) => inv.type === typeFilter)
-              : invoices
-            if (isLoading) {
-              return <div className="text-center py-8">Yükleniyor...</div>
-            }
-            if (listError) {
-              return <div className="space-y-2 py-8 text-center text-sm text-destructive">{listError}</div>
-            }
-            if (visibleInvoices.length === 0) {
-              return (
-                <div className="text-center py-8 text-muted-foreground">
-                  {typeFilter
-                    ? `Henüz ${typeFilter === "SALES" ? "satış" : "alış"} faturası bulunmuyor`
-                    : "Henüz fatura bulunmuyor"}
-                </div>
-              )
-            }
-            return (
-            <Table>
-              <TableHeader>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Yön</TableHead>
+                <TableHead>Tarih</TableHead>
+                <TableHead>Fatura No</TableHead>
+                <TableHead>VKN</TableHead>
+                <TableHead>Karşı Taraf</TableHead>
+                <TableHead className="text-right">Net</TableHead>
+                <TableHead className="text-right">KDV</TableHead>
+                <TableHead className="text-right">Toplam</TableHead>
+                <TableHead>Durum</TableHead>
+                <TableHead className="text-right">İşlem</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
                 <TableRow>
-                  <TableHead>Fatura No</TableHead>
-                  <TableHead>Tip</TableHead>
-                  <TableHead>Müşteri/Tedarikçi</TableHead>
-                  <TableHead>Tarih</TableHead>
-                  <TableHead>Vade</TableHead>
-                  <TableHead>Tutar</TableHead>
-                  <TableHead>Ödeme Durumu</TableHead>
-                  <TableHead>İşlemler</TableHead>
+                  <TableCell colSpan={10} className="py-8 text-center">
+                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visibleInvoices.map((invoice) => {
-                  const paymentStatus = getPaymentStatus(invoice)
-                  const totalPaid = invoice.payments?.reduce(
-                    (sum, p) => sum + Number(p.amount),
-                    0
-                  ) || 0
-                  const remaining = Number(invoice.totalAmount) - totalPaid
+              ) : rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={10} className="py-8 text-center">
+                    <FileText className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
+                    <p className="text-muted-foreground">Bu kriterlere uyan fatura bulunamadı</p>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((row) => {
+                  // row.id format: "incoming:<id>" veya "invoice:<id>"
+                  const rawId = row.id.split(":")[1]
+                  const isInvoiceRow = row.id.startsWith("invoice:")
+                  const isEDoc =
+                    row.invoiceType === "E_INVOICE" || row.invoiceType === "E_ARCHIVE"
+                  const canCheckGib = Boolean(isInvoiceRow && row.uuid && isEDoc)
+                  const canDownloadGibPdf = canCheckGib
+                  const editable = isInvoiceRow && row.status === "DRAFT"
 
                   return (
                     <TableRow
-                      key={invoice.id}
+                      key={row.id}
                       className="cursor-pointer hover:bg-muted/50"
-                      onClick={() =>
-                        router.push(`/faturalar/${invoice.id}/onizleme?company=${companyId}`)
-                      }
+                      onClick={() => {
+                        if (isInvoiceRow) {
+                          router.push(`/faturalar/${rawId}/onizleme?company=${companyId}`)
+                        }
+                      }}
                     >
-                      <TableCell className="font-medium">
-                        {invoice.invoiceNo}
+                      <TableCell>{directionBadge(row)}</TableCell>
+                      <TableCell className="text-xs">{formatDate(row.date)}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {row.invoiceNo || "-"}
                       </TableCell>
-                      <TableCell>
-                        <Badge variant={invoice.type === "SALES" ? "default" : "secondary"}>
-                          {invoiceTypeLabel(invoice.type)}
-                        </Badge>
+                      <TableCell className="font-mono text-xs">
+                        {row.counterparty.taxNumber || "-"}
                       </TableCell>
-                      <TableCell>
-                        {invoice.customer?.name || invoice.supplier?.name || "-"}
+                      <TableCell className="text-xs">{row.counterparty.name || "-"}</TableCell>
+                      <TableCell className="text-right text-xs">
+                        {fmt(row.netAmount, row.currency || "TRY")}
                       </TableCell>
-                      <TableCell>{formatDate(invoice.date)}</TableCell>
-                      <TableCell>
-                        {invoice.dueDate ? formatDate(invoice.dueDate) : "-"}
+                      <TableCell className="text-right text-xs">
+                        {fmt(row.vatAmount, row.currency || "TRY")}
                       </TableCell>
-                      <TableCell>{formatCurrency(Number(invoice.totalAmount))}</TableCell>
-                      <TableCell>
-                        <Badge variant={paymentStatus.variant}>
-                          {paymentStatus.label}
-                        </Badge>
-                        {totalPaid > 0 && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            Ödenen: {formatCurrency(totalPaid)} / Kalan: {formatCurrency(remaining)}
-                          </div>
-                        )}
+                      <TableCell className="text-right text-xs font-semibold">
+                        {fmt(row.totalAmount, row.currency || "TRY")}
                       </TableCell>
+                      <TableCell>{statusBadge(row.status)}</TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        <div className="flex gap-2">
-                          <Link href={`/faturalar/${invoice.id}/onizleme?company=${companyId}`}>
-                            <Button variant="outline" size="sm" title="Önizleme">
-                              <FileText className="h-4 w-4" />
-                            </Button>
-                          </Link>
-                          <Link href={`/faturalar/${invoice.id}/odemeler?company=${companyId}`}>
-                            <Button variant="outline" size="sm" title="Ödemeler">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          </Link>
-                          {(() => {
-                            const editable = invoice.status === "DRAFT"
-                            const editBtn = (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                title={editable ? "Düzenle" : "Sadece taslak faturalar düzenlenebilir"}
-                                disabled={!editable}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                            )
-                            return editable ? (
+                        <div className="flex items-center justify-end gap-1">
+                          {isInvoiceRow ? (
+                            <>
                               <Link
-                                href={`/e-donusum/${invoice.id}/duzenle?company=${encodeURIComponent(companyId)}&from=${encodeURIComponent("/faturalar")}`}
+                                href={`/faturalar/${rawId}/onizleme?company=${companyId}`}
                               >
-                                {editBtn}
+                                <Button variant="outline" size="sm" title="Önizleme">
+                                  <FileText className="h-4 w-4" />
+                                </Button>
                               </Link>
-                            ) : (
-                              editBtn
-                            )
-                          })()}
-                          {(() => {
-                            const isEDoc = invoice.invoiceType === "E_ARCHIVE" || invoice.invoiceType === "E_INVOICE"
-                            const canCheck = Boolean(invoice.uuid && isEDoc)
-                            const isLoading = checkingStatusId === invoice.id
-                            return (
+                              <Link
+                                href={`/faturalar/${rawId}/odemeler?company=${companyId}`}
+                              >
+                                <Button variant="outline" size="sm" title="Ödemeler">
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </Link>
+                              {editable && (
+                                <Link
+                                  href={`/e-donusum/${rawId}/duzenle?company=${encodeURIComponent(
+                                    companyId,
+                                  )}&from=${encodeURIComponent("/faturalar")}`}
+                                >
+                                  <Button variant="outline" size="sm" title="Düzenle">
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                </Link>
+                              )}
+                              {canCheckGib && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  title="GİB Durum Sorgula"
+                                  onClick={() => handleCheckStatus(rawId)}
+                                  disabled={checkingStatusId === rawId}
+                                >
+                                  {checkingStatusId === rawId ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <ShieldCheck className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              )}
+                              {canDownloadGibPdf && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  title="Resmî PDF (GİB) İndir"
+                                  onClick={() =>
+                                    handleDownloadGibPdf(rawId, row.invoiceNo || "fatura")
+                                  }
+                                  disabled={downloadingPdfId === rawId}
+                                >
+                                  {downloadingPdfId === rawId ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <FileDown className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              )}
                               <Button
                                 variant="outline"
                                 size="sm"
-                                title={
-                                  !isEDoc
-                                    ? "Sadece e-Fatura / e-Arşiv için"
-                                    : !invoice.uuid
-                                    ? "Henüz Mysoft'a gönderilmemiş"
-                                    : "GİB Durum Sorgula"
-                                }
-                                onClick={() => canCheck && handleCheckStatus(invoice.id)}
-                                disabled={!canCheck || isLoading}
+                                title="Sil / İptal Et"
+                                onClick={() => handleDeleteInvoice(rawId)}
                               >
-                                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                                <Trash2 className="h-4 w-4 text-destructive" />
                               </Button>
-                            )
-                          })()}
-                          {(() => {
-                            const isEDoc = invoice.invoiceType === "E_ARCHIVE" || invoice.invoiceType === "E_INVOICE"
-                            const canDownload = Boolean(invoice.uuid && isEDoc)
-                            const isLoading = downloadingPdfId === invoice.id
-                            return (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                title={
-                                  !isEDoc
-                                    ? "Sadece e-Fatura / e-Arşiv için"
-                                    : !invoice.uuid
-                                    ? "Henüz Mysoft'a gönderilmemiş"
-                                    : "Resmî PDF (GİB) İndir"
-                                }
-                                onClick={() => canDownload && handleDownloadGibPdf(invoice.id, invoice.invoiceNo)}
-                                disabled={!canDownload || isLoading}
+                            </>
+                          ) : (
+                            // mysoft_inbox satırı
+                            <>
+                              {row.uuid && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  title="Resmî PDF (GİB) görüntüle"
+                                  onClick={() =>
+                                    handleDownloadIncomingPdf(row.uuid as string, row.invoiceNo)
+                                  }
+                                  disabled={downloadingInboxPdfUuid === row.uuid}
+                                >
+                                  {downloadingInboxPdfUuid === row.uuid ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <FileDown className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              )}
+                              <span
+                                className="text-[10px] text-muted-foreground"
+                                title={row.uuid || ""}
                               >
-                                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-                              </Button>
-                            )
-                          })()}
-                          {/* YENİ SİLME BUTONU */}
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            onClick={() => handleDeleteInvoice(invoice.id)}
-                            title="Sil / İptal Et"
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                                Mysoft
+                              </span>
+                            </>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
                   )
-                })}
-              </TableBody>
-            </Table>
-            )
-          })()}
+                })
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
