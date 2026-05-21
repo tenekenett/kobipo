@@ -56,6 +56,26 @@ export async function GET(request: Request) {
         orderBy: { docDate: "desc" },
         take: 500,
       })
+      // Mysoft raw JSON'ından gönderilme tarihini çıkar — sürüm farklılıklarına
+      // karşı birden çok olası alan adını dene. Yoksa null döner.
+      const extractSentDate = (raw: any): string | null => {
+        if (!raw || typeof raw !== "object") return null
+        const candidates = [
+          "envelopeDate",
+          "sendDate",
+          "createDate",
+          "createdDate",
+          "lastTrackingDate",
+          "documentCreateDate",
+          "createDateUtc",
+        ]
+        for (const k of candidates) {
+          const v = raw[k]
+          if (typeof v === "string" && v.trim()) return v
+        }
+        return null
+      }
+
       return NextResponse.json({
         source: "db",
         dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
@@ -65,6 +85,7 @@ export async function GET(request: Request) {
           uuid: r.uuid,
           invoiceNo: r.invoiceNo,
           date: r.docDate ? r.docDate.toISOString() : null,
+          sentDate: extractSentDate(r.raw),
           sender: { name: r.senderName, taxNumber: r.senderTaxNumber },
           profile: r.profile,
           invoiceType: r.invoiceType,

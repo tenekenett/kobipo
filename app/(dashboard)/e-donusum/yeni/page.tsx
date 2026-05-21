@@ -11,6 +11,7 @@ export default function EDonusumYeniFaturaPage() {
   const companyId = searchParams.get("company")
   const defaultManual = searchParams.get("manual") === "1"
   const fromParam = searchParams.get("from")
+  const fromIncoming = searchParams.get("fromIncoming") || undefined
 
   if (!companyId) {
     return (
@@ -35,9 +36,17 @@ export default function EDonusumYeniFaturaPage() {
             Listeye dön
           </Link>
         </Button>
-        <h1 className="text-2xl font-bold">Yeni Fatura</h1>
+        <h1 className="text-2xl font-bold">
+          {fromIncoming ? "Gelen E-Faturadan Alış Faturası" : "Yeni Fatura"}
+        </h1>
       </div>
-      <InvoiceEditor companyId={companyId} mode="create" defaultManual={defaultManual} backHref={backHref} />
+      <InvoiceEditor
+        companyId={companyId}
+        mode="create"
+        defaultManual={defaultManual}
+        backHref={backHref}
+        fromIncomingUuid={fromIncoming}
+      />
     </div>
   )
 }

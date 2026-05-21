@@ -121,10 +121,44 @@ export async function sendInvoiceToProvider(invoiceId: string): Promise<SendInvo
     vknTckn: tenantVkn || undefined,
   })
 
+  // Alıcı VKN'sini GİB'de sorgula: E-Arşiv seçildiyse ama alıcı E-Fatura
+  // mükellefiyse Mysoft "EARSIVFATURA profili geçersiz" diye reddediyor.
+  // Burada otomatik olarak invoiceType'ı E_INVOICE'a çeviriyoruz ve DB'yi
+  // güncelliyoruz ki preview ile gerçek belge tipi uyumlu olsun.
+  let effectiveInvoiceType: "E_INVOICE" | "E_ARCHIVE" = invoice.invoiceType as
+    | "E_INVOICE"
+    | "E_ARCHIVE"
+  let autoSwitched = false
+  const customerVkn = (invoice.customer?.taxNumber || "").replace(/\D/g, "")
+  if (
+    effectiveInvoiceType === "E_ARCHIVE" &&
+    customerVkn &&
+    /^\d{10,11}$/.test(customerVkn) &&
+    typeof (provider as any).getGibAccount === "function"
+  ) {
+    try {
+      const gibCheck = await (provider as any).getGibAccount(customerVkn)
+      if (gibCheck?.success && gibCheck.data?.isEInvoiceTaxpayer) {
+        effectiveInvoiceType = "E_INVOICE"
+        autoSwitched = true
+        await prisma.invoice.update({
+          where: { id: invoice.id },
+          data: { invoiceType: "E_INVOICE" },
+        })
+        console.log(
+          `[send-invoice-helper] Alıcı VKN ${customerVkn} E-Fatura mükellefi (eInvoiceStartDate=${gibCheck.data.eInvoiceStartDate}). E-Arşiv → E-Fatura'ya çevrildi.`,
+        )
+      }
+    } catch (e: any) {
+      // GİB sorgusu yapılamadıysa orijinal seçimle devam et — Mysoft yine hata verirse alttaki yakalanır.
+      console.warn("[send-invoice-helper] GİB sorgusu başarısız:", e?.message)
+    }
+  }
+
   // Mysoft prefix: kullanıcı seçmediyse undefined geç (provider auto-pick eder).
   // invoiceSeriesPrefix Kobipo iç numarası içindir, Mysoft'a KARIŞMAZ.
   const resolvedPrefix: string | undefined =
-    invoice.invoiceType === "E_INVOICE"
+    effectiveInvoiceType === "E_INVOICE"
       ? company.eFaturaPrefix || undefined
       : company.eArchivePrefix || undefined
 
@@ -135,7 +169,7 @@ export async function sendInvoiceToProvider(invoiceId: string): Promise<SendInvo
   //   generic placeholder dönüyor — gerçek alias değil.
   // Mysoft tenantIdentifierNumber'dan gerçek connector + alias'ı kendi seçer.
   const invoiceData = {
-    invoiceType: invoice.invoiceType as "E_INVOICE" | "E_ARCHIVE",
+    invoiceType: effectiveInvoiceType,
     prefix: resolvedPrefix,
     tenantIdentifierNumber: tenantVkn || undefined,
     invoiceNo: invoice.invoiceNo,
@@ -213,7 +247,7 @@ export async function sendInvoiceToProvider(invoiceId: string): Promise<SendInvo
     // E-Fatura için "uygun numaratör bulunamadı" hatası YANILTICI olabilir:
     // gerçekte alıcının e-Fatura mükellefi olmaması (GİB kaydı yok) bu hatayı
     // tetikliyor. Kullanıcıya iki ihtimali de açıkla.
-    if (invoice.invoiceType === "E_INVOICE") {
+    if (effectiveInvoiceType === "E_INVOICE") {
       friendlyError = resolvedPrefix
         ? `${rawError} → İki olası sebep: (1) "${resolvedPrefix}" prefix'i Mysoft panelinde E-Fatura için tanımlı/aktif değil — Seri No Tanımları'ndan başka bir prefix seçin. (2) Müşterinin VKN'si GİB'de kayıtlı bir e-Fatura mükellefi değil — bu durumda fatura E-Arşiv olarak kesilmeli.`
         : `${rawError} → İki olası sebep: (1) Mysoft panelinde E-Fatura için aktif numaratör yok. (2) Müşterinin VKN'si GİB'de kayıtlı bir e-Fatura mükellefi değil — E-Arşiv olarak kesin.`
@@ -224,7 +258,7 @@ export async function sendInvoiceToProvider(invoiceId: string): Promise<SendInvo
     }
   } else if (isPkNotFoundError) {
     friendlyError =
-      invoice.invoiceType === "E_INVOICE"
+      effectiveInvoiceType === "E_INVOICE"
         ? `${rawError} → Müşteri GİB'de kayıtlı bir e-Fatura mükellefi değil (ya da VKN/TCKN'si hatalı). Müşteri kartındaki Vergi Numarası alanını kontrol edin; mükellef değilse bu fatura E-Arşiv olarak gönderilmeli.`
         : `${rawError} → Müşterinin VKN/TCKN bilgisini Müşteri Kartı'ndan kontrol edin.`
   } else {

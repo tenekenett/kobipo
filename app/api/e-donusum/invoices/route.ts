@@ -130,6 +130,7 @@ export async function POST(request: Request) {
       items,
       notes,
       sendInvoice,
+      fromIncomingUuid,
     } = body
 
     if (!companyId || !type || !invoiceType || !items || items.length === 0) {
@@ -310,15 +311,19 @@ const company = await prisma.company.findUnique({
       let stockQuantityChange = 0;
       let moveType = "UNKNOWN";
 
+      // Schema: stockMovement.type ∈ { IN, OUT, TRANSFER, ADJUSTMENT }.
+      // Rapor ve detay endpoint'leri "IN" / "OUT" üzerinden filtreliyor — eski kodda
+      // PURCHASE/SALE yazılıyordu, bu yüzden hareketler stok detayında gözükmüyordu.
+      // stockQuantityChange tarafı zaten signed; product.stockQuantity doğru güncellenir.
       if (safeType === "SALES") {
-        stockQuantityChange = -Number(item.quantity); 
-        moveType = "SALE";
+        stockQuantityChange = -Number(item.quantity);
+        moveType = "OUT";
       } else if (safeType === "PURCHASE") {
-        stockQuantityChange = Number(item.quantity);  
-        moveType = "PURCHASE";
+        stockQuantityChange = Number(item.quantity);
+        moveType = "IN";
       } else if (safeType === "RETURN") {
-        stockQuantityChange = Number(item.quantity);  
-        moveType = "RETURN";
+        stockQuantityChange = Number(item.quantity);
+        moveType = "IN";
       }
 
       if (stockQuantityChange !== 0) {
@@ -353,6 +358,21 @@ const company = await prisma.company.findUnique({
         }
       }
     }
+
+    // Gelen e-faturadan dönüştürme: IncomingInvoice'ı yeni fatura ile bağla.
+    // Bu sayede liste/detayda "zaten dönüştürülmüş" göstergesi çıkar ve aynı
+    // ETTN tekrar dönüştürülemez (UX guard, kullanıcı isterse manuel kaldırılabilir).
+    if (fromIncomingUuid && type === "PURCHASE") {
+      try {
+        await prisma.incomingInvoice.update({
+          where: { companyId_uuid: { companyId, uuid: String(fromIncomingUuid) } },
+          data: { isLinkedToPurchase: true, linkedInvoiceId: invoice.id },
+        })
+      } catch (linkErr) {
+        console.error("[IncomingInvoice link hatası]", linkErr)
+      }
+    }
+
     // Otomatik muhasebe fişi: Satış faturaları için temel kayıt.
     if (type === "SALES") {
       const companyPlans = await prisma.accountPlan.findMany({

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -77,9 +77,10 @@ export type InvoiceEditorProps = {
   invoiceId?: string
   defaultManual?: boolean
   backHref?: string
+  fromIncomingUuid?: string
 }
 
-export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backHref }: InvoiceEditorProps) {
+export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backHref, fromIncomingUuid }: InvoiceEditorProps) {
   const router = useRouter()
   const { toast } = useToast()
 
@@ -90,6 +91,36 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
   const [bootstrappingEdit, setBootstrappingEdit] = useState(mode === "edit")
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
+
+  // Gelen e-faturadan dönüştürme akışı için
+  const [incomingPrefillError, setIncomingPrefillError] = useState<string | null>(null)
+  const [incomingSupplierCandidate, setIncomingSupplierCandidate] = useState<{
+    name: string | null
+    taxNumber: string | null
+    address: string | null
+  } | null>(null)
+  const [isCreatingSupplier, setIsCreatingSupplier] = useState(false)
+  // useRef: state'ten farklı olarak senkron güncellenir, effect re-run'larda race olmaz.
+  // Aynı prefill mantığını birden çok kez çalıştırırsak notlar ve kalemler tekrar eder.
+  const prefilledFromIncomingRef = useRef(false)
+  const [suppliersLoaded, setSuppliersLoaded] = useState(false)
+  const [productsLoaded, setProductsLoaded] = useState(false)
+
+  // VKN otomatik tespit: müşteri/tedarikçi seçildiğinde Mysoft GİB'den sorgular,
+  // sonucuna göre invoiceType (E_INVOICE vs E_ARCHIVE) belirlenir.
+  const [vknCheck, setVknCheck] = useState<{
+    checking: boolean
+    isEInvoiceTaxpayer: boolean | null
+    suggestedInvoiceType: "E_INVOICE" | "E_ARCHIVE" | "MANUAL" | null
+    accountName: string | null
+    reason: string | null
+  }>({
+    checking: false,
+    isEInvoiceTaxpayer: null,
+    suggestedInvoiceType: null,
+    accountName: null,
+    reason: null,
+  })
 
   // Önceki Fiyatlar Modal State'leri
   const [isPriceModalOpen, setIsPriceModalOpen] = useState(false)
@@ -136,6 +167,182 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
     fetchInvoiceForEdit(invoiceId)
   }, [mode, companyId, invoiceId])
 
+  // Gelen e-faturadan dönüştürme: sipariş suppliers + products yüklendikten sonra
+  // pre-fill yap. URL'de fromIncoming varsa /api/e-donusum/inbox/[uuid]?withModel=1
+  // çağrısı ile header + kalemleri çekiyoruz.
+  useEffect(() => {
+    if (mode !== "create") return
+    if (!fromIncomingUuid || !companyId) return
+    if (prefilledFromIncomingRef.current) return
+    if (!suppliersLoaded || !productsLoaded) return
+    // Senkron guard: bu effect ikinci kez girmeden flag işaretle.
+    prefilledFromIncomingRef.current = true
+
+    const prefill = async () => {
+      try {
+        const res = await fetch(
+          `/api/e-donusum/inbox/${encodeURIComponent(fromIncomingUuid)}?companyId=${encodeURIComponent(
+            companyId,
+          )}&withModel=1`,
+        )
+        const data = await res.json()
+        if (!res.ok) {
+          setIncomingPrefillError(data.error || "Gelen fatura okunamadı")
+          return
+        }
+
+        if (data.isLinkedToPurchase) {
+          setIncomingPrefillError(
+            "Bu gelen fatura zaten bir alış faturasına dönüştürülmüş. Lütfen ilgili faturayı açın.",
+          )
+          return
+        }
+
+        const senderVkn: string | null = data.sender?.taxNumber || null
+        const senderName: string | null = data.sender?.name || null
+        const matchedSupplier = senderVkn
+          ? suppliers.find((s) => (s.taxNumber || "").trim() === senderVkn.trim())
+          : null
+
+        if (!matchedSupplier) {
+          setIncomingSupplierCandidate({
+            name: senderName,
+            taxNumber: senderVkn,
+            address: data.model?.sender?.address || null,
+          })
+        }
+
+        const modelLines: any[] = Array.isArray(data.model?.lines) ? data.model.lines : []
+        const newItems: InvoiceItem[] =
+          modelLines.length > 0
+            ? modelLines.map((ln: any) => {
+                const desc: string = String(ln.description || "").trim()
+                const code: string = String(ln.productCode || "").trim()
+                // Önce kod ile, sonra isim ile ürün eşleştirme
+                const byCode = code
+                  ? products.find(
+                      (p) => (p.code || "").trim().toLowerCase() === code.toLowerCase(),
+                    )
+                  : undefined
+                const byName =
+                  !byCode && desc
+                    ? products.find(
+                        (p) => (p.name || "").trim().toLowerCase() === desc.toLowerCase(),
+                      )
+                    : undefined
+                const matchedProduct = byCode || byName
+                const qty = Number(ln.quantity) || 0
+                const unitPrice = Number(ln.unitPrice) || 0
+                const vat = Number(ln.vatRate ?? 20)
+                const discRate = Number(ln.discountRate ?? 0)
+                return {
+                  productId: matchedProduct?.id,
+                  description: desc || (matchedProduct?.name ?? ""),
+                  unit: (ln.unit as string) || matchedProduct?.unit || "ADET",
+                  quantity: qty > 0 ? qty : 1,
+                  unitPrice,
+                  discountRate: discRate,
+                  vatRate: Number.isFinite(vat) ? vat : 20,
+                  withholdingRate: 0,
+                  exciseRate: 0,
+                }
+              })
+            : [
+                {
+                  // Mysoft sandbox kalem detayı dönmediğinde tek satırlık placeholder.
+                  // Kullanıcı bu satırı düzenleyip gerçek ürünü seçebilir. ETTN notlarda
+                  // zaten görünüyor, satır açıklamasına eklemiyoruz.
+                  description: "Mal/Hizmet",
+                  unit: "ADET",
+                  quantity: 1,
+                  unitPrice: Number(data.taxExclusiveAmount) || 0,
+                  discountRate: 0,
+                  vatRate: 20,
+                  withholdingRate: 0,
+                  exciseRate: 0,
+                },
+              ]
+
+        const sourceNote = `Kaynak gelen e-fatura: ${data.invoiceNo || ""} (ETTN ${fromIncomingUuid})`
+        setFormData((prev) => ({
+          ...prev,
+          type: "PURCHASE",
+          invoiceType: "MANUAL",
+          customerId: "",
+          supplierId: matchedSupplier?.id || "",
+          date: data.date
+            ? new Date(data.date).toISOString().split("T")[0]
+            : prev.date,
+          currency: data.currency || prev.currency,
+          notes: prev.notes && prev.notes.includes(sourceNote) ? prev.notes : sourceNote,
+        }))
+        setItems(newItems)
+        setLineExtras(
+          newItems.map((it) => {
+            const extras: LineExtraKey[] = []
+            if (it.description) extras.push("description")
+            if ((it.discountRate || 0) > 0) extras.push("discountRate")
+            return extras
+          }),
+        )
+      } catch (e: any) {
+        setIncomingPrefillError(e?.message || "Pre-fill sırasında hata")
+      }
+    }
+
+    prefill()
+  }, [
+    mode,
+    fromIncomingUuid,
+    companyId,
+    suppliersLoaded,
+    productsLoaded,
+  ])
+
+  const handleCreateSupplierFromIncoming = async () => {
+    if (!incomingSupplierCandidate || !companyId) return
+    setIsCreatingSupplier(true)
+    try {
+      const res = await fetch("/api/cari/suppliers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId,
+          name: incomingSupplierCandidate.name || "(Mysoft Gönderici)",
+          taxNumber: incomingSupplierCandidate.taxNumber,
+          address: incomingSupplierCandidate.address,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Tedarikçi oluşturulamadı")
+      // Önce suppliers state'ine yeni kaydı ekle, sonra supplierId set et.
+      // Aksi halde Select option'da bulamadığı id'yi göstermez ve dropdown boş kalır.
+      const newSupplier: Supplier = {
+        id: data.id,
+        name: data.name,
+        taxNumber: data.taxNumber ?? null,
+        taxOffice: data.taxOffice ?? null,
+        address: data.address ?? null,
+      }
+      setSuppliers((prev) =>
+        prev.some((s) => s.id === newSupplier.id) ? prev : [...prev, newSupplier],
+      )
+      setFormData((prev) => ({ ...prev, customerId: "", supplierId: newSupplier.id }))
+      setIncomingSupplierCandidate(null)
+      // Arkaplanda asıl listeyi de tazele (best effort)
+      fetchSuppliers()
+      toast({ title: "Tedarikçi oluşturuldu", description: newSupplier.name })
+    } catch (e: any) {
+      toast({
+        title: "Tedarikçi oluşturulamadı",
+        description: e?.message || "Bilinmeyen hata",
+        variant: "destructive",
+      })
+    } finally {
+      setIsCreatingSupplier(false)
+    }
+  }
+
   useEffect(() => {
     if (companySettings && !companySettings.isEDonusumEnabled) {
       setFormData((prev) => {
@@ -145,6 +352,131 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
       })
     }
   }, [companySettings])
+
+  // Müşteri/tedarikçi değiştiğinde VKN'yi GİB'den sorgula ve invoiceType'ı otomatik
+  // güncelle. Bu sayede kullanıcının E-Arşiv/E-Fatura seçmesine gerek kalmaz.
+  useEffect(() => {
+    const isEDonusumEnabled = Boolean(companySettings?.isEDonusumEnabled)
+
+    let counterpartyVkn: string | null = null
+    if (formData.customerId) {
+      const c = customers.find((x) => x.id === formData.customerId)
+      counterpartyVkn = (c?.taxNumber || "").replace(/\D/g, "") || null
+    } else if (formData.supplierId) {
+      const s = suppliers.find((x) => x.id === formData.supplierId)
+      counterpartyVkn = (s?.taxNumber || "").replace(/\D/g, "") || null
+    }
+
+    // Karşı taraf yoksa state'i sıfırla — type kullanıcı seçimine göre kalır.
+    if (!counterpartyVkn) {
+      setVknCheck({
+        checking: false,
+        isEInvoiceTaxpayer: null,
+        suggestedInvoiceType: null,
+        accountName: null,
+        reason: null,
+      })
+      return
+    }
+
+    // E-Dönüşüm kapalıysa direkt MANUAL.
+    if (!isEDonusumEnabled) {
+      setVknCheck({
+        checking: false,
+        isEInvoiceTaxpayer: false,
+        suggestedInvoiceType: "MANUAL",
+        accountName: null,
+        reason: "e-dönüşüm pasif",
+      })
+      setFormData((prev) => (prev.invoiceType === "MANUAL" ? prev : { ...prev, invoiceType: "MANUAL" }))
+      return
+    }
+
+    // PURCHASE/RETURN için Mysoft gönderimi yok — kayıt amacıyla MANUAL kullanmak yeterli.
+    if (formData.type !== "SALES") {
+      setVknCheck({
+        checking: false,
+        isEInvoiceTaxpayer: null,
+        suggestedInvoiceType: "MANUAL",
+        accountName: null,
+        reason: "alış/iade — e-belge gönderilmez",
+      })
+      setFormData((prev) => (prev.invoiceType === "MANUAL" ? prev : { ...prev, invoiceType: "MANUAL" }))
+      return
+    }
+
+    if (!/^\d{10,11}$/.test(counterpartyVkn)) {
+      setVknCheck({
+        checking: false,
+        isEInvoiceTaxpayer: false,
+        suggestedInvoiceType: "E_ARCHIVE",
+        accountName: null,
+        reason: "geçersiz VKN/TCKN — varsayılan E-Arşiv",
+      })
+      setFormData((prev) => (prev.invoiceType === "E_ARCHIVE" ? prev : { ...prev, invoiceType: "E_ARCHIVE" }))
+      return
+    }
+
+    setVknCheck((prev) => ({ ...prev, checking: true }))
+    const ctrl = new AbortController()
+    const url = `/api/e-donusum/check-vkn?companyId=${encodeURIComponent(
+      companyId,
+    )}&vkn=${encodeURIComponent(counterpartyVkn)}`
+    fetch(url, { signal: ctrl.signal })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setVknCheck({
+            checking: false,
+            isEInvoiceTaxpayer: false,
+            suggestedInvoiceType: "E_ARCHIVE",
+            accountName: null,
+            reason: data.error || `HTTP ${res.status}`,
+          })
+          setFormData((prev) =>
+            prev.invoiceType === "E_ARCHIVE" ? prev : { ...prev, invoiceType: "E_ARCHIVE" },
+          )
+          return
+        }
+        const suggested: "E_INVOICE" | "E_ARCHIVE" | "MANUAL" =
+          data.suggestedInvoiceType === "E_INVOICE"
+            ? "E_INVOICE"
+            : data.suggestedInvoiceType === "MANUAL"
+              ? "MANUAL"
+              : "E_ARCHIVE"
+        setVknCheck({
+          checking: false,
+          isEInvoiceTaxpayer: Boolean(data.isEInvoiceTaxpayer),
+          suggestedInvoiceType: suggested,
+          accountName: data.accountName || null,
+          reason: data.reason || null,
+        })
+        setFormData((prev) => (prev.invoiceType === suggested ? prev : { ...prev, invoiceType: suggested }))
+      })
+      .catch((e: any) => {
+        if (e?.name === "AbortError") return
+        setVknCheck({
+          checking: false,
+          isEInvoiceTaxpayer: false,
+          suggestedInvoiceType: "E_ARCHIVE",
+          accountName: null,
+          reason: e?.message || "VKN sorgu hatası",
+        })
+        setFormData((prev) =>
+          prev.invoiceType === "E_ARCHIVE" ? prev : { ...prev, invoiceType: "E_ARCHIVE" },
+        )
+      })
+
+    return () => ctrl.abort()
+  }, [
+    formData.customerId,
+    formData.supplierId,
+    formData.type,
+    customers,
+    suppliers,
+    companySettings,
+    companyId,
+  ])
 
   const fetchCustomers = async () => {
     if (!companyId) return
@@ -160,6 +492,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
       const res = await fetch(`/api/cari/suppliers?companyId=${companyId}`)
       if (res.ok) setSuppliers(await res.json())
     } catch (e) { console.error("Error fetching suppliers:", e) }
+    finally { setSuppliersLoaded(true) }
   }
 
   const fetchProducts = async () => {
@@ -168,6 +501,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
       const res = await fetch(`/api/stok/products?companyId=${companyId}`)
       if (res.ok) setProducts(await res.json())
     } catch (e) { console.error("Error fetching products:", e) }
+    finally { setProductsLoaded(true) }
   }
 
   const fetchCompanySettings = async () => {
@@ -418,7 +752,14 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
       const response = await fetch(isEditing ? `/api/e-donusum/invoices/${editingInvoiceId}` : "/api/e-donusum/invoices", {
         method: isEditing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, ...formData, invoiceType: effectiveInvoiceType, items, sendInvoice: false }),
+        body: JSON.stringify({
+          companyId,
+          ...formData,
+          invoiceType: effectiveInvoiceType,
+          items,
+          sendInvoice: false,
+          ...(fromIncomingUuid && !isEditing ? { fromIncomingUuid } : {}),
+        }),
       })
 
       if (response.ok) {
@@ -451,7 +792,38 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
     <>
       <Card className="w-full min-w-0">
         <CardContent className="space-y-8 pt-6">
-          
+
+          {/* GELEN E-FATURADAN DÖNÜŞTÜRME BANNER'I */}
+          {fromIncomingUuid && (
+            <div className="rounded-md border border-sky-300 bg-sky-50 p-4 text-sm text-sky-950">
+              <p className="font-semibold">Gelen e-faturadan alış faturasına dönüştürülüyor</p>
+              <p className="mt-1 text-xs text-sky-900/80">
+                Kalemler ve tutarlar Mysoft'tan otomatik dolduruldu. Gerekirse düzenleyip kaydedin.
+                Kayıt sonrası stok ve cari bakiyeniz güncellenir.
+              </p>
+              {incomingPrefillError && (
+                <p className="mt-2 text-amber-900">
+                  Pre-fill uyarısı: {incomingPrefillError}
+                </p>
+              )}
+              {incomingSupplierCandidate && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 rounded border border-amber-300 bg-amber-50 p-3 text-amber-950">
+                  <span className="text-xs">
+                    Tedarikçi VKN <span className="font-mono">{incomingSupplierCandidate.taxNumber || "-"}</span>
+                    {" "}({incomingSupplierCandidate.name || "isimsiz"}) sistemde yok.
+                  </span>
+                  <Button
+                    size="sm"
+                    onClick={handleCreateSupplierFromIncoming}
+                    disabled={isCreatingSupplier}
+                  >
+                    {isCreatingSupplier ? "Oluşturuluyor..." : "Tedarikçiyi oluştur ve seç"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* HATA MESAJLARI BÖLÜMÜ */}
           {isEDonusumActive && E_DOC_TYPES.has(effectiveInvoiceType) && eInvoiceMissingMessages.length > 0 && (
             <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
@@ -481,15 +853,47 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
               </div>
               
               <div className="space-y-2">
-                <Label>Fatura Türü</Label>
-                <Select value={effectiveInvoiceType} onValueChange={(value) => setFormData({ ...formData, invoiceType: value })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="MANUAL">Manuel</SelectItem>
-                    {isEDonusumActive && <SelectItem value="E_ARCHIVE">E-Arşiv</SelectItem>}
-                    {isEDonusumActive && <SelectItem value="E_INVOICE">E-Fatura</SelectItem>}
-                  </SelectContent>
-                </Select>
+                <Label>Belge Türü</Label>
+                {(() => {
+                  const type = effectiveInvoiceType
+                  const checking = vknCheck.checking
+                  const baseLabel =
+                    type === "E_INVOICE"
+                      ? "E-Fatura"
+                      : type === "E_ARCHIVE"
+                        ? "E-Arşiv"
+                        : "Manuel"
+                  const cls =
+                    type === "E_INVOICE"
+                      ? "border-sky-300 bg-sky-50 text-sky-900"
+                      : type === "E_ARCHIVE"
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                        : "border-slate-300 bg-slate-50 text-slate-800"
+                  return (
+                    <div
+                      className={`flex flex-col gap-1 rounded-md border px-3 py-2 text-sm ${cls}`}
+                    >
+                      <div className="flex items-center gap-2 font-medium">
+                        {checking ? "Sorgulanıyor..." : baseLabel}
+                      </div>
+                      <div className="text-xs opacity-80">
+                        {!formData.customerId && !formData.supplierId
+                          ? "Müşteri/tedarikçi seçilince otomatik belirlenir"
+                          : vknCheck.checking
+                            ? "VKN GİB'de kontrol ediliyor..."
+                            : type === "E_INVOICE"
+                              ? "Alıcı E-Fatura mükellefi — Mysoft'a E-Fatura olarak gönderilir"
+                              : type === "E_ARCHIVE"
+                                ? vknCheck.reason
+                                  ? vknCheck.reason
+                                  : "Alıcı E-Fatura mükellefi değil — E-Arşiv kesilir"
+                                : vknCheck.reason
+                                  ? vknCheck.reason
+                                  : "Sistemde otomatik gönderim yok"}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
 
               <div className="space-y-2">
@@ -569,7 +973,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
                             products={products}
                             selectedProductId={item.productId}
                             selectedLabel={item.description}
-                            defaults={{ unit: item.unit, vatRate: item.vatRate, salePrice: item.unitPrice }}
+                            defaults={
+                              formData.type === "PURCHASE"
+                                ? { unit: item.unit, vatRate: item.vatRate, purchasePrice: item.unitPrice }
+                                : { unit: item.unit, vatRate: item.vatRate, salePrice: item.unitPrice }
+                            }
+                            priceContext={formData.type === "PURCHASE" ? "purchase" : "sale"}
                             onSelect={(p) => { mergeProductIntoList(p as Product); applyProductToLine(index, p as Product) }}
                             onClearBinding={() => updateItem(index, "productId", undefined)}
                           />

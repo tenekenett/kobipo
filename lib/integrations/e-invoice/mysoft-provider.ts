@@ -767,6 +767,226 @@ async sendInvoice(invoiceData: any): Promise<any> {
   }
 
   /**
+   * Bir VKN/TCKN için GİB hesap modelini sorgular.
+   *
+   * Swagger v8: GET /api/GeneralCard/getGibAccountModel?vknTckn={vkn}
+   *
+   * Dönen modelin `eInvoiceStartDate`'i null değil ve bugünden eski ise alıcı
+   * **E-Fatura mükellefi** olarak GİB'de kayıtlı demektir. Bu durumda E-Arşiv
+   * gönderilemez — Mysoft "E-Fatura için Profile alanında geçersiz değer"
+   * hatasıyla reddeder. Kullanıcı E-Arşiv seçtiyse otomatik olarak E-Fatura'ya
+   * çevirmek için bu metodu çağırıyoruz.
+   */
+  async getGibAccount(vknTckn: string): Promise<
+    | {
+        success: true
+        data: {
+          identifierNumber: string | null
+          accountName: string | null
+          eInvoiceStartDate: string | null
+          eWaybillStartDate: string | null
+          isPassive: boolean
+          isEInvoiceTaxpayer: boolean
+          raw: any
+        } | null
+      }
+    | { success: false; error: string }
+  > {
+    try {
+      const cleaned = String(vknTckn || "").replace(/\D/g, "")
+      if (!cleaned || !/^\d{10,11}$/.test(cleaned)) {
+        return { success: false, error: "Geçersiz VKN/TCKN format" }
+      }
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const url = new URL(`${this.baseUrl}/api/GeneralCard/getGibAccountModel`)
+      url.searchParams.set("vknTckn", cleaned)
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      })
+
+      const result = await res.json().catch(() => null)
+      if (!result || result.succeed === false) {
+        // Mysoft hesabı bulamazsa data null döner ama succeed=true olur.
+        // Açık fail varsa hata mesajı dön.
+        if (result?.message) {
+          return { success: false, error: result.message }
+        }
+        return { success: true, data: null }
+      }
+
+      const model: any = result.data
+      if (!model || typeof model !== "object") {
+        return { success: true, data: null }
+      }
+
+      const eInvoiceStartDate: string | null = model.eInvoiceStartDate || null
+      const isPassive: boolean = Boolean(model.isPassive)
+      const today = new Date()
+      const isEInvoiceTaxpayer =
+        !isPassive &&
+        !!eInvoiceStartDate &&
+        !Number.isNaN(new Date(eInvoiceStartDate).getTime()) &&
+        new Date(eInvoiceStartDate).getTime() <= today.getTime()
+
+      return {
+        success: true,
+        data: {
+          identifierNumber: model.identifierNumber || null,
+          accountName: model.gibAccountName || null,
+          eInvoiceStartDate,
+          eWaybillStartDate: model.eWaybillStartDate || null,
+          isPassive,
+          isEInvoiceTaxpayer,
+          raw: model,
+        },
+      }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "GİB hesap sorgulama hatası" }
+    }
+  }
+
+  /**
+   * Gelen e-faturanın tam modelini (kalemler dahil) Mysoft'tan çeker.
+   *
+   * Swagger v8: GET /api/InvoiceInbox/getInvoiceInboxModel?invoiceETTN={uuid}
+   * Header listesi sadece özet bilgileri verir; kalemleri görmek için bu çağrı şart.
+   * "Alış faturasına dönüştür" akışında lines (invoiceLines) buradan beslenir.
+   */
+  async getIncomingInvoiceModel(uuid: string): Promise<
+    | {
+        success: true
+        data: {
+          uuid: string
+          invoiceNo: string | null
+          date: string | null
+          currency: string | null
+          currencyRate: number | null
+          sender: { name: string | null; taxNumber: string | null; address: string | null }
+          totalAmount: number | null
+          taxExclusiveAmount: number | null
+          taxInclusiveAmount: number | null
+          vatAmount: number | null
+          lines: Array<{
+            description: string | null
+            productCode: string | null
+            unit: string | null
+            quantity: number | null
+            unitPrice: number | null
+            discountRate: number | null
+            discountAmount: number | null
+            vatRate: number | null
+            vatAmount: number | null
+            lineTotal: number | null
+          }>
+          raw: any
+        }
+      }
+    | { success: false; error: string; rawResponse?: any }
+  > {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const url = new URL(`${this.baseUrl}/api/InvoiceInbox/getInvoiceInboxModel`)
+      url.searchParams.set("invoiceETTN", uuid)
+      if (this.vknTckn) url.searchParams.set("tenantIdentifierNumber", this.vknTckn)
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      })
+
+      const result = await res.json().catch(() => null)
+      if (!result || result.succeed === false) {
+        return {
+          success: false,
+          error: result?.message || `HTTP ${res.status}`,
+          rawResponse: result,
+        }
+      }
+
+      const model: any = result.data || result
+      const pick = (obj: any, ...keys: string[]): any => {
+        for (const k of keys) {
+          if (obj && obj[k] !== undefined && obj[k] !== null && obj[k] !== "") return obj[k]
+        }
+        return null
+      }
+      const num = (v: any): number | null => {
+        if (v === null || v === undefined || v === "") return null
+        const n = typeof v === "string" ? Number(v.replace(",", ".")) : Number(v)
+        return Number.isFinite(n) ? n : null
+      }
+
+      // Mysoft InvoiceForApiModel: kalemler "invoiceLines" / "lines" / "items" altında olabilir.
+      const rawLines: any[] = Array.isArray(model.invoiceLines)
+        ? model.invoiceLines
+        : Array.isArray(model.lines)
+          ? model.lines
+          : Array.isArray(model.items)
+            ? model.items
+            : []
+
+      const lines = rawLines.map((ln: any) => ({
+        description: pick(ln, "name", "description", "itemName", "productName") as string | null,
+        productCode: pick(ln, "sellersItemIdentification", "productCode", "itemCode") as
+          | string
+          | null,
+        unit: pick(ln, "unitCode", "unit", "quantityUnitCode") as string | null,
+        quantity: num(pick(ln, "quantity", "invoicedQuantity")),
+        unitPrice: num(pick(ln, "priceAmount", "unitPrice", "price")),
+        discountRate: num(pick(ln, "discountRate", "allowanceChargeRate")),
+        discountAmount: num(
+          pick(ln, "discountAmount", "allowanceChargeAmount", "allowanceTotalAmount"),
+        ),
+        vatRate: num(pick(ln, "vatRate", "taxRate", "taxPercent")),
+        vatAmount: num(pick(ln, "vatAmount", "taxAmount", "taxTotalTra")),
+        lineTotal: num(pick(ln, "lineExtensionAmount", "lineTotal", "amountTra")),
+      }))
+
+      return {
+        success: true,
+        data: {
+          uuid,
+          invoiceNo: pick(model, "docNo", "invoiceNo", "documentNo") as string | null,
+          date: pick(model, "docDate", "invoiceDate", "issueDate") as string | null,
+          currency: pick(model, "currencyCode", "currency") as string | null,
+          currencyRate: num(pick(model, "currencyRate")),
+          sender: {
+            name: pick(model, "accountName", "senderName", "senderTitle") as string | null,
+            taxNumber: pick(
+              model,
+              "vknTckn",
+              "senderVknTckn",
+              "senderVkn",
+              "senderTaxNumber",
+            ) as string | null,
+            address: pick(model, "senderAddress", "address") as string | null,
+          },
+          totalAmount: num(pick(model, "payableAmount", "totalAmount", "payableAmountTra")),
+          taxExclusiveAmount: num(pick(model, "taxExclusiveAmount", "amtTra", "netAmount")),
+          taxInclusiveAmount: num(pick(model, "taxInclusiveAmount")),
+          vatAmount: num(pick(model, "taxTotalTra", "vatAmount", "totalVatAmount")),
+          lines,
+          raw: model,
+        },
+      }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen hata" }
+    }
+  }
+
+  /**
    * Gelen e-fatura için resmî GİB PDF'i Mysoft Inbox'tan indirir.
    *
    * Swagger v8: GET /api/InvoiceInbox/getInvoiceInboxPdfAsZip?invoiceETTN={uuid}

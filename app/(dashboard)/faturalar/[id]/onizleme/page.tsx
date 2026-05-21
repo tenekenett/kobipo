@@ -78,6 +78,7 @@ export default function FaturaOnizlemePage() {
   const [isDownloadingGibPdf, setIsDownloadingGibPdf] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [isSendingToProvider, setIsSendingToProvider] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
 
   useEffect(() => {
     if (!invoiceId) return
@@ -178,6 +179,36 @@ export default function FaturaOnizlemePage() {
       toast({ title: "Hata", description: error?.message || "PDF indirilirken hata oluştu", variant: "destructive" })
     } finally {
       setIsDownloadingGibPdf(false)
+    }
+  }
+
+  const handleApproveManual = async () => {
+    if (!invoice) return
+    if (!confirm("Bu faturayı kesinleştirmek istediğinize emin misiniz?")) return
+    setIsApproving(true)
+    try {
+      const res = await fetch(`/api/e-donusum/invoices/${invoice.id}/approve`, {
+        method: "POST",
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({
+          title: "Onaylanamadı",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+        return
+      }
+      toast({ title: "Fatura onaylandı", description: "Durum: Kesinleşmiş" })
+      fetchInvoice()
+    } catch (e: any) {
+      toast({
+        title: "Hata",
+        description: e?.message || "Onaylama sırasında hata",
+        variant: "destructive",
+      })
+    } finally {
+      setIsApproving(false)
     }
   }
 
@@ -345,6 +376,20 @@ export default function FaturaOnizlemePage() {
                 Gönder
               </Button>
             )}
+          {invoice.status === "DRAFT" && invoice.invoiceType === "MANUAL" && (
+            <Button
+              onClick={handleApproveManual}
+              disabled={isApproving}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {isApproving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+              )}
+              Onayla
+            </Button>
+          )}
           <Select value={template} onValueChange={setTemplate}>
             <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
             <SelectContent>

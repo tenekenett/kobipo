@@ -1,0 +1,133 @@
+import { NextResponse } from "next/server"
+import { getCurrentUser } from "@/lib/auth/session"
+import { prisma } from "@/lib/db/prisma"
+import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
+import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
+import { decryptSecret } from "@/lib/crypto/secrets"
+
+export const dynamic = "force-dynamic"
+
+/**
+ * Bir VKN/TCKN'nin e-fatura mükellef durumunu döner. InvoiceEditor müşteri/tedarikçi
+ * seçildiğinde bu endpoint'i çağırıp invoiceType'ı (E_INVOICE vs E_ARCHIVE) otomatik
+ * belirler.
+ *
+ * Query params:
+ *  - companyId  (zorunlu)
+ *  - vkn        (zorunlu)
+ *
+ * Yanıt:
+ *  - isEInvoiceTaxpayer: boolean
+ *  - suggestedInvoiceType: "E_INVOICE" | "E_ARCHIVE" | "MANUAL"
+ *  - accountName, eInvoiceStartDate (debug için)
+ */
+export async function GET(request: Request) {
+  try {
+    const user = await getCurrentUser()
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const url = new URL(request.url)
+    const companyId = url.searchParams.get("companyId")
+    const vkn = (url.searchParams.get("vkn") || "").replace(/\D/g, "")
+    if (!companyId) {
+      return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
+    }
+    if (!vkn || !/^\d{10,11}$/.test(vkn)) {
+      return NextResponse.json(
+        {
+          error: "Geçersiz VKN/TCKN",
+          isEInvoiceTaxpayer: false,
+          suggestedInvoiceType: "MANUAL",
+        },
+        { status: 400 },
+      )
+    }
+
+    await ensureCompanyAccess(companyId)
+
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        isEDonusumEnabled: true,
+        eDonusumApiUsername: true,
+        eDonusumApiPassword: true,
+        eDonusumApiUrl: true,
+        eDonusumTenantVkn: true,
+      },
+    })
+
+    if (!company?.isEDonusumEnabled) {
+      // E-Dönüşüm kapalıysa her durumda MANUAL.
+      return NextResponse.json({
+        isEInvoiceTaxpayer: false,
+        suggestedInvoiceType: "MANUAL",
+        reason: "e-dönüşüm pasif",
+      })
+    }
+
+    if (!company.eDonusumApiUsername || !company.eDonusumApiPassword) {
+      return NextResponse.json({
+        isEInvoiceTaxpayer: false,
+        suggestedInvoiceType: "E_ARCHIVE",
+        reason: "API erişim bilgileri eksik — varsayılan E-Arşiv",
+      })
+    }
+
+    assertEInvoiceRuntimeReady()
+    let passwordText: string
+    try {
+      passwordText = decryptSecret(company.eDonusumApiPassword)
+    } catch {
+      return NextResponse.json({
+        isEInvoiceTaxpayer: false,
+        suggestedInvoiceType: "E_ARCHIVE",
+        reason: "Şifre çözülemedi — varsayılan E-Arşiv",
+      })
+    }
+
+    const provider = new MysoftEInvoiceProvider({
+      username: company.eDonusumApiUsername,
+      passwordText,
+      baseUrl: company.eDonusumApiUrl || undefined,
+      vknTckn: company.eDonusumTenantVkn || undefined,
+    })
+
+    const result = await provider.getGibAccount(vkn)
+    if (!result.success) {
+      // Sorgu hatası → safe fallback E-Arşiv
+      return NextResponse.json({
+        isEInvoiceTaxpayer: false,
+        suggestedInvoiceType: "E_ARCHIVE",
+        reason: result.error,
+      })
+    }
+
+    if (!result.data) {
+      return NextResponse.json({
+        isEInvoiceTaxpayer: false,
+        suggestedInvoiceType: "E_ARCHIVE",
+        accountName: null,
+        eInvoiceStartDate: null,
+      })
+    }
+
+    return NextResponse.json({
+      isEInvoiceTaxpayer: result.data.isEInvoiceTaxpayer,
+      suggestedInvoiceType: result.data.isEInvoiceTaxpayer ? "E_INVOICE" : "E_ARCHIVE",
+      accountName: result.data.accountName,
+      eInvoiceStartDate: result.data.eInvoiceStartDate,
+      isPassive: result.data.isPassive,
+    })
+  } catch (error: any) {
+    const message: string = typeof error?.message === "string" ? error.message : ""
+    if (message.toLowerCase().includes("access denied")) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+    console.error("check-vkn route error:", error)
+    return NextResponse.json(
+      { error: message || "VKN kontrolü sırasında hata oluştu" },
+      { status: 500 },
+    )
+  }
+}

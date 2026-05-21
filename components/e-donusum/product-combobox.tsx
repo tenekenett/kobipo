@@ -3,8 +3,26 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
-import { X } from "lucide-react"
+import { Loader2, X } from "lucide-react"
+
+const UNIT_OPTIONS = ["ADET", "KG", "MT", "M2", "M3", "LT", "SA", "GUN", "PAKET"] as const
 
 export type ComboboxProduct = {
   id: string
@@ -21,7 +39,12 @@ type ProductComboboxProps = {
   selectedProductId?: string
   /** Ürün listede yokken veya yükleme sırasında gösterilecek etiket */
   selectedLabel?: string
-  defaults: { unit?: string; vatRate?: number; salePrice?: number }
+  defaults: { unit?: string; vatRate?: number; salePrice?: number; purchasePrice?: number }
+  /**
+   * Yeni ürün popup'ında satır birim fiyatının hangi alana pre-fill edileceğini belirler.
+   * Satış faturası bağlamında "sale" (default), alış faturasında "purchase".
+   */
+  priceContext?: "sale" | "purchase"
   onSelect: (product: ComboboxProduct) => void
   onClearBinding?: () => void
   disabled?: boolean
@@ -39,6 +62,7 @@ export function ProductCombobox({
   selectedProductId,
   selectedLabel,
   defaults,
+  priceContext = "sale",
   onSelect,
   onClearBinding,
   disabled,
@@ -52,6 +76,20 @@ export function ProductCombobox({
   const [query, setQuery] = useState("")
   const [highlighted, setHighlighted] = useState(-1)
   const [creating, setCreating] = useState(false)
+
+  // Yeni ürün popup state'i
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [draftProduct, setDraftProduct] = useState({
+    name: "",
+    code: "",
+    barcode: "",
+    unit: "ADET" as string,
+    vatRate: "20",
+    purchasePrice: "",
+    salePrice: "",
+    stockQuantity: "",
+    isService: false,
+  })
 
   const selected = useMemo(
     () => (selectedProductId ? products.find((p) => p.id === selectedProductId) : undefined),
@@ -108,9 +146,46 @@ export function ProductCombobox({
     [onSelect, close]
   )
 
-  const createProduct = useCallback(async () => {
+  // Eski davranış (inline create) yerine popup açıyoruz. Kullanıcı popup'ta
+  // opsiyonel alanları (kod, barkod, alış fiyatı, başlangıç stoğu) doldurabilir.
+  // priceContext'e göre birim fiyat doğru alana pre-fill olur — alış faturasında
+  // satır fiyatı "Alış Fiyatı", satışta "Satış Fiyatı" alanına gider.
+  const openCreateDialog = useCallback(() => {
     const name = query.trim()
-    if (!name || exactMatch || creating) return
+    if (!name || exactMatch) return
+    const lineUnitPrice =
+      priceContext === "purchase"
+        ? defaults.purchasePrice
+        : defaults.salePrice
+    const lineUnitPriceStr =
+      lineUnitPrice != null && lineUnitPrice > 0 ? String(lineUnitPrice) : ""
+    setDraftProduct({
+      name,
+      code: "",
+      barcode: "",
+      unit: defaults.unit || "ADET",
+      vatRate: String(defaults.vatRate ?? 20),
+      purchasePrice:
+        priceContext === "purchase"
+          ? lineUnitPriceStr
+          : defaults.purchasePrice != null && defaults.purchasePrice > 0
+            ? String(defaults.purchasePrice)
+            : "",
+      salePrice:
+        priceContext === "sale"
+          ? lineUnitPriceStr
+          : defaults.salePrice != null && defaults.salePrice > 0
+            ? String(defaults.salePrice)
+            : "",
+      stockQuantity: "",
+      isService: false,
+    })
+    setDialogOpen(true)
+  }, [query, exactMatch, defaults, priceContext])
+
+  const submitCreateDialog = useCallback(async () => {
+    const name = draftProduct.name.trim()
+    if (!name || creating) return
     setCreating(true)
     try {
       const res = await fetch("/api/stok/products", {
@@ -119,11 +194,14 @@ export function ProductCombobox({
         body: JSON.stringify({
           companyId,
           name,
-          unit: defaults.unit || "ADET",
-          vatRate: defaults.vatRate ?? 20,
-          salePrice:
-            defaults.salePrice != null && defaults.salePrice > 0 ? defaults.salePrice : undefined,
-          isService: false,
+          code: draftProduct.code.trim() || undefined,
+          barcode: draftProduct.barcode.trim() || undefined,
+          unit: draftProduct.unit || "ADET",
+          vatRate: draftProduct.vatRate || "20",
+          purchasePrice: draftProduct.purchasePrice || undefined,
+          salePrice: draftProduct.salePrice || undefined,
+          stockQuantity: draftProduct.stockQuantity || undefined,
+          isService: draftProduct.isService,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -139,7 +217,9 @@ export function ProductCombobox({
         unit: data.unit,
       }
       onSelect(created)
+      setDialogOpen(false)
       close()
+      toast({ title: "Ürün eklendi", description: created.name })
     } catch (e: any) {
       toast({
         title: "Hata",
@@ -149,7 +229,7 @@ export function ProductCombobox({
     } finally {
       setCreating(false)
     }
-  }, [query, exactMatch, creating, companyId, defaults, onSelect, close, toast])
+  }, [draftProduct, creating, companyId, onSelect, close, toast])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
@@ -182,7 +262,7 @@ export function ProductCombobox({
         return
       }
       if (canCreate && highlighted === filtered.length) {
-        void createProduct()
+        openCreateDialog()
         return
       }
       if (filtered.length === 1 && !canCreate) {
@@ -190,7 +270,7 @@ export function ProductCombobox({
         return
       }
       if (canCreate && filtered.length === 0) {
-        void createProduct()
+        openCreateDialog()
         return
       }
     }
@@ -273,13 +353,136 @@ export function ProductCombobox({
               }`}
               disabled={creating}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => void createProduct()}
+              onClick={() => openCreateDialog()}
             >
               {creating ? "Kaydediliyor…" : `+ "${query.trim()}" adıyla yeni ürün ekle`}
             </button>
           ) : null}
         </div>
       ) : null}
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Yeni ürün ekle</DialogTitle>
+            <DialogDescription>
+              Sadece ad zorunlu — diğer alanları daha sonra da güncelleyebilirsin.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2 space-y-1">
+              <Label>Ad *</Label>
+              <Input
+                value={draftProduct.name}
+                onChange={(e) => setDraftProduct((p) => ({ ...p, name: e.target.value }))}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Kod</Label>
+              <Input
+                value={draftProduct.code}
+                onChange={(e) => setDraftProduct((p) => ({ ...p, code: e.target.value }))}
+                placeholder="Opsiyonel"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Barkod</Label>
+              <Input
+                value={draftProduct.barcode}
+                onChange={(e) => setDraftProduct((p) => ({ ...p, barcode: e.target.value }))}
+                placeholder="Opsiyonel"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Birim</Label>
+              <Select
+                value={draftProduct.unit}
+                onValueChange={(v) => setDraftProduct((p) => ({ ...p, unit: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {UNIT_OPTIONS.map((u) => (
+                    <SelectItem key={u} value={u}>
+                      {u}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>KDV %</Label>
+              <Select
+                value={draftProduct.vatRate}
+                onValueChange={(v) => setDraftProduct((p) => ({ ...p, vatRate: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">%0</SelectItem>
+                  <SelectItem value="1">%1</SelectItem>
+                  <SelectItem value="8">%8</SelectItem>
+                  <SelectItem value="10">%10</SelectItem>
+                  <SelectItem value="18">%18</SelectItem>
+                  <SelectItem value="20">%20</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Alış Fiyatı</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={draftProduct.purchasePrice}
+                onChange={(e) =>
+                  setDraftProduct((p) => ({ ...p, purchasePrice: e.target.value }))
+                }
+                placeholder="Opsiyonel"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Satış Fiyatı</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={draftProduct.salePrice}
+                onChange={(e) => setDraftProduct((p) => ({ ...p, salePrice: e.target.value }))}
+                placeholder="Opsiyonel"
+              />
+            </div>
+            <div className="sm:col-span-2 space-y-1">
+              <Label>Başlangıç Stoğu</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={draftProduct.stockQuantity}
+                onChange={(e) =>
+                  setDraftProduct((p) => ({ ...p, stockQuantity: e.target.value }))
+                }
+                placeholder="Faturayla artacak miktarın haricindeki başlangıç stoğu (opsiyonel)"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={creating}>
+              İptal
+            </Button>
+            <Button onClick={submitCreateDialog} disabled={creating || !draftProduct.name.trim()}>
+              {creating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Kaydediliyor
+                </>
+              ) : (
+                "Kaydet"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
