@@ -344,6 +344,21 @@ export default function GelenEFaturalarPage() {
                           {row.status || "-"}
                         </span>
                       </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDownloadPdf(row.uuid, row.invoiceNo)}
+                          disabled={downloadingPdfUuid === row.uuid}
+                          title="PDF indir / aç"
+                        >
+                          {downloadingPdfUuid === row.uuid ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <FileDown className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   )
                 })
