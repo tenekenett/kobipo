@@ -5,6 +5,13 @@ import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import {
+  StyledTableContainer,
+  StyledTableHeaderRow,
+  StyledTableHead,
+  StyledTableRow,
+  EntityCell,
+} from "@/components/ui/styled-table"
 import { Plus } from "lucide-react"
 import { TransactionDialog } from "@/components/cari/transaction-dialog"
 
@@ -122,23 +129,26 @@ export default function FinansHareketlerPage() {
               Henüz hareket bulunmuyor
             </div>
           ) : (
+            <StyledTableContainer>
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Tarih</TableHead>
-                  <TableHead>Hesap</TableHead>
-                  <TableHead>Tip</TableHead>
-                  <TableHead>Açıklama</TableHead>
-                  <TableHead className="text-right">Tutar</TableHead>
-                </TableRow>
+                <StyledTableHeaderRow>
+                  <StyledTableHead>Tarih</StyledTableHead>
+                  <StyledTableHead>Hesap</StyledTableHead>
+                  <StyledTableHead>Tip</StyledTableHead>
+                  <StyledTableHead>Açıklama</StyledTableHead>
+                  <StyledTableHead className="text-right">Tutar</StyledTableHead>
+                </StyledTableHeaderRow>
               </TableHeader>
               <TableBody>
-                {transactions.map((tx) => (
-                  <TableRow key={tx.id}>
-                    <TableCell>
+                {transactions.map((tx, idx) => (
+                  <StyledTableRow key={tx.id} index={idx}>
+                    <TableCell className="text-xs whitespace-nowrap">
                       {new Date(tx.date).toLocaleDateString("tr-TR")}
                     </TableCell>
-                    <TableCell>{tx.account.name}</TableCell>
+                    <TableCell>
+                      <EntityCell name={tx.account.name} />
+                    </TableCell>
                     <TableCell>
                       <span className={`px-2 py-1 rounded text-xs ${
                         tx.type === "INCOME" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
@@ -146,17 +156,18 @@ export default function FinansHareketlerPage() {
                         {tx.type === "INCOME" ? "Gelir" : "Gider"}
                       </span>
                     </TableCell>
-                    <TableCell>{tx.description || "-"}</TableCell>
-                    <TableCell className={`text-right font-medium ${
+                    <TableCell className="text-xs">{tx.description || "-"}</TableCell>
+                    <TableCell className={`text-right font-semibold whitespace-nowrap ${
                       tx.type === "INCOME" ? "text-green-600" : "text-red-600"
                     }`}>
                       {tx.type === "INCOME" ? "+" : "-"}
                       {formatCurrency(tx.amount)}
                     </TableCell>
-                  </TableRow>
+                  </StyledTableRow>
                 ))}
               </TableBody>
             </Table>
+            </StyledTableContainer>
           )}
         </CardContent>
       </Card>

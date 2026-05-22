@@ -12,6 +12,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  StyledTableContainer,
+  StyledTableHeaderRow,
+  StyledTableHead,
+  StyledTableRow,
+  EntityCell,
+  MonoCell,
+} from "@/components/ui/styled-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -361,16 +369,17 @@ export default function FinansPage() {
               </div>
             </CardHeader>
             <CardContent>
+              <StyledTableContainer>
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Kod</TableHead>
-                    <TableHead>Ad</TableHead>
-                    <TableHead>Tip</TableHead>
-                    <TableHead>Banka</TableHead>
-                    <TableHead>Hesap No</TableHead>
-                    <TableHead className="text-right">Bakiye</TableHead>
-                  </TableRow>
+                  <StyledTableHeaderRow>
+                    <StyledTableHead>Kod</StyledTableHead>
+                    <StyledTableHead>Ad</StyledTableHead>
+                    <StyledTableHead>Tip</StyledTableHead>
+                    <StyledTableHead>Banka</StyledTableHead>
+                    <StyledTableHead>Hesap No</StyledTableHead>
+                    <StyledTableHead className="text-right">Bakiye</StyledTableHead>
+                  </StyledTableHeaderRow>
                 </TableHeader>
                 <TableBody>
                   {accounts.length === 0 ? (
@@ -380,24 +389,27 @@ export default function FinansPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    accounts.map((account) => (
-                      <TableRow key={account.id}>
-                        <TableCell>{account.code || "-"}</TableCell>
-                        <TableCell className="font-medium">{account.name}</TableCell>
-                        <TableCell>{account.type === "CASH" ? "Kasa" : "Banka"}</TableCell>
-                        <TableCell>{account.bankName || "-"}</TableCell>
-                        <TableCell>{account.accountNumber || "-"}</TableCell>
-                        <TableCell className="text-right">
+                    accounts.map((account, idx) => (
+                      <StyledTableRow key={account.id} index={idx}>
+                        <TableCell><MonoCell value={account.code} /></TableCell>
+                        <TableCell className="font-medium">
+                          <EntityCell name={account.name} />
+                        </TableCell>
+                        <TableCell className="text-xs">{account.type === "CASH" ? "Kasa" : "Banka"}</TableCell>
+                        <TableCell className="text-xs">{account.bankName || "-"}</TableCell>
+                        <TableCell><MonoCell value={account.accountNumber} /></TableCell>
+                        <TableCell className="text-right font-semibold whitespace-nowrap">
                           {new Intl.NumberFormat("tr-TR", {
                             style: "currency",
                             currency: account.currency,
                           }).format(Number(account.balance))}
                         </TableCell>
-                      </TableRow>
+                      </StyledTableRow>
                     ))
                   )}
                 </TableBody>
               </Table>
+              </StyledTableContainer>
             </CardContent>
           </Card>
         </TabsContent>
@@ -558,15 +570,16 @@ export default function FinansPage() {
               </div>
             </CardHeader>
             <CardContent>
+              <StyledTableContainer>
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Tarih</TableHead>
-                    <TableHead>Hesap</TableHead>
-                    <TableHead>Tip</TableHead>
-                    <TableHead>Açıklama</TableHead>
-                    <TableHead className="text-right">Tutar</TableHead>
-                  </TableRow>
+                  <StyledTableHeaderRow>
+                    <StyledTableHead>Tarih</StyledTableHead>
+                    <StyledTableHead>Hesap</StyledTableHead>
+                    <StyledTableHead>Tip</StyledTableHead>
+                    <StyledTableHead>Açıklama</StyledTableHead>
+                    <StyledTableHead className="text-right">Tutar</StyledTableHead>
+                  </StyledTableHeaderRow>
                 </TableHeader>
                 <TableBody>
                   {transactions.length === 0 ? (
@@ -576,33 +589,36 @@ export default function FinansPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    transactions.map((transaction) => (
-                      <TableRow key={transaction.id}>
-                        <TableCell>
+                    transactions.map((transaction, idx) => (
+                      <StyledTableRow key={transaction.id} index={idx}>
+                        <TableCell className="text-xs whitespace-nowrap">
                           {new Date(transaction.date).toLocaleDateString("tr-TR")}
                         </TableCell>
-                        <TableCell>{transaction.account.name}</TableCell>
+                        <TableCell>
+                          <EntityCell name={transaction.account.name} />
+                        </TableCell>
                         <TableCell>
                           {transaction.type === "INCOME" ? (
-                            <span className="text-green-600">Gelir</span>
+                            <span className="text-green-600 text-xs font-medium">Gelir</span>
                           ) : transaction.type === "TRANSFER" ? (
-                            <span className="text-blue-600">Virman</span>
+                            <span className="text-blue-600 text-xs font-medium">Virman</span>
                           ) : (
-                            <span className="text-red-600">Gider</span>
+                            <span className="text-red-600 text-xs font-medium">Gider</span>
                           )}
                         </TableCell>
-                        <TableCell>{transaction.description || "-"}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-xs">{transaction.description || "-"}</TableCell>
+                        <TableCell className="text-right font-semibold whitespace-nowrap">
                           {new Intl.NumberFormat("tr-TR", {
                             style: "currency",
                             currency: transaction.account.currency,
                           }).format(transaction.amount)}
                         </TableCell>
-                      </TableRow>
+                      </StyledTableRow>
                     ))
                   )}
                 </TableBody>
               </Table>
+              </StyledTableContainer>
             </CardContent>
           </Card>
         </TabsContent>

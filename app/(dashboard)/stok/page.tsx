@@ -12,6 +12,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  StyledTableContainer,
+  StyledTableHeaderRow,
+  StyledTableHead,
+  StyledTableRow,
+  EntityCell,
+  MonoCell,
+} from "@/components/ui/styled-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -379,20 +387,21 @@ export default function StokPage() {
           </div>
         </CardHeader>
         <CardContent>
+          <StyledTableContainer>
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Kod</TableHead>
-                <TableHead>Ad</TableHead>
-                <TableHead>Barkod</TableHead>
-                <TableHead>Birim</TableHead>
-                <TableHead>KDV %</TableHead>
-                <TableHead className="text-right">Alış Fiyatı</TableHead>
-                <TableHead className="text-right">Satış Fiyatı</TableHead>
-                <TableHead className="text-right">Stok</TableHead>
-                <TableHead>Tip</TableHead>
-                <TableHead>İşlem</TableHead>
-              </TableRow>
+              <StyledTableHeaderRow>
+                <StyledTableHead>Kod</StyledTableHead>
+                <StyledTableHead>Ad</StyledTableHead>
+                <StyledTableHead>Barkod</StyledTableHead>
+                <StyledTableHead>Birim</StyledTableHead>
+                <StyledTableHead>KDV %</StyledTableHead>
+                <StyledTableHead className="text-right">Alış Fiyatı</StyledTableHead>
+                <StyledTableHead className="text-right">Satış Fiyatı</StyledTableHead>
+                <StyledTableHead className="text-right">Stok</StyledTableHead>
+                <StyledTableHead>Tip</StyledTableHead>
+                <StyledTableHead>İşlem</StyledTableHead>
+              </StyledTableHeaderRow>
             </TableHeader>
             <TableBody>
               {products.length === 0 ? (
@@ -402,18 +411,21 @@ export default function StokPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                products.map((product) => (
-                  <TableRow
+                products.map((product, idx) => (
+                  <StyledTableRow
                     key={product.id}
-                    className="cursor-pointer hover:bg-muted/50"
+                    index={idx}
+                    className="cursor-pointer"
                     onClick={() => router.push(`/stok/${product.id}?company=${companyId}`)}
                   >
-                    <TableCell>{product.code || "-"}</TableCell>
-                    <TableCell className="font-medium">{product.name}</TableCell>
-                    <TableCell>{product.barcode || "-"}</TableCell>
+                    <TableCell><MonoCell value={product.code} /></TableCell>
+                    <TableCell className="font-medium">
+                      <EntityCell name={product.name} />
+                    </TableCell>
+                    <TableCell><MonoCell value={product.barcode} /></TableCell>
                     <TableCell>{product.unit}</TableCell>
                     <TableCell>{product.vatRate}%</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right whitespace-nowrap">
                       {product.purchasePrice
                         ? new Intl.NumberFormat("tr-TR", {
                             style: "currency",
@@ -421,7 +433,7 @@ export default function StokPage() {
                           }).format(product.purchasePrice)
                         : "-"}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right whitespace-nowrap font-semibold">
                       {product.salePrice
                         ? new Intl.NumberFormat("tr-TR", {
                             style: "currency",
@@ -429,7 +441,7 @@ export default function StokPage() {
                           }).format(product.salePrice)
                         : "-"}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right whitespace-nowrap">
                       {product.isService
                         ? "-"
                         : new Intl.NumberFormat("tr-TR", {
@@ -462,11 +474,12 @@ export default function StokPage() {
                         </Button>
                       </div>
                     </TableCell>
-                  </TableRow>
+                  </StyledTableRow>
                 ))
               )}
             </TableBody>
           </Table>
+          </StyledTableContainer>
         </CardContent>
       </Card>
     </div>

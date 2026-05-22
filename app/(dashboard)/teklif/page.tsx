@@ -18,6 +18,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  StyledTableContainer,
+  StyledTableHeaderRow,
+  StyledTableHead,
+  StyledTableRow,
+  EntityCell,
+  MonoCell,
+} from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
 import { Plus, RefreshCcw, Trash2, Eye, Minus } from "lucide-react"
 
@@ -414,43 +422,47 @@ export default function TeklifPage() {
             <div className="text-sm text-muted-foreground">Henüz teklif yok.</div>
           )}
           {!isLoading && quotes.length > 0 && (
+            <StyledTableContainer>
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>No</TableHead>
-                  <TableHead>Tarih</TableHead>
-                  <TableHead>Geçerlilik</TableHead>
-                  <TableHead>Müşteri</TableHead>
-                  <TableHead>Durum</TableHead>
-                  <TableHead className="text-right">Toplam</TableHead>
-                  <TableHead className="w-[100px] text-right">İşlem</TableHead>
-                </TableRow>
+                <StyledTableHeaderRow>
+                  <StyledTableHead>No</StyledTableHead>
+                  <StyledTableHead>Tarih</StyledTableHead>
+                  <StyledTableHead>Geçerlilik</StyledTableHead>
+                  <StyledTableHead>Müşteri</StyledTableHead>
+                  <StyledTableHead>Durum</StyledTableHead>
+                  <StyledTableHead className="text-right">Toplam</StyledTableHead>
+                  <StyledTableHead className="w-[100px] text-right">İşlem</StyledTableHead>
+                </StyledTableHeaderRow>
               </TableHeader>
               <TableBody>
-                {quotes.map((quote) => (
-                  <TableRow
+                {quotes.map((quote, idx) => (
+                  <StyledTableRow
                     key={quote.id}
-                    className="cursor-pointer hover:bg-muted/50"
+                    index={idx}
+                    className="cursor-pointer"
                     onClick={() => router.push(`/teklif/${quote.id}${companyQs}`)}
                   >
                     <TableCell className="font-medium">
                       <Link
                         href={`/teklif/${quote.id}${companyQs}`}
-                        className="text-primary hover:underline"
+                        className="font-mono text-xs text-kobipo-blue hover:underline"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {quote.quoteNo}
                       </Link>
                     </TableCell>
-                    <TableCell>{new Date(quote.date).toLocaleDateString("tr-TR")}</TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap text-xs">{new Date(quote.date).toLocaleDateString("tr-TR")}</TableCell>
+                    <TableCell className="whitespace-nowrap text-xs">
                       {quote.validUntil ? new Date(quote.validUntil).toLocaleDateString("tr-TR") : "—"}
                     </TableCell>
-                    <TableCell>{quote.customer?.name || "—"}</TableCell>
+                    <TableCell>
+                      <EntityCell name={quote.customer?.name} />
+                    </TableCell>
                     <TableCell>
                       <Badge variant={statusBadgeVariant(quote.status)}>{statusLabel(quote.status)}</Badge>
                     </TableCell>
-                    <TableCell className="text-right font-medium">
+                    <TableCell className="text-right font-semibold whitespace-nowrap">
                       {Number(quote.totalAmount).toFixed(2)} {quote.currency || "TRY"}
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
@@ -475,10 +487,11 @@ export default function TeklifPage() {
                         </Button>
                       </div>
                     </TableCell>
-                  </TableRow>
+                  </StyledTableRow>
                 ))}
               </TableBody>
             </Table>
+            </StyledTableContainer>
           )}
         </CardContent>
       </Card>

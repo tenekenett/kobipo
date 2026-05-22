@@ -12,6 +12,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
+  StyledTableContainer,
+  StyledTableHeaderRow,
+  StyledTableHead,
+  StyledTableRow,
+  EntityCell,
+  MonoCell,
+} from "@/components/ui/styled-table"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -391,18 +399,19 @@ export default function CekSenetPage() {
               <TabsTrigger value="notes">Senetler ({notes.length})</TabsTrigger>
             </TabsList>
             <TabsContent value="checks">
+              <StyledTableContainer>
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Çek No</TableHead>
-                    <TableHead>Banka</TableHead>
-                    <TableHead>Müşteri/Tedarikçi</TableHead>
-                    <TableHead>Tutar</TableHead>
-                    <TableHead>Düzenleme Tarihi</TableHead>
-                    <TableHead>Vade</TableHead>
-                    <TableHead>Durum</TableHead>
-                    <TableHead>İşlemler</TableHead>
-                  </TableRow>
+                  <StyledTableHeaderRow>
+                    <StyledTableHead>Çek No</StyledTableHead>
+                    <StyledTableHead>Banka</StyledTableHead>
+                    <StyledTableHead>Müşteri/Tedarikçi</StyledTableHead>
+                    <StyledTableHead className="text-right">Tutar</StyledTableHead>
+                    <StyledTableHead>Düzenleme Tarihi</StyledTableHead>
+                    <StyledTableHead>Vade</StyledTableHead>
+                    <StyledTableHead>Durum</StyledTableHead>
+                    <StyledTableHead>İşlemler</StyledTableHead>
+                  </StyledTableHeaderRow>
                 </TableHeader>
                 <TableBody>
                   {checks.length === 0 ? (
@@ -412,16 +421,16 @@ export default function CekSenetPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    checks.map((check) => (
-                      <TableRow key={check.id}>
-                        <TableCell className="font-medium">{check.checkNo}</TableCell>
-                        <TableCell>{check.bankName}</TableCell>
+                    checks.map((check, idx) => (
+                      <StyledTableRow key={check.id} index={idx}>
+                        <TableCell><MonoCell value={check.checkNo} className="text-kobipo-blue font-medium" /></TableCell>
+                        <TableCell className="text-xs">{check.bankName}</TableCell>
                         <TableCell>
-                          {check.customer?.name || check.supplier?.name || "-"}
+                          <EntityCell name={check.customer?.name || check.supplier?.name} />
                         </TableCell>
-                        <TableCell>{formatCurrency(Number(check.amount))}</TableCell>
-                        <TableCell>{formatDate(check.issueDate)}</TableCell>
-                        <TableCell>{formatDate(check.dueDate)}</TableCell>
+                        <TableCell className="text-right font-semibold whitespace-nowrap">{formatCurrency(Number(check.amount))}</TableCell>
+                        <TableCell className="text-xs whitespace-nowrap">{formatDate(check.issueDate)}</TableCell>
+                        <TableCell className="text-xs whitespace-nowrap">{formatDate(check.dueDate)}</TableCell>
                         <TableCell>
                           <Badge variant={getStatusVariant(check.status)}>
                             {getStatusLabel(check.status)}
@@ -445,24 +454,26 @@ export default function CekSenetPage() {
                             </Button>
                           </div>
                         </TableCell>
-                      </TableRow>
+                      </StyledTableRow>
                     ))
                   )}
                 </TableBody>
               </Table>
+              </StyledTableContainer>
             </TabsContent>
             <TabsContent value="notes">
+              <StyledTableContainer>
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Senet No</TableHead>
-                    <TableHead>Müşteri/Tedarikçi</TableHead>
-                    <TableHead>Tutar</TableHead>
-                    <TableHead>Düzenleme Tarihi</TableHead>
-                    <TableHead>Vade</TableHead>
-                    <TableHead>Durum</TableHead>
-                    <TableHead>İşlemler</TableHead>
-                  </TableRow>
+                  <StyledTableHeaderRow>
+                    <StyledTableHead>Senet No</StyledTableHead>
+                    <StyledTableHead>Müşteri/Tedarikçi</StyledTableHead>
+                    <StyledTableHead className="text-right">Tutar</StyledTableHead>
+                    <StyledTableHead>Düzenleme Tarihi</StyledTableHead>
+                    <StyledTableHead>Vade</StyledTableHead>
+                    <StyledTableHead>Durum</StyledTableHead>
+                    <StyledTableHead>İşlemler</StyledTableHead>
+                  </StyledTableHeaderRow>
                 </TableHeader>
                 <TableBody>
                   {notes.length === 0 ? (
@@ -472,15 +483,15 @@ export default function CekSenetPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    notes.map((note) => (
-                      <TableRow key={note.id}>
-                        <TableCell className="font-medium">{note.noteNo}</TableCell>
+                    notes.map((note, idx) => (
+                      <StyledTableRow key={note.id} index={idx}>
+                        <TableCell><MonoCell value={note.noteNo} className="text-kobipo-blue font-medium" /></TableCell>
                         <TableCell>
-                          {note.customer?.name || note.supplier?.name || "-"}
+                          <EntityCell name={note.customer?.name || note.supplier?.name} />
                         </TableCell>
-                        <TableCell>{formatCurrency(Number(note.amount))}</TableCell>
-                        <TableCell>{formatDate(note.issueDate)}</TableCell>
-                        <TableCell>{formatDate(note.dueDate)}</TableCell>
+                        <TableCell className="text-right font-semibold whitespace-nowrap">{formatCurrency(Number(note.amount))}</TableCell>
+                        <TableCell className="text-xs whitespace-nowrap">{formatDate(note.issueDate)}</TableCell>
+                        <TableCell className="text-xs whitespace-nowrap">{formatDate(note.dueDate)}</TableCell>
                         <TableCell>
                           <Badge variant={getStatusVariant(note.status)}>
                             {getStatusLabel(note.status)}
@@ -504,11 +515,12 @@ export default function CekSenetPage() {
                             </Button>
                           </div>
                         </TableCell>
-                      </TableRow>
+                      </StyledTableRow>
                     ))
                   )}
                 </TableBody>
               </Table>
+              </StyledTableContainer>
             </TabsContent>
           </Tabs>
         </CardContent>

@@ -6,8 +6,9 @@ export default function AlisFaturaPage() {
   return (
     <FaturalarListing
       fixedDirection="incoming"
+      includeInbox={false}
       pageTitle="Alış Faturaları"
-      pageDescription="Tedarikçilerden gelen tüm alış faturalarınız"
+      pageDescription="İçe aktarılmış ve manuel girilmiş alış faturalarınız"
     />
   )
 }

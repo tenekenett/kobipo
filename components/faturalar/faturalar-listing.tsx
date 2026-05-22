@@ -17,10 +17,12 @@ import { useToast } from "@/components/ui/use-toast"
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
+  Building2,
   Eye,
   FileText,
   FileDown,
   Inbox,
+  Link2,
   Loader2,
   Pencil,
   Plus,
@@ -34,7 +36,7 @@ import Link from "next/link"
 interface FaturaRow {
   id: string
   direction: "incoming" | "outgoing"
-  source: "mysoft_inbox" | "manual_purchase" | "manual_sales"
+  source: "mysoft_inbox" | "manual_purchase" | "manual_sales" | "converted_inbox"
   date: string | null
   invoiceNo: string | null
   uuid: string | null
@@ -81,12 +83,14 @@ export interface FaturalarListingProps {
   fixedDirection?: "incoming" | "outgoing"
   pageTitle?: string
   pageDescription?: string
+  includeInbox?: boolean
 }
 
 export default function FaturalarListing({
   fixedDirection,
   pageTitle,
   pageDescription,
+  includeInbox = true,
 }: FaturalarListingProps = {}) {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -136,6 +140,7 @@ export default function FaturalarListing({
         direction,
         days: String(days),
       })
+      if (!includeInbox) params.set("includeInbox", "false")
       if (search.trim()) params.set("search", search.trim())
       const res = await fetch(`/api/faturalar?${params.toString()}`)
       const data = await res.json()
@@ -160,7 +165,7 @@ export default function FaturalarListing({
       setIsLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, direction, days, search, toast])
+  }, [companyId, direction, days, search, includeInbox, toast])
 
   useEffect(() => {
     fetchCompany()
@@ -418,7 +423,7 @@ export default function FaturalarListing({
             <option value={180}>Son 6 ay</option>
             <option value={365}>Son 1 yıl</option>
           </select>
-          {fixedDirection !== "outgoing" && (
+          {fixedDirection !== "outgoing" && includeInbox && (
             <Button
               variant="outline"
               onClick={handleSyncInbox}
@@ -537,37 +542,41 @@ export default function FaturalarListing({
           </div>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
-              <TableRow>
-                {!fixedDirection && <TableHead>Yön</TableHead>}
-                <TableHead>Tarih</TableHead>
-                <TableHead>Fatura No</TableHead>
-                <TableHead>VKN</TableHead>
-                <TableHead>Karşı Taraf</TableHead>
-                <TableHead className="text-right">Net</TableHead>
-                <TableHead className="text-right">KDV</TableHead>
-                <TableHead className="text-right">Toplam</TableHead>
-                <TableHead>Durum</TableHead>
-                <TableHead className="text-right">İşlem</TableHead>
+              <TableRow className="bg-kobipo-blue hover:bg-kobipo-blue">
+                {!fixedDirection && <TableHead className="text-white">Yön</TableHead>}
+                <TableHead className="text-white">Tarih</TableHead>
+                <TableHead className="text-white">Fatura No</TableHead>
+                <TableHead className="text-white">VKN</TableHead>
+                <TableHead className="text-white">Karşı Taraf</TableHead>
+                <TableHead className="text-white">Profil</TableHead>
+                <TableHead className="text-white">Tip</TableHead>
+                <TableHead className="text-white">Kaynak</TableHead>
+                <TableHead className="text-right text-white">Net</TableHead>
+                <TableHead className="text-right text-white">KDV</TableHead>
+                <TableHead className="text-right text-white">Toplam</TableHead>
+                <TableHead className="text-white">Durum</TableHead>
+                <TableHead className="text-right text-white">İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={fixedDirection ? 9 : 10} className="py-8 text-center">
+                  <TableCell colSpan={fixedDirection ? 12 : 13} className="py-8 text-center">
                     <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={fixedDirection ? 9 : 10} className="py-8 text-center">
+                  <TableCell colSpan={fixedDirection ? 12 : 13} className="py-8 text-center">
                     <FileText className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
                     <p className="text-muted-foreground">Bu kriterlere uyan fatura bulunamadı</p>
                   </TableCell>
                 </TableRow>
               ) : (
-                rows.map((row) => {
+                rows.map((row, idx) => {
                   const rawId = row.id.split(":")[1]
                   const isInvoiceRow = row.id.startsWith("invoice:")
                   const isEDoc =
@@ -575,11 +584,12 @@ export default function FaturalarListing({
                   const canCheckGib = Boolean(isInvoiceRow && row.uuid && isEDoc)
                   const canDownloadGibPdf = canCheckGib
                   const editable = isInvoiceRow && row.status === "DRAFT"
+                  const stripe = idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"
 
                   return (
                     <TableRow
                       key={row.id}
-                      className="cursor-pointer hover:bg-muted/50"
+                      className={`${stripe} cursor-pointer hover:bg-kobipo-pale/60`}
                       onClick={() => {
                         if (isInvoiceRow) {
                           router.push(`/faturalar/${rawId}/onizleme?company=${companyId}`)
@@ -587,21 +597,34 @@ export default function FaturalarListing({
                       }}
                     >
                       {!fixedDirection && <TableCell>{directionBadge(row)}</TableCell>}
-                      <TableCell className="text-xs">{formatDate(row.date)}</TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="text-xs whitespace-nowrap">{formatDate(row.date)}</TableCell>
+                      <TableCell className="font-mono text-xs text-kobipo-blue font-medium">
                         {row.invoiceNo || "-"}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {row.counterparty.taxNumber || "-"}
                       </TableCell>
-                      <TableCell className="text-xs">{row.counterparty.name || "-"}</TableCell>
-                      <TableCell className="text-right text-xs">
+                      <TableCell className="text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <Building2 className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                          <span
+                            className="truncate max-w-[260px]"
+                            title={row.counterparty.name || ""}
+                          >
+                            {row.counterparty.name || "-"}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell><ProfileBadge profile={row.profile} /></TableCell>
+                      <TableCell><InvoiceTypeBadge type={row.invoiceType} /></TableCell>
+                      <TableCell><SourceBadge row={row} /></TableCell>
+                      <TableCell className="text-right text-xs whitespace-nowrap">
                         {fmt(row.netAmount, row.currency || "TRY")}
                       </TableCell>
-                      <TableCell className="text-right text-xs">
+                      <TableCell className="text-right text-xs whitespace-nowrap">
                         {fmt(row.vatAmount, row.currency || "TRY")}
                       </TableCell>
-                      <TableCell className="text-right text-xs font-semibold">
+                      <TableCell className="text-right text-xs font-semibold whitespace-nowrap">
                         {fmt(row.totalAmount, row.currency || "TRY")}
                       </TableCell>
                       <TableCell>{statusBadge(row.status)}</TableCell>
@@ -710,8 +733,85 @@ export default function FaturalarListing({
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function ProfileBadge({ profile }: { profile: string | null }) {
+  if (!profile) return <span className="text-xs text-muted-foreground">-</span>
+  const map: Record<string, { label: string; cls: string }> = {
+    TICARIFATURA: { label: "Ticari", cls: "bg-indigo-50 text-indigo-800 border-indigo-200" },
+    TEMELFATURA: { label: "Temel", cls: "bg-slate-50 text-slate-700 border-slate-200" },
+    EARSIVFATURA: { label: "E-Arşiv", cls: "bg-cyan-50 text-cyan-800 border-cyan-200" },
+    EFATURA: { label: "E-Fatura", cls: "bg-sky-50 text-sky-800 border-sky-200" },
+  }
+  const entry =
+    map[profile] || { label: profile, cls: "bg-slate-50 text-slate-700 border-slate-200" }
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium ${entry.cls}`}
+    >
+      {entry.label}
+    </span>
+  )
+}
+
+function InvoiceTypeBadge({ type }: { type: string | null }) {
+  if (!type) return <span className="text-xs text-muted-foreground">-</span>
+  const map: Record<string, { label: string; cls: string }> = {
+    E_INVOICE: { label: "E-Fatura", cls: "bg-sky-50 text-sky-800 border-sky-200" },
+    E_ARCHIVE: { label: "E-Arşiv", cls: "bg-cyan-50 text-cyan-800 border-cyan-200" },
+    SATIS: { label: "Satış", cls: "bg-sky-50 text-sky-800 border-sky-200" },
+    TEVKIFAT: { label: "Tevkifat", cls: "bg-purple-50 text-purple-800 border-purple-200" },
+    IADE: { label: "İade", cls: "bg-red-50 text-red-800 border-red-200" },
+    ISTISNA: { label: "İstisna", cls: "bg-amber-50 text-amber-800 border-amber-200" },
+    OZELMATRAH: { label: "Özel Matrah", cls: "bg-cyan-50 text-cyan-800 border-cyan-200" },
+    IHRACAT: { label: "İhracat", cls: "bg-blue-50 text-blue-800 border-blue-200" },
+  }
+  const entry =
+    map[type] || { label: type, cls: "bg-slate-50 text-slate-700 border-slate-200" }
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium ${entry.cls}`}
+    >
+      {entry.label}
+    </span>
+  )
+}
+
+function SourceBadge({ row }: { row: FaturaRow }) {
+  if (row.source === "converted_inbox" || row.meta?.convertedFromInbox) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800"
+        title="Gelen e-faturadan dönüştürülmüş alış faturası"
+      >
+        <Link2 className="h-3 w-3" />
+        E-Fatura Dönüşümü
+      </span>
+    )
+  }
+  if (row.source === "mysoft_inbox") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+        <Inbox className="h-3 w-3" />
+        Gelen Kutusu
+      </span>
+    )
+  }
+  if (row.source === "manual_sales") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800">
+        Satış
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-700">
+      Manuel
+    </span>
   )
 }

@@ -11,6 +11,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  StyledTableContainer,
+  StyledTableHeaderRow,
+  StyledTableHead,
+  StyledTableRow,
+  EntityCell,
+  MonoCell,
+} from "@/components/ui/styled-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
 import { Plus, Send, FileText, Eye, Pencil, Inbox, Loader2, Download } from "lucide-react"
@@ -297,23 +305,24 @@ export default function EDönüşümPage() {
                 Bu aralıkta inbox boş. Test hesabında gerçek gelen fatura yoksa bu beklenen sonuçtur.
               </p>
             ) : (
+              <StyledTableContainer>
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Tarih</TableHead>
-                    <TableHead>Fatura No</TableHead>
-                    <TableHead>Gönderici VKN</TableHead>
-                    <TableHead>Gönderici</TableHead>
-                    <TableHead>Profil</TableHead>
-                    <TableHead>Tip</TableHead>
-                    <TableHead className="text-right">Net</TableHead>
-                    <TableHead className="text-right">KDV</TableHead>
-                    <TableHead className="text-right">Toplam</TableHead>
-                    <TableHead>Durum</TableHead>
-                  </TableRow>
+                  <StyledTableHeaderRow>
+                    <StyledTableHead>Tarih</StyledTableHead>
+                    <StyledTableHead>Fatura No</StyledTableHead>
+                    <StyledTableHead>Gönderici VKN</StyledTableHead>
+                    <StyledTableHead>Gönderici</StyledTableHead>
+                    <StyledTableHead>Profil</StyledTableHead>
+                    <StyledTableHead>Tip</StyledTableHead>
+                    <StyledTableHead className="text-right">Net</StyledTableHead>
+                    <StyledTableHead className="text-right">KDV</StyledTableHead>
+                    <StyledTableHead className="text-right">Toplam</StyledTableHead>
+                    <StyledTableHead>Durum</StyledTableHead>
+                  </StyledTableHeaderRow>
                 </TableHeader>
                 <TableBody>
-                  {(inboxResult.data || []).map((row: any) => {
+                  {(inboxResult.data || []).map((row: any, idx: number) => {
                     const fmt = (v: number | null | undefined) =>
                       v === null || v === undefined
                         ? "-"
@@ -322,15 +331,15 @@ export default function EDönüşümPage() {
                             currency: row.currency || "TRY",
                           }).format(Number(v))
                     return (
-                      <TableRow key={row.uuid || Math.random()}>
-                        <TableCell className="text-xs">
+                      <StyledTableRow key={row.uuid || Math.random()} index={idx}>
+                        <TableCell className="text-xs whitespace-nowrap">
                           {row.date ? new Date(row.date).toLocaleDateString("tr-TR") : "-"}
                         </TableCell>
-                        <TableCell className="font-mono text-xs">{row.invoiceNo || "-"}</TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {row.sender?.taxNumber || "-"}
+                        <TableCell><MonoCell value={row.invoiceNo} /></TableCell>
+                        <TableCell><MonoCell value={row.sender?.taxNumber} /></TableCell>
+                        <TableCell className="text-xs">
+                          <EntityCell name={row.sender?.name} />
                         </TableCell>
-                        <TableCell className="text-xs">{row.sender?.name || "-"}</TableCell>
                         <TableCell className="text-xs">
                           {row.profile === "TICARIFATURA"
                             ? "Ticari"
@@ -339,9 +348,9 @@ export default function EDönüşümPage() {
                               : row.profile || "-"}
                         </TableCell>
                         <TableCell className="text-xs">{row.invoiceType || "-"}</TableCell>
-                        <TableCell className="text-right text-xs">{fmt(row.taxExclusiveAmount)}</TableCell>
-                        <TableCell className="text-right text-xs">{fmt(row.vatAmount)}</TableCell>
-                        <TableCell className="text-right text-xs font-semibold">
+                        <TableCell className="text-right text-xs whitespace-nowrap">{fmt(row.taxExclusiveAmount)}</TableCell>
+                        <TableCell className="text-right text-xs whitespace-nowrap">{fmt(row.vatAmount)}</TableCell>
+                        <TableCell className="text-right text-xs font-semibold whitespace-nowrap">
                           {fmt(row.totalAmount)}
                         </TableCell>
                         <TableCell>
@@ -357,11 +366,12 @@ export default function EDönüşümPage() {
                             {row.status || "-"}
                           </span>
                         </TableCell>
-                      </TableRow>
+                      </StyledTableRow>
                     )
                   })}
                 </TableBody>
               </Table>
+              </StyledTableContainer>
             )}
             {inboxResult.rawResponse && (
               <details className="rounded border bg-slate-50 p-2">
@@ -527,18 +537,19 @@ export default function EDönüşümPage() {
           <CardDescription>Toplam {invoices.length} fatura</CardDescription>
         </CardHeader>
         <CardContent>
+          <StyledTableContainer>
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Fatura No</TableHead>
-                <TableHead>Tip</TableHead>
-                <TableHead>Tür</TableHead>
-                <TableHead>Tarih</TableHead>
-                <TableHead>Müşteri/Tedarikçi</TableHead>
-                <TableHead className="text-right">Tutar</TableHead>
-                <TableHead>Durum</TableHead>
-                <TableHead>İşlemler</TableHead>
-              </TableRow>
+              <StyledTableHeaderRow>
+                <StyledTableHead>Fatura No</StyledTableHead>
+                <StyledTableHead>Tip</StyledTableHead>
+                <StyledTableHead>Tür</StyledTableHead>
+                <StyledTableHead>Tarih</StyledTableHead>
+                <StyledTableHead>Müşteri/Tedarikçi</StyledTableHead>
+                <StyledTableHead className="text-right">Tutar</StyledTableHead>
+                <StyledTableHead>Durum</StyledTableHead>
+                <StyledTableHead>İşlemler</StyledTableHead>
+              </StyledTableHeaderRow>
             </TableHeader>
             <TableBody>
               {invoices.length === 0 ? (
@@ -552,14 +563,15 @@ export default function EDönüşümPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                invoices.map((invoice) => (
-                  <TableRow
+                invoices.map((invoice, idx) => (
+                  <StyledTableRow
                     key={invoice.id}
-                    className="cursor-pointer hover:bg-muted/50"
+                    index={idx}
+                    className="cursor-pointer"
                     onClick={() => router.push(`/e-donusum/${invoice.id}?company=${companyId}`)}
                   >
-                    <TableCell className="font-medium">{invoice.invoiceNo}</TableCell>
-                    <TableCell>
+                    <TableCell className="font-mono text-xs text-kobipo-blue font-medium">{invoice.invoiceNo}</TableCell>
+                    <TableCell className="text-xs">
                       {invoice.type === "SALES"
                         ? "Satış"
                         : invoice.type === "PURCHASE"
@@ -568,16 +580,18 @@ export default function EDönüşümPage() {
                             ? "İade"
                             : invoice.type}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-xs">
                       {invoice.invoiceType === "E_INVOICE"
                         ? "E-Fatura"
                         : invoice.invoiceType === "E_ARCHIVE"
                           ? "E-Arsiv"
                           : "Manuel"}
                     </TableCell>
-                    <TableCell>{new Date(invoice.date).toLocaleDateString("tr-TR")}</TableCell>
-                    <TableCell>{invoice.customer?.name || invoice.supplier?.name || "-"}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-xs whitespace-nowrap">{new Date(invoice.date).toLocaleDateString("tr-TR")}</TableCell>
+                    <TableCell>
+                      <EntityCell name={invoice.customer?.name || invoice.supplier?.name} />
+                    </TableCell>
+                    <TableCell className="text-right font-semibold whitespace-nowrap">
                       {new Intl.NumberFormat("tr-TR", {
                         style: "currency",
                         currency: "TRY",
@@ -629,11 +643,12 @@ export default function EDönüşümPage() {
                           )}
                       </div>
                     </TableCell>
-                  </TableRow>
+                  </StyledTableRow>
                 ))
               )}
             </TableBody>
           </Table>
+          </StyledTableContainer>
         </CardContent>
       </Card>
     </div>

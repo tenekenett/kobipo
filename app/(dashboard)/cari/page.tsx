@@ -12,6 +12,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  StyledTableContainer,
+  StyledTableHeaderRow,
+  StyledTableHead,
+  StyledTableRow,
+  EntityCell,
+  MonoCell,
+} from "@/components/ui/styled-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
 import { Plus, Search, Eye, Pencil, Trash2, Loader2 } from "lucide-react"
@@ -295,18 +303,19 @@ export default function CariPage() {
           {!hasLoadedOnce && isLoading ? (
             <TableSkeleton rows={8} />
           ) : (
+            <StyledTableContainer>
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Kod</TableHead>
-                  <TableHead>Ad</TableHead>
-                  <TableHead>Vergi No</TableHead>
-                  <TableHead>Telefon</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Açılış Bakiyesi</TableHead>
-                  <TableHead className="text-right">Bakiye</TableHead>
-                  <TableHead>İşlem</TableHead>
-                </TableRow>
+                <StyledTableHeaderRow>
+                  <StyledTableHead>Kod</StyledTableHead>
+                  <StyledTableHead>Ad</StyledTableHead>
+                  <StyledTableHead>Vergi No</StyledTableHead>
+                  <StyledTableHead>Telefon</StyledTableHead>
+                  <StyledTableHead>Email</StyledTableHead>
+                  <StyledTableHead>Açılış Bakiyesi</StyledTableHead>
+                  <StyledTableHead className="text-right">Bakiye</StyledTableHead>
+                  <StyledTableHead>İşlem</StyledTableHead>
+                </StyledTableHeaderRow>
               </TableHeader>
               <TableBody>
                 {currentData.length === 0 ? (
@@ -316,27 +325,30 @@ export default function CariPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  currentData.map((item) => (
-                    <TableRow
+                  currentData.map((item, idx) => (
+                    <StyledTableRow
                       key={item.id}
-                      className="cursor-pointer hover:bg-muted/50"
+                      index={idx}
+                      className="cursor-pointer"
                       onClick={() =>
                         router.push(`/cari/${activeTab}/${item.id}?company=${companyId}`)
                       }
                     >
-                      <TableCell>{item.code || "-"}</TableCell>
-                      <TableCell className="font-medium">{item.name}</TableCell>
-                      <TableCell>{item.taxNumber || "-"}</TableCell>
-                      <TableCell>{item.phone || "-"}</TableCell>
-                      <TableCell>{item.email || "-"}</TableCell>
-                      <TableCell>
+                      <TableCell><MonoCell value={item.code} /></TableCell>
+                      <TableCell className="font-medium">
+                        <EntityCell name={item.name} />
+                      </TableCell>
+                      <TableCell><MonoCell value={item.taxNumber} /></TableCell>
+                      <TableCell className="text-xs">{item.phone || "-"}</TableCell>
+                      <TableCell className="text-xs">{item.email || "-"}</TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">
                         {item.openingBalanceAmount !== undefined
                           ? `${currencyFormatter.format(item.openingBalanceAmount)} ${
                               item.openingBalanceType === "CREDIT" ? "(Alacak)" : "(Borç)"
                             }`
                           : "-"}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right whitespace-nowrap font-semibold">
                         {item.balance !== undefined
                           ? currencyFormatter.format(item.balance)
                           : "-"}
@@ -361,11 +373,12 @@ export default function CariPage() {
                           </Button>
                         </div>
                       </TableCell>
-                    </TableRow>
+                    </StyledTableRow>
                   ))
                 )}
               </TableBody>
             </Table>
+            </StyledTableContainer>
           )}
         </CardContent>
       </Card>
@@ -410,14 +423,15 @@ export default function CariPage() {
           {!hasLoadedOnce && isLoading ? (
             <TableSkeleton rows={6} />
           ) : (
+            <StyledTableContainer>
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Hesap</TableHead>
-                  <TableHead>Vade Günü</TableHead>
-                  <TableHead>Yaşlandırma Dilimi</TableHead>
-                  <TableHead className="text-right">Bakiye</TableHead>
-                </TableRow>
+                <StyledTableHeaderRow>
+                  <StyledTableHead>Hesap</StyledTableHead>
+                  <StyledTableHead>Vade Günü</StyledTableHead>
+                  <StyledTableHead>Yaşlandırma Dilimi</StyledTableHead>
+                  <StyledTableHead className="text-right">Bakiye</StyledTableHead>
+                </StyledTableHeaderRow>
               </TableHeader>
               <TableBody>
                 {agingRows.length === 0 ? (
@@ -427,19 +441,22 @@ export default function CariPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  agingRows.map((row) => (
-                    <TableRow key={`aging-${row.id}`}>
-                      <TableCell className="font-medium">{row.name}</TableCell>
+                  agingRows.map((row, idx) => (
+                    <StyledTableRow key={`aging-${row.id}`} index={idx}>
+                      <TableCell className="font-medium">
+                        <EntityCell name={row.name} />
+                      </TableCell>
                       <TableCell>{row.dueDays}</TableCell>
                       <TableCell>{row.bucket} gün</TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right font-semibold whitespace-nowrap">
                         {currencyFormatter.format(Number(row.balance || 0))}
                       </TableCell>
-                    </TableRow>
+                    </StyledTableRow>
                   ))
                 )}
               </TableBody>
             </Table>
+            </StyledTableContainer>
           )}
         </CardContent>
       </Card>

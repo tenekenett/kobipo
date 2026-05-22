@@ -5,6 +5,14 @@ import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import {
+  StyledTableContainer,
+  StyledTableHeaderRow,
+  StyledTableHead,
+  StyledTableRow,
+  EntityCell,
+  MonoCell,
+} from "@/components/ui/styled-table"
 import { Badge } from "@/components/ui/badge"
 import { Plus } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -246,33 +254,36 @@ export default function EirsaliyePage() {
               Henüz irsaliye bulunmuyor
             </div>
           ) : (
+            <StyledTableContainer>
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>İrsaliye No</TableHead>
-                  <TableHead>Tip</TableHead>
-                  <TableHead>Müşteri/Tedarikçi</TableHead>
-                  <TableHead>Tarih</TableHead>
-                  <TableHead>Taşıyıcı</TableHead>
-                  <TableHead>Durum</TableHead>
-                  <TableHead>Entegrasyon</TableHead>
-                  <TableHead>İşlemler</TableHead>
-                </TableRow>
+                <StyledTableHeaderRow>
+                  <StyledTableHead>İrsaliye No</StyledTableHead>
+                  <StyledTableHead>Tip</StyledTableHead>
+                  <StyledTableHead>Müşteri/Tedarikçi</StyledTableHead>
+                  <StyledTableHead>Tarih</StyledTableHead>
+                  <StyledTableHead>Taşıyıcı</StyledTableHead>
+                  <StyledTableHead>Durum</StyledTableHead>
+                  <StyledTableHead>Entegrasyon</StyledTableHead>
+                  <StyledTableHead>İşlemler</StyledTableHead>
+                </StyledTableHeaderRow>
               </TableHeader>
               <TableBody>
-                {waybills.map((waybill) => (
-                  <TableRow key={waybill.id}>
-                    <TableCell className="font-medium">{waybill.waybillNo}</TableCell>
+                {waybills.map((waybill, idx) => (
+                  <StyledTableRow key={waybill.id} index={idx}>
+                    <TableCell className="font-mono text-xs text-kobipo-blue font-medium">
+                      {waybill.waybillNo}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={waybill.type === "SALES" ? "default" : "secondary"}>
                         {waybill.type === "SALES" ? "Satış" : "Alış"}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {waybill.customer?.name || waybill.supplier?.name || "-"}
+                      <EntityCell name={waybill.customer?.name || waybill.supplier?.name} />
                     </TableCell>
-                    <TableCell>{formatDate(waybill.date)}</TableCell>
-                    <TableCell>{waybill.carrier || "-"}</TableCell>
+                    <TableCell className="text-xs whitespace-nowrap">{formatDate(waybill.date)}</TableCell>
+                    <TableCell className="text-xs">{waybill.carrier || "-"}</TableCell>
                     <TableCell>
                       <Badge variant={
                         waybill.status === "SENT" ? "default" :
@@ -284,7 +295,7 @@ export default function EirsaliyePage() {
                          waybill.status === "CANCELLED" ? "İptal" : "Taslak"}
                       </Badge>
                     </TableCell>
-                    <TableCell>{waybill.integrationStatus || "-"}</TableCell>
+                    <TableCell className="text-xs">{waybill.integrationStatus || "-"}</TableCell>
                     <TableCell>
                       <div className="flex gap-2">
                         <Button
@@ -305,10 +316,11 @@ export default function EirsaliyePage() {
                         </Button>
                       </div>
                     </TableCell>
-                  </TableRow>
+                  </StyledTableRow>
                 ))}
               </TableBody>
             </Table>
+            </StyledTableContainer>
           )}
         </CardContent>
       </Card>

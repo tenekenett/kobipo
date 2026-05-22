@@ -39,6 +39,8 @@ export async function GET(request: Request) {
       | "all"
       | "incoming"
       | "outgoing"
+    const includeInboxParam = url.searchParams.get("includeInbox")
+    const includeInbox = includeInboxParam === null ? true : includeInboxParam !== "false"
     const days = Number(url.searchParams.get("days") || "90")
     const endParam = url.searchParams.get("endDate")
     const startParam = url.searchParams.get("startDate")
@@ -53,7 +55,7 @@ export async function GET(request: Request) {
     type Row = {
       id: string
       direction: "incoming" | "outgoing"
-      source: "mysoft_inbox" | "manual_purchase" | "manual_sales"
+      source: "mysoft_inbox" | "manual_purchase" | "manual_sales" | "converted_inbox"
       date: string | null
       invoiceNo: string | null
       uuid: string | null
@@ -70,8 +72,8 @@ export async function GET(request: Request) {
 
     const out: Row[] = []
 
-    // 1) Gelen — Mysoft InvoiceInbox
-    if (direction !== "outgoing") {
+    // 1) Gelen — Mysoft InvoiceInbox (yalnızca includeInbox=true ise)
+    if (direction !== "outgoing" && includeInbox) {
       const incoming = await prisma.incomingInvoice.findMany({
         where: {
           companyId,
@@ -117,8 +119,10 @@ export async function GET(request: Request) {
           },
         })
       }
+    }
 
-      // 2) Manuel alış — Invoice (type=PURCHASE)
+    // 2) Manuel + içe aktarılmış alış — Invoice (type=PURCHASE)
+    if (direction !== "outgoing") {
       const manualPurchases = await prisma.invoice.findMany({
         where: {
           companyId,
@@ -140,11 +144,39 @@ export async function GET(request: Request) {
         orderBy: { date: "desc" },
         take: 500,
       })
+
+      // Hangi alış faturasının gelen e-faturadan dönüştürüldüğünü tespit et
+      const purchaseIds = manualPurchases.map((p) => p.id)
+      const linkedInbox =
+        purchaseIds.length > 0
+          ? await prisma.incomingInvoice.findMany({
+              where: {
+                companyId,
+                linkedInvoiceId: { in: purchaseIds },
+              },
+              select: {
+                linkedInvoiceId: true,
+                uuid: true,
+                profile: true,
+                envelopeStatusCode: true,
+                envelopeStatusDesc: true,
+                syncedAt: true,
+              },
+            })
+          : []
+      const inboxByInvoiceId = new Map(
+        linkedInbox
+          .filter((x) => x.linkedInvoiceId)
+          .map((x) => [x.linkedInvoiceId as string, x]),
+      )
+
       for (const r of manualPurchases) {
+        const inbox = inboxByInvoiceId.get(r.id)
+        const convertedFromInbox = Boolean(inbox)
         out.push({
           id: `invoice:${r.id}`,
           direction: "incoming",
-          source: "manual_purchase",
+          source: convertedFromInbox ? "converted_inbox" : "manual_purchase",
           date: r.date.toISOString(),
           invoiceNo: r.invoiceNo,
           uuid: r.uuid,
@@ -157,11 +189,16 @@ export async function GET(request: Request) {
           vatAmount: Number(r.vatAmount),
           totalAmount: Number(r.totalAmount),
           status: r.status,
-          profile: null,
+          profile: inbox?.profile ?? null,
           invoiceType: r.invoiceType,
           meta: {
             integrationStatus: r.integrationStatus,
             integrationId: r.integrationId,
+            convertedFromInbox,
+            inboxUuid: inbox?.uuid ?? null,
+            envelopeStatusCode: inbox?.envelopeStatusCode ?? null,
+            envelopeStatusDesc: inbox?.envelopeStatusDesc ?? null,
+            syncedAt: inbox?.syncedAt ? inbox.syncedAt.toISOString() : null,
           },
         })
       }
