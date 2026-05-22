@@ -359,17 +359,22 @@ const company = await prisma.company.findUnique({
       }
     }
 
-    // Gelen e-faturadan dönüştürme: IncomingInvoice'ı yeni fatura ile bağla.
-    // Bu sayede liste/detayda "zaten dönüştürülmüş" göstergesi çıkar ve aynı
-    // ETTN tekrar dönüştürülemez (UX guard, kullanıcı isterse manuel kaldırılabilir).
+    // Gelen e-faturadan dönüştürme: IncomingInvoice'ı yeni fatura ile bağla
+    // ve faturayı doğrudan onaylanmış (SENT) statüsünde kaydet. Gelen fatura
+    // zaten resmi olarak GİB'den geldiği için Kobipo tarafında ek bir onay
+    // adımına gerek yok; kullanıcı kaydet butonuna basınca işlem tamamlanır.
     if (fromIncomingUuid && type === "PURCHASE") {
       try {
         await prisma.incomingInvoice.update({
           where: { companyId_uuid: { companyId, uuid: String(fromIncomingUuid) } },
           data: { isLinkedToPurchase: true, linkedInvoiceId: invoice.id },
         })
+        await prisma.invoice.update({
+          where: { id: invoice.id },
+          data: { status: "SENT" },
+        })
       } catch (linkErr) {
-        console.error("[IncomingInvoice link hatası]", linkErr)
+        console.error("[IncomingInvoice link/auto-approve hatası]", linkErr)
       }
     }
 

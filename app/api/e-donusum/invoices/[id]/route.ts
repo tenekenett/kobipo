@@ -119,7 +119,26 @@ export async function GET(
       return NextResponse.json({ error: "Company not found" }, { status: 404 })
     }
 
-    return NextResponse.json(invoice)
+    // Gelen e-faturadan dönüştürülmüşse kaynak bilgisini ekle (preview'de "Geri"
+    // butonu ve UI farklılıkları için).
+    const incomingSource = await prisma.incomingInvoice.findFirst({
+      where: { linkedInvoiceId: invoice.id },
+      select: { uuid: true, invoiceNo: true, senderName: true, senderTaxNumber: true },
+    })
+
+    return NextResponse.json({
+      ...invoice,
+      incomingSource: incomingSource
+        ? {
+            uuid: incomingSource.uuid,
+            invoiceNo: incomingSource.invoiceNo,
+            sender: {
+              name: incomingSource.senderName,
+              taxNumber: incomingSource.senderTaxNumber,
+            },
+          }
+        : null,
+    })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {

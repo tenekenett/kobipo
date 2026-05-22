@@ -27,6 +27,11 @@ interface Invoice {
   uuid?: string | null
   integrationStatus?: string | null
   integrationId?: string | null
+  incomingSource?: {
+    uuid: string
+    invoiceNo: string | null
+    sender: { name: string | null; taxNumber: string | null }
+  } | null
   customer?: {
     name: string
     taxNumber?: string
@@ -334,19 +339,60 @@ export default function FaturaOnizlemePage() {
     )
   }
 
+  // Geri butonu hedefi: gelen e-faturadan dönüştürülmüşse gelen kutusuna,
+  // değilse genel faturalar listesine.
+  const isFromIncoming = Boolean(invoice.incomingSource)
+  const backHref = isFromIncoming
+    ? `/alis/gelen-e-faturalar?company=${companyId || ""}`
+    : invoice.type === "PURCHASE"
+      ? `/alis/fatura?company=${companyId || ""}`
+      : invoice.type === "SALES"
+        ? `/satis/fatura?company=${companyId || ""}`
+        : `/faturalar?company=${companyId || ""}`
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href={`/faturalar?company=${companyId || ""}`}>
+          <Link href={backHref}>
             <Button variant="outline" size="sm">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Geri
             </Button>
           </Link>
           <div>
-            <h1 className="text-3xl font-bold">Fatura Önizleme</h1>
+            <h1 className="text-3xl font-bold flex items-center gap-3">
+              {invoice.status === "DRAFT" ? "Fatura Önizleme" : "Fatura Detayı"}
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                  invoice.status === "SENT"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : invoice.status === "DRAFT"
+                      ? "bg-amber-100 text-amber-800"
+                      : invoice.status === "CANCELLED"
+                        ? "bg-gray-200 text-gray-700"
+                        : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                {invoice.status === "SENT"
+                  ? "Onaylandı"
+                  : invoice.status === "DRAFT"
+                    ? "Taslak"
+                    : invoice.status === "CANCELLED"
+                      ? "İptal Edildi"
+                      : invoice.status}
+              </span>
+            </h1>
             <p className="text-muted-foreground">Fatura No: {invoice.invoiceNo}</p>
+            {isFromIncoming && invoice.incomingSource && (
+              <p className="text-xs text-sky-700">
+                Gelen e-faturadan dönüştürüldü · Gönderen:{" "}
+                {invoice.incomingSource.sender.name || "-"}
+                {invoice.incomingSource.sender.taxNumber
+                  ? ` (${invoice.incomingSource.sender.taxNumber})`
+                  : ""}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -390,13 +436,15 @@ export default function FaturaOnizlemePage() {
               Onayla
             </Button>
           )}
-          <Select value={template} onValueChange={setTemplate}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="standart">Standart</SelectItem>
-              <SelectItem value="kurumsal">Kurumsal</SelectItem>
-            </SelectContent>
-          </Select>
+          {!isFromIncoming && (
+            <Select value={template} onValueChange={setTemplate}>
+              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="standart">Standart</SelectItem>
+                <SelectItem value="kurumsal">Kurumsal</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           <Input className="w-56" placeholder="E-posta (opsiyonel)" value={email} onChange={(e) => setEmail(e.target.value)} />
           <Button variant="outline" onClick={handleSendEmail}>E-posta Gönder</Button>
           <Button onClick={handleDownloadPDF}>

@@ -3,6 +3,18 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
+import {
+  User,
+  Building2,
+  Phone,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  Loader2,
+  UserPlus,
+} from "lucide-react"
 
 export default function SignUpPage() {
   const router = useRouter()
@@ -15,13 +27,20 @@ export default function SignUpPage() {
     password: "",
     confirmPassword: "",
   })
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/
 
-    if (!formData.name.trim() || !formData.companyOrPersonName.trim() || !formData.phone.trim() || !formData.email.trim()) {
+    if (
+      !formData.name.trim() ||
+      !formData.companyOrPersonName.trim() ||
+      !formData.phone.trim() ||
+      !formData.email.trim()
+    ) {
       toast({
         title: "Hata",
         description: "Ad soyad, firma/şahıs adı, telefon ve e-mail zorunludur",
@@ -42,7 +61,8 @@ export default function SignUpPage() {
     if (!passwordRegex.test(formData.password)) {
       toast({
         title: "Hata",
-        description: "Şifre en az 8 karakter olmalı, en az bir büyük harf, bir rakam ve bir özel karakter içermelidir",
+        description:
+          "Şifre en az 8 karakter olmalı, en az bir büyük harf, bir rakam ve bir özel karakter içermelidir",
         variant: "destructive",
       })
       return
@@ -53,9 +73,7 @@ export default function SignUpPage() {
     try {
       const response = await fetch("/api/auth/signup", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: formData.name.trim(),
           companyOrPersonName: formData.companyOrPersonName.trim(),
@@ -66,16 +84,12 @@ export default function SignUpPage() {
       })
 
       const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Kayıt başarısız")
-      }
+      if (!response.ok) throw new Error(data.error || "Kayıt başarısız")
 
       toast({
         title: "Başarılı",
         description: "Hesabınız oluşturuldu. Giriş yapabilirsiniz.",
       })
-
       router.push("/signin")
     } catch (error: any) {
       toast({
@@ -88,97 +102,269 @@ export default function SignUpPage() {
     }
   }
 
+  // Şifre güçlülük göstergesi
+  const pw = formData.password
+  const strength = (() => {
+    let s = 0
+    if (pw.length >= 8) s++
+    if (/[A-Z]/.test(pw)) s++
+    if (/\d/.test(pw)) s++
+    if (/[^A-Za-z0-9]/.test(pw)) s++
+    return s
+  })()
+  const strengthLabel = ["Çok zayıf", "Zayıf", "Orta", "İyi", "Güçlü"][strength]
+  const strengthColor =
+    strength <= 1
+      ? "bg-red-500"
+      : strength === 2
+        ? "bg-amber-500"
+        : strength === 3
+          ? "bg-sky-500"
+          : "bg-emerald-500"
+
   return (
-    <div className="bg-white rounded-2xl border border-kobipo-border shadow-card p-8">
-      <h1 className="mb-1 text-2xl font-extrabold tracking-tight text-kobipo-navy">Kayıt Ol</h1>
-      <p className="mb-6 text-sm text-kobipo-gray">Yeni bir hesap oluşturun ve hemen kullanmaya başlayın.</p>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor="name" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Ad Soyad</label>
-          <input
-            id="name"
-            type="text"
-            placeholder="Adınız Soyadınız"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-            disabled={isLoading}
-            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
-          />
+    <div
+      className="relative rounded-3xl bg-white/95 p-7 shadow-2xl ring-1 ring-white/40 backdrop-blur-xl animate-auth-slide-up"
+      style={{ animationDelay: "0.1s" }}
+    >
+      <div className="pointer-events-none absolute -top-px left-8 right-8 h-px bg-gradient-to-r from-transparent via-kobipo-mid/60 to-transparent" />
+
+      <div className="mb-6 text-center">
+        <div
+          className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-kobipo-blue to-kobipo-mid shadow-lg shadow-kobipo-blue/30 animate-auth-float"
+        >
+          <UserPlus className="h-7 w-7 text-white" />
         </div>
-        <div>
-          <label htmlFor="companyOrPersonName" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Firma/Şahıs Adı</label>
-          <input
-            id="companyOrPersonName"
-            type="text"
-            placeholder="Firma veya şahıs adı"
-            value={formData.companyOrPersonName}
-            onChange={(e) => setFormData({ ...formData, companyOrPersonName: e.target.value })}
-            required
-            disabled={isLoading}
-            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
-          />
-        </div>
-        <div>
-          <label htmlFor="phone" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Telefon Numarası</label>
-          <input
+        <h1 className="text-2xl font-extrabold tracking-tight text-kobipo-navy">
+          Kobipo'ya katıl
+        </h1>
+        <p className="mt-1 text-sm text-kobipo-gray">
+          Birkaç dakikada hesabını oluştur, hemen başla.
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-3.5">
+        <FloatingInput
+          id="name"
+          label="Ad Soyad"
+          type="text"
+          placeholder="Adınız Soyadınız"
+          value={formData.name}
+          onChange={(v) => setFormData({ ...formData, name: v })}
+          icon={<User className="h-4 w-4" />}
+          disabled={isLoading}
+          required
+          delay="0.15s"
+        />
+        <FloatingInput
+          id="companyOrPersonName"
+          label="Firma / Şahıs Adı"
+          type="text"
+          placeholder="Firma veya şahıs adı"
+          value={formData.companyOrPersonName}
+          onChange={(v) => setFormData({ ...formData, companyOrPersonName: v })}
+          icon={<Building2 className="h-4 w-4" />}
+          disabled={isLoading}
+          required
+          delay="0.2s"
+        />
+
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+          <FloatingInput
             id="phone"
+            label="Telefon"
             type="tel"
             placeholder="05xx xxx xx xx"
             value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-            required
+            onChange={(v) => setFormData({ ...formData, phone: v })}
+            icon={<Phone className="h-4 w-4" />}
             disabled={isLoading}
-            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+            required
+            delay="0.25s"
           />
-        </div>
-        <div>
-          <label htmlFor="email" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">E-posta</label>
-          <input
+          <FloatingInput
             id="email"
+            label="E-posta"
             type="email"
             placeholder="ornek@email.com"
             value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            required
+            onChange={(v) => setFormData({ ...formData, email: v })}
+            icon={<Mail className="h-4 w-4" />}
             disabled={isLoading}
-            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+            required
+            delay="0.3s"
           />
         </div>
-        <div>
-          <label htmlFor="password" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Şifre</label>
-          <input
+
+        <div className="animate-auth-slide-up" style={{ animationDelay: "0.35s" }}>
+          <FloatingInput
             id="password"
-            type="password"
+            label="Şifre"
+            type={showPassword ? "text" : "password"}
             value={formData.password}
-            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-            required
+            onChange={(v) => setFormData({ ...formData, password: v })}
+            icon={<Lock className="h-4 w-4" />}
             disabled={isLoading}
-            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
-          />
-          <p className="text-xs text-kobipo-gray">
-            En az 8 karakter, bir buyuk harf, bir rakam ve bir ozel karakter icermelidir.
-          </p>
-        </div>
-        <div>
-          <label htmlFor="confirmPassword" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Şifre Tekrar</label>
-          <input
-            id="confirmPassword"
-            type="password"
-            value={formData.confirmPassword}
-            onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
             required
-            disabled={isLoading}
-            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+            rightSlot={
+              <button
+                type="button"
+                onClick={() => setShowPassword((s) => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-kobipo-gray hover:text-kobipo-blue transition-colors"
+                tabIndex={-1}
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            }
           />
+          {pw && (
+            <div className="mt-2">
+              <div className="flex h-1.5 gap-1">
+                {[0, 1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className={`h-full flex-1 rounded-full transition-colors ${
+                      i < strength ? strengthColor : "bg-kobipo-border"
+                    }`}
+                  />
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-kobipo-gray">
+                {strengthLabel} · En az 8 karakter, bir büyük harf, bir rakam, bir özel karakter
+              </p>
+            </div>
+          )}
         </div>
-        <button type="submit" className="w-full mt-5 rounded-lg bg-kobipo-blue py-2.5 text-sm font-semibold text-white transition-colors hover:bg-kobipo-mid" disabled={isLoading}>
-          {isLoading ? "Kayıt yapılıyor..." : "Kayıt Ol"}
+
+        <FloatingInput
+          id="confirmPassword"
+          label="Şifre Tekrar"
+          type={showConfirm ? "text" : "password"}
+          value={formData.confirmPassword}
+          onChange={(v) => setFormData({ ...formData, confirmPassword: v })}
+          icon={<Lock className="h-4 w-4" />}
+          disabled={isLoading}
+          required
+          delay="0.4s"
+          rightSlot={
+            <button
+              type="button"
+              onClick={() => setShowConfirm((s) => !s)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-kobipo-gray hover:text-kobipo-blue transition-colors"
+              tabIndex={-1}
+            >
+              {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          }
+        />
+
+        <button
+          type="submit"
+          disabled={isLoading}
+          className="group relative mt-4 flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-kobipo-blue to-kobipo-mid px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-kobipo-blue/30 transition-all hover:scale-[1.02] hover:shadow-xl active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 animate-auth-slide-up"
+          style={{ animationDelay: "0.45s" }}
+        >
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-1000 group-hover:translate-x-full"
+          />
+          {isLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Kayıt yapılıyor...
+            </>
+          ) : (
+            <>
+              Hesap Oluştur
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+            </>
+          )}
         </button>
-        <button type="button" className="text-xs font-semibold text-kobipo-blue hover:text-kobipo-mid" onClick={() => router.push("/signin")}>
-          Zaten hesabınız var mı? Giriş yapın
+
+        <div
+          className="relative my-4 flex items-center animate-auth-slide-up"
+          style={{ animationDelay: "0.5s" }}
+        >
+          <div className="flex-1 border-t border-kobipo-border" />
+          <span className="px-3 text-xs text-kobipo-gray">veya</span>
+          <div className="flex-1 border-t border-kobipo-border" />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => router.push("/signin")}
+          className="block w-full rounded-xl border border-kobipo-border bg-white py-2.5 text-sm font-semibold text-kobipo-navy transition-all hover:border-kobipo-blue hover:bg-kobipo-pale hover:text-kobipo-blue animate-auth-slide-up"
+          style={{ animationDelay: "0.55s" }}
+        >
+          Zaten hesabın var mı? <span className="text-kobipo-blue">Giriş yap</span>
         </button>
       </form>
+    </div>
+  )
+}
+
+function FloatingInput({
+  id,
+  label,
+  type,
+  placeholder,
+  value,
+  onChange,
+  icon,
+  rightSlot,
+  disabled,
+  required,
+  delay,
+}: {
+  id: string
+  label: string
+  type: string
+  placeholder?: string
+  value: string
+  onChange: (v: string) => void
+  icon?: React.ReactNode
+  rightSlot?: React.ReactNode
+  disabled?: boolean
+  required?: boolean
+  delay?: string
+}) {
+  return (
+    <div
+      className="animate-auth-slide-up"
+      style={delay ? { animationDelay: delay } : undefined}
+    >
+      <label
+        htmlFor={id}
+        className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-kobipo-navy/80"
+      >
+        {label}
+      </label>
+      <div className="group relative">
+        {icon && (
+          <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-kobipo-gray group-focus-within:text-kobipo-blue transition-colors">
+            {icon}
+          </div>
+        )}
+        <input
+          id={id}
+          type={type}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          required={required}
+          disabled={disabled}
+          className={`peer w-full rounded-xl border-2 border-kobipo-border bg-white/80 py-3 ${
+            icon ? "pl-10" : "pl-3"
+          } ${
+            rightSlot ? "pr-10" : "pr-3"
+          } text-sm text-kobipo-text placeholder:text-kobipo-gray/50 transition-all focus:border-kobipo-blue focus:bg-white focus:outline-none focus:ring-4 focus:ring-kobipo-blue/10`}
+        />
+        {rightSlot}
+      </div>
     </div>
   )
 }

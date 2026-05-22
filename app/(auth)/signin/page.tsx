@@ -5,6 +5,7 @@ import { signIn, useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react"
 
 export default function SignInPage() {
   const router = useRouter()
@@ -12,6 +13,7 @@ export default function SignInPage() {
   const { data: session, status } = useSession()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
@@ -66,42 +68,171 @@ export default function SignInPage() {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-kobipo-border shadow-card p-8">
-      <h1 className="mb-1 text-2xl font-extrabold tracking-tight text-kobipo-navy">Giriş Yap</h1>
-      <p className="mb-6 text-sm text-kobipo-gray">Hesabınıza erişmek için bilgilerinizi girin.</p>
+    <div
+      className="relative rounded-3xl bg-white/95 p-8 shadow-2xl ring-1 ring-white/40 backdrop-blur-xl animate-auth-slide-up"
+      style={{ animationDelay: "0.1s" }}
+    >
+      {/* Üst dekor: ışıltılı şerit */}
+      <div className="pointer-events-none absolute -top-px left-8 right-8 h-px bg-gradient-to-r from-transparent via-kobipo-mid/60 to-transparent" />
+
+      <div className="mb-7 text-center">
+        <div
+          className="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-kobipo-blue to-kobipo-mid shadow-lg shadow-kobipo-blue/30 animate-auth-float"
+        >
+          <Lock className="h-7 w-7 text-white" />
+        </div>
+        <h1 className="text-3xl font-extrabold tracking-tight text-kobipo-navy">
+          Tekrar hoş geldin
+        </h1>
+        <p className="mt-1.5 text-sm text-kobipo-gray">
+          Hesabına giriş yapıp kaldığın yerden devam et.
+        </p>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor="email" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">E-posta</label>
-          <input
-            id="email"
-            type="email"
-            placeholder="ornek@email.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            disabled={isLoading}
-            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
+        <FloatingInput
+          id="email"
+          label="E-posta"
+          type="email"
+          placeholder="ornek@email.com"
+          value={email}
+          onChange={(v) => setEmail(v)}
+          icon={<Mail className="h-4 w-4" />}
+          disabled={isLoading}
+          required
+          delay="0.2s"
+        />
+
+        <FloatingInput
+          id="password"
+          label="Şifre"
+          type={showPassword ? "text" : "password"}
+          value={password}
+          onChange={(v) => setPassword(v)}
+          icon={<Lock className="h-4 w-4" />}
+          disabled={isLoading}
+          required
+          delay="0.3s"
+          rightSlot={
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-kobipo-gray hover:text-kobipo-blue transition-colors"
+              tabIndex={-1}
+            >
+              {showPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </button>
+          }
+        />
+
+        <button
+          type="submit"
+          disabled={isLoading}
+          className="group relative mt-6 flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-kobipo-blue to-kobipo-mid px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-kobipo-blue/30 transition-all hover:scale-[1.02] hover:shadow-xl active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 animate-auth-slide-up"
+          style={{ animationDelay: "0.4s" }}
+        >
+          {/* Shimmer overlay */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-1000 group-hover:translate-x-full"
           />
-        </div>
-        <div>
-          <label htmlFor="password" className="mb-1.5 block text-xs font-semibold text-kobipo-navy">Şifre</label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            disabled={isLoading}
-            className="w-full rounded-lg border-[1.5px] border-kobipo-border bg-white px-3 py-2.5 text-sm text-kobipo-text placeholder:text-kobipo-gray/60 transition-colors focus:border-kobipo-blue focus:outline-none"
-          />
-        </div>
-        <button type="submit" className="w-full mt-5 rounded-lg bg-kobipo-blue py-2.5 text-sm font-semibold text-white transition-colors hover:bg-kobipo-mid" disabled={isLoading}>
-          {isLoading ? "Giriş yapılıyor..." : "Giriş Yap"}
+          {isLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Giriş yapılıyor...
+            </>
+          ) : (
+            <>
+              Giriş Yap
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+            </>
+          )}
         </button>
-        <button type="button" className="text-xs font-semibold text-kobipo-blue hover:text-kobipo-mid" onClick={() => router.push("/signup")}>
-          Hesabınız yok mu? Kayıt olun
+
+        <div
+          className="relative my-5 flex items-center animate-auth-slide-up"
+          style={{ animationDelay: "0.5s" }}
+        >
+          <div className="flex-1 border-t border-kobipo-border" />
+          <span className="px-3 text-xs text-kobipo-gray">veya</span>
+          <div className="flex-1 border-t border-kobipo-border" />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => router.push("/signup")}
+          className="block w-full rounded-xl border border-kobipo-border bg-white py-2.5 text-sm font-semibold text-kobipo-navy transition-all hover:border-kobipo-blue hover:bg-kobipo-pale hover:text-kobipo-blue animate-auth-slide-up"
+          style={{ animationDelay: "0.55s" }}
+        >
+          Hesabın yok mu? <span className="text-kobipo-blue">Kayıt ol</span>
         </button>
       </form>
+    </div>
+  )
+}
+
+function FloatingInput({
+  id,
+  label,
+  type,
+  placeholder,
+  value,
+  onChange,
+  icon,
+  rightSlot,
+  disabled,
+  required,
+  delay,
+}: {
+  id: string
+  label: string
+  type: string
+  placeholder?: string
+  value: string
+  onChange: (v: string) => void
+  icon?: React.ReactNode
+  rightSlot?: React.ReactNode
+  disabled?: boolean
+  required?: boolean
+  delay?: string
+}) {
+  return (
+    <div
+      className="animate-auth-slide-up"
+      style={delay ? { animationDelay: delay } : undefined}
+    >
+      <label
+        htmlFor={id}
+        className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-kobipo-navy/80"
+      >
+        {label}
+      </label>
+      <div className="group relative">
+        {icon && (
+          <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-kobipo-gray group-focus-within:text-kobipo-blue transition-colors">
+            {icon}
+          </div>
+        )}
+        <input
+          id={id}
+          type={type}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          required={required}
+          disabled={disabled}
+          className={`peer w-full rounded-xl border-2 border-kobipo-border bg-white/80 py-3 ${
+            icon ? "pl-10" : "pl-3"
+          } ${
+            rightSlot ? "pr-10" : "pr-3"
+          } text-sm text-kobipo-text placeholder:text-kobipo-gray/50 transition-all focus:border-kobipo-blue focus:bg-white focus:outline-none focus:ring-4 focus:ring-kobipo-blue/10`}
+        />
+        {rightSlot}
+      </div>
     </div>
   )
 }

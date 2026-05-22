@@ -132,6 +132,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
   const [formData, setFormData] = useState({
     type: "SALES",
     invoiceType: "E_ARCHIVE",
+    invoiceNo: "", // boş bırakılırsa API otomatik üretir; gelen e-faturadan içe aktarmada doldurulur
     customerId: "",
     supplierId: "",
     date: new Date().toISOString().split("T")[0],
@@ -264,10 +265,14 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
               ]
 
         const sourceNote = `Kaynak gelen e-fatura: ${data.invoiceNo || ""} (ETTN ${fromIncomingUuid})`
+        // Tedarikçinin gerçek fatura numarasını koru — POST endpoint'i body.invoiceNo
+        // varsa kendi numarasını üretmiyor (generateInvoiceNumber fallback'i atlanıyor).
+        const importedInvoiceNo = typeof data.invoiceNo === "string" ? data.invoiceNo.trim() : ""
         setFormData((prev) => ({
           ...prev,
           type: "PURCHASE",
           invoiceType: "MANUAL",
+          invoiceNo: importedInvoiceNo || prev.invoiceNo,
           customerId: "",
           supplierId: matchedSupplier?.id || "",
           date: data.date
@@ -536,6 +541,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
       setFormData({
         type: data.type || "SALES",
         invoiceType: data.invoiceType || "MANUAL",
+        invoiceNo: data.invoiceNo || "",
         customerId: data.customerId || "",
         supplierId: data.supplierId || "",
         date: data.date ? new Date(data.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
@@ -686,7 +692,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
 
   const resetForm = () => {
     setEditingInvoiceId(null)
-    setFormData({ type: "SALES", invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL", customerId: "", supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", currency: "TRY", exchangeRate: "", exchangeRateDate: "", notes: "" })
+    setFormData({ type: "SALES", invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL", invoiceNo: "", customerId: "", supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", currency: "TRY", exchangeRate: "", exchangeRateDate: "", notes: "" })
     setItems([{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }])
     setLineExtras([[]])
   }
