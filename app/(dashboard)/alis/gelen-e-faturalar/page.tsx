@@ -18,6 +18,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  StyledTableContainer,
+  StyledTableHeaderRow,
+  StyledTableHead,
+  StyledTableRow,
+} from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
 import {
   Download,
@@ -302,7 +308,7 @@ export default function GelenEFaturalarPage() {
 
       {/* Stat cards */}
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-        <Card className="border-slate-200">
+        <Card className="border-slate-200 dark:border-slate-700/60">
           <CardContent className="flex items-center justify-between pt-6">
             <div>
               <p className="text-xs uppercase tracking-wider text-muted-foreground">
@@ -311,46 +317,62 @@ export default function GelenEFaturalarPage() {
               <p className="text-2xl font-bold">{stats.total.count}</p>
               <p className="text-xs text-muted-foreground">{fmtSum(stats.total.sum)}</p>
             </div>
-            <Inbox className="h-8 w-8 text-slate-300" />
+            <Inbox className="h-8 w-8 text-slate-300 dark:text-slate-500" />
           </CardContent>
         </Card>
-        <Card className="border-emerald-200">
+        <Card className="border-emerald-200 dark:border-emerald-500/30">
           <CardContent className="flex items-center justify-between pt-6">
             <div>
-              <p className="text-xs uppercase tracking-wider text-emerald-700">Kabul</p>
-              <p className="text-2xl font-bold text-emerald-800">{stats.accepted.count}</p>
-              <p className="text-xs text-emerald-700/80">{fmtSum(stats.accepted.sum)}</p>
+              <p className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                Kabul
+              </p>
+              <p className="text-2xl font-bold text-emerald-800 dark:text-emerald-200">
+                {stats.accepted.count}
+              </p>
+              <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
+                {fmtSum(stats.accepted.sum)}
+              </p>
             </div>
-            <CheckCircle2 className="h-8 w-8 text-emerald-300" />
+            <CheckCircle2 className="h-8 w-8 text-emerald-300 dark:text-emerald-500/70" />
           </CardContent>
         </Card>
-        <Card className="border-red-200">
+        <Card className="border-red-200 dark:border-red-500/30">
           <CardContent className="flex items-center justify-between pt-6">
             <div>
-              <p className="text-xs uppercase tracking-wider text-red-700">Red</p>
-              <p className="text-2xl font-bold text-red-800">{stats.rejected.count}</p>
-              <p className="text-xs text-red-700/80">{fmtSum(stats.rejected.sum)}</p>
+              <p className="text-xs uppercase tracking-wider text-red-700 dark:text-red-300">
+                Red
+              </p>
+              <p className="text-2xl font-bold text-red-800 dark:text-red-200">
+                {stats.rejected.count}
+              </p>
+              <p className="text-xs text-red-700/80 dark:text-red-300/80">
+                {fmtSum(stats.rejected.sum)}
+              </p>
             </div>
-            <XCircle className="h-8 w-8 text-red-300" />
+            <XCircle className="h-8 w-8 text-red-300 dark:text-red-500/70" />
           </CardContent>
         </Card>
-        <Card className="border-amber-200">
+        <Card className="border-amber-200 dark:border-amber-500/30">
           <CardContent className="flex items-center justify-between pt-6">
             <div>
-              <p className="text-xs uppercase tracking-wider text-amber-700">
+              <p className="text-xs uppercase tracking-wider text-amber-700 dark:text-amber-300">
                 Bekleyen
               </p>
-              <p className="text-2xl font-bold text-amber-800">{stats.pending.count}</p>
-              <p className="text-xs text-amber-700/80">{fmtSum(stats.pending.sum)}</p>
+              <p className="text-2xl font-bold text-amber-800 dark:text-amber-200">
+                {stats.pending.count}
+              </p>
+              <p className="text-xs text-amber-700/80 dark:text-amber-300/80">
+                {fmtSum(stats.pending.sum)}
+              </p>
             </div>
-            <Clock className="h-8 w-8 text-amber-300" />
+            <Clock className="h-8 w-8 text-amber-300 dark:text-amber-500/70" />
           </CardContent>
         </Card>
       </div>
 
       {/* Linked banner */}
       {stats.linked.count > 0 && (
-        <div className="flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900">
+        <div className="flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
           <Link2 className="h-4 w-4" />
           <span>
             <strong>{stats.linked.count}</strong> fatura zaten alış faturasına dönüştürülmüş ·
@@ -411,24 +433,24 @@ export default function GelenEFaturalarPage() {
             </select>
           </div>
 
-          <div className="overflow-x-auto rounded-md border">
+          <StyledTableContainer>
             <Table>
               <TableHeader>
-                <TableRow className="bg-kobipo-blue hover:bg-kobipo-blue">
-                  <TableHead className="text-white">Fatura Tarihi</TableHead>
-                  <TableHead className="text-white">Gönderilme Tarihi</TableHead>
-                  <TableHead className="text-white">Fatura No</TableHead>
-                  <TableHead className="text-white">Gönderen Ünvanı</TableHead>
-                  <TableHead className="text-white">Firma VKN</TableHead>
-                  <TableHead className="text-white">Profil</TableHead>
-                  <TableHead className="text-white">Tip</TableHead>
-                  <TableHead className="text-right text-white">Net</TableHead>
-                  <TableHead className="text-right text-white">KDV</TableHead>
-                  <TableHead className="text-right text-white">Tutar</TableHead>
-                  <TableHead className="text-white">Durum</TableHead>
-                  <TableHead className="text-white">Senkronize</TableHead>
-                  <TableHead className="text-right text-white">İşlem</TableHead>
-                </TableRow>
+                <StyledTableHeaderRow>
+                  <StyledTableHead>Fatura Tarihi</StyledTableHead>
+                  <StyledTableHead>Gönderilme Tarihi</StyledTableHead>
+                  <StyledTableHead>Fatura No</StyledTableHead>
+                  <StyledTableHead>Gönderen Ünvanı</StyledTableHead>
+                  <StyledTableHead>Firma VKN</StyledTableHead>
+                  <StyledTableHead>Profil</StyledTableHead>
+                  <StyledTableHead>Tip</StyledTableHead>
+                  <StyledTableHead className="text-right">Net</StyledTableHead>
+                  <StyledTableHead className="text-right">KDV</StyledTableHead>
+                  <StyledTableHead className="text-right">Tutar</StyledTableHead>
+                  <StyledTableHead>Durum</StyledTableHead>
+                  <StyledTableHead>Senkronize</StyledTableHead>
+                  <StyledTableHead className="text-right">İşlem</StyledTableHead>
+                </StyledTableHeaderRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
@@ -456,11 +478,11 @@ export default function GelenEFaturalarPage() {
                           row.uuid,
                         )}?company=${encodeURIComponent(companyId)}`,
                       )
-                    const stripe = idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"
                     return (
-                      <TableRow
+                      <StyledTableRow
                         key={row.id}
-                        className={`${stripe} cursor-pointer hover:bg-kobipo-pale/60`}
+                        index={idx}
+                        className="cursor-pointer"
                         onClick={openDetail}
                       >
                         <TableCell className="text-xs whitespace-nowrap">
@@ -469,7 +491,7 @@ export default function GelenEFaturalarPage() {
                         <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
                           {row.sentDate ? fmtDateTime(row.sentDate) : "-"}
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-kobipo-blue font-medium">
+                        <TableCell className="font-mono text-xs font-medium text-kobipo-blue dark:text-kobipo-mid">
                           {row.invoiceNo || "-"}
                         </TableCell>
                         <TableCell className="text-xs">
@@ -502,7 +524,7 @@ export default function GelenEFaturalarPage() {
                           <StatusBadge status={row.status} />
                           {row.isLinkedToPurchase && (
                             <span
-                              className="ml-1 inline-flex items-center gap-1 rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[9px] font-medium text-sky-800"
+                              className="ml-1 inline-flex items-center gap-1 rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[9px] font-medium text-sky-800 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200"
                               title="Bu fatura alış faturasına dönüştürülmüş"
                             >
                               <Link2 className="h-2.5 w-2.5" />
@@ -521,7 +543,7 @@ export default function GelenEFaturalarPage() {
                               onClick={() => handleDownloadPdf(row.uuid, row.invoiceNo)}
                               disabled={downloadingPdfUuid === row.uuid}
                               title="PDF indir / aç"
-                              className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                              className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-500/15 dark:hover:text-rose-200"
                             >
                               {downloadingPdfUuid === row.uuid ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -534,19 +556,19 @@ export default function GelenEFaturalarPage() {
                               size="sm"
                               onClick={openDetail}
                               title="Detay"
-                              className="text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                              className="text-amber-600 hover:bg-amber-50 hover:text-amber-700 dark:text-amber-300 dark:hover:bg-amber-500/15 dark:hover:text-amber-200"
                             >
                               <Hash className="h-4 w-4" />
                             </Button>
                           </div>
                         </TableCell>
-                      </TableRow>
+                      </StyledTableRow>
                     )
                   })
                 )}
               </TableBody>
             </Table>
-          </div>
+          </StyledTableContainer>
         </CardContent>
       </Card>
     </div>
@@ -558,10 +580,10 @@ function StatusBadge({ status }: { status: string | null }) {
   const s = status.toUpperCase()
   const cls =
     s === "KABUL"
-      ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+      ? "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200"
       : s === "RED"
-        ? "border-red-300 bg-red-100 text-red-800"
-        : "border-amber-300 bg-amber-100 text-amber-800"
+        ? "border-red-300 bg-red-100 text-red-800 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200"
+        : "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200"
   return (
     <span
       className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cls}`}
@@ -574,12 +596,28 @@ function StatusBadge({ status }: { status: string | null }) {
 function ProfileBadge({ profile }: { profile: string | null }) {
   if (!profile) return <span className="text-xs text-muted-foreground">-</span>
   const map: Record<string, { label: string; cls: string }> = {
-    TICARIFATURA: { label: "Ticari", cls: "bg-indigo-50 text-indigo-800 border-indigo-200" },
-    TEMELFATURA: { label: "Temel", cls: "bg-slate-50 text-slate-700 border-slate-200" },
-    EARSIVFATURA: { label: "E-Arşiv", cls: "bg-cyan-50 text-cyan-800 border-cyan-200" },
-    EFATURA: { label: "E-Fatura", cls: "bg-sky-50 text-sky-800 border-sky-200" },
+    TICARIFATURA: {
+      label: "Ticari",
+      cls: "bg-indigo-50 text-indigo-800 border-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-200 dark:border-indigo-500/40",
+    },
+    TEMELFATURA: {
+      label: "Temel",
+      cls: "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40",
+    },
+    EARSIVFATURA: {
+      label: "E-Arşiv",
+      cls: "bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-200 dark:border-cyan-500/40",
+    },
+    EFATURA: {
+      label: "E-Fatura",
+      cls: "bg-sky-50 text-sky-800 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40",
+    },
   }
-  const entry = map[profile] || { label: profile, cls: "bg-slate-50 text-slate-700 border-slate-200" }
+  const entry =
+    map[profile] || {
+      label: profile,
+      cls: "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40",
+    }
   return (
     <span
       className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium ${entry.cls}`}
@@ -592,14 +630,22 @@ function ProfileBadge({ profile }: { profile: string | null }) {
 function TypeBadge({ type }: { type: string | null }) {
   if (!type) return <span className="text-xs text-muted-foreground">-</span>
   const map: Record<string, string> = {
-    SATIS: "bg-sky-50 text-sky-800 border-sky-200",
-    TEVKIFAT: "bg-purple-50 text-purple-800 border-purple-200",
-    IADE: "bg-red-50 text-red-800 border-red-200",
-    ISTISNA: "bg-amber-50 text-amber-800 border-amber-200",
-    OZELMATRAH: "bg-cyan-50 text-cyan-800 border-cyan-200",
-    IHRACAT: "bg-blue-50 text-blue-800 border-blue-200",
+    SATIS:
+      "bg-sky-50 text-sky-800 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40",
+    TEVKIFAT:
+      "bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-500/15 dark:text-purple-200 dark:border-purple-500/40",
+    IADE:
+      "bg-red-50 text-red-800 border-red-200 dark:bg-red-500/15 dark:text-red-200 dark:border-red-500/40",
+    ISTISNA:
+      "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/40",
+    OZELMATRAH:
+      "bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-200 dark:border-cyan-500/40",
+    IHRACAT:
+      "bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-500/15 dark:text-blue-200 dark:border-blue-500/40",
   }
-  const cls = map[type] || "bg-slate-50 text-slate-700 border-slate-200"
+  const cls =
+    map[type] ||
+    "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40"
   return (
     <span
       className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium ${cls}`}

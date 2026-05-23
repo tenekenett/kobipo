@@ -23,7 +23,10 @@ export const StyledTableHeaderRow = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TableRow
     ref={ref}
-    className={cn("bg-kobipo-blue hover:bg-kobipo-blue", className)}
+    className={cn(
+      "bg-kobipo-blue hover:bg-kobipo-blue dark:bg-kobipo-navy dark:hover:bg-kobipo-navy",
+      className,
+    )}
     {...props}
   />
 ))
@@ -33,7 +36,11 @@ export const StyledTableHead = React.forwardRef<
   HTMLTableCellElement,
   React.ThHTMLAttributes<HTMLTableCellElement>
 >(({ className, ...props }, ref) => (
-  <TableHead ref={ref} className={cn("text-white", className)} {...props} />
+  <TableHead
+    ref={ref}
+    className={cn("text-white dark:text-kobipo-text", className)}
+    {...props}
+  />
 ))
 StyledTableHead.displayName = "StyledTableHead"
 
@@ -44,11 +51,15 @@ export interface StyledTableRowProps
 
 export const StyledTableRow = React.forwardRef<HTMLTableRowElement, StyledTableRowProps>(
   ({ index = 0, className, ...props }, ref) => {
-    const stripe = index % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+    const stripe = index % 2 === 0 ? "bg-card" : "bg-muted/40"
     return (
       <TableRow
         ref={ref}
-        className={cn(stripe, "hover:bg-kobipo-pale/60", className)}
+        className={cn(
+          stripe,
+          "hover:bg-kobipo-pale/60 dark:hover:bg-kobipo-blue/20",
+          className,
+        )}
         {...props}
       />
     )

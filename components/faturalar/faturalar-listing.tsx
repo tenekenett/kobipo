@@ -11,6 +11,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  StyledTableContainer,
+  StyledTableHeaderRow,
+  StyledTableHead,
+  StyledTableRow,
+} from "@/components/ui/styled-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/use-toast"
@@ -372,14 +378,14 @@ export default function FaturalarListing({
   const directionBadge = (row: FaturaRow) => {
     if (row.direction === "incoming") {
       return (
-        <span className="inline-flex items-center rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
+        <span className="inline-flex items-center rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200">
           <ArrowDownToLine className="mr-1 h-3 w-3" />
           Gelen
         </span>
       )
     }
     return (
-      <span className="inline-flex items-center rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800">
+      <span className="inline-flex items-center rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">
         <ArrowUpFromLine className="mr-1 h-3 w-3" />
         Giden
       </span>
@@ -391,12 +397,12 @@ export default function FaturalarListing({
     const s = status.toUpperCase()
     const cls =
       s === "KABUL" || s === "APPROVED" || s === "SENT"
-        ? "bg-emerald-100 text-emerald-800"
+        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200"
         : s === "RED" || s === "REJECTED" || s === "CANCELLED"
-          ? "bg-red-100 text-red-800"
+          ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200"
           : s === "DRAFT"
-            ? "bg-yellow-100 text-yellow-800"
-            : "bg-slate-100 text-slate-700"
+            ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-200"
+            : "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-200"
     return <span className={`rounded px-2 py-0.5 text-[10px] font-medium ${cls}`}>{status}</span>
   }
 
@@ -469,20 +475,24 @@ export default function FaturalarListing({
             <CardContent className="flex items-center justify-between pt-6">
               <div>
                 <p className="text-xs text-muted-foreground">Gelen</p>
-                <p className="text-2xl font-bold text-emerald-700">{totals.incoming.count}</p>
+                <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+                  {totals.incoming.count}
+                </p>
                 <p className="text-xs text-muted-foreground">{fmt(totals.incoming.sum)}</p>
               </div>
-              <ArrowDownToLine className="h-8 w-8 text-emerald-300" />
+              <ArrowDownToLine className="h-8 w-8 text-emerald-300 dark:text-emerald-500/70" />
             </CardContent>
           </Card>
           <Card>
             <CardContent className="flex items-center justify-between pt-6">
               <div>
                 <p className="text-xs text-muted-foreground">Giden</p>
-                <p className="text-2xl font-bold text-sky-700">{totals.outgoing.count}</p>
+                <p className="text-2xl font-bold text-sky-700 dark:text-sky-300">
+                  {totals.outgoing.count}
+                </p>
                 <p className="text-xs text-muted-foreground">{fmt(totals.outgoing.sum)}</p>
               </div>
-              <ArrowUpFromLine className="h-8 w-8 text-sky-300" />
+              <ArrowUpFromLine className="h-8 w-8 text-sky-300 dark:text-sky-500/70" />
             </CardContent>
           </Card>
         </div>
@@ -503,9 +513,9 @@ export default function FaturalarListing({
               </p>
             </div>
             {fixedDirection === "incoming" ? (
-              <ArrowDownToLine className="h-8 w-8 text-emerald-300" />
+              <ArrowDownToLine className="h-8 w-8 text-emerald-300 dark:text-emerald-500/70" />
             ) : (
-              <ArrowUpFromLine className="h-8 w-8 text-sky-300" />
+              <ArrowUpFromLine className="h-8 w-8 text-sky-300 dark:text-sky-500/70" />
             )}
           </CardContent>
         </Card>
@@ -542,24 +552,24 @@ export default function FaturalarListing({
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto rounded-md border">
+          <StyledTableContainer>
           <Table>
             <TableHeader>
-              <TableRow className="bg-kobipo-blue hover:bg-kobipo-blue">
-                {!fixedDirection && <TableHead className="text-white">Yön</TableHead>}
-                <TableHead className="text-white">Tarih</TableHead>
-                <TableHead className="text-white">Fatura No</TableHead>
-                <TableHead className="text-white">VKN</TableHead>
-                <TableHead className="text-white">Karşı Taraf</TableHead>
-                <TableHead className="text-white">Profil</TableHead>
-                <TableHead className="text-white">Tip</TableHead>
-                <TableHead className="text-white">Kaynak</TableHead>
-                <TableHead className="text-right text-white">Net</TableHead>
-                <TableHead className="text-right text-white">KDV</TableHead>
-                <TableHead className="text-right text-white">Toplam</TableHead>
-                <TableHead className="text-white">Durum</TableHead>
-                <TableHead className="text-right text-white">İşlem</TableHead>
-              </TableRow>
+              <StyledTableHeaderRow>
+                {!fixedDirection && <StyledTableHead>Yön</StyledTableHead>}
+                <StyledTableHead>Tarih</StyledTableHead>
+                <StyledTableHead>Fatura No</StyledTableHead>
+                <StyledTableHead>VKN</StyledTableHead>
+                <StyledTableHead>Karşı Taraf</StyledTableHead>
+                <StyledTableHead>Profil</StyledTableHead>
+                <StyledTableHead>Tip</StyledTableHead>
+                <StyledTableHead>Kaynak</StyledTableHead>
+                <StyledTableHead className="text-right">Net</StyledTableHead>
+                <StyledTableHead className="text-right">KDV</StyledTableHead>
+                <StyledTableHead className="text-right">Toplam</StyledTableHead>
+                <StyledTableHead>Durum</StyledTableHead>
+                <StyledTableHead className="text-right">İşlem</StyledTableHead>
+              </StyledTableHeaderRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
@@ -584,12 +594,12 @@ export default function FaturalarListing({
                   const canCheckGib = Boolean(isInvoiceRow && row.uuid && isEDoc)
                   const canDownloadGibPdf = canCheckGib
                   const editable = isInvoiceRow && row.status === "DRAFT"
-                  const stripe = idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"
 
                   return (
-                    <TableRow
+                    <StyledTableRow
                       key={row.id}
-                      className={`${stripe} cursor-pointer hover:bg-kobipo-pale/60`}
+                      index={idx}
+                      className="cursor-pointer"
                       onClick={() => {
                         if (isInvoiceRow) {
                           router.push(`/faturalar/${rawId}/onizleme?company=${companyId}`)
@@ -598,7 +608,7 @@ export default function FaturalarListing({
                     >
                       {!fixedDirection && <TableCell>{directionBadge(row)}</TableCell>}
                       <TableCell className="text-xs whitespace-nowrap">{formatDate(row.date)}</TableCell>
-                      <TableCell className="font-mono text-xs text-kobipo-blue font-medium">
+                      <TableCell className="font-mono text-xs font-medium text-kobipo-blue dark:text-kobipo-mid">
                         {row.invoiceNo || "-"}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
@@ -727,29 +737,43 @@ export default function FaturalarListing({
                           )}
                         </div>
                       </TableCell>
-                    </TableRow>
+                    </StyledTableRow>
                   )
                 })
               )}
             </TableBody>
           </Table>
-          </div>
+          </StyledTableContainer>
         </CardContent>
       </Card>
     </div>
   )
 }
 
+const BADGE_TONES = {
+  sky: "bg-sky-50 text-sky-800 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40",
+  cyan: "bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-200 dark:border-cyan-500/40",
+  indigo:
+    "bg-indigo-50 text-indigo-800 border-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-200 dark:border-indigo-500/40",
+  slate:
+    "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40",
+  purple:
+    "bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-500/15 dark:text-purple-200 dark:border-purple-500/40",
+  red: "bg-red-50 text-red-800 border-red-200 dark:bg-red-500/15 dark:text-red-200 dark:border-red-500/40",
+  amber:
+    "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/40",
+  blue: "bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-500/15 dark:text-blue-200 dark:border-blue-500/40",
+} as const
+
 function ProfileBadge({ profile }: { profile: string | null }) {
   if (!profile) return <span className="text-xs text-muted-foreground">-</span>
   const map: Record<string, { label: string; cls: string }> = {
-    TICARIFATURA: { label: "Ticari", cls: "bg-indigo-50 text-indigo-800 border-indigo-200" },
-    TEMELFATURA: { label: "Temel", cls: "bg-slate-50 text-slate-700 border-slate-200" },
-    EARSIVFATURA: { label: "E-Arşiv", cls: "bg-cyan-50 text-cyan-800 border-cyan-200" },
-    EFATURA: { label: "E-Fatura", cls: "bg-sky-50 text-sky-800 border-sky-200" },
+    TICARIFATURA: { label: "Ticari", cls: BADGE_TONES.indigo },
+    TEMELFATURA: { label: "Temel", cls: BADGE_TONES.slate },
+    EARSIVFATURA: { label: "E-Arşiv", cls: BADGE_TONES.cyan },
+    EFATURA: { label: "E-Fatura", cls: BADGE_TONES.sky },
   }
-  const entry =
-    map[profile] || { label: profile, cls: "bg-slate-50 text-slate-700 border-slate-200" }
+  const entry = map[profile] || { label: profile, cls: BADGE_TONES.slate }
   return (
     <span
       className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium ${entry.cls}`}
@@ -762,17 +786,16 @@ function ProfileBadge({ profile }: { profile: string | null }) {
 function InvoiceTypeBadge({ type }: { type: string | null }) {
   if (!type) return <span className="text-xs text-muted-foreground">-</span>
   const map: Record<string, { label: string; cls: string }> = {
-    E_INVOICE: { label: "E-Fatura", cls: "bg-sky-50 text-sky-800 border-sky-200" },
-    E_ARCHIVE: { label: "E-Arşiv", cls: "bg-cyan-50 text-cyan-800 border-cyan-200" },
-    SATIS: { label: "Satış", cls: "bg-sky-50 text-sky-800 border-sky-200" },
-    TEVKIFAT: { label: "Tevkifat", cls: "bg-purple-50 text-purple-800 border-purple-200" },
-    IADE: { label: "İade", cls: "bg-red-50 text-red-800 border-red-200" },
-    ISTISNA: { label: "İstisna", cls: "bg-amber-50 text-amber-800 border-amber-200" },
-    OZELMATRAH: { label: "Özel Matrah", cls: "bg-cyan-50 text-cyan-800 border-cyan-200" },
-    IHRACAT: { label: "İhracat", cls: "bg-blue-50 text-blue-800 border-blue-200" },
+    E_INVOICE: { label: "E-Fatura", cls: BADGE_TONES.sky },
+    E_ARCHIVE: { label: "E-Arşiv", cls: BADGE_TONES.cyan },
+    SATIS: { label: "Satış", cls: BADGE_TONES.sky },
+    TEVKIFAT: { label: "Tevkifat", cls: BADGE_TONES.purple },
+    IADE: { label: "İade", cls: BADGE_TONES.red },
+    ISTISNA: { label: "İstisna", cls: BADGE_TONES.amber },
+    OZELMATRAH: { label: "Özel Matrah", cls: BADGE_TONES.cyan },
+    IHRACAT: { label: "İhracat", cls: BADGE_TONES.blue },
   }
-  const entry =
-    map[type] || { label: type, cls: "bg-slate-50 text-slate-700 border-slate-200" }
+  const entry = map[type] || { label: type, cls: BADGE_TONES.slate }
   return (
     <span
       className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium ${entry.cls}`}
@@ -786,7 +809,7 @@ function SourceBadge({ row }: { row: FaturaRow }) {
   if (row.source === "converted_inbox" || row.meta?.convertedFromInbox) {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800"
+        className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${BADGE_TONES.sky}`}
         title="Gelen e-faturadan dönüştürülmüş alış faturası"
       >
         <Link2 className="h-3 w-3" />
@@ -796,7 +819,9 @@ function SourceBadge({ row }: { row: FaturaRow }) {
   }
   if (row.source === "mysoft_inbox") {
     return (
-      <span className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+      <span
+        className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${BADGE_TONES.amber}`}
+      >
         <Inbox className="h-3 w-3" />
         Gelen Kutusu
       </span>
@@ -804,13 +829,17 @@ function SourceBadge({ row }: { row: FaturaRow }) {
   }
   if (row.source === "manual_sales") {
     return (
-      <span className="inline-flex items-center gap-1 rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800">
+      <span
+        className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${BADGE_TONES.sky}`}
+      >
         Satış
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-700">
+    <span
+      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${BADGE_TONES.slate}`}
+    >
       Manuel
     </span>
   )
