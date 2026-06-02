@@ -31,6 +31,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { ProductCombobox } from "@/components/e-donusum/product-combobox"
+import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 
 
 type LineExtraKey = "description" | "discountRate" | "withholdingRate" | "exciseRate"
@@ -931,22 +932,21 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
               <div className="space-y-2">
                 <Label>Müşteri / Tedarikçi</Label>
-                <Select
-                  value={formData.customerId ? `c:${formData.customerId}` : formData.supplierId ? `s:${formData.supplierId}` : ""}
-                  onValueChange={(value) => {
-                    if (value.startsWith("c:")) { setFormData({ ...formData, customerId: value.slice(2), supplierId: "" }) }
-                    else if (value.startsWith("s:")) { setFormData({ ...formData, customerId: "", supplierId: value.slice(2) }) }
-                    else { setFormData({ ...formData, customerId: "", supplierId: "" }) }
+                <CounterpartyCombobox
+                  customers={customers}
+                  suppliers={suppliers}
+                  selectedCustomerId={formData.customerId || undefined}
+                  selectedSupplierId={formData.supplierId || undefined}
+                  onSelect={(sel) => {
+                    if (!sel) {
+                      setFormData({ ...formData, customerId: "", supplierId: "" })
+                    } else if (sel.kind === "customer") {
+                      setFormData({ ...formData, customerId: sel.id, supplierId: "" })
+                    } else {
+                      setFormData({ ...formData, customerId: "", supplierId: sel.id })
+                    }
                   }}
-                >
-                  <SelectTrigger><SelectValue placeholder="Seçiniz..." /></SelectTrigger>
-                  <SelectContent>
-                    {customers.length > 0 && <div className="px-2 pb-1 pt-2 text-xs font-semibold text-muted-foreground">Müşteriler</div>}
-                    {customers.map((c) => (<SelectItem key={`c-${c.id}`} value={`c:${c.id}`}>{c.name} {c.taxNumber && `(${c.taxNumber})`}</SelectItem>))}
-                    {suppliers.length > 0 && <div className="mt-1 px-2 pb-1 pt-2 text-xs font-semibold text-muted-foreground">Tedarikçiler</div>}
-                    {suppliers.map((s) => (<SelectItem key={`s-${s.id}`} value={`s:${s.id}`}>{s.name} {s.taxNumber && `(${s.taxNumber})`}</SelectItem>))}
-                  </SelectContent>
-                </Select>
+                />
               </div>
             </div>
 
