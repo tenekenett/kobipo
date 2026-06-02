@@ -62,6 +62,11 @@ export default function CustomerSupplierDetailPage() {
   const type = params.type as "customers" | "suppliers"
   const id = params.id as string
   const companyId = searchParams.get("company")
+  const fromParam = searchParams.get("from")
+  const safeFrom = fromParam && fromParam.startsWith("/") ? fromParam : null
+  const backHref = safeFrom
+    ? `${safeFrom}${safeFrom.includes("?") ? "&" : "?"}company=${encodeURIComponent(companyId || "")}`
+    : `/cari?company=${encodeURIComponent(companyId || "")}`
   
   const [data, setData] = useState<CustomerSupplierDetail | null>(null)
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
@@ -146,7 +151,7 @@ export default function CustomerSupplierDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href={`/cari?company=${companyId}`}>
+          <Link href={backHref}>
             <Button variant="ghost" size="icon">
               <ArrowLeft className="h-5 w-5" />
             </Button>

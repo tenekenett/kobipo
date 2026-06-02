@@ -21,6 +21,7 @@ export async function GET(
     const { searchParams } = new URL(request.url)
     const companyId = searchParams.get("companyId")
     const customerId = searchParams.get("customerId") // Opsiyonel: Sadece o cariye ait satışlar için
+    const supplierId = searchParams.get("supplierId") // Opsiyonel: Sadece o tedarikçiden alışlar için
 
     if (!companyId) {
       return NextResponse.json({ error: "companyId is required" }, { status: 400 })
@@ -94,6 +95,14 @@ export async function GET(
         price: Number(item.unitPrice),
       }))
 
+    const supplierPurchases = invoiceItems
+      .filter(item => item.invoice.type === "PURCHASE" && supplierId && item.invoice.supplierId === supplierId)
+      .map(item => ({
+        date: item.invoice.date,
+        cariName: item.invoice.supplier?.name || "-",
+        price: Number(item.unitPrice),
+      }))
+
     const quotes = quoteItems.map(item => ({
       date: item.quote.date,
       cariName: item.quote.customer?.name || item.quote.supplier?.name || "-",
@@ -104,6 +113,7 @@ export async function GET(
       sales: previousSales,
       customerSales: customerSales,
       purchases: previousPurchases,
+      supplierPurchases: supplierPurchases,
       quotes: quotes
     })
 

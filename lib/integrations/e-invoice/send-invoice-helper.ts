@@ -22,7 +22,9 @@ export async function sendInvoiceToProvider(invoiceId: string): Promise<SendInvo
     include: {
       customer: true,
       supplier: true,
-      items: true,
+      items: {
+        include: { product: { select: { name: true } } },
+      },
     },
   })
 
@@ -203,7 +205,7 @@ export async function sendInvoiceToProvider(invoiceId: string): Promise<SendInvo
         }
       : undefined,
     items: invoice.items.map((item) => ({
-      description: item.description,
+      description: item.description?.trim() || item.product?.name || "",
       quantity: Number(item.quantity),
       unitPrice: Number(item.unitPrice),
       vatRate: Number(item.vatRate),

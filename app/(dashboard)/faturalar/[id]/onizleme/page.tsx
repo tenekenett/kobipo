@@ -12,6 +12,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/components/ui/use-toast"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 
+const PROFILE_LABELS: Record<string, string> = {
+  TICARIFATURA: "Ticari",
+  TEMELFATURA: "Temel",
+  EARSIVFATURA: "E-Arşiv",
+  EFATURA: "E-Fatura",
+}
+
+function formatProfileLabel(profile: string | null | undefined): string | null {
+  if (!profile) return null
+  return PROFILE_LABELS[profile] ?? profile
+}
+
 interface Invoice {
   id: string
   invoiceNo: string
@@ -27,6 +39,7 @@ interface Invoice {
   uuid?: string | null
   integrationStatus?: string | null
   integrationId?: string | null
+  profile?: string | null
   incomingSource?: {
     uuid: string
     invoiceNo: string | null
@@ -63,6 +76,7 @@ interface Invoice {
     vatRate: number
     vatAmount: number
     totalAmount: number
+    product?: { name: string; code?: string | null } | null
   }>
 }
 
@@ -339,12 +353,18 @@ export default function FaturaOnizlemePage() {
     )
   }
 
-  // Geri butonu hedefi: gelen e-faturadan dönüştürülmüşse gelen kutusuna,
-  // değilse genel faturalar listesine.
   const isFromIncoming = Boolean(invoice.incomingSource)
-  const backHref = isFromIncoming
-    ? `/alis/gelen-e-faturalar?company=${companyId || ""}`
-    : invoice.type === "PURCHASE"
+  // GİB tarafında ETTN'lenmiş bir e-Belge varsa resmî PDF tek geçerli belgedir;
+  // bizim oluşturduğumuz şablon PDF'i göstermiyoruz. Bu koşul "Resmî PDF (GİB)"
+  // butonunun göründüğü koşulla aynı.
+  const hasOfficialGibPdf =
+    Boolean(invoice.uuid) &&
+    (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE")
+  // Geri butonu: fatura tipine göre ilgili listeye dön. Gelen e-faturadan
+  // dönüştürülmüş olsa bile artık bir Alış Faturası — kullanıcı oradan açtığı
+  // için oraya dönmesi daha doğru.
+  const backHref =
+    invoice.type === "PURCHASE"
       ? `/alis/fatura?company=${companyId || ""}`
       : invoice.type === "SALES"
         ? `/satis/fatura?company=${companyId || ""}`
@@ -447,10 +467,12 @@ export default function FaturaOnizlemePage() {
           )}
           <Input className="w-56" placeholder="E-posta (opsiyonel)" value={email} onChange={(e) => setEmail(e.target.value)} />
           <Button variant="outline" onClick={handleSendEmail}>E-posta Gönder</Button>
-          <Button onClick={handleDownloadPDF}>
-            <Download className="h-4 w-4 mr-2" />
-            PDF İndir
-          </Button>
+          {!hasOfficialGibPdf && (
+            <Button onClick={handleDownloadPDF}>
+              <Download className="h-4 w-4 mr-2" />
+              PDF İndir
+            </Button>
+          )}
           {invoice.uuid && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
             <>
               <Button variant="outline" onClick={handleCheckStatus} disabled={isCheckingStatus}>
@@ -650,6 +672,12 @@ export default function FaturaOnizlemePage() {
               <p className="text-sm text-muted-foreground">Durum</p>
               <p className="font-medium">
                 {invoice.status === "SENT" ? "Gönderildi" : invoice.status === "DRAFT" ? "Taslak" : invoice.status}
+                {(() => {
+                  const profileLabel = formatProfileLabel(invoice.profile)
+                  return profileLabel ? (
+                    <span className="ml-1 text-muted-foreground">({profileLabel})</span>
+                  ) : null
+                })()}
               </p>
             </div>
           </div>
@@ -658,7 +686,7 @@ export default function FaturaOnizlemePage() {
             <TableHeader>
               <TableRow>
                 <TableHead>#</TableHead>
-                <TableHead>Açıklama</TableHead>
+                <TableHead>Ürün</TableHead>
                 <TableHead className="text-right">Miktar</TableHead>
                 <TableHead className="text-right">Birim Fiyat</TableHead>
                 <TableHead className="text-right">Iskonto</TableHead>
@@ -669,10 +697,40 @@ export default function FaturaOnizlemePage() {
             </TableHeader>
             <TableBody>
               {invoice.items && invoice.items.length > 0 ? (
-                invoice.items.map((item: any, index: number) => (
+                invoice.items.map((item: any, index: number) => {
+                  const productName = item.product?.name?.trim()
+                  const description = item.description?.trim()
+                  // Ürün adı bağlıysa onu üstte göster, description'ı ek "Açıklama:"
+                  // etiketiyle altında. Ürün bağlı değilse description'ı ürün adı
+                  // gibi bold göstermek yerine etiketli sade metin olarak ver — aksi
+                  // halde "Gelen e-fatura DEZ... (ETTN ...)" gibi içe aktarma
+                  // metaverisi yanlışlıkla ürün adı sanılıyor.
+                  const showDescription =
+                    description && description !== productName
+                  return (
                   <TableRow key={item.id || index}>
                     <TableCell>{index + 1}</TableCell>
-                    <TableCell>{item.description || "-"}</TableCell>
+                    <TableCell>
+                      {productName ? (
+                        <>
+                          <div className="font-medium text-foreground">{productName}</div>
+                          {showDescription && (
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              <span className="font-medium">Açıklama:</span> {description}
+                            </div>
+                          )}
+                        </>
+                      ) : description ? (
+                        <div className="text-sm">
+                          <span className="text-xs font-medium text-muted-foreground">
+                            Açıklama:
+                          </span>{" "}
+                          {description}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       {Number(item.quantity || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
                     </TableCell>
@@ -687,7 +745,8 @@ export default function FaturaOnizlemePage() {
                     <TableCell className="text-right">{formatCurrency(Number(item.vatAmount || 0))}</TableCell>
                     <TableCell className="text-right font-medium">{formatCurrency(Number(item.totalAmount || 0))}</TableCell>
                   </TableRow>
-                ))
+                  )
+                })
               ) : (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">

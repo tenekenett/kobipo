@@ -42,6 +42,7 @@ interface Product {
   unit: string
   vatRate: number
   purchasePrice?: number
+  avgPurchasePrice?: number | null
   salePrice?: number
   stockQuantity: number
   isService: boolean
@@ -396,7 +397,7 @@ export default function StokPage() {
                 <StyledTableHead>Barkod</StyledTableHead>
                 <StyledTableHead>Birim</StyledTableHead>
                 <StyledTableHead>KDV %</StyledTableHead>
-                <StyledTableHead className="text-right">Alış Fiyatı</StyledTableHead>
+                <StyledTableHead className="text-right">Ort. Alış Fiyatı</StyledTableHead>
                 <StyledTableHead className="text-right">Satış Fiyatı</StyledTableHead>
                 <StyledTableHead className="text-right">Stok</StyledTableHead>
                 <StyledTableHead>Tip</StyledTableHead>
@@ -426,11 +427,11 @@ export default function StokPage() {
                     <TableCell>{product.unit}</TableCell>
                     <TableCell>{product.vatRate}%</TableCell>
                     <TableCell className="text-right whitespace-nowrap">
-                      {product.purchasePrice
+                      {product.avgPurchasePrice
                         ? new Intl.NumberFormat("tr-TR", {
                             style: "currency",
                             currency: "TRY",
-                          }).format(product.purchasePrice)
+                          }).format(product.avgPurchasePrice)
                         : "-"}
                     </TableCell>
                     <TableCell className="text-right whitespace-nowrap font-semibold">

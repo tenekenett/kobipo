@@ -66,7 +66,7 @@ const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
 interface Customer { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Supplier { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Product { id: string; name: string; code?: string; salePrice?: number; vatRate: number; unit?: string }
-export interface InvoiceItem { productId?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; vatRate: number; withholdingRate?: number; exciseRate?: number; taxExemptionReasonCode?: string; taxExemptionReason?: string }
+export interface InvoiceItem { productId?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; vatRate: number; withholdingRate?: number; exciseRate?: number; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number }
 interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean }
 
 export type InvoiceEditorMode = "create" | "edit"
@@ -76,11 +76,12 @@ export type InvoiceEditorProps = {
   mode: InvoiceEditorMode
   invoiceId?: string
   defaultManual?: boolean
+  defaultType?: "SALES" | "PURCHASE" | "RETURN"
   backHref?: string
   fromIncomingUuid?: string
 }
 
-export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backHref, fromIncomingUuid }: InvoiceEditorProps) {
+export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defaultType, backHref, fromIncomingUuid }: InvoiceEditorProps) {
   const router = useRouter()
   const { toast } = useToast()
 
@@ -124,8 +125,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
 
   // Önceki Fiyatlar Modal State'leri
   const [isPriceModalOpen, setIsPriceModalOpen] = useState(false)
-  const [activePriceTab, setActivePriceTab] = useState<"sales" | "customerSales" | "purchases" | "quotes">("sales")
-  const [priceHistory, setPriceHistory] = useState<{ sales: any[], customerSales: any[], purchases: any[], quotes: any[] }>({ sales: [], customerSales: [], purchases: [], quotes: [] })
+  const [activePriceTab, setActivePriceTab] = useState<"sales" | "customerSales" | "purchases" | "supplierPurchases" | "quotes">("sales")
+  const [priceHistory, setPriceHistory] = useState<{ sales: any[], customerSales: any[], purchases: any[], supplierPurchases: any[], quotes: any[] }>({ sales: [], customerSales: [], purchases: [], supplierPurchases: [], quotes: [] })
   const [isPriceHistoryLoading, setIsPriceHistoryLoading] = useState(false)
   const [activeItemIndexForPrices, setActiveItemIndexForPrices] = useState<number | null>(null)
 
@@ -162,6 +163,14 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
   useEffect(() => {
     if (defaultManual) setFormData((prev) => ({ ...prev, invoiceType: "MANUAL" }))
   }, [defaultManual])
+
+  // Liste sayfasından gelen varsayılan fatura tipi (örn. alış sayfasından PURCHASE).
+  // Sadece create modunda ve gelen e-faturadan dönüştürme yokken uygulanır;
+  // o akış tipi kendi içinde PURCHASE yapıyor.
+  useEffect(() => {
+    if (mode !== "create" || !defaultType || fromIncomingUuid) return
+    setFormData((prev) => (prev.type === defaultType ? prev : { ...prev, type: defaultType }))
+  }, [mode, defaultType, fromIncomingUuid])
 
   useEffect(() => {
     if (mode !== "edit" || !companyId || !invoiceId) return
@@ -593,11 +602,18 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
       return
     }
     setActiveItemIndexForPrices(index)
+    setActivePriceTab(formData.type === "PURCHASE" ? "purchases" : "sales")
     setIsPriceModalOpen(true)
     setIsPriceHistoryLoading(true)
-    
+
     try {
-      const res = await fetch(`/api/stok/products/${productId}/prices?companyId=${companyId}&customerId=${formData.customerId}`)
+      const qs = new URLSearchParams({ companyId })
+      if (formData.type === "PURCHASE" && formData.supplierId) {
+        qs.set("supplierId", formData.supplierId)
+      } else if (formData.customerId) {
+        qs.set("customerId", formData.customerId)
+      }
+      const res = await fetch(`/api/stok/products/${productId}/prices?${qs.toString()}`)
       if (res.ok) {
         const data = await res.json()
         setPriceHistory(data)
@@ -659,15 +675,26 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
 
   const applyProductToLine = (index: number, product: Product) => {
     const newItems = [...items]
+    const prev = newItems[index]
+    const prevDesc = (prev.description || "").trim()
+    // Kullanıcı bir ürün seçtiğinde description'ı ürün adıyla doldur. Aksi halde
+    // DB'ye ve Mysoft XML'ine boş "productName" gider; detay sayfasında "-" görünür.
+    // Daha önce yazılmış özel bir satır notu varsa ve başka bir ürünün adı değilse korunur.
+    const isPreviousAutoName =
+      prevDesc === "" || products.some((p) => p.name === prev.description)
     newItems[index] = {
-      ...newItems[index],
+      ...prev,
       productId: product.id,
+      description: isPreviousAutoName ? product.name : prev.description,
       unit: (product.unit || "ADET").toUpperCase(),
       unitPrice: Number(product.salePrice) || 0,
       discountRate: 0,
       vatRate: Number(product.vatRate) || 20,
       withholdingRate: 0,
       exciseRate: 0,
+      // Alış faturasında ürünün satış fiyatı satır üzerinden güncellenebilsin diye
+      // mevcut satış fiyatını ön-doldur. Sadece PURCHASE tipinde UI'da gösterilir.
+      salePrice: product.salePrice != null ? Number(product.salePrice) : undefined,
     }
     setItems(newItems)
   }
@@ -947,11 +974,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
                 className="hidden md:grid grid-cols-12 gap-2 p-3 font-semibold text-sm items-center" 
                 style={{ backgroundColor: BRAND_COLOR, color: "white" }}
               >
-                <div className="col-span-4 pl-1">Ürün / Hizmet</div>
+                <div className={`${formData.type === "PURCHASE" ? "col-span-3" : "col-span-4"} pl-1`}>Ürün / Hizmet</div>
                 <div className="col-span-1">Birim</div>
                 <div className="col-span-1 text-center">Miktar</div>
                 <div className="col-span-2 text-right pr-2">Birim Fiyat</div>
                 <div className="col-span-1 text-center">KDV %</div>
+                {formData.type === "PURCHASE" && <div className="col-span-1 text-right">Satış Fiyatı</div>}
                 <div className="col-span-2 text-right">Tutar</div>
                 <div className="col-span-1 text-center">İşlem</div>
               </div>
@@ -972,7 +1000,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
                       <div className="grid grid-cols-12 gap-y-4 gap-x-3 md:gap-x-2 md:items-start">
                         
                         {/* 1. ÜRÜN */}
-                        <div className="col-span-12 md:col-span-4">
+                        <div className={`col-span-12 ${formData.type === "PURCHASE" ? "md:col-span-3" : "md:col-span-4"}`}>
                           <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Ürün / Hizmet</Label>
                           <ProductCombobox
                             companyId={companyId}
@@ -1029,6 +1057,25 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
                             <SelectContent><SelectItem value="0">%0</SelectItem><SelectItem value="1">%1</SelectItem><SelectItem value="8">%8</SelectItem><SelectItem value="10">%10</SelectItem><SelectItem value="18">%18</SelectItem><SelectItem value="20">%20</SelectItem></SelectContent>
                           </Select>
                         </div>
+
+                        {/* 5b. SATIŞ FİYATI (yalnızca alış faturasında — ürünün satış fiyatını günceller) */}
+                        {formData.type === "PURCHASE" && (
+                          <div className="col-span-4 md:col-span-1">
+                            <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Satış Fiyatı</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="text-right font-medium"
+                              value={item.salePrice ?? ""}
+                              onChange={(e) => updateItem(index, "salePrice", e.target.value === "" ? undefined : parseFloat(e.target.value) || 0)}
+                              onFocus={(e) => (e.target as HTMLInputElement).select()}
+                              disabled={!item.productId}
+                              placeholder="(opsiyonel)"
+                              title="Ürünün satış fiyatını güncelle"
+                            />
+                          </div>
+                        )}
 
                         {/* 6. TUTAR */}
                         <div className="col-span-8 md:col-span-2">
@@ -1176,14 +1223,25 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, backH
               >
                 ÖNCEKİ SATIŞLAR
               </button>
-              <button
-                onClick={() => setActivePriceTab("customerSales")}
-                className={`px-4 py-2 text-sm font-semibold tracking-wider rounded-t-md transition-colors whitespace-nowrap ${
-                  activePriceTab === "customerSales" ? "bg-white text-[#48c79c] border-t border-l border-r border-[#48c79c]/30" : "bg-transparent text-[#48c79c] hover:bg-white/50"
-                }`}
-              >
-                BU CARİYE SATIŞLAR
-              </button>
+              {formData.type === "PURCHASE" ? (
+                <button
+                  onClick={() => setActivePriceTab("supplierPurchases")}
+                  className={`px-4 py-2 text-sm font-semibold tracking-wider rounded-t-md transition-colors whitespace-nowrap ${
+                    activePriceTab === "supplierPurchases" ? "bg-white text-[#48c79c] border-t border-l border-r border-[#48c79c]/30" : "bg-transparent text-[#48c79c] hover:bg-white/50"
+                  }`}
+                >
+                  BU TEDARİKÇİDEN ALIŞLAR
+                </button>
+              ) : (
+                <button
+                  onClick={() => setActivePriceTab("customerSales")}
+                  className={`px-4 py-2 text-sm font-semibold tracking-wider rounded-t-md transition-colors whitespace-nowrap ${
+                    activePriceTab === "customerSales" ? "bg-white text-[#48c79c] border-t border-l border-r border-[#48c79c]/30" : "bg-transparent text-[#48c79c] hover:bg-white/50"
+                  }`}
+                >
+                  BU CARİYE SATIŞLAR
+                </button>
+              )}
               <button
                 onClick={() => setActivePriceTab("purchases")}
                 className={`px-4 py-2 text-sm font-semibold tracking-wider rounded-t-md transition-colors whitespace-nowrap ${

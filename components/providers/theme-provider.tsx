@@ -1,6 +1,8 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react"
+import { usePathname } from "next/navigation"
+import { isDarkRoute } from "@/lib/theme/dark-routes"
 
 type Theme = "light" | "dark" | "system"
 type ResolvedTheme = "light" | "dark"
@@ -20,13 +22,15 @@ function getSystemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
 }
 
-function applyTheme(resolved: ResolvedTheme) {
+function applyTheme(resolved: ResolvedTheme, pathname: string | null) {
   const root = document.documentElement
-  root.classList.toggle("dark", resolved === "dark")
-  root.style.colorScheme = resolved
+  const effective: ResolvedTheme = isDarkRoute(pathname) ? resolved : "light"
+  root.classList.toggle("dark", effective === "dark")
+  root.style.colorScheme = effective
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
   const [theme, setThemeState] = useState<Theme>("system")
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("light")
 
@@ -35,16 +39,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const resolved = stored === "system" ? getSystemTheme() : stored
     setThemeState(stored)
     setResolvedTheme(resolved)
-    applyTheme(resolved)
   }, [])
+
+  useEffect(() => {
+    applyTheme(resolvedTheme, pathname)
+  }, [resolvedTheme, pathname])
 
   useEffect(() => {
     if (theme !== "system") return
     const mql = window.matchMedia("(prefers-color-scheme: dark)")
     const onChange = () => {
-      const next: ResolvedTheme = mql.matches ? "dark" : "light"
-      setResolvedTheme(next)
-      applyTheme(next)
+      setResolvedTheme(mql.matches ? "dark" : "light")
     }
     mql.addEventListener("change", onChange)
     return () => mql.removeEventListener("change", onChange)
@@ -55,7 +60,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const resolved = next === "system" ? getSystemTheme() : next
     setThemeState(next)
     setResolvedTheme(resolved)
-    applyTheme(resolved)
   }, [])
 
   const toggleTheme = useCallback(() => {

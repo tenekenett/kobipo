@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
+import { Recaptcha } from "@/components/auth/recaptcha"
 import {
   User,
   Building2,
@@ -15,6 +16,8 @@ import {
   Loader2,
   UserPlus,
 } from "lucide-react"
+
+const RECAPTCHA_ENABLED = Boolean(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY)
 
 export default function SignUpPage() {
   const router = useRouter()
@@ -30,10 +33,27 @@ export default function SignUpPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const [captchaKey, setCaptchaKey] = useState(0)
+
+  const handleCaptcha = useCallback((token: string | null) => setCaptchaToken(token), [])
+  const resetCaptcha = useCallback(() => {
+    setCaptchaToken(null)
+    setCaptchaKey((k) => k + 1)
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/
+
+    if (RECAPTCHA_ENABLED && !captchaToken) {
+      toast({
+        title: "Doğrulama gerekli",
+        description: "Lütfen 'Ben robot değilim' kutusunu işaretleyin",
+        variant: "destructive",
+      })
+      return
+    }
 
     if (
       !formData.name.trim() ||
@@ -80,6 +100,7 @@ export default function SignUpPage() {
           phone: formData.phone.trim(),
           email: formData.email.trim(),
           password: formData.password,
+          captchaToken: captchaToken ?? "",
         }),
       })
 
@@ -97,6 +118,7 @@ export default function SignUpPage() {
         description: error.message || "Bir hata oluştu",
         variant: "destructive",
       })
+      resetCaptcha()
     } finally {
       setIsLoading(false)
     }
@@ -262,9 +284,15 @@ export default function SignUpPage() {
           }
         />
 
+        {RECAPTCHA_ENABLED && (
+          <div className="mt-4 animate-auth-slide-up" style={{ animationDelay: "0.42s" }}>
+            <Recaptcha key={captchaKey} onChange={handleCaptcha} />
+          </div>
+        )}
+
         <button
           type="submit"
-          disabled={isLoading}
+          disabled={isLoading || (RECAPTCHA_ENABLED && !captchaToken)}
           className="group relative mt-4 flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-kobipo-blue to-kobipo-mid px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-kobipo-blue/30 transition-all hover:scale-[1.02] hover:shadow-xl active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 animate-auth-slide-up"
           style={{ animationDelay: "0.45s" }}
         >

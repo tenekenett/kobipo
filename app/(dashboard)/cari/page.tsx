@@ -20,6 +20,7 @@ import {
   EntityCell,
   MonoCell,
 } from "@/components/ui/styled-table"
+import { cn } from "@/lib/utils"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
 import { Plus, Search, Eye, Pencil, Trash2, Loader2 } from "lucide-react"
@@ -30,27 +31,19 @@ function TableSkeleton({ rows = 8 }: { rows?: number }) {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="h-10 w-24 animate-pulse rounded bg-muted" />
+          <TableHead className="h-10 w-64 animate-pulse rounded bg-muted" />
           <TableHead className="h-10 w-32 animate-pulse rounded bg-muted" />
-          <TableHead className="h-10 w-32 animate-pulse rounded bg-muted" />
+          <TableHead className="h-10 w-28 animate-pulse rounded bg-muted" />
           <TableHead className="h-10 w-24 animate-pulse rounded bg-muted" />
-          <TableHead className="h-10 w-32 animate-pulse rounded bg-muted" />
-          <TableHead className="h-10 w-24 animate-pulse rounded bg-muted" />
-          <TableHead className="h-10 w-24 animate-pulse rounded bg-muted" />
-          <TableHead className="h-10 w-20 animate-pulse rounded bg-muted" />
         </TableRow>
       </TableHeader>
       <TableBody>
         {Array.from({ length: rows }).map((_, i) => (
           <TableRow key={i}>
-            <TableCell><div className="h-4 w-16 animate-pulse rounded bg-muted/60" /></TableCell>
+            <TableCell><div className="h-4 w-48 animate-pulse rounded bg-muted/60" /></TableCell>
             <TableCell><div className="h-4 w-24 animate-pulse rounded bg-muted/60" /></TableCell>
             <TableCell><div className="h-4 w-20 animate-pulse rounded bg-muted/60" /></TableCell>
             <TableCell><div className="h-4 w-16 animate-pulse rounded bg-muted/60" /></TableCell>
-            <TableCell><div className="h-4 w-24 animate-pulse rounded bg-muted/60" /></TableCell>
-            <TableCell><div className="h-4 w-20 animate-pulse rounded bg-muted/60" /></TableCell>
-            <TableCell><div className="h-4 w-20 animate-pulse rounded bg-muted/60" /></TableCell>
-            <TableCell><div className="h-4 w-12 animate-pulse rounded bg-muted/60" /></TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -307,74 +300,86 @@ export default function CariPage() {
             <Table>
               <TableHeader>
                 <StyledTableHeaderRow>
-                  <StyledTableHead>Kod</StyledTableHead>
                   <StyledTableHead>Ad</StyledTableHead>
                   <StyledTableHead>Vergi No</StyledTableHead>
-                  <StyledTableHead>Telefon</StyledTableHead>
-                  <StyledTableHead>Email</StyledTableHead>
-                  <StyledTableHead>Açılış Bakiyesi</StyledTableHead>
                   <StyledTableHead className="text-right">Bakiye</StyledTableHead>
-                  <StyledTableHead>İşlem</StyledTableHead>
+                  <StyledTableHead className="text-right">İşlem</StyledTableHead>
                 </StyledTableHeaderRow>
               </TableHeader>
               <TableBody>
                 {currentData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center">
+                    <TableCell colSpan={4} className="text-center text-muted-foreground">
                       {isLoading ? "Kayıtlar yükleniyor..." : "Kayıt bulunamadı"}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  currentData.map((item, idx) => (
-                    <StyledTableRow
-                      key={item.id}
-                      index={idx}
-                      className="cursor-pointer"
-                      onClick={() =>
-                        router.push(`/cari/${activeTab}/${item.id}?company=${companyId}`)
-                      }
-                    >
-                      <TableCell><MonoCell value={item.code} /></TableCell>
-                      <TableCell className="font-medium">
-                        <EntityCell name={item.name} />
-                      </TableCell>
-                      <TableCell><MonoCell value={item.taxNumber} /></TableCell>
-                      <TableCell className="text-xs">{item.phone || "-"}</TableCell>
-                      <TableCell className="text-xs">{item.email || "-"}</TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">
-                        {item.openingBalanceAmount !== undefined
-                          ? `${currencyFormatter.format(item.openingBalanceAmount)} ${
-                              item.openingBalanceType === "CREDIT" ? "(Alacak)" : "(Borç)"
-                            }`
-                          : "-"}
-                      </TableCell>
-                      <TableCell className="text-right whitespace-nowrap font-semibold">
-                        {item.balance !== undefined
-                          ? currencyFormatter.format(item.balance)
-                          : "-"}
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <div className="flex gap-1">
-                          <Link href={`/cari/${activeTab}/${item.id}?company=${companyId}`}>
-                            <Button variant="ghost" size="sm">
-                              <Eye className="h-4 w-4 mr-1" />
-                              Detay
+                  currentData.map((item, idx) => {
+                    const balance = Number(item.balance ?? 0)
+                    const balanceTone =
+                      balance > 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : balance < 0
+                          ? "text-rose-600 dark:text-rose-400"
+                          : "text-muted-foreground"
+                    return (
+                      <StyledTableRow
+                        key={item.id}
+                        index={idx}
+                        className="cursor-pointer"
+                        onClick={() =>
+                          router.push(`/cari/${activeTab}/${item.id}?company=${companyId}`)
+                        }
+                      >
+                        <TableCell>
+                          <EntityCell name={item.name} maxWidth={360} />
+                        </TableCell>
+                        <TableCell><MonoCell value={item.taxNumber} /></TableCell>
+                        <TableCell
+                          className={cn(
+                            "whitespace-nowrap text-right font-semibold tabular-nums",
+                            balanceTone,
+                          )}
+                        >
+                          {item.balance !== undefined
+                            ? currencyFormatter.format(item.balance)
+                            : "-"}
+                        </TableCell>
+                        <TableCell
+                          className="text-right"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="flex justify-end gap-0.5">
+                            <Link
+                              href={`/cari/${activeTab}/${item.id}?company=${companyId}`}
+                              aria-label="Detay"
+                            >
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                            <Link
+                              href={`/cari/${activeTab}/${item.id}/edit?company=${companyId}`}
+                              aria-label="Düzenle"
+                            >
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+                              aria-label="Sil"
+                              onClick={() => deleteItem(item.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
                             </Button>
-                          </Link>
-                          <Link href={`/cari/${activeTab}/${item.id}/edit?company=${companyId}`}>
-                            <Button variant="ghost" size="sm">
-                              <Pencil className="h-4 w-4 mr-1" />
-                              Düzenle
-                            </Button>
-                          </Link>
-                          <Button variant="ghost" size="sm" onClick={() => deleteItem(item.id)}>
-                            <Trash2 className="h-4 w-4 mr-1 text-red-600" />
-                            Sil
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </StyledTableRow>
-                  ))
+                          </div>
+                        </TableCell>
+                      </StyledTableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>

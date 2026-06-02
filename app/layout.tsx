@@ -4,6 +4,7 @@ import { Toaster } from '@/components/ui/toaster'
 import { SessionProvider } from '@/components/providers/session-provider'
 import { ThemeProvider } from '@/components/providers/theme-provider'
 import { RouteProgress } from '@/components/ui/route-progress'
+import { DARK_ROUTE_PREFIXES } from '@/lib/theme/dark-routes'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { Analytics } from '@vercel/analytics/next'
 
@@ -25,6 +26,16 @@ export const metadata: Metadata = {
 const themeInitScript = `
 (function() {
   try {
+    var darkRoutes = ${JSON.stringify(DARK_ROUTE_PREFIXES)};
+    var path = window.location.pathname || '';
+    var isDarkRoute = darkRoutes.some(function(p) {
+      return path === p || path.indexOf(p + '/') === 0;
+    });
+    if (!isDarkRoute) {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.style.colorScheme = 'light';
+      return;
+    }
     var stored = localStorage.getItem('kobipo-theme');
     var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     var resolved = stored === 'dark' || (stored !== 'light' && prefersDark) ? 'dark' : 'light';

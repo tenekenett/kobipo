@@ -197,6 +197,11 @@ const company = await prisma.company.findUnique({
         unit: typeof item.unit === "string" && item.unit.trim() ? String(item.unit).trim().toUpperCase() : "ADET",
         quantity: parseFloat(item.quantity) || 0,
         unitPrice: parseFloat(item.unitPrice) || 0,
+        // Alış faturasında ürünün satış fiyatını güncellemek için (opsiyonel).
+        salePrice:
+          item.salePrice != null && item.salePrice !== "" && !Number.isNaN(parseFloat(item.salePrice))
+            ? parseFloat(item.salePrice)
+            : null,
         discountRate: parseFloat(item.discountRate) || 0,
         vatRate: parseFloat(item.vatRate) || 0,
         withholdingRate: parseFloat(item.withholdingRate) || 0,
@@ -335,6 +340,7 @@ const company = await prisma.company.findUnique({
               productId: safeProductId,
               type: moveType,
               quantity: stockQuantityChange,
+              unitPrice: item.unitPrice ?? null,
               description: `${invoice.invoiceNo} - ${safeType === "SALES" ? "Satış" : safeType === "PURCHASE" ? "Satın alma" : "İade"} faturası`,
               reference: invoice.id,
               //referenceType: "INVOICE",
@@ -355,6 +361,23 @@ const company = await prisma.company.findUnique({
           console.log(`[Stok Başarılı] ${safeProductId} ID'li ürünün stoğu ${stockQuantityChange} kadar güncellendi.`);
         } catch (stockError) {
           console.error("[Stok Hata] Stok işlemi sırasında veritabanı hatası oluştu: ", stockError);
+        }
+      }
+    }
+
+    // Alış faturası: kullanıcı satır üzerinde yeni bir satış fiyatı girdiyse
+    // ilgili ürünün kartındaki satış fiyatını güncelle.
+    if (String(type || "").trim().toUpperCase() === "PURCHASE") {
+      for (const item of normalizedItems) {
+        if (item.productId && item.salePrice != null && item.salePrice > 0) {
+          try {
+            await prisma.product.update({
+              where: { id: item.productId },
+              data: { salePrice: item.salePrice },
+            });
+          } catch (priceError) {
+            console.error("[Satış Fiyatı Güncelleme Hatası] ", priceError);
+          }
         }
       }
     }

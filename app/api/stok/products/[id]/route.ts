@@ -41,6 +41,12 @@ export async function GET(
       .filter(m => m.type === "OUT" || (m.type === "TRANSFER" && Number(m.quantity) < 0))
       .reduce((sum, m) => sum + Math.abs(Number(m.quantity)), 0)
 
+    // Eski kayıtlarda unitPrice null olabilir; bu durumda hareket tipine göre
+    // ürünün alış/satış fiyatını fallback olarak kullan, böylece tablo 0 göstermez.
+    const purchasePrice = Number(product.purchasePrice || 0)
+    const salePrice = Number(product.salePrice || 0)
+    const inboundTypes = ["IN", "PURCHASE", "SALE_CANCEL", "RETURN"]
+
     // Calculate balance after each movement
     let runningBalance = Number(product.stockQuantity)
     const movements = product.stockMovements.map((movement, index) => {
@@ -50,13 +56,22 @@ export async function GET(
       } else {
         runningBalance += Math.abs(qty)
       }
+
+      const isInbound = inboundTypes.includes(movement.type) || qty > 0
+      const unitPrice =
+        movement.unitPrice != null
+          ? Number(movement.unitPrice)
+          : isInbound
+            ? purchasePrice
+            : salePrice
+
       return {
         id: movement.id,
         date: movement.createdAt.toISOString(),
         type: movement.type,
         quantity: Math.abs(qty),
-        unitPrice: Number(movement.unitPrice || 0),
-        totalAmount: Math.abs(qty) * Number(movement.unitPrice || 0),
+        unitPrice,
+        totalAmount: Math.abs(qty) * unitPrice,
         description: movement.description || "",
         referenceNo: movement.reference || undefined,
         balanceAfter: runningBalance,

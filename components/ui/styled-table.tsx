@@ -38,7 +38,10 @@ export const StyledTableHead = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TableHead
     ref={ref}
-    className={cn("text-white dark:text-kobipo-text", className)}
+    className={cn(
+      "h-11 text-xs font-semibold uppercase tracking-wider text-white dark:text-kobipo-text",
+      className,
+    )}
     {...props}
   />
 ))
@@ -51,13 +54,16 @@ export interface StyledTableRowProps
 
 export const StyledTableRow = React.forwardRef<HTMLTableRowElement, StyledTableRowProps>(
   ({ index = 0, className, ...props }, ref) => {
-    const stripe = index % 2 === 0 ? "bg-card" : "bg-muted/40"
+    // Şerit kontrastı: açık temada slate-100 net görünüyor, koyu temada bg-muted
+    // tam tonlu — kart arka planı 11% lightness, muted 18% → 7 puanlık fark satırı
+    // belirgin yapıyor.
+    const stripe = index % 2 === 0 ? "bg-card" : "bg-slate-100 dark:bg-muted"
     return (
       <TableRow
         ref={ref}
         className={cn(
           stripe,
-          "hover:bg-kobipo-pale/60 dark:hover:bg-kobipo-blue/20",
+          "border-b border-border/60 transition-colors hover:bg-kobipo-pale/70 dark:hover:bg-kobipo-blue/25 [&>td]:py-3.5",
           className,
         )}
         {...props}
@@ -71,7 +77,7 @@ export function EntityCell({
   name,
   type = "company",
   className,
-  maxWidth = 260,
+  maxWidth = 320,
 }: {
   name?: string | null
   type?: "company" | "person"
@@ -79,15 +85,19 @@ export function EntityCell({
   maxWidth?: number
 }) {
   const Icon = type === "person" ? User : Building2
+  const hasName = !!(name && name.trim().length > 0)
   return (
-    <div className={cn("flex items-center gap-1.5", className)}>
-      <Icon className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+    <div className={cn("flex items-center gap-2", className)}>
+      <Icon className="h-4 w-4 shrink-0 text-kobipo-blue/70 dark:text-kobipo-mid/80" />
       <span
-        className="truncate"
+        className={cn(
+          "truncate font-semibold",
+          hasName ? "text-foreground" : "text-muted-foreground",
+        )}
         style={{ maxWidth: `${maxWidth}px` }}
         title={name ?? ""}
       >
-        {name && name.trim().length > 0 ? name : "-"}
+        {hasName ? name : "-"}
       </span>
     </div>
   )
@@ -100,9 +110,16 @@ export function MonoCell({
   value?: string | null
   className?: string
 }) {
+  const hasValue = !!(value && value.trim().length > 0)
   return (
-    <span className={cn("font-mono text-xs", className)}>
-      {value && value.trim().length > 0 ? value : "-"}
+    <span
+      className={cn(
+        "font-mono text-xs tabular-nums",
+        hasValue ? "text-muted-foreground" : "text-muted-foreground/60",
+        className,
+      )}
+    >
+      {hasValue ? value : "-"}
     </span>
   )
 }

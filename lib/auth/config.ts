@@ -2,6 +2,7 @@ import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { prisma } from "@/lib/db/prisma"
 import bcrypt from "bcryptjs"
+import { verifyRecaptcha } from "@/lib/auth/recaptcha"
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -9,10 +10,17 @@ export const authOptions: NextAuthOptions = {
       name: "Credentials",
       credentials: {
         email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" }
+        password: { label: "Password", type: "password" },
+        captchaToken: { label: "Captcha", type: "text" }
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
+          return null
+        }
+
+        // Bot koruması: reCAPTCHA doğrulaması (anahtar tanımlıysa zorunlu).
+        const captchaOk = await verifyRecaptcha(credentials.captchaToken)
+        if (!captchaOk) {
           return null
         }
 

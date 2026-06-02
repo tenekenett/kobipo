@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import bcrypt from "bcryptjs"
+import { verifyRecaptcha } from "@/lib/auth/recaptcha"
 
 export const dynamic = 'force-dynamic'
 
@@ -10,7 +11,18 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { name, email, password, companyOrPersonName, phone } = body
+    const { name, email, password, companyOrPersonName, phone, captchaToken } = body
+
+    // Bot koruması: reCAPTCHA doğrulaması (anahtar tanımlıysa zorunlu).
+    const remoteIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null
+    const captchaOk = await verifyRecaptcha(captchaToken, remoteIp)
+    if (!captchaOk) {
+      return NextResponse.json(
+        { error: "Doğrulama başarısız. Lütfen 'Ben robot değilim' kutusunu tekrar işaretleyin." },
+        { status: 400 }
+      )
+    }
+
     const trimmedName = String(name || "").trim()
     const normalizedEmail = String(email || "").trim().toLowerCase()
     const trimmedCompanyOrPersonName = String(companyOrPersonName || "").trim()

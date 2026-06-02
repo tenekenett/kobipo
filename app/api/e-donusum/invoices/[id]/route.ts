@@ -123,15 +123,23 @@ export async function GET(
     // butonu ve UI farklılıkları için).
     const incomingSource = await prisma.incomingInvoice.findFirst({
       where: { linkedInvoiceId: invoice.id },
-      select: { uuid: true, invoiceNo: true, senderName: true, senderTaxNumber: true },
+      select: {
+        uuid: true,
+        invoiceNo: true,
+        senderName: true,
+        senderTaxNumber: true,
+        profile: true,
+      },
     })
 
     return NextResponse.json({
       ...invoice,
+      profile: incomingSource?.profile ?? null,
       incomingSource: incomingSource
         ? {
             uuid: incomingSource.uuid,
             invoiceNo: incomingSource.invoiceNo,
+            profile: incomingSource.profile,
             sender: {
               name: incomingSource.senderName,
               taxNumber: incomingSource.senderTaxNumber,
@@ -435,6 +443,7 @@ export async function DELETE(
               productId: safeProductId,
               type: moveType,
               quantity: stockQuantityChange,
+              unitPrice: item.unitPrice ?? null,
               description: `${invoice.invoiceNo} numaralı faturanın silinmesi (İptal)`,
               reference: invoice.id,
               createdBy: user.id,

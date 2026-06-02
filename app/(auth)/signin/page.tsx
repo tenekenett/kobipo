@@ -1,11 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { signIn, useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
+import { Recaptcha } from "@/components/auth/recaptcha"
 import { Mail, Lock, Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react"
+
+const RECAPTCHA_ENABLED = Boolean(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY)
 
 export default function SignInPage() {
   const router = useRouter()
@@ -15,6 +18,15 @@ export default function SignInPage() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const [captchaKey, setCaptchaKey] = useState(0)
+
+  const handleCaptcha = useCallback((token: string | null) => setCaptchaToken(token), [])
+  // Token tek kullanımlık; başarısız denemeden sonra widget'ı sıfırla.
+  const resetCaptcha = useCallback(() => {
+    setCaptchaToken(null)
+    setCaptchaKey((k) => k + 1)
+  }, [])
 
   useEffect(() => {
     if (status !== "authenticated" || !session) return
@@ -38,12 +50,23 @@ export default function SignInPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (RECAPTCHA_ENABLED && !captchaToken) {
+      toast({
+        title: "Doğrulama gerekli",
+        description: "Lütfen 'Ben robot değilim' kutusunu işaretleyin",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsLoading(true)
 
     try {
       const result = await signIn("credentials", {
         email,
         password,
+        captchaToken: captchaToken ?? "",
         redirect: false,
       })
 
@@ -53,6 +76,7 @@ export default function SignInPage() {
           description: "Email veya şifre hatalı",
           variant: "destructive",
         })
+        resetCaptcha()
       } else {
         router.replace("/dashboard")
       }
@@ -62,6 +86,7 @@ export default function SignInPage() {
         description: "Bir hata oluştu",
         variant: "destructive",
       })
+      resetCaptcha()
     } finally {
       setIsLoading(false)
     }
@@ -129,9 +154,15 @@ export default function SignInPage() {
           }
         />
 
+        {RECAPTCHA_ENABLED && (
+          <div className="mt-4 animate-auth-slide-up" style={{ animationDelay: "0.35s" }}>
+            <Recaptcha key={captchaKey} onChange={handleCaptcha} />
+          </div>
+        )}
+
         <button
           type="submit"
-          disabled={isLoading}
+          disabled={isLoading || (RECAPTCHA_ENABLED && !captchaToken)}
           className="group relative mt-6 flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-kobipo-blue to-kobipo-mid px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-kobipo-blue/30 transition-all hover:scale-[1.02] hover:shadow-xl active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 animate-auth-slide-up"
           style={{ animationDelay: "0.4s" }}
         >

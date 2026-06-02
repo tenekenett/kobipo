@@ -12,6 +12,11 @@ export default function EDonusumYeniFaturaPage() {
   const defaultManual = searchParams.get("manual") === "1"
   const fromParam = searchParams.get("from")
   const fromIncoming = searchParams.get("fromIncoming") || undefined
+  const typeParam = searchParams.get("type")
+  const defaultType =
+    typeParam === "PURCHASE" || typeParam === "SALES" || typeParam === "RETURN"
+      ? typeParam
+      : undefined
 
   if (!companyId) {
     return (
@@ -44,6 +49,7 @@ export default function EDonusumYeniFaturaPage() {
         companyId={companyId}
         mode="create"
         defaultManual={defaultManual}
+        defaultType={defaultType}
         backHref={backHref}
         fromIncomingUuid={fromIncoming}
       />

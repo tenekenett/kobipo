@@ -217,10 +217,24 @@ export default function FaturalarListing({
 
   const handleCreateInvoice = () => {
     if (!companyId) return
-    const fromParam = `&from=${encodeURIComponent("/faturalar")}`
+    const backPath =
+      fixedDirection === "incoming"
+        ? "/alis/fatura"
+        : fixedDirection === "outgoing"
+          ? "/satis/fatura"
+          : "/faturalar"
+    const fromParam = `&from=${encodeURIComponent(backPath)}`
+    // Alış faturaları sayfasından "Yeni Fatura" → fatura tipi varsayılan PURCHASE,
+    // satış sayfasından → SALES gelsin. Aksi halde editör her zaman SALES açılıyordu.
+    const typeParam =
+      fixedDirection === "incoming"
+        ? "&type=PURCHASE"
+        : fixedDirection === "outgoing"
+          ? "&type=SALES"
+          : ""
     const target = company?.isEDonusumEnabled
-      ? `/e-donusum/yeni?company=${encodeURIComponent(companyId)}${fromParam}`
-      : `/e-donusum/yeni?company=${encodeURIComponent(companyId)}&manual=1${fromParam}`
+      ? `/e-donusum/yeni?company=${encodeURIComponent(companyId)}${fromParam}${typeParam}`
+      : `/e-donusum/yeni?company=${encodeURIComponent(companyId)}&manual=1${fromParam}${typeParam}`
     router.push(target)
   }
 
@@ -560,12 +574,18 @@ export default function FaturalarListing({
                 <StyledTableHead>Tarih</StyledTableHead>
                 <StyledTableHead>Fatura No</StyledTableHead>
                 <StyledTableHead>VKN</StyledTableHead>
-                <StyledTableHead>Karşı Taraf</StyledTableHead>
-                <StyledTableHead>Profil</StyledTableHead>
+                <StyledTableHead>
+                  {fixedDirection === "incoming"
+                    ? "Tedarikçi"
+                    : fixedDirection === "outgoing"
+                      ? "Müşteri"
+                      : "Karşı Taraf"}
+                </StyledTableHead>
+                {!fixedDirection && <StyledTableHead>Profil</StyledTableHead>}
                 <StyledTableHead>Tip</StyledTableHead>
-                <StyledTableHead>Kaynak</StyledTableHead>
-                <StyledTableHead className="text-right">Net</StyledTableHead>
-                <StyledTableHead className="text-right">KDV</StyledTableHead>
+                {fixedDirection !== "outgoing" && <StyledTableHead>Kaynak</StyledTableHead>}
+                {!fixedDirection && <StyledTableHead className="text-right">Net</StyledTableHead>}
+                {!fixedDirection && <StyledTableHead className="text-right">KDV</StyledTableHead>}
                 <StyledTableHead className="text-right">Toplam</StyledTableHead>
                 <StyledTableHead>Durum</StyledTableHead>
                 <StyledTableHead className="text-right">İşlem</StyledTableHead>
@@ -574,13 +594,13 @@ export default function FaturalarListing({
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={fixedDirection ? 12 : 13} className="py-8 text-center">
+                  <TableCell colSpan={fixedDirection === "incoming" ? 9 : fixedDirection === "outgoing" ? 8 : 13} className="py-8 text-center">
                     <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={fixedDirection ? 12 : 13} className="py-8 text-center">
+                  <TableCell colSpan={fixedDirection === "incoming" ? 9 : fixedDirection === "outgoing" ? 8 : 13} className="py-8 text-center">
                     <FileText className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
                     <p className="text-muted-foreground">Bu kriterlere uyan fatura bulunamadı</p>
                   </TableCell>
@@ -625,15 +645,23 @@ export default function FaturalarListing({
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell><ProfileBadge profile={row.profile} /></TableCell>
+                      {!fixedDirection && (
+                        <TableCell><ProfileBadge profile={row.profile} /></TableCell>
+                      )}
                       <TableCell><InvoiceTypeBadge type={row.invoiceType} /></TableCell>
-                      <TableCell><SourceBadge row={row} /></TableCell>
-                      <TableCell className="text-right text-xs whitespace-nowrap">
-                        {fmt(row.netAmount, row.currency || "TRY")}
-                      </TableCell>
-                      <TableCell className="text-right text-xs whitespace-nowrap">
-                        {fmt(row.vatAmount, row.currency || "TRY")}
-                      </TableCell>
+                      {fixedDirection !== "outgoing" && (
+                        <TableCell><SourceBadge row={row} /></TableCell>
+                      )}
+                      {!fixedDirection && (
+                        <TableCell className="text-right text-xs whitespace-nowrap">
+                          {fmt(row.netAmount, row.currency || "TRY")}
+                        </TableCell>
+                      )}
+                      {!fixedDirection && (
+                        <TableCell className="text-right text-xs whitespace-nowrap">
+                          {fmt(row.vatAmount, row.currency || "TRY")}
+                        </TableCell>
+                      )}
                       <TableCell className="text-right text-xs font-semibold whitespace-nowrap">
                         {fmt(row.totalAmount, row.currency || "TRY")}
                       </TableCell>

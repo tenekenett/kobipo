@@ -48,7 +48,48 @@ export async function GET(request: Request) {
       orderBy: { name: "asc" },
     })
 
-    return NextResponse.json(products)
+    // Ağırlıklı ortalama alış fiyatı (AVCO): geçmiş alış hareketlerinin
+    // birim fiyatları, alınan miktarla ağırlıklandırılarak hesaplanır.
+    // Sadece fiyatı kayıtlı (unitPrice != null) alış hareketleri dikkate alınır.
+    const productIds = products.map((p) => p.id)
+    const avgPurchasePriceByProduct = new Map<string, number>()
+
+    if (productIds.length > 0) {
+      const purchaseMovements = await prisma.stockMovement.findMany({
+        where: {
+          companyId,
+          productId: { in: productIds },
+          type: { in: ["IN", "PURCHASE"] },
+          unitPrice: { not: null },
+        },
+        select: { productId: true, quantity: true, unitPrice: true },
+      })
+
+      const totals = new Map<string, { amount: number; qty: number }>()
+      for (const m of purchaseMovements) {
+        const qty = Math.abs(Number(m.quantity))
+        const price = Number(m.unitPrice)
+        if (qty <= 0) continue
+        const acc = totals.get(m.productId) || { amount: 0, qty: 0 }
+        acc.amount += qty * price
+        acc.qty += qty
+        totals.set(m.productId, acc)
+      }
+
+      totals.forEach(({ amount, qty }, productId) => {
+        if (qty > 0) avgPurchasePriceByProduct.set(productId, amount / qty)
+      })
+    }
+
+    const result = products.map((p) => ({
+      ...p,
+      // Hareketlerden hesaplanan ortalama yoksa manuel girilen alış fiyatına düş.
+      avgPurchasePrice:
+        avgPurchasePriceByProduct.get(p.id) ??
+        (p.purchasePrice != null ? Number(p.purchasePrice) : null),
+    }))
+
+    return NextResponse.json(result)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })

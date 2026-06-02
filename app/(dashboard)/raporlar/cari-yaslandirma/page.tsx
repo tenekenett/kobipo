@@ -18,7 +18,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { ChevronDown, ChevronRight } from "lucide-react"
+import { ChevronDown, ChevronRight, User, FileText } from "lucide-react"
+import Link from "next/link"
 import { cn } from "@/lib/utils"
 
 type Bucket =
@@ -240,18 +241,23 @@ export default function CariYaslandirmaPage() {
                     <TableHead className="text-right">Vadesi Gelmemiş</TableHead>
                     <TableHead className="text-right">Vadesi Geçmiş</TableHead>
                     <TableHead className="text-right">Geri Dönüş</TableHead>
+                    <TableHead className="text-right">İşlem</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {current.accounts.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center text-muted-foreground">
                         Açık bakiyeli hesap bulunamadı
                       </TableCell>
                     </TableRow>
                   ) : (
                     current.accounts.map((acc) => {
                       const isOpen = Boolean(expanded[acc.id])
+                      const partyParam = tab === "customers" ? "customerId" : "supplierId"
+                      const from = encodeURIComponent("/raporlar/cari-yaslandirma")
+                      const profileHref = `/cari/${tab}/${acc.id}?company=${companyId}&from=${from}`
+                      const ekstreHref = `/cari/ekstre?company=${companyId}&${partyParam}=${acc.id}&from=${from}`
                       return (
                         <Fragment key={acc.id}>
                           <TableRow
@@ -292,10 +298,30 @@ export default function CariYaslandirmaPage() {
                                 {fmtDays(acc.totals.performanceAvgDays)}
                               </div>
                             </TableCell>
+                            <TableCell
+                              className="text-right"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex justify-end gap-0.5">
+                                <Link
+                                  href={profileHref}
+                                  aria-label={tab === "customers" ? "Müşteri profili" : "Tedarikçi profili"}
+                                >
+                                  <Button variant="ghost" size="icon" className="h-8 w-8" title="Profil">
+                                    <User className="h-4 w-4" />
+                                  </Button>
+                                </Link>
+                                <Link href={ekstreHref} aria-label="Ekstre / Excel">
+                                  <Button variant="ghost" size="icon" className="h-8 w-8" title="Ekstre & Excel">
+                                    <FileText className="h-4 w-4" />
+                                  </Button>
+                                </Link>
+                              </div>
+                            </TableCell>
                           </TableRow>
                           {isOpen ? (
                             <TableRow>
-                              <TableCell colSpan={6} className="bg-muted/20 p-0">
+                              <TableCell colSpan={7} className="bg-muted/20 p-0">
                                 <div className="p-3">
                                   <Table>
                                     <TableHeader>
