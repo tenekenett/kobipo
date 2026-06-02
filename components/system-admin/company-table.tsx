@@ -200,7 +200,7 @@ export function CompanyTable({ companies }: CompanyTableProps) {
       </div>
 
       {/* Table */}
-      <div className="rounded-lg border border-slate-800 overflow-hidden">
+      <div className="rounded-lg border border-slate-800 overflow-x-auto max-md:[&_tr>*:first-child]:sticky max-md:[&_tr>*:first-child]:left-0 max-md:[&_tr>*:first-child]:z-20 max-md:[&_tr>*:first-child]:bg-slate-900">
         <Table>
           <TableHeader>
             <TableRow className="border-slate-800 hover:bg-slate-800/50">

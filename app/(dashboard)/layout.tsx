@@ -31,7 +31,7 @@ export default async function DashboardLayout({
         <div className="min-w-0 pt-14 lg:pl-56 lg:pt-0">
           <div className="min-h-screen flex-1 bg-kobipo-offwhite dark:bg-background">
             <DashboardHeader />
-            <div className="w-full min-w-0 p-6">
+            <div className="w-full min-w-0 overflow-x-clip p-4 sm:p-6">
               <CompanySelector />
               <div className="mt-4 w-full min-w-0">{children}</div>
             </div>

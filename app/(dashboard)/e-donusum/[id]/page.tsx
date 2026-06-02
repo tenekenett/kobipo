@@ -322,7 +322,7 @@ export default function InvoiceDetailPage() {
   return (
     <div className="space-y-6 print:space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between print:hidden">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between print:hidden">
         <div className="flex items-center gap-4">
           <Link href={`/e-donusum?company=${companyId}`}>
             <Button variant="ghost" size="icon">

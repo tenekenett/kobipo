@@ -108,7 +108,7 @@ export default function BilancoPage() {
           </div>
 
           {report && (
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <h3 className="font-bold text-lg mb-4">Aktifler (Varlıklar)</h3>
                 <Table>

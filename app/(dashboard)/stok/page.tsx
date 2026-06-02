@@ -184,7 +184,7 @@ export default function StokPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Stok Yönetimi</h1>
           <p className="text-muted-foreground">
@@ -356,21 +356,21 @@ export default function StokPage() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Ürünler ve Hizmetler</CardTitle>
               <CardDescription>
                 Toplam {products.length} kayıt
               </CardDescription>
             </div>
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:space-x-2">
               <div className="relative">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Ara..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-8 w-64"
+                  className="pl-8 w-full sm:w-64"
                 />
               </div>
               <select

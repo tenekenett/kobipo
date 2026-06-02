@@ -313,7 +313,7 @@ export default function FaturaOdemelerPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <Link href={`/faturalar?company=${companyId}`}>
@@ -335,7 +335,7 @@ export default function FaturaOdemelerPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <Card>
               <CardHeader className="pb-2">
                 <CardDescription>Toplam Tutar</CardDescription>
@@ -498,7 +498,7 @@ export default function FaturaOdemelerPage() {
           </DialogHeader>
           <form onSubmit={handleSubmit}>
             <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="amount">Tutar *</Label>
                   <Input
@@ -522,7 +522,7 @@ export default function FaturaOdemelerPage() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="paymentMethod">Ödeme Yöntemi *</Label>
                   <Select

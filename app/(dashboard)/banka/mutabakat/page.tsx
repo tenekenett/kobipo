@@ -127,7 +127,7 @@ export default function BankaMutabakatPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Banka Mutabakatı</CardTitle>
               <CardDescription>Banka ekstreleri ve mutabakat işlemleri</CardDescription>
@@ -169,7 +169,7 @@ export default function BankaMutabakatPage() {
               {statements.map((statement) => (
                 <Card key={statement.id}>
                   <CardHeader>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <CardTitle>{statement.account.name}</CardTitle>
                         <CardDescription>
@@ -182,7 +182,7 @@ export default function BankaMutabakatPage() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                       <div>
                         <p className="text-sm text-muted-foreground">Açılış Bakiyesi</p>
                         <p className="font-medium">{formatCurrency(statement.openingBalance)}</p>

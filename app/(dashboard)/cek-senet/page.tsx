@@ -375,12 +375,12 @@ export default function CekSenetPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Çek/Senet Yönetimi</CardTitle>
               <CardDescription>Çek ve senet portföyünüzü yönetin</CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button onClick={() => openModal("CHECK")}>
                 <Plus className="mr-2 h-4 w-4" />
                 Yeni Çek
@@ -548,7 +548,7 @@ export default function CekSenetPage() {
             <div className="grid gap-4 py-4">
               {modalType === "CHECK" ? (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="checkNo">Çek No *</Label>
                       <Input
@@ -572,7 +572,7 @@ export default function CekSenetPage() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="branchName">Şube</Label>
                       <Input
@@ -594,7 +594,7 @@ export default function CekSenetPage() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="amount">Tutar *</Label>
                       <Input
@@ -629,7 +629,7 @@ export default function CekSenetPage() {
                       </Select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="issueDate">Düzenleme Tarihi *</Label>
                       <Input
@@ -655,7 +655,7 @@ export default function CekSenetPage() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="customerId">Müşteri</Label>
                       <Select
@@ -710,7 +710,7 @@ export default function CekSenetPage() {
                 </>
               ) : (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="noteNo">Senet No *</Label>
                       <Input
@@ -736,7 +736,7 @@ export default function CekSenetPage() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="issueDate">Düzenleme Tarihi *</Label>
                       <Input
@@ -762,7 +762,7 @@ export default function CekSenetPage() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="status">Durum *</Label>
                       <Select
@@ -784,7 +784,7 @@ export default function CekSenetPage() {
                       </Select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="customerId">Müşteri</Label>
                       <Select

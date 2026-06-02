@@ -123,7 +123,7 @@ export default function ProductDetailPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <Link href={`/stok?company=${companyId}`}>
             <Button variant="ghost" size="icon">
@@ -215,7 +215,7 @@ export default function ProductDetailPage() {
             <CardTitle>Ürün Bilgileri</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Birim</p>
                 <p className="font-medium">{product.unit}</p>
@@ -243,7 +243,7 @@ export default function ProductDetailPage() {
             <CardTitle>Fiyat Bilgileri</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Alış Fiyatı</p>
                 <p className="font-medium text-lg">

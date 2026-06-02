@@ -372,7 +372,7 @@ export default function FaturaOnizlemePage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <Link href={backHref}>
             <Button variant="outline" size="sm">
@@ -603,7 +603,7 @@ export default function FaturaOnizlemePage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-6 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
             <div>
               <h3 className="font-bold text-sm mb-2 text-muted-foreground">FİRMA BİLGİLERİ</h3>
               <p className="font-medium">{invoice.company.name}</p>
@@ -653,7 +653,7 @@ export default function FaturaOnizlemePage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <div>
               <p className="text-sm text-muted-foreground">Fatura No</p>
               <p className="font-medium">{invoice.invoiceNo}</p>

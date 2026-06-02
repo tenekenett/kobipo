@@ -239,7 +239,7 @@ export default function FinansPage() {
         <TabsContent value="accounts">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Kasa/Banka Hesapları</CardTitle>
                   <CardDescription>
@@ -417,7 +417,7 @@ export default function FinansPage() {
         <TabsContent value="transactions">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Gelir/Gider İşlemleri</CardTitle>
                   <CardDescription>

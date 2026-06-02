@@ -426,12 +426,12 @@ export default function FaturalarListing({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
         <div>
           <h1 className="text-3xl font-bold">{resolvedTitle}</h1>
           <p className="text-muted-foreground">{resolvedDescription}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             className="rounded border px-2 py-1 text-sm"
             value={days}

@@ -209,7 +209,7 @@ export default function VergilerPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <Card>
                           <CardHeader className="pb-2">
                             <CardDescription>Toplam Ödemeler</CardDescription>
@@ -261,7 +261,7 @@ export default function VergilerPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
                         <h3 className="font-bold text-lg mb-4">Satışlar</h3>
                         <Table>

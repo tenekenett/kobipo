@@ -294,7 +294,7 @@ export default function TeklifPage() {
                         </Select>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <Label>Tarih</Label>
                         <Input
@@ -350,7 +350,7 @@ export default function TeklifPage() {
                                 placeholder="Kalem"
                               />
                             </div>
-                            <div className="grid grid-cols-4 gap-2 sm:col-span-5">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:col-span-5">
                               <div>
                                 <Label className="text-xs text-muted-foreground">Miktar</Label>
                                 <Input

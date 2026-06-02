@@ -172,7 +172,7 @@ export default function DepolarPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Depo Yönetimi</CardTitle>
               <CardDescription>Depolarınızı yönetin</CardDescription>
@@ -260,7 +260,7 @@ export default function DepolarPage() {
           </DialogHeader>
           <form onSubmit={handleSubmit}>
             <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="code">Kod</Label>
                   <Input

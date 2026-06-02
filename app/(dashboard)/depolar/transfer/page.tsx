@@ -114,7 +114,7 @@ export default function DepoTransferPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Depo Transfer İşlemleri</CardTitle>
               <CardDescription>Depolar arası transfer kayıtları</CardDescription>

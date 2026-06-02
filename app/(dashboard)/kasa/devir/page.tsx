@@ -108,7 +108,7 @@ export default function KasaDevirPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Kasa Devir İşlemleri</CardTitle>
               <CardDescription>Kasa sayım ve devir kayıtları</CardDescription>

@@ -8,12 +8,33 @@ import { TableRow, TableHead, TableCell } from "@/components/ui/table"
 export function StyledTableContainer({
   children,
   className,
+  stickyFirstColumn = true,
 }: {
   children: React.ReactNode
   className?: string
+  /** Mobilde (max-md) ilk sütunu sabitler. Kimlik sütunu olmayan tablolarda kapatılabilir. */
+  stickyFirstColumn?: boolean
 }) {
   return (
-    <div className={cn("overflow-x-auto rounded-md border", className)}>{children}</div>
+    <div className="relative">
+      <div
+        className={cn(
+          "overflow-x-auto rounded-md border",
+          // Yalnız-mobil sticky ilk sütun. bg-inherit, satırın şerit/başlık rengini
+          // devralır → sticky hücre arkası opak kalır. md+ ekranda hiç devreye girmez.
+          stickyFirstColumn &&
+            "max-md:[&_tr>*:first-child]:sticky max-md:[&_tr>*:first-child]:left-0 max-md:[&_tr>*:first-child]:z-20 max-md:[&_tr>*:first-child]:bg-inherit",
+          className,
+        )}
+      >
+        {children}
+      </div>
+      {/* Mobilde sağ kenarda "kaydırılabilir" ipucu; md+ ekranda gizli. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-px right-px w-8 rounded-r-md bg-gradient-to-l from-background to-transparent md:hidden"
+      />
+    </div>
   )
 }
 
