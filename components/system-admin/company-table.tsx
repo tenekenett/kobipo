@@ -19,7 +19,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Search, MoreVertical, Users, FileText, Eye, Ban, Trash2, Edit } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Search, MoreVertical, Users, FileText, Eye, Ban, Trash2, Edit, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useRouter } from "next/navigation"
 
@@ -27,7 +36,11 @@ interface Company {
   id: string
   name: string
   taxNumber: string | null
+  taxOffice?: string | null
   city: string | null
+  phone?: string | null
+  email?: string | null
+  address?: string | null
   isActive: boolean
   createdAt: Date
   users: {
@@ -49,16 +62,103 @@ interface CompanyTableProps {
   companies: Company[]
 }
 
+const emptyForm = {
+  name: "",
+  taxNumber: "",
+  taxOffice: "",
+  city: "",
+  phone: "",
+  email: "",
+  address: "",
+}
+
 export function CompanyTable({ companies }: CompanyTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const { toast } = useToast()
   const router = useRouter()
+
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [form, setForm] = useState(emptyForm)
+  const [saving, setSaving] = useState(false)
+
+  const openEdit = (company: Company) => {
+    setEditingId(company.id)
+    setForm({
+      name: company.name ?? "",
+      taxNumber: company.taxNumber ?? "",
+      taxOffice: company.taxOffice ?? "",
+      city: company.city ?? "",
+      phone: company.phone ?? "",
+      email: company.email ?? "",
+      address: company.address ?? "",
+    })
+  }
+
+  const handleSave = async () => {
+    if (!editingId) return
+    if (!form.name.trim()) {
+      toast({ title: "Hata", description: "Firma adı zorunludur", variant: "destructive" })
+      return
+    }
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/system-admin/companies/${editingId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok) {
+        toast({ title: "Başarılı", description: "Firma bilgileri güncellendi" })
+        setEditingId(null)
+        router.refresh()
+      } else {
+        throw new Error(data.error || "İşlem başarısız")
+      }
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Firma güncellenirken bir hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const filteredCompanies = companies.filter(company =>
     company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     company.taxNumber?.includes(searchTerm) ||
     company.city?.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  const handleDelete = async (companyId: string, companyName: string) => {
+    if (
+      !confirm(
+        `"${companyName}" firmasını ve TÜM verilerini (müşteri, fatura, stok vb.) kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`
+      )
+    ) {
+      return
+    }
+    try {
+      const response = await fetch(`/api/system-admin/companies/${companyId}`, {
+        method: "DELETE",
+      })
+      if (response.ok) {
+        toast({ title: "Başarılı", description: `"${companyName}" firması silindi` })
+        router.refresh()
+      } else {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || "İşlem başarısız")
+      }
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Firma silinirken bir hata oluştu",
+        variant: "destructive",
+      })
+    }
+  }
 
   const handleToggleStatus = async (companyId: string, currentStatus: boolean) => {
     try {
@@ -168,11 +268,17 @@ export function CompanyTable({ companies }: CompanyTableProps) {
                       <DropdownMenuContent align="end" className="bg-slate-900 border-slate-800">
                         <DropdownMenuLabel className="text-slate-400">İşlemler</DropdownMenuLabel>
                         <DropdownMenuSeparator className="bg-slate-800" />
-                        <DropdownMenuItem className="text-slate-300 focus:bg-slate-800 focus:text-white">
+                        <DropdownMenuItem
+                          className="text-slate-300 focus:bg-slate-800 focus:text-white"
+                          onClick={() => router.push(`/system-admin/companies/${company.id}`)}
+                        >
                           <Eye className="h-4 w-4 mr-2" />
                           Detayları Görüntüle
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-slate-300 focus:bg-slate-800 focus:text-white">
+                        <DropdownMenuItem
+                          className="text-slate-300 focus:bg-slate-800 focus:text-white"
+                          onClick={() => openEdit(company)}
+                        >
                           <Edit className="h-4 w-4 mr-2" />
                           Düzenle
                         </DropdownMenuItem>
@@ -184,7 +290,10 @@ export function CompanyTable({ companies }: CompanyTableProps) {
                           {company.isActive ? "Pasif Yap" : "Aktif Yap"}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator className="bg-slate-800" />
-                        <DropdownMenuItem className="text-red-400 focus:bg-red-500/20 focus:text-red-400">
+                        <DropdownMenuItem
+                          className="text-red-400 focus:bg-red-500/20 focus:text-red-400"
+                          onClick={() => handleDelete(company.id, company.name)}
+                        >
                           <Trash2 className="h-4 w-4 mr-2" />
                           Sil
                         </DropdownMenuItem>
@@ -202,6 +311,97 @@ export function CompanyTable({ companies }: CompanyTableProps) {
       <div className="text-sm text-slate-500">
         Toplam {filteredCompanies.length} firma gösteriliyor
       </div>
+
+      {/* Düzenleme Dialog'u */}
+      <Dialog open={editingId !== null} onOpenChange={(open) => !open && setEditingId(null)}>
+        <DialogContent className="sm:max-w-lg bg-slate-900 border-slate-800 text-slate-100">
+          <DialogHeader>
+            <DialogTitle className="text-white">Firma Düzenle</DialogTitle>
+            <DialogDescription className="text-slate-500">
+              Firma bilgilerini güncelleyin
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2 space-y-1">
+              <Label className="text-slate-300">Firma Adı *</Label>
+              <Input
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                className="bg-slate-800/50 border-slate-700 text-white"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-slate-300">Vergi No</Label>
+              <Input
+                value={form.taxNumber}
+                onChange={(e) => setForm((f) => ({ ...f, taxNumber: e.target.value }))}
+                className="bg-slate-800/50 border-slate-700 text-white"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-slate-300">Vergi Dairesi</Label>
+              <Input
+                value={form.taxOffice}
+                onChange={(e) => setForm((f) => ({ ...f, taxOffice: e.target.value }))}
+                className="bg-slate-800/50 border-slate-700 text-white"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-slate-300">Şehir</Label>
+              <Input
+                value={form.city}
+                onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
+                className="bg-slate-800/50 border-slate-700 text-white"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-slate-300">Telefon</Label>
+              <Input
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                className="bg-slate-800/50 border-slate-700 text-white"
+              />
+            </div>
+            <div className="sm:col-span-2 space-y-1">
+              <Label className="text-slate-300">E-posta</Label>
+              <Input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                className="bg-slate-800/50 border-slate-700 text-white"
+              />
+            </div>
+            <div className="sm:col-span-2 space-y-1">
+              <Label className="text-slate-300">Adres</Label>
+              <Input
+                value={form.address}
+                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                className="bg-slate-800/50 border-slate-700 text-white"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditingId(null)}
+              disabled={saving}
+              className="border-slate-700 text-slate-300 hover:bg-slate-800"
+            >
+              İptal
+            </Button>
+            <Button onClick={handleSave} disabled={saving || !form.name.trim()} className="bg-blue-600 hover:bg-blue-700">
+              {saving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Kaydediliyor
+                </>
+              ) : (
+                "Kaydet"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

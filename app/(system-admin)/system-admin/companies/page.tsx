@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/db/prisma"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Building2, Search, Plus, MoreVertical, Users, FileText } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Building2 } from "lucide-react"
 import { CompanyTable } from "@/components/system-admin/company-table"
+import { CreateCompanyButton } from "@/components/system-admin/create-company-button"
 
 export const dynamic = "force-dynamic"
 
@@ -47,10 +47,7 @@ export default async function CompaniesPage() {
             Sistemdeki tüm firmaları yönetin
           </p>
         </div>
-        <Button className="bg-blue-600 hover:bg-blue-700">
-          <Plus className="h-4 w-4 mr-2" />
-          Yeni Firma
-        </Button>
+        <CreateCompanyButton />
       </div>
 
       {/* Stats */}

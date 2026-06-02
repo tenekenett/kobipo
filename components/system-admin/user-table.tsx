@@ -19,7 +19,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Search, MoreVertical, Shield, Key, Edit, Trash2, Building2 } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Search, MoreVertical, Shield, Key, Edit, Trash2, Building2, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useRouter } from "next/navigation"
 import { Role } from "@prisma/client"
@@ -65,29 +75,105 @@ export function UserTable({ users }: UserTableProps) {
   const { toast } = useToast()
   const router = useRouter()
 
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [form, setForm] = useState({ name: "", email: "", isSuperAdmin: false })
+  const [saving, setSaving] = useState(false)
+
+  const openEdit = (user: User) => {
+    setEditingId(user.id)
+    setForm({ name: user.name ?? "", email: user.email, isSuperAdmin: user.isSuperAdmin })
+  }
+
+  const handleSave = async () => {
+    if (!editingId) return
+    if (!form.email.trim()) {
+      toast({ title: "Hata", description: "E-posta zorunludur", variant: "destructive" })
+      return
+    }
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/system-admin/users/${editingId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (response.ok) {
+        toast({ title: "Başarılı", description: "Kullanıcı bilgileri güncellendi" })
+        setEditingId(null)
+        router.refresh()
+      } else {
+        throw new Error(data.error || "İşlem başarısız")
+      }
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Kullanıcı güncellenirken bir hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const filteredUsers = users.filter(user =>
     user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const handleResetPassword = async (userId: string) => {
+  const handleResetPassword = async (userId: string, userEmail: string) => {
+    if (!confirm(`"${userEmail}" kullanıcısının şifresini sıfırlamak istiyor musunuz?`)) {
+      return
+    }
     try {
       const response = await fetch(`/api/system-admin/users/${userId}/reset-password`, {
         method: "POST",
       })
 
+      const data = await response.json().catch(() => ({}))
       if (response.ok) {
+        // E-posta servisi bağlı olmadığından geçici şifre yöneticiye gösterilir.
         toast({
-          title: "Başarılı",
-          description: "Şifre sıfırlama maili gönderildi",
+          title: "Şifre sıfırlandı",
+          description: data.tempPassword
+            ? `Geçici şifre: ${data.tempPassword} — kullanıcıya iletin.`
+            : "Geçici şifre oluşturuldu.",
         })
       } else {
-        throw new Error("İşlem başarısız")
+        throw new Error(data.error || "İşlem başarısız")
       }
     } catch (error) {
       toast({
         title: "Hata",
-        description: "Şifre sıfırlanırken bir hata oluştu",
+        description: error instanceof Error ? error.message : "Şifre sıfırlanırken bir hata oluştu",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDelete = async (userId: string, userEmail: string) => {
+    if (
+      !confirm(
+        `"${userEmail}" kullanıcısını kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`
+      )
+    ) {
+      return
+    }
+    try {
+      const response = await fetch(`/api/system-admin/users/${userId}`, {
+        method: "DELETE",
+      })
+      if (response.ok) {
+        toast({ title: "Başarılı", description: `"${userEmail}" kullanıcısı silindi` })
+        router.refresh()
+      } else {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || "İşlem başarısız")
+      }
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Kullanıcı silinirken bir hata oluştu",
         variant: "destructive",
       })
     }
@@ -224,13 +310,16 @@ export function UserTable({ users }: UserTableProps) {
                       <DropdownMenuContent align="end" className="bg-slate-900 border-slate-800">
                         <DropdownMenuLabel className="text-slate-400">İşlemler</DropdownMenuLabel>
                         <DropdownMenuSeparator className="bg-slate-800" />
-                        <DropdownMenuItem className="text-slate-300 focus:bg-slate-800 focus:text-white">
+                        <DropdownMenuItem
+                          className="text-slate-300 focus:bg-slate-800 focus:text-white"
+                          onClick={() => openEdit(user)}
+                        >
                           <Edit className="h-4 w-4 mr-2" />
                           Düzenle
                         </DropdownMenuItem>
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           className="text-slate-300 focus:bg-slate-800 focus:text-white"
-                          onClick={() => handleResetPassword(user.id)}
+                          onClick={() => handleResetPassword(user.id, user.email)}
                         >
                           <Key className="h-4 w-4 mr-2" />
                           Şifre Sıfırla
@@ -243,7 +332,10 @@ export function UserTable({ users }: UserTableProps) {
                           {user.isSuperAdmin ? "Super Admin Kaldır" : "Super Admin Yap"}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator className="bg-slate-800" />
-                        <DropdownMenuItem className="text-red-400 focus:bg-red-500/20 focus:text-red-400">
+                        <DropdownMenuItem
+                          className="text-red-400 focus:bg-red-500/20 focus:text-red-400"
+                          onClick={() => handleDelete(user.id, user.email)}
+                        >
                           <Trash2 className="h-4 w-4 mr-2" />
                           Sil
                         </DropdownMenuItem>
@@ -261,6 +353,71 @@ export function UserTable({ users }: UserTableProps) {
       <div className="text-sm text-slate-500">
         Toplam {filteredUsers.length} kullanıcı gösteriliyor
       </div>
+
+      {/* Düzenleme Dialog'u */}
+      <Dialog open={editingId !== null} onOpenChange={(open) => !open && setEditingId(null)}>
+        <DialogContent className="sm:max-w-md bg-slate-900 border-slate-800 text-slate-100">
+          <DialogHeader>
+            <DialogTitle className="text-white">Kullanıcı Düzenle</DialogTitle>
+            <DialogDescription className="text-slate-500">
+              Kullanıcı bilgilerini güncelleyin
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label className="text-slate-300">Ad Soyad</Label>
+              <Input
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                className="bg-slate-800/50 border-slate-700 text-white"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-slate-300">E-posta *</Label>
+              <Input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                className="bg-slate-800/50 border-slate-700 text-white"
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-800/30 p-3">
+              <div className="space-y-0.5">
+                <Label className="text-slate-300">Sistem Yöneticisi</Label>
+                <p className="text-xs text-slate-500">Super admin yetkisi</p>
+              </div>
+              <Switch
+                checked={form.isSuperAdmin}
+                onCheckedChange={(checked) => setForm((f) => ({ ...f, isSuperAdmin: checked }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditingId(null)}
+              disabled={saving}
+              className="border-slate-700 text-slate-300 hover:bg-slate-800"
+            >
+              İptal
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving || !form.email.trim()}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Kaydediliyor
+                </>
+              ) : (
+                "Kaydet"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

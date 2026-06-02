@@ -1,6 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Settings, Server, Database, Shield, Bell } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -21,6 +20,12 @@ export default function SettingsPage() {
         </p>
       </div>
 
+      {/* Henüz aktif değil bilgilendirmesi */}
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300">
+        Bu sayfa şu an yalnızca önizleme amaçlıdır — ayarların kaydedilmesi yakında
+        eklenecek. Aşağıdaki alanlar bilgi amaçlı gösterilmektedir.
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-2">
         {/* General Settings */}
         <Card className="bg-slate-900/50 border-slate-800">
@@ -36,16 +41,18 @@ export default function SettingsPage() {
           <CardContent className="space-y-6">
             <div className="space-y-2">
               <Label className="text-slate-300">Platform Adı</Label>
-              <Input 
-                defaultValue="Muhasebe SaaS" 
+              <Input
+                defaultValue="Muhasebe SaaS"
+                disabled
                 className="bg-slate-800/50 border-slate-700 text-white"
               />
             </div>
             <div className="space-y-2">
               <Label className="text-slate-300">Destek Email</Label>
-              <Input 
+              <Input
                 type="email"
-                defaultValue="destek@muhasebe.com" 
+                defaultValue="destek@muhasebe.com"
+                disabled
                 className="bg-slate-800/50 border-slate-700 text-white"
               />
             </div>
@@ -54,7 +61,7 @@ export default function SettingsPage() {
                 <Label className="text-slate-300">Bakım Modu</Label>
                 <p className="text-xs text-slate-500">Platformu bakım moduna al</p>
               </div>
-              <Switch />
+              <Switch disabled />
             </div>
           </CardContent>
         </Card>
@@ -76,20 +83,21 @@ export default function SettingsPage() {
                 <Label className="text-slate-300">2FA Zorunlu</Label>
                 <p className="text-xs text-slate-500">Tüm admin kullanıcılar için</p>
               </div>
-              <Switch />
+              <Switch disabled />
             </div>
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label className="text-slate-300">IP Kısıtlaması</Label>
                 <p className="text-xs text-slate-500">Super admin için IP kontrolü</p>
               </div>
-              <Switch />
+              <Switch disabled />
             </div>
             <div className="space-y-2">
               <Label className="text-slate-300">Oturum Süresi (dakika)</Label>
-              <Input 
+              <Input
                 type="number"
-                defaultValue="60" 
+                defaultValue="60"
+                disabled
                 className="bg-slate-800/50 border-slate-700 text-white"
               />
             </div>
@@ -119,9 +127,6 @@ export default function SettingsPage() {
               <span className="text-slate-300">Veritabanı Boyutu</span>
               <span className="text-slate-400">~0 MB</span>
             </div>
-            <Button variant="outline" className="w-full border-slate-700 text-slate-300 hover:bg-slate-800">
-              Yedek Al
-            </Button>
           </CardContent>
         </Card>
 
@@ -142,31 +147,24 @@ export default function SettingsPage() {
                 <Label className="text-slate-300">Email Bildirimleri</Label>
                 <p className="text-xs text-slate-500">Kritik olaylar için</p>
               </div>
-              <Switch defaultChecked />
+              <Switch defaultChecked disabled />
             </div>
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label className="text-slate-300">Yeni Firma Bildirimi</Label>
                 <p className="text-xs text-slate-500">Yeni firma kaydında bildir</p>
               </div>
-              <Switch defaultChecked />
+              <Switch defaultChecked disabled />
             </div>
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label className="text-slate-300">Hata Bildirimleri</Label>
                 <p className="text-xs text-slate-500">Sistem hatalarında bildir</p>
               </div>
-              <Switch defaultChecked />
+              <Switch defaultChecked disabled />
             </div>
           </CardContent>
         </Card>
-      </div>
-
-      {/* Save Button */}
-      <div className="flex justify-end">
-        <Button className="bg-orange-600 hover:bg-orange-700">
-          Ayarları Kaydet
-        </Button>
       </div>
     </div>
   )

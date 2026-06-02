@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/db/prisma"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, Plus, Shield, UserCheck } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Users, Shield, UserCheck } from "lucide-react"
 import { UserTable } from "@/components/system-admin/user-table"
+import { CreateUserButton } from "@/components/system-admin/create-user-button"
 
 export const dynamic = "force-dynamic"
 
@@ -39,10 +39,7 @@ export default async function UsersPage() {
             Sistemdeki tüm kullanıcıları yönetin
           </p>
         </div>
-        <Button className="bg-emerald-600 hover:bg-emerald-700">
-          <Plus className="h-4 w-4 mr-2" />
-          Yeni Kullanıcı
-        </Button>
+        <CreateUserButton />
       </div>
 
       {/* Stats */}
