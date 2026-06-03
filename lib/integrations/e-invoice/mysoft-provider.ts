@@ -928,31 +928,82 @@ async sendInvoice(invoiceData: any): Promise<any> {
         return Number.isFinite(n) ? n : null
       }
 
-      // Mysoft InvoiceForApiModel: kalemler "invoiceLines" / "lines" / "items" altında olabilir.
-      const rawLines: any[] = Array.isArray(model.invoiceLines)
-        ? model.invoiceLines
-        : Array.isArray(model.lines)
-          ? model.lines
-          : Array.isArray(model.items)
-            ? model.items
-            : []
+      // Mysoft InvoiceForApiModel: kalemler resmî şemada "detailList" altında gelir.
+      // Eski sürümler/varyantlar için "invoiceLines" / "lines" / "items" fallback'i korunur.
+      const rawLines: any[] = Array.isArray(model.detailList)
+        ? model.detailList
+        : Array.isArray(model.invoiceLines)
+          ? model.invoiceLines
+          : Array.isArray(model.lines)
+            ? model.lines
+            : Array.isArray(model.items)
+              ? model.items
+              : []
 
-      const lines = rawLines.map((ln: any) => ({
-        description: pick(ln, "name", "description", "itemName", "productName") as string | null,
-        productCode: pick(ln, "sellersItemIdentification", "productCode", "itemCode") as
-          | string
-          | null,
-        unit: pick(ln, "unitCode", "unit", "quantityUnitCode") as string | null,
-        quantity: num(pick(ln, "quantity", "invoicedQuantity")),
-        unitPrice: num(pick(ln, "priceAmount", "unitPrice", "price")),
-        discountRate: num(pick(ln, "discountRate", "allowanceChargeRate")),
-        discountAmount: num(
-          pick(ln, "discountAmount", "allowanceChargeAmount", "allowanceTotalAmount"),
-        ),
-        vatRate: num(pick(ln, "vatRate", "taxRate", "taxPercent")),
-        vatAmount: num(pick(ln, "vatAmount", "taxAmount", "taxTotalTra")),
-        lineTotal: num(pick(ln, "lineExtensionAmount", "lineTotal", "amountTra")),
-      }))
+      const lines = rawLines.map((ln: any) => {
+        // Stok bilgisi resmî şemada "detailItem" altında nested gelir; düz (flat)
+        // dönen varyantlar için ln'in kendisine fallback yapıyoruz.
+        const item = ln.detailItem && typeof ln.detailItem === "object" ? ln.detailItem : ln
+
+        // ÖNEMLİ: Ürün adı (Stok Adı / itemName) önce gelmeli. Generic "name" /
+        // "description" anahtarları Mysoft'ta satır açıklamasını taşıyabildiği için
+        // önce onlara bakılırsa ürün adı ile açıklama yer değiştiriyordu.
+        const productName = pick(item, "itemName", "productName", "name") as string | null
+        const itemDesc = pick(item, "itemDescription", "description") as string | null
+
+        // İskonto: allowanceChargeList[].chargeIndicator === false (iskonto).
+        // multiplierFactorNumeric oran olarak 0..1 gelir → %'ye çeviriyoruz.
+        const allowances: any[] = Array.isArray(ln.allowanceChargeList)
+          ? ln.allowanceChargeList
+          : []
+        const discount =
+          allowances.find((a) => a?.chargeIndicator === false) || allowances[0] || null
+        const discountRate =
+          discount && discount.multiplierFactorNumeric != null
+            ? (num(discount.multiplierFactorNumeric) ?? 0) * 100
+            : num(pick(ln, "discountRate", "allowanceChargeRate"))
+        const discountAmount = discount
+          ? num(discount.amount)
+          : num(pick(ln, "discountAmount", "allowanceChargeAmount", "allowanceTotalAmount"))
+
+        // KDV: taxTotal.taxSubtotalList[].percent (resmî şema, object). Flat varyantlar
+        // için doğrudan ln üzerindeki alanlara düşeriz.
+        const taxTotalObj =
+          ln.taxTotal && typeof ln.taxTotal === "object" && !Array.isArray(ln.taxTotal)
+            ? ln.taxTotal
+            : null
+        const taxSub =
+          taxTotalObj && Array.isArray(taxTotalObj.taxSubtotalList)
+            ? taxTotalObj.taxSubtotalList[0]
+            : null
+        const vatRate = taxSub
+          ? num(taxSub.percent)
+          : num(pick(ln, "vatRate", "taxRate", "taxPercent"))
+        const vatAmount = taxSub
+          ? num(taxSub.taxAmount)
+          : taxTotalObj
+            ? num(taxTotalObj.taxAmount)
+            : num(pick(ln, "vatAmount", "taxAmount", "taxTotalTra"))
+
+        return {
+          description: productName || itemDesc || null,
+          productCode: pick(
+            item,
+            "sellersItemIdentificationId",
+            "sellersItemIdentification",
+            "productCode",
+            "itemCode",
+          ) as string | null,
+          unit: pick(ln, "unitCode", "unit", "quantityUnitCode") as string | null,
+          quantity: num(pick(ln, "invoicedQuantity", "quantity")),
+          unitPrice: num(pick(ln, "unitPrice", "priceAmount", "price")),
+          discountRate,
+          discountAmount,
+          vatRate,
+          vatAmount,
+          lineTotal: num(pick(ln, "lineExtensionAmount", "lineTotal", "amountTra")),
+        }
+      })
 
       return {
         success: true,
