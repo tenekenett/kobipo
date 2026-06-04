@@ -625,17 +625,36 @@ async sendInvoice(invoiceData: any): Promise<any> {
   }
 
   private async getToken(): Promise<string | null> {
-    const tokenRes = await fetch(`${this.baseUrl}/oauth/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        username: this.username,
-        password: this.passwordText,
-        grant_type: "password",
-      }),
-    });
-    const tokenData = await tokenRes.json();
-    return tokenData?.access_token || null;
+    try {
+      const tokenRes = await fetch(`${this.baseUrl}/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          username: this.username,
+          password: this.passwordText,
+          grant_type: "password",
+        }),
+      });
+      const tokenData = await tokenRes.json().catch(() => ({}));
+      if (!tokenData?.access_token) {
+        // Şifreyi ASLA loglama. Yalnızca Mysoft'un dönüş bilgisi + ortam/host
+        // bilgisi loglanır — Vercel loglarından gerçek nedeni görmek için.
+        console.error("[Mysoft] getToken: access_token yok.", {
+          baseUrl: this.baseUrl,
+          httpStatus: tokenRes.status,
+          error: tokenData?.error ?? null,
+          errorDescription: tokenData?.error_description ?? tokenData?.message ?? null,
+        });
+        return null;
+      }
+      return tokenData.access_token;
+    } catch (error: any) {
+      console.error("[Mysoft] getToken: istek başarısız (ağ/TLS?).", {
+        baseUrl: this.baseUrl,
+        message: error?.message ?? String(error),
+      });
+      return null;
+    }
   }
 
   /**
