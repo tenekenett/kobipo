@@ -10,6 +10,11 @@ const nextConfig = {
   },
   // Keep Prisma engine outside of the server bundler so it cold-starts faster.
   serverExternalPackages: ["@prisma/client", "prisma"],
+  // Bundled örnek XSLT şablonları çalışma anında fs ile okunuyor; Vercel'in
+  // serverless fonksiyon paketine dahil edilmeleri için trace'e ekliyoruz.
+  outputFileTracingIncludes: {
+    "/api/e-donusum/templates/**": ["./lib/integrations/e-invoice/sample-templates/**"],
+  },
   env: {
     ...(!nextAuthUrl && vercelUrl ? { NEXTAUTH_URL: `https://${vercelUrl}` } : {}),
   },

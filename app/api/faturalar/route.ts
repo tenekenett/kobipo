@@ -57,6 +57,8 @@ export async function GET(request: Request) {
       direction: "incoming" | "outgoing"
       source: "mysoft_inbox" | "manual_purchase" | "manual_sales" | "converted_inbox"
       date: string | null
+      // Aynı gün kayıtlarında deterministik (en yeni önce) sıralama için ikincil anahtar
+      createdAt: string | null
       invoiceNo: string | null
       uuid: string | null
       counterparty: { name: string | null; taxNumber: string | null }
@@ -90,7 +92,7 @@ export async function GET(request: Request) {
               }
             : {}),
         },
-        orderBy: { docDate: "desc" },
+        orderBy: [{ docDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
         take: 500,
       })
       for (const r of incoming) {
@@ -99,6 +101,7 @@ export async function GET(request: Request) {
           direction: "incoming",
           source: "mysoft_inbox",
           date: r.docDate ? r.docDate.toISOString() : null,
+          createdAt: r.createdAt.toISOString(),
           invoiceNo: r.invoiceNo,
           uuid: r.uuid,
           counterparty: { name: r.senderName, taxNumber: r.senderTaxNumber },
@@ -141,7 +144,7 @@ export async function GET(request: Request) {
             : {}),
         },
         include: { supplier: { select: { name: true, taxNumber: true } } },
-        orderBy: { date: "desc" },
+        orderBy: [{ date: "desc" }, { createdAt: "desc" }],
         take: 500,
       })
 
@@ -178,6 +181,7 @@ export async function GET(request: Request) {
           direction: "incoming",
           source: convertedFromInbox ? "converted_inbox" : "manual_purchase",
           date: r.date.toISOString(),
+          createdAt: r.createdAt.toISOString(),
           invoiceNo: r.invoiceNo,
           uuid: r.uuid,
           counterparty: {
@@ -224,7 +228,7 @@ export async function GET(request: Request) {
             : {}),
         },
         include: { customer: { select: { name: true, taxNumber: true } } },
-        orderBy: { date: "desc" },
+        orderBy: [{ date: "desc" }, { createdAt: "desc" }],
         take: 500,
       })
       for (const r of sales) {
@@ -233,6 +237,7 @@ export async function GET(request: Request) {
           direction: "outgoing",
           source: "manual_sales",
           date: r.date.toISOString(),
+          createdAt: r.createdAt.toISOString(),
           invoiceNo: r.invoiceNo,
           uuid: r.uuid,
           counterparty: {
@@ -254,11 +259,15 @@ export async function GET(request: Request) {
       }
     }
 
-    // Tarih azalan
+    // Tarih azalan (en yeni önce). Aynı gün/tarihte ikincil anahtar olarak
+    // createdAt azalan kullanılır — böylece sıralama deterministik olur.
     out.sort((a, b) => {
       const da = a.date ? new Date(a.date).getTime() : 0
       const db = b.date ? new Date(b.date).getTime() : 0
-      return db - da
+      if (db !== da) return db - da
+      const ca = a.createdAt ? new Date(a.createdAt).getTime() : 0
+      const cb = b.createdAt ? new Date(b.createdAt).getTime() : 0
+      return cb - ca
     })
 
     // Toplam metrikler

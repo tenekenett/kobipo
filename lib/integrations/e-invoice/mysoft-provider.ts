@@ -1,4 +1,5 @@
 import { EInvoiceProvider } from "./types"
+import { resolveMysoftBaseUrl } from "./constants"
 
 export class MysoftEInvoiceProvider implements EInvoiceProvider {
   name = "Mysoft";
@@ -14,7 +15,7 @@ export class MysoftEInvoiceProvider implements EInvoiceProvider {
   constructor(config: { username: string; passwordText: string; baseUrl?: string; vknTckn?: string }) {
     this.username = config.username;
     this.passwordText = config.passwordText;
-    this.baseUrl = config.baseUrl || "https://edocumentapi.mytest.tr";
+    this.baseUrl = resolveMysoftBaseUrl(config.baseUrl);
     this.vknTckn = typeof config.vknTckn === "string" && config.vknTckn.trim()
       ? config.vknTckn.trim()
       : undefined;
@@ -187,14 +188,39 @@ async sendInvoice(invoiceData: any): Promise<any> {
 
       // Prefix çözümleme:
       //  1) Kullanıcı (Kobipo settings → eFatura/eArchive prefix) açıkça verdiyse onu kullan
-      //  2) Yoksa Mysoft'un /createInvoiceOutboxTestJson endpoint'inden hesabın
-      //     varsayılan prefix'ini öğren ve kullan (Mysoft Tenant API'si müşteri tarafında yok,
-      //     ama bu örnek payload endpoint'i hesaba özel prefix'i döner).
+      //  2) Yoksa Mysoft'taki VARSAYILAN numaratörü kullan — belge tipine (E-Fatura/E-Arşiv)
+      //     göre isDefault olan numaratörü seçeriz. Böylece kullanıcı Kobipo'da prefix
+      //     seçip kaydetmek zorunda kalmaz; Mysoft'taki varsayılan otomatik kullanılır.
+      //  3) O da bulunamazsa örnek payload (createInvoiceOutboxTestJson) prefix'ine düş.
       const explicitPrefix = typeof invoiceData.prefix === "string" && invoiceData.prefix.trim()
         ? invoiceData.prefix.trim().toUpperCase()
         : null
       let resolvedPrefix = explicitPrefix
+
       if (!resolvedPrefix) {
+        // 2) Mysoft varsayılan numaratörü (belge tipine göre)
+        try {
+          const nums = await this.listNumerators()
+          if (nums.success && Array.isArray(nums.data)) {
+            const matchesType = (n: { edocumentType: string }) => {
+              const t = String(n.edocumentType || "").toUpperCase()
+              return isEFatura
+                ? t === "1" || t === "EFATURA"
+                : t === "2" || t === "10" || t === "EARSIVFATURA" || t === "GIBEARSIVFATURA"
+            }
+            const candidates = nums.data.filter((n) => !n.isPassive && matchesType(n))
+            const chosen = candidates.find((n) => n.isDefault) || candidates[0]
+            if (chosen?.prefix?.trim()) {
+              resolvedPrefix = chosen.prefix.trim().toUpperCase()
+            }
+          }
+        } catch {
+          // listNumerators başarısızsa aşağıdaki örnek payload fallback'ine düş
+        }
+      }
+
+      if (!resolvedPrefix) {
+        // 3) Fallback: örnek payload prefix'i
         const sample = await this.getSampleInvoicePayload()
         const payload =
           sample.rawResponse?.data && typeof sample.rawResponse.data === "object"
@@ -263,6 +289,11 @@ async sendInvoice(invoiceData: any): Promise<any> {
         "tenantIdentifierNumber": tenantId,
         "numeratorSetCode": null,
         "xsltSetCode": null,
+        // Firmaya özel/varsayılan onaylı dizayn yoksa Mysoft'un genel dizaynıyla gönder.
+        // Bu olmadan E-Arşiv'de "belge görseli bulunamadı" hatası alınıyor (E-Fatura'da
+        // GİB standart dizaynı devreye girdiği için sorun çıkmıyordu). Kullanıcı kendi
+        // şablonunu Belge Şablonları ekranından yüklerse o kullanılır.
+        "isSendWithGeneralXsltIfDefaultNotExists": true,
         "isManuelCalculation": false,
 
         "invoiceAccount": {
@@ -1232,6 +1263,166 @@ async sendInvoice(invoiceData: any): Promise<any> {
       return { success: true, message: result?.message || "Numaratör eklendi." }
     } catch (error: any) {
       return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." }
+    }
+  }
+
+  /**
+   * Tek bir dosyayı (XSLT) zip'leyip base64 string'e çevirir.
+   * Mysoft'un addTenantXslt / getXsltPreview* endpoint'leri xsltFile alanını
+   * "ziplendikten sonra base64'e çevrilmiş" formatta ister.
+   */
+  private async zipFileToBase64(fileName: string, content: string): Promise<string> {
+    const JSZip = (await import("jszip")).default
+    const zip = new JSZip()
+    zip.file(fileName, content)
+    const buf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
+    return buf.toString("base64")
+  }
+
+  /**
+   * Firmaya tanımlı belge dizaynlarını (XSLT) listeler.
+   * Swagger v8: POST /api/Tenant/getTenantXslt
+   */
+  async listTenantXslt(
+    vknTckn?: string,
+    eDocumentType?: number,
+  ): Promise<{
+    success: boolean
+    data?: Array<{
+      id: number
+      eDocumentTypeEnumText: string | null
+      xsltName: string | null
+      isDefault: boolean
+      isInternetSales: boolean
+      isApproved: boolean | null
+      approvedDate: string | null
+    }>
+    error?: string
+  }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const effectiveVkn = (vknTckn || this.vknTckn || this.resolvedTenantVkn || "").trim()
+      if (!effectiveVkn) return { success: false, error: "Mükellef VKN bulunamadı." }
+
+      const body: any = { vknTckn: effectiveVkn }
+      if (typeof eDocumentType === "number") body.edocumentType = eDocumentType
+
+      const res = await fetch(`${this.baseUrl}/api/Tenant/getTenantXslt`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const result = await res.json()
+      if (!result?.succeed) {
+        return { success: false, error: result?.message || "Şablon listesi alınamadı." }
+      }
+      return { success: true, data: Array.isArray(result.data) ? result.data : [] }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." }
+    }
+  }
+
+  /**
+   * Firmaya yeni belge dizaynı (XSLT) ekler.
+   * Swagger v8: POST /api/Tenant/addTenantXslt
+   * @param content Ham XSLT içeriği (zip'leme/base64 burada yapılır).
+   */
+  async addTenantXslt(params: {
+    xsltName: string
+    eDocumentType: number
+    content: string
+    fileName?: string
+    isHasLogo?: boolean
+    isHasStamp?: boolean
+    vknTckn?: string
+  }): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const effectiveVkn = (params.vknTckn || this.vknTckn || this.resolvedTenantVkn || "").trim()
+      if (!effectiveVkn) return { success: false, error: "Mükellef VKN bulunamadı." }
+
+      const xsltFile = await this.zipFileToBase64(params.fileName || "design.xslt", params.content)
+
+      const res = await fetch(`${this.baseUrl}/api/Tenant/addTenantXslt`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vknTckn: effectiveVkn,
+          xsltName: params.xsltName,
+          edocumentType: params.eDocumentType,
+          xsltFile,
+          isHasLogo: params.isHasLogo ?? false,
+          isHasStamp: params.isHasStamp ?? false,
+        }),
+      })
+      const result = await res.json()
+      if (!result?.succeed) {
+        return { success: false, error: result?.message || "Şablon eklenemedi." }
+      }
+      return { success: true, message: result?.message || "Şablon eklendi." }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." }
+    }
+  }
+
+  /**
+   * Bir XSLT'nin PDF önizlemesini döndürür (henüz kaydetmeden test etmek için).
+   * Swagger v8: POST /api/Tenant/getXsltPreviewPdf → StringResultModel { data: base64 }
+   */
+  async getXsltPreviewPdf(params: {
+    eDocumentType: number
+    content: string
+    fileName?: string
+    isInternetSales?: boolean
+  }): Promise<{ success: true; pdfBuffer: Buffer } | { success: false; error: string }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const xsltFile = await this.zipFileToBase64(params.fileName || "design.xslt", params.content)
+
+      const res = await fetch(`${this.baseUrl}/api/Tenant/getXsltPreviewPdf`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          edocumentType: params.eDocumentType,
+          xsltFile,
+          ...(typeof params.isInternetSales === "boolean"
+            ? { isInternetSales: params.isInternetSales }
+            : {}),
+        }),
+      })
+      const result = await res.json()
+      if (!result?.succeed || !result?.data) {
+        return { success: false, error: result?.message || "Önizleme alınamadı." }
+      }
+
+      // data base64 → zip içinde PDF olabilir ya da doğrudan PDF base64'ü olabilir.
+      const raw = Buffer.from(result.data, "base64")
+      // %PDF imzası varsa doğrudan PDF'tir.
+      if (raw.slice(0, 4).toString("latin1") === "%PDF") {
+        return { success: true, pdfBuffer: raw }
+      }
+      try {
+        const JSZip = (await import("jszip")).default
+        const zip = await JSZip.loadAsync(raw)
+        const pdfEntry = Object.values(zip.files).find(
+          (f) => !f.dir && f.name.toLowerCase().endsWith(".pdf"),
+        )
+        if (pdfEntry) {
+          const pdfBuffer = await pdfEntry.async("nodebuffer")
+          return { success: true, pdfBuffer }
+        }
+      } catch {
+        // zip değilse aşağıda ham buffer'ı PDF kabul et
+      }
+      return { success: true, pdfBuffer: raw }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Önizleme alınırken hata oluştu." }
     }
   }
 }

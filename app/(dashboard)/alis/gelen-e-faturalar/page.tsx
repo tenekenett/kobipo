@@ -70,6 +70,15 @@ const fmtCurrency = (v: string | number | null, ccy = "TRY") =>
 const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString("tr-TR") : "-"
 
+// Saati yalnızca anlamlıysa (gece yarısı 00:00 değilse) döndür — Mysoft fatura
+// tarihini çoğu zaman saatsiz (00:00) gönderir; o durumda saat satırı gizlenir.
+const fmtTimeIfMeaningful = (d: string | null) => {
+  if (!d) return null
+  const dt = new Date(d)
+  if (dt.getHours() === 0 && dt.getMinutes() === 0) return null
+  return dt.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
+}
+
 const fmtDateTime = (d: string | null) =>
   d
     ? new Date(d).toLocaleString("tr-TR", {
@@ -486,7 +495,12 @@ export default function GelenEFaturalarPage() {
                         onClick={openDetail}
                       >
                         <TableCell className="text-xs whitespace-nowrap">
-                          {fmtDate(row.date)}
+                          <div>{fmtDate(row.date)}</div>
+                          {fmtTimeIfMeaningful(row.date) && (
+                            <div className="text-[11px] text-muted-foreground">
+                              {fmtTimeIfMeaningful(row.date)}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
                           {row.sentDate ? fmtDateTime(row.sentDate) : "-"}

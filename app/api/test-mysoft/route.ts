@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { ensureCompanyAccess } from "@/lib/middleware/company";
 import { decryptSecret } from "@/lib/crypto/secrets";
+import { resolveMysoftBaseUrl } from "@/lib/integrations/e-invoice/constants";
 
 export async function POST(request: Request) {
   try {
@@ -20,7 +21,10 @@ export async function POST(request: Request) {
     const passwordIsPlaceholder = !password || password === "***";
     const usernameIsMissing = !username;
 
-    if ((passwordIsPlaceholder || usernameIsMissing) && companyId) {
+    // apiUrl body'de gelmediyse de firmadan yüklemeliyiz: aksi halde kullanıcı
+    // forma YENİ canlı kimlik girip test ettiğinde apiUrl undefined kalır ve
+    // istek yanlışlıkla TEST ortamına gider.
+    if ((passwordIsPlaceholder || usernameIsMissing || !apiUrl) && companyId) {
       await ensureCompanyAccess(companyId);
       const company = await prisma.company.findUnique({
         where: { id: companyId },
@@ -51,7 +55,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const baseUrl = apiUrl || "https://edocumentapi.mytest.tr";
+    const baseUrl = resolveMysoftBaseUrl(apiUrl);
 
     const persistResult = async (success: boolean) => {
       if (!companyId) return

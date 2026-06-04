@@ -53,7 +53,7 @@ export async function GET(request: Request) {
           docDate: { gte: start, lte: end },
           ...(status ? { status } : {}),
         },
-        orderBy: { docDate: "desc" },
+        orderBy: [{ docDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
         take: 500,
       })
       // Mysoft raw JSON'ından gönderilme tarihini çıkar — sürüm farklılıklarına

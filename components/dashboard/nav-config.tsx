@@ -106,7 +106,7 @@ export const allNavItems: NavItemDef[] = [
   // E-Dönüşüm
   { href: "/ayarlar/e-donusum", label: "E-Dönüşüm Ayarları", icon: FileText, roles: ["ADMIN", "ACCOUNTANT"] },
   { href: "/e-donusum/seri-no", label: "Seri No Tanımları", icon: Hash, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/e-donusum/sablon", label: "Fatura Şablonu", icon: LayoutTemplate, roles: ["ADMIN", "ACCOUNTANT"] },
+  { href: "/e-donusum/sablon", label: "Belge Şablonları", icon: LayoutTemplate, roles: ["ADMIN", "ACCOUNTANT"] },
 
   // Ayarlar
   { href: "/ayarlar/firma", label: "Firma Bilgileri", icon: Building2, roles: ["ADMIN", "ACCOUNTANT"] },

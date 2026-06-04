@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   FileText,
   Fingerprint,
+  Globe,
   KeyRound,
   Loader2,
   Save,
@@ -21,6 +22,7 @@ import {
   Zap,
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
+import { MYSOFT_PROD_URL, MYSOFT_TEST_URL } from "@/lib/integrations/e-invoice/constants"
 import {
   Dialog,
   DialogContent,
@@ -65,9 +67,10 @@ export default function EDonusumAyarlariPage() {
   const [hasSavedPassword, setHasSavedPassword] = useState(false)
   const [lastTestedAt, setLastTestedAt] = useState<string | null>(null)
   const [lastTestSuccess, setLastTestSuccess] = useState<boolean | null>(null)
-  // eDonusumApiUrl is intentionally kept in state but not shown in the UI —
-  // we round-trip the existing value back so the backend doesn't wipe it.
-  const [savedApiUrl, setSavedApiUrl] = useState<string>("")
+  // Ortam seçimi: company.eDonusumApiUrl alanına eşlenir. Canlı → MYSOFT_PROD_URL,
+  // Test → MYSOFT_TEST_URL. Kayıtlı URL prod ile birebir eşleşmiyorsa güvenli
+  // varsayılan olarak "test" kabul edilir.
+  const [environment, setEnvironment] = useState<"test" | "live">("test")
   const [formData, setFormData] = useState({
     isEDonusumEnabled: false,
     eDonusumApiUsername: "",
@@ -97,7 +100,7 @@ export default function EDonusumAyarlariPage() {
     const data = (await response.json()) as Company
     const passwordIsPlaceholder = data.eDonusumApiPassword === "***"
     setHasSavedPassword(passwordIsPlaceholder)
-    setSavedApiUrl(data.eDonusumApiUrl || "")
+    setEnvironment((data.eDonusumApiUrl || "").trim() === MYSOFT_PROD_URL ? "live" : "test")
     setLastTestedAt(data.eDonusumLastTestedAt || null)
     setLastTestSuccess(typeof data.eDonusumLastTestSuccess === "boolean" ? data.eDonusumLastTestSuccess : null)
     const savedVkn = (data.eDonusumTenantVkn || "").replace(/\D/g, "")
@@ -126,7 +129,7 @@ export default function EDonusumAyarlariPage() {
           ...formData,
           eDonusumProvider: PROVIDER_KEY,
           eDonusumIntegrator: "OZEL_ENTEGRATOR",
-          eDonusumApiUrl: savedApiUrl,
+          eDonusumApiUrl: environment === "live" ? MYSOFT_PROD_URL : MYSOFT_TEST_URL,
         }),
       })
       if (!response.ok) {
@@ -173,6 +176,7 @@ export default function EDonusumAyarlariPage() {
           companyId,
           username: formData.eDonusumApiUsername,
           password: formData.eDonusumApiPassword || undefined,
+          apiUrl: environment === "live" ? MYSOFT_PROD_URL : MYSOFT_TEST_URL,
         }),
       })
       const data = await response.json()
@@ -389,6 +393,59 @@ export default function EDonusumAyarlariPage() {
             }
             disabled={isLoading}
           />
+        </CardContent>
+      </Card>
+
+      {/* Environment selector */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-kobipo-blue/10 text-kobipo-blue dark:bg-primary/15 dark:text-primary">
+              <Globe className="h-4 w-4" />
+            </span>
+            <div>
+              <CardTitle>Ortam</CardTitle>
+              <CardDescription>
+                Faturaların gönderileceği Mysoft ortamı. Canlı seçiliyken belgeler gerçek olarak GİB'e iletilir.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {([
+              { key: "test", title: "Test", desc: "Deneme ortamı — faturalar GİB'e gitmez." },
+              { key: "live", title: "Canlı", desc: "Gerçek ortam — faturalar GİB'e gönderilir." },
+            ] as const).map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setEnvironment(opt.key)}
+                disabled={isLoading}
+                className={`flex flex-col gap-1 rounded-lg border p-4 text-left transition ${
+                  environment === opt.key
+                    ? "border-kobipo-blue bg-kobipo-blue/5 ring-1 ring-kobipo-blue dark:border-primary dark:bg-primary/10 dark:ring-primary"
+                    : "border-muted-foreground/20 hover:bg-muted"
+                }`}
+              >
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  {environment === opt.key && <CheckCircle2 className="h-4 w-4 text-kobipo-blue dark:text-primary" />}
+                  {opt.title}
+                </span>
+                <span className="text-xs text-muted-foreground">{opt.desc}</span>
+              </button>
+            ))}
+          </div>
+          {environment === "live" && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>
+                <span className="font-semibold">Canlı ortam seçili.</span> Kaydettikten sonra kestiğiniz e-Fatura/e-Arşiv
+                belgeleri gerçek olarak GİB'e gönderilir. Canlı API kullanıcı/şifrenizi girip "Test Bağlantısı" ile
+                doğruladığınızdan emin olun.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

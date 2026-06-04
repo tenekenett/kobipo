@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
+import { resolveMysoftBaseUrl } from "@/lib/integrations/e-invoice/constants"
 
 export const dynamic = "force-dynamic"
 
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const baseUrl = company.eDonusumApiUrl || "https://edocumentapi.mytest.tr"
+    const baseUrl = resolveMysoftBaseUrl(company.eDonusumApiUrl)
 
     // 1) Token
     const tokenRes = await fetch(`${baseUrl}/oauth/token`, {

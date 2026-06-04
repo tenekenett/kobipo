@@ -173,6 +173,17 @@ export default function SeriNoTanimlariPage() {
     [numerators]
   )
 
+  // Mysoft'taki varsayılan numaratör (isDefault) — Kobipo'da prefix seçilmezse
+  // gönderimde bu kullanılır. UI'da "otomatik" seçeneğinde bunu gösteriyoruz.
+  const efaturaDefaultPrefix = useMemo(
+    () => (efaturaPrefixes.find((n) => n.isDefault) || efaturaPrefixes[0])?.prefix || "",
+    [efaturaPrefixes]
+  )
+  const earsivDefaultPrefix = useMemo(
+    () => (earsivPrefixes.find((n) => n.isDefault) || earsivPrefixes[0])?.prefix || "",
+    [earsivPrefixes]
+  )
+
   const validate = () => {
     const valid = (p: string) => p.length === 0 || p.length === 3
     if (!valid(eFaturaPrefix) || !valid(eArchivePrefix)) {
@@ -437,7 +448,11 @@ export default function SeriNoTanimlariPage() {
                     <SelectValue placeholder="Numaratör seçin" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">— Seçilmedi (otomatik) —</SelectItem>
+                    <SelectItem value="__none__">
+                      {efaturaDefaultPrefix
+                        ? `Mysoft varsayılanı: ${efaturaDefaultPrefix} (otomatik)`
+                        : "Mysoft varsayılanı (otomatik)"}
+                    </SelectItem>
                     {efaturaPrefixes.map((n) => (
                       <SelectItem key={n.prefix} value={n.prefix}>
                         {n.prefix} {n.isDefault ? "· Varsayılan" : ""}
@@ -462,7 +477,7 @@ export default function SeriNoTanimlariPage() {
                 Örnek belge no
               </p>
               <p className="mt-1 font-mono text-lg font-bold tracking-wide text-kobipo-navy dark:text-foreground">
-                {previewInvoiceNo(eFaturaPrefix)}
+                {previewInvoiceNo(eFaturaPrefix || efaturaDefaultPrefix)}
               </p>
             </div>
           </CardContent>
@@ -493,7 +508,11 @@ export default function SeriNoTanimlariPage() {
                     <SelectValue placeholder="Numaratör seçin" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">— Seçilmedi (otomatik) —</SelectItem>
+                    <SelectItem value="__none__">
+                      {earsivDefaultPrefix
+                        ? `Mysoft varsayılanı: ${earsivDefaultPrefix} (otomatik)`
+                        : "Mysoft varsayılanı (otomatik)"}
+                    </SelectItem>
                     {earsivPrefixes.map((n) => (
                       <SelectItem key={n.prefix} value={n.prefix}>
                         {n.prefix} {n.isDefault ? "· Varsayılan" : ""}
@@ -518,7 +537,7 @@ export default function SeriNoTanimlariPage() {
                 Örnek belge no
               </p>
               <p className="mt-1 font-mono text-lg font-bold tracking-wide text-kobipo-navy dark:text-foreground">
-                {previewInvoiceNo(eArchivePrefix)}
+                {previewInvoiceNo(eArchivePrefix || earsivDefaultPrefix)}
               </p>
             </div>
           </CardContent>

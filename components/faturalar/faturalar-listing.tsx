@@ -44,6 +44,7 @@ interface FaturaRow {
   direction: "incoming" | "outgoing"
   source: "mysoft_inbox" | "manual_purchase" | "manual_sales" | "converted_inbox"
   date: string | null
+  createdAt: string | null
   invoiceNo: string | null
   uuid: string | null
   counterparty: { name: string | null; taxNumber: string | null }
@@ -389,6 +390,11 @@ export default function FaturalarListing({
   const formatDate = (d: string | null) =>
     d ? new Date(d).toLocaleDateString("tr-TR") : "-"
 
+  const formatTime = (d: string | null) =>
+    d
+      ? new Date(d).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
+      : null
+
   const directionBadge = (row: FaturaRow) => {
     if (row.direction === "incoming") {
       return (
@@ -627,7 +633,12 @@ export default function FaturalarListing({
                       }}
                     >
                       {!fixedDirection && <TableCell>{directionBadge(row)}</TableCell>}
-                      <TableCell className="text-xs whitespace-nowrap">{formatDate(row.date)}</TableCell>
+                      <TableCell className="text-xs whitespace-nowrap">
+                        <div>{formatDate(row.date)}</div>
+                        {formatTime(row.createdAt) && (
+                          <div className="text-[11px] text-muted-foreground">{formatTime(row.createdAt)}</div>
+                        )}
+                      </TableCell>
                       <TableCell className="font-mono text-xs font-medium text-kobipo-blue dark:text-kobipo-mid">
                         {row.invoiceNo || "-"}
                       </TableCell>
