@@ -118,24 +118,33 @@ export default function EDonusumAyarlariPage() {
     })
   }
 
+  // Ayarları (özellikle seçili ortam = eDonusumApiUrl) DB'ye yazar. Hem "Kaydet"
+  // hem de Doğrula/Otomatik Bul öncesi çağrılır — böylece kullanıcı ortamı seçip
+  // kaydetmeyi unutsa bile keşif/doğrulama doğru ortama (test/canlı) gider.
+  const persistSettings = async (): Promise<boolean> => {
+    if (!companyId) return false
+    const response = await fetch(`/api/companies/${companyId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...formData,
+        eDonusumProvider: PROVIDER_KEY,
+        eDonusumIntegrator: "OZEL_ENTEGRATOR",
+        eDonusumApiUrl: environment === "live" ? MYSOFT_PROD_URL : MYSOFT_TEST_URL,
+      }),
+    })
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      throw new Error(data.error || "Kaydedilemedi")
+    }
+    return true
+  }
+
   const save = async () => {
     if (!companyId) return
     setIsLoading(true)
     try {
-      const response = await fetch(`/api/companies/${companyId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...formData,
-          eDonusumProvider: PROVIDER_KEY,
-          eDonusumIntegrator: "OZEL_ENTEGRATOR",
-          eDonusumApiUrl: environment === "live" ? MYSOFT_PROD_URL : MYSOFT_TEST_URL,
-        }),
-      })
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || "Kaydedilemedi")
-      }
+      await persistSettings()
       toast({ title: "Başarılı", description: "E-Dönüşüm ayarları kaydedildi" })
       fetchCompany()
     } catch (error) {
@@ -210,6 +219,8 @@ export default function EDonusumAyarlariPage() {
     setDiscoveredTenants(null)
     setJwtCandidates([])
     try {
+      // Seçili ortamı önce kaydet ki keşif doğru ortama (test/canlı) gitsin.
+      await persistSettings()
       const res = await fetch("/api/e-donusum/discover-tenant-vkn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -268,6 +279,8 @@ export default function EDonusumAyarlariPage() {
     }
     setIsVerifying(true)
     try {
+      // Seçili ortamı önce kaydet ki doğrulama doğru ortama (test/canlı) gitsin.
+      await persistSettings()
       const res = await fetch("/api/e-donusum/verify-tenant-vkn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
