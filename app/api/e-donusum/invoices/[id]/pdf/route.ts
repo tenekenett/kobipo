@@ -92,7 +92,7 @@ export async function GET(
       return NextResponse.json({ error: result.error }, { status: 502 })
     }
 
-    const filename = `Fatura_${invoice.invoiceNo}_GIB.pdf`
+    const filename = `${invoice.invoiceNo}.pdf`
     return new NextResponse(new Uint8Array(result.pdfBuffer), {
       status: 200,
       headers: {

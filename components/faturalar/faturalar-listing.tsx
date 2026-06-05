@@ -354,7 +354,7 @@ export default function FaturalarListing({
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `Fatura_${invoiceNo}_GIB.pdf`
+      a.download = `${invoiceNo}.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()

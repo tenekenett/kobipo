@@ -204,7 +204,7 @@ export default function InvoiceDetailPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `Fatura_${invoice.invoiceNo}_GIB.pdf`
+      a.download = `${invoice.invoiceNo}.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()
