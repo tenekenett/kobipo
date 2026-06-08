@@ -92,7 +92,9 @@ export async function GET(
       return NextResponse.json({ error: result.error }, { status: 502 })
     }
 
-    const filename = `${invoice.invoiceNo}.pdf`
+    // GİB zip'inden gelen resmî belge adını kullan; yoksa iç fatura numarasına düş.
+    const rawName = result.filename?.trim() || `${invoice.invoiceNo}.pdf`
+    const filename = rawName.toLowerCase().endsWith(".pdf") ? rawName : `${rawName}.pdf`
     return new NextResponse(new Uint8Array(result.pdfBuffer), {
       status: 200,
       headers: {

@@ -1131,7 +1131,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
     }
   }
 
-  async getInvoicePdf(uuid: string): Promise<{ success: true; pdfBuffer: Buffer } | { success: false; error: string }> {
+  async getInvoicePdf(uuid: string): Promise<{ success: true; pdfBuffer: Buffer; filename?: string } | { success: false; error: string }> {
     try {
       const token = await this.getToken();
       if (!token) return { success: false, error: "Mysoft token alınamadı." };
@@ -1160,7 +1160,9 @@ async sendInvoice(invoiceData: any): Promise<any> {
       const pdfEntry = Object.values(zip.files).find((f) => !f.dir && f.name.toLowerCase().endsWith(".pdf"));
       if (!pdfEntry) return { success: false, error: "Zip içinde PDF bulunamadı." };
       const pdfBuffer = await pdfEntry.async("nodebuffer");
-      return { success: true, pdfBuffer };
+      // GİB zip'i içindeki PDF, resmî belge adıyla gelir (klasör yolu olmadan al).
+      const filename = pdfEntry.name.split("/").pop() || pdfEntry.name;
+      return { success: true, pdfBuffer, filename };
     } catch (error: any) {
       return { success: false, error: error?.message || "PDF indirilirken hata oluştu." };
     }

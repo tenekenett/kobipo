@@ -7,6 +7,9 @@ export const dynamic = "force-dynamic"
 
 export default async function SystemAdminDashboard() {
   // İstatistikleri çek
+  // Son 7 gündeki hata/uyarı logları
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+
   const [
     totalCompanies,
     activeCompanies,
@@ -14,6 +17,8 @@ export default async function SystemAdminDashboard() {
     recentUsers,
     recentCompanies,
     recentLogs,
+    errorCount,
+    eDonusumEnabledCount,
   ] = await Promise.all([
     prisma.company.count(),
     prisma.company.count({ where: { isActive: true } }),
@@ -33,6 +38,10 @@ export default async function SystemAdminDashboard() {
       take: 10,
       include: { user: { select: { name: true, email: true } } }
     }),
+    prisma.systemLog.count({
+      where: { level: { in: ["ERROR", "WARN"] }, createdAt: { gte: sevenDaysAgo } },
+    }),
+    prisma.company.count({ where: { isEDonusumEnabled: true } }),
   ])
 
   const inactiveCompanies = totalCompanies - activeCompanies
@@ -82,14 +91,14 @@ export default async function SystemAdminDashboard() {
         <Card className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-colors">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-slate-400">
-              Sistem Durumu
+              E-Dönüşüm Aktif Firma
             </CardTitle>
             <Activity className="h-5 w-5 text-green-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-green-400">Aktif</div>
+            <div className="text-3xl font-bold text-green-400">{eDonusumEnabledCount}</div>
             <p className="text-xs text-slate-500 mt-1">
-              Tüm servisler çalışıyor
+              E-fatura entegrasyonu açık firma
             </p>
           </CardContent>
         </Card>
@@ -97,14 +106,16 @@ export default async function SystemAdminDashboard() {
         <Card className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-colors">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-slate-400">
-              Uyarılar
+              Uyarılar (7 gün)
             </CardTitle>
             <AlertTriangle className="h-5 w-5 text-yellow-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-white">0</div>
+            <div className={`text-3xl font-bold ${errorCount > 0 ? "text-yellow-400" : "text-white"}`}>
+              {errorCount}
+            </div>
             <p className="text-xs text-slate-500 mt-1">
-              Bekleyen uyarı yok
+              {errorCount > 0 ? "Hata/uyarı log kaydı" : "Bekleyen uyarı yok"}
             </p>
           </CardContent>
         </Card>

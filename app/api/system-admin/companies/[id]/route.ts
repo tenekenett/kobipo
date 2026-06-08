@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
+import { encryptSecret } from "@/lib/crypto/secrets"
+import { EDonusumIntegrator, Prisma } from "@prisma/client"
 
 export const dynamic = "force-dynamic"
 
@@ -35,18 +37,20 @@ export async function PUT(
     }
 
     const body = await request.json()
-    const name = String(body.name ?? "").trim()
-    if (!name) {
-      return NextResponse.json({ error: "Firma adı zorunludur" }, { status: 400 })
-    }
 
     const clean = (v: unknown) => {
       const s = String(v ?? "").trim()
       return s.length > 0 ? s : null
     }
 
+    // Ad yalnızca gönderildiyse güncellenir; gönderildiyse boş olamaz. Bu sayede
+    // e-fatura kartı gibi kısmi güncellemeler adı silmez.
+    if (body.name !== undefined && !String(body.name).trim()) {
+      return NextResponse.json({ error: "Firma adı zorunludur" }, { status: 400 })
+    }
+
     // VKN benzersiz; başka firmada kullanılıyorsa hata ver.
-    const taxNumber = clean(body.taxNumber)
+    const taxNumber = body.taxNumber !== undefined ? clean(body.taxNumber) : undefined
     if (taxNumber) {
       const dup = await prisma.company.findFirst({
         where: { taxNumber, NOT: { id: resolvedParams.id } },
@@ -60,17 +64,61 @@ export async function PUT(
       }
     }
 
+    // Tüm alanlar yalnızca payload'da gönderildiyse (undefined değilse) güncellenir;
+    // gönderilmeyen alanlar DB'deki mevcut değeri ezmez (kısmi güncelleme güvenli).
+    const data: Prisma.CompanyUpdateInput = {}
+
+    if (body.name !== undefined) data.name = String(body.name).trim()
+    if (taxNumber !== undefined) data.taxNumber = taxNumber
+    if (body.taxOffice !== undefined) data.taxOffice = clean(body.taxOffice)
+    if (body.city !== undefined) data.city = clean(body.city)
+    if (body.phone !== undefined) data.phone = clean(body.phone)
+    if (body.email !== undefined) data.email = clean(body.email)
+    if (body.address !== undefined) data.address = clean(body.address)
+    if (body.website !== undefined) data.website = clean(body.website)
+
+    if (body.isEDonusumEnabled !== undefined) {
+      data.isEDonusumEnabled = Boolean(body.isEDonusumEnabled)
+    }
+    if (body.eDonusumIntegrator !== undefined) {
+      const integrator = String(body.eDonusumIntegrator)
+      if (integrator in EDonusumIntegrator) {
+        data.eDonusumIntegrator = integrator as EDonusumIntegrator
+      }
+    }
+    if (body.eDonusumProvider !== undefined) data.eDonusumProvider = clean(body.eDonusumProvider)
+    if (body.eDonusumApiUsername !== undefined) data.eDonusumApiUsername = clean(body.eDonusumApiUsername)
+    if (body.eDonusumAlias !== undefined) data.eDonusumAlias = clean(body.eDonusumAlias)
+    if (body.eDonusumApiUrl !== undefined) data.eDonusumApiUrl = clean(body.eDonusumApiUrl)
+
+    // Şifre: yalnızca yeni (boş olmayan, "***" maskesi olmayan) bir değer geldiyse şifrele ve kaydet.
+    if (
+      typeof body.eDonusumApiPassword === "string" &&
+      body.eDonusumApiPassword.trim() &&
+      body.eDonusumApiPassword !== "***"
+    ) {
+      data.eDonusumApiPassword = encryptSecret(body.eDonusumApiPassword.trim())
+    }
+
+    if (body.eDonusumTenantVkn !== undefined) {
+      const vkn = String(body.eDonusumTenantVkn ?? "").replace(/\D/g, "").slice(0, 11)
+      data.eDonusumTenantVkn = vkn || null
+    }
+    if (body.eFaturaPrefix !== undefined) {
+      const p = String(body.eFaturaPrefix ?? "").trim().toUpperCase().slice(0, 3)
+      data.eFaturaPrefix = p || null
+    }
+    if (body.eArchivePrefix !== undefined) {
+      const p = String(body.eArchivePrefix ?? "").trim().toUpperCase().slice(0, 3)
+      data.eArchivePrefix = p || null
+    }
+    if (body.invoiceSeriesPrefix !== undefined) {
+      data.invoiceSeriesPrefix = clean(body.invoiceSeriesPrefix)
+    }
+
     const company = await prisma.company.update({
       where: { id: resolvedParams.id },
-      data: {
-        name,
-        taxNumber,
-        taxOffice: clean(body.taxOffice),
-        city: clean(body.city),
-        phone: clean(body.phone),
-        email: clean(body.email),
-        address: clean(body.address),
-      },
+      data,
     })
 
     await prisma.systemLog.create({

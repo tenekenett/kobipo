@@ -14,8 +14,12 @@ import {
   Globe,
   MapPin,
   Hash,
+  Calendar,
+  Briefcase,
+  Receipt,
 } from "lucide-react"
 import { Role } from "@prisma/client"
+import { CompanyEInvoiceCard } from "@/components/system-admin/company-einvoice-card"
 
 export const dynamic = "force-dynamic"
 
@@ -55,6 +59,80 @@ export default async function CompanyDetailPage({
 
   if (!company) notFound()
 
+  // Seri bazında son kesilen belge numarası (DB) — entegratöre bağımlı değil.
+  const lastByPrefix = async (prefix: string | null) => {
+    if (!prefix) return null
+    const inv = await prisma.invoice.findFirst({
+      where: { companyId: id, invoiceNo: { startsWith: prefix } },
+      orderBy: { invoiceNo: "desc" },
+      select: { invoiceNo: true },
+    })
+    return inv?.invoiceNo ?? null
+  }
+
+  const [byType, byStatus, amountAgg, lastInvoice, lastEFaturaNo, lastEArchiveNo, lastSeriNo] =
+    await Promise.all([
+      prisma.invoice.groupBy({
+        by: ["invoiceType"],
+        where: { companyId: id },
+        _count: { _all: true },
+      }),
+      prisma.invoice.groupBy({
+        by: ["status"],
+        where: { companyId: id },
+        _count: { _all: true },
+      }),
+      prisma.invoice.aggregate({
+        where: { companyId: id },
+        _sum: { totalAmount: true },
+      }),
+      prisma.invoice.findFirst({
+        where: { companyId: id },
+        orderBy: { date: "desc" },
+        select: { invoiceNo: true, date: true, totalAmount: true, invoiceType: true, status: true },
+      }),
+      lastByPrefix(company.eFaturaPrefix),
+      lastByPrefix(company.eArchivePrefix),
+      lastByPrefix(company.invoiceSeriesPrefix),
+    ])
+
+  const typeCount = (t: string) => byType.find((r) => r.invoiceType === t)?._count._all ?? 0
+  const statusCount = (s: string) => byStatus.find((r) => r.status === s)?._count._all ?? 0
+  const totalAmount = Number(amountAgg._sum.totalAmount ?? 0)
+  const fmtTRY = (n: number) =>
+    new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(n)
+
+  const businessRows: { label: string; value: string | null }[] = [
+    { label: "Sektör", value: company.sector },
+    { label: "İş Modeli", value: company.businessModel },
+    { label: "Çalışan Aralığı", value: company.employeeRange },
+    { label: "Aylık Fatura Hacmi", value: company.monthlyInvoiceVolume },
+    { label: "Birincil İhtiyaç", value: company.primaryBusinessNeed },
+    {
+      label: "Daha Önce E-Dönüşüm Kullanımı",
+      value:
+        company.usesEDonusumBefore === null
+          ? null
+          : company.usesEDonusumBefore
+          ? "Evet"
+          : "Hayır",
+    },
+    {
+      label: "Onboarding",
+      value: company.onboardingCompletedAt
+        ? `Tamamlandı · ${new Date(company.onboardingCompletedAt).toLocaleDateString("tr-TR")}`
+        : "Tamamlanmadı",
+    },
+  ]
+
+  const invoiceStatCards = [
+    { label: "E-Fatura", value: typeCount("E_INVOICE"), color: "text-blue-300" },
+    { label: "E-Arşiv", value: typeCount("E_ARCHIVE"), color: "text-cyan-300" },
+    { label: "Taslak", value: statusCount("DRAFT"), color: "text-slate-300" },
+    { label: "Gönderilmiş", value: statusCount("SENT"), color: "text-emerald-300" },
+    { label: "İptal", value: statusCount("CANCELLED"), color: "text-red-300" },
+  ]
+
   const infoRows: { icon: React.ReactNode; label: string; value: string | null }[] = [
     { icon: <Hash className="h-4 w-4" />, label: "Vergi No", value: company.taxNumber },
     { icon: <Building2 className="h-4 w-4" />, label: "Vergi Dairesi", value: company.taxOffice },
@@ -65,6 +143,12 @@ export default async function CompanyDetailPage({
       icon: <MapPin className="h-4 w-4" />,
       label: "Adres",
       value: [company.address, company.city, company.country].filter(Boolean).join(", ") || null,
+    },
+    { icon: <Globe className="h-4 w-4" />, label: "Ülke", value: company.country },
+    {
+      icon: <Calendar className="h-4 w-4" />,
+      label: "Son Güncelleme",
+      value: new Date(company.updatedAt).toLocaleString("tr-TR"),
     },
   ]
 
@@ -142,17 +226,6 @@ export default async function CompanyDetailPage({
                 </div>
               </div>
             ))}
-            <div className="flex items-center gap-3 pt-1">
-              <span className="text-slate-500">
-                <FileText className="h-4 w-4" />
-              </span>
-              <div>
-                <p className="text-xs text-slate-500">e-Dönüşüm</p>
-                <p className="text-sm text-slate-200">
-                  {company.isEDonusumEnabled ? "Aktif" : "Pasif"}
-                </p>
-              </div>
-            </div>
           </CardContent>
         </Card>
 
@@ -197,6 +270,97 @@ export default async function CompanyDetailPage({
             )}
           </CardContent>
         </Card>
+
+        {/* İş Profili & Onboarding */}
+        <Card className="bg-slate-900/50 border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <Briefcase className="h-5 w-5 text-amber-400" />
+              İş Profili & Onboarding
+            </CardTitle>
+            <CardDescription className="text-slate-500">
+              Sektör, ölçek ve kayıt sürecinde toplanan bilgiler
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {businessRows.map((row) => (
+              <div
+                key={row.label}
+                className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3 last:border-0 last:pb-0"
+              >
+                <p className="text-xs text-slate-500">{row.label}</p>
+                <p className="text-sm text-slate-200 text-right break-words">{row.value || "-"}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* Fatura İstatistikleri */}
+        <Card className="bg-slate-900/50 border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-purple-400" />
+              Fatura İstatistikleri
+            </CardTitle>
+            <CardDescription className="text-slate-500">
+              Belge türü, durum dağılımı ve toplam tutar
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {invoiceStatCards.map((s) => (
+                <div key={s.label} className="rounded-lg bg-slate-800/50 p-3">
+                  <p className="text-xs text-slate-500">{s.label}</p>
+                  <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+                </div>
+              ))}
+              <div className="rounded-lg bg-slate-800/50 p-3">
+                <p className="text-xs text-slate-500">Toplam Tutar</p>
+                <p className="text-xl font-bold text-white">{fmtTRY(totalAmount)}</p>
+              </div>
+            </div>
+            <div className="rounded-lg bg-slate-800/40 p-3">
+              <p className="text-xs font-medium text-slate-400 mb-1">Son Fatura</p>
+              {lastInvoice ? (
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="font-mono text-slate-200">{lastInvoice.invoiceNo}</span>
+                  <span className="text-slate-400">
+                    {new Date(lastInvoice.date).toLocaleDateString("tr-TR")} ·{" "}
+                    {fmtTRY(Number(lastInvoice.totalAmount))}
+                  </span>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">Henüz fatura yok</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* E-Dönüşüm / E-Fatura yapılandırması (görüntüle + düzenle) */}
+        <CompanyEInvoiceCard
+          data={{
+            id: company.id,
+            isEDonusumEnabled: company.isEDonusumEnabled,
+            eDonusumIntegrator: company.eDonusumIntegrator,
+            eDonusumProvider: company.eDonusumProvider,
+            eDonusumApiUsername: company.eDonusumApiUsername,
+            hasEDonusumPassword: Boolean(company.eDonusumApiPassword),
+            eDonusumApiUrl: company.eDonusumApiUrl,
+            eDonusumAlias: company.eDonusumAlias,
+            eDonusumTenantVkn: company.eDonusumTenantVkn,
+            eFaturaPrefix: company.eFaturaPrefix,
+            eArchivePrefix: company.eArchivePrefix,
+            invoiceSeriesPrefix: company.invoiceSeriesPrefix,
+            eDonusumConnectorGuid: company.eDonusumConnectorGuid,
+            eDonusumPkAlias: company.eDonusumPkAlias,
+            eDonusumGbAlias: company.eDonusumGbAlias,
+            eDonusumLastTestedAt: company.eDonusumLastTestedAt?.toISOString() ?? null,
+            eDonusumLastTestSuccess: company.eDonusumLastTestSuccess,
+            lastEFaturaInvoiceNo: lastEFaturaNo,
+            lastEArchiveInvoiceNo: lastEArchiveNo,
+            lastSeriInvoiceNo: lastSeriNo,
+          }}
+        />
       </div>
     </div>
   )

@@ -894,6 +894,15 @@ model SystemLog {
   @@map("system_logs")
 }
 
+// Platform geneli ayarlar (key-value). Sistem yönetimi > Ayarlar sayfası tarafından kullanılır.
+model SystemSetting {
+  key       String   @id
+  value     String?  @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
 model Plan {
   id          String   @id @default(cuid())
   code        String   @unique

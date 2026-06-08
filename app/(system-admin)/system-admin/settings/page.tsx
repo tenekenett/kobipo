@@ -1,12 +1,25 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Settings, Server, Database, Shield, Bell } from "lucide-react"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
+import { Settings, Database } from "lucide-react"
+import { prisma } from "@/lib/db/prisma"
+import { getSystemSettings } from "@/lib/system/settings"
+import { SettingsForm } from "@/components/system-admin/settings-form"
 
 export const dynamic = "force-dynamic"
 
-export default function SettingsPage() {
+async function getDatabaseStatus() {
+  try {
+    const rows = await prisma.$queryRawUnsafe<{ size: string }[]>(
+      "SELECT pg_size_pretty(pg_database_size(current_database())) AS size"
+    )
+    return { connected: true, size: rows?.[0]?.size ?? "-" }
+  } catch {
+    return { connected: false, size: "-" }
+  }
+}
+
+export default async function SettingsPage() {
+  const [settings, db] = await Promise.all([getSystemSettings(), getDatabaseStatus()])
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -15,158 +28,41 @@ export default function SettingsPage() {
           <Settings className="h-8 w-8 text-orange-400" />
           Sistem Ayarları
         </h1>
-        <p className="text-slate-400 mt-1">
-          Platform geneli yapılandırma ayarları
-        </p>
+        <p className="text-slate-400 mt-1">Platform geneli yapılandırma ayarları</p>
       </div>
 
-      {/* Henüz aktif değil bilgilendirmesi */}
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300">
-        Bu sayfa şu an yalnızca önizleme amaçlıdır — ayarların kaydedilmesi yakında
-        eklenecek. Aşağıdaki alanlar bilgi amaçlı gösterilmektedir.
-      </div>
+      <SettingsForm initial={settings} />
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* General Settings */}
-        <Card className="bg-slate-900/50 border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Server className="h-5 w-5 text-blue-400" />
-              Genel Ayarlar
-            </CardTitle>
-            <CardDescription className="text-slate-500">
-              Temel platform ayarları
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label className="text-slate-300">Platform Adı</Label>
-              <Input
-                defaultValue="Muhasebe SaaS"
-                disabled
-                className="bg-slate-800/50 border-slate-700 text-white"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-300">Destek Email</Label>
-              <Input
-                type="email"
-                defaultValue="destek@muhasebe.com"
-                disabled
-                className="bg-slate-800/50 border-slate-700 text-white"
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-slate-300">Bakım Modu</Label>
-                <p className="text-xs text-slate-500">Platformu bakım moduna al</p>
-              </div>
-              <Switch disabled />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Security Settings */}
-        <Card className="bg-slate-900/50 border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Shield className="h-5 w-5 text-red-400" />
-              Güvenlik
-            </CardTitle>
-            <CardDescription className="text-slate-500">
-              Güvenlik ve erişim ayarları
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-slate-300">2FA Zorunlu</Label>
-                <p className="text-xs text-slate-500">Tüm admin kullanıcılar için</p>
-              </div>
-              <Switch disabled />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-slate-300">IP Kısıtlaması</Label>
-                <p className="text-xs text-slate-500">Super admin için IP kontrolü</p>
-              </div>
-              <Switch disabled />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-300">Oturum Süresi (dakika)</Label>
-              <Input
-                type="number"
-                defaultValue="60"
-                disabled
-                className="bg-slate-800/50 border-slate-700 text-white"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Database Settings */}
-        <Card className="bg-slate-900/50 border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Database className="h-5 w-5 text-green-400" />
-              Veritabanı
-            </CardTitle>
-            <CardDescription className="text-slate-500">
-              Veritabanı durumu ve yönetimi
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
-              <span className="text-slate-300">Bağlantı Durumu</span>
+      {/* Veritabanı durumu (salt-okunur) */}
+      <Card className="bg-slate-900/50 border-slate-800">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            <Database className="h-5 w-5 text-green-400" />
+            Veritabanı
+          </CardTitle>
+          <CardDescription className="text-slate-500">Veritabanı durumu</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
+            <span className="text-slate-300">Bağlantı Durumu</span>
+            {db.connected ? (
               <span className="flex items-center gap-2 text-green-400">
                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                 Bağlı
               </span>
-            </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
-              <span className="text-slate-300">Veritabanı Boyutu</span>
-              <span className="text-slate-400">~0 MB</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Notification Settings */}
-        <Card className="bg-slate-900/50 border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Bell className="h-5 w-5 text-yellow-400" />
-              Bildirimler
-            </CardTitle>
-            <CardDescription className="text-slate-500">
-              Bildirim ve uyarı ayarları
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-slate-300">Email Bildirimleri</Label>
-                <p className="text-xs text-slate-500">Kritik olaylar için</p>
-              </div>
-              <Switch defaultChecked disabled />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-slate-300">Yeni Firma Bildirimi</Label>
-                <p className="text-xs text-slate-500">Yeni firma kaydında bildir</p>
-              </div>
-              <Switch defaultChecked disabled />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-slate-300">Hata Bildirimleri</Label>
-                <p className="text-xs text-slate-500">Sistem hatalarında bildir</p>
-              </div>
-              <Switch defaultChecked disabled />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            ) : (
+              <span className="flex items-center gap-2 text-red-400">
+                <div className="w-2 h-2 rounded-full bg-red-500" />
+                Bağlantı yok
+              </span>
+            )}
+          </div>
+          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
+            <span className="text-slate-300">Veritabanı Boyutu</span>
+            <span className="text-slate-400">{db.size}</span>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
-

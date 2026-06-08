@@ -4,7 +4,7 @@ export interface EInvoiceProvider {
   getInvoiceStatus(uuid: string): Promise<EInvoiceStatus>
   getIncomingInvoices(params: IncomingInvoiceParams): Promise<IncomingInvoice[]>
   cancelInvoice?(uuid: string, options?: { cancelType?: string; cancelNote?: string; cancelDate?: string }): Promise<{ success: boolean; error?: string; message?: string }>
-  getInvoicePdf?(uuid: string): Promise<{ success: true; pdfBuffer: Buffer } | { success: false; error: string }>
+  getInvoicePdf?(uuid: string): Promise<{ success: true; pdfBuffer: Buffer; filename?: string } | { success: false; error: string }>
 }
 
 export interface InvoiceData {

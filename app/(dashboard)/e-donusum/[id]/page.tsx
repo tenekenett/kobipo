@@ -17,6 +17,7 @@ import { ArrowLeft, Download, Send, Printer, ShieldCheck, Loader2, CheckCircle2,
 import Link from "next/link"
 import { generateInvoicePDF } from "@/lib/pdf/invoice-pdf"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
+import { filenameFromContentDisposition } from "@/lib/utils"
 
 interface InvoiceItem {
   id: string
@@ -204,7 +205,7 @@ export default function InvoiceDetailPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `${invoice.invoiceNo}.pdf`
+      a.download = filenameFromContentDisposition(response.headers.get("Content-Disposition")) || `${invoice.invoiceNo}.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()

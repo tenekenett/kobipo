@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
+import { filenameFromContentDisposition } from "@/lib/utils"
 
 const PROFILE_LABELS: Record<string, string> = {
   TICARIFATURA: "Ticari",
@@ -188,7 +189,7 @@ export default function FaturaOnizlemePage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `${invoice.invoiceNo}.pdf`
+      a.download = filenameFromContentDisposition(response.headers.get("Content-Disposition")) || `${invoice.invoiceNo}.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()

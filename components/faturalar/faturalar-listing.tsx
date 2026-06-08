@@ -38,6 +38,7 @@ import {
   Trash2,
 } from "lucide-react"
 import Link from "next/link"
+import { filenameFromContentDisposition } from "@/lib/utils"
 
 interface FaturaRow {
   id: string
@@ -354,7 +355,7 @@ export default function FaturalarListing({
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `${invoiceNo}.pdf`
+      a.download = filenameFromContentDisposition(res.headers.get("Content-Disposition")) || `${invoiceNo}.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()
