@@ -9,6 +9,7 @@ export interface UserCompanyContext {
   role: Role
   isActive: boolean
   isEDonusumEnabled: boolean
+  disabledModules: string[]
   createdAt: Date
 }
 
@@ -40,6 +41,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
         name: string
         isActive: boolean
         isEDonusumEnabled: boolean
+        disabledModules: string[]
       }
     }>
   } | null = null
@@ -63,6 +65,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
                 name: true,
                 isActive: true,
                 isEDonusumEnabled: true,
+                disabledModules: true,
               },
             },
           },
@@ -89,6 +92,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
       role: entry.role,
       isActive: entry.company.isActive,
       isEDonusumEnabled: entry.company.isEDonusumEnabled,
+      disabledModules: entry.company.disabledModules ?? [],
       createdAt: entry.createdAt,
     })),
   }

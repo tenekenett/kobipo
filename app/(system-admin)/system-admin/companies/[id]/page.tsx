@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 import { Role } from "@prisma/client"
 import { CompanyEInvoiceCard } from "@/components/system-admin/company-einvoice-card"
+import { CompanyModulesCard } from "@/components/system-admin/company-modules-card"
 
 export const dynamic = "force-dynamic"
 
@@ -335,6 +336,9 @@ export default async function CompanyDetailPage({
             </div>
           </CardContent>
         </Card>
+
+        {/* Modül yönetimi (firma bazında aç/kapa) */}
+        <CompanyModulesCard companyId={company.id} initialDisabled={company.disabledModules ?? []} />
 
         {/* E-Dönüşüm / E-Fatura yapılandırması (görüntüle + düzenle) */}
         <CompanyEInvoiceCard

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
+import { getUserContext } from "@/lib/auth/user-context"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { Prisma } from "@prisma/client"
@@ -19,28 +20,21 @@ const isMissingSchemaError = (error: Prisma.PrismaClientKnownRequestError) => {
 
 export async function GET(request: Request) {
   try {
-    const user = await getCurrentUser()
-    if (!user) {
+    const context = await getUserContext()
+    if (!context) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userCompanies = await prisma.userCompany.findMany({
-      where: {
-        userId: user.id,
-      },
-      orderBy: { createdAt: "asc" },
-      select: {
-        company: {
-          select: {
-            id: true,
-            name: true,
-            isEDonusumEnabled: true,
-          },
-        },
-      },
-    })
-
-    const companies = userCompanies.map((uc) => uc.company)
+    // Pasif firmalar normal kullanıcının erişilebilir firma listesinde görünmez;
+    // yalnızca super admin tüm firmalarını görür.
+    const companies = context.companies
+      .filter((c) => context.isSuperAdmin || c.isActive)
+      .map((c) => ({
+        id: c.companyId,
+        name: c.companyName,
+        isEDonusumEnabled: c.isEDonusumEnabled,
+        disabledModules: c.disabledModules,
+      }))
 
     return NextResponse.json(companies)
   } catch (error) {

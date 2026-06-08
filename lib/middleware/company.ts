@@ -90,6 +90,11 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
 
   const match = context.companies.find((entry) => entry.companyId === companyId)
   if (match) {
+    // Pasif firmaya normal kullanıcı (üye) erişemez; yalnızca super admin yönetim
+    // amacıyla erişebilir. "Access denied" ifadesi API route catch'lerinde 403'e maplenir.
+    if (!match.isActive && !context.isSuperAdmin) {
+      throw new Error("Access denied: company is inactive")
+    }
     return match
   }
 
@@ -101,7 +106,9 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
   const userCompany = await prisma.userCompany.findFirst({
     where: { userId: context.userId, companyId },
     include: {
-      company: { select: { name: true, isActive: true, isEDonusumEnabled: true } },
+      company: {
+        select: { name: true, isActive: true, isEDonusumEnabled: true, disabledModules: true },
+      },
     },
   })
 
@@ -115,6 +122,7 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
     role: userCompany.role,
     isActive: userCompany.company.isActive,
     isEDonusumEnabled: userCompany.company.isEDonusumEnabled,
+    disabledModules: userCompany.company.disabledModules ?? [],
     createdAt: userCompany.createdAt,
   }
 })

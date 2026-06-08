@@ -135,6 +135,7 @@ model Company {
   usesEDonusumBefore Boolean?
   onboardingCompletedAt DateTime?
   isActive    Boolean  @default(true) // Firma aktif/pasif durumu
+  disabledModules String[] @default([]) // Kapalı modül anahtarları (boş = tüm modüller açık)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

@@ -12,6 +12,7 @@ export type DashboardCompany = {
   id: string
   name: string
   isEDonusumEnabled?: boolean
+  disabledModules?: string[]
 }
 
 type DashboardCompanyContextValue = {

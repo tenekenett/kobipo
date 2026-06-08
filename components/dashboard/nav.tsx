@@ -8,6 +8,7 @@ import { Logo } from "@/components/ui/Logo"
 import { cn } from "@/lib/utils"
 import { LogOut, Menu, X, ChevronDown, Loader2 } from "lucide-react"
 import { allNavItems, navGroups, navItemActive, standaloneNavHrefs, type NavItemDef } from "@/components/dashboard/nav-config"
+import { MODULE_GROUP_TO_KEY } from "@/lib/modules"
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 export function DashboardNav() {
@@ -32,9 +33,19 @@ export function DashboardNav() {
     [selectedCompany?.isEDonusumEnabled, userRole]
   )
 
+  // Firma için kapalı modüllerin nav gruplarını gizle
+  const disabledModules = useMemo(
+    () => new Set(selectedCompany?.disabledModules ?? []),
+    [selectedCompany?.disabledModules]
+  )
+
   const groupedItems = useMemo(
     () =>
       navGroups
+        .filter((group) => {
+          const moduleKey = MODULE_GROUP_TO_KEY[group.title]
+          return !(moduleKey && disabledModules.has(moduleKey))
+        })
         .map((group) => ({
           ...group,
           items: group.hrefs
@@ -42,7 +53,7 @@ export function DashboardNav() {
             .filter((item): item is NavItemDef => Boolean(item)),
         }))
         .filter((group) => group.items.length > 0),
-    [navItems]
+    [navItems, disabledModules]
   )
 
   const standaloneItems = useMemo(
