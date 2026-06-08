@@ -4,6 +4,7 @@ import { DashboardNav } from "@/components/dashboard/nav"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { CompanySelector } from "@/components/dashboard/company-selector"
 import { DashboardCompanyProvider } from "@/components/dashboard/dashboard-company-provider"
+import { ModuleGuard } from "@/components/dashboard/module-guard"
 
 export const dynamic = 'force-dynamic'
 
@@ -67,7 +68,9 @@ export default async function DashboardLayout({
             <DashboardHeader />
             <div className="w-full min-w-0 overflow-x-clip p-4 sm:p-6">
               <CompanySelector />
-              <div className="mt-4 w-full min-w-0">{children}</div>
+              <div className="mt-4 w-full min-w-0">
+                <ModuleGuard>{children}</ModuleGuard>
+              </div>
             </div>
           </div>
         </div>

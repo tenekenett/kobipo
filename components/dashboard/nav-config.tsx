@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react"
+import { MODULE_GROUP_TO_KEY } from "@/lib/modules"
 import {
   ArrowLeftRight,
   BadgeCheck,
@@ -206,4 +207,21 @@ export function navItemActive(pathname: string, href: string) {
   if (href === "/dashboard") return false
   // Avoid /personel matching /personel/maas etc. for the parent — only match exact or sub-path
   return pathname === href || pathname.startsWith(href + "/")
+}
+
+/**
+ * Bir path'in hangi yönetilebilir modüle ait olduğunu döndürür (yoksa null).
+ * Modül route guard'ı bunu kullanarak kapalı modüllerin sayfalarını engeller.
+ */
+export function moduleKeyForPath(pathname: string): string | null {
+  for (const group of navGroups) {
+    const moduleKey = MODULE_GROUP_TO_KEY[group.title]
+    if (!moduleKey) continue
+    for (const href of group.hrefs) {
+      if (pathname === href || pathname.startsWith(href + "/")) {
+        return moduleKey
+      }
+    }
+  }
+  return null
 }
