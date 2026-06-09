@@ -11,6 +11,7 @@ import { allNavItems, navGroups, navItemActive, standaloneNavHrefs, type NavItem
 import { MODULE_GROUP_TO_KEY } from "@/lib/modules"
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { roleToDashboardPath } from "@/lib/auth/role-paths"
 export function DashboardNav() {
   const pathname = usePathname()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -105,7 +106,7 @@ export function DashboardNav() {
     <>
       <div className="fixed left-0 top-0 z-40 hidden h-dvh max-h-dvh w-56 flex-col overflow-hidden border-r border-white/10 bg-kobipo-navy dark:border-border dark:bg-card lg:flex">
         <div className="flex h-14 shrink-0 items-center border-b border-white/10 px-4">
-          <Logo variant="dark" size="sm" href="/dashboard" />
+          <Logo variant="dark" size="sm" href={roleToDashboardPath(userRole)} />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-3 [-webkit-overflow-scrolling:touch]">
           <div className="space-y-1">
