@@ -49,6 +49,19 @@ interface Product {
   isActive: boolean
 }
 
+const emptyProductForm = {
+  code: "",
+  name: "",
+  barcode: "",
+  unit: "ADET",
+  vatRate: "20",
+  purchasePrice: "",
+  salePrice: "",
+  stockQuantity: "0",
+  minStockLevel: "",
+  isService: false,
+}
+
 export default function StokPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -60,18 +73,7 @@ export default function StokPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [formData, setFormData] = useState({
-    code: "",
-    name: "",
-    barcode: "",
-    unit: "ADET",
-    vatRate: "20",
-    purchasePrice: "",
-    salePrice: "",
-    stockQuantity: "0",
-    minStockLevel: "",
-    isService: false,
-  })
+  const [formData, setFormData] = useState({ ...emptyProductForm })
 
   useEffect(() => {
     if (companyId) {
@@ -118,18 +120,7 @@ export default function StokPage() {
         })
         setIsDialogOpen(false)
         setEditingId(null)
-        setFormData({
-          code: "",
-          name: "",
-          barcode: "",
-          unit: "ADET",
-          vatRate: "20",
-          purchasePrice: "",
-          salePrice: "",
-          stockQuantity: "0",
-          minStockLevel: "",
-          isService: false,
-        })
+        setFormData({ ...emptyProductForm })
         fetchProducts()
       } else {
         const errorData = await response.json()
@@ -144,6 +135,12 @@ export default function StokPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const startCreate = () => {
+    setEditingId(null)
+    setFormData({ ...emptyProductForm })
+    setIsDialogOpen(true)
   }
 
   const startEdit = (product: Product) => {
@@ -191,9 +188,18 @@ export default function StokPage() {
             Ürün ve hizmet kartları
           </p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog
+          open={isDialogOpen}
+          onOpenChange={(open) => {
+            setIsDialogOpen(open)
+            if (!open) {
+              setEditingId(null)
+              setFormData({ ...emptyProductForm })
+            }
+          }}
+        >
           <DialogTrigger asChild>
-            <Button>
+            <Button onClick={startCreate}>
               <Plus className="mr-2 h-4 w-4" />
               Yeni Ürün/Hizmet
             </Button>
@@ -208,12 +214,23 @@ export default function StokPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="code">Kod</Label>
+                  <Label htmlFor="code">Stok Kodu</Label>
                   <Input
                     id="code"
                     value={formData.code}
                     onChange={(e) =>
                       setFormData({ ...formData, code: e.target.value })
+                    }
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="barcode">Barkod</Label>
+                  <Input
+                    id="barcode"
+                    value={formData.barcode}
+                    onChange={(e) =>
+                      setFormData({ ...formData, barcode: e.target.value })
                     }
                     disabled={isLoading}
                   />
@@ -227,17 +244,6 @@ export default function StokPage() {
                       setFormData({ ...formData, name: e.target.value })
                     }
                     required
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="barcode">Barkod</Label>
-                  <Input
-                    id="barcode"
-                    value={formData.barcode}
-                    onChange={(e) =>
-                      setFormData({ ...formData, barcode: e.target.value })
-                    }
                     disabled={isLoading}
                   />
                 </div>

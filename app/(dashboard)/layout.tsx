@@ -5,6 +5,7 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { CompanySelector } from "@/components/dashboard/company-selector"
 import { DashboardCompanyProvider } from "@/components/dashboard/dashboard-company-provider"
 import { ModuleGuard } from "@/components/dashboard/module-guard"
+import { SuspendedLogoutButton } from "@/components/dashboard/suspended-logout-button"
 
 export const dynamic = 'force-dynamic'
 
@@ -40,12 +41,7 @@ export default async function DashboardLayout({
             Firmanız şu anda pasif durumda. Erişiminizi yeniden açmak için lütfen sistem
             yöneticinizle iletişime geçin.
           </p>
-          <a
-            href="/api/auth/signout?callbackUrl=/signin"
-            className="mt-6 inline-block rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700"
-          >
-            Çıkış Yap
-          </a>
+          <SuspendedLogoutButton />
         </div>
       </div>
     )

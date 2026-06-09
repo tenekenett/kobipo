@@ -212,7 +212,7 @@ export default function ProductDetailPage() {
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Ürün Bilgileri</CardTitle>
+            <CardTitle>Ürün / Hizmet Bilgileri</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

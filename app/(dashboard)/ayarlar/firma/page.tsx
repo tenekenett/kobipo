@@ -24,6 +24,12 @@ interface Company {
   invoiceSeriesPrefix?: string
   eFaturaPrefix?: string | null
   eArchivePrefix?: string | null
+  sector?: string | null
+  businessModel?: string | null
+  employeeRange?: string | null
+  monthlyInvoiceVolume?: string | null
+  primaryBusinessNeed?: string | null
+  usesEDonusumBefore?: boolean | null
 }
 
 export default function FirmaAyarlariPage() {
@@ -45,6 +51,12 @@ export default function FirmaAyarlariPage() {
     email: "",
     website: "",
     invoiceSeriesPrefix: "",
+    sector: "",
+    businessModel: "",
+    employeeRange: "",
+    monthlyInvoiceVolume: "",
+    primaryBusinessNeed: "",
+    usesEDonusumBefore: "",
   })
 
   useEffect(() => {
@@ -110,6 +122,15 @@ export default function FirmaAyarlariPage() {
           email: data.email || "",
           website: data.website || "",
           invoiceSeriesPrefix: data.invoiceSeriesPrefix || "",
+          sector: data.sector || "",
+          businessModel: data.businessModel || "",
+          employeeRange: data.employeeRange || "",
+          monthlyInvoiceVolume: data.monthlyInvoiceVolume || "",
+          primaryBusinessNeed: data.primaryBusinessNeed || "",
+          usesEDonusumBefore:
+            typeof data.usesEDonusumBefore === "boolean"
+              ? String(data.usesEDonusumBefore)
+              : "",
         })
       } else if (response.status === 403 || response.status === 404) {
         // Stale or unauthorized company id in URL/localStorage; recover to first valid company.
@@ -148,7 +169,13 @@ export default function FirmaAyarlariPage() {
       const response = await fetch(`/api/companies/${companyId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          usesEDonusumBefore:
+            formData.usesEDonusumBefore === ""
+              ? null
+              : formData.usesEDonusumBefore === "true",
+        }),
       })
 
       if (response.ok) {
@@ -288,6 +315,87 @@ export default function FirmaAyarlariPage() {
                   Bu alan Kobipo iç fatura numarası içindir (ör. <code className="rounded bg-muted px-1 py-0.5 font-mono">SAT-2026-0001</code>).
                   E-Fatura / E-Arşiv için Mysoft'a gönderilen prefix bundan farklıdır — aşağıdaki kartı kullanın.
                 </p>
+              </div>
+            </div>
+            <div className="rounded-md border p-3 space-y-3">
+              <div>
+                <p className="text-sm font-medium">İş Profili</p>
+                <p className="text-xs text-muted-foreground">
+                  Sektör, ölçek ve ihtiyaçlarınız. Kayıt sürecinde toplanan bu bilgileri buradan
+                  güncelleyebilirsiniz.
+                </p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="sector">Sektör</Label>
+                  <Input
+                    id="sector"
+                    placeholder="Örn: Perakende, Üretim, Hizmet"
+                    value={formData.sector}
+                    onChange={(e) => setFormData({ ...formData, sector: e.target.value })}
+                    disabled={isLoading || !isEditing}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="businessModel">İş Modeli</Label>
+                  <Input
+                    id="businessModel"
+                    placeholder="B2B, B2C, Toptan, Proje bazlı"
+                    value={formData.businessModel}
+                    onChange={(e) => setFormData({ ...formData, businessModel: e.target.value })}
+                    disabled={isLoading || !isEditing}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="employeeRange">Çalışan Aralığı</Label>
+                  <Input
+                    id="employeeRange"
+                    placeholder="1-5, 6-20, 21-50, 50+"
+                    value={formData.employeeRange}
+                    onChange={(e) => setFormData({ ...formData, employeeRange: e.target.value })}
+                    disabled={isLoading || !isEditing}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="monthlyInvoiceVolume">Aylık Fatura Hacmi</Label>
+                  <Input
+                    id="monthlyInvoiceVolume"
+                    placeholder="0-25, 26-100, 101-500, 500+"
+                    value={formData.monthlyInvoiceVolume}
+                    onChange={(e) =>
+                      setFormData({ ...formData, monthlyInvoiceVolume: e.target.value })
+                    }
+                    disabled={isLoading || !isEditing}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="primaryBusinessNeed">Birincil İhtiyaç</Label>
+                <Input
+                  id="primaryBusinessNeed"
+                  placeholder="Nakit akışı takibi, e-dönüşüm, stok yönetimi vb."
+                  value={formData.primaryBusinessNeed}
+                  onChange={(e) =>
+                    setFormData({ ...formData, primaryBusinessNeed: e.target.value })
+                  }
+                  disabled={isLoading || !isEditing}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="usesEDonusumBefore">Daha Önce E-Dönüşüm Kullanımı</Label>
+                <select
+                  id="usesEDonusumBefore"
+                  value={formData.usesEDonusumBefore}
+                  onChange={(e) =>
+                    setFormData({ ...formData, usesEDonusumBefore: e.target.value })
+                  }
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={isLoading || !isEditing}
+                >
+                  <option value="">Seçiniz</option>
+                  <option value="true">Evet</option>
+                  <option value="false">Hayır</option>
+                </select>
               </div>
             </div>
             <div className="rounded-md border p-3">
