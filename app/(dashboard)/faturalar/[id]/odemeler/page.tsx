@@ -316,7 +316,13 @@ export default function FaturaOdemelerPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <Link href={`/faturalar?company=${companyId}`}>
+                <Link
+                  href={
+                    invoice.type === "PURCHASE"
+                      ? `/alis/fatura?company=${companyId || ""}`
+                      : `/satis/fatura?company=${companyId || ""}`
+                  }
+                >
                   <Button variant="ghost" size="sm">
                     <ArrowLeft className="h-4 w-4 mr-1" />
                     Geri

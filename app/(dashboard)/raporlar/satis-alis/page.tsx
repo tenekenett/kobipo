@@ -11,9 +11,14 @@ const detailReports = [
     href: "/raporlar/vergiler",
   },
   {
-    title: "Faturalar",
-    description: "Satış ve alış faturaları akışına hızlı geçiş sağlar.",
-    href: "/faturalar",
+    title: "Satış Faturaları",
+    description: "Satış faturaları akışına hızlı geçiş sağlar.",
+    href: "/satis/fatura",
+  },
+  {
+    title: "Alış Faturaları",
+    description: "Alış faturaları akışına hızlı geçiş sağlar.",
+    href: "/alis/fatura",
   },
 ]
 

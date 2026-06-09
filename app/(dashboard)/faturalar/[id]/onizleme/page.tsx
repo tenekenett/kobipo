@@ -343,11 +343,11 @@ export default function FaturaOnizlemePage() {
         <p className="text-muted-foreground">{loadError || "Fatura bulunamadı"}</p>
         {companyId ? (
           <Button variant="outline" asChild>
-            <Link href={`/faturalar?company=${encodeURIComponent(companyId)}`}>Faturalara dön</Link>
+            <Link href={`/satis/fatura?company=${encodeURIComponent(companyId)}`}>Faturalara dön</Link>
           </Button>
         ) : (
           <Button variant="outline" asChild>
-            <Link href="/faturalar">Faturalara dön</Link>
+            <Link href="/satis/fatura">Faturalara dön</Link>
           </Button>
         )}
       </div>
@@ -367,9 +367,7 @@ export default function FaturaOnizlemePage() {
   const backHref =
     invoice.type === "PURCHASE"
       ? `/alis/fatura?company=${companyId || ""}`
-      : invoice.type === "SALES"
-        ? `/satis/fatura?company=${companyId || ""}`
-        : `/faturalar?company=${companyId || ""}`
+      : `/satis/fatura?company=${companyId || ""}`
 
   return (
     <div className="space-y-4">

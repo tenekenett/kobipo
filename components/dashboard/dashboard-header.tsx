@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils"
 import { Bell, Building2, Check, ChevronDown, Laptop, LogOut, Moon, Search, Settings, Sun, User } from "lucide-react"
 import { allNavItems } from "@/components/dashboard/nav-config"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { roleToDashboardPath } from "@/lib/auth/role-paths"
 import { useTheme } from "@/components/providers/theme-provider"
 
 export function DashboardHeader() {
@@ -77,8 +78,9 @@ export function DashboardHeader() {
     }
   }, [selectedCompany?.id])
 
+  const dashboardBase = roleToDashboardPath(userRole)
   const dashboardHref =
-    searchParams.size > 0 ? `/dashboard?${searchParams.toString()}` : "/dashboard"
+    searchParams.size > 0 ? `${dashboardBase}?${searchParams.toString()}` : dashboardBase
 
   const triggerSearchPrompt = () => {
     const input = window.prompt("Menüde ara", globalQuery)

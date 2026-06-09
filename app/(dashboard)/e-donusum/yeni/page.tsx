@@ -27,7 +27,7 @@ export default function EDonusumYeniFaturaPage() {
   }
 
   const safeFrom = fromParam && fromParam.startsWith("/") ? fromParam : null
-  const fallback = defaultManual ? "/faturalar" : "/e-donusum"
+  const fallback = defaultManual ? "/satis/fatura" : "/e-donusum"
   const baseHref = safeFrom || fallback
   const sep = baseHref.includes("?") ? "&" : "?"
   const backHref = `${baseHref}${sep}company=${encodeURIComponent(companyId)}`

@@ -220,7 +220,7 @@ export default async function DashboardIndexPage({
       ring: "ring-kobipo-green/25",
     },
     {
-      href: `/faturalar${companyQuery}`,
+      href: `/satis/fatura${companyQuery}`,
       label: "Faturalar",
       sub: "Liste ve düzenleme",
       icon: Receipt,
@@ -458,7 +458,7 @@ export default async function DashboardIndexPage({
             </ul>
             {draftCount > 0 && (
               <Link
-                href={`/faturalar${companyQuery}`}
+                href={`/satis/fatura${companyQuery}`}
                 className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-kobipo-navy px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-kobipo-blue"
               >
                 Taslaklara git
@@ -497,7 +497,7 @@ export default async function DashboardIndexPage({
               <p className="text-sm text-kobipo-gray">En güncel altı kayıt</p>
             </div>
             <Link
-              href={`/faturalar${companyQuery}`}
+              href={`/satis/fatura${companyQuery}`}
               className="inline-flex items-center gap-1 text-sm font-semibold text-kobipo-blue hover:underline"
             >
               Tümü

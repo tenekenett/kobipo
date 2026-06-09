@@ -96,7 +96,7 @@ export default function AlisRaporlariPage() {
             Alış fatura, masraf ve tedarikçi analizi için özet veriler
           </p>
         </div>
-        <Link href={`/faturalar?type=PURCHASE&company=${encodeURIComponent(companyId)}`}>
+        <Link href={`/alis/fatura?company=${encodeURIComponent(companyId)}`}>
           <Button variant="outline">
             Tüm alış faturaları
             <ArrowUpRight className="ml-2 h-4 w-4" />

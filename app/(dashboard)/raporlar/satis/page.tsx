@@ -97,7 +97,7 @@ export default function SatisRaporlariPage() {
             Fatura, detay, iade ve satışçı performansı için özet veriler
           </p>
         </div>
-        <Link href={`/faturalar?type=SALES&company=${encodeURIComponent(companyId)}`}>
+        <Link href={`/satis/fatura?company=${encodeURIComponent(companyId)}`}>
           <Button variant="outline">
             Tüm satış faturaları
             <ArrowUpRight className="ml-2 h-4 w-4" />

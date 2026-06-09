@@ -222,9 +222,7 @@ export default function FaturalarListing({
     const backPath =
       fixedDirection === "incoming"
         ? "/alis/fatura"
-        : fixedDirection === "outgoing"
-          ? "/satis/fatura"
-          : "/faturalar"
+        : "/satis/fatura"
     const fromParam = `&from=${encodeURIComponent(backPath)}`
     // Alış faturaları sayfasından "Yeni Fatura" → fatura tipi varsayılan PURCHASE,
     // satış sayfasından → SALES gelsin. Aksi halde editör her zaman SALES açılıyordu.
@@ -700,7 +698,9 @@ export default function FaturalarListing({
                                 <Link
                                   href={`/e-donusum/${rawId}/duzenle?company=${encodeURIComponent(
                                     companyId,
-                                  )}&from=${encodeURIComponent("/faturalar")}`}
+                                  )}&from=${encodeURIComponent(
+                                    fixedDirection === "incoming" ? "/alis/fatura" : "/satis/fatura",
+                                  )}`}
                                 >
                                   <Button variant="outline" size="sm" title="Düzenle">
                                     <Pencil className="h-4 w-4" />
