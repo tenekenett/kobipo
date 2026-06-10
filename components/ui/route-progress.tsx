@@ -9,6 +9,15 @@ export function RouteProgress() {
   const [progress, setProgress] = useState(0)
   const finishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tickTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pathnameRef = useRef(pathname)
+  const isInitialRef = useRef(true)
+
+  // Tıklama dinleyicisi boş bağımlılıkla bir kez kurulduğu için güncel
+  // pathname'e ref üzerinden erişiyoruz (aksi halde mount anındaki değer
+  // sabit kalır).
+  useEffect(() => {
+    pathnameRef.current = pathname
+  }, [pathname])
 
   useEffect(() => {
     if (!visible) {
@@ -27,6 +36,13 @@ export function RouteProgress() {
   }, [visible])
 
   useEffect(() => {
+    // İlk mount'ta tamamlama animasyonunu çalıştırma; yoksa sayfa
+    // açılışında çubuk bir an %100 görünüp kaybolur.
+    if (isInitialRef.current) {
+      isInitialRef.current = false
+      return
+    }
+
     setProgress(100)
     finishTimerRef.current = setTimeout(() => {
       setVisible(false)
@@ -42,11 +58,33 @@ export function RouteProgress() {
 
   useEffect(() => {
     const onDocumentClick = (event: MouseEvent) => {
+      // Yeni sekmede açma / orta tık gibi gezinme başlatmayan tıklamaları
+      // yok say (bunlar da pathname'i değiştirmez, çubuğu takılı bırakırdı).
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return
+      }
+
       const target = event.target as HTMLElement | null
       const anchor = target?.closest("a")
       if (!anchor) return
       const href = anchor.getAttribute("href")
       if (!href || !href.startsWith("/") || href.startsWith("//")) return
+
+      // Hedef, bulunulan sayfanın aynısıysa gezinme gerçekleşmez; bu durumda
+      // pathname değişmediği için tamamlama efekti tetiklenmez. Çubuğu hiç
+      // başlatmayarak %90'da takılı kalmasını engelliyoruz (logo / dashboard
+      // tuşuna zaten o sayfadayken tıklama durumu).
+      const destination = new URL(href, window.location.href)
+      if (destination.pathname === pathnameRef.current) {
+        return
+      }
 
       setVisible(true)
       setProgress(18)

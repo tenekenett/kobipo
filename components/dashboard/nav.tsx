@@ -80,6 +80,18 @@ export function DashboardNav() {
     setPendingHref(null)
   }, [pathname])
 
+  const startNav = useCallback(
+    (href: string) => {
+      // Zaten bulunulan sayfaya tıklanırsa gezinme olmaz; pathname
+      // değişmediği için yükleniyor spinner'ı temizlenmez. Bu yüzden
+      // aynı route için spinner'ı hiç başlatma.
+      if (href !== pathname) {
+        setPendingHref(href)
+      }
+    },
+    [pathname]
+  )
+
   const isGroupOpen = useCallback(
     (title: string) => navGroupClosed[title] !== true,
     [navGroupClosed]
@@ -135,7 +147,7 @@ export function DashboardNav() {
                         <Link
                           key={item.href}
                           href={item.href}
-                          onClick={() => setPendingHref(item.href)}
+                          onClick={() => startNav(item.href)}
                           className={cn(
                             "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
                             pendingHref === item.href && "opacity-80",
@@ -166,7 +178,7 @@ export function DashboardNav() {
                     <Link
                       key={item.href}
                       href={item.href}
-                      onClick={() => setPendingHref(item.href)}
+                      onClick={() => startNav(item.href)}
                       className={cn(
                         "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
                         pendingHref === item.href && "opacity-80",
@@ -241,7 +253,7 @@ export function DashboardNav() {
                             key={item.href}
                             href={item.href}
                             onClick={() => {
-                              setPendingHref(item.href)
+                              startNav(item.href)
                               setMobileMenuOpen(false)
                             }}
                             className={cn(
@@ -275,7 +287,7 @@ export function DashboardNav() {
                         key={item.href}
                         href={item.href}
                         onClick={() => {
-                          setPendingHref(item.href)
+                          startNav(item.href)
                           setMobileMenuOpen(false)
                         }}
                         className={cn(
