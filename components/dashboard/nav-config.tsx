@@ -202,11 +202,34 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
 /** Items rendered as direct links below the collapsible groups in the sidebar. */
 export const standaloneNavHrefs: string[] = ["/ayarlar/destek", "/ayarlar/profil"]
 
+/**
+ * Bazı nav öğeleri tıklanınca farklı bir landing path'e yönlendirir
+ * (server-side redirect). Bu durumda gerçek pathname nav href ile
+ * eşleşmediği için ilgili öğe aktif sayılmaz ve menü grubu kapanır.
+ * Aşağıdaki eşleme "landing path -> nav href(ler)" ile bu öğeleri de
+ * aktif kabul ederek dropdown'ın açık kalmasını sağlar.
+ */
+const NAV_HREF_REDIRECT_ALIASES: Record<string, string[]> = {
+  "/cari": ["/cari/musteri", "/cari/tedarikci"],
+  "/stok": ["/stok/urunler"],
+  "/depolar/transfer": ["/stok/transfer"],
+  "/banka/mutabakat": ["/finans/mutabakat"],
+  "/raporlar/nakit-akisi": ["/raporlar/nakit-banka"],
+  "/raporlar/cari-yaslandirma": ["/raporlar/cari"],
+  "/raporlar/vergiler": ["/raporlar/vergi"],
+}
+
 export function navItemActive(pathname: string, href: string) {
   if (pathname === href) return true
   if (href === "/dashboard") return false
+  // Redirect eden bir nav öğesinin landing path'indeyiz: yalnızca o
+  // alias'a ait href(ler) aktif olmalı. Aksi halde örn. /depolar/transfer
+  // hem "Stok Transfer" (alias) hem de parent "Depo Listesi" (startsWith)
+  // için aktif sayılır ve iki öğe birden seçili görünür.
+  const aliasTargets = NAV_HREF_REDIRECT_ALIASES[pathname]
+  if (aliasTargets) return aliasTargets.includes(href)
   // Avoid /personel matching /personel/maas etc. for the parent — only match exact or sub-path
-  return pathname === href || pathname.startsWith(href + "/")
+  return pathname.startsWith(href + "/")
 }
 
 /**
