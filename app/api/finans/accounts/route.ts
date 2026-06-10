@@ -70,6 +70,7 @@ export async function POST(request: Request) {
       accountNumber,
       iban,
       currency,
+      openingBalance,
     } = body
 
     if (!companyId || !name || !type) {
@@ -81,6 +82,11 @@ export async function POST(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
+    const parsedOpeningBalance =
+      openingBalance != null && openingBalance !== "" && !Number.isNaN(parseFloat(openingBalance))
+        ? parseFloat(openingBalance)
+        : 0
+
     const account = await prisma.financialAccount.create({
       data: {
         companyId,
@@ -91,7 +97,7 @@ export async function POST(request: Request) {
         accountNumber,
         iban,
         currency: currency || "TRY",
-        balance: 0,
+        balance: parsedOpeningBalance,
       },
     })
 

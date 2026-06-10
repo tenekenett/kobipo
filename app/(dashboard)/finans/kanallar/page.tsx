@@ -58,6 +58,7 @@ export default function FinansKanallariPage() {
     accountNumber: "",
     iban: "",
     currency: "TRY",
+    openingBalance: "",
   })
 
   const fetchAccounts = async () => {
@@ -97,7 +98,7 @@ export default function FinansKanallariPage() {
       }
       toast({ title: "Başarılı", description: "Finans kanalı eklendi" })
       setShowCreate(false)
-      setForm({ code: "", name: "", type: "BANK", bankName: "", accountNumber: "", iban: "", currency: "TRY" })
+      setForm({ code: "", name: "", type: "BANK", bankName: "", accountNumber: "", iban: "", currency: "TRY", openingBalance: "" })
       fetchAccounts()
     } catch (e) {
       toast({ title: "Hata", description: e instanceof Error ? e.message : "Bilinmeyen hata", variant: "destructive" })
@@ -279,6 +280,19 @@ export default function FinansKanallariPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>Açılış Bakiyesi</Label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="0,00"
+                value={form.openingBalance}
+                onChange={(e) => setForm({ ...form, openingBalance: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Hesabın mevcut/başlangıç bakiyesi. Boş bırakılırsa 0 alınır.
+              </p>
             </div>
             {form.type === "BANK" && (
               <>

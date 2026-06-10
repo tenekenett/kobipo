@@ -146,6 +146,11 @@ export default function CustomerSupplierDetailPage() {
     }).format(amount)
   }
 
+  // API ekstreyi kronolojik (eski→yeni) ve kümülatif bakiyeli döndürür.
+  // Ekranda en yeni en üstte gösterilsin diye listenin bir kopyasını ters
+  // çeviriyoruz; her satır kendi (o tarihteki) bakiyesini korur.
+  const orderedTransactions = [...data.transactions].reverse()
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -341,7 +346,7 @@ export default function CustomerSupplierDetailPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                data.transactions.map((tx) => (
+                orderedTransactions.map((tx) => (
                   <TableRow key={tx.id}>
                     <TableCell>
                       {new Date(tx.date).toLocaleDateString("tr-TR")}

@@ -1,12 +1,14 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
+import { Wallet } from "lucide-react"
 
 type FinancialAccount = {
   id: string
@@ -42,6 +44,7 @@ export function TransactionDialog({
   onSuccess,
 }: TransactionDialogProps) {
   const { toast } = useToast()
+  const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     accountId: "",
@@ -107,6 +110,45 @@ export function TransactionDialog({
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  if (open && accounts.length === 0) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+              <Wallet className="h-6 w-6" />
+            </span>
+            <div>
+              <p className="font-medium">Henüz kasa veya banka hesabı yok</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {transactionLabel} kaydı oluşturabilmek için önce Finans Kanalları sayfasından
+                bir kasa veya banka hesabı eklemelisiniz.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                onOpenChange(false)
+                router.push(`/finans/kanallar?company=${companyId}`)
+              }}
+            >
+              Finans Kanalı Ekle
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
   }
 
   return (
