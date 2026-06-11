@@ -220,6 +220,11 @@ export default function CustomerSupplierDetailPage() {
   // çeviriyoruz; her satır kendi (o tarihteki) bakiyesini korur.
   const orderedTransactions = [...data.transactions].reverse()
 
+  // Bakiye etiketi şirket gözünden ("lehimize mi?"). Müşteride pozitif bakiye =
+  // müşteri bize borçlu = bizim alacağımız (lehimize). Tedarikçide ise pozitif
+  // bakiye = biz ona borçluyuz (aleyhimize); o yüzden işaret tersine çevrilir.
+  const balanceFavorable = isCustomer ? data.balance >= 0 : data.balance <= 0
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -280,11 +285,11 @@ export default function CustomerSupplierDetailPage() {
             <Building2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold ${data.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
+            <div className={`text-2xl font-bold ${balanceFavorable ? "text-green-600" : "text-red-600"}`}>
               {formatCurrency(data.balance)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {data.balance >= 0 ? "Alacaklı" : "Borçlu"}
+              {balanceFavorable ? "Alacaklı" : "Borçlu"}
             </p>
           </CardContent>
         </Card>

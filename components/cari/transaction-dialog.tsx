@@ -16,6 +16,17 @@ type FinancialAccount = {
   bankName?: string
 }
 
+type OpenInvoice = {
+  id: string
+  invoiceNo: string
+  openAmount: number
+}
+
+const NO_INVOICE = "none"
+
+const formatTRY = (value: number) =>
+  new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(value)
+
 type TransactionDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -46,6 +57,8 @@ export function TransactionDialog({
   const { toast } = useToast()
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [openInvoices, setOpenInvoices] = useState<OpenInvoice[]>([])
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>(NO_INVOICE)
   const [formData, setFormData] = useState({
     accountId: "",
     type: lockedType ?? "INCOME",
@@ -65,7 +78,35 @@ export function TransactionDialog({
       description: "",
       reference: "",
     })
+    setSelectedInvoiceId(NO_INVOICE)
   }, [open, lockedType])
+
+  // Cari bağlamında açıldıysa carinin açık faturalarını getir (tahsilatı faturaya
+  // bağlamak için). Cari yoksa boş kalır ve eşleştirme alanı gösterilmez.
+  useEffect(() => {
+    if (!open) return
+    const party = customerId
+      ? `customerId=${customerId}`
+      : supplierId
+        ? `supplierId=${supplierId}`
+        : null
+    if (!party) {
+      setOpenInvoices([])
+      return
+    }
+    let cancelled = false
+    fetch(`/api/cari/open-invoices?companyId=${companyId}&${party}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!cancelled) setOpenInvoices(Array.isArray(data) ? data : [])
+      })
+      .catch(() => {
+        if (!cancelled) setOpenInvoices([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, companyId, customerId, supplierId])
 
   const transactionLabel = useMemo(() => {
     if (lockedType === "INCOME") return "Tahsilat"
@@ -87,6 +128,7 @@ export function TransactionDialog({
           type: lockedType ?? formData.type,
           customerId: customerId || null,
           supplierId: supplierId || null,
+          invoiceId: selectedInvoiceId !== NO_INVOICE ? selectedInvoiceId : null,
         }),
       })
 
@@ -178,6 +220,38 @@ export function TransactionDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {openInvoices.length > 0 && (
+            <div className="space-y-2">
+              <Label>Fatura (opsiyonel)</Label>
+              <Select
+                value={selectedInvoiceId}
+                onValueChange={(value) => {
+                  setSelectedInvoiceId(value)
+                  const inv = openInvoices.find((i) => i.id === value)
+                  if (inv) {
+                    // Seçilen faturanın açık tutarını öner (kullanıcı değiştirebilir).
+                    setFormData((prev) => ({ ...prev, amount: String(inv.openAmount) }))
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_INVOICE}>Faturaya bağlama (avans)</SelectItem>
+                  {openInvoices.map((inv) => (
+                    <SelectItem key={inv.id} value={inv.id}>
+                      {inv.invoiceNo} · Açık: {formatTRY(inv.openAmount)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Bir fatura seçerseniz tutarın açık kadarı o faturaya işlenir; fazlası avans olarak kalır.
+              </p>
+            </div>
+          )}
 
           {!lockedType && (
             <div className="space-y-2">

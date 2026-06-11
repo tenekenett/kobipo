@@ -106,6 +106,7 @@ export async function GET(request: Request) {
         INNER JOIN invoices inv ON inv.id = ip."invoiceId"
         INNER JOIN paged_suppliers ps ON ps.id = inv."supplierId"
         WHERE inv.type = 'PURCHASE'
+          AND ip."transactionId" IS NULL
         GROUP BY inv."supplierId"
       ),
       income_totals AS (

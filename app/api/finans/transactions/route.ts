@@ -114,6 +114,7 @@ export async function POST(request: Request) {
       reference,
       customerId,
       supplierId,
+      invoiceId,
     } = body
 
     if (!companyId || !accountId || !type || !amount) {
@@ -142,67 +143,130 @@ export async function POST(request: Request) {
       )
     }
 
-    // Create transaction
-    const transaction = await prisma.transaction.create({
-      data: {
-        companyId,
-        accountId,
-        type,
-        amount: parseFloat(amount),
-        currency: currency || "TRY",
-        description,
-        date: date ? new Date(date) : new Date(),
-        reference: reference || (type === "TRANSFER" ? `TRANSFER:${transferAccountId}` : undefined),
-        customerId,
-        supplierId,
-        createdBy: user.id,
-      },
-    })
+    const numericAmount = parseFloat(amount)
+    const transactionDate = date ? new Date(date) : new Date()
 
-    // Update account balance
-    let newBalance = Number(account.balance)
-    if (type === "INCOME") {
-      newBalance += parseFloat(amount)
-    } else if (type === "EXPENSE") {
-      newBalance -= parseFloat(amount)
-    } else if (type === "TRANSFER") {
-      newBalance -= parseFloat(amount)
-    }
-
-    await prisma.financialAccount.update({
-      where: { id: accountId },
-      data: {
-        balance: newBalance,
-      },
-    })
-
+    // Transfer hedefini işlemden önce doğrula (atomik blok içinde return edilemez).
+    let targetAccount: { id: string; balance: any } | null = null
     if (type === "TRANSFER" && transferAccountId) {
-      const targetAccount = await prisma.financialAccount.findUnique({
+      const found = await prisma.financialAccount.findUnique({
         where: { id: transferAccountId },
       })
-      if (!targetAccount || targetAccount.companyId !== companyId) {
+      if (!found || found.companyId !== companyId) {
         return NextResponse.json({ error: "Transfer account not found" }, { status: 404 })
       }
+      targetAccount = { id: found.id, balance: found.balance }
+    }
 
-      await prisma.financialAccount.update({
-        where: { id: transferAccountId },
-        data: { balance: Number(targetAccount.balance) + parseFloat(amount) },
+    // Opsiyonel fatura eşleştirmesi (yalnızca INCOME/EXPENSE). Tahsilat/ödeme
+    // tutarının açık fatura kadarı InvoicePayment olarak da yazılır; fazlası
+    // avans olarak yalnızca işlemde (Transaction) kalır.
+    let invoiceAllocation: { invoiceId: string; allocated: number } | null = null
+    if (invoiceId && (type === "INCOME" || type === "EXPENSE")) {
+      const inv = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { payments: { select: { amount: true } } },
       })
+      if (!inv || inv.companyId !== companyId) {
+        return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
+      }
+      if (inv.status === "CANCELLED") {
+        return NextResponse.json(
+          { error: "İptal edilmiş faturaya ödeme eşleştirilemez" },
+          { status: 400 },
+        )
+      }
+      const partyOk =
+        type === "INCOME"
+          ? inv.type === "SALES" && (!customerId || inv.customerId === customerId)
+          : inv.type === "PURCHASE" && (!supplierId || inv.supplierId === supplierId)
+      if (!partyOk) {
+        return NextResponse.json(
+          { error: "Seçilen fatura bu cari veya işlem tipiyle eşleşmiyor" },
+          { status: 400 },
+        )
+      }
+      const paid = inv.payments.reduce((sum, p) => sum + Number(p.amount), 0)
+      const open = Number(inv.totalAmount) - paid
+      if (open <= 0) {
+        return NextResponse.json(
+          { error: "Seçilen faturanın açık tutarı yok" },
+          { status: 400 },
+        )
+      }
+      invoiceAllocation = { invoiceId: inv.id, allocated: Math.min(numericAmount, open) }
+    }
 
-      await prisma.transaction.create({
+    const paymentMethod =
+      account.type === "BANK" ? "BANK_TRANSFER" : account.type === "CASH" ? "CASH" : "OTHER"
+
+    const transaction = await prisma.$transaction(async (db) => {
+      const created = await db.transaction.create({
         data: {
           companyId,
-          accountId: transferAccountId,
-          type: "INCOME",
-          amount: parseFloat(amount),
+          accountId,
+          type,
+          amount: numericAmount,
           currency: currency || "TRY",
-          description: description || "Hesaplar arası virman (giriş)",
-          date: date ? new Date(date) : new Date(),
-          reference: `TRANSFER:${accountId}`,
+          description,
+          date: transactionDate,
+          reference: reference || (type === "TRANSFER" ? `TRANSFER:${transferAccountId}` : undefined),
+          customerId,
+          supplierId,
           createdBy: user.id,
         },
       })
-    }
+
+      // Kaynak hesap bakiyesi
+      let newBalance = Number(account.balance)
+      if (type === "INCOME") newBalance += numericAmount
+      else if (type === "EXPENSE") newBalance -= numericAmount
+      else if (type === "TRANSFER") newBalance -= numericAmount
+      await db.financialAccount.update({
+        where: { id: accountId },
+        data: { balance: newBalance },
+      })
+
+      // Transfer: hedef hesaba giriş + karşı işlem
+      if (type === "TRANSFER" && targetAccount) {
+        await db.financialAccount.update({
+          where: { id: targetAccount.id },
+          data: { balance: Number(targetAccount.balance) + numericAmount },
+        })
+        await db.transaction.create({
+          data: {
+            companyId,
+            accountId: targetAccount.id,
+            type: "INCOME",
+            amount: numericAmount,
+            currency: currency || "TRY",
+            description: description || "Hesaplar arası virman (giriş)",
+            date: transactionDate,
+            reference: `TRANSFER:${accountId}`,
+            createdBy: user.id,
+          },
+        })
+      }
+
+      // Faturaya bağlı ödeme (kasa bakiyesini TEKRAR güncellemez — işlem güncelledi).
+      if (invoiceAllocation && invoiceAllocation.allocated > 0) {
+        await db.invoicePayment.create({
+          data: {
+            invoiceId: invoiceAllocation.invoiceId,
+            companyId,
+            amount: invoiceAllocation.allocated,
+            paymentDate: transactionDate,
+            paymentMethod,
+            accountId,
+            transactionId: created.id,
+            reference: reference || null,
+            createdBy: user.id,
+          },
+        })
+      }
+
+      return created
+    })
 
     return NextResponse.json(transaction, { status: 201 })
   } catch (error: any) {

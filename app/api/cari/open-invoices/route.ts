@@ -1,0 +1,78 @@
+import { NextResponse } from "next/server"
+import { getCurrentUser } from "@/lib/auth/session"
+import { prisma } from "@/lib/db/prisma"
+import { ensureCompanyAccess } from "@/lib/middleware/company"
+
+export const dynamic = "force-dynamic"
+
+// Bir carinin açık (ödenmemiş) faturalarını döndürür. Cari ekranındaki
+// "Tahsilat/Ödeme Ekle" diyaloğunda tahsilatı bir faturaya bağlamak için kullanılır.
+// Açık tutar = faturaTutarı − tüm InvoicePayment (bağlı + bağsız).
+export async function GET(request: Request) {
+  try {
+    const user = await getCurrentUser()
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const companyId = searchParams.get("companyId")
+    const customerId = searchParams.get("customerId")
+    const supplierId = searchParams.get("supplierId")
+
+    if (!companyId) {
+      return NextResponse.json({ error: "companyId is required" }, { status: 400 })
+    }
+    if (!customerId && !supplierId) {
+      return NextResponse.json(
+        { error: "customerId or supplierId is required" },
+        { status: 400 },
+      )
+    }
+
+    await ensureCompanyAccess(companyId)
+
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        companyId,
+        status: { not: "CANCELLED" },
+        ...(customerId
+          ? { customerId, type: "SALES" }
+          : { supplierId, type: "PURCHASE" }),
+      },
+      select: {
+        id: true,
+        invoiceNo: true,
+        date: true,
+        dueDate: true,
+        totalAmount: true,
+        payments: { select: { amount: true } },
+      },
+      orderBy: { date: "asc" },
+    })
+
+    const open = invoices
+      .map((inv) => {
+        const paid = inv.payments.reduce((sum, p) => sum + Number(p.amount), 0)
+        const openAmount = Number(inv.totalAmount) - paid
+        return {
+          id: inv.id,
+          invoiceNo: inv.invoiceNo,
+          date: inv.date,
+          dueDate: inv.dueDate,
+          totalAmount: Number(inv.totalAmount),
+          openAmount: Number(openAmount.toFixed(2)),
+        }
+      })
+      .filter((inv) => inv.openAmount > 0.005)
+
+    return NextResponse.json(open)
+  } catch (error: any) {
+    const message: string = typeof error?.message === "string" ? error.message : ""
+    if (message.toLowerCase().includes("access denied")) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+    console.error("Error fetching open invoices:", error)
+    return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
+  }
+}

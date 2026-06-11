@@ -257,7 +257,7 @@ export async function GET(request: Request) {
             date: true,
             dueDate: true,
             totalAmount: true,
-            payments: { select: { amount: true, paymentDate: true } },
+            payments: { select: { amount: true, paymentDate: true, transactionId: true } },
           },
         },
         // Faturaya bağlanmamış serbest tahsilat/ödeme işlemleri (Tahsilat Ekle →
@@ -286,7 +286,7 @@ export async function GET(request: Request) {
             date: true,
             dueDate: true,
             totalAmount: true,
-            payments: { select: { amount: true, paymentDate: true } },
+            payments: { select: { amount: true, paymentDate: true, transactionId: true } },
           },
         },
         // Faturaya bağlanmamış serbest ödeme işlemleri (Ödeme Ekle → EXPENSE).
@@ -309,7 +309,13 @@ export async function GET(request: Request) {
         const expenseSum = c.transactions
           .filter((t) => t.type === "EXPENSE")
           .reduce((s, t) => s + Number(t.amount), 0)
-        applyUnallocatedCredits(analyzed, round2(incomeSum - expenseSum))
+        // İşleme bağlı ödemeler zaten faturadan düşüldü; havuzdan da çıkar.
+        const linkedSum = c.invoices.reduce(
+          (s, inv) =>
+            s + inv.payments.reduce((a, p) => a + (p.transactionId ? Number(p.amount) : 0), 0),
+          0,
+        )
+        applyUnallocatedCredits(analyzed, round2(incomeSum - expenseSum - linkedSum))
         const invoices = analyzed.filter((inv) => inv.openAmount > 0)
         return {
           id: c.id,
@@ -337,7 +343,13 @@ export async function GET(request: Request) {
         const expenseSum = s.transactions
           .filter((t) => t.type === "EXPENSE")
           .reduce((sum, t) => sum + Number(t.amount), 0)
-        applyUnallocatedCredits(analyzed, round2(expenseSum - incomeSum))
+        // İşleme bağlı ödemeler zaten faturadan düşüldü; havuzdan da çıkar.
+        const linkedSum = s.invoices.reduce(
+          (sum, inv) =>
+            sum + inv.payments.reduce((a, p) => a + (p.transactionId ? Number(p.amount) : 0), 0),
+          0,
+        )
+        applyUnallocatedCredits(analyzed, round2(expenseSum - incomeSum - linkedSum))
         const invoices = analyzed.filter((inv) => inv.openAmount > 0)
         return {
           id: s.id,

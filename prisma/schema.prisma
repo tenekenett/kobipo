@@ -538,6 +538,7 @@ model Transaction {
   account     FinancialAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
   customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
   supplier    Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  invoicePayments InvoicePayment[]
 
   @@index([companyId, date])
   @@index([companyId, type, date])
@@ -684,6 +685,7 @@ model InvoicePayment {
   paymentDate DateTime @default(now())
   paymentMethod String  // CASH, BANK_TRANSFER, CHECK, CREDIT_CARD, OTHER
   accountId   String?  // FinancialAccount ID
+  transactionId String? // Cari ekranından girilen tahsilat/ödeme ile bağ (çift yazım)
   reference   String?  // Ödeme referansı (makbuz no, işlem no vb.)
   notes       String?  @db.Text
   createdAt   DateTime @default(now())
@@ -692,10 +694,12 @@ model InvoicePayment {
   invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   account     FinancialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@index([invoiceId])
   @@index([companyId])
   @@index([paymentDate])
+  @@index([transactionId])
   @@map("invoice_payments")
 }
 

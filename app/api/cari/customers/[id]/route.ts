@@ -81,7 +81,9 @@ export async function GET(
         _sum: { totalAmount: true },
       }),
       prisma.invoicePayment.aggregate({
-        where: { invoice: { customerId: customer.id, type: "SALES" } },
+        // Bir Transaction'a bağlı ödemeler bakiyeye işlemin kendisi üzerinden
+        // (− gelir) yansıdığı için burada hariç tutulur (çift sayımı önler).
+        where: { transactionId: null, invoice: { customerId: customer.id, type: "SALES" } },
         _sum: { amount: true },
       }),
       prisma.transaction.aggregate({

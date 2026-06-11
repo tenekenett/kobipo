@@ -70,6 +70,7 @@ export async function GET(
         payments: {
           select: {
             amount: true,
+            transactionId: true,
           },
         },
       },
@@ -82,11 +83,15 @@ export async function GET(
       },
     })
 
-    // Calculate balance (unpaid invoices - payments)
+    // Calculate balance (unpaid invoices - payments). Bir Transaction'a bağlı
+    // ödemeler bakiyeye işlem üzerinden yansıdığından burada hariç tutulur.
     let balance = 0
     allInvoices.forEach((inv) => {
       if (inv.type === "PURCHASE") {
-        const totalPaid = inv.payments.reduce((sum, p) => sum + Number(p.amount), 0)
+        const totalPaid = inv.payments.reduce(
+          (sum, p) => sum + (p.transactionId ? 0 : Number(p.amount)),
+          0,
+        )
         balance += Number(inv.totalAmount) - totalPaid
       }
     })

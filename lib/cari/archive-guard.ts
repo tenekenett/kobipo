@@ -52,6 +52,7 @@ async function computeDeletability(
   const [
     invoiceAgg,
     paymentAgg,
+    linkedPaymentAgg,
     incomeAgg,
     expenseAgg,
     invoiceCount,
@@ -62,8 +63,15 @@ async function computeDeletability(
       where: { [idField]: id, type: invoiceType },
       _sum: { totalAmount: true },
     }),
+    // Bakiye için: işleme bağlı OLMAYAN ödemeler (bağlı olanlar zaten Transaction
+    // üzerinden bakiyeye yansıyor → çift sayım önlenir).
     prisma.invoicePayment.aggregate({
-      where: { invoice: { [idField]: id, type: invoiceType } },
+      where: { transactionId: null, invoice: { [idField]: id, type: invoiceType } },
+      _sum: { amount: true },
+    }),
+    // İşleme bağlı ödemelerin toplamı: serbest tahsilat havuzundan düşülecek.
+    prisma.invoicePayment.aggregate({
+      where: { transactionId: { not: null }, invoice: { [idField]: id, type: invoiceType } },
       _sum: { amount: true },
     }),
     prisma.transaction.aggregate({
@@ -106,8 +114,11 @@ async function computeDeletability(
   }, 0)
   const incomeSum = Number(incomeAgg._sum.amount || 0)
   const expenseSum = Number(expenseAgg._sum.amount || 0)
+  // Serbest (faturaya bağlanmamış) tahsilat havuzu. İşleme bağlı ödemeler hem
+  // invoiceOpenSum'dan düşüldüğü için havuzdan da çıkarılır (çift düşmeyi önler).
+  const linkedPaymentSum = Number(linkedPaymentAgg._sum.amount || 0)
   const collectionPool =
-    kind === "customer" ? incomeSum - expenseSum : expenseSum - incomeSum
+    (kind === "customer" ? incomeSum - expenseSum : expenseSum - incomeSum) - linkedPaymentSum
   const hasOpenInvoices = invoiceOpenSum - Math.max(0, collectionPool) >= EPSILON
   const hasHistory = invoiceCount > 0 || transactionCount > 0
 
