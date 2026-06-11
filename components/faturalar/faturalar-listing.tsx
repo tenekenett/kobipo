@@ -252,10 +252,13 @@ export default function FaturalarListing({
         { method: "DELETE" },
       )
       if (res.ok) {
+        // Anında geri bildirim: satırı listeden hemen kaldır, sonra arka planda
+        // listeyi tazele (toplamlar/bakiye güncellensin).
+        setRows((prev) => prev.filter((row) => row.id !== rawInvoiceId))
         toast({ title: "Başarılı", description: "Fatura silindi." })
         fetchList()
       } else {
-        const data = await res.json()
+        const data = await res.json().catch(() => ({}))
         toast({
           title: "Hata",
           description: data.error || "Fatura silinemedi",

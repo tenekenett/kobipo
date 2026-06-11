@@ -45,7 +45,7 @@ export default function SubelerPage() {
             Erişiminiz olan tüm firma/şubeleri görüntüleyin ve yenisini ekleyin
           </p>
         </div>
-        <Link href="/companies/new">
+        <Link href="/companies/new?mode=branch">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
             Yeni Şube
@@ -69,7 +69,7 @@ export default function SubelerPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 İlk şubenizi oluşturarak başlayın.
               </p>
-              <Link href="/companies/new">
+              <Link href="/companies/new?mode=branch">
                 <Button className="mt-4">
                   <Plus className="mr-2 h-4 w-4" />
                   Yeni Şube

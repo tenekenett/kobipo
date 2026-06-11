@@ -210,7 +210,6 @@ export const standaloneNavHrefs: string[] = ["/ayarlar/destek", "/ayarlar/profil
  * aktif kabul ederek dropdown'ın açık kalmasını sağlar.
  */
 const NAV_HREF_REDIRECT_ALIASES: Record<string, string[]> = {
-  "/cari": ["/cari/musteri", "/cari/tedarikci"],
   "/stok": ["/stok/urunler"],
   "/depolar/transfer": ["/stok/transfer"],
   "/banka/mutabakat": ["/finans/mutabakat"],
@@ -219,9 +218,37 @@ const NAV_HREF_REDIRECT_ALIASES: Record<string, string[]> = {
   "/raporlar/vergiler": ["/raporlar/vergi"],
 }
 
-export function navItemActive(pathname: string, href: string) {
+/**
+ * Cari (müşteri/tedarikçi) sayfaları aynı `/cari` ağacı altında paylaşılır.
+ * Hangi nav öğesinin (Müşteri mi Tedarikçi mi) aktif olacağını yol segmentine
+ * (`/cari/customers/*` vs `/cari/suppliers/*`) veya liste sayfasındaki `?tab=`
+ * değerine göre belirler. Böylece ikisi birden aktif görünmez ve detay
+ * sayfalarında da doğru öğe seçili kalır. Cari dışı yollar için null döner.
+ */
+function cariActiveHref(
+  pathname: string,
+  search?: URLSearchParams | null
+): "/cari/musteri" | "/cari/tedarikci" | null {
+  if (pathname.startsWith("/cari/customers")) return "/cari/musteri"
+  if (pathname.startsWith("/cari/suppliers")) return "/cari/tedarikci"
+  if (pathname === "/cari") {
+    // Liste sayfası: tab=suppliers → Tedarikçi, aksi halde (varsayılan) Müşteri.
+    return search?.get("tab") === "suppliers" ? "/cari/tedarikci" : "/cari/musteri"
+  }
+  return null
+}
+
+export function navItemActive(
+  pathname: string,
+  href: string,
+  search?: URLSearchParams | null
+) {
   if (pathname === href) return true
   if (href === "/dashboard") return false
+  // Cari öğeleri paylaşımlı route'a sahip; tek bir öğe aktif olmalı.
+  if (href === "/cari/musteri" || href === "/cari/tedarikci") {
+    return cariActiveHref(pathname, search) === href
+  }
   // Redirect eden bir nav öğesinin landing path'indeyiz: yalnızca o
   // alias'a ait href(ler) aktif olmalı. Aksi halde örn. /depolar/transfer
   // hem "Stok Transfer" (alias) hem de parent "Depo Listesi" (startsWith)

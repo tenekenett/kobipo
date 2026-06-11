@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { customerHasBusinessReferences } from "@/lib/cari/dual-role"
+import { getSupplierDeletability } from "@/lib/cari/archive-guard"
 
 
 export const dynamic = 'force-dynamic'
@@ -152,6 +153,8 @@ export async function GET(
       tx.balance = runningBalance
     })
 
+    const deletability = await getSupplierDeletability(supplier.id)
+
     return NextResponse.json({
       ...supplier,
       balance,
@@ -159,6 +162,7 @@ export async function GET(
       totalCredit: formattedTransactions.reduce((sum, t) => sum + t.credit, 0),
       invoiceCount: allInvoices.length,
       transactions: formattedTransactions,
+      deletability,
     })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
@@ -469,6 +473,19 @@ export async function DELETE(
 
     await ensureCompanyAccess(supplier.companyId)
 
+    const deletability = await getSupplierDeletability(supplier.id)
+    if (!deletability.canDelete) {
+      return NextResponse.json(
+        {
+          error: "Kayıt silinemiyor.",
+          code: "CANNOT_DELETE",
+          canArchive: deletability.canArchive,
+          reasons: deletability.deleteBlockReasons,
+        },
+        { status: 409 },
+      )
+    }
+
     await prisma.supplier.delete({
       where: { id: resolvedParams.id },
     })
@@ -479,6 +496,66 @@ export async function DELETE(
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
     console.error("Error deleting supplier:", error)
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
+}
+
+// Arşivle / arşivden çıkar. Body: { action: "archive" | "unarchive" }
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getCurrentUser()
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const resolvedParams = await params
+    const supplier = await prisma.supplier.findUnique({
+      where: { id: resolvedParams.id },
+    })
+
+    if (!supplier) {
+      return NextResponse.json({ error: "Supplier not found" }, { status: 404 })
+    }
+
+    await ensureCompanyAccess(supplier.companyId)
+
+    const body = await request.json().catch(() => ({}))
+    const action = body?.action === "unarchive" ? "unarchive" : "archive"
+
+    if (action === "archive") {
+      const deletability = await getSupplierDeletability(supplier.id)
+      if (!deletability.canArchive) {
+        return NextResponse.json(
+          {
+            error: "Kayıt arşivlenemiyor.",
+            code: "CANNOT_ARCHIVE",
+            reasons: deletability.archiveBlockReasons,
+          },
+          { status: 409 },
+        )
+      }
+    }
+
+    const updated = await prisma.supplier.update({
+      where: { id: resolvedParams.id },
+      data: { archivedAt: action === "archive" ? new Date() : null },
+    })
+
+    return NextResponse.json({
+      message: action === "archive" ? "Supplier archived" : "Supplier unarchived",
+      archivedAt: updated.archivedAt,
+    })
+  } catch (error: any) {
+    if (error.message.includes("Access denied")) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+    console.error("Error archiving supplier:", error)
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

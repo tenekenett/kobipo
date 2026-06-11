@@ -13,9 +13,10 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil } from "lucide-react"
+import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil, Archive, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { TransactionDialog } from "@/components/cari/transaction-dialog"
+import { CariArchiveDeleteDialog } from "@/components/cari/cari-archive-delete-dialog"
 
 interface Transaction {
   id: string
@@ -26,6 +27,13 @@ interface Transaction {
   credit: number
   balance: number
   invoiceNo?: string
+}
+
+interface Deletability {
+  canDelete: boolean
+  canArchive: boolean
+  deleteBlockReasons: string[]
+  archiveBlockReasons: string[]
 }
 
 interface CustomerSupplierDetail {
@@ -45,6 +53,8 @@ interface CustomerSupplierDetail {
   totalCredit: number
   invoiceCount: number
   transactions: Transaction[]
+  archivedAt?: string | null
+  deletability?: Deletability
 }
 
 interface FinancialAccount {
@@ -72,9 +82,68 @@ export default function CustomerSupplierDetailPage() {
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isTransactionDialogOpen, setIsTransactionDialogOpen] = useState(false)
+  const [cariAction, setCariAction] = useState<"archive" | "delete" | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
 
   const isCustomer = type === "customers"
   const entityLabel = isCustomer ? "Müşteri" : "Tedarikçi"
+  const endpoint = isCustomer ? "customers" : "suppliers"
+  // Arşivleme/silme sonrası dönülecek liste (ilgili sekme açık).
+  const listHref = `/cari?tab=${endpoint}&company=${companyId || ""}`
+
+  const performArchive = async () => {
+    if (!data) return
+    setIsProcessing(true)
+    try {
+      const res = await fetch(`/api/cari/${endpoint}/${id}?companyId=${companyId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "archive" }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({
+          title: "Arşivlenemedi",
+          description: (body.reasons && body.reasons.join(" ")) || body.error || "İşlem başarısız",
+          variant: "destructive",
+        })
+        return
+      }
+      toast({ title: "Arşivlendi", description: `${entityLabel} kaydı arşivlendi.` })
+      setCariAction(null)
+      router.push(listHref)
+    } catch (e: any) {
+      toast({ title: "Hata", description: e?.message || "Arşivleme sırasında hata", variant: "destructive" })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const performDelete = async () => {
+    if (!data) return
+    setIsProcessing(true)
+    try {
+      const res = await fetch(`/api/cari/${endpoint}/${id}?companyId=${companyId}`, {
+        method: "DELETE",
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({
+          title: "Silinemedi",
+          description: (body.reasons && body.reasons.join(" ")) || body.error || "İşlem başarısız",
+          variant: "destructive",
+        })
+        return
+      }
+      toast({ title: "Silindi", description: `${entityLabel} kaydı silindi.` })
+      setCariAction(null)
+      router.push(listHref)
+    } catch (e: any) {
+      toast({ title: "Hata", description: e?.message || "Silme sırasında hata", variant: "destructive" })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
 
   useEffect(() => {
     if (id && companyId) {
@@ -187,6 +256,19 @@ export default function CustomerSupplierDetailPage() {
               </Button>
             </a>
           )}
+          <Button variant="outline" size="sm" onClick={() => setCariAction("archive")}>
+            <Archive className="mr-2 h-4 w-4" />
+            Arşivle
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCariAction("delete")}
+            className="border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Sil
+          </Button>
         </div>
       </div>
 
@@ -367,7 +449,7 @@ export default function CustomerSupplierDetailPage() {
                     <TableCell>{tx.description}</TableCell>
                     <TableCell>
                       {tx.invoiceNo ? (
-                        <Link href={`/faturalar/${tx.id}/onizleme?company=${companyId}`} className="text-blue-600 hover:underline">
+                        <Link href={`/faturalar/${tx.id}/onizleme?company=${companyId}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`} className="text-blue-600 hover:underline">
                           {tx.invoiceNo}
                         </Link>
                       ) : "-"}
@@ -406,6 +488,18 @@ export default function CustomerSupplierDetailPage() {
           onSuccess={fetchData}
         />
       )}
+      <CariArchiveDeleteDialog
+        open={cariAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setCariAction(null)
+        }}
+        mode={cariAction ?? "archive"}
+        entityLabel={entityLabel}
+        deletability={data.deletability ?? null}
+        isProcessing={isProcessing}
+        onConfirmArchive={performArchive}
+        onConfirmDelete={performDelete}
+      />
     </div>
   )
 }

@@ -1,10 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useParams, useSearchParams } from "next/navigation"
+import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, ArrowLeft, Pencil, ShieldCheck, FileDown, Ban, Loader2, CheckCircle2, XCircle, Clock, AlertTriangle, Hash } from "lucide-react"
+import { Download, ArrowLeft, Pencil, ShieldCheck, FileDown, Ban, Loader2, CheckCircle2, XCircle, Clock, AlertTriangle, Hash, Building2, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
@@ -47,6 +47,7 @@ interface Invoice {
     sender: { name: string | null; taxNumber: string | null }
   } | null
   customer?: {
+    id: string
     name: string
     taxNumber?: string
     taxOffice?: string
@@ -54,6 +55,7 @@ interface Invoice {
     city?: string
   }
   supplier?: {
+    id: string
     name: string
     taxNumber?: string
     taxOffice?: string
@@ -84,9 +86,11 @@ interface Invoice {
 export default function FaturaOnizlemePage() {
   const params = useParams()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const invoiceId = params.id as string
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const [isDeleting, setIsDeleting] = useState(false)
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -290,6 +294,50 @@ export default function FaturaOnizlemePage() {
     }
   }
 
+  const handleDelete = async () => {
+    if (!invoice) return
+    if (
+      !confirm(
+        "Bu faturayı silmek/iptal etmek istediğinize emin misiniz? (Bu işlem stokları ve bakiyeleri geri alacaktır)",
+      )
+    ) {
+      return
+    }
+    setIsDeleting(true)
+    try {
+      const qs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""
+      const res = await fetch(`/api/e-donusum/invoices/${invoiceId}${qs}`, { method: "DELETE" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({
+          title: "Silinemedi",
+          description: data.error || "Fatura silinemedi",
+          variant: "destructive",
+        })
+        return
+      }
+      toast({ title: "Başarılı", description: "Fatura silindi." })
+      // Silindikten sonra fatura sayfasında kalma; geldiğin yere (cari ya da
+      // ilgili fatura listesine) dön.
+      const fromParam = searchParams.get("from")
+      const safeFrom = fromParam && fromParam.startsWith("/") ? fromParam : null
+      const target = safeFrom
+        ? `${safeFrom}${safeFrom.includes("?") ? "&" : "?"}company=${companyId || ""}`
+        : invoice.type === "PURCHASE"
+          ? `/alis/fatura?company=${companyId || ""}`
+          : `/satis/fatura?company=${companyId || ""}`
+      router.push(target)
+    } catch (e: any) {
+      toast({
+        title: "Hata",
+        description: e?.message || "Silme işlemi sırasında bir hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const handleSendEmail = async () => {
     const response = await fetch(`/api/faturalar/${invoiceId}/email`, {
       method: "POST",
@@ -361,13 +409,37 @@ export default function FaturaOnizlemePage() {
   const hasOfficialGibPdf =
     Boolean(invoice.uuid) &&
     (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE")
-  // Geri butonu: fatura tipine göre ilgili listeye dön. Gelen e-faturadan
-  // dönüştürülmüş olsa bile artık bir Alış Faturası — kullanıcı oradan açtığı
-  // için oraya dönmesi daha doğru.
-  const backHref =
-    invoice.type === "PURCHASE"
+  // Geri butonu: Faturaya bir cari kartından gelindiyse (`from` parametresi),
+  // o carinin detayına dön. Aksi halde fatura tipine göre ilgili listeye dön —
+  // gelen e-faturadan dönüştürülmüş olsa bile artık bir Alış Faturası.
+  const fromParam = searchParams.get("from")
+  const safeFrom = fromParam && fromParam.startsWith("/") ? fromParam : null
+  const backHref = safeFrom
+    ? `${safeFrom}${safeFrom.includes("?") ? "&" : "?"}company=${companyId || ""}`
+    : invoice.type === "PURCHASE"
       ? `/alis/fatura?company=${companyId || ""}`
       : `/satis/fatura?company=${companyId || ""}`
+
+  // Cariye git: alış faturasında tedarikçinin, diğerlerinde müşterinin kartına
+  // git. Faturaya doğrudan (cari dışından) gelinse bile cariye ulaşılabilsin.
+  // Ancak zaten bir cari kartından gelindiyse (Geri butonu cariye dönüyor)
+  // "Cariye Git" butonunu göstermeye gerek yok.
+  const cameFromCari = Boolean(safeFrom && safeFrom.startsWith("/cari/"))
+  const cari =
+    cameFromCari
+      ? null
+      : invoice.type === "PURCHASE"
+      ? invoice.supplier
+        ? { id: invoice.supplier.id, name: invoice.supplier.name, segment: "suppliers" as const }
+        : null
+      : invoice.customer
+        ? { id: invoice.customer.id, name: invoice.customer.name, segment: "customers" as const }
+        : null
+  // Cariye giderken `from` ile bu faturayı işaret et ki carideki "Geri" butonu
+  // (cari listesine değil) tekrar bu faturaya dönsün.
+  const cariHref = cari
+    ? `/cari/${cari.segment}/${cari.id}?company=${companyId || ""}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`
+    : null
 
   return (
     <div className="space-y-4">
@@ -379,6 +451,14 @@ export default function FaturaOnizlemePage() {
               Geri
             </Button>
           </Link>
+          {cariHref && cari && (
+            <Link href={cariHref}>
+              <Button variant="outline" size="sm" title={`${cari.name} cari kartına git`}>
+                <Building2 className="h-4 w-4 mr-2" />
+                Cariye Git
+              </Button>
+            </Link>
+          )}
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-3">
               {invoice.status === "DRAFT" ? "Fatura Önizleme" : "Fatura Detayı"}
@@ -500,6 +580,16 @@ export default function FaturaOnizlemePage() {
               )}
             </>
           )}
+          <Button
+            variant="outline"
+            onClick={handleDelete}
+            disabled={isDeleting}
+            title="Faturayı sil / iptal et (stok ve bakiyeler geri alınır)"
+            className="border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+          >
+            {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+            Sil
+          </Button>
         </div>
       </div>
 

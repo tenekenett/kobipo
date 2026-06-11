@@ -408,13 +408,28 @@ export async function DELETE(
 
     await ensureCompanyAccess(invoice.companyId)
 
-    // Sadece DRAFT (Taslak) veya iptal edilmiş faturaların silinmesine izin verebilirsin, 
-    // ama sistem yöneticisiysen her faturayı silebilirsin. Şimdilik sınır koymuyoruz, 
+    // Sadece DRAFT (Taslak) veya iptal edilmiş faturaların silinmesine izin verebilirsin,
+    // ama sistem yöneticisiysen her faturayı silebilirsin. Şimdilik sınır koymuyoruz,
     // ama istersen `if (invoice.status === 'SENT') return error` diyebilirsin.
 
     const safeType = String(invoice.type || "").trim().toUpperCase()
 
-    // 2. Stokları GERİ İADE ETME MANTIĞI
+    // 2. Stok geri iade hareketlerini ÜRÜN BAZINDA topla. Önceki sürüm her
+    // kalem için ayrı create+update (2 sorgu) yapıyordu; çok kalemli faturalarda
+    // istek çok yavaşlıyor ("cevap dönmüyor") ve hata anında yarım kalıyordu.
+    // Artık tek transaction içinde toplu yazıyoruz: hızlı ve atomik.
+    const stockMovements: Array<{
+      companyId: string
+      productId: string
+      type: string
+      quantity: number
+      unitPrice: any
+      description: string
+      reference: string
+      createdBy: string
+    }> = []
+    const productDelta = new Map<string, number>()
+
     for (const item of invoice.items) {
       const safeProductId = item.productId || null
       if (!safeProductId) continue // Ürün ID yoksa geç
@@ -435,64 +450,60 @@ export async function DELETE(
       }
 
       if (stockQuantityChange !== 0) {
-        try {
-          // Geri iade hareketi (StockMovement) oluştur
-          await prisma.stockMovement.create({
-            data: {
-              companyId: invoice.companyId,
-              productId: safeProductId,
-              type: moveType,
-              quantity: stockQuantityChange,
-              unitPrice: item.unitPrice ?? null,
-              description: `${invoice.invoiceNo} numaralı faturanın silinmesi (İptal)`,
-              reference: invoice.id,
-              createdBy: user.id,
-            },
-          })
+        stockMovements.push({
+          companyId: invoice.companyId,
+          productId: safeProductId,
+          type: moveType,
+          quantity: stockQuantityChange,
+          unitPrice: item.unitPrice ?? null,
+          description: `${invoice.invoiceNo} numaralı faturanın silinmesi (İptal)`,
+          reference: invoice.id,
+          createdBy: user.id,
+        })
+        productDelta.set(
+          safeProductId,
+          (productDelta.get(safeProductId) || 0) + stockQuantityChange,
+        )
+      }
+    }
 
-          // Ürünün mevcut stoğunu güncelle
-          await prisma.product.update({
-            where: { id: safeProductId },
-            data: {
-              stockQuantity: {
-                increment: stockQuantityChange,
-              },
-            },
-          })
-          
-        } catch (stockError) {
-          console.error(`[Stok İade Hatası] ${safeProductId} iade edilirken hata:`, stockError)
+    // 3-4. Tüm yan etkileri ve faturanın kendisini tek bir atomik transaction'da
+    // yürüt. Böylece yarım kalmış silme (hata sonrası bozuk durum) oluşmaz.
+    // InvoiceItem / InvoicePayment / PaymentLink / Waybill kayıtları şemada
+    // onDelete: Cascade ile tanımlı olduğu için fatura silinince otomatik gider.
+    try {
+      await prisma.$transaction(async (tx) => {
+        if (stockMovements.length > 0) {
+          await tx.stockMovement.createMany({ data: stockMovements })
+          await Promise.all(
+            Array.from(productDelta.entries()).map(([productId, delta]) =>
+              tx.product.update({
+                where: { id: productId },
+                data: { stockQuantity: { increment: delta } },
+              }),
+            ),
+          )
         }
-      }
-    }
 
-    // 3. İlgili otomatik muhasebe fişlerini (AccountingEntry) sil (varsa)
-    // Otomatik muhasebe fişlerini 'reference' ve 'referenceType' ile bulup temizleyebiliriz
-    try {
-       await prisma.accountingEntry.deleteMany({
-          where: { 
-             companyId: invoice.companyId,
-             reference: invoice.id,
-             referenceType: { in: ["INVOICE_AUTO", "INVOICE_AUTO_VAT"] }
-          }
-       });
-    } catch(accError) {
-       console.log("Muhasebe fişi silinirken hata veya fiş yok:", accError);
-    }
+        // İlgili otomatik muhasebe fişlerini (AccountingEntry) sil (varsa).
+        await tx.accountingEntry.deleteMany({
+          where: {
+            companyId: invoice.companyId,
+            reference: invoice.id,
+            referenceType: { in: ["INVOICE_AUTO", "INVOICE_AUTO_VAT"] },
+          },
+        })
 
-    // 4. Son olarak Faturayı veritabanından tamamen sil
-    // Çift tıklama / ağ gecikmesi durumunda uygulamanın çökmemesi için try-catch
-    try {
-      await prisma.invoice.delete({
-        where: { id: invoiceId },
-      });
+        // Son olarak faturayı sil (bağlı kayıtlar cascade ile temizlenir).
+        await tx.invoice.delete({ where: { id: invoiceId } })
+      })
     } catch (deleteError: any) {
-      if (deleteError.code === 'P2025') {
-        console.warn(`[Silme Uyarısı] Fatura zaten silinmiş veya bulunamadı. ID: ${invoiceId}`);
-        // Fatura zaten yoksa, stok hareketlerini de yapıp yapmadığımıza bakmaksızın başarılı dönüyoruz
-        return NextResponse.json({ success: true, message: "Fatura zaten silinmiş." });
+      if (deleteError?.code === "P2025") {
+        // Fatura zaten silinmiş (çift tıklama / yarış durumu): başarı say.
+        console.warn(`[Silme Uyarısı] Fatura zaten silinmiş veya bulunamadı. ID: ${invoiceId}`)
+        return NextResponse.json({ success: true, message: "Fatura zaten silinmiş." })
       }
-      throw deleteError; // Eğer P2025 (kayıt yok) dışında bir hataysa yukarıya fırlat
+      throw deleteError
     }
 
     return NextResponse.json({ success: true, message: "Fatura ve stok hareketleri silindi/geri alındı." })

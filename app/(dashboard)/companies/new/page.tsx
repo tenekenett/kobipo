@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,6 +10,11 @@ import { useToast } from "@/components/ui/use-toast"
 
 export default function NewCompanyPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Şube Yönetimi'nden "Yeni Şube" ile gelindiğinde mode=branch olur. Bu durumda
+  // bu, kullanıcının ilk firması değil ek bir şube; profil/onboarding sihirbazını
+  // çalıştırmadan oluşturup şube listesine döneriz.
+  const isBranch = searchParams.get("mode") === "branch"
   const { toast } = useToast()
   const [formData, setFormData] = useState({
     name: "",
@@ -56,11 +61,17 @@ export default function NewCompanyPage() {
       }
 
       toast({
-        title: "Başarılı",
-        description: "Firma başarıyla oluşturuldu",
+        title: isBranch ? "Şube eklendi" : "Başarılı",
+        description: isBranch ? "Yeni şube başarıyla eklendi" : "Firma başarıyla oluşturuldu",
       })
 
-      router.push(`/companies/onboarding?company=${data.id}`)
+      // Şube: onboarding sihirbazını atla, yeni şube aktif olacak şekilde Şube
+      // Yönetimi'ne dön. Yeni firma (ilk kurulum): profil sihirbazına git.
+      if (isBranch) {
+        router.push(`/ayarlar/subeler?company=${data.id}`)
+      } else {
+        router.push(`/companies/onboarding?company=${data.id}`)
+      }
     } catch (error: any) {
       toast({
         title: "Hata",
@@ -76,9 +87,11 @@ export default function NewCompanyPage() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-2xl">
         <CardHeader>
-          <CardTitle>Yeni Firma Oluştur</CardTitle>
+          <CardTitle>{isBranch ? "Yeni Şube Ekle" : "Yeni Firma Oluştur"}</CardTitle>
           <CardDescription>
-            İlk firmanızı oluşturmak için bilgileri doldurun
+            {isBranch
+              ? "Yeni şubenin bilgilerini doldurun. Şube, erişiminizdeki firma/şube listesine eklenir."
+              : "İlk firmanızı oluşturmak için bilgileri doldurun"}
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
@@ -154,7 +167,13 @@ export default function NewCompanyPage() {
           </CardContent>
           <CardFooter>
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Oluşturuluyor..." : "Firma Oluştur"}
+              {isBranch
+                ? isLoading
+                  ? "Ekleniyor..."
+                  : "Şube Ekle"
+                : isLoading
+                  ? "Oluşturuluyor..."
+                  : "Firma Oluştur"}
             </Button>
           </CardFooter>
         </form>

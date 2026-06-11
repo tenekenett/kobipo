@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import { signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/ui/Logo"
@@ -14,6 +14,7 @@ import { useDashboardCompany } from "@/components/dashboard/dashboard-company-pr
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
 export function DashboardNav() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [pendingHref, setPendingHref] = useState<string | null>(null)
   const { userRole, selectedCompany } = useDashboardCompany()
@@ -69,12 +70,12 @@ export function DashboardNav() {
     setNavGroupClosed(() => {
       const next: Record<string, boolean> = {}
       for (const group of groupedItems) {
-        const hasActive = group.items.some((item) => navItemActive(pathname, item.href))
+        const hasActive = group.items.some((item) => navItemActive(pathname, item.href, searchParams))
         next[group.title] = !hasActive
       }
       return next
     })
-  }, [pathname, groupedItems])
+  }, [pathname, groupedItems, searchParams])
 
   useEffect(() => {
     setPendingHref(null)
@@ -141,7 +142,7 @@ export function DashboardNav() {
                   <div className="space-y-0.5 border-t border-white/10 px-1.5 py-2">
                     {group.items.map((item: any) => {
                       const Icon = item.icon
-                      const isActive = navItemActive(pathname, item.href)
+                      const isActive = navItemActive(pathname, item.href, searchParams)
 
                       return (
                         <Link
@@ -173,7 +174,7 @@ export function DashboardNav() {
               <div className="mt-2 space-y-0.5 border-t border-white/10 pt-3">
                 {standaloneItems.map((item) => {
                   const Icon = item.icon
-                  const isActive = navItemActive(pathname, item.href)
+                  const isActive = navItemActive(pathname, item.href, searchParams)
                   return (
                     <Link
                       key={item.href}
@@ -246,7 +247,7 @@ export function DashboardNav() {
                     <div className="space-y-0.5 border-t border-kobipo-border px-1 py-2 dark:border-border">
                       {group.items.map((item: any) => {
                         const Icon = item.icon
-                        const isActive = navItemActive(pathname, item.href)
+                        const isActive = navItemActive(pathname, item.href, searchParams)
 
                         return (
                           <Link
@@ -281,7 +282,7 @@ export function DashboardNav() {
                 <div className="border-t border-kobipo-border pt-2 space-y-0.5 dark:border-border">
                   {standaloneItems.map((item) => {
                     const Icon = item.icon
-                    const isActive = navItemActive(pathname, item.href)
+                    const isActive = navItemActive(pathname, item.href, searchParams)
                     return (
                       <Link
                         key={item.href}

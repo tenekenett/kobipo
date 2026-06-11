@@ -159,6 +159,34 @@ function openingBalanceToAgingItem(
   }
 }
 
+/**
+ * Faturaya bağlanmamış serbest tahsilat/ödeme havuzunu (ör. cari ekranındaki
+ * "Tahsilat Ekle" ile girilen INCOME işlemi) açık fatura kalemlerine eskiden
+ * yeniye (FIFO) uygular. Böylece hesap bakiyesi kapanmışsa yaşlandırma da açık
+ * göstermez. Havuz tutarı pozitif değilse bir şey yapmaz.
+ */
+function applyUnallocatedCredits(items: AgingInvoice[], pool: number) {
+  if (!(pool > 0)) return
+  let remaining = pool
+  // Vadesi en eski kalemden başlayarak kapat.
+  const ordered = [...items].sort(
+    (a, b) => a.effectiveDueDate.getTime() - b.effectiveDueDate.getTime(),
+  )
+  for (const item of ordered) {
+    if (remaining <= 0) break
+    if (item.openAmount <= 0) continue
+    const applied = Math.min(item.openAmount, remaining)
+    item.openAmount = round2(item.openAmount - applied)
+    remaining = round2(remaining - applied)
+    if (item.openAmount <= 0) {
+      // Tamamen tahsil edildi: artık açık/gecikmiş değil.
+      item.openAmount = 0
+      item.overdueDays = 0
+      item.bucket = "not_due"
+    }
+  }
+}
+
 function summarize(invoices: AgingInvoice[]): AgingTotals {
   const totals = emptyTotals()
   let overdueWeightedDays = 0
@@ -232,6 +260,9 @@ export async function GET(request: Request) {
             payments: { select: { amount: true, paymentDate: true } },
           },
         },
+        // Faturaya bağlanmamış serbest tahsilat/ödeme işlemleri (Tahsilat Ekle →
+        // INCOME). Açık faturaları kapatmak için kullanılır.
+        transactions: { select: { type: true, amount: true } },
       },
       orderBy: { name: "asc" },
     })
@@ -258,6 +289,8 @@ export async function GET(request: Request) {
             payments: { select: { amount: true, paymentDate: true } },
           },
         },
+        // Faturaya bağlanmamış serbest ödeme işlemleri (Ödeme Ekle → EXPENSE).
+        transactions: { select: { type: true, amount: true } },
       },
       orderBy: { name: "asc" },
     })
@@ -269,6 +302,14 @@ export async function GET(request: Request) {
           .filter((x): x is AgingInvoice => Boolean(x))
         const openingItem = openingBalanceToAgingItem(c, today)
         if (openingItem) analyzed.push(openingItem)
+        // Müşteride INCOME tahsilatları alacağı azaltır, EXPENSE artırır.
+        const incomeSum = c.transactions
+          .filter((t) => t.type === "INCOME")
+          .reduce((s, t) => s + Number(t.amount), 0)
+        const expenseSum = c.transactions
+          .filter((t) => t.type === "EXPENSE")
+          .reduce((s, t) => s + Number(t.amount), 0)
+        applyUnallocatedCredits(analyzed, round2(incomeSum - expenseSum))
         const invoices = analyzed.filter((inv) => inv.openAmount > 0)
         return {
           id: c.id,
@@ -289,6 +330,14 @@ export async function GET(request: Request) {
           .filter((x): x is AgingInvoice => Boolean(x))
         const openingItem = openingBalanceToAgingItem(s, today)
         if (openingItem) analyzed.push(openingItem)
+        // Tedarikçide EXPENSE ödemeleri borcu azaltır, INCOME artırır.
+        const incomeSum = s.transactions
+          .filter((t) => t.type === "INCOME")
+          .reduce((sum, t) => sum + Number(t.amount), 0)
+        const expenseSum = s.transactions
+          .filter((t) => t.type === "EXPENSE")
+          .reduce((sum, t) => sum + Number(t.amount), 0)
+        applyUnallocatedCredits(analyzed, round2(expenseSum - incomeSum))
         const invoices = analyzed.filter((inv) => inv.openAmount > 0)
         return {
           id: s.id,

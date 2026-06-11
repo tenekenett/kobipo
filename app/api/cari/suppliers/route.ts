@@ -77,6 +77,7 @@ export async function GET(request: Request) {
         SELECT s.*
         FROM suppliers s
         WHERE s."companyId" = ${companyId}
+          AND s."archivedAt" IS NULL
           ${hasSearch
             ? Prisma.sql`AND (
               s.name ILIKE ${searchLike}
@@ -163,6 +164,7 @@ export async function GET(request: Request) {
             SELECT COUNT(*) AS total_count
             FROM suppliers s
             WHERE s."companyId" = ${companyId}
+            AND s."archivedAt" IS NULL
             ${hasSearch
               ? Prisma.sql`AND (
                 s.name ILIKE ${searchLike}

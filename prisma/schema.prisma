@@ -228,6 +228,7 @@ model Customer {
   authorizedUserId String?
   isAlsoSupplier Boolean @default(false)
   linkedSupplierId String?
+  archivedAt  DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -247,6 +248,7 @@ model Customer {
   @@unique([linkedSupplierId])
   @@index([companyId])
   @@index([companyId, name])
+  @@index([companyId, archivedAt])
   @@index([classification1Id])
   @@index([classification2Id])
   @@index([authorizedUserId])
@@ -277,6 +279,7 @@ model Supplier {
   authorizedUserId String?
   isAlsoCustomer Boolean @default(false)
   linkedCustomerId String?
+  archivedAt  DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -294,6 +297,7 @@ model Supplier {
 
   @@index([companyId])
   @@index([companyId, name])
+  @@index([companyId, archivedAt])
   @@index([classification1Id])
   @@index([classification2Id])
   @@index([authorizedUserId])
