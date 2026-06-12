@@ -179,10 +179,12 @@ export async function GET(request: Request) {
     ])
 
     const suppliersWithBalance = suppliers.map((row) => {
+      // Tedarikçide ödeme (EXPENSE) borcu azaltır, tahsilat (INCOME) artırır —
+      // müşteri formülünün simetriği (bkz. suppliers/[id]/route.ts).
       const balance =
         Number(row.invoiceTotal || 0) -
-        Number(row.paymentTotal || 0) +
-        Number(row.expenseTotal || 0) -
+        Number(row.paymentTotal || 0) -
+        Number(row.expenseTotal || 0) +
         Number(row.incomeTotal || 0) +
         (row.openingBalanceType === "CREDIT"
           ? -Number(row.openingBalanceAmount || 0)

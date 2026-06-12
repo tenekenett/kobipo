@@ -134,8 +134,12 @@ export async function GET(request: Request) {
         id: trx.id,
         date: trx.date,
         description: trx.description || `${trx.type} - ${trx.account.name}`,
-        debit: trx.type === "INCOME" ? Number(trx.amount) : 0,
-        credit: trx.type === "EXPENSE" ? Number(trx.amount) : 0,
+        // Cari ekstrede ödeme (EXPENSE) cariyi borçlandırır → BORÇ sütunu;
+        // tahsilat (INCOME) cariyi alacaklandırır → ALACAK sütunu. Fatura tarafıyla
+        // tutarlı (SALES→borç, PURCHASE→alacak): müşteri tahsilatı bakiyeyi azaltır,
+        // tedarikçi ödemesi borcu azaltır.
+        debit: trx.type === "EXPENSE" ? Number(trx.amount) : 0,
+        credit: trx.type === "INCOME" ? Number(trx.amount) : 0,
         balance: 0,
         reference: trx.reference,
         data: trx,

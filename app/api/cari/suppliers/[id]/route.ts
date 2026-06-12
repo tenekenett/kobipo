@@ -96,11 +96,14 @@ export async function GET(
       }
     })
 
+    // Tedarikçide ödeme (EXPENSE → kasadan çıkan) borcu AZALTIR; tahsilat
+    // (INCOME → tedarikçiden gelen, ör. iade) borcu ARTIRIR. Bu, müşteri
+    // formülünün simetriğidir; işaretler tedarikçide terstir.
     transactions.forEach((trx) => {
       if (trx.type === "EXPENSE") {
-        balance += Number(trx.amount)
-      } else {
         balance -= Number(trx.amount)
+      } else if (trx.type === "INCOME") {
+        balance += Number(trx.amount)
       }
     })
     balance +=
@@ -144,8 +147,10 @@ export async function GET(
         date: trx.date.toISOString(),
         type: trx.type === "EXPENSE" ? "PAYMENT" : "INCOME",
         description: trx.description || `${trx.type} - ${trx.account?.name || ""}`,
+        // Ekstrede yürüyen bakiye `credit - debit` ile hesaplanır: ödeme (EXPENSE)
+        // borç sütunu → borcu azaltır, tahsilat (INCOME) alacak sütunu → artırır.
         debit: trx.type === "EXPENSE" ? Number(trx.amount) : 0,
-        credit: 0,
+        credit: trx.type === "INCOME" ? Number(trx.amount) : 0,
         balance: 0,
         invoiceNo: null,
       })),

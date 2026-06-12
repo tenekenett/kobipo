@@ -95,11 +95,20 @@ async function computeDeletability(
       ? -Number(entity?.openingBalanceAmount || 0)
       : Number(entity?.openingBalanceAmount || 0)
 
+  const incomeSum = Number(incomeAgg._sum.amount || 0)
+  const expenseSum = Number(expenseAgg._sum.amount || 0)
+
+  // Müşteride EXPENSE (ör. iade) bakiyeyi ARTIRIR / INCOME (tahsilat) AZALTIR.
+  // Tedarikçide simetrik tersi: EXPENSE (ödeme) borcu AZALTIR / INCOME ARTIRIR.
+  // (Eskiden her iki cari için müşteri işareti kullanılıyordu; tedarikçide ödeme
+  // bakiyeyi yanlışça artırıyordu — bkz. collectionPool zaten doğru terslemişti.)
+  const transactionSigned =
+    kind === "customer" ? expenseSum - incomeSum : incomeSum - expenseSum
+
   const balance =
     Number(invoiceAgg._sum.totalAmount || 0) -
     Number(paymentAgg._sum.amount || 0) +
-    Number(expenseAgg._sum.amount || 0) -
-    Number(incomeAgg._sum.amount || 0) +
+    transactionSigned +
     openingSigned
 
   const hasOpenBalance = Math.abs(balance) >= EPSILON
@@ -112,8 +121,6 @@ async function computeDeletability(
     const paid = inv.payments.reduce((s, p) => s + Number(p.amount), 0)
     return sum + Math.max(0, Number(inv.totalAmount) - paid)
   }, 0)
-  const incomeSum = Number(incomeAgg._sum.amount || 0)
-  const expenseSum = Number(expenseAgg._sum.amount || 0)
   // Serbest (faturaya bağlanmamış) tahsilat havuzu. İşleme bağlı ödemeler hem
   // invoiceOpenSum'dan düşüldüğü için havuzdan da çıkarılır (çift düşmeyi önler).
   const linkedPaymentSum = Number(linkedPaymentAgg._sum.amount || 0)
