@@ -41,24 +41,24 @@ export default function OnboardingCompletePage() {
     <div className="flex min-h-[70vh] items-center justify-center p-4">
       <Card className="w-full max-w-xl">
         <CardHeader>
-          <CardTitle>Artik kullanima baslamaniz icin yonlendiriyoruz</CardTitle>
+          <CardTitle>Artık kullanıma başlamanız için yönlendiriyoruz</CardTitle>
           <CardDescription>
-            Sizi ana dashboard ekranina hazirliyoruz. Bu islem otomatik olarak tamamlanacak.
+            Sizi ana dashboard ekranına hazırlıyoruz. Bu işlem otomatik olarak tamamlanacak.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
             {countdown > 0
-              ? `${countdown} saniye sonra dashboard ekranina gecilecek.`
-              : "Yonlendirme yapiliyor..."}
+              ? `${countdown} saniye sonra dashboard ekranına geçilecek.`
+              : "Yönlendirme yapılıyor..."}
           </p>
           <p className="text-sm text-muted-foreground">
-            Eger beklemek istemezseniz asagidaki butona tiklayarak hemen devam edebilirsiniz.
+            Eğer beklemek istemezseniz aşağıdaki butona tıklayarak hemen devam edebilirsiniz.
           </p>
         </CardContent>
         <CardFooter className="justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => router.push("/dashboard")}>
-            Dashboarda Don
+            Dashboard'a Dön
           </Button>
           <Button type="button" onClick={handleManualRefreshAndContinue}>
             Yenile ve Devam Et

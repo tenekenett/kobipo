@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
+import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
 import { Recaptcha } from "@/components/auth/recaptcha"
@@ -15,6 +16,8 @@ import {
   ArrowRight,
   Loader2,
   UserPlus,
+  Check,
+  Circle,
 } from "lucide-react"
 
 const RECAPTCHA_ENABLED = Boolean(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY)
@@ -107,9 +110,26 @@ export default function SignUpPage() {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || "Kayıt başarısız")
 
+      // Kayıttan sonra otomatik giriş. reCAPTCHA kapalıysa (RECAPTCHA_SECRET_KEY
+      // tanımsız) sorunsuz çalışır. reCAPTCHA açıksa token tek kullanımlık olduğu
+      // için (signup'ta tüketildi) otomatik giriş başarısız olur → giriş sayfasına
+      // düşeriz.
+      const signInResult = await signIn("credentials", {
+        email: formData.email.trim().toLowerCase(),
+        password: formData.password,
+        signupToken: data.signupToken ?? "",
+        redirect: false,
+      })
+
+      if (signInResult && !signInResult.error) {
+        toast({ title: "Hoş geldin!", description: "Hesabın oluşturuldu, giriş yapıldı." })
+        router.replace("/dashboard")
+        return
+      }
+
       toast({
-        title: "Başarılı",
-        description: "Hesabınız oluşturuldu. Giriş yapabilirsiniz.",
+        title: "Hesabın oluşturuldu",
+        description: "Lütfen giriş yapın.",
       })
       router.push("/signin")
     } catch (error: any) {
@@ -143,6 +163,14 @@ export default function SignUpPage() {
         : strength === 3
           ? "bg-sky-500"
           : "bg-emerald-500"
+
+  // Şifre kuralları — her biri canlı kontrol edilir, sağlanınca yeşile döner.
+  const passwordChecks = [
+    { label: "En az 8 karakter", ok: pw.length >= 8 },
+    { label: "Bir büyük harf (A-Z)", ok: /[A-Z]/.test(pw) },
+    { label: "Bir rakam (0-9)", ok: /\d/.test(pw) },
+    { label: "Bir özel karakter (örn. !@#$)", ok: /[^A-Za-z0-9]/.test(pw) },
+  ]
 
   return (
     <div
@@ -255,9 +283,24 @@ export default function SignUpPage() {
                   />
                 ))}
               </div>
-              <p className="mt-1 text-[11px] text-kobipo-gray">
-                {strengthLabel} · En az 8 karakter, bir büyük harf, bir rakam, bir özel karakter
-              </p>
+              <p className="mt-1 text-[11px] font-semibold text-kobipo-gray">{strengthLabel}</p>
+              <ul className="mt-1.5 grid grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-2">
+                {passwordChecks.map((c) => (
+                  <li
+                    key={c.label}
+                    className={`flex items-center gap-1.5 text-[11px] transition-colors ${
+                      c.ok ? "font-medium text-emerald-600" : "text-kobipo-gray"
+                    }`}
+                  >
+                    {c.ok ? (
+                      <Check className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <Circle className="h-2.5 w-2.5 shrink-0 opacity-60" />
+                    )}
+                    {c.label}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>

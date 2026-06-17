@@ -220,10 +220,17 @@ export default function CustomerSupplierDetailPage() {
   // çeviriyoruz; her satır kendi (o tarihteki) bakiyesini korur.
   const orderedTransactions = [...data.transactions].reverse()
 
-  // Bakiye etiketi şirket gözünden ("lehimize mi?"). Müşteride pozitif bakiye =
-  // müşteri bize borçlu = bizim alacağımız (lehimize). Tedarikçide ise pozitif
-  // bakiye = biz ona borçluyuz (aleyhimize); o yüzden işaret tersine çevrilir.
+  // Renk şirket gözünden ("lehimize mi?"). Müşteride pozitif bakiye = müşteri bize
+  // borçlu = bizim alacağımız (lehimize, yeşil). Tedarikçide ise pozitif bakiye =
+  // biz ona borçluyuz (aleyhimize); o yüzden işaret tersine çevrilir.
   const balanceFavorable = isCustomer ? data.balance >= 0 : data.balance <= 0
+
+  // Etiket cari hesabın kendi durumunu anlatır (ekstre ve Toplam Borç/Alacak ile
+  // aynı perspektif). Müşteride pozitif bakiye = müşteri "Borçlu"; tedarikçide
+  // pozitif bakiye = biz ona borçluyuz, yani tedarikçi "Alacaklı".
+  const cariOwesUs = isCustomer ? data.balance > 0 : data.balance < 0
+  const balanceLabel =
+    data.balance === 0 ? "Kapalı" : cariOwesUs ? "Borçlu" : "Alacaklı"
 
   return (
     <div className="space-y-6">
@@ -289,7 +296,7 @@ export default function CustomerSupplierDetailPage() {
               {formatCurrency(data.balance)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {balanceFavorable ? "Alacaklı" : "Borçlu"}
+              {balanceLabel}
             </p>
           </CardContent>
         </Card>
@@ -448,6 +455,10 @@ export default function CustomerSupplierDetailPage() {
                         {tx.type === "INVOICE" ? "Fatura" :
                          tx.type === "PAYMENT" ? "Ödeme" :
                          tx.type === "OPENING" ? "Açılış" :
+                         tx.type === "EXPENSE" ? "Gider" :
+                         tx.type === "INCOME" ? "Tahsilat" :
+                         tx.type === "CHECK" ? "Çek" :
+                         tx.type === "NOTE" ? "Senet" :
                          tx.type}
                       </span>
                     </TableCell>

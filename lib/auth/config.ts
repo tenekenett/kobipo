@@ -11,17 +11,38 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
-        captchaToken: { label: "Captcha", type: "text" }
+        captchaToken: { label: "Captcha", type: "text" },
+        signupToken: { label: "Signup Token", type: "text" }
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
           return null
         }
 
+        // Kayıt sonrası otomatik giriş: signup'ta üretilen tek kullanımlık jeton
+        // geçerliyse captcha atlanır (kullanıcı zaten signup'ta captcha'dan geçti).
+        // Jeton tek kullanımlık ve kısa ömürlüdür; şifre yine de doğrulanır.
+        let captchaBypass = false
+        if (credentials.signupToken) {
+          const vt = await prisma.verificationToken.findFirst({
+            where: {
+              identifier: credentials.email,
+              token: credentials.signupToken,
+              expires: { gt: new Date() },
+            },
+          })
+          if (vt) {
+            captchaBypass = true
+            await prisma.verificationToken.delete({ where: { token: vt.token } }).catch(() => {})
+          }
+        }
+
         // Bot koruması: reCAPTCHA doğrulaması (anahtar tanımlıysa zorunlu).
-        const captchaOk = await verifyRecaptcha(credentials.captchaToken)
-        if (!captchaOk) {
-          return null
+        if (!captchaBypass) {
+          const captchaOk = await verifyRecaptcha(credentials.captchaToken)
+          if (!captchaOk) {
+            return null
+          }
         }
 
         try {

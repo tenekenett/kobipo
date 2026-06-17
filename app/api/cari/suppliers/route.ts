@@ -98,6 +98,7 @@ export async function GET(request: Request) {
         FROM invoices i
         INNER JOIN paged_suppliers ps ON ps.id = i."supplierId"
         WHERE i.type = 'PURCHASE'
+          AND i.status <> 'CANCELLED'
         GROUP BY i."supplierId"
       ),
       payment_totals AS (
@@ -106,6 +107,7 @@ export async function GET(request: Request) {
         INNER JOIN invoices inv ON inv.id = ip."invoiceId"
         INNER JOIN paged_suppliers ps ON ps.id = inv."supplierId"
         WHERE inv.type = 'PURCHASE'
+          AND inv.status <> 'CANCELLED'
           AND ip."transactionId" IS NULL
         GROUP BY inv."supplierId"
       ),
@@ -122,6 +124,21 @@ export async function GET(request: Request) {
         INNER JOIN paged_suppliers ps ON ps.id = t."supplierId"
         WHERE t.type = 'EXPENSE'
         GROUP BY t."supplierId"
+      ),
+      check_note_totals AS (
+        -- Tedarikçide verilen (GIVEN/null) çek borcu azaltır (+); alınan (RECEIVED, iade) artırır (−).
+        SELECT cn."supplierId", SUM(cn.amount) AS amount_sum
+        FROM (
+          SELECT ch."supplierId", (CASE WHEN ch.direction = 'RECEIVED' THEN -ch.amount ELSE ch.amount END) AS amount
+          FROM checks ch
+          WHERE ch.status NOT IN ('İADE_EDİLDİ', 'PROTESTOLU')
+          UNION ALL
+          SELECT n."supplierId", (CASE WHEN n.direction = 'RECEIVED' THEN -n.amount ELSE n.amount END) AS amount
+          FROM promissory_notes n
+          WHERE n.status NOT IN ('İADE_EDİLDİ', 'PROTESTOLU')
+        ) cn
+        INNER JOIN paged_suppliers ps ON ps.id = cn."supplierId"
+        GROUP BY cn."supplierId"
       )
       SELECT
         ps.id,
@@ -152,12 +169,14 @@ export async function GET(request: Request) {
         COALESCE(CAST(i.total_amount_sum AS NUMERIC), 0) AS "invoiceTotal",
         COALESCE(CAST(p.payment_amount_sum AS NUMERIC), 0) AS "paymentTotal",
         COALESCE(CAST(t_in.amount_sum AS NUMERIC), 0) AS "incomeTotal",
-        COALESCE(CAST(t_ex.amount_sum AS NUMERIC), 0) AS "expenseTotal"
+        COALESCE(CAST(t_ex.amount_sum AS NUMERIC), 0) AS "expenseTotal",
+        COALESCE(CAST(cn.amount_sum AS NUMERIC), 0) AS "checkNoteTotal"
       FROM paged_suppliers ps
       LEFT JOIN invoice_totals i ON i."supplierId" = ps.id
       LEFT JOIN payment_totals p ON p."supplierId" = ps.id
       LEFT JOIN income_totals t_in ON t_in."supplierId" = ps.id
       LEFT JOIN expense_totals t_ex ON t_ex."supplierId" = ps.id
+      LEFT JOIN check_note_totals cn ON cn."supplierId" = ps.id
       ORDER BY ps.name ASC
     `),
       usePagination
@@ -185,12 +204,16 @@ export async function GET(request: Request) {
         Number(row.invoiceTotal || 0) -
         Number(row.paymentTotal || 0) -
         Number(row.expenseTotal || 0) +
-        Number(row.incomeTotal || 0) +
+        Number(row.incomeTotal || 0) -
+        // Tedarikçiye verilen çek/senet (iade/protesto hariç) borcumuzu azaltır.
+        Number(row.checkNoteTotal || 0) +
+        // Aynalı işaret (bkz. suppliers/[id]/route.ts): CREDIT (Alacak) bakiyeyi
+        // artırır, DEBIT (Borç/avans) azaltır.
         (row.openingBalanceType === "CREDIT"
-          ? -Number(row.openingBalanceAmount || 0)
-          : Number(row.openingBalanceAmount || 0))
+          ? Number(row.openingBalanceAmount || 0)
+          : -Number(row.openingBalanceAmount || 0))
 
-      const { invoiceTotal, paymentTotal, incomeTotal, expenseTotal, ...supplier } = row
+      const { invoiceTotal, paymentTotal, incomeTotal, expenseTotal, checkNoteTotal, ...supplier } = row
       return {
         ...supplier,
         balance,

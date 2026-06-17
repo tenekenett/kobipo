@@ -5,6 +5,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
+import { revertInvoiceStock } from "@/lib/stock/warehouse"
 
 export const dynamic = "force-dynamic"
 
@@ -32,6 +33,7 @@ export async function POST(
         uuid: true,
         status: true,
         invoiceType: true,
+        invoiceNo: true,
         createdAt: true,
       },
     })
@@ -121,12 +123,23 @@ export async function POST(
       )
     }
 
-    await prisma.invoice.update({
-      where: { id: invoice.id },
-      data: {
-        status: "CANCELLED",
-        integrationStatus: "CANCELLED:IPTAL_EDILDI",
-      },
+    // Sağlayıcı iptali başarılı: stoğu geri al ve durumu CANCELLED yap (atomik).
+    // Bakiye ayrıca otomatik düzelir: cari bakiye/ekstre sorguları CANCELLED
+    // faturaları (ve onlara bağlı InvoicePayment'ları) zaten hariç tutuyor.
+    await prisma.$transaction(async (tx) => {
+      await revertInvoiceStock(tx, {
+        companyId: invoice.companyId,
+        invoiceId: invoice.id,
+        invoiceNo: invoice.invoiceNo,
+        createdBy: user.id,
+      })
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          status: "CANCELLED",
+          integrationStatus: "CANCELLED:IPTAL_EDILDI",
+        },
+      })
     })
 
     return NextResponse.json({

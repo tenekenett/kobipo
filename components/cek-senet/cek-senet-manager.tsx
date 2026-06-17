@@ -51,6 +51,7 @@ interface Check {
   issueDate: string
   dueDate: string
   status: string
+  direction?: string | null
   customer?: { id: string; name: string }
   supplier?: { id: string; name: string }
 }
@@ -62,6 +63,7 @@ interface PromissoryNote {
   issueDate: string
   dueDate: string
   status: string
+  direction?: string | null
   customer?: { id: string; name: string }
   supplier?: { id: string; name: string }
 }
@@ -122,6 +124,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
     issueDate: new Date().toISOString().split("T")[0],
     dueDate: "",
     status: "PORTFÖYDE",
+    cariType: "",
+    direction: "",
     customerId: "",
     supplierId: "",
     notes: "",
@@ -133,6 +137,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
     issueDate: new Date().toISOString().split("T")[0],
     dueDate: "",
     status: "PORTFÖYDE",
+    cariType: "",
+    direction: "",
     customerId: "",
     supplierId: "",
     notes: "",
@@ -284,6 +290,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
         issueDate: new Date((item as Check).issueDate).toISOString().split("T")[0],
         dueDate: new Date((item as Check).dueDate).toISOString().split("T")[0],
         status: (item as Check).status,
+        cariType: (item as Check).customer?.id ? "customer" : (item as Check).supplier?.id ? "supplier" : "",
+        direction: (item as Check).direction || ((item as Check).supplier?.id ? "GIVEN" : "RECEIVED"),
         customerId: (item as Check).customer?.id || "",
         supplierId: (item as Check).supplier?.id || "",
         notes: "",
@@ -295,6 +303,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
         issueDate: new Date((item as PromissoryNote).issueDate).toISOString().split("T")[0],
         dueDate: new Date((item as PromissoryNote).dueDate).toISOString().split("T")[0],
         status: (item as PromissoryNote).status,
+        cariType: (item as PromissoryNote).customer?.id ? "customer" : (item as PromissoryNote).supplier?.id ? "supplier" : "",
+        direction: (item as PromissoryNote).direction || ((item as PromissoryNote).supplier?.id ? "GIVEN" : "RECEIVED"),
         customerId: (item as PromissoryNote).customer?.id || "",
         supplierId: (item as PromissoryNote).supplier?.id || "",
         notes: "",
@@ -313,6 +323,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
       issueDate: new Date().toISOString().split("T")[0],
       dueDate: "",
       status: "PORTFÖYDE",
+      cariType: "",
+      direction: "",
       customerId: "",
       supplierId: "",
       notes: "",
@@ -323,6 +335,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
       issueDate: new Date().toISOString().split("T")[0],
       dueDate: "",
       status: "PORTFÖYDE",
+      cariType: "",
+      direction: "",
       customerId: "",
       supplierId: "",
       notes: "",
@@ -619,45 +633,91 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="customerId">Müşteri</Label>
+                      <Label htmlFor="cariType">Cari Türü</Label>
                       <Select
-                        value={checkForm.customerId}
+                        value={checkForm.cariType}
                         onValueChange={(value) =>
-                          setCheckForm({ ...checkForm, customerId: value, supplierId: "" })
+                          setCheckForm({
+                            ...checkForm,
+                            cariType: value,
+                            direction: value === "supplier" ? "GIVEN" : "RECEIVED",
+                            customerId: "",
+                            supplierId: "",
+                          })
                         }
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Müşteri seçiniz" />
+                          <SelectValue placeholder="Müşteri / Tedarikçi" />
                         </SelectTrigger>
                         <SelectContent>
-                          {customers.map((customer) => (
-                            <SelectItem key={customer.id} value={customer.id}>
-                              {customer.name}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="customer">Müşteri</SelectItem>
+                          <SelectItem value="supplier">Tedarikçi</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="supplierId">Tedarikçi</Label>
-                      <Select
-                        value={checkForm.supplierId}
-                        onValueChange={(value) =>
-                          setCheckForm({ ...checkForm, supplierId: value, customerId: "" })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Tedarikçi seçiniz" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {suppliers.map((supplier) => (
-                            <SelectItem key={supplier.id} value={supplier.id}>
-                              {supplier.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {checkForm.cariType === "customer" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="customerId">Müşteri</Label>
+                        <Select
+                          value={checkForm.customerId}
+                          onValueChange={(value) =>
+                            setCheckForm({ ...checkForm, customerId: value, supplierId: "" })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Müşteri seçiniz" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {customers.map((customer) => (
+                              <SelectItem key={customer.id} value={customer.id}>
+                                {customer.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {checkForm.cariType === "supplier" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="supplierId">Tedarikçi</Label>
+                        <Select
+                          value={checkForm.supplierId}
+                          onValueChange={(value) =>
+                            setCheckForm({ ...checkForm, supplierId: value, customerId: "" })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Tedarikçi seçiniz" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {suppliers.map((supplier) => (
+                              <SelectItem key={supplier.id} value={supplier.id}>
+                                {supplier.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {checkForm.cariType && (
+                      <div className="space-y-2">
+                        <Label htmlFor="direction">Yön</Label>
+                        <Select
+                          value={checkForm.direction}
+                          onValueChange={(value) =>
+                            setCheckForm({ ...checkForm, direction: value })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Alınan / Verilen" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="RECEIVED">Alınan (tahsilat)</SelectItem>
+                            <SelectItem value="GIVEN">Verilen (ödeme)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="notes">Notlar</Label>
@@ -748,45 +808,91 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="customerId">Müşteri</Label>
+                      <Label htmlFor="cariType">Cari Türü</Label>
                       <Select
-                        value={noteForm.customerId}
+                        value={noteForm.cariType}
                         onValueChange={(value) =>
-                          setNoteForm({ ...noteForm, customerId: value, supplierId: "" })
+                          setNoteForm({
+                            ...noteForm,
+                            cariType: value,
+                            direction: value === "supplier" ? "GIVEN" : "RECEIVED",
+                            customerId: "",
+                            supplierId: "",
+                          })
                         }
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Müşteri seçiniz" />
+                          <SelectValue placeholder="Müşteri / Tedarikçi" />
                         </SelectTrigger>
                         <SelectContent>
-                          {customers.map((customer) => (
-                            <SelectItem key={customer.id} value={customer.id}>
-                              {customer.name}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="customer">Müşteri</SelectItem>
+                          <SelectItem value="supplier">Tedarikçi</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="supplierId">Tedarikçi</Label>
-                      <Select
-                        value={noteForm.supplierId}
-                        onValueChange={(value) =>
-                          setNoteForm({ ...noteForm, supplierId: value, customerId: "" })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Tedarikçi seçiniz" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {suppliers.map((supplier) => (
-                            <SelectItem key={supplier.id} value={supplier.id}>
-                              {supplier.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {noteForm.cariType === "customer" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="customerId">Müşteri</Label>
+                        <Select
+                          value={noteForm.customerId}
+                          onValueChange={(value) =>
+                            setNoteForm({ ...noteForm, customerId: value, supplierId: "" })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Müşteri seçiniz" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {customers.map((customer) => (
+                              <SelectItem key={customer.id} value={customer.id}>
+                                {customer.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {noteForm.cariType === "supplier" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="supplierId">Tedarikçi</Label>
+                        <Select
+                          value={noteForm.supplierId}
+                          onValueChange={(value) =>
+                            setNoteForm({ ...noteForm, supplierId: value, customerId: "" })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Tedarikçi seçiniz" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {suppliers.map((supplier) => (
+                              <SelectItem key={supplier.id} value={supplier.id}>
+                                {supplier.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {noteForm.cariType && (
+                      <div className="space-y-2">
+                        <Label htmlFor="direction">Yön</Label>
+                        <Select
+                          value={noteForm.direction}
+                          onValueChange={(value) =>
+                            setNoteForm({ ...noteForm, direction: value })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Alınan / Verilen" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="RECEIVED">Alınan (tahsilat)</SelectItem>
+                            <SelectItem value="GIVEN">Verilen (ödeme)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="notes">Notlar</Label>

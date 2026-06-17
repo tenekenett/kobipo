@@ -60,12 +60,19 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const companyId = searchParams.get("companyId")
   const status = searchParams.get("status")
+  // party: "customer" → satış teklifleri, "supplier" → satın alma teklifleri.
+  // Quote modeli her ikisini paylaşır; filtre yoksa (eski davranış) tümü döner.
+  const party = searchParams.get("party")
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
 
   await ensureCompanyAccess(companyId)
 
   const where: any = { companyId }
   if (status) where.status = status
+  // Satın alma teklifi = tedarikçisi olan; satış teklifi = tedarikçisi olmayan
+  // (müşterisiz taslak satış teklifleri de satış listesinde kalsın diye böyle).
+  if (party === "supplier") where.supplierId = { not: null }
+  else if (party === "customer") where.supplierId = null
 
   const quotes = await prisma.quote.findMany({
     where,
@@ -73,6 +80,7 @@ export async function GET(request: Request) {
       customer: true,
       supplier: true,
       items: { include: { product: true }, orderBy: { order: "asc" } },
+      _count: { select: { items: true } },
     },
     orderBy: { date: "desc" },
   })

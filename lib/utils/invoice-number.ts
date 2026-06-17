@@ -17,25 +17,31 @@ export async function generateInvoiceNumber(
   })
   const defaultPrefix = type === "SALES" ? "SAT" : type === "RETURN" ? "IAD" : "ALI"
   const prefix = type === "RETURN" ? defaultPrefix : company?.invoiceSeriesPrefix || defaultPrefix
+  const fullPrefix = `${prefix}-${year}-`
 
-  // Bu yıl için aynı tip faturaların sayısını bul
-  const startOfYear = new Date(year, 0, 1)
-  const endOfYear = new Date(year, 11, 31, 23, 59, 59)
-
-  const count = await prisma.invoice.count({
-    where: {
-      companyId,
-      type,
-      date: {
-        gte: startOfYear,
-        lte: endOfYear,
-      },
-    },
+  // Aynı önekli mevcut faturaları çek. Sayma (count+1) tabanlı üretim, silme
+  // kaynaklı boşluklarda var olan bir numarayla çakışabiliyordu (P2002); bu
+  // yüzden en büyük sıra numarasını baz alıp boş numara bulana dek ilerliyoruz.
+  const existing = await prisma.invoice.findMany({
+    where: { companyId, invoiceNo: { startsWith: fullPrefix } },
+    select: { invoiceNo: true },
   })
 
-  // Sıra numarası (1'den başlar, 4 haneli)
-  const sequence = (count + 1).toString().padStart(4, "0")
+  let maxSeq = 0
+  const taken = new Set<string>()
+  for (const { invoiceNo } of existing) {
+    taken.add(invoiceNo)
+    const parsed = parseInt(invoiceNo.slice(fullPrefix.length), 10)
+    if (Number.isFinite(parsed) && parsed > maxSeq) maxSeq = parsed
+  }
 
-  return `${prefix}-${year}-${sequence}`
+  // En büyük + 1'den başla; teorik çakışmalara karşı serbest numarayı garanti et.
+  let seq = maxSeq + 1
+  let candidate = `${fullPrefix}${String(seq).padStart(4, "0")}`
+  while (taken.has(candidate)) {
+    seq += 1
+    candidate = `${fullPrefix}${String(seq).padStart(4, "0")}`
+  }
+  return candidate
 }
 

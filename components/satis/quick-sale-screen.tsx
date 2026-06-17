@@ -71,6 +71,8 @@ export function QuickSaleScreen() {
   const [products, setProducts] = useState<ComboboxProduct[]>([])
   const [customers, setCustomers] = useState<Counterparty[]>([])
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
+  const [warehouses, setWarehouses] = useState<{ id: string; name: string; isDefault?: boolean }[]>([])
+  const [warehouseId, setWarehouseId] = useState<string>("")
 
   const [cart, setCart] = useState<CartLine[]>([])
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | undefined>(undefined)
@@ -88,11 +90,20 @@ export function QuickSaleScreen() {
 
     const load = async () => {
       try {
-        const [prodRes, custRes, accRes] = await Promise.all([
+        const [prodRes, custRes, accRes, whRes] = await Promise.all([
           fetch(`/api/stok/products?companyId=${companyId}`),
           fetch(`/api/cari/customers?companyId=${companyId}`),
           fetch(`/api/finans/accounts?companyId=${companyId}`),
+          fetch(`/api/depolar?companyId=${companyId}`),
         ])
+
+        if (!cancelled && whRes.ok) {
+          const data = await whRes.json()
+          const list = Array.isArray(data) ? data : []
+          setWarehouses(list)
+          const def = list.find((w: any) => w.isDefault) ?? list[0]
+          if (def) setWarehouseId((prev) => prev || def.id)
+        }
 
         if (!cancelled && prodRes.ok) {
           const data = await prodRes.json()
@@ -220,6 +231,7 @@ export function QuickSaleScreen() {
           type: "SALES",
           invoiceType: useEArsiv ? "E_ARCHIVE" : "MANUAL",
           customerId: selectedCustomerId || null,
+          warehouseId: warehouseId || undefined,
           date: new Date().toISOString(),
           currency: "TRY",
           sendInvoice: useEArsiv,
@@ -288,6 +300,7 @@ export function QuickSaleScreen() {
     eArsiv,
     isEDonusumEnabled,
     selectedCustomerId,
+    warehouseId,
     isCredit,
     totals.total,
     paymentMethod,
@@ -536,6 +549,29 @@ export function QuickSaleScreen() {
               />
             </CardContent>
           </Card>
+
+          {warehouses.length > 1 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Depo</CardTitle>
+                <CardDescription>Stok bu depodan düşülecek</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Select value={warehouseId} onValueChange={setWarehouseId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Depo seçin" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {warehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.name} {w.isDefault ? "(Ana)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

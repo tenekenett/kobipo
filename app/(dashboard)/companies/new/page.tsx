@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { CityCombobox } from "@/components/ui/city-combobox"
 import { useToast } from "@/components/ui/use-toast"
 
 export default function NewCompanyPage() {
@@ -127,11 +128,12 @@ export default function NewCompanyPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="city">Şehir</Label>
-                <Input
+                <CityCombobox
                   id="city"
                   value={formData.city}
-                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                  onChange={(v) => setFormData({ ...formData, city: v })}
                   disabled={isLoading}
+                  placeholder="Şehir yazın, listeden seçin…"
                 />
               </div>
               <div className="space-y-2">

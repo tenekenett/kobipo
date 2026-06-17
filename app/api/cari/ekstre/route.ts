@@ -30,6 +30,7 @@ export async function GET(request: Request) {
 
     const where: any = {
       companyId,
+      status: { not: "CANCELLED" },
     }
 
     if (customerId) {

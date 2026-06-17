@@ -24,7 +24,9 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Edit, Trash2 } from "lucide-react"
+import { Plus, Edit, Trash2, Package } from "lucide-react"
+
+const fmtQty = (n: number) => Number(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 
 interface Warehouse {
   id: string
@@ -45,6 +47,9 @@ export default function DepolarPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null)
+  const [stockSummary, setStockSummary] = useState<Record<string, { productCount: number; totalQuantity: number }>>({})
+  const [allStocks, setAllStocks] = useState<Array<{ warehouseId: string; productName: string; productCode?: string | null; unit: string; quantity: number }>>([])
+  const [stockWh, setStockWh] = useState<Warehouse | null>(null)
 
   const [formData, setFormData] = useState({
     code: "",
@@ -62,10 +67,22 @@ export default function DepolarPage() {
   const fetchWarehouses = async () => {
     if (!companyId) return
     try {
-      const response = await fetch(`/api/depolar?companyId=${companyId}`)
+      const [response, stockRes] = await Promise.all([
+        fetch(`/api/depolar?companyId=${companyId}`),
+        fetch(`/api/depolar/stok?companyId=${companyId}`),
+      ])
       if (response.ok) {
         const data = await response.json()
         setWarehouses(data)
+      }
+      if (stockRes.ok) {
+        const sd = await stockRes.json()
+        const map: Record<string, { productCount: number; totalQuantity: number }> = {}
+        for (const w of sd.warehouses || []) {
+          map[w.id] = { productCount: w.productCount, totalQuantity: w.totalQuantity }
+        }
+        setStockSummary(map)
+        setAllStocks(sd.stocks || [])
       }
     } catch (error) {
       console.error("Error fetching warehouses:", error)
@@ -193,13 +210,15 @@ export default function DepolarPage() {
                 <TableHead>Şehir</TableHead>
                 <TableHead>Durum</TableHead>
                 <TableHead>Varsayılan</TableHead>
+                <TableHead className="text-right">Ürün</TableHead>
+                <TableHead className="text-right">Toplam Stok</TableHead>
                 <TableHead>İşlemler</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {warehouses.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground">
                     Henüz depo bulunmuyor
                   </TableCell>
                 </TableRow>
@@ -222,8 +241,20 @@ export default function DepolarPage() {
                         "-"
                       )}
                     </TableCell>
+                    <TableCell className="text-right">{stockSummary[warehouse.id]?.productCount ?? 0}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap font-medium">
+                      {fmtQty(stockSummary[warehouse.id]?.totalQuantity ?? 0)}
+                    </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setStockWh(warehouse)}
+                          title="Depo stoğu"
+                        >
+                          <Package className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -321,6 +352,47 @@ export default function DepolarPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Depo stoğu */}
+      <Dialog open={!!stockWh} onOpenChange={(o) => !o && setStockWh(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{stockWh?.name} — Stok</DialogTitle>
+            <DialogDescription>Bu depodaki ürün stokları</DialogDescription>
+          </DialogHeader>
+          {(() => {
+            const rows = allStocks.filter((s) => s.warehouseId === stockWh?.id && s.quantity !== 0)
+            if (rows.length === 0) {
+              return <p className="py-4 text-sm text-muted-foreground">Bu depoda stok kaydı yok.</p>
+            }
+            return (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Ürün</TableHead>
+                    <TableHead className="text-right">Miktar</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows
+                    .sort((a, b) => a.productName.localeCompare(b.productName, "tr"))
+                    .map((s) => (
+                      <TableRow key={`${s.warehouseId}-${s.productName}`}>
+                        <TableCell>
+                          <div className="font-medium">{s.productName}</div>
+                          {s.productCode && <div className="text-xs text-muted-foreground">{s.productCode}</div>}
+                        </TableCell>
+                        <TableCell className="text-right whitespace-nowrap font-semibold">
+                          {fmtQty(s.quantity)} {s.unit}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                </TableBody>
+              </Table>
+            )
+          })()}
         </DialogContent>
       </Dialog>
     </div>

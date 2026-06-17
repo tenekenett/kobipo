@@ -57,11 +57,24 @@ export default function ProductDetailPage() {
   
   const [product, setProduct] = useState<ProductDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [whStocks, setWhStocks] = useState<Array<{ warehouseName: string; quantity: number; unit: string }>>([])
 
   useEffect(() => {
     if (id && companyId) {
       fetchProduct()
     }
+  }, [id, companyId])
+
+  useEffect(() => {
+    if (!id || !companyId) return
+    fetch(`/api/depolar/stok?companyId=${companyId}&productId=${id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.stocks) {
+          setWhStocks(d.stocks.map((s: any) => ({ warehouseName: s.warehouseName, quantity: s.quantity, unit: s.unit })))
+        }
+      })
+      .catch(() => {})
   }, [id, companyId])
 
   const fetchProduct = async () => {
@@ -147,6 +160,35 @@ export default function ProductDetailPage() {
           </span>
         </div>
       </div>
+
+      {/* Depo Dağılımı */}
+      {!product.isService && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Package className="h-4 w-4" /> Depo Dağılımı
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {whStocks.filter((s) => s.quantity !== 0).length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Henüz depo bazlı dağılım yok — toplam {formatNumber(product.stockQuantity)} {product.unit}. İlk depo işleminde Ana Depo'ya atanır.
+              </p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {whStocks
+                  .filter((s) => s.quantity !== 0)
+                  .map((s, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-md border p-3">
+                      <span className="text-sm">{s.warehouseName}</span>
+                      <span className="font-semibold">{formatNumber(s.quantity)} {s.unit}</span>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-4">

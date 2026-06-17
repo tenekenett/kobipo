@@ -121,7 +121,7 @@ export default function TeklifPage() {
     if (!companyId) return
     setIsLoading(true)
     try {
-      const res = await fetch(`/api/teklif?companyId=${companyId}`)
+      const res = await fetch(`/api/teklif?companyId=${companyId}&party=customer`)
       if (res.ok) setQuotes(await res.json())
     } finally {
       setIsLoading(false)

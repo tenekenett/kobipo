@@ -49,12 +49,15 @@ export async function GET(request: Request) {
       }
     }
 
-    // Get income transactions
+    // Get income transactions. Bir faturaya bağlı (tahsilat/ödeme eşleştirmesiyle
+    // oluşan) işlemler faturanın kendisiyle birlikte sayılırsa gelir/gider çift
+    // sayılır; bu yüzden yalnızca faturasız ("serbest") işlemler dahil edilir.
     const incomeTransactions = await prisma.transaction.findMany({
       where: {
         companyId,
         type: "INCOME",
         date: dateFilter,
+        invoicePayments: { none: {} },
       },
     })
 
@@ -64,6 +67,7 @@ export async function GET(request: Request) {
         companyId,
         type: "EXPENSE",
         date: dateFilter,
+        invoicePayments: { none: {} },
       },
     })
 

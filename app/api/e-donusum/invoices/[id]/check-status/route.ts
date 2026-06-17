@@ -5,6 +5,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
+import { revertInvoiceStock } from "@/lib/stock/warehouse"
 
 export const dynamic = "force-dynamic"
 
@@ -28,6 +29,7 @@ export async function POST(
         status: true,
         integrationStatus: true,
         invoiceType: true,
+        invoiceNo: true,
       },
     })
 
@@ -110,17 +112,32 @@ export async function POST(
     // - CANCELLED → invoice.status: "CANCELLED"
     // - REJECTED → invoice.status: SENT kalır, integrationStatus REJECTED:... olur
     // - PROCESSING/DRAFT → değiştirmeyelim
+    const becomesCancelled = result.status === "CANCELLED" && invoice.status !== "CANCELLED"
     const updateData: { status?: string; integrationStatus: string } = {
       integrationStatus,
     }
-    if (result.status === "CANCELLED" && invoice.status !== "CANCELLED") {
+    if (becomesCancelled) {
       updateData.status = "CANCELLED"
     }
 
-    await prisma.invoice.update({
-      where: { id: invoice.id },
-      data: updateData,
-    })
+    if (becomesCancelled) {
+      // Portal/GİB tarafında iptal edilmiş: stoğu geri al ve durumu güncelle (atomik).
+      // Bakiye otomatik düzelir (cari sorguları CANCELLED faturaları hariç tutar).
+      await prisma.$transaction(async (tx) => {
+        await revertInvoiceStock(tx, {
+          companyId: invoice.companyId,
+          invoiceId: invoice.id,
+          invoiceNo: invoice.invoiceNo,
+          createdBy: user.id,
+        })
+        await tx.invoice.update({ where: { id: invoice.id }, data: updateData })
+      })
+    } else {
+      await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: updateData,
+      })
+    }
 
     return NextResponse.json({
       success: true,

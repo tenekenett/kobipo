@@ -41,11 +41,18 @@ export async function GET(request: Request) {
       },
     })
 
-    // İşletme faaliyetlerinden nakit akışı
-    // - Müşterilerden tahsilatlar
+    // İşletme faaliyetlerinden nakit akışı.
+    // NOT (çift sayım önleme): Bir tahsilat/ödeme faturaya eşleştirildiğinde hem
+    // bir Transaction hem de transactionId dolu bir InvoicePayment oluşur. Aynı
+    // nakit hareketini iki kez saymamak için InvoicePayment'lerden yalnızca
+    // transactionId IS NULL olanlar (Transaction üretmeyen doğrudan ödemeler)
+    // alınır; işleme bağlı tahsilat/ödemeler aşağıdaki Transaction toplamlarında
+    // (otherIncome/otherExpense) zaten yer alır.
+    // - Müşterilerden doğrudan tahsilatlar
     const collections = await prisma.invoicePayment.aggregate({
       where: {
         companyId,
+        transactionId: null,
         paymentDate: { gte: start, lte: end },
         invoice: {
           type: "SALES",
@@ -56,10 +63,11 @@ export async function GET(request: Request) {
       },
     })
 
-    // - Tedarikçilere ödemeler
+    // - Tedarikçilere doğrudan ödemeler
     const payments = await prisma.invoicePayment.aggregate({
       where: {
         companyId,
+        transactionId: null,
         paymentDate: { gte: start, lte: end },
         invoice: {
           type: "PURCHASE",
@@ -70,7 +78,7 @@ export async function GET(request: Request) {
       },
     })
 
-    // - Diğer gelirler
+    // - Gelir işlemleri (faturaya bağlı tahsilatlar dahil tüm INCOME hareketleri)
     const otherIncome = await prisma.transaction.aggregate({
       where: {
         companyId,
@@ -82,7 +90,7 @@ export async function GET(request: Request) {
       },
     })
 
-    // - Diğer giderler
+    // - Gider işlemleri (faturaya bağlı ödemeler dahil tüm EXPENSE hareketleri)
     const otherExpense = await prisma.transaction.aggregate({
       where: {
         companyId,

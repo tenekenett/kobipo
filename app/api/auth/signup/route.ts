@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { randomBytes } from "crypto"
 import { prisma } from "@/lib/db/prisma"
 import bcrypt from "bcryptjs"
 import { verifyRecaptcha } from "@/lib/auth/recaptcha"
@@ -72,8 +73,27 @@ export async function POST(request: Request) {
       },
     })
 
+    // Kayıt sonrası otomatik giriş için tek kullanımlık, kısa ömürlü jeton.
+    // Kullanıcı signup'ta captcha doğrulamasından geçtiği için, bu jetonla yapılan
+    // ilk giriş captcha'yı atlar (şifre yine de doğrulanır). Jeton üretilemese bile
+    // kayıt başarılı sayılır; istemci giriş ekranına düşer.
+    let signupToken: string | null = null
+    try {
+      signupToken = randomBytes(32).toString("hex")
+      await prisma.verificationToken.create({
+        data: {
+          identifier: normalizedEmail,
+          token: signupToken,
+          expires: new Date(Date.now() + 5 * 60 * 1000),
+        },
+      })
+    } catch (tokenErr) {
+      console.error("Signup auto-login token oluşturulamadı:", tokenErr)
+      signupToken = null
+    }
+
     return NextResponse.json(
-      { message: "Kullanıcı başarıyla oluşturuldu", userId: user.id },
+      { message: "Kullanıcı başarıyla oluşturuldu", userId: user.id, signupToken },
       { status: 201 }
     )
   } catch (error: any) {

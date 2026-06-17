@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { customerHasBusinessReferences } from "@/lib/cari/dual-role"
 import { getSupplierDeletability } from "@/lib/cari/archive-guard"
+import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 
 
 export const dynamic = 'force-dynamic'
@@ -47,6 +48,7 @@ export async function GET(
           select: { id: true, name: true, email: true },
         },
         invoices: {
+          where: { status: { not: "CANCELLED" } },
           orderBy: { date: "desc" },
           take: 10,
         },
@@ -65,7 +67,7 @@ export async function GET(
 
     // Get all invoices and payments
     const allInvoices = await prisma.invoice.findMany({
-      where: { supplierId: supplier.id },
+      where: { supplierId: supplier.id, status: { not: "CANCELLED" } },
       include: {
         payments: {
           select: {
@@ -82,6 +84,22 @@ export async function GET(
         account: true,
       },
     })
+
+    // Tedarikçiye verilen çek/senet (iade/protesto hariç) borcumuzu kapatır.
+    const [allChecks, allNotes] = await Promise.all([
+      prisma.check.findMany({
+        where: { supplierId: supplier.id, status: { notIn: [...CHECK_NOTE_NON_SETTLING] } },
+        orderBy: { issueDate: "asc" },
+      }),
+      prisma.promissoryNote.findMany({
+        where: { supplierId: supplier.id, status: { notIn: [...CHECK_NOTE_NON_SETTLING] } },
+        orderBy: { issueDate: "asc" },
+      }),
+    ])
+    // Tedarikçide verilen çek borcu azaltır; alınan çek (iade) artırır.
+    const checkNoteCredit =
+      allChecks.reduce((s, c) => s + checkNoteSignedCredit("supplier", c.direction, Number(c.amount)), 0) +
+      allNotes.reduce((s, n) => s + checkNoteSignedCredit("supplier", n.direction, Number(n.amount)), 0)
 
     // Calculate balance (unpaid invoices - payments). Bir Transaction'a bağlı
     // ödemeler bakiyeye işlem üzerinden yansıdığından burada hariç tutulur.
@@ -106,10 +124,17 @@ export async function GET(
         balance += Number(trx.amount)
       }
     })
+    // Tedarikçide işaretler müşterinin aynasıdır: pozitif bakiye = biz ona borçluyuz.
+    // Açılış da aynalanmalı → CREDIT (Alacak, biz ona borçluyuz) bakiyeyi ARTIRIR,
+    // DEBIT (Borç, avans/o bize borçlu) AZALTIR. Böylece açılış, alış faturasıyla
+    // aynı yönde davranır (ödenmemiş alış faturası da +tutar ekler).
     balance +=
       supplier.openingBalanceType === "CREDIT"
-        ? -Number(supplier.openingBalanceAmount)
-        : Number(supplier.openingBalanceAmount)
+        ? Number(supplier.openingBalanceAmount)
+        : -Number(supplier.openingBalanceAmount)
+
+    // Tedarikçiye verilen çek/senet ödeme gibidir → borcumuzu (pozitif bakiye) azaltır.
+    balance -= checkNoteCredit
 
     // Format transactions for display
     const openingAmount = Number(supplier.openingBalanceAmount || 0)
@@ -122,8 +147,10 @@ export async function GET(
               date: supplier.createdAt.toISOString(),
               type: "OPENING",
               description: `Açılış Bakiyesi (${openingType === "CREDIT" ? "Alacak" : "Borç"})`,
-              debit: openingType === "CREDIT" ? openingAmount : 0,
-              credit: openingType === "DEBIT" ? openingAmount : 0,
+              // Aynalı işaret (yürüyen bakiye credit−debit ile hesaplanır):
+              // CREDIT (Alacak) → Alacak sütunu (+), DEBIT (Borç/avans) → Borç sütunu (−).
+              debit: openingType === "DEBIT" ? openingAmount : 0,
+              credit: openingType === "CREDIT" ? openingAmount : 0,
               balance: 0,
               invoiceNo: null,
             },
@@ -154,6 +181,33 @@ export async function GET(
         balance: 0,
         invoiceNo: null,
       })),
+      // Verilen çek borcu azaltır → Borç sütunu; alınan çek (iade) artırır → Alacak.
+      ...allChecks.map((ch) => {
+        const received = ch.direction === "RECEIVED"
+        return {
+          id: ch.id,
+          date: ch.issueDate.toISOString(),
+          type: "CHECK",
+          description: `Çek ${ch.checkNo}${ch.bankName ? ` - ${ch.bankName}` : ""}`,
+          debit: received ? 0 : Number(ch.amount),
+          credit: received ? Number(ch.amount) : 0,
+          balance: 0,
+          invoiceNo: null,
+        }
+      }),
+      ...allNotes.map((nt) => {
+        const received = nt.direction === "RECEIVED"
+        return {
+          id: nt.id,
+          date: nt.issueDate.toISOString(),
+          type: "NOTE",
+          description: `Senet ${nt.noteNo}`,
+          debit: received ? 0 : Number(nt.amount),
+          credit: received ? Number(nt.amount) : 0,
+          balance: 0,
+          invoiceNo: null,
+        }
+      }),
     ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
     // Calculate running balance

@@ -1,0 +1,109 @@
+import { NextResponse } from "next/server"
+import { prisma } from "@/lib/db/prisma"
+import { getCurrentUser } from "@/lib/auth/session"
+import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { isValidTcKimlik } from "@/lib/personel/validation"
+
+export const dynamic = "force-dynamic"
+
+function numOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+function dateOrNull(v: unknown): Date | null {
+  if (!v) return null
+  const d = new Date(v as string)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { id } = await params
+  const employee = await prisma.employee.findUnique({
+    where: { id },
+    include: {
+      payrolls: { orderBy: [{ periodYear: "desc" }, { periodMonth: "desc" }], take: 12 },
+      leaves: { orderBy: { startDate: "desc" }, take: 20 },
+      assets: { orderBy: { assignedDate: "desc" } },
+      documents: { orderBy: { createdAt: "desc" } },
+    },
+  })
+  if (!employee) return NextResponse.json({ error: "Employee not found" }, { status: 404 })
+
+  await ensureCompanyAccess(employee.companyId)
+  return NextResponse.json(employee)
+}
+
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { id } = await params
+  const existing = await prisma.employee.findUnique({ where: { id } })
+  if (!existing) return NextResponse.json({ error: "Employee not found" }, { status: 404 })
+  await ensureCompanyAccess(existing.companyId)
+
+  const body = await request.json()
+  if (body.nationalId !== undefined && body.nationalId && String(body.nationalId).trim() && !isValidTcKimlik(body.nationalId)) {
+    return NextResponse.json({ error: "Geçersiz T.C. Kimlik No" }, { status: 400 })
+  }
+  const data: any = {}
+  const strFields = ["firstName", "lastName", "nationalId", "email", "phone", "department", "position", "iban", "address", "emergencyContact", "notes"]
+  for (const f of strFields) {
+    if (body[f] !== undefined) data[f] = body[f] || null
+  }
+  if (body.firstName !== undefined) data.firstName = String(body.firstName).trim()
+  if (body.lastName !== undefined) data.lastName = String(body.lastName).trim()
+  if (body.birthDate !== undefined) data.birthDate = dateOrNull(body.birthDate)
+  if (body.hireDate !== undefined) data.hireDate = dateOrNull(body.hireDate)
+  if (body.terminationDate !== undefined) data.terminationDate = dateOrNull(body.terminationDate)
+  if (body.grossSalary !== undefined) data.grossSalary = numOrNull(body.grossSalary)
+  if (body.annualLeaveDays !== undefined) data.annualLeaveDays = numOrNull(body.annualLeaveDays) ?? existing.annualLeaveDays
+  if (body.status !== undefined && ["ACTIVE", "ON_LEAVE", "TERMINATED"].includes(body.status)) {
+    data.status = body.status
+    // İşten çıkış işaretlenince çıkış tarihini otomatik doldur (yoksa).
+    if (body.status === "TERMINATED" && !existing.terminationDate && body.terminationDate === undefined) {
+      data.terminationDate = new Date()
+    }
+  }
+
+  const employee = await prisma.employee.update({ where: { id }, data })
+  return NextResponse.json(employee)
+}
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { id } = await params
+  const existing = await prisma.employee.findUnique({
+    where: { id },
+    include: { _count: { select: { payrolls: true } } },
+  })
+  if (!existing) return NextResponse.json({ error: "Employee not found" }, { status: 404 })
+  await ensureCompanyAccess(existing.companyId)
+
+  // Bordro kaydı olan personel silinmez (mali geçmiş korunur) → işten çıkar.
+  if (existing._count.payrolls > 0) {
+    return NextResponse.json(
+      { error: "Bordro kaydı olan personel silinemez. Bunun yerine 'İşten Çıkar' kullanın." },
+      { status: 409 },
+    )
+  }
+
+  await prisma.employee.delete({ where: { id } })
+  return NextResponse.json({ message: "Employee deleted" })
+}

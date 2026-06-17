@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { UnitCombobox } from "@/components/ui/unit-combobox"
 import {
   Table,
   TableBody,
@@ -31,7 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Search, Eye, Pencil, Trash2 } from "lucide-react"
+import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 
 interface Product {
@@ -45,8 +46,21 @@ interface Product {
   avgPurchasePrice?: number | null
   salePrice?: number
   stockQuantity: number
+  minStockLevel?: number | null
   isService: boolean
   isActive: boolean
+}
+
+const fmtQty = (n: number) =>
+  new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number(n || 0))
+
+/** Stok uyarı durumu — engelleme yok, yalnızca görsel uyarı. */
+function stockState(p: Product): "out" | "low" | "ok" {
+  if (p.isService) return "ok"
+  const q = Number(p.stockQuantity)
+  if (q <= 0) return "out"
+  if (p.minStockLevel != null && q <= Number(p.minStockLevel)) return "low"
+  return "ok"
 }
 
 const emptyProductForm = {
@@ -70,16 +84,36 @@ export default function StokPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [search, setSearch] = useState("")
   const [filterService, setFilterService] = useState<string | null>(null)
+  const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({ ...emptyProductForm })
+  const [warehouses, setWarehouses] = useState<{ id: string; name: string; isDefault?: boolean }[]>([])
+  const [createWarehouseId, setCreateWarehouseId] = useState("")
+  const [editWarehouseId, setEditWarehouseId] = useState("")
+  const [originalWarehouseId, setOriginalWarehouseId] = useState("")
+  const [warehouseFilter, setWarehouseFilter] = useState("ALL")
+  const [warehouseStocks, setWarehouseStocks] = useState<Array<{ warehouseId: string; warehouseName: string; productId: string; quantity: number }>>([])
 
   useEffect(() => {
     if (companyId) {
       fetchProducts()
     }
   }, [companyId, search, filterService])
+
+  useEffect(() => {
+    if (!companyId) return
+    fetch(`/api/depolar?companyId=${companyId}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => {
+        const arr = Array.isArray(list) ? list : []
+        setWarehouses(arr)
+        const def = arr.find((w: any) => w.isDefault) ?? arr[0]
+        if (def) setCreateWarehouseId((prev) => prev || def.id)
+      })
+      .catch(() => {})
+  }, [companyId])
 
   const fetchProducts = async () => {
     if (!companyId) return
@@ -91,10 +125,17 @@ export default function StokPage() {
         ...(filterService !== null && { isService: filterService }),
       })
 
-      const response = await fetch(`/api/stok/products?${params}`)
+      const [response, stockRes] = await Promise.all([
+        fetch(`/api/stok/products?${params}`),
+        fetch(`/api/depolar/stok?companyId=${companyId}`),
+      ])
       if (response.ok) {
         const data = await response.json()
         setProducts(data)
+      }
+      if (stockRes.ok) {
+        const sd = await stockRes.json()
+        setWarehouseStocks(sd.stocks || [])
       }
     } catch (error) {
       console.error("Error fetching products:", error)
@@ -110,10 +151,22 @@ export default function StokPage() {
       const response = await fetch(`/api/stok/products${editingId ? `/${editingId}` : ""}`, {
         method: editingId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, companyId }),
+        body: JSON.stringify({
+          ...formData,
+          companyId,
+          ...(editingId ? {} : { warehouseId: createWarehouseId || undefined }),
+        }),
       })
 
       if (response.ok) {
+        // Düzenlemede depo değiştiyse ürünün stoğunu yeni depoya taşı.
+        if (editingId && !formData.isService && editWarehouseId && editWarehouseId !== originalWarehouseId) {
+          await fetch(`/api/stok/products/${editingId}/warehouse`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ companyId, warehouseId: editWarehouseId }),
+          }).catch(() => {})
+        }
         toast({
           title: "Başarılı",
           description: editingId ? "Ürün güncellendi" : "Ürün oluşturuldu",
@@ -154,9 +207,16 @@ export default function StokPage() {
       purchasePrice: product.purchasePrice ? String(product.purchasePrice) : "",
       salePrice: product.salePrice ? String(product.salePrice) : "",
       stockQuantity: String(product.stockQuantity),
-      minStockLevel: (product as any).minStockLevel ? String((product as any).minStockLevel) : "",
+      minStockLevel: product.minStockLevel != null ? String(product.minStockLevel) : "",
       isService: product.isService,
     })
+    // Ürünün mevcut deposu: en çok stoğun olduğu depo; yoksa varsayılan.
+    const rows = warehouseStocks.filter((s) => s.productId === product.id)
+    const curWh = rows.length > 0
+      ? rows.reduce((a, b) => (Number(b.quantity) > Number(a.quantity) ? b : a)).warehouseId
+      : (warehouses.find((w) => w.isDefault)?.id ?? warehouses[0]?.id ?? "")
+    setEditWarehouseId(curWh)
+    setOriginalWarehouseId(curWh)
     setIsDialogOpen(true)
   }
 
@@ -178,6 +238,35 @@ export default function StokPage() {
       </div>
     )
   }
+
+  // Ürün başına depo dağılımı (0 dahil tüm kayıtlar — ürün hangi depoya kayıtlı).
+  const stockByProduct = new Map<string, { warehouseId: string; warehouseName: string; quantity: number }[]>()
+  for (const s of warehouseStocks) {
+    const arr = stockByProduct.get(s.productId) || []
+    arr.push({ warehouseId: s.warehouseId, warehouseName: s.warehouseName, quantity: Number(s.quantity) })
+    stockByProduct.set(s.productId, arr)
+  }
+  // Seçili depoda kayıtlı ürünler + o depodaki miktar.
+  const inSelectedWh = new Set<string>()
+  const whQtyByProduct = new Map<string, number>()
+  if (warehouseFilter !== "ALL") {
+    for (const s of warehouseStocks) {
+      if (s.warehouseId === warehouseFilter) {
+        inSelectedWh.add(s.productId)
+        whQtyByProduct.set(s.productId, Number(s.quantity))
+      }
+    }
+  }
+
+  const lowStockCount = products.filter((p) => stockState(p) !== "ok").length
+  let visibleProducts = products
+  if (warehouseFilter !== "ALL") {
+    visibleProducts = visibleProducts.filter((p) => inSelectedWh.has(p.id))
+  }
+  if (onlyLowStock) visibleProducts = visibleProducts.filter((p) => stockState(p) !== "ok")
+
+  // Depo sütunu/filtresi yalnızca birden çok depo varsa anlamlı.
+  const showWhCol = warehouses.length > 1
 
   return (
     <div className="space-y-6">
@@ -249,12 +338,10 @@ export default function StokPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="unit">Birim</Label>
-                  <Input
+                  <UnitCombobox
                     id="unit"
                     value={formData.unit}
-                    onChange={(e) =>
-                      setFormData({ ...formData, unit: e.target.value })
-                    }
+                    onChange={(v) => setFormData({ ...formData, unit: v })}
                     disabled={isLoading}
                   />
                 </div>
@@ -323,6 +410,29 @@ export default function StokPage() {
                     disabled={isLoading || formData.isService}
                   />
                 </div>
+                {!formData.isService && warehouses.length > 0 && (
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="warehouse">{editingId ? "Depo" : "Başlangıç stoğu deposu"}</Label>
+                    <select
+                      id="warehouse"
+                      value={editingId ? editWarehouseId : createWarehouseId}
+                      onChange={(e) => (editingId ? setEditWarehouseId(e.target.value) : setCreateWarehouseId(e.target.value))}
+                      disabled={isLoading}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      {warehouses.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}{w.isDefault ? " (Ana)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      {editingId
+                        ? "Değiştirilirse ürünün tüm stoğu seçilen depoya taşınır."
+                        : "Girilen stok miktarı bu depoya eklenir."}
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-2 md:col-span-2">
                   <div className="flex items-center space-x-2">
                     <input
@@ -360,6 +470,24 @@ export default function StokPage() {
         </Dialog>
       </div>
 
+      {lowStockCount > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-900/20 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>
+              <strong>{lowStockCount}</strong> üründe stok minimum seviyede veya altında.
+            </span>
+          </div>
+          <Button
+            variant={onlyLowStock ? "default" : "outline"}
+            size="sm"
+            onClick={() => setOnlyLowStock((v) => !v)}
+          >
+            {onlyLowStock ? "Tümünü göster" : "Yalnızca düşük stok"}
+          </Button>
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -390,6 +518,18 @@ export default function StokPage() {
                 <option value="false">Ürünler</option>
                 <option value="true">Hizmetler</option>
               </select>
+              {showWhCol && (
+                <select
+                  value={warehouseFilter}
+                  onChange={(e) => setWarehouseFilter(e.target.value)}
+                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="ALL">Tüm Depolar</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -406,19 +546,20 @@ export default function StokPage() {
                 <StyledTableHead className="text-right">Ort. Alış Fiyatı</StyledTableHead>
                 <StyledTableHead className="text-right">Satış Fiyatı</StyledTableHead>
                 <StyledTableHead className="text-right">Stok</StyledTableHead>
+                {showWhCol && <StyledTableHead>Depo</StyledTableHead>}
                 <StyledTableHead>Tip</StyledTableHead>
                 <StyledTableHead>İşlem</StyledTableHead>
               </StyledTableHeaderRow>
             </TableHeader>
             <TableBody>
-              {products.length === 0 ? (
+              {visibleProducts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center">
-                    Kayıt bulunamadı
+                  <TableCell colSpan={showWhCol ? 11 : 10} className="text-center">
+                    {onlyLowStock ? "Düşük stoklu ürün yok" : warehouseFilter !== "ALL" ? "Bu depoda ürün yok" : "Kayıt bulunamadı"}
                   </TableCell>
                 </TableRow>
               ) : (
-                products.map((product, idx) => (
+                visibleProducts.map((product, idx) => (
                   <StyledTableRow
                     key={product.id}
                     index={idx}
@@ -449,13 +590,55 @@ export default function StokPage() {
                         : "-"}
                     </TableCell>
                     <TableCell className="text-right whitespace-nowrap">
-                      {product.isService
-                        ? "-"
-                        : new Intl.NumberFormat("tr-TR", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          }).format(Number(product.stockQuantity))}
+                      {product.isService ? (
+                        "-"
+                      ) : warehouseFilter !== "ALL" ? (
+                        <span className="font-medium">
+                          {new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(whQtyByProduct.get(product.id) ?? 0)}
+                        </span>
+                      ) : (
+                        (() => {
+                          const st = stockState(product)
+                          return (
+                            <div className="flex flex-col items-end">
+                              <span className={st === "out" ? "font-semibold text-red-600" : st === "low" ? "font-semibold text-amber-600" : ""}>
+                                {new Intl.NumberFormat("tr-TR", {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                }).format(Number(product.stockQuantity))}
+                              </span>
+                              {st !== "ok" && (
+                                <span className={`flex items-center gap-0.5 text-[11px] ${st === "out" ? "text-red-600" : "text-amber-600"}`}>
+                                  <AlertTriangle className="h-3 w-3" />
+                                  {st === "out" ? "Tükendi" : `Min ${product.minStockLevel}`}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })()
+                      )}
                     </TableCell>
+                    {showWhCol && (
+                      <TableCell>
+                        {product.isService ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (() => {
+                          const rows = stockByProduct.get(product.id) || []
+                          const nonZero = rows.filter((r) => r.quantity !== 0)
+                          const display = nonZero.length > 0 ? nonZero : rows
+                          if (display.length === 0) return <span className="text-xs text-muted-foreground">—</span>
+                          return (
+                            <div className="flex flex-wrap gap-1">
+                              {display.map((d) => (
+                                <span key={d.warehouseId} className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                                  {d.warehouseName}{d.quantity !== 0 ? `: ${fmtQty(d.quantity)}` : ""}
+                                </span>
+                              ))}
+                            </div>
+                          )
+                        })()}
+                      </TableCell>
+                    )}
                     <TableCell>
                       {product.isService ? (
                         <span className="text-blue-600">Hizmet</span>

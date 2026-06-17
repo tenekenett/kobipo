@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { sendInvoiceToProvider } from "@/lib/integrations/e-invoice/send-invoice-helper"
+import { revertInvoiceStock } from "@/lib/stock/warehouse"
 import { Decimal } from "@prisma/client/runtime/library"
 
 
@@ -412,78 +413,20 @@ export async function DELETE(
     // ama sistem yöneticisiysen her faturayı silebilirsin. Şimdilik sınır koymuyoruz,
     // ama istersen `if (invoice.status === 'SENT') return error` diyebilirsin.
 
-    const safeType = String(invoice.type || "").trim().toUpperCase()
-
-    // 2. Stok geri iade hareketlerini ÜRÜN BAZINDA topla. Önceki sürüm her
-    // kalem için ayrı create+update (2 sorgu) yapıyordu; çok kalemli faturalarda
-    // istek çok yavaşlıyor ("cevap dönmüyor") ve hata anında yarım kalıyordu.
-    // Artık tek transaction içinde toplu yazıyoruz: hızlı ve atomik.
-    const stockMovements: Array<{
-      companyId: string
-      productId: string
-      type: string
-      quantity: number
-      unitPrice: any
-      description: string
-      reference: string
-      createdBy: string
-    }> = []
-    const productDelta = new Map<string, number>()
-
-    for (const item of invoice.items) {
-      const safeProductId = item.productId || null
-      if (!safeProductId) continue // Ürün ID yoksa geç
-
-      let stockQuantityChange = 0
-      let moveType = "UNKNOWN"
-
-      // DİKKAT: Oluşturmanın TAM TERSİNİ yapıyoruz!
-      if (safeType === "SALES") {
-        stockQuantityChange = Number(item.quantity) // Satış silindi: Stoğa Geri Ekle (+)
-        moveType = "SALE_CANCEL"
-      } else if (safeType === "PURCHASE") {
-        stockQuantityChange = -Number(item.quantity) // Alış silindi: Stoktan Geri Çıkar (-)
-        moveType = "PURCHASE_CANCEL"
-      } else if (safeType === "RETURN") {
-        stockQuantityChange = -Number(item.quantity) // İade silindi: Stoktan Geri Çıkar (-)
-        moveType = "RETURN_CANCEL"
-      }
-
-      if (stockQuantityChange !== 0) {
-        stockMovements.push({
-          companyId: invoice.companyId,
-          productId: safeProductId,
-          type: moveType,
-          quantity: stockQuantityChange,
-          unitPrice: item.unitPrice ?? null,
-          description: `${invoice.invoiceNo} numaralı faturanın silinmesi (İptal)`,
-          reference: invoice.id,
-          createdBy: user.id,
-        })
-        productDelta.set(
-          safeProductId,
-          (productDelta.get(safeProductId) || 0) + stockQuantityChange,
-        )
-      }
-    }
-
-    // 3-4. Tüm yan etkileri ve faturanın kendisini tek bir atomik transaction'da
-    // yürüt. Böylece yarım kalmış silme (hata sonrası bozuk durum) oluşmaz.
-    // InvoiceItem / InvoicePayment / PaymentLink / Waybill kayıtları şemada
-    // onDelete: Cascade ile tanımlı olduğu için fatura silinince otomatik gider.
+    // 2-4. Stok iadesi + yan etkiler + faturanın kendisi tek atomik transaction'da.
+    // Stok geri alma artık `revertInvoiceStock` ile yapılıyor: depo bazlı (WarehouseStock)
+    // güncellenir, Σ(WarehouseStock)=Product.stockQuantity değişmezi korunur ve
+    // idempotenttir (zaten iptal edilip stoğu geri alınmış faturayı silmek çift
+    // geri alma yapmaz). Bağlı InvoiceItem/InvoicePayment/PaymentLink/Waybill
+    // kayıtları şemada onDelete: Cascade olduğu için fatura silinince otomatik gider.
     try {
       await prisma.$transaction(async (tx) => {
-        if (stockMovements.length > 0) {
-          await tx.stockMovement.createMany({ data: stockMovements })
-          await Promise.all(
-            Array.from(productDelta.entries()).map(([productId, delta]) =>
-              tx.product.update({
-                where: { id: productId },
-                data: { stockQuantity: { increment: delta } },
-              }),
-            ),
-          )
-        }
+        await revertInvoiceStock(tx, {
+          companyId: invoice.companyId,
+          invoiceId,
+          invoiceNo: invoice.invoiceNo,
+          createdBy: user.id,
+        })
 
         // İlgili otomatik muhasebe fişlerini (AccountingEntry) sil (varsa).
         await tx.accountingEntry.deleteMany({

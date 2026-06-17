@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma"
+import { getCariCheckNoteCredit } from "@/lib/cari/check-credit"
 
 /**
  * Bir cari (müşteri/tedarikçi) kaydının silinebilir / arşivlenebilir olup
@@ -90,13 +91,21 @@ async function computeDeletability(
     }),
   ])
 
+  // Müşteride CREDIT (Alacak) bakiyeyi azaltır; tedarikçide işaretler aynalı
+  // olduğundan tersi geçerlidir (bkz. suppliers/[id]/route.ts). Bu fonksiyon
+  // yalnızca |bakiye|≈0 kontrolü yaptığından sonucu değiştirmez, ama diğer
+  // route'larla tutarlı kalsın diye kind'e göre işaretliyoruz.
+  const openingMagnitude = Number(entity?.openingBalanceAmount || 0)
+  const openingIsCredit = entity?.openingBalanceType === "CREDIT"
   const openingSigned =
-    entity?.openingBalanceType === "CREDIT"
-      ? -Number(entity?.openingBalanceAmount || 0)
-      : Number(entity?.openingBalanceAmount || 0)
+    kind === "customer"
+      ? openingIsCredit ? -openingMagnitude : openingMagnitude
+      : openingIsCredit ? openingMagnitude : -openingMagnitude
 
   const incomeSum = Number(incomeAgg._sum.amount || 0)
   const expenseSum = Number(expenseAgg._sum.amount || 0)
+  // Geçerli çek/senet (iade/protesto hariç) hem bakiyeyi kapatır hem açık faturayı.
+  const checkNoteCredit = await getCariCheckNoteCredit(kind, id)
 
   // Müşteride EXPENSE (ör. iade) bakiyeyi ARTIRIR / INCOME (tahsilat) AZALTIR.
   // Tedarikçide simetrik tersi: EXPENSE (ödeme) borcu AZALTIR / INCOME ARTIRIR.
@@ -109,7 +118,8 @@ async function computeDeletability(
     Number(invoiceAgg._sum.totalAmount || 0) -
     Number(paymentAgg._sum.amount || 0) +
     transactionSigned +
-    openingSigned
+    openingSigned -
+    checkNoteCredit
 
   const hasOpenBalance = Math.abs(balance) >= EPSILON
   // Açık fatura: faturaya bağlı ödemeler (InvoicePayment) DIŞINDA, cari ekranından
@@ -125,7 +135,7 @@ async function computeDeletability(
   // invoiceOpenSum'dan düşüldüğü için havuzdan da çıkarılır (çift düşmeyi önler).
   const linkedPaymentSum = Number(linkedPaymentAgg._sum.amount || 0)
   const collectionPool =
-    (kind === "customer" ? incomeSum - expenseSum : expenseSum - incomeSum) - linkedPaymentSum
+    (kind === "customer" ? incomeSum - expenseSum : expenseSum - incomeSum) - linkedPaymentSum + checkNoteCredit
   const hasOpenInvoices = invoiceOpenSum - Math.max(0, collectionPool) >= EPSILON
   const hasHistory = invoiceCount > 0 || transactionCount > 0
 

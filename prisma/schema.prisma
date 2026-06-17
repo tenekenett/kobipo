@@ -147,6 +147,7 @@ model Company {
   transactions Transaction[]
   invoices    Invoice[]
   quotes      Quote[]
+  orders      Order[]
   paymentLinks PaymentLink[]
   stockMovements StockMovement[]
   invoicePayments InvoicePayment[]
@@ -166,6 +167,7 @@ model Company {
   invitations CompanyInvitation[]
   definitions CompanyDefinition[]
   incomingInvoices IncomingInvoice[]
+  employees   Employee[]
 
   @@map("companies")
 }
@@ -236,6 +238,7 @@ model Customer {
   linkedSupplier Supplier? @relation("CustomerSupplierLink", fields: [linkedSupplierId], references: [id], onDelete: SetNull)
   invoices    Invoice[]
   quotes      Quote[]
+  orders      Order[]
   transactions Transaction[]
   checks      Check[]
   promissoryNotes PromissoryNote[]
@@ -287,6 +290,7 @@ model Supplier {
   linkedCustomers Customer[] @relation("CustomerSupplierLink")
   invoices    Invoice[]
   quotes      Quote[]
+  orders      Order[]
   transactions Transaction[]
   checks      Check[]
   promissoryNotes PromissoryNote[]
@@ -359,6 +363,7 @@ model Product {
   stockMovements StockMovement[]
   invoiceItems InvoiceItem[]
   quoteItems  QuoteItem[]
+  orderItems  OrderItem[]
   warehouseStocks WarehouseStock[]
   waybillItems WaybillItem[]
 
@@ -582,6 +587,7 @@ model Invoice {
   payments    InvoicePayment[]
   paymentLinks PaymentLink[]
   convertedFromQuotes Quote[]
+  convertedFromOrders Order[] @relation("OrderConvertedInvoice")
   waybills    Waybill[]
 
   @@unique([companyId, invoiceNo])
@@ -646,6 +652,62 @@ model QuoteItem {
   @@index([quoteId])
   @@index([productId])
   @@map("quote_items")
+}
+
+model Order {
+  id          String   @id @default(cuid())
+  companyId   String
+  orderNo     String
+  type        String   // SALES, PURCHASE
+  status      String   @default("OPEN") // OPEN, PARTIAL, COMPLETED, CANCELLED, CONVERTED
+  customerId  String?
+  supplierId  String?
+  date        DateTime @default(now())
+  deliveryDate DateTime?
+  totalAmount Decimal  @db.Decimal(15, 2)
+  vatAmount   Decimal  @db.Decimal(15, 2)
+  netAmount   Decimal  @db.Decimal(15, 2)
+  currency    String   @default("TRY")
+  notes       String?  @db.Text
+  convertedInvoiceId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier    Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  convertedInvoice Invoice? @relation("OrderConvertedInvoice", fields: [convertedInvoiceId], references: [id], onDelete: SetNull)
+  items       OrderItem[]
+
+  @@unique([companyId, orderNo])
+  @@index([companyId])
+  @@index([companyId, type])
+  @@index([companyId, status])
+  @@index([date])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  productId   String?
+  description String
+  quantity    Decimal  @db.Decimal(10, 2)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  discountRate Decimal? @db.Decimal(5, 2)
+  discountAmount Decimal? @db.Decimal(10, 2)
+  vatRate     Decimal  @db.Decimal(5, 2)
+  vatAmount   Decimal  @db.Decimal(10, 2)
+  totalAmount Decimal  @db.Decimal(10, 2)
+  order       Int      @default(0)
+
+  parentOrder Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
 }
 
 model InvoiceItem {
@@ -789,6 +851,7 @@ model Check {
   issueDate   DateTime
   dueDate     DateTime
   status      String   @default("PORTFÖYDE") // PORTFÖYDE, CİRO_EDİLDİ, TAHSİL_EDİLDİ, İADE_EDİLDİ, PROTESTOLU
+  direction   String?  // RECEIVED (alınan) | GIVEN (verilen). null = eski kayıt: müşteri=alınan, tedarikçi=verilen.
   customerId  String?
   supplierId  String?
   invoiceId   String?
@@ -815,6 +878,7 @@ model PromissoryNote {
   issueDate   DateTime
   dueDate     DateTime
   status      String   @default("PORTFÖYDE") // PORTFÖYDE, CİRO_EDİLDİ, TAHSİL_EDİLDİ, İADE_EDİLDİ, PROTESTOLU
+  direction   String?  // RECEIVED (alınan) | GIVEN (verilen). null = eski kayıt: müşteri=alınan, tedarikçi=verilen.
   customerId  String?
   supplierId  String?
   invoiceId   String?
@@ -1059,5 +1123,153 @@ model IncomingInvoice {
   @@index([companyId, docDate])
   @@index([companyId, status])
   @@map("incoming_invoices")
+}
+
+// ---------------------------------------------------------------------------
+// PERSONEL (İK) MODÜLÜ
+// Alt kayıtlar (bordro/izin/zimmet/belge) companyId skaler alanıyla sorgulanır;
+// firma silinince Employee (company relation, Cascade) ve ona bağlı alt kayıtlar
+// (employee relation, Cascade) birlikte silinir. Bu yüzden alt modeller Company'ye
+// ayrı bir relation TAŞIMAZ — yalnızca Employee'nin company relation'ı yeterli.
+// ---------------------------------------------------------------------------
+
+model Employee {
+  id          String   @id @default(cuid())
+  companyId   String
+  firstName   String
+  lastName    String
+  nationalId  String?  // TC Kimlik No
+  email       String?
+  phone       String?
+  birthDate   DateTime?
+  department  String?
+  position    String?  // Görev / Unvan
+  hireDate    DateTime?
+  terminationDate DateTime?
+  grossSalary Decimal? @db.Decimal(12, 2)
+  iban        String?
+  address     String?  @db.Text
+  emergencyContact String?
+  annualLeaveDays Int   @default(14) // Yıllık izin hakkı (gün)
+  status      String   @default("ACTIVE") // ACTIVE, ON_LEAVE, TERMINATED
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  payrolls    PayrollRecord[]
+  leaves      LeaveRecord[]
+  assets      AssetAssignment[]
+  documents   EmployeeDocument[]
+
+  @@index([companyId])
+  @@index([companyId, status])
+  @@map("employees")
+}
+
+model PayrollRecord {
+  id          String   @id @default(cuid())
+  companyId   String
+  employeeId  String
+  periodYear  Int
+  periodMonth Int      // 1-12
+  grossSalary Decimal  @db.Decimal(12, 2)
+  bonus       Decimal  @default(0) @db.Decimal(12, 2) // prim / mesai / ek ödeme
+  advance     Decimal  @default(0) @db.Decimal(12, 2) // avans (net'ten düşülür)
+  sgkDeduction Decimal @default(0) @db.Decimal(12, 2)
+  taxDeduction Decimal @default(0) @db.Decimal(12, 2)
+  otherDeduction Decimal @default(0) @db.Decimal(12, 2)
+  netSalary   Decimal  @db.Decimal(12, 2)
+  status      String   @default("PENDING") // PENDING, PAID
+  paymentDate DateTime?
+  accountId   String?  // ödendiği finansal hesap
+  transactionId String? // ödeme (EXPENSE) işlemi bağı
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  createdBy   String?
+
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, periodYear, periodMonth])
+  @@index([companyId, periodYear, periodMonth])
+  @@index([employeeId])
+  @@map("payroll_records")
+}
+
+model LeaveRecord {
+  id          String   @id @default(cuid())
+  companyId   String
+  employeeId  String
+  type        String   // ANNUAL, EXCUSE, SICK, UNPAID
+  startDate   DateTime
+  endDate     DateTime
+  days        Decimal  @db.Decimal(5, 1)
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  reason      String?  @db.Text
+  createdAt   DateTime @default(now())
+  createdBy   String?
+
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([employeeId])
+  @@map("leave_records")
+}
+
+model AssetAssignment {
+  id          String   @id @default(cuid())
+  companyId   String
+  employeeId  String
+  assetName   String
+  category    String?  // Bilgisayar, Telefon, Araç, ...
+  serialNo    String?
+  quantity    Int      @default(1)
+  assignedDate DateTime @default(now())
+  returnDate  DateTime?
+  status      String   @default("ASSIGNED") // ASSIGNED, RETURNED
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  createdBy   String?
+
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([employeeId])
+  @@map("asset_assignments")
+}
+
+model EmployeeDocument {
+  id          String   @id @default(cuid())
+  companyId   String
+  employeeId  String
+  title       String
+  category    String?  // Sözleşme, Kimlik, Diploma, Form, ...
+  fileUrl     String?  @db.Text  // Harici bağlantı (dosya yüklenmediyse)
+  storagePath String?  @db.Text  // Supabase Storage nesne yolu (dosya yüklendiyse)
+  fileName    String?  // Orijinal dosya adı
+  mimeType    String?  // application/pdf, ...
+  fileSize    Int?     // bayt
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  createdBy   String?
+
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  blob        EmployeeDocumentBlob?
+
+  @@index([companyId])
+  @@index([employeeId])
+  @@map("employee_documents")
+}
+
+// Belge dosyasının ikili (binary) içeriği ayrı tabloda — liste/özet sorguları
+// büyük dosya baytlarını çekmesin diye. Yalnızca indirme uç noktası okur.
+model EmployeeDocumentBlob {
+  id         String @id @default(cuid())
+  documentId String @unique
+  data       Bytes
+  document   EmployeeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("employee_document_blobs")
 }
 

@@ -255,8 +255,19 @@ export function navItemActive(
   // için aktif sayılır ve iki öğe birden seçili görünür.
   const aliasTargets = NAV_HREF_REDIRECT_ALIASES[pathname]
   if (aliasTargets) return aliasTargets.includes(href)
-  // Avoid /personel matching /personel/maas etc. for the parent — only match exact or sub-path
-  return pathname.startsWith(href + "/")
+  // Alt-yol eşleşmesi (örn. /personel → /personel/123 detay). Ancak parent href
+  // tüm kardeş öğeleri de kapsar (/personel, /personel/ik'yi de startsWith eder),
+  // bu yüzden yalnızca DAHA SPESİFİK (daha uzun) başka bir nav öğesi pathname'i
+  // eşleştirmiyorsa aktif say. Böylece /personel/ik'te yalnızca "İnsan Kaynakları"
+  // aktif olur; /personel/123 gibi öğesiz alt yolda ise "Personeller" aktif kalır.
+  if (!pathname.startsWith(href + "/")) return false
+  const hasMoreSpecific = allNavItems.some(
+    (item) =>
+      item.href !== href &&
+      item.href.length > href.length &&
+      (pathname === item.href || pathname.startsWith(item.href + "/")),
+  )
+  return !hasMoreSpecific
 }
 
 /**

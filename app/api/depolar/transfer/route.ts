@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { transferWarehouseStock } from "@/lib/stock/warehouse"
 
 export const dynamic = 'force-dynamic'
 
@@ -75,36 +76,28 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
+    if (fromWarehouseId === toWarehouseId) {
+      return NextResponse.json({ error: "Kaynak ve hedef depo aynı olamaz" }, { status: 400 })
+    }
+    const qty = parseFloat(quantity)
+    if (!Number.isFinite(qty) || qty <= 0) {
+      return NextResponse.json({ error: "Geçerli bir miktar girin" }, { status: 400 })
+    }
 
     await ensureCompanyAccess(companyId)
 
-    // Transfer işlemi: Çıkış ve giriş kayıtları oluştur
-    const transferDate = date ? new Date(date) : new Date()
-
-    // Çıkış kaydı
-    await prisma.stockMovement.create({
-      data: {
+    // Gerçek transfer: kaynak depo stoğunu düşür, hedef depo stoğunu artır
+    // (toplam stok değişmez); her iki tarafa TRANSFER hareketi yazılır.
+    await prisma.$transaction(async (tx) => {
+      await transferWarehouseStock(tx, {
         companyId,
-        warehouseId: fromWarehouseId,
         productId,
-        type: "TRANSFER",
-        quantity: -parseFloat(quantity), // Negatif: çıkış
-        description: notes || `Depo transfer - ${fromWarehouseId} -> ${toWarehouseId}`,
+        fromWarehouseId,
+        toWarehouseId,
+        quantity: qty,
+        description: notes || "Depo transferi",
         createdBy: user.id,
-      },
-    })
-
-    // Giriş kaydı
-    await prisma.stockMovement.create({
-      data: {
-        companyId,
-        warehouseId: toWarehouseId,
-        productId,
-        type: "TRANSFER",
-        quantity: parseFloat(quantity), // Pozitif: giriş
-        description: notes || `Depo transfer - ${fromWarehouseId} -> ${toWarehouseId}`,
-        createdBy: user.id,
-      },
+      })
     })
 
     return NextResponse.json({ success: true }, { status: 201 })

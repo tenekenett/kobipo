@@ -1,0 +1,22 @@
+// Ürün/hizmet birim seçenekleri. value = saklanan kod (mevcut verilerle uyumlu,
+// büyük harf), label = kullanıcıya gösterilen okunaklı ad.
+export const UNIT_OPTIONS: { value: string; label: string }[] = [
+  { value: "ADET", label: "Adet" },
+  { value: "KG", label: "Kilogram (kg)" },
+  { value: "GR", label: "Gram (g)" },
+  { value: "TON", label: "Ton" },
+  { value: "LT", label: "Litre (lt)" },
+  { value: "ML", label: "Mililitre (ml)" },
+  { value: "MT", label: "Metre (m)" },
+  { value: "CM", label: "Santimetre (cm)" },
+  { value: "M2", label: "Metrekare (m²)" },
+  { value: "M3", label: "Metreküp (m³)" },
+  { value: "PAKET", label: "Paket" },
+  { value: "KUTU", label: "Kutu" },
+  { value: "KOLI", label: "Koli" },
+  { value: "DESTE", label: "Deste" },
+  { value: "ÇİFT", label: "Çift" },
+  { value: "RULO", label: "Rulo" },
+  { value: "SAAT", label: "Saat" },
+  { value: "GÜN", label: "Gün" },
+]

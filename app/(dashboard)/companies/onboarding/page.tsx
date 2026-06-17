@@ -122,7 +122,7 @@ export default function CompanyOnboardingPage() {
   if (!companyId || isInitialLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <p className="text-muted-foreground">Yukleniyor...</p>
+        <p className="text-muted-foreground">Yükleniyor...</p>
       </div>
     )
   }
@@ -131,9 +131,9 @@ export default function CompanyOnboardingPage() {
     <div className="flex min-h-[70vh] items-center justify-center p-4">
       <Card className="w-full max-w-3xl">
         <CardHeader>
-          <CardTitle>Firmanizi daha yakindan taniyalim</CardTitle>
+          <CardTitle>Firmanızı daha yakından tanıyalım</CardTitle>
           <CardDescription>
-            Size daha iyi bir baslangic deneyimi sunmak icin sektorel ve is modeli bilgilerinizi
+            Size daha iyi bir başlangıç deneyimi sunmak için sektörel ve iş modeli bilgilerinizi
             doldurun.
           </CardDescription>
         </CardHeader>
@@ -141,27 +141,27 @@ export default function CompanyOnboardingPage() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="sector">Sektor</Label>
+                <Label htmlFor="sector">Sektör</Label>
                 <Input
                   id="sector"
                   value={formData.sector}
                   onChange={(event) => updateField("sector", event.target.value)}
-                  placeholder="Orn: Perakende, Uretim, Hizmet"
+                  placeholder="Örn: Perakende, Üretim, Hizmet"
                   disabled={isLoading}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="businessModel">Is modeli</Label>
+                <Label htmlFor="businessModel">İş modeli</Label>
                 <Input
                   id="businessModel"
                   value={formData.businessModel}
                   onChange={(event) => updateField("businessModel", event.target.value)}
-                  placeholder="B2B, B2C, Toptan, Proje bazli"
+                  placeholder="B2B, B2C, Toptan, Proje bazlı"
                   disabled={isLoading}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="employeeRange">Calisan sayisi araligi</Label>
+                <Label htmlFor="employeeRange">Çalışan sayısı aralığı</Label>
                 <Input
                   id="employeeRange"
                   value={formData.employeeRange}
@@ -171,7 +171,7 @@ export default function CompanyOnboardingPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="monthlyInvoiceVolume">Aylik fatura adedi</Label>
+                <Label htmlFor="monthlyInvoiceVolume">Aylık fatura adedi</Label>
                 <Input
                   id="monthlyInvoiceVolume"
                   value={formData.monthlyInvoiceVolume}
@@ -183,18 +183,18 @@ export default function CompanyOnboardingPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="primaryBusinessNeed">Oncelikli ihtiyaciniz nedir?</Label>
+              <Label htmlFor="primaryBusinessNeed">Öncelikli ihtiyacınız nedir?</Label>
               <Input
                 id="primaryBusinessNeed"
                 value={formData.primaryBusinessNeed}
                 onChange={(event) => updateField("primaryBusinessNeed", event.target.value)}
-                placeholder="Nakit akisi takibi, e-donusum, stok yonetimi vb."
+                placeholder="Nakit akışı takibi, e-dönüşüm, stok yönetimi vb."
                 disabled={isLoading}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="usesEDonusumBefore">Daha once e-donusum kullandiniz mi?</Label>
+              <Label htmlFor="usesEDonusumBefore">Daha önce e-dönüşüm kullandınız mı?</Label>
               <select
                 id="usesEDonusumBefore"
                 value={formData.usesEDonusumBefore}
@@ -202,9 +202,9 @@ export default function CompanyOnboardingPage() {
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 disabled={isLoading}
               >
-                <option value="">Seciniz</option>
+                <option value="">Seçiniz</option>
                 <option value="true">Evet</option>
-                <option value="false">Hayir</option>
+                <option value="false">Hayır</option>
               </select>
             </div>
           </CardContent>

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { supplierHasBusinessReferences } from "@/lib/cari/dual-role"
 import { getCustomerDeletability } from "@/lib/cari/archive-guard"
+import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 
 
 export const dynamic = 'force-dynamic'
@@ -50,6 +51,7 @@ export async function GET(
           select: { id: true, name: true, email: true },
         },
         invoices: {
+          where: { status: { not: "CANCELLED" } },
           orderBy: { date: "desc" },
           take: 10,
           include: {
@@ -77,13 +79,16 @@ export async function GET(
     // Calculate balance using database aggregation to avoid N+1 queries
     const [invoiceAggregate, paymentAggregate, incomeTransactionAggregate, expenseTransactionAggregate] = await Promise.all([
       prisma.invoice.aggregate({
-        where: { customerId: customer.id, type: "SALES" },
+        where: { customerId: customer.id, type: "SALES", status: { not: "CANCELLED" } },
         _sum: { totalAmount: true },
       }),
       prisma.invoicePayment.aggregate({
         // Bir Transaction'a bağlı ödemeler bakiyeye işlemin kendisi üzerinden
         // (− gelir) yansıdığı için burada hariç tutulur (çift sayımı önler).
-        where: { transactionId: null, invoice: { customerId: customer.id, type: "SALES" } },
+        where: {
+          transactionId: null,
+          invoice: { customerId: customer.id, type: "SALES", status: { not: "CANCELLED" } },
+        },
         _sum: { amount: true },
       }),
       prisma.transaction.aggregate({
@@ -103,9 +108,9 @@ export async function GET(
       : Number(customer.openingBalanceAmount || 0)
 
     // Get all invoices and transactions for display (with payments included to avoid N+1)
-    const [allInvoices, allTransactions] = await Promise.all([
+    const [allInvoices, allTransactions, allChecks, allNotes] = await Promise.all([
       prisma.invoice.findMany({
-        where: { customerId: customer.id },
+        where: { customerId: customer.id, status: { not: "CANCELLED" } },
         include: {
           payments: {
             select: { amount: true },
@@ -120,7 +125,23 @@ export async function GET(
         },
         orderBy: { date: "asc" },
       }),
+      // Müşteriden alınan çek/senet (iade/protesto hariç) alacağı kapatır.
+      prisma.check.findMany({
+        where: { customerId: customer.id, status: { notIn: [...CHECK_NOTE_NON_SETTLING] } },
+        orderBy: { issueDate: "asc" },
+      }),
+      prisma.promissoryNote.findMany({
+        where: { customerId: customer.id, status: { notIn: [...CHECK_NOTE_NON_SETTLING] } },
+        orderBy: { issueDate: "asc" },
+      }),
     ])
+
+    // Çek/senet net etkisi (yön + iade/protesto hariç) bakiyeyi azaltır/artırır.
+    // Müşteride alınan çek alacağı azaltır; verilen çek (iade) artırır.
+    const checkNoteCredit =
+      allChecks.reduce((s, c) => s + checkNoteSignedCredit("customer", c.direction, Number(c.amount)), 0) +
+      allNotes.reduce((s, n) => s + checkNoteSignedCredit("customer", n.direction, Number(n.amount)), 0)
+    balance -= checkNoteCredit
 
     // Format transactions for display
     const openingAmount = Number(customer.openingBalanceAmount || 0)
@@ -158,11 +179,41 @@ export async function GET(
         date: trx.date.toISOString(),
         type: trx.type === "INCOME" ? "PAYMENT" : "EXPENSE",
         description: trx.description || `${trx.type} - ${trx.account?.name || ""}`,
-        debit: 0,
+        // EXPENSE (ör. müşteri adına masraf) cariyi borçlandırır → Borç sütunu.
+        // Bakiye formülü de EXPENSE'i +olarak sayar (yukarı, satır ~104); burada
+        // atlanırsa ekstrenin yürüyen bakiyesi üstteki Bakiye kartıyla tutmaz.
+        debit: trx.type === "EXPENSE" ? Number(trx.amount) : 0,
         credit: trx.type === "INCOME" ? Number(trx.amount) : 0,
         balance: 0,
         invoiceNo: null,
       })),
+      // Alınan çek alacağı azaltır → Alacak sütunu; verilen çek (iade) artırır → Borç.
+      ...allChecks.map((ch) => {
+        const given = ch.direction === "GIVEN"
+        return {
+          id: ch.id,
+          date: ch.issueDate.toISOString(),
+          type: "CHECK",
+          description: `Çek ${ch.checkNo}${ch.bankName ? ` - ${ch.bankName}` : ""}`,
+          debit: given ? Number(ch.amount) : 0,
+          credit: given ? 0 : Number(ch.amount),
+          balance: 0,
+          invoiceNo: null,
+        }
+      }),
+      ...allNotes.map((nt) => {
+        const given = nt.direction === "GIVEN"
+        return {
+          id: nt.id,
+          date: nt.issueDate.toISOString(),
+          type: "NOTE",
+          description: `Senet ${nt.noteNo}`,
+          debit: given ? Number(nt.amount) : 0,
+          credit: given ? 0 : Number(nt.amount),
+          balance: 0,
+          invoiceNo: null,
+        }
+      }),
     ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
     // Calculate running balance

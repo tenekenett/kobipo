@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { getCheckNoteCreditMap } from "@/lib/cari/check-credit"
 
 export const dynamic = "force-dynamic"
 
@@ -250,7 +251,7 @@ export async function GET(request: Request) {
         openingBalanceType: true,
         createdAt: true,
         invoices: {
-          where: { type: "SALES" },
+          where: { type: "SALES", status: { not: "CANCELLED" } },
           select: {
             id: true,
             invoiceNo: true,
@@ -279,7 +280,7 @@ export async function GET(request: Request) {
         openingBalanceType: true,
         createdAt: true,
         invoices: {
-          where: { type: "PURCHASE" },
+          where: { type: "PURCHASE", status: { not: "CANCELLED" } },
           select: {
             id: true,
             invoiceNo: true,
@@ -294,6 +295,13 @@ export async function GET(request: Request) {
       },
       orderBy: { name: "asc" },
     })
+
+    // Çek/senet kredileri (iade/protesto hariç): cariId→tutar. Serbest tahsilat gibi
+    // açık faturaları FIFO kapatır.
+    const [customerCheckCredit, supplierCheckCredit] = await Promise.all([
+      getCheckNoteCreditMap("customer", companyId),
+      getCheckNoteCreditMap("supplier", companyId),
+    ])
 
     const customerAccounts: AgingAccount[] = customers
       .map((c) => {
@@ -315,7 +323,9 @@ export async function GET(request: Request) {
             s + inv.payments.reduce((a, p) => a + (p.transactionId ? Number(p.amount) : 0), 0),
           0,
         )
-        applyUnallocatedCredits(analyzed, round2(incomeSum - expenseSum - linkedSum))
+        // Çek/senet (müşteriden alınan) alacağı kapatır → serbest krediye eklenir.
+        const checkCredit = customerCheckCredit.get(c.id) || 0
+        applyUnallocatedCredits(analyzed, round2(incomeSum - expenseSum - linkedSum + checkCredit))
         const invoices = analyzed.filter((inv) => inv.openAmount > 0)
         return {
           id: c.id,
@@ -349,7 +359,9 @@ export async function GET(request: Request) {
             sum + inv.payments.reduce((a, p) => a + (p.transactionId ? Number(p.amount) : 0), 0),
           0,
         )
-        applyUnallocatedCredits(analyzed, round2(expenseSum - incomeSum - linkedSum))
+        // Çek/senet (tedarikçiye verilen) borcu kapatır → serbest krediye eklenir.
+        const checkCredit = supplierCheckCredit.get(s.id) || 0
+        applyUnallocatedCredits(analyzed, round2(expenseSum - incomeSum - linkedSum + checkCredit))
         const invoices = analyzed.filter((inv) => inv.openAmount > 0)
         return {
           id: s.id,

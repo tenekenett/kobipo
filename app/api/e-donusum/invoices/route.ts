@@ -7,6 +7,7 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
 import { decryptSecret } from "@/lib/crypto/secrets"
+import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 
 
 export const dynamic = 'force-dynamic'
@@ -131,6 +132,7 @@ export async function POST(request: Request) {
       notes,
       sendInvoice,
       fromIncomingUuid,
+      warehouseId,
     } = body
 
     if (!companyId || !type || !invoiceType || !items || items.length === 0) {
@@ -301,67 +303,42 @@ const company = await prisma.company.findUnique({
       },
     })
 
-    // Stok hareketi: Satış, Satın alma, İade işlemlerinde stok güncelle
-    for (const item of invoice.items) {
-      // 1. Ürün ID'sini garantiye al
-      const safeProductId = item.productId || (item as any).product?.id || null;
-      if (!safeProductId) {
-        console.warn(`[Stok Uyarı] Ürün ID bulunamadı. Fatura Kalemi Atlandı: ${item.description}`);
-        continue; 
-      }
+    // Stok hareketi: depo bazlı. warehouseId verilmezse firmanın varsayılan deposu
+    // kullanılır. Satış → çıkış (OUT, − miktar), Alış/İade → giriş (IN, + miktar).
+    const safeType = String(type || "").trim().toUpperCase()
+    const stockItems = invoice.items
+      .map((item) => {
+        const safeProductId = item.productId || (item as any).product?.id || null
+        if (!safeProductId) return null
+        let delta = 0
+        if (safeType === "SALES") delta = -Number(item.quantity)
+        else if (safeType === "PURCHASE" || safeType === "RETURN") delta = Number(item.quantity)
+        if (delta === 0) return null
+        return { productId: safeProductId as string, delta, unitPrice: item.unitPrice != null ? Number(item.unitPrice) : null }
+      })
+      .filter((x): x is { productId: string; delta: number; unitPrice: number | null } => x !== null)
 
-      // 2. Fatura Tipini büyük harfe zorla ve boşlukları temizle
-      const safeType = String(type || "").trim().toUpperCase();
-
-      let stockQuantityChange = 0;
-      let moveType = "UNKNOWN";
-
-      // Schema: stockMovement.type ∈ { IN, OUT, TRANSFER, ADJUSTMENT }.
-      // Rapor ve detay endpoint'leri "IN" / "OUT" üzerinden filtreliyor — eski kodda
-      // PURCHASE/SALE yazılıyordu, bu yüzden hareketler stok detayında gözükmüyordu.
-      // stockQuantityChange tarafı zaten signed; product.stockQuantity doğru güncellenir.
-      if (safeType === "SALES") {
-        stockQuantityChange = -Number(item.quantity);
-        moveType = "OUT";
-      } else if (safeType === "PURCHASE") {
-        stockQuantityChange = Number(item.quantity);
-        moveType = "IN";
-      } else if (safeType === "RETURN") {
-        stockQuantityChange = Number(item.quantity);
-        moveType = "IN";
-      }
-
-      if (stockQuantityChange !== 0) {
-        try {
-          // Stok hareketi oluştur
-          await prisma.stockMovement.create({
-            data: {
+    if (stockItems.length > 0) {
+      try {
+        await prisma.$transaction(async (tx) => {
+          const whId = warehouseId || (await ensureDefaultWarehouseId(tx, companyId))
+          const label = safeType === "SALES" ? "Satış" : safeType === "PURCHASE" ? "Satın alma" : "İade"
+          for (const it of stockItems) {
+            await adjustWarehouseStock(tx, {
               companyId,
-              productId: safeProductId,
-              type: moveType,
-              quantity: stockQuantityChange,
-              unitPrice: item.unitPrice ?? null,
-              description: `${invoice.invoiceNo} - ${safeType === "SALES" ? "Satış" : safeType === "PURCHASE" ? "Satın alma" : "İade"} faturası`,
+              productId: it.productId,
+              warehouseId: whId,
+              delta: it.delta,
+              type: safeType === "SALES" ? "OUT" : "IN",
+              unitPrice: it.unitPrice,
+              description: `${invoice.invoiceNo} - ${label} faturası`,
               reference: invoice.id,
-              //referenceType: "INVOICE",
               createdBy: user.id,
-            },
-          });
-
-          // Ürünün stok miktarını güncelle
-          await prisma.product.update({
-            where: { id: safeProductId },
-            data: {
-              stockQuantity: {
-                increment: stockQuantityChange,
-              },
-            },
-          });
-          
-          console.log(`[Stok Başarılı] ${safeProductId} ID'li ürünün stoğu ${stockQuantityChange} kadar güncellendi.`);
-        } catch (stockError) {
-          console.error("[Stok Hata] Stok işlemi sırasında veritabanı hatası oluştu: ", stockError);
-        }
+            })
+          }
+        })
+      } catch (stockError) {
+        console.error("[Stok Hata] Depo bazlı stok güncellenemedi:", stockError)
       }
     }
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 
 export const dynamic = 'force-dynamic'
 
@@ -122,6 +123,7 @@ export async function POST(request: Request) {
       stockQuantity,
       minStockLevel,
       isService,
+      warehouseId,
     } = body
 
     if (!companyId || !name) {
@@ -165,6 +167,11 @@ export async function POST(request: Request) {
       }
     }
 
+    const initialQty = !isService && stockQuantity ? parseFloat(stockQuantity) : 0
+
+    // Ürünü 0 stokla oluştur; başlangıç stoğu varsa depo bazlı olarak (varsayılan
+    // ya da seçilen depoya) helper üzerinden eklenir — böylece toplam stok ve
+    // WarehouseStock tutarlı olur, depo özetinde hemen görünür.
     const product = await prisma.product.create({
       data: {
         companyId,
@@ -175,13 +182,37 @@ export async function POST(request: Request) {
         vatRate: vatRate ? parseFloat(vatRate) : 20,
         purchasePrice: purchasePrice ? parseFloat(purchasePrice) : null,
         salePrice: salePrice ? parseFloat(salePrice) : null,
-        stockQuantity: stockQuantity ? parseFloat(stockQuantity) : 0,
+        stockQuantity: 0,
         minStockLevel: minStockLevel ? parseFloat(minStockLevel) : null,
         isService: isService || false,
       },
     })
 
-    return NextResponse.json(product, { status: 201 })
+    // Ürün (hizmet değilse) seçilen/varsayılan depoya kaydedilir. Stok > 0 ise
+    // helper ile (toplam + hareket); stok 0 olsa bile depoya 0 ile kaydedilir ki
+    // depo dağılımında "—" yerine ilgili depo görünsün.
+    if (!isService) {
+      const whId = warehouseId || (await ensureDefaultWarehouseId(prisma, companyId))
+      if (initialQty > 0) {
+        await adjustWarehouseStock(prisma, {
+          companyId,
+          productId: product.id,
+          warehouseId: whId,
+          delta: initialQty,
+          type: "IN",
+          description: "Açılış stoğu",
+          createdBy: user.id,
+        })
+      } else {
+        await prisma.warehouseStock.upsert({
+          where: { warehouseId_productId: { warehouseId: whId, productId: product.id } },
+          create: { warehouseId: whId, productId: product.id, quantity: 0 },
+          update: {},
+        })
+      }
+    }
+
+    return NextResponse.json({ ...product, stockQuantity: initialQty }, { status: 201 })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })

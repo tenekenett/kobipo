@@ -59,24 +59,28 @@ export async function GET(request: Request) {
       },
     })
 
-    // Diğer gelirler (Transaction INCOME)
+    // Diğer gelirler (Transaction INCOME). Faturaya bağlı tahsilat işlemleri
+    // satış faturasıyla birlikte zaten gelir yazıldığından hariç tutulur
+    // (çift sayımı önler) — yalnızca faturasız serbest gelirler.
     const otherIncome = await prisma.transaction.aggregate({
       where: {
         companyId,
         type: "INCOME",
         date: { gte: start, lte: end },
+        invoicePayments: { none: {} },
       },
       _sum: {
         amount: true,
       },
     })
 
-    // Diğer giderler (Transaction EXPENSE)
+    // Diğer giderler (Transaction EXPENSE) — faturaya bağlı ödemeler hariç.
     const otherExpense = await prisma.transaction.aggregate({
       where: {
         companyId,
         type: "EXPENSE",
         date: { gte: start, lte: end },
+        invoicePayments: { none: {} },
       },
       _sum: {
         amount: true,

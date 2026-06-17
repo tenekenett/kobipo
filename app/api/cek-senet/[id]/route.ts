@@ -122,6 +122,7 @@ export async function PUT(
       if (data.issueDate !== undefined) updateData.issueDate = new Date(data.issueDate)
       if (data.dueDate !== undefined) updateData.dueDate = new Date(data.dueDate)
       if (data.status !== undefined) updateData.status = data.status
+      if (data.direction !== undefined) updateData.direction = data.direction || null
       if (data.customerId !== undefined) updateData.customerId = data.customerId || null
       if (data.supplierId !== undefined) updateData.supplierId = data.supplierId || null
       if (data.invoiceId !== undefined) updateData.invoiceId = data.invoiceId || null
@@ -167,6 +168,7 @@ export async function PUT(
       if (data.issueDate !== undefined) updateData.issueDate = new Date(data.issueDate)
       if (data.dueDate !== undefined) updateData.dueDate = new Date(data.dueDate)
       if (data.status !== undefined) updateData.status = data.status
+      if (data.direction !== undefined) updateData.direction = data.direction || null
       if (data.customerId !== undefined) updateData.customerId = data.customerId || null
       if (data.supplierId !== undefined) updateData.supplierId = data.supplierId || null
       if (data.invoiceId !== undefined) updateData.invoiceId = data.invoiceId || null
