@@ -32,6 +32,15 @@ enum CompanyDefinitionType {
   CLASS_2
 }
 
+// Kontör satın alma sipariş durumları (bayi/İş Ortağı modeli)
+enum KontorOrderStatus {
+  PENDING_PAYMENT  // Sipariş oluştu, ödeme/dekont bekleniyor
+  PAYMENT_REVIEW   // Dekont yüklendi, sistem-admin onayı bekliyor
+  LOADED           // Ödeme onaylandı ve Mysoft'a kontör yüklendi
+  REJECTED         // Reddedildi (ödeme bulunamadı vb.)
+  FAILED           // Onaylandı ama Mysoft yüklemesi başarısız oldu
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -168,6 +177,7 @@ model Company {
   definitions CompanyDefinition[]
   incomingInvoices IncomingInvoice[]
   employees   Employee[]
+  kontorOrders KontorOrder[]
 
   @@map("companies")
 }
@@ -1030,6 +1040,62 @@ model UsageLimit {
 
   @@unique([companyId, key, periodStart])
   @@map("usage_limits")
+}
+
+// Kobipo'nun sattığı kontör paketleri (sistem-admin tanımlar).
+// Müşteri fiyatı Kobipo'ya aittir; mysoftTariffCode ise yüklemede (insertDocumentCredit) kullanılır.
+model KontorPackage {
+  id               String   @id @default(cuid())
+  name             String                          // "1000 E-Belge"
+  description      String?
+  creditQty        Int                             // yüklenecek kontör adedi
+  price            Decimal  @db.Decimal(10, 2)     // Kobipo müşteri fiyatı
+  currency         String   @default("TRY")
+  mysoftTariffCode String                          // Mysoft İş Ortağı tarife kodu (getBusinessPartnerTariff)
+  validityMonths   Int?                            // expiryDate hesabı; boşsa tarife default'u
+  isActive         Boolean  @default(true)
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  orders           KontorOrder[]
+
+  @@map("kontor_packages")
+}
+
+// Müşterinin kontör satın alma siparişi. Havale + sistem-admin onayı ile ilerler;
+// onaylanınca bayi kimliğiyle Mysoft'a insertDocumentCredit yapılır.
+model KontorOrder {
+  id               String   @id @default(cuid())
+  companyId        String
+  packageId        String?
+  // Sipariş anı snapshot'ı (paket sonradan değişse/silinse bile sabit kalır)
+  packageName      String
+  creditQty        Int
+  unitPrice        Decimal  @db.Decimal(10, 2)
+  totalPrice       Decimal  @db.Decimal(10, 2)
+  currency         String   @default("TRY")
+  mysoftTariffCode String
+  targetVkn        String                          // kontörün yükleneceği mükellef VKN/TCKN
+  status           KontorOrderStatus @default(PENDING_PAYMENT)
+  paymentMethod    String   @default("HAVALE")
+  receiptUrl       String?                         // dekont görseli/PDF
+  // Mysoft yükleme sonucu
+  mysoftCreditId   String?
+  loadError        String?  @db.Text
+  // İz kayıtları
+  createdById      String?
+  confirmedById    String?
+  confirmedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  company          Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  package          KontorPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status])
+  @@index([status])
+  @@map("kontor_orders")
 }
 
 model Notification {

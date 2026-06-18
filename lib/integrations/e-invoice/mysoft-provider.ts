@@ -1,6 +1,25 @@
 import { EInvoiceProvider } from "./types"
 import { resolveMysoftBaseUrl } from "./constants"
 
+// Mysoft ürün tipi kodları → okunur etiket (CreditRequestModel açıklamasından).
+const MYSOFT_PRODUCT_LABELS: Record<number, string> = {
+  1: "E-Fatura",
+  2: "E-Arşiv Fatura",
+  3: "E-İrsaliye",
+  4: "E-Defter",
+  5: "E-SMM",
+  6: "E-MM",
+  7: "E-Bilet",
+  8: "CRM",
+  9: "Ön Muhasebe",
+  10: "IYS",
+  12: "İzin Yönetimi",
+  13: "E-Döviz",
+  16: "E-Adisyon",
+  17: "Mutabakat",
+  18: "E-Arşiv Fatura (GİB)",
+}
+
 export class MysoftEInvoiceProvider implements EInvoiceProvider {
   name = "Mysoft";
   private username: string;
@@ -93,6 +112,258 @@ export class MysoftEInvoiceProvider implements EInvoiceProvider {
       return { success: true, data: Array.isArray(data?.data) ? data.data : [] }
     } catch (error: any) {
       return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." }
+    }
+  }
+
+  /**
+   * Firmanın Mysoft'taki kalan kontör bilgisini döndürür (normalize edilmiş satırlar).
+   *
+   * Önce "Firma Sayaç Bilgisi" (POST /api/Tenant/getCounterInfo) denenir — normal
+   * mükellef hesabının kalan hakkı burada `documentCreditQueryList` altında gelir:
+   * kalan = creditQty - usedCreditQty - expiredCreditQty.
+   * Boşsa "Firma Kontör Bilgisi" (POST /api/Tenant/getCreditInfo) görünümüne düşülür
+   * (genelde İş Ortağı yüklemeleri burada görünür).
+   */
+  async getCreditInfo(identifierNumber: string): Promise<{
+    success: boolean
+    source?: string
+    data?: Array<{
+      remainingCreditQty: number
+      creditQty: number
+      usedCreditQty: number
+      endDate: string | null
+      isExpired: boolean
+      productLabel: string
+    }>
+    // Kalan bakiye API'de görünmediğinde (documentCreditQueryList null) gösterilecek
+    // tüketim sayaçları — counterByProductList'ten.
+    usage?: Array<{ productLabel: string; usedCreditQty: number }>
+    error?: string
+  }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+      const authHeaders = {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      }
+
+      // 1) Firma Sayaç Bilgisi — mükellef-facing kalan hak + tüketim sayaçları
+      const counterRes = await fetch(`${this.baseUrl}/api/Tenant/getCounterInfo`, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ identifierNumber }),
+      })
+      const counterData = await counterRes.json().catch(() => null)
+      console.log("[Mysoft] getCounterInfo raw response:", JSON.stringify(counterData))
+
+      // Tüketim sayaçları (her zaman elimizdeyse taşı) — fallback gösterim için.
+      const usage: Array<{ productLabel: string; usedCreditQty: number }> = Array.isArray(
+        counterData?.data?.counterByProductList,
+      )
+        ? counterData.data.counterByProductList.map((u: any) => ({
+            productLabel: String(u?.productDescription || "Bilinmeyen ürün"),
+            usedCreditQty: Number(u?.usedCreditQty) || 0,
+          }))
+        : []
+
+      const creditList: any[] = Array.isArray(counterData?.data?.documentCreditQueryList)
+        ? counterData.data.documentCreditQueryList
+        : []
+      if (counterData?.succeed && creditList.length > 0) {
+        const now = new Date()
+        return {
+          success: true,
+          source: "counter",
+          usage,
+          data: creditList.map((r) => {
+            const credit = Number(r?.creditQty) || 0
+            const used = Number(r?.usedCreditQty) || 0
+            const expired = Number(r?.expiredCreditQty) || 0
+            const remaining = Math.max(0, credit - used - expired)
+            const expiry = r?.expiryDate ?? null
+            const isExpired = !r?.isNotExpiry && expiry ? new Date(expiry) < now : false
+            return {
+              remainingCreditQty: remaining,
+              creditQty: credit,
+              usedCreditQty: used,
+              endDate: r?.isNotExpiry ? null : expiry,
+              isExpired,
+              productLabel: String(
+                r?.activationProductTypeDescription || r?.tariffName || "Tüm ürünler",
+              ),
+            }
+          }),
+        }
+      }
+
+      // 2) Fallback: Firma/İş Ortağı Kontör Bilgisi
+      const creditRes = await fetch(`${this.baseUrl}/api/Tenant/getCreditInfo`, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ identifierNumber, isGetAllCreditInfo: false }),
+      })
+      const creditData = await creditRes.json().catch(() => null)
+      console.log("[Mysoft] getCreditInfo raw response:", JSON.stringify(creditData))
+      if (!counterData?.succeed && !creditData?.succeed) {
+        return {
+          success: false,
+          error: creditData?.message || counterData?.message || "Kontör bilgisi alınamadı.",
+        }
+      }
+      const rows: any[] = Array.isArray(creditData?.data) ? creditData.data : []
+      return {
+        success: true,
+        source: rows.length > 0 ? "credit" : "usage",
+        usage,
+        data: rows.map((r) => {
+          const credit = Number(r?.creditQty) || 0
+          const remaining = Number(r?.remainingCreditQty) || 0
+          const productTypes: number[] = Array.isArray(r?.productTypeList)
+            ? r.productTypeList.map((p: any) => Number(p)).filter((p: number) => Number.isFinite(p))
+            : []
+          return {
+            remainingCreditQty: remaining,
+            creditQty: credit,
+            usedCreditQty: Math.max(0, credit - remaining),
+            endDate: r?.endDate ?? null,
+            isExpired: Boolean(r?.isExpired),
+            productLabel:
+              productTypes.length > 0
+                ? productTypes.map((p) => MYSOFT_PRODUCT_LABELS[p] || `Ürün ${p}`).join(", ")
+                : "Tüm ürünler",
+          }
+        }),
+      }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." }
+    }
+  }
+
+  /**
+   * İş Ortağı Tarife Listesi (Swagger v8: GET /api/Tenant/getBusinessPartnerTariff).
+   * Bu hesapta tarife dönüyorsa → hesabın bayi/İş Ortağı yetkisi var demektir.
+   * Normal mükellef hesabında genelde boş/yetkisiz döner.
+   */
+  async getBusinessPartnerTariff(limit = 50): Promise<{
+    success: boolean
+    data: any[]
+    status: number
+    error?: string
+    raw?: any
+  }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, data: [], status: 0, error: "Mysoft token alınamadı." }
+      const res = await fetch(
+        `${this.baseUrl}/api/Tenant/getBusinessPartnerTariff?limit=${limit}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        },
+      )
+      const data = await res.json().catch(() => null)
+      console.log("[Mysoft] getBusinessPartnerTariff raw:", res.status, JSON.stringify(data))
+      return {
+        success: Boolean(data?.succeed),
+        data: Array.isArray(data?.data) ? data.data : [],
+        status: res.status,
+        error: data?.succeed ? undefined : data?.message || `HTTP ${res.status}`,
+        raw: data,
+      }
+    } catch (error: any) {
+      return { success: false, data: [], status: 0, error: error?.message || "Bilinmeyen hata" }
+    }
+  }
+
+  /**
+   * İş ortağı kontör özet bilgisi (Swagger v8: POST /api/Tenant/getBusinessPartnerDocumentCreditList).
+   * businessPartnerQueryType: 1=Ana iş ortağı, 2=Alt iş ortağı. quantityType: 1=Adet.
+   * Dönen kayıtlardaki mainBusinessPartnerIdentifierNumber/Name → bu hesabın bağlı olduğu
+   * ana iş ortağını (bayiyi) gösterir.
+   */
+  async getBusinessPartnerDocumentCreditList(
+    businessPartnerQueryType: number,
+    quantityType = 1,
+  ): Promise<{ success: boolean; data: any[]; status: number; error?: string; raw?: any }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, data: [], status: 0, error: "Mysoft token alınamadı." }
+      const res = await fetch(
+        `${this.baseUrl}/api/Tenant/getBusinessPartnerDocumentCreditList`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ businessPartnerQueryType, quantityType }),
+        },
+      )
+      const data = await res.json().catch(() => null)
+      console.log(
+        `[Mysoft] getBusinessPartnerDocumentCreditList(type=${businessPartnerQueryType}) raw:`,
+        res.status,
+        JSON.stringify(data),
+      )
+      return {
+        success: Boolean(data?.succeed),
+        data: Array.isArray(data?.data) ? data.data : [],
+        status: res.status,
+        error: data?.succeed ? undefined : data?.message || `HTTP ${res.status}`,
+        raw: data,
+      }
+    } catch (error: any) {
+      return { success: false, data: [], status: 0, error: error?.message || "Bilinmeyen hata" }
+    }
+  }
+
+  /**
+   * Firmaya kontör yükleme (Swagger v8: POST /api/Tenant/insertDocumentCredit).
+   * Bu İŞ ORTAĞI işlemidir — provider, bayi (İş Ortağı) kimlik bilgileriyle oluşturulmalıdır.
+   * identifierNumber = kontörün yükleneceği mükellef VKN/TCKN (bayinin altındaki firma).
+   * tariffCode zorunlu (getBusinessPartnerTariff'tan gelir).
+   * Başarılıysa Mysoft kayıt id'sini döndürür.
+   */
+  async loadCredit(params: {
+    identifierNumber: string
+    tariffCode: string
+    creditQty: number
+    docDate?: string // YYYY-MM-DD; boşsa bugün
+    expiryDate?: string // YYYY-MM-DD; boşsa tarife default'u
+    note?: string
+  }): Promise<{ success: boolean; creditId?: number; error?: string; raw?: any }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+      const today = new Date().toISOString().slice(0, 10)
+      const body: Record<string, unknown> = {
+        identifierNumber: params.identifierNumber,
+        tariffCode: params.tariffCode,
+        creditQty: params.creditQty,
+        docDate: params.docDate || today,
+      }
+      if (params.expiryDate) body.expiryDate = params.expiryDate
+      if (params.note) body.note = params.note
+
+      const res = await fetch(`${this.baseUrl}/api/Tenant/insertDocumentCredit`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => null)
+      console.log("[Mysoft] insertDocumentCredit raw:", res.status, JSON.stringify(data))
+      if (!data?.succeed) {
+        return {
+          success: false,
+          error: data?.message || `Kontör yüklenemedi (HTTP ${res.status})`,
+          raw: data,
+        }
+      }
+      const creditId =
+        typeof data?.data?.id === "number"
+          ? data.data.id
+          : Number(data?.data?.id) || undefined
+      return { success: true, creditId, raw: data }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen hata" }
     }
   }
 

@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   Bell,
+  Coins,
 } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -49,6 +50,11 @@ const navItems = [
     title: "Kullanıcılar",
     href: "/system-admin/users",
     icon: Users,
+  },
+  {
+    title: "Kontör",
+    href: "/system-admin/kontor",
+    icon: Coins,
   },
   {
     title: "Sistem Logları",
