@@ -7,7 +7,7 @@ const navLinks = [
   { label: "Özellikler", href: "#ozellikler" },
   { label: "Fiyatlandırma", href: "#fiyatlandirma" },
   { label: "SSS", href: "#sss" },
-  { label: "Destek", href: "#iletisim" },
+  { label: "Destek", href: "/kurumsal/destek" },
 ]
 
 function BrandMark({ size = 36 }: { size?: number }) {
@@ -561,148 +561,56 @@ export default function Home() {
               Fiyatlandırma
             </span>
             <h2 className="text-3xl font-extrabold tracking-tight text-kobipo-navy sm:text-4xl">
-              Şeffaf fiyat, <span className="text-kobipo-blue">sürpriz yok</span>
+              Kobipo <span className="text-kobipo-blue">tamamen ücretsiz</span>
             </h2>
             <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-kobipo-gray">
-              Tüm paketlerde ilk 30 gün ücretsiz. Kredi kartı istemiyoruz, istediğiniz zaman iptal edebilirsiniz.
+              Aylık abonelik yok, gizli ücret yok. Tüm özellikleri ücretsiz kullanın; sadece e-fatura kontörü kullandığınız kadar.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-            {[
-              {
-                name: "Başlangıç",
-                price: "₺399",
-                period: "/ ay · KDV dahil",
-                desc: "Mikro işletmeler ve yeni başlayanlar için.",
-                features: [
-                  "1 kullanıcı",
-                  "Cari hesap yönetimi",
-                  "50 e-fatura/ay",
-                  "Temel raporlar",
-                  "E-posta destek",
-                ],
-                cta: "Ücretsiz Dene",
-                popular: false,
-              },
-              {
-                name: "Profesyonel",
-                price: "₺799",
-                period: "/ ay · KDV dahil",
-                desc: "Büyüyen KOBİ’ler için en popüler tercih.",
-                features: [
-                  "3 kullanıcı",
-                  "Tüm cari özellikler",
-                  "Sınırsız e-fatura",
-                  "Stok ve barkod yönetimi",
-                  "Gelişmiş raporlar",
-                  "Öncelikli e-posta destek",
-                ],
-                cta: "Ücretsiz Dene",
-                popular: true,
-              },
-              {
-                name: "Kurumsal",
-                price: "₺1.499",
-                period: "/ ay · KDV dahil",
-                desc: "Çok şubeli işletmeler ve özel ihtiyaçlar için.",
-                features: [
+          <div className="mx-auto max-w-2xl">
+            <article className="relative overflow-hidden rounded-3xl border-2 border-kobipo-blue bg-kobipo-navy p-8 text-center text-white shadow-xl sm:p-12">
+              <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/60">
+                Ücretsiz
+              </div>
+              <div className="mt-3 flex items-end justify-center gap-1.5">
+                <div className="text-5xl font-extrabold tracking-tight text-white sm:text-6xl">
+                  ₺0
+                </div>
+                <div className="pb-2 text-sm text-white/55">/ ay</div>
+              </div>
+              <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-white/65">
+                Kayıt olun, kurulum ücreti veya kredi kartı olmadan tüm modülleri hemen kullanmaya başlayın.
+              </p>
+
+              <ul className="mx-auto mt-8 grid max-w-md grid-cols-1 gap-2.5 text-left sm:grid-cols-2">
+                {[
                   "Sınırsız kullanıcı",
-                  "Tüm Profesyonel özellikleri",
-                  "Çoklu şube desteği",
-                  "API erişimi",
-                  "Özel eğitim ve kurulum",
-                  "7/24 telefon destek",
-                ],
-                cta: "Teklif Al",
-                popular: false,
-              },
-            ].map((plan) => (
-              <article
-                key={plan.name}
-                className={`relative rounded-2xl p-7 ${
-                  plan.popular
-                    ? "border-2 border-kobipo-blue bg-kobipo-navy text-white shadow-xl"
-                    : "border border-kobipo-border bg-white"
-                }`}
+                  "Cari hesap yönetimi",
+                  "Stok ve barkod yönetimi",
+                  "E-fatura & e-arşiv",
+                  "Gelişmiş raporlar",
+                  "Kurulum ücreti yok",
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2.5 text-sm text-white/85">
+                    <span className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-kobipo-green/25 text-kobipo-green">
+                      <CheckIcon className="h-3 w-3" />
+                    </span>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+
+              <Link
+                href="/signup"
+                className="mt-9 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-kobipo-green py-3.5 text-sm font-bold text-white transition-colors hover:bg-kobipo-green-dark sm:w-auto sm:px-10"
               >
-                {plan.popular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-kobipo-green px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white shadow-md">
-                    En Popüler
-                  </div>
-                )}
-                <div
-                  className={`text-[11px] font-bold uppercase tracking-[0.2em] ${
-                    plan.popular ? "text-white/60" : "text-kobipo-gray"
-                  }`}
-                >
-                  {plan.name}
-                </div>
-                <p
-                  className={`mt-1 text-xs ${
-                    plan.popular ? "text-white/55" : "text-kobipo-gray"
-                  }`}
-                >
-                  {plan.desc}
-                </p>
-
-                <div className="mt-5 flex items-end gap-1.5">
-                  <div
-                    className={`text-4xl font-extrabold tracking-tight ${
-                      plan.popular ? "text-white" : "text-kobipo-navy"
-                    }`}
-                  >
-                    {plan.price}
-                  </div>
-                  <div
-                    className={`pb-1.5 text-xs ${
-                      plan.popular ? "text-white/55" : "text-kobipo-gray"
-                    }`}
-                  >
-                    {plan.period}
-                  </div>
-                </div>
-
-                <div
-                  className={`my-6 h-px w-full ${
-                    plan.popular ? "bg-white/15" : "bg-kobipo-border"
-                  }`}
-                />
-
-                <ul className="space-y-2.5">
-                  {plan.features.map((f) => (
-                    <li
-                      key={f}
-                      className={`flex items-start gap-2.5 text-sm ${
-                        plan.popular ? "text-white/85" : "text-kobipo-text"
-                      }`}
-                    >
-                      <span
-                        className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full ${
-                          plan.popular
-                            ? "bg-kobipo-green/25 text-kobipo-green"
-                            : "bg-kobipo-green-light text-kobipo-green-dark"
-                        }`}
-                      >
-                        <CheckIcon className="h-3 w-3" />
-                      </span>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-
-                <Link
-                  href={plan.popular ? "/signup" : plan.name === "Kurumsal" ? "#iletisim" : "/signup"}
-                  className={`mt-7 inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors ${
-                    plan.popular
-                      ? "bg-kobipo-green text-white hover:bg-kobipo-green-dark"
-                      : "border border-kobipo-blue text-kobipo-blue hover:bg-kobipo-pale"
-                  }`}
-                >
-                  {plan.cta}
-                </Link>
-              </article>
-            ))}
+                Ücretsiz Başla
+              </Link>
+              <p className="mt-4 text-xs text-white/45">
+                E-fatura/e-arşiv gönderimi için yalnızca kullandığınız kadar kontör ödersiniz.
+              </p>
+            </article>
           </div>
         </div>
       </section>
@@ -757,40 +665,6 @@ export default function Home() {
                 <p className="mt-3 text-sm leading-relaxed text-kobipo-gray">{item.a}</p>
               </details>
             ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section id="iletisim" className="bg-kobipo-offwhite px-6 py-20">
-        <div className="mx-auto max-w-5xl overflow-hidden rounded-3xl bg-kobipo-navy px-8 py-14 sm:px-14">
-          <div className="grid grid-cols-1 items-center gap-8 lg:grid-cols-[1.6fr_1fr]">
-            <div>
-              <h2 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
-                Bugün başlayın, ilk ay <span className="text-kobipo-green">ücretsiz</span>.
-              </h2>
-              <p className="mt-3 max-w-lg text-sm leading-relaxed text-white/65">
-                Kurulum yok, kredi kartı yok. 5 dakikada hesabınızı oluşturun ve
-                işletmenizin tüm rakamlarını tek panelde yönetmeye başlayın.
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
-              <Link
-                href="/signup"
-                className="flex items-center justify-center gap-2 rounded-xl bg-kobipo-green px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-kobipo-green/20 transition-colors hover:bg-kobipo-green-dark"
-              >
-                Ücretsiz Başla
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </Link>
-              <a
-                href="mailto:destek@kobipo.com"
-                className="flex items-center justify-center gap-2 rounded-xl border border-white/20 px-6 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-              >
-                Satış ile görüş
-              </a>
-            </div>
           </div>
         </div>
       </section>

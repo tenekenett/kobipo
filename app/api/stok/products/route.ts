@@ -18,6 +18,7 @@ export async function GET(request: Request) {
     const companyId = searchParams.get("companyId")
     const search = searchParams.get("search")
     const isService = searchParams.get("isService")
+    const category = searchParams.get("category")
 
     if (!companyId) {
       return NextResponse.json(
@@ -42,6 +43,10 @@ export async function GET(request: Request) {
 
     if (isService !== null) {
       where.isService = isService === "true"
+    }
+
+    if (category) {
+      where.category = category
     }
 
     const products = await prisma.product.findMany({
@@ -116,10 +121,13 @@ export async function POST(request: Request) {
       code,
       name,
       barcode,
+      category,
       unit,
       vatRate,
       purchasePrice,
       salePrice,
+      salePriceVatIncluded,
+      purchasePriceVatIncluded,
       stockQuantity,
       minStockLevel,
       isService,
@@ -134,6 +142,18 @@ export async function POST(request: Request) {
     }
 
     await ensureCompanyAccess(companyId)
+
+    // KDV dahil girilen fiyatları net'e çevir (DB net saklar). Bayrak yalnızca
+    // kullanıcı tercihini hatırlamak içindir.
+    const vatForCalc = vatRate ? parseFloat(vatRate) : 20
+    const toNetPrice = (raw: unknown, included: boolean): number | null => {
+      if (raw == null || raw === "") return null
+      const v = parseFloat(String(raw))
+      if (Number.isNaN(v)) return null
+      return included && vatForCalc > 0 ? v / (1 + vatForCalc / 100) : v
+    }
+    const netSalePrice = toNetPrice(salePrice, Boolean(salePriceVatIncluded))
+    const netPurchasePrice = toNetPrice(purchasePrice, Boolean(purchasePriceVatIncluded))
 
     // Barkod kontrolü
     if (barcode && barcode.trim()) {
@@ -178,10 +198,13 @@ export async function POST(request: Request) {
         code,
         name,
         barcode,
+        category: category && String(category).trim() ? String(category).trim() : null,
         unit: unit || "ADET",
-        vatRate: vatRate ? parseFloat(vatRate) : 20,
-        purchasePrice: purchasePrice ? parseFloat(purchasePrice) : null,
-        salePrice: salePrice ? parseFloat(salePrice) : null,
+        vatRate: vatForCalc,
+        purchasePrice: netPurchasePrice,
+        salePrice: netSalePrice,
+        salePriceVatIncluded: Boolean(salePriceVatIncluded),
+        purchasePriceVatIncluded: Boolean(purchasePriceVatIncluded),
         stockQuantity: 0,
         minStockLevel: minStockLevel ? parseFloat(minStockLevel) : null,
         isService: isService || false,

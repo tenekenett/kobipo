@@ -112,7 +112,9 @@ model VerificationToken {
 model Company {
   id          String   @id @default(cuid())
   name        String
-  taxNumber   String?  @unique
+  // Şubeler ana firmayla aynı VKN'yi paylaşabildiği için taxNumber global benzersiz
+  // DEĞİLDİR. Aynı tüzel kişinin (parentCompanyId) birden fazla şubesi olabilir.
+  taxNumber   String?
   taxOffice   String?
   address     String?  @db.Text
   city        String?
@@ -145,8 +147,14 @@ model Company {
   onboardingCompletedAt DateTime?
   isActive    Boolean  @default(true) // Firma aktif/pasif durumu
   disabledModules String[] @default([]) // Kapalı modül anahtarları (boş = tüm modüller açık)
+  // Şube ise ana firmaya işaret eder; ana (merkez) firmada null'dır. Şube,
+  // ana firmayla aynı VKN/vergi dairesi/e-Dönüşüm kimliğini paylaşır (mağaza gibi).
+  parentCompanyId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  parentCompany Company?  @relation("CompanyBranches", fields: [parentCompanyId], references: [id], onDelete: Cascade)
+  branches      Company[] @relation("CompanyBranches")
 
   users       UserCompany[]
   customers   Customer[]
@@ -179,6 +187,7 @@ model Company {
   employees   Employee[]
   kontorOrders KontorOrder[]
 
+  @@index([parentCompanyId])
   @@map("companies")
 }
 
@@ -358,10 +367,16 @@ model Product {
   code        String?
   name        String
   barcode     String?
+  category    String?  // Ürün kategorisi/grubu (serbest metin; varyant ileride)
   unit        String   @default("ADET")
   vatRate     Decimal  @default(20) @db.Decimal(5, 2)
   purchasePrice Decimal? @db.Decimal(10, 2)
   salePrice   Decimal? @db.Decimal(10, 2)
+  // Fiyatlar DB'de DAİMA net (KDV hariç) saklanır. Aşağıdaki bayraklar yalnızca
+  // kullanıcının fiyatı KDV dahil girip girmediğini hatırlamak/formu o modda
+  // göstermek içindir — hesaplamaları etkilemez.
+  salePriceVatIncluded Boolean @default(false)
+  purchasePriceVatIncluded Boolean @default(false)
   stockQuantity Decimal @default(0) @db.Decimal(10, 2)
   minStockLevel Decimal? @db.Decimal(10, 2)
   isService   Boolean  @default(false)
@@ -378,6 +393,7 @@ model Product {
   waybillItems WaybillItem[]
 
   @@index([companyId])
+  @@index([companyId, category])
   @@map("products")
 }
 

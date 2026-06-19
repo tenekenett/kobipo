@@ -67,13 +67,23 @@ export default function SatisRaporlariPage() {
   const topCustomers = useMemo(() => {
     const map = new Map<string, number>()
     sales.forEach((i) => {
-      const name = i.customer?.name?.trim() || "Bilinmeyen"
+      // Müşterisiz satış = hızlı/perakende satış.
+      const name = i.customer?.name?.trim() || "Perakende"
       map.set(name, (map.get(name) ?? 0) + Number(i.totalAmount || 0))
     })
     return Array.from(map.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
   }, [sales])
+
+  // En son satışlar — detaya gitmek için (fatura önizleme).
+  const recentSales = useMemo(
+    () =>
+      [...sales]
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, 10),
+    [sales]
+  )
 
   const maxMonthly = Math.max(0, ...monthly.map((m) => m.amount))
 
@@ -201,6 +211,47 @@ export default function SatisRaporlariPage() {
                   <span className="font-mono text-sm font-semibold tabular-nums">
                     ₺{amount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
                   </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Son satışlar</CardTitle>
+          <CardDescription>Detay için bir satışa tıklayın</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">Yükleniyor…</p>
+          ) : recentSales.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">Henüz satış kaydı yok</p>
+          ) : (
+            <ul className="divide-y rounded-lg border">
+              {recentSales.map((s) => (
+                <li key={s.id}>
+                  <Link
+                    href={`/faturalar/${s.id}/onizleme?company=${encodeURIComponent(companyId)}`}
+                    className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">
+                        {s.customer?.name?.trim() || "Perakende"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {s.invoiceNo} ·{" "}
+                        {new Date(s.date).toLocaleDateString("tr-TR", { dateStyle: "medium" })}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm font-semibold tabular-nums">
+                        ₺{Number(s.totalAmount || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
+                      </span>
+                      <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    </div>
+                  </Link>
                 </li>
               ))}
             </ul>

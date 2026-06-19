@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react"
+import { ArrowLeft, Loader2, Plus, Save, Search, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -105,6 +105,51 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
   const [branches, setBranches] = useState<BranchForm[]>([])
   const [definitions, setDefinitions] = useState<CompanyDefinition[]>([])
   const [members, setMembers] = useState<CompanyMember[]>([])
+  const [isFetchingVkn, setIsFetchingVkn] = useState(false)
+
+  // VKN/TCKN'den GİB ünvanını ve e-fatura mükellef durumunu getirir. GİB adres/vergi
+  // dairesi vermez — yalnızca ünvan otomatik dolar (boşsa), gerisi manuel kalır.
+  const fetchFromVkn = async () => {
+    if (!companyId) return
+    const vkn = formData.taxNumber.replace(/\D/g, "")
+    if (vkn.length !== 10 && vkn.length !== 11) {
+      toast({
+        title: "Geçersiz VKN/TCKN",
+        description: "10 (kurumsal) veya 11 (gerçek kişi) haneli numara girin.",
+        variant: "destructive",
+      })
+      return
+    }
+    setIsFetchingVkn(true)
+    try {
+      const res = await fetch(`/api/e-donusum/check-vkn?companyId=${companyId}&vkn=${vkn}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Sorgulama başarısız")
+      if (data.accountName) {
+        setFormData((prev) => ({
+          ...prev,
+          name: prev.name.trim() ? prev.name : data.accountName,
+        }))
+        toast({
+          title: "Bilgiler getirildi",
+          description: `${data.accountName}${data.isEInvoiceTaxpayer ? " • e-Fatura mükellefi" : ""}`,
+        })
+      } else {
+        toast({
+          title: "Ünvan bulunamadı",
+          description: data.reason || "GİB'de bu VKN için kayıt bulunamadı. Bilgileri elle girin.",
+        })
+      }
+    } catch (e) {
+      toast({
+        title: "Hata",
+        description: e instanceof Error ? e.message : "VKN sorgulanamadı",
+        variant: "destructive",
+      })
+    } finally {
+      setIsFetchingVkn(false)
+    }
+  }
 
   const backHref = useMemo(() => {
     if (!companyId) return "/cari"
@@ -419,12 +464,33 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="taxNumber">Vergi / TC Kimlik No</Label>
-                    <Input
-                      id="taxNumber"
-                      value={formData.taxNumber}
-                      onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
-                      disabled={isLoading}
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        id="taxNumber"
+                        value={formData.taxNumber}
+                        onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
+                        disabled={isLoading || isFetchingVkn}
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={fetchFromVkn}
+                        disabled={isLoading || isFetchingVkn}
+                        title="VKN'den ünvanı getir"
+                        className="shrink-0"
+                      >
+                        {isFetchingVkn ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Search className="h-4 w-4" />
+                        )}
+                        <span className="ml-1 hidden sm:inline">VKN'den Getir</span>
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      GİB'den firma ünvanı ve e-Fatura durumu çekilir (adres elle girilir).
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="paymentDueDays">Vadesi (gün)</Label>

@@ -70,7 +70,13 @@ export async function POST(request: Request) {
       primaryBusinessNeed,
       usesEDonusumBefore,
       onboardingCompletedAt,
+      parentCompanyId,
     } = body
+
+    // Şube modu: parentCompanyId verilirse, oluşturulan kayıt ana firmaya bağlı bir
+    // şubedir. VKN/vergi dairesi/e-Dönüşüm kimliği ana firmadan DEVRALINIR (aynı tüzel
+    // kişi) — istemciden gelen taxNumber/taxOffice/e-Dönüşüm alanları yok sayılır.
+    const normalizedParentId = normalizeOptionalString(parentCompanyId)
 
     const trimmedName = String(name || "").trim()
     const normalizedTaxNumber = normalizeOptionalString(taxNumber)
@@ -90,6 +96,52 @@ export async function POST(request: Request) {
         { error: "Firma adı zorunludur" },
         { status: 400 }
       )
+    }
+
+    // Şube ise ana firmanın kimlik/e-Dönüşüm bilgilerini yükle ve devral.
+    type CompanyRow = NonNullable<Awaited<ReturnType<typeof prisma.company.findUnique>>>
+    type InheritedFields = Pick<
+      CompanyRow,
+      | "taxNumber"
+      | "taxOffice"
+      | "isEDonusumEnabled"
+      | "eDonusumIntegrator"
+      | "eDonusumProvider"
+      | "eDonusumApiUsername"
+      | "eDonusumApiPassword"
+      | "eDonusumAlias"
+      | "eDonusumApiUrl"
+      | "eDonusumTenantVkn"
+      | "eDonusumConnectorGuid"
+      | "eDonusumPkAlias"
+      | "eDonusumGbAlias"
+    >
+    let inherited: InheritedFields | null = null
+    if (normalizedParentId) {
+      let parentCompany: CompanyRow | null = null
+      try {
+        await ensureCompanyAccess(normalizedParentId)
+      } catch {
+        return NextResponse.json(
+          { error: "Ana firmaya erişiminiz yok", code: "PARENT_ACCESS_DENIED" },
+          { status: 403 }
+        )
+      }
+      parentCompany = await prisma.company.findUnique({ where: { id: normalizedParentId } })
+      if (!parentCompany) {
+        return NextResponse.json(
+          { error: "Ana firma bulunamadı", code: "PARENT_NOT_FOUND" },
+          { status: 404 }
+        )
+      }
+      // Şube zinciri kurmaya izin verme: bir şubenin altına şube eklenemez.
+      if (parentCompany.parentCompanyId) {
+        return NextResponse.json(
+          { error: "Bir şubenin altına şube eklenemez. Lütfen ana firmayı seçin.", code: "NESTED_BRANCH" },
+          { status: 400 }
+        )
+      }
+      inherited = parentCompany
     }
 
     let parsedOnboardingCompletedAt: Date | null = null
@@ -155,21 +207,40 @@ export async function POST(request: Request) {
       const createdCompany = await tx.company.create({
         data: {
           name: trimmedName,
-          taxNumber: normalizedTaxNumber,
-          taxOffice: normalizedTaxOffice,
           address: normalizedAddress,
           city: normalizedCity,
           phone: normalizedPhone,
           email: normalizedEmail,
-          isEDonusumEnabled: Boolean(isEDonusumEnabled),
-          sector: normalizedSector,
-          businessModel: normalizedBusinessModel,
-          employeeRange: normalizedEmployeeRange,
-          monthlyInvoiceVolume: normalizedMonthlyInvoiceVolume,
-          primaryBusinessNeed: normalizedPrimaryBusinessNeed,
-          usesEDonusumBefore:
-            typeof usesEDonusumBefore === "boolean" ? usesEDonusumBefore : null,
-          onboardingCompletedAt: parsedOnboardingCompletedAt,
+          // Adres dışı kimlik bilgileri: şubede ana firmadan devralınır, aksi halde formdan.
+          parentCompanyId: inherited ? normalizedParentId : null,
+          taxNumber: inherited ? inherited.taxNumber : normalizedTaxNumber,
+          taxOffice: inherited ? inherited.taxOffice : normalizedTaxOffice,
+          isEDonusumEnabled: inherited ? inherited.isEDonusumEnabled : Boolean(isEDonusumEnabled),
+          ...(inherited
+            ? {
+                eDonusumIntegrator: inherited.eDonusumIntegrator,
+                eDonusumProvider: inherited.eDonusumProvider,
+                eDonusumApiUsername: inherited.eDonusumApiUsername,
+                eDonusumApiPassword: inherited.eDonusumApiPassword,
+                eDonusumAlias: inherited.eDonusumAlias,
+                eDonusumApiUrl: inherited.eDonusumApiUrl,
+                eDonusumTenantVkn: inherited.eDonusumTenantVkn,
+                eDonusumConnectorGuid: inherited.eDonusumConnectorGuid,
+                eDonusumPkAlias: inherited.eDonusumPkAlias,
+                eDonusumGbAlias: inherited.eDonusumGbAlias,
+                // Şube oluşturulurken profil/onboarding sihirbazı çalışmaz.
+                onboardingCompletedAt: new Date(),
+              }
+            : {
+                sector: normalizedSector,
+                businessModel: normalizedBusinessModel,
+                employeeRange: normalizedEmployeeRange,
+                monthlyInvoiceVolume: normalizedMonthlyInvoiceVolume,
+                primaryBusinessNeed: normalizedPrimaryBusinessNeed,
+                usesEDonusumBefore:
+                  typeof usesEDonusumBefore === "boolean" ? usesEDonusumBefore : null,
+                onboardingCompletedAt: parsedOnboardingCompletedAt,
+              }),
         },
       })
 

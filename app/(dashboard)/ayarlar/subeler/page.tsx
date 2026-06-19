@@ -17,6 +17,10 @@ interface Company {
 export default function SubelerPage() {
   const searchParams = useSearchParams()
   const activeCompanyId = searchParams.get("company")
+  // Yeni şube, aktif (ana) firmaya bağlanır. Aktif firma yoksa buton pasif olur.
+  const branchHref = activeCompanyId
+    ? `/companies/new?mode=branch&parent=${encodeURIComponent(activeCompanyId)}`
+    : "/companies/new?mode=branch"
   const [companies, setCompanies] = useState<Company[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
@@ -45,8 +49,8 @@ export default function SubelerPage() {
             Erişiminiz olan tüm firma/şubeleri görüntüleyin ve yenisini ekleyin
           </p>
         </div>
-        <Link href="/companies/new?mode=branch">
-          <Button>
+        <Link href={branchHref}>
+          <Button disabled={!activeCompanyId}>
             <Plus className="mr-2 h-4 w-4" />
             Yeni Şube
           </Button>
@@ -69,8 +73,8 @@ export default function SubelerPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 İlk şubenizi oluşturarak başlayın.
               </p>
-              <Link href="/companies/new?mode=branch">
-                <Button className="mt-4">
+              <Link href={branchHref}>
+                <Button className="mt-4" disabled={!activeCompanyId}>
                   <Plus className="mr-2 h-4 w-4" />
                   Yeni Şube
                 </Button>

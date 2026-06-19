@@ -9,6 +9,7 @@ import {
   Building2,
   CalendarCheck,
   ClipboardList,
+  Coins,
   CreditCard,
   Database,
   DollarSign,
@@ -106,6 +107,7 @@ export const allNavItems: NavItemDef[] = [
 
   // E-Dönüşüm
   { href: "/ayarlar/e-donusum", label: "E-Dönüşüm Ayarları", icon: FileText, roles: ["ADMIN", "ACCOUNTANT"] },
+  { href: "/e-donusum/kontor", label: "Kontör", icon: Coins, roles: ["ADMIN", "ACCOUNTANT"] },
   { href: "/e-donusum/seri-no", label: "Seri No Tanımları", icon: Hash, roles: ["ADMIN", "ACCOUNTANT"] },
   { href: "/e-donusum/sablon", label: "Belge Şablonları", icon: LayoutTemplate, roles: ["ADMIN", "ACCOUNTANT"] },
 
@@ -200,7 +202,7 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
 ]
 
 /** Items rendered as direct links below the collapsible groups in the sidebar. */
-export const standaloneNavHrefs: string[] = ["/ayarlar/destek", "/ayarlar/profil"]
+export const standaloneNavHrefs: string[] = ["/e-donusum/kontor", "/ayarlar/destek", "/ayarlar/profil"]
 
 /**
  * Bazı nav öğeleri tıklanınca farklı bir landing path'e yönlendirir

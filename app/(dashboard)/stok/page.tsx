@@ -40,11 +40,14 @@ interface Product {
   code?: string
   name: string
   barcode?: string
+  category?: string | null
   unit: string
   vatRate: number
   purchasePrice?: number
   avgPurchasePrice?: number | null
   salePrice?: number
+  salePriceVatIncluded?: boolean
+  purchasePriceVatIncluded?: boolean
   stockQuantity: number
   minStockLevel?: number | null
   isService: boolean
@@ -67,13 +70,24 @@ const emptyProductForm = {
   code: "",
   name: "",
   barcode: "",
+  category: "",
   unit: "ADET",
   vatRate: "20",
   purchasePrice: "",
   salePrice: "",
+  purchasePriceVatIncluded: false,
+  salePriceVatIncluded: false,
   stockQuantity: "0",
   minStockLevel: "",
   isService: false,
+}
+
+/** Net fiyatı, KDV dahil gösterilecekse brüte çevirir (gösterim için). */
+function toDisplayPrice(net: number | undefined, included: boolean | undefined, vatRate: number): string {
+  if (net == null) return ""
+  const gross = included && vatRate > 0 ? net * (1 + vatRate / 100) : net
+  // Kuruş yuvarlama; gereksiz uzun ondalıkları kırp.
+  return String(Math.round(gross * 100) / 100)
 }
 
 export default function StokPage() {
@@ -85,6 +99,7 @@ export default function StokPage() {
   const [search, setSearch] = useState("")
   const [filterService, setFilterService] = useState<string | null>(null)
   const [onlyLowStock, setOnlyLowStock] = useState(false)
+  const [categoryFilter, setCategoryFilter] = useState("ALL")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -202,10 +217,14 @@ export default function StokPage() {
       code: product.code || "",
       name: product.name,
       barcode: product.barcode || "",
+      category: product.category || "",
       unit: product.unit,
       vatRate: String(product.vatRate),
-      purchasePrice: product.purchasePrice ? String(product.purchasePrice) : "",
-      salePrice: product.salePrice ? String(product.salePrice) : "",
+      // DB net saklar; kullanıcı KDV dahil girdiyse formda brüt göster.
+      purchasePrice: toDisplayPrice(product.purchasePrice, product.purchasePriceVatIncluded, Number(product.vatRate)),
+      salePrice: toDisplayPrice(product.salePrice, product.salePriceVatIncluded, Number(product.vatRate)),
+      purchasePriceVatIncluded: Boolean(product.purchasePriceVatIncluded),
+      salePriceVatIncluded: Boolean(product.salePriceVatIncluded),
       stockQuantity: String(product.stockQuantity),
       minStockLevel: product.minStockLevel != null ? String(product.minStockLevel) : "",
       isService: product.isService,
@@ -258,10 +277,18 @@ export default function StokPage() {
     }
   }
 
+  // Mevcut ürünlerden benzersiz kategori listesi (form datalist + filtre için).
+  const categoryOptions = Array.from(
+    new Set(products.map((p) => (p.category || "").trim()).filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b, "tr"))
+
   const lowStockCount = products.filter((p) => stockState(p) !== "ok").length
   let visibleProducts = products
   if (warehouseFilter !== "ALL") {
     visibleProducts = visibleProducts.filter((p) => inSelectedWh.has(p.id))
+  }
+  if (categoryFilter !== "ALL") {
+    visibleProducts = visibleProducts.filter((p) => (p.category || "") === categoryFilter)
   }
   if (onlyLowStock) visibleProducts = visibleProducts.filter((p) => stockState(p) !== "ok")
 
@@ -325,6 +352,24 @@ export default function StokPage() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="category">Kategori</Label>
+                  <Input
+                    id="category"
+                    list="product-category-options"
+                    value={formData.category}
+                    onChange={(e) =>
+                      setFormData({ ...formData, category: e.target.value })
+                    }
+                    placeholder="Ör. Keçe, Aksesuar"
+                    disabled={isLoading}
+                  />
+                  <datalist id="product-category-options">
+                    {categoryOptions.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="name">Ad *</Label>
                   <Input
                     id="name"
@@ -370,6 +415,18 @@ export default function StokPage() {
                     }
                     disabled={isLoading}
                   />
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={formData.purchasePriceVatIncluded}
+                      onChange={(e) =>
+                        setFormData({ ...formData, purchasePriceVatIncluded: e.target.checked })
+                      }
+                      disabled={isLoading}
+                    />
+                    KDV dahil
+                  </label>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="salePrice">Satış Fiyatı</Label>
@@ -383,6 +440,18 @@ export default function StokPage() {
                     }
                     disabled={isLoading}
                   />
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={formData.salePriceVatIncluded}
+                      onChange={(e) =>
+                        setFormData({ ...formData, salePriceVatIncluded: e.target.checked })
+                      }
+                      disabled={isLoading}
+                    />
+                    KDV dahil
+                  </label>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="stockQuantity">Stok Miktarı</Label>
@@ -518,6 +587,18 @@ export default function StokPage() {
                 <option value="false">Ürünler</option>
                 <option value="true">Hizmetler</option>
               </select>
+              {categoryOptions.length > 0 && (
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="ALL">Tüm Kategoriler</option>
+                  {categoryOptions.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              )}
               {showWhCol && (
                 <select
                   value={warehouseFilter}

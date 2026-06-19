@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
-import { Loader2, X } from "lucide-react"
+import { Loader2, Plus, X } from "lucide-react"
 
 const UNIT_OPTIONS = ["ADET", "KG", "MT", "M2", "M3", "LT", "SA", "GUN", "PAKET"] as const
 
@@ -48,12 +48,32 @@ type ProductComboboxProps = {
   onSelect: (product: ComboboxProduct) => void
   onClearBinding?: () => void
   disabled?: boolean
+  /**
+   * Verilirse, input yanında bu etiketle belirgin bir "yeni ürün ekle" butonu gösterilir
+   * ve tıklanınca ürün oluşturma dialog'unu açar (boş sorguda da). Keşfedilebilirlik için.
+   */
+  createButtonLabel?: string
 }
 
 const MAX_RESULTS = 50
 
 function normalizeName(s: string) {
   return s.trim().toLowerCase()
+}
+
+/**
+ * Aramada ayraç karakterini önemsiz kıl: "18x20", "18-20", "18%20", "18 20" → "1820".
+ * Rakamlar arasındaki boyut ayraçları (x × * / . - %) silinir, kalan ayraç/boşluklar
+ * da temizlenir; Türkçe harfler korunur. Hem ürün adı/kodu hem sorgu bununla normalize
+ * edilip karşılaştırılır.
+ */
+function normalizeForSearch(s: string) {
+  return s
+    .toLowerCase()
+    // Rakamlar arasındaki boyut ayraçlarını sil (lookaround: rakamı tüketmez,
+    // böylece "18x20x30" gibi zincirler de doğru normalize olur → "182030").
+    .replace(/(?<=\d)\s*[x×*/.\-%]\s*(?=\d)/g, "")
+    .replace(/[^a-z0-9ğüşıöç]+/gi, "")
 }
 
 export function ProductCombobox({
@@ -66,6 +86,7 @@ export function ProductCombobox({
   onSelect,
   onClearBinding,
   disabled,
+  createButtonLabel,
 }: ProductComboboxProps) {
   const { toast } = useToast()
   const listId = useId()
@@ -83,10 +104,13 @@ export function ProductCombobox({
     name: "",
     code: "",
     barcode: "",
+    category: "",
     unit: "ADET" as string,
     vatRate: "20",
     purchasePrice: "",
     salePrice: "",
+    purchasePriceVatIncluded: false,
+    salePriceVatIncluded: false,
     stockQuantity: "",
     isService: false,
   })
@@ -99,13 +123,13 @@ export function ProductCombobox({
   const closedDisplay = selected?.name ?? selectedLabel ?? ""
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = normalizeForSearch(query)
     if (!q) return products.slice(0, MAX_RESULTS)
     return products
       .filter(
         (p) =>
-          p.name.toLowerCase().includes(q) ||
-          (p.code && String(p.code).toLowerCase().includes(q))
+          normalizeForSearch(p.name).includes(q) ||
+          (p.code && normalizeForSearch(String(p.code)).includes(q))
       )
       .slice(0, MAX_RESULTS)
   }, [products, query])
@@ -150,38 +174,53 @@ export function ProductCombobox({
   // opsiyonel alanları (kod, barkod, alış fiyatı, başlangıç stoğu) doldurabilir.
   // priceContext'e göre birim fiyat doğru alana pre-fill olur — alış faturasında
   // satır fiyatı "Alış Fiyatı", satışta "Satış Fiyatı" alanına gider.
+  // Dialog'u verilen ad ile hazırlayıp açar. Inline "+ ekle" yolundan (sorgu adıyla,
+  // exactMatch guard'ıyla) ve görünür butondan (boş ad ile de) çağrılır.
+  const seedAndOpenDialog = useCallback(
+    (seedName: string) => {
+      const lineUnitPrice =
+        priceContext === "purchase" ? defaults.purchasePrice : defaults.salePrice
+      const lineUnitPriceStr =
+        lineUnitPrice != null && lineUnitPrice > 0 ? String(lineUnitPrice) : ""
+      setDraftProduct({
+        name: seedName,
+        code: "",
+        barcode: "",
+        category: "",
+        unit: defaults.unit || "ADET",
+        vatRate: String(defaults.vatRate ?? 20),
+        purchasePrice:
+          priceContext === "purchase"
+            ? lineUnitPriceStr
+            : defaults.purchasePrice != null && defaults.purchasePrice > 0
+              ? String(defaults.purchasePrice)
+              : "",
+        salePrice:
+          priceContext === "sale"
+            ? lineUnitPriceStr
+            : defaults.salePrice != null && defaults.salePrice > 0
+              ? String(defaults.salePrice)
+              : "",
+        purchasePriceVatIncluded: false,
+        salePriceVatIncluded: false,
+        stockQuantity: "",
+        isService: false,
+      })
+      setDialogOpen(true)
+    },
+    [defaults, priceContext]
+  )
+
   const openCreateDialog = useCallback(() => {
     const name = query.trim()
     if (!name || exactMatch) return
-    const lineUnitPrice =
-      priceContext === "purchase"
-        ? defaults.purchasePrice
-        : defaults.salePrice
-    const lineUnitPriceStr =
-      lineUnitPrice != null && lineUnitPrice > 0 ? String(lineUnitPrice) : ""
-    setDraftProduct({
-      name,
-      code: "",
-      barcode: "",
-      unit: defaults.unit || "ADET",
-      vatRate: String(defaults.vatRate ?? 20),
-      purchasePrice:
-        priceContext === "purchase"
-          ? lineUnitPriceStr
-          : defaults.purchasePrice != null && defaults.purchasePrice > 0
-            ? String(defaults.purchasePrice)
-            : "",
-      salePrice:
-        priceContext === "sale"
-          ? lineUnitPriceStr
-          : defaults.salePrice != null && defaults.salePrice > 0
-            ? String(defaults.salePrice)
-            : "",
-      stockQuantity: "",
-      isService: false,
-    })
-    setDialogOpen(true)
-  }, [query, exactMatch, defaults, priceContext])
+    seedAndOpenDialog(name)
+  }, [query, exactMatch, seedAndOpenDialog])
+
+  // Görünür "+ Yeni Ürün" butonu: boş sorguda da açılır (ad dialog'da girilir).
+  const openCreateDialogManual = useCallback(() => {
+    seedAndOpenDialog(query.trim())
+  }, [query, seedAndOpenDialog])
 
   const submitCreateDialog = useCallback(async () => {
     const name = draftProduct.name.trim()
@@ -196,10 +235,13 @@ export function ProductCombobox({
           name,
           code: draftProduct.code.trim() || undefined,
           barcode: draftProduct.barcode.trim() || undefined,
+          category: draftProduct.category.trim() || undefined,
           unit: draftProduct.unit || "ADET",
           vatRate: draftProduct.vatRate || "20",
           purchasePrice: draftProduct.purchasePrice || undefined,
           salePrice: draftProduct.salePrice || undefined,
+          purchasePriceVatIncluded: draftProduct.purchasePriceVatIncluded,
+          salePriceVatIncluded: draftProduct.salePriceVatIncluded,
           stockQuantity: draftProduct.stockQuantity || undefined,
           isService: draftProduct.isService,
         }),
@@ -317,6 +359,18 @@ export function ProductCombobox({
             <X className="h-4 w-4" />
           </Button>
         ) : null}
+        {createButtonLabel ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="shrink-0 whitespace-nowrap"
+            onClick={openCreateDialogManual}
+            disabled={disabled}
+          >
+            <Plus className="mr-1 h-4 w-4" />
+            {createButtonLabel}
+          </Button>
+        ) : null}
       </div>
       {open ? (
         <div
@@ -394,6 +448,14 @@ export function ProductCombobox({
                 placeholder="Opsiyonel"
               />
             </div>
+            <div className="sm:col-span-2 space-y-1">
+              <Label>Kategori</Label>
+              <Input
+                value={draftProduct.category}
+                onChange={(e) => setDraftProduct((p) => ({ ...p, category: e.target.value }))}
+                placeholder="Opsiyonel (ör. Keçe, Aksesuar)"
+              />
+            </div>
             <div className="space-y-1">
               <Label>Birim</Label>
               <Select
@@ -442,6 +504,17 @@ export function ProductCombobox({
                 }
                 placeholder="Opsiyonel"
               />
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="rounded"
+                  checked={draftProduct.purchasePriceVatIncluded}
+                  onChange={(e) =>
+                    setDraftProduct((p) => ({ ...p, purchasePriceVatIncluded: e.target.checked }))
+                  }
+                />
+                KDV dahil
+              </label>
             </div>
             <div className="space-y-1">
               <Label>Satış Fiyatı</Label>
@@ -452,6 +525,17 @@ export function ProductCombobox({
                 onChange={(e) => setDraftProduct((p) => ({ ...p, salePrice: e.target.value }))}
                 placeholder="Opsiyonel"
               />
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="rounded"
+                  checked={draftProduct.salePriceVatIncluded}
+                  onChange={(e) =>
+                    setDraftProduct((p) => ({ ...p, salePriceVatIncluded: e.target.checked }))
+                  }
+                />
+                KDV dahil
+              </label>
             </div>
             <div className="sm:col-span-2 space-y-1">
               <Label>Başlangıç Stoğu</Label>

@@ -122,14 +122,26 @@ export async function PUT(
       code,
       name,
       barcode,
+      category,
       unit,
       vatRate,
       purchasePrice,
       salePrice,
+      salePriceVatIncluded,
+      purchasePriceVatIncluded,
       minStockLevel,
       isService,
       isActive,
     } = body
+
+    // KDV dahil girilen fiyatları net'e çevir (DB net saklar).
+    const vatForCalc = vatRate ? parseFloat(vatRate) : Number(product.vatRate)
+    const toNetPrice = (raw: unknown, included: boolean): number | null => {
+      if (raw == null || raw === "") return null
+      const v = parseFloat(String(raw))
+      if (Number.isNaN(v)) return null
+      return included && vatForCalc > 0 ? v / (1 + vatForCalc / 100) : v
+    }
 
     const updated = await prisma.product.update({
       where: { id: resolvedParams.id },
@@ -137,10 +149,22 @@ export async function PUT(
         code,
         name,
         barcode,
+        category:
+          category !== undefined
+            ? (String(category).trim() ? String(category).trim() : null)
+            : product.category,
         unit,
-        vatRate: vatRate ? parseFloat(vatRate) : product.vatRate,
-        purchasePrice: purchasePrice ? parseFloat(purchasePrice) : null,
-        salePrice: salePrice ? parseFloat(salePrice) : null,
+        vatRate: vatForCalc,
+        purchasePrice: toNetPrice(purchasePrice, Boolean(purchasePriceVatIncluded)),
+        salePrice: toNetPrice(salePrice, Boolean(salePriceVatIncluded)),
+        salePriceVatIncluded:
+          salePriceVatIncluded !== undefined
+            ? Boolean(salePriceVatIncluded)
+            : product.salePriceVatIncluded,
+        purchasePriceVatIncluded:
+          purchasePriceVatIncluded !== undefined
+            ? Boolean(purchasePriceVatIncluded)
+            : product.purchasePriceVatIncluded,
         minStockLevel: minStockLevel ? parseFloat(minStockLevel) : null,
         isService: isService !== undefined ? isService : product.isService,
         isActive: isActive !== undefined ? isActive : product.isActive,

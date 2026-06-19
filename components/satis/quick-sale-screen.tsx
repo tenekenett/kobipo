@@ -21,10 +21,18 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { ProductCombobox, type ComboboxProduct } from "@/components/e-donusum/product-combobox"
 import { CounterpartyCombobox, type Counterparty } from "@/components/e-donusum/counterparty-combobox"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
-import { Loader2, Trash2, Zap, ShoppingCart } from "lucide-react"
+import { CheckCircle2, Loader2, Printer, Share2, Trash2, Zap, ShoppingCart } from "lucide-react"
 
 type CartLine = {
   key: string
@@ -83,6 +91,10 @@ export function QuickSaleScreen() {
   const [eArsiv, setEArsiv] = useState(false)
 
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // Satış tamamlandıktan sonra yazdır/paylaş için tutulan fatura bilgisi.
+  const [lastSale, setLastSale] = useState<
+    { id: string; invoiceNo?: string | null; isEArsiv: boolean } | null
+  >(null)
 
   useEffect(() => {
     if (!companyId) return
@@ -284,6 +296,8 @@ export function QuickSaleScreen() {
           isCredit ? " (veresiye)" : ` • ${currency(totals.total)} tahsil edildi`
         }`,
       })
+      // Yazdır/paylaş için faturayı tut; sepeti temizle (yeni satışa hazır).
+      setLastSale({ id: invoice.id, invoiceNo: invoice.invoiceNo, isEArsiv: useEArsiv })
       resetSale()
     } catch (error: any) {
       toast({
@@ -308,6 +322,60 @@ export function QuickSaleScreen() {
     toast,
     resetSale,
   ])
+
+  const previewUrl = (id: string) =>
+    `${typeof window !== "undefined" ? window.location.origin : ""}/faturalar/${id}/onizleme?company=${companyId}`
+
+  const printSale = () => {
+    if (!lastSale) return
+    window.open(previewUrl(lastSale.id), "_blank", "noopener")
+  }
+
+  const shareSale = async () => {
+    if (!lastSale) return
+    const url = previewUrl(lastSale.id)
+    // E-Arşiv: resmî GİB PDF'ini paylaş/indir.
+    if (lastSale.isEArsiv) {
+      try {
+        const res = await fetch(`/api/e-donusum/invoices/${lastSale.id}/pdf`)
+        if (res.ok) {
+          const blob = await res.blob()
+          const file = new File([blob], `${lastSale.invoiceNo || "fatura"}.pdf`, {
+            type: "application/pdf",
+          })
+          const navAny = navigator as any
+          if (navAny.canShare && navAny.canShare({ files: [file] })) {
+            await navAny.share({ files: [file], title: "Fatura" })
+            return
+          }
+          const dl = URL.createObjectURL(blob)
+          const a = document.createElement("a")
+          a.href = dl
+          a.download = file.name
+          a.click()
+          URL.revokeObjectURL(dl)
+          return
+        }
+      } catch {
+        // PDF alınamadı → link paylaşımına düş.
+      }
+    }
+    // Manuel satış (veya PDF yok): fatura önizleme bağlantısını paylaş/kopyala.
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({ title: "Satış faturası", url })
+        return
+      } catch {
+        // kullanıcı iptal etti / desteklenmiyor → kopyalamaya düş.
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url)
+      toast({ title: "Bağlantı kopyalandı", description: "Fatura önizleme bağlantısı panoya kopyalandı." })
+    } catch {
+      window.open(url, "_blank", "noopener")
+    }
+  }
 
   if (!companyId) {
     return (
@@ -346,6 +414,7 @@ export function QuickSaleScreen() {
                 defaults={{ unit: "ADET", vatRate: 20 }}
                 priceContext="sale"
                 onSelect={addProductToCart}
+                createButtonLabel="Yeni Ürün"
               />
             </CardContent>
           </Card>
@@ -678,6 +747,37 @@ export function QuickSaleScreen() {
           </Card>
         </div>
       </div>
+
+      {/* Satış tamamlandı: yazdır / paylaş */}
+      <Dialog open={lastSale !== null} onOpenChange={(open) => !open && setLastSale(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-kobipo-green" />
+              Satış tamamlandı
+            </DialogTitle>
+            <DialogDescription>
+              {lastSale?.invoiceNo ? `${lastSale.invoiceNo} oluşturuldu.` : "Fatura oluşturuldu."}{" "}
+              Yazdırabilir veya paylaşabilirsiniz.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="outline" onClick={printSale}>
+              <Printer className="mr-2 h-4 w-4" />
+              Yazdır
+            </Button>
+            <Button variant="outline" onClick={shareSale}>
+              <Share2 className="mr-2 h-4 w-4" />
+              Paylaş
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button className="w-full" onClick={() => setLastSale(null)}>
+              Yeni Satış
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
