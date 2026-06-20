@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Loader2, Plus, Save, Search, Trash2 } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Loader2, Plus, Save, Search, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -40,6 +40,15 @@ type FormData = {
 }
 
 type BranchForm = { id: string; name: string; address: string }
+type VknInfo = {
+  accountName?: string
+  isEInvoiceTaxpayer?: boolean
+  eInvoiceStartDate?: string | null
+  eWaybillStartDate?: string | null
+  accountType?: number | null
+  aliases?: string[]
+  notFound?: boolean
+}
 type DefinitionType = "CLASS_1" | "CLASS_2"
 type CompanyDefinition = {
   id: string
@@ -106,9 +115,11 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
   const [definitions, setDefinitions] = useState<CompanyDefinition[]>([])
   const [members, setMembers] = useState<CompanyMember[]>([])
   const [isFetchingVkn, setIsFetchingVkn] = useState(false)
+  const [vknInfo, setVknInfo] = useState<VknInfo | null>(null)
 
-  // VKN/TCKN'den GİB ünvanını ve e-fatura mükellef durumunu getirir. GİB adres/vergi
-  // dairesi vermez — yalnızca ünvan otomatik dolar (boşsa), gerisi manuel kalır.
+  // VKN/TCKN'den GİB hesap bilgilerini getirir: ünvan, e-Fatura mükellef durumu/tarihi,
+  // hesap tipi (tüzel/şahıs) ve posta kutusu etiketleri. NOT: GİB adres/vergi dairesi
+  // vermez — bunlar elle girilir. Ünvan boşsa otomatik doldurulur.
   const fetchFromVkn = async () => {
     if (!companyId) return
     const vkn = formData.taxNumber.replace(/\D/g, "")
@@ -121,6 +132,7 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
       return
     }
     setIsFetchingVkn(true)
+    setVknInfo(null)
     try {
       const res = await fetch(`/api/e-donusum/check-vkn?companyId=${companyId}&vkn=${vkn}`)
       const data = await res.json().catch(() => ({}))
@@ -130,11 +142,20 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
           ...prev,
           name: prev.name.trim() ? prev.name : data.accountName,
         }))
+        setVknInfo({
+          accountName: data.accountName,
+          isEInvoiceTaxpayer: Boolean(data.isEInvoiceTaxpayer),
+          eInvoiceStartDate: data.eInvoiceStartDate ?? null,
+          eWaybillStartDate: data.eWaybillStartDate ?? null,
+          accountType: data.accountType ?? null,
+          aliases: Array.isArray(data.aliases) ? data.aliases : [],
+        })
         toast({
           title: "Bilgiler getirildi",
           description: `${data.accountName}${data.isEInvoiceTaxpayer ? " • e-Fatura mükellefi" : ""}`,
         })
       } else {
+        setVknInfo({ notFound: true })
         toast({
           title: "Ünvan bulunamadı",
           description: data.reason || "GİB'de bu VKN için kayıt bulunamadı. Bilgileri elle girin.",
@@ -377,6 +398,85 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
               <TabsContent value="identity" className="space-y-4 pt-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="taxNumber">Vergi / TC Kimlik No</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="taxNumber"
+                        value={formData.taxNumber}
+                        onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
+                        disabled={isLoading || isFetchingVkn}
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={fetchFromVkn}
+                        disabled={isLoading || isFetchingVkn}
+                        title="VKN'den bilgileri getir"
+                        className="shrink-0"
+                      >
+                        {isFetchingVkn ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Search className="h-4 w-4" />
+                        )}
+                        <span className="ml-1 hidden sm:inline">VKN'den Getir</span>
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      GİB'den ünvan, e-Fatura durumu ve posta kutusu otomatik getirilir.
+                    </p>
+                  </div>
+
+                  {vknInfo && (
+                    <div className="md:col-span-2">
+                      {vknInfo.notFound ? (
+                        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                          GİB'de bu VKN için kayıt bulunamadı. Bilgileri elle girebilirsiniz.
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5 rounded-md border bg-muted/40 p-3 text-xs">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-foreground">{vknInfo.accountName}</span>
+                            {vknInfo.accountType === 1 && (
+                              <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                                Tüzel kişi
+                              </span>
+                            )}
+                            {vknInfo.accountType === 2 && (
+                              <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                                Şahıs
+                              </span>
+                            )}
+                          </div>
+                          {vknInfo.isEInvoiceTaxpayer ? (
+                            <div className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
+                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                              <span>
+                                e-Fatura mükellefi
+                                {vknInfo.eInvoiceStartDate
+                                  ? ` (${new Date(vknInfo.eInvoiceStartDate).toLocaleDateString("tr-TR", { dateStyle: "medium" })}'den beri)`
+                                  : ""}{" "}
+                                — faturalar e-Fatura olarak kesilir
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="text-muted-foreground">
+                              e-Fatura mükellefi değil — faturalar e-Arşiv olarak kesilir
+                            </div>
+                          )}
+                          {vknInfo.aliases && vknInfo.aliases.length > 0 && (
+                            <div className="text-muted-foreground">
+                              <span className="font-medium text-foreground">Posta kutusu:</span>{" "}
+                              {vknInfo.aliases.join(", ")}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="name">İsmi / Ünvanı *</Label>
                     <Input
                       id="name"
@@ -461,36 +561,6 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                       onChange={(e) => setFormData({ ...formData, taxOffice: e.target.value })}
                       disabled={isLoading}
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="taxNumber">Vergi / TC Kimlik No</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="taxNumber"
-                        value={formData.taxNumber}
-                        onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
-                        disabled={isLoading || isFetchingVkn}
-                        className="flex-1"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={fetchFromVkn}
-                        disabled={isLoading || isFetchingVkn}
-                        title="VKN'den ünvanı getir"
-                        className="shrink-0"
-                      >
-                        {isFetchingVkn ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Search className="h-4 w-4" />
-                        )}
-                        <span className="ml-1 hidden sm:inline">VKN'den Getir</span>
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      GİB'den firma ünvanı ve e-Fatura durumu çekilir (adres elle girilir).
-                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="paymentDueDays">Vadesi (gün)</Label>

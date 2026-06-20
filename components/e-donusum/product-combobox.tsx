@@ -53,6 +53,10 @@ type ProductComboboxProps = {
    * ve tıklanınca ürün oluşturma dialog'unu açar (boş sorguda da). Keşfedilebilirlik için.
    */
   createButtonLabel?: string
+  /** Yeni ürün dialog'undaki kategori alanına öneri olarak verilen mevcut kategoriler. */
+  categoryOptions?: string[]
+  /** Verilirse, yeni ürün dialog'unda başlangıç stoğunun gireceği depo seçilebilir. */
+  warehouses?: { id: string; name: string; isDefault?: boolean }[]
 }
 
 const MAX_RESULTS = 50
@@ -87,6 +91,8 @@ export function ProductCombobox({
   onClearBinding,
   disabled,
   createButtonLabel,
+  categoryOptions,
+  warehouses,
 }: ProductComboboxProps) {
   const { toast } = useToast()
   const listId = useId()
@@ -112,8 +118,53 @@ export function ProductCombobox({
     purchasePriceVatIncluded: false,
     salePriceVatIncluded: false,
     stockQuantity: "",
+    warehouseId: "",
     isService: false,
   })
+  // Dialog içinde anlık eklenen kategoriler (parent listesi tazelenene kadar gösterilir).
+  const [extraCategories, setExtraCategories] = useState<string[]>([])
+  const [addingCategory, setAddingCategory] = useState(false)
+  const [newCategory, setNewCategory] = useState("")
+  const [categorySaving, setCategorySaving] = useState(false)
+
+  const defaultWarehouseId = useMemo(
+    () => warehouses?.find((w) => w.isDefault)?.id ?? warehouses?.[0]?.id ?? "",
+    [warehouses]
+  )
+
+  // Select için kategori listesi: parent'tan gelenler + dialog'da yeni eklenenler.
+  const mergedCategories = useMemo(() => {
+    const set = new Set<string>([...(categoryOptions ?? []), ...extraCategories])
+    if (draftProduct.category) set.add(draftProduct.category)
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "tr"))
+  }, [categoryOptions, extraCategories, draftProduct.category])
+
+  const createCategoryInline = async () => {
+    const label = newCategory.trim()
+    if (!label) return
+    setCategorySaving(true)
+    try {
+      const res = await fetch(`/api/company/definitions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, type: "PRODUCT_CATEGORY", label }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Kategori eklenemedi")
+      setExtraCategories((prev) => (prev.includes(label) ? prev : [...prev, label]))
+      setDraftProduct((p) => ({ ...p, category: label }))
+      setAddingCategory(false)
+      setNewCategory("")
+    } catch (e: any) {
+      toast({
+        title: "Hata",
+        description: e?.message || "Kategori eklenemedi",
+        variant: "destructive",
+      })
+    } finally {
+      setCategorySaving(false)
+    }
+  }
 
   const selected = useMemo(
     () => (selectedProductId ? products.find((p) => p.id === selectedProductId) : undefined),
@@ -204,11 +255,14 @@ export function ProductCombobox({
         purchasePriceVatIncluded: false,
         salePriceVatIncluded: false,
         stockQuantity: "",
+        warehouseId: defaultWarehouseId,
         isService: false,
       })
+      setAddingCategory(false)
+      setNewCategory("")
       setDialogOpen(true)
     },
-    [defaults, priceContext]
+    [defaults, priceContext, defaultWarehouseId]
   )
 
   const openCreateDialog = useCallback(() => {
@@ -243,6 +297,7 @@ export function ProductCombobox({
           purchasePriceVatIncluded: draftProduct.purchasePriceVatIncluded,
           salePriceVatIncluded: draftProduct.salePriceVatIncluded,
           stockQuantity: draftProduct.stockQuantity || undefined,
+          warehouseId: draftProduct.warehouseId || undefined,
           isService: draftProduct.isService,
         }),
       })
@@ -450,11 +505,68 @@ export function ProductCombobox({
             </div>
             <div className="sm:col-span-2 space-y-1">
               <Label>Kategori</Label>
-              <Input
-                value={draftProduct.category}
-                onChange={(e) => setDraftProduct((p) => ({ ...p, category: e.target.value }))}
-                placeholder="Opsiyonel (ör. Keçe, Aksesuar)"
-              />
+              {addingCategory ? (
+                <div className="flex gap-2">
+                  <Input
+                    autoFocus
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    placeholder="Yeni kategori adı"
+                    disabled={categorySaving}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        void createCategoryInline()
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => void createCategoryInline()}
+                    disabled={categorySaving || !newCategory.trim()}
+                    className="shrink-0"
+                  >
+                    Ekle
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setAddingCategory(false)
+                      setNewCategory("")
+                    }}
+                    disabled={categorySaving}
+                    className="shrink-0"
+                  >
+                    İptal
+                  </Button>
+                </div>
+              ) : (
+                <Select
+                  value={draftProduct.category || "__none__"}
+                  onValueChange={(v) => {
+                    if (v === "__add__") {
+                      setNewCategory("")
+                      setAddingCategory(true)
+                      return
+                    }
+                    setDraftProduct((p) => ({ ...p, category: v === "__none__" ? "" : v }))
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Kategori seç" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— Kategori yok —</SelectItem>
+                    {mergedCategories.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__add__">+ Yeni kategori…</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="space-y-1">
               <Label>Birim</Label>
@@ -537,7 +649,7 @@ export function ProductCombobox({
                 KDV dahil
               </label>
             </div>
-            <div className="sm:col-span-2 space-y-1">
+            <div className={`space-y-1 ${warehouses && warehouses.length > 0 ? "" : "sm:col-span-2"}`}>
               <Label>Başlangıç Stoğu</Label>
               <Input
                 type="number"
@@ -546,9 +658,30 @@ export function ProductCombobox({
                 onChange={(e) =>
                   setDraftProduct((p) => ({ ...p, stockQuantity: e.target.value }))
                 }
-                placeholder="Faturayla artacak miktarın haricindeki başlangıç stoğu (opsiyonel)"
+                placeholder="Opsiyonel"
               />
             </div>
+            {warehouses && warehouses.length > 0 && (
+              <div className="space-y-1">
+                <Label>Depo</Label>
+                <Select
+                  value={draftProduct.warehouseId || defaultWarehouseId}
+                  onValueChange={(v) => setDraftProduct((p) => ({ ...p, warehouseId: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Depo seç" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {warehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.name}
+                        {w.isDefault ? " (Ana)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={creating}>

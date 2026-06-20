@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle } from "lucide-react"
+import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, Tags } from "lucide-react"
 import Link from "next/link"
 
 interface Product {
@@ -110,12 +110,25 @@ export default function StokPage() {
   const [originalWarehouseId, setOriginalWarehouseId] = useState("")
   const [warehouseFilter, setWarehouseFilter] = useState("ALL")
   const [warehouseStocks, setWarehouseStocks] = useState<Array<{ warehouseId: string; warehouseName: string; productId: string; quantity: number }>>([])
+  // Yönetilen kategori listesi (CompanyDefinition type=PRODUCT_CATEGORY)
+  const [categories, setCategories] = useState<{ id: string; label: string }[]>([])
+  const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false)
+  const [newCategoryLabel, setNewCategoryLabel] = useState("")
+  const [categorySaving, setCategorySaving] = useState(false)
+  // Ürün formu içinde anında yeni kategori ekleme
+  const [addingFormCategory, setAddingFormCategory] = useState(false)
+  const [formNewCategory, setFormNewCategory] = useState("")
 
   useEffect(() => {
     if (companyId) {
       fetchProducts()
     }
   }, [companyId, search, filterService])
+
+  useEffect(() => {
+    if (companyId) fetchCategories()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId])
 
   useEffect(() => {
     if (!companyId) return
@@ -129,6 +142,81 @@ export default function StokPage() {
       })
       .catch(() => {})
   }, [companyId])
+
+  const fetchCategories = async () => {
+    if (!companyId) return
+    try {
+      const res = await fetch(
+        `/api/company/definitions?companyId=${companyId}&type=PRODUCT_CATEGORY`,
+        { cache: "no-store" }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setCategories(
+          Array.isArray(data) ? data.map((d: any) => ({ id: d.id, label: d.label })) : []
+        )
+      }
+    } catch {
+      /* sessizce geç */
+    }
+  }
+
+  // Yeni kategori oluşturur; başarılıysa label'ı döndürür (forma seçtirmek için).
+  const createCategory = async (label: string): Promise<string | null> => {
+    const l = label.trim()
+    if (!l || !companyId) return null
+    setCategorySaving(true)
+    try {
+      const res = await fetch(`/api/company/definitions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, type: "PRODUCT_CATEGORY", label: l }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Kategori eklenemedi")
+      await fetchCategories()
+      return l
+    } catch (e) {
+      toast({
+        title: "Hata",
+        description: e instanceof Error ? e.message : "Kategori eklenemedi",
+        variant: "destructive",
+      })
+      return null
+    } finally {
+      setCategorySaving(false)
+    }
+  }
+
+  const deleteCategory = async (id: string, label: string) => {
+    const used = products.some((p) => (p.category || "") === label)
+    const msg = used
+      ? `"${label}" kategorisi bazı ürünlerde kullanılıyor. Listeden kaldırılsın mı? (Ürünlerdeki etiket korunur.)`
+      : `"${label}" kategorisini silmek istediğinize emin misiniz?`
+    if (!confirm(msg)) return
+    try {
+      const res = await fetch(`/api/company/definitions/${id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error("Silinemedi")
+      await fetchCategories()
+      toast({ title: "Kategori silindi", description: label })
+    } catch (e) {
+      toast({
+        title: "Hata",
+        description: e instanceof Error ? e.message : "Kategori silinemedi",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Ürün formu içinden yeni kategori ekleyip forma seçtirir.
+  const handleAddFormCategory = async () => {
+    const created = await createCategory(formNewCategory)
+    if (created) {
+      setFormData((prev) => ({ ...prev, category: created }))
+      setAddingFormCategory(false)
+      setFormNewCategory("")
+    }
+  }
 
   const fetchProducts = async () => {
     if (!companyId) return
@@ -277,9 +365,13 @@ export default function StokPage() {
     }
   }
 
-  // Mevcut ürünlerden benzersiz kategori listesi (form datalist + filtre için).
+  // Filtre/seçim için kategori listesi: yönetilen kategoriler + ürünlerde geçen
+  // (yönetilen listede olmayan eski) etiketler birleştirilir.
   const categoryOptions = Array.from(
-    new Set(products.map((p) => (p.category || "").trim()).filter(Boolean))
+    new Set([
+      ...categories.map((c) => c.label),
+      ...products.map((p) => (p.category || "").trim()).filter(Boolean),
+    ])
   ).sort((a, b) => a.localeCompare(b, "tr"))
 
   const lowStockCount = products.filter((p) => stockState(p) !== "ok").length
@@ -304,6 +396,11 @@ export default function StokPage() {
             Ürün ve hizmet kartları
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" onClick={() => setIsCategoryDialogOpen(true)}>
+          <Tags className="mr-2 h-4 w-4" />
+          Kategoriler
+        </Button>
         <Dialog
           open={isDialogOpen}
           onOpenChange={(open) => {
@@ -353,21 +450,73 @@ export default function StokPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="category">Kategori</Label>
-                  <Input
-                    id="category"
-                    list="product-category-options"
-                    value={formData.category}
-                    onChange={(e) =>
-                      setFormData({ ...formData, category: e.target.value })
-                    }
-                    placeholder="Ör. Keçe, Aksesuar"
-                    disabled={isLoading}
-                  />
-                  <datalist id="product-category-options">
-                    {categoryOptions.map((c) => (
-                      <option key={c} value={c} />
-                    ))}
-                  </datalist>
+                  {addingFormCategory ? (
+                    <div className="flex gap-2">
+                      <Input
+                        autoFocus
+                        value={formNewCategory}
+                        onChange={(e) => setFormNewCategory(e.target.value)}
+                        placeholder="Yeni kategori adı"
+                        disabled={isLoading || categorySaving}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault()
+                            void handleAddFormCategory()
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        onClick={() => void handleAddFormCategory()}
+                        disabled={categorySaving || !formNewCategory.trim()}
+                        className="shrink-0"
+                      >
+                        Ekle
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setAddingFormCategory(false)
+                          setFormNewCategory("")
+                        }}
+                        disabled={categorySaving}
+                        className="shrink-0"
+                      >
+                        İptal
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <select
+                        id="category"
+                        value={formData.category}
+                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                        disabled={isLoading}
+                        className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">— Kategori yok —</option>
+                        {categoryOptions.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setFormNewCategory("")
+                          setAddingFormCategory(true)
+                        }}
+                        disabled={isLoading}
+                        className="shrink-0"
+                        title="Yeni kategori ekle"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="name">Ad *</Label>
@@ -537,6 +686,81 @@ export default function StokPage() {
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* Kategori Yönetimi */}
+        <Dialog open={isCategoryDialogOpen} onOpenChange={setIsCategoryDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Kategoriler</DialogTitle>
+              <DialogDescription>
+                Ürün kategorilerini tanımlayın. Ürün eklerken bu listeden seçilir.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-2">
+              <Input
+                value={newCategoryLabel}
+                onChange={(e) => setNewCategoryLabel(e.target.value)}
+                placeholder="Yeni kategori adı"
+                disabled={categorySaving}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    void (async () => {
+                      const created = await createCategory(newCategoryLabel)
+                      if (created) setNewCategoryLabel("")
+                    })()
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                onClick={async () => {
+                  const created = await createCategory(newCategoryLabel)
+                  if (created) setNewCategoryLabel("")
+                }}
+                disabled={categorySaving || !newCategoryLabel.trim()}
+                className="shrink-0"
+              >
+                <Plus className="mr-1 h-4 w-4" />
+                Ekle
+              </Button>
+            </div>
+            <div className="max-h-72 space-y-1 overflow-y-auto">
+              {categories.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  Henüz kategori yok
+                </p>
+              ) : (
+                categories.map((c) => {
+                  const count = products.filter((p) => (p.category || "") === c.label).length
+                  return (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+                    >
+                      <span className="min-w-0 truncate">
+                        {c.label}
+                        {count > 0 && (
+                          <span className="ml-2 text-xs text-muted-foreground">({count})</span>
+                        )}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteCategory(c.id, c.label)}
+                        title="Kategoriyi sil"
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+        </div>
       </div>
 
       {lowStockCount > 0 && (
@@ -564,6 +788,10 @@ export default function StokPage() {
               <CardTitle>Ürünler ve Hizmetler</CardTitle>
               <CardDescription>
                 Toplam {products.length} kayıt
+                {visibleProducts.length !== products.length
+                  ? ` · ${visibleProducts.length} gösteriliyor`
+                  : ""}
+                {categoryOptions.length > 0 ? ` · ${categoryOptions.length} kategori` : ""}
               </CardDescription>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:space-x-2">
@@ -621,6 +849,7 @@ export default function StokPage() {
               <StyledTableHeaderRow>
                 <StyledTableHead>Kod</StyledTableHead>
                 <StyledTableHead>Ad</StyledTableHead>
+                <StyledTableHead>Kategori</StyledTableHead>
                 <StyledTableHead>Barkod</StyledTableHead>
                 <StyledTableHead>Birim</StyledTableHead>
                 <StyledTableHead>KDV %</StyledTableHead>
@@ -635,7 +864,7 @@ export default function StokPage() {
             <TableBody>
               {visibleProducts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={showWhCol ? 11 : 10} className="text-center">
+                  <TableCell colSpan={showWhCol ? 12 : 11} className="text-center">
                     {onlyLowStock ? "Düşük stoklu ürün yok" : warehouseFilter !== "ALL" ? "Bu depoda ürün yok" : "Kayıt bulunamadı"}
                   </TableCell>
                 </TableRow>
@@ -650,6 +879,15 @@ export default function StokPage() {
                     <TableCell><MonoCell value={product.code} /></TableCell>
                     <TableCell className="font-medium">
                       <EntityCell name={product.name} />
+                    </TableCell>
+                    <TableCell>
+                      {product.category ? (
+                        <span className="inline-block rounded-full bg-muted px-2 py-0.5 text-xs">
+                          {product.category}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell><MonoCell value={product.barcode} /></TableCell>
                     <TableCell>{product.unit}</TableCell>

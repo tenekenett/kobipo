@@ -11,7 +11,14 @@ export async function GET(request: Request) {
   const companyId = new URL(request.url).searchParams.get("companyId")
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
   await ensureCompanyAccess(companyId)
-  const tickets = await prisma.supportTicket.findMany({ where: { companyId }, orderBy: { createdAt: "desc" } })
+  const tickets = await prisma.supportTicket.findMany({
+    where: { companyId },
+    orderBy: { updatedAt: "desc" },
+    include: {
+      createdBy: { select: { id: true, name: true, email: true } },
+      messages: { orderBy: { createdAt: "asc" } },
+    },
+  })
   return NextResponse.json(tickets)
 }
 
@@ -19,9 +26,14 @@ export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { companyId, subject, message } = await request.json()
+  const subj = String(subject || "").trim()
+  const msg = String(message || "").trim()
+  if (!companyId || !subj || !msg) {
+    return NextResponse.json({ error: "companyId, konu ve mesaj zorunlu" }, { status: 400 })
+  }
   await ensureCompanyAccess(companyId)
   const ticket = await prisma.supportTicket.create({
-    data: { companyId, subject, message, createdById: user.id },
+    data: { companyId, subject: subj, message: msg, createdById: user.id, status: "OPEN" },
   })
   return NextResponse.json(ticket, { status: 201 })
 }

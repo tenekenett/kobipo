@@ -27,6 +27,33 @@ export async function GET(request: Request) {
   return NextResponse.json(notifications)
 }
 
+// Okundu işaretleme: { companyId, all: true } tümünü, { companyId, id } tek bildirimi.
+export async function PATCH(request: Request) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const { companyId, id, all } = await request.json()
+  if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
+  await ensureCompanyAccess(companyId)
+
+  if (all) {
+    await prisma.notification.updateMany({
+      where: { companyId, isRead: false },
+      data: { isRead: true },
+    })
+  } else if (id) {
+    // companyId ile scope'la — başka firmanın bildirimi işaretlenmesin.
+    await prisma.notification.updateMany({
+      where: { id, companyId },
+      data: { isRead: true },
+    })
+  } else {
+    return NextResponse.json({ error: "id veya all gerekli" }, { status: 400 })
+  }
+
+  const unreadCount = await prisma.notification.count({ where: { companyId, isRead: false } })
+  return NextResponse.json({ ok: true, unreadCount })
+}
+
 export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

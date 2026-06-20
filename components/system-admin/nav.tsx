@@ -16,6 +16,7 @@ import {
   X,
   Bell,
   Coins,
+  LifeBuoy,
 } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -55,6 +56,11 @@ const navItems = [
     title: "Kontör",
     href: "/system-admin/kontor",
     icon: Coins,
+  },
+  {
+    title: "Destek",
+    href: "/system-admin/destek",
+    icon: LifeBuoy,
   },
   {
     title: "Sistem Logları",

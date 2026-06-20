@@ -14,8 +14,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { Bell, Building2, Check, ChevronDown, Laptop, LogOut, Moon, Search, Settings, Sun, User } from "lucide-react"
-import { allNavItems } from "@/components/dashboard/nav-config"
+import { Building2, Check, ChevronDown, Laptop, LogOut, Moon, Settings, Sun, User } from "lucide-react"
+import { NotificationBell } from "@/components/dashboard/notification-bell"
+import { MenuSearch } from "@/components/dashboard/menu-search"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
 import { useTheme } from "@/components/providers/theme-provider"
@@ -25,72 +26,15 @@ export function DashboardHeader() {
   const { data: session } = useSession()
   const { selectedCompany, isLoading: companyLoading, userRole } = useDashboardCompany()
   const { theme, resolvedTheme, setTheme } = useTheme()
-  const [notifCount, setNotifCount] = useState(0)
-  const [globalQuery, setGlobalQuery] = useState("")
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     setMounted(true)
   }, [])
 
-  useEffect(() => {
-    const companyId = selectedCompany?.id
-    if (!companyId) return
-
-    let cancelled = false
-    let lastFetchedAt = 0
-    const POLL_INTERVAL_MS = 5 * 60 * 1000
-    const MIN_REFETCH_GAP_MS = 30 * 1000
-
-    const fetchNotifications = async (force = false) => {
-      if (cancelled) return
-      if (document.visibilityState !== "visible") return
-      const now = Date.now()
-      if (!force && now - lastFetchedAt < MIN_REFETCH_GAP_MS) return
-      lastFetchedAt = now
-      try {
-        const response = await fetch(`/api/notifications?companyId=${companyId}&mode=count`, {
-          cache: "no-store",
-        })
-        if (!response.ok || cancelled) return
-        const data = await response.json()
-        if (!cancelled) {
-          setNotifCount(Number(data?.unreadCount || 0))
-        }
-      } catch {
-        // network errors: silently retry on next interval/visibility
-      }
-    }
-
-    fetchNotifications(true)
-    const interval = setInterval(() => fetchNotifications(false), POLL_INTERVAL_MS)
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        fetchNotifications(false)
-      }
-    }
-    document.addEventListener("visibilitychange", onVisibility)
-
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-      document.removeEventListener("visibilitychange", onVisibility)
-    }
-  }, [selectedCompany?.id])
-
   const dashboardBase = roleToDashboardPath(userRole)
   const dashboardHref =
     searchParams.size > 0 ? `${dashboardBase}?${searchParams.toString()}` : dashboardBase
-
-  const triggerSearchPrompt = () => {
-    const input = window.prompt("Menüde ara", globalQuery)
-    if (input === null) return
-    setGlobalQuery(input)
-    const query = input.trim().toLowerCase()
-    if (!query) return
-    const found = allNavItems.find((item) => item.label.toLowerCase().includes(query))
-    if (found) window.location.href = found.href + window.location.search
-  }
 
   const themeOptions: Array<{ value: "light" | "dark" | "system"; label: string; icon: typeof Sun }> = [
     { value: "light", label: "Aydınlık", icon: Sun },
@@ -140,30 +84,8 @@ export function DashboardHeader() {
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-        <Button
-          variant="outline"
-          size="icon"
-          type="button"
-          className="relative h-9 w-9"
-          title="Bildirimler"
-        >
-          <Bell className="h-4 w-4" />
-          {notifCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white">
-              {notifCount > 99 ? "99+" : notifCount}
-            </span>
-          )}
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          type="button"
-          className="h-9 w-9"
-          onClick={triggerSearchPrompt}
-          title="Menüde ara"
-        >
-          <Search className="h-4 w-4" />
-        </Button>
+        <NotificationBell companyId={selectedCompany?.id} />
+        <MenuSearch userRole={userRole} />
         {mounted && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

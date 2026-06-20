@@ -112,12 +112,30 @@ export async function GET(request: Request) {
       })
     }
 
+    // GİB hesap modelinden ek detaylar (adres/vergi dairesi GİB'de YOKTUR; yalnızca
+    // aşağıdakiler gelir). raw modelden çıkarılıp forma zengin bilgi sağlanır.
+    const raw: any = result.data.raw || {}
+    const accountType: number | null =
+      typeof raw.gibAccountType === "number" ? raw.gibAccountType : null
+    const aliasList: any[] = Array.isArray(raw.gibAccountAliasList) ? raw.gibAccountAliasList : []
+    const aliases: string[] = Array.from(
+      new Set(
+        aliasList
+          .map((a) => String(a?.alias || "").replace(/^urn:mail:/i, "").trim())
+          .filter(Boolean),
+      ),
+    )
+
     return NextResponse.json({
       isEInvoiceTaxpayer: result.data.isEInvoiceTaxpayer,
       suggestedInvoiceType: result.data.isEInvoiceTaxpayer ? "E_INVOICE" : "E_ARCHIVE",
       accountName: result.data.accountName,
       eInvoiceStartDate: result.data.eInvoiceStartDate,
+      eWaybillStartDate: result.data.eWaybillStartDate,
       isPassive: result.data.isPassive,
+      // 1 = Tüzel (şirket), 2 = Şahıs (gerçek kişi)
+      accountType,
+      aliases,
     })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""

@@ -48,12 +48,14 @@ function invoiceStatusText(status: string) {
 }
 
 function buildCashflowSeries(
-  rows: Array<{ day: Date; income: unknown; expense: unknown }>,
+  // unstable_cache JSON serileştirdiği için cache HIT'te `day` Date değil string
+  // gelir; her iki durumu da new Date() ile güvenle işle.
+  rows: Array<{ day: Date | string; income: unknown; expense: unknown }>,
   start: Date,
 ): CashflowPoint[] {
   const byDay = new Map<string, { income: number; expense: number }>()
   for (const r of rows) {
-    const key = r.day.toISOString().slice(0, 10)
+    const key = new Date(r.day).toISOString().slice(0, 10)
     byDay.set(key, { income: Number(r.income), expense: Number(r.expense) })
   }
   const out: CashflowPoint[] = []

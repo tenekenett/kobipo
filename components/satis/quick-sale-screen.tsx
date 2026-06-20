@@ -77,10 +77,15 @@ export function QuickSaleScreen() {
   const { toast } = useToast()
 
   const [products, setProducts] = useState<ComboboxProduct[]>([])
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([])
   const [customers, setCustomers] = useState<Counterparty[]>([])
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
   const [warehouses, setWarehouses] = useState<{ id: string; name: string; isDefault?: boolean }[]>([])
   const [warehouseId, setWarehouseId] = useState<string>("")
+  // Ürün-bazlı depo stoğu — mevcut ürün seçilince deposunu otomatik belirlemek için.
+  const [warehouseStocks, setWarehouseStocks] = useState<
+    { warehouseId: string; productId: string; quantity: number }[]
+  >([])
 
   const [cart, setCart] = useState<CartLine[]>([])
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | undefined>(undefined)
@@ -102,12 +107,32 @@ export function QuickSaleScreen() {
 
     const load = async () => {
       try {
-        const [prodRes, custRes, accRes, whRes] = await Promise.all([
+        const [prodRes, custRes, accRes, whRes, catRes, stockRes] = await Promise.all([
           fetch(`/api/stok/products?companyId=${companyId}`),
           fetch(`/api/cari/customers?companyId=${companyId}`),
           fetch(`/api/finans/accounts?companyId=${companyId}`),
           fetch(`/api/depolar?companyId=${companyId}`),
+          fetch(`/api/company/definitions?companyId=${companyId}&type=PRODUCT_CATEGORY`),
+          fetch(`/api/depolar/stok?companyId=${companyId}`),
         ])
+
+        if (!cancelled && catRes.ok) {
+          const data = await catRes.json()
+          setCategoryOptions(
+            (Array.isArray(data) ? data : []).map((d: any) => String(d.label)).filter(Boolean)
+          )
+        }
+
+        if (!cancelled && stockRes.ok) {
+          const data = await stockRes.json()
+          setWarehouseStocks(
+            (Array.isArray(data?.stocks) ? data.stocks : []).map((s: any) => ({
+              warehouseId: s.warehouseId,
+              productId: s.productId,
+              quantity: Number(s.quantity) || 0,
+            }))
+          )
+        }
 
         if (!cancelled && whRes.ok) {
           const data = await whRes.json()
@@ -160,7 +185,22 @@ export function QuickSaleScreen() {
     }
   }, [companyId])
 
+  // Her ürün için en çok stoğun bulunduğu depo (otomatik depo seçimi).
+  const bestWarehouseByProduct = useMemo(() => {
+    const m = new Map<string, { warehouseId: string; qty: number }>()
+    for (const s of warehouseStocks) {
+      const cur = m.get(s.productId)
+      if (!cur || s.quantity > cur.qty) m.set(s.productId, { warehouseId: s.warehouseId, qty: s.quantity })
+    }
+    return m
+  }, [warehouseStocks])
+
   const addProductToCart = useCallback((product: ComboboxProduct) => {
+    // Mevcut ürün seçildiyse, stoğunun bulunduğu depoyu otomatik seç.
+    if (product.id) {
+      const best = bestWarehouseByProduct.get(product.id)
+      if (best) setWarehouseId(best.warehouseId)
+    }
     setCart((prev) => {
       // Aynı ürün zaten sepetteyse miktarı artır.
       if (product.id) {
@@ -187,7 +227,7 @@ export function QuickSaleScreen() {
         },
       ]
     })
-  }, [])
+  }, [bestWarehouseByProduct])
 
   const updateLine = useCallback((key: string, patch: Partial<CartLine>) => {
     setCart((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
@@ -415,6 +455,8 @@ export function QuickSaleScreen() {
                 priceContext="sale"
                 onSelect={addProductToCart}
                 createButtonLabel="Yeni Ürün"
+                categoryOptions={categoryOptions}
+                warehouses={warehouses}
               />
             </CardContent>
           </Card>
