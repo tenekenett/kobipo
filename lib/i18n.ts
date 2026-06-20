@@ -5,7 +5,7 @@ export const dictionaries = {
   },
   en: {
     appName: "Accounting SaaS",
-    welcome: "Welcome", 
+    welcome: "Welcome",
   },
 }
 
