@@ -16,8 +16,8 @@ const styles: Record<KobipoBadgeVariant, { wrap: string; dot: string; label: str
     dot: "bg-kobipo-green",
     label: "Ödendi",
   },
-  bekliyor: { wrap: "bg-amber-50 text-amber-700", dot: "bg-amber-400", label: "Bekliyor" },
-  gecikti: { wrap: "bg-red-50 text-red-700", dot: "bg-red-500", label: "Gecikmiş" },
+  bekliyor: { wrap: "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300", dot: "bg-amber-400", label: "Bekliyor" },
+  gecikti: { wrap: "bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300", dot: "bg-red-500", label: "Gecikmiş" },
 }
 
 type BadgeProps = {
@@ -28,7 +28,7 @@ type BadgeProps = {
 const fallbackStyles: Record<"default" | "secondary" | "destructive" | "outline", string> = {
   default: "bg-kobipo-pale text-kobipo-blue",
   secondary: "bg-kobipo-offwhite text-kobipo-gray border border-kobipo-border",
-  destructive: "bg-red-50 text-red-700",
+  destructive: "bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300",
   outline: "border border-kobipo-border text-kobipo-text",
 }
 

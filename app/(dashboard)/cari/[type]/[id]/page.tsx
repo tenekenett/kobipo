@@ -276,7 +276,7 @@ export default function CustomerSupplierDetailPage() {
             variant="outline"
             size="sm"
             onClick={() => setCariAction("delete")}
-            className="border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+            className="border-red-200 bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
           >
             <Trash2 className="mr-2 h-4 w-4" />
             Sil
@@ -447,10 +447,10 @@ export default function CustomerSupplierDetailPage() {
                     </TableCell>
                     <TableCell>
                       <span className={`px-2 py-1 rounded text-xs ${
-                        tx.type === "INVOICE" ? "bg-blue-100 text-blue-800" :
-                        tx.type === "PAYMENT" ? "bg-green-100 text-green-800" :
-                        tx.type === "OPENING" ? "bg-amber-100 text-amber-800" :
-                        "bg-gray-100 text-gray-800"
+                        tx.type === "INVOICE" ? "bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300" :
+                        tx.type === "PAYMENT" ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" :
+                        tx.type === "OPENING" ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" :
+                        "bg-gray-100 text-gray-800 dark:bg-gray-500/15 dark:text-gray-300"
                       }`}>
                         {tx.type === "INVOICE" ? "Fatura" :
                          tx.type === "PAYMENT" ? "Ödeme" :

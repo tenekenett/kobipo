@@ -154,7 +154,7 @@ export default function ProductDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-            product.isActive ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+            product.isActive ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" : "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
           }`}>
             {product.isActive ? "Aktif" : "Pasif"}
           </span>
@@ -357,9 +357,9 @@ export default function ProductDetailPage() {
                     </TableCell>
                   <TableCell>
                       <span className={`px-2 py-1 rounded text-xs ${
-                        ["IN", "PURCHASE", "SALE_CANCEL", "RETURN"].includes(movement.type) || movement.quantity > 0 ? "bg-green-100 text-green-800" :
-                        ["OUT", "SALE", "PURCHASE_CANCEL", "RETURN_CANCEL"].includes(movement.type) || movement.quantity < 0 ? "bg-red-100 text-red-800" :
-                        "bg-yellow-100 text-yellow-800"
+                        ["IN", "PURCHASE", "SALE_CANCEL", "RETURN"].includes(movement.type) || movement.quantity > 0 ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" :
+                        ["OUT", "SALE", "PURCHASE_CANCEL", "RETURN_CANCEL"].includes(movement.type) || movement.quantity < 0 ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" :
+                        "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-300"
                       }`}>
                         {["IN", "PURCHASE", "SALE_CANCEL", "RETURN"].includes(movement.type) || movement.quantity > 0 ? "Giriş" :
                          ["OUT", "SALE", "PURCHASE_CANCEL", "RETURN_CANCEL"].includes(movement.type) || movement.quantity < 0 ? "Çıkış" :

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
+import { createPartnerProvider } from "@/lib/integrations/e-invoice/partner"
 import { decryptSecret } from "@/lib/crypto/secrets"
 
 export const dynamic = "force-dynamic"
@@ -45,6 +46,7 @@ export async function GET(request: Request) {
     }
 
     await ensureCompanyAccess(companyId)
+    assertEInvoiceRuntimeReady()
 
     const company = await prisma.company.findUnique({
       where: { id: companyId },
@@ -57,48 +59,43 @@ export async function GET(request: Request) {
       },
     })
 
-    if (!company?.isEDonusumEnabled) {
-      // E-Dönüşüm kapalıysa her durumda MANUAL.
+    // GİB mükellef sicili global veridir; hangi Mysoft hesabıyla sorgulandığı sonucu
+    // değiştirmez. Bu yüzden sorguyu DAİMA elimizdeki bayi (partner) hesabıyla yaparız
+    // — böylece firma kendi e-Dönüşümünü kurmasa da "VKN'den Getir" çalışır. Bayi
+    // yapılandırılmamışsa firmanın kendi kimliğine düşeriz.
+    let provider = createPartnerProvider()
+    if (!provider && company?.eDonusumApiUsername && company?.eDonusumApiPassword) {
+      try {
+        provider = new MysoftEInvoiceProvider({
+          username: company.eDonusumApiUsername,
+          passwordText: decryptSecret(company.eDonusumApiPassword),
+          baseUrl: company.eDonusumApiUrl || undefined,
+          vknTckn: company.eDonusumTenantVkn || undefined,
+        })
+      } catch {
+        provider = null
+      }
+    }
+
+    if (!provider) {
       return NextResponse.json({
         isEInvoiceTaxpayer: false,
         suggestedInvoiceType: "MANUAL",
-        reason: "e-dönüşüm pasif",
+        reason: "VKN sorgusu için Mysoft yapılandırması yok",
       })
     }
 
-    if (!company.eDonusumApiUsername || !company.eDonusumApiPassword) {
-      return NextResponse.json({
-        isEInvoiceTaxpayer: false,
-        suggestedInvoiceType: "E_ARCHIVE",
-        reason: "API erişim bilgileri eksik — varsayılan E-Arşiv",
-      })
-    }
-
-    assertEInvoiceRuntimeReady()
-    let passwordText: string
-    try {
-      passwordText = decryptSecret(company.eDonusumApiPassword)
-    } catch {
-      return NextResponse.json({
-        isEInvoiceTaxpayer: false,
-        suggestedInvoiceType: "E_ARCHIVE",
-        reason: "Şifre çözülemedi — varsayılan E-Arşiv",
-      })
-    }
-
-    const provider = new MysoftEInvoiceProvider({
-      username: company.eDonusumApiUsername,
-      passwordText,
-      baseUrl: company.eDonusumApiUrl || undefined,
-      vknTckn: company.eDonusumTenantVkn || undefined,
-    })
+    // Firmanın kendisi e-belge GÖNDEREBİLİYOR mu? (önerilecek fatura tipini belirler)
+    const companyCanSend = Boolean(
+      company?.isEDonusumEnabled && company?.eDonusumApiUsername && company?.eDonusumApiPassword,
+    )
+    const fallbackType = companyCanSend ? "E_ARCHIVE" : "MANUAL"
 
     const result = await provider.getGibAccount(vkn)
     if (!result.success) {
-      // Sorgu hatası → safe fallback E-Arşiv
       return NextResponse.json({
         isEInvoiceTaxpayer: false,
-        suggestedInvoiceType: "E_ARCHIVE",
+        suggestedInvoiceType: fallbackType,
         reason: result.error,
       })
     }
@@ -106,7 +103,7 @@ export async function GET(request: Request) {
     if (!result.data) {
       return NextResponse.json({
         isEInvoiceTaxpayer: false,
-        suggestedInvoiceType: "E_ARCHIVE",
+        suggestedInvoiceType: fallbackType,
         accountName: null,
         eInvoiceStartDate: null,
       })
@@ -126,9 +123,17 @@ export async function GET(request: Request) {
       ),
     )
 
+    // Önerilen tip: firma e-belge gönderemiyorsa MANUAL; gönderebiliyorsa müşteri
+    // e-Fatura mükellefiyse E_INVOICE, değilse E_ARCHIVE.
+    const suggestedInvoiceType = !companyCanSend
+      ? "MANUAL"
+      : result.data.isEInvoiceTaxpayer
+        ? "E_INVOICE"
+        : "E_ARCHIVE"
+
     return NextResponse.json({
       isEInvoiceTaxpayer: result.data.isEInvoiceTaxpayer,
-      suggestedInvoiceType: result.data.isEInvoiceTaxpayer ? "E_INVOICE" : "E_ARCHIVE",
+      suggestedInvoiceType,
       accountName: result.data.accountName,
       eInvoiceStartDate: result.data.eInvoiceStartDate,
       eWaybillStartDate: result.data.eWaybillStartDate,

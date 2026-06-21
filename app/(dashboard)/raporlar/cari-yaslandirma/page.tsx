@@ -73,8 +73,8 @@ const BUCKET_TONE: Record<Bucket, string> = {
 }
 
 const BUCKET_BADGE: Record<Bucket, string> = {
-  not_due: "bg-emerald-50 text-emerald-700 border border-emerald-200",
-  overdue: "bg-red-50 text-red-700 border border-red-200",
+  not_due: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 border border-emerald-200",
+  overdue: "bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300 border border-red-200",
 }
 
 function fmtTRY(value: number) {

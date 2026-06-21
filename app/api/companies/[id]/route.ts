@@ -55,6 +55,10 @@ export async function GET(
         isActive: true,
         createdAt: true,
         updatedAt: true,
+        // Şube/ana firma ilişkisi (Şube Bilgileri ekranı için)
+        parentCompanyId: true,
+        parentCompany: { select: { id: true, name: true } },
+        branches: { select: { id: true, name: true }, orderBy: { name: "asc" } },
       },
     })
 

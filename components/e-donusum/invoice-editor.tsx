@@ -899,10 +899,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                         : "Manuel"
                   const cls =
                     type === "E_INVOICE"
-                      ? "border-sky-300 bg-sky-50 text-sky-900"
+                      ? "border-sky-300 bg-sky-50 text-sky-900 dark:bg-sky-500/15 dark:text-sky-300"
                       : type === "E_ARCHIVE"
-                        ? "border-emerald-300 bg-emerald-50 text-emerald-900"
-                        : "border-slate-300 bg-slate-50 text-slate-800"
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-300"
+                        : "border-slate-300 bg-slate-50 text-slate-800 dark:bg-slate-500/15 dark:text-slate-300"
                   return (
                     <div
                       className={`flex flex-col gap-1 rounded-md border px-3 py-2 text-sm ${cls}`}

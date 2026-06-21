@@ -387,7 +387,7 @@ export default function InvoiceDetailPage() {
                   variant="outline"
                   onClick={handleCancelInvoice}
                   disabled={isCancelling}
-                  className="border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                  className="border-red-200 bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300 hover:bg-red-100"
                 >
                   {isCancelling ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -407,12 +407,12 @@ export default function InvoiceDetailPage() {
         <span
           className={`px-3 py-1 rounded-full text-sm font-medium ${
             invoice.status === "SENT"
-              ? "bg-sky-100 text-sky-800"
+              ? "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300"
               : invoice.status === "DRAFT"
-              ? "bg-yellow-100 text-yellow-800"
+              ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-300"
               : invoice.status === "CANCELLED"
-              ? "bg-gray-200 text-gray-700"
-              : "bg-red-100 text-red-800"
+              ? "bg-gray-200 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300"
+              : "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
           }`}
         >
           {invoice.status === "SENT"
@@ -428,14 +428,14 @@ export default function InvoiceDetailPage() {
           const gib = parseGibStatus(invoice.integrationStatus)
           if (!gib) return null
           const style = gib.bucket === "approved"
-            ? { wrap: "border-emerald-300 bg-emerald-50 text-emerald-800", Icon: CheckCircle2 }
+            ? { wrap: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300", Icon: CheckCircle2 }
             : gib.bucket === "rejected"
-            ? { wrap: "border-red-300 bg-red-50 text-red-800", Icon: XCircle }
+            ? { wrap: "border-red-300 bg-red-50 text-red-800 dark:bg-red-500/15 dark:text-red-300", Icon: XCircle }
             : gib.bucket === "cancelled"
-            ? { wrap: "border-gray-300 bg-gray-100 text-gray-700", Icon: Ban }
+            ? { wrap: "border-gray-300 bg-gray-100 text-gray-700 dark:bg-gray-500/15 dark:text-gray-300", Icon: Ban }
             : gib.bucket === "processing"
-            ? { wrap: "border-amber-300 bg-amber-50 text-amber-800", Icon: Clock }
-            : { wrap: "border-slate-300 bg-slate-50 text-slate-700", Icon: ShieldCheck }
+            ? { wrap: "border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300", Icon: Clock }
+            : { wrap: "border-slate-300 bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300", Icon: ShieldCheck }
           const Icon = style.Icon
           return (
             <span

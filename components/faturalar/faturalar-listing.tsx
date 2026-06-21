@@ -794,18 +794,18 @@ export default function FaturalarListing({
 }
 
 const BADGE_TONES = {
-  sky: "bg-sky-50 text-sky-800 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40",
+  sky: "bg-sky-50 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40",
   cyan: "bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-200 dark:border-cyan-500/40",
   indigo:
     "bg-indigo-50 text-indigo-800 border-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-200 dark:border-indigo-500/40",
   slate:
-    "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40",
+    "bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40",
   purple:
     "bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-500/15 dark:text-purple-200 dark:border-purple-500/40",
-  red: "bg-red-50 text-red-800 border-red-200 dark:bg-red-500/15 dark:text-red-200 dark:border-red-500/40",
+  red: "bg-red-50 text-red-800 dark:bg-red-500/15 dark:text-red-300 border-red-200 dark:bg-red-500/15 dark:text-red-200 dark:border-red-500/40",
   amber:
-    "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/40",
-  blue: "bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-500/15 dark:text-blue-200 dark:border-blue-500/40",
+    "bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/40",
+  blue: "bg-blue-50 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300 border-blue-200 dark:bg-blue-500/15 dark:text-blue-200 dark:border-blue-500/40",
 } as const
 
 function ProfileBadge({ profile }: { profile: string | null }) {

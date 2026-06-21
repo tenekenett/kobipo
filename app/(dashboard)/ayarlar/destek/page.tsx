@@ -35,7 +35,7 @@ type Ticket = {
 const STATUS_META: Record<string, { label: string; className: string }> = {
   OPEN: { label: "Açık", className: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" },
   ANSWERED: { label: "Yanıtlandı", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" },
-  CLOSED: { label: "Kapalı", className: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
+  CLOSED: { label: "Kapalı", className: "bg-gray-200 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300 dark:bg-gray-800 dark:text-gray-300" },
 }
 
 function StatusBadge({ status }: { status: string }) {

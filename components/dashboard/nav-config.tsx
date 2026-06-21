@@ -28,6 +28,7 @@ import {
   Receipt,
   Scale,
   ScrollText,
+  Store,
   Tags,
   TrendingDown,
   TrendingUp,
@@ -118,6 +119,7 @@ export const allNavItems: NavItemDef[] = [
   { href: "/ayarlar/abonelik", label: "Abonelik", icon: CreditCard, roles: ["ADMIN"] },
   { href: "/ayarlar/veri-aktarim", label: "Veri Aktarım", icon: Database, roles: ["ADMIN", "ACCOUNTANT", "STOCK", "SALES"] },
   { href: "/ayarlar/subeler", label: "Şube Yönetimi", icon: GitBranch, roles: ["ADMIN"] },
+  { href: "/ayarlar/sube-bilgileri", label: "Şube Bilgileri", icon: Store, roles: ["ADMIN", "ACCOUNTANT"] },
 
   // Standalone (sidebar bottom)
   { href: "/ayarlar/destek", label: "Destek", icon: LifeBuoy, roles: ALL_ROLES },
@@ -197,6 +199,7 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
       "/ayarlar/abonelik",
       "/ayarlar/veri-aktarim",
       "/ayarlar/subeler",
+      "/ayarlar/sube-bilgileri",
     ],
   },
 ]

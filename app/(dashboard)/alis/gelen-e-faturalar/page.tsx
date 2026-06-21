@@ -616,7 +616,7 @@ function ProfileBadge({ profile }: { profile: string | null }) {
     },
     TEMELFATURA: {
       label: "Temel",
-      cls: "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40",
+      cls: "bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40",
     },
     EARSIVFATURA: {
       label: "E-Arşiv",
@@ -624,13 +624,13 @@ function ProfileBadge({ profile }: { profile: string | null }) {
     },
     EFATURA: {
       label: "E-Fatura",
-      cls: "bg-sky-50 text-sky-800 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40",
+      cls: "bg-sky-50 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40",
     },
   }
   const entry =
     map[profile] || {
       label: profile,
-      cls: "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40",
+      cls: "bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40",
     }
   return (
     <span
@@ -645,21 +645,21 @@ function TypeBadge({ type }: { type: string | null }) {
   if (!type) return <span className="text-xs text-muted-foreground">-</span>
   const map: Record<string, string> = {
     SATIS:
-      "bg-sky-50 text-sky-800 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40",
+      "bg-sky-50 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40",
     TEVKIFAT:
       "bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-500/15 dark:text-purple-200 dark:border-purple-500/40",
     IADE:
-      "bg-red-50 text-red-800 border-red-200 dark:bg-red-500/15 dark:text-red-200 dark:border-red-500/40",
+      "bg-red-50 text-red-800 dark:bg-red-500/15 dark:text-red-300 border-red-200 dark:bg-red-500/15 dark:text-red-200 dark:border-red-500/40",
     ISTISNA:
-      "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/40",
+      "bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/40",
     OZELMATRAH:
       "bg-cyan-50 text-cyan-800 border-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-200 dark:border-cyan-500/40",
     IHRACAT:
-      "bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-500/15 dark:text-blue-200 dark:border-blue-500/40",
+      "bg-blue-50 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300 border-blue-200 dark:bg-blue-500/15 dark:text-blue-200 dark:border-blue-500/40",
   }
   const cls =
     map[type] ||
-    "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40"
+    "bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40"
   return (
     <span
       className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium ${cls}`}
