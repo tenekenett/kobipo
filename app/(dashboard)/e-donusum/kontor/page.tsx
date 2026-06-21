@@ -171,49 +171,70 @@ export default function KontorPage() {
                 )}
               </div>
 
-              {/* Paket kırılımı (kontör varsa) */}
+              {/* Paket kırılımı (kontör varsa) — her paket için harcanan / kalan ayrı ayrı */}
               {hasCredit && (
                 <div className="space-y-2">
-                  {activeCredit.map((c, idx) => (
-                    <div
-                      key={idx}
-                      className="flex flex-col gap-2 rounded-md border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <Badge variant="secondary">{c.productLabel}</Badge>
-                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                        {c.endDate && (
-                          <span>
-                            Geçerlilik:{" "}
-                            {new Date(c.endDate).toLocaleDateString("tr-TR", { dateStyle: "medium" })}
+                  {activeCredit.map((c, idx) => {
+                    const total = c.creditQty || 0
+                    const used = c.usedCreditQty || 0
+                    const remaining = c.remainingCreditQty || 0
+                    const usedPct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0
+                    return (
+                      <div key={idx} className="space-y-2 rounded-md border p-3 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <Badge variant="secondary">{c.productLabel}</Badge>
+                          {c.endDate && (
+                            <span className="text-xs text-muted-foreground">
+                              Geçerlilik:{" "}
+                              {new Date(c.endDate).toLocaleDateString("tr-TR", { dateStyle: "medium" })}
+                            </span>
+                          )}
+                        </div>
+                        {/* Harcanan / toplam — "7 / 10" olarak, etiketli */}
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">
+                            Harcanan:{" "}
+                            <span className="font-semibold text-foreground">
+                              {used.toLocaleString("tr-TR")} / {total.toLocaleString("tr-TR")}
+                            </span>
                           </span>
-                        )}
-                        <span className="text-foreground">
-                          <span className="font-semibold">
-                            {(c.remainingCreditQty || 0).toLocaleString("tr-TR")}
-                          </span>{" "}
-                          / {(c.creditQty || 0).toLocaleString("tr-TR")}
-                        </span>
+                          <span className="text-muted-foreground">
+                            Kalan:{" "}
+                            <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                              {remaining.toLocaleString("tr-TR")}
+                            </span>
+                          </span>
+                        </div>
+                        {/* İlerleme çubuğu: harcanan oranı */}
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full bg-emerald-500 dark:bg-emerald-400"
+                            style={{ width: `${usedPct}%` }}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 
-              {/* Kullanılan sayaçları — paket yokken ikincil, katlanır */}
-              {!hasCredit && creditUsage.length > 0 && (
-                <details className="rounded-md border p-3 text-sm">
-                  <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                    Bugüne kadar kullanılan kontör
-                  </summary>
-                  <div className="mt-2 space-y-1.5">
+              {/* Kontör nereye harcandı? — ürün bazında tüketim dökümü (her zaman görünür) */}
+              {creditUsage.length > 0 && (
+                <div className="space-y-2 rounded-md border p-3 text-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Kontör nereye harcandı?
+                  </p>
+                  <div className="space-y-1.5">
                     {creditUsage.map((u, idx) => (
                       <div key={idx} className="flex items-center justify-between gap-3">
                         <span className="text-muted-foreground">{u.productLabel}</span>
-                        <span className="font-medium">{u.usedCreditQty.toLocaleString("tr-TR")} adet</span>
+                        <span className="font-medium">
+                          {u.usedCreditQty.toLocaleString("tr-TR")} adet
+                        </span>
                       </div>
                     ))}
                   </div>
-                </details>
+                </div>
               )}
 
               {/* Devam eden siparişler — süreç burada görünür (kullanılanın altında) */}
