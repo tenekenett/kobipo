@@ -24,7 +24,7 @@ export function CashflowChartSkeleton() {
 
 export function RecentInvoicesSkeleton() {
   return (
-    <div className="space-y-3 rounded-xl border bg-white p-4">
+    <div className="space-y-3 rounded-xl border bg-card p-4">
       <div className="h-5 w-40 animate-pulse rounded bg-muted" />
       {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="h-12 animate-pulse rounded-lg bg-muted/60" />
