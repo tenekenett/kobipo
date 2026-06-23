@@ -27,6 +27,9 @@ import {
   Repeat2,
   ExternalLink,
   Inbox,
+  CheckCircle2,
+  XCircle,
+  Clock,
 } from "lucide-react"
 
 interface IncomingLine {
@@ -77,6 +80,7 @@ export default function GelenEFaturaDetailPage() {
   const [record, setRecord] = useState<IncomingDetail | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
+  const [isResponding, setIsResponding] = useState<"accept" | "reject" | null>(null)
 
   const fetchDetail = useCallback(async () => {
     if (!companyId || !uuid) return
@@ -141,6 +145,51 @@ export default function GelenEFaturaDetailPage() {
     }
   }
 
+  const handleRespond = async (action: "accept" | "reject") => {
+    if (!companyId || !uuid) return
+    let rejectReason = ""
+    if (action === "reject") {
+      const input = window.prompt("Red nedeni girin (en az 3 karakter):", "")
+      if (input === null) return
+      rejectReason = input.trim()
+      if (rejectReason.length < 3) {
+        toast({ title: "Red nedeni en az 3 karakter olmalı", variant: "destructive" })
+        return
+      }
+    } else {
+      if (!confirm("Bu faturayı KABUL etmek istediğinize emin misiniz? Bu yanıt GİB'e iletilir.")) return
+    }
+    setIsResponding(action)
+    try {
+      const res = await fetch(
+        `/api/e-donusum/inbox/${encodeURIComponent(uuid)}/respond`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, action, rejectReason }),
+        },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({
+          title: action === "accept" ? "Kabul başarısız" : "Red başarısız",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+        return
+      }
+      toast({
+        title: action === "accept" ? "Fatura kabul edildi" : "Fatura reddedildi",
+        description: data.message || undefined,
+      })
+      fetchDetail()
+    } catch (e: any) {
+      toast({ title: "Hata", description: e?.message || "İşlem sırasında hata", variant: "destructive" })
+    } finally {
+      setIsResponding(null)
+    }
+  }
+
   const handleConvertToPurchase = () => {
     if (!companyId || !uuid) return
     const qs = new URLSearchParams({
@@ -198,6 +247,11 @@ export default function GelenEFaturaDetailPage() {
   const lines = record.model?.lines || []
   const lineSum = lines.reduce((acc, l) => acc + Number(l.lineTotal || 0), 0)
 
+  // Yanıt akışı: yalnızca ticari fatura ve henüz kabul/ret edilmemişse yanıtlanabilir.
+  const statusUpper = (record.status || "").toUpperCase()
+  const isResponded = statusUpper === "KABUL" || statusUpper === "RED"
+  const canRespond = record.profile === "TICARIFATURA" && !isResponded
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -217,6 +271,35 @@ export default function GelenEFaturaDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {canRespond && (
+            <>
+              <Button
+                onClick={() => handleRespond("accept")}
+                disabled={isResponding !== null}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {isResponding === "accept" ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                )}
+                Kabul Et
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleRespond("reject")}
+                disabled={isResponding !== null}
+                className="border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+              >
+                {isResponding === "reject" ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <XCircle className="mr-2 h-4 w-4" />
+                )}
+                Reddet
+              </Button>
+            </>
+          )}
           <Button variant="outline" onClick={handleDownloadPdf} disabled={isDownloadingPdf}>
             {isDownloadingPdf ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -244,6 +327,18 @@ export default function GelenEFaturaDetailPage() {
           )}
         </div>
       </div>
+
+      {canRespond && (
+        <Card className="border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-950/30">
+          <CardContent className="flex items-center gap-2 pt-6 text-sm text-amber-900 dark:text-amber-200">
+            <Clock className="h-4 w-4 shrink-0" />
+            <span>
+              Bu <strong>ticari fatura</strong> yanıt bekliyor. Yukarıdan <strong>Kabul Et</strong> veya{" "}
+              <strong>Reddet</strong> ile GİB'e yanıt gönderin.
+            </span>
+          </CardContent>
+        </Card>
+      )}
 
       {record.isLinkedToPurchase && (
         <Card className="border-emerald-300 bg-emerald-50">

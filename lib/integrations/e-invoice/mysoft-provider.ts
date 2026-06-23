@@ -1094,6 +1094,67 @@ async sendInvoice(invoiceData: any): Promise<any> {
   }
 
   /**
+   * Gelen TİCARİ faturayı KABUL eder (GİB'e kabul yanıtı gönderir).
+   * Swagger v8: GET /api/InvoiceInbox/acceptInvoice?invoiceETTN=...&tenantIdentifierNumber=...
+   * Sadece TICARIFATURA için anlamlıdır; temel/e-arşiv yanıt beklemez.
+   */
+  async acceptIncomingInvoice(
+    uuid: string,
+  ): Promise<{ success: boolean; error?: string; message?: string }> {
+    try {
+      const token = await this.getToken();
+      if (!token) return { success: false, error: "Mysoft token alınamadı." };
+
+      const url = new URL(`${this.baseUrl}/api/InvoiceInbox/acceptInvoice`);
+      url.searchParams.set("invoiceETTN", uuid);
+      if (this.vknTckn) url.searchParams.set("tenantIdentifierNumber", this.vknTckn);
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const result = await res.json().catch(() => null);
+      if (!result || result.succeed === false) {
+        return { success: false, error: result?.message || `Kabul başarısız (HTTP ${res.status}).` };
+      }
+      return { success: true, message: result?.message || "Fatura kabul edildi." };
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." };
+    }
+  }
+
+  /**
+   * Gelen TİCARİ faturayı REDDEDER (GİB'e red yanıtı gönderir).
+   * Swagger v8: GET /api/InvoiceInbox/denyInvoice?invoiceETTN=...&rejectReason=...&tenantIdentifierNumber=...
+   */
+  async rejectIncomingInvoice(
+    uuid: string,
+    rejectReason: string,
+  ): Promise<{ success: boolean; error?: string; message?: string }> {
+    try {
+      const token = await this.getToken();
+      if (!token) return { success: false, error: "Mysoft token alınamadı." };
+
+      const url = new URL(`${this.baseUrl}/api/InvoiceInbox/denyInvoice`);
+      url.searchParams.set("invoiceETTN", uuid);
+      url.searchParams.set("rejectReason", rejectReason || "Red");
+      if (this.vknTckn) url.searchParams.set("tenantIdentifierNumber", this.vknTckn);
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const result = await res.json().catch(() => null);
+      if (!result || result.succeed === false) {
+        return { success: false, error: result?.message || `Red başarısız (HTTP ${res.status}).` };
+      }
+      return { success: true, message: result?.message || "Fatura reddedildi." };
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." };
+    }
+  }
+
+  /**
    * Bir VKN/TCKN için GİB hesap modelini sorgular.
    *
    * Swagger v8: GET /api/GeneralCard/getGibAccountModel?vknTckn={vkn}

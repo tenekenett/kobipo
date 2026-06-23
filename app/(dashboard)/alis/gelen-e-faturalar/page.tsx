@@ -105,6 +105,7 @@ export default function GelenEFaturalarPage() {
   const [profileFilter, setProfileFilter] = useState<string>("")
   const [linkFilter, setLinkFilter] = useState<string>("")
   const [downloadingPdfUuid, setDownloadingPdfUuid] = useState<string | null>(null)
+  const [respondingUuid, setRespondingUuid] = useState<string | null>(null)
 
   const fetchList = useCallback(async () => {
     if (!companyId) return
@@ -173,6 +174,59 @@ export default function GelenEFaturalarPage() {
       })
     } finally {
       setDownloadingPdfUuid(null)
+    }
+  }
+
+  const handleRespond = async (
+    uuid: string,
+    action: "accept" | "reject",
+    invoiceNo: string | null,
+  ) => {
+    if (!companyId) return
+    let rejectReason = ""
+    if (action === "reject") {
+      const input = window.prompt(
+        `Red nedeni girin (en az 3 karakter)${invoiceNo ? ` · ${invoiceNo}` : ""}:`,
+        "",
+      )
+      if (input === null) return
+      rejectReason = input.trim()
+      if (rejectReason.length < 3) {
+        toast({ title: "Red nedeni en az 3 karakter olmalı", variant: "destructive" })
+        return
+      }
+    } else if (!confirm(`Bu faturayı KABUL etmek istediğinize emin misiniz?${invoiceNo ? `\n\n${invoiceNo}` : ""}`)) {
+      return
+    }
+    setRespondingUuid(uuid)
+    try {
+      const res = await fetch(`/api/e-donusum/inbox/${encodeURIComponent(uuid)}/respond`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, action, rejectReason }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({
+          title: action === "accept" ? "Kabul başarısız" : "Red başarısız",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+        return
+      }
+      toast({
+        title: action === "accept" ? "Fatura kabul edildi" : "Fatura reddedildi",
+        description: data.message || undefined,
+      })
+      // Yerel satırı anında güncelle, sonra listeyi tazele.
+      setRows((prev) =>
+        prev.map((r) => (r.uuid === uuid ? { ...r, status: action === "accept" ? "KABUL" : "RED" } : r)),
+      )
+      await fetchList()
+    } catch (e: any) {
+      toast({ title: "Hata", description: e?.message || "İşlem sırasında hata", variant: "destructive" })
+    } finally {
+      setRespondingUuid(null)
     }
   }
 
@@ -551,6 +605,36 @@ export default function GelenEFaturalarPage() {
                         </TableCell>
                         <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
+                            {row.profile === "TICARIFATURA" &&
+                              (row.status || "").toUpperCase() !== "KABUL" &&
+                              (row.status || "").toUpperCase() !== "RED" && (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRespond(row.uuid, "accept", row.invoiceNo)}
+                                    disabled={respondingUuid === row.uuid}
+                                    title="Kabul et"
+                                    className="text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-500/15 dark:hover:text-emerald-200"
+                                  >
+                                    {respondingUuid === row.uuid ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <CheckCircle2 className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRespond(row.uuid, "reject", row.invoiceNo)}
+                                    disabled={respondingUuid === row.uuid}
+                                    title="Reddet"
+                                    className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-300 dark:hover:bg-red-500/15 dark:hover:text-red-200"
+                                  >
+                                    <XCircle className="h-4 w-4" />
+                                  </Button>
+                                </>
+                              )}
                             <Button
                               variant="ghost"
                               size="sm"
