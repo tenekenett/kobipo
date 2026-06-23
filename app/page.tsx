@@ -291,7 +291,7 @@ export default function Home() {
             </div>
 
             <div className="mt-9 flex flex-wrap gap-x-6 gap-y-3">
-              {["Kredi kartı gerekmez", "İlk 30 gün ücretsiz", "SSL güvenli altyapı"].map((t) => (
+              {["Kredi kartı gerekmez", "Tek şube ücretsiz", "SSL güvenli altyapı"].map((t) => (
                 <span key={t} className="flex items-center gap-2 text-[12px] font-medium text-white/55">
                   <span className="flex h-4 w-4 items-center justify-center rounded-full bg-kobipo-green/25 text-kobipo-green">
                     <CheckIcon className="h-3 w-3" />
@@ -630,8 +630,8 @@ export default function Home() {
           <div className="space-y-3">
             {[
               {
-                q: "Ücretsiz deneme sürecinde kredi kartı gerekiyor mu?",
-                a: "Hayır. 30 günlük ücretsiz denemeyi kredi kartı bilgisi vermeden başlatabilirsiniz. Süre dolduğunda ödeme yapmazsanız hesabınız ücretli plana geçmez.",
+                q: "Kobipo'yu kullanmak ücretli mi?",
+                a: "Tek şube kullanımı tamamen ücretsizdir — kredi kartı veya kurulum ücreti gerekmez, süre sınırı yoktur. Yalnızca e-fatura/e-arşiv gönderimi için kullandığınız kadar kontör ödersiniz. Birden fazla şubeyle çalışmak isterseniz ek şubeler ücretlidir; detaylar için bizimle iletişime geçebilirsiniz.",
               },
               {
                 q: "Mevcut verilerimi (cari, ürün, fatura) içe aktarabilir miyim?",
