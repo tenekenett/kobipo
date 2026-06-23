@@ -17,6 +17,9 @@ export default function EDonusumYeniFaturaPage() {
     typeParam === "PURCHASE" || typeParam === "SALES" || typeParam === "RETURN"
       ? typeParam
       : undefined
+  const defaultCustomerId = searchParams.get("customerId") || undefined
+  const defaultSupplierId = searchParams.get("supplierId") || undefined
+  const duplicateFromId = searchParams.get("duplicate") || undefined
 
   if (!companyId) {
     return (
@@ -42,7 +45,11 @@ export default function EDonusumYeniFaturaPage() {
           </Link>
         </Button>
         <h1 className="text-2xl font-bold">
-          {fromIncoming ? "Gelen E-Faturadan Alış Faturası" : "Yeni Fatura"}
+          {fromIncoming
+            ? "Gelen E-Faturadan Alış Faturası"
+            : duplicateFromId
+              ? "Fatura Kopyası (Taslak)"
+              : "Yeni Fatura"}
         </h1>
       </div>
       <InvoiceEditor
@@ -50,6 +57,9 @@ export default function EDonusumYeniFaturaPage() {
         mode="create"
         defaultManual={defaultManual}
         defaultType={defaultType}
+        defaultCustomerId={defaultCustomerId}
+        defaultSupplierId={defaultSupplierId}
+        duplicateFromId={duplicateFromId}
         backHref={backHref}
         fromIncomingUuid={fromIncoming}
       />

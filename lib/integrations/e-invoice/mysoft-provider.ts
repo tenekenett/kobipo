@@ -430,7 +430,11 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // sadece TEMELFATURA için tanımlı; TICARIFATURA gönderirsek "00018 uygun
       // numaratör bulunamadı" döner. Stratejimiz: önce TICARIFATURA dene, 00018
       // alırsak TEMELFATURA'ya düş ve aynı payload'ı tekrar gönder.
-      const initialProfile = isEFatura ? "TICARIFATURA" : "EARSIVFATURA"
+      // Kullanıcı önizleme ekranında Ticari/Temel seçtiyse onu baz al; aksi halde
+      // TICARIFATURA ile başla (00018 fallback'i yine TEMELFATURA'ya düşürür).
+      const initialProfile = isEFatura
+        ? (invoiceData.eInvoiceProfile === "TEMELFATURA" ? "TEMELFATURA" : "TICARIFATURA")
+        : "EARSIVFATURA"
       let profile = initialProfile
 
       // Alıcı VKN/TCKN ön doğrulaması:
@@ -573,7 +577,9 @@ async sendInvoice(invoiceData: any): Promise<any> {
             "taxOfficeName": invoiceData.customer?.taxOffice || "Vergi Dairesi",
             "countryName": "TÜRKİYE",
             "cityName": invoiceData.customer?.city || "DENİZLİ",
-            "citySubdivision": "PAMUKKALE",
+            // İlçe: carinin gerçek ilçe bilgisi. Girilmemişse il'e geri düşeriz
+            // (Mysoft boş citySubdivision'ı reddedebiliyor) — sabit ilçe ASLA yazma.
+            "citySubdivision": invoiceData.customer?.district || invoiceData.customer?.city || "DENİZLİ",
             "streetName": invoiceData.customer?.address || "-",
             "buildingNumber": "1"
         },

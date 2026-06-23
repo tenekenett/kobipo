@@ -4,11 +4,25 @@ import { useEffect, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, ArrowLeft, Pencil, ShieldCheck, FileDown, Ban, Loader2, CheckCircle2, XCircle, Clock, AlertTriangle, Hash, Building2, Trash2, Printer } from "lucide-react"
+import { Download, ArrowLeft, Pencil, ShieldCheck, FileDown, Ban, Loader2, CheckCircle2, XCircle, Clock, AlertTriangle, Hash, Building2, Trash2, Printer, Copy, MoreVertical } from "lucide-react"
 import Link from "next/link"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
@@ -53,6 +67,7 @@ interface Invoice {
     taxOffice?: string
     address?: string
     city?: string
+    district?: string
   }
   supplier?: {
     id: string
@@ -61,6 +76,7 @@ interface Invoice {
     taxOffice?: string
     address?: string
     city?: string
+    district?: string
   }
   company: {
     name: string
@@ -94,7 +110,8 @@ export default function FaturaOnizlemePage() {
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [template, setTemplate] = useState("standart")
+  // Yerel PDF şablonu sabit "standart" (Standart/Kurumsal seçimi kaldırıldı).
+  const [template] = useState("standart")
   const [email, setEmail] = useState("")
   const [attachments, setAttachments] = useState<any[]>([])
   const [attachmentName, setAttachmentName] = useState("")
@@ -103,6 +120,7 @@ export default function FaturaOnizlemePage() {
   const [isCancelling, setIsCancelling] = useState(false)
   const [isSendingToProvider, setIsSendingToProvider] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false)
 
   useEffect(() => {
     if (!invoiceId) return
@@ -266,13 +284,27 @@ export default function FaturaOnizlemePage() {
     }
   }
 
-  const handleSendToProvider = async () => {
+  // E-Fatura gönderiminde Ticari/Temel seçimini sormak için. E-Arşiv'de doğrudan
+  // confirm ile gönderilir.
+  const onClickSend = () => {
     if (!invoice) return
+    if (invoice.invoiceType === "E_INVOICE") {
+      setProfileDialogOpen(true)
+      return
+    }
     if (!confirm("Bu faturayı göndermek istediğinize emin misiniz?\n\nGönderildikten sonra fatura yasal olarak kesilmiş sayılır.")) return
+    void handleSendToProvider()
+  }
+
+  const handleSendToProvider = async (eInvoiceProfile?: "TICARIFATURA" | "TEMELFATURA") => {
+    if (!invoice) return
+    setProfileDialogOpen(false)
     setIsSendingToProvider(true)
     try {
       const response = await fetch(`/api/e-donusum/invoices/${invoice.id}`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(eInvoiceProfile ? { eInvoiceProfile } : {}),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -441,6 +473,10 @@ export default function FaturaOnizlemePage() {
     ? `/cari/${cari.segment}/${cari.id}?company=${companyId || ""}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`
     : null
 
+  // Kopya oluştur: bu faturanın değerleriyle dolu, güncel tarihli yeni bir TASLAK
+  // editör ekranı açar. Kaydedilene kadar hiçbir şey oluşmaz / gönderilmez.
+  const duplicateHref = `/e-donusum/yeni?company=${encodeURIComponent(companyId || "")}&duplicate=${invoiceId}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -495,10 +531,6 @@ export default function FaturaOnizlemePage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" onClick={() => window.print()}>
-            <Printer className="h-4 w-4 mr-2" />
-            Yazdır
-          </Button>
           {invoice.status === "DRAFT" && (
             <Link
               href={`/e-donusum/${invoiceId}/duzenle?company=${encodeURIComponent(companyId || "")}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`}
@@ -513,7 +545,7 @@ export default function FaturaOnizlemePage() {
             !invoice.uuid &&
             (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
               <Button
-                onClick={handleSendToProvider}
+                onClick={onClickSend}
                 disabled={isSendingToProvider}
                 className="bg-kobipo-blue hover:bg-kobipo-blue/90 dark:bg-primary dark:hover:bg-primary/90"
               >
@@ -539,61 +571,87 @@ export default function FaturaOnizlemePage() {
               Onayla
             </Button>
           )}
-          {!isFromIncoming && (
-            <Select value={template} onValueChange={setTemplate}>
-              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="standart">Standart</SelectItem>
-                <SelectItem value="kurumsal">Kurumsal</SelectItem>
-              </SelectContent>
-            </Select>
+
+          {/* Çıktı aksiyonları: resmî GİB PDF veya yerel PDF */}
+          {invoice.uuid && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
+            <Button
+              variant="outline"
+              onClick={handleDownloadGibPdf}
+              disabled={isDownloadingGibPdf}
+              title="Mysoft / GİB tarafından üretilen yasal PDF"
+            >
+              {isDownloadingGibPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+              Resmî PDF (GİB)
+            </Button>
           )}
-          <Input className="w-56" placeholder="E-posta (opsiyonel)" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <Button variant="outline" onClick={handleSendEmail}>E-posta Gönder</Button>
           {!hasOfficialGibPdf && (
             <Button onClick={handleDownloadPDF}>
               <Download className="h-4 w-4 mr-2" />
               PDF İndir
             </Button>
           )}
-          {invoice.uuid && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
-            <>
-              <Button variant="outline" onClick={handleCheckStatus} disabled={isCheckingStatus}>
-                {isCheckingStatus ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-                GİB Durumu
+
+          <Link href={duplicateHref}>
+            <Button variant="outline" title="Bu faturanın değerleriyle güncel tarihli yeni bir taslak oluştur">
+              <Copy className="h-4 w-4 mr-2" />
+              Kopya Oluştur
+            </Button>
+          </Link>
+
+          {/* Diğer işlemler: e-posta, yazdır, GİB, iptal, sil */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="Diğer işlemler">
+                <MoreVertical className="h-4 w-4" />
               </Button>
-              <Button
-                variant="outline"
-                onClick={handleDownloadGibPdf}
-                disabled={isDownloadingGibPdf}
-                title="Mysoft / GİB tarafından üretilen yasal PDF"
-              >
-                {isDownloadingGibPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
-                Resmî PDF (GİB)
-              </Button>
-              {invoice.invoiceType === "E_ARCHIVE" && invoice.status !== "CANCELLED" && (
-                <Button
-                  variant="outline"
-                  onClick={handleCancelInvoice}
-                  disabled={isCancelling}
-                  className="border-red-200 bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300 hover:bg-red-100"
-                >
-                  {isCancelling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Ban className="mr-2 h-4 w-4" />}
-                  İptal Et
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+              <div className="flex items-center gap-2 px-2 py-1.5">
+                <Input
+                  className="h-8"
+                  placeholder="E-posta (opsiyonel)"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => e.stopPropagation()}
+                />
+                <Button size="sm" variant="outline" onClick={handleSendEmail}>
+                  Gönder
                 </Button>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="cursor-pointer" onClick={() => window.print()}>
+                <Printer className="mr-2 h-4 w-4" />
+                Yazdır
+              </DropdownMenuItem>
+              {invoice.uuid && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
+                <>
+                  <DropdownMenuItem className="cursor-pointer" onClick={handleCheckStatus} disabled={isCheckingStatus}>
+                    {isCheckingStatus ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+                    GİB Durumu
+                  </DropdownMenuItem>
+                  {invoice.invoiceType === "E_ARCHIVE" && invoice.status !== "CANCELLED" && (
+                    <DropdownMenuItem
+                      className="cursor-pointer text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                      onClick={handleCancelInvoice}
+                      disabled={isCancelling}
+                    >
+                      {isCancelling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Ban className="mr-2 h-4 w-4" />}
+                      İptal Et
+                    </DropdownMenuItem>
+                  )}
+                </>
               )}
-            </>
-          )}
-          <Button
-            variant="outline"
-            onClick={handleDelete}
-            disabled={isDeleting}
-            title="Faturayı sil / iptal et (stok ve bakiyeler geri alınır)"
-            className="border-red-200 bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-          >
-            {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-            Sil
-          </Button>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="cursor-pointer text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                onClick={handleDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                Sil
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -696,9 +754,9 @@ export default function FaturaOnizlemePage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
-            <div>
-              <h3 className="font-bold text-sm mb-2 text-muted-foreground">FİRMA BİLGİLERİ</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Firma Bilgileri</h3>
               <p className="font-medium">{invoice.company.name}</p>
               {invoice.company.taxNumber && (
                 <p className="text-sm text-muted-foreground">VKN: {invoice.company.taxNumber}</p>
@@ -710,34 +768,48 @@ export default function FaturaOnizlemePage() {
                 <p className="text-sm text-muted-foreground">{invoice.company.city}</p>
               )}
             </div>
-            <div>
-              <h3 className="font-bold text-sm mb-2 text-muted-foreground">
-                {invoice.type === "SALES" ? "MÜŞTERİ BİLGİLERİ" : "TEDARİKÇİ BİLGİLERİ"}
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {invoice.type === "SALES" ? "Müşteri Bilgileri" : "Tedarikçi Bilgileri"}
               </h3>
               {invoice.type === "SALES" && invoice.customer ? (
                 <>
-                  <p className="font-medium">{invoice.customer.name}</p>
+                  <Link
+                    href={`/cari/customers/${invoice.customer.id}?company=${companyId || ""}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`}
+                    className="font-medium text-blue-600 hover:underline"
+                  >
+                    {invoice.customer.name}
+                  </Link>
                   {invoice.customer.taxNumber && (
                     <p className="text-sm text-muted-foreground">VKN: {invoice.customer.taxNumber}</p>
                   )}
                   {invoice.customer.address && (
                     <p className="text-sm text-muted-foreground">{invoice.customer.address}</p>
                   )}
-                  {invoice.customer.city && (
-                    <p className="text-sm text-muted-foreground">{invoice.customer.city}</p>
+                  {(invoice.customer.district || invoice.customer.city) && (
+                    <p className="text-sm text-muted-foreground">
+                      {[invoice.customer.district, invoice.customer.city].filter(Boolean).join(" / ")}
+                    </p>
                   )}
                 </>
               ) : invoice.supplier ? (
                 <>
-                  <p className="font-medium">{invoice.supplier.name}</p>
+                  <Link
+                    href={`/cari/suppliers/${invoice.supplier.id}?company=${companyId || ""}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`}
+                    className="font-medium text-blue-600 hover:underline"
+                  >
+                    {invoice.supplier.name}
+                  </Link>
                   {invoice.supplier.taxNumber && (
                     <p className="text-sm text-muted-foreground">VKN: {invoice.supplier.taxNumber}</p>
                   )}
                   {invoice.supplier.address && (
                     <p className="text-sm text-muted-foreground">{invoice.supplier.address}</p>
                   )}
-                  {invoice.supplier.city && (
-                    <p className="text-sm text-muted-foreground">{invoice.supplier.city}</p>
+                  {(invoice.supplier.district || invoice.supplier.city) && (
+                    <p className="text-sm text-muted-foreground">
+                      {[invoice.supplier.district, invoice.supplier.city].filter(Boolean).join(" / ")}
+                    </p>
                   )}
                 </>
               ) : (
@@ -746,23 +818,23 @@ export default function FaturaOnizlemePage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div>
-              <p className="text-sm text-muted-foreground">Fatura No</p>
-              <p className="font-medium">{invoice.invoiceNo}</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <div className="rounded-lg border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Fatura No</p>
+              <p className="font-medium tabular-nums">{invoice.invoiceNo}</p>
             </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Tarih</p>
-              <p className="font-medium">{new Date(invoice.date).toLocaleDateString("tr-TR")}</p>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Tarih</p>
+              <p className="font-medium tabular-nums">{new Date(invoice.date).toLocaleDateString("tr-TR")}</p>
             </div>
             {invoice.dueDate && (
-              <div>
-                <p className="text-sm text-muted-foreground">Vade Tarihi</p>
-                <p className="font-medium">{new Date(invoice.dueDate).toLocaleDateString("tr-TR")}</p>
+              <div className="rounded-lg border p-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Vade Tarihi</p>
+                <p className="font-medium tabular-nums">{new Date(invoice.dueDate).toLocaleDateString("tr-TR")}</p>
               </div>
             )}
-            <div>
-              <p className="text-sm text-muted-foreground">Durum</p>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Durum</p>
               <p className="font-medium">
                 {invoice.status === "SENT" ? "Gönderildi" : invoice.status === "DRAFT" ? "Taslak" : invoice.status}
                 {(() => {
@@ -775,8 +847,8 @@ export default function FaturaOnizlemePage() {
             </div>
           </div>
 
-          <Table>
-            <TableHeader>
+          <Table className="tabular-nums">
+            <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead>#</TableHead>
                 <TableHead>Ürün</TableHead>
@@ -851,18 +923,18 @@ export default function FaturaOnizlemePage() {
           </Table>
 
           <div className="flex justify-end mt-6">
-            <div className="w-64 space-y-2">
+            <div className="w-72 space-y-2 rounded-lg border bg-muted/30 p-4 tabular-nums">
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Ara Toplam:</span>
+                <span className="text-muted-foreground">Ara Toplam</span>
                 <span>{formatCurrency(invoice.netAmount)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">KDV Toplam:</span>
+                <span className="text-muted-foreground">KDV Toplam</span>
                 <span>{formatCurrency(invoice.vatAmount)}</span>
               </div>
-              <div className="flex justify-between font-bold text-lg border-t pt-2">
-                <span>Genel Toplam:</span>
-                <span className="text-green-600">{formatCurrency(invoice.totalAmount)}</span>
+              <div className="flex justify-between border-t pt-2 text-lg font-bold">
+                <span>Genel Toplam</span>
+                <span className="text-green-600 dark:text-green-400">{formatCurrency(invoice.totalAmount)}</span>
               </div>
             </div>
           </div>
@@ -889,6 +961,50 @@ export default function FaturaOnizlemePage() {
           ))}
         </CardContent>
       </Card>
+
+      {/* E-Fatura profil seçimi: resmileştirmeden (göndermeden) önce Ticari mi
+          Temel mi sorulur. Temel = alıcı yanıtı beklemez; Ticari = alıcı kabul/
+          ret yanıtı verebilir. */}
+      <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>E-Fatura Profili Seçin</DialogTitle>
+            <DialogDescription>
+              Fatura resmileştirilmeden önce profil tipini seçin. Gönderildikten sonra
+              fatura yasal olarak kesilmiş sayılır.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <button
+              type="button"
+              onClick={() => handleSendToProvider("TICARIFATURA")}
+              disabled={isSendingToProvider}
+              className="rounded-lg border p-4 text-left transition-colors hover:border-primary hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+            >
+              <p className="font-semibold">Ticari Fatura</p>
+              <p className="text-sm text-muted-foreground">
+                Alıcı faturaya kabul/ret yanıtı verebilir.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSendToProvider("TEMELFATURA")}
+              disabled={isSendingToProvider}
+              className="rounded-lg border p-4 text-left transition-colors hover:border-primary hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+            >
+              <p className="font-semibold">Temel Fatura</p>
+              <p className="text-sm text-muted-foreground">
+                Alıcı yanıt veremez; fatura doğrudan kesilmiş sayılır.
+              </p>
+            </button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProfileDialogOpen(false)} disabled={isSendingToProvider}>
+              Vazgeç
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

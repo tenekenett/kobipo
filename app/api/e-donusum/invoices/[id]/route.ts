@@ -321,7 +321,7 @@ export async function PUT(
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -353,7 +353,14 @@ export async function POST(
       )
     }
 
-    const result = await sendInvoiceToProvider(resolvedParams.id)
+    // İstemci E-Fatura için Ticari/Temel profili seçebilir.
+    const body = await request.json().catch(() => ({}))
+    const eInvoiceProfile =
+      body?.eInvoiceProfile === "TEMELFATURA" || body?.eInvoiceProfile === "TICARIFATURA"
+        ? body.eInvoiceProfile
+        : undefined
+
+    const result = await sendInvoiceToProvider(resolvedParams.id, { eInvoiceProfile })
     if (!result.ok) {
       return NextResponse.json(
         { error: result.error, integrationStatus: result.integrationStatus },

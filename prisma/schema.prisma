@@ -235,6 +235,7 @@ model Customer {
   taxOffice   String?
   address     String?  @db.Text
   city        String?
+  district    String?
   country     String   @default("TR")
   phone       String?
   email       String?
@@ -287,6 +288,7 @@ model Supplier {
   taxOffice   String?
   address     String?  @db.Text
   city        String?
+  district    String?
   country     String   @default("TR")
   phone       String?
   email       String?

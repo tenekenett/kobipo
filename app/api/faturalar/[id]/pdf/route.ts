@@ -70,6 +70,7 @@ export async function GET(
         taxOffice: invoice.customer.taxOffice || undefined,
         address: invoice.customer.address || undefined,
         city: invoice.customer.city || undefined,
+        district: invoice.customer.district || undefined,
         phone: invoice.customer.phone || undefined,
         email: invoice.customer.email || undefined,
       } : undefined,
@@ -79,6 +80,7 @@ export async function GET(
         taxOffice: invoice.supplier.taxOffice || undefined,
         address: invoice.supplier.address || undefined,
         city: invoice.supplier.city || undefined,
+        district: invoice.supplier.district || undefined,
         phone: invoice.supplier.phone || undefined,
         email: invoice.supplier.email || undefined,
       } : undefined,
@@ -176,8 +178,9 @@ export async function GET(
       if (recipient.address) {
         doc.text(recipient.address, 100, 68)
       }
-      if (recipient.city) {
-        doc.text(recipient.city, 100, 74)
+      const recipientLocation = [recipient.district, recipient.city].filter(Boolean).join(" / ")
+      if (recipientLocation) {
+        doc.text(recipientLocation, 100, 74)
       }
     }
     

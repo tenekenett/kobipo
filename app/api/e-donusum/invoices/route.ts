@@ -490,10 +490,11 @@ const invoiceData = {
         taxOffice: invoice.customer.taxOffice || undefined,
         address: invoice.customer.address || undefined,
         city: invoice.customer.city || undefined,
+        district: invoice.customer.district || undefined,
         country: invoice.customer.country || undefined,
       }
     : undefined,
-    
+
   // TEDARİKÇİ (Alış Faturasıysa)
   supplier: invoice.supplier
     ? {
@@ -502,6 +503,7 @@ const invoiceData = {
         taxOffice: invoice.supplier.taxOffice || undefined,
         address: invoice.supplier.address || undefined,
         city: invoice.supplier.city || undefined,
+        district: invoice.supplier.district || undefined,
         country: invoice.supplier.country || undefined,
       }
     : undefined,

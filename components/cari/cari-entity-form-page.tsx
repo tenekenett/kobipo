@@ -23,6 +23,7 @@ type FormData = {
   taxOffice: string
   address: string
   city: string
+  district: string
   phone: string
   email: string
   contactPerson: string
@@ -70,6 +71,7 @@ const defaultFormData: FormData = {
   taxOffice: "",
   address: "",
   city: "",
+  district: "",
   phone: "",
   email: "",
   contactPerson: "",
@@ -197,6 +199,7 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
           taxOffice: data.taxOffice || "",
           address: data.address || "",
           city: data.city || "",
+          district: data.district || "",
           phone: data.phone || "",
           email: data.email || "",
           contactPerson: data.contactPerson || "",
@@ -501,6 +504,15 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                       id="city"
                       value={formData.city}
                       onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="district">İlçe</Label>
+                    <Input
+                      id="district"
+                      value={formData.district}
+                      onChange={(e) => setFormData({ ...formData, district: e.target.value })}
                       disabled={isLoading}
                     />
                   </div>

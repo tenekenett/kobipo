@@ -12,6 +12,10 @@ export interface InvoiceData {
   date: Date
   dueDate?: Date
   invoiceType?: "E_INVOICE" | "E_ARCHIVE"
+  // E-Fatura profili (kullanıcı seçimi): TICARIFATURA (alıcı yanıtı bekler) veya
+  // TEMELFATURA (yanıt beklemez). Verilmezse provider TICARIFATURA ile başlar.
+  // E-Arşiv'de yok sayılır (her zaman EARSIVFATURA).
+  eInvoiceProfile?: "TICARIFATURA" | "TEMELFATURA"
   prefix?: string
   // Mysoft-specific routing fields (discover-mysoft-config'den)
   connectorGuid?: string
@@ -31,6 +35,7 @@ export interface InvoiceData {
     taxOffice?: string
     address?: string
     city?: string
+    district?: string
     country?: string
   }
   supplier?: {
@@ -39,6 +44,7 @@ export interface InvoiceData {
     taxOffice?: string
     address?: string
     city?: string
+    district?: string
     country?: string
   }
   items: InvoiceItemData[]

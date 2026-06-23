@@ -16,7 +16,10 @@ export type SendInvoiceResult =
  * - Hiçbiri tanımlı değilse provider Mysoft'tan aktif default numaratörü otomatik seçer.
  * - Mysoft "numaratör bulunamadı" hatası kullanıcıya CTA içeren mesaja dönüştürülür.
  */
-export async function sendInvoiceToProvider(invoiceId: string): Promise<SendInvoiceResult> {
+export async function sendInvoiceToProvider(
+  invoiceId: string,
+  options?: { eInvoiceProfile?: "TICARIFATURA" | "TEMELFATURA" },
+): Promise<SendInvoiceResult> {
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
     include: {
@@ -172,6 +175,9 @@ export async function sendInvoiceToProvider(invoiceId: string): Promise<SendInvo
   // Mysoft tenantIdentifierNumber'dan gerçek connector + alias'ı kendi seçer.
   const invoiceData = {
     invoiceType: effectiveInvoiceType,
+    // E-Fatura'da kullanıcının seçtiği profil (Ticari/Temel). E-Arşiv'de yok sayılır.
+    eInvoiceProfile:
+      effectiveInvoiceType === "E_INVOICE" ? options?.eInvoiceProfile : undefined,
     prefix: resolvedPrefix,
     tenantIdentifierNumber: tenantVkn || undefined,
     invoiceNo: invoice.invoiceNo,
@@ -191,6 +197,7 @@ export async function sendInvoiceToProvider(invoiceId: string): Promise<SendInvo
           taxOffice: invoice.customer.taxOffice || undefined,
           address: invoice.customer.address || undefined,
           city: invoice.customer.city || undefined,
+          district: invoice.customer.district || undefined,
           country: invoice.customer.country || undefined,
         }
       : undefined,
@@ -201,6 +208,7 @@ export async function sendInvoiceToProvider(invoiceId: string): Promise<SendInvo
           taxOffice: invoice.supplier.taxOffice || undefined,
           address: invoice.supplier.address || undefined,
           city: invoice.supplier.city || undefined,
+          district: invoice.supplier.district || undefined,
           country: invoice.supplier.country || undefined,
         }
       : undefined,

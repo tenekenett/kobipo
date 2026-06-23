@@ -78,11 +78,14 @@ export type InvoiceEditorProps = {
   invoiceId?: string
   defaultManual?: boolean
   defaultType?: "SALES" | "PURCHASE" | "RETURN"
+  defaultCustomerId?: string
+  defaultSupplierId?: string
+  duplicateFromId?: string
   backHref?: string
   fromIncomingUuid?: string
 }
 
-export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defaultType, backHref, fromIncomingUuid }: InvoiceEditorProps) {
+export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defaultType, defaultCustomerId, defaultSupplierId, duplicateFromId, backHref, fromIncomingUuid }: InvoiceEditorProps) {
   const router = useRouter()
   const { toast } = useToast()
 
@@ -105,6 +108,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   // useRef: state'ten farklı olarak senkron güncellenir, effect re-run'larda race olmaz.
   // Aynı prefill mantığını birden çok kez çalıştırırsak notlar ve kalemler tekrar eder.
   const prefilledFromIncomingRef = useRef(false)
+  // Kopya prefill'i de bir kez çalışsın (effect re-run'larda tekrarlamasın).
+  const duplicatedRef = useRef(false)
   const [suppliersLoaded, setSuppliersLoaded] = useState(false)
   const [productsLoaded, setProductsLoaded] = useState(false)
 
@@ -172,6 +177,21 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     if (mode !== "create" || !defaultType || fromIncomingUuid) return
     setFormData((prev) => (prev.type === defaultType ? prev : { ...prev, type: defaultType }))
   }, [mode, defaultType, fromIncomingUuid])
+
+  // Cari kartından "Fatura Kes" ile gelindiğinde ilgili müşteri/tedarikçiyi
+  // baştan seçili getir. Sadece create modunda ve gelen e-fatura akışı yokken.
+  useEffect(() => {
+    if (mode !== "create" || fromIncomingUuid) return
+    if (defaultCustomerId) {
+      setFormData((prev) =>
+        prev.customerId === defaultCustomerId ? prev : { ...prev, customerId: defaultCustomerId, supplierId: "" },
+      )
+    } else if (defaultSupplierId) {
+      setFormData((prev) =>
+        prev.supplierId === defaultSupplierId ? prev : { ...prev, supplierId: defaultSupplierId, customerId: "" },
+      )
+    }
+  }, [mode, defaultCustomerId, defaultSupplierId, fromIncomingUuid])
 
   useEffect(() => {
     if (mode !== "edit" || !companyId || !invoiceId) return
@@ -595,6 +615,79 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       setBootstrappingEdit(false)
     }
   }
+
+  // Mevcut bir faturadan KOPYA hazırla: kaynak faturanın tüm değerlerini
+  // (cari, tip, kalemler, notlar) forma yükler AMA tarihi bugüne çeker, fatura
+  // no'yu boşaltır ve editingInvoiceId set ETMEZ → kaydedince yeni bir TASLAK
+  // oluşur (PUT değil POST). Hiçbir şey otomatik gönderilmez.
+  const prefillFromInvoiceForDuplicate = async (id: string) => {
+    try {
+      setIsLoading(true)
+      const res = await fetch(`/api/e-donusum/invoices/${id}?companyId=${companyId || ""}`)
+      if (!res.ok) throw new Error("Kopyalanacak fatura bilgisi alınamadı")
+      const data = await res.json()
+
+      setFormData({
+        type: data.type || "SALES",
+        invoiceType: data.invoiceType || "MANUAL",
+        invoiceNo: "", // kopyaya yeni numara üretilsin
+        customerId: data.customerId || "",
+        supplierId: data.supplierId || "",
+        date: new Date().toISOString().split("T")[0], // güncel tarih
+        dueDate: "", // vade kullanıcı tarafından yeniden girilsin
+        currency: data.currency || "TRY",
+        exchangeRate: data.exchangeRate ? String(data.exchangeRate) : "",
+        exchangeRateDate: data.exchangeRateDate ? new Date(data.exchangeRateDate).toISOString().split("T")[0] : "",
+        notes: data.notes || "",
+      })
+
+      const copiedItems: InvoiceItem[] = Array.isArray(data.items)
+        ? data.items.map((item: any) => ({
+            productId: item.productId || undefined,
+            description: item.description || "",
+            unit: (item.unit as string) || item.product?.unit || "ADET",
+            quantity: Number(item.quantity) || 1,
+            unitPrice: Number(item.unitPrice) || 0,
+            discountRate: Number(item.discountRate) || 0,
+            vatRate: Number(item.vatRate) || 20,
+            withholdingRate: Number(item.withholdingRate) || 0,
+            exciseRate: Number(item.exciseRate) || 0,
+            taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
+            taxExemptionReason: item.taxExemptionReason || undefined,
+          }))
+        : []
+
+      const finalItems: InvoiceItem[] =
+        copiedItems.length > 0
+          ? copiedItems
+          : [{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }]
+      setItems(finalItems)
+      setLineExtras(finalItems.map((it) => {
+        const extras: LineExtraKey[] = []
+        if (it.description) extras.push("description")
+        if ((it.discountRate || 0) > 0) extras.push("discountRate")
+        if ((it.withholdingRate || 0) > 0) extras.push("withholdingRate")
+        if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
+        return extras
+      }))
+
+      toast({ title: "Kopya hazırlandı", description: "Güncel tarihli taslak. Kontrol edip kaydedin — otomatik gönderilmez." })
+    } catch (e: any) {
+      toast({ title: "Hata", description: e.message, variant: "destructive" })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Kopya prefill tetikleyici: yalnızca create modunda, gelen e-fatura akışı
+  // yokken ve bir kez.
+  useEffect(() => {
+    if (mode !== "create" || !duplicateFromId || fromIncomingUuid) return
+    if (duplicatedRef.current) return
+    duplicatedRef.current = true
+    void prefillFromInvoiceForDuplicate(duplicateFromId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, duplicateFromId, fromIncomingUuid, companyId])
 
   // Önceki Fiyatları Getiren Fonksiyon
   const handleOpenPricesModal = async (index: number, productId: string | undefined) => {

@@ -13,10 +13,25 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil, Archive, Trash2 } from "lucide-react"
+import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil, Archive, Trash2, Wallet, MoreVertical, User } from "lucide-react"
 import Link from "next/link"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { TransactionDialog } from "@/components/cari/transaction-dialog"
 import { CariArchiveDeleteDialog } from "@/components/cari/cari-archive-delete-dialog"
+
+// İsimden baş harf(ler) üret: "Acme Ltd" → "AL", "Ahmet" → "AH"
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return "?"
+  if (parts.length === 1) return parts[0].slice(0, 2).toLocaleUpperCase("tr-TR")
+  return (parts[0][0] + parts[parts.length - 1][0]).toLocaleUpperCase("tr-TR")
+}
 
 interface Transaction {
   id: string
@@ -232,102 +247,153 @@ export default function CustomerSupplierDetailPage() {
   const balanceLabel =
     data.balance === 0 ? "Kapalı" : cariOwesUs ? "Borçlu" : "Alacaklı"
 
+  // Durum rozeti rengi: kapalı=nötr, lehimize=yeşil, aleyhimize=kırmızı.
+  const balanceBadgeClass =
+    data.balance === 0
+      ? "bg-gray-100 text-gray-700 dark:bg-gray-500/15 dark:text-gray-300"
+      : balanceFavorable
+        ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300"
+        : "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300"
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
           <Link href={backHref}>
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" className="mt-1">
               <ArrowLeft className="h-5 w-5" />
             </Button>
           </Link>
-          <div>
-            <h1 className="text-3xl font-bold">{data.name}</h1>
-            <p className="text-muted-foreground">
-              {entityLabel} {data.code && `| Kod: ${data.code}`}
+          <div
+            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-semibold ${
+              isCustomer
+                ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"
+                : "bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300"
+            }`}
+          >
+            {getInitials(data.name)}
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold sm:text-3xl">{data.name}</h1>
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${balanceBadgeClass}`}>
+                {balanceLabel}
+              </span>
+              {data.archivedAt && (
+                <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                  Arşivlenmiş
+                </span>
+              )}
+            </div>
+            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <User className="h-3.5 w-3.5" />
+              {entityLabel}
+              {data.code && ` · Kod: ${data.code}`}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link href={`/cari/${type}/${id}/edit?company=${companyId}`}>
-            <Button variant="outline" size="sm">
-              <Pencil className="mr-2 h-4 w-4" />
-              Düzenle
+          <Link
+            href={`/e-donusum/yeni?company=${companyId}&type=${isCustomer ? "SALES" : "PURCHASE"}&${isCustomer ? "customerId" : "supplierId"}=${id}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`}
+          >
+            <Button variant="default" size="sm">
+              <FileText className="mr-2 h-4 w-4" />
+              Fatura Kes
             </Button>
           </Link>
-          <Button variant="default" size="sm" onClick={() => setIsTransactionDialogOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => setIsTransactionDialogOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             {isCustomer ? "Tahsilat Ekle" : "Ödeme Ekle"}
           </Button>
-          {data.email && (
-            <a href={`mailto:${data.email}`}>
-              <Button variant="outline" size="sm">
-                <Mail className="mr-2 h-4 w-4" />
-                E-posta Gönder
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="Daha fazla işlem">
+                <MoreVertical className="h-4 w-4" />
               </Button>
-            </a>
-          )}
-          <Button variant="outline" size="sm" onClick={() => setCariAction("archive")}>
-            <Archive className="mr-2 h-4 w-4" />
-            Arşivle
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCariAction("delete")}
-            className="border-red-200 bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Sil
-          </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem asChild>
+                <Link href={`/cari/${type}/${id}/edit?company=${companyId}`} className="cursor-pointer">
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Düzenle
+                </Link>
+              </DropdownMenuItem>
+              {data.email && (
+                <DropdownMenuItem asChild>
+                  <a href={`mailto:${data.email}`} className="cursor-pointer">
+                    <Mail className="mr-2 h-4 w-4" />
+                    E-posta Gönder
+                  </a>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem className="cursor-pointer" onClick={() => setCariAction("archive")}>
+                <Archive className="mr-2 h-4 w-4" />
+                Arşivle
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="cursor-pointer text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                onClick={() => setCariAction("delete")}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Sil
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className={`border-l-4 ${balanceFavorable ? "border-l-green-500" : "border-l-red-500"}`}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Bakiye</CardTitle>
-            <Building2 className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Bakiye</CardTitle>
+            <div className={`rounded-full p-2 ${balanceFavorable ? "bg-green-100 dark:bg-green-500/15" : "bg-red-100 dark:bg-red-500/15"}`}>
+              <Wallet className={`h-4 w-4 ${balanceFavorable ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`} />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold ${balanceFavorable ? "text-green-600" : "text-red-600"}`}>
+            <div className={`text-2xl font-bold tabular-nums ${balanceFavorable ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
               {formatCurrency(data.balance)}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {balanceLabel}
-            </p>
+            <p className="text-xs text-muted-foreground">{balanceLabel}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Toplam Borç</CardTitle>
-            <TrendingDown className="h-4 w-4 text-red-500" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Toplam Borç</CardTitle>
+            <div className="rounded-full bg-red-100 p-2 dark:bg-red-500/15">
+              <TrendingDown className="h-4 w-4 text-red-600 dark:text-red-400" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(data.totalDebit)}</div>
+            <div className="text-2xl font-bold tabular-nums">{formatCurrency(data.totalDebit)}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Toplam Alacak</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-500" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Toplam Alacak</CardTitle>
+            <div className="rounded-full bg-green-100 p-2 dark:bg-green-500/15">
+              <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(data.totalCredit)}</div>
+            <div className="text-2xl font-bold tabular-nums">{formatCurrency(data.totalCredit)}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Fatura Sayısı</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Fatura Sayısı</CardTitle>
+            <div className="rounded-full bg-blue-100 p-2 dark:bg-blue-500/15">
+              <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{data.invoiceCount}</div>
+            <div className="text-2xl font-bold tabular-nums">{data.invoiceCount}</div>
           </CardContent>
         </Card>
       </div>
@@ -420,7 +486,7 @@ export default function CustomerSupplierDetailPage() {
         </CardHeader>
         <CardContent>
           <Table>
-            <TableHeader>
+            <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead>Tarih</TableHead>
                 <TableHead>İşlem</TableHead>
@@ -433,20 +499,23 @@ export default function CustomerSupplierDetailPage() {
             </TableHeader>
             <TableBody>
               {data.transactions.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8">
-                    <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
-                    <p className="text-muted-foreground">Henüz işlem yok</p>
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={7} className="py-12 text-center">
+                    <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                      <FileText className="h-6 w-6 text-muted-foreground/60" />
+                    </div>
+                    <p className="font-medium">Henüz işlem yok</p>
+                    <p className="text-sm text-muted-foreground">Fatura veya tahsilat eklendiğinde burada listelenir.</p>
                   </TableCell>
                 </TableRow>
               ) : (
                 orderedTransactions.map((tx) => (
                   <TableRow key={tx.id}>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
                       {new Date(tx.date).toLocaleDateString("tr-TR")}
                     </TableCell>
                     <TableCell>
-                      <span className={`px-2 py-1 rounded text-xs ${
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                         tx.type === "INVOICE" ? "bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300" :
                         tx.type === "PAYMENT" ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" :
                         tx.type === "OPENING" ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" :
@@ -468,15 +537,15 @@ export default function CustomerSupplierDetailPage() {
                         <Link href={`/faturalar/${tx.id}/onizleme?company=${companyId}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`} className="text-blue-600 hover:underline">
                           {tx.invoiceNo}
                         </Link>
-                      ) : "-"}
+                      ) : <span className="text-muted-foreground">-</span>}
                     </TableCell>
-                    <TableCell className="text-right text-red-600">
-                      {tx.debit > 0 ? formatCurrency(tx.debit) : "-"}
+                    <TableCell className="text-right tabular-nums text-red-600">
+                      {tx.debit > 0 ? formatCurrency(tx.debit) : <span className="text-muted-foreground">-</span>}
                     </TableCell>
-                    <TableCell className="text-right text-green-600">
-                      {tx.credit > 0 ? formatCurrency(tx.credit) : "-"}
+                    <TableCell className="text-right tabular-nums text-green-600">
+                      {tx.credit > 0 ? formatCurrency(tx.credit) : <span className="text-muted-foreground">-</span>}
                     </TableCell>
-                    <TableCell className={`text-right font-medium ${tx.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    <TableCell className={`text-right font-medium tabular-nums ${tx.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
                       {formatCurrency(tx.balance)}
                     </TableCell>
                   </TableRow>
