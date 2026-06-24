@@ -564,6 +564,9 @@ async sendInvoice(invoiceData: any): Promise<any> {
         "tenantIdentifierNumber": tenantId,
         "numeratorSetCode": null,
         "xsltSetCode": null,
+        // Kullanıcının Belge Şablonları ekranından seçtiği aktif dizayn (varsa).
+        // Boşsa Mysoft varsayılan/genel dizaynı kullanır (alttaki bayrak).
+        ...(invoiceData.xsltName ? { xsltName: invoiceData.xsltName } : {}),
         // Firmaya özel/varsayılan onaylı dizayn yoksa Mysoft'un genel dizaynıyla gönder.
         // Bu olmadan E-Arşiv'de "belge görseli bulunamadı" hatası alınıyor (E-Fatura'da
         // GİB standart dizaynı devreye girdiği için sorun çıkmıyordu). Kullanıcı kendi

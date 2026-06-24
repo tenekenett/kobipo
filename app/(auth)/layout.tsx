@@ -1,6 +1,8 @@
 "use client"
 
-import { Sparkles, BarChart3, ShieldCheck, Zap } from "lucide-react"
+import Image from "next/image"
+import Link from "next/link"
+import { BarChart3, ShieldCheck, Zap } from "lucide-react"
 
 export const dynamic = "force-dynamic"
 
@@ -66,16 +68,16 @@ export default function AuthLayout({
           {/* SOL — MARKA + TANITIM PANELI (sadece large+) */}
           <aside className="hidden flex-col justify-between p-12 text-white lg:flex">
             <div>
-              <div className="flex items-center gap-3 animate-auth-slide-up">
-                <div className="relative">
-                  <div className="absolute inset-0 rounded-xl bg-white/20 blur-xl animate-auth-float" />
-                  <div className="relative grid h-12 w-12 place-items-center rounded-xl bg-white/10 backdrop-blur-md ring-1 ring-white/20">
-                    <Sparkles className="h-6 w-6 text-white" />
-                  </div>
-                </div>
-                <div className="text-2xl font-extrabold tracking-tight">
-                  kobi<span className="font-light text-kobipo-light">po</span>
-                </div>
+              <div className="flex items-center animate-auth-slide-up">
+                <Link href="/" className="inline-flex shrink-0 items-center">
+                  <Image
+                    src="/assets/logos/kobipo-logo-yatay-koyu-transparent.svg"
+                    alt="Kobipo"
+                    width={180}
+                    height={52}
+                    priority
+                  />
+                </Link>
               </div>
 
               <h2

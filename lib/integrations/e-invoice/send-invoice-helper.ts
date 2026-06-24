@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma"
+import { getActiveXsltName, invoiceTypeToEDocumentType } from "@/lib/integrations/e-invoice/active-template"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
@@ -222,6 +223,13 @@ export async function sendInvoiceToProvider(
       taxExemptionReason: item.taxExemptionReason || undefined,
     })),
     notes: invoice.notes || undefined,
+  }
+
+  // Kullanıcının seçtiği aktif belge dizaynını (xsltName) gönderime ekle.
+  const eDocumentType = invoiceTypeToEDocumentType(invoice.invoiceType)
+  if (eDocumentType) {
+    const activeXsltName = await getActiveXsltName(invoice.companyId, eDocumentType)
+    if (activeXsltName) (invoiceData as any).xsltName = activeXsltName
   }
 
   const response: any = await provider.sendInvoice(invoiceData)

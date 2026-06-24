@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
+import { getActiveXsltName } from "@/lib/integrations/e-invoice/active-template"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
@@ -521,6 +522,15 @@ const invoiceData = {
   
   notes: invoice.notes || undefined,
 };
+
+        // Kullanıcının seçtiği aktif belge dizaynını (xsltName) gönderime ekle.
+        if (companyId) {
+          const activeXsltName = await getActiveXsltName(
+            companyId,
+            invoiceType === "E_INVOICE" ? 1 : 2,
+          )
+          if (activeXsltName) (invoiceData as any).xsltName = activeXsltName
+        }
 
         const response = await provider.sendInvoice(invoiceData)
 

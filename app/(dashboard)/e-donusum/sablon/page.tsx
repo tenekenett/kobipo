@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
+import { TemplateDesigner } from "@/components/e-donusum/template-designer"
 import {
   AlertTriangle,
   CheckCircle2,
@@ -62,6 +63,11 @@ export default function FaturaSablonuPage() {
   const [templates, setTemplates] = useState<TenantXslt[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [listError, setListError] = useState<string | null>(null)
+
+  // Kobipo tasarımları (xsltName → önizlenebilir mi) ve aktif şablon seçimi.
+  const [designMap, setDesignMap] = useState<Record<string, { hasOptions: boolean }>>({})
+  const [activeXsltName, setActiveXsltName] = useState<string | null>(null)
+  const [rowBusy, setRowBusy] = useState<{ name: string; action: "activate" | "preview" } | null>(null)
 
   const [samples, setSamples] = useState<SampleTemplate[]>([])
   const [sampleBusy, setSampleBusy] = useState<{ key: string; action: "preview" | "install" } | null>(null)
@@ -120,6 +126,105 @@ export default function FaturaSablonuPage() {
     }
   }, [])
 
+  // Kobipo tasarımlarını ve aktif şablon seçimini getir.
+  const fetchDesigns = useCallback(async () => {
+    if (!companyId) return
+    try {
+      const res = await fetch(
+        `/api/e-donusum/templates/designs?companyId=${companyId}&eDocumentType=${docType}`,
+        { cache: "no-store" },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return
+      const map: Record<string, { hasOptions: boolean }> = {}
+      for (const d of Array.isArray(data?.data) ? data.data : []) {
+        if (typeof d?.xsltName === "string") map[d.xsltName] = { hasOptions: Boolean(d.hasOptions) }
+      }
+      setDesignMap(map)
+      setActiveXsltName(typeof data?.activeXsltName === "string" ? data.activeXsltName : null)
+    } catch {
+      /* sessiz geç */
+    }
+  }, [companyId, docType])
+
+  const refreshTemplatesAndDesigns = useCallback(() => {
+    fetchTemplates()
+    fetchDesigns()
+  }, [fetchTemplates, fetchDesigns])
+
+  const activateTemplate = async (name: string) => {
+    if (!companyId) return
+    setRowBusy({ name, action: "activate" })
+    try {
+      const res = await fetch("/api/e-donusum/templates/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, eDocumentType: docType, xsltName: name }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Şablon aktif yapılamadı")
+      setActiveXsltName(name)
+      toast({ title: "Aktif şablon güncellendi", description: `Faturalar artık “${name}” dizaynıyla gönderilecek.` })
+    } catch (error) {
+      toast({ title: "Hata", description: error instanceof Error ? error.message : "Hata", variant: "destructive" })
+    } finally {
+      setRowBusy(null)
+    }
+  }
+
+  const deactivateActive = async () => {
+    if (!companyId || !activeXsltName) return
+    setRowBusy({ name: activeXsltName, action: "activate" })
+    try {
+      const res = await fetch("/api/e-donusum/templates/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, eDocumentType: docType, xsltName: "" }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "İşlem başarısız")
+      setActiveXsltName(null)
+      toast({ title: "Aktif seçim kaldırıldı", description: "Faturalar Mysoft'un varsayılan dizaynıyla gönderilecek." })
+    } catch (error) {
+      toast({ title: "Hata", description: error instanceof Error ? error.message : "Hata", variant: "destructive" })
+    } finally {
+      setRowBusy(null)
+    }
+  }
+
+  const previewDesign = async (name: string) => {
+    if (!companyId) return
+    // Sekmeyi tıklama jesti İÇİNDE (senkron) aç; aksi halde fetch'ten sonra
+    // window.open popup engelleyiciye takılıp sessizce engellenir.
+    const win = window.open("", "_blank")
+    setRowBusy({ name, action: "preview" })
+    try {
+      const res = await fetch("/api/e-donusum/templates/designs/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, eDocumentType: docType, xsltName: name }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || "Önizleme alınamadı")
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      if (win && !win.closed) {
+        win.location.href = url
+      } else {
+        // Sekme açılamadıysa (engellendi) aynı pencerede aç.
+        window.open(url, "_blank")
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (error) {
+      if (win && !win.closed) win.close()
+      toast({ title: "Önizleme hatası", description: error instanceof Error ? error.message : "Hata", variant: "destructive" })
+    } finally {
+      setRowBusy(null)
+    }
+  }
+
   useEffect(() => {
     if (!companyId) return
     fetchCompany()
@@ -129,7 +234,8 @@ export default function FaturaSablonuPage() {
   useEffect(() => {
     if (!companyId || !tenantVkn) return
     fetchTemplates()
-  }, [companyId, tenantVkn, fetchTemplates])
+    fetchDesigns()
+  }, [companyId, tenantVkn, fetchTemplates, fetchDesigns])
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -490,48 +596,140 @@ export default function FaturaSablonuPage() {
               </p>
             </div>
           ) : (
-            <div className="divide-y rounded-lg border">
-              {templates.map((t) => (
-                <div key={t.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                      <LayoutTemplate className="h-4 w-4" />
+            <div className="space-y-3">
+              {/* Gönderimde kullanılan dizayn özeti */}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Gönderimde kullanılan dizayn:</span>
+                  {activeXsltName ? (
+                    <span className="inline-flex items-center gap-1 font-semibold text-kobipo-navy dark:text-foreground">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-kobipo-blue dark:text-primary" />
+                      {activeXsltName}
                     </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{t.xsltName || "(isimsiz)"}</p>
-                      <div className="mt-0.5 flex flex-wrap gap-1.5">
-                        {t.isDefault && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                            <CheckCircle2 className="h-2.5 w-2.5" />
-                            Varsayılan
-                          </span>
-                        )}
-                        {t.isApproved ? (
-                          <span className="inline-flex rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                            Onaylı
+                  ) : (
+                    <span className="font-medium text-muted-foreground">Mysoft varsayılanı</span>
+                  )}
+                </div>
+                {activeXsltName && (
+                  <button
+                    type="button"
+                    onClick={deactivateActive}
+                    disabled={!!rowBusy}
+                    className="text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-60"
+                  >
+                    Seçimi kaldır
+                  </button>
+                )}
+              </div>
+
+              {/* Şablon kartları */}
+              <div className="grid gap-2">
+                {templates.map((t) => {
+                  const name = t.xsltName || ""
+                  const isActive = !!name && activeXsltName === name
+                  const canPreview = !!name && designMap[name]?.hasOptions
+                  const isKobipo = !!name && !!designMap[name]
+                  const activating = rowBusy?.name === name && rowBusy.action === "activate"
+                  const previewing = rowBusy?.name === name && rowBusy.action === "preview"
+                  return (
+                    <div
+                      key={t.id}
+                      className={`flex flex-col gap-3 rounded-xl border p-3 transition sm:flex-row sm:items-center sm:justify-between ${
+                        isActive
+                          ? "border-kobipo-blue/40 bg-kobipo-blue/5 ring-1 ring-kobipo-blue/20 dark:border-primary/40 dark:bg-primary/10 dark:ring-primary/20"
+                          : "border-border hover:bg-muted/30"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                            isActive
+                              ? "bg-kobipo-blue text-white dark:bg-primary dark:text-primary-foreground"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          <LayoutTemplate className="h-5 w-5" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{name || "(isimsiz)"}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            {t.isApproved ? (
+                              <span className="inline-flex rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                                Onaylı
+                              </span>
+                            ) : (
+                              <span className="inline-flex rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-300">
+                                Onay bekliyor
+                              </span>
+                            )}
+                            {t.isDefault && (
+                              <span className="inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                Mysoft varsayılan
+                              </span>
+                            )}
+                            {t.isInternetSales && (
+                              <span className="inline-flex rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                                İnternet Satış
+                              </span>
+                            )}
+                            <span
+                              className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                isKobipo
+                                  ? "bg-kobipo-pale text-kobipo-blue dark:bg-primary/15 dark:text-primary"
+                                  : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                              }`}
+                            >
+                              {isKobipo ? "Kobipo tasarımı" : "Kobipo dışı"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => previewDesign(name)}
+                          disabled={!canPreview || !!rowBusy}
+                          title={
+                            canPreview
+                              ? "PDF önizle"
+                              : "Mysoft, portalden/dışarıdan eklenen şablonun kaynağını geri vermediği için önizlenemez. Yalnızca Kobipo tasarımcısıyla yapılanlar önizlenebilir."
+                          }
+                        >
+                          {previewing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Eye className="mr-1.5 h-3.5 w-3.5" />}
+                          Önizle
+                        </Button>
+                        {isActive ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-md bg-kobipo-blue px-3 py-1.5 text-xs font-semibold text-white dark:bg-primary dark:text-primary-foreground">
+                            <CheckCircle2 className="h-4 w-4" />
+                            Aktif
                           </span>
                         ) : (
-                          <span className="inline-flex rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-300">
-                            Onay bekliyor
-                          </span>
-                        )}
-                        {t.isInternetSales && (
-                          <span className="inline-flex rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
-                            İnternet Satış
-                          </span>
+                          <Button
+                            size="sm"
+                            onClick={() => activateTemplate(name)}
+                            disabled={!name || !!rowBusy}
+                          >
+                            {activating ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                            Aktif yap
+                          </Button>
                         )}
                       </div>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  )
+                })}
+              </div>
             </div>
           )}
           {!isLoading && !listError && templates.length > 0 && (
             <p className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              PDF önizleme yalnızca Kobipo örnek şablonları ve buradan yüklediğiniz dosyalar için yapılabilir.
-              Portalden eklenmiş şablonların kaynağı Mysoft'ta tutulduğu için ayrıca önizlenemez.
+              <span>
+                <b>Aktif yap</b> ile faturalarınızın hangi dizaynla gönderileceğini seçersiniz. <b>Önizle</b> yalnızca
+                Kobipo tasarımcısıyla yapılan şablonlarda görünür (Mysoft, kayıtlı şablonun kaynağını geri vermediği için
+                portalden/dışarıdan eklenenler önizlenemez).
+              </span>
             </p>
           )}
         </CardContent>
@@ -651,6 +849,14 @@ export default function FaturaSablonuPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Kendi tasarımını oluştur (Şablon Tasarımcısı) — sayfanın en altında */}
+      <TemplateDesigner
+        companyId={companyId}
+        docType={docType}
+        docLabel={docLabel}
+        onSaved={refreshTemplatesAndDesigns}
+      />
     </div>
   )
 }

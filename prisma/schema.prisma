@@ -187,9 +187,33 @@ model Company {
   incomingInvoices IncomingInvoice[]
   employees   Employee[]
   kontorOrders KontorOrder[]
+  eInvoiceTemplates EInvoiceTemplate[]
 
   @@index([parentCompanyId])
   @@map("companies")
+}
+
+// Kobipo Şablon Tasarımcısı ile üretilen belge dizaynları ve firmanın gönderimde
+// kullanacağı aktif şablon seçimi. Mysoft saved-XSLT içeriğini geri vermediği için
+// önizleme/tekrar-üretim adına tasarım seçeneklerini (options) burada saklarız.
+// `isActive` = bu firma + belge tipi için fatura gönderirken kullanılacak şablon
+// (Mysoft payload'ındaki xsltName ile eşleşir). Set-default API'si olmadığından
+// "varsayılan" seçimi Kobipo tarafında tutulur.
+model EInvoiceTemplate {
+  id            String   @id @default(cuid())
+  companyId     String
+  eDocumentType Int      // 1=E-Fatura, 2=E-Arşiv
+  xsltName      String   // Mysoft'a verilen şablon adı (eşleşme anahtarı)
+  options       Json?    // Tasarımcı seçenekleri; yoksa dışarıdan/portal şablonu (önizlenemez)
+  isActive      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, eDocumentType, xsltName])
+  @@index([companyId, eDocumentType])
+  @@map("einvoice_templates")
 }
 
 model UserCompany {

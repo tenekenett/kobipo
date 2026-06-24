@@ -1,0 +1,110 @@
+<svg width="1340" height="1150" viewBox="0 0 1340 1150" fill="none" xmlns="http://www.w3.org/2000/svg" font-family="'DM Sans','Segoe UI',system-ui,sans-serif">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1340" y2="1150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0e4070"/>
+      <stop offset="1" stop-color="#08294a"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="14" flood-color="#06203c" flood-opacity="0.18"/>
+    </filter>
+    <clipPath id="brandClip"><rect width="36" height="36" rx="9"/></clipPath>
+    <clipPath id="tableClip"><rect x="108" y="626" width="1124" height="328" rx="16"/></clipPath>
+  </defs>
+
+  <!-- Arka plan -->
+  <rect width="1340" height="1150" fill="url(#bg2)"/>
+  <path d="M0,0 L1340,0 L1340,170 L0,440 Z" fill="#ffffff" opacity="0.035"/>
+  <path d="M860,0 L1340,0 L1340,360 Z" fill="#ffffff" opacity="0.03"/>
+
+  <!-- Dış panel (yarı saydam çerçeve) -->
+  <rect x="92" y="104" width="1156" height="946" rx="26" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.12"/>
+
+  <!-- Tarayıcı barı -->
+  <rect x="108" y="120" width="1124" height="64" rx="16" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="146" cy="152" r="6" fill="#DDE8F5"/>
+  <circle cx="168" cy="152" r="6" fill="#B5D4F4"/>
+  <circle cx="190" cy="152" r="6" fill="#52B788"/>
+  <text x="670" y="158" text-anchor="middle" font-size="17" font-weight="600" fill="#6B7A99">panel.kobipo.com</text>
+  <!-- Logo (BrandMark) -->
+  <g transform="translate(1186,136) scale(0.83)">
+    <rect width="36" height="36" rx="9" fill="#185FA5"/>
+    <polygon points="0,36 36,0 36,36" fill="#0C3B6B" clip-path="url(#brandClip)"/>
+    <path d="M5,22 A13,13 0 1,1 31,22" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round"/>
+    <path d="M29,14 L31,22 L25,20" fill="none" stroke="#ffffff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="18" cy="25" r="4.5" fill="#52B788"/>
+  </g>
+
+  <!-- Başlık kartı -->
+  <rect x="108" y="196" width="1124" height="86" rx="16" fill="#ffffff" filter="url(#cardShadow)"/>
+  <text x="140" y="236" font-size="23" font-weight="700" fill="#0C3B6B">Genel Bakış</text>
+  <text x="140" y="263" font-size="15" fill="#6B7A99">Nisan 2026 · Aylık özet</text>
+  <rect x="1108" y="221" width="92" height="36" rx="9" fill="#E6F1FB"/>
+  <text x="1154" y="245" text-anchor="middle" font-size="15" font-weight="600" fill="#185FA5">Canlı</text>
+
+  <!-- Metrik kartları -->
+  <!-- AYLIK CİRO -->
+  <rect x="108" y="294" width="554" height="150" rx="16" fill="#ffffff" filter="url(#cardShadow)"/>
+  <text x="140" y="340" font-size="13" font-weight="700" letter-spacing="1" fill="#6B7A99">AYLIK CİRO</text>
+  <text x="140" y="396" font-size="40" font-weight="800" fill="#0C3B6B">₺284.500</text>
+  <circle cx="152" cy="424" r="12" fill="#D8F3E8"/>
+  <path d="M147,427 L152,421 L157,427" fill="none" stroke="#2D6A4F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="172" y="430" font-size="16" font-weight="600" fill="#2D6A4F">+12,4%</text>
+
+  <!-- AÇIK FATURA -->
+  <rect x="678" y="294" width="554" height="150" rx="16" fill="#ffffff" filter="url(#cardShadow)"/>
+  <text x="710" y="340" font-size="13" font-weight="700" letter-spacing="1" fill="#6B7A99">AÇIK FATURA</text>
+  <text x="710" y="396" font-size="40" font-weight="800" fill="#0C3B6B">18</text>
+  <circle cx="722" cy="424" r="12" fill="#E6F1FB"/>
+  <path d="M717,421 L722,427 L727,421" fill="none" stroke="#378ADD" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="742" y="430" font-size="16" font-weight="600" fill="#378ADD">3 gecikmiş</text>
+
+  <!-- AKTİF CARİ -->
+  <rect x="108" y="460" width="554" height="150" rx="16" fill="#ffffff" filter="url(#cardShadow)"/>
+  <text x="140" y="506" font-size="13" font-weight="700" letter-spacing="1" fill="#6B7A99">AKTİF CARİ</text>
+  <text x="140" y="562" font-size="40" font-weight="800" fill="#0C3B6B">142</text>
+  <circle cx="152" cy="590" r="12" fill="#D8F3E8"/>
+  <path d="M147,593 L152,587 L157,593" fill="none" stroke="#2D6A4F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="172" y="596" font-size="16" font-weight="600" fill="#2D6A4F">+7 yeni</text>
+
+  <!-- DÜŞÜK STOK -->
+  <rect x="678" y="460" width="554" height="150" rx="16" fill="#ffffff" filter="url(#cardShadow)"/>
+  <text x="710" y="506" font-size="13" font-weight="700" letter-spacing="1" fill="#6B7A99">DÜŞÜK STOK</text>
+  <text x="710" y="562" font-size="40" font-weight="800" fill="#0C3B6B">5</text>
+  <circle cx="722" cy="590" r="12" fill="#E6F1FB"/>
+  <path d="M717,587 L722,593 L727,587" fill="none" stroke="#378ADD" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="742" y="596" font-size="16" font-weight="600" fill="#378ADD">Kritik seviye</text>
+
+  <!-- Tablo -->
+  <rect x="108" y="626" width="1124" height="328" rx="16" fill="#ffffff" filter="url(#cardShadow)"/>
+  <!-- başlık satırı -->
+  <path d="M108,626 h1124 v52 h-1124 Z" fill="#F4F7FB" clip-path="url(#tableClip)"/>
+  <rect x="108" y="626" width="1124" height="328" rx="16" fill="none" stroke="#DDE8F5" stroke-width="1"/>
+  <line x1="108" y1="678" x2="1232" y2="678" stroke="#DDE8F5" stroke-width="1"/>
+  <text x="140" y="658" font-size="13" font-weight="700" letter-spacing="0.5" fill="#6B7A99">FİRMA</text>
+  <text x="500" y="658" font-size="13" font-weight="700" letter-spacing="0.5" fill="#6B7A99">TUTAR</text>
+  <text x="750" y="658" font-size="13" font-weight="700" letter-spacing="0.5" fill="#6B7A99">TARİH</text>
+  <text x="980" y="658" font-size="13" font-weight="700" letter-spacing="0.5" fill="#6B7A99">DURUM</text>
+
+  <!-- satır 1 -->
+  <text x="140" y="730" font-size="17" font-weight="600" fill="#0C2840">Yıldız Tic. A.Ş.</text>
+  <text x="500" y="730" font-size="17" font-weight="500" fill="#0C2840">₺12.400</text>
+  <text x="750" y="730" font-size="17" fill="#6B7A99">15 Nis</text>
+  <rect x="980" y="708" width="96" height="32" rx="16" fill="#D8F3E8"/>
+  <text x="1028" y="730" text-anchor="middle" font-size="15" font-weight="600" fill="#2D6A4F">Ödendi</text>
+  <line x1="108" y1="770" x2="1232" y2="770" stroke="#DDE8F5" stroke-width="1"/>
+
+  <!-- satır 2 -->
+  <text x="140" y="822" font-size="17" font-weight="600" fill="#0C2840">Arı Gıda Ltd.</text>
+  <text x="500" y="822" font-size="17" font-weight="500" fill="#0C2840">₺8.750</text>
+  <text x="750" y="822" font-size="17" fill="#6B7A99">10 Nis</text>
+  <rect x="980" y="800" width="104" height="32" rx="16" fill="#E6F1FB"/>
+  <text x="1032" y="822" text-anchor="middle" font-size="15" font-weight="600" fill="#185FA5">Bekliyor</text>
+  <line x1="108" y1="862" x2="1232" y2="862" stroke="#DDE8F5" stroke-width="1"/>
+
+  <!-- satır 3 -->
+  <text x="140" y="914" font-size="17" font-weight="600" fill="#0C2840">Demir Yapı</text>
+  <text x="500" y="914" font-size="17" font-weight="500" fill="#0C2840">₺31.200</text>
+  <text x="750" y="914" font-size="17" fill="#6B7A99">2 Nis</text>
+  <rect x="980" y="892" width="108" height="32" rx="16" fill="#B5D4F4" fill-opacity="0.5"/>
+  <text x="1034" y="914" text-anchor="middle" font-size="15" font-weight="600" fill="#378ADD">Gecikmiş</text>
+</svg>

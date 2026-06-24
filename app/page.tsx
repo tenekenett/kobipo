@@ -315,7 +315,7 @@ export default function Home() {
                     <span className="h-2.5 w-2.5 rounded-full bg-kobipo-green" />
                   </div>
                   <div className="text-[10px] font-semibold text-kobipo-gray">
-                    panel.kobipo.com
+                    www.kobipo.com
                   </div>
                   <BrandMark size={16} />
                 </div>
