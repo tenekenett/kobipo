@@ -25,15 +25,28 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const { companyId, subject, message } = await request.json()
+  const { companyId, subject, message, accessConsent } = await request.json()
   const subj = String(subject || "").trim()
   const msg = String(message || "").trim()
   if (!companyId || !subj || !msg) {
     return NextResponse.json({ error: "companyId, konu ve mesaj zorunlu" }, { status: 400 })
   }
+  if (accessConsent !== true) {
+    return NextResponse.json(
+      { error: "Talep oluşturmak için hesap erişim izni onayı gerekir." },
+      { status: 400 },
+    )
+  }
   await ensureCompanyAccess(companyId)
   const ticket = await prisma.supportTicket.create({
-    data: { companyId, subject: subj, message: msg, createdById: user.id, status: "OPEN" },
+    data: {
+      companyId,
+      subject: subj,
+      message: msg,
+      createdById: user.id,
+      status: "OPEN",
+      accessConsent: accessConsent === true,
+    },
   })
   return NextResponse.json(ticket, { status: 201 })
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { Building2, Loader2, RefreshCw, Send } from "lucide-react"
+import { Building2, Loader2, RefreshCw, Send, ShieldCheck } from "lucide-react"
 
 type TicketMessage = {
   id: string
@@ -16,6 +16,7 @@ type Ticket = {
   subject: string
   message: string
   status: string
+  accessConsent?: boolean
   createdAt: string
   updatedAt: string
   company?: { id: string; name: string } | null
@@ -191,7 +192,15 @@ export function SupportAdmin() {
                     <p className="truncate text-sm font-medium text-white">{t.subject}</p>
                     <StatusBadge status={t.status} />
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-slate-400">{t.company?.name || "—"}</p>
+                  <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-slate-400">
+                    {t.company?.name || "—"}
+                    {t.accessConsent && (
+                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-emerald-500/15 px-1 text-[10px] font-semibold text-emerald-300">
+                        <ShieldCheck className="h-3 w-3" />
+                        izinli
+                      </span>
+                    )}
+                  </p>
                   <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
                     {last?.isAdmin === false && (
                       <span className="rounded bg-amber-500/15 px-1 text-amber-300">yanıt bekliyor</span>
@@ -234,6 +243,18 @@ export function SupportAdmin() {
                   )}{" "}
                   · {selected.createdBy?.name || selected.createdBy?.email || "Bilinmeyen kullanıcı"}
                 </p>
+                <div className="mt-2">
+                  {selected.accessConsent ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/15 px-2 py-1 text-xs font-semibold text-emerald-300">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      Kullanıcı hesap erişim/değişiklik izni verdi
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-2 py-1 text-xs font-medium text-slate-400">
+                      Hesap erişim izni verilmedi — yalnızca yönlendirme yapın
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex gap-1.5">
                 {selected.company?.id && (

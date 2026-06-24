@@ -1182,6 +1182,9 @@ model SupportTicket {
   message     String   @db.Text
   // Durum: OPEN (yeni), ANSWERED (admin yanıtladı), CLOSED (kapatıldı)
   status      String   @default("OPEN")
+  // Kullanıcı, destek ekibinin hesabında inceleme/değişiklik yapmasına izin verdi mi?
+  // Talep oluştururken opt-in olarak işaretlenir; ekip bu izni görür.
+  accessConsent Boolean @default(false)
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

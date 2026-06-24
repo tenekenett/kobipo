@@ -29,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { QuantityStepper } from "@/components/ui/quantity-stepper"
 import { ProductCombobox, type ComboboxProduct } from "@/components/e-donusum/product-combobox"
 import { CounterpartyCombobox, type Counterparty } from "@/components/e-donusum/counterparty-combobox"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
@@ -363,6 +364,18 @@ export function QuickSaleScreen() {
     resetSale,
   ])
 
+  // F2 → satışı tamamla (POS benzeri hızlı kapatma).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F2") {
+        e.preventDefault()
+        if (!isSubmitting && cart.length > 0) handleComplete()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [handleComplete, isSubmitting, cart.length])
+
   const previewUrl = (id: string) =>
     `${typeof window !== "undefined" ? window.location.origin : ""}/faturalar/${id}/onizleme?company=${companyId}`
 
@@ -427,15 +440,28 @@ export function QuickSaleScreen() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-kobipo-blue/10 text-kobipo-blue">
-          <Zap className="h-5 w-5" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold">Hızlı Satış</h1>
-          <p className="text-sm text-muted-foreground">
-            Ürün ekleyip tek ekranda satışı kapatın
-          </p>
+      <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-kobipo-blue to-kobipo-mid p-5 text-white shadow-lg shadow-kobipo-blue/20">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/25 backdrop-blur">
+              <Zap className="h-6 w-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Hızlı Satış</h1>
+              <p className="text-sm text-white/80">Ürün ekleyip tek ekranda satışı kapatın</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-6">
+            <div className="text-right">
+              <p className="text-[11px] uppercase tracking-wide text-white/70">Sepet</p>
+              <p className="text-lg font-bold">{cart.length} kalem</p>
+            </div>
+            <div className="h-9 w-px bg-white/20" />
+            <div className="text-right">
+              <p className="text-[11px] uppercase tracking-wide text-white/70">Toplam</p>
+              <p className="text-2xl font-extrabold tabular-nums">{currency(totals.total)}</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -480,7 +506,7 @@ export function QuickSaleScreen() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Ürün/Açıklama</TableHead>
-                          <TableHead className="w-24 text-right">Miktar</TableHead>
+                          <TableHead className="w-32 text-right">Miktar</TableHead>
                           <TableHead className="w-32 text-right">Birim Fiyat</TableHead>
                           <TableHead className="w-20 text-right">KDV %</TableHead>
                           <TableHead className="w-32 text-right">Tutar</TableHead>
@@ -500,17 +526,12 @@ export function QuickSaleScreen() {
                                 />
                               </TableCell>
                               <TableCell className="text-right">
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={numInput(line.quantity)}
-                                  placeholder="0"
-                                  onChange={(e) =>
-                                    updateLine(line.key, { quantity: parseFloat(e.target.value) || 0 })
-                                  }
-                                  className="w-20 text-right"
-                                />
+                                <div className="flex justify-end">
+                                  <QuantityStepper
+                                    value={line.quantity}
+                                    onChange={(v) => updateLine(line.key, { quantity: v })}
+                                  />
+                                </div>
                               </TableCell>
                               <TableCell className="text-right">
                                 <Input
@@ -580,22 +601,15 @@ export function QuickSaleScreen() {
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
                           </div>
-                          <div className="mt-3 grid grid-cols-3 gap-2">
-                            <div className="space-y-1">
-                              <Label className="text-xs text-muted-foreground">Miktar</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                inputMode="decimal"
-                                value={numInput(line.quantity)}
-                                placeholder="0"
-                                onChange={(e) =>
-                                  updateLine(line.key, { quantity: parseFloat(e.target.value) || 0 })
-                                }
-                                className="text-right"
-                              />
-                            </div>
+                          <div className="mt-3 space-y-1">
+                            <Label className="text-xs text-muted-foreground">Miktar</Label>
+                            <QuantityStepper
+                              fullWidth
+                              value={line.quantity}
+                              onChange={(v) => updateLine(line.key, { quantity: v })}
+                            />
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-2">
                             <div className="space-y-1">
                               <Label className="text-xs text-muted-foreground">Birim Fiyat</Label>
                               <Input
@@ -642,7 +656,7 @@ export function QuickSaleScreen() {
         </div>
 
         {/* Sağ: Müşteri + Ödeme + Özet */}
-        <div className="space-y-4">
+        <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Müşteri</CardTitle>
@@ -755,23 +769,25 @@ export function QuickSaleScreen() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border-kobipo-blue/30 shadow-md shadow-kobipo-blue/5">
             <CardContent className="space-y-2 pt-6">
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>Ara Toplam</span>
-                <span>{currency(totals.net)}</span>
+                <span className="tabular-nums">{currency(totals.net)}</span>
               </div>
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>KDV</span>
-                <span>{currency(totals.vat)}</span>
+                <span className="tabular-nums">{currency(totals.vat)}</span>
               </div>
-              <div className="flex justify-between border-t pt-2 text-lg font-bold">
-                <span>Genel Toplam</span>
-                <span>{currency(totals.total)}</span>
+              <div className="mt-1 flex items-baseline justify-between rounded-lg bg-kobipo-pale/60 px-3 py-2 dark:bg-primary/10">
+                <span className="font-semibold">Genel Toplam</span>
+                <span className="text-2xl font-extrabold tabular-nums text-kobipo-blue dark:text-primary">
+                  {currency(totals.total)}
+                </span>
               </div>
 
               <Button
-                className="mt-2 w-full"
+                className="mt-3 h-12 w-full text-base"
                 size="lg"
                 onClick={handleComplete}
                 disabled={isSubmitting || cart.length === 0}
@@ -782,9 +798,20 @@ export function QuickSaleScreen() {
                     İşleniyor…
                   </>
                 ) : (
-                  "Satışı Tamamla"
+                  <span className="flex items-center justify-center gap-2">
+                    <CheckCircle2 className="h-5 w-5" />
+                    Satışı Tamamla
+                    {totals.total > 0 && (
+                      <span className="ml-1 rounded-md bg-white/20 px-2 py-0.5 text-sm font-bold tabular-nums">
+                        {currency(totals.total)}
+                      </span>
+                    )}
+                  </span>
                 )}
               </Button>
+              <p className="text-center text-xs text-muted-foreground">
+                İpucu: <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">F2</kbd> ile satışı tamamla
+              </p>
             </CardContent>
           </Card>
         </div>

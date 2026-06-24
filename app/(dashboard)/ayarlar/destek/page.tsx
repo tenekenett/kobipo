@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
-import { LifeBuoy, Loader2, MessageSquare, Send } from "lucide-react"
+import { LifeBuoy, Loader2, MessageSquare, Send, ShieldCheck } from "lucide-react"
 
 type TicketMessage = {
   id: string
@@ -27,6 +27,7 @@ type Ticket = {
   subject: string
   message: string
   status: string
+  accessConsent?: boolean
   createdAt: string
   updatedAt: string
   messages?: TicketMessage[]
@@ -56,6 +57,7 @@ export default function DestekPage() {
 
   const [subject, setSubject] = useState("")
   const [message, setMessage] = useState("")
+  const [accessConsent, setAccessConsent] = useState(false)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -85,18 +87,27 @@ export default function DestekPage() {
       toast({ title: "Eksik bilgi", description: "Konu ve mesaj zorunlu.", variant: "destructive" })
       return
     }
+    if (!accessConsent) {
+      toast({
+        title: "Erişim izni gerekli",
+        description: "Talep oluşturmak için hesap erişim iznini onaylamanız gerekir.",
+        variant: "destructive",
+      })
+      return
+    }
     setSubmitting(true)
     try {
       const res = await fetch("/api/support/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, subject, message }),
+        body: JSON.stringify({ companyId, subject, message, accessConsent }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || "Talep oluşturulamadı")
       toast({ title: "Talep oluşturuldu", description: "Destek ekibimiz en kısa sürede dönüş yapacak." })
       setSubject("")
       setMessage("")
+      setAccessConsent(false)
       fetchTickets()
     } catch (e) {
       toast({
@@ -193,8 +204,27 @@ export default function DestekPage() {
             rows={4}
             disabled={submitting}
           />
+
+          {/* Hesaba erişim/değişiklik izni (opt-in) */}
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-kobipo-border/70 bg-muted/30 p-3 text-sm">
+            <input
+              type="checkbox"
+              checked={accessConsent}
+              onChange={(e) => setAccessConsent(e.target.checked)}
+              disabled={submitting}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border accent-kobipo-blue dark:accent-primary"
+            />
+            <span>
+              <span className="font-medium text-foreground">Hesabıma erişim izni veriyorum.</span>{" "}
+              <span className="text-muted-foreground">
+                Bu talebi çözmek için Kobipo destek ekibinin hesabımı/firmamı inceleyip gerekli
+                düzeltmeleri yapmasına izin veriyorum.
+              </span>
+            </span>
+          </label>
+
           <div className="flex justify-end">
-            <Button onClick={createTicket} disabled={submitting || !subject.trim() || !message.trim()}>
+            <Button onClick={createTicket} disabled={submitting || !subject.trim() || !message.trim() || !accessConsent}>
               {submitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -278,6 +308,12 @@ export default function DestekPage() {
               <>
                 {/* Açılış mesajı (kullanıcı) */}
                 <Bubble mine label="Siz" date={selected.createdAt} body={selected.message} />
+                {selected.accessConsent && (
+                  <div className="flex items-center justify-end gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-300">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Hesap erişim izni verildi
+                  </div>
+                )}
                 {(selected.messages ?? []).map((m) => (
                   <Bubble
                     key={m.id}

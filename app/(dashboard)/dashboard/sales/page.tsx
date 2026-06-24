@@ -2,6 +2,7 @@ import { Suspense } from "react"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import {
+  ArrowRight,
   FileText,
   Package,
   Receipt,
@@ -9,6 +10,7 @@ import {
   Target,
   TrendingUp,
   Users,
+  Zap,
 } from "lucide-react"
 import { Role } from "@prisma/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -220,6 +222,26 @@ export default async function SalesDashboard() {
           <TopCustomersCard companyId={companyId} />
         </Suspense>
       </div>
+
+      {/* Öne çıkan: Hızlı Satış */}
+      <Link
+        href="/satis/hizli"
+        className="group relative flex items-center justify-between gap-4 overflow-hidden rounded-2xl bg-gradient-to-br from-kobipo-blue to-kobipo-mid p-5 text-white shadow-lg shadow-kobipo-blue/20 transition hover:shadow-xl"
+      >
+        <div className="flex items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/25 backdrop-blur transition group-hover:scale-105">
+            <Zap className="h-7 w-7" />
+          </div>
+          <div>
+            <p className="text-lg font-bold tracking-tight">Hızlı Satış</p>
+            <p className="text-sm text-white/80">Ürün ekle, ödemeyi al, faturayı tek ekranda kapat</p>
+          </div>
+        </div>
+        <span className="flex items-center gap-1.5 rounded-lg bg-white/15 px-4 py-2 text-sm font-semibold ring-1 ring-white/25 transition group-hover:bg-white/25">
+          Başlat
+          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+        </span>
+      </Link>
 
       <Card>
         <CardHeader>
