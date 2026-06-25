@@ -12,6 +12,11 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
+import { TURKISH_CITIES } from "@/lib/data/turkish-cities"
+import {
+  TURKISH_PROVINCE_DISTRICTS,
+  PROVINCE_DISTRICT_SEPARATOR as SEP,
+} from "@/lib/data/turkish-districts"
 
 type EntityType = "customers" | "suppliers"
 type OpeningBalanceType = "DEBIT" | "CREDIT"
@@ -347,6 +352,31 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
     setBranches((prev) => prev.filter((branch) => branch.id !== id))
   }
 
+  // İl/ilçe sabit listeden seçilir. İl değişince mevcut ilçe yeni ile ait değilse sıfırlanır.
+  const districtsForCity = formData.city ? TURKISH_PROVINCE_DISTRICTS[formData.city] ?? [] : []
+  const cityInList = !formData.city || TURKISH_CITIES.includes(formData.city as (typeof TURKISH_CITIES)[number])
+  const districtInList = Boolean(formData.city && districtsForCity.includes(formData.district))
+  // İlçe <select> value'su il||ilçe biçiminde kodlanır ki aynı isimli ilçeler (Merkez vb.) ilini taşısın.
+  const districtSelectValue = formData.district ? `${formData.city}${SEP}${formData.district}` : ""
+
+  const handleCityChange = (city: string) => {
+    setFormData((prev) => {
+      const districts = TURKISH_PROVINCE_DISTRICTS[city] ?? []
+      const keepDistrict = prev.district && districts.includes(prev.district)
+      return { ...prev, city, district: keepDistrict ? prev.district : "" }
+    })
+  }
+
+  const handleDistrictChange = (encoded: string) => {
+    if (!encoded) {
+      setFormData((prev) => ({ ...prev, district: "" }))
+      return
+    }
+    const [province, district] = encoded.split(SEP)
+    // İlçe seçilince ilini de otomatik ayarla.
+    setFormData((prev) => ({ ...prev, city: province || prev.city, district: district || "" }))
+  }
+
   if (!companyId) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -489,31 +519,73 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                       disabled={isLoading}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="code">Kodu</Label>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="taxOffice">Vergi Dairesi</Label>
                     <Input
-                      id="code"
-                      value={formData.code}
-                      onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                      id="taxOffice"
+                      value={formData.taxOffice}
+                      onChange={(e) => setFormData({ ...formData, taxOffice: e.target.value })}
                       disabled={isLoading}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="city">Şehir</Label>
-                    <Input
+                    <Label htmlFor="city">İl</Label>
+                    <select
                       id="city"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                       value={formData.city}
-                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                      onChange={(e) => handleCityChange(e.target.value)}
                       disabled={isLoading}
-                    />
+                    >
+                      <option value="">İl seçin</option>
+                      {!cityInList && formData.city && (
+                        <option value={formData.city}>{formData.city} (kayıtlı)</option>
+                      )}
+                      {TURKISH_CITIES.map((city) => (
+                        <option key={city} value={city}>
+                          {city}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="district">İlçe</Label>
-                    <Input
+                    <select
                       id="district"
-                      value={formData.district}
-                      onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={districtSelectValue}
+                      onChange={(e) => handleDistrictChange(e.target.value)}
                       disabled={isLoading}
+                    >
+                      <option value="">İlçe seçin</option>
+                      {formData.district && !districtInList && (
+                        <option value={districtSelectValue}>{formData.district} (kayıtlı)</option>
+                      )}
+                      {formData.city
+                        ? districtsForCity.map((district) => (
+                            <option key={district} value={`${formData.city}${SEP}${district}`}>
+                              {district}
+                            </option>
+                          ))
+                        : Object.entries(TURKISH_PROVINCE_DISTRICTS).map(([province, districts]) => (
+                            <optgroup key={province} label={province}>
+                              {districts.map((district) => (
+                                <option key={`${province}-${district}`} value={`${province}${SEP}${district}`}>
+                                  {district}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="address">Adres</Label>
+                    <Textarea
+                      id="address"
+                      value={formData.address}
+                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                      disabled={isLoading}
+                      rows={3}
                     />
                   </div>
                 </div>
@@ -550,27 +622,17 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                       disabled={isLoading}
                     />
                   </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="address">Adres</Label>
-                    <Textarea
-                      id="address"
-                      value={formData.address}
-                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                      disabled={isLoading}
-                      rows={3}
-                    />
-                  </div>
                 </div>
               </TabsContent>
 
               <TabsContent value="account" className="space-y-4 pt-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="taxOffice">Vergi Dairesi</Label>
+                    <Label htmlFor="code">Kodu</Label>
                     <Input
-                      id="taxOffice"
-                      value={formData.taxOffice}
-                      onChange={(e) => setFormData({ ...formData, taxOffice: e.target.value })}
+                      id="code"
+                      value={formData.code}
+                      onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                       disabled={isLoading}
                     />
                   </div>

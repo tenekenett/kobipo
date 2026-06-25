@@ -1,8 +1,13 @@
 import { prisma } from "@/lib/db/prisma"
-import { getActiveXsltName, invoiceTypeToEDocumentType } from "@/lib/integrations/e-invoice/active-template"
+import {
+  getXsltNameForSeries,
+  hasSeriesTemplates,
+  invoiceTypeToEDocumentType,
+} from "@/lib/integrations/e-invoice/active-template"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
+import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
 
 export type SendInvoiceResult =
   | { ok: true; uuid: string; providerName: string }
@@ -78,6 +83,7 @@ export async function sendInvoiceToProvider(
       eDonusumTenantVkn: true,
       eFaturaPrefix: true,
       eArchivePrefix: true,
+      parentCompany: { select: { taxNumber: true } },
     },
   })
 
@@ -115,10 +121,9 @@ export async function sendInvoiceToProvider(
   }
 
   const plainPassword = decryptSecret(company.eDonusumApiPassword)
-  // Mysoft mükellef VKN: E-Dönüşüm Ayarları'nda kullanıcının doğruladığı VKN.
-  // Boşsa Mysoft default tenant'a düşer — fakat hangi tenant olduğunu garanti edemeyiz.
-  // Onaylanmış VKN varsa onunla gönderiyoruz.
-  const tenantVkn = (company.eDonusumTenantVkn || "").replace(/\D/g, "")
+  // Mysoft mükellef VKN: doğrudan firmanın kendi VKN'sinden (şubede ana firmadan
+  // devralınır) çekilir — ayrı bir doğrulama adımı yoktur. Boşsa provider JWT'den keşfeder.
+  const tenantVkn = effectiveTenantVkn(company)
   const provider = createEInvoiceProvider({
     providerName: "mysoft",
     username: company.eDonusumApiUsername,
@@ -225,20 +230,51 @@ export async function sendInvoiceToProvider(
     notes: invoice.notes || undefined,
   }
 
-  // Kullanıcının seçtiği aktif belge dizaynını (xsltName) gönderime ekle.
-  const eDocumentType = invoiceTypeToEDocumentType(invoice.invoiceType)
+  // Gönderimde kullanılacak belge dizaynını (xsltName) çöz: önce faturanın
+  // prefix'ine (seri no) atanmış şablon, yoksa firma genel aktif şablonu.
+  // Belge tipi olarak (E-Arşiv→E-Fatura otomatik dönüşümü olabildiğinden)
+  // effectiveInvoiceType esas alınır; prefix de aynı tipe göre çözülmüştü.
+  const eDocumentType = invoiceTypeToEDocumentType(effectiveInvoiceType)
   if (eDocumentType) {
-    const activeXsltName = await getActiveXsltName(invoice.companyId, eDocumentType)
-    if (activeXsltName) (invoiceData as any).xsltName = activeXsltName
+    let prefixForTemplate = resolvedPrefix
+    // "Mysoft otomatik" (prefix seçilmemiş) durumda Mysoft kendi varsayılan
+    // numaratörünü kullanır. O prefix'e atanmış bir şablon varsa firma geneli
+    // aktif şablonun önüne geçmeli — bu yüzden gerçek varsayılan prefix'i çöz.
+    // Yalnız bu firmada gerçekten prefix→şablon eşlemesi varsa Mysoft'a sor.
+    if (!prefixForTemplate && (await hasSeriesTemplates(invoice.companyId, eDocumentType))) {
+      try {
+        const numResult: any = await (provider as any).listNumerators?.(tenantVkn || undefined)
+        if (numResult?.success && Array.isArray(numResult.data)) {
+          const matchesType = (n: any) => {
+            const t = String(n?.edocumentType || "").toUpperCase()
+            return effectiveInvoiceType === "E_INVOICE"
+              ? t === "1" || t === "EFATURA"
+              : t === "2" || t === "10" || t === "EARSIVFATURA" || t === "GIBEARSIVFATURA"
+          }
+          const candidates = numResult.data.filter((n: any) => matchesType(n) && !n?.isPassive)
+          const def = candidates.find((n: any) => n?.isDefault) || candidates[0]
+          if (def?.prefix) prefixForTemplate = String(def.prefix)
+        }
+      } catch {
+        // Numaratör çözülemediyse genel aktif şablona düşülür (aşağıda).
+      }
+    }
+    const xsltName = await getXsltNameForSeries(invoice.companyId, eDocumentType, prefixForTemplate)
+    if (xsltName) (invoiceData as any).xsltName = xsltName
   }
 
   const response: any = await provider.sendInvoice(invoiceData)
 
   if (response.success && response.uuid) {
+    const officialDocNo =
+      typeof response.docNo === "string" && response.docNo.trim() ? response.docNo.trim() : null
     await prisma.invoice.update({
       where: { id: invoice.id },
       data: {
         uuid: response.uuid,
+        // Mysoft resmi belge no'yu (seçilen prefix ile) gönderim yanıtında verirse
+        // hemen kaydet; vermezse durum sorgusunda doldurulur.
+        ...(officialDocNo ? { eDocumentNo: officialDocNo } : {}),
         status: "SENT",
         integrationId: provider.name,
         integrationStatus: "SENT",

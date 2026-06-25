@@ -5,6 +5,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
+import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
 
 export const dynamic = "force-dynamic"
 
@@ -28,14 +29,14 @@ async function loadCredsAndVerifiedVkn(companyId: string) {
       eDonusumApiUsername: true,
       eDonusumApiPassword: true,
       eDonusumApiUrl: true,
+      taxNumber: true,
       eDonusumTenantVkn: true,
+      parentCompany: { select: { taxNumber: true } },
     },
   })
   if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) return null
-  const vkn = (company.eDonusumTenantVkn || "").replace(/\D/g, "")
-  if (vkn.length !== 10 && vkn.length !== 11) {
-    return { needsVerifiedVkn: true as const }
-  }
+  // Mükellef VKN doğrudan firmanın kendi VKN'sinden çekilir (doğrulama adımı yok).
+  const vkn = effectiveTenantVkn(company)
   let passwordText: string
   try {
     passwordText = decryptSecret(company.eDonusumApiPassword)

@@ -241,25 +241,34 @@ function buildThemeCss(opts: TemplateDesignOptions): string {
   const padding = DENSITY_OPTIONS.find((d) => d.key === opts.density)?.padding ?? "3px 5px"
   const transform = opts.headingTransform === "uppercase" ? "uppercase" : "none"
 
+  // ÖNEMLİ: Taban şablonda hem başlık satırı hem de kalem (veri) satırları aynı
+  // `tr.lineTableTr` sınıfını taşır; başlık satırı `<tbody>`'nin İLK satırıdır.
+  // Bu yüzden başlık şeridini SADECE ilk satıra uygula — aksi halde tüm kalem
+  // satırları vurgu rengine boyanır ve metin (kontrast nedeniyle) beyaza düşer.
+  const headerRowSel =
+    "#lineTable thead td, #lineTable thead th, " +
+    "#lineTable > tbody > tr.lineTableTr:first-child > td, " +
+    "#lineTable > tbody > tr.lineTableTr:first-child > td span"
   const headerRule =
     opts.tableHeader === "accent"
       ? `
-      #lineTable thead td, #lineTable thead span,
-      #lineTable .lineTableTr td, #lineTable .lineTableTr span {
+      ${headerRowSel} {
         background-color: ${accent} !important;
         color: ${onAccent} !important;
       }`
       : opts.tableHeader === "light"
         ? `
-      #lineTable thead td, #lineTable .lineTableTr td {
+      ${headerRowSel} {
         background-color: ${tint(accent, 0.86)} !important;
         color: ${opts.textColor} !important;
       }`
         : ""
 
+  // Zebra: başlık ilk satır olduğundan, veri satırları 2. satırdan başlar. Şema
+  // önizlemesiyle aynı parite için başlık hariç çift sıradaki veri satırlarını gölgele.
   const zebraRule = opts.zebraRows
     ? `
-      #lineTable tbody tr:nth-child(even) td { background-color: ${tint(accent, 0.92)} !important; }`
+      #lineTable > tbody > tr.lineTableTr:nth-child(odd):not(:first-child) > td { background-color: ${tint(accent, 0.92)} !important; }`
     : ""
 
   // Firma logosu: taban şablondaki boş `#TenantLogo` yer tutucusuna CSS arka plan

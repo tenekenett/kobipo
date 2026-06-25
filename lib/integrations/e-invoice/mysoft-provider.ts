@@ -666,7 +666,12 @@ async sendInvoice(invoiceData: any): Promise<any> {
         };
       }
 
-      return { success: true, uuid: rawUuid };
+      // Mysoft, prefix'e göre resmi belge numarasını (docNo) atar; yanıtta gelirse
+      // yakala (boş "" gelebilir — o durumda durum sorgusunda doldurulur).
+      const rawDocNo = data?.docNo ?? data?.documentNo ?? data?.invoiceNo;
+      const docNo = typeof rawDocNo === "string" && rawDocNo.trim() ? rawDocNo.trim() : undefined;
+
+      return { success: true, uuid: rawUuid, docNo };
 
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -710,6 +715,10 @@ async sendInvoice(invoiceData: any): Promise<any> {
       const rawText: string = result.data?.invoiceStatusText || "";
       const declineReason: string | undefined = result.data?.declineReason || undefined;
       const envelopeStatusText: string | undefined = result.data?.envelopeStatusText || undefined;
+      // Mysoft'un prefix ile atadığı resmi belge numarası (Fatura Numarası).
+      const rawDocNo: unknown = result.data?.docNo;
+      const docNo: string | undefined =
+        typeof rawDocNo === "string" && rawDocNo.trim() ? rawDocNo.trim() : undefined;
 
       // İç sistem statüsü ve insan-okunabilir mesaj
       let mappedStatus: "APPROVED" | "REJECTED" | "CANCELLED" | "PROCESSING" | "DRAFT" = "PROCESSING";
@@ -749,6 +758,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
         rawText,
         message,
         declineReason,
+        docNo,
       };
 
     } catch (error: any) {
@@ -1110,7 +1120,8 @@ async sendInvoice(invoiceData: any): Promise<any> {
 
       const url = new URL(`${this.baseUrl}/api/InvoiceInbox/acceptInvoice`);
       url.searchParams.set("invoiceETTN", uuid);
-      if (this.vknTckn) url.searchParams.set("tenantIdentifierNumber", this.vknTckn);
+      const acceptTenant = await this.resolveTenantVkn();
+      if (acceptTenant) url.searchParams.set("tenantIdentifierNumber", acceptTenant);
 
       const res = await fetch(url.toString(), {
         method: "GET",
@@ -1141,7 +1152,8 @@ async sendInvoice(invoiceData: any): Promise<any> {
       const url = new URL(`${this.baseUrl}/api/InvoiceInbox/denyInvoice`);
       url.searchParams.set("invoiceETTN", uuid);
       url.searchParams.set("rejectReason", rejectReason || "Red");
-      if (this.vknTckn) url.searchParams.set("tenantIdentifierNumber", this.vknTckn);
+      const denyTenant = await this.resolveTenantVkn();
+      if (denyTenant) url.searchParams.set("tenantIdentifierNumber", denyTenant);
 
       const res = await fetch(url.toString(), {
         method: "GET",
@@ -1287,7 +1299,10 @@ async sendInvoice(invoiceData: any): Promise<any> {
 
       const url = new URL(`${this.baseUrl}/api/InvoiceInbox/getInvoiceInboxModel`)
       url.searchParams.set("invoiceETTN", uuid)
-      if (this.vknTckn) url.searchParams.set("tenantIdentifierNumber", this.vknTckn)
+      // Tenant'ı çöz (gerekirse JWT'den keşfet). tenantIdentifierNumber boş gidince
+      // Mysoft "Kullanıcı bilgileri ile firma kullanıcı kaydı bulunamadı" döndürüyor.
+      const inboxTenant = await this.resolveTenantVkn()
+      if (inboxTenant) url.searchParams.set("tenantIdentifierNumber", inboxTenant)
 
       const res = await fetch(url.toString(), {
         method: "GET",

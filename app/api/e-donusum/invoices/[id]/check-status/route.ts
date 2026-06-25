@@ -113,11 +113,15 @@ export async function POST(
     // - REJECTED → invoice.status: SENT kalır, integrationStatus REJECTED:... olur
     // - PROCESSING/DRAFT → değiştirmeyelim
     const becomesCancelled = result.status === "CANCELLED" && invoice.status !== "CANCELLED"
-    const updateData: { status?: string; integrationStatus: string } = {
+    const updateData: { status?: string; integrationStatus: string; eDocumentNo?: string } = {
       integrationStatus,
     }
     if (becomesCancelled) {
       updateData.status = "CANCELLED"
+    }
+    // Mysoft prefix ile resmi belge no'yu (docNo) bu aşamada döndürür — kaydet.
+    if (typeof result.docNo === "string" && result.docNo.trim()) {
+      updateData.eDocumentNo = result.docNo.trim()
     }
 
     if (becomesCancelled) {
@@ -145,6 +149,7 @@ export async function POST(
       rawText: result.rawText,
       message: result.message,
       declineReason: result.declineReason,
+      eDocumentNo: updateData.eDocumentNo,
     })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""

@@ -5,6 +5,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
 import { decryptSecret } from "@/lib/crypto/secrets"
+import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
 
 export const dynamic = "force-dynamic"
 
@@ -78,7 +79,9 @@ export async function POST(
         eDonusumApiUsername: true,
         eDonusumApiPassword: true,
         eDonusumApiUrl: true,
+        taxNumber: true,
         eDonusumTenantVkn: true,
+        parentCompany: { select: { taxNumber: true } },
       },
     })
     if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) {
@@ -99,7 +102,7 @@ export async function POST(
       username: company.eDonusumApiUsername,
       passwordText,
       baseUrl: company.eDonusumApiUrl || undefined,
-      vknTckn: company.eDonusumTenantVkn || undefined,
+      vknTckn: effectiveTenantVkn(company) || undefined,
     })
 
     const result =

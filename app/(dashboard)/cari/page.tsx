@@ -198,13 +198,6 @@ export default function CariPage() {
   }
 
   const currentData = activeTab === "customers" ? customers : suppliers
-  const agingRows = currentData
-    .filter((item) => Number(item.balance || 0) !== 0)
-    .map((item) => {
-      const dueDays = Number(item.paymentDueDays || 0)
-      const bucket = dueDays <= 30 ? "0-30" : dueDays <= 60 ? "31-60" : dueDays <= 90 ? "61-90" : "90+"
-      return { ...item, dueDays, bucket }
-    })
 
   if (!companyId) {
     return (
@@ -416,55 +409,6 @@ export default function CariPage() {
           </Button>
         </div>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Cari Yaşlandırma</CardTitle>
-          <CardDescription>
-            Vade günü ve bakiyeye göre yaşlandırma görünümü
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {!hasLoadedOnce && isLoading ? (
-            <TableSkeleton rows={6} />
-          ) : (
-            <StyledTableContainer>
-            <Table>
-              <TableHeader>
-                <StyledTableHeaderRow>
-                  <StyledTableHead>Hesap</StyledTableHead>
-                  <StyledTableHead>Vade Günü</StyledTableHead>
-                  <StyledTableHead>Yaşlandırma Dilimi</StyledTableHead>
-                  <StyledTableHead className="text-right">Bakiye</StyledTableHead>
-                </StyledTableHeaderRow>
-              </TableHeader>
-              <TableBody>
-                {agingRows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground">
-                      Yaşlandırma için bakiye verisi bulunamadı
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  agingRows.map((row, idx) => (
-                    <StyledTableRow key={`aging-${row.id}`} index={idx}>
-                      <TableCell className="font-medium">
-                        <EntityCell name={row.name} />
-                      </TableCell>
-                      <TableCell>{row.dueDays}</TableCell>
-                      <TableCell>{row.bucket} gün</TableCell>
-                      <TableCell className="text-right font-semibold whitespace-nowrap">
-                        {currencyFormatter.format(Number(row.balance || 0))}
-                      </TableCell>
-                    </StyledTableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-            </StyledTableContainer>
-          )}
-        </CardContent>
-      </Card>
 
     </div>
   )

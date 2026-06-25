@@ -5,6 +5,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
 import { decryptSecret } from "@/lib/crypto/secrets"
+import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
 
 export const dynamic = "force-dynamic"
 
@@ -84,7 +85,9 @@ export async function GET(
         eDonusumApiUsername: true,
         eDonusumApiPassword: true,
         eDonusumApiUrl: true,
+        taxNumber: true,
         eDonusumTenantVkn: true,
+        parentCompany: { select: { taxNumber: true } },
       },
     })
     if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) {
@@ -113,12 +116,19 @@ export async function GET(
       username: company.eDonusumApiUsername,
       passwordText,
       baseUrl: company.eDonusumApiUrl || undefined,
-      vknTckn: company.eDonusumTenantVkn || undefined,
+      vknTckn: effectiveTenantVkn(company) || undefined,
     })
 
     const result = await provider.getIncomingInvoiceModel(uuid)
     if (!result.success) {
-      return NextResponse.json({ ...base, model: null, modelError: result.error }, { status: 200 })
+      const raw = result.error || "Bilinmeyen hata"
+      const low = raw.toLowerCase()
+      // Mysoft tenant/firma-kullanıcı eşleşmezse kullanıcıyı VKN doğrulamaya yönlendir.
+      const modelError =
+        low.includes("firma kullanıcı") || low.includes("kullanıcı bilgileri")
+          ? `${raw} — Mysoft mükellef VKN'niz doğrulanmamış olabilir; E-Dönüşüm Ayarları'ndan VKN'nizi girip "Doğrula"ya basın.`
+          : raw
+      return NextResponse.json({ ...base, model: null, modelError }, { status: 200 })
     }
 
     return NextResponse.json({ ...base, model: result.data })

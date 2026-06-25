@@ -11,27 +11,16 @@ import {
   AlertTriangle,
   CheckCircle2,
   FileText,
-  Fingerprint,
   Globe,
   KeyRound,
   Loader2,
   Save,
-  Search,
   ShieldCheck,
   XCircle,
   Zap,
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { MYSOFT_PROD_URL, MYSOFT_TEST_URL } from "@/lib/integrations/e-invoice/constants"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-
 interface Company {
   id: string
   taxNumber?: string | null
@@ -47,16 +36,8 @@ interface Company {
   eDonusumTenantVkn?: string | null
 }
 
-interface DiscoveredTenant {
-  vknTckn: string
-  tenantName: string
-  shortName: string
-}
-
 const PROVIDER_KEY = "mysoft"
 const PROVIDER_LABEL = "Mysoft"
-
-const sanitizeVkn = (raw: string) => raw.replace(/\D/g, "").slice(0, 11)
 
 export default function EDonusumAyarlariPage() {
   const searchParams = useSearchParams()
@@ -78,15 +59,8 @@ export default function EDonusumAyarlariPage() {
     eDonusumAlias: "",
   })
 
-  // Mysoft Tenant VKN state
+  // Mysoft mükellef VKN'si — firmanın VKN'sinden okunur (sadece görüntü).
   const [tenantVkn, setTenantVkn] = useState("")
-  const [savedTenantVkn, setSavedTenantVkn] = useState<string | null>(null)
-  const [isDiscovering, setIsDiscovering] = useState(false)
-  const [isVerifying, setIsVerifying] = useState(false)
-  const [discoveredTenants, setDiscoveredTenants] = useState<DiscoveredTenant[] | null>(null)
-  const [pickerOpen, setPickerOpen] = useState(false)
-  // JWT'den çıkan tüm tenant adayları (kullanıcı tek tek deneyebilsin).
-  const [jwtCandidates, setJwtCandidates] = useState<string[]>([])
 
   useEffect(() => {
     if (!companyId) return
@@ -103,13 +77,9 @@ export default function EDonusumAyarlariPage() {
     setEnvironment((data.eDonusumApiUrl || "").trim() === MYSOFT_PROD_URL ? "live" : "test")
     setLastTestedAt(data.eDonusumLastTestedAt || null)
     setLastTestSuccess(typeof data.eDonusumLastTestSuccess === "boolean" ? data.eDonusumLastTestSuccess : null)
-    const savedVkn = (data.eDonusumTenantVkn || "").replace(/\D/g, "")
-    // Kayıtlı/doğrulanmış VKN yoksa firma VKN'sini öneri olarak doldur.
-    // Production'da firma VKN'si = Mysoft mükellef VKN'si (aynı tüzel kişi). Sen
-    // sadece "Doğrula"ya basarsın. Farklıysa (örn. paylaşımlı test tenant'ı) üzerine yaz.
-    const fallback = (data.taxNumber || "").replace(/\D/g, "")
-    setTenantVkn(savedVkn || fallback)
-    setSavedTenantVkn(savedVkn || null)
+    // Mükellef VKN: eski kayıtlı değer varsa o, yoksa firmanın kendi VKN'si.
+    const companyVkn = (data.eDonusumTenantVkn || data.taxNumber || "").replace(/\D/g, "")
+    setTenantVkn(companyVkn)
     setFormData({
       isEDonusumEnabled: Boolean(data.isEDonusumEnabled),
       eDonusumApiUsername: data.eDonusumApiUsername || "",
@@ -213,106 +183,6 @@ export default function EDonusumAyarlariPage() {
     }
   }
 
-  const discoverTenant = async () => {
-    if (!companyId) return
-    setIsDiscovering(true)
-    setDiscoveredTenants(null)
-    setJwtCandidates([])
-    try {
-      // Seçili ortamı önce kaydet ki keşif doğru ortama (test/canlı) gitsin.
-      await persistSettings()
-      const res = await fetch("/api/e-donusum/discover-tenant-vkn", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || "Keşif başarısız")
-
-      const tenants: DiscoveredTenant[] = Array.isArray(data.tenants) ? data.tenants : []
-      const jwtCandidate: string | null = data.jwtCandidate || null
-      const allCandidates: string[] = Array.isArray(data.jwtCandidates) ? data.jwtCandidates : []
-      setJwtCandidates(allCandidates)
-
-      if (tenants.length === 1) {
-        setTenantVkn(tenants[0].vknTckn)
-        toast({
-          title: "Tenant bulundu",
-          description: `${tenants[0].vknTckn} — ${tenants[0].tenantName || "Mysoft hesabınız"}. Şimdi "Doğrula"ya basın.`,
-        })
-      } else if (tenants.length > 1) {
-        setDiscoveredTenants(tenants)
-        setPickerOpen(true)
-      } else if (jwtCandidate) {
-        setTenantVkn(jwtCandidate)
-        toast({
-          title: "JWT'de aday bulundu",
-          description: `${jwtCandidate} — Doğrulamadan kaydedilmeyecek. "Doğrula" ile teyit edin.`,
-        })
-      } else {
-        toast({
-          title: "Otomatik bulunamadı",
-          description: "Mysoft hesabınızdan VKN'yi manuel olarak yazın ve 'Doğrula'ya basın.",
-        })
-      }
-    } catch (error) {
-      toast({
-        title: "Hata",
-        description: error instanceof Error ? error.message : "Keşif sırasında hata oluştu",
-        variant: "destructive",
-      })
-    } finally {
-      setIsDiscovering(false)
-    }
-  }
-
-  const verifyTenant = async () => {
-    if (!companyId) return
-    const clean = sanitizeVkn(tenantVkn)
-    if (clean.length !== 10 && clean.length !== 11) {
-      toast({
-        title: "Geçersiz VKN",
-        description: "VKN 10 hane (kurumsal) veya 11 hane (gerçek kişi) olmalı.",
-        variant: "destructive",
-      })
-      return
-    }
-    setIsVerifying(true)
-    try {
-      // Seçili ortamı önce kaydet ki doğrulama doğru ortama (test/canlı) gitsin.
-      await persistSettings()
-      const res = await fetch("/api/e-donusum/verify-tenant-vkn", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, vkn: clean }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        // Network/format hatası — DB durumuna güvenemiyoruz, en azından local state'i temizle.
-        if (savedTenantVkn === clean) setSavedTenantVkn(null)
-        throw new Error(data?.error || "Doğrulama isteği başarısız")
-      }
-      if (!data.success) {
-        // Mysoft VKN'yi reddetti — backend stale DB değerini de temizledi, badge'i kaldır.
-        if (savedTenantVkn === clean) setSavedTenantVkn(null)
-        throw new Error(data.error || "VKN doğrulanmadı")
-      }
-      setSavedTenantVkn(clean)
-      toast({
-        title: "VKN doğrulandı",
-        description: `Mysoft'ta ${data.numeratorCount} numaratör bulundu. Artık Seri No Tanımları'nı kullanabilirsiniz.`,
-      })
-    } catch (error) {
-      toast({
-        title: "Doğrulama başarısız",
-        description: error instanceof Error ? error.message : "Mysoft VKN'yi kabul etmedi.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsVerifying(false)
-    }
-  }
-
   if (!companyId) {
     return (
       <Card>
@@ -335,8 +205,6 @@ export default function EDonusumAyarlariPage() {
       return null
     }
   }
-
-  const isVknVerified = savedTenantVkn !== null && sanitizeVkn(tenantVkn) === savedTenantVkn
 
   return (
     <div className="space-y-5">
@@ -543,114 +411,39 @@ export default function EDonusumAyarlariPage() {
         </CardContent>
       </Card>
 
-      {/* Mysoft Mükellef VKN */}
+      {/* Mysoft Mükellef VKN — firmanın VKN'sinden otomatik (ayrı doğrulama yok) */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-kobipo-blue/10 text-kobipo-blue dark:bg-primary/15 dark:text-primary">
-              <Fingerprint className="h-4 w-4" />
+              <ShieldCheck className="h-4 w-4" />
             </span>
             <div>
               <CardTitle>Mysoft Mükellef VKN/TCKN</CardTitle>
               <CardDescription>
-                Mysoft hesabınıza bağlı mükellefin VKN/TCKN'si. Numaratör (prefix) yönetimi ve fatura gönderimi için gerekli.
+                Faturalar firmanızın VKN'si üzerinden gönderilir — ayrı bir doğrulama adımı gerekmez.
               </CardDescription>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
-            <div className="space-y-2">
-              <Label htmlFor="tenantVkn" className="flex items-center gap-2">
-                VKN/TCKN
-                {isVknVerified && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                    <CheckCircle2 className="h-3 w-3" />
-                    Doğrulandı
-                  </span>
-                )}
-              </Label>
-              <Input
-                id="tenantVkn"
-                value={tenantVkn}
-                onChange={(e) => setTenantVkn(sanitizeVkn(e.target.value))}
-                placeholder="10 veya 11 haneli VKN/TCKN"
-                inputMode="numeric"
-                maxLength={11}
-                className="font-mono tracking-wider"
-                disabled={isVerifying || isDiscovering}
-              />
-            </div>
-            <Button
-              variant="outline"
-              onClick={discoverTenant}
-              disabled={isDiscovering || isVerifying}
-              type="button"
-            >
-              {isDiscovering ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Aranıyor…
-                </>
-              ) : (
-                <>
-                  <Search className="mr-2 h-4 w-4" />
-                  Otomatik Bul
-                </>
-              )}
-            </Button>
-            <Button
-              onClick={verifyTenant}
-              disabled={isDiscovering || isVerifying || !tenantVkn}
-              type="button"
-            >
-              {isVerifying ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Doğrulanıyor…
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="mr-2 h-4 w-4" />
-                  Doğrula
-                </>
-              )}
-            </Button>
+        <CardContent className="space-y-2">
+          <Label>Kullanılan VKN/TCKN</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex h-10 items-center rounded-md border bg-muted/40 px-3 font-mono text-sm tracking-wider">
+              {tenantVkn || "—"}
+            </span>
+            {!tenantVkn && (
+              <span className="text-xs text-amber-700 dark:text-amber-300">
+                Firma VKN'niz boş —{" "}
+                <a href={`/ayarlar/firma?company=${companyId}`} className="font-medium underline">
+                  Firma Ayarları
+                </a>
+                'ndan girin.
+              </span>
+            )}
           </div>
-          {!isVknVerified && tenantVkn.length > 0 && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>
-                VKN henüz doğrulanmadı. "Doğrula" butonu Mysoft'a probe atar ve başarılıysa otomatik kaydeder.
-              </p>
-            </div>
-          )}
-          {jwtCandidates.length > 1 && (
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">
-                JWT'de birden fazla aday bulundu — tek tek deneyebilirsin:
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {jwtCandidates.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setTenantVkn(c)}
-                    disabled={isVerifying || isDiscovering}
-                    className={`rounded-full border px-2.5 py-1 font-mono text-xs transition ${
-                      tenantVkn === c
-                        ? "border-kobipo-blue bg-kobipo-blue/10 text-kobipo-navy dark:border-primary dark:bg-primary/15 dark:text-primary"
-                        : "border-muted-foreground/20 hover:bg-muted"
-                    }`}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
           <p className="text-xs text-muted-foreground">
-            Genelde <span className="font-medium text-foreground">Kobipo firma VKN'nizle aynıdır</span> — Mysoft'a kayıt olurken şirketinizin gerçek VKN'sini bildirmişsinizdir. Otomatik dolu geliyor, "Doğrula"ya basın. Bulamazsan vergi levhandan kontrol et.
+            Bu değer Firma Ayarları'ndaki VKN'den gelir. Değiştirmek için firma bilgilerinizi güncelleyin.
           </p>
         </CardContent>
       </Card>
@@ -690,40 +483,6 @@ export default function EDonusumAyarlariPage() {
         </Button>
       </div>
 
-      {/* Multi-tenant picker dialog */}
-      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Birden fazla mükellef bulundu</DialogTitle>
-            <DialogDescription>
-              Mysoft hesabınızda yetkili olduğunuz birden fazla firma var. Birini seçin:
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 py-2">
-            {(discoveredTenants || []).map((t) => (
-              <button
-                key={t.vknTckn}
-                type="button"
-                onClick={() => {
-                  setTenantVkn(t.vknTckn)
-                  setPickerOpen(false)
-                }}
-                className="flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm transition hover:bg-muted"
-              >
-                <div>
-                  <p className="font-semibold">{t.tenantName || t.shortName || "(isim yok)"}</p>
-                  <p className="font-mono text-xs text-muted-foreground">{t.vknTckn}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPickerOpen(false)}>
-              Vazgeç
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

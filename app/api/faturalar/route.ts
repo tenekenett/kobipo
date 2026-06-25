@@ -220,6 +220,7 @@ export async function GET(request: Request) {
             ? {
                 OR: [
                   { invoiceNo: { contains: search, mode: "insensitive" } },
+                  { eDocumentNo: { contains: search, mode: "insensitive" } },
                   { customer: { is: { name: { contains: search, mode: "insensitive" } } } },
                   { customer: { is: { taxNumber: { contains: search } } } },
                   { uuid: { contains: search } },
@@ -238,7 +239,9 @@ export async function GET(request: Request) {
           source: "manual_sales",
           date: r.date.toISOString(),
           createdAt: r.createdAt.toISOString(),
-          invoiceNo: r.invoiceNo,
+          // GİB'e gönderim sonrası Mysoft'un atadığı resmi belge no (seçilen prefix
+          // ile) varsa onu göster; yoksa iç seri numarası (SAT-...) gösterilir.
+          invoiceNo: r.eDocumentNo || r.invoiceNo,
           uuid: r.uuid,
           counterparty: {
             name: r.customer?.name ?? null,
@@ -254,6 +257,7 @@ export async function GET(request: Request) {
           meta: {
             integrationStatus: r.integrationStatus,
             integrationId: r.integrationId,
+            internalNo: r.invoiceNo,
           },
         })
       }

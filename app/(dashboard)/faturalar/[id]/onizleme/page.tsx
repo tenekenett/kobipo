@@ -42,6 +42,7 @@ function formatProfileLabel(profile: string | null | undefined): string | null {
 interface Invoice {
   id: string
   invoiceNo: string
+  eDocumentNo?: string | null
   date: string
   dueDate?: string
   type: string
@@ -518,7 +519,7 @@ export default function FaturaOnizlemePage() {
                       : invoice.status}
               </span>
             </h1>
-            <p className="text-muted-foreground">Fatura No: {invoice.invoiceNo}</p>
+            <p className="text-muted-foreground">Fatura No: {invoice.eDocumentNo || invoice.invoiceNo}</p>
             {isFromIncoming && invoice.incomingSource && (
               <p className="text-xs text-sky-700">
                 Gelen e-faturadan dönüştürüldü · Gönderen:{" "}
@@ -821,7 +822,7 @@ export default function FaturaOnizlemePage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             <div className="rounded-lg border p-3">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Fatura No</p>
-              <p className="font-medium tabular-nums">{invoice.invoiceNo}</p>
+              <p className="font-medium tabular-nums">{invoice.eDocumentNo || invoice.invoiceNo}</p>
             </div>
             <div className="rounded-lg border p-3">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Tarih</p>

@@ -231,9 +231,9 @@ export default function CustomerSupplierDetailPage() {
   }
 
   // API ekstreyi kronolojik (eski→yeni) ve kümülatif bakiyeli döndürür.
-  // Ekranda en yeni en üstte gösterilsin diye listenin bir kopyasını ters
-  // çeviriyoruz; her satır kendi (o tarihteki) bakiyesini korur.
-  const orderedTransactions = [...data.transactions].reverse()
+  // Ekstre yukarıdan aşağı kronolojik aksın: her satırın yürüyen bakiyesi
+  // o satıra kadarki toplamı gösterir, en alt satır güncel bakiyeyi verir.
+  const orderedTransactions = data.transactions
 
   // Renk şirket gözünden ("lehimize mi?"). Müşteride pozitif bakiye = müşteri bize
   // borçlu = bizim alacağımız (lehimize, yeşil). Tedarikçide ise pozitif bakiye =

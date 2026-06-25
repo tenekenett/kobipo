@@ -7,6 +7,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import {
   DESIGN_FONTS,
@@ -23,7 +31,26 @@ import {
   type Density,
   type PageMargin,
 } from "@/lib/integrations/e-invoice/template-designer"
-import { ExternalLink, Eye, ImageIcon, Loader2, Palette, RotateCcw, Save, Sparkles, Stamp, Upload, X } from "lucide-react"
+import { ExternalLink, Eye, Hash, ImageIcon, Landmark, Loader2, Palette, Plus, RotateCcw, Save, Sparkles, Stamp, Upload, X } from "lucide-react"
+
+const ASSIGN_NEW = "__new__"
+const ASSIGN_SKIP = "__skip__"
+const sanitizePrefix = (raw: string) =>
+  raw.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 3)
+
+interface AssignNumerator {
+  prefix: string
+  edocumentType: string
+  isPassive: boolean
+}
+
+// Mysoft edocumentType'ı numeric ("1","2") veya enum adı dönebiliyor.
+const numeratorMatchesDocType = (n: AssignNumerator, docType: number) => {
+  const t = String(n.edocumentType || "").toUpperCase()
+  if (docType === 1) return t === "1" || t === "EFATURA"
+  if (docType === 2) return t === "2" || t === "10" || t === "EARSIVFATURA" || t === "GIBEARSIVFATURA"
+  return false
+}
 
 /** Yüklenen görseli en fazla `maxDim` px'e küçültüp PNG data URI döndürür. */
 function downscaleImage(file: File, maxDim = 360): Promise<string> {
@@ -56,6 +83,8 @@ interface TemplateDesignerProps {
   /** 1 = E-Fatura, 2 = E-Arşiv */
   docType: number
   docLabel: string
+  /** Bu belge tipinde firmanın kullanımdaki (aktif) prefix'i — atama diyaloğunda işaretlenir. */
+  activePrefix?: string
   /** Mysoft'a kaydedildikten sonra tanımlı şablon listesini tazelemek için. */
   onSaved?: () => void
 }
@@ -91,7 +120,7 @@ const THEME_PRESETS: Array<{ key: string; label: string; patch: Partial<Template
   },
 ]
 
-export function TemplateDesigner({ companyId, docType, docLabel, onSaved }: TemplateDesignerProps) {
+export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, onSaved }: TemplateDesignerProps) {
   const { toast } = useToast()
 
   const [opts, setOpts] = useState<TemplateDesignOptions>({ ...DEFAULT_DESIGN_OPTIONS })
@@ -112,6 +141,48 @@ export function TemplateDesigner({ companyId, docType, docLabel, onSaved }: Temp
   useEffect(() => () => {
     if (pdfUrl) URL.revokeObjectURL(pdfUrl)
   }, [pdfUrl])
+
+  // Alt bilgiye eklemek için firmanın kayıtlı banka hesapları.
+  const [bankAccounts, setBankAccounts] = useState<
+    Array<{ id: string; name: string; bankName: string | null; accountNumber: string | null; iban: string | null }>
+  >([])
+
+  useEffect(() => {
+    if (!companyId) return
+    let active = true
+    fetch(`/api/finans/accounts?companyId=${companyId}&type=BANK`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (active && Array.isArray(data)) setBankAccounts(data)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [companyId])
+
+  // Seçilen banka hesabını alt bilgiye yeni satır olarak ekler (not metni korunur).
+  const insertBankAccount = (id: string) => {
+    const acc = bankAccounts.find((a) => a.id === id)
+    if (!acc) return
+    const parts = [acc.bankName || acc.name]
+    if (acc.iban) parts.push(`IBAN: ${acc.iban.replace(/\s+/g, "").toUpperCase()}`)
+    else if (acc.accountNumber) parts.push(`Hesap No: ${acc.accountNumber}`)
+    const line = parts.filter(Boolean).join(" — ")
+    setOpts((prev) => {
+      const existing = prev.footerNote.trim()
+      const next = existing ? `${existing}\n${line}` : line
+      return { ...prev, footerNote: next.slice(0, MAX_FOOTER_NOTE_LEN) }
+    })
+  }
+
+  // Kaydetme sonrası "şablonu bir seri no'ya ata" diyaloğu.
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [savedXsltName, setSavedXsltName] = useState("")
+  const [assignNumerators, setAssignNumerators] = useState<AssignNumerator[]>([])
+  const [assignChoice, setAssignChoice] = useState<string>(ASSIGN_SKIP) // prefix | ASSIGN_NEW | ASSIGN_SKIP
+  const [assignNewPrefix, setAssignNewPrefix] = useState("")
+  const [isAssigning, setIsAssigning] = useState(false)
 
   const set = <K extends keyof TemplateDesignOptions>(key: K, value: TemplateDesignOptions[K]) =>
     setOpts((prev) => ({ ...prev, [key]: value }))
@@ -235,12 +306,87 @@ export function TemplateDesigner({ companyId, docType, docLabel, onSaved }: Temp
       }
 
       toast({ title: "Tasarım kaydedildi", description: data?.message || "Mysoft hesabınıza tanımlandı." })
+      const savedName = xsltName.trim()
       setXsltName("")
       onSaved?.()
+      // Kaydetme sonrası: bu şablonu bir seri no'ya atama diyaloğunu aç (isteğe bağlı).
+      openAssignDialog(savedName)
     } catch (error) {
       toast({ title: "Hata", description: error instanceof Error ? error.message : "Hata", variant: "destructive" })
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  // Kaydedilen şablonu bir seri no'ya (prefix) atama diyaloğunu açar ve mevcut
+  // numaratörleri çeker. Kullanıcı dilerse mevcut bir prefix'e atar, yeni bir
+  // prefix ekleyip atar ya da "Şimdilik boş bırak" der.
+  const openAssignDialog = async (name: string) => {
+    setSavedXsltName(name)
+    // Kullanımdaki seri varsa onu ön-seçili getir (kullanıcı görsün); yoksa boş bırak.
+    setAssignChoice(activePrefix ? activePrefix : ASSIGN_SKIP)
+    setAssignNewPrefix("")
+    setAssignNumerators([])
+    setAssignOpen(true)
+    try {
+      const res = await fetch(`/api/e-donusum/numerators?companyId=${companyId}`, { cache: "no-store" })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && Array.isArray(data?.data)) {
+        const list: AssignNumerator[] = data.data.filter(
+          (n: AssignNumerator) => numeratorMatchesDocType(n, docType) && !n.isPassive,
+        )
+        setAssignNumerators(list)
+        // Aktif prefix listede yoksa ön-seçimi boşa al (geçersiz seçim kalmasın).
+        if (activePrefix && !list.some((n) => n.prefix === activePrefix)) {
+          setAssignChoice(ASSIGN_SKIP)
+        }
+      }
+    } catch {
+      /* numaratör çekilemediyse kullanıcı yeni prefix ile devam edebilir */
+    }
+  }
+
+  const confirmAssign = async () => {
+    if (assignChoice === ASSIGN_SKIP) {
+      setAssignOpen(false)
+      return
+    }
+    const prefix =
+      assignChoice === ASSIGN_NEW ? sanitizePrefix(assignNewPrefix) : assignChoice
+    if (!prefix || prefix.length !== 3) {
+      toast({ title: "Geçersiz seri no", description: "Prefix tam olarak 3 karakter olmalı.", variant: "destructive" })
+      return
+    }
+    setIsAssigning(true)
+    try {
+      // Yeni prefix seçildiyse önce Mysoft'a numaratör olarak ekle.
+      if (assignChoice === ASSIGN_NEW) {
+        const addRes = await fetch("/api/e-donusum/numerators", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, prefix, eDocumentType: docType, isDefault: false }),
+        })
+        const addData = await addRes.json().catch(() => ({}))
+        if (!addRes.ok) throw new Error(addData?.error || "Yeni seri no eklenemedi")
+      }
+      // Şablonu prefix'e ata.
+      const res = await fetch("/api/e-donusum/series-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, eDocumentType: docType, prefix, xsltName: savedXsltName }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Şablon atanamadı")
+      toast({
+        title: "Şablon seri no'ya atandı",
+        description: `"${prefix}" seri no'su artık "${savedXsltName}" şablonunu kullanacak.`,
+      })
+      setAssignOpen(false)
+      onSaved?.()
+    } catch (error) {
+      toast({ title: "Hata", description: error instanceof Error ? error.message : "Hata", variant: "destructive" })
+    } finally {
+      setIsAssigning(false)
     }
   }
 
@@ -257,6 +403,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, onSaved }: Temp
   const headingTransform = opts.headingTransform === "uppercase" ? ("uppercase" as const) : ("none" as const)
 
   return (
+    <>
     <Card>
       <CardHeader>
         <div className="flex items-center gap-3">
@@ -443,19 +590,51 @@ export function TemplateDesigner({ companyId, docType, docLabel, onSaved }: Temp
             </TabsContent>
 
             {/* ALT BİLGİ */}
-            <TabsContent value="altbilgi" className="space-y-2 pt-2">
-              <Label htmlFor="footer-note">Fatura altı not (IBAN, banka, teşekkür…)</Label>
-              <Textarea
-                id="footer-note"
-                value={opts.footerNote}
-                onChange={(e) => set("footerNote", e.target.value.slice(0, MAX_FOOTER_NOTE_LEN))}
-                disabled={busy}
-                rows={5}
-                placeholder={"ör.\nBanka: Örnek Bankası — TR12 0000 0000 0000 0000 0000 00\nBizi tercih ettiğiniz için teşekkür ederiz."}
-              />
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Her satır faturada ayrı satır olur. HTML otomatik kaçışlanır.</span>
-                <span>{opts.footerNote.length}/{MAX_FOOTER_NOTE_LEN}</span>
+            <TabsContent value="altbilgi" className="space-y-3 pt-2">
+              {/* Kayıtlı banka hesabından hızlı ekleme */}
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
+                  <Landmark className="h-3.5 w-3.5" /> Banka hesabı ekle
+                </Label>
+                {bankAccounts.length > 0 ? (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) insertBankAccount(e.target.value)
+                    }}
+                    disabled={busy}
+                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Banka hesabı seçin (nota eklenir)…</option>
+                    {bankAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.bankName || a.name}
+                        {a.iban ? ` — ${a.iban}` : a.accountNumber ? ` — ${a.accountNumber}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="rounded-lg border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                    Kayıtlı banka hesabınız yok. <span className="font-medium text-foreground">Finans → Kanallar</span>'dan
+                    ekleyebilir, sonra buradan seçebilirsiniz.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="footer-note">Fatura altı not (IBAN, banka, teşekkür…)</Label>
+                <Textarea
+                  id="footer-note"
+                  value={opts.footerNote}
+                  onChange={(e) => set("footerNote", e.target.value.slice(0, MAX_FOOTER_NOTE_LEN))}
+                  disabled={busy}
+                  rows={5}
+                  placeholder={"ör.\nBanka: Örnek Bankası — TR12 0000 0000 0000 0000 0000 00\nBizi tercih ettiğiniz için teşekkür ederiz."}
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Yukarıdan banka hesabı seçince nota eklenir; serbestçe de yazabilirsiniz.</span>
+                  <span>{opts.footerNote.length}/{MAX_FOOTER_NOTE_LEN}</span>
+                </div>
               </div>
             </TabsContent>
           </Tabs>
@@ -659,6 +838,84 @@ export function TemplateDesigner({ companyId, docType, docLabel, onSaved }: Temp
         </div>
       </CardContent>
     </Card>
+
+    {/* Kaydetme sonrası: şablonu bir seri no'ya ata (isteğe bağlı) */}
+    <Dialog open={assignOpen} onOpenChange={(o) => !isAssigning && setAssignOpen(o)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Şablonu bir seri no'ya ata</DialogTitle>
+          <DialogDescription>
+            <span className="font-medium text-foreground">“{savedXsltName}”</span> şablonunu bir {docLabel} seri no'suna
+            (prefix) atayabilirsiniz. O seri ile kesilen faturalar bu şablonu kullanır. İsterseniz boş bırakın.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 py-2">
+          <div className="grid gap-1.5">
+            <Label>Seri no</Label>
+            <select
+              value={assignChoice}
+              onChange={(e) => setAssignChoice(e.target.value)}
+              disabled={isAssigning}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value={ASSIGN_SKIP}>Şimdilik boş bırak</option>
+              {assignNumerators.map((n) => (
+                <option key={n.prefix} value={n.prefix}>
+                  {n.prefix}
+                  {activePrefix && n.prefix === activePrefix ? " — kullanımdaki seri no" : ""}
+                </option>
+              ))}
+              <option value={ASSIGN_NEW}>+ Yeni seri no ekle…</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {activePrefix ? (
+                <>
+                  Şu an {docLabel} gönderiminde{" "}
+                  <span className="font-semibold text-foreground">{activePrefix}</span> serisi kullanılıyor.
+                </>
+              ) : (
+                <>Şu an {docLabel} için belirli bir seri seçili değil (Mysoft varsayılanı).</>
+              )}
+            </p>
+          </div>
+          {assignChoice === ASSIGN_NEW && (
+            <div className="grid gap-1.5">
+              <Label htmlFor="assign-new-prefix" className="flex items-center gap-1.5">
+                <Hash className="h-3.5 w-3.5" /> Yeni prefix (3 karakter)
+              </Label>
+              <Input
+                id="assign-new-prefix"
+                value={assignNewPrefix}
+                onChange={(e) => setAssignNewPrefix(sanitizePrefix(e.target.value))}
+                placeholder="ör. ERA"
+                maxLength={3}
+                disabled={isAssigning}
+                className="font-mono text-base font-semibold uppercase tracking-widest"
+              />
+              <p className="text-xs text-muted-foreground">
+                Bu prefix Mysoft hesabınıza yeni numaratör olarak eklenir ve şablona atanır.
+              </p>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setAssignOpen(false)} disabled={isAssigning}>
+            Boş bırak
+          </Button>
+          <Button onClick={confirmAssign} disabled={isAssigning || assignChoice === ASSIGN_SKIP}>
+            {isAssigning ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : assignChoice === ASSIGN_NEW ? (
+              <Plus className="mr-2 h-4 w-4" />
+            ) : (
+              <Save className="mr-2 h-4 w-4" />
+            )}
+            Ata
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }
 

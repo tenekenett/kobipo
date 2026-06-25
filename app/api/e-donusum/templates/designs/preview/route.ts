@@ -5,6 +5,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
+import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
 import { readSampleTemplate } from "@/lib/integrations/e-invoice/sample-templates"
 import {
   applyThemeToXslt,
@@ -63,19 +64,16 @@ export async function POST(request: Request) {
         eDonusumApiUsername: true,
         eDonusumApiPassword: true,
         eDonusumApiUrl: true,
+        taxNumber: true,
         eDonusumTenantVkn: true,
+        parentCompany: { select: { taxNumber: true } },
       },
     })
     if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) {
       return NextResponse.json({ error: "Mysoft API bilgileri eksik." }, { status: 400 })
     }
-    const vkn = (company.eDonusumTenantVkn || "").replace(/\D/g, "")
-    if (vkn.length !== 10 && vkn.length !== 11) {
-      return NextResponse.json(
-        { error: "Mysoft mükellef VKN'niz doğrulanmamış. E-Dönüşüm Ayarları'ndan doğrulayın." },
-        { status: 412 },
-      )
-    }
+    // Mükellef VKN doğrudan firmanın VKN'sinden çekilir; boşsa provider JWT'den keşfeder.
+    const vkn = effectiveTenantVkn(company)
     let passwordText: string
     try {
       passwordText = decryptSecret(company.eDonusumApiPassword)

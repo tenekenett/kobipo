@@ -188,6 +188,7 @@ model Company {
   employees   Employee[]
   kontorOrders KontorOrder[]
   eInvoiceTemplates EInvoiceTemplate[]
+  eInvoiceSeriesTemplates EInvoiceSeriesTemplate[]
 
   @@index([parentCompanyId])
   @@map("companies")
@@ -214,6 +215,26 @@ model EInvoiceTemplate {
   @@unique([companyId, eDocumentType, xsltName])
   @@index([companyId, eDocumentType])
   @@map("einvoice_templates")
+}
+
+// Seri no (prefix) → belge şablonu eşlemesi. Bir prefix'e (ör. "ERA") belirli bir
+// kayıtlı tasarımı (xsltName, ör. "Kurumsal Mavi") atamak için kullanılır. Fatura
+// gönderiminde faturanın prefix'ine atanmış şablon, firma genel aktif şablonundan
+// önce gelir. Eşleme yoksa EInvoiceTemplate.isActive (firma geneli) kullanılır.
+model EInvoiceSeriesTemplate {
+  id            String   @id @default(cuid())
+  companyId     String
+  eDocumentType Int      // 1=E-Fatura, 2=E-Arşiv
+  prefix        String   // Mysoft numaratör prefix'i (ör. "ERA")
+  xsltName      String   // Atanan şablon adı (Mysoft xsltName / kayıtlı tasarım)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, eDocumentType, prefix])
+  @@index([companyId, eDocumentType])
+  @@map("einvoice_series_templates")
 }
 
 model UserCompany {
@@ -626,6 +647,7 @@ model Invoice {
   exchangeRate Decimal? @db.Decimal(12, 4)
   exchangeRateDate DateTime?
   uuid        String?  @unique // E-Fatura UUID
+  eDocumentNo String?  // Mysoft/GİB resmi belge numarası (seçilen prefix ile oluşan docNo)
   integrationId String? // Entegratör ID
   integrationStatus String? // Entegratör durumu
   notes       String?  @db.Text
