@@ -3,6 +3,7 @@ import { getUserContext } from "@/lib/auth/user-context"
 import { DashboardNav } from "@/components/dashboard/nav"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { CompanySelector } from "@/components/dashboard/company-selector"
+import { BranchContextBanner } from "@/components/dashboard/branch-context-banner"
 import { DashboardCompanyProvider } from "@/components/dashboard/dashboard-company-provider"
 import { ModuleGuard } from "@/components/dashboard/module-guard"
 import { SuspendedLogoutButton } from "@/components/dashboard/suspended-logout-button"
@@ -52,8 +53,12 @@ export default async function DashboardLayout({
     name: entry.companyName,
     isEDonusumEnabled: entry.isEDonusumEnabled,
     disabledModules: entry.disabledModules,
+    isBranch: Boolean(entry.isBranch),
+    parentName: entry.parentName ?? null,
   }))
-  const initialRole = visibleCompanies[0]?.role ?? "VIEWER"
+  // Varsayılan rol: ilk ÜYE firma (şubeler listenin sonunda, sanal ADMIN).
+  const initialRole =
+    visibleCompanies.find((c) => !c.isBranch)?.role ?? visibleCompanies[0]?.role ?? "VIEWER"
 
   return (
     <DashboardCompanyProvider initialCompanies={initialCompanies} initialRole={initialRole}>
@@ -63,6 +68,7 @@ export default async function DashboardLayout({
           <div className="min-h-screen flex-1 bg-kobipo-offwhite dark:bg-background">
             <DashboardHeader />
             <div className="w-full min-w-0 overflow-x-clip p-4 sm:p-6">
+              <BranchContextBanner />
               <CompanySelector />
               <div className="mt-4 w-full min-w-0">
                 <ModuleGuard>{children}</ModuleGuard>

@@ -154,6 +154,19 @@ export default function SignInPage() {
           }
         />
 
+        <div
+          className="flex justify-end animate-auth-slide-up"
+          style={{ animationDelay: "0.32s" }}
+        >
+          <button
+            type="button"
+            onClick={() => router.push("/forgot-password")}
+            className="text-xs font-semibold text-kobipo-blue transition-colors hover:text-kobipo-mid"
+          >
+            Şifremi unuttum?
+          </button>
+        </div>
+
         {RECAPTCHA_ENABLED && (
           <div className="mt-4 animate-auth-slide-up" style={{ animationDelay: "0.35s" }}>
             <Recaptcha key={captchaKey} onChange={handleCaptcha} />

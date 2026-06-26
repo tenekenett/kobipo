@@ -13,6 +13,9 @@ export type DashboardCompany = {
   name: string
   isEDonusumEnabled?: boolean
   disabledModules?: string[]
+  // Üyelik değil; parent-admin erişimiyle gelen alt şube. Üst seçicide gizlenir.
+  isBranch?: boolean
+  parentName?: string | null
 }
 
 type DashboardCompanyContextValue = {

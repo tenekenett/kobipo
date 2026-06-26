@@ -12,6 +12,8 @@ interface Company {
   id: string
   name: string
   isEDonusumEnabled?: boolean
+  isBranch?: boolean
+  parentName?: string | null
 }
 
 export default function SubelerPage() {
@@ -49,12 +51,20 @@ export default function SubelerPage() {
             Erişiminiz olan tüm firma/şubeleri görüntüleyin ve yenisini ekleyin
           </p>
         </div>
-        <Link href={branchHref}>
-          <Button disabled={!activeCompanyId}>
-            <Plus className="mr-2 h-4 w-4" />
-            Yeni Şube
-          </Button>
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/companies/new">
+            <Button variant="outline">
+              <Plus className="mr-2 h-4 w-4" />
+              Yeni Firma
+            </Button>
+          </Link>
+          <Link href={branchHref}>
+            <Button disabled={!activeCompanyId}>
+              <Plus className="mr-2 h-4 w-4" />
+              Yeni Şube
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <Card>
@@ -102,6 +112,11 @@ export default function SubelerPage() {
                               Aktif
                             </span>
                           )}
+                          {c.isBranch && (
+                            <span className="inline-flex items-center rounded-full bg-teal-100 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
+                              Şube{c.parentName ? ` · ${c.parentName}` : ""}
+                            </span>
+                          )}
                         </div>
                         <div className="mt-1 flex flex-wrap gap-1.5">
                           {c.isEDonusumEnabled ? (
@@ -112,13 +127,24 @@ export default function SubelerPage() {
                         </div>
                       </div>
                     </div>
-                    <Link
-                      href={`/dashboard?company=${encodeURIComponent(c.id)}`}
-                      className="shrink-0 self-center text-muted-foreground transition-colors group-hover:text-foreground"
-                      aria-label="Şubeye geç"
-                    >
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
+                    {c.isBranch ? (
+                      <Link
+                        href={`/ayarlar/subeler/${encodeURIComponent(c.id)}`}
+                        className="inline-flex shrink-0 self-center items-center gap-1.5 rounded-md border border-teal-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-teal-700 transition hover:bg-teal-50 dark:border-teal-800 dark:bg-transparent dark:text-teal-300 dark:hover:bg-teal-900/30"
+                        aria-label="Şube detayı"
+                      >
+                        Detay
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
+                    ) : (
+                      <Link
+                        href={`/dashboard?company=${encodeURIComponent(c.id)}`}
+                        className="shrink-0 self-center text-muted-foreground transition-colors group-hover:text-foreground"
+                        aria-label="Firmaya geç"
+                      >
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    )}
                   </div>
                 )
               })}

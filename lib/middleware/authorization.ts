@@ -121,6 +121,7 @@ export function canWrite(role: Role, modulePath: string): boolean {
 // Rol etiketleri
 export const roleLabels: Record<Role, string> = {
   ADMIN: "Yönetici",
+  BRANCH_MANAGER: "Şube Müdürü",
   ACCOUNTANT: "Muhasebeci",
   STOCK: "Stokçu",
   SALES: "Satış",
@@ -130,6 +131,7 @@ export const roleLabels: Record<Role, string> = {
 // Rol renkleri
 export const roleColors: Record<Role, string> = {
   ADMIN: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+  BRANCH_MANAGER: "bg-teal-500/20 text-teal-400 border-teal-500/30",
   ACCOUNTANT: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   STOCK: "bg-orange-500/20 text-orange-400 border-orange-500/30",
   SALES: "bg-green-500/20 text-green-400 border-green-500/30",
@@ -140,6 +142,7 @@ export const roleColors: Record<Role, string> = {
 export function getDashboardPath(role: Role): string {
   switch (role) {
     case Role.ADMIN:
+    case Role.BRANCH_MANAGER:
       return "/dashboard/admin"
     case Role.ACCOUNTANT:
       return "/dashboard/accountant"

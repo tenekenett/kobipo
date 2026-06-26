@@ -15,11 +15,12 @@ datasource db {
 
 // Kullanıcı rolleri
 enum Role {
-  ADMIN       // Firma yöneticisi - tam yetki
-  ACCOUNTANT  // Muhasebeci
-  STOCK       // Stokçu
-  SALES       // Satış
-  VIEWER      // Görüntüleyici - sadece okuma
+  ADMIN          // Firma yöneticisi - tam yetki
+  BRANCH_MANAGER // Şube müdürü - şubede tam operasyonel yetki, hesap yönetimi (ekip/şube/abonelik) hariç
+  ACCOUNTANT     // Muhasebeci
+  STOCK          // Stokçu
+  SALES          // Satış
+  VIEWER         // Görüntüleyici - sadece okuma
 }
 
 enum EDonusumIntegrator {
@@ -65,8 +66,23 @@ model User {
   supportTickets SupportTicket[] @relation("SupportTicketCreatedBy")
   authorizedCustomers Customer[] @relation("AuthorizedCustomerUser")
   authorizedSuppliers Supplier[] @relation("AuthorizedSupplierUser")
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 model Account {

@@ -33,6 +33,7 @@ import { Search, MoreVertical, Shield, Key, Edit, Trash2, Building2, Loader2 } f
 import { useToast } from "@/components/ui/use-toast"
 import { useRouter } from "next/navigation"
 import { Role } from "@prisma/client"
+import { roleLabels } from "@/lib/auth/role-labels"
 
 interface User {
   id: string
@@ -54,16 +55,9 @@ interface UserTableProps {
   users: User[]
 }
 
-const roleLabels: Record<Role, string> = {
-  ADMIN: "Yönetici",
-  ACCOUNTANT: "Muhasebeci",
-  STOCK: "Stokçu",
-  SALES: "Satış",
-  VIEWER: "Görüntüleyici",
-}
-
 const roleColors: Record<Role, string> = {
   ADMIN: "bg-purple-500/20 text-purple-400",
+  BRANCH_MANAGER: "bg-teal-500/20 text-teal-400",
   ACCOUNTANT: "bg-blue-500/20 text-blue-400",
   STOCK: "bg-orange-500/20 text-orange-400",
   SALES: "bg-green-500/20 text-green-400",

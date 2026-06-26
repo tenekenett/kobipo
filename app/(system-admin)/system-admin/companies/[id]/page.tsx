@@ -18,19 +18,11 @@ import {
   Briefcase,
   Receipt,
 } from "lucide-react"
-import { Role } from "@prisma/client"
+import { roleLabels } from "@/lib/auth/role-labels"
 import { CompanyEInvoiceCard } from "@/components/system-admin/company-einvoice-card"
 import { CompanyModulesCard } from "@/components/system-admin/company-modules-card"
 
 export const dynamic = "force-dynamic"
-
-const roleLabels: Record<Role, string> = {
-  ADMIN: "Yönetici",
-  ACCOUNTANT: "Muhasebeci",
-  STOCK: "Stokçu",
-  SALES: "Satış",
-  VIEWER: "Görüntüleyici",
-}
 
 export default async function CompanyDetailPage({
   params,

@@ -2,6 +2,7 @@ import { cache } from "react"
 import { Role } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { getSession } from "@/lib/auth/session"
+import { getManagedBranches } from "@/lib/auth/branch-access"
 
 export interface UserCompanyContext {
   companyId: string
@@ -11,6 +12,10 @@ export interface UserCompanyContext {
   isEDonusumEnabled: boolean
   disabledModules: string[]
   createdAt: Date
+  // Üyelik DEĞİL; ana firmasının ADMIN'i olduğu için erişilen alt şube.
+  isBranch?: boolean
+  parentName?: string | null
+  viaParent?: boolean
 }
 
 export interface UserContext {
@@ -81,19 +86,43 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
     return null
   }
 
+  const membershipCompanies: UserCompanyContext[] = user.companies.map((entry) => ({
+    companyId: entry.company.id,
+    companyName: entry.company.name,
+    role: entry.role,
+    isActive: entry.company.isActive,
+    isEDonusumEnabled: entry.company.isEDonusumEnabled,
+    disabledModules: entry.company.disabledModules ?? [],
+    createdAt: entry.createdAt,
+  }))
+
+  // Parent-admin erişimi: ADMIN olunan firmaların alt şubelerini SANAL ADMIN (üyelik
+  // değil) olarak listenin SONUNA ekle — üyelikler önce kaldığı için varsayılan firma
+  // seçimi bozulmaz. Hata olsa da çekirdek üyelik bağlamı korunur.
+  let branchCompanies: UserCompanyContext[] = []
+  try {
+    const branches = await getManagedBranches(user.id)
+    branchCompanies = branches.map((b) => ({
+      companyId: b.id,
+      companyName: b.name,
+      role: Role.ADMIN,
+      isActive: true,
+      isEDonusumEnabled: b.isEDonusumEnabled,
+      disabledModules: b.disabledModules,
+      createdAt: new Date(0),
+      isBranch: true,
+      parentName: b.parentName,
+      viaParent: true,
+    }))
+  } catch (error) {
+    console.error("getUserContext managed branches error:", error)
+  }
+
   return {
     userId: user.id,
     email: user.email,
     name: user.name,
     isSuperAdmin: user.isSuperAdmin,
-    companies: user.companies.map((entry) => ({
-      companyId: entry.company.id,
-      companyName: entry.company.name,
-      role: entry.role,
-      isActive: entry.company.isActive,
-      isEDonusumEnabled: entry.company.isEDonusumEnabled,
-      disabledModules: entry.company.disabledModules ?? [],
-      createdAt: entry.createdAt,
-    })),
+    companies: [...membershipCompanies, ...branchCompanies],
   }
 })

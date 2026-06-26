@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ProductCombobox } from "@/components/ui/product-combobox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import {
@@ -384,31 +385,13 @@ export default function AlisIrsaliyePage() {
                       <div className="space-y-3 rounded-md border p-3">
                         {lines.map((row, index) => (
                           <div key={index} className="grid gap-2 border-b pb-3 last:border-0 last:pb-0 sm:grid-cols-12">
-                            <div className="sm:col-span-3">
-                              <Label className="text-xs text-muted-foreground">Ürün (opsiyonel)</Label>
-                              <Select
-                                value={row.productId || "__none__"}
-                                onValueChange={(v) => (v === "__none__" ? updateLine(index, { productId: "" }) : applyProductToLine(index, v))}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="—" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="__none__">—</SelectItem>
-                                  {products.map((p) => (
-                                    <SelectItem key={p.id} value={p.id}>
-                                      {p.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="sm:col-span-4">
-                              <Label className="text-xs text-muted-foreground">Açıklama</Label>
-                              <Input
+                            <div className="sm:col-span-7">
+                              <Label className="text-xs text-muted-foreground">Ürün / Açıklama</Label>
+                              <ProductCombobox
+                                products={products}
                                 value={row.description}
-                                onChange={(e) => updateLine(index, { description: e.target.value })}
-                                placeholder="Kalem"
+                                onTextChange={(text) => updateLine(index, { description: text, productId: "" })}
+                                onSelectProduct={(p) => applyProductToLine(index, p.id)}
                               />
                             </div>
                             <div className="grid grid-cols-3 gap-2 sm:col-span-5">

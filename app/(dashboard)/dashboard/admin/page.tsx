@@ -23,7 +23,10 @@ export default async function AdminDashboard() {
     redirect("/signin")
   }
 
-  if (authContext.activeCompany.role !== Role.ADMIN) {
+  if (
+    authContext.activeCompany.role !== Role.ADMIN &&
+    authContext.activeCompany.role !== Role.BRANCH_MANAGER
+  ) {
     redirect("/")
   }
 

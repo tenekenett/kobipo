@@ -50,7 +50,13 @@ export type NavItemDef = {
   roles: string[]
 }
 
-const ALL_ROLES = ["ADMIN", "ACCOUNTANT", "STOCK", "SALES", "VIEWER"]
+const ALL_ROLES = ["ADMIN", "BRANCH_MANAGER", "ACCOUNTANT", "STOCK", "SALES", "VIEWER"]
+
+// Şube müdürü, şubede operasyonel olarak ADMIN ile aynı yetkilere sahiptir; yalnızca
+// hesap/yönetim düzeyindeki şu öğeler KISITLIDIR (BRANCH_MANAGER eklenmez):
+// Kullanıcı Yönetimi (/ayarlar/ekip), Şube Yönetimi (/ayarlar/subeler),
+// Abonelik (/ayarlar/abonelik) ve Şube Müdürleri (/ayarlar/sube-mudurleri).
+const BM = "BRANCH_MANAGER"
 
 export const allNavItems: NavItemDef[] = [
   {
@@ -61,65 +67,67 @@ export const allNavItems: NavItemDef[] = [
   },
 
   // Satış
-  { href: "/satis/fatura", label: "Satış Faturası", icon: Receipt, roles: ["ADMIN", "ACCOUNTANT", "SALES"] },
-  { href: "/cari/musteri", label: "Müşteri", icon: Users, roles: ["ADMIN", "ACCOUNTANT", "SALES"] },
-  { href: "/satis/irsaliye", label: "Satış İrsaliyesi", icon: Truck, roles: ["ADMIN", "ACCOUNTANT", "SALES", "STOCK"] },
-  { href: "/satis/siparis", label: "Satış Siparişi", icon: ClipboardList, roles: ["ADMIN", "ACCOUNTANT", "SALES"] },
-  { href: "/satis/hizli", label: "Hızlı Satış", icon: Zap, roles: ["ADMIN", "ACCOUNTANT", "SALES"] },
-  { href: "/teklif", label: "Teklif", icon: ScrollText, roles: ["ADMIN", "ACCOUNTANT", "SALES"] },
+  { href: "/satis/fatura", label: "Satış Faturası", icon: Receipt, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
+  { href: "/cari/musteri", label: "Müşteri", icon: Users, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
+  { href: "/satis/irsaliye", label: "Satış İrsaliyesi", icon: Truck, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES", "STOCK"] },
+  { href: "/satis/siparis", label: "Satış Siparişi", icon: ClipboardList, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
+  { href: "/satis/hizli", label: "Hızlı Satış", icon: Zap, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
+  { href: "/teklif", label: "Teklif", icon: ScrollText, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
 
   // Alış
-  { href: "/alis/fatura", label: "Alış Faturası", icon: Receipt, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/alis/gelen-e-faturalar", label: "Gelen E-Faturalar", icon: Inbox, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/cari/tedarikci", label: "Tedarikçi", icon: UserRound, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/alis/irsaliye", label: "Alış İrsaliyesi", icon: Truck, roles: ["ADMIN", "ACCOUNTANT", "STOCK"] },
-  { href: "/alis/siparis", label: "Alış Siparişi", icon: ClipboardList, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/alis/hizli", label: "Hızlı Alış Fişi", icon: Zap, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/alis/teklif", label: "Satın Alma Teklifi", icon: ScrollText, roles: ["ADMIN", "ACCOUNTANT"] },
+  { href: "/alis/fatura", label: "Alış Faturası", icon: Receipt, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/alis/gelen-e-faturalar", label: "Gelen E-Faturalar", icon: Inbox, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/cari/tedarikci", label: "Tedarikçi", icon: UserRound, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/alis/irsaliye", label: "Alış İrsaliyesi", icon: Truck, roles: ["ADMIN", BM, "ACCOUNTANT", "STOCK"] },
+  { href: "/alis/siparis", label: "Alış Siparişi", icon: ClipboardList, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/alis/hizli", label: "Hızlı Alış Fişi", icon: Zap, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/alis/teklif", label: "Satın Alma Teklifi", icon: ScrollText, roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Stok
-  { href: "/stok/urunler", label: "Ürün Listesi", icon: Package, roles: ["ADMIN", "ACCOUNTANT", "STOCK", "SALES"] },
-  { href: "/stok/hizmetler", label: "Hizmet Listesi", icon: Wrench, roles: ["ADMIN", "ACCOUNTANT", "STOCK", "SALES"] },
-  { href: "/depolar", label: "Depo Listesi", icon: Warehouse, roles: ["ADMIN", "STOCK"] },
-  { href: "/stok/transfer", label: "Stok Transfer", icon: ArrowLeftRight, roles: ["ADMIN", "STOCK"] },
+  { href: "/stok/urunler", label: "Ürün Listesi", icon: Package, roles: ["ADMIN", BM, "ACCOUNTANT", "STOCK", "SALES"] },
+  { href: "/stok/hizmetler", label: "Hizmet Listesi", icon: Wrench, roles: ["ADMIN", BM, "ACCOUNTANT", "STOCK", "SALES"] },
+  { href: "/depolar", label: "Depo Listesi", icon: Warehouse, roles: ["ADMIN", BM, "STOCK"] },
+  { href: "/stok/transfer", label: "Stok Transfer", icon: ArrowLeftRight, roles: ["ADMIN", BM, "STOCK"] },
 
   // Finans
-  { href: "/finans/kanallar", label: "Finans Kanalları", icon: Banknote, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/finans/hareketler", label: "Finans Hareketleri", icon: Wallet, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/finans/mutabakat", label: "Mutabakat", icon: Scale, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/cek-senet/cek", label: "Çek Portföyü", icon: FileCheck, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/cek-senet/senet", label: "Senet Portföyü", icon: FileSignature, roles: ["ADMIN", "ACCOUNTANT"] },
+  { href: "/finans/kanallar", label: "Finans Kanalları", icon: Banknote, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/finans/hareketler", label: "Finans Hareketleri", icon: Wallet, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/finans/mutabakat", label: "Mutabakat", icon: Scale, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/cek-senet/cek", label: "Çek Portföyü", icon: FileCheck, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/cek-senet/senet", label: "Senet Portföyü", icon: FileSignature, roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Raporlar
-  { href: "/raporlar/satis", label: "Satış Raporları", icon: TrendingUp, roles: ["ADMIN", "ACCOUNTANT", "SALES", "VIEWER"] },
-  { href: "/raporlar/alis", label: "Alış Raporları", icon: TrendingDown, roles: ["ADMIN", "ACCOUNTANT", "VIEWER"] },
-  { href: "/raporlar/cari", label: "Cari Raporlar", icon: Briefcase, roles: ["ADMIN", "ACCOUNTANT", "SALES", "VIEWER"] },
-  { href: "/raporlar/vergi", label: "Vergi Raporları", icon: Percent, roles: ["ADMIN", "ACCOUNTANT", "VIEWER"] },
-  { href: "/raporlar/nakit-banka", label: "Nakit & Banka", icon: DollarSign, roles: ["ADMIN", "ACCOUNTANT", "VIEWER"] },
-  { href: "/raporlar/stok", label: "Stok Raporları", icon: Package, roles: ["ADMIN", "ACCOUNTANT", "STOCK", "SALES", "VIEWER"] },
-  { href: "/raporlar/personel", label: "Personel Raporları", icon: Users, roles: ["ADMIN", "ACCOUNTANT", "VIEWER"] },
+  { href: "/raporlar/satis", label: "Satış Raporları", icon: TrendingUp, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES", "VIEWER"] },
+  { href: "/raporlar/alis", label: "Alış Raporları", icon: TrendingDown, roles: ["ADMIN", BM, "ACCOUNTANT", "VIEWER"] },
+  { href: "/raporlar/cari", label: "Cari Raporlar", icon: Briefcase, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES", "VIEWER"] },
+  { href: "/raporlar/vergi", label: "Vergi Raporları", icon: Percent, roles: ["ADMIN", BM, "ACCOUNTANT", "VIEWER"] },
+  { href: "/raporlar/nakit-banka", label: "Nakit & Banka", icon: DollarSign, roles: ["ADMIN", BM, "ACCOUNTANT", "VIEWER"] },
+  { href: "/raporlar/stok", label: "Stok Raporları", icon: Package, roles: ["ADMIN", BM, "ACCOUNTANT", "STOCK", "SALES", "VIEWER"] },
+  { href: "/raporlar/personel", label: "Personel Raporları", icon: Users, roles: ["ADMIN", BM, "ACCOUNTANT", "VIEWER"] },
 
   // Personel
-  { href: "/personel", label: "Personeller", icon: UsersRound, roles: ["ADMIN"] },
-  { href: "/personel/maas", label: "Maaş-Ödemeler", icon: DollarSign, roles: ["ADMIN"] },
-  { href: "/personel/izin", label: "İzin-Devam", icon: CalendarCheck, roles: ["ADMIN"] },
-  { href: "/personel/zimmet", label: "Zimmet", icon: BadgeCheck, roles: ["ADMIN"] },
-  { href: "/personel/ik", label: "İnsan Kaynakları", icon: FolderOpen, roles: ["ADMIN"] },
+  { href: "/personel", label: "Personeller", icon: UsersRound, roles: ["ADMIN", BM] },
+  { href: "/personel/maas", label: "Maaş-Ödemeler", icon: DollarSign, roles: ["ADMIN", BM] },
+  { href: "/personel/izin", label: "İzin-Devam", icon: CalendarCheck, roles: ["ADMIN", BM] },
+  { href: "/personel/zimmet", label: "Zimmet", icon: BadgeCheck, roles: ["ADMIN", BM] },
+  { href: "/personel/ik", label: "İnsan Kaynakları", icon: FolderOpen, roles: ["ADMIN", BM] },
 
   // E-Dönüşüm
-  { href: "/ayarlar/e-donusum", label: "E-Dönüşüm Ayarları", icon: FileText, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/e-donusum/kontor", label: "Kontör", icon: Coins, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/e-donusum/seri-no", label: "Seri No Tanımları", icon: Hash, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/e-donusum/sablon", label: "Belge Şablonları", icon: LayoutTemplate, roles: ["ADMIN", "ACCOUNTANT"] },
+  { href: "/ayarlar/e-donusum", label: "E-Dönüşüm Ayarları", icon: FileText, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/e-donusum/kontor", label: "Kontör", icon: Coins, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/e-donusum/seri-no", label: "Seri No Tanımları", icon: Hash, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/e-donusum/sablon", label: "Belge Şablonları", icon: LayoutTemplate, roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Ayarlar
-  { href: "/ayarlar/firma", label: "Firma Bilgileri", icon: Building2, roles: ["ADMIN", "ACCOUNTANT"] },
-  { href: "/ayarlar/tanimlar", label: "Tanımlar", icon: Tags, roles: ["ADMIN", "ACCOUNTANT"] },
+  { href: "/ayarlar/firma", label: "Firma Bilgileri", icon: Building2, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/ayarlar/tanimlar", label: "Tanımlar", icon: Tags, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  // KISITLI: yalnız ADMIN
   { href: "/ayarlar/ekip", label: "Kullanıcı Yönetimi", icon: UserCog, roles: ["ADMIN"] },
+  { href: "/ayarlar/sube-mudurleri", label: "Şube Müdürleri", icon: UserCog, roles: ["ADMIN"] },
   { href: "/ayarlar/abonelik", label: "Abonelik", icon: CreditCard, roles: ["ADMIN"] },
-  { href: "/ayarlar/veri-aktarim", label: "Veri Aktarım", icon: Database, roles: ["ADMIN", "ACCOUNTANT", "STOCK", "SALES"] },
   { href: "/ayarlar/subeler", label: "Şube Yönetimi", icon: GitBranch, roles: ["ADMIN"] },
-  { href: "/ayarlar/sube-bilgileri", label: "Şube Bilgileri", icon: Store, roles: ["ADMIN", "ACCOUNTANT"] },
+  { href: "/ayarlar/veri-aktarim", label: "Veri Aktarım", icon: Database, roles: ["ADMIN", BM, "ACCOUNTANT", "STOCK", "SALES"] },
+  { href: "/ayarlar/sube-bilgileri", label: "Şube Bilgileri", icon: Store, roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Standalone (sidebar bottom)
   { href: "/ayarlar/destek", label: "Destek", icon: LifeBuoy, roles: ALL_ROLES },
@@ -196,6 +204,7 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
       "/ayarlar/firma",
       "/ayarlar/tanimlar",
       "/ayarlar/ekip",
+      "/ayarlar/sube-mudurleri",
       "/ayarlar/abonelik",
       "/ayarlar/veri-aktarim",
       "/ayarlar/subeler",

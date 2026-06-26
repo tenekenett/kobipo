@@ -7,6 +7,9 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { roleLabels } from "@/lib/auth/role-labels"
+
+const roleLabel = (role: string) => (roleLabels as Record<string, string>)[role] || role
 
 export default function EkipPage() {
   const { toast } = useToast()
@@ -85,7 +88,7 @@ export default function EkipPage() {
                   <div>{member.user?.name || member.user?.email}</div>
                   <div className="text-xs text-muted-foreground">{member.user?.email}</div>
                 </div>
-                <div className="text-sm text-muted-foreground">{member.role}</div>
+                <div className="text-sm text-muted-foreground">{roleLabel(member.role)}</div>
               </div>
             ))}
             {members.length === 0 && (
@@ -118,7 +121,7 @@ export default function EkipPage() {
                 <div>
                   <div>{invitation.email}</div>
                   <div className="text-xs text-muted-foreground">
-                    {invitation.role} - {new Date(invitation.createdAt).toLocaleDateString("tr-TR")}
+                    {roleLabel(invitation.role)} - {new Date(invitation.createdAt).toLocaleDateString("tr-TR")}
                   </div>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => removeInvitation(invitation.id)}>

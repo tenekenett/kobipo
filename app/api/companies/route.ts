@@ -18,15 +18,16 @@ const isMissingSchemaError = (error: Prisma.PrismaClientKnownRequestError) => {
 }
 
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const context = await getUserContext()
     if (!context) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Pasif firmalar normal kullanıcının erişilebilir firma listesinde görünmez;
-    // yalnızca super admin tüm firmalarını görür.
+    // Pasif firmalar normal kullanıcının erişilebilir listesinde görünmez; super admin
+    // hepsini görür. Alt şubeler (isBranch) context'te zaten gelir ve flag'li döner —
+    // tüketiciler (ör. üst firma seçici, ana firma seçimi) gerektiğinde filtreler.
     const companies = context.companies
       .filter((c) => context.isSuperAdmin || c.isActive)
       .map((c) => ({
@@ -34,6 +35,8 @@ export async function GET(request: Request) {
         name: c.companyName,
         isEDonusumEnabled: c.isEDonusumEnabled,
         disabledModules: c.disabledModules,
+        isBranch: Boolean(c.isBranch),
+        parentName: c.parentName ?? null,
       }))
 
     return NextResponse.json(companies)
