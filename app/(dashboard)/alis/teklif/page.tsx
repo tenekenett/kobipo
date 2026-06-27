@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
+import { SearchSelect } from "@/components/ui/search-select"
+import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -348,21 +350,12 @@ export default function SatinAlmaTeklifiPage() {
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
                         <Label>Tedarikçi</Label>
-                        <Select
+                        <SearchSelect
+                          options={suppliers}
                           value={form.supplierId}
-                          onValueChange={(value) => setForm((prev) => ({ ...prev, supplierId: value }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Tedarikçi seçin" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {suppliers.map((supplier) => (
-                              <SelectItem key={supplier.id} value={supplier.id}>
-                                {supplier.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          onChange={(value) => setForm((prev) => ({ ...prev, supplierId: value }))}
+                          placeholder="Tedarikçi seçin veya arayın…"
+                        />
                       </div>
                       <div>
                         <Label>Para birimi</Label>
@@ -417,6 +410,22 @@ export default function SatinAlmaTeklifiPage() {
                                 value={row.description}
                                 onTextChange={(text) => updateLine(index, { description: text, productId: "" })}
                                 onSelectProduct={(p) => applyProductToLine(index, p.id)}
+                                onCreateProduct={async (name) => {
+                                  if (!companyId) return false
+                                  try {
+                                    const created = await quickCreateProduct({ companyId, name, purchasePrice: row.unitPrice, vatRate: row.vatRate })
+                                    setProducts((prev) => [...prev, created])
+                                    updateLine(index, {
+                                      productId: created.id,
+                                      description: created.name,
+                                      unitPrice: created.purchasePrice != null ? String(created.purchasePrice) : row.unitPrice,
+                                    })
+                                    return true
+                                  } catch (e) {
+                                    toast({ title: "Hata", description: e instanceof Error ? e.message : "Ürün eklenemedi", variant: "destructive" })
+                                    return false
+                                  }
+                                }}
                               />
                             </div>
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:col-span-5">

@@ -301,6 +301,9 @@ model Customer {
   phone       String?
   email       String?
   contactPerson String?
+  // Pinlenen GİB posta kutusu (alias). Birden çok PK'sı olan alıcıya e-Fatura
+  // gönderirken tercih edilen kutu; boşsa Mysoft ilk geçerli PK'yı otomatik seçer.
+  eInvoiceAlias String?
   paymentDueDays Int?
   openingBalanceAmount Decimal @default(0) @db.Decimal(14, 2)
   openingBalanceType String @default("DEBIT")
@@ -354,6 +357,9 @@ model Supplier {
   phone       String?
   email       String?
   contactPerson String?
+  // Pinlenen GİB posta kutusu (alias). Birden çok PK'sı olan alıcıya e-Fatura
+  // gönderirken tercih edilen kutu; boşsa Mysoft ilk geçerli PK'yı otomatik seçer.
+  eInvoiceAlias String?
   paymentDueDays Int?
   openingBalanceAmount Decimal @default(0) @db.Decimal(14, 2)
   openingBalanceType String @default("DEBIT")
@@ -1159,8 +1165,13 @@ model KontorOrder {
   mysoftTariffCode String
   targetVkn        String                          // kontörün yükleneceği mükellef VKN/TCKN
   status           KontorOrderStatus @default(PENDING_PAYMENT)
-  paymentMethod    String   @default("HAVALE")
+  paymentMethod    String   @default("HAVALE")    // HAVALE | CARD
   receiptUrl       String?                         // dekont görseli/PDF
+  // Sanal POS (PayTR) ödeme alanları. merchant_oid = order.id (ayrı alan yok).
+  paymentProvider  String?                         // "PAYTR" (kart ödemesinde)
+  paidAt           DateTime?                        // ödeme onay bildirimi (callback) anı
+  paymentRef       String?                         // PayTR referansı / echo
+  paymentError     String?  @db.Text               // başarısız ödeme nedeni
   // Mysoft yükleme sonucu
   mysoftCreditId   String?
   loadError        String?  @db.Text

@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
+import { SearchSelect } from "@/components/ui/search-select"
+import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -262,21 +264,12 @@ export default function TeklifPage() {
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
                         <Label>Müşteri</Label>
-                        <Select
+                        <SearchSelect
+                          options={customers}
                           value={form.customerId}
-                          onValueChange={(value) => setForm((prev) => ({ ...prev, customerId: value }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Müşteri seçin" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {customers.map((customer) => (
-                              <SelectItem key={customer.id} value={customer.id}>
-                                {customer.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          onChange={(value) => setForm((prev) => ({ ...prev, customerId: value }))}
+                          placeholder="Müşteri seçin veya arayın…"
+                        />
                       </div>
                       <div>
                         <Label>Para birimi</Label>
@@ -331,6 +324,22 @@ export default function TeklifPage() {
                                 value={row.description}
                                 onTextChange={(text) => updateLine(index, { description: text, productId: "" })}
                                 onSelectProduct={(p) => applyProductToLine(index, p.id)}
+                                onCreateProduct={async (name) => {
+                                  if (!companyId) return false
+                                  try {
+                                    const created = await quickCreateProduct({ companyId, name, salePrice: row.unitPrice, vatRate: row.vatRate })
+                                    setProducts((prev) => [...prev, created])
+                                    updateLine(index, {
+                                      productId: created.id,
+                                      description: created.name,
+                                      unitPrice: created.salePrice != null ? String(created.salePrice) : row.unitPrice,
+                                    })
+                                    return true
+                                  } catch (e) {
+                                    toast({ title: "Hata", description: e instanceof Error ? e.message : "Ürün eklenemedi", variant: "destructive" })
+                                    return false
+                                  }
+                                }}
                               />
                             </div>
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:col-span-5">

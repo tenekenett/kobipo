@@ -173,14 +173,25 @@ export async function sendInvoiceToProvider(
       ? company.eFaturaPrefix || undefined
       : company.eArchivePrefix || undefined
 
-  // ÖNEMLİ: connectorGuid / pkAlias / gbAlias Mysoft'a GÖNDERME.
-  // - connectorGuid: createInvoiceOutboxTestJson endpoint'i her çağrıda random
-  //   GUID dönüyor; saklayıp tekrar göndermek anlamsız.
-  // - pkAlias/gbAlias: sample payload'da "urn:mail:defaultpk@mysoft.com.tr" gibi
-  //   generic placeholder dönüyor — gerçek alias değil.
-  // Mysoft tenantIdentifierNumber'dan gerçek connector + alias'ı kendi seçer.
+  // ÖNEMLİ: connectorGuid ve gbAlias (GÖNDERİCİ birim alias'ı) Mysoft'a GÖNDERME —
+  // connectorGuid her çağrıda random döner; gbAlias'ı Mysoft tenantIdentifierNumber'dan
+  // kendi seçer.
+  // AMA outbox pkAlias = ALICININ posta kutusudur (swagger: "Alıcı firmanın posta
+  // kutusu... birden fazla varsa tercih ettiğinizi girin; boşsa sistem ilk geçerliyi
+  // otomatik atar. E-Arşiv'de boş bırakılmalı."). Müşteri kartında pinlenmiş bir kutu
+  // varsa E-Fatura'da onu geçiyoruz; GİB alias'ları urn:mail: önekiyle beklenir.
+  const rawReceiverAlias = (invoice.customer?.eInvoiceAlias || "").trim()
+  const receiverPkAlias =
+    effectiveInvoiceType === "E_INVOICE" && rawReceiverAlias
+      ? /^urn:/i.test(rawReceiverAlias)
+        ? rawReceiverAlias
+        : `urn:mail:${rawReceiverAlias}`
+      : undefined
+
   const invoiceData = {
     invoiceType: effectiveInvoiceType,
+    // Alıcının pinlediği posta kutusu (yoksa undefined → Mysoft otomatik seçer).
+    pkAlias: receiverPkAlias,
     // E-Fatura'da kullanıcının seçtiği profil (Ticari/Temel). E-Arşiv'de yok sayılır.
     eInvoiceProfile:
       effectiveInvoiceType === "E_INVOICE" ? options?.eInvoiceProfile : undefined,

@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
+import { SearchSelect } from "@/components/ui/search-select"
+import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { useToast } from "@/components/ui/use-toast"
 import { ArrowLeft, Building2, Download, FileText, Landmark, Loader2, Minus, Plus, Save } from "lucide-react"
 
@@ -497,19 +499,14 @@ export default function TeklifDetailPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <Label>Müşteri</Label>
-              <Select value={customerId || "__none__"} disabled={!editable} onValueChange={(v) => setCustomerId(v === "__none__" ? "" : v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seçin" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">—</SelectItem>
-                  {customers.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchSelect
+                options={customers}
+                value={customerId}
+                onChange={(v) => setCustomerId(v)}
+                placeholder="Müşteri seçin veya arayın…"
+                disabled={!editable}
+                allowClear
+              />
             </div>
             <div>
               <Label>Para birimi</Label>
@@ -562,6 +559,22 @@ export default function TeklifDetailPage() {
                       value={row.description}
                       onTextChange={(text) => updateLine(index, { description: text, productId: "" })}
                       onSelectProduct={(p) => applyProductToLine(index, p.id)}
+                      onCreateProduct={async (name) => {
+                        if (!companyId) return false
+                        try {
+                          const created = await quickCreateProduct({ companyId, name, salePrice: row.unitPrice, vatRate: row.vatRate })
+                          setProducts((prev) => [...prev, created])
+                          updateLine(index, {
+                            productId: created.id,
+                            description: created.name,
+                            unitPrice: created.salePrice != null ? String(created.salePrice) : row.unitPrice,
+                          })
+                          return true
+                        } catch (e) {
+                          toast({ title: "Hata", description: e instanceof Error ? e.message : "Ürün eklenemedi", variant: "destructive" })
+                          return false
+                        }
+                      }}
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:col-span-5 sm:grid-cols-4">

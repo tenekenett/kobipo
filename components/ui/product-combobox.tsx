@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
-import { Package, Plus } from "lucide-react"
+import { Loader2, Package, Plus, Type } from "lucide-react"
 
 export type ProductOption = {
   id: string
@@ -18,6 +18,12 @@ type ProductComboboxProps = {
   onTextChange: (text: string) => void
   /** Listeden ürün seçildi: productId + ad + fiyat uygula. */
   onSelectProduct: (product: ProductOption) => void
+  /**
+   * Sağlanırsa "yeni ürün olarak ekle" seçeneği gösterilir; yazılan ad ile yeni
+   * ürün oluşturup satıra uygulamak çağıranın sorumluluğundadır. true → başarılı
+   * (combobox kapanır), false → başarısız (açık kalır).
+   */
+  onCreateProduct?: (name: string) => Promise<boolean>
   products: ProductOption[]
   disabled?: boolean
   placeholder?: string
@@ -45,12 +51,14 @@ export function ProductCombobox({
   value,
   onTextChange,
   onSelectProduct,
+  onCreateProduct,
   products,
   disabled,
   placeholder,
 }: ProductComboboxProps) {
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(-1)
+  const [creating, setCreating] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const matches = useMemo(() => {
@@ -77,6 +85,26 @@ export function ProductCombobox({
 
   function select(product: ProductOption) {
     onSelectProduct(product)
+    setOpen(false)
+    setHighlight(-1)
+  }
+
+  async function createNew() {
+    if (!onCreateProduct || creating) return
+    setCreating(true)
+    try {
+      const ok = await onCreateProduct(value.trim())
+      if (ok) {
+        setOpen(false)
+        setHighlight(-1)
+      }
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  function useFreeText() {
+    // Metin zaten satıra yazılı (onTextChange); sadece listeyi kapat.
     setOpen(false)
     setHighlight(-1)
   }
@@ -144,13 +172,46 @@ export function ProductCombobox({
             </li>
           ))}
           {typed && !hasExact && (
-            <li className="border-t mt-1 pt-1">
-              <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
-                <Plus className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">
-                  “{value.trim()}” serbest kalem olarak eklenecek
-                </span>
-              </div>
+            <li className={matches.length > 0 ? "mt-1 border-t pt-1" : ""}>
+              {onCreateProduct ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={creating}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      createNew()
+                    }}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm font-medium text-kobipo-blue transition-colors hover:bg-accent disabled:opacity-60 dark:text-primary"
+                  >
+                    {creating ? (
+                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    <span className="truncate">“{value.trim()}” yeni ürün olarak ekle</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={creating}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      useFreeText()
+                    }}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent disabled:opacity-60"
+                  >
+                    <Type className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">Serbest kalem olarak kullan</span>
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+                  <Plus className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">
+                    “{value.trim()}” serbest kalem olarak eklenecek
+                  </span>
+                </div>
+              )}
             </li>
           )}
         </ul>

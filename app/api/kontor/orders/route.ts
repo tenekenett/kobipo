@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { requireSuperAdmin } from "@/lib/auth/require-super-admin"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { isPaytrEnabled, PAYTR_NOT_CONFIGURED_ERROR } from "@/lib/integrations/paytr/client"
 
 export const dynamic = "force-dynamic"
 
@@ -46,8 +47,13 @@ export async function POST(request: Request) {
     const body = await request.json()
     const companyId = String(body?.companyId ?? "")
     const packageId = String(body?.packageId ?? "")
+    // Ödeme yöntemi: "CARD" (PayTR sanal POS) veya "HAVALE" (varsayılan, manuel onay).
+    const paymentMethod = body?.paymentMethod === "CARD" ? "CARD" : "HAVALE"
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     if (!packageId) return NextResponse.json({ error: "packageId zorunlu" }, { status: 400 })
+    if (paymentMethod === "CARD" && !isPaytrEnabled()) {
+      return NextResponse.json({ error: PAYTR_NOT_CONFIGURED_ERROR }, { status: 400 })
+    }
 
     await ensureCompanyAccess(companyId)
 
@@ -77,7 +83,8 @@ export async function POST(request: Request) {
         mysoftTariffCode: pkg.mysoftTariffCode,
         targetVkn,
         status: "PENDING_PAYMENT",
-        paymentMethod: "HAVALE",
+        paymentMethod,
+        paymentProvider: paymentMethod === "CARD" ? "PAYTR" : null,
         createdById: user.id,
       },
     })

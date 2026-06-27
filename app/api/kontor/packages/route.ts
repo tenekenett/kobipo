@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { requireSuperAdmin } from "@/lib/auth/require-super-admin"
 import { prisma } from "@/lib/db/prisma"
+import { isPaytrEnabled } from "@/lib/integrations/paytr/client"
 
 export const dynamic = "force-dynamic"
 
@@ -29,7 +30,8 @@ export async function GET(request: Request) {
     where: includeInactive ? {} : { isActive: true },
     orderBy: [{ sortOrder: "asc" }, { price: "asc" }],
   })
-  return NextResponse.json({ data: packages })
+  // paytrEnabled: kart ödeme butonunu yalnızca PayTR yapılandırılmışsa göstermek için.
+  return NextResponse.json({ data: packages, paytrEnabled: isPaytrEnabled() })
 }
 
 export async function POST(request: Request) {

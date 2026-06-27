@@ -51,10 +51,20 @@ function calculateTotals(items: any[]) {
 async function generateOrderNumber(companyId: string, type: "SALES" | "PURCHASE") {
   const year = new Date().getFullYear()
   const prefix = `${type === "PURCHASE" ? "ASP" : "SIP"}-${year}-`
-  const count = await prisma.order.count({
+  // En büyük mevcut numarayı bul ve artır. `count + 1` KULLANMA: aradaki bir
+  // sipariş silinince sayı düşer ve var olan bir numarayla çakışır (P2002).
+  // Numara 6 hane sıfır dolgulu olduğundan sözlüksel sıralama = sayısal sıralama.
+  const last = await prisma.order.findFirst({
     where: { companyId, type, orderNo: { startsWith: prefix } },
+    orderBy: { orderNo: "desc" },
+    select: { orderNo: true },
   })
-  return `${prefix}${String(count + 1).padStart(6, "0")}`
+  let next = 1
+  if (last?.orderNo) {
+    const parsed = parseInt(last.orderNo.slice(prefix.length), 10)
+    if (!Number.isNaN(parsed)) next = parsed + 1
+  }
+  return `${prefix}${String(next).padStart(6, "0")}`
 }
 
 export async function GET(request: Request) {
@@ -120,36 +130,56 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "En az bir geçerli kalem gerekli" }, { status: 400 })
   }
 
-  const finalOrderNo = orderNo || (await generateOrderNumber(companyId, orderType))
-
-  const order = await prisma.order.create({
-    data: {
-      companyId,
-      orderNo: finalOrderNo,
-      type: orderType,
-      customerId: orderType === "SALES" ? customerId : null,
-      supplierId: orderType === "PURCHASE" ? supplierId : null,
-      date: date ? new Date(date) : new Date(),
-      deliveryDate: deliveryDate ? new Date(deliveryDate) : null,
-      currency: currency || "TRY",
-      notes: notes || null,
-      netAmount,
-      vatAmount,
-      totalAmount,
-      createdBy: user.id,
-      items: {
-        create: normalized.map((item, index) => ({
-          ...item,
-          order: index,
-        })),
-      },
-    },
-    include: {
-      customer: { select: { id: true, name: true } },
-      supplier: { select: { id: true, name: true } },
-      items: true,
+  const buildData = (finalOrderNo: string) => ({
+    companyId,
+    orderNo: finalOrderNo,
+    type: orderType,
+    customerId: orderType === "SALES" ? customerId : null,
+    supplierId: orderType === "PURCHASE" ? supplierId : null,
+    date: date ? new Date(date) : new Date(),
+    deliveryDate: deliveryDate ? new Date(deliveryDate) : null,
+    currency: currency || "TRY",
+    notes: notes || null,
+    netAmount,
+    vatAmount,
+    totalAmount,
+    createdBy: user.id,
+    items: {
+      create: normalized.map((item, index) => ({
+        ...item,
+        order: index,
+      })),
     },
   })
 
-  return NextResponse.json(order, { status: 201 })
+  // Numara üretimiyle create arasında eşzamanlı başka bir sipariş araya girerse
+  // (companyId, orderNo) tekil kısıtı patlar (P2002). Otomatik numarada birkaç kez
+  // yeniden üretip dene; kullanıcı kendi numarasını verdiyse tekrar deneme.
+  const maxAttempts = orderNo ? 1 : 5
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const finalOrderNo = orderNo || (await generateOrderNumber(companyId, orderType))
+    try {
+      const order = await prisma.order.create({
+        data: buildData(finalOrderNo),
+        include: {
+          customer: { select: { id: true, name: true } },
+          supplier: { select: { id: true, name: true } },
+          items: true,
+        },
+      })
+      return NextResponse.json(order, { status: 201 })
+    } catch (error: any) {
+      if (error?.code === "P2002" && attempt < maxAttempts - 1 && !orderNo) continue
+      if (error?.code === "P2002") {
+        return NextResponse.json(
+          { error: "Bu sipariş numarası zaten kullanımda. Lütfen tekrar deneyin." },
+          { status: 409 },
+        )
+      }
+      console.error("Error creating order:", error)
+      return NextResponse.json({ error: "Sipariş oluşturulamadı" }, { status: 500 })
+    }
+  }
+
+  return NextResponse.json({ error: "Sipariş numarası üretilemedi" }, { status: 409 })
 }

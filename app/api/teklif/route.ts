@@ -47,10 +47,20 @@ function calculateTotals(items: any[]) {
 async function generateQuoteNumber(companyId: string) {
   const year = new Date().getFullYear()
   const prefix = `TKF-${year}-`
-  const count = await prisma.quote.count({
+  // En büyük mevcut numarayı bul ve artır. `count + 1` KULLANMA: aradaki bir
+  // teklif silinince sayı düşer ve var olan bir numarayla çakışır (P2002).
+  // Numara 6 hane sıfır dolgulu olduğundan sözlüksel sıralama = sayısal sıralama.
+  const last = await prisma.quote.findFirst({
     where: { companyId, quoteNo: { startsWith: prefix } },
+    orderBy: { quoteNo: "desc" },
+    select: { quoteNo: true },
   })
-  return `${prefix}${String(count + 1).padStart(6, "0")}`
+  let next = 1
+  if (last?.quoteNo) {
+    const parsed = parseInt(last.quoteNo.slice(prefix.length), 10)
+    if (!Number.isNaN(parsed)) next = parsed + 1
+  }
+  return `${prefix}${String(next).padStart(6, "0")}`
 }
 
 export async function GET(request: Request) {
@@ -82,7 +92,10 @@ export async function GET(request: Request) {
       items: { include: { product: true }, orderBy: { order: "asc" } },
       _count: { select: { items: true } },
     },
-    orderBy: { date: "desc" },
+    // Tarih (belge günü) çoğunlukla aynı gün olduğundan tek başına sıralama
+    // aynı-gün kayıtlarını belirsiz bırakır; ikincil anahtar createdAt (saat dahil)
+    // ile en yeniden en eskiye kesinleştir.
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
   })
   return NextResponse.json(quotes)
 }
@@ -114,35 +127,53 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "At least one valid item is required" }, { status: 400 })
   }
 
-  const finalQuoteNo = quoteNo || (await generateQuoteNumber(companyId))
-
-  const quote = await prisma.quote.create({
-    data: {
-      companyId,
-      quoteNo: finalQuoteNo,
-      customerId: customerId || null,
-      supplierId: supplierId || null,
-      date: date ? new Date(date) : new Date(),
-      validUntil: validUntil ? new Date(validUntil) : null,
-      currency: currency || "TRY",
-      notes: notes || null,
-      netAmount,
-      vatAmount,
-      totalAmount,
-      createdBy: user.id,
-      items: {
-        create: normalized.map((item, index) => ({
-          ...item,
-          order: index,
-        })),
-      },
-    },
-    include: {
-      customer: true,
-      supplier: true,
-      items: true,
+  const buildData = (finalQuoteNo: string) => ({
+    companyId,
+    quoteNo: finalQuoteNo,
+    customerId: customerId || null,
+    supplierId: supplierId || null,
+    date: date ? new Date(date) : new Date(),
+    validUntil: validUntil ? new Date(validUntil) : null,
+    currency: currency || "TRY",
+    notes: notes || null,
+    netAmount,
+    vatAmount,
+    totalAmount,
+    createdBy: user.id,
+    items: {
+      create: normalized.map((item, index) => ({
+        ...item,
+        order: index,
+      })),
     },
   })
 
-  return NextResponse.json(quote, { status: 201 })
+  // Numara üretimiyle create arasında eşzamanlı başka bir teklif araya girerse
+  // (companyId, quoteNo) tekil kısıtı patlar (P2002). Otomatik numarada birkaç kez
+  // yeniden üretip dene; kullanıcı kendi numarasını verdiyse tekrar deneme.
+  const maxAttempts = quoteNo ? 1 : 5
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const finalQuoteNo = quoteNo || (await generateQuoteNumber(companyId))
+    try {
+      const quote = await prisma.quote.create({
+        data: buildData(finalQuoteNo),
+        include: { customer: true, supplier: true, items: true },
+      })
+      return NextResponse.json(quote, { status: 201 })
+    } catch (error: any) {
+      const isDup =
+        error?.code === "P2002" && attempt < maxAttempts - 1 && !quoteNo
+      if (isDup) continue
+      if (error?.code === "P2002") {
+        return NextResponse.json(
+          { error: "Bu teklif numarası zaten kullanımda. Lütfen tekrar deneyin." },
+          { status: 409 },
+        )
+      }
+      console.error("Error creating quote:", error)
+      return NextResponse.json({ error: "Teklif oluşturulamadı" }, { status: 500 })
+    }
+  }
+
+  return NextResponse.json({ error: "Teklif numarası üretilemedi" }, { status: 409 })
 }

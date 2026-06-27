@@ -279,6 +279,7 @@ export async function PUT(
       phone,
       email,
       contactPerson,
+      eInvoiceAlias,
       paymentDueDays,
       openingBalanceAmount,
       openingBalanceType,
@@ -370,6 +371,7 @@ export async function PUT(
         phone: phone !== undefined ? phone : current.phone,
         email: email !== undefined ? email : current.email,
         contactPerson: contactPerson !== undefined ? contactPerson : current.contactPerson,
+        eInvoiceAlias: eInvoiceAlias !== undefined ? eInvoiceAlias : current.eInvoiceAlias,
         paymentDueDays:
           paymentDueDays !== undefined
             ? paymentDueDaysVal
@@ -433,6 +435,7 @@ export async function PUT(
             phone: merged.phone,
             email: merged.email,
             contactPerson: merged.contactPerson,
+            eInvoiceAlias: merged.eInvoiceAlias,
             paymentDueDays: merged.paymentDueDays,
             openingBalanceAmount: merged.openingBalanceAmount,
             openingBalanceType: merged.openingBalanceType,
@@ -457,6 +460,7 @@ export async function PUT(
           phone: merged.phone,
           email: merged.email,
           contactPerson: merged.contactPerson,
+          eInvoiceAlias: merged.eInvoiceAlias,
           paymentDueDays: merged.paymentDueDays,
           openingBalanceAmount: merged.openingBalanceAmount,
           openingBalanceType: merged.openingBalanceType,
@@ -500,6 +504,7 @@ export async function PUT(
             phone: saved.phone,
             email: saved.email,
             contactPerson: saved.contactPerson,
+            eInvoiceAlias: saved.eInvoiceAlias,
             paymentDueDays: saved.paymentDueDays,
             openingBalanceAmount: saved.openingBalanceAmount,
             openingBalanceType: saved.openingBalanceType,
