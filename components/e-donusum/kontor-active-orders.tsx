@@ -6,10 +6,10 @@ import { Check, XCircle, Clock, Copy, CreditCard } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 
-// Havale/EFT ödeme bilgileri — gerçek IBAN ile değiştirin (ya da ileride sistem ayarından okuyun).
+// Havale/EFT ödeme bilgileri.
 export const HAVALE_INFO = {
-  unvan: "REYPO BİLİŞİM SANAYİ VE TİCARET LTD. ŞTİ.",
-  iban: "TR00 0000 0000 0000 0000 0000 00",
+  unvan: "REYPO BİLİŞİM SANAYİ VE TİCARET LİMİTED ŞİRKETİ",
+  iban: "TR80 0004 6006 9988 8000 1626 97",
 }
 
 interface KontorOrder {
