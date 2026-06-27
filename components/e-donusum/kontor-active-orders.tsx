@@ -1,7 +1,9 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Check, XCircle, Clock, Copy } from "lucide-react"
+import Link from "next/link"
+import { Check, XCircle, Clock, Copy, CreditCard } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 
 // Havale/EFT ödeme bilgileri — gerçek IBAN ile değiştirin (ya da ileride sistem ayarından okuyun).
@@ -16,11 +18,25 @@ interface KontorOrder {
   totalPrice: string | number
   currency: string
   status: string
+  paymentMethod?: string
 }
 
-const STEPS = ["Sipariş", "Havale", "Onay", "Yüklendi"]
+const HAVALE_STEPS = ["Sipariş", "Havale", "Onay", "Yüklendi"]
+const CARD_STEPS = ["Sipariş", "Ödeme", "Yüklendi"]
 
-function statusToStep(status: string): { current: number; failed: boolean } {
+function statusToStep(status: string, isCard: boolean): { current: number; failed: boolean } {
+  if (isCard) {
+    switch (status) {
+      case "PENDING_PAYMENT":
+        return { current: 1, failed: false } // Ödeme
+      case "LOADED":
+        return { current: 3, failed: false }
+      case "FAILED":
+        return { current: 2, failed: true } // ödeme alındı, yükleme başarısız
+      default:
+        return { current: 0, failed: false }
+    }
+  }
   switch (status) {
     case "PENDING_PAYMENT":
       return { current: 1, failed: false }
@@ -35,11 +51,19 @@ function statusToStep(status: string): { current: number; failed: boolean } {
   }
 }
 
-export function OrderStepper({ status }: { status: string }) {
-  const { current, failed } = statusToStep(status)
+export function OrderStepper({
+  status,
+  paymentMethod,
+}: {
+  status: string
+  paymentMethod?: string
+}) {
+  const isCard = paymentMethod === "CARD"
+  const steps = isCard ? CARD_STEPS : HAVALE_STEPS
+  const { current, failed } = statusToStep(status, isCard)
   return (
     <div className="flex items-center">
-      {STEPS.map((label, i) => {
+      {steps.map((label, i) => {
         const done = i < current
         const active = i === current && !failed
         const isFail = failed && i === current
@@ -69,7 +93,7 @@ export function OrderStepper({ status }: { status: string }) {
                 {label}
               </span>
             </div>
-            {i < STEPS.length - 1 && (
+            {i < steps.length - 1 && (
               <div className={`mx-1 h-0.5 flex-1 ${i < current ? "bg-emerald-500" : "bg-muted"}`} />
             )}
           </div>
@@ -80,9 +104,9 @@ export function OrderStepper({ status }: { status: string }) {
 }
 
 /**
- * Firmanın devam eden (ödeme/onay bekleyen) kontör siparişlerini adım çubuğu + havale
- * bilgileriyle gösterir. Aktif sipariş yoksa hiçbir şey render etmez.
- * `refreshKey` değiştiğinde (ör. yeni sipariş sonrası) yeniden çeker.
+ * Firmanın devam eden (ödeme/onay bekleyen) kontör siparişlerini adım çubuğu ile gösterir.
+ * Kart siparişlerinde "Ödemeye devam et" linki, havale siparişlerinde IBAN bilgisi çıkar.
+ * Aktif sipariş yoksa hiçbir şey render etmez. `refreshKey` değişince yeniden çeker.
  */
 export function KontorActiveOrders({
   companyId,
@@ -122,39 +146,62 @@ export function KontorActiveOrders({
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Devam eden siparişiniz
       </p>
-      {active.map((o) => (
-        <div key={o.id} className="rounded-xl border bg-muted/30 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="font-semibold">{o.packageName}</span>
-            <span className="text-sm text-muted-foreground">
-              {Number(o.totalPrice).toLocaleString("tr-TR")} {o.currency}
-            </span>
-          </div>
-          <OrderStepper status={o.status} />
-          {o.status === "PENDING_PAYMENT" && (
-            <div className="mt-4 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/40 dark:bg-amber-950/30">
-              <p className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-200">
-                <Clock className="h-4 w-4" /> Havale / EFT yapın
-              </p>
-              <p className="text-amber-900/90 dark:text-amber-200/90">{HAVALE_INFO.unvan}</p>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-amber-900 dark:text-amber-200">{HAVALE_INFO.iban}</span>
-                <button onClick={copyIban} className="text-amber-700 hover:text-amber-900 dark:text-amber-300">
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <p className="text-xs text-amber-800/80 dark:text-amber-300/80">
-                Açıklamaya sipariş no yazın: <span className="font-mono">{o.id}</span>
-              </p>
+      {active.map((o) => {
+        const isCard = o.paymentMethod === "CARD"
+        return (
+          <div key={o.id} className="rounded-xl border bg-muted/30 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="font-semibold">{o.packageName}</span>
+              <span className="text-sm text-muted-foreground">
+                {Number(o.totalPrice).toLocaleString("tr-TR")} {o.currency}
+              </span>
             </div>
-          )}
-          {o.status === "PAYMENT_REVIEW" && (
-            <p className="mt-3 text-xs text-muted-foreground">
-              Ödemeniz alındı, onay bekleniyor. Onaylanınca kontör otomatik yüklenecek.
-            </p>
-          )}
-        </div>
-      ))}
+            <OrderStepper status={o.status} paymentMethod={o.paymentMethod} />
+
+            {/* Kart siparişi, ödeme tamamlanmamış → checkout'a dön */}
+            {o.status === "PENDING_PAYMENT" && isCard && (
+              <div className="mt-4 space-y-2 rounded-lg border border-kobipo-blue/30 bg-kobipo-blue/5 p-3 text-sm dark:border-primary/30 dark:bg-primary/10">
+                <p className="flex items-center gap-1.5 font-semibold text-kobipo-navy dark:text-foreground">
+                  <CreditCard className="h-4 w-4" /> Kart ödemesi bekleniyor
+                </p>
+                <p className="text-muted-foreground">
+                  Ödemeniz henüz tamamlanmadı. Aşağıdan güvenli ödeme ekranına dönüp tamamlayabilirsiniz.
+                </p>
+                <Button asChild size="sm" className="mt-1">
+                  <Link href={`/e-donusum/kontor/odeme/${o.id}?company=${encodeURIComponent(companyId)}`}>
+                    Ödemeye devam et
+                  </Link>
+                </Button>
+              </div>
+            )}
+
+            {/* Havale siparişi → IBAN bilgisi */}
+            {o.status === "PENDING_PAYMENT" && !isCard && (
+              <div className="mt-4 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/40 dark:bg-amber-950/30">
+                <p className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-200">
+                  <Clock className="h-4 w-4" /> Havale / EFT yapın
+                </p>
+                <p className="text-amber-900/90 dark:text-amber-200/90">{HAVALE_INFO.unvan}</p>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-amber-900 dark:text-amber-200">{HAVALE_INFO.iban}</span>
+                  <button onClick={copyIban} className="text-amber-700 hover:text-amber-900 dark:text-amber-300">
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <p className="text-xs text-amber-800/80 dark:text-amber-300/80">
+                  Açıklamaya sipariş no yazın: <span className="font-mono">{o.id}</span>
+                </p>
+              </div>
+            )}
+
+            {o.status === "PAYMENT_REVIEW" && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                Ödemeniz alındı, onay bekleniyor. Onaylanınca kontör otomatik yüklenecek.
+              </p>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

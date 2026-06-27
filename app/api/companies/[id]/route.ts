@@ -127,6 +127,27 @@ export async function PUT(
       onboardingCompletedAt,
     } = body
 
+    // Mükellef VKN'si (eDonusumTenantVkn) firma VKN'sinden gelir. Firma VKN'si
+    // değiştiğinde, istekte açıkça gönderilmediyse mükellef VKN'sini de eşitle ki
+    // eski/stale bir değer kontör (insertDocumentCredit) ve fatura akışını yanlış
+    // VKN'ye yönlendirmesin. [[tenant.ts]] effectiveTenantVkn bu alanı önceler.
+    const cleanVknDigits = (v: unknown) =>
+      typeof v === "string" ? v.replace(/\D/g, "").slice(0, 11) : ""
+    let tenantVknUpdate: string | null | undefined
+    if (eDonusumTenantVkn !== undefined) {
+      const c = cleanVknDigits(eDonusumTenantVkn)
+      tenantVknUpdate = c ? c : null
+    } else if (taxNumber !== undefined) {
+      const existingCompany = await prisma.company.findUnique({
+        where: { id: resolvedParams.id },
+        select: { eDonusumTenantVkn: true },
+      })
+      const newTax = cleanVknDigits(taxNumber)
+      if (newTax && newTax !== cleanVknDigits(existingCompany?.eDonusumTenantVkn)) {
+        tenantVknUpdate = newTax
+      }
+    }
+
     const company = await prisma.company.update({
       where: { id: resolvedParams.id },
       data: {
@@ -152,12 +173,7 @@ export async function PUT(
                 ? eArchivePrefix.trim().toUpperCase().slice(0, 3)
                 : null)
             : undefined,
-        eDonusumTenantVkn:
-          eDonusumTenantVkn !== undefined
-            ? (typeof eDonusumTenantVkn === "string" && eDonusumTenantVkn.trim()
-                ? eDonusumTenantVkn.trim().replace(/\D/g, "").slice(0, 11)
-                : null)
-            : undefined,
+        eDonusumTenantVkn: tenantVknUpdate,
         eDonusumIntegrator: eDonusumIntegrator || undefined,
         eDonusumProvider: eDonusumProvider || null,
         // Username/URL/Alias: form'da bu alan gönderilmediyse (undefined) DB'deki değeri

@@ -31,6 +31,7 @@ interface KontorOrder {
   totalPrice: string | number
   currency: string
   status: string
+  paymentMethod?: string
   createdAt: string
 }
 
@@ -201,7 +202,11 @@ export function KontorPurchaseDialog({
                   Siparişlerim
                 </p>
                 {orders.map((o) => {
-                  const st = STATUS_LABEL[o.status] || { text: o.status, variant: "secondary" as const }
+                  // PENDING_PAYMENT etiketi ödeme yöntemine göre: kart → "Ödeme bekleniyor".
+                  const st =
+                    o.status === "PENDING_PAYMENT" && o.paymentMethod === "CARD"
+                      ? { text: "Ödeme bekleniyor", variant: "secondary" as const }
+                      : STATUS_LABEL[o.status] || { text: o.status, variant: "secondary" as const }
                   return (
                     <div key={o.id} className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm">
                       <span className="flex items-center gap-2">
