@@ -141,12 +141,12 @@ export default function KontorPage() {
               <p>
                 Kontör bilgisini görüntülemek için önce{" "}
                 <Link
-                  href={`/ayarlar/e-donusum?company=${companyId}`}
+                  href={`/ayarlar/firma?company=${companyId}`}
                   className="font-semibold underline underline-offset-2"
                 >
-                  E-Dönüşüm Ayarları
+                  Firma Ayarları
                 </Link>{" "}
-                sayfasından Mysoft Mükellef VKN/TCKN'nizi doğrulayın.
+                sayfasından firma VKN/TCKN bilginizi girin.
               </p>
             </div>
           ) : creditError ? (

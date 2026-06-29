@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic"
  */
 
 const ERR_NO_VERIFIED_VKN =
-  "Mysoft mükellef VKN'niz doğrulanmamış. E-Dönüşüm Ayarları sayfasından VKN girip 'Doğrula' butonuna basın."
+  "Mysoft mükellef VKN'niz tanımlı değil. Firma Ayarları sayfasından firma VKN/TCKN bilginizi girin."
 
 async function loadCredsAndVerifiedVkn(companyId: string) {
   const company = await prisma.company.findUnique({
@@ -28,10 +28,14 @@ async function loadCredsAndVerifiedVkn(companyId: string) {
       eDonusumApiPassword: true,
       eDonusumApiUrl: true,
       eDonusumTenantVkn: true,
+      taxNumber: true,
     },
   })
   if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) return null
-  const vkn = (company.eDonusumTenantVkn || "").replace(/\D/g, "")
+  // VKN doğrulama akışı kaldırıldı — eDonusumTenantVkn açıkça kaydedilmemişse
+  // firmanın kendi VKN/TCKN'sine fallback yap (zaten ayarlar UI'ı da bu değerle
+  // doluyor; kullanıcının ayrıca "Kaydet" demesini bekleme).
+  const vkn = (company.eDonusumTenantVkn || company.taxNumber || "").replace(/\D/g, "")
   if (vkn.length !== 10 && vkn.length !== 11) {
     return { needsVerifiedVkn: true as const }
   }

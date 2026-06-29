@@ -392,6 +392,11 @@ async sendInvoice(invoiceData: any): Promise<any> {
       const DEFAULT_EXEMPTION_CODE = "351"; // "Diğer İstisnalar" — kullanıcı kod girmediyse son çare
       const DEFAULT_EXEMPTION_REASON = "Vergiden istisna işlem";
 
+      // GİB şematron kuralı: tüm para alanları en fazla 2 ondalık (kuruş) içermeli.
+      // Pro-rata payı + KDV hesabında floating-point fazla hane üretebileceğinden
+      // gönderim öncesi tüm tutarları 2 ondalığa yuvarlıyoruz.
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+
       // 0 tutarlı kalemleri Mysoft'a göndermiyoruz. Satır iskontosu varsa KDV
       // matrahı (taxableAmtTra) = brüt - iskonto; KDV bu net üzerinden hesaplanır.
       const lineData = (invoiceData.items as any[])
@@ -433,17 +438,21 @@ async sendInvoice(invoiceData: any): Promise<any> {
           const lineNet = l.rowTotal - l.lineDiscount;
           const isLast = idx === lineData.length - 1;
           const share = isLast
-            ? Math.max(0, appliedGlobalDiscount - distributed)
-            : Math.round((lineNet / subtotalNetForGlobal) * appliedGlobalDiscount * 100) / 100;
+            ? round2(Math.max(0, appliedGlobalDiscount - distributed))
+            : round2((lineNet / subtotalNetForGlobal) * appliedGlobalDiscount);
           l.globalShare = share;
           distributed += share;
         });
       }
 
       // Yeni matrah ve KDV: lineDiscount + globalShare düşülmüş tutar üzerinden.
+      // GİB şematron 2-ondalık kuralı için round2() ile yuvarlanır.
       lineData.forEach((l: any) => {
-        l.taxable = l.rowTotal - l.lineDiscount - l.globalShare;
-        l.rowVat = (l.taxable * l.vatRate) / 100;
+        l.taxable = round2(l.rowTotal - l.lineDiscount - l.globalShare);
+        l.rowVat = round2((l.taxable * l.vatRate) / 100);
+        l.lineDiscount = round2(l.lineDiscount);
+        l.rowTotal = round2(l.rowTotal);
+        l.unitPrice = round2(l.unitPrice);
       });
 
       console.log("[Mysoft] discount distribution →", {

@@ -8,7 +8,7 @@ import { isPaytrEnabled, PAYTR_NOT_CONFIGURED_ERROR } from "@/lib/integrations/p
 export const dynamic = "force-dynamic"
 
 const ERR_NO_VERIFIED_VKN =
-  "Kontör yüklemesi için firmanızın Mysoft mükellef VKN'si doğrulanmış olmalı. E-Dönüşüm Ayarları'ndan VKN doğrulayın."
+  "Kontör yüklemesi için firmanızın VKN/TCKN bilgisi gerekli. Firma Ayarları'ndan firma VKN/TCKN bilginizi girin."
 
 /**
  * GET  — Siparişleri listele. ?all=1 (sistem-admin) hepsini; aksi halde ?companyId ile firma siparişleri.
@@ -64,9 +64,11 @@ export async function POST(request: Request) {
 
     const company = await prisma.company.findUnique({
       where: { id: companyId },
-      select: { eDonusumTenantVkn: true },
+      select: { eDonusumTenantVkn: true, taxNumber: true },
     })
-    const targetVkn = (company?.eDonusumTenantVkn || "").replace(/\D/g, "")
+    // VKN doğrulama akışı kaldırıldı — eDonusumTenantVkn boşsa firmanın kendi
+    // VKN/TCKN'sine fallback yap. Yalnız hiçbir yerde VKN tanımlı değilse engelle.
+    const targetVkn = (company?.eDonusumTenantVkn || company?.taxNumber || "").replace(/\D/g, "")
     if (targetVkn.length !== 10 && targetVkn.length !== 11) {
       return NextResponse.json({ error: ERR_NO_VERIFIED_VKN }, { status: 412 })
     }
