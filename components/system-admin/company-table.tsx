@@ -30,6 +30,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Search, MoreVertical, Users, FileText, Eye, Ban, Trash2, Edit, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useRouter } from "next/navigation"
 
 interface Company {
@@ -75,6 +76,7 @@ const emptyForm = {
 export function CompanyTable({ companies }: CompanyTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const router = useRouter()
 
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -134,9 +136,12 @@ export function CompanyTable({ companies }: CompanyTableProps) {
 
   const handleDelete = async (companyId: string, companyName: string) => {
     if (
-      !confirm(
-        `"${companyName}" firmasını ve TÜM verilerini (müşteri, fatura, stok vb.) kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`
-      )
+      !(await confirm({
+        title: "Firmayı sil",
+        description: `"${companyName}" firmasını ve TÜM verilerini (müşteri, fatura, stok vb.) kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`,
+        confirmLabel: "Sil",
+        variant: "destructive",
+      }))
     ) {
       return
     }

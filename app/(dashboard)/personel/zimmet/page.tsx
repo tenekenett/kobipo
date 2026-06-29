@@ -17,6 +17,7 @@ import {
   StyledTableRow,
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import Link from "next/link"
 import { Plus, RefreshCcw, Trash2, Search, Undo2, BadgeCheck, FileText } from "lucide-react"
 
@@ -39,6 +40,7 @@ export default function ZimmetPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [assets, setAssets] = useState<Asset[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -111,7 +113,7 @@ export default function ZimmetPage() {
   }
 
   async function remove(a: Asset) {
-    if (!confirm("Bu zimmet kaydını silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Zimmet kaydını sil", description: "Bu zimmet kaydını silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
     const res = await fetch(`/api/personel/assets/${a.id}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "Zimmet silindi" })

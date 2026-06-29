@@ -105,6 +105,7 @@ export async function GET(
       netAmount: Number(invoice.netAmount),
       vatAmount: Number(invoice.vatAmount),
       totalAmount: Number(invoice.totalAmount),
+      globalDiscountAmount: Number(invoice.globalDiscountAmount || 0),
       notes: invoice.notes || undefined,
     }
 
@@ -227,33 +228,58 @@ export async function GET(
     // Get the final Y position after the table
     const finalY = (doc as any).lastAutoTable.finalY + 10
     
-    // Totals
+    // Totals — Ara Toplam (brüt), Satır İskontoları, Fatura İskontosu, KDV, Genel Toplam
     const totalsX = 130
     doc.setFontSize(10)
-    
-    doc.text("Ara Toplam:", totalsX, finalY)
-    doc.text(`₺${invoiceData.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY, { align: "right" })
-    
-    const discountTotal = invoice.items.reduce((sum, item) => sum + Number(item.discountAmount || 0), 0)
-    doc.text("Iskonto:", totalsX, finalY + 6)
-    doc.text(`-₺${discountTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 6, { align: "right" })
-    
-    doc.text("KDV Toplam:", totalsX, finalY + 12)
-    doc.text(`₺${invoiceData.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 12, { align: "right" })
-    
+
+    const grossTotal = invoice.items.reduce(
+      (sum, item) => sum + Number(item.quantity) * Number(item.unitPrice),
+      0,
+    )
+    const lineDiscountTotal = invoice.items.reduce(
+      (sum, item) => sum + Number(item.discountAmount || 0),
+      0,
+    )
+    const globalDiscount = invoiceData.globalDiscountAmount
+
+    let y = finalY
+    doc.text("Ara Toplam:", totalsX, y)
+    doc.text(`₺${grossTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, y, { align: "right" })
+
+    if (lineDiscountTotal > 0) {
+      y += 6
+      doc.text("Satır İskontoları:", totalsX, y)
+      doc.text(`-₺${lineDiscountTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, y, { align: "right" })
+    }
+
+    if (globalDiscount > 0) {
+      y += 6
+      doc.text("Fatura İskontosu:", totalsX, y)
+      doc.text(`-₺${globalDiscount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, y, { align: "right" })
+    }
+
+    y += 6
+    doc.text("Matrah:", totalsX, y)
+    doc.text(`₺${invoiceData.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, y, { align: "right" })
+
+    y += 6
+    doc.text("KDV Toplam:", totalsX, y)
+    doc.text(`₺${invoiceData.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, y, { align: "right" })
+
+    y += 8
     doc.setFont(TURKISH_PDF_FONT, "bold")
     doc.setFontSize(12)
-    doc.text("GENEL TOPLAM:", totalsX, finalY + 20)
+    doc.text("GENEL TOPLAM:", totalsX, y)
     doc.setTextColor(34, 197, 94)
-    doc.text(`₺${invoiceData.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 20, { align: "right" })
+    doc.text(`₺${invoiceData.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, y, { align: "right" })
     doc.setTextColor(0, 0, 0)
     
     // Notes
     if (invoiceData.notes) {
       doc.setFont(TURKISH_PDF_FONT, "normal")
       doc.setFontSize(9)
-      doc.text("Notlar:", 14, finalY + 30)
-      doc.text(invoiceData.notes, 14, finalY + 36)
+      doc.text("Notlar:", 14, y + 10)
+      doc.text(invoiceData.notes, 14, y + 16)
     }
     
     // Footer

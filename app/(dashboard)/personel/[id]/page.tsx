@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { ArrowLeft, FileText, FileDown, ExternalLink, Plus, Pencil, Trash2, Wallet, CalendarCheck, BadgeCheck, FolderOpen } from "lucide-react"
 
 type Employee = {
@@ -97,6 +98,7 @@ export default function PersonelDetayPage() {
   const params = useParams<{ id: string }>()
   const searchParams = useSearchParams()
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const companyId = searchParams.get("company")
   const id = params.id
   const [emp, setEmp] = useState<Employee | null>(null)
@@ -212,7 +214,7 @@ export default function PersonelDetayPage() {
   }
 
   async function removeDoc(docId: string) {
-    if (!confirm("Bu belgeyi silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Belgeyi sil", description: "Bu belgeyi silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
     const res = await fetch(`/api/personel/documents/${docId}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "Belge silindi" })

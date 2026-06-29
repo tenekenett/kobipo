@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Loader2, RefreshCw, Plus, Trash2, CheckCircle2, XCircle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 
 interface Tariff {
   tariffCode?: string
@@ -58,6 +59,7 @@ const emptyForm = {
 
 export function KontorAdmin() {
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [loading, setLoading] = useState(true)
   const [tariffs, setTariffs] = useState<Tariff[]>([])
   const [tariffsError, setTariffsError] = useState<string | null>(null)
@@ -137,7 +139,7 @@ export function KontorAdmin() {
   }
 
   const deletePackage = async (pkg: KontorPackage) => {
-    if (!confirm(`"${pkg.name}" paketi silinsin mi?`)) return
+    if (!(await confirm({ title: "Paketi sil", description: `"${pkg.name}" paketi silinsin mi?`, confirmLabel: "Sil", variant: "destructive" }))) return
     const res = await fetch(`/api/kontor/packages/${pkg.id}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "Paket silindi" })

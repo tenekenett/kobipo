@@ -392,23 +392,73 @@ async sendInvoice(invoiceData: any): Promise<any> {
       const DEFAULT_EXEMPTION_CODE = "351"; // "Diğer İstisnalar" — kullanıcı kod girmediyse son çare
       const DEFAULT_EXEMPTION_REASON = "Vergiden istisna işlem";
 
-      // 0 tutarlı kalemleri Mysoft'a göndermiyoruz
+      // 0 tutarlı kalemleri Mysoft'a göndermiyoruz. Satır iskontosu varsa KDV
+      // matrahı (taxableAmtTra) = brüt - iskonto; KDV bu net üzerinden hesaplanır.
       const lineData = (invoiceData.items as any[])
         .map((item: any) => {
           const qty = Number(item.quantity) || 0;
           const unitPrice = Number(item.unitPrice) || 0;
           const vatRate = Number(item.vatRate) || 0;
-          const rowTotal = qty * unitPrice;
-          const rowVat = (rowTotal * vatRate) / 100;
+          const rowTotal = qty * unitPrice; // brüt
+          // İskonto tutarı: helper'dan hesaplanmış geliyor. Negatif/aşan değer
+          // normalize edilir (brüt üzerinde kalmasın).
+          const rawDiscount = Number(item.discountAmount) || 0;
+          const lineDiscount = Math.max(0, Math.min(rawDiscount, rowTotal));
+          const discountRate = Number(item.discountRate) || 0;
           const exemptionCode = typeof item.taxExemptionReasonCode === "string" && item.taxExemptionReasonCode.trim()
             ? item.taxExemptionReasonCode.trim()
             : null;
           const exemptionReason = typeof item.taxExemptionReason === "string" && item.taxExemptionReason.trim()
             ? item.taxExemptionReason.trim()
             : null;
-          return { item, qty, unitPrice, vatRate, rowTotal, rowVat, exemptionCode, exemptionReason };
+          // Pro-rata global discount payı sonradan eklenecek.
+          return { item, qty, unitPrice, vatRate, rowTotal, lineDiscount, discountRate, exemptionCode, exemptionReason, globalShare: 0, taxable: rowTotal - lineDiscount, rowVat: 0 };
         })
         .filter((l: any) => l.rowTotal > 0);
+
+      // Fatura altı (genel) iskontoyu satırlara PRO-RATA yay. Sebep: Mysoft'un
+      // header-level allowanceCharge bilgisi, kullanıcının seçtiği XSLT şablonuna
+      // göre GİB görselinde ÖRTÜK kalabiliyor; satır seviyesinde yayılan iskonto
+      // ise her UBL XSLT'inde standart olarak render edilir, KDV doğru çıkar.
+      const subtotalNetForGlobal = lineData.reduce((s: number, l: any) => s + (l.rowTotal - l.lineDiscount), 0);
+      const rawGlobalDiscount = Number(invoiceData.globalDiscountAmount) || 0;
+      const appliedGlobalDiscount = subtotalNetForGlobal > 0
+        ? Math.max(0, Math.min(rawGlobalDiscount, subtotalNetForGlobal))
+        : 0;
+
+      if (appliedGlobalDiscount > 0 && subtotalNetForGlobal > 0) {
+        // Yuvarlama hatası birikir — son satırda artığı düzelt.
+        let distributed = 0;
+        lineData.forEach((l: any, idx: number) => {
+          const lineNet = l.rowTotal - l.lineDiscount;
+          const isLast = idx === lineData.length - 1;
+          const share = isLast
+            ? Math.max(0, appliedGlobalDiscount - distributed)
+            : Math.round((lineNet / subtotalNetForGlobal) * appliedGlobalDiscount * 100) / 100;
+          l.globalShare = share;
+          distributed += share;
+        });
+      }
+
+      // Yeni matrah ve KDV: lineDiscount + globalShare düşülmüş tutar üzerinden.
+      lineData.forEach((l: any) => {
+        l.taxable = l.rowTotal - l.lineDiscount - l.globalShare;
+        l.rowVat = (l.taxable * l.vatRate) / 100;
+      });
+
+      console.log("[Mysoft] discount distribution →", {
+        rawGlobalDiscount,
+        appliedGlobalDiscount,
+        subtotalNetForGlobal,
+        lines: lineData.map((l: any) => ({
+          desc: l.item.description,
+          rowTotal: l.rowTotal,
+          lineDiscount: l.lineDiscount,
+          globalShare: l.globalShare,
+          taxable: l.taxable,
+          rowVat: l.rowVat,
+        })),
+      });
 
       if (lineData.length === 0) {
         return { success: false, error: "Faturada sıfır tutarsız kalem bulunamadı (tüm kalemler 0)." };
@@ -573,6 +623,11 @@ async sendInvoice(invoiceData: any): Promise<any> {
         // şablonunu Belge Şablonları ekranından yüklerse o kullanılır.
         "isSendWithGeneralXsltIfDefaultNotExists": true,
         "isManuelCalculation": false,
+        // Fatura not/açıklama alanı (UBL cbc:Note). Mysoft NoteModel listesi bekler;
+        // boşsa hiç gönderme. Hem e-Fatura hem e-Arşiv'de belgede görünür.
+        ...(typeof invoiceData.notes === "string" && invoiceData.notes.trim()
+          ? { notes: [{ note: invoiceData.notes.trim() }] }
+          : {}),
 
         "invoiceAccount": {
             "accountName": invoiceData.customer?.name || "Son Kullanıcı",
@@ -594,11 +649,38 @@ async sendInvoice(invoiceData: any): Promise<any> {
                 unitCode: "C62",
                 qty: l.qty,
                 unitPriceTra: l.unitPrice,
-                amtTra: l.rowTotal,
-                taxableAmtTra: l.rowTotal,
+                amtTra: l.rowTotal,        // brüt (qty * unitPrice)
+                taxableAmtTra: l.taxable,  // matrah (brüt - satır iskonto - global pay)
                 vatRate: l.vatRate,
-                amtVatTra: l.rowVat,
+                amtVatTra: l.rowVat,       // matrah * vatRate / 100
             };
+            // İskonto satırları (UBL cac:AllowanceCharge, chargeIndicator=false).
+            // Satır iskontosu + (varsa) fatura altı iskontodan o satıra düşen pay
+            // ayrı entry'ler olarak gönderilir; tüm UBL XSLT'leri bunları render eder.
+            const allowanceEntries: any[] = [];
+            if (l.lineDiscount > 0) {
+              allowanceEntries.push({
+                chargeIndicator: false,
+                multiplierFactorNumeric:
+                  l.discountRate > 0 ? l.discountRate / 100 : (l.rowTotal > 0 ? l.lineDiscount / l.rowTotal : 0),
+                amount: l.lineDiscount,
+                baseAmount: l.rowTotal,
+                allowanceChargeReason: "Satır İskontosu",
+              });
+            }
+            if (l.globalShare > 0) {
+              const baseForGlobal = l.rowTotal - l.lineDiscount;
+              allowanceEntries.push({
+                chargeIndicator: false,
+                multiplierFactorNumeric: baseForGlobal > 0 ? l.globalShare / baseForGlobal : 0,
+                amount: l.globalShare,
+                baseAmount: baseForGlobal,
+                allowanceChargeReason: "Fatura İskontosu",
+              });
+            }
+            if (allowanceEntries.length > 0) {
+              detail.allowanceCharge = allowanceEntries;
+            }
             if (l.vatRate === 0) {
                 detail.taxExemptionReasonCode = l.exemptionCode || DEFAULT_EXEMPTION_CODE;
                 detail.taxExemptionReasonName = l.exemptionReason || DEFAULT_EXEMPTION_REASON;

@@ -26,6 +26,7 @@ import {
   EntityCell,
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, FileText, Minus, Search, Ban, ShoppingCart, Wallet, CheckCircle2 } from "lucide-react"
 
 type Order = {
@@ -107,6 +108,7 @@ export default function SatisSiparisPage() {
   const router = useRouter()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [orders, setOrders] = useState<Order[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([])
@@ -232,7 +234,7 @@ export default function SatisSiparisPage() {
 
   async function convertToInvoice(orderId: string) {
     if (!companyId) return
-    if (!confirm("Bu siparişi satış faturasına dönüştürmek istiyor musunuz?")) return
+    if (!(await confirm({ title: "Faturaya dönüştür", description: "Bu siparişi satış faturasına dönüştürmek istiyor musunuz?", confirmLabel: "Dönüştür" }))) return
     const res = await fetch(`/api/siparis/${orderId}/faturaya-donustur`, { method: "POST" })
     if (res.ok) {
       toast({ title: "Sipariş faturaya dönüştürüldü" })
@@ -255,7 +257,7 @@ export default function SatisSiparisPage() {
   }
 
   async function removeOrder(orderId: string) {
-    if (!confirm("Bu siparişi silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Siparişi sil", description: "Bu siparişi silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
     const res = await fetch(`/api/siparis/${orderId}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "Sipariş silindi" })
@@ -273,7 +275,7 @@ export default function SatisSiparisPage() {
   }
 
   async function cancelOrder(orderId: string) {
-    if (!confirm("Bu siparişi iptal etmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Siparişi iptal et", description: "Bu siparişi iptal etmek istediğinize emin misiniz?", confirmLabel: "İptal et", variant: "destructive" }))) return
     const res = await fetch(`/api/siparis/${orderId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },

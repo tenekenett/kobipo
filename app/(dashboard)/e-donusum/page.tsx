@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/styled-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Send, FileText, Eye, Pencil, Inbox, Loader2, Download } from "lucide-react"
 import Link from "next/link"
 
@@ -47,6 +48,7 @@ export default function EDönüşümPage() {
   const router = useRouter()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
 
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -106,7 +108,7 @@ export default function EDönüşümPage() {
   }
 
   const handleSendInvoice = async (invoiceId: string) => {
-    if (!confirm("Faturayı göndermek istediğinize emin misiniz?")) {
+    if (!(await confirm({ title: "Faturayı gönder", description: "Faturayı göndermek istediğinize emin misiniz? Gönderildikten sonra fatura yasal olarak kesilmiş sayılır.", confirmLabel: "Gönder" }))) {
       return
     }
 

@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil, Archive, Trash2, Wallet, MoreVertical, User } from "lucide-react"
+import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil, Archive, Trash2, Wallet, MoreVertical, User, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import {
   DropdownMenu,
@@ -83,7 +83,7 @@ export default function CustomerSupplierDetailPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { toast } = useToast()
-  
+
   const type = params.type as "customers" | "suppliers"
   const id = params.id as string
   const companyId = searchParams.get("company")
@@ -495,12 +495,13 @@ export default function CustomerSupplierDetailPage() {
                 <TableHead className="text-right">Borç</TableHead>
                 <TableHead className="text-right">Alacak</TableHead>
                 <TableHead className="text-right">Bakiye</TableHead>
+                <TableHead className="w-12 text-right"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.transactions.length === 0 ? (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={7} className="py-12 text-center">
+                  <TableCell colSpan={8} className="py-12 text-center">
                     <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                       <FileText className="h-6 w-6 text-muted-foreground/60" />
                     </div>
@@ -509,8 +510,21 @@ export default function CustomerSupplierDetailPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                orderedTransactions.map((tx) => (
-                  <TableRow key={tx.id}>
+                orderedTransactions.map((tx) => {
+                  const isMovement = tx.type === "PAYMENT" || tx.type === "EXPENSE"
+                  return (
+                  <TableRow
+                    key={tx.id}
+                    className={isMovement ? "cursor-pointer" : undefined}
+                    onClick={
+                      isMovement
+                        ? () =>
+                            router.push(
+                              `/finans/hareketler/${tx.id}?company=${encodeURIComponent(companyId || "")}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`,
+                            )
+                        : undefined
+                    }
+                  >
                     <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
                       {new Date(tx.date).toLocaleDateString("tr-TR")}
                     </TableCell>
@@ -548,8 +562,14 @@ export default function CustomerSupplierDetailPage() {
                     <TableCell className={`text-right font-medium tabular-nums ${tx.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
                       {formatCurrency(tx.balance)}
                     </TableCell>
+                    <TableCell className="text-right">
+                      {isMovement ? (
+                        <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
+                      ) : null}
+                    </TableCell>
                   </TableRow>
-                ))
+                  )
+                })
               )}
             </TableBody>
           </Table>

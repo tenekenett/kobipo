@@ -38,10 +38,12 @@ type LineExtraKey = "description" | "discountRate" | "withholdingRate" | "excise
 
 const LINE_EXTRA_LABEL: Record<LineExtraKey, string> = {
   description: "Satır açıklaması",
-  discountRate: "İskonto (%)",
+  discountRate: "İskonto",
   withholdingRate: "Tevkifat (%)",
   exciseRate: "ÖTV (%)",
 }
+
+type DiscountMode = "PERCENT" | "AMOUNT"
 
 const LINE_EXTRA_ORDER: LineExtraKey[] = [
   "description",
@@ -67,7 +69,7 @@ const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
 interface Customer { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Supplier { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Product { id: string; name: string; code?: string; salePrice?: number; vatRate: number; unit?: string }
-export interface InvoiceItem { productId?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; vatRate: number; withholdingRate?: number; exciseRate?: number; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number }
+export interface InvoiceItem { productId?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; exciseRate?: number; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number }
 interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean }
 
 export type InvoiceEditorMode = "create" | "edit"
@@ -154,6 +156,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     { description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 },
   ])
   const [lineExtras, setLineExtras] = useState<LineExtraKey[][]>([[]])
+
+  // Fatura altı (genel) iskonto: kullanıcı % veya ₺ olarak girer, save'de tutar
+  // (globalDiscountAmount) olarak DB'ye yazılır. KDV matrahından oransal düşülür.
+  const [globalDiscountEnabled, setGlobalDiscountEnabled] = useState(false)
+  const [globalDiscountMode, setGlobalDiscountMode] = useState<DiscountMode>("PERCENT")
+  const [globalDiscountInput, setGlobalDiscountInput] = useState<string>("")
 
   const listHref = backHref || `/e-donusum?company=${encodeURIComponent(companyId)}`
   const goBack = () => router.push(listHref)
@@ -266,6 +274,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 const unitPrice = Number(ln.unitPrice) || 0
                 const vat = Number(ln.vatRate ?? 20)
                 const discRate = Number(ln.discountRate ?? 0)
+                const discAmount = Number(ln.discountAmount ?? 0)
                 return {
                   productId: matchedProduct?.id,
                   description: desc || (matchedProduct?.name ?? ""),
@@ -273,6 +282,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   quantity: qty > 0 ? qty : 1,
                   unitPrice,
                   discountRate: discRate,
+                  discountAmount: discAmount,
+                  discountMode: discAmount > 0 && discRate === 0 ? "AMOUNT" as DiscountMode : "PERCENT" as DiscountMode,
                   vatRate: Number.isFinite(vat) ? vat : 20,
                   withholdingRate: 0,
                   exciseRate: 0,
@@ -316,7 +327,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           newItems.map((it) => {
             const extras: LineExtraKey[] = []
             if (it.description) extras.push("description")
-            if ((it.discountRate || 0) > 0) extras.push("discountRate")
+            if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
             return extras
           }),
         )
@@ -582,27 +593,45 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         notes: data.notes || "",
       })
 
+      // Fatura altı iskonto: DB'de tutar olarak saklı; yüklerken AMOUNT modunda
+      // doğrudan göster (yüzde olarak girilmişse de kullanıcı tekrar değiştirebilir).
+      const savedGlobalDiscount = Number(data.globalDiscountAmount) || 0
+      if (savedGlobalDiscount > 0) {
+        setGlobalDiscountEnabled(true)
+        setGlobalDiscountMode("AMOUNT")
+        setGlobalDiscountInput(String(savedGlobalDiscount))
+      } else {
+        setGlobalDiscountEnabled(false)
+        setGlobalDiscountInput("")
+      }
+
       const editItems = Array.isArray(data.items)
-        ? data.items.map((item: any) => ({
-            productId: item.productId || undefined,
-            description: item.description || "",
-            unit: (item.unit as string) || item.product?.unit || "ADET",
-            quantity: Number(item.quantity) || 1,
-            unitPrice: Number(item.unitPrice) || 0,
-            discountRate: Number(item.discountRate) || 0,
-            vatRate: Number(item.vatRate) || 20,
-            withholdingRate: Number(item.withholdingRate) || 0,
-            exciseRate: Number(item.exciseRate) || 0,
-            taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
-            taxExemptionReason: item.taxExemptionReason || undefined,
-          })) : []
+        ? data.items.map((item: any) => {
+            const discRate = Number(item.discountRate) || 0
+            const discAmount = Number(item.discountAmount) || 0
+            return {
+              productId: item.productId || undefined,
+              description: item.description || "",
+              unit: (item.unit as string) || item.product?.unit || "ADET",
+              quantity: Number(item.quantity) || 1,
+              unitPrice: Number(item.unitPrice) || 0,
+              discountRate: discRate,
+              discountAmount: discAmount,
+              discountMode: (discAmount > 0 && discRate === 0 ? "AMOUNT" : "PERCENT") as DiscountMode,
+              vatRate: Number(item.vatRate) || 20,
+              withholdingRate: Number(item.withholdingRate) || 0,
+              exciseRate: Number(item.exciseRate) || 0,
+              taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
+              taxExemptionReason: item.taxExemptionReason || undefined,
+            }
+          }) : []
 
       const finalItems: InvoiceItem[] = editItems.length > 0 ? editItems : [{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }]
       setItems(finalItems)
       setLineExtras(finalItems.map((it) => {
         const extras: LineExtraKey[] = []
         if (it.description) extras.push("description")
-        if ((it.discountRate || 0) > 0) extras.push("discountRate")
+        if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
         if ((it.withholdingRate || 0) > 0) extras.push("withholdingRate")
         if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
         return extras
@@ -642,19 +671,25 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       })
 
       const copiedItems: InvoiceItem[] = Array.isArray(data.items)
-        ? data.items.map((item: any) => ({
-            productId: item.productId || undefined,
-            description: item.description || "",
-            unit: (item.unit as string) || item.product?.unit || "ADET",
-            quantity: Number(item.quantity) || 1,
-            unitPrice: Number(item.unitPrice) || 0,
-            discountRate: Number(item.discountRate) || 0,
-            vatRate: Number(item.vatRate) || 20,
-            withholdingRate: Number(item.withholdingRate) || 0,
-            exciseRate: Number(item.exciseRate) || 0,
-            taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
-            taxExemptionReason: item.taxExemptionReason || undefined,
-          }))
+        ? data.items.map((item: any) => {
+            const discRate = Number(item.discountRate) || 0
+            const discAmount = Number(item.discountAmount) || 0
+            return {
+              productId: item.productId || undefined,
+              description: item.description || "",
+              unit: (item.unit as string) || item.product?.unit || "ADET",
+              quantity: Number(item.quantity) || 1,
+              unitPrice: Number(item.unitPrice) || 0,
+              discountRate: discRate,
+              discountAmount: discAmount,
+              discountMode: (discAmount > 0 && discRate === 0 ? "AMOUNT" : "PERCENT") as DiscountMode,
+              vatRate: Number(item.vatRate) || 20,
+              withholdingRate: Number(item.withholdingRate) || 0,
+              exciseRate: Number(item.exciseRate) || 0,
+              taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
+              taxExemptionReason: item.taxExemptionReason || undefined,
+            }
+          })
         : []
 
       const finalItems: InvoiceItem[] =
@@ -665,7 +700,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       setLineExtras(finalItems.map((it) => {
         const extras: LineExtraKey[] = []
         if (it.description) extras.push("description")
-        if ((it.discountRate || 0) > 0) extras.push("discountRate")
+        if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
         if ((it.withholdingRate || 0) > 0) extras.push("withholdingRate")
         if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
         return extras
@@ -762,9 +797,24 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const removeLineExtra = (index: number, key: LineExtraKey) => {
     setLineExtras((prev) => prev.map((arr, i) => (i === index ? arr.filter((k) => k !== key) : arr)))
     if (key === "description") updateItem(index, "description", "")
-    if (key === "discountRate") updateItem(index, "discountRate", 0)
+    if (key === "discountRate") {
+      updateItem(index, "discountRate", 0)
+      updateItem(index, "discountAmount", 0)
+    }
     if (key === "withholdingRate") updateItem(index, "withholdingRate", 0)
     if (key === "exciseRate") updateItem(index, "exciseRate", 0)
+  }
+
+  const setDiscountMode = (index: number, mode: DiscountMode) => {
+    setItems((prev) =>
+      prev.map((it, i) => {
+        if (i !== index) return it
+        // Mod değişirken karşı alanı sıfırla — yalnız aktif olan dolu kalsın.
+        return mode === "PERCENT"
+          ? { ...it, discountMode: "PERCENT", discountAmount: 0 }
+          : { ...it, discountMode: "AMOUNT", discountRate: 0 }
+      }),
+    )
   }
 
   const applyProductToLine = (index: number, product: Product) => {
@@ -797,18 +847,58 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     setProducts((prev) => (prev.some((p) => p.id === product.id) ? prev : [product, ...prev]))
   }
 
+  const computeItemDiscount = (item: InvoiceItem, itemGross: number) => {
+    // Mod açıkça AMOUNT ise tutar; PERCENT ise oran. Eski faturalar için (mod yok)
+    // discountAmount > 0 ise AMOUNT, aksi halde discountRate üzerinden hesaplanır.
+    const mode: DiscountMode =
+      item.discountMode ?? (Number(item.discountAmount || 0) > 0 ? "AMOUNT" : "PERCENT")
+    if (mode === "AMOUNT") {
+      const raw = Number(item.discountAmount || 0)
+      // Negatif veya brüt-aşan tutarı normalize et — net sıfırın altına düşmesin.
+      return Math.max(0, Math.min(raw, itemGross))
+    }
+    const rate = Number(item.discountRate || 0)
+    return itemGross * (rate / 100)
+  }
+
   const calculateTotals = () => {
     let netAmount = 0, discountAmount = 0, vatAmount = 0, withholdingAmount = 0, exciseAmount = 0
     items.forEach((item) => {
       const itemGross = item.quantity * item.unitPrice
-      const itemDiscount = itemGross * ((item.discountRate || 0) / 100)
+      const itemDiscount = computeItemDiscount(item, itemGross)
       const itemNet = itemGross - itemDiscount
       const itemVat = itemNet * (item.vatRate / 100)
       const itemWithholding = itemNet * ((item.withholdingRate || 0) / 100)
       const itemExcise = itemNet * ((item.exciseRate || 0) / 100)
       netAmount += itemNet; discountAmount += itemDiscount; vatAmount += itemVat; withholdingAmount += itemWithholding; exciseAmount += itemExcise
     })
-    return { netAmount, discountAmount, vatAmount, withholdingAmount, exciseAmount, totalAmount: netAmount + vatAmount + exciseAmount - withholdingAmount }
+
+    // Fatura altı iskonto: kullanıcının girdiği değeri tutara çevir, KDV matrahını
+    // oransal olarak düşür, vat/withholding/excise'i yeniden hesapla.
+    const rawGlobal = parseFloat(globalDiscountInput) || 0
+    const globalDiscount = !globalDiscountEnabled || rawGlobal <= 0 || netAmount <= 0
+      ? 0
+      : globalDiscountMode === "AMOUNT"
+        ? Math.max(0, Math.min(rawGlobal, netAmount))
+        : Math.max(0, Math.min(netAmount * (rawGlobal / 100), netAmount))
+
+    const ratio = netAmount > 0 ? globalDiscount / netAmount : 0
+    const adjNet = netAmount - globalDiscount
+    const adjVat = vatAmount * (1 - ratio)
+    const adjWithholding = withholdingAmount * (1 - ratio)
+    const adjExcise = exciseAmount * (1 - ratio)
+    const totalAmount = adjNet + adjVat + adjExcise - adjWithholding
+
+    return {
+      netAmount: adjNet,
+      grossNetAmount: netAmount, // global iskonto öncesi ara toplam (gösterim için)
+      discountAmount,
+      globalDiscount,
+      vatAmount: adjVat,
+      withholdingAmount: adjWithholding,
+      exciseAmount: adjExcise,
+      totalAmount,
+    }
   }
 
   const resetForm = () => {
@@ -816,6 +906,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     setFormData({ type: "SALES", invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL", invoiceNo: "", customerId: "", supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", currency: "TRY", exchangeRate: "", exchangeRateDate: "", notes: "" })
     setItems([{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }])
     setLineExtras([[]])
+    setGlobalDiscountEnabled(false)
+    setGlobalDiscountInput("")
+    setGlobalDiscountMode("PERCENT")
   }
 
   const isEDonusumActive = Boolean(companySettings?.isEDonusumEnabled)
@@ -884,6 +977,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           ...formData,
           invoiceType: effectiveInvoiceType,
           items,
+          globalDiscountAmount: totals.globalDiscount > 0 ? totals.globalDiscount : 0,
           sendInvoice: false,
           ...(fromIncomingUuid && !isEditing ? { fromIncomingUuid } : {}),
         }),
@@ -1177,7 +1271,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                             className="flex h-10 items-center justify-end px-3 md:px-0 bg-slate-100/70 md:bg-transparent rounded-md md:rounded-none font-bold tabular-nums text-right text-[15px] md:text-sm"
                             style={{ color: BRAND_COLOR }}
                           >
-                            ₺{(item.quantity * item.unitPrice * (1 - (item.discountRate || 0) / 100) * (1 + item.vatRate / 100 + (item.exciseRate || 0) / 100 - (item.withholdingRate || 0) / 100)).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
+                            ₺{(() => {
+                              const gross = item.quantity * item.unitPrice
+                              const net = gross - computeItemDiscount(item, gross)
+                              const total = net * (1 + item.vatRate / 100 + (item.exciseRate || 0) / 100 - (item.withholdingRate || 0) / 100)
+                              return total.toLocaleString("tr-TR", { minimumFractionDigits: 2 })
+                            })()}
                           </div>
                         </div>
 
@@ -1245,7 +1344,53 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                 </div>
                               )
                             }
-                            const numericProps = key === "discountRate" ? { label: "İskonto (%)", value: item.discountRate || "", onChange: (v: string) => updateItem(index, "discountRate", v === "" ? 0 : parseFloat(v) || 0) } : key === "withholdingRate" ? { label: "Tevkifat (%)", value: item.withholdingRate || "", onChange: (v: string) => updateItem(index, "withholdingRate", v === "" ? 0 : parseFloat(v) || 0) } : { label: "ÖTV (%)", value: item.exciseRate || "", onChange: (v: string) => updateItem(index, "exciseRate", v === "" ? 0 : parseFloat(v) || 0) }
+                            if (key === "discountRate") {
+                              const mode: DiscountMode =
+                                item.discountMode ?? (Number(item.discountAmount || 0) > 0 ? "AMOUNT" : "PERCENT")
+                              const isPercent = mode === "PERCENT"
+                              const value = isPercent ? (item.discountRate || "") : (item.discountAmount || "")
+                              return (
+                                <div key={key} className="col-span-1 md:col-span-1 space-y-1.5">
+                                  <div className="flex items-center">
+                                    <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">İskonto</Label>
+                                    {removable}
+                                  </div>
+                                  <div className="flex h-10 items-stretch overflow-hidden rounded-lg border-2 border-kobipo-blue/25 bg-white shadow-sm focus-within:border-kobipo-blue/60">
+                                    <button
+                                      type="button"
+                                      className={`flex w-11 shrink-0 items-center justify-center text-base font-bold transition-all ${isPercent ? "bg-kobipo-navy text-white shadow-inner" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                                      aria-pressed={isPercent}
+                                      onClick={() => setDiscountMode(index, "PERCENT")}
+                                      title="Oran (%)"
+                                    >
+                                      %
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={`flex w-11 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-sm font-bold tracking-wide transition-all ${!isPercent ? "bg-kobipo-navy text-white shadow-inner" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                                      aria-pressed={!isPercent}
+                                      onClick={() => setDiscountMode(index, "AMOUNT")}
+                                      title="Tutar (TL)"
+                                    >
+                                      TL
+                                    </button>
+                                    <input
+                                      type="number"
+                                      className="w-full min-w-0 border-0 bg-transparent px-3 text-sm font-medium outline-none focus:ring-0"
+                                      min="0"
+                                      step="0.01"
+                                      value={value}
+                                      onChange={(e) => {
+                                        const v = e.target.value === "" ? 0 : parseFloat(e.target.value) || 0
+                                        updateItem(index, isPercent ? "discountRate" : "discountAmount", v)
+                                      }}
+                                      placeholder={isPercent ? "0" : "0,00"}
+                                    />
+                                  </div>
+                                </div>
+                              )
+                            }
+                            const numericProps = key === "withholdingRate" ? { label: "Tevkifat (%)", value: item.withholdingRate || "", onChange: (v: string) => updateItem(index, "withholdingRate", v === "" ? 0 : parseFloat(v) || 0) } : { label: "ÖTV (%)", value: item.exciseRate || "", onChange: (v: string) => updateItem(index, "exciseRate", v === "" ? 0 : parseFloat(v) || 0) }
                             return (
                               <div key={key} className="col-span-1 md:col-span-1 space-y-1.5">
                                 <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{numericProps.label}</Label>{removable}</div>
@@ -1275,10 +1420,75 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               <Textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Fatura altına eklenecek notlar..." rows={4} />
             </div>
 
-            <div className="w-full md:w-72 bg-slate-50 rounded-lg p-4 border space-y-2">
-              <div className="flex justify-between text-sm"><span className="text-muted-foreground">Ara Toplam:</span><span className="font-medium">₺{totals.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
+            <div className="w-full md:w-80 bg-slate-50 rounded-lg p-4 border space-y-2">
+              <div className="flex justify-between text-sm"><span className="text-muted-foreground">Ara Toplam:</span><span className="font-medium">₺{(totals.grossNetAmount ?? totals.netAmount).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
+              {totals.discountAmount > 0 && <div className="flex justify-between text-sm text-red-600"><span>Satır İskontoları:</span><span>- ₺{totals.discountAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
+
+              {/* Fatura altı (genel) iskonto */}
+              {!globalDiscountEnabled ? (
+                <button
+                  type="button"
+                  onClick={() => setGlobalDiscountEnabled(true)}
+                  className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-400 hover:bg-white"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Fatura İskontosu Ekle
+                </button>
+              ) : (
+                <div className="rounded-lg border-2 border-kobipo-blue/25 bg-kobipo-pale/40 p-2.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-kobipo-navy">Fatura İskontosu</span>
+                    <button
+                      type="button"
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-kobipo-navy/50 hover:bg-kobipo-pale hover:text-kobipo-navy"
+                      onClick={() => {
+                        setGlobalDiscountEnabled(false)
+                        setGlobalDiscountInput("")
+                      }}
+                      aria-label="Kaldır"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex h-10 items-stretch overflow-hidden rounded-lg border-2 border-kobipo-blue/25 bg-white shadow-sm focus-within:border-kobipo-blue/60">
+                    <button
+                      type="button"
+                      className={`flex w-11 shrink-0 items-center justify-center text-base font-bold transition-all ${globalDiscountMode === "PERCENT" ? "bg-kobipo-navy text-white shadow-inner" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                      aria-pressed={globalDiscountMode === "PERCENT"}
+                      onClick={() => setGlobalDiscountMode("PERCENT")}
+                      title="Oran (%)"
+                    >
+                      %
+                    </button>
+                    <button
+                      type="button"
+                      className={`flex w-11 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-sm font-bold tracking-wide transition-all ${globalDiscountMode === "AMOUNT" ? "bg-kobipo-navy text-white shadow-inner" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                      aria-pressed={globalDiscountMode === "AMOUNT"}
+                      onClick={() => setGlobalDiscountMode("AMOUNT")}
+                      title="Tutar (TL)"
+                    >
+                      TL
+                    </button>
+                    <input
+                      type="number"
+                      className="w-full min-w-0 border-0 bg-transparent px-3 text-sm font-medium outline-none focus:ring-0"
+                      min="0"
+                      step="0.01"
+                      value={globalDiscountInput}
+                      onChange={(e) => setGlobalDiscountInput(e.target.value)}
+                      placeholder={globalDiscountMode === "PERCENT" ? "0" : "0,00"}
+                    />
+                  </div>
+                  {totals.globalDiscount > 0 && (
+                    <div className="flex justify-between text-xs text-kobipo-navy">
+                      <span>Düşülen:</span>
+                      <span className="font-semibold">- ₺{totals.globalDiscount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-between text-sm border-t border-slate-200 pt-2"><span className="text-muted-foreground">Net Matrah:</span><span className="font-medium">₺{totals.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
               <div className="flex justify-between text-sm"><span className="text-muted-foreground">KDV Toplam:</span><span className="font-medium">₺{totals.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
-              {totals.discountAmount > 0 && <div className="flex justify-between text-sm text-red-600"><span>İskonto:</span><span>- ₺{totals.discountAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
               {totals.withholdingAmount > 0 && <div className="flex justify-between text-sm text-red-600"><span>Tevkifat:</span><span>- ₺{totals.withholdingAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
               {totals.exciseAmount > 0 && <div className="flex justify-between text-sm text-blue-600"><span>ÖTV:</span><span>+ ₺{totals.exciseAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
               <div className="flex justify-between border-t border-slate-200 pt-3 mt-2 text-lg font-bold"><span>Genel Toplam:</span><span style={{ color: BRAND_COLOR }}>₺{totals.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>

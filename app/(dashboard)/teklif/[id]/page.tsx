@@ -21,6 +21,7 @@ import { ProductCombobox } from "@/components/ui/product-combobox"
 import { SearchSelect } from "@/components/ui/search-select"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { ArrowLeft, Building2, Download, FileText, Landmark, Loader2, Minus, Plus, Save } from "lucide-react"
 
 type QuoteItem = {
@@ -122,6 +123,7 @@ export default function TeklifDetailPage() {
   const id = params.id as string
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
 
   const [quote, setQuote] = useState<QuoteDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -268,7 +270,7 @@ export default function TeklifDetailPage() {
 
   async function handleConvertToInvoice() {
     if (!quote || !companyId) return
-    if (!confirm("Bu teklifi faturaya dönüştürmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return
+    if (!(await confirm({ title: "Faturaya dönüştür", description: "Bu teklifi faturaya dönüştürmek istediğinize emin misiniz? Bu işlem geri alınamaz.", confirmLabel: "Dönüştür" }))) return
     setConverting(true)
     try {
       const res = await fetch(`/api/teklif/${quote.id}/faturaya-donustur`, { method: "POST" })

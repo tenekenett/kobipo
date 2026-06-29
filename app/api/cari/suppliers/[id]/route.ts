@@ -35,6 +35,22 @@ export async function GET(
     }
 
     const resolvedParams = await params
+
+    // Hafif yol: silme diyaloğu yalnızca silinebilirliği ister. Tüm ekstreyi
+    // hesaplamadan sadece deletability döner — liste "Sil" tıklamasını hızlandırır.
+    if (new URL(request.url).searchParams.get("only") === "deletability") {
+      const lite = await prisma.supplier.findUnique({
+        where: { id: resolvedParams.id },
+        select: { id: true, companyId: true },
+      })
+      if (!lite) {
+        return NextResponse.json({ error: "Supplier not found" }, { status: 404 })
+      }
+      await ensureCompanyAccess(lite.companyId)
+      const deletability = await getSupplierDeletability(lite.id)
+      return NextResponse.json({ deletability })
+    }
+
     const supplier = await prisma.supplier.findUnique({
       where: { id: resolvedParams.id },
       include: {

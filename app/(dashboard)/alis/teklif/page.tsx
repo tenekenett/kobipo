@@ -26,6 +26,7 @@ import {
   EntityCell,
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, FileText, Minus, Search, ScrollText, Hourglass, CheckCircle2 } from "lucide-react"
 
 type Quote = {
@@ -88,6 +89,7 @@ export default function SatinAlmaTeklifiPage() {
   const router = useRouter()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([])
@@ -226,7 +228,7 @@ export default function SatinAlmaTeklifiPage() {
 
   async function convertToInvoice(quoteId: string) {
     if (!companyId) return
-    if (!confirm("Bu teklifi alış faturasına dönüştürmek istiyor musunuz?")) return
+    if (!(await confirm({ title: "Faturaya dönüştür", description: "Bu teklifi alış faturasına dönüştürmek istiyor musunuz?", confirmLabel: "Dönüştür" }))) return
     const res = await fetch(`/api/teklif/${quoteId}/faturaya-donustur`, { method: "POST" })
     if (res.ok) {
       toast({ title: "Teklif faturaya dönüştürüldü" })
@@ -249,7 +251,7 @@ export default function SatinAlmaTeklifiPage() {
   }
 
   async function removeQuote(quoteId: string) {
-    if (!confirm("Bu teklifi silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Teklifi sil", description: "Bu teklifi silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
     const res = await fetch(`/api/teklif/${quoteId}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "Teklif silindi" })

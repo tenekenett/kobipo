@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Search, MoreVertical, Shield, Key, Edit, Trash2, Building2, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useRouter } from "next/navigation"
 import { Role } from "@prisma/client"
 import { roleLabels } from "@/lib/auth/role-labels"
@@ -67,6 +68,7 @@ const roleColors: Record<Role, string> = {
 export function UserTable({ users }: UserTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const router = useRouter()
 
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -116,7 +118,7 @@ export function UserTable({ users }: UserTableProps) {
   )
 
   const handleResetPassword = async (userId: string, userEmail: string) => {
-    if (!confirm(`"${userEmail}" kullanıcısının şifresini sıfırlamak istiyor musunuz?`)) {
+    if (!(await confirm({ title: "Şifre sıfırla", description: `"${userEmail}" kullanıcısının şifresini sıfırlamak istiyor musunuz?`, confirmLabel: "Sıfırla" }))) {
       return
     }
     try {
@@ -147,9 +149,12 @@ export function UserTable({ users }: UserTableProps) {
 
   const handleDelete = async (userId: string, userEmail: string) => {
     if (
-      !confirm(
-        `"${userEmail}" kullanıcısını kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`
-      )
+      !(await confirm({
+        title: "Kullanıcıyı sil",
+        description: `"${userEmail}" kullanıcısını kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`,
+        confirmLabel: "Sil",
+        variant: "destructive",
+      }))
     ) {
       return
     }

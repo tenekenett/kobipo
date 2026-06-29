@@ -39,6 +39,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { filenameFromContentDisposition } from "@/lib/utils"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
 interface FaturaRow {
   id: string
@@ -126,6 +127,8 @@ export default function FaturalarListing({
   const [checkingStatusId, setCheckingStatusId] = useState<string | null>(null)
   const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null)
   const [downloadingInboxPdfUuid, setDownloadingInboxPdfUuid] = useState<string | null>(null)
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+  const [isDeletingRow, setIsDeletingRow] = useState(false)
 
   const fetchCompany = useCallback(async () => {
     if (!companyId) return
@@ -238,14 +241,10 @@ export default function FaturalarListing({
     router.push(target)
   }
 
-  const handleDeleteInvoice = async (rawInvoiceId: string) => {
-    if (
-      !confirm(
-        "Bu faturayı silmek/iptal etmek istediğinize emin misiniz? (Bu işlem stokları ve bakiyeleri geri alacaktır)",
-      )
-    ) {
-      return
-    }
+  const confirmDeleteInvoice = async () => {
+    const rawInvoiceId = deleteTargetId
+    if (!rawInvoiceId) return
+    setIsDeletingRow(true)
     try {
       const res = await fetch(
         `/api/e-donusum/invoices/${rawInvoiceId}?companyId=${companyId}`,
@@ -256,11 +255,12 @@ export default function FaturalarListing({
         // listeyi tazele (toplamlar/bakiye güncellensin).
         setRows((prev) => prev.filter((row) => row.id !== rawInvoiceId))
         toast({ title: "Başarılı", description: "Fatura silindi." })
+        setDeleteTargetId(null)
         fetchList()
       } else {
         const data = await res.json().catch(() => ({}))
         toast({
-          title: "Hata",
+          title: "Silinemedi",
           description: data.error || "Fatura silinemedi",
           variant: "destructive",
         })
@@ -271,6 +271,8 @@ export default function FaturalarListing({
         description: "Silme işlemi sırasında bir hata oluştu",
         variant: "destructive",
       })
+    } finally {
+      setIsDeletingRow(false)
     }
   }
 
@@ -746,7 +748,7 @@ export default function FaturalarListing({
                                 variant="outline"
                                 size="sm"
                                 title="Sil / İptal Et"
-                                onClick={() => handleDeleteInvoice(rawId)}
+                                onClick={() => setDeleteTargetId(rawId)}
                               >
                                 <Trash2 className="h-4 w-4 text-destructive" />
                               </Button>
@@ -789,6 +791,19 @@ export default function FaturalarListing({
           </StyledTableContainer>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={deleteTargetId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTargetId(null)
+        }}
+        title="Faturayı sil"
+        description="Bu faturayı silmek istediğinize emin misiniz? Bu işlem stokları ve cari bakiyeleri geri alır. Geri alınamaz. (GİB'e gönderilmiş faturalar silinemez; önce iptal edin.)"
+        confirmLabel="Sil"
+        variant="destructive"
+        isProcessing={isDeletingRow}
+        onConfirm={confirmDeleteInvoice}
+      />
     </div>
   )
 }

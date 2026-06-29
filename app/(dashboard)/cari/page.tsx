@@ -25,6 +25,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/components/ui/use-toast"
 import { Plus, Search, Eye, Pencil, Trash2, Loader2 } from "lucide-react"
 import Link from "next/link"
+import {
+  CariArchiveDeleteDialog,
+  type CariDeletability,
+} from "@/components/cari/cari-archive-delete-dialog"
 
 function TableSkeleton({ rows = 8 }: { rows?: number }) {
   return (
@@ -172,12 +176,59 @@ export default function CariPage() {
     return () => controller.abort()
   }, [companyId, activeTab, debouncedSearch, page, refreshNonce, fetchData])
 
-  const deleteItem = async (id: string) => {
-    if (!confirm("Bu kaydı silmek istediğinize emin misiniz?")) return
+  // Silme: önce kaydın silinebilirliğini (açık bakiye / açık fatura / geçmiş)
+  // çekip diyaloğu o sebeplerle aç. Diyalog temizse sil onayı, silinemiyor ama
+  // arşivlenebiliyorsa arşiv teklifi, ikisi de değilse sebepleri gösterir.
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
+  const [deletability, setDeletability] = useState<CariDeletability | null>(null)
+  const [loadingDeleteId, setLoadingDeleteId] = useState<string | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+
+  const entityLabel = activeTab === "customers" ? "Müşteri" : "Tedarikçi"
+
+  const requestDelete = async (item: Customer) => {
     const endpoint = activeTab === "customers" ? "customers" : "suppliers"
-    const response = await fetch(`/api/cari/${endpoint}/${id}`, { method: "DELETE" })
-    if (response.ok) {
-      toast({ title: "Başarılı", description: "Kayıt silindi" })
+    setLoadingDeleteId(item.id)
+    // Varsayılan: silinebilir kabul et; sebepler alınamazsa backend DELETE'te
+    // yine 409 ile engeller ve sebep döner (güvenli taraf).
+    let next: CariDeletability = {
+      canDelete: true,
+      canArchive: true,
+      deleteBlockReasons: [],
+      archiveBlockReasons: [],
+    }
+    try {
+      const res = await fetch(`/api/cari/${endpoint}/${item.id}?companyId=${companyId}&only=deletability`)
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body?.deletability) next = body.deletability
+    } catch {
+      /* sebepler alınamadı → backend DELETE'te yine doğrular */
+    } finally {
+      setLoadingDeleteId(null)
+    }
+    setDeletability(next)
+    setDeleteTarget({ id: item.id, name: item.name })
+  }
+
+  const performDelete = async () => {
+    if (!deleteTarget) return
+    const endpoint = activeTab === "customers" ? "customers" : "suppliers"
+    setIsProcessing(true)
+    try {
+      const res = await fetch(`/api/cari/${endpoint}/${deleteTarget.id}?companyId=${companyId}`, {
+        method: "DELETE",
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({
+          title: "Silinemedi",
+          description: (body.reasons && body.reasons.join(" ")) || body.error || "İşlem başarısız",
+          variant: "destructive",
+        })
+        return
+      }
+      toast({ title: "Silindi", description: `${entityLabel} kaydı silindi.` })
+      setDeleteTarget(null)
       void fetchData().catch(() => {
         toast({
           title: "Uyarı",
@@ -185,15 +236,35 @@ export default function CariPage() {
           variant: "destructive",
         })
       })
-    } else {
-      let message = "Kayıt silinemedi"
-      try {
-        const data = await response.json()
-        if (typeof data?.error === "string") message = data.error
-      } catch {
-        /* ignore */
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const performArchive = async () => {
+    if (!deleteTarget) return
+    const endpoint = activeTab === "customers" ? "customers" : "suppliers"
+    setIsProcessing(true)
+    try {
+      const res = await fetch(`/api/cari/${endpoint}/${deleteTarget.id}?companyId=${companyId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "archive" }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({
+          title: "Arşivlenemedi",
+          description: (body.reasons && body.reasons.join(" ")) || body.error || "İşlem başarısız",
+          variant: "destructive",
+        })
+        return
       }
-      toast({ title: "Hata", description: message, variant: "destructive" })
+      toast({ title: "Arşivlendi", description: `${entityLabel} kaydı arşivlendi.` })
+      setDeleteTarget(null)
+      void fetchData().catch(() => {})
+    } finally {
+      setIsProcessing(false)
     }
   }
 
@@ -364,9 +435,14 @@ export default function CariPage() {
                               size="icon"
                               className="h-8 w-8 text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
                               aria-label="Sil"
-                              onClick={() => deleteItem(item.id)}
+                              disabled={loadingDeleteId === item.id}
+                              onClick={() => requestDelete(item)}
                             >
-                              <Trash2 className="h-4 w-4" />
+                              {loadingDeleteId === item.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
                             </Button>
                           </div>
                         </TableCell>
@@ -410,6 +486,18 @@ export default function CariPage() {
         </div>
       </div>
 
+      <CariArchiveDeleteDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        mode="delete"
+        entityLabel={entityLabel}
+        deletability={deletability}
+        isProcessing={isProcessing}
+        onConfirmArchive={performArchive}
+        onConfirmDelete={performDelete}
+      />
     </div>
   )
 }

@@ -665,6 +665,10 @@ model Invoice {
   totalAmount Decimal  @db.Decimal(15, 2)
   vatAmount   Decimal  @db.Decimal(15, 2)
   netAmount   Decimal  @db.Decimal(15, 2)
+  // Fatura altı (genel) iskonto. KDV matrahından oransal olarak düşülür; KDV
+  // yeniden hesaplanır. Tutarı saklarız (UBL AllowanceCharge tutar olarak yazılır);
+  // editör UI'da yüzde de seçilebilir ama save anında tutara çevrilir.
+  globalDiscountAmount Decimal? @db.Decimal(15, 2)
   currency    String   @default("TRY")
   exchangeRate Decimal? @db.Decimal(12, 4)
   exchangeRateDate DateTime?

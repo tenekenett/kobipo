@@ -237,9 +237,28 @@ export async function sendInvoiceToProvider(
       productId: item.productId || undefined,
       taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
       taxExemptionReason: item.taxExemptionReason || undefined,
+      // Satır iskontosu: tutar (hesaplanmış) + opsiyonel oran. Mysoft v8
+      // invoiceDetail.allowanceCharge[]'a çevrilir; KDV matrahı net'ten hesaplanır.
+      discountAmount: Number(item.discountAmount || 0),
+      discountRate: Number(item.discountRate || 0),
     })),
     notes: invoice.notes || undefined,
+    // Fatura altı (genel) iskonto tutarı (DB'de tutar olarak saklı). Header-level
+    // allowanceCharge'a yansır, matrah tutar üzerinden oransal düşülür.
+    globalDiscountAmount: Number(invoice.globalDiscountAmount || 0),
   }
+
+  console.log("[helper] invoice from DB →", {
+    id: invoice.id,
+    invoiceNo: invoice.invoiceNo,
+    globalDiscountAmount: invoice.globalDiscountAmount,
+    globalDiscountType: typeof invoice.globalDiscountAmount,
+    itemDiscounts: invoice.items.map((it) => ({
+      desc: it.description,
+      discountAmount: it.discountAmount,
+      discountRate: it.discountRate,
+    })),
+  })
 
   // Gönderimde kullanılacak belge dizaynını (xsltName) çöz: önce faturanın
   // prefix'ine (seri no) atanmış şablon, yoksa firma genel aktif şablonu.

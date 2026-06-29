@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
+import { ConfirmDialogProvider } from '@/components/ui/confirm-dialog-provider'
 import { SessionProvider } from '@/components/providers/session-provider'
 import { ThemeProvider } from '@/components/providers/theme-provider'
 import { RouteProgress } from '@/components/ui/route-progress'
@@ -59,7 +60,9 @@ export default function RootLayout({
         <ThemeProvider>
           <RouteProgress />
           <SessionProvider>
-            {children}
+            <ConfirmDialogProvider>
+              {children}
+            </ConfirmDialogProvider>
           </SessionProvider>
           <Toaster />
         </ThemeProvider>

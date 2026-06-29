@@ -19,4 +19,7 @@ export const UNIT_OPTIONS: { value: string; label: string }[] = [
   { value: "RULO", label: "Rulo" },
   { value: "SAAT", label: "Saat" },
   { value: "GÜN", label: "Gün" },
+  { value: "HAFTA", label: "Hafta" },
+  { value: "AY", label: "Ay" },
+  { value: "YIL", label: "Yıl" },
 ]

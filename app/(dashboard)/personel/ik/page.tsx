@@ -16,6 +16,7 @@ import {
   StyledTableRow,
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import Link from "next/link"
 import { Plus, RefreshCcw, Trash2, FolderOpen, ExternalLink, FileDown } from "lucide-react"
 
@@ -49,6 +50,7 @@ export default function InsanKaynaklariPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [docs, setDocs] = useState<Doc[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -121,7 +123,7 @@ export default function InsanKaynaklariPage() {
   }
 
   async function remove(d: Doc) {
-    if (!confirm("Bu belgeyi silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Belgeyi sil", description: "Bu belgeyi silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
     const res = await fetch(`/api/personel/documents/${d.id}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "Belge silindi" })

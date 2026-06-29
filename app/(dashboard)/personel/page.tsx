@@ -17,6 +17,7 @@ import {
   StyledTableRow,
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, Search, Pencil, UserX, UserCheck, Users } from "lucide-react"
 
 type Employee = {
@@ -70,6 +71,7 @@ export default function PersonellerPage() {
   const router = useRouter()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [employees, setEmployees] = useState<Employee[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [search, setSearch] = useState("")
@@ -176,7 +178,7 @@ export default function PersonellerPage() {
   }
 
   async function remove(e: Employee) {
-    if (!confirm(`${e.firstName} ${e.lastName} kaydını silmek istediğinize emin misiniz?`)) return
+    if (!(await confirm({ title: "Personeli sil", description: `${e.firstName} ${e.lastName} kaydını silmek istediğinize emin misiniz?`, confirmLabel: "Sil", variant: "destructive" }))) return
     const res = await fetch(`/api/personel/employees/${e.id}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "Personel silindi" })

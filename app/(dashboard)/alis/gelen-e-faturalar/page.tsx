@@ -25,6 +25,7 @@ import {
   StyledTableRow,
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import {
   Download,
   Loader2,
@@ -95,6 +96,7 @@ export default function GelenEFaturalarPage() {
   const router = useRouter()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm, prompt } = useConfirm()
 
   const [rows, setRows] = useState<IncomingRow[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -185,17 +187,22 @@ export default function GelenEFaturalarPage() {
     if (!companyId) return
     let rejectReason = ""
     if (action === "reject") {
-      const input = window.prompt(
-        `Red nedeni girin (en az 3 karakter)${invoiceNo ? ` · ${invoiceNo}` : ""}:`,
-        "",
-      )
+      const input = await prompt({
+        title: "Faturayı reddet",
+        description: `Bu faturayı reddetmek istediğinize emin misiniz? Yanıt GİB'e iletilir.${invoiceNo ? ` (${invoiceNo})` : ""}`,
+        label: "Red nedeni (en az 3 karakter)",
+        placeholder: "Örn. Hatalı düzenlenmiş",
+        minLength: 3,
+        confirmLabel: "Reddet",
+        variant: "destructive",
+      })
       if (input === null) return
       rejectReason = input.trim()
       if (rejectReason.length < 3) {
         toast({ title: "Red nedeni en az 3 karakter olmalı", variant: "destructive" })
         return
       }
-    } else if (!confirm(`Bu faturayı KABUL etmek istediğinize emin misiniz?${invoiceNo ? `\n\n${invoiceNo}` : ""}`)) {
+    } else if (!(await confirm({ title: "Faturayı kabul et", description: `Bu faturayı KABUL etmek istediğinize emin misiniz?${invoiceNo ? ` (${invoiceNo})` : ""}`, confirmLabel: "Kabul et" }))) {
       return
     }
     setRespondingUuid(uuid)

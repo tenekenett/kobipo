@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, Tags } from "lucide-react"
 import Link from "next/link"
 
@@ -95,6 +96,7 @@ export default function StokPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [products, setProducts] = useState<Product[]>([])
   const [search, setSearch] = useState("")
   const [filterService, setFilterService] = useState<string | null>(null)
@@ -193,7 +195,7 @@ export default function StokPage() {
     const msg = used
       ? `"${label}" kategorisi bazı ürünlerde kullanılıyor. Listeden kaldırılsın mı? (Ürünlerdeki etiket korunur.)`
       : `"${label}" kategorisini silmek istediğinize emin misiniz?`
-    if (!confirm(msg)) return
+    if (!(await confirm({ title: "Kategoriyi sil", description: msg, confirmLabel: "Sil", variant: "destructive" }))) return
     try {
       const res = await fetch(`/api/company/definitions/${id}`, { method: "DELETE" })
       if (!res.ok) throw new Error("Silinemedi")
@@ -328,7 +330,7 @@ export default function StokPage() {
   }
 
   const deleteProduct = async (id: string) => {
-    if (!confirm("Ürünü silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Ürünü sil", description: "Ürünü silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
     const response = await fetch(`/api/stok/products/${id}`, { method: "DELETE" })
     if (response.ok) {
       toast({ title: "Başarılı", description: "Ürün silindi" })

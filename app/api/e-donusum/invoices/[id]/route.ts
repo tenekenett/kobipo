@@ -29,6 +29,11 @@ function normalizeInvoiceItem(item: any) {
     quantity: parseFloat(item.quantity) || 0,
     unitPrice: parseFloat(item.unitPrice) || 0,
     discountRate: parseFloat(item.discountRate) || 0,
+    discountAmount: parseFloat(item.discountAmount) || 0,
+    discountMode:
+      typeof item.discountMode === "string" && item.discountMode.toUpperCase() === "AMOUNT"
+        ? "AMOUNT"
+        : "PERCENT",
     vatRate: parseFloat(item.vatRate) || 0,
     withholdingRate: parseFloat(item.withholdingRate) || 0,
     exciseRate: parseFloat(item.exciseRate) || 0,
@@ -190,7 +195,7 @@ export async function PUT(
     }
 
     const body = await request.json()
-    const { customerId, supplierId, date, dueDate, items, notes } = body
+    const { customerId, supplierId, date, dueDate, items, notes, globalDiscountAmount } = body
 
     const normalizedItems =
       Array.isArray(items) && items.length > 0
@@ -209,6 +214,18 @@ export async function PUT(
     let vatAmount: Decimal = invoice.vatAmount
     let totalAmount: Decimal = invoice.totalAmount
 
+    // Satır iskonto: mod AMOUNT ise tutar (brüt-aşan/negatif normalize edilir),
+    // PERCENT ise oran. PUT yolunda Decimal kullanılır.
+    const itemDiscountDec = (item: { quantity: number; unitPrice: number; discountRate: number; discountAmount: number; discountMode: string }) => {
+      const gross = new Decimal(item.quantity).times(item.unitPrice)
+      if (item.discountMode === "AMOUNT") {
+        const raw = new Decimal(item.discountAmount || 0)
+        const clampedMax = raw.gt(gross) ? gross : raw
+        return clampedMax.lt(0) ? new Decimal(0) : clampedMax
+      }
+      return gross.times(new Decimal(item.discountRate || 0).div(100))
+    }
+
     if (normalizedItems && normalizedItems.length > 0) {
       netAmount = new Decimal(0)
       vatAmount = new Decimal(0)
@@ -216,7 +233,7 @@ export async function PUT(
 
       normalizedItems.forEach((item) => {
         const itemGross = new Decimal(item.quantity).times(item.unitPrice)
-        const itemDiscount = itemGross.times(new Decimal(item.discountRate || 0).div(100))
+        const itemDiscount = itemDiscountDec(item)
         const itemNet = itemGross.minus(itemDiscount)
         const itemVat = itemNet.times(new Decimal(item.vatRate).div(100))
         const itemWithholding = itemNet.times(new Decimal(item.withholdingRate || 0).div(100))
@@ -229,6 +246,24 @@ export async function PUT(
       })
     }
 
+    // Fatura altı (genel) iskonto: matrahtan oransal düşülür → KDV/total da aynı
+    // oranda azalır. body'de globalDiscountAmount yoksa mevcut faturadakini koru.
+    const incomingGlobalDiscount =
+      globalDiscountAmount !== undefined
+        ? new Decimal(Math.max(0, parseFloat(String(globalDiscountAmount)) || 0))
+        : invoice.globalDiscountAmount
+          ? new Decimal(invoice.globalDiscountAmount.toString())
+          : new Decimal(0)
+    const appliedGlobalDiscount = netAmount.gt(0)
+      ? incomingGlobalDiscount.gt(netAmount) ? netAmount : incomingGlobalDiscount
+      : new Decimal(0)
+    if (appliedGlobalDiscount.gt(0) && netAmount.gt(0)) {
+      const adjustment = new Decimal(1).minus(appliedGlobalDiscount.div(netAmount))
+      netAmount = netAmount.minus(appliedGlobalDiscount)
+      vatAmount = vatAmount.times(adjustment)
+      totalAmount = totalAmount.times(adjustment)
+    }
+
     const updated = await prisma.invoice.update({
       where: { id: resolvedParams.id },
       data: {
@@ -239,6 +274,7 @@ export async function PUT(
         totalAmount: totalAmount,
         vatAmount: vatAmount,
         netAmount: netAmount,
+        globalDiscountAmount: appliedGlobalDiscount.gt(0) ? appliedGlobalDiscount : null,
         notes: notes !== undefined ? notes : invoice.notes,
       },
     })
@@ -252,43 +288,36 @@ export async function PUT(
 
       // Create new items
       await prisma.invoiceItem.createMany({
-        data: normalizedItems.map((item, index: number) => ({
-          invoiceId: resolvedParams.id,
-          productId: item.productId || null,
-          description: item.description,
-          unit: item.unit,
-          quantity: new Decimal(item.quantity),
-          unitPrice: new Decimal(item.unitPrice),
-          discountRate: new Decimal(item.discountRate),
-          discountAmount: new Decimal(item.quantity).times(item.unitPrice).times(new Decimal(item.discountRate || 0).div(100)),
-          vatRate: new Decimal(item.vatRate),
-          vatAmount: new Decimal(item.quantity)
-            .times(item.unitPrice)
-            .times(new Decimal(1).minus(new Decimal(item.discountRate || 0).div(100)))
-            .times(new Decimal(item.vatRate).div(100)),
-          withholdingRate: new Decimal(item.withholdingRate),
-          withholdingAmount: new Decimal(item.quantity)
-            .times(item.unitPrice)
-            .times(new Decimal(1).minus(new Decimal(item.discountRate || 0).div(100)))
-            .times(new Decimal(item.withholdingRate || 0).div(100)),
-          exciseRate: new Decimal(item.exciseRate),
-          exciseAmount: new Decimal(item.quantity)
-            .times(item.unitPrice)
-            .times(new Decimal(1).minus(new Decimal(item.discountRate || 0).div(100)))
-            .times(new Decimal(item.exciseRate || 0).div(100)),
-          totalAmount: new Decimal(item.quantity)
-            .times(item.unitPrice)
-            .times(new Decimal(1).minus(new Decimal(item.discountRate || 0).div(100)))
-            .times(
+        data: normalizedItems.map((item, index: number) => {
+          const gross = new Decimal(item.quantity).times(item.unitPrice)
+          const disc = itemDiscountDec(item)
+          const net = gross.minus(disc)
+          return {
+            invoiceId: resolvedParams.id,
+            productId: item.productId || null,
+            description: item.description,
+            unit: item.unit,
+            quantity: new Decimal(item.quantity),
+            unitPrice: new Decimal(item.unitPrice),
+            discountRate: item.discountMode === "AMOUNT" ? null : new Decimal(item.discountRate),
+            discountAmount: disc,
+            vatRate: new Decimal(item.vatRate),
+            vatAmount: net.times(new Decimal(item.vatRate).div(100)),
+            withholdingRate: new Decimal(item.withholdingRate),
+            withholdingAmount: net.times(new Decimal(item.withholdingRate || 0).div(100)),
+            exciseRate: new Decimal(item.exciseRate),
+            exciseAmount: net.times(new Decimal(item.exciseRate || 0).div(100)),
+            totalAmount: net.times(
               new Decimal(1)
                 .plus(new Decimal(item.vatRate).div(100))
                 .plus(new Decimal(item.exciseRate || 0).div(100))
-                .minus(new Decimal(item.withholdingRate || 0).div(100))
+                .minus(new Decimal(item.withholdingRate || 0).div(100)),
             ),
-          taxExemptionReasonCode: item.taxExemptionReasonCode,
-          taxExemptionReason: item.taxExemptionReason,
-          order: index,
-        })),
+            taxExemptionReasonCode: item.taxExemptionReasonCode,
+            taxExemptionReason: item.taxExemptionReason,
+            order: index,
+          }
+        }),
       })
     }
 
@@ -416,9 +445,22 @@ export async function DELETE(
 
     await ensureCompanyAccess(invoice.companyId)
 
-    // Sadece DRAFT (Taslak) veya iptal edilmiş faturaların silinmesine izin verebilirsin,
-    // ama sistem yöneticisiysen her faturayı silebilirsin. Şimdilik sınır koymuyoruz,
-    // ama istersen `if (invoice.status === 'SENT') return error` diyebilirsin.
+    // Guard: GİB'e gönderilmiş (uuid/ETTN almış) fatura, iptal edilmediği sürece
+    // FİZİKSEL silinemez — yoksa resmi GİB kaydı dururken lokal kayıt yok olur ve
+    // uyumsuzluk doğar. İptal yolu: e-Arşiv → .../cancel (status=CANCELLED, kayıt
+    // korunur), e-Fatura → iade faturası. Yalnızca DRAFT (henüz gönderilmemiş) ve
+    // zaten CANCELLED faturalar fiziksel silinebilir.
+    const isSentToGib = Boolean(invoice.uuid) || invoice.status === "SENT"
+    if (isSentToGib && invoice.status !== "CANCELLED") {
+      return NextResponse.json(
+        {
+          error:
+            "Bu fatura GİB'e gönderilmiş (ETTN mevcut) ve henüz iptal edilmemiş; fiziksel olarak silinemez. e-Arşiv faturayı 'İptal Et', e-Fatura için iade faturası kesin. İptal edildikten sonra silebilirsiniz.",
+          code: "INVOICE_SENT_CANNOT_DELETE",
+        },
+        { status: 409 },
+      )
+    }
 
     // 2-4. Stok iadesi + yan etkiler + faturanın kendisi tek atomik transaction'da.
     // Stok geri alma artık `revertInvoiceStock` ile yapılıyor: depo bazlı (WarehouseStock)

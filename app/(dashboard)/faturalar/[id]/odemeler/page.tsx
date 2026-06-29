@@ -32,6 +32,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Trash2, ArrowLeft } from "lucide-react"
 import Link from "next/link"
 
@@ -83,6 +84,7 @@ export default function FaturaOdemelerPage() {
   const invoiceId = params.id as string
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
 
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [payments, setPayments] = useState<Payment[]>([])
@@ -213,7 +215,7 @@ export default function FaturaOdemelerPage() {
   }
 
   const handleDelete = async (paymentId: string) => {
-    if (!confirm("Bu ödemeyi silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Ödemeyi sil", description: "Bu ödemeyi silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
 
     try {
       const response = await fetch(`/api/faturalar/odemeler/${paymentId}`, {

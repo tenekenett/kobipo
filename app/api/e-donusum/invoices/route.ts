@@ -134,6 +134,7 @@ export async function POST(request: Request) {
       sendInvoice,
       fromIncomingUuid,
       warehouseId,
+      globalDiscountAmount,
     } = body
 
     if (!companyId || !type || !invoiceType || !items || items.length === 0) {
@@ -206,6 +207,11 @@ const company = await prisma.company.findUnique({
             ? parseFloat(item.salePrice)
             : null,
         discountRate: parseFloat(item.discountRate) || 0,
+        discountAmount: parseFloat(item.discountAmount) || 0,
+        discountMode:
+          typeof item.discountMode === "string" && item.discountMode.toUpperCase() === "AMOUNT"
+            ? "AMOUNT"
+            : "PERCENT",
         vatRate: parseFloat(item.vatRate) || 0,
         withholdingRate: parseFloat(item.withholdingRate) || 0,
         exciseRate: parseFloat(item.exciseRate) || 0,
@@ -226,6 +232,16 @@ const company = await prisma.company.findUnique({
       )
     }
 
+    // Satır iskonto hesaplaması: mod AMOUNT ise (negatif veya brütü aşan tutar
+    // normalize edilir), aksi halde oran * brüt.
+    const itemDiscountAmount = (item: typeof normalizedItems[number]) => {
+      const gross = item.quantity * item.unitPrice
+      if (item.discountMode === "AMOUNT") {
+        return Math.max(0, Math.min(item.discountAmount, gross))
+      }
+      return gross * (item.discountRate / 100)
+    }
+
     // Calculate totals
     let netAmount = 0
     let vatAmount = 0
@@ -233,7 +249,7 @@ const company = await prisma.company.findUnique({
 
     normalizedItems.forEach((item) => {
       const itemGross = item.quantity * item.unitPrice
-      const itemDiscount = itemGross * (item.discountRate / 100)
+      const itemDiscount = itemDiscountAmount(item)
       const itemNet = itemGross - itemDiscount
       const itemVat = itemNet * (item.vatRate / 100)
       const itemWithholding = itemNet * (item.withholdingRate / 100)
@@ -244,6 +260,18 @@ const company = await prisma.company.findUnique({
       vatAmount += itemVat
       totalAmount += itemTotal
     })
+
+    // Fatura altı (genel) iskonto: matrahtan oransal düşülür, KDV/tevkifat/ÖTV
+    // de aynı oranda azalır → totalAmount da aynı oranda düşer. Negatif veya
+    // matrahı aşan değer 0/matrah'a kırpılır.
+    const rawGlobalDiscount = Math.max(0, parseFloat(globalDiscountAmount) || 0)
+    const appliedGlobalDiscount = netAmount > 0 ? Math.min(rawGlobalDiscount, netAmount) : 0
+    if (appliedGlobalDiscount > 0 && netAmount > 0) {
+      const adjustment = 1 - appliedGlobalDiscount / netAmount
+      netAmount -= appliedGlobalDiscount
+      vatAmount *= adjustment
+      totalAmount *= adjustment
+    }
 
     try {
       await ensureUsageLimit(companyId, "invoices_monthly", 1)
@@ -270,31 +298,35 @@ const company = await prisma.company.findUnique({
         totalAmount,
         vatAmount,
         netAmount,
+        globalDiscountAmount: appliedGlobalDiscount > 0 ? appliedGlobalDiscount : null,
         notes,
         status: "DRAFT",
         createdBy: user.id,
         items: {
-          create: normalizedItems.map((item, index: number) => ({
-            ...(item.productId ? { product: { connect: { id: item.productId } } } : {}),
-            description: item.description,
-            unit: item.unit,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            discountRate: item.discountRate || null,
-            discountAmount: item.quantity * item.unitPrice * (item.discountRate / 100),
-            vatRate: item.vatRate,
-            vatAmount: (item.quantity * item.unitPrice - item.quantity * item.unitPrice * (item.discountRate / 100)) * (item.vatRate / 100),
-            withholdingRate: item.withholdingRate || null,
-            withholdingAmount: (item.quantity * item.unitPrice - item.quantity * item.unitPrice * (item.discountRate / 100)) * (item.withholdingRate / 100),
-            exciseRate: item.exciseRate || null,
-            exciseAmount: (item.quantity * item.unitPrice - item.quantity * item.unitPrice * (item.discountRate / 100)) * (item.exciseRate / 100),
-            totalAmount:
-              (item.quantity * item.unitPrice - item.quantity * item.unitPrice * (item.discountRate / 100)) *
-              (1 + item.vatRate / 100 + item.exciseRate / 100 - item.withholdingRate / 100),
-            taxExemptionReasonCode: item.taxExemptionReasonCode,
-            taxExemptionReason: item.taxExemptionReason,
-            order: index,
-          })),
+          create: normalizedItems.map((item, index: number) => {
+            const gross = item.quantity * item.unitPrice
+            const disc = itemDiscountAmount(item)
+            const net = gross - disc
+            return {
+              ...(item.productId ? { product: { connect: { id: item.productId } } } : {}),
+              description: item.description,
+              unit: item.unit,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              discountRate: item.discountMode === "AMOUNT" ? null : item.discountRate || null,
+              discountAmount: disc,
+              vatRate: item.vatRate,
+              vatAmount: net * (item.vatRate / 100),
+              withholdingRate: item.withholdingRate || null,
+              withholdingAmount: net * (item.withholdingRate / 100),
+              exciseRate: item.exciseRate || null,
+              exciseAmount: net * (item.exciseRate / 100),
+              totalAmount: net * (1 + item.vatRate / 100 + item.exciseRate / 100 - item.withholdingRate / 100),
+              taxExemptionReasonCode: item.taxExemptionReasonCode,
+              taxExemptionReason: item.taxExemptionReason,
+              order: index,
+            }
+          }),
         },
       },
       include: {
@@ -509,7 +541,7 @@ const invoiceData = {
       }
     : undefined,
     
-  // FATURA KALEMLERİ (Ürünler)
+  // FATURA KALEMLERİ (Ürünler) — iskonto bilgisi de Mysoft AllowanceCharge'a yansır.
   items: invoice.items.map((item) => ({
     description: item.description,
     quantity: Number(item.quantity),
@@ -518,9 +550,13 @@ const invoiceData = {
     productId: item.productId || undefined,
     taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
     taxExemptionReason: item.taxExemptionReason || undefined,
+    discountAmount: Number(item.discountAmount || 0),
+    discountRate: Number(item.discountRate || 0),
   })),
-  
+
   notes: invoice.notes || undefined,
+  // Fatura altı (genel) iskonto — header-level AllowanceCharge'a yansır.
+  globalDiscountAmount: Number(invoice.globalDiscountAmount || 0),
 };
 
         // Kullanıcının seçtiği aktif belge dizaynını (xsltName) gönderime ekle.

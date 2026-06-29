@@ -18,6 +18,7 @@ import { Plus } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useToast } from "@/components/ui/use-toast"
 
 interface Waybill {
   id: string
@@ -38,6 +39,7 @@ interface Waybill {
 export default function EirsaliyePage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
+  const { toast } = useToast()
   const [waybills, setWaybills] = useState<Waybill[]>([])
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([])
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([])
@@ -144,7 +146,7 @@ export default function EirsaliyePage() {
       fetchWaybills()
     } else {
       const data = await response.json()
-      alert(data.error || "Gönderim başarısız")
+      toast({ title: "Gönderim başarısız", description: data.error || undefined, variant: "destructive" })
     }
   }
 
@@ -156,7 +158,7 @@ export default function EirsaliyePage() {
       fetchWaybills()
     } else {
       const data = await response.json()
-      alert(data.error || "Durum sorgulanamadı")
+      toast({ title: "Durum sorgulanamadı", description: data.error || undefined, variant: "destructive" })
     }
   }
 

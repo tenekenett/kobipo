@@ -25,6 +25,7 @@ import {
   EntityCell,
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, Minus, Search, Truck, PackageCheck, Clock } from "lucide-react"
 
 type Waybill = {
@@ -66,6 +67,7 @@ export default function AlisIrsaliyePage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [waybills, setWaybills] = useState<Waybill[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([])
@@ -212,7 +214,7 @@ export default function AlisIrsaliyePage() {
   }
 
   async function removeWaybill(id: string) {
-    if (!confirm("Bu irsaliyeyi silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "İrsaliyeyi sil", description: "Bu irsaliyeyi silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
     const res = await fetch(`/api/irsaliye/${id}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "İrsaliye silindi" })

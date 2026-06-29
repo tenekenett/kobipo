@@ -17,6 +17,7 @@ import {
   StyledTableRow,
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import Link from "next/link"
 import { Plus, RefreshCcw, Trash2, Check, X, CalendarCheck, FileText, Scale, AlertTriangle } from "lucide-react"
 
@@ -43,6 +44,7 @@ export default function IzinDevamPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [leaves, setLeaves] = useState<Leave[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -139,7 +141,7 @@ export default function IzinDevamPage() {
   }
 
   async function remove(l: Leave) {
-    if (!confirm("Bu izin kaydını silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "İzin kaydını sil", description: "Bu izin kaydını silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
     const res = await fetch(`/api/personel/leaves/${l.id}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "İzin kaydı silindi" })

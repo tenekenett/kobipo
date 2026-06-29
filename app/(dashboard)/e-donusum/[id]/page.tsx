@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { ArrowLeft, Download, Send, Printer, ShieldCheck, Loader2, CheckCircle2, XCircle, Clock, Ban, FileDown } from "lucide-react"
 import Link from "next/link"
 import { generateInvoicePDF } from "@/lib/pdf/invoice-pdf"
@@ -80,6 +81,7 @@ export default function InvoiceDetailPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { toast } = useToast()
+  const { confirm, prompt } = useConfirm()
   
   const id = params.id as string
   const companyId = searchParams.get("company")
@@ -124,7 +126,7 @@ export default function InvoiceDetailPage() {
   }
 
   const handleSendInvoice = async () => {
-    if (!confirm("Faturayı göndermek istediğinize emin misiniz?")) {
+    if (!(await confirm({ title: "Faturayı gönder", description: "Faturayı göndermek istediğinize emin misiniz? Gönderildikten sonra fatura yasal olarak kesilmiş sayılır.", confirmLabel: "Gönder" }))) {
       return
     }
 
@@ -224,16 +226,19 @@ export default function InvoiceDetailPage() {
 
   const handleCancelInvoice = async () => {
     if (!invoice) return
-    const note = window.prompt(
-      "İptal sebebi girin (en az 3 karakter):",
-      "Kullanıcı tarafından iptal edildi"
-    )
+    const note = await prompt({
+      title: "e-Arşiv faturayı iptal et",
+      description: "Fatura GİB nezdinde iptal edilecek ve stok/bakiye geri alınacaktır. Bu işlem geri alınamaz. İptal sebebini girin (en az 3 karakter).",
+      label: "İptal sebebi",
+      defaultValue: "Kullanıcı tarafından iptal edildi",
+      placeholder: "Örn. Hatalı düzenlendi",
+      minLength: 3,
+      confirmLabel: "İptal Et",
+      variant: "destructive",
+    })
     if (note === null) return
     if (note.trim().length < 3) {
       toast({ title: "İptal sebebi en az 3 karakter olmalı", variant: "destructive" })
-      return
-    }
-    if (!confirm("e-Arşiv faturayı iptal etmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) {
       return
     }
     setIsCancelling(true)

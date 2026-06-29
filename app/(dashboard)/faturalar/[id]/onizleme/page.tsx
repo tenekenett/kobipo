@@ -23,6 +23,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useToast } from "@/components/ui/use-toast"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
@@ -107,6 +109,7 @@ export default function FaturaOnizlemePage() {
   const invoiceId = params.id as string
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [isDeleting, setIsDeleting] = useState(false)
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -122,6 +125,9 @@ export default function FaturaOnizlemePage() {
   const [isSendingToProvider, setIsSendingToProvider] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
+  const [cancelNote, setCancelNote] = useState("Kullanıcı tarafından iptal edildi")
 
   useEffect(() => {
     if (!invoiceId) return
@@ -227,7 +233,7 @@ export default function FaturaOnizlemePage() {
 
   const handleApproveManual = async () => {
     if (!invoice) return
-    if (!confirm("Bu faturayı kesinleştirmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Faturayı kesinleştir", description: "Bu faturayı kesinleştirmek istediğinize emin misiniz?", confirmLabel: "Kesinleştir" }))) return
     setIsApproving(true)
     try {
       const res = await fetch(`/api/e-donusum/invoices/${invoice.id}/approve`, {
@@ -255,25 +261,24 @@ export default function FaturaOnizlemePage() {
     }
   }
 
-  const handleCancelInvoice = async () => {
+  const performCancelInvoice = async () => {
     if (!invoice) return
-    const note = window.prompt("İptal sebebi girin (en az 3 karakter):", "Kullanıcı tarafından iptal edildi")
-    if (note === null) return
-    if (note.trim().length < 3) {
+    const note = cancelNote.trim()
+    if (note.length < 3) {
       toast({ title: "İptal sebebi en az 3 karakter olmalı", variant: "destructive" })
       return
     }
-    if (!confirm("e-Arşiv faturayı iptal etmek istediğinize emin misiniz? Bu işlem geri alınamaz.")) return
     setIsCancelling(true)
     try {
       const response = await fetch(`/api/e-donusum/invoices/${invoice.id}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cancelNote: note.trim() }),
+        body: JSON.stringify({ cancelNote: note }),
       })
       const data = await response.json()
       if (response.ok) {
         toast({ title: "Fatura iptal edildi", description: data.message })
+        setCancelDialogOpen(false)
         fetchInvoice()
       } else {
         toast({ title: "İptal edilemedi", description: data.error || "Bilinmeyen hata", variant: "destructive" })
@@ -287,13 +292,13 @@ export default function FaturaOnizlemePage() {
 
   // E-Fatura gönderiminde Ticari/Temel seçimini sormak için. E-Arşiv'de doğrudan
   // confirm ile gönderilir.
-  const onClickSend = () => {
+  const onClickSend = async () => {
     if (!invoice) return
     if (invoice.invoiceType === "E_INVOICE") {
       setProfileDialogOpen(true)
       return
     }
-    if (!confirm("Bu faturayı göndermek istediğinize emin misiniz?\n\nGönderildikten sonra fatura yasal olarak kesilmiş sayılır.")) return
+    if (!(await confirm({ title: "Faturayı gönder", description: "Bu faturayı göndermek istediğinize emin misiniz? Gönderildikten sonra fatura yasal olarak kesilmiş sayılır.", confirmLabel: "Gönder" }))) return
     void handleSendToProvider()
   }
 
@@ -327,15 +332,8 @@ export default function FaturaOnizlemePage() {
     }
   }
 
-  const handleDelete = async () => {
+  const performDelete = async () => {
     if (!invoice) return
-    if (
-      !confirm(
-        "Bu faturayı silmek/iptal etmek istediğinize emin misiniz? (Bu işlem stokları ve bakiyeleri geri alacaktır)",
-      )
-    ) {
-      return
-    }
     setIsDeleting(true)
     try {
       const qs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""
@@ -347,6 +345,7 @@ export default function FaturaOnizlemePage() {
           description: data.error || "Fatura silinemedi",
           variant: "destructive",
         })
+        setDeleteDialogOpen(false)
         return
       }
       toast({ title: "Başarılı", description: "Fatura silindi." })
@@ -378,10 +377,10 @@ export default function FaturaOnizlemePage() {
       body: JSON.stringify({ email }),
     })
     if (!response.ok) {
-      alert("E-posta gönderilemedi")
+      toast({ title: "E-posta gönderilemedi", variant: "destructive" })
       return
     }
-    alert("E-posta gönderimi kuyruğa alındı")
+    toast({ title: "E-posta gönderimi kuyruğa alındı" })
   }
 
   const createAttachment = async () => {
@@ -633,7 +632,11 @@ export default function FaturaOnizlemePage() {
                   {invoice.invoiceType === "E_ARCHIVE" && invoice.status !== "CANCELLED" && (
                     <DropdownMenuItem
                       className="cursor-pointer text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
-                      onClick={handleCancelInvoice}
+                      onSelect={(e) => {
+                        e.preventDefault()
+                        setCancelNote("Kullanıcı tarafından iptal edildi")
+                        setCancelDialogOpen(true)
+                      }}
                       disabled={isCancelling}
                     >
                       {isCancelling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Ban className="mr-2 h-4 w-4" />}
@@ -645,7 +648,10 @@ export default function FaturaOnizlemePage() {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="cursor-pointer text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
-                onClick={handleDelete}
+                onSelect={(e) => {
+                  e.preventDefault()
+                  setDeleteDialogOpen(true)
+                }}
                 disabled={isDeleting}
               >
                 {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
@@ -923,22 +929,51 @@ export default function FaturaOnizlemePage() {
             </TableBody>
           </Table>
 
-          <div className="flex justify-end mt-6">
-            <div className="w-72 space-y-2 rounded-lg border bg-muted/30 p-4 tabular-nums">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Ara Toplam</span>
-                <span>{formatCurrency(invoice.netAmount)}</span>
+          {(() => {
+            const grossTotal = invoice.items.reduce(
+              (sum, it) => sum + Number(it.quantity || 0) * Number(it.unitPrice || 0),
+              0,
+            )
+            const lineDiscountTotal = invoice.items.reduce(
+              (sum, it) => sum + Number(it.discountAmount || 0),
+              0,
+            )
+            const globalDiscount = Number((invoice as any).globalDiscountAmount || 0)
+            return (
+              <div className="flex justify-end mt-6">
+                <div className="w-80 space-y-2 rounded-lg border bg-muted/30 p-4 tabular-nums">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Ara Toplam</span>
+                    <span>{formatCurrency(grossTotal)}</span>
+                  </div>
+                  {lineDiscountTotal > 0 && (
+                    <div className="flex justify-between text-sm text-red-600 dark:text-red-400">
+                      <span>Satır İskontoları</span>
+                      <span>- {formatCurrency(lineDiscountTotal)}</span>
+                    </div>
+                  )}
+                  {globalDiscount > 0 && (
+                    <div className="flex justify-between text-sm text-red-600 dark:text-red-400">
+                      <span>Fatura İskontosu</span>
+                      <span>- {formatCurrency(globalDiscount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between border-t pt-2 text-sm">
+                    <span className="text-muted-foreground">Matrah</span>
+                    <span>{formatCurrency(invoice.netAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">KDV Toplam</span>
+                    <span>{formatCurrency(invoice.vatAmount)}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2 text-lg font-bold">
+                    <span>Genel Toplam</span>
+                    <span className="text-green-600 dark:text-green-400">{formatCurrency(invoice.totalAmount)}</span>
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">KDV Toplam</span>
-                <span>{formatCurrency(invoice.vatAmount)}</span>
-              </div>
-              <div className="flex justify-between border-t pt-2 text-lg font-bold">
-                <span>Genel Toplam</span>
-                <span className="text-green-600 dark:text-green-400">{formatCurrency(invoice.totalAmount)}</span>
-              </div>
-            </div>
-          </div>
+            )
+          })()}
 
           {invoice.notes && (
             <div className="mt-6 p-4 bg-muted rounded-lg">
@@ -1006,6 +1041,46 @@ export default function FaturaOnizlemePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Silme onayı */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Faturayı sil"
+        description="Bu faturayı silmek istediğinize emin misiniz? Bu işlem stokları ve cari bakiyeleri geri alır ve geri alınamaz. (GİB'e gönderilmiş faturalar silinemez; önce iptal edin.)"
+        confirmLabel="Sil"
+        variant="destructive"
+        isProcessing={isDeleting}
+        onConfirm={performDelete}
+        icon={<Trash2 className="h-5 w-5 text-destructive" />}
+      />
+
+      {/* e-Arşiv iptal onayı (sebep girişiyle) */}
+      <ConfirmDialog
+        open={cancelDialogOpen}
+        onOpenChange={setCancelDialogOpen}
+        title="e-Arşiv faturayı iptal et"
+        description="Fatura GİB nezdinde iptal edilecek ve stok/bakiye geri alınacaktır. Bu işlem geri alınamaz. İptal sebebini girin (en az 3 karakter)."
+        confirmLabel="İptal Et"
+        variant="destructive"
+        isProcessing={isCancelling}
+        confirmDisabled={cancelNote.trim().length < 3}
+        onConfirm={performCancelInvoice}
+        icon={<Ban className="h-5 w-5 text-destructive" />}
+      >
+        <div className="space-y-1.5">
+          <label htmlFor="cancel-note" className="text-sm font-medium">
+            İptal sebebi
+          </label>
+          <Input
+            id="cancel-note"
+            value={cancelNote}
+            onChange={(e) => setCancelNote(e.target.value)}
+            placeholder="Örn. Hatalı düzenlendi"
+            autoFocus
+          />
+        </div>
+      </ConfirmDialog>
     </div>
   )
 }

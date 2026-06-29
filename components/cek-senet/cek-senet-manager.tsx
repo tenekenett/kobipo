@@ -39,6 +39,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Trash2, Edit } from "lucide-react"
 
 interface Check {
@@ -106,6 +107,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
 
   const [checks, setChecks] = useState<Check[]>([])
   const [notes, setNotes] = useState<PromissoryNote[]>([])
@@ -249,7 +251,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Bu kaydı silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Kaydı sil", description: "Bu kaydı silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
 
     try {
       const response = await fetch(`/api/cek-senet/${id}?type=${mode}`, {

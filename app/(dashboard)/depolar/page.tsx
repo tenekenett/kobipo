@@ -24,6 +24,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Edit, Trash2, Package } from "lucide-react"
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })
@@ -42,6 +43,7 @@ export default function DepolarPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -140,7 +142,7 @@ export default function DepolarPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Bu depoyu silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Depoyu sil", description: "Bu depoyu silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
 
     try {
       const response = await fetch(`/api/depolar/${id}`, {

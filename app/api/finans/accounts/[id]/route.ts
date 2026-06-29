@@ -21,8 +21,13 @@ export async function GET(
       include: {
         transactions: {
           orderBy: { date: "desc" },
-          take: 50,
+          take: 100,
+          include: {
+            customer: { select: { id: true, name: true } },
+            supplier: { select: { id: true, name: true } },
+          },
         },
+        _count: { select: { transactions: true } },
       },
     })
 
@@ -32,7 +37,29 @@ export async function GET(
 
     await ensureCompanyAccess(account.companyId)
 
-    return NextResponse.json(account)
+    // Bordro bağlantısı olan işlemleri tek sorguda işaretle — UI'da silme
+    // butonunu gizlemek ve "Bordro" rozetini göstermek için.
+    const txIds = account.transactions.map((t) => t.id)
+    const linkedPayrollRows =
+      txIds.length > 0
+        ? await prisma.payrollRecord.findMany({
+            where: { transactionId: { in: txIds } },
+            select: { transactionId: true, periodMonth: true, periodYear: true },
+          })
+        : []
+    const payrollByTx = new Map(linkedPayrollRows.map((p) => [p.transactionId, p]))
+
+    const transactionsWithMeta = account.transactions.map((tx) => {
+      const linkedPayroll = payrollByTx.get(tx.id)
+      return {
+        ...tx,
+        linkedPayroll: linkedPayroll
+          ? { periodMonth: linkedPayroll.periodMonth, periodYear: linkedPayroll.periodYear }
+          : null,
+      }
+    })
+
+    return NextResponse.json({ ...account, transactions: transactionsWithMeta })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })

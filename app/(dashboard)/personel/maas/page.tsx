@@ -17,6 +17,7 @@ import {
   StyledTableRow,
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import Link from "next/link"
 import { Plus, RefreshCcw, Trash2, Wallet, DollarSign, Users, FileText, Download, Pencil } from "lucide-react"
 
@@ -55,6 +56,7 @@ export default function MaasOdemelerPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
 
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
@@ -176,7 +178,7 @@ export default function MaasOdemelerPage() {
 
   async function bulkCreate() {
     if (!companyId) return
-    if (!confirm(`${MONTHS[month - 1]} ${year} için bordrosu olmayan tüm aktif personele taslak bordro oluşturulsun mu?`)) return
+    if (!(await confirm({ title: "Toplu bordro oluştur", description: `${MONTHS[month - 1]} ${year} için bordrosu olmayan tüm aktif personele taslak bordro oluşturulsun mu?`, confirmLabel: "Oluştur" }))) return
     const res = await fetch("/api/personel/payroll/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -209,7 +211,7 @@ export default function MaasOdemelerPage() {
   }
 
   async function remove(p: Payroll) {
-    if (!confirm("Bu bordroyu silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Bordroyu sil", description: "Bu bordroyu silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
     const res = await fetch(`/api/personel/payroll/${p.id}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "Bordro silindi" })

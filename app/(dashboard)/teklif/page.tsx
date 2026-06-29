@@ -30,6 +30,7 @@ import {
   MonoCell,
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, Eye, Minus } from "lucide-react"
 
 type Quote = {
@@ -106,6 +107,7 @@ export default function TeklifPage() {
   const router = useRouter()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([])
@@ -216,7 +218,7 @@ export default function TeklifPage() {
   }
 
   async function removeQuote(quoteId: string) {
-    if (!confirm("Bu teklifi silmek istediğinize emin misiniz?")) return
+    if (!(await confirm({ title: "Teklifi sil", description: "Bu teklifi silmek istediğinize emin misiniz?", confirmLabel: "Sil", variant: "destructive" }))) return
     const res = await fetch(`/api/teklif/${quoteId}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "Teklif silindi" })

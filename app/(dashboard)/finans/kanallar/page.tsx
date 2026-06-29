@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -23,7 +24,7 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
-import { Banknote, CreditCard, Plus, Wallet } from "lucide-react"
+import { Banknote, ChevronRight, CreditCard, Plus, Wallet } from "lucide-react"
 
 interface Account {
   id: string
@@ -195,8 +196,12 @@ export default function FinansKanallariPage() {
           ) : (
             <div className="divide-y rounded-lg border">
               {accounts.map((acc) => (
-                <div key={acc.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div className="flex items-center gap-3 min-w-0">
+                <Link
+                  key={acc.id}
+                  href={`/finans/kanallar/${acc.id}?company=${encodeURIComponent(companyId)}`}
+                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/60 focus:outline-none focus-visible:bg-muted/60"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
                     <span
                       className={
                         acc.type === "BANK"
@@ -217,13 +222,14 @@ export default function FinansKanallariPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="shrink-0 text-right">
+                  <div className="flex shrink-0 items-center gap-2 text-right">
                     <p className="font-mono text-sm font-semibold tabular-nums">
                       {Number(acc.balance || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}{" "}
                       <span className="text-xs text-muted-foreground">{acc.currency}</span>
                     </p>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           )}

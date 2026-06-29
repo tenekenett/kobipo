@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -41,6 +41,7 @@ interface Transaction {
 
 export default function FinansHareketlerPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const companyId = searchParams.get("company")
   const customerId = searchParams.get("customerId")
   const supplierId = searchParams.get("supplierId")
@@ -142,7 +143,16 @@ export default function FinansHareketlerPage() {
               </TableHeader>
               <TableBody>
                 {transactions.map((tx, idx) => (
-                  <StyledTableRow key={tx.id} index={idx}>
+                  <StyledTableRow
+                    key={tx.id}
+                    index={idx}
+                    className="cursor-pointer"
+                    onClick={() =>
+                      router.push(
+                        `/finans/hareketler/${tx.id}?company=${encodeURIComponent(companyId || "")}&from=${encodeURIComponent("/finans/hareketler")}`,
+                      )
+                    }
+                  >
                     <TableCell className="text-xs whitespace-nowrap">
                       {new Date(tx.date).toLocaleDateString("tr-TR")}
                     </TableCell>
