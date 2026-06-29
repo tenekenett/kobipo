@@ -1223,7 +1223,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                         {/* 4. FİYAT VE GEÇMİŞ LİNKİ */}
                         <div className="col-span-4 md:col-span-2">
                           <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Birim Fiyat</Label>
-                          <Input type="number" min="0" step="0.01" className="text-right font-medium" value={item.unitPrice || ""} onChange={(e) => updateItem(index, "unitPrice", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)} onFocus={(e) => (e.target as HTMLInputElement).select()} />
+                          <Input type="number" min="0" step="any" className="text-right font-medium" value={item.unitPrice || ""} onChange={(e) => updateItem(index, "unitPrice", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)} onFocus={(e) => (e.target as HTMLInputElement).select()} title="6 ondalık basamağa kadar girilebilir (UBL standardı)" />
                           <div className="flex justify-end mt-1.5">
                             <button
                               type="button"

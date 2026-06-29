@@ -223,6 +223,9 @@ model EInvoiceTemplate {
   xsltName      String   // Mysoft'a verilen şablon adı (eşleşme anahtarı)
   options       Json?    // Tasarımcı seçenekleri; yoksa dışarıdan/portal şablonu (önizlenemez)
   isActive      Boolean  @default(false)
+  // Mysoft XSLT silmeyi desteklemediğinden "silme" = Kobipo tarafında listeden gizleme.
+  // hidden=true ise şablon listede gösterilmez (Mysoft hesabında fiziksel olarak kalır).
+  hidden        Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -440,8 +443,8 @@ model Product {
   category    String?  // Ürün kategorisi/grubu (serbest metin; varyant ileride)
   unit        String   @default("ADET")
   vatRate     Decimal  @default(20) @db.Decimal(5, 2)
-  purchasePrice Decimal? @db.Decimal(10, 2)
-  salePrice   Decimal? @db.Decimal(10, 2)
+  purchasePrice Decimal? @db.Decimal(15, 6) // 6 ondalık: e-Fatura birim fiyat hassasiyeti
+  salePrice   Decimal? @db.Decimal(15, 6) // 6 ondalık: e-Fatura birim fiyat hassasiyeti
   // Fiyatlar DB'de DAİMA net (KDV hariç) saklanır. Aşağıdaki bayraklar yalnızca
   // kullanıcının fiyatı KDV dahil girip girmediğini hatırlamak/formu o modda
   // göstermek içindir — hesaplamaları etkilemez.
@@ -474,7 +477,7 @@ model StockMovement {
   warehouseId String?  // Depo ID (opsiyonel, geriye dönük uyumluluk için)
   type        String   // IN, OUT, TRANSFER, ADJUSTMENT
   quantity    Decimal  @db.Decimal(10, 2)
-  unitPrice   Decimal? @db.Decimal(10, 2)
+  unitPrice   Decimal? @db.Decimal(15, 6) // 6 ondalık: UBL e-Fatura birim fiyat hassasiyeti
   description String?  @db.Text
   reference   String?  // Invoice ID, etc.
   createdAt   DateTime @default(now())
@@ -739,7 +742,7 @@ model QuoteItem {
   productId   String?
   description String
   quantity    Decimal  @db.Decimal(10, 2)
-  unitPrice   Decimal  @db.Decimal(10, 2)
+  unitPrice   Decimal  @db.Decimal(15, 6) // 6 ondalık: UBL e-Fatura birim fiyat hassasiyeti
   discountRate Decimal? @db.Decimal(5, 2)
   discountAmount Decimal? @db.Decimal(10, 2)
   vatRate     Decimal  @db.Decimal(5, 2)
@@ -795,7 +798,7 @@ model OrderItem {
   productId   String?
   description String
   quantity    Decimal  @db.Decimal(10, 2)
-  unitPrice   Decimal  @db.Decimal(10, 2)
+  unitPrice   Decimal  @db.Decimal(15, 6) // 6 ondalık: UBL e-Fatura birim fiyat hassasiyeti
   discountRate Decimal? @db.Decimal(5, 2)
   discountAmount Decimal? @db.Decimal(10, 2)
   vatRate     Decimal  @db.Decimal(5, 2)
@@ -818,7 +821,7 @@ model InvoiceItem {
   description String
   unit        String   @default("ADET")
   quantity    Decimal  @db.Decimal(10, 2)
-  unitPrice   Decimal  @db.Decimal(10, 2)
+  unitPrice   Decimal  @db.Decimal(15, 6) // 6 ondalık: UBL e-Fatura birim fiyat hassasiyeti
   discountRate Decimal? @db.Decimal(5, 2)
   discountAmount Decimal? @db.Decimal(10, 2)
   vatRate     Decimal  @db.Decimal(5, 2)

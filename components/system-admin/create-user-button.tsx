@@ -17,10 +17,21 @@ import {
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { Plus, Loader2 } from "lucide-react"
+import { Role } from "@prisma/client"
+import { roleLabels } from "@/lib/auth/role-labels"
 
-const emptyForm = { name: "", email: "", password: "", isSuperAdmin: false }
+type CompanyOption = { id: string; name: string; isActive: boolean }
 
-export function CreateUserButton() {
+const emptyForm: { name: string; email: string; password: string; isSuperAdmin: boolean; companyId: string; role: Role } = {
+  name: "",
+  email: "",
+  password: "",
+  isSuperAdmin: false,
+  companyId: "",
+  role: Role.VIEWER,
+}
+
+export function CreateUserButton({ companies }: { companies: CompanyOption[] }) {
   const router = useRouter()
   const { toast } = useToast()
   const [open, setOpen] = useState(false)
@@ -114,6 +125,37 @@ export function CreateUserButton() {
               className="bg-slate-800/50 border-slate-700 text-white"
             />
           </div>
+          <div className="space-y-1">
+            <Label className="text-slate-300">Firma (opsiyonel)</Label>
+            <select
+              value={form.companyId}
+              onChange={(e) => setForm((f) => ({ ...f, companyId: e.target.value }))}
+              className="w-full h-10 rounded-md bg-slate-800/50 border border-slate-700 text-white text-sm px-3"
+            >
+              <option value="">Bağlama (sonra atanabilir)</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}{c.isActive ? "" : " (pasif)"}
+                </option>
+              ))}
+            </select>
+          </div>
+          {form.companyId && (
+            <div className="space-y-1">
+              <Label className="text-slate-300">Rol</Label>
+              <select
+                value={form.role}
+                onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as Role }))}
+                className="w-full h-10 rounded-md bg-slate-800/50 border border-slate-700 text-white text-sm px-3"
+              >
+                {Object.values(Role).map((r) => (
+                  <option key={r} value={r}>
+                    {roleLabels[r]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-800/30 p-3">
             <div className="space-y-0.5">
               <Label className="text-slate-300">Sistem Yöneticisi</Label>

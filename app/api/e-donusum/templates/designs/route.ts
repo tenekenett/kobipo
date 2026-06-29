@@ -29,24 +29,46 @@ export async function GET(request: Request) {
     const companyId = searchParams.get("companyId")
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     const eDocumentType = parseDocType(searchParams.get("eDocumentType"))
+    const xsltName = (searchParams.get("xsltName") || "").trim()
 
     await ensureCompanyAccess(companyId)
 
+    // Tek şablonun tasarım seçeneklerini iste (düzenleme için önceden doldurma).
+    if (xsltName) {
+      if (!eDocumentType) {
+        return NextResponse.json({ error: "Geçerli belge tipi gerekli." }, { status: 400 })
+      }
+      const row = await prisma.eInvoiceTemplate.findUnique({
+        where: { companyId_eDocumentType_xsltName: { companyId, eDocumentType, xsltName } },
+        select: { xsltName: true, eDocumentType: true, options: true },
+      })
+      if (!row || row.options == null) {
+        return NextResponse.json(
+          { error: "Bu şablonun düzenlenebilir tasarımı yok." },
+          { status: 404 },
+        )
+      }
+      return NextResponse.json({ xsltName: row.xsltName, eDocumentType: row.eDocumentType, options: row.options })
+    }
+
     const rows = await prisma.eInvoiceTemplate.findMany({
       where: { companyId, ...(eDocumentType ? { eDocumentType } : {}) },
-      select: { xsltName: true, eDocumentType: true, isActive: true, options: true, updatedAt: true },
+      select: { xsltName: true, eDocumentType: true, isActive: true, options: true, hidden: true, updatedAt: true },
       orderBy: { updatedAt: "desc" },
     })
 
-    const data = rows.map((r) => ({
+    // Gizlenenler listeden/aktiften düşülür; ayrı bir alanda geri-getirme için döner.
+    const visible = rows.filter((r) => !r.hidden)
+    const data = visible.map((r) => ({
       xsltName: r.xsltName,
       eDocumentType: r.eDocumentType,
       isActive: r.isActive,
       hasOptions: r.options != null,
     }))
-    const active = rows.find((r) => r.isActive)
+    const active = visible.find((r) => r.isActive)
+    const hiddenXsltNames = rows.filter((r) => r.hidden).map((r) => r.xsltName)
 
-    return NextResponse.json({ data, activeXsltName: active?.xsltName ?? null })
+    return NextResponse.json({ data, activeXsltName: active?.xsltName ?? null, hiddenXsltNames })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
@@ -80,7 +102,8 @@ export async function POST(request: Request) {
     await prisma.eInvoiceTemplate.upsert({
       where: { companyId_eDocumentType_xsltName: { companyId, eDocumentType, xsltName: name } },
       create: { companyId, eDocumentType, xsltName: name, options: normalized },
-      update: { options: normalized },
+      // Yeniden kaydedilen tasarım daha önce gizlenmişse görünür hale gelir.
+      update: { options: normalized, hidden: false },
     })
 
     return NextResponse.json({ success: true })

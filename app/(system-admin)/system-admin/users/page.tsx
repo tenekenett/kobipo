@@ -7,18 +7,24 @@ import { CreateUserButton } from "@/components/system-admin/create-user-button"
 export const dynamic = "force-dynamic"
 
 export default async function UsersPage() {
-  const users = await prisma.user.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      companies: {
-        include: {
-          company: {
-            select: { id: true, name: true, isActive: true }
+  const [users, companies] = await Promise.all([
+    prisma.user.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        companies: {
+          include: {
+            company: {
+              select: { id: true, name: true, isActive: true }
+            }
           }
         }
       }
-    }
-  })
+    }),
+    prisma.company.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, isActive: true },
+    }),
+  ])
 
   const stats = {
     total: users.length,
@@ -39,7 +45,7 @@ export default async function UsersPage() {
             Sistemdeki tüm kullanıcıları yönetin
           </p>
         </div>
-        <CreateUserButton />
+        <CreateUserButton companies={companies} />
       </div>
 
       {/* Stats */}
@@ -90,7 +96,7 @@ export default async function UsersPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <UserTable users={users} />
+          <UserTable users={users} companies={companies} />
         </CardContent>
       </Card>
     </div>

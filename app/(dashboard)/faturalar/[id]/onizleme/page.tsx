@@ -290,16 +290,34 @@ export default function FaturaOnizlemePage() {
     }
   }
 
-  // E-Fatura gönderiminde Ticari/Temel seçimini sormak için. E-Arşiv'de doğrudan
-  // confirm ile gönderilir.
+  // Resmileştirme akışı: E-Fatura'da önce profil (Ticari/Temel) seçilir, sonra
+  // ayrı bir onayla GİB'e gönderilir; iki adım taslakla GİB arasında "ön kontrol"
+  // marjı bırakır. E-Arşiv'de profil seçimi yok, tek onayla gönderilir.
   const onClickSend = async () => {
     if (!invoice) return
     if (invoice.invoiceType === "E_INVOICE") {
       setProfileDialogOpen(true)
       return
     }
-    if (!(await confirm({ title: "Faturayı gönder", description: "Bu faturayı göndermek istediğinize emin misiniz? Gönderildikten sonra fatura yasal olarak kesilmiş sayılır.", confirmLabel: "Gönder" }))) return
-    void handleSendToProvider()
+    await confirmAndSend()
+  }
+
+  // Profil seçildikten sonra (E-Fatura'da) veya doğrudan (E-Arşiv'de) çağrılır.
+  // Resmileştirme öncesi son onay — kullanıcıya taslak PDF'ini kontrol etme fırsatı.
+  const confirmAndSend = async (eInvoiceProfile?: "TICARIFATURA" | "TEMELFATURA") => {
+    setProfileDialogOpen(false)
+    const profileLabel = eInvoiceProfile
+      ? eInvoiceProfile === "TICARIFATURA" ? " (Ticari Fatura)" : " (Temel Fatura)"
+      : ""
+    const docTypeLabel = invoice?.invoiceType === "E_INVOICE" ? "e-Fatura" : "e-Arşiv"
+    const ok = await confirm({
+      title: "Faturayı resmileştir",
+      description: `Fatura${profileLabel} olarak Mysoft üzerinden GİB sistemine resmen iletilecek. Bu işlem geri alınamaz; ${docTypeLabel === "e-Fatura" ? "yalnız alıcıya iade faturası kesilebilir" : "yalnız iptal yoluyla geri alınabilir"}. Taslak PDF'ini kontrol ettiyseniz devam edebilirsiniz.`,
+      confirmLabel: "Resmileştir ve Gönder",
+      variant: "destructive",
+    })
+    if (!ok) return
+    await handleSendToProvider(eInvoiceProfile)
   }
 
   const handleSendToProvider = async (eInvoiceProfile?: "TICARIFATURA" | "TEMELFATURA") => {
@@ -554,7 +572,7 @@ export default function FaturaOnizlemePage() {
                 ) : (
                   <ShieldCheck className="mr-2 h-4 w-4" />
                 )}
-                Gönder
+                Resmileştir
               </Button>
             )}
           {invoice.status === "DRAFT" && invoice.invoiceType === "MANUAL" && (
@@ -1006,14 +1024,14 @@ export default function FaturaOnizlemePage() {
           <DialogHeader>
             <DialogTitle>E-Fatura Profili Seçin</DialogTitle>
             <DialogDescription>
-              Fatura resmileştirilmeden önce profil tipini seçin. Gönderildikten sonra
-              fatura yasal olarak kesilmiş sayılır.
+              Profil tipini seçin. Bir sonraki adımda son onayla GİB'e resmileştirilir;
+              isterseniz öncesinde PDF'i indirip kontrol edebilirsiniz.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2">
             <button
               type="button"
-              onClick={() => handleSendToProvider("TICARIFATURA")}
+              onClick={() => confirmAndSend("TICARIFATURA")}
               disabled={isSendingToProvider}
               className="rounded-lg border p-4 text-left transition-colors hover:border-primary hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
             >
@@ -1024,7 +1042,7 @@ export default function FaturaOnizlemePage() {
             </button>
             <button
               type="button"
-              onClick={() => handleSendToProvider("TEMELFATURA")}
+              onClick={() => confirmAndSend("TEMELFATURA")}
               disabled={isSendingToProvider}
               className="rounded-lg border p-4 text-left transition-colors hover:border-primary hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
             >

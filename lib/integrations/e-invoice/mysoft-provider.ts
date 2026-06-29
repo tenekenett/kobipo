@@ -396,6 +396,9 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // Pro-rata payı + KDV hesabında floating-point fazla hane üretebileceğinden
       // gönderim öncesi tüm tutarları 2 ondalığa yuvarlıyoruz.
       const round2 = (n: number) => Math.round(n * 100) / 100;
+      // unitPriceTra için UBL standardı 6 ondalığa kadar izin verir (Türk e-Fatura
+      // pratiği); 26 × 15384,615385 = 400.000 gibi tam toplama ulaşabilmek için.
+      const round6 = (n: number) => Math.round(n * 1000000) / 1000000;
 
       // 0 tutarlı kalemleri Mysoft'a göndermiyoruz. Satır iskontosu varsa KDV
       // matrahı (taxableAmtTra) = brüt - iskonto; KDV bu net üzerinden hesaplanır.
@@ -446,13 +449,16 @@ async sendInvoice(invoiceData: any): Promise<any> {
       }
 
       // Yeni matrah ve KDV: lineDiscount + globalShare düşülmüş tutar üzerinden.
-      // GİB şematron 2-ondalık kuralı için round2() ile yuvarlanır.
+      // GİB şematron 2-ondalık kuralı: TUTAR alanları (amtTra/taxableAmtTra/
+      // amtVatTra) 2 ondalığa yuvarlanır. unitPriceTra UBL standardında 6+
+      // ondalığa kadar geçerlidir — kullanıcı girdiği hassasiyeti koruyoruz
+      // (ör. 26 × 15384,615385 = 400.000,00 tam tutar elde etmek için gerekli).
       lineData.forEach((l: any) => {
         l.taxable = round2(l.rowTotal - l.lineDiscount - l.globalShare);
         l.rowVat = round2((l.taxable * l.vatRate) / 100);
         l.lineDiscount = round2(l.lineDiscount);
         l.rowTotal = round2(l.rowTotal);
-        l.unitPrice = round2(l.unitPrice);
+        // l.unitPrice: round'lamadan orijinal hassasiyetle gönderilir.
       });
 
       console.log("[Mysoft] discount distribution →", {
@@ -657,11 +663,11 @@ async sendInvoice(invoiceData: any): Promise<any> {
                 productName: l.item.description || "Muhtelif Ürün/Hizmet",
                 unitCode: "C62",
                 qty: l.qty,
-                unitPriceTra: l.unitPrice,
-                amtTra: l.rowTotal,        // brüt (qty * unitPrice)
-                taxableAmtTra: l.taxable,  // matrah (brüt - satır iskonto - global pay)
+                unitPriceTra: round6(l.unitPrice), // 6 ondalık (UBL standardı)
+                amtTra: l.rowTotal,        // brüt (qty * unitPrice), 2 ondalık
+                taxableAmtTra: l.taxable,  // matrah (brüt - satır iskonto - global pay), 2 ondalık
                 vatRate: l.vatRate,
-                amtVatTra: l.rowVat,       // matrah * vatRate / 100
+                amtVatTra: l.rowVat,       // matrah * vatRate / 100, 2 ondalık
             };
             // İskonto satırları (UBL cac:AllowanceCharge, chargeIndicator=false).
             // Satır iskontosu + (varsa) fatura altı iskontodan o satıra düşen pay

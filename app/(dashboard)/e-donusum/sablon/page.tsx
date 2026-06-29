@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { TemplateDesigner } from "@/components/e-donusum/template-designer"
+import type { TemplateDesignOptions } from "@/lib/integrations/e-invoice/template-designer"
 import {
   AlertTriangle,
   CheckCircle2,
@@ -18,8 +20,10 @@ import {
   LayoutTemplate,
   Loader2,
   Palette,
+  Pencil,
   RefreshCcw,
   Sparkles,
+  Trash2,
   Upload,
 } from "lucide-react"
 
@@ -81,7 +85,9 @@ export default function FaturaSablonuPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const designerRef = useRef<HTMLDivElement>(null)
 
   const [companyChecked, setCompanyChecked] = useState(false)
   const [tenantVkn, setTenantVkn] = useState<string | null>(null)
@@ -101,7 +107,13 @@ export default function FaturaSablonuPage() {
   // Kobipo tasarımları (xsltName → önizlenebilir mi) ve aktif şablon seçimi.
   const [designMap, setDesignMap] = useState<Record<string, { hasOptions: boolean }>>({})
   const [activeXsltName, setActiveXsltName] = useState<string | null>(null)
-  const [rowBusy, setRowBusy] = useState<{ name: string; action: "activate" | "preview" } | null>(null)
+  // "Silinen" = gizlenen şablon adları (Mysoft'ta kalır ama listede gösterilmez).
+  const [hiddenNames, setHiddenNames] = useState<string[]>([])
+  const [rowBusy, setRowBusy] = useState<{ name: string; action: "activate" | "preview" | "edit" | "delete" | "restore" } | null>(null)
+
+  // Düzenleme: tasarımcıyı kayıtlı tasarım seçenekleriyle açmak için hedef.
+  const [editTarget, setEditTarget] = useState<{ xsltName: string; options: TemplateDesignOptions } | null>(null)
+  const [editNonce, setEditNonce] = useState(0)
 
   const [samples, setSamples] = useState<SampleTemplate[]>([])
   const [sampleBusy, setSampleBusy] = useState<{ key: string; action: "preview" | "install" } | null>(null)
@@ -204,6 +216,7 @@ export default function FaturaSablonuPage() {
       }
       setDesignMap(map)
       setActiveXsltName(typeof data?.activeXsltName === "string" ? data.activeXsltName : null)
+      setHiddenNames(Array.isArray(data?.hiddenXsltNames) ? data.hiddenXsltNames : [])
     } catch {
       /* sessiz geç */
     }
@@ -285,6 +298,79 @@ export default function FaturaSablonuPage() {
     } catch (error) {
       if (win && !win.closed) win.close()
       toast({ title: "Önizleme hatası", description: error instanceof Error ? error.message : "Hata", variant: "destructive" })
+    } finally {
+      setRowBusy(null)
+    }
+  }
+
+  // Kobipo tasarımını düzenle: kayıtlı seçenekleri çek, tasarımcıyı doldur ve oraya kaydır.
+  const editDesign = async (name: string) => {
+    if (!companyId) return
+    setRowBusy({ name, action: "edit" })
+    try {
+      const res = await fetch(
+        `/api/e-donusum/templates/designs?companyId=${companyId}&eDocumentType=${docType}&xsltName=${encodeURIComponent(name)}`,
+        { cache: "no-store" },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Tasarım yüklenemedi")
+      setEditTarget({ xsltName: name, options: data.options as TemplateDesignOptions })
+      setEditNonce((n) => n + 1)
+      setCreateTab("design")
+      // Tasarımcı görünür hale gelince oraya kaydır.
+      setTimeout(() => designerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60)
+    } catch (error) {
+      toast({ title: "Düzenleme açılamadı", description: error instanceof Error ? error.message : "Hata", variant: "destructive" })
+    } finally {
+      setRowBusy(null)
+    }
+  }
+
+  // "Silme" = listeden gizleme (Mysoft XSLT silmeyi desteklemiyor; şablon hesapta kalır).
+  const hideTemplate = async (name: string) => {
+    if (!companyId) return
+    const ok = await confirm({
+      title: "Şablonu listeden kaldır",
+      description: `“${name}” şablonu listeden kaldırılacak ve varsa aktif/seri atamasından çıkarılacak. (Mysoft hesabınızda fiziksel olarak kalır; aşağıdaki “Gizlenen şablonlar”dan geri getirebilirsiniz.)`,
+      confirmLabel: "Listeden kaldır",
+      variant: "destructive",
+    })
+    if (!ok) return
+    setRowBusy({ name, action: "delete" })
+    try {
+      const res = await fetch("/api/e-donusum/templates/hidden", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, eDocumentType: docType, xsltName: name, hidden: true }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Şablon gizlenemedi")
+      toast({ title: "Şablon listeden kaldırıldı", description: `“${name}” artık listede görünmüyor.` })
+      if (activeXsltName === name) setActiveXsltName(null)
+      if (editTarget?.xsltName === name) setEditTarget(null)
+      refreshTemplatesAndDesigns()
+    } catch (error) {
+      toast({ title: "Hata", description: error instanceof Error ? error.message : "Hata", variant: "destructive" })
+    } finally {
+      setRowBusy(null)
+    }
+  }
+
+  const restoreTemplate = async (name: string) => {
+    if (!companyId) return
+    setRowBusy({ name, action: "restore" })
+    try {
+      const res = await fetch("/api/e-donusum/templates/hidden", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, eDocumentType: docType, xsltName: name, hidden: false }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Şablon geri getirilemedi")
+      toast({ title: "Şablon geri getirildi", description: `“${name}” yeniden listede.` })
+      refreshTemplatesAndDesigns()
+    } catch (error) {
+      toast({ title: "Hata", description: error instanceof Error ? error.message : "Hata", variant: "destructive" })
     } finally {
       setRowBusy(null)
     }
@@ -493,6 +579,9 @@ export default function FaturaSablonuPage() {
 
   const docLabel = DOC_TYPE_OPTIONS.find((o) => o.value === docType)?.label || "Belge"
   const visibleSamples = samples.filter((s) => s.eDocumentType === docType)
+  // Gizlenen ("silinen") şablonları listeden çıkar.
+  const hiddenSet = new Set(hiddenNames)
+  const visibleTemplates = templates.filter((t) => !hiddenSet.has(t.xsltName || ""))
 
   // Bu belge tipinde kullanımdaki prefix:
   //  1) firmanın açıkça seçtiği prefix (eFaturaPrefix/eArchivePrefix), yoksa
@@ -509,8 +598,8 @@ export default function FaturaSablonuPage() {
 
   return (
     <div className="space-y-5">
-      {/* Başlık + belge tipi anahtarı */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      {/* Başlık */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl font-bold tracking-tight text-kobipo-navy dark:text-foreground">
             Belge Şablonları
@@ -519,29 +608,54 @@ export default function FaturaSablonuPage() {
             Faturalarınızın görünümünü seçin. Şablon zorunlu değildir — seçmezseniz Mysoft'un varsayılan dizaynı kullanılır.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-xl border bg-muted/40 p-1">
-            {DOC_TYPE_OPTIONS.map((opt) => {
-              const active = docType === opt.value
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setDocType(opt.value)}
-                  className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
-                    active
-                      ? "bg-kobipo-blue text-white shadow-sm dark:bg-primary dark:text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              )
-            })}
-          </div>
-          <Button variant="outline" size="icon" onClick={refreshTemplatesAndDesigns} disabled={isLoading} title="Yenile">
-            <RefreshCcw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-          </Button>
+        <Button variant="outline" size="icon" onClick={refreshTemplatesAndDesigns} disabled={isLoading} title="Yenile">
+          <RefreshCcw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+
+      {/* Belge tipi seçici — büyük, etiketli ve belirgin (E-Fatura ↔ E-Arşiv) */}
+      <div className="rounded-2xl border bg-card p-3 shadow-sm">
+        <p className="mb-2 flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <LayoutTemplate className="h-3.5 w-3.5" />
+          Hangi belge tipinin şablonlarını yönetiyorsunuz?
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {DOC_TYPE_OPTIONS.map((opt) => {
+            const active = docType === opt.value
+            const hint = opt.value === 1 ? "Mükelleflere kesilen e-fatura" : "Nihai tüketici / e-arşiv"
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  setDocType(opt.value)
+                  setEditTarget(null)
+                }}
+                aria-pressed={active}
+                className={`flex flex-col items-start gap-0.5 rounded-xl border-2 px-4 py-3 text-left transition ${
+                  active
+                    ? "border-kobipo-blue bg-kobipo-blue/5 dark:border-primary dark:bg-primary/10"
+                    : "border-transparent bg-muted/40 hover:border-border hover:bg-muted"
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <span
+                    className={`flex h-5 w-5 items-center justify-center rounded-full border-2 transition ${
+                      active
+                        ? "border-kobipo-blue bg-kobipo-blue text-white dark:border-primary dark:bg-primary"
+                        : "border-muted-foreground/40"
+                    }`}
+                  >
+                    {active && <CheckCircle2 className="h-3.5 w-3.5" />}
+                  </span>
+                  <span className={`text-sm font-semibold ${active ? "text-kobipo-navy dark:text-foreground" : "text-foreground"}`}>
+                    {opt.label}
+                  </span>
+                </span>
+                <span className="pl-7 text-xs text-muted-foreground">{hint}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -592,9 +706,9 @@ export default function FaturaSablonuPage() {
                 {docLabel} için tanımlı dizaynlar — <b>Aktif yap</b> ile gönderimde kullanılacak olanı seçin.
               </CardDescription>
             </div>
-            {!isLoading && templates.length > 0 && (
+            {!isLoading && visibleTemplates.length > 0 && (
               <span className="shrink-0 rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
-                {templates.length} şablon
+                {visibleTemplates.length} şablon
               </span>
             )}
           </div>
@@ -610,7 +724,7 @@ export default function FaturaSablonuPage() {
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <p className="break-words">{listError}</p>
             </div>
-          ) : templates.length === 0 ? (
+          ) : visibleTemplates.length === 0 ? (
             <div className="px-4 pb-8 pt-2 text-center">
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                 <LayoutTemplate className="h-6 w-6 text-muted-foreground/60" />
@@ -624,13 +738,16 @@ export default function FaturaSablonuPage() {
           ) : (
             <div className="max-h-[560px] overflow-y-auto px-4 pb-4">
               <div className="grid gap-2">
-                {templates.map((t) => {
+                {visibleTemplates.map((t) => {
                   const name = t.xsltName || ""
                   const isActive = !!name && activeXsltName === name
                   const canPreview = !!name && designMap[name]?.hasOptions
+                  const canEdit = !!name && designMap[name]?.hasOptions
                   const isKobipo = !!name && !!designMap[name]
                   const activating = rowBusy?.name === name && rowBusy.action === "activate"
                   const previewing = rowBusy?.name === name && rowBusy.action === "preview"
+                  const editing = rowBusy?.name === name && rowBusy.action === "edit"
+                  const deleting = rowBusy?.name === name && rowBusy.action === "delete"
                   return (
                     <div
                       key={t.id}
@@ -693,6 +810,18 @@ export default function FaturaSablonuPage() {
                             Önizle
                           </Button>
                         )}
+                        {canEdit && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => editDesign(name)}
+                            disabled={!!rowBusy}
+                            title="Tasarımı düzenle"
+                          >
+                            {editing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Pencil className="mr-1.5 h-3.5 w-3.5" />}
+                            Düzenle
+                          </Button>
+                        )}
                         {isActive ? (
                           <span className="inline-flex items-center gap-1.5 rounded-md bg-kobipo-blue px-3 py-1.5 text-xs font-semibold text-white dark:bg-primary dark:text-primary-foreground">
                             <CheckCircle2 className="h-4 w-4" />
@@ -704,6 +833,16 @@ export default function FaturaSablonuPage() {
                             Aktif yap
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => hideTemplate(name)}
+                          disabled={!name || !!rowBusy}
+                          title="Şablonu listeden kaldır"
+                          className="text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                        >
+                          {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                        </Button>
                       </div>
                     </div>
                   )
@@ -713,6 +852,46 @@ export default function FaturaSablonuPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Gizlenen ("silinen") şablonlar — Mysoft'ta kalır; buradan geri getirilebilir */}
+      {hiddenNames.length > 0 && (
+        <Card className="border-dashed">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base text-muted-foreground">
+              Gizlenen şablonlar ({hiddenNames.length})
+            </CardTitle>
+            <CardDescription>
+              Bu {docLabel} şablonları listeden kaldırıldı. Mysoft hesabınızda duruyorlar — istediğinizde geri getirebilirsiniz.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {hiddenNames.map((name) => {
+              const restoring = rowBusy?.name === name && rowBusy.action === "restore"
+              return (
+                <div
+                  key={name}
+                  className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-2.5"
+                >
+                  <span className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+                    <LayoutTemplate className="h-4 w-4 shrink-0" />
+                    <span className="truncate line-through">{name}</span>
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => restoreTemplate(name)}
+                    disabled={!!rowBusy}
+                    className="shrink-0"
+                  >
+                    {restoring ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="mr-1.5 h-3.5 w-3.5" />}
+                    Geri getir
+                  </Button>
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Yeni şablon oluşturma yöntemleri — sekmeli (tasarla / hazır örnek / yükle) */}
       <Card>
@@ -736,13 +915,19 @@ export default function FaturaSablonuPage() {
 
             {/* Tasarla */}
             <TabsContent value="design" className="pt-4">
-              <TemplateDesigner
-                companyId={companyId}
-                docType={docType}
-                docLabel={docLabel}
-                activePrefix={inUsePrefix}
-                onSaved={refreshTemplatesAndDesigns}
-              />
+              <div ref={designerRef}>
+                <TemplateDesigner
+                  companyId={companyId}
+                  docType={docType}
+                  docLabel={docLabel}
+                  activePrefix={inUsePrefix}
+                  onSaved={refreshTemplatesAndDesigns}
+                  editName={editTarget?.xsltName ?? null}
+                  editOptions={editTarget?.options ?? null}
+                  editNonce={editNonce}
+                  onEditDone={() => setEditTarget(null)}
+                />
+              </div>
             </TabsContent>
 
             {/* Hazır örnek */}
@@ -908,14 +1093,24 @@ export default function FaturaSablonuPage() {
         </CardContent>
       </Card>
 
-      <p className="flex items-start gap-1.5 px-1 text-xs text-muted-foreground">
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span>
-          <b>Önizle</b> yalnızca Kobipo tasarımcısıyla yapılan şablonlarda görünür (Mysoft, portalden/dışarıdan eklenen
-          şablonun kaynağını geri vermediği için onlar önizlenemez). Bir seri no'ya özel şablon atamak için{" "}
-          <b>Seri No Tanımları</b> sayfasını kullanın.
-        </span>
-      </p>
+      <div className="space-y-1.5 px-1 text-xs">
+        <p className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            <b>Önizleme Mysoft örnek firma verisiyle</b> render edilir (Mysoft API'si önizlemede kendi firma
+            datanızı parametre olarak almıyor). Canlı belge kesildiğinde kendi firma bilgileriniz (unvan, VKN,
+            adres, vb.) görünecek — bu sayfadaki PDF yalnız <b>tasarımı/yerleşimi</b> kontrol etmek içindir.
+          </span>
+        </p>
+        <p className="flex items-start gap-1.5 text-muted-foreground">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            <b>Önizle</b> yalnızca Kobipo tasarımcısıyla yapılan şablonlarda görünür (Mysoft, portalden/dışarıdan eklenen
+            şablonun kaynağını geri vermediği için onlar önizlenemez). Bir seri no'ya özel şablon atamak için{" "}
+            <b>Seri No Tanımları</b> sayfasını kullanın.
+          </span>
+        </p>
+      </div>
     </div>
   )
 }

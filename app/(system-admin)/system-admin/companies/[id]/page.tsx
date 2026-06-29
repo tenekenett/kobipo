@@ -18,9 +18,9 @@ import {
   Briefcase,
   Receipt,
 } from "lucide-react"
-import { roleLabels } from "@/lib/auth/role-labels"
 import { CompanyEInvoiceCard } from "@/components/system-admin/company-einvoice-card"
 import { CompanyModulesCard } from "@/components/system-admin/company-modules-card"
+import { CompanyUsersCard } from "@/components/system-admin/company-users-card"
 
 export const dynamic = "force-dynamic"
 
@@ -63,7 +63,7 @@ export default async function CompanyDetailPage({
     return inv?.invoiceNo ?? null
   }
 
-  const [byType, byStatus, amountAgg, lastInvoice, lastEFaturaNo, lastEArchiveNo, lastSeriNo] =
+  const [byType, byStatus, amountAgg, lastInvoice, lastEFaturaNo, lastEArchiveNo, lastSeriNo, allUsers] =
     await Promise.all([
       prisma.invoice.groupBy({
         by: ["invoiceType"],
@@ -87,6 +87,10 @@ export default async function CompanyDetailPage({
       lastByPrefix(company.eFaturaPrefix),
       lastByPrefix(company.eArchivePrefix),
       lastByPrefix(company.invoiceSeriesPrefix),
+      prisma.user.findMany({
+        orderBy: { email: "asc" },
+        select: { id: true, name: true, email: true },
+      }),
     ])
 
   const typeCount = (t: string) => byType.find((r) => r.invoiceType === t)?._count._all ?? 0
@@ -223,46 +227,11 @@ export default async function CompanyDetailPage({
         </Card>
 
         {/* Kullanıcılar */}
-        <Card className="bg-slate-900/50 border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Users className="h-5 w-5 text-emerald-400" />
-              Kullanıcılar ({company.users.length})
-            </CardTitle>
-            <CardDescription className="text-slate-500">
-              Bu firmaya bağlı kullanıcılar ve rolleri
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {company.users.length === 0 ? (
-              <div className="text-center py-8 text-slate-500">Bağlı kullanıcı yok</div>
-            ) : (
-              <div className="space-y-3">
-                {company.users.map((uc) => (
-                  <div
-                    key={uc.user.id}
-                    className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 shrink-0 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-medium">
-                        {uc.user.name?.charAt(0) || uc.user.email.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-medium text-white truncate">
-                          {uc.user.name || "İsimsiz"}
-                        </p>
-                        <p className="text-xs text-slate-500 truncate">{uc.user.email}</p>
-                      </div>
-                    </div>
-                    <span className="shrink-0 text-xs px-2 py-1 rounded-full bg-slate-700/60 text-slate-300">
-                      {roleLabels[uc.role]}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <CompanyUsersCard
+          companyId={company.id}
+          members={company.users.map((uc) => ({ role: uc.role, user: uc.user }))}
+          allUsers={allUsers}
+        />
 
         {/* İş Profili & Onboarding */}
         <Card className="bg-slate-900/50 border-slate-800">

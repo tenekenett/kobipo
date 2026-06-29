@@ -87,6 +87,14 @@ interface TemplateDesignerProps {
   activePrefix?: string
   /** Mysoft'a kaydedildikten sonra tanımlı şablon listesini tazelemek için. */
   onSaved?: () => void
+  /** Düzenleme modu: mevcut şablonun adı (kilitli) — set ise tasarım üzerine yazılır. */
+  editName?: string | null
+  /** Düzenleme modu: önceden doldurulacak tasarım seçenekleri. */
+  editOptions?: TemplateDesignOptions | null
+  /** Her "Düzenle" tıklamasında artan sayaç — aynı satıra tekrar basınca da yeniden doldurur. */
+  editNonce?: number
+  /** Düzenleme tamamlandı/iptal edildi — üst bileşen editTarget'ı temizlesin. */
+  onEditDone?: () => void
 }
 
 const COLOR_PRESETS = ["#185FA5", "#0C3B6B", "#2D6A4F", "#7C3AED", "#B91C1C", "#0F766E", "#C2410C", "#1F2937"]
@@ -120,13 +128,34 @@ const THEME_PRESETS: Array<{ key: string; label: string; patch: Partial<Template
   },
 ]
 
-export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, onSaved }: TemplateDesignerProps) {
+export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, onSaved, editName, editOptions, editNonce, onEditDone }: TemplateDesignerProps) {
   const { toast } = useToast()
 
   const [opts, setOpts] = useState<TemplateDesignOptions>({ ...DEFAULT_DESIGN_OPTIONS })
   const [xsltName, setXsltName] = useState("")
   const [isHasLogo, setIsHasLogo] = useState(false)
   const [isHasStamp, setIsHasStamp] = useState(false)
+
+  const isEditing = !!editName
+
+  // Düzenleme isteği geldiğinde (editNonce değişince) tasarımcıyı kayıtlı seçeneklerle doldur.
+  useEffect(() => {
+    if (!editName || !editOptions) return
+    setOpts({ ...DEFAULT_DESIGN_OPTIONS, ...editOptions })
+    setXsltName(editName)
+    setIsHasLogo(Boolean(editOptions.logoDataUri))
+    setIsHasStamp(Boolean(editOptions.stampDataUri))
+  // editNonce her tıklamada arttığı için aynı satıra tekrar basınca da yeniden doldurur.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editNonce])
+
+  const cancelEdit = () => {
+    setXsltName("")
+    setOpts({ ...DEFAULT_DESIGN_OPTIONS })
+    setIsHasLogo(false)
+    setIsHasStamp(false)
+    onEditDone?.()
+  }
 
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -305,12 +334,18 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
         /* sessiz geç — Mysoft kaydı zaten yapıldı */
       }
 
-      toast({ title: "Tasarım kaydedildi", description: data?.message || "Mysoft hesabınıza tanımlandı." })
       const savedName = xsltName.trim()
-      setXsltName("")
       onSaved?.()
-      // Kaydetme sonrası: bu şablonu bir seri no'ya atama diyaloğunu aç (isteğe bağlı).
-      openAssignDialog(savedName)
+      if (isEditing) {
+        // Düzenleme: aynı adla üzerine yazıldı — atama diyaloğunu açmaya gerek yok.
+        toast({ title: "Şablon güncellendi", description: `“${savedName}” dizaynı yeni haliyle kaydedildi.` })
+        cancelEdit()
+      } else {
+        toast({ title: "Tasarım kaydedildi", description: data?.message || "Mysoft hesabınıza tanımlandı." })
+        setXsltName("")
+        // Kaydetme sonrası: bu şablonu bir seri no'ya atama diyaloğunu aç (isteğe bağlı).
+        openAssignDialog(savedName)
+      }
     } catch (error) {
       toast({ title: "Hata", description: error instanceof Error ? error.message : "Hata", variant: "destructive" })
     } finally {
@@ -411,10 +446,27 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
             <Palette className="h-4 w-4" />
           </span>
           <div>
-            <CardTitle>Kendi Tasarımını Oluştur</CardTitle>
+            <CardTitle>
+              {isEditing ? (
+                <>
+                  Şablonu Düzenle: <span className="text-kobipo-blue dark:text-primary">{editName}</span>
+                </>
+              ) : (
+                "Kendi Tasarımını Oluştur"
+              )}
+            </CardTitle>
             <CardDescription>
-              <span className="font-medium text-foreground">{docLabel}</span> görünümünü baştan tasarlayın. Kobipo, GİB
-              uyumlu taban şablonun üzerine temanızı uygular — fatura içeriği ve alanları değişmez.
+              {isEditing ? (
+                <>
+                  <span className="font-medium text-foreground">{editName}</span> şablonunun tasarımını değiştirip
+                  kaydedin — aynı adla Mysoft'taki dizaynın üzerine yazılır.
+                </>
+              ) : (
+                <>
+                  <span className="font-medium text-foreground">{docLabel}</span> görünümünü baştan tasarlayın. Kobipo, GİB
+                  uyumlu taban şablonun üzerine temanızı uygular — fatura içeriği ve alanları değişmez.
+                </>
+              )}
             </CardDescription>
           </div>
         </div>
@@ -819,9 +871,27 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
         <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="w-full space-y-1.5 sm:max-w-xs">
             <Label htmlFor="design-name">Şablon adı</Label>
-            <Input id="design-name" value={xsltName} onChange={(e) => setXsltName(e.target.value)} placeholder="ör. Kurumsal Mavi" disabled={busy} />
+            <Input
+              id="design-name"
+              value={xsltName}
+              onChange={(e) => setXsltName(e.target.value)}
+              placeholder="ör. Kurumsal Mavi"
+              disabled={busy || isEditing}
+              title={isEditing ? "Düzenleme sırasında şablon adı değiştirilemez" : undefined}
+            />
+            {isEditing && (
+              <p className="text-xs text-muted-foreground">
+                Düzenleme modunda ad sabittir — kayıt mevcut şablonun üzerine yazılır.
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap justify-end gap-2">
+            {isEditing && (
+              <Button variant="ghost" onClick={cancelEdit} disabled={busy}>
+                <X className="mr-2 h-4 w-4" />
+                Vazgeç
+              </Button>
+            )}
             <Button variant="ghost" onClick={openPdfNewTab} disabled={busy} title="Gerçek PDF'i yeni sekmede aç">
               <ExternalLink className="mr-2 h-4 w-4" />
               Yeni sekmede
@@ -832,7 +902,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
             </Button>
             <Button onClick={save} disabled={busy || !xsltName.trim()}>
               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              Tasarımı Kaydet
+              {isEditing ? "Değişiklikleri Kaydet" : "Tasarımı Kaydet"}
             </Button>
           </div>
         </div>

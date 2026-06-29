@@ -52,8 +52,15 @@ interface User {
   }[]
 }
 
+interface CompanyOption {
+  id: string
+  name: string
+  isActive: boolean
+}
+
 interface UserTableProps {
   users: User[]
+  companies: CompanyOption[]
 }
 
 const roleColors: Record<Role, string> = {
@@ -65,7 +72,7 @@ const roleColors: Record<Role, string> = {
   VIEWER: "bg-slate-500/20 text-slate-400",
 }
 
-export function UserTable({ users }: UserTableProps) {
+export function UserTable({ users, companies }: UserTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const { toast } = useToast()
   const { confirm } = useConfirm()
@@ -74,6 +81,94 @@ export function UserTable({ users }: UserTableProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ name: "", email: "", isSuperAdmin: false })
   const [saving, setSaving] = useState(false)
+
+  // Firma üyeliği yönetimi
+  const [managingUser, setManagingUser] = useState<User | null>(null)
+  const [addCompanyId, setAddCompanyId] = useState("")
+  const [addRole, setAddRole] = useState<Role>(Role.VIEWER)
+  const [membershipBusy, setMembershipBusy] = useState(false)
+
+  const handleAddCompany = async () => {
+    if (!managingUser || !addCompanyId) return
+    setMembershipBusy(true)
+    try {
+      const response = await fetch(`/api/system-admin/users/${managingUser.id}/companies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: addCompanyId, role: addRole }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || "İşlem başarısız")
+      toast({ title: "Başarılı", description: "Kullanıcı firmaya eklendi" })
+      setAddCompanyId("")
+      setAddRole(Role.VIEWER)
+      setManagingUser(null)
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Firma eklenirken bir hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setMembershipBusy(false)
+    }
+  }
+
+  const handleUpdateRole = async (userId: string, companyId: string, role: Role) => {
+    setMembershipBusy(true)
+    try {
+      const response = await fetch(`/api/system-admin/users/${userId}/companies/${companyId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || "İşlem başarısız")
+      toast({ title: "Başarılı", description: "Rol güncellendi" })
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Rol güncellenirken bir hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setMembershipBusy(false)
+    }
+  }
+
+  const handleRemoveCompany = async (userId: string, companyId: string, companyName: string) => {
+    if (
+      !(await confirm({
+        title: "Firma bağlantısını kaldır",
+        description: `Kullanıcıyı "${companyName}" firmasından çıkarmak istediğinize emin misiniz?`,
+        confirmLabel: "Kaldır",
+        variant: "destructive",
+      }))
+    ) {
+      return
+    }
+    setMembershipBusy(true)
+    try {
+      const response = await fetch(`/api/system-admin/users/${userId}/companies/${companyId}`, {
+        method: "DELETE",
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || "İşlem başarısız")
+      toast({ title: "Başarılı", description: "Firma bağlantısı kaldırıldı" })
+      setManagingUser(null)
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Bağlantı kaldırılırken bir hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setMembershipBusy(false)
+    }
+  }
 
   const openEdit = (user: User) => {
     setEditingId(user.id)
@@ -111,6 +206,11 @@ export function UserTable({ users }: UserTableProps) {
       setSaving(false)
     }
   }
+
+  // Dialog açıkken taze users listesinden güncel kaydı türet (refresh sonrası senkron).
+  const managing = managingUser ? users.find((u) => u.id === managingUser.id) ?? managingUser : null
+  const assignedIds = new Set(managing?.companies.map((uc) => uc.company.id) ?? [])
+  const availableCompanies = companies.filter((c) => !assignedIds.has(c.id))
 
   const filteredUsers = users.filter(user =>
     user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -318,6 +418,17 @@ export function UserTable({ users }: UserTableProps) {
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-slate-300 focus:bg-slate-800 focus:text-white"
+                          onClick={() => {
+                            setManagingUser(user)
+                            setAddCompanyId("")
+                            setAddRole(Role.VIEWER)
+                          }}
+                        >
+                          <Building2 className="h-4 w-4 mr-2" />
+                          Firmaları Yönet
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-slate-300 focus:bg-slate-800 focus:text-white"
                           onClick={() => handleResetPassword(user.id, user.email)}
                         >
                           <Key className="h-4 w-4 mr-2" />
@@ -413,6 +524,116 @@ export function UserTable({ users }: UserTableProps) {
               ) : (
                 "Kaydet"
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Firma üyeliği yönetim dialog'u */}
+      <Dialog open={managing !== null} onOpenChange={(open) => !open && setManagingUser(null)}>
+        <DialogContent className="sm:max-w-lg bg-slate-900 border-slate-800 text-slate-100">
+          <DialogHeader>
+            <DialogTitle className="text-white">Firma Bağlantıları</DialogTitle>
+            <DialogDescription className="text-slate-500">
+              {managing?.name || managing?.email} kullanıcısının bağlı olduğu firmalar ve rolleri
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Mevcut üyelikler */}
+            <div className="space-y-2">
+              {!managing || managing.companies.length === 0 ? (
+                <p className="text-sm text-slate-500 py-2">Henüz bir firmaya bağlı değil.</p>
+              ) : (
+                managing.companies.map((uc) => (
+                  <div
+                    key={uc.company.id}
+                    className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-800/40 p-2.5"
+                  >
+                    <Building2 className="h-4 w-4 shrink-0 text-slate-500" />
+                    <span className="flex-1 min-w-0 truncate text-sm text-slate-200">
+                      {uc.company.name}
+                      {!uc.company.isActive && <span className="text-slate-500"> (pasif)</span>}
+                    </span>
+                    <select
+                      value={uc.role}
+                      disabled={membershipBusy}
+                      onChange={(e) =>
+                        handleUpdateRole(managing.id, uc.company.id, e.target.value as Role)
+                      }
+                      className="h-8 rounded-md bg-slate-800 border border-slate-700 text-white text-xs px-2"
+                    >
+                      {Object.values(Role).map((r) => (
+                        <option key={r} value={r}>
+                          {roleLabels[r]}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled={membershipBusy}
+                      onClick={() => handleRemoveCompany(managing.id, uc.company.id, uc.company.name)}
+                      className="h-8 w-8 shrink-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Yeni firma ekle */}
+            <div className="rounded-lg border border-slate-800 bg-slate-800/20 p-3 space-y-2">
+              <Label className="text-slate-300 text-sm">Firmaya ekle</Label>
+              {availableCompanies.length === 0 ? (
+                <p className="text-xs text-slate-500">Eklenebilecek başka firma yok.</p>
+              ) : (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                    value={addCompanyId}
+                    disabled={membershipBusy}
+                    onChange={(e) => setAddCompanyId(e.target.value)}
+                    className="flex-1 h-9 rounded-md bg-slate-800 border border-slate-700 text-white text-sm px-2"
+                  >
+                    <option value="">Firma seç…</option>
+                    {availableCompanies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}{c.isActive ? "" : " (pasif)"}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={addRole}
+                    disabled={membershipBusy}
+                    onChange={(e) => setAddRole(e.target.value as Role)}
+                    className="h-9 rounded-md bg-slate-800 border border-slate-700 text-white text-sm px-2"
+                  >
+                    {Object.values(Role).map((r) => (
+                      <option key={r} value={r}>
+                        {roleLabels[r]}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    onClick={handleAddCompany}
+                    disabled={membershipBusy || !addCompanyId}
+                    className="bg-emerald-600 hover:bg-emerald-700 shrink-0"
+                  >
+                    {membershipBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ekle"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setManagingUser(null)}
+              className="border-slate-700 text-slate-300 hover:bg-slate-800"
+            >
+              Kapat
             </Button>
           </DialogFooter>
         </DialogContent>

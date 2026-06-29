@@ -185,6 +185,17 @@ export async function POST(request: Request) {
     if (!result.success) {
       return NextResponse.json({ error: result.error || "Şablon eklenemedi" }, { status: 502 })
     }
+
+    // Aynı adla daha önce gizlenmiş bir şablon yeniden eklendiyse gizliliği kaldır.
+    try {
+      await prisma.eInvoiceTemplate.updateMany({
+        where: { companyId, eDocumentType: docType, xsltName: xsltName.trim(), hidden: true },
+        data: { hidden: false },
+      })
+    } catch (unhideError) {
+      console.error("templates POST unhide error:", unhideError)
+    }
+
     return NextResponse.json({ success: true, message: result.message })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
@@ -195,3 +206,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
 }
+

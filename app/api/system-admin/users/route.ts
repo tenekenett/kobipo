@@ -3,10 +3,12 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
 import bcrypt from "bcryptjs"
+import { Role } from "@prisma/client"
 
 export const dynamic = "force-dynamic"
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const VALID_ROLES = Object.values(Role) as Role[]
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,6 +47,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Opsiyonel: oluşturma sırasında firmaya bağla (companyId + role verilirse).
+    const companyId = String(body.companyId ?? "").trim()
+    const role = String(body.role ?? "") as Role
+    if (companyId) {
+      if (!VALID_ROLES.includes(role)) {
+        return NextResponse.json({ error: "Geçersiz rol" }, { status: 400 })
+      }
+      const company = await prisma.company.findUnique({
+        where: { id: companyId },
+        select: { id: true },
+      })
+      if (!company) {
+        return NextResponse.json({ error: "Firma bulunamadı" }, { status: 404 })
+      }
+    }
+
     // Şifre verilmediyse geçici şifre üret ve response'da döndür.
     const providedPassword = String(body.password ?? "")
     const tempPassword = providedPassword.length >= 6 ? null : Math.random().toString(36).slice(-10)
@@ -57,6 +75,13 @@ export async function POST(request: NextRequest) {
         email,
         password: hashedPassword,
         isSuperAdmin,
+        ...(companyId
+          ? {
+              companies: {
+                create: { companyId, role, invitedBy: currentUser.id, invitedAt: new Date() },
+              },
+            }
+          : {}),
       },
     })
 
