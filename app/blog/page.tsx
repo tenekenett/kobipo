@@ -11,6 +11,7 @@ export const metadata: Metadata = {
     description:
       "e-Fatura, cari, stok, kasa-banka ve raporlama bir arada. Bulut tabanlı, GİB uyumlu KOBİ platformu.",
     type: "website",
+    images: [{ url: "/blog/fatura-saniyeler.jpg", width: 1080, height: 1350, alt: "Saniyeler içinde fatura kesin — Kobipo" }],
   },
 }
 

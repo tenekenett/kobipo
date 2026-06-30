@@ -9,6 +9,7 @@ import {
   BarChart3,
   Boxes,
   Building2,
+  CheckCircle2,
   Clock,
   CreditCard,
   Database,
@@ -265,28 +266,29 @@ export function BlogLanding({ posts }: { posts: LandingPost[] }) {
             </a>
           </div>
 
-          {/* yüzen mini fatura kartı */}
-          <div className="kbl-reveal relative mx-auto mt-16 max-w-3xl" style={{ transitionDelay: "0.24s" }}>
-            <div className="kbl-float rounded-2xl border border-white/15 bg-white/95 p-5 text-left shadow-2xl shadow-black/30 backdrop-blur">
+          {/* yüzen e-fatura kartı */}
+          <div className="kbl-reveal relative mx-auto mt-16 w-full max-w-md" style={{ transitionDelay: "0.24s" }}>
+            <div className="kbl-glow pointer-events-none absolute -inset-8 rounded-[3rem] bg-kobipo-blue/30 blur-3xl" />
+            <div className="kbl-float relative rounded-3xl border border-white/15 bg-white/95 p-5 text-left shadow-2xl shadow-black/40 backdrop-blur">
               <div className="flex items-center justify-between border-b border-kobipo-border pb-3">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-kobipo-blue/10 text-kobipo-blue"><FileText className="h-4 w-4" /></span>
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-kobipo-blue/10 text-kobipo-blue"><FileText className="h-4 w-4" /></span>
                   <div>
-                    <div className="text-xs font-bold text-kobipo-navy">e-Arşiv Fatura</div>
+                    <div className="text-sm font-bold text-kobipo-navy">e-Arşiv Fatura</div>
                     <div className="text-[10px] text-kobipo-gray">AMA2026000000167</div>
                   </div>
                 </div>
-                <span className="rounded-full bg-kobipo-green/15 px-2.5 py-0.5 text-[10px] font-bold text-kobipo-green-dark">Gönderildi</span>
+                <span className="rounded-full bg-kobipo-green/15 px-2.5 py-1 text-[10px] font-bold text-kobipo-green-dark">Gönderildi</span>
               </div>
-              <div className="grid grid-cols-3 gap-3 pt-4 text-center">
+              <div className="grid grid-cols-3 gap-2.5 pt-4">
                 {[
                   ["Matrah", "₺2.692,50"],
-                  ["KDV (%20)", "₺538,50"],
+                  ["KDV %20", "₺538,50"],
                   ["Tevkifat", "−₺215,40"],
                 ].map(([k, v], i) => (
-                  <div key={k} className="kbl-float-slow rounded-xl bg-kobipo-offwhite p-3" style={{ animationDelay: `${-i}s` }}>
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-kobipo-gray">{k}</div>
-                    <div className="mt-1 text-sm font-bold text-kobipo-navy">{v}</div>
+                  <div key={k} className="kbl-float-slow rounded-xl bg-kobipo-offwhite p-3 text-center" style={{ animationDelay: `${-i}s` }}>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-kobipo-gray">{k}</div>
+                    <div className="mt-1 text-[13px] font-bold text-kobipo-navy">{v}</div>
                   </div>
                 ))}
               </div>
@@ -295,9 +297,16 @@ export function BlogLanding({ posts }: { posts: LandingPost[] }) {
                 <span className="text-lg font-extrabold text-kobipo-green">₺3.015,60</span>
               </div>
             </div>
-            <div className="kbl-spin-slow pointer-events-none absolute -right-6 -top-6 h-14 w-14 rounded-2xl border border-dashed border-kobipo-green/50" />
-            <div className="kbl-float pointer-events-none absolute -left-5 bottom-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-kobipo-blue text-white shadow-lg" style={{ animationDelay: "-2s" }}>
-              <TrendingUp className="h-5 w-5" />
+            <div className="kbl-float absolute -right-4 -top-5 flex items-center gap-2 rounded-2xl bg-white px-3 py-2 shadow-xl" style={{ animationDelay: "-1.5s" }}>
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-kobipo-green text-white"><CheckCircle2 className="h-4 w-4" /></span>
+              <div className="leading-tight">
+                <div className="text-[11px] font-bold text-kobipo-navy">Fatura kaydedildi</div>
+                <div className="text-[9px] font-semibold text-kobipo-green-dark">1 saniyede</div>
+              </div>
+            </div>
+            <div className="kbl-spin-slow pointer-events-none absolute -left-6 bottom-6 h-14 w-14 rounded-2xl border border-dashed border-kobipo-green/50" />
+            <div className="kbl-float pointer-events-none absolute -left-5 bottom-16 flex h-11 w-11 items-center justify-center rounded-2xl bg-kobipo-blue text-white shadow-lg" style={{ animationDelay: "-2s" }}>
+              <Zap className="h-5 w-5" />
             </div>
           </div>
 
@@ -341,6 +350,45 @@ export function BlogLanding({ posts }: { posts: LandingPost[] }) {
               <div className="mt-1.5 text-xs font-semibold text-kobipo-gray">{s.label}</div>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* SHOWCASE — saniyeler içinde fatura (yeşil poster) */}
+      <section className="px-6 py-12">
+        <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-2">
+          <div className="kbl-reveal relative mx-auto w-full max-w-sm lg:order-1">
+            <div className="kbl-glow pointer-events-none absolute -inset-6 rounded-[3rem] bg-kobipo-green/30 blur-3xl" />
+            <div className="kbl-float relative overflow-hidden rounded-[2rem] shadow-2xl shadow-kobipo-navy/20">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/blog/fatura-saniyeler.jpg" alt="Saniyeler içinde fatura kesin — Kobipo" width={1080} height={1350} loading="lazy" className="w-full" />
+              <div className="kbl-sweep pointer-events-none absolute inset-0" />
+            </div>
+          </div>
+          <div className="kbl-reveal lg:order-2" style={{ transitionDelay: "0.1s" }}>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-kobipo-green/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-kobipo-green-dark">
+              <Zap className="h-3.5 w-3.5" /> Saniyeler içinde
+            </div>
+            <h2 className="text-3xl font-extrabold tracking-tight text-kobipo-navy sm:text-4xl">Kağıt, kalem ve kargo beklemeye son</h2>
+            <p className="mt-3 max-w-md text-sm leading-relaxed text-kobipo-gray sm:text-base">
+              Faturalarını dijitalde saniyeler içinde oluştur, müşterinin e-postasına anında gönder. Kesim, gönderim ve arşivleme tek akışta.
+            </p>
+            <ul className="mt-6 space-y-3">
+              {[
+                "Tek tıkla e-Fatura / e-Arşiv kesimi",
+                "Müşterinin e-postasına anında iletim",
+                "GİB onaylı, otomatik arşivleme",
+                "Tevkifat, istisna ve döviz desteği",
+              ].map((t, i) => (
+                <li key={t} className="kbl-reveal flex items-center gap-3 text-sm font-medium text-kobipo-navy" style={{ transitionDelay: `${0.14 + i * 0.07}s` }}>
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-kobipo-green/15 text-kobipo-green-dark"><CheckCircle2 className="h-4 w-4" /></span>
+                  {t}
+                </li>
+              ))}
+            </ul>
+            <Link href="/signup" className="group mt-7 inline-flex items-center gap-2 rounded-xl bg-kobipo-navy px-6 py-3 text-sm font-bold text-white transition-transform hover:scale-[1.04]">
+              Hemen dene <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -466,6 +514,34 @@ export function BlogLanding({ posts }: { posts: LandingPost[] }) {
         </div>
       </section>
 
+      {/* SHOWCASE — e-postaya anında (yeşil poster) */}
+      <section className="px-6 py-12">
+        <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-2">
+          <div className="kbl-reveal">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-kobipo-pale px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-kobipo-blue">
+              <Receipt className="h-3.5 w-3.5" /> Anında teslim
+            </div>
+            <h2 className="text-3xl font-extrabold tracking-tight text-kobipo-navy sm:text-4xl">Müşterine saniyeler içinde ulaş</h2>
+            <p className="mt-3 max-w-md text-sm leading-relaxed text-kobipo-gray sm:text-base">
+              Kestiğin fatura otomatik PDF'e dönüşür, müşterinin e-postasına anında gider. Takip, durum ve arşivleme tek ekranda.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-2">
+              {["PDF + e-posta", "Otomatik arşiv", "Durum takibi", "GİB onayı"].map((t) => (
+                <span key={t} className="rounded-full border border-kobipo-border bg-white px-3 py-1.5 text-xs font-semibold text-kobipo-navy">{t}</span>
+              ))}
+            </div>
+          </div>
+          <div className="kbl-reveal relative mx-auto w-full max-w-sm" style={{ transitionDelay: "0.1s" }}>
+            <div className="kbl-glow pointer-events-none absolute -inset-6 rounded-[3rem] bg-kobipo-green/30 blur-3xl" />
+            <div className="kbl-float relative overflow-hidden rounded-[2rem] shadow-2xl shadow-kobipo-navy/20">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/blog/fatura-poster.jpg" alt="Saniyeler içinde fatura kesin — kağıtsız fatura" width={1080} height={1350} loading="lazy" className="w-full" />
+              <div className="kbl-sweep pointer-events-none absolute inset-0" />
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* BLOG TEASER */}
       <section id="blog" className="scroll-mt-24 px-6 py-16">
         <div className="mx-auto max-w-6xl">
@@ -511,6 +587,32 @@ export function BlogLanding({ posts }: { posts: LandingPost[] }) {
                 </div>
               </Link>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* WIDE BANNER (mavi) — tarayıcı penceresi çerçevesi */}
+      <section className="px-6 py-12">
+        <div className="kbl-reveal mx-auto max-w-5xl overflow-hidden rounded-2xl border border-kobipo-border bg-white shadow-2xl shadow-kobipo-navy/20">
+          <div className="flex items-center gap-2 border-b border-kobipo-border bg-kobipo-offwhite px-4 py-3">
+            <span className="h-3 w-3 rounded-full bg-red-400" />
+            <span className="h-3 w-3 rounded-full bg-yellow-400" />
+            <span className="h-3 w-3 rounded-full bg-green-400" />
+            <div className="ml-3 hidden flex-1 items-center gap-1.5 rounded-md bg-white px-3 py-1 text-[11px] text-kobipo-gray sm:flex">
+              <ShieldCheck className="h-3 w-3 text-kobipo-green" /> kobipo.com
+            </div>
+          </div>
+          <div className="group relative overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/blog/fatura-banner.jpg"
+              alt="Saniyeler içinde fatura kesin — Kobipo"
+              width={1344}
+              height={1080}
+              loading="lazy"
+              className="w-full transition-transform duration-1000 ease-out group-hover:scale-[1.03]"
+            />
+            <div className="kbl-sweep pointer-events-none absolute inset-0" />
           </div>
         </div>
       </section>
@@ -594,6 +696,10 @@ const KBL_CSS = `
 @keyframes kbl-shine{to{background-position:200% center}}
 .kbl-spin-slow{animation:kbl-spin 22s linear infinite}
 @keyframes kbl-spin{to{transform:rotate(360deg)}}
+.kbl-sweep{background:linear-gradient(115deg,transparent 32%,rgba(255,255,255,.28) 48%,transparent 62%);background-size:250% 100%;background-position:200% 0;animation:kbl-sweep 5.5s ease-in-out infinite}
+@keyframes kbl-sweep{0%{background-position:200% 0}55%,100%{background-position:-120% 0}}
+.kbl-glow{animation:kbl-glow 5s ease-in-out infinite}
+@keyframes kbl-glow{0%,100%{opacity:.4;transform:scale(0.97)}50%{opacity:.8;transform:scale(1.04)}}
 .kbl-reveal{opacity:0;transform:translateY(26px);transition:opacity .7s cubic-bezier(.22,1,.36,1),transform .7s cubic-bezier(.22,1,.36,1)}
 .kbl-reveal.kbl-in{opacity:1;transform:none}
 .kbl-grid-bg{background-image:linear-gradient(rgba(255,255,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.07) 1px,transparent 1px);background-size:44px 44px}
@@ -607,5 +713,5 @@ const KBL_CSS = `
 .kbl-in .kbl-spark{stroke-dashoffset:0}
 .kbl-card::after{content:"";position:absolute;inset:0;border-radius:1rem;padding:1px;background:linear-gradient(130deg,rgb(var(--kb-blue) / 0.55),rgb(var(--kb-green) / 0.55));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:0;transition:opacity .3s;pointer-events:none}
 .kbl-card:hover::after{opacity:1}
-@media (prefers-reduced-motion: reduce){.kbl-aurora,.kbl-blob,.kbl-float,.kbl-float-slow,.kbl-marquee,.kbl-shine,.kbl-spin-slow,.kbl-bounce,.kbl-flash{animation:none!important}.kbl-reveal{opacity:1;transform:none;transition:none}.kbl-bar{transform:none}.kbl-spark{stroke-dashoffset:0}}
+@media (prefers-reduced-motion: reduce){.kbl-aurora,.kbl-blob,.kbl-float,.kbl-float-slow,.kbl-marquee,.kbl-shine,.kbl-spin-slow,.kbl-bounce,.kbl-flash,.kbl-sweep,.kbl-glow{animation:none!important}.kbl-reveal{opacity:1;transform:none;transition:none}.kbl-bar{transform:none}.kbl-spark{stroke-dashoffset:0}}
 `
