@@ -109,7 +109,7 @@ export function QuickSaleScreen() {
     const load = async () => {
       try {
         const [prodRes, custRes, accRes, whRes, catRes, stockRes] = await Promise.all([
-          fetch(`/api/stok/products?companyId=${companyId}`),
+          fetch(`/api/stok/products?companyId=${companyId}&isService=false`),
           fetch(`/api/cari/customers?companyId=${companyId}`),
           fetch(`/api/finans/accounts?companyId=${companyId}`),
           fetch(`/api/depolar?companyId=${companyId}`),
