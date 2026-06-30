@@ -1453,35 +1453,54 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                               )
                             }
                             if (key === "withholdingRate") {
+                              const WH_NONE = "__none__"
                               return (
                                 <div key={key} className="col-span-2 md:col-span-2 space-y-1.5">
-                                  <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tevkifat</Label>{removable}</div>
+                                  <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tevkifat (KDV)</Label>{removable}</div>
                                   {withholdingTypes.length > 0 ? (
-                                    <div className="flex gap-1.5">
-                                      <select
-                                        className="h-9 w-full min-w-0 rounded-md border border-input bg-white px-2 text-sm font-medium outline-none focus:ring-1 focus:ring-kobipo-blue"
-                                        value={item.withholdingCode || ""}
-                                        onChange={(e) => applyWithholdingCode(index, e.target.value)}
-                                      >
-                                        <option value="">Tevkifat yok</option>
-                                        {withholdingTypes.map((w) => (
-                                          <option key={w.code} value={w.code}>
-                                            {w.code} — {w.name}{w.code !== "650" && w.rate ? ` (%${w.rate})` : ""}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      {item.withholdingCode === "650" && (
-                                        <Input
-                                          type="number"
-                                          className="h-9 w-24 shrink-0 font-medium"
-                                          min="0"
-                                          step="0.01"
-                                          placeholder="Oran %"
-                                          value={item.withholdingRate || ""}
-                                          onChange={(e) => updateItem(index, "withholdingRate", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)}
-                                        />
-                                      )}
-                                    </div>
+                                    <>
+                                      <div className="flex gap-1.5">
+                                        <Select
+                                          value={item.withholdingCode || WH_NONE}
+                                          onValueChange={(v) => applyWithholdingCode(index, v === WH_NONE ? "" : v)}
+                                        >
+                                          <SelectTrigger className="h-9 bg-white"><SelectValue placeholder="Tevkifat yok" /></SelectTrigger>
+                                          <SelectContent className="max-h-72">
+                                            <SelectItem value={WH_NONE}>Tevkifat yok</SelectItem>
+                                            {withholdingTypes.map((w) => (
+                                              <SelectItem key={w.code} value={w.code}>
+                                                {`${w.code} · ${w.name}${w.code !== "650" && w.rate ? `  (%${w.rate})` : ""}`}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                        {(item.withholdingCode === "650" || (!!item.withholdingCode && !item.withholdingRate)) && (
+                                          <div className="relative w-24 shrink-0">
+                                            <Input
+                                              type="number"
+                                              className="h-9 pr-6 font-medium"
+                                              min="0"
+                                              step="0.01"
+                                              placeholder="Oran"
+                                              value={item.withholdingRate || ""}
+                                              onChange={(e) => updateItem(index, "withholdingRate", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)}
+                                            />
+                                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                      {item.withholdingCode ? (
+                                        item.withholdingRate ? (
+                                          <p className="text-[10px] text-kobipo-blue">
+                                            KDV'nin <span className="font-semibold">%{item.withholdingRate}</span>'i tevkif edilecek.
+                                          </p>
+                                        ) : (
+                                          <p className="text-[10px] text-amber-600">
+                                            Oran otomatik gelmedi — yandaki kutuya tevkifat oranını (KDV'nin %'si) girin.
+                                          </p>
+                                        )
+                                      ) : null}
+                                    </>
                                   ) : (
                                     <Input
                                       type="number"
@@ -1493,9 +1512,6 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                       onChange={(e) => updateItem(index, "withholdingRate", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)}
                                     />
                                   )}
-                                  {item.withholdingCode && item.withholdingCode !== "650" ? (
-                                    <p className="text-[10px] text-muted-foreground">KDV'nin %{item.withholdingRate}'i tevkif edilir.</p>
-                                  ) : null}
                                 </div>
                               )
                             }

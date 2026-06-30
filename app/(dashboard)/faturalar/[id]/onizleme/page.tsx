@@ -918,6 +918,12 @@ export default function FaturaOnizlemePage() {
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
+                      {(item.withholdingCode || Number(item.withholdingRate) > 0) && (
+                        <div className="mt-1 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                          Tevkifat{item.withholdingCode ? ` ${item.withholdingCode}` : ""}
+                          {item.withholdingName ? ` · ${item.withholdingName}` : ""} · KDV %{Number(item.withholdingRate) || 0}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       {Number(item.quantity || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
@@ -955,6 +961,10 @@ export default function FaturaOnizlemePage() {
               0,
             )
             const globalDiscount = Number((invoice as any).globalDiscountAmount || 0)
+            const withholdingTotal = invoice.items.reduce(
+              (sum, it) => sum + Number((it as any).withholdingAmount || 0),
+              0,
+            )
             return (
               <div className="flex justify-end mt-6">
                 <div className="w-80 space-y-2 rounded-lg border bg-muted/30 p-4 tabular-nums">
@@ -982,6 +992,12 @@ export default function FaturaOnizlemePage() {
                     <span className="text-muted-foreground">KDV Toplam</span>
                     <span>{formatCurrency(invoice.vatAmount)}</span>
                   </div>
+                  {withholdingTotal > 0 && (
+                    <div className="flex justify-between text-sm text-red-600 dark:text-red-400">
+                      <span>Tevkifat (KDV)</span>
+                      <span>- {formatCurrency(withholdingTotal)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between border-t pt-2 text-lg font-bold">
                     <span>Genel Toplam</span>
                     <span className="text-green-600 dark:text-green-400">{formatCurrency(invoice.totalAmount)}</span>

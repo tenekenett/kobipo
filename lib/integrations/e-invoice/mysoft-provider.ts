@@ -492,7 +492,12 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // İstisnalı (vatRate=0 + exemption kodu olan) en az bir kalem varsa Mysoft'un
       // şematron kuralı gereği invoiceType=ISTISNA olmalı (SATIS reddedilir).
       const hasExemption = lineData.some((l: any) => l.vatRate === 0 && l.exemptionCode);
-      const resolvedInvoiceType = hasExemption ? "ISTISNA" : "SATIS";
+      // KDV tevkifatı içeren faturada GİB şematronu invoiceType=TEVKIFAT bekler;
+      // SATIS/ISTISNA reddedilir ("cac:WithholdingTaxTotal varken tip TEVKIFAT olabilir").
+      const hasWithholding = lineData.some(
+        (l: any) => l.withholdingCode && l.withholdingRate > 0 && l.rowVat > 0,
+      );
+      const resolvedInvoiceType = hasWithholding ? "TEVKIFAT" : hasExemption ? "ISTISNA" : "SATIS";
 
       // Belge tipi: invoiceData.invoiceType = "E_INVOICE" → e-Fatura, "E_ARCHIVE" → e-Arşiv
       // Default e-Arşiv (gerçek kişi müşteri); açıkça E_INVOICE belirtildiyse e-Fatura.
@@ -716,7 +721,9 @@ async sendInvoice(invoiceData: any): Promise<any> {
                 detail.withholdingTaxTypeName = l.withholdingName || l.withholdingCode;
                 detail.withholdingTaxableAmount = l.rowVat;
                 detail.withholdingTaxAmount = round2((l.rowVat * l.withholdingRate) / 100);
-                if (l.withholdingCode === "650") detail.withholdingTaxPercentage = l.withholdingRate;
+                // Yüzdeyi her kodda gönder: GİB şematronu UBL'de Percent alanının
+                // 0/boş olmasını reddediyor ("601 vergi tipinin yüzdesi 0 olamaz").
+                detail.withholdingTaxPercentage = l.withholdingRate;
             }
             return detail;
         })
@@ -1736,12 +1743,30 @@ async sendInvoice(invoiceData: any): Promise<any> {
         return { success: false, error: result?.message || "Tevkifat listesi alınamadı." }
       }
       const raw: any[] = Array.isArray(result.data) ? result.data : []
+      // Oran formatı tenant/sürüme göre değişebiliyor: "50" (yüzde), "33,33"
+      // (virgüllü), ya da "4/10"/"9/10" (kesir). Hepsini yüzdeye normalize et.
+      // Mysoft tevkifat oranını "40/10" (=%40), "90/10" (=%90) biçiminde döndürür:
+      // PAY doğrudan tevkif edilen KDV yüzdesidir, payda (10) sabit ölçek artığıdır.
+      // Bazı kayıtlar düz "50" / "33,33" de gelebilir — onu da destekle.
+      const parseRate = (rawRate: any): number => {
+        const s = String(rawRate ?? "").trim()
+        if (!s) return 0
+        const n = Number((s.includes("/") ? s.split("/")[0] : s).replace(",", "."))
+        return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0
+      }
+      // Mysoft'un gerçek alan adı/oran formatını görebilmek için 601 + ilk kayıtları logla.
+      console.log(
+        "[Mysoft] withholdingTaxType raw — 601:",
+        JSON.stringify(raw.find((w: any) => String(w?.withholdingTaxTypeCode) === "601")),
+        "| ilk2:",
+        JSON.stringify(raw.slice(0, 2)),
+      )
       const data = raw
         .map((w) => ({
           code: String(w?.withholdingTaxTypeCode ?? "").trim(),
           name: String(w?.withholdingTaxTypeName ?? "").trim(),
-          // rate string gelebilir ("50") ve virgüllü olabilir ("33,33").
-          rate: Number(String(w?.rate ?? "").replace(",", ".")) || 0,
+          // Alan adı varyantlarına da bak (rate / withholdingTaxPercentage / percent / ratio).
+          rate: parseRate(w?.rate ?? w?.withholdingTaxPercentage ?? w?.percent ?? w?.ratio),
         }))
         .filter((w) => w.code)
       return { success: true, data }
