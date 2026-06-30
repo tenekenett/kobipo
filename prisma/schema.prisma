@@ -826,6 +826,11 @@ model InvoiceItem {
   discountAmount Decimal? @db.Decimal(10, 2)
   vatRate     Decimal  @db.Decimal(5, 2)
   vatAmount   Decimal  @db.Decimal(10, 2)
+  // KDV tevkifatı. withholdingRate = tevkif edilen KDV yüzdesi (GİB oranı, ör. 50).
+  // withholdingAmount = vatAmount * withholdingRate / 100. withholdingCode = GİB
+  // tevkifat kodu (ör. "604"); kullanıcı hazır kod listesinden seçer.
+  withholdingCode String? @db.VarChar(10)
+  withholdingName String? @db.VarChar(255)
   withholdingRate Decimal? @db.Decimal(5, 2)
   withholdingAmount Decimal? @db.Decimal(10, 2)
   exciseRate Decimal? @db.Decimal(5, 2)

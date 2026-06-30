@@ -69,7 +69,7 @@ const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
 interface Customer { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Supplier { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Product { id: string; name: string; code?: string; salePrice?: number; vatRate: number; unit?: string }
-export interface InvoiceItem { productId?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; exciseRate?: number; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number }
+export interface InvoiceItem { productId?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number }
 interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean }
 
 export type InvoiceEditorMode = "create" | "edit"
@@ -98,6 +98,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const [bootstrappingEdit, setBootstrappingEdit] = useState(mode === "edit")
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
+  // Hazır GİB tevkifat kodları (Mysoft'tan). E-dönüşüm açık firmalarda dolu döner;
+  // boşsa tevkifat alanı serbest yüzde girişine geri düşer.
+  const [withholdingTypes, setWithholdingTypes] = useState<Array<{ code: string; name: string; rate: number }>>([])
 
   // Gelen e-faturadan dönüştürme akışı için
   const [incomingPrefillError, setIncomingPrefillError] = useState<string | null>(null)
@@ -172,6 +175,21 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     fetchSuppliers()
     fetchProducts()
     fetchCompanySettings()
+  }, [companyId])
+
+  // Hazır GİB tevkifat kodlarını çek (e-dönüşüm açık firmalarda dolu döner).
+  useEffect(() => {
+    if (!companyId) return
+    let active = true
+    fetch(`/api/e-donusum/withholding-types?companyId=${companyId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (active && d && Array.isArray(d.data)) setWithholdingTypes(d.data)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
   }, [companyId])
 
   useEffect(() => {
@@ -252,6 +270,17 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         }
 
         const modelLines: any[] = Array.isArray(data.model?.lines) ? data.model.lines : []
+        if (modelLines.length === 0) {
+          // Kalem detayı gelmedi → aşağıda tek satırlık "Mal/Hizmet" taslağına düşülür.
+          // Sessiz kalmasın: nedeni (Mysoft model hatası vb.) kullanıcıya bildir.
+          toast({
+            title: "Fatura kalemleri otomatik alınamadı",
+            description:
+              (data.modelError as string) ||
+              "Mysoft bu fatura için kalem listesi döndürmedi. Tek satırlık taslak eklendi; lütfen kalemleri elle düzenleyin.",
+            variant: "destructive",
+          })
+        }
         const newItems: InvoiceItem[] =
           modelLines.length > 0
             ? modelLines.map((ln: any) => {
@@ -620,6 +649,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               discountMode: (discAmount > 0 && discRate === 0 ? "AMOUNT" : "PERCENT") as DiscountMode,
               vatRate: Number(item.vatRate) || 20,
               withholdingRate: Number(item.withholdingRate) || 0,
+              withholdingCode: item.withholdingCode || undefined,
+              withholdingName: item.withholdingName || undefined,
               exciseRate: Number(item.exciseRate) || 0,
               taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
               taxExemptionReason: item.taxExemptionReason || undefined,
@@ -632,7 +663,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         const extras: LineExtraKey[] = []
         if (it.description) extras.push("description")
         if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
-        if ((it.withholdingRate || 0) > 0) extras.push("withholdingRate")
+        if ((it.withholdingRate || 0) > 0 || it.withholdingCode) extras.push("withholdingRate")
         if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
         return extras
       }))
@@ -685,6 +716,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               discountMode: (discAmount > 0 && discRate === 0 ? "AMOUNT" : "PERCENT") as DiscountMode,
               vatRate: Number(item.vatRate) || 20,
               withholdingRate: Number(item.withholdingRate) || 0,
+              withholdingCode: item.withholdingCode || undefined,
+              withholdingName: item.withholdingName || undefined,
               exciseRate: Number(item.exciseRate) || 0,
               taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
               taxExemptionReason: item.taxExemptionReason || undefined,
@@ -701,7 +734,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         const extras: LineExtraKey[] = []
         if (it.description) extras.push("description")
         if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
-        if ((it.withholdingRate || 0) > 0) extras.push("withholdingRate")
+        if ((it.withholdingRate || 0) > 0 || it.withholdingCode) extras.push("withholdingRate")
         if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
         return extras
       }))
@@ -785,6 +818,24 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     setItems(newItems)
   }
 
+  // Tevkifat kodu seçimi: ad ve oran koddan otomatik gelir. Kod 650 ("diğer")
+  // oranı serbesttir; o satırda oran kullanıcı tarafından girilir.
+  const applyWithholdingCode = (index: number, code: string) => {
+    setItems((prev) =>
+      prev.map((it, i) => {
+        if (i !== index) return it
+        if (!code) return { ...it, withholdingCode: "", withholdingName: "", withholdingRate: 0 }
+        const w = withholdingTypes.find((t) => t.code === code)
+        return {
+          ...it,
+          withholdingCode: code,
+          withholdingName: w?.name || "",
+          withholdingRate: code === "650" ? (it.withholdingRate || 0) : (w?.rate || 0),
+        }
+      }),
+    )
+  }
+
   const getLineExtras = (index: number): LineExtraKey[] => lineExtras[index] || []
   const addLineExtra = (index: number, key: LineExtraKey) => {
     setLineExtras((prev) => {
@@ -801,7 +852,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       updateItem(index, "discountRate", 0)
       updateItem(index, "discountAmount", 0)
     }
-    if (key === "withholdingRate") updateItem(index, "withholdingRate", 0)
+    if (key === "withholdingRate") {
+      setItems((prev) =>
+        prev.map((it, i) =>
+          i === index ? { ...it, withholdingRate: 0, withholdingCode: "", withholdingName: "" } : it,
+        ),
+      )
+    }
     if (key === "exciseRate") updateItem(index, "exciseRate", 0)
   }
 
@@ -868,7 +925,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       const itemDiscount = computeItemDiscount(item, itemGross)
       const itemNet = itemGross - itemDiscount
       const itemVat = itemNet * (item.vatRate / 100)
-      const itemWithholding = itemNet * ((item.withholdingRate || 0) / 100)
+      // KDV tevkifatı: tevkif edilen tutar KDV üzerinden hesaplanır (matrah değil).
+      const itemWithholding = itemVat * ((item.withholdingRate || 0) / 100)
       const itemExcise = itemNet * ((item.exciseRate || 0) / 100)
       netAmount += itemNet; discountAmount += itemDiscount; vatAmount += itemVat; withholdingAmount += itemWithholding; exciseAmount += itemExcise
     })
@@ -1274,7 +1332,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                             ₺{(() => {
                               const gross = item.quantity * item.unitPrice
                               const net = gross - computeItemDiscount(item, gross)
-                              const total = net * (1 + item.vatRate / 100 + (item.exciseRate || 0) / 100 - (item.withholdingRate || 0) / 100)
+                              const vat = net * (item.vatRate / 100)
+                              const excise = net * ((item.exciseRate || 0) / 100)
+                              // Tevkifat KDV üzerinden düşülür.
+                              const withholding = vat * ((item.withholdingRate || 0) / 100)
+                              const total = net + vat + excise - withholding
                               return total.toLocaleString("tr-TR", { minimumFractionDigits: 2 })
                             })()}
                           </div>
@@ -1390,7 +1452,54 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                 </div>
                               )
                             }
-                            const numericProps = key === "withholdingRate" ? { label: "Tevkifat (%)", value: item.withholdingRate || "", onChange: (v: string) => updateItem(index, "withholdingRate", v === "" ? 0 : parseFloat(v) || 0) } : { label: "ÖTV (%)", value: item.exciseRate || "", onChange: (v: string) => updateItem(index, "exciseRate", v === "" ? 0 : parseFloat(v) || 0) }
+                            if (key === "withholdingRate") {
+                              return (
+                                <div key={key} className="col-span-2 md:col-span-2 space-y-1.5">
+                                  <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tevkifat</Label>{removable}</div>
+                                  {withholdingTypes.length > 0 ? (
+                                    <div className="flex gap-1.5">
+                                      <select
+                                        className="h-9 w-full min-w-0 rounded-md border border-input bg-white px-2 text-sm font-medium outline-none focus:ring-1 focus:ring-kobipo-blue"
+                                        value={item.withholdingCode || ""}
+                                        onChange={(e) => applyWithholdingCode(index, e.target.value)}
+                                      >
+                                        <option value="">Tevkifat yok</option>
+                                        {withholdingTypes.map((w) => (
+                                          <option key={w.code} value={w.code}>
+                                            {w.code} — {w.name}{w.code !== "650" && w.rate ? ` (%${w.rate})` : ""}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      {item.withholdingCode === "650" && (
+                                        <Input
+                                          type="number"
+                                          className="h-9 w-24 shrink-0 font-medium"
+                                          min="0"
+                                          step="0.01"
+                                          placeholder="Oran %"
+                                          value={item.withholdingRate || ""}
+                                          onChange={(e) => updateItem(index, "withholdingRate", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)}
+                                        />
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <Input
+                                      type="number"
+                                      className="h-9 font-medium"
+                                      min="0"
+                                      step="0.01"
+                                      placeholder="KDV'nin %'si"
+                                      value={item.withholdingRate || ""}
+                                      onChange={(e) => updateItem(index, "withholdingRate", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)}
+                                    />
+                                  )}
+                                  {item.withholdingCode && item.withholdingCode !== "650" ? (
+                                    <p className="text-[10px] text-muted-foreground">KDV'nin %{item.withholdingRate}'i tevkif edilir.</p>
+                                  ) : null}
+                                </div>
+                              )
+                            }
+                            const numericProps = { label: "ÖTV (%)", value: item.exciseRate || "", onChange: (v: string) => updateItem(index, "exciseRate", v === "" ? 0 : parseFloat(v) || 0) }
                             return (
                               <div key={key} className="col-span-1 md:col-span-1 space-y-1.5">
                                 <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{numericProps.label}</Label>{removable}</div>

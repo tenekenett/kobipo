@@ -3,7 +3,8 @@
     "allow": [
       "Bash(curl -s \"https://edocumentapi.mytest.tr/swagger/v8/swagger.json\" -o ./mysoft-swagger.tmp.json)",
       "Bash(node -e \"const s=require\\('./mysoft-swagger.tmp.json'\\);const paths=Object.keys\\(s.paths\\);const matches=paths.filter\\(p=>/numerator|prefix|series|sequence|definition/i.test\\(p\\)\\);console.log\\('=== Matching paths ==='\\);matches.forEach\\(p=>{const methods=Object.keys\\(s.paths[p]\\);methods.forEach\\(m=>{const op=s.paths[p][m];console.log\\(m.toUpperCase\\(\\),p,'-',op.summary||op.description||''\\)}\\);}\\);console.log\\('\\\\\\\\n=== All path roots ==='\\);const roots=new Set\\(\\);paths.forEach\\(p=>roots.add\\(p.split\\('/'\\).slice\\(0,3\\).join\\('/'\\)\\)\\);console.log\\([...roots].sort\\(\\).join\\('\\\\\\\\n'\\)\\);\")",
-      "WebFetch(domain:edocumentapi.mysoft.com.tr)"
+      "WebFetch(domain:edocumentapi.mysoft.com.tr)",
+      "mcp__ide__getDiagnostics"
     ]
   }
 }

@@ -911,12 +911,10 @@ export default function FaturaOnizlemePage() {
                           )}
                         </>
                       ) : description ? (
-                        <div className="text-sm">
-                          <span className="text-xs font-medium text-muted-foreground">
-                            Açıklama:
-                          </span>{" "}
-                          {description}
-                        </div>
+                        // Katalog ürünü bağlı değil (manuel/içe aktarılan kalem):
+                        // description satırın mal/hizmet adıdır → ürün adı gibi göster.
+                        // (İçe aktarma metaverisi/ETTN açıklamaya değil, fatura notlarına yazılır.)
+                        <div className="font-medium text-foreground">{description}</div>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}

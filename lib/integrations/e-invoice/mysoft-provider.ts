@@ -419,8 +419,16 @@ async sendInvoice(invoiceData: any): Promise<any> {
           const exemptionReason = typeof item.taxExemptionReason === "string" && item.taxExemptionReason.trim()
             ? item.taxExemptionReason.trim()
             : null;
+          // KDV tevkifatı: kod + tevkif edilen KDV yüzdesi (matrah/tutar rowVat'tan hesaplanır).
+          const withholdingCode = typeof item.withholdingCode === "string" && item.withholdingCode.trim()
+            ? item.withholdingCode.trim()
+            : null;
+          const withholdingName = typeof item.withholdingName === "string" && item.withholdingName.trim()
+            ? item.withholdingName.trim()
+            : null;
+          const withholdingRate = Number(item.withholdingRate) || 0;
           // Pro-rata global discount payı sonradan eklenecek.
-          return { item, qty, unitPrice, vatRate, rowTotal, lineDiscount, discountRate, exemptionCode, exemptionReason, globalShare: 0, taxable: rowTotal - lineDiscount, rowVat: 0 };
+          return { item, qty, unitPrice, vatRate, rowTotal, lineDiscount, discountRate, exemptionCode, exemptionReason, withholdingCode, withholdingName, withholdingRate, globalShare: 0, taxable: rowTotal - lineDiscount, rowVat: 0 };
         })
         .filter((l: any) => l.rowTotal > 0);
 
@@ -699,6 +707,16 @@ async sendInvoice(invoiceData: any): Promise<any> {
             if (l.vatRate === 0) {
                 detail.taxExemptionReasonCode = l.exemptionCode || DEFAULT_EXEMPTION_CODE;
                 detail.taxExemptionReasonName = l.exemptionReason || DEFAULT_EXEMPTION_REASON;
+            }
+            // KDV tevkifatı (Swagger v8 satır alanları). Tevkifat matrahı = hesaplanan
+            // KDV (rowVat); tevkif edilen tutar = matrah × oran/100. Oran yalnız kod
+            // 650'de manuel gönderilir; diğer kodlarda Mysoft oranı koddan bilir.
+            if (l.withholdingCode && l.withholdingRate > 0 && l.rowVat > 0) {
+                detail.withholdingTaxTypeCode = l.withholdingCode;
+                detail.withholdingTaxTypeName = l.withholdingName || l.withholdingCode;
+                detail.withholdingTaxableAmount = l.rowVat;
+                detail.withholdingTaxAmount = round2((l.rowVat * l.withholdingRate) / 100);
+                if (l.withholdingCode === "650") detail.withholdingTaxPercentage = l.withholdingRate;
             }
             return detail;
         })
@@ -1433,15 +1451,26 @@ async sendInvoice(invoiceData: any): Promise<any> {
 
       // Mysoft InvoiceForApiModel: kalemler resmî şemada "detailList" altında gelir.
       // Eski sürümler/varyantlar için "invoiceLines" / "lines" / "items" fallback'i korunur.
-      const rawLines: any[] = Array.isArray(model.detailList)
-        ? model.detailList
-        : Array.isArray(model.invoiceLines)
-          ? model.invoiceLines
-          : Array.isArray(model.lines)
-            ? model.lines
-            : Array.isArray(model.items)
-              ? model.items
-              : []
+      // Resmî şema: kalemler "detailList" altında (InvoiceForApiDetailModel[]).
+      // Sürüm/varyant farkları için diğer olası anahtarları da deniyoruz.
+      const rawLines: any[] =
+        [
+          model.detailList,
+          model.invoiceLines,
+          model.lines,
+          model.items,
+          model.invoiceDetail,
+          model.detail,
+        ].find((v: any) => Array.isArray(v) && v.length > 0) || []
+
+      if (rawLines.length === 0) {
+        // Kalem gelmediğinde editörde tek satırlık "Mal/Hizmet" placeholder'a düşülüyor.
+        // Asıl nedeni (yanlış anahtar / boş yanıt) görebilmek için modelin anahtarlarını logla.
+        console.warn(
+          "[Mysoft] getIncomingInvoiceModel: kalem listesi BOŞ. model anahtarları:",
+          model && typeof model === "object" ? Object.keys(model) : typeof model,
+        )
+      }
 
       const lines = rawLines.map((ln: any) => {
         // Stok bilgisi resmî şemada "detailItem" altında nested gelir; düz (flat)
@@ -1671,6 +1700,51 @@ async sendInvoice(invoiceData: any): Promise<any> {
         return { success: false, error: msg || "Numaratör listesi alınamadı." }
       }
       return { success: true, data: Array.isArray(result.data) ? result.data : [] }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." }
+    }
+  }
+
+  /**
+   * GİB tevkifat kod listesini döner (kod + ad + oran).
+   * Swagger v8: GET /api/GeneralCard/withholdingTaxType → WithholdingTaxTypeModelListResultModel
+   *
+   * Parametre almaz; oturum açan kullanıcının erişebildiği tüm tanımlı tevkifat
+   * türlerini verir. `rate` KDV'nin yüzdesidir (ör. "50" = hesaplanan KDV'nin
+   * %50'si alıcı tarafından tevkif edilir). Kod 650 ("diğer") oranı serbesttir;
+   * o satırda oran fatura ekranından girilir.
+   */
+  async listWithholdingTaxTypes(): Promise<{
+    success: boolean
+    data?: Array<{ code: string; name: string; rate: number }>
+    error?: string
+  }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const res = await fetch(`${this.baseUrl}/api/GeneralCard/withholdingTaxType`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      })
+
+      const result = await res.json()
+      if (!result?.succeed) {
+        return { success: false, error: result?.message || "Tevkifat listesi alınamadı." }
+      }
+      const raw: any[] = Array.isArray(result.data) ? result.data : []
+      const data = raw
+        .map((w) => ({
+          code: String(w?.withholdingTaxTypeCode ?? "").trim(),
+          name: String(w?.withholdingTaxTypeName ?? "").trim(),
+          // rate string gelebilir ("50") ve virgüllü olabilir ("33,33").
+          rate: Number(String(w?.rate ?? "").replace(",", ".")) || 0,
+        }))
+        .filter((w) => w.code)
+      return { success: true, data }
     } catch (error: any) {
       return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." }
     }

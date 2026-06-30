@@ -235,6 +235,11 @@ export async function sendInvoiceToProvider(
       unitPrice: Number(item.unitPrice),
       vatRate: Number(item.vatRate),
       productId: item.productId || undefined,
+      // KDV tevkifatı: kod + tevkif edilen KDV yüzdesi. Provider satır KDV'sinden
+      // (rowVat) matrah ve tutarı hesaplayıp Mysoft withholding alanlarına yazar.
+      withholdingCode: item.withholdingCode || undefined,
+      withholdingName: item.withholdingName || undefined,
+      withholdingRate: Number(item.withholdingRate || 0),
       taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
       taxExemptionReason: item.taxExemptionReason || undefined,
       // Satır iskontosu: tutar (hesaplanmış) + opsiyonel oran. Mysoft v8

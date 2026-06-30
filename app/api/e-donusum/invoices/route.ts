@@ -214,6 +214,14 @@ const company = await prisma.company.findUnique({
             : "PERCENT",
         vatRate: parseFloat(item.vatRate) || 0,
         withholdingRate: parseFloat(item.withholdingRate) || 0,
+        withholdingCode:
+          typeof item.withholdingCode === "string" && item.withholdingCode.trim()
+            ? item.withholdingCode.trim()
+            : null,
+        withholdingName:
+          typeof item.withholdingName === "string" && item.withholdingName.trim()
+            ? item.withholdingName.trim()
+            : null,
         exciseRate: parseFloat(item.exciseRate) || 0,
         taxExemptionReasonCode:
           typeof item.taxExemptionReasonCode === "string" && item.taxExemptionReasonCode.trim()
@@ -252,7 +260,8 @@ const company = await prisma.company.findUnique({
       const itemDiscount = itemDiscountAmount(item)
       const itemNet = itemGross - itemDiscount
       const itemVat = itemNet * (item.vatRate / 100)
-      const itemWithholding = itemNet * (item.withholdingRate / 100)
+      // KDV tevkifatı: tevkif edilen tutar KDV üzerinden hesaplanır (matrah değil).
+      const itemWithholding = itemVat * (item.withholdingRate / 100)
       const itemExcise = itemNet * (item.exciseRate / 100)
       const itemTotal = itemNet + itemVat + itemExcise - itemWithholding
 
@@ -317,11 +326,16 @@ const company = await prisma.company.findUnique({
               discountAmount: disc,
               vatRate: item.vatRate,
               vatAmount: net * (item.vatRate / 100),
+              withholdingCode: item.withholdingCode,
+              withholdingName: item.withholdingName,
               withholdingRate: item.withholdingRate || null,
-              withholdingAmount: net * (item.withholdingRate / 100),
+              // Tevkifat KDV üzerinden: (net * vatRate/100) * withholdingRate/100
+              withholdingAmount: net * (item.vatRate / 100) * (item.withholdingRate / 100),
               exciseRate: item.exciseRate || null,
               exciseAmount: net * (item.exciseRate / 100),
-              totalAmount: net * (1 + item.vatRate / 100 + item.exciseRate / 100 - item.withholdingRate / 100),
+              totalAmount:
+                net * (1 + item.vatRate / 100 + item.exciseRate / 100) -
+                net * (item.vatRate / 100) * (item.withholdingRate / 100),
               taxExemptionReasonCode: item.taxExemptionReasonCode,
               taxExemptionReason: item.taxExemptionReason,
               order: index,

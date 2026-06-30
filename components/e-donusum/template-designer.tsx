@@ -190,6 +190,46 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
     }
   }, [companyId])
 
+  // "Şema" (yaklaşık) önizlemede satıcı bloğunu Mysoft'un demo verisi yerine
+  // giriş yapılan firmanın gerçek bilgileriyle doldurmak için çekilir.
+  const [seller, setSeller] = useState<{
+    name?: string | null
+    taxNumber?: string | null
+    eDonusumTenantVkn?: string | null
+    taxOffice?: string | null
+    address?: string | null
+    city?: string | null
+    country?: string | null
+    phone?: string | null
+    email?: string | null
+  } | null>(null)
+
+  useEffect(() => {
+    if (!companyId) return
+    let active = true
+    fetch(`/api/companies/${companyId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (active && data && typeof data === "object") {
+          setSeller({
+            name: data.name,
+            taxNumber: data.taxNumber,
+            eDonusumTenantVkn: data.eDonusumTenantVkn,
+            taxOffice: data.taxOffice,
+            address: data.address,
+            city: data.city,
+            country: data.country,
+            phone: data.phone,
+            email: data.email,
+          })
+        }
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [companyId])
+
   // Seçilen banka hesabını alt bilgiye yeni satır olarak ekler (not metni korunur).
   const insertBankAccount = (id: string) => {
     const acc = bankAccounts.find((a) => a.id === id)
@@ -436,6 +476,28 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
         ? { backgroundColor: tint(opts.accentColor, 0.86), color: opts.textColor }
         : { backgroundColor: "transparent", color: opts.textColor }
   const headingTransform = opts.headingTransform === "uppercase" ? ("uppercase" as const) : ("none" as const)
+
+  // Satıcı bloğu: firma bilgisi yüklendiyse gerçek değerler, yoksa örnek yer tutucular.
+  const hasSeller = !!(seller && (seller.name || seller.taxNumber || seller.eDonusumTenantVkn))
+  const sellerView = hasSeller
+    ? {
+        name: seller!.name?.trim() || "—",
+        address: seller!.address?.trim() || "",
+        locality: [seller!.city, seller!.country].map((s) => s?.trim()).filter(Boolean).join(" / "),
+        taxOffice: seller!.taxOffice?.trim() || "",
+        vkn: (seller!.eDonusumTenantVkn || seller!.taxNumber || "").replace(/\D/g, ""),
+        phone: seller!.phone?.trim() || "",
+        email: seller!.email?.trim() || "",
+      }
+    : {
+        name: "Örnek Firma A.Ş.",
+        address: "Atatürk Cad. No:12 Şişli / İstanbul",
+        locality: "",
+        taxOffice: "Şişli",
+        vkn: "1234567890",
+        phone: "0212 000 00 00",
+        email: "info@ornek.com",
+      }
 
   return (
     <>
@@ -746,15 +808,31 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
                   <div className="relative p-4">
                     {/* ÜST: 3 sütun — satıcı / e-Belge / QR+meta */}
                     <div className="flex items-start justify-between gap-3">
-                      {/* satıcı */}
+                      {/* satıcı — giriş yapılan firmanın gerçek bilgisi (yoksa örnek) */}
                       <div className="min-w-0 flex-1">
                         <div className="font-bold leading-tight" style={{ color: opts.accentColor, fontSize: `${opts.titleScale}em`, textTransform: headingTransform }}>
-                          Örnek Firma A.Ş.
+                          {sellerView.name}
                         </div>
                         <div className="mt-0.5 space-y-px text-[9px] opacity-70">
-                          <div>Atatürk Cad. No:12 Şişli / İstanbul</div>
-                          <div>Vergi Dairesi: Şişli · VKN: 1234567890</div>
-                          <div>Tel: 0212 000 00 00 · info@ornek.com</div>
+                          {sellerView.address && <div>{sellerView.address}</div>}
+                          {sellerView.locality && <div>{sellerView.locality}</div>}
+                          {(sellerView.taxOffice || sellerView.vkn) && (
+                            <div>
+                              {[
+                                sellerView.taxOffice && `Vergi Dairesi: ${sellerView.taxOffice}`,
+                                sellerView.vkn && `VKN: ${sellerView.vkn}`,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </div>
+                          )}
+                          {(sellerView.phone || sellerView.email) && (
+                            <div>
+                              {[sellerView.phone && `Tel: ${sellerView.phone}`, sellerView.email]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </div>
+                          )}
                         </div>
                       </div>
                       {/* e-Belge logosu + kaşe */}

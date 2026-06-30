@@ -36,6 +36,14 @@ function normalizeInvoiceItem(item: any) {
         : "PERCENT",
     vatRate: parseFloat(item.vatRate) || 0,
     withholdingRate: parseFloat(item.withholdingRate) || 0,
+    withholdingCode:
+      typeof item.withholdingCode === "string" && item.withholdingCode.trim()
+        ? item.withholdingCode.trim()
+        : null,
+    withholdingName:
+      typeof item.withholdingName === "string" && item.withholdingName.trim()
+        ? item.withholdingName.trim()
+        : null,
     exciseRate: parseFloat(item.exciseRate) || 0,
     taxExemptionReasonCode:
       typeof item.taxExemptionReasonCode === "string" && item.taxExemptionReasonCode.trim()
@@ -236,7 +244,8 @@ export async function PUT(
         const itemDiscount = itemDiscountDec(item)
         const itemNet = itemGross.minus(itemDiscount)
         const itemVat = itemNet.times(new Decimal(item.vatRate).div(100))
-        const itemWithholding = itemNet.times(new Decimal(item.withholdingRate || 0).div(100))
+        // KDV tevkifatı: tevkif edilen tutar KDV üzerinden hesaplanır (matrah değil).
+        const itemWithholding = itemVat.times(new Decimal(item.withholdingRate || 0).div(100))
         const itemExcise = itemNet.times(new Decimal(item.exciseRate || 0).div(100))
         const itemTotal = itemNet.plus(itemVat).plus(itemExcise).minus(itemWithholding)
 
@@ -303,16 +312,26 @@ export async function PUT(
             discountAmount: disc,
             vatRate: new Decimal(item.vatRate),
             vatAmount: net.times(new Decimal(item.vatRate).div(100)),
+            withholdingCode: item.withholdingCode,
+            withholdingName: item.withholdingName,
             withholdingRate: new Decimal(item.withholdingRate),
-            withholdingAmount: net.times(new Decimal(item.withholdingRate || 0).div(100)),
+            // Tevkifat KDV üzerinden: net × vatRate/100 × withholdingRate/100
+            withholdingAmount: net
+              .times(new Decimal(item.vatRate).div(100))
+              .times(new Decimal(item.withholdingRate || 0).div(100)),
             exciseRate: new Decimal(item.exciseRate),
             exciseAmount: net.times(new Decimal(item.exciseRate || 0).div(100)),
-            totalAmount: net.times(
-              new Decimal(1)
-                .plus(new Decimal(item.vatRate).div(100))
-                .plus(new Decimal(item.exciseRate || 0).div(100))
-                .minus(new Decimal(item.withholdingRate || 0).div(100)),
-            ),
+            totalAmount: net
+              .times(
+                new Decimal(1)
+                  .plus(new Decimal(item.vatRate).div(100))
+                  .plus(new Decimal(item.exciseRate || 0).div(100)),
+              )
+              .minus(
+                net
+                  .times(new Decimal(item.vatRate).div(100))
+                  .times(new Decimal(item.withholdingRate || 0).div(100)),
+              ),
             taxExemptionReasonCode: item.taxExemptionReasonCode,
             taxExemptionReason: item.taxExemptionReason,
             order: index,

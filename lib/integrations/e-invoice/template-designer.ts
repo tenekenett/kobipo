@@ -110,9 +110,9 @@ export const DENSITY_OPTIONS: Array<{ key: Density; label: string; padding: stri
 ]
 
 export const MARGIN_OPTIONS: Array<{ key: PageMargin; label: string; value: string }> = [
-  { key: "narrow", label: "Dar", value: "0.3in" },
-  { key: "normal", label: "Normal", value: "0.6in" },
-  { key: "wide", label: "Geniş", value: "1in" },
+  { key: "narrow", label: "Dar", value: "0.04in" },
+  { key: "normal", label: "Normal", value: "0.1in" },
+  { key: "wide", label: "Geniş", value: "0.3in" },
 ]
 
 export const TABLE_HEADER_OPTIONS: Array<{ key: TableHeaderStyle; label: string }> = [
@@ -237,7 +237,7 @@ function buildThemeCss(opts: TemplateDesignOptions): string {
   const font = DESIGN_FONTS.find((f) => f.key === opts.fontKey)?.stack ?? DESIGN_FONTS[0].stack
   const accent = opts.accentColor
   const onAccent = contrastText(accent)
-  const margin = MARGIN_OPTIONS.find((m) => m.key === opts.pageMargin)?.value ?? "0.6in"
+  const margin = MARGIN_OPTIONS.find((m) => m.key === opts.pageMargin)?.value ?? "0.1in"
   const padding = DENSITY_OPTIONS.find((d) => d.key === opts.density)?.padding ?? "3px 5px"
   const transform = opts.headingTransform === "uppercase" ? "uppercase" : "none"
 
@@ -293,13 +293,17 @@ function buildThemeCss(opts: TemplateDesignOptions): string {
 
   return `
     /* ===== Kobipo Şablon Tasarımcısı — tema ===== */
+    /* Sayfa kenar boşluğu: PDF motoru @page'i destekliyorsa asıl baskın olan
+       budur. body margin'i 0'a çekerek çift boşluğu (@page + body) önleriz;
+       motor @page'i yok sayarsa da body 0 olduğundan içerik kenara yaslanır. */
+    @page { margin: ${margin} !important; }
+    html, body { margin: 0 !important; padding: 0 !important; }
     body {
       font-family: ${font} !important;
       font-size: ${opts.baseFontSize}px !important;
       color: ${opts.textColor} !important;
       background-color: ${opts.pageBackground} !important;
       line-height: ${opts.lineHeight} !important;
-      margin: ${margin} !important;
     }
     h1 { color: ${accent} !important; font-size: ${opts.titleScale}em !important; text-transform: ${transform} !important; }
     h2 { color: ${opts.secondaryColor} !important; text-transform: ${transform} !important; }
