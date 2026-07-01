@@ -1,0 +1,38 @@
+# Tüm metin dosyalarını otomatik algıla ve repoda LF olarak sakla.
+# Windows + Linux (CachyOS) arası gereksiz CRLF diff'lerini önler.
+* text=auto eol=lf
+
+# Açıkça metin (LF) olması gereken dosyalar
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.mjs   text eol=lf
+*.cjs   text eol=lf
+*.json  text eol=lf
+*.css   text eol=lf
+*.scss  text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+*.sql   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.env   text eol=lf
+.env*   text eol=lf
+
+# Shell script'ler her zaman LF (Linux'ta çalışması için şart)
+*.sh    text eol=lf
+
+# İkili (binary) dosyalar — Git bunlara dokunmasın
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.svg   text eol=lf
+*.pdf   binary
+*.ttf   binary
+*.woff  binary
+*.woff2 binary
+*.eot   binary
