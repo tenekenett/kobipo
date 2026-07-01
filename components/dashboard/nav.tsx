@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation"
 import { signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/ui/Logo"
+import { KobipoLogoMark } from "@/components/ui/kobipo-logo-mark"
 import { cn } from "@/lib/utils"
 import { LogOut, Menu, X, ChevronDown, Loader2 } from "lucide-react"
 import { allNavItems, navGroups, navItemActive, standaloneNavHrefs, type NavItemDef } from "@/components/dashboard/nav-config"
@@ -119,7 +120,9 @@ export function DashboardNav() {
     <>
       <div className="fixed left-0 top-0 z-40 hidden h-dvh max-h-dvh w-56 flex-col overflow-hidden border-r border-white/10 bg-kobipo-navy dark:border-border dark:bg-card lg:flex">
         <div className="flex h-14 shrink-0 items-center border-b border-white/10 px-4">
-          <Logo variant="dark" size="sm" href={roleToDashboardPath(userRole)} />
+          <Link href={roleToDashboardPath(userRole)} className="inline-flex shrink-0 items-center">
+            <KobipoLogoMark className="h-12 w-auto" />
+          </Link>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-3 [-webkit-overflow-scrolling:touch]">
           <div className="space-y-1">
