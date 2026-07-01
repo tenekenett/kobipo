@@ -3,7 +3,7 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { BarChart3, Eye, FileText, Package, TrendingUp, Users } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { getAuthContext } from "@/lib/middleware/authorization"
+import { getAuthContext, resolveActiveCompany } from "@/lib/middleware/authorization"
 import { DashboardCashflow } from "@/components/dashboard/admin/dashboard-cashflow"
 import {
   CashflowChartSkeleton,
@@ -61,12 +61,19 @@ async function ViewerStats({ companyId }: { companyId: string }) {
   )
 }
 
-export default async function ViewerDashboard() {
+export default async function ViewerDashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ company?: string | string[] }>
+}) {
   const authContext = await getAuthContext()
   if (!authContext || !authContext.activeCompany) {
     redirect("/signin")
   }
-  const companyId = authContext.activeCompany.companyId
+  const sp = await searchParams
+  const requested = typeof sp.company === "string" ? sp.company : undefined
+  const activeCompany = resolveActiveCompany(authContext, requested) ?? authContext.activeCompany
+  const companyId = activeCompany.companyId
 
   return (
     <div className="space-y-6">
@@ -80,7 +87,7 @@ export default async function ViewerDashboard() {
         </div>
         <div className="text-right">
           <p className="text-sm text-muted-foreground">Aktif Firma</p>
-          <p className="font-semibold">{authContext.activeCompany.companyName}</p>
+          <p className="font-semibold">{activeCompany.companyName}</p>
         </div>
       </div>
 

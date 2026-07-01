@@ -14,7 +14,7 @@ import {
 } from "lucide-react"
 import { Role } from "@prisma/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { getAuthContext } from "@/lib/middleware/authorization"
+import { getAuthContext, resolveActiveCompany } from "@/lib/middleware/authorization"
 import {
   RecentInvoicesSkeleton,
   StatsSkeleton,
@@ -183,16 +183,23 @@ async function TopCustomersCard({ companyId }: { companyId: string }) {
   )
 }
 
-export default async function SalesDashboard() {
+export default async function SalesDashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ company?: string | string[] }>
+}) {
   const authContext = await getAuthContext()
   if (!authContext || !authContext.activeCompany) {
     redirect("/signin")
   }
+  const sp = await searchParams
+  const requested = typeof sp.company === "string" ? sp.company : undefined
+  const activeCompany = resolveActiveCompany(authContext, requested) ?? authContext.activeCompany
   const allowedRoles: Role[] = [Role.SALES, Role.ADMIN]
-  if (!allowedRoles.includes(authContext.activeCompany.role)) {
+  if (!allowedRoles.includes(activeCompany.role)) {
     redirect("/")
   }
-  const companyId = authContext.activeCompany.companyId
+  const companyId = activeCompany.companyId
 
   return (
     <div className="space-y-6">
@@ -206,7 +213,7 @@ export default async function SalesDashboard() {
         </div>
         <div className="text-right">
           <p className="text-sm text-muted-foreground">Aktif Firma</p>
-          <p className="font-semibold">{authContext.activeCompany.companyName}</p>
+          <p className="font-semibold">{activeCompany.companyName}</p>
         </div>
       </div>
 

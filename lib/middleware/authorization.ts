@@ -80,6 +80,28 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   }
 }
 
+/**
+ * Seçili firma/şubeyi çözer. Dashboard gibi server sayfaları companyId'yi buradan
+ * almalıdır: kullanıcının seçimi URL'de `?company=<id>` ile taşınır (bkz.
+ * dashboard-company-provider). İstenen firma kullanıcının erişebildiği AKTİF bir
+ * firma/şube ise o kullanılır; aksi halde varsayılan aktif firmaya düşülür.
+ *
+ * `activeCompany` tek başına HER ZAMAN listedeki ilk firmayı (ana firmayı) verdiği
+ * için, bu olmadan alt şubede ana firmanın verileri gösterilir.
+ */
+export function resolveActiveCompany(
+  context: AuthContext,
+  requestedCompanyId?: string | null,
+): UserRole | null {
+  if (requestedCompanyId) {
+    const match = context.companies.find(
+      (c) => c.companyId === requestedCompanyId && c.isActive,
+    )
+    if (match) return match
+  }
+  return context.activeCompany
+}
+
 // Modül erişim kontrolü
 export function canAccessModule(role: Role, modulePath: string): boolean {
   // Tam eşleşme kontrolü

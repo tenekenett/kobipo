@@ -2,7 +2,7 @@ import { Suspense } from "react"
 import { redirect } from "next/navigation"
 import { Settings } from "lucide-react"
 import { Role } from "@prisma/client"
-import { getAuthContext } from "@/lib/middleware/authorization"
+import { getAuthContext, resolveActiveCompany } from "@/lib/middleware/authorization"
 import { DashboardStats } from "@/components/dashboard/admin/dashboard-stats"
 import { DashboardCashflow } from "@/components/dashboard/admin/dashboard-cashflow"
 import { DashboardRecentInvoices } from "@/components/dashboard/admin/dashboard-recent-invoices"
@@ -16,21 +16,29 @@ import {
 
 export const dynamic = "force-dynamic"
 
-export default async function AdminDashboard() {
+export default async function AdminDashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ company?: string | string[] }>
+}) {
   const authContext = await getAuthContext()
 
   if (!authContext || !authContext.activeCompany) {
     redirect("/signin")
   }
 
+  const sp = await searchParams
+  const requested = typeof sp.company === "string" ? sp.company : undefined
+  const activeCompany = resolveActiveCompany(authContext, requested) ?? authContext.activeCompany
+
   if (
-    authContext.activeCompany.role !== Role.ADMIN &&
-    authContext.activeCompany.role !== Role.BRANCH_MANAGER
+    activeCompany.role !== Role.ADMIN &&
+    activeCompany.role !== Role.BRANCH_MANAGER
   ) {
     redirect("/")
   }
 
-  const companyId = authContext.activeCompany.companyId
+  const companyId = activeCompany.companyId
 
   return (
     <div className="space-y-6">
@@ -46,7 +54,7 @@ export default async function AdminDashboard() {
         </div>
         <div className="text-right">
           <p className="text-sm text-muted-foreground">Aktif Firma</p>
-          <p className="font-semibold">{authContext.activeCompany.companyName}</p>
+          <p className="font-semibold">{activeCompany.companyName}</p>
         </div>
       </div>
 

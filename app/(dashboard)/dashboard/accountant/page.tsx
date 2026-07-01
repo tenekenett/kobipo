@@ -13,7 +13,7 @@ import {
 } from "lucide-react"
 import { Role } from "@prisma/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { getAuthContext } from "@/lib/middleware/authorization"
+import { getAuthContext, resolveActiveCompany } from "@/lib/middleware/authorization"
 import { RevenueChart } from "@/components/dashboard/revenue-chart"
 import {
   CashflowChartSkeleton,
@@ -239,16 +239,23 @@ function QuickActions() {
   )
 }
 
-export default async function AccountantDashboard() {
+export default async function AccountantDashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ company?: string | string[] }>
+}) {
   const authContext = await getAuthContext()
   if (!authContext || !authContext.activeCompany) {
     redirect("/signin")
   }
+  const sp = await searchParams
+  const requested = typeof sp.company === "string" ? sp.company : undefined
+  const activeCompany = resolveActiveCompany(authContext, requested) ?? authContext.activeCompany
   const allowedRoles: Role[] = [Role.ACCOUNTANT, Role.ADMIN]
-  if (!allowedRoles.includes(authContext.activeCompany.role)) {
+  if (!allowedRoles.includes(activeCompany.role)) {
     redirect("/")
   }
-  const companyId = authContext.activeCompany.companyId
+  const companyId = activeCompany.companyId
 
   return (
     <div className="space-y-6">
@@ -262,7 +269,7 @@ export default async function AccountantDashboard() {
         </div>
         <div className="text-right">
           <p className="text-sm text-muted-foreground">Aktif Firma</p>
-          <p className="font-semibold">{authContext.activeCompany.companyName}</p>
+          <p className="font-semibold">{activeCompany.companyName}</p>
         </div>
       </div>
 

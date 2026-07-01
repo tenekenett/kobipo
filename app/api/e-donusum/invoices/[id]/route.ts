@@ -464,22 +464,10 @@ export async function DELETE(
 
     await ensureCompanyAccess(invoice.companyId)
 
-    // Guard: GİB'e gönderilmiş (uuid/ETTN almış) fatura, iptal edilmediği sürece
-    // FİZİKSEL silinemez — yoksa resmi GİB kaydı dururken lokal kayıt yok olur ve
-    // uyumsuzluk doğar. İptal yolu: e-Arşiv → .../cancel (status=CANCELLED, kayıt
-    // korunur), e-Fatura → iade faturası. Yalnızca DRAFT (henüz gönderilmemiş) ve
-    // zaten CANCELLED faturalar fiziksel silinebilir.
-    const isSentToGib = Boolean(invoice.uuid) || invoice.status === "SENT"
-    if (isSentToGib && invoice.status !== "CANCELLED") {
-      return NextResponse.json(
-        {
-          error:
-            "Bu fatura GİB'e gönderilmiş (ETTN mevcut) ve henüz iptal edilmemiş; fiziksel olarak silinemez. e-Arşiv faturayı 'İptal Et', e-Fatura için iade faturası kesin. İptal edildikten sonra silebilirsiniz.",
-          code: "INVOICE_SENT_CANNOT_DELETE",
-        },
-        { status: 409 },
-      )
-    }
+    // NOT: GİB'e gönderilmiş (uuid/ETTN) fatura da FİZİKSEL silinebilir. Bu silme
+    // yalnızca Kobipo'daki LOKAL (ön muhasebe / cari) kaydı kaldırır; GİB'deki resmi
+    // e-Fatura/e-Arşiv belgesine DOKUNMAZ (iptal etmez). Kullanıcı bu ayrımı silme
+    // onay ekranındaki uyarıyla teyit eder; stok ve cari bakiye normal şekilde geri alınır.
 
     // 2-4. Stok iadesi + yan etkiler + faturanın kendisi tek atomik transaction'da.
     // Stok geri alma artık `revertInvoiceStock` ile yapılıyor: depo bazlı (WarehouseStock)

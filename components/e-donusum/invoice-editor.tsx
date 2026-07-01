@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import { ProductCombobox } from "@/components/e-donusum/product-combobox"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
+import { WithholdingCombobox } from "@/components/e-donusum/withholding-combobox"
 
 
 type LineExtraKey = "description" | "discountRate" | "withholdingRate" | "exciseRate"
@@ -1453,27 +1454,17 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                               )
                             }
                             if (key === "withholdingRate") {
-                              const WH_NONE = "__none__"
                               return (
                                 <div key={key} className="col-span-2 md:col-span-2 space-y-1.5">
                                   <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tevkifat (KDV)</Label>{removable}</div>
                                   {withholdingTypes.length > 0 ? (
                                     <>
                                       <div className="flex gap-1.5">
-                                        <Select
-                                          value={item.withholdingCode || WH_NONE}
-                                          onValueChange={(v) => applyWithholdingCode(index, v === WH_NONE ? "" : v)}
-                                        >
-                                          <SelectTrigger className="h-9 bg-white"><SelectValue placeholder="Tevkifat yok" /></SelectTrigger>
-                                          <SelectContent className="max-h-72">
-                                            <SelectItem value={WH_NONE}>Tevkifat yok</SelectItem>
-                                            {withholdingTypes.map((w) => (
-                                              <SelectItem key={w.code} value={w.code}>
-                                                {`${w.code} · ${w.name}${w.code !== "650" && w.rate ? `  (%${w.rate})` : ""}`}
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
+                                        <WithholdingCombobox
+                                          types={withholdingTypes}
+                                          value={item.withholdingCode || ""}
+                                          onChange={(code) => applyWithholdingCode(index, code)}
+                                        />
                                         {(item.withholdingCode === "650" || (!!item.withholdingCode && !item.withholdingRate)) && (
                                           <div className="relative w-24 shrink-0">
                                             <Input

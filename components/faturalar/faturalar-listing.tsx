@@ -798,7 +798,24 @@ export default function FaturalarListing({
           if (!open) setDeleteTargetId(null)
         }}
         title="Faturayı sil"
-        description="Bu faturayı silmek istediğinize emin misiniz? Bu işlem stokları ve cari bakiyeleri geri alır. Geri alınamaz. (GİB'e gönderilmiş faturalar silinemez; önce iptal edin.)"
+        description={(() => {
+          const target = rows.find((r) => r.id === deleteTargetId)
+          const sentToGib =
+            !!target &&
+            (Boolean(target.uuid) || target.status === "SENT") &&
+            target.status !== "CANCELLED"
+          return sentToGib ? (
+            <>
+              Bu fatura <strong>GİB&apos;e gönderilmiş</strong> (e-Fatura/e-Arşiv). Silme işlemi{" "}
+              <strong>GİB&apos;deki e-faturanızı İPTAL ETMEZ</strong>; belge GİB&apos;de geçerli
+              kalır. Yalnızca Kobipo&apos;daki (cari) kaydınızdan siler — stok ve cari bakiye geri
+              alınır ve bu işlem geri alınamaz. Yine de yalnızca cari kayıtlarınızdan silmek
+              istiyor musunuz?
+            </>
+          ) : (
+            "Bu faturayı silmek istediğinize emin misiniz? Bu işlem stokları ve cari bakiyeleri geri alır. Geri alınamaz."
+          )
+        })()}
         confirmLabel="Sil"
         variant="destructive"
         isProcessing={isDeletingRow}

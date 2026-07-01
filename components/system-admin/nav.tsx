@@ -17,6 +17,7 @@ import {
   Bell,
   Coins,
   LifeBuoy,
+  DatabaseBackup,
 } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -66,6 +67,11 @@ const navItems = [
     title: "Sistem Logları",
     href: "/system-admin/logs",
     icon: FileText,
+  },
+  {
+    title: "Yedekleme",
+    href: "/system-admin/backup",
+    icon: DatabaseBackup,
   },
   {
     title: "Ayarlar",
