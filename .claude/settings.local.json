@@ -8,7 +8,9 @@
       "Bash(node -e \"const l=require\\('lucide-react'\\); console.log\\('DatabaseBackup:', typeof l.DatabaseBackup\\)\")",
       "Bash(npx tsc *)",
       "Bash(npm -v)",
-      "Bash(grep -rn \"/stok/\\\\${\\\\|/stok/\\\\`\\\\|href.*stok/\\\\|router.push.*stok\\\\|/stok/[^p]\" \"app/\\(dashboard\\)/stok/page.tsx\" components)"
+      "Bash(grep -rn \"/stok/\\\\${\\\\|/stok/\\\\`\\\\|href.*stok/\\\\|router.push.*stok\\\\|/stok/[^p]\" \"app/\\(dashboard\\)/stok/page.tsx\" components)",
+      "Bash(python3 \"/tmp/claude-1000/-home-yasin-Belgeler-sirketselmidir-kobipo/7b36cb52-7d91-4d7e-a4e9-8418460dd985/scratchpad/dark_codemod.py\" --apply)",
+      "Bash(git diff *)"
     ]
   }
 }

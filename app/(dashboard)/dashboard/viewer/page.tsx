@@ -80,7 +80,7 @@ export default async function ViewerDashboard({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-extrabold flex items-center gap-3 text-kobipo-navy dark:text-foreground">
-            <Eye className="h-8 w-8 text-slate-500" />
+            <Eye className="h-8 w-8 text-slate-500 dark:text-muted-foreground" />
             Görüntüleme Paneli
           </h1>
           <p className="mt-1 text-kobipo-gray">Firma istatistikleri ve raporlar (salt okunur)</p>
@@ -94,7 +94,7 @@ export default async function ViewerDashboard({
       <Card className="rounded-2xl border border-kobipo-border bg-kobipo-pale/50 shadow-card">
         <CardContent className="py-4">
           <div className="flex items-center gap-3">
-            <Eye className="h-5 w-5 text-slate-500" />
+            <Eye className="h-5 w-5 text-slate-500 dark:text-muted-foreground" />
             <p className="text-sm text-slate-600 dark:text-slate-400">
               Bu panelde sadece görüntüleme yetkisine sahipsiniz. Veri ekleme, düzenleme veya silme
               işlemleri yapılamaz.

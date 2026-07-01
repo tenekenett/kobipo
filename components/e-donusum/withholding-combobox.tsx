@@ -200,7 +200,7 @@ export function WithholdingCombobox({
           aria-controls={open ? listId : undefined}
           aria-autocomplete="list"
           disabled={disabled}
-          className="h-9 min-w-0 flex-1 bg-white"
+          className="h-9 min-w-0 flex-1 bg-white dark:bg-card"
           placeholder={placeholder}
           value={inputValue}
           onChange={(e) => {

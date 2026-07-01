@@ -297,7 +297,7 @@ export default function VeriAktarimPage() {
                 <span>İçe aktarım devam ediyor...</span>
                 <span>{Math.round(progress)}%</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-muted">
                 <div
                   className="bg-blue-600 h-2 rounded-full transition-all duration-200"
                   style={{ width: `${progress}%` }}

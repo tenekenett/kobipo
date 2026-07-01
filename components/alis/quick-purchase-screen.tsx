@@ -363,7 +363,7 @@ export function QuickPurchaseScreen() {
 
   return (
     <div className="space-y-6">
-      <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-kobipo-navy to-kobipo-blue p-5 text-white shadow-lg shadow-kobipo-navy/20">
+      <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-kobipo-navy to-kobipo-blue p-5 text-white shadow-lg shadow-kobipo-navy/20 dark:from-card dark:shadow-black/40">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/25 backdrop-blur">

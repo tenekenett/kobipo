@@ -45,7 +45,7 @@ export const StyledTableHeaderRow = React.forwardRef<
   <TableRow
     ref={ref}
     className={cn(
-      "bg-kobipo-blue hover:bg-kobipo-blue dark:bg-kobipo-navy dark:hover:bg-kobipo-navy",
+      "bg-kobipo-blue hover:bg-kobipo-blue dark:bg-[#122544] dark:hover:bg-[#122544]",
       className,
     )}
     {...props}

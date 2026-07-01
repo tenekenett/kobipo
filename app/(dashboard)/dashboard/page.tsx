@@ -461,7 +461,7 @@ export default async function DashboardIndexPage({
             {draftCount > 0 && (
               <Link
                 href={`/satis/fatura${companyQuery}`}
-                className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-kobipo-navy px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-kobipo-blue"
+                className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-kobipo-navy px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-kobipo-blue dark:bg-kobipo-blue dark:hover:bg-kobipo-mid"
               >
                 Taslaklara git
                 <ArrowUpRight className="h-4 w-4" aria-hidden />

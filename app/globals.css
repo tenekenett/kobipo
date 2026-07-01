@@ -50,39 +50,58 @@
   }
 
   .dark {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 98%;
-    --card: 222 39% 13%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 39% 13%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 217 28% 21%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 28% 20%;
-    --muted-foreground: 216 24% 76%;
-    --accent: 217 28% 21%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 40%;
+    /* Branded-navy dark theme — tuned for readability first.
+       Surfaces: #0B1220 page, #111C2E card, #24344D border.
+       Text: #E9EFFA primary, #A3B1CB secondary. Accent: #3B82F6. */
+    --background: 220 49% 8%;          /* #0B1220 */
+    --foreground: 219 63% 95%;         /* #E9EFFA */
+    --card: 217 46% 12%;               /* #111C2E */
+    --card-foreground: 219 63% 95%;
+    --popover: 217 46% 12%;
+    --popover-foreground: 219 63% 95%;
+    /* Accent lives in `primary` in dark mode so brand-blue stays branded
+       (was near-white before, which washed the whole theme out). */
+    --primary: 217 91% 60%;            /* #3B82F6 */
+    --primary-foreground: 210 40% 98%; /* white text on blue */
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 219 63% 95%;
+    --muted: 217 30% 16%;
+    --muted-foreground: 219 28% 72%;   /* #A3B1CB */
+    --accent: 217 33% 19%;
+    --accent-foreground: 219 63% 95%;
+    --destructive: 0 62% 48%;
     --destructive-foreground: 210 40% 98%;
-    --border: 216 25% 28%;
-    --input: 216 25% 30%;
-    --ring: 213 90% 62%;
+    --border: 217 36% 22%;             /* #24344D */
+    --input: 217 36% 24%;
+    --ring: 217 91% 60%;               /* accent */
 
-    --surface: 222 47% 5%;
-    --surface-foreground: 210 40% 98%;
-    --header: 222 39% 12%;
-    --sidebar: 222 50% 6%;
+    --surface: 220 47% 7%;
+    --surface-foreground: 219 63% 95%;
+    --header: 217 46% 12%;
+    --sidebar: 217 48% 10%;
     --sidebar-foreground: 210 40% 96%;
 
-    /* Dark kobipo overrides: only neutral tokens flip.
-       Brand and pale/light accent backgrounds stay fixed so they read as
-       branded surfaces on top of the dark page background. */
-    --kb-offwhite:    14 26 42;
-    --kb-border:      52 71 100;
-    --kb-gray:        163 177 203;
-    --kb-text:        233 239 250;
+    /* Kobipo brand — dark mode.
+       These tokens are dual-role (used as BOTH text and background across
+       the app). Dark values are chosen so each stays readable in its role:
+       - text-role chromatics (navy, green-dark) flip LIGHT so headings read
+         on dark cards;
+       - accent (blue/mid) stays a real blue that works as text AND as a
+         button fill with white text — matched to `primary` for consistency;
+       - soft-fill tokens (pale, light, green-light) become dark tinted
+         panels instead of light washes. */
+    --kb-navy:        240 245 252;   /* text role: strongest heading (dark-surface uses get explicit dark: classes) */
+    --kb-blue:        59 130 246;    /* #3B82F6 accent (text + fills) */
+    --kb-mid:         96 165 250;    /* #60A5FA gradients / bright accent */
+    --kb-light:       30 48 78;      /* raised blue panel */
+    --kb-pale:        23 40 66;      /* selected / soft highlight panel */
+    --kb-green:       94 200 154;    /* #5EC89A */
+    --kb-green-dark:  111 214 165;   /* light green text */
+    --kb-green-light: 20 40 31;      /* soft green panel */
+    --kb-offwhite:    16 25 40;      /* subtle dark surface */
+    --kb-border:      36 52 77;      /* #24344D */
+    --kb-gray:        163 177 203;   /* #A3B1CB secondary text */
+    --kb-text:        233 239 250;   /* #E9EFFA body text */
   }
 }
 

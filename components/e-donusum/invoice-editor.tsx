@@ -1427,10 +1427,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                     <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">İskonto</Label>
                                     {removable}
                                   </div>
-                                  <div className="flex h-10 items-stretch overflow-hidden rounded-lg border-2 border-kobipo-blue/25 bg-white shadow-sm focus-within:border-kobipo-blue/60">
+                                  <div className="flex h-10 items-stretch overflow-hidden rounded-lg border-2 border-kobipo-blue/25 bg-white shadow-sm focus-within:border-kobipo-blue/60 dark:bg-card">
                                     <button
                                       type="button"
-                                      className={`flex w-11 shrink-0 items-center justify-center text-base font-bold transition-all ${isPercent ? "bg-kobipo-navy text-white shadow-inner" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                                      className={`flex w-11 shrink-0 items-center justify-center text-base font-bold transition-all ${isPercent ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
                                       aria-pressed={isPercent}
                                       onClick={() => setDiscountMode(index, "PERCENT")}
                                       title="Oran (%)"
@@ -1439,7 +1439,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                     </button>
                                     <button
                                       type="button"
-                                      className={`flex w-11 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-sm font-bold tracking-wide transition-all ${!isPercent ? "bg-kobipo-navy text-white shadow-inner" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                                      className={`flex w-11 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-sm font-bold tracking-wide transition-all ${!isPercent ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
                                       aria-pressed={!isPercent}
                                       onClick={() => setDiscountMode(index, "AMOUNT")}
                                       title="Tutar (TL)"
@@ -1574,10 +1574,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  <div className="flex h-10 items-stretch overflow-hidden rounded-lg border-2 border-kobipo-blue/25 bg-white shadow-sm focus-within:border-kobipo-blue/60">
+                  <div className="flex h-10 items-stretch overflow-hidden rounded-lg border-2 border-kobipo-blue/25 bg-white shadow-sm focus-within:border-kobipo-blue/60 dark:bg-card">
                     <button
                       type="button"
-                      className={`flex w-11 shrink-0 items-center justify-center text-base font-bold transition-all ${globalDiscountMode === "PERCENT" ? "bg-kobipo-navy text-white shadow-inner" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                      className={`flex w-11 shrink-0 items-center justify-center text-base font-bold transition-all ${globalDiscountMode === "PERCENT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
                       aria-pressed={globalDiscountMode === "PERCENT"}
                       onClick={() => setGlobalDiscountMode("PERCENT")}
                       title="Oran (%)"
@@ -1586,7 +1586,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                     </button>
                     <button
                       type="button"
-                      className={`flex w-11 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-sm font-bold tracking-wide transition-all ${globalDiscountMode === "AMOUNT" ? "bg-kobipo-navy text-white shadow-inner" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                      className={`flex w-11 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-sm font-bold tracking-wide transition-all ${globalDiscountMode === "AMOUNT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
                       aria-pressed={globalDiscountMode === "AMOUNT"}
                       onClick={() => setGlobalDiscountMode("AMOUNT")}
                       title="Tutar (TL)"

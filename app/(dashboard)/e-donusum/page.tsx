@@ -376,7 +376,7 @@ export default function EDönüşümPage() {
               </StyledTableContainer>
             )}
             {inboxResult.rawResponse && (
-              <details className="rounded border bg-slate-50 p-2">
+              <details className="rounded border bg-slate-50 p-2 dark:bg-muted/40">
                 <summary className="cursor-pointer text-sm font-medium">
                   Mysoft ham JSON yanıtı
                 </summary>

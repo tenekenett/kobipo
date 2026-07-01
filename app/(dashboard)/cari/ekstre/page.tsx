@@ -327,7 +327,7 @@ export default function EkstrePage() {
                   entries.map((entry) => {
                     const badge = TYPE_BADGE[entry.type] || {
                       label: entry.type,
-                      cls: "bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 border-slate-200",
+                      cls: "bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 border-slate-200 dark:border-border",
                     }
                     return (
                       <TableRow key={`${entry.type}-${entry.id}`}>

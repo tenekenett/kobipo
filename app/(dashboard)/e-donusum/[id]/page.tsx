@@ -437,10 +437,10 @@ export default function InvoiceDetailPage() {
             : gib.bucket === "rejected"
             ? { wrap: "border-red-300 bg-red-50 text-red-800 dark:bg-red-500/15 dark:text-red-300", Icon: XCircle }
             : gib.bucket === "cancelled"
-            ? { wrap: "border-gray-300 bg-gray-100 text-gray-700 dark:bg-gray-500/15 dark:text-gray-300", Icon: Ban }
+            ? { wrap: "border-gray-300 bg-gray-100 text-gray-700 dark:bg-gray-500/15 dark:text-gray-300 dark:border-border", Icon: Ban }
             : gib.bucket === "processing"
             ? { wrap: "border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300", Icon: Clock }
-            : { wrap: "border-slate-300 bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300", Icon: ShieldCheck }
+            : { wrap: "border-slate-300 bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 dark:border-border", Icon: ShieldCheck }
           const Icon = style.Icon
           return (
             <span
