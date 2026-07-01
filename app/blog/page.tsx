@@ -1,6 +1,9 @@
 import type { Metadata } from "next"
 import { BlogLanding } from "@/components/site/blog-landing"
-import { blogPosts } from "@/lib/content/blog"
+import { getPublishedPosts } from "@/lib/content/blog"
+
+// Yayınlanan yazılar değişebilir → ISR ile periyodik tazele.
+export const revalidate = 60
 
 export const metadata: Metadata = {
   title: "Kobipo — İşletmenin tüm rakamları tek panelde",
@@ -15,8 +18,8 @@ export const metadata: Metadata = {
   },
 }
 
-export default function BlogLandingPage() {
-  const posts = blogPosts.slice(0, 3).map((p) => ({
+export default async function BlogLandingPage() {
+  const posts = (await getPublishedPosts()).slice(0, 3).map((p) => ({
     slug: p.slug,
     title: p.title,
     excerpt: p.excerpt,

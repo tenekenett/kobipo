@@ -20,6 +20,11 @@ export default async function DashboardLayout({
     redirect("/signin")
   }
 
+  // Blog editörü (platform hesabı, firma üyeliği yok) yalnız blog panelini görür.
+  if (!userContext.isSuperAdmin && userContext.isBlogEditor && userContext.companies.length === 0) {
+    redirect("/blog-admin")
+  }
+
   // Pasif firmalar normal kullanıcıya gösterilmez (seçilemez); super admin hepsini görür.
   const visibleCompanies = userContext.companies.filter(
     (entry) => userContext.isSuperAdmin || entry.isActive

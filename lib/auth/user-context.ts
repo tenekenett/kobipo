@@ -23,6 +23,7 @@ export interface UserContext {
   email: string
   name: string | null
   isSuperAdmin: boolean
+  isBlogEditor: boolean
   companies: UserCompanyContext[]
 }
 
@@ -38,6 +39,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
     email: string
     name: string | null
     isSuperAdmin: boolean
+    isBlogEditor: boolean
     companies: Array<{
       role: Role
       createdAt: Date
@@ -59,6 +61,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
         email: true,
         name: true,
         isSuperAdmin: true,
+        isBlogEditor: true,
         companies: {
           orderBy: { createdAt: "asc" },
           select: {
@@ -123,6 +126,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
     email: user.email,
     name: user.name,
     isSuperAdmin: user.isSuperAdmin,
+    isBlogEditor: user.isBlogEditor,
     companies: [...membershipCompanies, ...branchCompanies],
   }
 })

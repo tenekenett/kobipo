@@ -6,9 +6,14 @@
 
 function env() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  // Eski legacy JWT (SERVICE_ROLE) ya da yeni format secret anahtar (sb_secret_...).
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY
   if (!url || !key) {
-    throw new Error("Dosya depolama yapılandırılmamış (SUPABASE_URL / SERVICE_ROLE_KEY eksik)")
+    throw new Error(
+      "Dosya depolama yapılandırılmamış: sunucu tarafı Supabase secret anahtarı eksik. " +
+        "Supabase panelinden service_role (veya sb_secret_...) anahtarını alıp .env.local'e " +
+        "SUPABASE_SERVICE_ROLE_KEY olarak ekleyin.",
+    )
   }
   return { base: `${url.replace(/\/$/, "")}/storage/v1`, key }
 }
@@ -100,3 +105,13 @@ export function sanitizeFileName(name: string): string {
 }
 
 export const PERSONNEL_DOCS_BUCKET = "personnel-docs"
+
+// Blog kapak/içerik görselleri — public bucket (blog herkese açık olduğu için imzasız URL).
+export const BLOG_MEDIA_BUCKET = "blog-media"
+
+/** Public bucket'taki nesnenin kalıcı public URL'ini üretir. */
+export function getPublicUrl(bucket: string, path: string): string {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!url) throw new Error("NEXT_PUBLIC_SUPABASE_URL tanımlı değil")
+  return `${url.replace(/\/$/, "")}/storage/v1/object/public/${bucket}/${path}`
+}

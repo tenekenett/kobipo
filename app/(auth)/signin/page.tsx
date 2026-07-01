@@ -36,6 +36,12 @@ export default function SignInPage() {
       return
     }
 
+    // Blog editörü (firmaya bağlı olmayan platform hesabı) yalnız blog panelini görür.
+    if (session.user?.isBlogEditor) {
+      router.push("/blog-admin")
+      return
+    }
+
     const defaultCompanyId = session.user?.defaultCompanyId
     const defaultRole = session.user?.defaultRole
 
@@ -262,6 +268,10 @@ function FloatingInput({
           </div>
         )}
         <input
+          // Temp Mail vb. tarayıcı eklentileri e-posta/parola input'larına öznitelik
+          // (data-temp-mail-org, background-image ikonu) enjekte edip hydration uyarısı
+          // tetikliyor. Bu yalnız ilgili eklentiyi kuran kullanıcıda olur; uyarıyı bastır.
+          suppressHydrationWarning
           id={id}
           type={type}
           placeholder={placeholder}

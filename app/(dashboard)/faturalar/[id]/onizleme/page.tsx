@@ -903,7 +903,17 @@ export default function FaturaOnizlemePage() {
                     <TableCell>
                       {productName ? (
                         <>
-                          <div className="font-medium text-foreground">{productName}</div>
+                          {item.product?.id ? (
+                            <Link
+                              href={`/stok/${item.product.id}?company=${companyId || ""}`}
+                              className="font-medium text-blue-600 hover:underline"
+                              title={`${productName} ürün/hizmet kartına git`}
+                            >
+                              {productName}
+                            </Link>
+                          ) : (
+                            <div className="font-medium text-foreground">{productName}</div>
+                          )}
                           {showDescription && (
                             <div className="mt-0.5 text-xs text-muted-foreground">
                               <span className="font-medium">Açıklama:</span> {description}

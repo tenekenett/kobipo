@@ -1393,7 +1393,14 @@ async sendInvoice(invoiceData: any): Promise<any> {
           date: string | null
           currency: string | null
           currencyRate: number | null
-          sender: { name: string | null; taxNumber: string | null; address: string | null }
+          sender: {
+            name: string | null
+            taxNumber: string | null
+            taxOffice: string | null
+            address: string | null
+            city: string | null
+            district: string | null
+          }
           totalAmount: number | null
           taxExclusiveAmount: number | null
           taxInclusiveAmount: number | null
@@ -1561,7 +1568,33 @@ async sendInvoice(invoiceData: any): Promise<any> {
               "senderVkn",
               "senderTaxNumber",
             ) as string | null,
-            address: pick(model, "senderAddress", "address") as string | null,
+            taxOffice: pick(
+              model,
+              "accountTaxOfficeName",
+              "senderTaxOffice",
+              "taxOfficeName",
+              "taxOffice",
+            ) as string | null,
+            // Adres tek alan olarak gelmezse sokak/bina bileşenlerinden birleştir.
+            address:
+              (pick(model, "senderAddress", "address") as string | null) ||
+              [
+                pick(model, "accountStreetName", "streetName"),
+                pick(model, "accountBuildingName", "buildingName"),
+                pick(model, "accountBuildingNumber", "buildingNumber"),
+              ]
+                .filter((p) => p != null && String(p).trim() !== "")
+                .join(" ") ||
+              null,
+            city: pick(model, "accountCityName", "senderCity", "cityName", "city") as string | null,
+            district: pick(
+              model,
+              "accountDistrict",
+              "accountCitySubdivisionName",
+              "accountCitySubdvisionName",
+              "citySubdivisionName",
+              "district",
+            ) as string | null,
           },
           totalAmount: num(pick(model, "payableAmount", "totalAmount", "payableAmountTra")),
           taxExclusiveAmount: num(pick(model, "taxExclusiveAmount", "amtTra", "netAmount")),

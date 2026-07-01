@@ -108,7 +108,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const [incomingSupplierCandidate, setIncomingSupplierCandidate] = useState<{
     name: string | null
     taxNumber: string | null
+    taxOffice: string | null
     address: string | null
+    city: string | null
+    district: string | null
   } | null>(null)
   const [isCreatingSupplier, setIsCreatingSupplier] = useState(false)
   // useRef: state'ten farklı olarak senkron güncellenir, effect re-run'larda race olmaz.
@@ -266,7 +269,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           setIncomingSupplierCandidate({
             name: senderName,
             taxNumber: senderVkn,
+            taxOffice: data.model?.sender?.taxOffice || null,
             address: data.model?.sender?.address || null,
+            city: data.model?.sender?.city || null,
+            district: data.model?.sender?.district || null,
           })
         }
 
@@ -386,7 +392,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           companyId,
           name: incomingSupplierCandidate.name || "(Mysoft Gönderici)",
           taxNumber: incomingSupplierCandidate.taxNumber,
+          taxOffice: incomingSupplierCandidate.taxOffice,
           address: incomingSupplierCandidate.address,
+          city: incomingSupplierCandidate.city,
+          district: incomingSupplierCandidate.district,
         }),
       })
       const data = await res.json()

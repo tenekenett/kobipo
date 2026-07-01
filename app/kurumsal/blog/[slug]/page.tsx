@@ -2,19 +2,19 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { CorporatePageShell } from "@/components/site/corporate-page-shell"
-import { blogPosts, getBlogPostBySlug } from "@/lib/content/blog"
+import { getBlogPostBySlug } from "@/lib/content/blog"
+import { Markdown } from "@/components/blog/markdown"
+
+// Yeni yazılar/güncellemeler için ISR — slug'lar on-demand oluşturulup önbelleğe alınır.
+export const revalidate = 60
 
 type Props = {
   params: Promise<{ slug: string }>
 }
 
-export async function generateStaticParams() {
-  return blogPosts.map((post) => ({ slug: post.slug }))
-}
-
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
-  const post = getBlogPostBySlug(slug)
+  const post = await getBlogPostBySlug(slug)
   if (!post) {
     return { title: "Yazi bulunamadi | Kobipo" }
   }
@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function BlogDetailPage({ params }: Props) {
   const { slug } = await params
-  const post = getBlogPostBySlug(slug)
+  const post = await getBlogPostBySlug(slug)
   if (!post) notFound()
 
   return (
@@ -54,11 +54,16 @@ export default async function BlogDetailPage({ params }: Props) {
           <span>{post.author}</span>
         </div>
 
-        <div className="space-y-4 text-sm leading-relaxed text-kobipo-text sm:text-base">
-          {post.content.map((paragraph, index) => (
-            <p key={`${post.slug}-${index}`}>{paragraph}</p>
-          ))}
-        </div>
+        {post.coverImageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={post.coverImageUrl}
+            alt={post.title}
+            className="mb-6 aspect-video w-full rounded-xl object-cover"
+          />
+        )}
+
+        <Markdown content={post.body} />
 
         <div className="mt-8 border-t border-kobipo-border pt-5">
           <Link href="/kurumsal/blog" className="text-sm font-semibold text-kobipo-blue hover:text-kobipo-mid">

@@ -6,7 +6,9 @@
       "WebFetch(domain:edocumentapi.mysoft.com.tr)",
       "mcp__ide__getDiagnostics",
       "Bash(node -e \"const l=require\\('lucide-react'\\); console.log\\('DatabaseBackup:', typeof l.DatabaseBackup\\)\")",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(npm -v)",
+      "Bash(grep -rn \"/stok/\\\\${\\\\|/stok/\\\\`\\\\|href.*stok/\\\\|router.push.*stok\\\\|/stok/[^p]\" \"app/\\(dashboard\\)/stok/page.tsx\" components)"
     ]
   }
 }

@@ -18,6 +18,7 @@ import {
   Coins,
   LifeBuoy,
   DatabaseBackup,
+  Newspaper,
 } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -52,6 +53,11 @@ const navItems = [
     title: "Kullanıcılar",
     href: "/system-admin/users",
     icon: Users,
+  },
+  {
+    title: "Blog Editörleri",
+    href: "/system-admin/blog-editors",
+    icon: Newspaper,
   },
   {
     title: "Kontör",

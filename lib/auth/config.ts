@@ -55,6 +55,7 @@ export const authOptions: NextAuthOptions = {
               email: true,
               name: true,
               isSuperAdmin: true,
+              isBlogEditor: true,
               password: true,
             },
           })
@@ -77,6 +78,7 @@ export const authOptions: NextAuthOptions = {
             email: user.email,
             name: user.name,
             isSuperAdmin: user.isSuperAdmin,
+            isBlogEditor: user.isBlogEditor,
           }
         } catch (error) {
           console.error("Auth error:", error)
@@ -97,6 +99,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id
         token.isSuperAdmin = (user as { isSuperAdmin?: boolean }).isSuperAdmin || false
+        token.isBlogEditor = (user as { isBlogEditor?: boolean }).isBlogEditor || false
 
         try {
           const userCompany = await prisma.userCompany.findFirst({
@@ -118,6 +121,7 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = token.id as string
         session.user.isSuperAdmin = token.isSuperAdmin as boolean
+        session.user.isBlogEditor = token.isBlogEditor as boolean
         session.user.defaultCompanyId = (token.defaultCompanyId ?? null) as string | null
         session.user.defaultRole = (token.defaultRole ?? null) as typeof token.defaultRole
       }
