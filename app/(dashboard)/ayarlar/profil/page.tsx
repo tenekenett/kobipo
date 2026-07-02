@@ -128,8 +128,15 @@ export default function ProfilPage() {
     </Card>
     <Card>
       <CardHeader>
-        <CardTitle>Profil ve Güvenlik</CardTitle>
-        <CardDescription>Ad, iletişim ve güvenlik bilgilerinizi güncelleyin</CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle>Profil ve Güvenlik</CardTitle>
+            <CardDescription>Ad, iletişim ve güvenlik bilgilerinizi güncelleyin</CardDescription>
+          </div>
+          <Button onClick={save} variant="success" disabled={isSaving}>
+            {isSaving ? "Kaydediliyor..." : "Kaydet"}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
@@ -159,7 +166,7 @@ export default function ProfilPage() {
           </div>
           <Switch checked={form.twoFactorEnabled} onCheckedChange={(checked) => setForm({ ...form, twoFactorEnabled: checked })} />
         </div>
-        <Button onClick={save} disabled={isSaving}>{isSaving ? "Kaydediliyor..." : "Kaydet"}</Button>
+        <Button onClick={save} variant="success" disabled={isSaving}>{isSaving ? "Kaydediliyor..." : "Kaydet"}</Button>
       </CardContent>
     </Card>
     </div>

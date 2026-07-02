@@ -552,6 +552,12 @@ export default function TeklifDetailPage() {
         <CardContent>
           {editable ? (
             <div className="space-y-3">
+              <div className="flex justify-end">
+                <Button onClick={save} variant="success" disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Kaydet
+                </Button>
+              </div>
               {lines.map((row, index) => (
                 <div key={index} className="grid gap-2 border-b pb-3 last:border-0 sm:grid-cols-12">
                   <div className="sm:col-span-7">
@@ -604,7 +610,7 @@ export default function TeklifDetailPage() {
                   </div>
                 </div>
               ))}
-              <Button onClick={save} disabled={saving}>
+              <Button onClick={save} variant="success" disabled={saving}>
                 {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Kaydet
               </Button>

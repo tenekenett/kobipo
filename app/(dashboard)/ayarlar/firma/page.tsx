@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
-import { Save } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Loader2, Mailbox, RefreshCw, Save } from "lucide-react"
 import Link from "next/link"
 import { getFirstAccessibleCompanyId } from "@/lib/company/client-selection"
 
@@ -30,6 +30,7 @@ interface Company {
   monthlyInvoiceVolume?: string | null
   primaryBusinessNeed?: string | null
   usesEDonusumBefore?: boolean | null
+  eDonusumAlias?: string | null
 }
 
 export default function FirmaAyarlariPage() {
@@ -48,7 +49,6 @@ export default function FirmaAyarlariPage() {
     address: "",
     city: "",
     phone: "",
-    email: "",
     website: "",
     invoiceSeriesPrefix: "",
     sector: "",
@@ -57,7 +57,15 @@ export default function FirmaAyarlariPage() {
     monthlyInvoiceVolume: "",
     primaryBusinessNeed: "",
     usesEDonusumBefore: "",
+    eDonusumAlias: "",
   })
+
+  // Firmanın kendi VKN'sine kayıtlı GİB fatura posta kutusu adresleri (aliases).
+  // Cari eklerken kullanılan aynı check-vkn altyapısından beslenir.
+  const [postaKutulari, setPostaKutulari] = useState<string[]>([])
+  const [isFetchingPk, setIsFetchingPk] = useState(false)
+  const [pkFetched, setPkFetched] = useState(false)
+  const [pkError, setPkError] = useState<string | null>(null)
 
   useEffect(() => {
     if (companyId) {
@@ -119,7 +127,6 @@ export default function FirmaAyarlariPage() {
           address: data.address || "",
           city: data.city || "",
           phone: data.phone || "",
-          email: data.email || "",
           website: data.website || "",
           invoiceSeriesPrefix: data.invoiceSeriesPrefix || "",
           sector: data.sector || "",
@@ -131,7 +138,17 @@ export default function FirmaAyarlariPage() {
             typeof data.usesEDonusumBefore === "boolean"
               ? String(data.usesEDonusumBefore)
               : "",
+          eDonusumAlias: data.eDonusumAlias || "",
         })
+        // VKN geçerliyse firmanın kendi posta kutularını Mysoft'tan otomatik getir.
+        const vkn = (data.taxNumber || "").replace(/\D/g, "")
+        if (/^\d{10,11}$/.test(vkn)) {
+          fetchPostaKutulari(vkn)
+        } else {
+          setPostaKutulari([])
+          setPkFetched(false)
+          setPkError(null)
+        }
       } else if (response.status === 403 || response.status === 404) {
         // Stale or unauthorized company id in URL/localStorage; recover to first valid company.
         const companiesResponse = await fetch("/api/companies")
@@ -160,6 +177,44 @@ export default function FirmaAyarlariPage() {
     }
   }
 
+  // Firmanın kendi VKN'sine kayıtlı GİB fatura posta kutusu (alias) adreslerini
+  // check-vkn ucundan çeker — cari eklerkenki VKN sorgusuyla aynı altyapı.
+  const fetchPostaKutulari = async (vkn: string) => {
+    if (!companyId || !/^\d{10,11}$/.test(vkn)) return
+    setIsFetchingPk(true)
+    setPkError(null)
+    try {
+      const res = await fetch(`/api/e-donusum/check-vkn?companyId=${companyId}&vkn=${vkn}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Posta kutusu adresleri getirilemedi")
+      setPostaKutulari(Array.isArray(data.aliases) ? data.aliases : [])
+      setPkFetched(true)
+    } catch (error) {
+      setPostaKutulari([])
+      setPkFetched(true)
+      setPkError(error instanceof Error ? error.message : "Posta kutusu adresleri getirilemedi")
+    } finally {
+      setIsFetchingPk(false)
+    }
+  }
+
+  // GİB alias'ları urn:mail: önekiyle beklenir; çıplak adresi öneke tamamlarız.
+  const aliasFromAdres = (adres: string) =>
+    /^urn:/i.test(adres.trim()) ? adres.trim() : `urn:mail:${adres.trim()}`
+
+  // Seçilen posta kutusunu forma yazar; kalıcı olması için Kaydet gerekir.
+  const selectPostaKutusu = (adres: string) => {
+    setFormData((prev) => ({ ...prev, eDonusumAlias: aliasFromAdres(adres) }))
+  }
+
+  // Kullanıcı "ornek.com" yazarsa başına https:// ekleriz — böylece geçerli bir URL
+  // olur ve kaydederken şema zorunluluğu takılmaz. Boşsa boş bırakılır.
+  const normalizeWebsite = (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return ""
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!companyId) return
@@ -171,6 +226,7 @@ export default function FirmaAyarlariPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
+          website: normalizeWebsite(formData.website),
           usesEDonusumBefore:
             formData.usesEDonusumBefore === ""
               ? null
@@ -234,6 +290,14 @@ export default function FirmaAyarlariPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
+            {isEditing && (
+              <div className="flex justify-end">
+                <Button type="submit" variant="success" disabled={isLoading}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {isLoading ? "Kaydediliyor..." : "Kaydet"}
+                </Button>
+              </div>
+            )}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="name">Firma Adı *</Label>
@@ -283,22 +347,15 @@ export default function FirmaAyarlariPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  disabled={isLoading || !isEditing}
-                />
-              </div>
-              <div className="space-y-2">
                 <Label htmlFor="website">Web Sitesi</Label>
                 <Input
                   id="website"
-                  type="url"
+                  type="text"
+                  inputMode="url"
+                  placeholder="ornek.com"
                   value={formData.website}
                   onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                  onBlur={(e) => setFormData({ ...formData, website: normalizeWebsite(e.target.value) })}
                   disabled={isLoading || !isEditing}
                 />
               </div>
@@ -316,6 +373,90 @@ export default function FirmaAyarlariPage() {
                   E-Fatura / E-Arşiv için Mysoft'a gönderilen prefix bundan farklıdır — aşağıdaki kartı kullanın.
                 </p>
               </div>
+            </div>
+            <div className="rounded-md border p-3 space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-2">
+                  <Mailbox className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Fatura Posta Kutusu Adresleri</p>
+                    <p className="text-xs text-muted-foreground">
+                      Firmanızın VKN'sine kayıtlı GİB e-Fatura posta kutuları — Mysoft üzerinden getirilir.
+                      Firma e-posta adresi yerine bu kutular kullanılır. Varsayılan kutuyu seçmek için{" "}
+                      <span className="font-medium text-foreground">Düzenleme Yap</span>'a basıp{" "}
+                      <span className="font-medium text-foreground">Seç</span>in ve kaydedin.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fetchPostaKutulari(formData.taxNumber.replace(/\D/g, ""))}
+                  disabled={isFetchingPk || !/^\d{10,11}$/.test(formData.taxNumber.replace(/\D/g, ""))}
+                >
+                  {isFetchingPk ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  <span className="ml-2">Yenile</span>
+                </Button>
+              </div>
+              {isFetchingPk ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Posta kutuları getiriliyor…
+                </div>
+              ) : pkError ? (
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>{pkError}</p>
+                </div>
+              ) : postaKutulari.length > 0 ? (
+                <ul className="space-y-2">
+                  {postaKutulari.map((adres) => {
+                    const selected =
+                      !!formData.eDonusumAlias.trim() &&
+                      aliasFromAdres(formData.eDonusumAlias) === aliasFromAdres(adres)
+                    return (
+                      <li
+                        key={adres}
+                        className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm"
+                      >
+                        <Mailbox className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 break-all font-mono">{adres}</span>
+                        {selected ? (
+                          <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Seçili
+                          </span>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => selectPostaKutusu(adres)}
+                            disabled={isLoading || !isEditing}
+                          >
+                            Seç
+                          </Button>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : pkFetched ? (
+                <p className="text-xs text-muted-foreground">
+                  Bu VKN için GİB'de kayıtlı bir posta kutusu bulunamadı. Firma e-Fatura mükellefi
+                  değilse bu normaldir.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Geçerli bir Vergi No kayıtlıysa posta kutusu adresleri otomatik listelenir.
+                </p>
+              )}
             </div>
             <div className="rounded-md border p-3 space-y-3">
               <div>
@@ -474,7 +615,7 @@ export default function FirmaAyarlariPage() {
                   Vazgeç
                 </Button>
               )}
-              <Button type="submit" disabled={isLoading || !isEditing}>
+              <Button type="submit" variant="success" disabled={isLoading || !isEditing}>
                 <Save className="mr-2 h-4 w-4" />
                 {isLoading ? "Kaydediliyor..." : "Kaydet"}
               </Button>

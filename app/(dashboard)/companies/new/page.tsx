@@ -36,7 +36,6 @@ export default function NewCompanyPage() {
     address: "",
     city: "",
     phone: "",
-    email: "",
   })
   const [isLoading, setIsLoading] = useState(false)
 
@@ -72,6 +71,20 @@ export default function NewCompanyPage() {
       return
     }
 
+    // İlk firma kaydında VKN/TCKN zorunlu — e-Dönüşüm ve GİB posta kutusu sorguları
+    // bu numaraya dayanır. Şubede VKN ana firmadan devralındığı için kontrol yapılmaz.
+    if (!isBranch) {
+      const vkn = formData.taxNumber.replace(/\D/g, "")
+      if (vkn.length !== 10 && vkn.length !== 11) {
+        toast({
+          title: "Vergi No zorunlu",
+          description: "Firma oluşturmak için 10 haneli VKN veya 11 haneli TCKN girin.",
+          variant: "destructive",
+        })
+        return
+      }
+    }
+
     setIsLoading(true)
 
     try {
@@ -83,7 +96,6 @@ export default function NewCompanyPage() {
             address: formData.address,
             city: formData.city,
             phone: formData.phone,
-            email: formData.email,
             parentCompanyId,
           }
         : formData
@@ -152,6 +164,17 @@ export default function NewCompanyPage() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
+            <div className="flex justify-end">
+              <Button type="submit" variant="success" disabled={isLoading}>
+                {isBranch
+                  ? isLoading
+                    ? "Ekleniyor..."
+                    : "Şube Ekle"
+                  : isLoading
+                    ? "Oluşturuluyor..."
+                    : "Firma Oluştur"}
+              </Button>
+            </div>
             {isBranch && (
               <div className="flex items-start gap-2 rounded-md border border-kobipo-blue/30 bg-kobipo-blue/5 p-3 text-xs text-kobipo-navy dark:border-primary/30 dark:bg-primary/10 dark:text-foreground">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-kobipo-blue dark:text-primary" />
@@ -177,14 +200,23 @@ export default function NewCompanyPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="taxNumber">Vergi No{isBranch && " (ana firmadan)"}</Label>
+                <Label htmlFor="taxNumber">
+                  {isBranch ? "Vergi No (ana firmadan)" : "Vergi No *"}
+                </Label>
                 <Input
                   id="taxNumber"
                   value={formData.taxNumber}
                   onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
+                  placeholder={isBranch ? undefined : "10 haneli VKN veya 11 haneli TCKN"}
+                  required={!isBranch}
                   disabled={isLoading || isBranch}
                   readOnly={isBranch}
                 />
+                {!isBranch && (
+                  <p className="text-xs text-muted-foreground">
+                    E-Dönüşüm ve GİB posta kutusu bilgileri bu numaraya göre getirilir.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="taxOffice">Vergi Dairesi{isBranch && " (ana firmadan)"}</Label>
@@ -216,16 +248,6 @@ export default function NewCompanyPage() {
                   disabled={isLoading}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  disabled={isLoading}
-                />
-              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="address">Adres</Label>
@@ -238,7 +260,7 @@ export default function NewCompanyPage() {
             </div>
           </CardContent>
           <CardFooter>
-            <Button type="submit" className="w-full" disabled={isLoading}>
+            <Button type="submit" variant="success" className="w-full" disabled={isLoading}>
               {isBranch
                 ? isLoading
                   ? "Ekleniyor..."

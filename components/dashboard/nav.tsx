@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/ui/Logo"
 import { KobipoLogoMark } from "@/components/ui/kobipo-logo-mark"
 import { cn } from "@/lib/utils"
-import { LogOut, Menu, X, ChevronDown, Loader2 } from "lucide-react"
+import { LogOut, Menu, X, ChevronDown, Loader2, PanelLeftClose } from "lucide-react"
 import { allNavItems, navGroups, navItemActive, standaloneNavHrefs, type NavItemDef } from "@/components/dashboard/nav-config"
 import { MODULE_GROUP_TO_KEY } from "@/lib/modules"
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { useSidebar } from "@/components/dashboard/sidebar-provider"
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
 export function DashboardNav() {
   const pathname = usePathname()
@@ -19,6 +20,7 @@ export function DashboardNav() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [pendingHref, setPendingHref] = useState<string | null>(null)
   const { userRole, selectedCompany } = useDashboardCompany()
+  const { collapsed, setCollapsed } = useSidebar()
   /** Grup başlığı -> kapalıysa true (varsayılan: tüm gruplar kapalı) */
   const [navGroupClosed, setNavGroupClosed] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(navGroups.map((g) => [g.title, true]))
@@ -118,11 +120,25 @@ export function DashboardNav() {
 
   return (
     <>
-      <div className="fixed left-0 top-0 z-40 hidden h-dvh max-h-dvh w-56 flex-col overflow-hidden border-r border-white/10 bg-kobipo-navy dark:border-border dark:bg-card lg:flex">
-        <div className="flex h-14 shrink-0 items-center border-b border-white/10 px-4">
+      <div
+        className={cn(
+          "fixed left-0 top-0 z-40 hidden h-dvh max-h-dvh w-56 flex-col overflow-hidden border-r border-white/10 bg-kobipo-navy dark:border-border dark:bg-card",
+          collapsed ? "lg:hidden" : "lg:flex"
+        )}
+      >
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-4">
           <Link href={roleToDashboardPath(userRole)} className="inline-flex shrink-0 items-center">
             <KobipoLogoMark className="h-12 w-auto" />
           </Link>
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            className="rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+            aria-label="Menüyü daralt"
+            title="Menüyü daralt"
+          >
+            <PanelLeftClose className="h-5 w-5" />
+          </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-3 [-webkit-overflow-scrolling:touch]">
           <div className="space-y-1">

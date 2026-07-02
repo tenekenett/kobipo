@@ -2,6 +2,8 @@ import { redirect } from "next/navigation"
 import { getUserContext } from "@/lib/auth/user-context"
 import { DashboardNav } from "@/components/dashboard/nav"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
+import { SidebarProvider } from "@/components/dashboard/sidebar-provider"
+import { MainArea } from "@/components/dashboard/main-area"
 import { CompanySelector } from "@/components/dashboard/company-selector"
 import { BranchContextBanner } from "@/components/dashboard/branch-context-banner"
 import { DashboardCompanyProvider } from "@/components/dashboard/dashboard-company-provider"
@@ -67,10 +69,10 @@ export default async function DashboardLayout({
 
   return (
     <DashboardCompanyProvider initialCompanies={initialCompanies} initialRole={initialRole}>
-      <div className="min-h-screen bg-kobipo-offwhite dark:bg-background">
-        <DashboardNav />
-        <div className="min-w-0 pt-14 lg:pl-56 lg:pt-0">
-          <div className="min-h-screen flex-1 bg-kobipo-offwhite dark:bg-background">
+      <SidebarProvider>
+        <div className="min-h-screen bg-kobipo-offwhite dark:bg-background">
+          <DashboardNav />
+          <MainArea>
             <DashboardHeader />
             <div className="w-full min-w-0 overflow-x-clip p-4 sm:p-6">
               <BranchContextBanner />
@@ -79,9 +81,9 @@ export default async function DashboardLayout({
                 <ModuleGuard>{children}</ModuleGuard>
               </div>
             </div>
-          </div>
+          </MainArea>
         </div>
-      </div>
+      </SidebarProvider>
     </DashboardCompanyProvider>
   )
 }

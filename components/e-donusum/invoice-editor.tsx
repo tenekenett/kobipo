@@ -170,6 +170,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const [globalDiscountMode, setGlobalDiscountMode] = useState<DiscountMode>("PERCENT")
   const [globalDiscountInput, setGlobalDiscountInput] = useState<string>("")
 
+  // "Tutar" (KDV dahil) kolonu düzenlenirken kullanıcının yazdığı ham metni tutarız;
+  // odak kaybında yeniden hesaplanan tutara döneriz.
+  const [editingTotalIndex, setEditingTotalIndex] = useState<number | null>(null)
+  const [editingTotalValue, setEditingTotalValue] = useState<string>("")
+
   const listHref = backHref || `/e-donusum?company=${encodeURIComponent(companyId)}`
   const goBack = () => router.push(listHref)
 
@@ -928,6 +933,52 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     return itemGross * (rate / 100)
   }
 
+  // Bir satırın KDV DAHİL toplamı (iskonto, ÖTV, tevkifat dahil). Hem "Tutar"
+  // kolonunu göstermek hem de tersine birim fiyat hesaplamak için kullanılır.
+  const computeItemTotal = (item: InvoiceItem) => {
+    const gross = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)
+    const net = gross - computeItemDiscount(item, gross)
+    const vat = net * (Number(item.vatRate) || 0) / 100
+    const excise = net * (Number(item.exciseRate) || 0) / 100
+    const withholding = vat * (Number(item.withholdingRate) || 0) / 100
+    return net + vat + excise - withholding
+  }
+
+  // Kullanıcı "Tutar" (KDV dahil) alanına doğrudan değer yazınca, o toplamı miktara
+  // ve KDV/ÖTV/tevkifat/iskontoya göre geriye çözüp birim fiyatı otomatik günceller.
+  const setLineTotal = (index: number, rawValue: string) => {
+    const item = items[index]
+    if (!item) return
+    const quantity = Number(item.quantity) || 0
+    const desiredTotal = parseFloat(String(rawValue).replace(",", "."))
+    if (quantity <= 0 || !Number.isFinite(desiredTotal) || desiredTotal < 0) return
+
+    const vatRate = Number(item.vatRate) || 0
+    const exciseRate = Number(item.exciseRate) || 0
+    const withholdingRate = Number(item.withholdingRate) || 0
+    // total = net * (1 + kdv + ötv - kdv*tevkifat)
+    const factor = 1 + vatRate / 100 + exciseRate / 100 - (vatRate / 100) * (withholdingRate / 100)
+    if (factor <= 0) return
+    const net = desiredTotal / factor
+
+    // net = gross - iskonto  → gross'u (dolayısıyla birim fiyatı) geri çöz.
+    const mode: DiscountMode =
+      item.discountMode ?? (Number(item.discountAmount || 0) > 0 ? "AMOUNT" : "PERCENT")
+    let gross: number
+    if (mode === "AMOUNT") {
+      gross = net + Number(item.discountAmount || 0)
+    } else {
+      const keep = 1 - Number(item.discountRate || 0) / 100
+      if (keep <= 0) return
+      gross = net / keep
+    }
+
+    const unitPrice = gross / quantity
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) return
+    // UBL standardı: birim fiyat 6 ondalığa kadar.
+    updateItem(index, "unitPrice", Math.round(unitPrice * 1e6) / 1e6)
+  }
+
   const calculateTotals = () => {
     let netAmount = 0, discountAmount = 0, vatAmount = 0, withholdingAmount = 0, exciseAmount = 0
     items.forEach((item) => {
@@ -1081,6 +1132,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     <>
       <Card className="w-full min-w-0">
         <CardContent className="space-y-8 pt-6">
+
+          <div className="flex justify-end">
+            <Button onClick={handleSubmit} disabled={isLoading} variant="success">
+              {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Oluşturuluyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Faturayı Kaydet"}
+            </Button>
+          </div>
 
           {/* GELEN E-FATURADAN DÖNÜŞTÜRME BANNER'I */}
           {fromIncomingUuid && (
@@ -1332,23 +1389,40 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                           </div>
                         )}
 
-                        {/* 6. TUTAR */}
+                        {/* 6. TUTAR (KDV dahil — düzenlenebilir; birim fiyatı geriye hesaplar) */}
                         <div className="col-span-8 md:col-span-2">
-                          <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Toplam Tutar</Label>
-                          <div 
-                            className="flex h-10 items-center justify-end px-3 md:px-0 bg-slate-100/70 md:bg-transparent rounded-md md:rounded-none font-bold tabular-nums text-right text-[15px] md:text-sm"
-                            style={{ color: BRAND_COLOR }}
-                          >
-                            ₺{(() => {
-                              const gross = item.quantity * item.unitPrice
-                              const net = gross - computeItemDiscount(item, gross)
-                              const vat = net * (item.vatRate / 100)
-                              const excise = net * ((item.exciseRate || 0) / 100)
-                              // Tevkifat KDV üzerinden düşülür.
-                              const withholding = vat * ((item.withholdingRate || 0) / 100)
-                              const total = net + vat + excise - withholding
-                              return total.toLocaleString("tr-TR", { minimumFractionDigits: 2 })
-                            })()}
+                          <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Toplam Tutar (KDV dahil)</Label>
+                          <div className="relative">
+                            <span
+                              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm font-bold"
+                              style={{ color: BRAND_COLOR }}
+                            >
+                              ₺
+                            </span>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              inputMode="decimal"
+                              className="h-10 pl-6 text-right font-bold tabular-nums text-[15px] md:text-sm"
+                              style={{ color: BRAND_COLOR }}
+                              value={
+                                editingTotalIndex === index
+                                  ? editingTotalValue
+                                  : String(Math.round(computeItemTotal(item) * 100) / 100)
+                              }
+                              onFocus={(e) => {
+                                setEditingTotalIndex(index)
+                                setEditingTotalValue(String(Math.round(computeItemTotal(item) * 100) / 100))
+                                ;(e.target as HTMLInputElement).select()
+                              }}
+                              onChange={(e) => {
+                                setEditingTotalValue(e.target.value)
+                                setLineTotal(index, e.target.value)
+                              }}
+                              onBlur={() => setEditingTotalIndex(null)}
+                              title="KDV dahil tutarı yazın; birim fiyat miktara göre otomatik hesaplanır"
+                            />
                           </div>
                         </div>
 
@@ -1622,7 +1696,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
           <div className="flex flex-wrap justify-end gap-3 border-t pt-6">
             <Button variant="outline" onClick={() => { resetForm(); goBack() }}>İptal</Button>
-            <Button onClick={handleSubmit} disabled={isLoading} style={{ backgroundColor: BRAND_COLOR, color: "white" }} className="hover:opacity-90">
+            <Button onClick={handleSubmit} disabled={isLoading} variant="success">
               {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Oluşturuluyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Faturayı Kaydet"}
             </Button>
           </div>

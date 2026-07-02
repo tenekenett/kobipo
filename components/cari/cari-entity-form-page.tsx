@@ -446,7 +446,7 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
             </Button>
           </Link>
         </div>
-        <Button type="submit" form="cari-entity-form" disabled={isLoading}>
+        <Button type="submit" form="cari-entity-form" variant="success" disabled={isLoading}>
           <Save className="mr-2 h-4 w-4" />
           {isLoading ? "Kaydediliyor..." : "Kaydet"}
         </Button>
@@ -916,6 +916,12 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                 </TabsContent>
               )}
             </Tabs>
+            <div className="flex justify-end border-t pt-4">
+              <Button type="submit" variant="success" disabled={isLoading}>
+                <Save className="mr-2 h-4 w-4" />
+                {isLoading ? "Kaydediliyor..." : "Kaydet"}
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>

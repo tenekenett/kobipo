@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Loader2, Save, Upload, Eye, EyeOff, ImagePlus, X } from "lucide-react"
+import { Loader2, Save, Upload, Eye, EyeOff, ImagePlus, X, Globe, CheckCircle2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { Markdown } from "@/components/blog/markdown"
 import { slugify } from "@/lib/blog/slug"
@@ -57,6 +58,7 @@ export function BlogPostEditor({ postId }: { postId?: string }) {
   const [uploadingBodyImage, setUploadingBodyImage] = useState(false)
   const [slugTouched, setSlugTouched] = useState(isEdit)
   const [showPreview, setShowPreview] = useState(false)
+  const [showPublishConfirm, setShowPublishConfirm] = useState(false)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -140,11 +142,13 @@ export function BlogPostEditor({ postId }: { postId?: string }) {
     setUploadingBodyImage(false)
   }
 
-  const save = async () => {
+  // statusOverride verilirse yayınla/yayından kaldır; yoksa mevcut durumu koruyarak kaydet.
+  const save = async (statusOverride?: FormState["status"]): Promise<boolean> => {
     if (!form.title.trim()) {
       toast({ title: "Başlık gerekli", variant: "destructive" })
-      return
+      return false
     }
+    const status = statusOverride ?? form.status
     setSaving(true)
     try {
       const payload = {
@@ -156,7 +160,7 @@ export function BlogPostEditor({ postId }: { postId?: string }) {
         coverImageUrl: form.coverImageUrl || null,
         readTime: form.readTime || null,
         author: form.author,
-        status: form.status,
+        status,
         body: form.body,
       }
       const res = await fetch(isEdit ? `/api/blog/${postId}` : "/api/blog", {
@@ -166,18 +170,34 @@ export function BlogPostEditor({ postId }: { postId?: string }) {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || "Kaydedilemedi")
-      toast({ title: isEdit ? "Güncellendi" : "Oluşturuldu", description: data.title })
+
+      const title =
+        statusOverride === "PUBLISHED"
+          ? "Yayına alındı"
+          : statusOverride === "DRAFT"
+            ? "Yayından kaldırıldı"
+            : isEdit
+              ? "Değişiklikler kaydedildi"
+              : "Taslak oluşturuldu"
+      toast({ title, description: data.title })
+
       if (!isEdit) {
         router.push(`/blog-admin/${data.id}`)
       } else {
-        setForm((prev) => ({ ...prev, slug: data.slug }))
+        setForm((prev) => ({
+          ...prev,
+          slug: data.slug,
+          status: data.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
+        }))
       }
+      return true
     } catch (e: unknown) {
       toast({
         title: "Kaydedilemedi",
         description: e instanceof Error ? e.message : "Bilinmeyen hata",
         variant: "destructive",
       })
+      return false
     } finally {
       setSaving(false)
     }
@@ -194,20 +214,44 @@ export function BlogPostEditor({ postId }: { postId?: string }) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">
-            {isEdit ? "Yazıyı düzenle" : "Yeni yazı"}
-          </h1>
-          <p className="text-sm text-muted-foreground">Başlık, içerik ve kapak görselini ayarla.</p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">
+              {isEdit ? "Yazıyı düzenle" : "Yeni yazı"}
+            </h1>
+            <p className="text-sm text-muted-foreground">Başlık, içerik ve kapak görselini ayarla.</p>
+          </div>
+          {form.status === "PUBLISHED" ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Yayında
+            </span>
+          ) : (
+            <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+              Taslak
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => router.push("/blog-admin")}>
             Vazgeç
           </Button>
-          <Button onClick={save} disabled={saving}>
+          <Button variant="success" onClick={() => save()} disabled={saving}>
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
             Kaydet
           </Button>
+          {form.status === "PUBLISHED" ? (
+            <Button variant="outline" onClick={() => save("DRAFT")} disabled={saving}>
+              <EyeOff className="mr-2 h-4 w-4" /> Yayından kaldır
+            </Button>
+          ) : (
+            <Button
+              className="bg-emerald-600 text-white hover:bg-emerald-700"
+              onClick={() => setShowPublishConfirm(true)}
+              disabled={saving}
+            >
+              <Globe className="mr-2 h-4 w-4" /> Yayına Al
+            </Button>
+          )}
         </div>
       </div>
 
@@ -320,22 +364,6 @@ export function BlogPostEditor({ postId }: { postId?: string }) {
           <Card>
             <CardContent className="space-y-4 pt-6">
               <div className="space-y-2">
-                <Label>Durum</Label>
-                <Select
-                  value={form.status}
-                  onValueChange={(v) => set("status", v as FormState["status"])}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="DRAFT">Taslak</SelectItem>
-                    <SelectItem value="PUBLISHED">Yayında</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="category">Kategori</Label>
                 <Input
                   id="category"
@@ -425,6 +453,31 @@ export function BlogPostEditor({ postId }: { postId?: string }) {
           </Card>
         </div>
       </div>
+
+      <div className="flex justify-end">
+        <Button variant="success" onClick={() => save()} disabled={saving}>
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+          Kaydet
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        open={showPublishConfirm}
+        onOpenChange={(o) => !saving && setShowPublishConfirm(o)}
+        title="Yazıyı yayına al"
+        description={
+          isEdit
+            ? "Bu yazı herkese açık blog sayfasında yayınlanacak. Emin misin?"
+            : "Yazı kaydedilip herkese açık blog sayfasında yayınlanacak. Emin misin?"
+        }
+        confirmLabel="Yayına Al"
+        icon={<Globe className="h-5 w-5 text-emerald-600" />}
+        isProcessing={saving}
+        onConfirm={async () => {
+          const ok = await save("PUBLISHED")
+          if (ok) setShowPublishConfirm(false)
+        }}
+      />
     </div>
   )
 }

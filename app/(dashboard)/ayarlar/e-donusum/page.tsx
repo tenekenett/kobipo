@@ -208,11 +208,17 @@ export default function EDonusumAyarlariPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold text-kobipo-navy dark:text-foreground">E-Dönüşüm Ayarları</h1>
-        <p className="text-sm text-muted-foreground">
-          E-Fatura ve e-Arşiv entegrasyon bilgilerini yönetin
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-kobipo-navy dark:text-foreground">E-Dönüşüm Ayarları</h1>
+          <p className="text-sm text-muted-foreground">
+            E-Fatura ve e-Arşiv entegrasyon bilgilerini yönetin
+          </p>
+        </div>
+        <Button onClick={save} variant="success" disabled={isLoading || isTesting}>
+          <Save className="mr-2 h-4 w-4" />
+          {isLoading ? "Kaydediliyor…" : "Kaydet"}
+        </Button>
       </div>
 
       {/* Provider banner */}
@@ -477,7 +483,7 @@ export default function EDonusumAyarlariPage() {
             "Test Bağlantısı"
           )}
         </Button>
-        <Button onClick={save} disabled={isLoading || isTesting}>
+        <Button onClick={save} variant="success" disabled={isLoading || isTesting}>
           <Save className="mr-2 h-4 w-4" />
           {isLoading ? "Kaydediliyor…" : "Kaydet"}
         </Button>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Table,
   TableBody,
@@ -33,7 +33,21 @@ import { QuantityStepper } from "@/components/ui/quantity-stepper"
 import { ProductCombobox, type ComboboxProduct } from "@/components/e-donusum/product-combobox"
 import { CounterpartyCombobox, type Counterparty } from "@/components/e-donusum/counterparty-combobox"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
-import { CheckCircle2, Loader2, Printer, Share2, Trash2, Zap, ShoppingCart } from "lucide-react"
+import { cn } from "@/lib/utils"
+import {
+  Banknote,
+  CheckCircle2,
+  CreditCard,
+  Landmark,
+  Loader2,
+  Package,
+  Plus,
+  Printer,
+  Share2,
+  ShoppingCart,
+  Trash2,
+  Zap,
+} from "lucide-react"
 
 type CartLine = {
   key: string
@@ -45,30 +59,55 @@ type CartLine = {
   vatRate: number
 }
 
-type FinancialAccount = {
-  id: string
-  name: string
-  type: string
-}
+type QuickProduct = ComboboxProduct & { category?: string | null }
+
+type FinancialAccount = { id: string; name: string; type: string }
 
 type PaymentMethod = "CASH" | "CREDIT_CARD" | "BANK_TRANSFER"
 
-const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: "CASH", label: "Nakit" },
-  { value: "CREDIT_CARD", label: "Kredi Kartı" },
-  { value: "BANK_TRANSFER", label: "Havale/EFT" },
+const PAYMENT_METHODS: { value: PaymentMethod; label: string; icon: typeof Banknote }[] = [
+  { value: "CASH", label: "Nakit", icon: Banknote },
+  { value: "CREDIT_CARD", label: "Kredi Kartı", icon: CreditCard },
+  { value: "BANK_TRANSFER", label: "Havale/EFT", icon: Landmark },
 ]
 
+// Aynı anda açık tutulabilen park edilmiş satış (müşteri) sayısı.
+const NUM_TICKETS = 5
+const ALL_CATEGORIES = "__ALL__"
+
+type Ticket = { cart: CartLine[]; customerId?: string; tendered: string }
+const emptyTicket = (): Ticket => ({ cart: [], customerId: undefined, tendered: "" })
+
 const currency = (n: number) =>
-  new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(n)
+  new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(n || 0)
 
 /** type="number" input'larda 0 değerini boş göster — baştaki "0" takılmasın. */
 const numInput = (n: number) => (n === 0 ? "" : String(n))
+
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+
+const uid = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random()}`
 
 function lineTotals(line: CartLine) {
   const net = line.quantity * line.unitPrice
   const vat = net * (line.vatRate / 100)
   return { net, vat, total: net + vat }
+}
+
+function cartTotals(cart: CartLine[]) {
+  return cart.reduce(
+    (acc, line) => {
+      const t = lineTotals(line)
+      acc.net += t.net
+      acc.vat += t.vat
+      acc.total += t.total
+      return acc
+    },
+    { net: 0, vat: 0, total: 0 }
+  )
 }
 
 export function QuickSaleScreen() {
@@ -77,27 +116,31 @@ export function QuickSaleScreen() {
   const isEDonusumEnabled = Boolean(selectedCompany?.isEDonusumEnabled)
   const { toast } = useToast()
 
-  const [products, setProducts] = useState<ComboboxProduct[]>([])
+  const [products, setProducts] = useState<QuickProduct[]>([])
   const [categoryOptions, setCategoryOptions] = useState<string[]>([])
   const [customers, setCustomers] = useState<Counterparty[]>([])
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
   const [warehouses, setWarehouses] = useState<{ id: string; name: string; isDefault?: boolean }[]>([])
   const [warehouseId, setWarehouseId] = useState<string>("")
-  // Ürün-bazlı depo stoğu — mevcut ürün seçilince deposunu otomatik belirlemek için.
   const [warehouseStocks, setWarehouseStocks] = useState<
     { warehouseId: string; productId: string; quantity: number }[]
   >([])
 
-  const [cart, setCart] = useState<CartLine[]>([])
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | undefined>(undefined)
+  // Park edilen satışlar (Müşteri 1..N). Her biri kendi sepeti + müşterisi + ödenen tutarı.
+  const [tickets, setTickets] = useState<Ticket[]>(() =>
+    Array.from({ length: NUM_TICKETS }, emptyTicket)
+  )
+  const [activeTicket, setActiveTicket] = useState(0)
+  const active = tickets[activeTicket]
 
-  const [isCredit, setIsCredit] = useState(false) // Veresiye
+  const [isCredit, setIsCredit] = useState(false) // Veresiye / Açık Hesap
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH")
   const [accountId, setAccountId] = useState<string>("")
   const [eArsiv, setEArsiv] = useState(false)
+  const [activeCat, setActiveCat] = useState<string>(ALL_CATEGORIES)
+  const [miscAmount, setMiscAmount] = useState("")
 
   const [isSubmitting, setIsSubmitting] = useState(false)
-  // Satış tamamlandıktan sonra yazdır/paylaş için tutulan fatura bilgisi.
   const [lastSale, setLastSale] = useState<
     { id: string; invoiceNo?: string | null; isEArsiv: boolean } | null
   >(null)
@@ -123,7 +166,6 @@ export function QuickSaleScreen() {
             (Array.isArray(data) ? data : []).map((d: any) => String(d.label)).filter(Boolean)
           )
         }
-
         if (!cancelled && stockRes.ok) {
           const data = await stockRes.json()
           setWarehouseStocks(
@@ -134,7 +176,6 @@ export function QuickSaleScreen() {
             }))
           )
         }
-
         if (!cancelled && whRes.ok) {
           const data = await whRes.json()
           const list = Array.isArray(data) ? data : []
@@ -142,7 +183,6 @@ export function QuickSaleScreen() {
           const def = list.find((w: any) => w.isDefault) ?? list[0]
           if (def) setWarehouseId((prev) => prev || def.id)
         }
-
         if (!cancelled && prodRes.ok) {
           const data = await prodRes.json()
           setProducts(
@@ -153,15 +193,14 @@ export function QuickSaleScreen() {
               salePrice: p.salePrice != null ? Number(p.salePrice) : null,
               vatRate: Number(p.vatRate) || 20,
               unit: p.unit,
+              category: p.category ?? null,
             }))
           )
         }
         if (!cancelled && custRes.ok) {
           const data = await custRes.json()
           const items = Array.isArray(data) ? data : data?.items ?? []
-          setCustomers(
-            items.map((c: any) => ({ id: c.id, name: c.name, taxNumber: c.taxNumber }))
-          )
+          setCustomers(items.map((c: any) => ({ id: c.id, name: c.name, taxNumber: c.taxNumber })))
         }
         if (!cancelled && accRes.ok) {
           const data = await accRes.json()
@@ -171,7 +210,6 @@ export function QuickSaleScreen() {
             type: a.type,
           }))
           setAccounts(list)
-          // Varsayılan olarak ilk kasa (CASH) hesabını seç, yoksa ilk hesabı.
           const firstCash = list.find((a) => a.type === "CASH") ?? list[0]
           if (firstCash) setAccountId((prev) => prev || firstCash.id)
         }
@@ -186,7 +224,6 @@ export function QuickSaleScreen() {
     }
   }, [companyId])
 
-  // Her ürün için en çok stoğun bulunduğu depo (otomatik depo seçimi).
   const bestWarehouseByProduct = useMemo(() => {
     const m = new Map<string, { warehouseId: string; qty: number }>()
     for (const s of warehouseStocks) {
@@ -196,74 +233,103 @@ export function QuickSaleScreen() {
     return m
   }, [warehouseStocks])
 
-  const addProductToCart = useCallback((product: ComboboxProduct) => {
-    // Mevcut ürün seçildiyse, stoğunun bulunduğu depoyu otomatik seç.
-    if (product.id) {
-      const best = bestWarehouseByProduct.get(product.id)
-      if (best) setWarehouseId(best.warehouseId)
-    }
-    setCart((prev) => {
-      // Aynı ürün zaten sepetteyse miktarı artır.
+  // Aktif park (ticket) üzerinde çalışan yardımcılar.
+  const patchTicket = useCallback(
+    (patch: Partial<Ticket>) => {
+      setTickets((prev) => prev.map((t, i) => (i === activeTicket ? { ...t, ...patch } : t)))
+    },
+    [activeTicket]
+  )
+  const patchCart = useCallback(
+    (updater: (cart: CartLine[]) => CartLine[]) => {
+      setTickets((prev) => prev.map((t, i) => (i === activeTicket ? { ...t, cart: updater(t.cart) } : t)))
+    },
+    [activeTicket]
+  )
+
+  const addProductToCart = useCallback(
+    (product: ComboboxProduct) => {
       if (product.id) {
-        const existingIdx = prev.findIndex((l) => l.productId === product.id)
-        if (existingIdx >= 0) {
-          const next = [...prev]
-          next[existingIdx] = { ...next[existingIdx], quantity: next[existingIdx].quantity + 1 }
-          return next
-        }
+        const best = bestWarehouseByProduct.get(product.id)
+        if (best) setWarehouseId(best.warehouseId)
       }
-      return [
-        ...prev,
-        {
-          key:
-            typeof crypto !== "undefined" && "randomUUID" in crypto
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random()}`,
-          productId: product.id || null,
-          description: product.name,
-          unit: product.unit || "ADET",
-          quantity: 1,
-          unitPrice: product.salePrice != null ? Number(product.salePrice) : 0,
-          vatRate: Number(product.vatRate) || 0,
-        },
-      ]
-    })
-  }, [bestWarehouseByProduct])
+      patchCart((cart) => {
+        if (product.id) {
+          const idx = cart.findIndex((l) => l.productId === product.id)
+          if (idx >= 0) {
+            const next = [...cart]
+            next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 }
+            return next
+          }
+        }
+        return [
+          ...cart,
+          {
+            key: uid(),
+            productId: product.id || null,
+            description: product.name,
+            unit: product.unit || "ADET",
+            quantity: 1,
+            unitPrice: product.salePrice != null ? Number(product.salePrice) : 0,
+            vatRate: Number(product.vatRate) || 0,
+          },
+        ]
+      })
+    },
+    [bestWarehouseByProduct, patchCart]
+  )
 
-  const updateLine = useCallback((key: string, patch: Partial<CartLine>) => {
-    setCart((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
-  }, [])
+  const addMisc = useCallback(() => {
+    const amt = parseFloat(miscAmount.replace(",", ".")) || 0
+    if (amt <= 0) return
+    patchCart((cart) => [
+      ...cart,
+      { key: uid(), productId: null, description: "Muhtelif", unit: "ADET", quantity: 1, unitPrice: amt, vatRate: 20 },
+    ])
+    setMiscAmount("")
+  }, [miscAmount, patchCart])
 
-  const removeLine = useCallback((key: string) => {
-    setCart((prev) => prev.filter((l) => l.key !== key))
-  }, [])
+  const updateLine = useCallback(
+    (key: string, patch: Partial<CartLine>) => patchCart((cart) => cart.map((l) => (l.key === key ? { ...l, ...patch } : l))),
+    [patchCart]
+  )
+  const removeLine = useCallback(
+    (key: string) => patchCart((cart) => cart.filter((l) => l.key !== key)),
+    [patchCart]
+  )
 
-  const totals = useMemo(() => {
-    return cart.reduce(
-      (acc, line) => {
-        const t = lineTotals(line)
-        acc.net += t.net
-        acc.vat += t.vat
-        acc.total += t.total
-        return acc
-      },
-      { net: 0, vat: 0, total: 0 }
-    )
-  }, [cart])
+  const totals = useMemo(() => cartTotals(active.cart), [active.cart])
+  const tenderedNum = useMemo(() => parseFloat(active.tendered.replace(",", ".")) || 0, [active.tendered])
+  const change = tenderedNum > 0 ? Math.max(0, round2(tenderedNum - totals.total)) : 0
+
+  const productCategories = useMemo(() => {
+    const set = new Set<string>()
+    for (const p of products) if (p.category) set.add(p.category)
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "tr"))
+  }, [products])
+
+  const quickProducts = useMemo(() => {
+    const list = activeCat === ALL_CATEGORIES ? products : products.filter((p) => p.category === activeCat)
+    return list.slice(0, 60)
+  }, [products, activeCat])
+
+  const setTendered = (v: string) => patchTicket({ tendered: v })
+  const addCash = (n: number) => patchTicket({ tendered: String(Math.max(0, round2(tenderedNum + n))) })
 
   const resetSale = useCallback(() => {
-    setCart([])
-    setSelectedCustomerId(undefined)
+    setTickets((prev) => prev.map((t, i) => (i === activeTicket ? emptyTicket() : t)))
     setIsCredit(false)
     setEArsiv(false)
     setPaymentMethod("CASH")
-  }, [])
+  }, [activeTicket])
 
   const handleComplete = useCallback(async () => {
     if (!companyId) {
       toast({ title: "Hata", description: "Firma seçili değil", variant: "destructive" })
       return
     }
+    const tk = tickets[activeTicket]
+    const cart = tk.cart
     if (cart.length === 0) {
       toast({ title: "Sepet boş", description: "En az bir ürün ekleyin", variant: "destructive" })
       return
@@ -272,6 +338,7 @@ export function QuickSaleScreen() {
       toast({ title: "Geçersiz miktar", description: "Tüm satırlarda miktar 0'dan büyük olmalı", variant: "destructive" })
       return
     }
+    const t = cartTotals(cart)
 
     setIsSubmitting(true)
     try {
@@ -283,7 +350,7 @@ export function QuickSaleScreen() {
           companyId,
           type: "SALES",
           invoiceType: useEArsiv ? "E_ARCHIVE" : "MANUAL",
-          customerId: selectedCustomerId || null,
+          customerId: tk.customerId || null,
           warehouseId: warehouseId || undefined,
           date: new Date().toISOString(),
           currency: "TRY",
@@ -300,19 +367,16 @@ export function QuickSaleScreen() {
       })
 
       const invoice = await invoiceRes.json().catch(() => ({}))
-      if (!invoiceRes.ok) {
-        throw new Error(invoice?.error || "Satış faturası oluşturulamadı")
-      }
+      if (!invoiceRes.ok) throw new Error(invoice?.error || "Satış faturası oluşturulamadı")
 
-      // Tahsilat (veresiye değilse ve tutar > 0)
-      if (!isCredit && totals.total > 0) {
+      if (!isCredit && t.total > 0) {
         const payRes = await fetch("/api/faturalar/odemeler", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             invoiceId: invoice.id,
             companyId,
-            amount: totals.total,
+            amount: t.total,
             paymentMethod,
             accountId: accountId || undefined,
             paymentDate: new Date().toISOString(),
@@ -320,7 +384,6 @@ export function QuickSaleScreen() {
         })
         if (!payRes.ok) {
           const payErr = await payRes.json().catch(() => ({}))
-          // Fatura oluştu ama tahsilat başarısız: kullanıcıyı uyar, ekranı sıfırlama.
           toast({
             title: "Fatura oluştu, tahsilat kaydedilemedi",
             description: payErr?.error || "Ödemeyi Satış Faturaları üzerinden tekrar deneyin",
@@ -334,30 +397,24 @@ export function QuickSaleScreen() {
       toast({
         title: "Satış tamamlandı",
         description: `${invoice.invoiceNo ?? "Fatura"} oluşturuldu${
-          isCredit ? " (veresiye)" : ` • ${currency(totals.total)} tahsil edildi`
+          isCredit ? " (veresiye)" : ` • ${currency(t.total)} tahsil edildi`
         }`,
       })
-      // Yazdır/paylaş için faturayı tut; sepeti temizle (yeni satışa hazır).
       setLastSale({ id: invoice.id, invoiceNo: invoice.invoiceNo, isEArsiv: useEArsiv })
       resetSale()
     } catch (error: any) {
-      toast({
-        title: "Hata",
-        description: error?.message || "Satış tamamlanamadı",
-        variant: "destructive",
-      })
+      toast({ title: "Hata", description: error?.message || "Satış tamamlanamadı", variant: "destructive" })
     } finally {
       setIsSubmitting(false)
     }
   }, [
     companyId,
-    cart,
+    tickets,
+    activeTicket,
     eArsiv,
     isEDonusumEnabled,
-    selectedCustomerId,
     warehouseId,
     isCredit,
-    totals.total,
     paymentMethod,
     accountId,
     toast,
@@ -369,12 +426,12 @@ export function QuickSaleScreen() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F2") {
         e.preventDefault()
-        if (!isSubmitting && cart.length > 0) handleComplete()
+        if (!isSubmitting && active.cart.length > 0) handleComplete()
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [handleComplete, isSubmitting, cart.length])
+  }, [handleComplete, isSubmitting, active.cart.length])
 
   const previewUrl = (id: string) =>
     `${typeof window !== "undefined" ? window.location.origin : ""}/faturalar/${id}/onizleme?company=${companyId}`
@@ -387,15 +444,12 @@ export function QuickSaleScreen() {
   const shareSale = async () => {
     if (!lastSale) return
     const url = previewUrl(lastSale.id)
-    // E-Arşiv: resmî GİB PDF'ini paylaş/indir.
     if (lastSale.isEArsiv) {
       try {
         const res = await fetch(`/api/e-donusum/invoices/${lastSale.id}/pdf`)
         if (res.ok) {
           const blob = await res.blob()
-          const file = new File([blob], `${lastSale.invoiceNo || "fatura"}.pdf`, {
-            type: "application/pdf",
-          })
+          const file = new File([blob], `${lastSale.invoiceNo || "fatura"}.pdf`, { type: "application/pdf" })
           const navAny = navigator as any
           if (navAny.canShare && navAny.canShare({ files: [file] })) {
             await navAny.share({ files: [file], title: "Fatura" })
@@ -410,16 +464,15 @@ export function QuickSaleScreen() {
           return
         }
       } catch {
-        // PDF alınamadı → link paylaşımına düş.
+        /* PDF alınamadı → link paylaşımına düş. */
       }
     }
-    // Manuel satış (veya PDF yok): fatura önizleme bağlantısını paylaş/kopyala.
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({ title: "Satış faturası", url })
         return
       } catch {
-        // kullanıcı iptal etti / desteklenmiyor → kopyalamaya düş.
+        /* iptal → kopyalamaya düş. */
       }
     }
     try {
@@ -438,42 +491,24 @@ export function QuickSaleScreen() {
     )
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-kobipo-blue to-kobipo-mid p-5 text-white shadow-lg shadow-kobipo-blue/20">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/25 backdrop-blur">
-              <Zap className="h-6 w-6" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Hızlı Satış</h1>
-              <p className="text-sm text-white/80">Ürün ekleyip tek ekranda satışı kapatın</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-6">
-            <div className="text-right">
-              <p className="text-[11px] uppercase tracking-wide text-white/70">Sepet</p>
-              <p className="text-lg font-bold">{cart.length} kalem</p>
-            </div>
-            <div className="h-9 w-px bg-white/20" />
-            <div className="text-right">
-              <p className="text-[11px] uppercase tracking-wide text-white/70">Toplam</p>
-              <p className="text-2xl font-extrabold tabular-nums">{currency(totals.total)}</p>
-            </div>
-          </div>
-        </div>
-      </div>
+  const tabCls = (activeState: boolean) =>
+    cn(
+      "shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+      activeState
+        ? "bg-kobipo-blue text-white dark:bg-primary dark:text-primary-foreground"
+        : "bg-muted text-muted-foreground hover:bg-muted/70"
+    )
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Sol: Sepet */}
-        <div className="space-y-4 lg:col-span-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Ürün Ekle</CardTitle>
-              <CardDescription>Ad veya kod ile ara; bulunmazsa anında yeni ürün oluştur</CardDescription>
-            </CardHeader>
-            <CardContent>
+  return (
+    <div className="space-y-3">
+      {/* === ÜST BAR: barkod/arama + tutar kutuları === */}
+      <div className="grid gap-3 xl:grid-cols-[1fr_auto]">
+        <Card className="overflow-hidden">
+          <CardContent className="flex items-center gap-3 p-3">
+            <span className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-kobipo-blue text-white dark:bg-primary dark:text-primary-foreground sm:flex">
+              <Zap className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
               <ProductCombobox
                 companyId={companyId}
                 products={products}
@@ -484,293 +519,370 @@ export function QuickSaleScreen() {
                 categoryOptions={categoryOptions}
                 warehouses={warehouses}
               />
-            </CardContent>
-          </Card>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="grid grid-cols-3 gap-3 xl:w-[420px]">
+          <StatTile label="Tutar" value={currency(totals.total)} tone="brand" />
+          <StatTile label="Ödenen" value={currency(tenderedNum)} tone="blue" />
+          <StatTile label="Para Üstü" value={currency(change)} tone="green" />
+        </div>
+      </div>
+
+      <div className="grid items-start gap-3 xl:grid-cols-[1fr_380px]">
+        {/* === SOL: park sekmeleri + sepet === */}
+        <div className="space-y-3">
+          {/* Park edilen müşteriler */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            {tickets.map((t, i) => {
+              const tt = cartTotals(t.cart).total
+              const cust = t.customerId ? customers.find((c) => c.id === t.customerId)?.name : null
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setActiveTicket(i)}
+                  className={cn(
+                    "flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                    i === activeTicket
+                      ? "border-kobipo-blue bg-kobipo-blue/10 dark:border-primary dark:bg-primary/15"
+                      : "border-border hover:bg-muted"
+                  )}
+                >
+                  <span className="font-semibold">{cust || `Müşteri ${i + 1}`}</span>
+                  <span className="tabular-nums text-muted-foreground">{currency(tt)}</span>
+                  {t.cart.length > 0 && <span className="h-1.5 w-1.5 rounded-full bg-kobipo-green" />}
+                </button>
+              )
+            })}
+          </div>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Sepet</CardTitle>
-              <CardDescription>{cart.length} kalem</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {cart.length === 0 ? (
-                <div className="py-8 text-center text-muted-foreground">
-                  <ShoppingCart className="mx-auto mb-2 h-6 w-6 opacity-50" />
-                  Sepet boş — yukarıdan ürün ekleyin
+            <CardContent className="space-y-3 p-3">
+              {/* Muhtelif tutar + sepeti temizle */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold">Sepet</span>
+                  <span className="text-xs text-muted-foreground">({active.cart.length} kalem)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    <Input
+                      value={miscAmount}
+                      onChange={(e) => setMiscAmount(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && addMisc()}
+                      inputMode="decimal"
+                      placeholder="Muhtelif tutar"
+                      className="h-9 w-32 text-right"
+                    />
+                    <Button type="button" variant="outline" size="sm" onClick={addMisc}>
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {active.cart.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => patchCart(() => [])}
+                    >
+                      <Trash2 className="mr-1 h-4 w-4" />
+                      Temizle
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {active.cart.length === 0 ? (
+                <div className="py-10 text-center text-muted-foreground">
+                  <ShoppingCart className="mx-auto mb-2 h-7 w-7 opacity-40" />
+                  Sepet boş — yukarıdan barkod okutun, ürün arayın ya da hızlı ürün tuşlarını kullanın
                 </div>
               ) : (
-                <>
-                  {/* Masaüstü: tablo */}
-                  <div className="hidden md:block">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Ürün/Açıklama</TableHead>
-                          <TableHead className="w-32 text-right">Miktar</TableHead>
-                          <TableHead className="w-32 text-right">Birim Fiyat</TableHead>
-                          <TableHead className="w-20 text-right">KDV %</TableHead>
-                          <TableHead className="w-32 text-right">Tutar</TableHead>
-                          <TableHead className="w-12" />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {cart.map((line) => {
-                          const t = lineTotals(line)
-                          return (
-                            <TableRow key={line.key}>
-                              <TableCell>
-                                <Input
-                                  value={line.description}
-                                  onChange={(e) => updateLine(line.key, { description: e.target.value })}
-                                  className="min-w-[160px]"
+                <div className="overflow-auto xl:max-h-[46vh]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="sticky top-0 z-10 bg-card">
+                        <TableHead className="w-10" />
+                        <TableHead>Ürün</TableHead>
+                        <TableHead className="w-36 text-center">Miktar</TableHead>
+                        <TableHead className="w-28 text-right">Fiyat</TableHead>
+                        <TableHead className="w-16 text-right">KDV%</TableHead>
+                        <TableHead className="w-28 text-right">Tutar</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {active.cart.map((line) => {
+                        const t = lineTotals(line)
+                        return (
+                          <TableRow key={line.key}>
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => removeLine(line.key)}
+                                title="Satırı sil"
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                value={line.description}
+                                onChange={(e) => updateLine(line.key, { description: e.target.value })}
+                                className="min-w-[160px]"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex justify-center">
+                                <QuantityStepper
+                                  value={line.quantity}
+                                  onChange={(v) => updateLine(line.key, { quantity: v })}
                                 />
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex justify-end">
-                                  <QuantityStepper
-                                    value={line.quantity}
-                                    onChange={(v) => updateLine(line.key, { quantity: v })}
-                                  />
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={numInput(line.unitPrice)}
-                                  placeholder="0"
-                                  onChange={(e) =>
-                                    updateLine(line.key, { unitPrice: parseFloat(e.target.value) || 0 })
-                                  }
-                                  className="w-28 text-right"
-                                />
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <Input
-                                  type="number"
-                                  step="1"
-                                  min="0"
-                                  value={numInput(line.vatRate)}
-                                  placeholder="0"
-                                  onChange={(e) =>
-                                    updateLine(line.key, { vatRate: parseFloat(e.target.value) || 0 })
-                                  }
-                                  className="w-16 text-right"
-                                />
-                              </TableCell>
-                              <TableCell className="text-right font-semibold whitespace-nowrap">
-                                {currency(t.total)}
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => removeLine(line.key)}
-                                  title="Satırı sil"
-                                >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          )
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-
-                  {/* Mobil: kart listesi */}
-                  <div className="space-y-3 md:hidden">
-                    {cart.map((line) => {
-                      const t = lineTotals(line)
-                      return (
-                        <div key={line.key} className="rounded-lg border p-3">
-                          <div className="flex items-start gap-2">
-                            <Input
-                              value={line.description}
-                              onChange={(e) => updateLine(line.key, { description: e.target.value })}
-                              className="flex-1"
-                            />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="shrink-0"
-                              onClick={() => removeLine(line.key)}
-                              title="Satırı sil"
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                          <div className="mt-3 space-y-1">
-                            <Label className="text-xs text-muted-foreground">Miktar</Label>
-                            <QuantityStepper
-                              fullWidth
-                              value={line.quantity}
-                              onChange={(v) => updateLine(line.key, { quantity: v })}
-                            />
-                          </div>
-                          <div className="mt-3 grid grid-cols-2 gap-2">
-                            <div className="space-y-1">
-                              <Label className="text-xs text-muted-foreground">Birim Fiyat</Label>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">
                               <Input
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                inputMode="decimal"
                                 value={numInput(line.unitPrice)}
                                 placeholder="0"
-                                onChange={(e) =>
-                                  updateLine(line.key, { unitPrice: parseFloat(e.target.value) || 0 })
-                                }
-                                className="text-right"
+                                onChange={(e) => updateLine(line.key, { unitPrice: parseFloat(e.target.value) || 0 })}
+                                className="w-24 text-right"
                               />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs text-muted-foreground">KDV %</Label>
+                            </TableCell>
+                            <TableCell className="text-right">
                               <Input
                                 type="number"
                                 step="1"
                                 min="0"
-                                inputMode="decimal"
                                 value={numInput(line.vatRate)}
                                 placeholder="0"
-                                onChange={(e) =>
-                                  updateLine(line.key, { vatRate: parseFloat(e.target.value) || 0 })
-                                }
-                                className="text-right"
+                                onChange={(e) => updateLine(line.key, { vatRate: parseFloat(e.target.value) || 0 })}
+                                className="w-14 text-right"
                               />
-                            </div>
-                          </div>
-                          <div className="mt-3 flex justify-between border-t pt-2 text-sm">
-                            <span className="text-muted-foreground">Satır Tutarı</span>
-                            <span className="font-semibold">{currency(t.total)}</span>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </>
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap text-right font-semibold tabular-nums">
+                              {currency(t.total)}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>
-        </div>
 
-        {/* Sağ: Müşteri + Ödeme + Özet */}
-        <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Müşteri</CardTitle>
-              <CardDescription>Opsiyonel — boş bırakılırsa perakende satış</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <CounterpartyCombobox
-                customers={customers}
-                suppliers={[]}
-                selectedCustomerId={selectedCustomerId}
-                onSelect={(sel) =>
-                  setSelectedCustomerId(sel && sel.kind === "customer" ? sel.id : undefined)
-                }
-                placeholder="Müşteri ara (opsiyonel)…"
-              />
-            </CardContent>
-          </Card>
-
-          {warehouses.length > 1 && (
+          {/* Hızlı ürün tuşları */}
+          {products.length > 0 && (
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Depo</CardTitle>
-                <CardDescription>Stok bu depodan düşülecek</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Select value={warehouseId} onValueChange={setWarehouseId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Depo seçin" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {warehouses.map((w) => (
-                      <SelectItem key={w.id} value={w.id}>
-                        {w.name} {w.isDefault ? "(Ana)" : ""}
-                      </SelectItem>
+              <CardContent className="space-y-2 p-3">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold">Hızlı Ürünler</span>
+                </div>
+                {productCategories.length > 0 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                    <button type="button" onClick={() => setActiveCat(ALL_CATEGORIES)} className={tabCls(activeCat === ALL_CATEGORIES)}>
+                      Tümü
+                    </button>
+                    {productCategories.map((c) => (
+                      <button key={c} type="button" onClick={() => setActiveCat(c)} className={tabCls(activeCat === c)}>
+                        {c}
+                      </button>
                     ))}
-                  </SelectContent>
-                </Select>
+                  </div>
+                )}
+                <div className="grid max-h-[22vh] grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
+                  {quickProducts.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => addProductToCart(p)}
+                      className="flex flex-col justify-between gap-1 rounded-lg border border-border p-2 text-left transition-colors hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary dark:hover:bg-primary/10"
+                    >
+                      <span className="line-clamp-2 text-xs font-medium">{p.name}</span>
+                      <span className="text-[11px] font-semibold text-kobipo-blue dark:text-primary">
+                        {p.salePrice != null ? currency(Number(p.salePrice)) : "—"}
+                      </span>
+                    </button>
+                  ))}
+                  {quickProducts.length === 0 && (
+                    <p className="col-span-full py-3 text-center text-xs text-muted-foreground">
+                      Bu kategoride ürün yok
+                    </p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )}
+        </div>
 
+        {/* === SAĞ: müşteri + ödeme paneli === */}
+        <div className="space-y-3 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Ödeme</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={isCredit}
-                  onChange={(e) => setIsCredit(e.target.checked)}
-                  className="rounded"
-                />
-                Veresiye (tahsilat alma)
-              </label>
+            <CardContent className="space-y-3 p-3">
+              <div>
+                <Label className="text-xs text-muted-foreground">Müşteri (opsiyonel)</Label>
+                <div className="mt-1.5">
+                  <CounterpartyCombobox
+                    customers={customers}
+                    suppliers={[]}
+                    selectedCustomerId={active.customerId}
+                    onSelect={(sel) => patchTicket({ customerId: sel && sel.kind === "customer" ? sel.id : undefined })}
+                    placeholder="Müşteri ara (perakende için boş bırakın)…"
+                  />
+                </div>
+              </div>
 
-              {!isCredit && (
-                <>
-                  <div className="space-y-1.5">
-                    <Label>Ödeme Yöntemi</Label>
-                    <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PaymentMethod)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PAYMENT_METHODS.map((m) => (
-                          <SelectItem key={m.value} value={m.value}>
-                            {m.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+              {warehouses.length > 1 && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Depo</Label>
+                  <Select value={warehouseId} onValueChange={setWarehouseId}>
+                    <SelectTrigger className="mt-1.5">
+                      <SelectValue placeholder="Depo seçin" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {warehouses.map((w) => (
+                        <SelectItem key={w.id} value={w.id}>
+                          {w.name} {w.isDefault ? "(Ana)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-                  <div className="space-y-1.5">
-                    <Label>Kasa / Banka Hesabı</Label>
-                    {accounts.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        Tanımlı hesap yok — tahsilat hesaba işlenmeyecek.
-                      </p>
-                    ) : (
-                      <Select value={accountId} onValueChange={setAccountId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Hesap seçin" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {accounts.map((a) => (
-                            <SelectItem key={a.id} value={a.id}>
-                              {a.name} {a.type === "CASH" ? "(Kasa)" : "(Banka)"}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                </>
+          {/* Ödeme: hızlı nakit + para üstü + yöntem */}
+          <Card>
+            <CardContent className="space-y-3 p-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">Ödenen (nakit)</Label>
+                <span className="text-xs text-muted-foreground">
+                  Para Üstü: <span className="font-bold text-kobipo-green">{currency(change)}</span>
+                </span>
+              </div>
+              <Input
+                value={active.tendered}
+                onChange={(e) => setTendered(e.target.value)}
+                inputMode="decimal"
+                placeholder="0,00"
+                className="h-11 text-right text-lg font-bold tabular-nums"
+              />
+              <div className="grid grid-cols-4 gap-2">
+                {[20, 50, 100, 200].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setTendered(String(n))}
+                    className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary dark:hover:bg-primary/10"
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => addCash(20)}
+                  className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
+                >
+                  +20
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addCash(-20)}
+                  className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
+                >
+                  −20
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTendered(String(round2(totals.total)))}
+                  className="rounded-lg border border-kobipo-green/40 bg-kobipo-green/10 py-2 text-sm font-semibold text-kobipo-green transition-colors hover:bg-kobipo-green/20"
+                >
+                  Tam
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 border-t pt-3">
+                {PAYMENT_METHODS.map((m) => {
+                  const Icon = m.icon
+                  const activeState = !isCredit && paymentMethod === m.value
+                  return (
+                    <button
+                      key={m.value}
+                      type="button"
+                      onClick={() => {
+                        setPaymentMethod(m.value)
+                        setIsCredit(false)
+                      }}
+                      className={cn(
+                        "flex flex-col items-center gap-1 rounded-lg border p-2.5 text-[11px] font-semibold transition-colors",
+                        activeState
+                          ? "border-kobipo-blue bg-kobipo-blue/10 text-kobipo-blue dark:border-primary dark:bg-primary/15 dark:text-primary"
+                          : "border-border hover:bg-muted"
+                      )}
+                    >
+                      <Icon className="h-5 w-5" />
+                      {m.label}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsCredit((v) => !v)}
+                className={cn(
+                  "w-full rounded-lg border p-2.5 text-sm font-semibold transition-colors",
+                  isCredit
+                    ? "border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                    : "border-border text-muted-foreground hover:bg-muted"
+                )}
+              >
+                Veresiye / Açık Hesap {isCredit ? "• Açık" : ""}
+              </button>
+
+              {!isCredit && accounts.length > 0 && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Kasa / Banka Hesabı</Label>
+                  <Select value={accountId} onValueChange={setAccountId}>
+                    <SelectTrigger className="mt-1.5">
+                      <SelectValue placeholder="Hesap seçin" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {accounts.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.name} {a.type === "CASH" ? "(Kasa)" : "(Banka)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
 
               {isEDonusumEnabled && (
                 <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={eArsiv}
-                    onChange={(e) => setEArsiv(e.target.checked)}
-                    className="rounded"
-                  />
+                  <input type="checkbox" checked={eArsiv} onChange={(e) => setEArsiv(e.target.checked)} className="rounded" />
                   E-Arşiv olarak kes (GİB'e gönder)
                 </label>
               )}
             </CardContent>
           </Card>
 
-          <Card className="border-kobipo-blue/30 shadow-md shadow-kobipo-blue/5">
-            <CardContent className="space-y-2 pt-6">
+          {/* Özet + Tamamla */}
+          <Card className="border-kobipo-blue/30">
+            <CardContent className="space-y-2 p-3">
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>Ara Toplam</span>
                 <span className="tabular-nums">{currency(totals.net)}</span>
@@ -779,18 +891,17 @@ export function QuickSaleScreen() {
                 <span>KDV</span>
                 <span className="tabular-nums">{currency(totals.vat)}</span>
               </div>
-              <div className="mt-1 flex items-baseline justify-between rounded-lg bg-kobipo-pale/60 px-3 py-2 dark:bg-primary/10">
+              <div className="flex items-baseline justify-between rounded-lg bg-kobipo-pale/60 px-3 py-2 dark:bg-primary/10">
                 <span className="font-semibold">Genel Toplam</span>
                 <span className="text-2xl font-extrabold tabular-nums text-kobipo-blue dark:text-primary">
                   {currency(totals.total)}
                 </span>
               </div>
-
               <Button
-                className="mt-3 h-12 w-full text-base"
-                size="lg"
+                className="mt-1 h-12 w-full text-base"
+                variant="success"
                 onClick={handleComplete}
-                disabled={isSubmitting || cart.length === 0}
+                disabled={isSubmitting || active.cart.length === 0}
               >
                 {isSubmitting ? (
                   <>
@@ -826,8 +937,8 @@ export function QuickSaleScreen() {
               Satış tamamlandı
             </DialogTitle>
             <DialogDescription>
-              {lastSale?.invoiceNo ? `${lastSale.invoiceNo} oluşturuldu.` : "Fatura oluşturuldu."}{" "}
-              Yazdırabilir veya paylaşabilirsiniz.
+              {lastSale?.invoiceNo ? `${lastSale.invoiceNo} oluşturuldu.` : "Fatura oluşturuldu."} Yazdırabilir veya
+              paylaşabilirsiniz.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-2">
@@ -847,6 +958,21 @@ export function QuickSaleScreen() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+function StatTile({ label, value, tone }: { label: string; value: string; tone: "brand" | "blue" | "green" }) {
+  const toneClass =
+    tone === "green"
+      ? "text-kobipo-green"
+      : tone === "blue"
+        ? "text-kobipo-blue dark:text-primary"
+        : "text-kobipo-navy dark:text-foreground"
+  return (
+    <div className="rounded-xl border bg-card p-3 shadow-sm">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={cn("mt-1 truncate text-lg font-extrabold tabular-nums lg:text-xl", toneClass)}>{value}</p>
     </div>
   )
 }

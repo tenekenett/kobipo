@@ -139,6 +139,11 @@ export default function CompanyOnboardingPage() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
+            <div className="flex justify-end">
+              <Button type="submit" variant="success" disabled={isLoading}>
+                {isLoading ? "Kaydediliyor..." : "Kaydet ve Devam Et"}
+              </Button>
+            </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="sector">Sektör</Label>
@@ -209,7 +214,7 @@ export default function CompanyOnboardingPage() {
             </div>
           </CardContent>
           <CardFooter className="justify-end">
-            <Button type="submit" disabled={isLoading}>
+            <Button type="submit" variant="success" disabled={isLoading}>
               {isLoading ? "Kaydediliyor..." : "Kaydet ve Devam Et"}
             </Button>
           </CardFooter>

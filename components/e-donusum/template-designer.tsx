@@ -503,7 +503,8 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
     <>
     <Card>
       <CardHeader>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-kobipo-blue/10 text-kobipo-blue dark:bg-primary/15 dark:text-primary">
             <Palette className="h-4 w-4" />
           </span>
@@ -531,6 +532,11 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
               )}
             </CardDescription>
           </div>
+          </div>
+          <Button onClick={save} variant="success" disabled={busy || !xsltName.trim()}>
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            {isEditing ? "Değişiklikleri Kaydet" : "Tasarımı Kaydet"}
+          </Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -978,7 +984,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
               {isPreviewing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
               PDF Önizle
             </Button>
-            <Button onClick={save} disabled={busy || !xsltName.trim()}>
+            <Button onClick={save} variant="success" disabled={busy || !xsltName.trim()}>
               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               {isEditing ? "Değişiklikleri Kaydet" : "Tasarımı Kaydet"}
             </Button>

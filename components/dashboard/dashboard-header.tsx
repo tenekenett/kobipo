@@ -14,10 +14,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { Building2, Check, ChevronDown, Laptop, LogOut, Moon, Settings, Sun, User } from "lucide-react"
+import { Building2, Check, ChevronDown, Laptop, LogOut, Moon, PanelLeftClose, PanelLeftOpen, Settings, Sun, User } from "lucide-react"
 import { NotificationBell } from "@/components/dashboard/notification-bell"
 import { MenuSearch } from "@/components/dashboard/menu-search"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { useSidebar } from "@/components/dashboard/sidebar-provider"
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
 import { useTheme } from "@/components/providers/theme-provider"
 
@@ -25,6 +26,7 @@ export function DashboardHeader() {
   const searchParams = useSearchParams()
   const { data: session } = useSession()
   const { selectedCompany, isLoading: companyLoading, userRole } = useDashboardCompany()
+  const { collapsed, toggle } = useSidebar()
   const { theme, resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
 
@@ -67,6 +69,16 @@ export function DashboardHeader() {
   return (
     <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-kobipo-border bg-white px-4 dark:border-border dark:bg-card sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggle}
+          className="hidden h-9 w-9 shrink-0 lg:inline-flex"
+          aria-label={collapsed ? "Menüyü aç" : "Menüyü daralt"}
+          title={collapsed ? "Menüyü aç" : "Menüyü daralt"}
+        >
+          {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+        </Button>
         <h1 className="min-w-0 shrink-0 text-base font-bold">
           <Link
             href={dashboardHref}
