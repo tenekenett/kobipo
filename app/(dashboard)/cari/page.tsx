@@ -58,6 +58,7 @@ function TableSkeleton({ rows = 8 }: { rows?: number }) {
 interface Customer {
   id: string
   code?: string
+  slug?: string
   name: string
   taxNumber?: string
   taxOffice?: string
@@ -392,7 +393,7 @@ export default function CariPage() {
                         index={idx}
                         className="cursor-pointer"
                         onClick={() =>
-                          router.push(`/cari/${activeTab}/${item.id}?company=${companyId}`)
+                          router.push(`/cari/${activeTab}/${item.slug || item.id}?company=${companyId}`)
                         }
                       >
                         <TableCell>
@@ -415,7 +416,7 @@ export default function CariPage() {
                         >
                           <div className="flex justify-end gap-0.5">
                             <Link
-                              href={`/cari/${activeTab}/${item.id}?company=${companyId}`}
+                              href={`/cari/${activeTab}/${item.slug || item.id}?company=${companyId}`}
                               aria-label="Detay"
                             >
                               <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -423,7 +424,7 @@ export default function CariPage() {
                               </Button>
                             </Link>
                             <Link
-                              href={`/cari/${activeTab}/${item.id}/edit?company=${companyId}`}
+                              href={`/cari/${activeTab}/${item.slug || item.id}/edit?company=${companyId}`}
                               aria-label="Düzenle"
                             >
                               <Button variant="ghost" size="icon" className="h-8 w-8">

@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { TransactionDialog } from "@/components/cari/transaction-dialog"
 import { CariArchiveDeleteDialog } from "@/components/cari/cari-archive-delete-dialog"
+import { looksLikeCuid } from "@/lib/slug"
 
 // İsimden baş harf(ler) üret: "Acme Ltd" → "AL", "Ahmet" → "AH"
 function getInitials(name: string): string {
@@ -54,6 +55,7 @@ interface Deletability {
 interface CustomerSupplierDetail {
   id: string
   code?: string
+  slug?: string
   name: string
   taxNumber?: string
   taxOffice?: string
@@ -174,6 +176,10 @@ export default function CustomerSupplierDetailPage() {
       if (response.ok) {
         const result = await response.json()
         setData(result)
+        // SEF: eski cuid URL ile gelindiyse okunabilir slug URL'ine sessizce yükselt.
+        if (result?.slug && looksLikeCuid(String(id))) {
+          router.replace(`/cari/${endpoint}/${result.slug}?company=${companyId}`)
+        }
       } else {
         toast({
           title: "Hata",

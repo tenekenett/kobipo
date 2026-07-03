@@ -144,6 +144,7 @@ export async function GET(request: Request) {
         ps.id,
         ps."companyId",
         ps.code,
+        ps.slug,
         ps.name,
         ps."taxNumber",
         ps."taxOffice",

@@ -5,6 +5,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { supplierHasBusinessReferences } from "@/lib/cari/dual-role"
 import { getCustomerDeletability } from "@/lib/cari/archive-guard"
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
+import { resolveCariId } from "@/lib/cari/resolve-cari"
 
 
 export const dynamic = 'force-dynamic'
@@ -35,6 +36,7 @@ export async function GET(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, new URL(request.url).searchParams.get("companyId"))
 
     // Hafif yol: silme diyaloğu yalnızca silinebilirliği ister. Tüm ekstreyi
     // (bakiye + faturalar + işlemler + çek/senet + yürüyen bakiye) hesaplamadan
@@ -274,6 +276,7 @@ export async function PUT(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, new URL(request.url).searchParams.get("companyId"))
     const customer = await prisma.customer.findUnique({
       where: { id: resolvedParams.id },
     })
@@ -564,6 +567,7 @@ export async function DELETE(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, new URL(request.url).searchParams.get("companyId"))
     const customer = await prisma.customer.findUnique({
       where: { id: resolvedParams.id },
     })
@@ -619,6 +623,7 @@ export async function PATCH(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, new URL(request.url).searchParams.get("companyId"))
     const customer = await prisma.customer.findUnique({
       where: { id: resolvedParams.id },
     })

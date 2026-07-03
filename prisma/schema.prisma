@@ -345,6 +345,7 @@ model Customer {
   classification1Id String?
   classification2Id String?
   authorizedUserId String?
+  slug        String   @default("")
   isAlsoSupplier Boolean @default(false)
   linkedSupplierId String?
   archivedAt  DateTime?
@@ -366,6 +367,7 @@ model Customer {
   authorizedUser User? @relation("AuthorizedCustomerUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
 
   @@unique([linkedSupplierId])
+  @@unique([companyId, slug])
   @@index([companyId])
   @@index([companyId, name])
   @@index([companyId, archivedAt])
@@ -401,6 +403,7 @@ model Supplier {
   classification1Id String?
   classification2Id String?
   authorizedUserId String?
+  slug        String   @default("")
   isAlsoCustomer Boolean @default(false)
   linkedCustomerId String?
   archivedAt  DateTime?
@@ -426,6 +429,7 @@ model Supplier {
   @@index([classification1Id])
   @@index([classification2Id])
   @@index([authorizedUserId])
+  @@unique([companyId, slug])
   @@map("suppliers")
 }
 
@@ -469,6 +473,7 @@ model Product {
   code        String?
   name        String
   barcode     String?
+  slug        String   @default("")
   category    String?  // Ürün kategorisi/grubu (serbest metin; varyant ileride)
   unit        String   @default("ADET")
   vatRate     Decimal  @default(20) @db.Decimal(5, 2)
@@ -496,6 +501,7 @@ model Product {
 
   @@index([companyId])
   @@index([companyId, category])
+  @@unique([companyId, slug])
   @@map("products")
 }
 
@@ -567,6 +573,7 @@ model FinancialAccount {
   bankName    String?
   accountNumber String?
   iban        String?
+  slug        String   @default("")
   currency    String   @default("TRY")
   balance     Decimal  @default(0) @db.Decimal(15, 2)
   isActive    Boolean  @default(true)
@@ -580,6 +587,7 @@ model FinancialAccount {
   cashCounts CashCount[]
 
   @@index([companyId])
+  @@unique([companyId, slug])
   @@map("financial_accounts")
 }
 
@@ -687,6 +695,7 @@ model Invoice {
   id          String   @id @default(cuid())
   companyId   String
   invoiceNo   String
+  slug        String   @default("")
   type        String   // SALES, PURCHASE
   invoiceType String   // E_INVOICE, E_ARCHIVE
   status      String   @default("DRAFT") // DRAFT, SENT, CANCELLED
@@ -730,6 +739,7 @@ model Invoice {
   @@index([companyId, type, supplierId])
   @@index([customerId])
   @@index([supplierId])
+  @@unique([companyId, slug])
   @@map("invoices")
 }
 
@@ -737,6 +747,7 @@ model Quote {
   id          String   @id @default(cuid())
   companyId   String
   quoteNo     String
+  slug        String   @default("")
   status      String   @default("DRAFT") // DRAFT, SENT, APPROVED, REJECTED, EXPIRED, CONVERTED
   customerId  String?
   supplierId  String?
@@ -762,6 +773,7 @@ model Quote {
   @@index([companyId])
   @@index([date])
   @@index([status])
+  @@unique([companyId, slug])
   @@map("quotes")
 }
 
@@ -1359,6 +1371,7 @@ model Employee {
   companyId   String
   firstName   String
   lastName    String
+  slug        String   @default("")
   nationalId  String?  // TC Kimlik No
   email       String?
   phone       String?
@@ -1386,6 +1399,7 @@ model Employee {
 
   @@index([companyId])
   @@index([companyId, status])
+  @@unique([companyId, slug])
   @@map("employees")
 }
 

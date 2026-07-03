@@ -9,6 +9,7 @@ import { BranchContextBanner } from "@/components/dashboard/branch-context-banne
 import { DashboardCompanyProvider } from "@/components/dashboard/dashboard-company-provider"
 import { ModuleGuard } from "@/components/dashboard/module-guard"
 import { SuspendedLogoutButton } from "@/components/dashboard/suspended-logout-button"
+import { DashboardTitle } from "@/components/dashboard/dashboard-title"
 
 export const dynamic = 'force-dynamic'
 
@@ -72,6 +73,7 @@ export default async function DashboardLayout({
 
   return (
     <DashboardCompanyProvider initialCompanies={initialCompanies} initialRole={initialRole}>
+      <DashboardTitle />
       <SidebarProvider>
         <div className="min-h-screen bg-kobipo-offwhite dark:bg-background">
           <DashboardNav />

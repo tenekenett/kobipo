@@ -135,6 +135,7 @@ export async function GET(request: Request) {
         pc.id,
         pc."companyId",
         pc.code,
+        pc.slug,
         pc.name,
         pc."taxNumber",
         pc."taxOffice",

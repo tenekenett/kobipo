@@ -10,7 +10,16 @@
       "Bash(npm -v)",
       "Bash(grep -rn \"/stok/\\\\${\\\\|/stok/\\\\`\\\\|href.*stok/\\\\|router.push.*stok\\\\|/stok/[^p]\" \"app/\\(dashboard\\)/stok/page.tsx\" components)",
       "Bash(python3 \"/tmp/claude-1000/-home-yasin-Belgeler-sirketselmidir-kobipo/7b36cb52-7d91-4d7e-a4e9-8418460dd985/scratchpad/dark_codemod.py\" --apply)",
-      "Bash(git diff *)"
+      "Bash(git diff *)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000\" -UseBasicParsing -TimeoutSec 15; \"HTTP $\\($r.StatusCode\\) - içerik uzunluğu: $\\($r.RawContentLength\\)\" } catch { \"HATA: $\\($_.Exception.Message\\)\" })",
+      "Skill(update-config)",
+      "Bash(ls lib/dashboard)",
+      "Bash(grep -rn \"document.title\" app components lib)",
+      "Bash(grep -rln \"usePageTitle\\\\|DocumentTitle\\\\|useDocumentTitle\" app components lib)",
+      "Bash(npm install *)",
+      "Bash(supabase --version)",
+      "Bash(npx prisma *)",
+      "Bash(grep -nE \"slug|interface .*\\\\{|type .*= \\\\{|id:\\\\s|id\\\\?:|code\\\\?:|name:\\\\s|router\\\\.push\\\\\\(|href=|/cari/\\\\\\\\\\\\$\\\\{|\\\\.id\\\\}|item\\\\.id|\\\\.map\\\\\\(\" \"app/\\(dashboard\\)/cari/page.tsx\")"
     ]
   }
 }
