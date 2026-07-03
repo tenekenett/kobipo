@@ -27,7 +27,7 @@ export default async function BlogPage() {
     <CorporatePageShell
       badge="Blog"
       title="Kobipo Blog"
-      description="KOBI finansi, e-donusum ve operasyon yonetimi hakkinda ekiplerinizin hizla uygulayabilecegi pratik icerikler."
+      description="KOBİ finansı, e-dönüşüm ve operasyon yönetimi hakkında ekiplerinizin hızla uygulayabileceği pratik içerikler."
       breadcrumbs={[
         { label: "Ana Sayfa", href: "/" },
         { label: "Blog" },
@@ -40,7 +40,7 @@ export default async function BlogPage() {
             href="/kurumsal/blog"
             className="rounded-full border border-kobipo-blue bg-kobipo-pale px-3 py-1 text-xs font-semibold text-kobipo-blue"
           >
-            Tumu
+            Tümü
           </Link>
           {categories.map((category) => (
             <Link
@@ -56,7 +56,7 @@ export default async function BlogPage() {
 
       {posts.length === 0 && (
         <p className="mt-6 rounded-2xl border border-kobipo-border bg-white p-6 text-sm text-kobipo-gray">
-          Henuz yayinlanmis yazi yok.
+          Henüz yayınlanmış yazı yok.
         </p>
       )}
 
@@ -92,7 +92,7 @@ export default async function BlogPage() {
                   href={postPath(post.slug)}
                   className="text-sm font-semibold text-kobipo-blue transition-colors hover:text-kobipo-mid"
                 >
-                  Yaziyi oku
+                  Yazıyı oku
                 </Link>
               </div>
             </div>

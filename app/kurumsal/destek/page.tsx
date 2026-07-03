@@ -4,9 +4,9 @@ import type { Metadata } from "next"
 import { pageMetadata } from "@/lib/seo/metadata"
 
 const supportItems = [
-  { title: "Canli Destek", detail: "Hafta ici 09:00 - 18:00 saatleri arasinda oncelikli canli destek." },
-  { title: "E-posta", detail: "Teknik talepleriniz icin: destek@kobipo.com" },
-  { title: "Onboarding Yardimi", detail: "Ilk kurulum ve veri aktarma asamasinda adim adim destek." },
+  { title: "Canlı Destek", detail: "Hafta içi 09:00 - 18:00 saatleri arasında öncelikli canlı destek." },
+  { title: "E-posta", detail: "Teknik talepleriniz için: destek@kobipo.com" },
+  { title: "Onboarding Yardımı", detail: "İlk kurulum ve veri aktarma aşamasında adım adım destek." },
 ]
 
 export const metadata: Metadata = pageMetadata({
@@ -20,8 +20,8 @@ export default function DestekPage() {
   return (
     <CorporatePageShell
       badge="Destek"
-      title="Destek ekibimiz yaninizda"
-      description="Kurulumdan gunluk kullanima kadar ihtiyac duydugunuz anda ulasabileceginiz bir destek sureci sunuyoruz."
+      title="Destek ekibimiz yanınızda"
+      description="Kurulumdan günlük kullanıma kadar ihtiyaç duyduğunuz anda ulaşabileceğiniz bir destek süreci sunuyoruz."
       breadcrumbs={[
         { label: "Ana Sayfa", href: "/" },
         { label: "Destek" },
@@ -37,12 +37,12 @@ export default function DestekPage() {
       </div>
 
       <section className="mt-8 rounded-2xl border border-kobipo-border bg-white p-6">
-        <h2 className="text-lg font-bold text-kobipo-navy">Sik Sorulan Basliklar</h2>
+        <h2 className="text-lg font-bold text-kobipo-navy">Sık Sorulan Başlıklar</h2>
         <div className="mt-4 space-y-3">
           {[
-            "Kullanim baslangicinda veri nasil aktarilir?",
-            "E-fatura aktivasyon suresi ne kadar surer?",
-            "Kullanici yetkileri nasil tanimlanir?",
+            "Kullanım başlangıcında veri nasıl aktarılır?",
+            "E-fatura aktivasyon süresi ne kadar sürer?",
+            "Kullanıcı yetkileri nasıl tanımlanır?",
           ].map((q) => (
             <div key={q} className="rounded-xl bg-kobipo-offwhite p-3 text-sm text-kobipo-text">
               {q}
@@ -51,7 +51,7 @@ export default function DestekPage() {
         </div>
         <div className="mt-5">
           <Link href="/kurumsal/iletisim" className="text-sm font-semibold text-kobipo-blue hover:text-kobipo-mid">
-            Iletisim kanalina git →
+            İletişim kanalına git →
           </Link>
         </div>
       </section>

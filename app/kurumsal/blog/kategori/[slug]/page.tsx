@@ -57,7 +57,7 @@ export default async function CategoryPage({ params }: Props) {
     <CorporatePageShell
       badge={`Kategori · ${category}`}
       title={category}
-      description={`${category} kategorisindeki tum Kobipo blog yazilari.`}
+      description={`${category} kategorisindeki tüm Kobipo blog yazıları.`}
       breadcrumbs={[
         { label: "Ana Sayfa", href: "/" },
         { label: "Blog", href: "/kurumsal/blog" },
@@ -66,13 +66,13 @@ export default async function CategoryPage({ params }: Props) {
     >
       <div className="mb-6">
         <Link href="/kurumsal/blog" className="text-sm font-semibold text-kobipo-blue hover:text-kobipo-mid">
-          ← Tum yazilar
+          ← Tüm yazılar
         </Link>
       </div>
 
       {posts.length === 0 ? (
         <p className="rounded-2xl border border-kobipo-border bg-white p-6 text-sm text-kobipo-gray">
-          Bu kategoride henuz yayinlanmis yazi yok.
+          Bu kategoride henüz yayınlanmış yazı yok.
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -104,7 +104,7 @@ export default async function CategoryPage({ params }: Props) {
                     href={postPath(post.slug)}
                     className="text-sm font-semibold text-kobipo-blue transition-colors hover:text-kobipo-mid"
                   >
-                    Yaziyi oku
+                    Yazıyı oku
                   </Link>
                 </div>
               </div>

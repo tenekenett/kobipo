@@ -14,8 +14,8 @@ export default function CerezlerPage() {
   return (
     <CorporatePageShell
       badge="Yasal"
-      title="Cerez Politikasi"
-      description="Kobipo'nun web ve uygulama deneyimini iyilestirmek amaciyla cerezleri nasil kullandigini bu metinde bulabilirsiniz."
+      title="Çerez Politikası"
+      description="Kobipo'nun web ve uygulama deneyimini iyileştirmek amacıyla çerezleri nasıl kullandığını bu metinde bulabilirsiniz."
       breadcrumbs={[
         { label: "Ana Sayfa", href: "/" },
         { label: "Çerezler" },
@@ -26,30 +26,30 @@ export default function CerezlerPage() {
         sections={[
           {
             id: "cerez-nedir",
-            title: "1. Cerez Nedir?",
+            title: "1. Çerez Nedir?",
             content: (
               <p>
-                Cerezler, web sitesi kullanimini daha verimli hale getirmek icin tarayicida saklanan kucuk metin dosyalaridir.
+                Çerezler, web sitesi kullanımını daha verimli hale getirmek için tarayıcıda saklanan küçük metin dosyalarıdır.
               </p>
             ),
           },
           {
             id: "cerez-turleri",
-            title: "2. Kullandigimiz Cerez Turleri",
+            title: "2. Kullandığımız Çerez Türleri",
             content: (
               <>
-                <p>Zorunlu cerezler: Oturum ve guvenlik fonksiyonlari icin gereklidir.</p>
-                <p>Analitik cerezler: Urunun kullanim seyrini anlamak ve deneyimi iyilestirmek amaciyla kullanilir.</p>
+                <p>Zorunlu çerezler: Oturum ve güvenlik fonksiyonları için gereklidir.</p>
+                <p>Analitik çerezler: Ürünün kullanım seyrini anlamak ve deneyimi iyileştirmek amacıyla kullanılır.</p>
               </>
             ),
           },
           {
             id: "yonetim",
-            title: "3. Cerez Tercihlerini Yonetme",
+            title: "3. Çerez Tercihlerini Yönetme",
             content: (
               <p>
-                Tarayici ayarlarinizdan cerezleri silebilir veya engelleyebilirsiniz. Ancak bazi zorunlu cerezlerin devre
-                disi birakilmasi platformun belirli ozelliklerini etkileyebilir.
+                Tarayıcı ayarlarınızdan çerezleri silebilir veya engelleyebilirsiniz. Ancak bazı zorunlu çerezlerin devre
+                dışı bırakılması platformun belirli özelliklerini etkileyebilir.
               </p>
             ),
           },

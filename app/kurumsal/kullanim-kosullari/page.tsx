@@ -14,8 +14,8 @@ export default function KullanimKosullariPage() {
   return (
     <CorporatePageShell
       badge="Yasal"
-      title="Kullanim Kosullari"
-      description="Kobipo platformunun kullanimi sirasinda taraflarin hak ve yukumluluklerini duzenleyen temel kurallar."
+      title="Kullanım Koşulları"
+      description="Kobipo platformunun kullanımı sırasında tarafların hak ve yükümlülüklerini düzenleyen temel kurallar."
       breadcrumbs={[
         { label: "Ana Sayfa", href: "/" },
         { label: "Kullanım Koşulları" },
@@ -29,36 +29,36 @@ export default function KullanimKosullariPage() {
             title: "1. Genel Kurallar",
             content: (
               <p>
-                Platformu kullanan tum taraflar, gecerli mevzuata ve bu kosullara uygun hareket etmekle yukumludur.
+                Platformu kullanan tüm taraflar, geçerli mevzuata ve bu koşullara uygun hareket etmekle yükümlüdür.
               </p>
             ),
           },
           {
             id: "hesap-guvenligi",
-            title: "2. Hesap Guvenligi",
+            title: "2. Hesap Güvenliği",
             content: (
               <p>
-                Kullanici, hesap bilgilerini gizli tutmakla sorumludur. Yetkisiz kullanim suphelerinde sifre derhal
-                degistirilmeli ve destek ekibine bilgi verilmelidir.
+                Kullanıcı, hesap bilgilerini gizli tutmakla sorumludur. Yetkisiz kullanım şüphelerinde şifre derhal
+                değiştirilmeli ve destek ekibine bilgi verilmelidir.
               </p>
             ),
           },
           {
             id: "hizmet-devamliligi",
-            title: "3. Hizmet Devamliligi",
+            title: "3. Hizmet Devamlılığı",
             content: (
               <p>
-                Planli bakim veya teknik gereklilik durumlarinda hizmette gecici kesintiler olabilir. Bu durumlar mumkun
-                oldugunca onceden duyurulur.
+                Planlı bakım veya teknik gereklilik durumlarında hizmette geçici kesintiler olabilir. Bu durumlar mümkün
+                olduğunca önceden duyurulur.
               </p>
             ),
           },
           {
             id: "fikri-mulkiyet",
-            title: "4. Fikri Mulkiyet",
+            title: "4. Fikri Mülkiyet",
             content: (
               <p>
-                Platforma ait marka, yazi, arayuz ve yazilim unsurlari Kobipo'nun fikri mulkiyet haklari kapsamindadir.
+                Platforma ait marka, yazı, arayüz ve yazılım unsurları Kobipo'nun fikri mülkiyet hakları kapsamındadır.
               </p>
             ),
           },

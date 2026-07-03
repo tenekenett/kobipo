@@ -14,8 +14,8 @@ export default function KvkkPage() {
   return (
     <CorporatePageShell
       badge="Yasal"
-      title="KVKK Aydinlatma Metni"
-      description="6698 sayili Kisisel Verilerin Korunmasi Kanunu kapsaminda veri sorumlusu olarak aydinlatma yukumlulugumuzu bu metinle yerine getiriyoruz."
+      title="KVKK Aydınlatma Metni"
+      description="6698 sayılı Kişisel Verilerin Korunması Kanunu kapsamında veri sorumlusu olarak aydınlatma yükümlülüğümüzü bu metinle yerine getiriyoruz."
       breadcrumbs={[
         { label: "Ana Sayfa", href: "/" },
         { label: "KVKK" },
@@ -29,36 +29,36 @@ export default function KvkkPage() {
             title: "1. Veri Sorumlusu",
             content: (
               <p>
-                Kobipo, platform hizmetleri kapsaminda islenen kisisel veriler bakimindan veri sorumlusu sifatini tasir.
+                Kobipo, platform hizmetleri kapsamında işlenen kişisel veriler bakımından veri sorumlusu sıfatını taşır.
               </p>
             ),
           },
           {
             id: "isleme-amaci",
-            title: "2. Isleme Amaçlari",
+            title: "2. İşleme Amaçları",
             content: (
               <>
-                <p>Hizmetin saglanmasi, yasal yukumluluklerin yerine getirilmesi ve bilgi guvenliginin temini.</p>
-                <p>Musteri memnuniyeti, destek sureclerinin yurutilmesi ve urun gelistirme faaliyetleri.</p>
+                <p>Hizmetin sağlanması, yasal yükümlülüklerin yerine getirilmesi ve bilgi güvenliğinin temini.</p>
+                <p>Müşteri memnuniyeti, destek süreçlerinin yürütülmesi ve ürün geliştirme faaliyetleri.</p>
               </>
             ),
           },
           {
             id: "aktarim",
-            title: "3. Verilerin Aktarimi",
+            title: "3. Verilerin Aktarımı",
             content: (
               <p>
-                Veriler, yasal zorunluluklar veya hizmet altyapisinin gerektirdigi olculerde yurt ici hizmet saglayicilarla
-                paylasilabilir. Paylasimlar gerekli teknik ve idari tedbirler altinda gerceklestirilir.
+                Veriler, yasal zorunluluklar veya hizmet altyapısının gerektirdiği ölçülerde yurt içi hizmet sağlayıcılarla
+                paylaşılabilir. Paylaşımlar gerekli teknik ve idari tedbirler altında gerçekleştirilir.
               </p>
             ),
           },
           {
             id: "basvuru-hakki",
-            title: "4. Basvuru Hakki",
+            title: "4. Başvuru Hakkı",
             content: (
               <p>
-                KVKK'nin 11. maddesi kapsamindaki taleplerinizi yazili olarak veya kayitli e-posta kanali ile
+                KVKK'nin 11. maddesi kapsamındaki taleplerinizi yazılı olarak veya kayıtlı e-posta kanalı ile
                 destek@kobipo.com adresine iletebilirsiniz.
               </p>
             ),

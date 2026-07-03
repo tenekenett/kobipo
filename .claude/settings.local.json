@@ -38,7 +38,8 @@
       "Bash(grep -rlnE 'company=\\\\$\\\\{|company=[$]|setActiveCompany|activeCompany|company-switcher|firma' components app)",
       "Bash(grep -rnE \"/api/compan\\(y|ies\\)/\\\\\\\\\\\\$\\\\{\" \"app/\\(dashboard\\)\" components)",
       "Bash(grep -rnE \"/api/companies/\\\\\\\\\\\\$\\\\{[a-zA-Z]+\\\\}/\" \"app/\\(dashboard\\)\" components)",
-      "Bash(tee /tmp/claude-1000/-home-yasin-Belgeler-sirketselmidir-kobipo/9405eb67-9f07-47d1-b551-c057b363551c/scratchpad/tsc.log)"
+      "Bash(tee /tmp/claude-1000/-home-yasin-Belgeler-sirketselmidir-kobipo/9405eb67-9f07-47d1-b551-c057b363551c/scratchpad/tsc.log)",
+      "Bash(grep -vE \"className|href=|import|//\")"
     ]
   }
 }

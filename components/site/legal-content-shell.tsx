@@ -16,7 +16,7 @@ export function LegalContentShell({ updatedAt, sections }: LegalContentShellProp
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr] lg:gap-8">
       <aside className="lg:sticky lg:top-24 lg:self-start">
         <div className="rounded-2xl border border-kobipo-border bg-white p-4">
-          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-kobipo-gray">Icindekiler</div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-kobipo-gray">İçindekiler</div>
           <nav className="mt-3 space-y-2">
             {sections.map((section) => (
               <a
@@ -29,7 +29,7 @@ export function LegalContentShell({ updatedAt, sections }: LegalContentShellProp
             ))}
           </nav>
           <div className="mt-4 border-t border-kobipo-border pt-3 text-xs text-kobipo-gray">
-            Son guncelleme: <span className="font-semibold text-kobipo-text">{updatedAt}</span>
+            Son güncelleme: <span className="font-semibold text-kobipo-text">{updatedAt}</span>
           </div>
         </div>
       </aside>

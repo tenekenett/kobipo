@@ -14,8 +14,8 @@ export default function GizlilikPage() {
   return (
     <CorporatePageShell
       badge="Yasal"
-      title="Gizlilik Politikasi"
-      description="Kobipo platformunda toplanan verilerin hangi amaclarla islendigi, saklandigi ve korundugu bu metinde aciklanir."
+      title="Gizlilik Politikası"
+      description="Kobipo platformunda toplanan verilerin hangi amaçlarla işlendiği, saklandığı ve korunduğu bu metinde açıklanır."
       breadcrumbs={[
         { label: "Ana Sayfa", href: "/" },
         { label: "Gizlilik" },
@@ -29,8 +29,8 @@ export default function GizlilikPage() {
             title: "1. Kapsam",
             content: (
               <p>
-                Bu politika, Kobipo urun ve hizmetlerini kullanan tum gercek ve tuzel kisilere ait verilerin toplanmasi,
-                islenmesi ve korunmasina iliskin esaslari kapsar.
+                Bu politika, Kobipo ürün ve hizmetlerini kullanan tüm gerçek ve tüzel kişilere ait verilerin toplanması,
+                işlenmesi ve korunmasına ilişkin esasları kapsar.
               </p>
             ),
           },
@@ -39,28 +39,28 @@ export default function GizlilikPage() {
             title: "2. Toplanan Veriler",
             content: (
               <>
-                <p>Kullanim surecinde hesap bilgileri, islem kayitlari ve teknik log verileri toplanabilir.</p>
-                <p>Toplanan veriler yalnizca hizmetin sunulmasi, gelistirilmesi ve guvenligin saglanmasi amaciyla islenir.</p>
+                <p>Kullanım sürecinde hesap bilgileri, işlem kayıtları ve teknik log verileri toplanabilir.</p>
+                <p>Toplanan veriler yalnızca hizmetin sunulması, geliştirilmesi ve güvenliğin sağlanması amacıyla işlenir.</p>
               </>
             ),
           },
           {
             id: "saklama-sureleri",
-            title: "3. Saklama Sureleri",
+            title: "3. Saklama Süreleri",
             content: (
               <p>
-                Veriler mevzuatin zorunlu kildigi sureler boyunca veya hizmet iliskisinin devam ettigi makul surelerde
-                saklanir; sure sonunda uygun yontemlerle silinir veya anonim hale getirilir.
+                Veriler mevzuatın zorunlu kıldığı süreler boyunca veya hizmet ilişkisinin devam ettiği makul sürelerde
+                saklanır; süre sonunda uygun yöntemlerle silinir veya anonim hale getirilir.
               </p>
             ),
           },
           {
             id: "haklar",
-            title: "4. Kullanici Haklari",
+            title: "4. Kullanıcı Hakları",
             content: (
               <p>
-                Kullanici; verilerine erisim, duzeltme, silme ve itiraz haklarini yasal cercevede kullanabilir. Talepler
-                destek@kobipo.com uzerinden iletilebilir.
+                Kullanıcı; verilerine erişim, düzeltme, silme ve itiraz haklarını yasal çerçevede kullanabilir. Talepler
+                destek@kobipo.com üzerinden iletilebilir.
               </p>
             ),
           },

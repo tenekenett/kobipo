@@ -69,10 +69,10 @@ export default async function BlogDetailPage({ params }: Props) {
       ]}
       cta={{
         title: "Ekibinizle Kobipo'yu deneyin",
-        description: "Blogda anlattigimiz finans akislarini tek panelde hayata gecirin.",
-        primaryLabel: "Ucretsiz Basla",
+        description: "Blogda anlattığımız finans akışlarını tek panelde hayata geçirin.",
+        primaryLabel: "Ücretsiz Başla",
         primaryHref: "/signup",
-        secondaryLabel: "Tum Yazilar",
+        secondaryLabel: "Tüm Yazılar",
         secondaryHref: "/kurumsal/blog",
       }}
     >
@@ -107,7 +107,7 @@ export default async function BlogDetailPage({ params }: Props) {
 
         <div className="mt-8 border-t border-kobipo-border pt-5">
           <Link href="/kurumsal/blog" className="text-sm font-semibold text-kobipo-blue hover:text-kobipo-mid">
-            ← Tum yazilara don
+            ← Tüm yazılara dön
           </Link>
         </div>
       </article>

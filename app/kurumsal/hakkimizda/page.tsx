@@ -5,23 +5,23 @@ import { pageMetadata } from "@/lib/seo/metadata"
 const values = [
   {
     title: "Sadelik",
-    description: "KOBI'lerin finans operasyonunu yalnizca gerekli verilerle, sade bir panelde yonetmesini saglariz.",
+    description: "KOBİ'lerin finans operasyonunu yalnızca gerekli verilerle, sade bir panelde yönetmesini sağlarız.",
   },
   {
-    title: "Guven",
-    description: "Isletme verilerinde guvenlik ve dogruluk bizim icin temel urun ozelligidir.",
+    title: "Güven",
+    description: "İşletme verilerinde güvenlik ve doğruluk bizim için temel ürün özelliğidir.",
   },
   {
-    title: "Hiz",
-    description: "Gunluk operasyonu hizlandiran akislari onceleyerek ekiplerin verimli calismasini destekleriz.",
+    title: "Hız",
+    description: "Günlük operasyonu hızlandıran akışları önceleyerek ekiplerin verimli çalışmasını destekleriz.",
   },
 ]
 
 const timeline = [
-  { year: "2023", text: "Kobipo vizyonu KOBI odakli bir muhasebe platformu olarak sekillendi." },
-  { year: "2024", text: "Cari hesap ve fatura akislari canli musterilerde aktif kullanima alindi." },
-  { year: "2025", text: "Stok, e-donusum ve raporlama modulleri tek panelde birlestirildi." },
-  { year: "2026", text: "Kurumsal olcekte daha guclu otomasyon ve analitik altyapi devreye alindi." },
+  { year: "2023", text: "Kobipo vizyonu KOBİ odaklı bir muhasebe platformu olarak şekillendi." },
+  { year: "2024", text: "Cari hesap ve fatura akışları canlı müşterilerde aktif kullanıma alındı." },
+  { year: "2025", text: "Stok, e-dönüşüm ve raporlama modülleri tek panelde birleştirildi." },
+  { year: "2026", text: "Kurumsal ölçekte daha güçlü otomasyon ve analitik altyapı devreye alındı." },
 ]
 
 export const metadata: Metadata = pageMetadata({
@@ -34,19 +34,19 @@ export const metadata: Metadata = pageMetadata({
 export default function HakkimizdaPage() {
   return (
     <CorporatePageShell
-      badge="Sirket"
-      title="KOBI'ler icin net, hizli ve guvenli finans yonetimi."
-      description="Kobipo, isletmelerin finansal sureclerini tek bir merkezde toplamak icin gelistirildi. Hedefimiz, ekiplerin karar alirken guvendigi bir operasyon paneli sunmak."
+      badge="Şirket"
+      title="KOBİ'ler için net, hızlı ve güvenli finans yönetimi."
+      description="Kobipo, işletmelerin finansal süreçlerini tek bir merkezde toplamak için geliştirildi. Hedefimiz, ekiplerin karar alırken güvendiği bir operasyon paneli sunmak."
       breadcrumbs={[
         { label: "Ana Sayfa", href: "/" },
         { label: "Hakkımızda" },
       ]}
       cta={{
         title: "Kobipo'yu ekibinizle deneyin",
-        description: "30 gun ucretsiz baslayin, isletmenizin tum operasyonunu tek panelde gorun.",
-        primaryLabel: "Ucretsiz Basla",
+        description: "30 gün ücretsiz başlayın, işletmenizin tüm operasyonunu tek panelde görün.",
+        primaryLabel: "Ücretsiz Başla",
         primaryHref: "/signup",
-        secondaryLabel: "Iletisime Gecin",
+        secondaryLabel: "İletişime Geçin",
         secondaryHref: "/kurumsal/iletisim",
       }}
     >
@@ -60,16 +60,16 @@ export default function HakkimizdaPage() {
       </div>
 
       <section className="mt-8 rounded-2xl border border-kobipo-border bg-white p-6">
-        <h2 className="text-lg font-bold text-kobipo-navy">Hikayemiz</h2>
+        <h2 className="text-lg font-bold text-kobipo-navy">Hikâyemiz</h2>
         <p className="mt-2 text-sm leading-relaxed text-kobipo-text">
-          Isletmelerin gunluk finans akisinda yasanan daginikligi, tek bir dijital merkezde toplamak icin yola ciktik.
-          Kobipo bugun; cari yonetim, e-fatura, stok takibi ve raporlamayi birlestirerek KOBI ekiplerinin daha hizli
-          ve daha dogru karar almasina yardimci olur.
+          İşletmelerin günlük finans akışında yaşanan dağınıklığı, tek bir dijital merkezde toplamak için yola çıktık.
+          Kobipo bugün; cari yönetim, e-fatura, stok takibi ve raporlamayı birleştirerek KOBİ ekiplerinin daha hızlı
+          ve daha doğru karar almasına yardımcı olur.
         </p>
       </section>
 
       <section className="mt-8 rounded-2xl border border-kobipo-border bg-white p-6">
-        <h2 className="text-lg font-bold text-kobipo-navy">Kisa Zaman Cizelgesi</h2>
+        <h2 className="text-lg font-bold text-kobipo-navy">Kısa Zaman Çizelgesi</h2>
         <div className="mt-4 space-y-3">
           {timeline.map((item) => (
             <div key={item.year} className="flex gap-4 rounded-xl bg-kobipo-offwhite p-3">
