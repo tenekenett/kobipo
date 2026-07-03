@@ -15,6 +15,7 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { ArrowLeft, Package, TrendingUp, TrendingDown, BarChart3 } from "lucide-react"
 import Link from "next/link"
+import { looksLikeCuid } from "@/lib/slug"
 
 interface StockMovement {
   id: string
@@ -30,6 +31,7 @@ interface StockMovement {
 
 interface ProductDetail {
   id: string
+  slug?: string
   code?: string
   name: string
   barcode?: string
@@ -83,6 +85,10 @@ export default function ProductDetailPage() {
       if (response.ok) {
         const data = await response.json()
         setProduct(data)
+        // SEF: eski cuid URL ile gelindiyse okunabilir slug URL'ine sessizce yükselt.
+        if (data?.slug && looksLikeCuid(String(id))) {
+          router.replace(`/stok/${data.slug}?company=${companyId}`)
+        }
       } else {
         toast({
           title: "Hata",

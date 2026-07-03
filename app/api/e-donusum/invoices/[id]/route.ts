@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { sendInvoiceToProvider } from "@/lib/integrations/e-invoice/send-invoice-helper"
 import { revertInvoiceStock } from "@/lib/stock/warehouse"
+import { resolveSlugId } from "@/lib/slug-resolve"
 import { Decimal } from "@prisma/client/runtime/library"
 
 
@@ -66,8 +68,9 @@ export async function GET(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = await resolveSlugId("invoice", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const { searchParams } = new URL(request.url)
-    const queryCompanyId = searchParams.get("companyId")?.trim() || null
+    const queryCompanyId = (await resolveCompanyId(searchParams.get("companyId")))?.trim() || null
 
     const invoice = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id },
@@ -185,6 +188,7 @@ export async function PUT(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = await resolveSlugId("invoice", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const invoice = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id },
     })
@@ -379,6 +383,7 @@ export async function POST(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = await resolveSlugId("invoice", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
 
     // Yetki kontrolü için faturanın companyId'sini önce çek.
     const existing = await prisma.invoice.findUnique({
@@ -448,6 +453,7 @@ export async function DELETE(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = await resolveSlugId("invoice", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const invoiceId = resolvedParams.id
 
     // 1. Silinecek faturayı, içindeki ürünlerle (items) ve stokla bağlantılı olarak çekelim

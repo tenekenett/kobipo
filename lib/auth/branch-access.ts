@@ -16,6 +16,7 @@ export type ManageableCompany = {
 
 export type ManagedBranch = {
   id: string
+  slug: string
   name: string
   parentCompanyId: string
   parentName: string | null
@@ -84,6 +85,7 @@ export async function getManagedBranches(userId: string): Promise<ManagedBranch[
     where: { parentCompanyId: { in: adminCompanyIds }, isActive: true },
     select: {
       id: true,
+      slug: true,
       name: true,
       parentCompanyId: true,
       isEDonusumEnabled: true,
@@ -96,6 +98,7 @@ export async function getManagedBranches(userId: string): Promise<ManagedBranch[
     .filter((b) => !memberCompanyIds.has(b.id))
     .map((b) => ({
       id: b.id,
+      slug: b.slug,
       name: b.name,
       parentCompanyId: b.parentCompanyId as string,
       parentName: adminNameById.get(b.parentCompanyId ?? "") ?? null,

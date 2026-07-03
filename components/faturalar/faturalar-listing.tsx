@@ -43,6 +43,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
 interface FaturaRow {
   id: string
+  slug: string | null
   direction: "incoming" | "outgoing"
   source: "mysoft_inbox" | "manual_purchase" | "manual_sales" | "converted_inbox"
   date: string | null
@@ -68,6 +69,7 @@ interface Totals {
 
 interface Company {
   id: string
+  slug?: string
   isEDonusumEnabled?: boolean
 }
 
@@ -136,7 +138,7 @@ export default function FaturalarListing({
       const response = await fetch("/api/companies")
       if (!response.ok) return
       const companies = (await response.json()) as Company[]
-      setCompany(companies.find((item) => item.id === companyId) || null)
+      setCompany(companies.find((item) => item.id === companyId || item.slug === companyId) || null)
     } catch {
       // ignore
     }
@@ -632,7 +634,7 @@ export default function FaturalarListing({
                       className="cursor-pointer"
                       onClick={() => {
                         if (isInvoiceRow) {
-                          router.push(`/faturalar/${rawId}/onizleme?company=${companyId}`)
+                          router.push(`/faturalar/${row.slug || rawId}/onizleme?company=${companyId}`)
                         }
                       }}
                     >
@@ -686,7 +688,7 @@ export default function FaturalarListing({
                           {isInvoiceRow ? (
                             <>
                               <Link
-                                href={`/faturalar/${rawId}/onizleme?company=${companyId}`}
+                                href={`/faturalar/${row.slug || rawId}/onizleme?company=${companyId}`}
                               >
                                 <Button variant="outline" size="sm" title="Önizleme">
                                   <FileText className="h-4 w-4" />

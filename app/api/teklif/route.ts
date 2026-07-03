@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -68,7 +69,7 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { searchParams } = new URL(request.url)
-  const companyId = searchParams.get("companyId")
+  const companyId = await resolveCompanyId(searchParams.get("companyId"))
   const status = searchParams.get("status")
   // party: "customer" → satış teklifleri, "supplier" → satın alma teklifleri.
   // Quote modeli her ikisini paylaşır; filtre yoksa (eski davranış) tümü döner.
@@ -105,6 +106,7 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const body = await request.json()
+  body.companyId = await resolveCompanyId(body.companyId)
   const {
     companyId,
     quoteNo,

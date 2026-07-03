@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -71,7 +72,7 @@ export async function GET(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const { searchParams } = new URL(request.url)
-    const companyId = searchParams.get("companyId")
+    const companyId = await resolveCompanyId(searchParams.get("companyId"))
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     const eDocumentTypeRaw = searchParams.get("eDocumentType")
     const eDocumentType = eDocumentTypeRaw ? Number(eDocumentTypeRaw) : undefined
@@ -116,6 +117,7 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const body = await request.json()
+    body.companyId = await resolveCompanyId(body.companyId)
     const { companyId, sampleKey, isHasLogo, isHasStamp } = body
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
 

@@ -6,6 +6,7 @@ import { getManagedBranches } from "@/lib/auth/branch-access"
 
 export interface UserCompanyContext {
   companyId: string
+  companySlug: string
   companyName: string
   role: Role
   isActive: boolean
@@ -45,6 +46,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
       createdAt: Date
       company: {
         id: string
+        slug: string
         name: string
         isActive: boolean
         isEDonusumEnabled: boolean
@@ -70,6 +72,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
             company: {
               select: {
                 id: true,
+                slug: true,
                 name: true,
                 isActive: true,
                 isEDonusumEnabled: true,
@@ -91,6 +94,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
 
   const membershipCompanies: UserCompanyContext[] = user.companies.map((entry) => ({
     companyId: entry.company.id,
+    companySlug: entry.company.slug,
     companyName: entry.company.name,
     role: entry.role,
     isActive: entry.company.isActive,
@@ -107,6 +111,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
     const branches = await getManagedBranches(user.id)
     branchCompanies = branches.map((b) => ({
       companyId: b.id,
+      companySlug: b.slug,
       companyName: b.name,
       role: Role.ADMIN,
       isActive: true,

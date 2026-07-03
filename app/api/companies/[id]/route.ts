@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { encryptSecret } from "@/lib/crypto/secrets"
 
 
@@ -17,6 +18,7 @@ export async function GET(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = (await resolveCompanyId(resolvedParams.id)) ?? resolvedParams.id
     await ensureCompanyAccess(resolvedParams.id)
 
     const company = await prisma.company.findUnique({
@@ -93,6 +95,7 @@ export async function PUT(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = (await resolveCompanyId(resolvedParams.id)) ?? resolvedParams.id
     await ensureCompanyAccess(resolvedParams.id)
 
     const body = await request.json()

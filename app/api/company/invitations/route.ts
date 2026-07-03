@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { randomBytes } from "crypto"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const companyId = new URL(request.url).searchParams.get("companyId")
+  const companyId = await resolveCompanyId(new URL(request.url).searchParams.get("companyId"))
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
   await ensureCompanyAccess(companyId)
 
@@ -51,7 +52,8 @@ export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { companyId, email, role } = await request.json()
+  const { companyId: __cidRaw, email, role } = await request.json()
+  const companyId = await resolveCompanyId(__cidRaw)
   if (!companyId || !email || !role) {
     return NextResponse.json({ error: "companyId, email and role are required" }, { status: 400 })
   }

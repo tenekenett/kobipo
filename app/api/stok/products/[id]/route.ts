@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { resolveSlugId } from "@/lib/slug-resolve"
 
 
 export const dynamic = 'force-dynamic'
@@ -16,6 +18,7 @@ export async function GET(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = await resolveSlugId("product", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const product = await prisma.product.findUnique({
       where: { id: resolvedParams.id },
       include: {
@@ -107,6 +110,7 @@ export async function PUT(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = await resolveSlugId("product", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const product = await prisma.product.findUnique({
       where: { id: resolvedParams.id },
     })
@@ -195,6 +199,7 @@ export async function DELETE(
     }
 
     const resolvedParams = await params
+    resolvedParams.id = await resolveSlugId("product", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const product = await prisma.product.findUnique({
       where: { id: resolvedParams.id },
     })

@@ -157,6 +157,7 @@ model VerificationToken {
 
 model Company {
   id          String   @id @default(cuid())
+  slug        String   @unique @default("")
   name        String
   // Şubeler ana firmayla aynı VKN'yi paylaşabildiği için taxNumber global benzersiz
   // DEĞİLDİR. Aynı tüzel kişinin (parentCompanyId) birden fazla şubesi olabilir.

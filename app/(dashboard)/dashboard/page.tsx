@@ -167,7 +167,7 @@ export default async function DashboardIndexPage({
   const query = (await searchParams) || {}
   const requestedCompanyId = typeof query.company === "string" ? query.company : undefined
   const selectedCompany =
-    authContext.companies.find((company) => company.companyId === requestedCompanyId) ||
+    authContext.companies.find((company) => company.companyId === requestedCompanyId || company.companySlug === requestedCompanyId) ||
     authContext.activeCompany ||
     authContext.companies[0]
 

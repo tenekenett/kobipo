@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const url = new URL(request.url)
-    const companyId = url.searchParams.get("companyId")
+    const companyId = await resolveCompanyId(url.searchParams.get("companyId"))
     const vkn = (url.searchParams.get("vkn") || "").replace(/\D/g, "")
     if (!companyId) {
       return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })

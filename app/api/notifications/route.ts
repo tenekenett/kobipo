@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -9,7 +10,7 @@ export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const searchParams = new URL(request.url).searchParams
-  const companyId = searchParams.get("companyId")
+  const companyId = await resolveCompanyId(searchParams.get("companyId"))
   const mode = searchParams.get("mode")
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
   await ensureCompanyAccess(companyId)
@@ -31,7 +32,8 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const { companyId, id, all } = await request.json()
+  const { companyId: __cidRaw, id, all } = await request.json()
+  const companyId = await resolveCompanyId(__cidRaw)
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
   await ensureCompanyAccess(companyId)
 
@@ -57,7 +59,9 @@ export async function PATCH(request: Request) {
 export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const { companyId, title, message, type, link } = await request.json()
+  const { companyId: __cidRaw, title, message, type, link } = await request.json()
+  const companyId = await resolveCompanyId(__cidRaw)
+  if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
   await ensureCompanyAccess(companyId)
   const created = await prisma.notification.create({
     data: { companyId, title, message, type: type || "INFO", link },

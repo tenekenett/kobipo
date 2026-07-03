@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
+import { looksLikeCuid } from "@/lib/slug"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -33,6 +34,7 @@ interface InvoiceItem {
 
 interface Invoice {
   id: string
+  slug?: string
   invoiceNo: string
   type: "SALES" | "PURCHASE"
   invoiceType: "E_INVOICE" | "E_ARCHIVE"
@@ -105,6 +107,10 @@ export default function InvoiceDetailPage() {
       if (response.ok) {
         const data = await response.json()
         setInvoice(data)
+        // SEF: eski cuid URL ile gelindiyse okunabilir slug URL'ine sessizce yükselt.
+        if (data?.slug && looksLikeCuid(String(id))) {
+          router.replace(`/e-donusum/${data.slug}?company=${companyId}`)
+        }
       } else {
         toast({
           title: "Hata",

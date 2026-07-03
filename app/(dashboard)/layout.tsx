@@ -61,6 +61,7 @@ export default async function DashboardLayout({
 
   const initialCompanies = visibleCompanies.map((entry) => ({
     id: entry.companyId,
+    slug: entry.companySlug,
     name: entry.companyName,
     isEDonusumEnabled: entry.isEDonusumEnabled,
     disabledModules: entry.disabledModules,

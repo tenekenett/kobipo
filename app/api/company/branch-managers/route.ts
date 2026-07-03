@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { randomBytes } from "crypto"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -101,7 +102,8 @@ export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { companyId, email } = await request.json()
+  const { companyId: __cidRaw, email } = await request.json()
+  const companyId = await resolveCompanyId(__cidRaw)
   if (!companyId || !email) {
     return NextResponse.json({ error: "companyId ve email zorunludur" }, { status: 400 })
   }

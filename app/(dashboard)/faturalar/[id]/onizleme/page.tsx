@@ -28,6 +28,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useToast } from "@/components/ui/use-toast"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
+import { looksLikeCuid } from "@/lib/slug"
 
 const PROFILE_LABELS: Record<string, string> = {
   TICARIFATURA: "Ticari",
@@ -43,6 +44,7 @@ function formatProfileLabel(profile: string | null | undefined): string | null {
 
 interface Invoice {
   id: string
+  slug?: string
   invoiceNo: string
   eDocumentNo?: string | null
   date: string
@@ -149,6 +151,10 @@ export default function FaturaOnizlemePage() {
         setInvoice(data)
         fetchAttachments()
         setLoadError(null)
+        // SEF: eski cuid URL ile gelindiyse okunabilir slug URL'ine sessizce yükselt.
+        if (data?.slug && looksLikeCuid(String(invoiceId))) {
+          router.replace(`/faturalar/${data.slug}/onizleme?company=${companyId}`)
+        }
         return
       }
       const body = await response.json().catch(() => ({}))

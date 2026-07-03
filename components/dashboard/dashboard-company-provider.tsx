@@ -3,13 +3,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
+  companySlugForId,
+  findCompanyByParam,
   getFirstAccessibleCompanyId,
-  isAccessibleCompanyId,
   withCompanyQuery,
 } from "@/lib/company/client-selection"
 
 export type DashboardCompany = {
   id: string
+  slug?: string
   name: string
   isEDonusumEnabled?: boolean
   disabledModules?: string[]
@@ -50,9 +52,9 @@ export function DashboardCompanyProvider({
 
   const pushCompanyToUrl = useCallback(
     (companyId: string) => {
-      router.replace(withCompanyQuery(searchParams.toString(), companyId))
+      router.replace(withCompanyQuery(searchParams.toString(), companySlugForId(companies, companyId)))
     },
-    [router, searchParams]
+    [router, searchParams, companies]
   )
 
   useEffect(() => {
@@ -82,10 +84,17 @@ export function DashboardCompanyProvider({
   }, [fetchCompanies, initialCompanies.length])
 
   useEffect(() => {
-    const companyId = searchParams.get("company")
-    if (companyId) {
-      setSelectedCompanyId(companyId)
-      localStorage.setItem("selectedCompanyId", companyId)
+    const raw = searchParams.get("company")
+    if (raw) {
+      // URL slug VEYA cuid taşıyabilir → içeride her zaman cuid tut.
+      const match = findCompanyByParam(companies, raw)
+      const resolvedId = match?.id ?? raw
+      setSelectedCompanyId(resolvedId)
+      localStorage.setItem("selectedCompanyId", resolvedId)
+      // Eski cuid URL'i okunabilir slug'a sessizce yükselt.
+      if (match?.slug && match.slug !== raw) {
+        router.replace(withCompanyQuery(searchParams.toString(), match.slug))
+      }
     } else {
       const stored = localStorage.getItem("selectedCompanyId")
       if (stored) {
@@ -93,13 +102,20 @@ export function DashboardCompanyProvider({
         pushCompanyToUrl(stored)
       }
     }
-  }, [searchParams, pushCompanyToUrl])
+  }, [searchParams, companies, router, pushCompanyToUrl])
 
   useEffect(() => {
     if (companies.length === 0) return
 
-    const selectedIsValid = isAccessibleCompanyId(companies, selectedCompanyId)
-    if (selectedIsValid) return
+    // selectedCompanyId slug de olabilir (companies yüklenmeden set edildiyse) → cuid'e düzelt.
+    const match = findCompanyByParam(companies, selectedCompanyId)
+    if (match) {
+      if (match.id !== selectedCompanyId) {
+        setSelectedCompanyId(match.id)
+        localStorage.setItem("selectedCompanyId", match.id)
+      }
+      return
+    }
 
     const firstCompanyId = getFirstAccessibleCompanyId(companies)
     if (!firstCompanyId) return
@@ -113,9 +129,9 @@ export function DashboardCompanyProvider({
     (companyId: string) => {
       setSelectedCompanyId(companyId)
       localStorage.setItem("selectedCompanyId", companyId)
-      router.push(withCompanyQuery(searchParams.toString(), companyId))
+      router.push(withCompanyQuery(searchParams.toString(), companySlugForId(companies, companyId)))
     },
-    [router, searchParams]
+    [router, searchParams, companies]
   )
 
   const selectedCompany = useMemo(

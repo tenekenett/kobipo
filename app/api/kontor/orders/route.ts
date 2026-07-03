@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { requireSuperAdmin } from "@/lib/auth/require-super-admin"
 import { prisma } from "@/lib/db/prisma"
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ data: orders })
   }
 
-  const companyId = searchParams.get("companyId")
+  const companyId = await resolveCompanyId(searchParams.get("companyId"))
   if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
   await ensureCompanyAccess(companyId)
   const orders = await prisma.kontorOrder.findMany({

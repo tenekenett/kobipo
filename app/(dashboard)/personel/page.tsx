@@ -22,6 +22,7 @@ import { Plus, RefreshCcw, Trash2, Search, Pencil, UserX, UserCheck, Users } fro
 
 type Employee = {
   id: string
+  slug?: string
   firstName: string
   lastName: string
   nationalId?: string | null
@@ -268,7 +269,7 @@ export default function PersonellerPage() {
                 </TableHeader>
                 <TableBody>
                   {paged.map((e, idx) => (
-                    <StyledTableRow key={e.id} index={idx} className="cursor-pointer" onClick={() => router.push(`/personel/${e.id}${companyQs}`)}>
+                    <StyledTableRow key={e.id} index={idx} className="cursor-pointer" onClick={() => router.push(`/personel/${e.slug || e.id}${companyQs}`)}>
                       <TableCell>
                         <div className="font-medium text-kobipo-blue">{e.firstName} {e.lastName}</div>
                         {e.phone && <div className="text-xs text-muted-foreground">{e.phone}</div>}

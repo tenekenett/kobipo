@@ -27,6 +27,7 @@ import Link from "next/link"
 
 interface Invoice {
   id: string
+  slug?: string
   invoiceNo: string
   type: string
   invoiceType: string
@@ -40,6 +41,7 @@ interface Invoice {
 
 interface CompanySettings {
   id: string
+  slug?: string
   isEDonusumEnabled?: boolean
 }
 
@@ -101,7 +103,7 @@ export default function EDönüşümPage() {
       const response = await fetch("/api/companies")
       if (!response.ok) return
       const companies = (await response.json()) as CompanySettings[]
-      setCompanySettings(companies.find((company) => company.id === companyId) || null)
+      setCompanySettings(companies.find((company) => company.id === companyId || company.slug === companyId) || null)
     } catch (error) {
       console.error("Error fetching company settings:", error)
     }
@@ -570,7 +572,7 @@ export default function EDönüşümPage() {
                     key={invoice.id}
                     index={idx}
                     className="cursor-pointer"
-                    onClick={() => router.push(`/e-donusum/${invoice.id}?company=${companyId}`)}
+                    onClick={() => router.push(`/e-donusum/${invoice.slug || invoice.id}?company=${companyId}`)}
                   >
                     <TableCell className="font-mono text-xs text-kobipo-blue font-medium">{invoice.invoiceNo}</TableCell>
                     <TableCell className="text-xs">
@@ -614,7 +616,7 @@ export default function EDönüşümPage() {
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center space-x-2">
-                        <Link href={`/e-donusum/${invoice.id}?company=${companyId}`}>
+                        <Link href={`/e-donusum/${invoice.slug || invoice.id}?company=${companyId}`}>
                           <Button variant="outline" size="sm">
                             <Eye className="mr-1 h-3 w-3" />
                             Önizle

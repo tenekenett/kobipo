@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -19,7 +20,7 @@ export async function GET(
     const productId = resolvedParams.id
     
     const { searchParams } = new URL(request.url)
-    const companyId = searchParams.get("companyId")
+    const companyId = await resolveCompanyId(searchParams.get("companyId"))
     const customerId = searchParams.get("customerId") // Opsiyonel: Sadece o cariye ait satışlar için
     const supplierId = searchParams.get("supplierId") // Opsiyonel: Sadece o tedarikçiden alışlar için
 

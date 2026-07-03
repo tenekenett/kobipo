@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { looksLikeCuid } from "@/lib/slug"
 import Link from "next/link"
 import {
   ArrowDownLeft,
@@ -66,6 +67,7 @@ interface AccountTransaction {
 
 interface AccountDetail {
   id: string
+  slug?: string
   companyId: string
   code?: string | null
   name: string
@@ -118,7 +120,7 @@ export default function FinansKanalDetayPage() {
   const fetchAccount = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await fetch(`/api/finans/accounts/${id}`, { cache: "no-store" })
+      const res = await fetch(`/api/finans/accounts/${id}${companyId ? `?companyId=${companyId}` : ""}`, { cache: "no-store" })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         toast({ title: "Hata", description: data.error || "Hesap yüklenemedi", variant: "destructive" })
@@ -126,12 +128,16 @@ export default function FinansKanalDetayPage() {
         return
       }
       setAccount(data)
+      // SEF: eski cuid URL ile gelindiyse okunabilir slug URL'ine sessizce yükselt.
+      if (data?.slug && looksLikeCuid(String(id))) {
+        router.replace(`/finans/kanallar/${data.slug}?company=${companyId}`)
+      }
     } catch {
       toast({ title: "Hata", description: "Hesap yüklenemedi", variant: "destructive" })
     } finally {
       setIsLoading(false)
     }
-  }, [id, toast])
+  }, [id, companyId, router, toast])
 
   useEffect(() => {
     fetchAccount()

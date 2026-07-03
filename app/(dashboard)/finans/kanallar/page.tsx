@@ -28,6 +28,7 @@ import { Banknote, ChevronRight, CreditCard, Plus, Wallet } from "lucide-react"
 
 interface Account {
   id: string
+  slug?: string
   code?: string | null
   name: string
   type: string
@@ -198,7 +199,7 @@ export default function FinansKanallariPage() {
               {accounts.map((acc) => (
                 <Link
                   key={acc.id}
-                  href={`/finans/kanallar/${acc.id}?company=${encodeURIComponent(companyId)}`}
+                  href={`/finans/kanallar/${acc.slug || acc.id}?company=${encodeURIComponent(companyId)}`}
                   className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/60 focus:outline-none focus-visible:bg-muted/60"
                 >
                   <div className="flex min-w-0 items-center gap-3">

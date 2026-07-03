@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url)
-    const companyId = searchParams.get("companyId")
+    const companyId = await resolveCompanyId(searchParams.get("companyId"))
     const type = searchParams.get("type")
     const status = searchParams.get("status")
 
@@ -74,6 +75,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
+    body.companyId = await resolveCompanyId(body.companyId)
     const {
       companyId,
       waybillNo,

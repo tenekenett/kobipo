@@ -19,7 +19,26 @@
       "Bash(npm install *)",
       "Bash(supabase --version)",
       "Bash(npx prisma *)",
-      "Bash(grep -nE \"slug|interface .*\\\\{|type .*= \\\\{|id:\\\\s|id\\\\?:|code\\\\?:|name:\\\\s|router\\\\.push\\\\\\(|href=|/cari/\\\\\\\\\\\\$\\\\{|\\\\.id\\\\}|item\\\\.id|\\\\.map\\\\\\(\" \"app/\\(dashboard\\)/cari/page.tsx\")"
+      "Bash(grep -nE \"slug|interface .*\\\\{|type .*= \\\\{|id:\\\\s|id\\\\?:|code\\\\?:|name:\\\\s|router\\\\.push\\\\\\(|href=|/cari/\\\\\\\\\\\\$\\\\{|\\\\.id\\\\}|item\\\\.id|\\\\.map\\\\\\(\" \"app/\\(dashboard\\)/cari/page.tsx\")",
+      "Bash(grep -rln '\\\\$queryRaw' 'app/\\(dashboard\\)/cari' app/api/cari)",
+      "Bash(grep -rln '\\\\$queryRaw' app/api lib)",
+      "Bash(sort -t: -k2 -rn)",
+      "Bash(grep -nE '/stok/\\\\$\\\\{|href=.*stok/|push\\\\\\(`?/stok/|/stok/\\\\$\\\\{[a-zA-Z]' \"app/\\(dashboard\\)/stok/page.tsx\")",
+      "Bash(grep -nE '/stok/\\\\$\\\\{|href=.*stok/|push\\\\\\(`?/stok/' \"app/\\(dashboard\\)/stok/urunler/page.tsx\")",
+      "Bash(grep -nE 'slug|/cari/\\\\$\\\\{|customers/\\\\$\\\\{|suppliers/\\\\$\\\\{|\\\\.slug' \"app/\\(dashboard\\)/cari/page.tsx\")",
+      "Bash(npx next *)",
+      "Bash(cd *)",
+      "Bash(grep -nE '/teklif/\\\\$\\\\{|push\\\\\\(`?/teklif/|href=.*teklif/|slug|interface .*Quote|type .*Quote|\\\\.id\\\\b' \"app/\\(dashboard\\)/teklif/page.tsx\")",
+      "Bash(grep -nE '/personel/\\\\$\\\\{|push\\\\\\(`?/personel/|href=.*personel/|slug|type .*Emp|interface .*Emp' \"app/\\(dashboard\\)/personel/page.tsx\")",
+      "Bash(grep -nE '/finans/kanallar/\\\\$\\\\{|push\\\\\\(`?/finans/kanallar/|href=.*kanallar/|slug|interface .*Account|type .*Account' \"app/\\(dashboard\\)/finans/kanallar/page.tsx\")",
+      "Bash(grep -nA2 'export async function \\\\\\(GET\\\\|PUT\\\\|POST\\\\|DELETE\\\\\\)\\(' \"app/api/e-donusum/invoices/[id]/route.ts\")",
+      "Bash(grep -nE 'useParams|params\\\\.id|const id|invoiceId|companyId|searchParams\\\\.get|useRouter|router\\\\.|fetch\\\\\\(`?/api/e-donusum/invoices|setInvoice|useState<|interface Invoice|type Invoice|\\\\.slug' \"app/\\(dashboard\\)/e-donusum/[id]/page.tsx\")",
+      "Bash(node ./_verify-slug.tmp.js)",
+      "Bash(awk '/^model Company \\\\{/,/^\\\\}/' prisma/schema.prisma)",
+      "Bash(grep -rlnE 'company=\\\\$\\\\{|company=[$]|setActiveCompany|activeCompany|company-switcher|firma' components app)",
+      "Bash(grep -rnE \"/api/compan\\(y|ies\\)/\\\\\\\\\\\\$\\\\{\" \"app/\\(dashboard\\)\" components)",
+      "Bash(grep -rnE \"/api/companies/\\\\\\\\\\\\$\\\\{[a-zA-Z]+\\\\}/\" \"app/\\(dashboard\\)\" components)",
+      "Bash(tee /tmp/claude-1000/-home-yasin-Belgeler-sirketselmidir-kobipo/9405eb67-9f07-47d1-b551-c057b363551c/scratchpad/tsc.log)"
     ]
   }
 }

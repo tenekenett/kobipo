@@ -35,6 +35,7 @@ import { Plus, RefreshCcw, Trash2, Eye, Minus } from "lucide-react"
 
 type Quote = {
   id: string
+  slug?: string
   quoteNo: string
   status: string
   date: string
@@ -435,11 +436,11 @@ export default function TeklifPage() {
                     key={quote.id}
                     index={idx}
                     className="cursor-pointer"
-                    onClick={() => router.push(`/teklif/${quote.id}${companyQs}`)}
+                    onClick={() => router.push(`/teklif/${quote.slug || quote.id}${companyQs}`)}
                   >
                     <TableCell className="font-medium">
                       <Link
-                        href={`/teklif/${quote.id}${companyQs}`}
+                        href={`/teklif/${quote.slug || quote.id}${companyQs}`}
                         className="font-mono text-xs text-kobipo-blue hover:underline"
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -462,7 +463,7 @@ export default function TeklifPage() {
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
                         <Button size="sm" variant="ghost" asChild title="Detayı aç">
-                          <Link href={`/teklif/${quote.id}${companyQs}`}>
+                          <Link href={`/teklif/${quote.slug || quote.id}${companyQs}`}>
                             <Eye className="h-4 w-4" />
                           </Link>
                         </Button>

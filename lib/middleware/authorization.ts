@@ -39,6 +39,7 @@ export const writePermissions: Record<string, Role[]> = {
 
 export interface UserRole {
   companyId: string
+  companySlug: string
   companyName: string
   role: Role
   isActive: boolean
@@ -62,6 +63,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
 
   const companies: UserRole[] = user.companies.map((company) => ({
     companyId: company.companyId,
+    companySlug: company.companySlug,
     companyName: company.companyName,
     role: company.role,
     isActive: company.isActive,
@@ -94,8 +96,11 @@ export function resolveActiveCompany(
   requestedCompanyId?: string | null,
 ): UserRole | null {
   if (requestedCompanyId) {
+    // URL param'ı slug (SEF) VEYA cuid (eski bookmark) olabilir; ikisini de eşle.
     const match = context.companies.find(
-      (c) => c.companyId === requestedCompanyId && c.isActive,
+      (c) =>
+        (c.companyId === requestedCompanyId || c.companySlug === requestedCompanyId) &&
+        c.isActive,
     )
     if (match) return match
   }

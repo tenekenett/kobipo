@@ -23,6 +23,7 @@ import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { ArrowLeft, Building2, Download, FileText, Landmark, Loader2, Minus, Plus, Save } from "lucide-react"
+import { looksLikeCuid } from "@/lib/slug"
 
 type QuoteItem = {
   id?: string
@@ -37,6 +38,7 @@ type QuoteItem = {
 
 type QuoteDetail = {
   id: string
+  slug?: string
   companyId: string
   quoteNo: string
   status: string
@@ -146,7 +148,7 @@ export default function TeklifDetailPage() {
     if (!id) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/teklif/${id}`)
+      const res = await fetch(`/api/teklif/${id}${companyId ? `?companyId=${companyId}` : ""}`)
       if (!res.ok) {
         toast({ title: "Hata", description: "Teklif yüklenemedi", variant: "destructive" })
         setQuote(null)
@@ -154,6 +156,10 @@ export default function TeklifDetailPage() {
       }
       const data = (await res.json()) as QuoteDetail
       setQuote(data)
+      // SEF: eski cuid URL ile gelindiyse okunabilir slug URL'ine sessizce yükselt.
+      if (data?.slug && looksLikeCuid(String(id))) {
+        router.replace(`/teklif/${data.slug}?company=${companyId}`)
+      }
       setCustomerId(data.customerId || "")
       setCurrency(data.currency || "TRY")
       setDate(data.date ? new Date(data.date).toISOString().split("T")[0] : "")
@@ -176,7 +182,7 @@ export default function TeklifDetailPage() {
     } finally {
       setLoading(false)
     }
-  }, [id, toast])
+  }, [id, companyId, router, toast])
 
   useEffect(() => {
     load()

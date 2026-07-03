@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { resolveSlugId } from "@/lib/slug-resolve"
 
 export const dynamic = "force-dynamic"
 
@@ -45,13 +47,14 @@ function calculateTotals(items: any[]) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { id } = await params
+  const { id: rawId } = await params
+  const id = await resolveSlugId("quote", rawId, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
   const quote = await prisma.quote.findUnique({
     where: { id },
     include: {
@@ -73,7 +76,8 @@ export async function PUT(
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { id } = await params
+  const { id: rawId } = await params
+  const id = await resolveSlugId("quote", rawId, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
   const existing = await prisma.quote.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Quote not found" }, { status: 404 })
 
@@ -116,13 +120,14 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { id } = await params
+  const { id: rawId } = await params
+  const id = await resolveSlugId("quote", rawId, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
   const existing = await prisma.quote.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Quote not found" }, { status: 404 })
 

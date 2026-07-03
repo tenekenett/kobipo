@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -32,7 +33,7 @@ export async function GET(
     }
 
     const url = new URL(request.url)
-    const companyId = url.searchParams.get("companyId")
+    const companyId = await resolveCompanyId(url.searchParams.get("companyId"))
     if (!companyId) {
       return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     }

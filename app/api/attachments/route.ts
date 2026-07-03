@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const body = await request.json()
+  body.companyId = await resolveCompanyId(body.companyId)
   const { companyId, entityType, entityId, fileName, mimeType, sizeBytes } = body
   await ensureCompanyAccess(companyId)
   const filePath = `supabase://attachments/${companyId}/${Date.now()}-${fileName}`

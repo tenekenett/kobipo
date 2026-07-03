@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const url = new URL(request.url)
-    const companyId = url.searchParams.get("companyId")
+    const companyId = await resolveCompanyId(url.searchParams.get("companyId"))
     if (!companyId) {
       return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     }
@@ -54,6 +55,7 @@ export async function GET(request: Request) {
 
     type Row = {
       id: string
+      slug: string | null
       direction: "incoming" | "outgoing"
       source: "mysoft_inbox" | "manual_purchase" | "manual_sales" | "converted_inbox"
       date: string | null
@@ -98,6 +100,7 @@ export async function GET(request: Request) {
       for (const r of incoming) {
         out.push({
           id: `incoming:${r.id}`,
+          slug: null,
           direction: "incoming",
           source: "mysoft_inbox",
           date: r.docDate ? r.docDate.toISOString() : null,
@@ -178,6 +181,7 @@ export async function GET(request: Request) {
         const convertedFromInbox = Boolean(inbox)
         out.push({
           id: `invoice:${r.id}`,
+          slug: r.slug,
           direction: "incoming",
           source: convertedFromInbox ? "converted_inbox" : "manual_purchase",
           date: r.date.toISOString(),
@@ -235,6 +239,7 @@ export async function GET(request: Request) {
       for (const r of sales) {
         out.push({
           id: `invoice:${r.id}`,
+          slug: r.slug,
           direction: "outgoing",
           source: "manual_sales",
           date: r.date.toISOString(),

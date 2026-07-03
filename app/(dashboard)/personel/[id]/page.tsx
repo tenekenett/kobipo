@@ -1,8 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { useParams, useSearchParams } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
+import { looksLikeCuid } from "@/lib/slug"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -24,6 +25,7 @@ import { ArrowLeft, FileText, FileDown, ExternalLink, Plus, Pencil, Trash2, Wall
 
 type Employee = {
   id: string
+  slug?: string
   firstName: string
   lastName: string
   nationalId?: string | null
@@ -97,6 +99,7 @@ function Field({ label, value }: { label: string; value?: React.ReactNode }) {
 export default function PersonelDetayPage() {
   const params = useParams<{ id: string }>()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const { toast } = useToast()
   const { confirm } = useConfirm()
   const companyId = searchParams.get("company")
@@ -130,13 +133,19 @@ export default function PersonelDetayPage() {
   const fetchEmp = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await fetch(`/api/personel/employees/${id}`)
-      if (res.ok) setEmp(await res.json())
-      else setEmp(null)
+      const res = await fetch(`/api/personel/employees/${id}${companyId ? `?companyId=${companyId}` : ""}`)
+      if (res.ok) {
+        const data = await res.json()
+        setEmp(data)
+        // SEF: eski cuid URL ile gelindiyse okunabilir slug URL'ine sessizce yükselt.
+        if (data?.slug && looksLikeCuid(String(id))) {
+          router.replace(`/personel/${data.slug}?company=${companyId}`)
+        }
+      } else setEmp(null)
     } finally {
       setIsLoading(false)
     }
-  }, [id])
+  }, [id, companyId, router])
 
   useEffect(() => { fetchEmp() }, [fetchEmp])
 
@@ -159,7 +168,7 @@ export default function PersonelDetayPage() {
     }
     setEditSaving(true)
     try {
-      const res = await fetch(`/api/personel/employees/${id}`, {
+      const res = await fetch(`/api/personel/employees/${id}${companyId ? `?companyId=${companyId}` : ""}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...editForm, grossSalary: editForm.grossSalary || null }),

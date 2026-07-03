@@ -32,6 +32,7 @@ export async function GET() {
       .filter((c) => context.isSuperAdmin || c.isActive)
       .map((c) => ({
         id: c.companyId,
+        slug: c.companySlug,
         name: c.companyName,
         isEDonusumEnabled: c.isEDonusumEnabled,
         disabledModules: c.disabledModules,

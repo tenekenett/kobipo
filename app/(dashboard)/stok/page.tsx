@@ -38,6 +38,7 @@ import Link from "next/link"
 
 interface Product {
   id: string
+  slug?: string
   code?: string
   name: string
   barcode?: string
@@ -876,7 +877,7 @@ export default function StokPage() {
                     key={product.id}
                     index={idx}
                     className="cursor-pointer"
-                    onClick={() => router.push(`/stok/${product.id}?company=${companyId}`)}
+                    onClick={() => router.push(`/stok/${product.slug || product.id}?company=${companyId}`)}
                   >
                     <TableCell><MonoCell value={product.code} /></TableCell>
                     <TableCell className="font-medium">
@@ -969,7 +970,7 @@ export default function StokPage() {
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex gap-1">
-                        <Link href={`/stok/${product.id}?company=${companyId}`}>
+                        <Link href={`/stok/${product.slug || product.id}?company=${companyId}`}>
                           <Button variant="ghost" size="sm">
                             <Eye className="h-4 w-4 mr-1" />
                             Detay

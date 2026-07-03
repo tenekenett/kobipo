@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { searchParams } = new URL(request.url)
-  const companyId = searchParams.get("companyId")
+  const companyId = await resolveCompanyId(searchParams.get("companyId"))
   const year = searchParams.get("year")
   const month = searchParams.get("month")
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const body = await request.json()
+  body.companyId = await resolveCompanyId(body.companyId)
   const { companyId, employeeId, periodYear, periodMonth } = body
   if (!companyId || !employeeId || !periodYear || !periodMonth) {
     return NextResponse.json({ error: "companyId, employeeId, periodYear, periodMonth zorunlu" }, { status: 400 })

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -36,7 +37,7 @@ export async function GET(
     }
 
     const resolvedParams = await params
-    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, new URL(request.url).searchParams.get("companyId"))
+    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
 
     // Hafif yol: silme diyaloğu yalnızca silinebilirliği ister. Tüm ekstreyi
     // (bakiye + faturalar + işlemler + çek/senet + yürüyen bakiye) hesaplamadan
@@ -276,7 +277,7 @@ export async function PUT(
     }
 
     const resolvedParams = await params
-    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, new URL(request.url).searchParams.get("companyId"))
+    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const customer = await prisma.customer.findUnique({
       where: { id: resolvedParams.id },
     })
@@ -567,7 +568,7 @@ export async function DELETE(
     }
 
     const resolvedParams = await params
-    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, new URL(request.url).searchParams.get("companyId"))
+    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const customer = await prisma.customer.findUnique({
       where: { id: resolvedParams.id },
     })
@@ -623,7 +624,7 @@ export async function PATCH(
     }
 
     const resolvedParams = await params
-    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, new URL(request.url).searchParams.get("companyId"))
+    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const customer = await prisma.customer.findUnique({
       where: { id: resolvedParams.id },
     })
