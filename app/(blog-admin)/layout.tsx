@@ -7,6 +7,9 @@ import { Toaster } from "@/components/ui/toaster"
 
 export const dynamic = "force-dynamic"
 
+// Yönetim paneli arama motorlarınca indekslenmemeli.
+export const metadata = { robots: { index: false, follow: false } }
+
 export default async function BlogAdminLayout({
   children,
 }: {

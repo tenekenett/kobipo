@@ -7,6 +7,9 @@ import { Toaster } from "@/components/ui/toaster"
 
 export const dynamic = "force-dynamic"
 
+// Sistem yönetim paneli arama motorlarınca indekslenmemeli.
+export const metadata = { robots: { index: false, follow: false } }
+
 export default async function SystemAdminLayout({
   children,
 }: {

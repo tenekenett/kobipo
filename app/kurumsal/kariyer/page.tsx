@@ -1,4 +1,6 @@
+import type { Metadata } from "next"
 import { CorporatePageShell } from "@/components/site/corporate-page-shell"
+import { pageMetadata } from "@/lib/seo/metadata"
 
 const jobs = [
   { title: "Frontend Developer", location: "Istanbul / Hibrit", type: "Tam zamanli" },
@@ -6,12 +8,23 @@ const jobs = [
   { title: "Product Designer", location: "Istanbul / Hibrit", type: "Tam zamanli" },
 ]
 
+export const metadata: Metadata = pageMetadata({
+  title: "Kariyer",
+  description:
+    "Kobipo'da açık pozisyonları inceleyin. Ürün, teknoloji ve müşteri deneyimini birlikte geliştiren ekibimize katılın.",
+  path: "/kurumsal/kariyer",
+})
+
 export default function KariyerPage() {
   return (
     <CorporatePageShell
       badge="Kariyer"
       title="Kobipo'da gelecegi birlikte insa ediyoruz"
       description="Urun, teknoloji ve musteri deneyimini birlikte gelistiren bir ekip kulturune sahibiz. Acik pozisyonlarimizi inceleyin."
+      breadcrumbs={[
+        { label: "Ana Sayfa", href: "/" },
+        { label: "Kariyer" },
+      ]}
     >
       <section className="rounded-2xl border border-kobipo-border bg-white p-6">
         <h2 className="text-lg font-bold text-kobipo-navy">Neden Kobipo?</h2>

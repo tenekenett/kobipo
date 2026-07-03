@@ -1,5 +1,14 @@
+import type { Metadata } from "next"
 import { CorporatePageShell } from "@/components/site/corporate-page-shell"
 import { LegalContentShell } from "@/components/site/legal-content-shell"
+import { pageMetadata } from "@/lib/seo/metadata"
+
+export const metadata: Metadata = pageMetadata({
+  title: "Gizlilik Politikası",
+  description:
+    "Kobipo Gizlilik Politikası: platformda toplanan verilerin hangi amaçlarla işlendiği, saklandığı ve korunduğu hakkında bilgi.",
+  path: "/kurumsal/gizlilik",
+})
 
 export default function GizlilikPage() {
   return (
@@ -7,6 +16,10 @@ export default function GizlilikPage() {
       badge="Yasal"
       title="Gizlilik Politikasi"
       description="Kobipo platformunda toplanan verilerin hangi amaclarla islendigi, saklandigi ve korundugu bu metinde aciklanir."
+      breadcrumbs={[
+        { label: "Ana Sayfa", href: "/" },
+        { label: "Gizlilik" },
+      ]}
     >
       <LegalContentShell
         updatedAt="27.04.2026"

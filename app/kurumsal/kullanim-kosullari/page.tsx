@@ -1,5 +1,14 @@
+import type { Metadata } from "next"
 import { CorporatePageShell } from "@/components/site/corporate-page-shell"
 import { LegalContentShell } from "@/components/site/legal-content-shell"
+import { pageMetadata } from "@/lib/seo/metadata"
+
+export const metadata: Metadata = pageMetadata({
+  title: "Kullanım Koşulları",
+  description:
+    "Kobipo Kullanım Koşulları: platformun kullanımı sırasında tarafların hak ve yükümlülüklerini düzenleyen temel kurallar.",
+  path: "/kurumsal/kullanim-kosullari",
+})
 
 export default function KullanimKosullariPage() {
   return (
@@ -7,6 +16,10 @@ export default function KullanimKosullariPage() {
       badge="Yasal"
       title="Kullanim Kosullari"
       description="Kobipo platformunun kullanimi sirasinda taraflarin hak ve yukumluluklerini duzenleyen temel kurallar."
+      breadcrumbs={[
+        { label: "Ana Sayfa", href: "/" },
+        { label: "Kullanım Koşulları" },
+      ]}
     >
       <LegalContentShell
         updatedAt="27.04.2026"

@@ -1,5 +1,14 @@
+import type { Metadata } from "next"
 import { CorporatePageShell } from "@/components/site/corporate-page-shell"
 import { LegalContentShell } from "@/components/site/legal-content-shell"
+import { pageMetadata } from "@/lib/seo/metadata"
+
+export const metadata: Metadata = pageMetadata({
+  title: "Çerez Politikası",
+  description:
+    "Kobipo Çerez Politikası: web ve uygulama deneyimini iyileştirmek için çerezleri nasıl kullandığımızı öğrenin.",
+  path: "/kurumsal/cerezler",
+})
 
 export default function CerezlerPage() {
   return (
@@ -7,6 +16,10 @@ export default function CerezlerPage() {
       badge="Yasal"
       title="Cerez Politikasi"
       description="Kobipo'nun web ve uygulama deneyimini iyilestirmek amaciyla cerezleri nasil kullandigini bu metinde bulabilirsiniz."
+      breadcrumbs={[
+        { label: "Ana Sayfa", href: "/" },
+        { label: "Çerezler" },
+      ]}
     >
       <LegalContentShell
         updatedAt="27.04.2026"

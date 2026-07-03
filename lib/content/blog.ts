@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma"
+import { slugify } from "@/lib/blog/slug"
 
 /**
  * Public blog içeriği — artık DB'den (BlogPost) okunur. Yalnız PUBLISHED yazılar döner.
@@ -12,6 +13,7 @@ export type BlogPost = {
   category: string
   readTime: string
   date: string
+  isoDate: string // ISO 8601 — JSON-LD datePublished / OG article:published_time için
   author: string
   coverTone: "blue" | "navy" | "green"
   coverImageUrl: string | null
@@ -64,6 +66,7 @@ function toBlogPost(row: BlogPostRow): BlogPost {
     category: row.category,
     readTime: row.readTime ?? "",
     date: formatDate(row.publishedAt ?? row.createdAt),
+    isoDate: (row.publishedAt ?? row.createdAt).toISOString(),
     author: row.author,
     coverTone: VALID_TONES.includes(row.coverTone)
       ? (row.coverTone as BlogPost["coverTone"])
@@ -98,4 +101,56 @@ export async function getBlogCategories(): Promise<string[]> {
     orderBy: { category: "asc" },
   })
   return rows.map((r) => r.category)
+}
+
+export async function getPostsByCategory(category: string): Promise<BlogPost[]> {
+  const rows = await prisma.blogPost.findMany({
+    where: { status: "PUBLISHED", category },
+    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    select: publishedSelect,
+  })
+  return rows.map(toBlogPost)
+}
+
+/** URL slug'ından (slugify eşleşmesi) gerçek kategori adını bulur. */
+export async function getCategoryBySlug(slug: string): Promise<string | null> {
+  const categories = await getBlogCategories()
+  return categories.find((c) => slugify(c) === slug) ?? null
+}
+
+/**
+ * İlgili yazılar: önce aynı kategoriden (mevcut yazı hariç), yetersizse en yeni
+ * yazılarla tamamlanır. İç bağlantı (self-link) için kullanılır.
+ */
+export async function getRelatedPosts(slug: string, category: string, limit = 3): Promise<BlogPost[]> {
+  const sameCategory = await prisma.blogPost.findMany({
+    where: { status: "PUBLISHED", category, slug: { not: slug } },
+    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    select: publishedSelect,
+    take: limit,
+  })
+  let posts = sameCategory.map(toBlogPost)
+
+  if (posts.length < limit) {
+    const exclude = [slug, ...posts.map((p) => p.slug)]
+    const fillers = await prisma.blogPost.findMany({
+      where: { status: "PUBLISHED", slug: { notIn: exclude } },
+      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      select: publishedSelect,
+      take: limit - posts.length,
+    })
+    posts = [...posts, ...fillers.map(toBlogPost)]
+  }
+
+  return posts
+}
+
+/** Blog yazısı yolu, ör. /kurumsal/blog/{slug} */
+export function postPath(slug: string): string {
+  return `/kurumsal/blog/${slug}`
+}
+
+/** Kategori sayfası yolu, ör. /kurumsal/blog/kategori/{slug} */
+export function categoryPath(category: string): string {
+  return `/kurumsal/blog/kategori/${slugify(category)}`
 }

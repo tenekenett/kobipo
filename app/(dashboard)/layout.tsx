@@ -12,6 +12,9 @@ import { SuspendedLogoutButton } from "@/components/dashboard/suspended-logout-b
 
 export const dynamic = 'force-dynamic'
 
+// Uygulama paneli arama motorlarınca indekslenmemeli.
+export const metadata = { robots: { index: false, follow: false } }
+
 export default async function DashboardLayout({
   children,
 }: {

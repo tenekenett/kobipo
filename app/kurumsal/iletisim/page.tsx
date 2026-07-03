@@ -1,4 +1,13 @@
+import type { Metadata } from "next"
 import { CorporatePageShell } from "@/components/site/corporate-page-shell"
+import { pageMetadata } from "@/lib/seo/metadata"
+
+export const metadata: Metadata = pageMetadata({
+  title: "İletişim",
+  description:
+    "Kobipo ekibiyle satış, teknik destek ve iş birlikleri için iletişime geçin. E-posta, telefon ve ofis bilgilerimiz bu sayfada.",
+  path: "/kurumsal/iletisim",
+})
 
 export default function IletisimPage() {
   return (
@@ -6,6 +15,10 @@ export default function IletisimPage() {
       badge="Iletisim"
       title="Ekibimizle iletisime gecin"
       description="Satis, teknik destek veya is birlikleri icin size en uygun kanaldan bize ulasabilirsiniz."
+      breadcrumbs={[
+        { label: "Ana Sayfa", href: "/" },
+        { label: "İletişim" },
+      ]}
       cta={{
         title: "Hemen bir gorusme planlayin",
         description: "Platformu ekip yapiniza uygun sekilde kurgulamak icin uzmanlarimiz size eslik etsin.",

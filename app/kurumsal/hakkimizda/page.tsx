@@ -1,4 +1,6 @@
+import type { Metadata } from "next"
 import { CorporatePageShell } from "@/components/site/corporate-page-shell"
+import { pageMetadata } from "@/lib/seo/metadata"
 
 const values = [
   {
@@ -22,12 +24,23 @@ const timeline = [
   { year: "2026", text: "Kurumsal olcekte daha guclu otomasyon ve analitik altyapi devreye alindi." },
 ]
 
+export const metadata: Metadata = pageMetadata({
+  title: "Hakkımızda",
+  description:
+    "Kobipo, KOBİ'lerin finansal süreçlerini tek merkezde toplayan dijital muhasebe ve işletme yönetim platformudur. Vizyonumuzu ve hikâyemizi keşfedin.",
+  path: "/kurumsal/hakkimizda",
+})
+
 export default function HakkimizdaPage() {
   return (
     <CorporatePageShell
       badge="Sirket"
       title="KOBI'ler icin net, hizli ve guvenli finans yonetimi."
       description="Kobipo, isletmelerin finansal sureclerini tek bir merkezde toplamak icin gelistirildi. Hedefimiz, ekiplerin karar alirken guvendigi bir operasyon paneli sunmak."
+      breadcrumbs={[
+        { label: "Ana Sayfa", href: "/" },
+        { label: "Hakkımızda" },
+      ]}
       cta={{
         title: "Kobipo'yu ekibinizle deneyin",
         description: "30 gun ucretsiz baslayin, isletmenizin tum operasyonunu tek panelde gorun.",

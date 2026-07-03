@@ -1,10 +1,16 @@
 import Link from "next/link"
 import type { ReactNode } from "react"
+import { JsonLd } from "@/components/seo/json-ld"
+import { breadcrumbJsonLd } from "@/lib/seo/structured-data"
+
+type Breadcrumb = { label: string; href?: string }
 
 type CorporatePageShellProps = {
   badge?: string
   title: string
   description: string
+  /** Tam breadcrumb zinciri (Ana Sayfa dahil). Verilmezse statik "Ana Sayfa / Kurumsal". */
+  breadcrumbs?: Breadcrumb[]
   children: ReactNode
   cta?: {
     title: string
@@ -16,9 +22,15 @@ type CorporatePageShellProps = {
   }
 }
 
-export function CorporatePageShell({ badge = "Kurumsal", title, description, children, cta }: CorporatePageShellProps) {
+export function CorporatePageShell({ badge = "Kurumsal", title, description, breadcrumbs, children, cta }: CorporatePageShellProps) {
+  const crumbs: Breadcrumb[] = breadcrumbs ?? [
+    { label: "Ana Sayfa", href: "/" },
+    { label: "Kurumsal" },
+  ]
+
   return (
     <div className="min-h-screen bg-kobipo-offwhite text-kobipo-text">
+      <JsonLd data={breadcrumbJsonLd(crumbs)} />
       <header className="sticky top-0 z-40 border-b border-kobipo-border bg-white/95 backdrop-blur-sm">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-3">
@@ -86,12 +98,19 @@ export function CorporatePageShell({ badge = "Kurumsal", title, description, chi
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/70 sm:text-base">{description}</p>
 
-          <nav className="mt-6 flex items-center gap-2 text-xs text-white/50">
-            <Link href="/" className="transition-colors hover:text-white">
-              Ana Sayfa
-            </Link>
-            <span>/</span>
-            <span className="text-white/80">Kurumsal</span>
+          <nav aria-label="Breadcrumb" className="mt-6 flex flex-wrap items-center gap-2 text-xs text-white/50">
+            {crumbs.map((crumb, i) => (
+              <span key={`${crumb.label}-${i}`} className="flex items-center gap-2">
+                {i > 0 && <span aria-hidden>/</span>}
+                {crumb.href ? (
+                  <Link href={crumb.href} className="transition-colors hover:text-white">
+                    {crumb.label}
+                  </Link>
+                ) : (
+                  <span className="text-white/80">{crumb.label}</span>
+                )}
+              </span>
+            ))}
           </nav>
         </div>
       </section>

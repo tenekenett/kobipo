@@ -1,5 +1,14 @@
+import type { Metadata } from "next"
 import { CorporatePageShell } from "@/components/site/corporate-page-shell"
 import { LegalContentShell } from "@/components/site/legal-content-shell"
+import { pageMetadata } from "@/lib/seo/metadata"
+
+export const metadata: Metadata = pageMetadata({
+  title: "KVKK Aydınlatma Metni",
+  description:
+    "Kobipo KVKK Aydınlatma Metni: 6698 sayılı Kanun kapsamında kişisel verilerinizin işlenmesine ilişkin haklarınız ve süreçler.",
+  path: "/kurumsal/kvkk",
+})
 
 export default function KvkkPage() {
   return (
@@ -7,6 +16,10 @@ export default function KvkkPage() {
       badge="Yasal"
       title="KVKK Aydinlatma Metni"
       description="6698 sayili Kisisel Verilerin Korunmasi Kanunu kapsaminda veri sorumlusu olarak aydinlatma yukumlulugumuzu bu metinle yerine getiriyoruz."
+      breadcrumbs={[
+        { label: "Ana Sayfa", href: "/" },
+        { label: "KVKK" },
+      ]}
     >
       <LegalContentShell
         updatedAt="27.04.2026"

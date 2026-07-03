@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { siteConfig } from '@/lib/seo/site-config'
 import { Toaster } from '@/components/ui/toaster'
 import { ConfirmDialogProvider } from '@/components/ui/confirm-dialog-provider'
 import { SessionProvider } from '@/components/providers/session-provider'
@@ -10,17 +11,40 @@ import { SpeedInsights } from '@vercel/speed-insights/next'
 import { Analytics } from '@vercel/analytics/next'
 
 export const metadata: Metadata = {
-  title: "Kobipo — Az laf, doğru rakam.",
-  description:
-    "KOBİ'lerin dijital muhasebe ve proje yönetim platformu. Cari hesaplar, stok takibi, e-fatura ve finansal raporlar tek platformda.",
+  metadataBase: new URL(siteConfig.url),
+  title: {
+    default: siteConfig.title,
+    template: siteConfig.titleTemplate,
+  },
+  description: siteConfig.description,
+  keywords: [...siteConfig.keywords],
+  applicationName: siteConfig.name,
+  authors: [{ name: siteConfig.name }],
   icons: {
     icon: "/assets/icons/kobipo-favicon-32.svg",
     apple: "/assets/icons/kobipo-ikon-512.svg",
   },
   openGraph: {
-    title: "Kobipo — Az laf, doğru rakam.",
-    description: "KOBİ'lerin dijital muhasebe platformu.",
-    siteName: "Kobipo",
+    type: "website",
+    locale: siteConfig.locale,
+    url: siteConfig.url,
+    siteName: siteConfig.name,
+    title: siteConfig.title,
+    description: siteConfig.description,
+    images: [
+      {
+        url: siteConfig.ogImage.url,
+        width: siteConfig.ogImage.width,
+        height: siteConfig.ogImage.height,
+        alt: siteConfig.ogImage.alt,
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteConfig.title,
+    description: siteConfig.description,
+    images: [siteConfig.ogImage.url],
   },
 }
 

@@ -1,5 +1,7 @@
 import Link from "next/link"
 import { CorporatePageShell } from "@/components/site/corporate-page-shell"
+import type { Metadata } from "next"
+import { pageMetadata } from "@/lib/seo/metadata"
 
 const supportItems = [
   { title: "Canli Destek", detail: "Hafta ici 09:00 - 18:00 saatleri arasinda oncelikli canli destek." },
@@ -7,12 +9,23 @@ const supportItems = [
   { title: "Onboarding Yardimi", detail: "Ilk kurulum ve veri aktarma asamasinda adim adim destek." },
 ]
 
+export const metadata: Metadata = pageMetadata({
+  title: "Destek",
+  description:
+    "Kobipo destek ekibi kurulumdan günlük kullanıma kadar yanınızda. Canlı destek, e-posta ve onboarding yardımı ile hızlı çözüm.",
+  path: "/kurumsal/destek",
+})
+
 export default function DestekPage() {
   return (
     <CorporatePageShell
       badge="Destek"
       title="Destek ekibimiz yaninizda"
       description="Kurulumdan gunluk kullanima kadar ihtiyac duydugunuz anda ulasabileceginiz bir destek sureci sunuyoruz."
+      breadcrumbs={[
+        { label: "Ana Sayfa", href: "/" },
+        { label: "Destek" },
+      ]}
     >
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {supportItems.map((item) => (
