@@ -52,7 +52,7 @@ export async function POST(request: Request) {
   }
 
   const access = await ensureCompanyAccess(companyId)
-  if (!["ADMIN", "ACCOUNTANT"].includes(access.role)) {
+  if (access.role === "VIEWER") {
     return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 })
   }
 

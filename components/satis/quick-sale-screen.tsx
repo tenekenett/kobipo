@@ -36,17 +36,22 @@ import { useDashboardCompany } from "@/components/dashboard/dashboard-company-pr
 import { cn } from "@/lib/utils"
 import {
   Banknote,
+  Check,
   CheckCircle2,
+  Clock,
   CreditCard,
+  FileText,
   Landmark,
   Loader2,
   Package,
   Plus,
   Printer,
+  Receipt,
+  Search,
   Share2,
   ShoppingCart,
+  Split,
   Trash2,
-  Zap,
 } from "lucide-react"
 
 type CartLine = {
@@ -74,6 +79,16 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string; icon: typeof Bankn
 // Aynı anda açık tutulabilen park edilmiş satış (müşteri) sayısı.
 const NUM_TICKETS = 5
 const ALL_CATEGORIES = "__ALL__"
+
+// Önceki fiyatlar (geçmiş) modalı — /api/stok/products/[id]/prices yanıtı.
+type PriceRow = { date: string; cariName: string; price: number }
+type PriceHistory = { sales: PriceRow[]; customerSales: PriceRow[]; purchases: PriceRow[]; quotes: PriceRow[] }
+type PriceTab = keyof PriceHistory
+const EMPTY_PRICE_HISTORY: PriceHistory = { sales: [], customerSales: [], purchases: [], quotes: [] }
+const PRICE_TABS: { key: PriceTab; label: string }[] = [
+  { key: "sales", label: "Önceki Satışlar" },
+  { key: "purchases", label: "Önceki Alışlar" },
+]
 
 type Ticket = { cart: CartLine[]; customerId?: string; tendered: string }
 const emptyTicket = (): Ticket => ({ cart: [], customerId: undefined, tendered: "" })
@@ -110,6 +125,112 @@ function cartTotals(cart: CartLine[]) {
   )
 }
 
+// Satış fişi (80mm termal) — tamamlanan satışın anlık görüntüsünden üretilir.
+type ReceiptData = {
+  invoiceNo?: string | null
+  date: string
+  companyName: string
+  customerName?: string | null
+  items: { description: string; quantity: number; unit: string; unitPrice: number; vatRate: number; total: number }[]
+  net: number
+  vat: number
+  total: number
+  paymentLabel: string
+  tendered: number
+  change: number
+  isCredit: boolean
+  // Parçalı ödeme dökümü (varsa) — yöntem başına tahsil edilen tutar.
+  parts?: { label: string; amount: number }[]
+}
+
+const escapeHtml = (s: string) =>
+  s.replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string
+  )
+
+function buildReceiptHtml(r: ReceiptData, autoPrint = false): string {
+  const dateStr = new Date(r.date).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" })
+  const qtyFmt = (n: number) => n.toLocaleString("tr-TR", { maximumFractionDigits: 3 })
+  const items = r.items
+    .map(
+      (it) => `
+      <div class="item">
+        <div class="name">${escapeHtml(it.description)}</div>
+        <div class="row muted">
+          <span>${qtyFmt(it.quantity)} ${escapeHtml(it.unit)} × ${currency(it.unitPrice)} · KDV %${it.vatRate}</span>
+          <span>${currency(it.total)}</span>
+        </div>
+      </div>`
+    )
+    .join("")
+
+  const payRows = r.isCredit
+    ? `<div class="row"><span>Ödeme</span><span>Veresiye / Açık Hesap</span></div>`
+    : r.parts && r.parts.length > 0
+      ? r.parts
+          .map((p) => `<div class="row"><span>${escapeHtml(p.label)}</span><span>${currency(p.amount)}</span></div>`)
+          .join("") + `<div class="row"><span>Para Üstü</span><span>${currency(r.change)}</span></div>`
+      : `<div class="row"><span>Ödeme</span><span>${escapeHtml(r.paymentLabel)}</span></div>
+       <div class="row"><span>Ödenen</span><span>${currency(r.tendered)}</span></div>
+       <div class="row"><span>Para Üstü</span><span>${currency(r.change)}</span></div>`
+
+  return `<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Satış Fişi${r.invoiceNo ? ` — ${escapeHtml(r.invoiceNo)}` : ""}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Courier New", ui-monospace, monospace; background: #f3f4f6; color: #000; }
+  .toolbar { position: sticky; top: 0; z-index: 1; display: flex; gap: 8px; justify-content: center; padding: 12px; background: #fff; border-bottom: 1px solid #e5e7eb; }
+  .toolbar button { font: inherit; font-size: 13px; font-weight: 600; padding: 8px 18px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #0f172a; cursor: pointer; }
+  .toolbar button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .receipt { width: 80mm; margin: 16px auto; background: #fff; padding: 6mm 4mm; font-size: 12px; line-height: 1.4; box-shadow: 0 1px 6px rgba(0,0,0,.15); }
+  .center { text-align: center; }
+  .bold { font-weight: 700; }
+  .muted { color: #333; }
+  .row { display: flex; justify-content: space-between; gap: 8px; }
+  .item { margin: 4px 0; }
+  .item .name { font-weight: 600; }
+  .big { font-size: 15px; font-weight: 700; }
+  hr { border: none; border-top: 1px dashed #000; margin: 6px 0; }
+  @media print {
+    body { background: #fff; }
+    .toolbar { display: none; }
+    .receipt { width: auto; margin: 0; box-shadow: none; }
+    @page { margin: 0; }
+  }
+</style>
+</head>
+<body${autoPrint ? ' onload="window.print()"' : ""}>
+  <div class="toolbar">
+    <button class="primary" onclick="window.print()">Yazdır</button>
+    <button onclick="window.close()">Kapat</button>
+  </div>
+  <div class="receipt">
+    <div class="center bold" style="font-size:14px">${escapeHtml(r.companyName || "Satış")}</div>
+    <div class="center muted">SATIŞ FİŞİ</div>
+    <hr />
+    <div class="row"><span>Tarih</span><span>${dateStr}</span></div>
+    <div class="row"><span>Müşteri</span><span>${escapeHtml(r.customerName || "Perakende")}</span></div>
+    ${r.invoiceNo ? `<div class="row"><span>Belge No</span><span>${escapeHtml(r.invoiceNo)}</span></div>` : ""}
+    <hr />
+    ${items}
+    <hr />
+    <div class="row"><span>Ara Toplam</span><span>${currency(r.net)}</span></div>
+    <div class="row"><span>KDV</span><span>${currency(r.vat)}</span></div>
+    <div class="row big"><span>TOPLAM</span><span>${currency(r.total)}</span></div>
+    <hr />
+    ${payRows}
+    <hr />
+    <div class="center muted">Bizi tercih ettiğiniz için teşekkürler</div>
+  </div>
+</body>
+</html>`
+}
+
 export function QuickSaleScreen() {
   const { selectedCompanyId, selectedCompany } = useDashboardCompany()
   const companyId = selectedCompanyId
@@ -142,8 +263,24 @@ export function QuickSaleScreen() {
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [lastSale, setLastSale] = useState<
-    { id: string; invoiceNo?: string | null; isEArsiv: boolean } | null
+    { id: string; invoiceNo?: string | null; isEArsiv: boolean; receipt: ReceiptData } | null
   >(null)
+  // Tutar sütununda düzenlenen satır (yazarken alanın kullanıcıyla çakışmasını önler).
+  const [totalEdit, setTotalEdit] = useState<{ key: string; value: string } | null>(null)
+
+  // Parçalı ödeme: yöntem başına tutar.
+  const [splitMode, setSplitMode] = useState(false)
+  const [split, setSplit] = useState<Record<PaymentMethod, string>>({
+    CASH: "",
+    CREDIT_CARD: "",
+    BANK_TRANSFER: "",
+  })
+
+  // Önceki fiyatlar (geçmiş) modalı.
+  const [priceModalLine, setPriceModalLine] = useState<CartLine | null>(null)
+  const [activePriceTab, setActivePriceTab] = useState<PriceTab>("sales")
+  const [priceHistory, setPriceHistory] = useState<PriceHistory>(EMPTY_PRICE_HISTORY)
+  const [priceHistoryLoading, setPriceHistoryLoading] = useState(false)
 
   useEffect(() => {
     if (!companyId) return
@@ -293,6 +430,19 @@ export function QuickSaleScreen() {
     (key: string, patch: Partial<CartLine>) => patchCart((cart) => cart.map((l) => (l.key === key ? { ...l, ...patch } : l))),
     [patchCart]
   )
+  // Satır tutarını (KDV dahil) hedefe sabitler; birim fiyatı buna göre geri hesaplar.
+  const updateLineTotal = useCallback(
+    (key: string, total: number) =>
+      patchCart((cart) =>
+        cart.map((l) => {
+          if (l.key !== key) return l
+          const denom = l.quantity * (1 + l.vatRate / 100)
+          const unitPrice = denom > 0 ? round2(total / denom) : 0
+          return { ...l, unitPrice }
+        })
+      ),
+    [patchCart]
+  )
   const removeLine = useCallback(
     (key: string) => patchCart((cart) => cart.filter((l) => l.key !== key)),
     [patchCart]
@@ -301,6 +451,56 @@ export function QuickSaleScreen() {
   const totals = useMemo(() => cartTotals(active.cart), [active.cart])
   const tenderedNum = useMemo(() => parseFloat(active.tendered.replace(",", ".")) || 0, [active.tendered])
   const change = tenderedNum > 0 ? Math.max(0, round2(tenderedNum - totals.total)) : 0
+
+  // Parçalı ödeme türetilmişleri.
+  const parseAmount = (v: string) => parseFloat((v || "").replace(",", ".")) || 0
+  const splitPaid = useMemo(
+    () => round2(parseAmount(split.CASH) + parseAmount(split.CREDIT_CARD) + parseAmount(split.BANK_TRANSFER)),
+    [split]
+  )
+  const splitRemaining = round2(totals.total - splitPaid)
+  const paidDisplay = splitMode ? splitPaid : tenderedNum
+  const changeDisplay = splitMode ? Math.max(0, round2(splitPaid - totals.total)) : change
+
+  // Ödeme parçalarını doğru hesaba yönlendir: nakit → kasa, kart/havale → banka.
+  const cashAccountId = useMemo(() => accounts.find((a) => a.type === "CASH")?.id, [accounts])
+  const bankAccountId = useMemo(() => accounts.find((a) => a.type !== "CASH")?.id, [accounts])
+
+  // Kalan tutarı nakit alanına ekle (Tam benzeri kısayol).
+  const fillSplitRemainder = () => {
+    setSplit((s) => {
+      const paid = parseAmount(s.CASH) + parseAmount(s.CREDIT_CARD) + parseAmount(s.BANK_TRANSFER)
+      const rem = round2(totals.total - paid)
+      if (rem <= 0) return s
+      return { ...s, CASH: String(round2(parseAmount(s.CASH) + rem)) }
+    })
+  }
+
+  // Önceki fiyatlar (geçmiş) modalını aç ve ürünün fiyat geçmişini çek.
+  const openPriceHistory = useCallback(
+    async (line: CartLine) => {
+      if (!line.productId || !companyId) return
+      setPriceModalLine(line)
+      setActivePriceTab("sales")
+      setPriceHistory(EMPTY_PRICE_HISTORY)
+      setPriceHistoryLoading(true)
+      try {
+        const qs = new URLSearchParams({ companyId })
+        if (active.customerId) qs.set("customerId", active.customerId)
+        const res = await fetch(`/api/stok/products/${line.productId}/prices?${qs.toString()}`)
+        if (res.ok) setPriceHistory(await res.json())
+      } catch (error) {
+        console.error("Fiyat geçmişi çekilemedi:", error)
+      } finally {
+        setPriceHistoryLoading(false)
+      }
+    },
+    [companyId, active.customerId]
+  )
+  const applyHistoryPrice = (price: number) => {
+    if (priceModalLine) updateLine(priceModalLine.key, { unitPrice: price })
+    setPriceModalLine(null)
+  }
 
   const productCategories = useMemo(() => {
     const set = new Set<string>()
@@ -321,6 +521,7 @@ export function QuickSaleScreen() {
     setIsCredit(false)
     setEArsiv(false)
     setPaymentMethod("CASH")
+    setSplit({ CASH: "", CREDIT_CARD: "", BANK_TRANSFER: "" })
   }, [activeTicket])
 
   const handleComplete = useCallback(async () => {
@@ -369,38 +570,108 @@ export function QuickSaleScreen() {
       const invoice = await invoiceRes.json().catch(() => ({}))
       if (!invoiceRes.ok) throw new Error(invoice?.error || "Satış faturası oluşturulamadı")
 
-      if (!isCredit && t.total > 0) {
-        const payRes = await fetch("/api/faturalar/odemeler", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            invoiceId: invoice.id,
-            companyId,
-            amount: t.total,
-            paymentMethod,
-            accountId: accountId || undefined,
-            paymentDate: new Date().toISOString(),
-          }),
-        })
-        if (!payRes.ok) {
-          const payErr = await payRes.json().catch(() => ({}))
-          toast({
-            title: "Fatura oluştu, tahsilat kaydedilemedi",
-            description: payErr?.error || "Ödemeyi Satış Faturaları üzerinden tekrar deneyin",
-            variant: "destructive",
+      // Ödeme tutarı, faturanın SUNUCUDA kayıtlı toplamı olmalı: frontend'in
+      // yuvarlanmamış t.total'i (ör. birim fiyat geri-hesabından gelen küsurat)
+      // sunucunun 2 haneye yuvarladığı totalAmount'ı aşıp tahsilatı reddettirebilir.
+      const invoiceTotal = invoice?.totalAmount != null ? Number(invoice.totalAmount) : round2(t.total)
+
+      // Ödeme parçaları: parçalı modda yöntem başına; değilse tek yöntem tüm tutar.
+      // Toplam ödeme faturanın totalAmount'ını aşmasın (nakit fazlası para üstü olur).
+      const paymentParts: { method: PaymentMethod; amount: number; accountId?: string }[] = []
+      if (!isCredit && invoiceTotal > 0) {
+        if (splitMode) {
+          let remaining = invoiceTotal
+          // Kart/Havale önce, nakit en sona → nakit fazlası para üstü olarak yutulur.
+          for (const m of ["CREDIT_CARD", "BANK_TRANSFER", "CASH"] as PaymentMethod[]) {
+            const want = round2(parseAmount(split[m]))
+            if (want <= 0) continue
+            const pay = Math.min(want, round2(remaining))
+            if (pay <= 0) continue
+            const acc = (m === "CASH" ? cashAccountId : bankAccountId) ?? accountId
+            paymentParts.push({ method: m, amount: pay, accountId: acc || undefined })
+            remaining = round2(remaining - pay)
+          }
+        } else {
+          paymentParts.push({ method: paymentMethod, amount: invoiceTotal, accountId: accountId || undefined })
+        }
+
+        for (const part of paymentParts) {
+          const payRes = await fetch("/api/faturalar/odemeler", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              invoiceId: invoice.id,
+              companyId,
+              amount: part.amount,
+              paymentMethod: part.method,
+              accountId: part.accountId,
+              paymentDate: new Date().toISOString(),
+            }),
           })
-          setIsSubmitting(false)
-          return
+          if (!payRes.ok) {
+            const payErr = await payRes.json().catch(() => ({}))
+            toast({
+              title: "Fatura oluştu, tahsilat kaydedilemedi",
+              description: payErr?.error || "Ödemeyi Satış Faturaları üzerinden tekrar deneyin",
+              variant: "destructive",
+            })
+            setIsSubmitting(false)
+            return
+          }
         }
       }
 
+      const paidSum = round2(paymentParts.reduce((s, p) => s + p.amount, 0))
       toast({
         title: "Satış tamamlandı",
         description: `${invoice.invoiceNo ?? "Fatura"} oluşturuldu${
-          isCredit ? " (veresiye)" : ` • ${currency(t.total)} tahsil edildi`
+          isCredit ? " (veresiye)" : ` • ${currency(paidSum)} tahsil edildi`
         }`,
       })
-      setLastSale({ id: invoice.id, invoiceNo: invoice.invoiceNo, isEArsiv: useEArsiv })
+
+      // Fiş için satışın anlık görüntüsü — sepet birazdan sıfırlanacağı için burada al.
+      // Toplamlar faturanın sunucudaki değerleriyle hizalı olsun (fiş = fatura).
+      const netVal = invoice?.netAmount != null ? Number(invoice.netAmount) : t.net
+      const vatVal = invoice?.vatAmount != null ? Number(invoice.vatAmount) : t.vat
+      // Ödeme dökümü/para üstü: parçalı modda parçalardan, değilse nakit ödenenden.
+      let tenderVal: number
+      let changeVal: number
+      let receiptParts: { label: string; amount: number }[] | undefined
+      if (splitMode && !isCredit) {
+        const methodLabel = (m: PaymentMethod) => PAYMENT_METHODS.find((x) => x.value === m)?.label ?? m
+        receiptParts = paymentParts.map((p) => ({ label: methodLabel(p.method), amount: p.amount }))
+        const enteredCash = parseAmount(split.CASH)
+        const recordedCash = paymentParts.find((p) => p.method === "CASH")?.amount ?? 0
+        tenderVal = splitPaid
+        changeVal = Math.max(0, round2(enteredCash - recordedCash))
+      } else {
+        tenderVal = parseFloat(tk.tendered.replace(",", ".")) || 0
+        changeVal = tenderVal > 0 ? Math.max(0, round2(tenderVal - invoiceTotal)) : 0
+        receiptParts = undefined
+      }
+      const receipt: ReceiptData = {
+        invoiceNo: invoice.invoiceNo ?? null,
+        date: new Date().toISOString(),
+        companyName: selectedCompany?.name ?? "",
+        customerName: tk.customerId ? customers.find((c) => c.id === tk.customerId)?.name ?? null : null,
+        items: cart.map((l) => ({
+          description: l.description,
+          quantity: l.quantity,
+          unit: l.unit,
+          unitPrice: l.unitPrice,
+          vatRate: l.vatRate,
+          total: lineTotals(l).total,
+        })),
+        net: netVal,
+        vat: vatVal,
+        total: invoiceTotal,
+        paymentLabel: PAYMENT_METHODS.find((m) => m.value === paymentMethod)?.label ?? "Nakit",
+        tendered: tenderVal,
+        change: changeVal,
+        isCredit,
+        parts: receiptParts,
+      }
+      setLastSale({ id: invoice.id, invoiceNo: invoice.invoiceNo, isEArsiv: useEArsiv, receipt })
       resetSale()
     } catch (error: any) {
       toast({ title: "Hata", description: error?.message || "Satış tamamlanamadı", variant: "destructive" })
@@ -419,6 +690,13 @@ export function QuickSaleScreen() {
     accountId,
     toast,
     resetSale,
+    customers,
+    selectedCompany,
+    splitMode,
+    split,
+    splitPaid,
+    cashAccountId,
+    bankAccountId,
   ])
 
   // F2 → satışı tamamla (POS benzeri hızlı kapatma).
@@ -439,6 +717,24 @@ export function QuickSaleScreen() {
   const printSale = () => {
     if (!lastSale) return
     window.open(previewUrl(lastSale.id), "_blank", "noopener")
+  }
+
+  // autoPrint=false → ön gösterim sayfası (kullanıcı isterse oradan yazdırır)
+  // autoPrint=true  → pencereyi açar açmaz yazdırma diyaloğunu getirir
+  const openReceipt = (autoPrint: boolean) => {
+    if (!lastSale) return
+    const w = window.open("", "_blank", "width=420,height=720")
+    if (!w) {
+      toast({
+        title: "Açılır pencere engellendi",
+        description: "Fiş için bu site için açılır pencerelere izin verin.",
+        variant: "destructive",
+      })
+      return
+    }
+    w.document.write(buildReceiptHtml(lastSale.receipt, autoPrint))
+    w.document.close()
+    w.focus()
   }
 
   const shareSale = async () => {
@@ -501,33 +797,11 @@ export function QuickSaleScreen() {
 
   return (
     <div className="space-y-3">
-      {/* === ÜST BAR: barkod/arama + tutar kutuları === */}
-      <div className="grid gap-3 xl:grid-cols-[1fr_auto]">
-        <Card className="overflow-hidden">
-          <CardContent className="flex items-center gap-3 p-3">
-            <span className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-kobipo-blue text-white dark:bg-primary dark:text-primary-foreground sm:flex">
-              <Zap className="h-5 w-5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <ProductCombobox
-                companyId={companyId}
-                products={products}
-                defaults={{ unit: "ADET", vatRate: 20 }}
-                priceContext="sale"
-                onSelect={addProductToCart}
-                createButtonLabel="Yeni Ürün"
-                categoryOptions={categoryOptions}
-                warehouses={warehouses}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid grid-cols-3 gap-3 xl:w-[420px]">
-          <StatTile label="Tutar" value={currency(totals.total)} tone="brand" />
-          <StatTile label="Ödenen" value={currency(tenderedNum)} tone="blue" />
-          <StatTile label="Para Üstü" value={currency(change)} tone="green" />
-        </div>
+      {/* Tutar / Ödenen / Para Üstü kutuları */}
+      <div className="grid grid-cols-3 gap-3">
+        <StatTile label="Tutar" value={currency(totals.total)} tone="brand" />
+        <StatTile label="Ödenen" value={currency(paidDisplay)} tone="blue" />
+        <StatTile label="Para Üstü" value={currency(changeDisplay)} tone="green" />
       </div>
 
       <div className="grid items-start gap-3 xl:grid-cols-[1fr_380px]">
@@ -631,11 +905,24 @@ export function QuickSaleScreen() {
                               </Button>
                             </TableCell>
                             <TableCell>
-                              <Input
-                                value={line.description}
-                                onChange={(e) => updateLine(line.key, { description: e.target.value })}
-                                className="min-w-[160px]"
-                              />
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={line.description}
+                                  onChange={(e) => updateLine(line.key, { description: e.target.value })}
+                                  className="min-w-[140px] flex-1"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 shrink-0 gap-1 px-2 text-xs"
+                                  title={line.productId ? "Geçmiş satış/alış fiyatları" : "Fiyat geçmişi için kayıtlı ürün gerekir"}
+                                  disabled={!line.productId}
+                                  onClick={() => openPriceHistory(line)}
+                                >
+                                  <Clock className="h-3.5 w-3.5" />
+                                  Geçmiş
+                                </Button>
+                              </div>
                             </TableCell>
                             <TableCell>
                               <div className="flex justify-center">
@@ -667,8 +954,23 @@ export function QuickSaleScreen() {
                                 className="w-14 text-right"
                               />
                             </TableCell>
-                            <TableCell className="whitespace-nowrap text-right font-semibold tabular-nums">
-                              {currency(t.total)}
+                            <TableCell className="text-right">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={
+                                  totalEdit?.key === line.key ? totalEdit.value : numInput(round2(t.total))
+                                }
+                                placeholder="0"
+                                onChange={(e) => {
+                                  setTotalEdit({ key: line.key, value: e.target.value })
+                                  updateLineTotal(line.key, parseFloat(e.target.value) || 0)
+                                }}
+                                onBlur={() => setTotalEdit(null)}
+                                className="w-24 text-right font-semibold tabular-nums"
+                                title="Tutarı değiştir — birim fiyat otomatik hesaplanır"
+                              />
                             </TableCell>
                           </TableRow>
                         )
@@ -677,6 +979,27 @@ export function QuickSaleScreen() {
                   </Table>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Ürün arama — sepetin altında, hızlı ürünlerin üstünde */}
+          <Card className="overflow-hidden">
+            <CardContent className="space-y-2 p-3">
+              <div className="flex items-center gap-2">
+                <Search className="h-4 w-4 text-kobipo-blue dark:text-primary" />
+                <span className="text-sm font-semibold">Ürün Ara / Ekle</span>
+                <span className="text-xs text-muted-foreground">— barkod okut, ürün ara ya da yeni ekle</span>
+              </div>
+              <ProductCombobox
+                companyId={companyId}
+                products={products}
+                defaults={{ unit: "ADET", vatRate: 20 }}
+                priceContext="sale"
+                onSelect={addProductToCart}
+                createButtonLabel="Yeni Ürün"
+                categoryOptions={categoryOptions}
+                warehouses={warehouses}
+              />
             </CardContent>
           </Card>
 
@@ -762,83 +1085,149 @@ export function QuickSaleScreen() {
             </CardContent>
           </Card>
 
-          {/* Ödeme: hızlı nakit + para üstü + yöntem */}
+          {/* Ödeme: tek yöntem veya parçalı */}
           <Card>
             <CardContent className="space-y-3 p-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">Ödenen (nakit)</Label>
-                <span className="text-xs text-muted-foreground">
-                  Para Üstü: <span className="font-bold text-kobipo-green">{currency(change)}</span>
-                </span>
-              </div>
-              <Input
-                value={active.tendered}
-                onChange={(e) => setTendered(e.target.value)}
-                inputMode="decimal"
-                placeholder="0,00"
-                className="h-11 text-right text-lg font-bold tabular-nums"
-              />
-              <div className="grid grid-cols-4 gap-2">
-                {[20, 50, 100, 200].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setTendered(String(n))}
-                    className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary dark:hover:bg-primary/10"
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-              <div className="grid grid-cols-3 gap-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ödeme</Label>
+              {!isCredit && (
                 <button
                   type="button"
-                  onClick={() => addCash(20)}
-                  className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
+                  onClick={() => setSplitMode((v) => !v)}
+                  className={cn(
+                    "flex w-full items-center justify-center gap-2 rounded-lg border-2 p-2.5 text-sm font-bold transition-colors",
+                    splitMode
+                      ? "border-kobipo-blue bg-kobipo-blue/10 text-kobipo-blue dark:border-primary dark:bg-primary/15 dark:text-primary"
+                      : "border-dashed border-kobipo-blue/50 text-kobipo-blue hover:bg-kobipo-blue/5 dark:border-primary/50 dark:text-primary dark:hover:bg-primary/10"
+                  )}
                 >
-                  +20
+                  <Split className="h-4 w-4" />
+                  Parçalı Ödeme{splitMode ? " • Açık" : ""}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => addCash(-20)}
-                  className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
-                >
-                  −20
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTendered(String(round2(totals.total)))}
-                  className="rounded-lg border border-kobipo-green/40 bg-kobipo-green/10 py-2 text-sm font-semibold text-kobipo-green transition-colors hover:bg-kobipo-green/20"
-                >
-                  Tam
-                </button>
-              </div>
+              )}
 
-              <div className="grid grid-cols-3 gap-2 border-t pt-3">
-                {PAYMENT_METHODS.map((m) => {
-                  const Icon = m.icon
-                  const activeState = !isCredit && paymentMethod === m.value
-                  return (
-                    <button
-                      key={m.value}
-                      type="button"
-                      onClick={() => {
-                        setPaymentMethod(m.value)
-                        setIsCredit(false)
-                      }}
+              {isCredit ? null : splitMode ? (
+                <div className="space-y-2">
+                  {PAYMENT_METHODS.map((m) => {
+                    const Icon = m.icon
+                    return (
+                      <div key={m.value} className="flex items-center gap-2">
+                        <span className="flex w-28 shrink-0 items-center gap-1.5 text-sm font-medium">
+                          <Icon className="h-4 w-4 text-muted-foreground" />
+                          {m.label}
+                        </span>
+                        <Input
+                          value={split[m.value]}
+                          onChange={(e) => setSplit((s) => ({ ...s, [m.value]: e.target.value }))}
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          className="h-9 flex-1 text-right tabular-nums"
+                        />
+                      </div>
+                    )
+                  })}
+                  <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-1.5 text-sm">
+                    <span className="text-muted-foreground">Toplam ödenen</span>
+                    <span className="font-semibold tabular-nums">{currency(splitPaid)}</span>
+                  </div>
+                  <div className="flex items-center justify-between px-1 text-sm">
+                    <span className="text-muted-foreground">{splitRemaining >= 0 ? "Kalan" : "Para üstü"}</span>
+                    <span
                       className={cn(
-                        "flex flex-col items-center gap-1 rounded-lg border p-2.5 text-[11px] font-semibold transition-colors",
-                        activeState
-                          ? "border-kobipo-blue bg-kobipo-blue/10 text-kobipo-blue dark:border-primary dark:bg-primary/15 dark:text-primary"
-                          : "border-border hover:bg-muted"
+                        "font-bold tabular-nums",
+                        splitRemaining > 0.005 ? "text-amber-600 dark:text-amber-400" : "text-kobipo-green"
                       )}
                     >
-                      <Icon className="h-5 w-5" />
-                      {m.label}
+                      {currency(Math.abs(splitRemaining))}
+                    </span>
+                  </div>
+                  {splitRemaining > 0.005 && (
+                    <button
+                      type="button"
+                      onClick={fillSplitRemainder}
+                      className="w-full rounded-lg border border-kobipo-green/40 bg-kobipo-green/10 py-2 text-sm font-semibold text-kobipo-green transition-colors hover:bg-kobipo-green/20"
+                    >
+                      Kalanı nakite ekle
                     </button>
-                  )
-                })}
-              </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground">Ödenen (nakit)</Label>
+                    <span className="text-xs text-muted-foreground">
+                      Para Üstü: <span className="font-bold text-kobipo-green">{currency(change)}</span>
+                    </span>
+                  </div>
+                  <Input
+                    value={active.tendered}
+                    onChange={(e) => setTendered(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="0,00"
+                    className="h-11 text-right text-lg font-bold tabular-nums"
+                  />
+                  <div className="grid grid-cols-4 gap-2">
+                    {[20, 50, 100, 200].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setTendered(String(n))}
+                        className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary dark:hover:bg-primary/10"
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => addCash(20)}
+                      className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
+                    >
+                      +20
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => addCash(-20)}
+                      className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
+                    >
+                      −20
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTendered(String(round2(totals.total)))}
+                      className="rounded-lg border border-kobipo-green/40 bg-kobipo-green/10 py-2 text-sm font-semibold text-kobipo-green transition-colors hover:bg-kobipo-green/20"
+                    >
+                      Tam
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 border-t pt-3">
+                    {PAYMENT_METHODS.map((m) => {
+                      const Icon = m.icon
+                      const activeState = !isCredit && paymentMethod === m.value
+                      return (
+                        <button
+                          key={m.value}
+                          type="button"
+                          onClick={() => {
+                            setPaymentMethod(m.value)
+                            setIsCredit(false)
+                          }}
+                          className={cn(
+                            "flex flex-col items-center gap-1 rounded-lg border p-2.5 text-[11px] font-semibold transition-colors",
+                            activeState
+                              ? "border-kobipo-blue bg-kobipo-blue/10 text-kobipo-blue dark:border-primary dark:bg-primary/15 dark:text-primary"
+                              : "border-border hover:bg-muted"
+                          )}
+                        >
+                          <Icon className="h-5 w-5" />
+                          {m.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
 
               <button
                 type="button"
@@ -853,7 +1242,7 @@ export function QuickSaleScreen() {
                 Veresiye / Açık Hesap {isCredit ? "• Açık" : ""}
               </button>
 
-              {!isCredit && accounts.length > 0 && (
+              {!isCredit && !splitMode && accounts.length > 0 && (
                 <div>
                   <Label className="text-xs text-muted-foreground">Kasa / Banka Hesabı</Label>
                   <Select value={accountId} onValueChange={setAccountId}>
@@ -869,6 +1258,11 @@ export function QuickSaleScreen() {
                     </SelectContent>
                   </Select>
                 </div>
+              )}
+              {!isCredit && splitMode && (
+                <p className="px-1 text-xs text-muted-foreground">
+                  Nakit kasaya, kart/havale bankaya otomatik işlenir. Kalan tutar açık hesap olarak kalır.
+                </p>
               )}
 
               {isEDonusumEnabled && (
@@ -928,6 +1322,87 @@ export function QuickSaleScreen() {
         </div>
       </div>
 
+      {/* Önceki fiyatlar (geçmiş) modalı */}
+      <Dialog open={priceModalLine !== null} onOpenChange={(open) => !open && setPriceModalLine(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-kobipo-blue dark:text-primary" />
+              Önceki Fiyatlar
+            </DialogTitle>
+            <DialogDescription>
+              {priceModalLine?.description
+                ? `"${priceModalLine.description}" ürününün geçmiş işlem fiyatları.`
+                : "Bu ürünün geçmiş işlem fiyatları."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-wrap gap-1 border-b pb-2">
+            {PRICE_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActivePriceTab(tab.key)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
+                  activePriceTab === tab.key
+                    ? "bg-kobipo-blue text-white dark:bg-primary dark:text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/70"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="max-h-[50vh] overflow-y-auto">
+            {priceHistoryLoading ? (
+              <div className="flex h-32 items-center justify-center text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Yükleniyor…
+              </div>
+            ) : priceHistory[activePriceTab].length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">Bu sekmede kayıt bulunamadı.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-muted/70 text-left text-xs text-muted-foreground">
+                  <tr>
+                    <th className="p-2 font-medium">Tarih</th>
+                    <th className="p-2 font-medium">Cari</th>
+                    <th className="p-2 text-right font-medium">Fiyat</th>
+                    <th className="p-2 text-center font-medium">İşlem</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {priceHistory[activePriceTab].map((row, i) => (
+                    <tr key={i} className="hover:bg-muted/40">
+                      <td className="whitespace-nowrap p-2">{new Date(row.date).toLocaleDateString("tr-TR")}</td>
+                      <td className="max-w-[220px] truncate p-2" title={row.cariName}>
+                        {row.cariName}
+                      </td>
+                      <td className="p-2 text-right font-semibold tabular-nums text-kobipo-blue dark:text-primary">
+                        {currency(row.price)}
+                      </td>
+                      <td className="p-2 text-center">
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => applyHistoryPrice(row.price)}>
+                          <Check className="mr-1 h-3 w-3" /> Seç
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="secondary" className="w-full" onClick={() => setPriceModalLine(null)}>
+              Kapat
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Satış tamamlandı: yazdır / paylaş */}
       <Dialog open={lastSale !== null} onOpenChange={(open) => !open && setLastSale(null)}>
         <DialogContent className="sm:max-w-sm">
@@ -937,14 +1412,22 @@ export function QuickSaleScreen() {
               Satış tamamlandı
             </DialogTitle>
             <DialogDescription>
-              {lastSale?.invoiceNo ? `${lastSale.invoiceNo} oluşturuldu.` : "Fatura oluşturuldu."} Yazdırabilir veya
-              paylaşabilirsiniz.
+              {lastSale?.invoiceNo ? `${lastSale.invoiceNo} oluşturuldu.` : "Fatura oluşturuldu."} Fiş ya da fatura
+              yazdırabilir veya paylaşabilirsiniz.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" onClick={printSale}>
+            <Button variant="outline" onClick={() => openReceipt(false)}>
+              <Receipt className="mr-2 h-4 w-4" />
+              Fiş
+            </Button>
+            <Button variant="outline" onClick={() => openReceipt(true)}>
               <Printer className="mr-2 h-4 w-4" />
               Yazdır
+            </Button>
+            <Button variant="outline" onClick={printSale}>
+              <FileText className="mr-2 h-4 w-4" />
+              Fatura
             </Button>
             <Button variant="outline" onClick={shareSale}>
               <Share2 className="mr-2 h-4 w-4" />

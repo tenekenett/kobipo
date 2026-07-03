@@ -18,7 +18,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!definition) return NextResponse.json({ error: "Tanım bulunamadı" }, { status: 404 })
 
   const access = await ensureCompanyAccess(definition.companyId)
-  if (!["ADMIN", "ACCOUNTANT"].includes(access.role)) {
+  if (access.role === "VIEWER") {
     return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 })
   }
 
@@ -42,7 +42,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (!definition) return NextResponse.json({ error: "Tanım bulunamadı" }, { status: 404 })
 
   const access = await ensureCompanyAccess(definition.companyId)
-  if (!["ADMIN", "ACCOUNTANT"].includes(access.role)) {
+  if (access.role === "VIEWER") {
     return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 })
   }
 

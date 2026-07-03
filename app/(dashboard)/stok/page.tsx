@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -107,6 +107,46 @@ export default function StokPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({ ...emptyProductForm })
+
+  // Alış/satış arasındaki kâr marjı (alış üzeri). Fiyatlar KDV dahil girilmiş
+  // olabileceğinden ikisini de net (KDV hariç) tabana indiriyoruz.
+  const marginInfo = useMemo(() => {
+    const vat = Number(formData.vatRate) || 0
+    const toNet = (raw: string, included: boolean) => {
+      const v = Number(raw)
+      if (!isFinite(v) || v <= 0) return null
+      return included && vat > 0 ? v / (1 + vat / 100) : v
+    }
+    const netPurchase = toNet(formData.purchasePrice, formData.purchasePriceVatIncluded)
+    const netSale = toNet(formData.salePrice, formData.salePriceVatIncluded)
+    const profit = netPurchase != null && netSale != null ? netSale - netPurchase : null
+    const markup =
+      netPurchase != null && netPurchase > 0 && netSale != null
+        ? ((netSale - netPurchase) / netPurchase) * 100
+        : null
+    return { netPurchase, netSale, profit, markup }
+  }, [
+    formData.purchasePrice,
+    formData.salePrice,
+    formData.vatRate,
+    formData.purchasePriceVatIncluded,
+    formData.salePriceVatIncluded,
+  ])
+  // Kâr marjı alanı düzenlenirken tutulan ham metin (yazarken çakışmayı önler).
+  const [marginEdit, setMarginEdit] = useState<string | null>(null)
+
+  // Kâr marjı (%) girilince satış fiyatını alış fiyatı üzerinden hesaplar:
+  // satış(net) = alış(net) × (1 + marj/100). Satış "KDV dahil" ise brüte çevirip yazar.
+  const applyMarkup = (raw: string) => {
+    const netPurchase = marginInfo.netPurchase
+    if (netPurchase == null) return
+    const m = parseFloat(raw.replace(",", "."))
+    if (!isFinite(m)) return
+    const vat = Number(formData.vatRate) || 0
+    const netSale = netPurchase * (1 + m / 100)
+    const display = formData.salePriceVatIncluded && vat > 0 ? netSale * (1 + vat / 100) : netSale
+    setFormData((prev) => ({ ...prev, salePrice: String(Math.round(display * 100) / 100) }))
+  }
   const [warehouses, setWarehouses] = useState<{ id: string; name: string; isDefault?: boolean }[]>([])
   const [createWarehouseId, setCreateWarehouseId] = useState("")
   const [editWarehouseId, setEditWarehouseId] = useState("")
@@ -605,6 +645,50 @@ export default function StokPage() {
                     KDV dahil
                   </label>
                 </div>
+                {marginInfo.netPurchase != null && (
+                  <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Kâr marjı (alış üzeri)</span>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="number"
+                          step="0.1"
+                          inputMode="decimal"
+                          value={
+                            marginEdit ??
+                            (marginInfo.markup != null ? String(Math.round(marginInfo.markup * 10) / 10) : "")
+                          }
+                          placeholder="0"
+                          onChange={(e) => {
+                            setMarginEdit(e.target.value)
+                            applyMarkup(e.target.value)
+                          }}
+                          onBlur={() => setMarginEdit(null)}
+                          disabled={isLoading}
+                          className="h-8 w-20 text-right"
+                          title="Marjı değiştir — satış fiyatı otomatik hesaplanır"
+                        />
+                        <span className="text-muted-foreground">%</span>
+                      </div>
+                    </div>
+                    {marginInfo.profit != null && (
+                      <span
+                        className={`font-medium ${
+                          marginInfo.profit >= 0
+                            ? "text-green-600 dark:text-green-400"
+                            : "text-red-600 dark:text-red-400"
+                        }`}
+                      >
+                        {new Intl.NumberFormat("tr-TR", {
+                          style: "currency",
+                          currency: "TRY",
+                          signDisplay: "exceptZero",
+                        }).format(marginInfo.profit)}{" "}
+                        kâr
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label htmlFor="stockQuantity">Stok Miktarı</Label>
                   <Input
