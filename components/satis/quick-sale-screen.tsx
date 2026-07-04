@@ -31,8 +31,16 @@ import {
 } from "@/components/ui/dialog"
 import { QuantityStepper } from "@/components/ui/quantity-stepper"
 import { ProductCombobox, type ComboboxProduct } from "@/components/e-donusum/product-combobox"
-import { CounterpartyCombobox, type Counterparty } from "@/components/e-donusum/counterparty-combobox"
+import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import {
+  useProducts,
+  useCustomers,
+  useAccounts,
+  useWarehouses,
+  useProductCategories,
+  useWarehouseStocks,
+} from "@/lib/swr/use-company-data"
 import { cn } from "@/lib/utils"
 import {
   Banknote,
@@ -65,8 +73,6 @@ type CartLine = {
 }
 
 type QuickProduct = ComboboxProduct & { category?: string | null }
-
-type FinancialAccount = { id: string; name: string; type: string }
 
 type PaymentMethod = "CASH" | "CREDIT_CARD" | "BANK_TRANSFER"
 
@@ -237,15 +243,17 @@ export function QuickSaleScreen() {
   const isEDonusumEnabled = Boolean(selectedCompany?.isEDonusumEnabled)
   const { toast } = useToast()
 
-  const [products, setProducts] = useState<QuickProduct[]>([])
-  const [categoryOptions, setCategoryOptions] = useState<string[]>([])
-  const [customers, setCustomers] = useState<Counterparty[]>([])
-  const [accounts, setAccounts] = useState<FinancialAccount[]>([])
-  const [warehouses, setWarehouses] = useState<{ id: string; name: string; isDefault?: boolean }[]>([])
+  // Referans veriler SWR ile önbelleklenir: ekranlar arası paylaşılır ve her
+  // mount'ta yeniden çekilmez (aynı anahtar 30 sn içinde dedupe edilir).
+  const { products: refProducts } = useProducts(companyId, { isService: false })
+  const { customers } = useCustomers(companyId)
+  const { accounts } = useAccounts(companyId)
+  const { warehouses } = useWarehouses(companyId)
+  const { categories: categoryOptions } = useProductCategories(companyId)
+  const { stocks: warehouseStocks } = useWarehouseStocks(companyId)
   const [warehouseId, setWarehouseId] = useState<string>("")
-  const [warehouseStocks, setWarehouseStocks] = useState<
-    { warehouseId: string; productId: string; quantity: number }[]
-  >([])
+  // Satış bağlamı: satır/kutucuk birim fiyatı ürünün SATIŞ fiyatından gelir.
+  const products: QuickProduct[] = refProducts
 
   // Park edilen satışlar (Müşteri 1..N). Her biri kendi sepeti + müşterisi + ödenen tutarı.
   const [tickets, setTickets] = useState<Ticket[]>(() =>
@@ -282,84 +290,18 @@ export function QuickSaleScreen() {
   const [priceHistory, setPriceHistory] = useState<PriceHistory>(EMPTY_PRICE_HISTORY)
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false)
 
+  // Varsayılan depo (Ana) ve kasa/banka hesabı — referans veriler gelince bir kez seç.
   useEffect(() => {
-    if (!companyId) return
-    let cancelled = false
+    if (warehouseId || warehouses.length === 0) return
+    const def = warehouses.find((w) => w.isDefault) ?? warehouses[0]
+    if (def) setWarehouseId(def.id)
+  }, [warehouses, warehouseId])
 
-    const load = async () => {
-      try {
-        const [prodRes, custRes, accRes, whRes, catRes, stockRes] = await Promise.all([
-          fetch(`/api/stok/products?companyId=${companyId}&isService=false`),
-          fetch(`/api/cari/customers?companyId=${companyId}`),
-          fetch(`/api/finans/accounts?companyId=${companyId}`),
-          fetch(`/api/depolar?companyId=${companyId}`),
-          fetch(`/api/company/definitions?companyId=${companyId}&type=PRODUCT_CATEGORY`),
-          fetch(`/api/depolar/stok?companyId=${companyId}`),
-        ])
-
-        if (!cancelled && catRes.ok) {
-          const data = await catRes.json()
-          setCategoryOptions(
-            (Array.isArray(data) ? data : []).map((d: any) => String(d.label)).filter(Boolean)
-          )
-        }
-        if (!cancelled && stockRes.ok) {
-          const data = await stockRes.json()
-          setWarehouseStocks(
-            (Array.isArray(data?.stocks) ? data.stocks : []).map((s: any) => ({
-              warehouseId: s.warehouseId,
-              productId: s.productId,
-              quantity: Number(s.quantity) || 0,
-            }))
-          )
-        }
-        if (!cancelled && whRes.ok) {
-          const data = await whRes.json()
-          const list = Array.isArray(data) ? data : []
-          setWarehouses(list)
-          const def = list.find((w: any) => w.isDefault) ?? list[0]
-          if (def) setWarehouseId((prev) => prev || def.id)
-        }
-        if (!cancelled && prodRes.ok) {
-          const data = await prodRes.json()
-          setProducts(
-            (Array.isArray(data) ? data : []).map((p: any) => ({
-              id: p.id,
-              name: p.name,
-              code: p.code,
-              salePrice: p.salePrice != null ? Number(p.salePrice) : null,
-              vatRate: Number(p.vatRate) || 20,
-              unit: p.unit,
-              category: p.category ?? null,
-            }))
-          )
-        }
-        if (!cancelled && custRes.ok) {
-          const data = await custRes.json()
-          const items = Array.isArray(data) ? data : data?.items ?? []
-          setCustomers(items.map((c: any) => ({ id: c.id, name: c.name, taxNumber: c.taxNumber })))
-        }
-        if (!cancelled && accRes.ok) {
-          const data = await accRes.json()
-          const list: FinancialAccount[] = (Array.isArray(data) ? data : []).map((a: any) => ({
-            id: a.id,
-            name: a.name,
-            type: a.type,
-          }))
-          setAccounts(list)
-          const firstCash = list.find((a) => a.type === "CASH") ?? list[0]
-          if (firstCash) setAccountId((prev) => prev || firstCash.id)
-        }
-      } catch (error) {
-        console.error("Hızlı satış verileri yüklenemedi:", error)
-      }
-    }
-
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [companyId])
+  useEffect(() => {
+    if (accountId || accounts.length === 0) return
+    const firstCash = accounts.find((a) => a.type === "CASH") ?? accounts[0]
+    if (firstCash) setAccountId(firstCash.id)
+  }, [accounts, accountId])
 
   const bestWarehouseByProduct = useMemo(() => {
     const m = new Map<string, { warehouseId: string; qty: number }>()
@@ -1152,56 +1094,60 @@ export function QuickSaleScreen() {
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs text-muted-foreground">Ödenen (nakit)</Label>
-                    <span className="text-xs text-muted-foreground">
-                      Para Üstü: <span className="font-bold text-kobipo-green">{currency(change)}</span>
-                    </span>
-                  </div>
-                  <Input
-                    value={active.tendered}
-                    onChange={(e) => setTendered(e.target.value)}
-                    inputMode="decimal"
-                    placeholder="0,00"
-                    className="h-11 text-right text-lg font-bold tabular-nums"
-                  />
-                  <div className="grid grid-cols-4 gap-2">
-                    {[20, 50, 100, 200].map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => setTendered(String(n))}
-                        className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary dark:hover:bg-primary/10"
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => addCash(20)}
-                      className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
-                    >
-                      +20
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => addCash(-20)}
-                      className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
-                    >
-                      −20
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTendered(String(round2(totals.total)))}
-                      className="rounded-lg border border-kobipo-green/40 bg-kobipo-green/10 py-2 text-sm font-semibold text-kobipo-green transition-colors hover:bg-kobipo-green/20"
-                    >
-                      Tam
-                    </button>
-                  </div>
+                  {paymentMethod === "CASH" && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs text-muted-foreground">Ödenen (nakit)</Label>
+                        <span className="text-xs text-muted-foreground">
+                          Para Üstü: <span className="font-bold text-kobipo-green">{currency(change)}</span>
+                        </span>
+                      </div>
+                      <Input
+                        value={active.tendered}
+                        onChange={(e) => setTendered(e.target.value)}
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        className="h-11 text-right text-lg font-bold tabular-nums"
+                      />
+                      <div className="grid grid-cols-4 gap-2">
+                        {[20, 50, 100, 200].map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => setTendered(String(n))}
+                            className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary dark:hover:bg-primary/10"
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => addCash(20)}
+                          className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
+                        >
+                          +20
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addCash(-20)}
+                          className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
+                        >
+                          −20
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTendered(String(round2(totals.total)))}
+                          className="rounded-lg border border-kobipo-green/40 bg-kobipo-green/10 py-2 text-sm font-semibold text-kobipo-green transition-colors hover:bg-kobipo-green/20"
+                        >
+                          Tam
+                        </button>
+                      </div>
+                    </>
+                  )}
 
-                  <div className="grid grid-cols-3 gap-2 border-t pt-3">
+                  <div className={cn("grid grid-cols-3 gap-2", paymentMethod === "CASH" && "border-t pt-3")}>
                     {PAYMENT_METHODS.map((m) => {
                       const Icon = m.icon
                       const activeState = !isCredit && paymentMethod === m.value
@@ -1212,6 +1158,7 @@ export function QuickSaleScreen() {
                           onClick={() => {
                             setPaymentMethod(m.value)
                             setIsCredit(false)
+                            if (m.value !== "CASH") setTendered("")
                           }}
                           className={cn(
                             "flex flex-col items-center gap-1 rounded-lg border p-2.5 text-[11px] font-semibold transition-colors",
@@ -1268,7 +1215,7 @@ export function QuickSaleScreen() {
               {isEDonusumEnabled && (
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={eArsiv} onChange={(e) => setEArsiv(e.target.checked)} className="rounded" />
-                  E-Arşiv olarak kes (GİB'e gönder)
+                  E-Arşiv olarak kes (GİB&apos;e gönder)
                 </label>
               )}
             </CardContent>

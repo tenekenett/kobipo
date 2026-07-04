@@ -39,7 +39,13 @@
       "Bash(grep -rnE \"/api/compan\\(y|ies\\)/\\\\\\\\\\\\$\\\\{\" \"app/\\(dashboard\\)\" components)",
       "Bash(grep -rnE \"/api/companies/\\\\\\\\\\\\$\\\\{[a-zA-Z]+\\\\}/\" \"app/\\(dashboard\\)\" components)",
       "Bash(tee /tmp/claude-1000/-home-yasin-Belgeler-sirketselmidir-kobipo/9405eb67-9f07-47d1-b551-c057b363551c/scratchpad/tsc.log)",
-      "Bash(grep -vE \"className|href=|import|//\")"
+      "Bash(grep -vE \"className|href=|import|//\")",
+      "Bash(xargs wc -l)",
+      "Bash(grep -rl \"fetch\\(\\\\`/api/stok/products\" components app --include=\"*.tsx\")",
+      "Bash(grep -rn \"new Intl.NumberFormat\\(\\\\\"tr-TR\\\\\", { style: \\\\\"currency\\\\\"\" components app --include=\"*.tsx\")",
+      "Bash(ls node_modules/swr/package.json)",
+      "Bash(grep '\"version\"' node_modules/swr/package.json)",
+      "Bash(npx eslint *)"
     ]
   }
 }

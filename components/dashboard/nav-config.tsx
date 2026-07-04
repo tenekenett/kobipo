@@ -80,7 +80,7 @@ export const allNavItems: NavItemDef[] = [
   { href: "/cari/tedarikci", label: "Tedarikçi", icon: UserRound, roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/alis/irsaliye", label: "Alış İrsaliyesi", icon: Truck, roles: ["ADMIN", BM, "ACCOUNTANT", "STOCK"] },
   { href: "/alis/siparis", label: "Alış Siparişi", icon: ClipboardList, roles: ["ADMIN", BM, "ACCOUNTANT"] },
-  { href: "/alis/hizli", label: "Hızlı Alış Fişi", icon: Zap, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/alis/hizli", label: "Hızlı Alış", icon: Zap, roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/alis/teklif", label: "Satın Alma Teklifi", icon: ScrollText, roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Stok

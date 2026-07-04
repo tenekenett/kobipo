@@ -7,6 +7,7 @@ import { MainArea } from "@/components/dashboard/main-area"
 import { CompanySelector } from "@/components/dashboard/company-selector"
 import { BranchContextBanner } from "@/components/dashboard/branch-context-banner"
 import { DashboardCompanyProvider } from "@/components/dashboard/dashboard-company-provider"
+import { SWRProvider } from "@/components/providers/swr-provider"
 import { ModuleGuard } from "@/components/dashboard/module-guard"
 import { SuspendedLogoutButton } from "@/components/dashboard/suspended-logout-button"
 import { DashboardTitle } from "@/components/dashboard/dashboard-title"
@@ -73,6 +74,7 @@ export default async function DashboardLayout({
     visibleCompanies.find((c) => !c.isBranch)?.role ?? visibleCompanies[0]?.role ?? "VIEWER"
 
   return (
+    <SWRProvider>
     <DashboardCompanyProvider initialCompanies={initialCompanies} initialRole={initialRole}>
       <DashboardTitle />
       <SidebarProvider>
@@ -91,5 +93,6 @@ export default async function DashboardLayout({
         </div>
       </SidebarProvider>
     </DashboardCompanyProvider>
+    </SWRProvider>
   )
 }
