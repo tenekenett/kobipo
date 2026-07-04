@@ -43,7 +43,10 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const body = await request.json()
-  const companyId = String(body?.companyId || "")
+  // Dashboard URL'leri `?company=<slug>` taşır; gövdeden gelen companyId slug olabilir.
+  // GET gibi burada da cuid'e çöz — aksi halde ensureCompanyAccess slug'ı tanımaz ve
+  // "erişim reddi" verir (kategori eklerken yetki hatası). Bkz. resolveCompanyId.
+  const companyId = (await resolveCompanyId(String(body?.companyId || ""))) || ""
   const type = asDefinitionType(body?.type)
   const label = String(body?.label || "").trim()
 

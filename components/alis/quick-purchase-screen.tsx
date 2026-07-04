@@ -117,6 +117,10 @@ const currency = (n: number) =>
 const numInput = (n: number) => (n === 0 ? "" : String(n))
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+// Birim fiyat 6 ondalıkla saklanır (InvoiceItem.unitPrice = Decimal(15,6)). Tutar
+// sütunundan geri hesaplarken 2 ondalığa kırparsak hedef tutar tam tutmaz
+// (örn. 3 × %20 için 100 → 27,78 → 100,01). 6 ondalık ile round-trip korunur.
+const round6 = (n: number) => Math.round((n + Number.EPSILON) * 1e6) / 1e6
 
 const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -293,6 +297,9 @@ export function QuickPurchaseScreen() {
   >(null)
   // Tutar sütununda düzenlenen satır (yazarken alanın kullanıcıyla çakışmasını önler).
   const [totalEdit, setTotalEdit] = useState<{ key: string; value: string } | null>(null)
+  // Fiyat sütununda düzenlenen satır — birim fiyat 6 ondalık olabildiğinden (Tutar'dan
+  // geri hesaplanınca) alan odak dışıyken 2 ondalıkla gösterilir, yazarken ham girişi korur.
+  const [priceEdit, setPriceEdit] = useState<{ key: string; value: string } | null>(null)
 
   // Parçalı ödeme: yöntem başına tutar.
   const [splitMode, setSplitMode] = useState(false)
@@ -385,7 +392,7 @@ export function QuickPurchaseScreen() {
         cart.map((l) => {
           if (l.key !== key) return l
           const denom = l.quantity * (1 + l.vatRate / 100)
-          const unitPrice = denom > 0 ? round2(total / denom) : 0
+          const unitPrice = denom > 0 ? round6(total / denom) : 0
           return { ...l, unitPrice }
         })
       ),
@@ -857,9 +864,15 @@ export function QuickPurchaseScreen() {
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                value={numInput(line.unitPrice)}
+                                value={
+                                  priceEdit?.key === line.key ? priceEdit.value : numInput(round2(line.unitPrice))
+                                }
                                 placeholder="0"
-                                onChange={(e) => updateLine(line.key, { unitPrice: parseFloat(e.target.value) || 0 })}
+                                onChange={(e) => {
+                                  setPriceEdit({ key: line.key, value: e.target.value })
+                                  updateLine(line.key, { unitPrice: parseFloat(e.target.value) || 0 })
+                                }}
+                                onBlur={() => setPriceEdit(null)}
                                 className="w-24 text-right"
                               />
                             </TableCell>
