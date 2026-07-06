@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { ensureCompanyAccess } from "@/lib/middleware/company";
+import { resolveCompanyId } from "@/lib/company/resolve-company";
 import { decryptSecret } from "@/lib/crypto/secrets";
 import { resolveMysoftBaseUrl } from "@/lib/integrations/e-invoice/constants";
 
@@ -13,8 +14,12 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { companyId } = body;
     let { username, password, apiUrl } = body;
+    // Dashboard URL'leri firmayı slug ile taşıyor (?company=<slug>). companyId slug
+    // olarak gelirse ensureCompanyAccess/prisma sorguları eşleşmez ve kayıtlı şifreyle
+    // test edildiğinde "Access denied" döner; sonuç da DB'ye yazılamaz. Önce gerçek
+    // Company id'sine (cuid) çeviriyoruz. [[resolve-company.ts]]
+    const companyId = await resolveCompanyId(body.companyId);
 
     // Şifre boşsa veya placeholder *** ise DB'deki kayıtlı şifreyi kullan.
     // username de aynı şekilde — formdan gelmediyse DB'den al.
