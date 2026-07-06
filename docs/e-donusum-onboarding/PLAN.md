@@ -76,7 +76,7 @@ Nested modeller: `TenantAdressModel` (45777) → `country`/`city` = `GeneralLook
 - [x] Plan dosyası (bu dosya)
 - [x] `Company` şema alanları (Faz 4 durum takibi için)
 - [x] Supabase migration dosyası
-- [ ] `npm run db:push` ile DB'ye uygula ← **kullanıcı çalıştıracak**
+- [x] `npm run db:push` ile DB'ye uygula (2026-07-06 çalıştırıldı)
 
 ### Faz 1 — Provider metodları (bayi)
 - [x] `createTenant()` — `addTenant`
@@ -85,10 +85,28 @@ Nested modeller: `TenantAdressModel` (45777) → `country`/`city` = `GeneralLook
 - [ ] (ops.) `addPreContract()` — ilk kontör otomatik yükleme
 
 ### Faz 2 — Onboarding API
-- [ ] `POST /api/e-donusum/onboarding` — VKN doğrula (`check-vkn`) → `createTenant` →
-      `activateProduct` → `Company` durumunu yaz. Idempotent + `SystemLog`.
-- [ ] `GET /api/e-donusum/onboarding/status?companyId=` — `getTenantActivationStatus`
-      ile GİB durumunu poll et, `Company.eDonusumActivatedProducts` güncelle.
+- [x] `POST /api/e-donusum/onboarding` — VKN doğrula → `createTenant` → `activateProduct`
+      (ürün başına) → `Company` durumunu yaz. Idempotent (tenant varsa atlar, "zaten
+      kayıtlı" hatasını tolere eder) + `SystemLog`.
+- [x] `GET /api/e-donusum/onboarding/status?companyId=` — `getTenantActivationStatus`
+      ile GİB durumunu poll et; tüm başvurulan ürünler onaylıysa `status=ACTIVE` yap.
+- [ ] (sonra) İstek gövdesine VKN'nin e-Fatura mükellefi olup olmadığını `check-vkn` ile
+      otomatik belirleyip ürün önerisi — şimdilik ürünler UI'dan açık geliyor.
+
+**Sözleşme (request body):**
+`POST` → `{ companyId, registerNo?, email?, products: [{ type, serialNumberPrefix,
+internetSerialNumberPrefix?, aliasPrefix?, aliasDomain? }] }`. `type` ∈
+{EInvoice, EArchive, EDespatch, ESEVoucher, EProducerVoucher}. EInvoice/EArchive/EDespatch
+için `serialNumberPrefix` (3 karakter) zorunlu. Dönüş: `{ success, tenantId?, status,
+activations: [{type, ok, activationId?, error?}], error? }`.
+`GET /status` → `{ success, status, allApproved, submitted, activations: [{productType,
+demandStatus, state: approved|error|pending, gibServiceStatus, gibServiceMessage,
+serialNumberPrefix}] }`.
+
+> ⚠️ **Açık noktalar (test ederken doğrula):** (1) `registerNo` şahıs firmasında yok →
+> boşsa VKN gönderiliyor; Mysoft reddederse UI'dan alınmalı. (2) `taxOffice` için sadece
+> ad gönderiliyor (kod yok); Mysoft kod isterse vergi dairesi lookup'ı eklenecek.
+> (3) Adres `createTenant`'ta şimdilik gönderilmiyor (opsiyonel) — gerekirse eklenecek.
 
 ### Faz 3 — UI Sihirbazı
 - [ ] `E-Dönüşüm Ayarları` ekranını başvuru sihirbazına çevir: firma bilgileri (Company'den
@@ -133,8 +151,13 @@ denemek istersek bayi test kimliğiyle `MYSOFT_PARTNER_API_URL`'i test URL'sine 
 
 ## 8. İlerleme Günlüğü
 
-- **2026-07-06** — Proje başlatıldı. Dokümanla mimari doğrulandı (Yol A). Plan dosyası
+- **2026-07-06 (1)** — Proje başlatıldı. Dokümanla mimari doğrulandı (Yol A). Plan dosyası
   oluşturuldu. Faz 0 şema alanları + migration eklendi (db:push kullanıcıya bırakıldı).
   Faz 1 provider metodları (`createTenant`, `activateProduct`, `getTenantActivationStatus`)
-  yazıldı. Sıradaki: Faz 2 onboarding API route'u. Mysoft'a muvafakat sorusu (Karar #2)
-  soruldu, cevap bekleniyor.
+  yazıldı. Mysoft'a muvafakat sorusu (Karar #2) soruldu, cevap bekleniyor.
+- **2026-07-06 (2)** — Kullanıcı `npm run db:push` çalıştırdı (Faz 0 bitti). Tasarım kararı:
+  onboarding **register akışında değil, E-Dönüşüm Ayarları ekranında** yapılacak. Faz 2
+  route'ları yazıldı: `POST /api/e-donusum/onboarding` + `GET /api/e-donusum/onboarding/status`.
+  `tsc` temiz. Sıradaki: **Faz 3 UI sihirbazı** (`app/(dashboard)/ayarlar/e-donusum/page.tsx`
+  ekranını "Başvur ve Aktive Et" akışına çevir; bu route'ları çağır). Henüz gerçek Mysoft
+  test çağrısı yapılmadı — Faz 3 UI ile ya da elle bir POST ile denenecek.
