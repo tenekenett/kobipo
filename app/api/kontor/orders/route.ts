@@ -46,7 +46,8 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const body = await request.json()
-    const companyId = String(body?.companyId ?? "")
+    // companyId dashboard'dan slug gelebilir → cuid'e çevir (GET zaten çeviriyor). [[resolve-company.ts]]
+    const companyId = (await resolveCompanyId(String(body?.companyId ?? ""))) ?? ""
     const packageId = String(body?.packageId ?? "")
     // Ödeme yöntemi: "CARD" (PayTR sanal POS) veya "HAVALE" (varsayılan, manuel onay).
     const paymentMethod = body?.paymentMethod === "CARD" ? "CARD" : "HAVALE"

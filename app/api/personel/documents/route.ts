@@ -75,6 +75,9 @@ export async function POST(request: Request) {
     externalUrl = body.fileUrl || null
   }
 
+  // companyId dashboard'dan slug gelebilir → cuid'e çevir (GET zaten çeviriyor). [[resolve-company.ts]]
+  companyId = (await resolveCompanyId(companyId)) ?? companyId
+
   // Dosya yoksa başlık zorunlu; dosya varsa başlık dosya adından türetilebilir.
   if (!companyId || !employeeId) {
     return NextResponse.json({ error: "companyId ve employeeId zorunlu" }, { status: 400 })

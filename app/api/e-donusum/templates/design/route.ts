@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { readSampleTemplate } from "@/lib/integrations/e-invoice/sample-templates"
 import {
@@ -21,7 +22,10 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const body = await request.json().catch(() => ({}))
-    const { companyId, eDocumentType, options } = body
+    // companyId dashboard'dan slug gelebilir → cuid'e çevir (aksi halde ensureCompanyAccess
+    // eşleşmez ve "Access denied" döner). [[resolve-company.ts]]
+    const companyId = await resolveCompanyId(body.companyId)
+    const { eDocumentType, options } = body
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
 
     const docType = Number(eDocumentType)

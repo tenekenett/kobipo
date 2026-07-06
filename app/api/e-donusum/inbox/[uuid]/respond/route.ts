@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
@@ -32,7 +33,8 @@ export async function POST(
     }
 
     const body = await request.json().catch(() => ({}))
-    const companyId: string | undefined = body?.companyId
+    // companyId dashboard'dan slug gelebilir → cuid'e çevir. [[resolve-company.ts]]
+    const companyId = await resolveCompanyId(body?.companyId)
     const action: string = body?.action
     const rejectReason: string = typeof body?.rejectReason === "string" ? body.rejectReason.trim() : ""
 

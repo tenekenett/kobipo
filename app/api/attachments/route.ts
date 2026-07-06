@@ -10,7 +10,8 @@ export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const sp = new URL(request.url).searchParams
-  const companyId = sp.get("companyId")
+  // companyId dashboard'dan slug gelebilir → cuid'e çevir (POST zaten çeviriyor). [[resolve-company.ts]]
+  const companyId = await resolveCompanyId(sp.get("companyId"))
   const entityType = sp.get("entityType")
   const entityId = sp.get("entityId")
   if (!companyId || !entityType || !entityId) {

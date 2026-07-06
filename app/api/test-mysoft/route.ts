@@ -15,11 +15,19 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     let { username, password, apiUrl } = body;
+
     // Dashboard URL'leri firmayı slug ile taşıyor (?company=<slug>). companyId slug
-    // olarak gelirse ensureCompanyAccess/prisma sorguları eşleşmez ve kayıtlı şifreyle
-    // test edildiğinde "Access denied" döner; sonuç da DB'ye yazılamaz. Önce gerçek
-    // Company id'sine (cuid) çeviriyoruz. [[resolve-company.ts]]
-    const companyId = await resolveCompanyId(body.companyId);
+    // gelirse ensureCompanyAccess/prisma sorguları eşleşmez. Önce cuid'e çeviriyoruz —
+    // ama best-effort: DB'ye ulaşılamıyorsa ham değeri koruyup devam ediyoruz ki tüm
+    // kimlikler elle girildiğinde test DB'siz de çalışsın. [[resolve-company.ts]]
+    let companyId: string | null = body.companyId ?? null;
+    if (companyId) {
+      try {
+        companyId = (await resolveCompanyId(companyId)) ?? companyId;
+      } catch (resolveError) {
+        console.error("test-mysoft resolveCompanyId error:", resolveError);
+      }
+    }
 
     // Şifre boşsa veya placeholder *** ise DB'deki kayıtlı şifreyi kullan.
     // username de aynı şekilde — formdan gelmediyse DB'den al.
@@ -30,27 +38,44 @@ export async function POST(request: Request) {
     // forma YENİ canlı kimlik girip test ettiğinde apiUrl undefined kalır ve
     // istek yanlışlıkla TEST ortamına gider.
     if ((passwordIsPlaceholder || usernameIsMissing || !apiUrl) && companyId) {
-      await ensureCompanyAccess(companyId);
-      const company = await prisma.company.findUnique({
-        where: { id: companyId },
-        select: {
-          eDonusumApiUsername: true,
-          eDonusumApiPassword: true,
-          eDonusumApiUrl: true,
-        },
-      });
-      if (usernameIsMissing) username = company?.eDonusumApiUsername || "";
-      if (passwordIsPlaceholder && company?.eDonusumApiPassword) {
-        try {
-          password = decryptSecret(company.eDonusumApiPassword);
-        } catch {
-          return NextResponse.json(
-            { success: false, message: "Kayıtlı şifre çözülemedi. Lütfen şifreyi tekrar girip kaydedin." },
-            { status: 400 }
-          );
+      try {
+        await ensureCompanyAccess(companyId);
+        const company = await prisma.company.findUnique({
+          where: { id: companyId },
+          select: {
+            eDonusumApiUsername: true,
+            eDonusumApiPassword: true,
+            eDonusumApiUrl: true,
+          },
+        });
+        if (usernameIsMissing) username = company?.eDonusumApiUsername || "";
+        if (passwordIsPlaceholder && company?.eDonusumApiPassword) {
+          try {
+            password = decryptSecret(company.eDonusumApiPassword);
+          } catch {
+            return NextResponse.json(
+              { success: false, message: "Kayıtlı şifre çözülemedi. Lütfen şifreyi tekrar girip kaydedin." },
+              { status: 400 }
+            );
+          }
         }
+        if (!apiUrl) apiUrl = company?.eDonusumApiUrl || undefined;
+      } catch (dbError: any) {
+        const dbMessage = String(dbError?.message || "");
+        if (dbMessage.toLowerCase().includes("access denied")) {
+          return NextResponse.json({ success: false, message: "Access denied" }, { status: 403 });
+        }
+        // P1001/P2024 vb. — kayıtlı kimlikler DB'den okunamadı. Ham hatayı sızdırma.
+        console.error("test-mysoft company lookup error:", dbError);
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Kayıtlı bilgiler okunamadı — veritabanına ulaşılamıyor. Bağlantı düzelince tekrar deneyin ya da API şifresini elle girip test edin.",
+          },
+          { status: 503 }
+        );
       }
-      if (!apiUrl) apiUrl = company?.eDonusumApiUrl || undefined;
     }
 
     if (!username || !password) {
@@ -104,8 +129,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Access denied" }, { status: 403 });
     }
     console.error("test-mysoft error:", error);
+    // Ham Prisma/Turbopack/stack mesajını kullanıcıya gösterme — sabit, anlaşılır bir metin dön.
     return NextResponse.json(
-      { success: false, message: message || "Mysoft sunucularına ulaşılamadı." },
+      { success: false, message: "Bağlantı test edilemedi. Lütfen bir süre sonra tekrar deneyin." },
       { status: 500 }
     );
   }

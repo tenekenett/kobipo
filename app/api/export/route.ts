@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import * as XLSX from "xlsx"
@@ -11,7 +12,8 @@ export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const sp = new URL(request.url).searchParams
-  const companyId = sp.get("companyId")
+  // companyId dashboard'dan slug gelebilir → cuid'e çevir. [[resolve-company.ts]]
+  const companyId = await resolveCompanyId(sp.get("companyId"))
   const moduleName = sp.get("module")
   const format = (sp.get("format") || "csv").toLowerCase()
   if (!companyId || !moduleName) return NextResponse.json({ error: "companyId and module are required" }, { status: 400 })

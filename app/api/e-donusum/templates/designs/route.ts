@@ -87,7 +87,10 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const body = await request.json().catch(() => ({}))
-    const { companyId, xsltName, options } = body
+    // companyId dashboard'dan slug gelebilir → cuid'e çevir (GET zaten çeviriyor;
+    // POST'ta atlanırsa tasarım kaydetme "Access denied" verir). [[resolve-company.ts]]
+    const companyId = await resolveCompanyId(body.companyId)
+    const { xsltName, options } = body
     const eDocumentType = parseDocType(body.eDocumentType)
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     if (!eDocumentType) return NextResponse.json({ error: "Geçerli belge tipi gerekli." }, { status: 400 })

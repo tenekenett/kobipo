@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
@@ -26,7 +27,9 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const body = await request.json().catch(() => ({}))
-    const { companyId, xsltName } = body
+    // companyId dashboard'dan slug gelebilir → cuid'e çevir. [[resolve-company.ts]]
+    const companyId = await resolveCompanyId(body.companyId)
+    const { xsltName } = body
     const eDocumentType = Number(body.eDocumentType)
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     if (eDocumentType !== 1 && eDocumentType !== 2) {
