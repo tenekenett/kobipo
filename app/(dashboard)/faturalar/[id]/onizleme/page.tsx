@@ -185,7 +185,11 @@ export default function FaturaOnizlemePage() {
   }
 
   const handleDownloadPDF = () => {
-    window.open(`/api/faturalar/${invoiceId}/pdf?template=${template}`, "_blank")
+    // Gerçek cuid'i (invoice.id) kullan; URL'deki invoiceId slug (fatura no) olabilir ve
+    // PDF endpoint'i onu bulamaz. Firma scope'u için company param'ını da geçir.
+    const idForPdf = invoice?.id || invoiceId
+    const companyQs = companyId ? `&company=${encodeURIComponent(companyId)}` : ""
+    window.open(`/api/faturalar/${idForPdf}/pdf?template=${template}${companyQs}`, "_blank")
   }
 
   const handleCheckStatus = async () => {

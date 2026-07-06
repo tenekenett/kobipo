@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
+import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import jsPDF from "jspdf"
@@ -22,7 +24,7 @@ const currencySymbol = (code: string) => {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -31,7 +33,13 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { id } = await params
+    const { id: rawId } = await params
+    const url = new URL(request.url)
+    // Teklif id'si dashboard'dan slug (teklif no) gelebilir → cuid'e çevir. [[slug-resolve.ts]]
+    const scopeCompanyId = await resolveCompanyId(
+      url.searchParams.get("companyId") || url.searchParams.get("company"),
+    )
+    const id = await resolveSlugId("quote", rawId, scopeCompanyId)
 
     const quote = await prisma.quote.findUnique({
       where: { id },

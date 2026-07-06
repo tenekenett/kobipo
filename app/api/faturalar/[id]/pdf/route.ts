@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
+import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import jsPDF from "jspdf"
@@ -19,9 +21,15 @@ export async function GET(
     }
 
     const resolvedParams = await params
-    const invoiceId = resolvedParams.id
     const { searchParams } = new URL(request.url)
     const template = searchParams.get("template") || "standart"
+    // Fatura id'si dashboard'dan slug (fatura no) gelebilir → cuid'e çevir. Firma scope'u
+    // için company/companyId param'ı da (slug olabilir) çözülür; yoksa global slug araması
+    // yapılır ve erişim aşağıdaki ensureCompanyAccess ile korunur. [[slug-resolve.ts]]
+    const scopeCompanyId = await resolveCompanyId(
+      searchParams.get("companyId") || searchParams.get("company"),
+    )
+    const invoiceId = await resolveSlugId("invoice", resolvedParams.id, scopeCompanyId)
 
     const invoice = await prisma.invoice.findUnique({
       where: { id: invoiceId },

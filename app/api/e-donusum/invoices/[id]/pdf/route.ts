@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
+import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
@@ -14,7 +16,7 @@ export const dynamic = "force-dynamic"
  * yasal geçerliliği olan ve GİB UBL'sinden üretilmiş resmî dökümandır.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -23,7 +25,13 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { id } = await params
+    const { id: rawId } = await params
+    const url = new URL(request.url)
+    // Fatura id'si dashboard'dan slug (fatura no) gelebilir → cuid'e çevir. [[slug-resolve.ts]]
+    const scopeCompanyId = await resolveCompanyId(
+      url.searchParams.get("companyId") || url.searchParams.get("company"),
+    )
+    const id = await resolveSlugId("invoice", rawId, scopeCompanyId)
     const invoice = await prisma.invoice.findUnique({
       where: { id },
       select: {
