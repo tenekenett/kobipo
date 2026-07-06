@@ -185,6 +185,11 @@ model Company {
   eDonusumConnectorGuid String?
   eDonusumPkAlias     String?
   eDonusumGbAlias     String?
+  // Bayi (İş Ortağı) self-servis hesap açma durum takibi. Bkz. docs/e-donusum-onboarding/PLAN.md
+  eDonusumOnboardingStatus String?   // NONE | TENANT_CREATED | ACTIVATION_PENDING | ACTIVE | FAILED
+  eDonusumTenantCreatedAt  DateTime?
+  eDonusumActivatedProducts String[] @default([]) // ör. ["EInvoice","EArchive"]
+  eDonusumActivationError  String?   @db.Text
   sector      String?
   businessModel String?
   employeeRange String?

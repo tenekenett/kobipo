@@ -367,6 +367,219 @@ export class MysoftEInvoiceProvider implements EInvoiceProvider {
     }
   }
 
+  // ===========================================================================
+  // İŞ ORTAĞI (BAYİ) ONBOARDING — firma açma + ürün aktivasyonu
+  //
+  // Bu üç metod da BAYİ (İş Ortağı) kimliğiyle çağrılmalıdır (createPartnerProvider).
+  // Amaç: müşterinin Mysoft ile hiç muhatap olmadan, Kobipo üzerinden e-Dönüşüm
+  // hesabını açması. Belge gönderimi sonradan bayi kimliği + tenantIdentifierNumber
+  // ile yapılır. Detaylı plan: docs/e-donusum-onboarding/PLAN.md
+  // ===========================================================================
+
+  /**
+   * Bayi altında yeni bir mükellef (firma/tenant) açar.
+   * Swagger v8: POST /api/Tenant/addTenant (ApiTenantModel → Int32ResultModel).
+   * addTariffToTenant:true → bayiye tanımlı tarifeler firmaya devreder; böylece
+   * firma daha sonra kontör alıp fatura kesebilir. Adres opsiyonel (required değil).
+   * Başarılıysa Mysoft'un atadığı yeni tenant id'sini döndürür.
+   */
+  async createTenant(params: {
+    tenantName: string
+    shortName: string
+    vknTckn: string
+    email: string
+    registerNo: string
+    taxOfficeCode?: string
+    taxOfficeName?: string
+    telephone?: string
+    address?: {
+      countryCode?: string
+      countryName?: string
+      cityCode?: string
+      cityName?: string
+      citySubdivision?: string // ilçe — TenantAdressModel'de zorunlu
+      district?: string
+      streetName?: string
+      buildingName?: string
+      buildingNumber?: string
+      postalCode?: string
+    }
+    addTariffToTenant?: boolean
+  }): Promise<{ success: boolean; tenantId?: number; error?: string; raw?: any }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const body: Record<string, unknown> = {
+        tenantName: params.tenantName,
+        shortName: params.shortName,
+        vknTckn: params.vknTckn,
+        email: params.email,
+        registerNo: params.registerNo,
+        addTariffToTenant: params.addTariffToTenant ?? true,
+      }
+      if (params.telephone) body.telephone = params.telephone
+      if (params.taxOfficeCode || params.taxOfficeName) {
+        body.taxOffice = {
+          taxOfficeCode: params.taxOfficeCode || null,
+          taxOfficeName: params.taxOfficeName || null,
+        }
+      }
+      // TenantAdressModel: country/city = GeneralLookupModel {code,name}; citySubdivision
+      // (ilçe) zorunlu. Adres required listesinde olmadığı için yalnızca verilirse gönderilir.
+      if (params.address) {
+        const a = params.address
+        body.tenantAdress = {
+          country: { code: a.countryCode || "TR", name: a.countryName || "TÜRKİYE" },
+          city: { code: a.cityCode || null, name: a.cityName || null },
+          citySubdivision: a.citySubdivision || null,
+          district: a.district || null,
+          streetName: a.streetName || null,
+          buildingName: a.buildingName || null,
+          buildingNumber: a.buildingNumber || null,
+          postalCode: a.postalCode || null,
+        }
+      }
+
+      const res = await fetch(`${this.baseUrl}/api/Tenant/addTenant`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => null)
+      console.log("[Mysoft] addTenant raw:", res.status, JSON.stringify(data))
+      if (!data?.succeed) {
+        return {
+          success: false,
+          error: data?.message || `Firma açılamadı (HTTP ${res.status})`,
+          raw: data,
+        }
+      }
+      const tenantId =
+        typeof data?.data === "number" ? data.data : Number(data?.data) || undefined
+      return { success: true, tenantId, raw: data }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen hata" }
+    }
+  }
+
+  /**
+   * Firmaya bir e-Dönüşüm ürünü aktive eder (GİB başvurusu oluşturur).
+   * Swagger v8: POST /api/Tenant/addTenantActivation (ApiTenantActivationModel).
+   * activationProductType: "EInvoice" | "EArchive" | "EDespatch" | ... (bkz. PLAN.md).
+   * E-Fatura/E-Arşiv/E-İrsaliye'de serialNumberPrefix; E-Fatura/E-İrsaliye'de
+   * activationAlias (posta kutusu) zorunludur. Başvuru GİB'e iletilir; durumu
+   * getTenantActivationStatus ile takip edilir. Dönüş: Mysoft aktivasyon kayıt id'si.
+   */
+  async activateProduct(params: {
+    vknTckn: string
+    activationProductType: string
+    serialNumberPrefix?: string
+    internetSerialNumberPrefix?: string
+    aliasPrefix?: string
+    aliasDomain?: string
+    activationDemandDate?: string // ISO; boşsa şimdi
+  }): Promise<{ success: boolean; activationId?: number; error?: string; raw?: any }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const body: Record<string, unknown> = {
+        id: 0,
+        vknTckn: params.vknTckn,
+        activationDemandDate: params.activationDemandDate || new Date().toISOString(),
+        activationProductType: params.activationProductType,
+      }
+      if (params.serialNumberPrefix) body.serialNumberPrefix = params.serialNumberPrefix
+      if (params.internetSerialNumberPrefix)
+        body.internetSerialNumberPrefix = params.internetSerialNumberPrefix
+      if (params.aliasPrefix || params.aliasDomain) {
+        body.activationAlias = {
+          aliasPrefix: params.aliasPrefix || null,
+          domainName: params.aliasDomain || null,
+        }
+      }
+
+      const res = await fetch(`${this.baseUrl}/api/Tenant/addTenantActivation`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => null)
+      console.log("[Mysoft] addTenantActivation raw:", res.status, JSON.stringify(data))
+      if (!data?.succeed) {
+        return {
+          success: false,
+          error: data?.message || `Aktivasyon başvurusu başarısız (HTTP ${res.status})`,
+          raw: data,
+        }
+      }
+      const activationId =
+        typeof data?.data === "number" ? data.data : Number(data?.data) || undefined
+      return { success: true, activationId, raw: data }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen hata" }
+    }
+  }
+
+  /**
+   * Firmanın aktivasyon (GİB başvuru) durumlarını döndürür.
+   * Swagger v8: GET /api/Tenant/getTenantActivation?vknTckn=...
+   * activationDemandStatus: WillBeSendToGib → SentToGib → Approved / Canceled /
+   * Error / Wait / Close. gibServiceStatus/Message = GİB başvuru durum kodu/açıklaması.
+   */
+  async getTenantActivationStatus(vknTckn: string): Promise<{
+    success: boolean
+    data?: Array<{
+      productType: string | null
+      demandType: string | null
+      demandStatus: string | null
+      gibServiceStatus: string | null
+      gibServiceMessage: string | null
+      serialNumberPrefix: string | null
+    }>
+    error?: string
+    raw?: any
+  }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const res = await fetch(
+        `${this.baseUrl}/api/Tenant/getTenantActivation?vknTckn=${encodeURIComponent(
+          vknTckn,
+        )}&limit=50`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        },
+      )
+      const data = await res.json().catch(() => null)
+      if (!data?.succeed) {
+        return {
+          success: false,
+          error: data?.message || `Aktivasyon durumu alınamadı (HTTP ${res.status})`,
+          raw: data,
+        }
+      }
+      const rows: any[] = Array.isArray(data?.data) ? data.data : []
+      return {
+        success: true,
+        data: rows.map((r) => ({
+          productType: r?.activationProductType ?? null,
+          demandType: r?.activationDemandType ?? null,
+          demandStatus: r?.activationDemandStatus ?? null,
+          gibServiceStatus: r?.gibServiceStatus ?? null,
+          gibServiceMessage: r?.gibServiceMessage ?? null,
+          serialNumberPrefix: r?.serialNumberPrefix ?? null,
+        })),
+        raw: data,
+      }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen hata" }
+    }
+  }
+
 async sendInvoice(invoiceData: any): Promise<any> {
     try {
       // 1. TOKEN ALMA
