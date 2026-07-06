@@ -1717,11 +1717,11 @@ async sendInvoice(invoiceData: any): Promise<any> {
           : []
         const discount =
           allowances.find((a) => a?.chargeIndicator === false) || allowances[0] || null
-        const discountRate =
+        let discountRate =
           discount && discount.multiplierFactorNumeric != null
             ? (num(discount.multiplierFactorNumeric) ?? 0) * 100
             : num(pick(ln, "discountRate", "allowanceChargeRate"))
-        const discountAmount = discount
+        let discountAmount = discount
           ? num(discount.amount)
           : num(pick(ln, "discountAmount", "allowanceChargeAmount", "allowanceTotalAmount"))
 
@@ -1735,14 +1735,39 @@ async sendInvoice(invoiceData: any): Promise<any> {
           taxTotalObj && Array.isArray(taxTotalObj.taxSubtotalList)
             ? taxTotalObj.taxSubtotalList[0]
             : null
-        const vatRate = taxSub
-          ? num(taxSub.percent)
-          : num(pick(ln, "vatRate", "taxRate", "taxPercent"))
         const vatAmount = taxSub
           ? num(taxSub.taxAmount)
           : taxTotalObj
             ? num(taxTotalObj.taxAmount)
             : num(pick(ln, "vatAmount", "taxAmount", "taxTotalTra"))
+
+        const quantity = num(pick(ln, "invoicedQuantity", "quantity"))
+        let unitPrice = num(pick(ln, "unitPrice", "priceAmount", "price"))
+        const lineTotal = num(pick(ln, "lineExtensionAmount", "lineTotal", "amountTra"))
+        let vatRate = taxSub
+          ? num(taxSub.percent)
+          : num(pick(ln, "vatRate", "taxRate", "taxPercent"))
+
+        // Mysoft bazı fatura tiplerinde (özellikle iskontolu / e-Arşiv) satır BİRİM
+        // FİYATINI boş/0 döndürüp yalnız net satır tutarını (lineExtensionAmount) veriyor.
+        // Editör kalem net'ini qty×birimFiyat−iskonto ile yeniden hesapladığından, birim
+        // fiyat 0 olunca tüm satır "0 TL" çıkıyor. Bu durumda net satır tutarını taban alıp
+        // (unitPrice = net/qty) ayrı iskonto alanlarını sıfırlıyoruz: iskonto zaten net'e
+        // gömülü olduğundan editörün yeniden hesabı net ile bire bir tutar (yüzde/tutar
+        // modu belirsizliğinden kaçınırız). UBL toplu içe aktarıcıdaki fallback ile aynı fikir.
+        if (
+          (unitPrice == null || unitPrice <= 0) &&
+          lineTotal != null && lineTotal > 0 &&
+          quantity != null && quantity > 0
+        ) {
+          unitPrice = lineTotal / quantity
+          discountRate = 0
+          discountAmount = 0
+        }
+        // KDV oranı gelmediyse ama KDV tutarı + net satır tutarı varsa orandan türet.
+        if (vatRate == null && vatAmount != null && lineTotal != null && lineTotal > 0) {
+          vatRate = Math.round((vatAmount / lineTotal) * 100)
+        }
 
         return {
           description: productName || itemDesc || null,
@@ -1754,13 +1779,13 @@ async sendInvoice(invoiceData: any): Promise<any> {
             "itemCode",
           ) as string | null,
           unit: pick(ln, "unitCode", "unit", "quantityUnitCode") as string | null,
-          quantity: num(pick(ln, "invoicedQuantity", "quantity")),
-          unitPrice: num(pick(ln, "unitPrice", "priceAmount", "price")),
+          quantity,
+          unitPrice,
           discountRate,
           discountAmount,
           vatRate,
           vatAmount,
-          lineTotal: num(pick(ln, "lineExtensionAmount", "lineTotal", "amountTra")),
+          lineTotal,
         }
       })
 
