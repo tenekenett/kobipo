@@ -5,8 +5,10 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
-import { decryptSecret } from "@/lib/crypto/secrets"
-import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
+import {
+  resolveCompanyEInvoiceProvider,
+  COMPANY_PROVIDER_SELECT,
+} from "@/lib/integrations/e-invoice/company-provider"
 
 export const dynamic = "force-dynamic"
 
@@ -23,33 +25,24 @@ export const dynamic = "force-dynamic"
 const ERR_NO_VERIFIED_VKN =
   "Mysoft mükellef VKN'niz doğrulanmamış. E-Dönüşüm Ayarları sayfasından VKN girip 'Doğrula' butonuna basın."
 
-async function loadCredsAndVerifiedVkn(companyId: string) {
+type LoadResult =
+  | { ok: true; provider: MysoftEInvoiceProvider; vkn: string }
+  | { ok: false; status: number; error: string }
+
+/**
+ * Numaratör işlemleri için firmanın Mysoft provider'ını ve mükellef VKN'sini çözer.
+ * Firmanın kendi kimliği (manuel) yoksa bayi + firma VKN yoluna düşer (Faz 4).
+ */
+async function loadProviderAndVkn(companyId: string): Promise<LoadResult> {
   const company = await prisma.company.findUnique({
     where: { id: companyId },
-    select: {
-      eDonusumApiUsername: true,
-      eDonusumApiPassword: true,
-      eDonusumApiUrl: true,
-      taxNumber: true,
-      eDonusumTenantVkn: true,
-      parentCompany: { select: { taxNumber: true } },
-    },
+    select: COMPANY_PROVIDER_SELECT,
   })
-  if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) return null
+  const resolved = resolveCompanyEInvoiceProvider(company)
+  if (!resolved.ok) return resolved
   // Mükellef VKN doğrudan firmanın kendi VKN'sinden çekilir (doğrulama adımı yok).
-  const vkn = effectiveTenantVkn(company)
-  let passwordText: string
-  try {
-    passwordText = decryptSecret(company.eDonusumApiPassword)
-  } catch {
-    return { invalid: "Şifre çözülemedi. E-Dönüşüm şifresini tekrar girin." as const }
-  }
-  return {
-    username: company.eDonusumApiUsername,
-    passwordText,
-    baseUrl: company.eDonusumApiUrl || undefined,
-    vkn,
-  }
+  if (!resolved.tenantVkn) return { ok: false, status: 412, error: ERR_NO_VERIFIED_VKN }
+  return { ok: true, provider: resolved.provider, vkn: resolved.tenantVkn }
 }
 
 export async function GET(request: Request) {
@@ -64,32 +57,17 @@ export async function GET(request: Request) {
     await ensureCompanyAccess(companyId)
     assertEInvoiceRuntimeReady()
 
-    const creds = await loadCredsAndVerifiedVkn(companyId)
-    if (!creds) {
-      return NextResponse.json(
-        { error: "Mysoft API bilgileri eksik. E-Dönüşüm Ayarları'nı kontrol edin." },
-        { status: 400 },
-      )
+    const loaded = await loadProviderAndVkn(companyId)
+    if (!loaded.ok) {
+      return NextResponse.json({ error: loaded.error }, { status: loaded.status })
     }
-    if ("invalid" in creds) {
-      return NextResponse.json({ error: creds.invalid }, { status: 400 })
-    }
-    if ("needsVerifiedVkn" in creds) {
-      return NextResponse.json({ error: ERR_NO_VERIFIED_VKN }, { status: 412 })
-    }
+    const provider = loaded.provider
 
-    const provider = new MysoftEInvoiceProvider({
-      username: creds.username,
-      passwordText: creds.passwordText,
-      baseUrl: creds.baseUrl,
-      vknTckn: creds.vkn,
-    })
-
-    const result = await provider.listNumerators(creds.vkn)
+    const result = await provider.listNumerators(loaded.vkn)
     if (!result.success) {
       return NextResponse.json({ error: result.error || "Liste alınamadı" }, { status: 502 })
     }
-    return NextResponse.json({ data: result.data || [], tenantVkn: creds.vkn })
+    return NextResponse.json({ data: result.data || [], tenantVkn: loaded.vkn })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
@@ -124,23 +102,11 @@ export async function POST(request: Request) {
     await ensureCompanyAccess(companyId)
     assertEInvoiceRuntimeReady()
 
-    const creds = await loadCredsAndVerifiedVkn(companyId)
-    if (!creds) {
-      return NextResponse.json({ error: "Mysoft API bilgileri eksik." }, { status: 400 })
+    const loaded = await loadProviderAndVkn(companyId)
+    if (!loaded.ok) {
+      return NextResponse.json({ error: loaded.error }, { status: loaded.status })
     }
-    if ("invalid" in creds) {
-      return NextResponse.json({ error: creds.invalid }, { status: 400 })
-    }
-    if ("needsVerifiedVkn" in creds) {
-      return NextResponse.json({ error: ERR_NO_VERIFIED_VKN }, { status: 412 })
-    }
-
-    const provider = new MysoftEInvoiceProvider({
-      username: creds.username,
-      passwordText: creds.passwordText,
-      baseUrl: creds.baseUrl,
-      vknTckn: creds.vkn,
-    })
+    const provider = loaded.provider
 
     const cleanPrefix = prefix.trim().toUpperCase()
     const result = await provider.addNumerator({
@@ -150,7 +116,7 @@ export async function POST(request: Request) {
       isInternetSales: Boolean(isInternetSales),
       isPassive: Boolean(isPassive),
       lastNumber: typeof lastNumber === "number" && Number.isFinite(lastNumber) ? lastNumber : 0,
-      identifierNumber: creds.vkn,
+      identifierNumber: loaded.vkn,
     })
 
     if (!result.success) {

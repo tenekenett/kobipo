@@ -28,13 +28,18 @@ export function getPartnerCredentials(): {
 /**
  * Bayi (İş Ortağı) kimliğiyle bir Mysoft provider örneği üretir.
  * Kimlik yapılandırılmamışsa null döner.
+ *
+ * @param vknTckn Belge işlemleri (fatura/inbox) bir müşteri adına yapılırken, o müşterinin
+ *   VKN'si `tenantIdentifierNumber` olarak geçer — provider bunu vknTckn olarak kullanır.
+ *   Bayi geneli sorgular (tarife/kontör) için boş bırakılır.
  */
-export function createPartnerProvider(): MysoftEInvoiceProvider | null {
+export function createPartnerProvider(vknTckn?: string): MysoftEInvoiceProvider | null {
   const creds = getPartnerCredentials()
   if (!creds) return null
   return new MysoftEInvoiceProvider({
     username: creds.username,
     passwordText: creds.password,
     baseUrl: creds.baseUrl,
+    vknTckn: vknTckn?.trim() || undefined,
   })
 }

@@ -4,9 +4,10 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
-import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
-import { decryptSecret } from "@/lib/crypto/secrets"
-import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
+import {
+  resolveCompanyEInvoiceProvider,
+  COMPANY_PROVIDER_SELECT,
+} from "@/lib/integrations/e-invoice/company-provider"
 
 export const dynamic = "force-dynamic"
 
@@ -110,38 +111,13 @@ export async function GET(request: Request) {
     assertEInvoiceRuntimeReady()
     const company = await prisma.company.findUnique({
       where: { id: companyId },
-      select: {
-        eDonusumApiUsername: true,
-        eDonusumApiPassword: true,
-        eDonusumApiUrl: true,
-        taxNumber: true,
-        eDonusumTenantVkn: true,
-        parentCompany: { select: { taxNumber: true } },
-      },
+      select: COMPANY_PROVIDER_SELECT,
     })
-    if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) {
-      return NextResponse.json(
-        { error: "Önce E-Dönüşüm Ayarları'na API kullanıcı adı/şifresini yazıp kaydedin." },
-        { status: 400 },
-      )
+    const resolved = resolveCompanyEInvoiceProvider(company)
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: resolved.status })
     }
-
-    let passwordText: string
-    try {
-      passwordText = decryptSecret(company.eDonusumApiPassword)
-    } catch {
-      return NextResponse.json(
-        { error: "Kayıtlı şifre çözülemedi. Şifreyi tekrar girip kaydedin." },
-        { status: 400 },
-      )
-    }
-
-    const provider = new MysoftEInvoiceProvider({
-      username: company.eDonusumApiUsername,
-      passwordText,
-      baseUrl: company.eDonusumApiUrl || undefined,
-      vknTckn: effectiveTenantVkn(company) || undefined,
-    })
+    const provider = resolved.provider
 
     const wantRaw = url.searchParams.get("raw") === "1"
     const result = await provider.listIncomingInvoices({

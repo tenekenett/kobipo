@@ -90,9 +90,15 @@ export async function GET(request: Request) {
     // Durumu yalnızca ileriye taşı — geri (ACTIVE→PENDING) düşürme.
     if (allApproved && company.eDonusumOnboardingStatus !== "ACTIVE") {
       nextStatus = "ACTIVE"
+      // Tüm ürünler GİB'de onaylandı → firma artık bayi kimliğiyle e-belge kesebilir.
+      // isEDonusumEnabled=true ile fatura gönderme akışını (send-invoice-helper) aç.
       await prisma.company.update({
         where: { id: companyId },
-        data: { eDonusumOnboardingStatus: "ACTIVE", eDonusumActivationError: null },
+        data: {
+          eDonusumOnboardingStatus: "ACTIVE",
+          eDonusumActivationError: null,
+          isEDonusumEnabled: true,
+        },
       })
     }
 

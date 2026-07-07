@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
-import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory";
-import { decryptSecret } from "@/lib/crypto/secrets";
+import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider";
 
 // BURADAKİ params KISMINI DEĞİŞTİRDİK (Promise yaptık)
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -15,26 +14,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
     const invoice = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id }, // BURASI ARTIK resolvedParams.id OLDU
-      include: { company: true }
+      include: { company: { include: { parentCompany: { select: { taxNumber: true } } } } }
     });
 
     if (!invoice || !invoice.uuid) {
       return NextResponse.json({ error: "Fatura veya UUID bulunamadı" }, { status: 404 });
     }
 
-    const company = invoice.company;
-    if (!company.eDonusumApiPassword) {
-      return NextResponse.json({ error: "E-Dönüşüm şifresi bulunamadı" }, { status: 400 });
+    // Provider'ı çöz: firmanın kendi kimliği (manuel) yoksa bayi + firma VKN (Faz 4).
+    const resolved = resolveCompanyEInvoiceProvider(invoice.company);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
-
-    // Şifreyi çöz ve Provider'ı hazırla
-    const plainPassword = decryptSecret(company.eDonusumApiPassword);
-    const provider = createEInvoiceProvider({
-      providerName: "mysoft",
-      username: company.eDonusumApiUsername || "",
-      passwordText: plainPassword,
-      apiUrl: company.eDonusumApiUrl || undefined
-    });
+    const provider = resolved.provider;
 
     // Durumu sorgula (TS kızmasın diye as any ekledik)
     const statusResult = await provider.getInvoiceStatus(invoice.uuid) as any;

@@ -112,8 +112,8 @@ export default function EDonusumAyarlariPage() {
     null,
   )
   const [products, setProducts] = useState({
-    EArchive: { enabled: true, prefix: "" },
-    EInvoice: { enabled: false, prefix: "", aliasPrefix: "", aliasDomain: "" },
+    EArchive: { enabled: true },
+    EInvoice: { enabled: false, aliasPrefix: "", aliasDomain: "" },
   })
 
   useEffect(() => {
@@ -144,10 +144,6 @@ export default function EDonusumAyarlariPage() {
     // Onboarding durumu (alttaki bölüm)
     setOnboardingStatus(data.eDonusumOnboardingStatus || "NONE")
     setActivationError(data.eDonusumActivationError || null)
-    setProducts((prev) => ({
-      EArchive: { ...prev.EArchive, prefix: (data.eArchivePrefix || prev.EArchive.prefix || "").toUpperCase() },
-      EInvoice: { ...prev.EInvoice, prefix: (data.eFaturaPrefix || prev.EInvoice.prefix || "").toUpperCase() },
-    }))
   }
 
   const persistSettings = async (): Promise<boolean> => {
@@ -234,10 +230,10 @@ export default function EDonusumAyarlariPage() {
     if (!companyId) return
     const payloadProducts: any[] = []
     if (products.EArchive.enabled) {
-      payloadProducts.push({ type: "EArchive", serialNumberPrefix: products.EArchive.prefix })
+      payloadProducts.push({ type: "EArchive" })
     }
     if (products.EInvoice.enabled) {
-      const p: any = { type: "EInvoice", serialNumberPrefix: products.EInvoice.prefix }
+      const p: any = { type: "EInvoice" }
       if (products.EInvoice.aliasPrefix.trim()) p.aliasPrefix = products.EInvoice.aliasPrefix.trim()
       if (products.EInvoice.aliasDomain.trim()) p.aliasDomain = products.EInvoice.aliasDomain.trim()
       payloadProducts.push(p)
@@ -246,17 +242,9 @@ export default function EDonusumAyarlariPage() {
       toast({ title: "Ürün seçin", description: "En az bir ürün (E-Arşiv / E-Fatura) seçin.", variant: "destructive" })
       return
     }
-    for (const p of payloadProducts) {
-      if (!/^[A-Z0-9]{3}$/.test((p.serialNumberPrefix || "").toUpperCase())) {
-        toast({
-          title: "Seri ön ek gerekli",
-          description: `${p.type === "EInvoice" ? "E-Fatura" : "E-Arşiv"} için 3 karakterlik seri ön ek girin (ör. KBP).`,
-          variant: "destructive",
-        })
-        return
-      }
-      p.serialNumberPrefix = p.serialNumberPrefix.toUpperCase()
-    }
+    // Seri ön ek (prefix) artık kullanıcıdan İSTENMEZ: Mysoft aktivasyonunda backend
+    // otomatik atar (firma adından türetir). Kullanıcı sonradan Seri No Tanımları'ndan
+    // değiştirebilir. Bu yüzden payload'a serialNumberPrefix koymuyoruz.
 
     setIsSubmitting(true)
     setSubmitResult(null)
@@ -334,6 +322,8 @@ export default function EDonusumAyarlariPage() {
 
   const statusMeta = STATUS_META[onboardingStatus] || STATUS_META.NONE
   const hasStarted = onboardingStatus !== "NONE"
+  // Tenant açıldıysa (başvuru gitti) fatura kesebilmek için kontör yüklenmeli → CTA göster.
+  const tenantReady = ["TENANT_CREATED", "ACTIVATION_PENDING", "ACTIVE"].includes(onboardingStatus)
 
   return (
     <div className="space-y-5">
@@ -654,8 +644,6 @@ export default function EDonusumAyarlariPage() {
               desc="Nihai tüketiciye/mükellef olmayanlara kesilen faturalar"
               enabled={products.EArchive.enabled}
               onToggle={(v) => setProducts((p) => ({ ...p, EArchive: { ...p.EArchive, enabled: v } }))}
-              prefix={products.EArchive.prefix}
-              onPrefix={(v) => setProducts((p) => ({ ...p, EArchive: { ...p.EArchive, prefix: v } }))}
             />
 
             <ProductRow
@@ -663,8 +651,6 @@ export default function EDonusumAyarlariPage() {
               desc="GİB e-Fatura mükelleflerine kesilen faturalar (posta kutusu etiketi gerekebilir)"
               enabled={products.EInvoice.enabled}
               onToggle={(v) => setProducts((p) => ({ ...p, EInvoice: { ...p.EInvoice, enabled: v } }))}
-              prefix={products.EInvoice.prefix}
-              onPrefix={(v) => setProducts((p) => ({ ...p, EInvoice: { ...p.EInvoice, prefix: v } }))}
             >
               {products.EInvoice.enabled && (
                 <div className="grid gap-3 pt-2 sm:grid-cols-2">
@@ -687,6 +673,11 @@ export default function EDonusumAyarlariPage() {
                 </div>
               )}
             </ProductRow>
+
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Fatura seri ön eki (numaratör) başvuruda otomatik atanır — sonra{" "}
+              <span className="font-medium">Seri No Tanımları</span>'ndan değiştirebilirsiniz.
+            </p>
 
             {activationError && (
               <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
@@ -762,6 +753,23 @@ export default function EDonusumAyarlariPage() {
                 </Button>
               )}
             </div>
+
+            {tenantReady && (
+              <div className="flex flex-col gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm dark:border-emerald-900/40 dark:bg-emerald-950/30 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-2">
+                  <Zap className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  <p className="text-emerald-900 dark:text-emerald-200">
+                    e-Dönüşüm hesabınız hazırlanıyor. Fatura kesebilmek için{" "}
+                    <span className="font-medium">kontör (belge kredisi)</span> yüklemeniz gerekir.
+                  </p>
+                </div>
+                <Button asChild size="sm" className="shrink-0 bg-emerald-600 hover:bg-emerald-700">
+                  <a href={`/e-donusum/kontor?company=${companyId}`}>
+                    <Zap className="mr-2 h-4 w-4" /> Kontör Yükle
+                  </a>
+                </Button>
+              </div>
+            )}
           </CardContent>
         )}
       </Card>
@@ -769,22 +777,18 @@ export default function EDonusumAyarlariPage() {
   )
 }
 
-// Ürün seçim satırı: aç/kapa + 3 karakter seri ön ek.
+// Ürün seçim satırı: aç/kapa (seri ön ek başvuruda otomatik atanır — burada sorulmaz).
 function ProductRow({
   title,
   desc,
   enabled,
   onToggle,
-  prefix,
-  onPrefix,
   children,
 }: {
   title: string
   desc: string
   enabled: boolean
   onToggle: (v: boolean) => void
-  prefix: string
-  onPrefix: (v: string) => void
   children?: ReactNode
 }) {
   return (
@@ -796,19 +800,7 @@ function ProductRow({
         </div>
         <Switch checked={enabled} onCheckedChange={onToggle} />
       </div>
-      {enabled && (
-        <div className="mt-3 space-y-1.5">
-          <Label className="text-xs">Seri ön eki (3 karakter) *</Label>
-          <Input
-            value={prefix}
-            onChange={(e) => onPrefix(e.target.value.toUpperCase().slice(0, 3))}
-            placeholder="ör. KBP"
-            maxLength={3}
-            className="max-w-[140px] font-mono tracking-widest"
-          />
-          {children}
-        </div>
-      )}
+      {enabled && children && <div className="mt-3 space-y-1.5">{children}</div>}
     </div>
   )
 }

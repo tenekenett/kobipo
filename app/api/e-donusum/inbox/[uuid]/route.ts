@@ -4,9 +4,10 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
-import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
-import { decryptSecret } from "@/lib/crypto/secrets"
-import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
+import {
+  resolveCompanyEInvoiceProvider,
+  COMPANY_PROVIDER_SELECT,
+} from "@/lib/integrations/e-invoice/company-provider"
 
 export const dynamic = "force-dynamic"
 
@@ -82,43 +83,17 @@ export async function GET(
     assertEInvoiceRuntimeReady()
     const company = await prisma.company.findUnique({
       where: { id: companyId },
-      select: {
-        eDonusumApiUsername: true,
-        eDonusumApiPassword: true,
-        eDonusumApiUrl: true,
-        taxNumber: true,
-        eDonusumTenantVkn: true,
-        parentCompany: { select: { taxNumber: true } },
-      },
+      select: COMPANY_PROVIDER_SELECT,
     })
-    if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) {
+    const resolved = resolveCompanyEInvoiceProvider(company)
+    if (!resolved.ok) {
+      // Model çekilemese de DB kaydını (base) 200 ile dön — sadece model yok.
       return NextResponse.json(
-        {
-          ...base,
-          model: null,
-          modelError:
-            "Mysoft erişimi yok — E-Dönüşüm Ayarları'na kullanıcı adı/şifre giriniz.",
-        },
+        { ...base, model: null, modelError: resolved.error },
         { status: 200 },
       )
     }
-
-    let passwordText: string
-    try {
-      passwordText = decryptSecret(company.eDonusumApiPassword)
-    } catch {
-      return NextResponse.json(
-        { ...base, model: null, modelError: "Kayıtlı şifre çözülemedi." },
-        { status: 200 },
-      )
-    }
-
-    const provider = new MysoftEInvoiceProvider({
-      username: company.eDonusumApiUsername,
-      passwordText,
-      baseUrl: company.eDonusumApiUrl || undefined,
-      vknTckn: effectiveTenantVkn(company) || undefined,
-    })
+    const provider = resolved.provider
 
     const result = await provider.getIncomingInvoiceModel(uuid)
     if (!result.success) {

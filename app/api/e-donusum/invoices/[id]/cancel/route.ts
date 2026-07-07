@@ -2,9 +2,11 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
-import { decryptSecret } from "@/lib/crypto/secrets"
+import {
+  resolveCompanyEInvoiceProvider,
+  COMPANY_PROVIDER_SELECT,
+} from "@/lib/integrations/e-invoice/company-provider"
 import { revertInvoiceStock } from "@/lib/stock/warehouse"
 
 export const dynamic = "force-dynamic"
@@ -76,28 +78,15 @@ export async function POST(
 
     const company = await prisma.company.findUnique({
       where: { id: invoice.companyId },
-      select: {
-        eDonusumApiUsername: true,
-        eDonusumApiPassword: true,
-        eDonusumApiUrl: true,
-      },
+      select: COMPANY_PROVIDER_SELECT,
     })
-
-    if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) {
-      return NextResponse.json(
-        { error: "Mysoft API bilgileri eksik. E-Dönüşüm ayarlarını kontrol edin." },
-        { status: 400 }
-      )
-    }
 
     assertEInvoiceRuntimeReady()
-    const plainPassword = decryptSecret(company.eDonusumApiPassword)
-    const provider = createEInvoiceProvider({
-      providerName: "mysoft",
-      username: company.eDonusumApiUsername,
-      passwordText: plainPassword,
-      apiUrl: company.eDonusumApiUrl || undefined,
-    })
+    const resolved = resolveCompanyEInvoiceProvider(company)
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: resolved.status })
+    }
+    const provider = resolved.provider
 
     if (!provider.cancelInvoice) {
       return NextResponse.json(

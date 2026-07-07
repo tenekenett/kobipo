@@ -3,12 +3,11 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
+import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider"
 import { getActiveXsltName } from "@/lib/integrations/e-invoice/active-template"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
-import { decryptSecret } from "@/lib/crypto/secrets"
 import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 
 
@@ -154,10 +153,11 @@ const company = await prisma.company.findUnique({
     isEDonusumEnabled: true,
     eDonusumIntegrator: true, 
     eDonusumProvider: true,   
-    eDonusumApiUsername: true, 
-    eDonusumApiPassword: true, 
+    eDonusumApiUsername: true,
+    eDonusumApiPassword: true,
     eDonusumApiUrl: true,
     eDonusumTenantVkn: true,
+    eDonusumOnboardingStatus: true,
     invoiceSeriesPrefix: true,
     eFaturaPrefix: true,
     eArchivePrefix: true,
@@ -166,6 +166,7 @@ const company = await prisma.company.findUnique({
     taxOffice: true,
     address: true,
     city: true,
+    parentCompany: { select: { taxNumber: true } },
   },
 })
     if (!company) {
@@ -489,18 +490,15 @@ const company = await prisma.company.findUnique({
     ) {
       try {
         assertEInvoiceRuntimeReady()
-        
-        // Şifreyi çöz
-        const plainPassword = company.eDonusumApiPassword ? decryptSecret(company.eDonusumApiPassword) : "";
-        
-        const tenantVkn = (company.eDonusumTenantVkn || "").replace(/\D/g, "")
-        const provider = createEInvoiceProvider({
-           providerName: "mysoft",
-           username: company.eDonusumApiUsername || "",
-           passwordText: plainPassword,
-           apiUrl: company.eDonusumApiUrl || undefined,
-           vknTckn: tenantVkn || undefined,
-        })
+
+        // Provider'ı çöz: firmanın kendi Mysoft kimliği varsa manuel (mevcut davranış),
+        // yoksa bayi altında açıldıysa bayi + tenantIdentifierNumber = firma VKN (Faz 4).
+        const resolvedProvider = resolveCompanyEInvoiceProvider(company)
+        if (!resolvedProvider.ok) {
+          throw new Error(resolvedProvider.error)
+        }
+        const provider = resolvedProvider.provider
+        const tenantVkn = resolvedProvider.tenantVkn
 
 // Belge tipine göre prefix seç:
 // E_INVOICE → eFaturaPrefix, E_ARCHIVE → eArchivePrefix

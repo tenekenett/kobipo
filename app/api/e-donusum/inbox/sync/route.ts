@@ -5,9 +5,10 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
-import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
-import { decryptSecret } from "@/lib/crypto/secrets"
-import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
+import {
+  resolveCompanyEInvoiceProvider,
+  COMPANY_PROVIDER_SELECT,
+} from "@/lib/integrations/e-invoice/company-provider"
 
 export const dynamic = "force-dynamic"
 
@@ -45,44 +46,19 @@ export async function POST(request: Request) {
 
     const company = await prisma.company.findUnique({
       where: { id: companyId },
-      select: {
-        eDonusumApiUsername: true,
-        eDonusumApiPassword: true,
-        eDonusumApiUrl: true,
-        taxNumber: true,
-        eDonusumTenantVkn: true,
-        parentCompany: { select: { taxNumber: true } },
-      },
+      select: COMPANY_PROVIDER_SELECT,
     })
-    if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) {
-      return NextResponse.json(
-        { error: "Önce E-Dönüşüm Ayarları'na API kullanıcı adı/şifresini yazıp kaydedin." },
-        { status: 400 },
-      )
+    const resolved = resolveCompanyEInvoiceProvider(company)
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: resolved.status })
     }
-
-    let passwordText: string
-    try {
-      passwordText = decryptSecret(company.eDonusumApiPassword)
-    } catch {
-      return NextResponse.json(
-        { error: "Kayıtlı şifre çözülemedi. Şifreyi tekrar girip kaydedin." },
-        { status: 400 },
-      )
-    }
+    const provider = resolved.provider
 
     const end = rawEnd ? new Date(rawEnd) : new Date()
     const daysNum = Number(days) > 0 ? Number(days) : 30
     const start = rawStart
       ? new Date(rawStart)
       : new Date(end.getTime() - daysNum * 24 * 60 * 60 * 1000)
-
-    const provider = new MysoftEInvoiceProvider({
-      username: company.eDonusumApiUsername,
-      passwordText,
-      baseUrl: company.eDonusumApiUrl || undefined,
-      vknTckn: effectiveTenantVkn(company) || undefined,
-    })
 
     const result = await provider.listIncomingInvoices({
       startDate: start,

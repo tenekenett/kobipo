@@ -47,6 +47,20 @@ function normalizeTr(s: string): string {
     .replace(/[^a-z0-9]/g, "")
 }
 
+// Firma adından 3 karakterlik varsayılan seri ön eki (prefix) üretir (A-Z0-9). Başvuruda
+// kullanıcıya prefix SORULMAZ — Mysoft aktivasyonda zorunlu tuttuğu için otomatik atanır;
+// kullanıcı sonradan Seri No Tanımları'ndan değiştirebilir.
+function defaultPrefixFromName(name: string): string {
+  const ascii = (name || "")
+    .replace(/ı/g, "i").replace(/İ/g, "I").replace(/ş/g, "s").replace(/Ş/g, "S")
+    .replace(/ğ/g, "g").replace(/Ğ/g, "G").replace(/ü/g, "u").replace(/Ü/g, "U")
+    .replace(/ö/g, "o").replace(/Ö/g, "O").replace(/ç/g, "c").replace(/Ç/g, "C")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+  const base = (ascii + "EFA").slice(0, 3) // en az 3 karakter garanti
+  return /^[A-Z0-9]{3}$/.test(base) ? base : "EFA"
+}
+
 // Aktivasyonu desteklediğimiz ürünler (Swagger activationProductType enum alt kümesi).
 const SUPPORTED_PRODUCTS = new Set([
   "EInvoice",
@@ -85,6 +99,8 @@ export async function POST(request: Request) {
         eDonusumOnboardingStatus: true,
         eDonusumTenantCreatedAt: true,
         eDonusumActivatedProducts: true,
+        eFaturaPrefix: true,
+        eArchivePrefix: true,
       },
     })
     if (!company) return NextResponse.json({ success: false, error: "Firma bulunamadı" }, { status: 404 })
@@ -123,11 +139,27 @@ export async function POST(request: Request) {
       if (!SUPPORTED_PRODUCTS.has(p.type)) {
         return NextResponse.json({ success: false, error: `Desteklenmeyen ürün: ${p.type}` }, { status: 400 })
       }
-      if (PREFIX_REQUIRED.has(p.type) && !/^[A-Z0-9]{3}$/.test(p.serialNumberPrefix)) {
-        return NextResponse.json(
-          { success: false, error: `${p.type} için 3 karakterlik seri ön ek (prefix) zorunlu — ör. "ABC".` },
-          { status: 400 },
-        )
+      // Prefix Mysoft aktivasyonunda zorunlu (E-Fatura/E-Arşiv/E-İrsaliye). Kullanıcıya
+      // SORMUYORUZ: gönderildiyse geçerli olmalı, gönderilmediyse otomatik atanır
+      // (önce firmada kayıtlı prefix, yoksa firma adından türetilmiş).
+      if (PREFIX_REQUIRED.has(p.type)) {
+        if (p.serialNumberPrefix) {
+          if (!/^[A-Z0-9]{3}$/.test(p.serialNumberPrefix)) {
+            return NextResponse.json(
+              { success: false, error: `${p.type} için seri ön ek 3 karakter (harf/rakam) olmalı.` },
+              { status: 400 },
+            )
+          }
+        } else {
+          const existing =
+            p.type === "EInvoice"
+              ? company.eFaturaPrefix
+              : p.type === "EArchive"
+                ? company.eArchivePrefix
+                : ""
+          const ex = (existing || "").toUpperCase()
+          p.serialNumberPrefix = /^[A-Z0-9]{3}$/.test(ex) ? ex : defaultPrefixFromName(company.name)
+        }
       }
     }
 
@@ -308,12 +340,23 @@ export async function POST(request: Request) {
     const status = okTypes.length > 0 ? "ACTIVATION_PENDING" : "FAILED"
     const firstError = activations.find((a) => !a.ok)?.error || null
 
+    // Aktivasyonda kullanılan (çoğunlukla otomatik atanmış) prefix'i firmaya yaz — böylece
+    // Seri No Tanımları ekranında görünür ve fatura gönderiminde aynı numaratör kullanılır.
+    const prefixByType: Record<string, string> = {}
+    for (const p of products) if (p.serialNumberPrefix) prefixByType[p.type] = p.serialNumberPrefix
+
     await prisma.company.update({
       where: { id: companyId },
       data: {
         eDonusumOnboardingStatus: status,
         eDonusumActivatedProducts: mergedProducts,
         eDonusumActivationError: anyFail ? firstError : null,
+        ...(okTypes.includes("EInvoice") && prefixByType.EInvoice
+          ? { eFaturaPrefix: prefixByType.EInvoice }
+          : {}),
+        ...(okTypes.includes("EArchive") && prefixByType.EArchive
+          ? { eArchivePrefix: prefixByType.EArchive }
+          : {}),
       },
     })
 

@@ -54,7 +54,16 @@
       "Bash(node _tmp_verify_resolve.mjs)",
       "Bash(curl -s --max-time 15 \"https://www.tcmb.gov.tr/kurlar/today.xml\")",
       "Bash(echo \"=== exit: $? ===\")",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(git *)",
+      "Bash(sed 's/=$//')",
+      "Bash(node \"C:/Users/user/AppData/Local/Temp/claude/C--Users-user-kobipo-kobipo/0e828465-86d6-4f42-856c-de650ce9970e/scratchpad/verify-partner.mjs\")",
+      "Bash(node \"C:/Users/user/AppData/Local/Temp/claude/C--Users-user-kobipo-kobipo/0e828465-86d6-4f42-856c-de650ce9970e/scratchpad/verify-partner.mjs\" --test)",
+      "Bash(OV_USER='rifaterenn@gmail.com' OV_PASS='KhQj51J7ryNr' node \"C:/Users/user/AppData/Local/Temp/claude/C--Users-user-kobipo-kobipo/0e828465-86d6-4f42-856c-de650ce9970e/scratchpad/verify-partner.mjs\" --test)",
+      "Bash(OV_USER='rifaterenn@gmail.com' OV_PASS='KhQj51J7ryNr' node \"C:/Users/user/AppData/Local/Temp/claude/C--Users-user-kobipo-kobipo/0e828465-86d6-4f42-856c-de650ce9970e/scratchpad/test-onboarding.mjs\")",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(rm -f err.txt)",
+      "Bash(node -e ' *)"
     ]
   }
 }

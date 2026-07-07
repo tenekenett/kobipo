@@ -4,10 +4,8 @@ import {
   hasSeriesTemplates,
   invoiceTypeToEDocumentType,
 } from "@/lib/integrations/e-invoice/active-template"
-import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
-import { decryptSecret } from "@/lib/crypto/secrets"
-import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
+import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider"
 
 export type SendInvoiceResult =
   | { ok: true; uuid: string; providerName: string }
@@ -81,6 +79,7 @@ export async function sendInvoiceToProvider(
       eDonusumApiPassword: true,
       eDonusumApiUrl: true,
       eDonusumTenantVkn: true,
+      eDonusumOnboardingStatus: true,
       eFaturaPrefix: true,
       eArchivePrefix: true,
       parentCompany: { select: { taxNumber: true } },
@@ -100,15 +99,6 @@ export async function sendInvoiceToProvider(
     }
   }
 
-  if (!company.eDonusumApiUsername || !company.eDonusumApiPassword) {
-    return {
-      ok: false,
-      status: 400,
-      error: "Mysoft API bilgileri eksik. E-Dönüşüm ayarlarını kontrol edin.",
-      integrationStatus: "",
-    }
-  }
-
   try {
     assertEInvoiceRuntimeReady()
   } catch (error: any) {
@@ -120,17 +110,14 @@ export async function sendInvoiceToProvider(
     }
   }
 
-  const plainPassword = decryptSecret(company.eDonusumApiPassword)
-  // Mysoft mükellef VKN: doğrudan firmanın kendi VKN'sinden (şubede ana firmadan
-  // devralınır) çekilir — ayrı bir doğrulama adımı yoktur. Boşsa provider JWT'den keşfeder.
-  const tenantVkn = effectiveTenantVkn(company)
-  const provider = createEInvoiceProvider({
-    providerName: "mysoft",
-    username: company.eDonusumApiUsername,
-    passwordText: plainPassword,
-    apiUrl: company.eDonusumApiUrl || undefined,
-    vknTckn: tenantVkn || undefined,
-  })
+  // Provider'ı çöz: firmanın kendi Mysoft kimliği varsa onu (manuel), yoksa bayi altında
+  // açıldıysa master bayi + tenantIdentifierNumber = firma VKN (Faz 4). tenantVkn firmanın
+  // kendi VKN'sidir (şubede ana firmadan devralınır); boşsa provider JWT'den keşfeder.
+  const resolved = resolveCompanyEInvoiceProvider(company)
+  if (!resolved.ok) {
+    return { ok: false, status: resolved.status, error: resolved.error, integrationStatus: "" }
+  }
+  const { provider, tenantVkn } = resolved
 
   // Alıcı VKN'sini GİB'de sorgula: E-Arşiv seçildiyse ama alıcı E-Fatura
   // mükellefiyse Mysoft "EARSIVFATURA profili geçersiz" diye reddediyor.
