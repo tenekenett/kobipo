@@ -134,6 +134,14 @@ export function DashboardCompanyProvider({
     [router, searchParams, companies]
   )
 
+  // Seçili firmayı cookie'ye de yaz: server component'ler `?company=` param'ı olmayan
+  // gezinmelerde (kart/hızlı-aksiyon linkleri, doğrudan URL) bu cookie'ye düşer ve
+  // kullanıcı ana firmaya geri atılmaz. Bkz. getAuthContext / ACTIVE_COMPANY_COOKIE.
+  useEffect(() => {
+    if (!selectedCompanyId) return
+    document.cookie = `activeCompanyId=${encodeURIComponent(selectedCompanyId)}; path=/; max-age=31536000; samesite=lax`
+  }, [selectedCompanyId])
+
   const selectedCompany = useMemo(
     () => companies.find((c) => c.id === selectedCompanyId) ?? null,
     [companies, selectedCompanyId]

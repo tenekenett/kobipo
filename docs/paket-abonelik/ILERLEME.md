@@ -8,49 +8,82 @@ Branch: `main` (paket işi `main`'e merge edildi)
 
 ## ▶ DEVAM (kaldığın yer) — başka bilgisayarda devam ederken
 
-**Durum:** Aşama 1–3 tamamlandı ve commit'lendi. **Aşama 4 (müşteri ekranı) yarım** —
-API'lerin bir kısmı yazıldı, ödeme token'ı + callback + UI eksik.
+**Durum:** Aşama 1–6 TAMAMLANDI (recurring **iskele** olarak; canlı çekim bağlanmayı bekliyor).
+Kodlama tarafı bitti — **kalan tek iş DAĞITIM** (DB migration + env + cron + PayTR canlı ayarları).
 
 **Yeni bilgisayarda kuruluma başlarken:**
 1. `git checkout main && git pull` (tüm iş `main`'de)
 2. `npm install`
-3. `.env` / `.env.local` dosyalarını taşı (PayTR + DB değişkenleri repo'da YOK).
+3. `.env` / `.env.local` dosyalarını taşı (PayTR + DB + `BILLING_CRON_SECRET` repo'da YOK).
 4. `npx prisma generate`
 5. Şemayı DB'ye uygula: `npx prisma db push` **veya**
    `supabase/migrations/20260707000002_package_subscription.sql` dosyasını çalıştır.
-   (Bu adım henüz YAPILMADI — DB'de yeni tablolar/kolonlar yok.)
+   ✅ **Bu ortamın DB'sinde UYGULANMIŞ** (2026-07-07, `prisma db pull` introspection ile
+   doğrulandı: `package_orders`, `pricing_items`, `subscriptions.branchQuota/purchasedModules/
+   billingCycle`, `plans.includedModules` mevcut). **Prod ayrı bir DB ise orada da uygulanmalı.**
 6. `npm run dev` ile başlat.
 
-**Aşama 4'te KALAN işler (sıradaki adımlar):**
-- [ ] `POST /api/billing/orders/[id]/paytr-token` — kontör token route'unu örnek al
-  (`app/api/kontor/orders/[id]/paytr-token/route.ts`). `ensureCompanyAccess(order.companyId)`,
-  status PENDING_PAYMENT kontrolü, `createPaymentToken({... recurringPayment: order.autoRenew,
-  noInstallment: 1 ...})`, okUrl/failUrl `/ayarlar/abonelik/odeme/[id]`. iframeUrl döndür.
-- [ ] `POST /api/billing/paytr/callback` — kontör callback'ini örnek al
-  (`app/api/kontor/paytr/callback/route.ts`). Hash doğrula → order bul → idempotent
-  ("ACTIVE" veya paidAt varsa OK) → başarı: atomik claim (paidAt null → paidAt, status ACTIVE) →
-  **Subscription upsert** (root=companyId; en güncel sub'ı ACTIVE'e çevir ya da oluştur:
-  planId, provider PAYTR, billingCycle, purchasedModules=order.resolvedModules,
-  branchQuota=order.branchQuota, amount, autoRenew, periodStart=now,
-  periodEnd=`periodEndFor(cycle)`, userId=order.createdById fallback ilk ADMIN) →
-  `applyEntitlements(root, order.resolvedModules)` → OK dön. PayTR panel bildirim URL'si:
-  `/api/billing/paytr/callback`.
-- [ ] UI: `app/(dashboard)/ayarlar/abonelik/page.tsx`'i paket seçim ekranıyla DEĞİŞTİR.
-  `?company=` slug'ını oku, `/api/billing/catalog?companyId=` çek. Aylık/Yıllık toggle,
-  paket kartları (bundle) + "Özel (paketsiz)", modül çipleri (paket dahilleri kilitli-dahil,
-  diğerleri ücretli ekstra), şube adedi stepper, **canlı toplam** (`computeOrder`'ı client'a
-  import et — pricing.ts saf, server-only import yok). "Öde" → `POST /api/billing/orders` →
-  `/ayarlar/abonelik/odeme/${id}?company=${slug}`'a git. PayTR kapalıysa buton pasif + uyarı.
-- [ ] UI: `app/(dashboard)/ayarlar/abonelik/odeme/[id]/page.tsx` (checkout) — kontör ödeme
-  sayfasını örnek al (`app/(dashboard)/e-donusum/kontor/odeme/[id]/page.tsx`): token al, PayTR
-  iframe göm (iframeResizer script), `/api/billing/orders?companyId=` ile durumu poll et,
-  status ACTIVE → başarı ekranı.
+**KALAN — dağıtım adımları (kod değil):**
+- [x] DB migration (bu ortamın DB'sinde uygulandı — prod DB ayrıysa orada tekrar uygula).
+- [x] `.env.local`: PayTR anahtarları + `BILLING_CRON_SECRET` mevcut (cron secret bu oturumda eklendi).
+- [ ] PayTR panelinde bildirim URL'si: `https://<alan>/api/billing/paytr/callback`.
+- [ ] Cron: **ÖNCE** `POST /api/billing/recurring/run`, **SONRA** `POST /api/billing/reconcile`
+  (ör. günlük). Header `Authorization: Bearer $BILLING_CRON_SECRET`.
+- [ ] (Opsiyonel, otomatik yenileme için) PayTR recurring ürününü aç + `chargeRecurringPayment`
+  stub'ını canlı API'ye bağla ([[lib/integrations/paytr/client.ts]]). İlk dönem ödemesi + iptal +
+  tüm enforcement bu olmadan zaten çalışır.
 
-**Sonraki aşamalar:** 5) Enforcement (şube kotası `app/api/companies/route.ts`'te + reconcile
-endpoint), 6) Recurring cron + iptal + doküman. Detay: [PLAN.md](./PLAN.md) §5–7.
+**Yerel doğrulama (2026-07-07, dev sunucusu + gerçek DB):**
+- Cron auth ✅ — secret yok/yanlış → 401; doğru (`Authorization: Bearer` **ve** `x-cron-secret`) → 200.
+- `POST /api/billing/reconcile` ✅ 200 `{expired:0, accountsReconciled:0}` (süresi geçmiş sub yoktu).
+- `POST /api/billing/recurring/run` ✅ 200 `{due:0,...}` (vadesi gelen sub yok; stub state'i değiştirmez).
+- Müşteri uçları (catalog/orders/subscription-cancel/paytr-token) oturumsuz → **401** (route'lar
+  derlendi + guard'lar çalışıyor). Dev log'da hata/Prisma uyarısı yok.
+- **Kapsam dışı (canlı gerektirir):** oturumlu tam müşteri akışı (katalog verisi, sipariş, PayTR
+  iframe, gerçek kartla ödeme) ve reconcile'ın gerçek expire+kilit geçişi (paylaşımlı DB'ye test
+  verisi yazmamak için uydurulmadı).
 
 > Nav: müşteri ekranı `/ayarlar/abonelik` (nav-config'te zaten var, ADMIN-only). Admin ekranı
 > `/system-admin/paketler` (nav'e eklendi).
+
+---
+
+## 🔧 Yerel test & düzeltmeler (2026-07-07 seansı)
+
+Gerçek DB + dev sunucusunda uçtan uca test edilirken bulunan bug'lar düzeltildi ve sistem-admin'e
+yönetim paneli eklendi. (Aşama 4'ün "✅ uçtan uca çalışır" notu bu düzeltmelerden ÖNCEye aittir.)
+
+**Bug düzeltmeleri:**
+- **PayTR `merchant_oid` benzersizliği** — `order.id` doğrudan merchant_oid olarak gidiyordu; aynı
+  sipariş için token ikinci kez istenince (sayfa yenileme / ödeme dönüşü / dev çift-mount) PayTR
+  "merchant_oid daha önce kullanılmış" hatası veriyordu. Artık `newMerchantOid(order.id)` =
+  `<id>X<base36 zaman><rastgele>` üretilir; callback `merchantOidBase()` ile sipariş id'sine geri
+  çözer. (`lib/integrations/paytr/client.ts`, `app/api/billing/orders/[id]/paytr-token`,
+  `app/api/billing/paytr/callback`)
+- **okUrl/failUrl `company` param'ı** — PayTR dönüşünde firma bağlamı kaybolup ana firmaya
+  düşüyordu; dönüş URL'lerine `&company=<slug>` eklendi.
+- **Aktif firma kalıcılığı** — linkler `?company=` taşımadığından her gezinme ana firmaya düşüyordu.
+  `getAuthContext` artık `activeCompanyId` cookie'sine düşer (öncelik: URL param > cookie > ilk
+  firma); provider cookie'yi yazar; nav linkleri `withCompany()` ile param taşır.
+  (`lib/middleware/authorization.ts`, `components/dashboard/dashboard-company-provider.tsx`,
+  `components/dashboard/nav.tsx`)
+- **Ödeme sonrası entitlement tazeleme** — abonelik aktifleşince açılan modüller navbar'a ancak tam
+  reload'da düşüyordu; ödeme sayfası ACTIVE olunca bir kez `router.refresh()` çağırır.
+
+**Yeni — Sistem-admin Abonelik & Sipariş paneli** (`/system-admin/abonelikler`):
+- `GET /api/billing/admin/overview` — kök firmalar + en güncel abonelik + siparişler + kullanım.
+- `POST /api/billing/admin/reset` `{companyId, mode: "trial"|"locked"}` — test için sıfırlama
+  (taze deneme = tüm modüller açık / kilitli = satın almaya hazır). Mantık `lib/billing/admin.ts`
+  (`applyEntitlements`'i tekrar kullanır, reconcile çıktısıyla tutarlı).
+- `POST /api/billing/admin/orders/[id]/cancel` — yarıda kalan siparişi CANCELLED yapar (ACTIVE hariç).
+- UI `components/system-admin/subscription-admin.tsx` + nav'a "Abonelikler" (CreditCard).
+
+**Yerel test aracı:** `scripts/paytr-simulate-callback.js` — PayTR callback'ini yerelde simüle eder
+(localhost'a PayTR ulaşamadığı için sipariş PENDING kalıyordu). Kullanım:
+`node scripts/paytr-simulate-callback.js <orderId> [success|failed]` veya `npm run paytr:simulate -- <orderId>`.
+
+**Not (kontör):** Kontör akışında da aynı `merchant_oid` deseni var ama dönüş URL'i farklı sayfaya
+gittiğinden aktif bug tetiklenmiyor (latent) — bilinçli dokunulmadı.
 
 ---
 
@@ -102,20 +135,75 @@ endpoint), 6) Recurring cron + iptal + doküman. Detay: [PLAN.md](./PLAN.md) §5
 - Sayfa: `system-admin/paketler` + `SystemAdminNav`'e "Paketler" öğesi (Package ikonu).
 - `tsc --noEmit` **0 hata**.
 
-## Aşama 4 — Müşteri ekranı ⏳ (YARIM — bkz. "▶ DEVAM")
+## Aşama 4 — Müşteri ekranı ✅
 - `lib/integrations/paytr/client.ts` — `recurringPayment?: boolean` opsiyonu eklendi
-  (ilk ödemede kartı saklamak için `recurring_payment=1`; hash'i etkilemez). Henüz kullanılmıyor.
+  (ilk ödemede kartı saklamak için `recurring_payment=1`; hash'i etkilemez).
 - `GET /api/billing/catalog?companyId=` ✅ — satılabilir paketler + aktif fiyatlar + hesap
   abonelik özeti (deneme/ücretli aktiflik) + PayTR durumu + mevcut şube sayısı.
 - `GET/POST /api/billing/orders` ✅ — sipariş listeleme (poll için) + oluşturma
   (tutar sunucuda `computeOrder` ile; ADMIN kontrolü; root firmaya yazar; snapshot alanlar).
-- **KALAN:** paytr-token route, callback, config UI, checkout UI (yukarıdaki "▶ DEVAM" listesi).
+- `POST /api/billing/orders/[id]/paytr-token` ✅ — kontör deseniyle: `ensureCompanyAccess(root)`,
+  PENDING_PAYMENT kontrolü, `createPaymentToken({ recurringPayment: order.autoRenew,
+  noInstallment: 1, ... })`, okUrl/failUrl `/ayarlar/abonelik/odeme/[id]`. iframeUrl döner.
+- `POST /api/billing/paytr/callback` ✅ — hash doğrula → order → idempotent (status ACTIVE ise OK).
+  Başarıda **sıra önemli**: (1) ödemeyi kaydet, (2) `activateSubscription` (en güncel sub'ı ACTIVE'e
+  çevir ya da oluştur: provider PAYTR, purchasedModules=resolvedModules, branchQuota, amount,
+  autoRenew, periodStart/periodEnd, userId=createdById → yoksa ilk ADMIN) + `applyEntitlements`,
+  (3) siparişi ACTIVE'e al. **Deviation:** status ACTIVE en SON yazılır (tamamlanma işareti) —
+  literal spec'teki "tek atomik claim" yerine; abonelik yazımı yarıda kalırsa PayTR tekrar dener
+  ve müşteri ödediği halde modülsüz kalmaz (aktifleştirme idempotent). Bildirim URL'si:
+  `/api/billing/paytr/callback`.
+- UI `app/(dashboard)/ayarlar/abonelik/page.tsx` ✅ — catalog çek, Aylık/Yıllık toggle, paket
+  kartları + "Özel (paketsiz)", modül seçimi (paket dahilleri kilitli-dahil), şube stepper
+  (min = paket dahili), **canlı toplam** (`computeOrder` client-side; pricing.ts saf), otomatik
+  yenile switch'i, PayTR kapalıysa buton pasif + uyarı. "Öde" → `POST /api/billing/orders` →
+  checkout'a yönlendirir.
+- UI `app/(dashboard)/ayarlar/abonelik/odeme/[id]/page.tsx` ✅ — paytr-token al, PayTR iframe
+  (iframeResizer), `/api/billing/orders?companyId=` ile 4sn poll, status ACTIVE → başarı ekranı,
+  FAILED/CANCELLED → hata ekranı.
+- `tsc --noEmit` **0 hata**, eslint temiz. (Uçtan uca ödeme testi DB + PayTR env gerektirir —
+  "Canlı test gereksinimleri" bölümüne bkz.)
 
-## Aşama 5 — Enforcement
-- (bekliyor)
+## Aşama 5 — Enforcement ✅
+- **Şube kotası** — `app/api/companies/route.ts`: `parentCompanyId` set (şube) oluşturulurken
+  hesabın (kök = ana firma; şube zinciri yasak) aktif aboneliğindeki `branchQuota` kadar ek şube
+  açılabilir. `getAccountSubscription` + `isPaidActive/isTrialActive` ile aktiflik; aktif abonelik
+  yoksa kota 0 (fail closed). Aşımda `402 PLAN_LIMIT_EXCEEDED` (istemci zaten bu kodu işleyip
+  `/ayarlar/abonelik`'e yönlendiriyor — `new-branch-dialog`, `companies/new`). Per-kullanıcı
+  `maxCompanies` limiti artık YALNIZCA yeni **bağımsız** firma açarken uygulanır (şubelerde atlanır).
+- **Reconcile** — `POST /api/billing/reconcile` (`lib/billing/cron-auth.ts` → `BILLING_CRON_SECRET`
+  ile korumalı, oturumsuz). Süresi geçmiş `TRIAL` (trialEndsAt<now) + `ACTIVE` (periodEnd<now)
+  abonelikleri `EXPIRED`'a çeker; etkilenen her hesap kökünde `resolveGrantedModules(enGüncelSub)`
+  → `applyEntitlements` ile modülleri yeniden yazar (expired → hepsi kilitli). Idempotent.
+- **Modül gating** — ek route guard gerekmedi: yetki callback'te `disabledModules`'a yazılıyor,
+  mevcut gating gerisini hallediyor. Aşama 5 yalnızca ADET (şube) + SÜRE (reconcile) enforcement.
+- `tsc --noEmit` **0 hata**, eslint temiz. (Not: gerçek şube açma/expiry testi DB migration ister.)
 
-## Aşama 6 — Recurring
-- (bekliyor)
+## Aşama 6 — Recurring + iptal ✅ (recurring iskele)
+- **İptal** — `POST /api/billing/subscription/cancel` (ADMIN): aktif ücretli abonelikte
+  `autoRenew=false` + `cancelAtPeriodEnd=true`. Sub `periodEnd`'e kadar ACTIVE ve modüller açık;
+  süre dolunca reconcile EXPIRED yapar. Idempotent (zaten iptalliyse mevcut durumu döner).
+- **UI** — `ayarlar/abonelik` mevcut durum kartı: ücretli abonelikte otomatik yenileme durumu +
+  "Aboneliği iptal et" butonu (onay + iptal sonrası catalog yeniden yüklenir); iptalliyse
+  "modüller şu tarihe kadar açık" gösterir. Catalog'a `cancelAtPeriodEnd` alanı eklendi.
+- **Recurring çekim (İSKELE)** — `lib/integrations/paytr/client.ts` `chargeRecurringPayment()`
+  bilinçli olarak `PAYTR_RECURRING_NOT_IMPLEMENTED` fırlatır (canlı PayTR recurring ürünü + saklı
+  kart token'ı gerekir; yanlış/çift çekim riskine karşı state değiştirmez). Sözleşme + amaçlanan
+  akış JSDoc'ta.
+- **Recurring çalıştırıcı** — `POST /api/billing/recurring/run` (cron korumalı): vadesi gelmiş
+  (`periodEnd ≤ now`) `autoRenew=true` & `provider=PAYTR` & `cancelAtPeriodEnd=false` abonelikleri
+  bulur; her biri için `chargeRecurringPayment` dener. Stub fırlattığından hepsi `pending` (durum
+  DEĞİŞMEZ). Canlı için başarı (dönem uzat + `applyEntitlements`) ve başarısızlık (PAST_DUE) dalları
+  hazır; dönem başına deterministik `merchant_oid` ile çift çekim engellenir. **Sıra:** recurring
+  ÖNCE, reconcile SONRA.
+- `tsc --noEmit` **0 hata**, eslint temiz.
+
+---
+
+## Durum özeti — tüm aşamalar ✅ (kod)
+Şema, lib/billing, admin paneli, müşteri ekranı (catalog/orders/token/callback + UI), enforcement
+(şube kotası + reconcile), iptal ve recurring iskelesi tamam. **Kalan tek iş dağıtım** (DB migration
++ env + cron + opsiyonel PayTR canlı recurring). Bkz. "▶ DEVAM".
 
 ---
 

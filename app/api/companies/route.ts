@@ -3,6 +3,12 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { getUserContext } from "@/lib/auth/user-context"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import {
+  getAccountSubscription,
+  countAccountBranches,
+  isPaidActive,
+  isTrialActive,
+} from "@/lib/billing/entitlements"
 import { Prisma } from "@prisma/client"
 
 export const dynamic = 'force-dynamic'
@@ -146,6 +152,28 @@ export async function POST(request: Request) {
         )
       }
       inherited = parentCompany
+
+      // Şube kotası enforcement (Aşama 5): hesabın (kök firma = ana firma, şube zinciri yasak)
+      // aktif aboneliğindeki `branchQuota` kadar ek şube açılabilir. Aktif abonelik yoksa
+      // (deneme/ücretli değil) kota 0'dır → şube açılamaz (fail closed). Modül gating
+      // callback'te disabledModules ile yazılır; burada yalnızca ADET sınırı uygulanır.
+      const accountSub = await getAccountSubscription(normalizedParentId)
+      const branchesAllowed =
+        accountSub && (isPaidActive(accountSub) || isTrialActive(accountSub))
+          ? accountSub.branchQuota
+          : 0
+      const existingBranches = await countAccountBranches(normalizedParentId)
+      if (existingBranches >= branchesAllowed) {
+        return NextResponse.json(
+          {
+            error: "Şube kotanız dolu. Yeni şube eklemek için aboneliğinizi yükseltin.",
+            code: "PLAN_LIMIT_EXCEEDED",
+            branchQuota: branchesAllowed,
+            currentBranches: existingBranches,
+          },
+          { status: 402 }
+        )
+      }
     }
 
     let parsedOnboardingCompletedAt: Date | null = null
@@ -196,7 +224,9 @@ export async function POST(request: Request) {
       }
     }
 
-    if (userCompanyCount >= currentMaxCompanies) {
+    // Şube oluşturma (parentCompanyId set) yukarıda branchQuota ile sınırlanır; bu
+    // per-kullanıcı maxCompanies limiti YALNIZCA yeni bağımsız firma açarken uygulanır.
+    if (!normalizedParentId && userCompanyCount >= currentMaxCompanies) {
       return NextResponse.json(
         {
           error: "Yeni sube eklemek icin abonelik yukseltilmelidir",

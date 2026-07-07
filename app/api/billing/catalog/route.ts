@@ -47,6 +47,7 @@ export async function GET(request: Request) {
         branchQuota: sub.branchQuota,
         amount: sub.amount != null ? Number(sub.amount) : null,
         autoRenew: sub.autoRenew,
+        cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
         trialEndsAt: sub.trialEndsAt,
         periodEnd: sub.periodEnd,
         isTrialActive: isTrialActive(sub),

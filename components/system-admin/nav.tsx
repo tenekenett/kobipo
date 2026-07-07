@@ -20,6 +20,7 @@ import {
   DatabaseBackup,
   Newspaper,
   Package,
+  CreditCard,
 } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -64,6 +65,11 @@ const navItems = [
     title: "Paketler",
     href: "/system-admin/paketler",
     icon: Package,
+  },
+  {
+    title: "Abonelikler",
+    href: "/system-admin/abonelikler",
+    icon: CreditCard,
   },
   {
     title: "Kontör",

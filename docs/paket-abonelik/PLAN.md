@@ -157,5 +157,3 @@ createdById, createdAt, updatedAt
 > Recurring auto-charge canlı PayTR hesabı (recurring özelliği açık) + gerçek kart gerektirir;
 > ilk dönem ödemesi ve tüm enforcement bu olmadan da tam çalışır. Recurring kısmı iskele +
 > dokümanla bırakılır (Bkz. [ILERLEME.md](./ILERLEME.md) "Canlı test gereksinimleri").
-</content>
-</invoke>

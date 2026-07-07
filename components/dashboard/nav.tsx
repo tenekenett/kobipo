@@ -21,6 +21,19 @@ export function DashboardNav() {
   const [pendingHref, setPendingHref] = useState<string | null>(null)
   const { userRole, selectedCompany } = useDashboardCompany()
   const { collapsed, setCollapsed } = useSidebar()
+
+  // Aktif firma seçimi URL'de ?company=<slug> ile taşınır. Nav linkleri bunu KORUMALIDIR;
+  // aksi halde her gezinme param'sız gider ve server tarafı varsayılan (ilk/ana) firmaya
+  // düşer — kullanıcı sürekli ana firmaya "geri atılır". Bkz. resolveActiveCompany.
+  const companyParam = selectedCompany?.slug ?? selectedCompany?.id ?? null
+  const withCompany = useCallback(
+    (href: string) => {
+      if (!companyParam) return href
+      const sep = href.includes("?") ? "&" : "?"
+      return `${href}${sep}company=${encodeURIComponent(companyParam)}`
+    },
+    [companyParam]
+  )
   /** Grup başlığı -> kapalıysa true (varsayılan: tüm gruplar kapalı) */
   const [navGroupClosed, setNavGroupClosed] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(navGroups.map((g) => [g.title, true]))
@@ -127,7 +140,7 @@ export function DashboardNav() {
         )}
       >
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-4">
-          <Link href={roleToDashboardPath(userRole)} className="inline-flex shrink-0 items-center">
+          <Link href={withCompany(roleToDashboardPath(userRole))} className="inline-flex shrink-0 items-center">
             <KobipoLogoMark className="h-12 w-auto" />
           </Link>
           <button
@@ -166,7 +179,7 @@ export function DashboardNav() {
                       return (
                         <Link
                           key={item.href}
-                          href={item.href}
+                          href={withCompany(item.href)}
                           onClick={() => startNav(item.href)}
                           className={cn(
                             "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
@@ -197,7 +210,7 @@ export function DashboardNav() {
                   return (
                     <Link
                       key={item.href}
-                      href={item.href}
+                      href={withCompany(item.href)}
                       onClick={() => startNav(item.href)}
                       className={cn(
                         "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
@@ -271,7 +284,7 @@ export function DashboardNav() {
                         return (
                           <Link
                             key={item.href}
-                            href={item.href}
+                            href={withCompany(item.href)}
                             onClick={() => {
                               startNav(item.href)
                               setMobileMenuOpen(false)
@@ -305,7 +318,7 @@ export function DashboardNav() {
                     return (
                       <Link
                         key={item.href}
-                        href={item.href}
+                        href={withCompany(item.href)}
                         onClick={() => {
                           startNav(item.href)
                           setMobileMenuOpen(false)

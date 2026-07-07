@@ -1,5 +1,9 @@
 import { Role } from "@prisma/client"
+import { cookies } from "next/headers"
 import { getUserContext } from "@/lib/auth/user-context"
+
+/** Kullanıcının son seçtiği aktif firmayı taşıyan cookie. Provider (istemci) yazar. */
+export const ACTIVE_COMPANY_COOKIE = "activeCompanyId"
 
 // Modül bazlı erişim izinleri
 export const modulePermissions: Record<string, Role[]> = {
@@ -69,8 +73,21 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     isActive: company.isActive,
   }))
 
-  // Aktif firma (ilk aktif firma veya ilk firma)
-  const activeCompany = companies.find(c => c.isActive) || companies[0] || null
+  // Aktif firma varsayılanı. Öncelik: (1) URL `?company=` — resolveActiveCompany'de ele alınır;
+  // (2) `activeCompanyId` cookie'si (kullanıcının son seçimi — linkler param taşımasa da seçim
+  // korunur, aksi halde her gezinme ilk/ana firmaya düşerdi); (3) ilk aktif firma.
+  let activeCompany = companies.find((c) => c.isActive) || companies[0] || null
+  try {
+    const cookieId = (await cookies()).get(ACTIVE_COMPANY_COOKIE)?.value
+    if (cookieId) {
+      const fromCookie = companies.find(
+        (c) => (c.companyId === cookieId || c.companySlug === cookieId) && c.isActive,
+      )
+      if (fromCookie) activeCompany = fromCookie
+    }
+  } catch {
+    // cookies() istek kapsamı dışında çağrılırsa (ör. build) varsayılanı koru.
+  }
 
   return {
     userId: user.userId,

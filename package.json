@@ -25,6 +25,7 @@
     "sync:prisma-to-supabase": "node scripts/sync-prisma-to-supabase.js",
     "demo:user": "node scripts/create-demo-user.js",
     "admin:create": "node scripts/create-admin.js",
+    "paytr:simulate": "node scripts/paytr-simulate-callback.js",
     "kobipo:export-png": "node scripts/export-kobipo-pngs.mjs",
     "vercel:dev": "vercel dev",
     "vercel:deploy": "vercel",
