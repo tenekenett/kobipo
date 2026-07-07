@@ -63,7 +63,9 @@
       "Bash(OV_USER='rifaterenn@gmail.com' OV_PASS='KhQj51J7ryNr' node \"C:/Users/user/AppData/Local/Temp/claude/C--Users-user-kobipo-kobipo/0e828465-86d6-4f42-856c-de650ce9970e/scratchpad/test-onboarding.mjs\")",
       "Bash(echo \"EXIT: $?\")",
       "Bash(rm -f err.txt)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "PowerShell(npx prisma generate)",
+      "PowerShell(npx prisma generate 2>&1 | Select-Object -Last 5)"
     ]
   }
 }
