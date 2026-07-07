@@ -2,7 +2,7 @@
 
 Adım adım yapılan işler. Mimari için bkz. [PLAN.md](./PLAN.md).
 
-Branch: `feature/paket-abonelik`
+Branch: `main` (paket işi `main`'e merge edildi)
 
 ---
 
@@ -12,7 +12,7 @@ Branch: `feature/paket-abonelik`
 API'lerin bir kısmı yazıldı, ödeme token'ı + callback + UI eksik.
 
 **Yeni bilgisayarda kuruluma başlarken:**
-1. `git pull` / branch'i çek: `feature/paket-abonelik`
+1. `git checkout main && git pull` (tüm iş `main`'de)
 2. `npm install`
 3. `.env` / `.env.local` dosyalarını taşı (PayTR + DB değişkenleri repo'da YOK).
 4. `npx prisma generate`
