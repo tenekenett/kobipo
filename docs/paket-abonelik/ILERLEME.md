@@ -41,11 +41,21 @@ Branch: `feature/paket-abonelik`
 - `tsc --noEmit` proje genelinde **0 hata**.
 - Not: Write aracı bazı dosyaların sonuna hatalı `</content>` eklemişti; temizlendi.
 
-## Aşama 3 — Admin paneli ⏳
-- (devam ediyor)
+## Aşama 3 — Admin paneli ✅
+- `lib/billing/catalog.ts` — `ensureDefaultPricingItems()` (create-only tohum),
+  `toPricingMap()`, `getSellablePlans()` (deneme planı `FREE_1Y` hariç), `TRIAL_PLAN_CODE`.
+- API (süper admin korumalı):
+  - `GET/POST /api/billing/packages` — bundle list/oluştur (kod otomatik, TR-safe).
+  - `PUT/DELETE /api/billing/packages/[id]` — bundle güncelle/sil (FK SET NULL → güvenli silme).
+  - `GET/PUT /api/billing/pricing` — à la carte fiyatlar (GET tohumlar, PUT toplu upsert,
+    anahtar doğrulaması: `module:<geçerli>` veya `branch`).
+- UI: `components/system-admin/package-admin.tsx` — Hazır Paketler (modül çipleri, dahil şube,
+  önerilen/aktif, ekle/kaydet/sil) + Tekil Fiyatlar tablosu (aylık/yıllık/aktif, toplu kaydet).
+- Sayfa: `system-admin/paketler` + `SystemAdminNav`'e "Paketler" öğesi (Package ikonu).
+- `tsc --noEmit` **0 hata**.
 
-## Aşama 4 — Müşteri ekranı
-- (bekliyor)
+## Aşama 4 — Müşteri ekranı ⏳
+- (devam ediyor)
 
 ## Aşama 5 — Enforcement
 - (bekliyor)
