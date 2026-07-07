@@ -58,6 +58,12 @@ type CreateTokenParams = {
   maxInstallment?: number
   currency?: string
   timeoutLimitMinutes?: number
+  /**
+   * true → PayTR'a "recurring_payment=1" gönderir: ödeme başarılıysa kart saklanır ve
+   * sonraki dönemler "Tekrarlayan Ödeme" API'siyle çekilebilir (abonelik). Hash string'ini
+   * ETKİLEMEZ (dokümante alanların dışında). PayTR hesabında recurring özelliği açık olmalı.
+   */
+  recurringPayment?: boolean
 }
 
 /**
