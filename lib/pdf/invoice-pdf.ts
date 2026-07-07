@@ -60,23 +60,31 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
   const FONT = TURKISH_PDF_FONT
 
   // Company Info (Top Left)
-  doc.setFontSize(18)
+  doc.setFontSize(16)
   doc.setFont(FONT, "bold")
-  doc.text(data.company.name, 14, 20)
-  
+  // Uzun unvan sağdaki başlığa (x=140) binmesin diye ~120mm'e sarılır.
+  const companyNameLines: string[] = doc.splitTextToSize(data.company.name || "", 120)
+  doc.text(companyNameLines, 14, 20)
+
   doc.setFontSize(9)
   doc.setFont(FONT, "normal")
+  // Detaylar unvan kaç satır sürdüyse altından akar (sabit y yerine cursor).
+  let cursorY = 20 + (companyNameLines.length - 1) * 6.5 + 6
   if (data.company.taxNumber) {
-    doc.text(`VKN: ${data.company.taxNumber}`, 14, 26)
+    doc.text(`VKN: ${data.company.taxNumber}`, 14, cursorY)
+    cursorY += 5
   }
   if (data.company.address) {
-    doc.text(data.company.address, 14, 31)
+    doc.text(data.company.address, 14, cursorY)
+    cursorY += 5
   }
   if (data.company.city) {
-    doc.text(data.company.city, 14, 36)
+    doc.text(data.company.city, 14, cursorY)
+    cursorY += 5
   }
   if (data.company.phone) {
-    doc.text(`Tel: ${data.company.phone}`, 14, 41)
+    doc.text(`Tel: ${data.company.phone}`, 14, cursorY)
+    cursorY += 5
   }
   
   // Invoice Info (Top Right)
@@ -113,12 +121,16 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
   doc.setFontSize(10)
   doc.setFont(FONT, "normal")
   if (recipient) {
-    doc.text(recipient.name || "", 18, 68)
+    // Müşteri adını sol sütuna sığdır (sağdaki adres sütununa binmesin); VKN adın altından akar.
+    const recipientNameLines = (doc.splitTextToSize(recipient.name || "", 78) as string[]).slice(0, 2)
+    doc.text(recipientNameLines, 18, 68)
+    const leftY = 68 + recipientNameLines.length * 5
     if (recipient.taxNumber) {
-      doc.text(`VKN: ${recipient.taxNumber}`, 18, 74)
+      doc.text(`VKN: ${recipient.taxNumber}`, 18, leftY)
     }
     if (recipient.address) {
-      doc.text(recipient.address, 100, 68)
+      const addrLines = (doc.splitTextToSize(recipient.address, 93) as string[]).slice(0, 1)
+      doc.text(addrLines, 100, 68)
     }
     if (recipient.city) {
       doc.text(recipient.city, 100, 74)

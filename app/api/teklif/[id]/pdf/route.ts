@@ -98,13 +98,16 @@ export async function GET(
     await registerTurkishFont(doc)
 
     // Firma Bilgileri (Sol Üst)
-    doc.setFontSize(18)
+    doc.setFontSize(16)
     doc.setFont(TURKISH_PDF_FONT, "bold")
-    doc.text(quote.company.name, 14, 20)
+    // Uzun unvan sağdaki "TEKLİF" başlığına binmesin diye ~120mm genişliğe sarılır.
+    const companyNameLines: string[] = doc.splitTextToSize(quote.company.name || "", 120)
+    doc.text(companyNameLines, 14, 20)
 
     doc.setFontSize(9)
     doc.setFont(TURKISH_PDF_FONT, "normal")
-    let cursorY = 26
+    // Detaylar, unvan kaç satır sürdüyse onun hemen altından başlar.
+    let cursorY = 20 + (companyNameLines.length - 1) * 6.5 + 6
     if (quote.company.taxNumber) {
       const office = quote.company.taxOffice ? ` / ${quote.company.taxOffice}` : ""
       doc.text(`VKN: ${quote.company.taxNumber}${office}`, 14, cursorY)
@@ -169,7 +172,9 @@ export async function GET(
     doc.setFontSize(10)
     doc.setFont(TURKISH_PDF_FONT, "normal")
     if (recipient) {
-      doc.text(recipient.name || "", 18, headerStartY + 14)
+      // Müşteri adını sol sütuna sığdır (sağdaki VKN/adres sütununa binmesin) — max ~78mm.
+      const recipientNameLines: string[] = doc.splitTextToSize(recipient.name || "", 78)
+      doc.text(recipientNameLines.slice(0, 2), 18, headerStartY + 14)
       const lines: string[] = []
       if (recipient.taxNumber) {
         const office = recipient.taxOffice ? ` / ${recipient.taxOffice}` : ""
@@ -179,7 +184,12 @@ export async function GET(
       if (recipient.city) lines.push(recipient.city)
       if (recipient.phone) lines.push(`Tel: ${recipient.phone}`)
       if (recipient.email) lines.push(`E-posta: ${recipient.email}`)
-      lines.slice(0, 3).forEach((line, idx) => {
+      // Sağ sütun satırlarını 93mm'e sar (kutunun sağ kenarını aşmasın), 3 satırla sınırla.
+      const wrappedRight: string[] = []
+      for (const l of lines) {
+        for (const w of doc.splitTextToSize(l, 93) as string[]) wrappedRight.push(w)
+      }
+      wrappedRight.slice(0, 3).forEach((line, idx) => {
         doc.text(line, 100, headerStartY + 14 + idx * 5)
       })
     } else {

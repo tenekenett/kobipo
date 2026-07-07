@@ -123,23 +123,31 @@ export async function GET(
     await registerTurkishFont(doc)
 
     // Company Info (Top Left)
-    doc.setFontSize(18)
+    doc.setFontSize(16)
     doc.setFont(TURKISH_PDF_FONT, "bold")
-    doc.text(invoiceData.company.name, 14, 20)
-    
+    // Uzun unvan sağdaki fatura başlığına (x=140) binmesin diye ~120mm'e sarılır.
+    const companyNameLines: string[] = doc.splitTextToSize(invoiceData.company.name || "", 120)
+    doc.text(companyNameLines, 14, 20)
+
     doc.setFontSize(9)
     doc.setFont(TURKISH_PDF_FONT, "normal")
+    // Detaylar unvan kaç satır sürdüyse altından akar (sabit y yerine cursor).
+    let cursorY = 20 + (companyNameLines.length - 1) * 6.5 + 6
     if (invoiceData.company.taxNumber) {
-      doc.text(`VKN: ${invoiceData.company.taxNumber}`, 14, 26)
+      doc.text(`VKN: ${invoiceData.company.taxNumber}`, 14, cursorY)
+      cursorY += 5
     }
     if (invoiceData.company.address) {
-      doc.text(invoiceData.company.address, 14, 31)
+      doc.text(invoiceData.company.address, 14, cursorY)
+      cursorY += 5
     }
     if (invoiceData.company.city) {
-      doc.text(invoiceData.company.city, 14, 36)
+      doc.text(invoiceData.company.city, 14, cursorY)
+      cursorY += 5
     }
     if (invoiceData.company.phone) {
-      doc.text(`Tel: ${invoiceData.company.phone}`, 14, 41)
+      doc.text(`Tel: ${invoiceData.company.phone}`, 14, cursorY)
+      cursorY += 5
     }
     
     // Invoice Info (Top Right)
@@ -180,12 +188,16 @@ export async function GET(
     doc.setFontSize(10)
     doc.setFont(TURKISH_PDF_FONT, "normal")
     if (recipient) {
-      doc.text(recipient.name || "", 18, 68)
+      // Müşteri adını sol sütuna sığdır (sağdaki adres sütununa binmesin); VKN adın altından akar.
+      const recipientNameLines = (doc.splitTextToSize(recipient.name || "", 78) as string[]).slice(0, 2)
+      doc.text(recipientNameLines, 18, 68)
+      const leftY = 68 + recipientNameLines.length * 5
       if (recipient.taxNumber) {
-        doc.text(`VKN: ${recipient.taxNumber}`, 18, 74)
+        doc.text(`VKN: ${recipient.taxNumber}`, 18, leftY)
       }
       if (recipient.address) {
-        doc.text(recipient.address, 100, 68)
+        const addrLines = (doc.splitTextToSize(recipient.address, 93) as string[]).slice(0, 1)
+        doc.text(addrLines, 100, 68)
       }
       const recipientLocation = [recipient.district, recipient.city].filter(Boolean).join(" / ")
       if (recipientLocation) {

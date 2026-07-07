@@ -131,6 +131,7 @@ export async function PUT(
       vatRate,
       purchasePrice,
       salePrice,
+      currency,
       salePriceVatIncluded,
       purchasePriceVatIncluded,
       minStockLevel,
@@ -161,6 +162,10 @@ export async function PUT(
         vatRate: vatForCalc,
         purchasePrice: toNetPrice(purchasePrice, Boolean(purchasePriceVatIncluded)),
         salePrice: toNetPrice(salePrice, Boolean(salePriceVatIncluded)),
+        currency:
+          typeof currency === "string" && currency.trim()
+            ? currency.trim().toUpperCase()
+            : product.currency,
         salePriceVatIncluded:
           salePriceVatIncluded !== undefined
             ? Boolean(salePriceVatIncluded)

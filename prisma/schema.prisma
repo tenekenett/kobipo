@@ -485,6 +485,9 @@ model Product {
   vatRate     Decimal  @default(20) @db.Decimal(5, 2)
   purchasePrice Decimal? @db.Decimal(15, 6) // 6 ondalık: e-Fatura birim fiyat hassasiyeti
   salePrice   Decimal? @db.Decimal(15, 6) // 6 ondalık: e-Fatura birim fiyat hassasiyeti
+  // Ürün fiyatının para birimi. TRY dışıysa (USD/EUR) satış/teklif ekranında güncel
+  // TCMB kuruyla belge para birimine çevrilir.
+  currency    String   @default("TRY")
   // Fiyatlar DB'de DAİMA net (KDV hariç) saklanır. Aşağıdaki bayraklar yalnızca
   // kullanıcının fiyatı KDV dahil girip girmediğini hatırlamak/formu o modda
   // göstermek içindir — hesaplamaları etkilemez.

@@ -51,7 +51,9 @@
       "Bash(git show *)",
       "Bash(node \"C:/Users/user/AppData/Local/Temp/claude/C--Users-user-kobipo-kobipo/53223d18-1483-452d-9a2b-7b38dfa7747c/scratchpad/check-roles.mjs\")",
       "Bash(node _tmp_check_roles.mjs)",
-      "Bash(node _tmp_verify_resolve.mjs)"
+      "Bash(node _tmp_verify_resolve.mjs)",
+      "Bash(curl -s --max-time 15 \"https://www.tcmb.gov.tr/kurlar/today.xml\")",
+      "Bash(echo \"=== exit: $? ===\")"
     ]
   }
 }

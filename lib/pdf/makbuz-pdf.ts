@@ -43,10 +43,12 @@ export async function generateMakbuzPDF(data: MakbuzData): Promise<void> {
   // --- Üst: firma bilgileri (sol) ---
   doc.setFontSize(16)
   doc.setFont(FONT, "bold")
-  doc.text(data.company.name || "", 14, 20)
+  // Uzun unvan sağdaki makbuz başlığına binmesin diye ~120mm'e sarılır.
+  const companyNameLines: string[] = doc.splitTextToSize(data.company.name || "", 120)
+  doc.text(companyNameLines, 14, 20)
   doc.setFontSize(9)
   doc.setFont(FONT, "normal")
-  let y = 26
+  let y = 20 + (companyNameLines.length - 1) * 6.5 + 6
   if (data.company.taxNumber) { doc.text(`VKN: ${data.company.taxNumber}`, 14, y); y += 5 }
   if (data.company.address) { doc.text(data.company.address, 14, y); y += 5 }
   if (data.company.city) { doc.text(data.company.city, 14, y); y += 5 }
@@ -69,7 +71,9 @@ export async function generateMakbuzPDF(data: MakbuzData): Promise<void> {
   doc.setFont(FONT, "bold")
   doc.text(data.cari?.label || "CARİ", 18, top + 7)
   doc.setFont(FONT, "normal")
-  doc.text(data.cari?.name || "-", 18, top + 14)
+  // Cari adını sağdaki VKN sütununa (x=120) binmemesi için ~98mm'e sar, tek satır.
+  const cariNameLines = (doc.splitTextToSize(data.cari?.name || "-", 98) as string[]).slice(0, 1)
+  doc.text(cariNameLines, 18, top + 14)
   if (data.cari?.taxNumber) doc.text(`VKN/TCKN: ${data.cari.taxNumber}`, 120, top + 14)
 
   // --- Tutar vurgusu ---

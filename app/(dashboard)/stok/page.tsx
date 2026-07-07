@@ -31,6 +31,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, Tags } from "lucide-react"
@@ -48,6 +49,7 @@ interface Product {
   purchasePrice?: number
   avgPurchasePrice?: number | null
   salePrice?: number
+  currency?: string
   salePriceVatIncluded?: boolean
   purchasePriceVatIncluded?: boolean
   stockQuantity: number
@@ -58,6 +60,18 @@ interface Product {
 
 const fmtQty = (n: number) =>
   new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number(n || 0))
+
+// Tutarı ürünün kendi para birimiyle biçimler (₺/$/€). Geçersiz/eksik kodda TRY'ye düşer.
+function formatMoney(amount: number, currency?: string | null, signed = false): string {
+  const cur = (currency || "TRY").toUpperCase()
+  const opts: Intl.NumberFormatOptions = {
+    style: "currency",
+    currency: ["TRY", "USD", "EUR"].includes(cur) ? cur : "TRY",
+    currencyDisplay: "narrowSymbol",
+  }
+  if (signed) opts.signDisplay = "exceptZero"
+  return new Intl.NumberFormat("tr-TR", opts).format(amount)
+}
 
 /** Stok uyarı durumu — engelleme yok, yalnızca görsel uyarı. */
 function stockState(p: Product): "out" | "low" | "ok" {
@@ -77,6 +91,7 @@ const emptyProductForm = {
   vatRate: "20",
   purchasePrice: "",
   salePrice: "",
+  currency: "TRY",
   purchasePriceVatIncluded: false,
   salePriceVatIncluded: false,
   stockQuantity: "0",
@@ -107,6 +122,23 @@ export default function StokPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({ ...emptyProductForm })
+  // Güncel TCMB kuru — döviz üründe kârın TL karşılığını göstermek için.
+  const [rates, setRates] = useState<{ USD: number; EUR: number } | null>(null)
+  useEffect(() => {
+    fetch("/api/kur")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.success) setRates({ USD: Number(d.USD), EUR: Number(d.EUR) })
+      })
+      .catch(() => {})
+  }, [])
+  // Seçili para biriminin TRY karşılığı (kâr TL karşılığı için); TRY veya kur yoksa null.
+  const fxRate =
+    formData.currency === "USD"
+      ? rates?.USD ?? null
+      : formData.currency === "EUR"
+        ? rates?.EUR ?? null
+        : null
 
   // Alış/satış arasındaki kâr marjı (alış üzeri). Fiyatlar KDV dahil girilmiş
   // olabileceğinden ikisini de net (KDV hariç) tabana indiriyoruz.
@@ -356,6 +388,7 @@ export default function StokPage() {
       salePrice: toDisplayPrice(product.salePrice, product.salePriceVatIncluded, Number(product.vatRate)),
       purchasePriceVatIncluded: Boolean(product.purchasePriceVatIncluded),
       salePriceVatIncluded: Boolean(product.salePriceVatIncluded),
+      currency: product.currency || "TRY",
       stockQuantity: String(product.stockQuantity),
       minStockLevel: product.minStockLevel != null ? String(product.minStockLevel) : "",
       isService: product.isService,
@@ -645,6 +678,26 @@ export default function StokPage() {
                     KDV dahil
                   </label>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="currency">Para Birimi</Label>
+                  <Select
+                    value={formData.currency}
+                    onValueChange={(v) => setFormData({ ...formData, currency: v })}
+                    disabled={isLoading}
+                  >
+                    <SelectTrigger id="currency">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="TRY">₺ TRY</SelectItem>
+                      <SelectItem value="USD">$ USD</SelectItem>
+                      <SelectItem value="EUR">€ EUR</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    TRY dışıysa satış/teklifte güncel TCMB kuruyla TL'ye çevrilir
+                  </p>
+                </div>
                 {marginInfo.netPurchase != null && (
                   <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
                     <div className="flex items-center gap-2">
@@ -672,20 +725,22 @@ export default function StokPage() {
                       </div>
                     </div>
                     {marginInfo.profit != null && (
-                      <span
-                        className={`font-medium ${
-                          marginInfo.profit >= 0
-                            ? "text-green-600 dark:text-green-400"
-                            : "text-red-600 dark:text-red-400"
-                        }`}
-                      >
-                        {new Intl.NumberFormat("tr-TR", {
-                          style: "currency",
-                          currency: "TRY",
-                          signDisplay: "exceptZero",
-                        }).format(marginInfo.profit)}{" "}
-                        kâr
-                      </span>
+                      <div className="flex flex-col items-end leading-tight">
+                        <span
+                          className={`font-medium ${
+                            marginInfo.profit >= 0
+                              ? "text-green-600 dark:text-green-400"
+                              : "text-red-600 dark:text-red-400"
+                          }`}
+                        >
+                          {formatMoney(marginInfo.profit, formData.currency, true)} kâr
+                        </span>
+                        {fxRate && (
+                          <span className="text-[11px] text-muted-foreground">
+                            ≈ {formatMoney(marginInfo.profit * fxRate, "TRY", true)} TL karşılığı
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -981,18 +1036,12 @@ export default function StokPage() {
                     <TableCell>{product.vatRate}%</TableCell>
                     <TableCell className="text-right whitespace-nowrap">
                       {product.avgPurchasePrice
-                        ? new Intl.NumberFormat("tr-TR", {
-                            style: "currency",
-                            currency: "TRY",
-                          }).format(product.avgPurchasePrice)
+                        ? formatMoney(product.avgPurchasePrice, product.currency)
                         : "-"}
                     </TableCell>
                     <TableCell className="text-right whitespace-nowrap font-semibold">
                       {product.salePrice
-                        ? new Intl.NumberFormat("tr-TR", {
-                            style: "currency",
-                            currency: "TRY",
-                          }).format(product.salePrice)
+                        ? formatMoney(product.salePrice, product.currency)
                         : "-"}
                     </TableCell>
                     <TableCell className="text-right whitespace-nowrap">

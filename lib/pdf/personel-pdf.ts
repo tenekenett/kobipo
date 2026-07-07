@@ -30,7 +30,9 @@ async function startDoc(company: PdfCompany, title: string): Promise<jsPDF> {
 
   doc.setFontSize(15)
   doc.setFont(TURKISH_PDF_FONT, "bold")
-  doc.text(company.name, 14, 18)
+  // Uzun unvan sağdaki başlığa binmesin diye ~120mm'e sarılır; kompakt başlık için tek satır.
+  const companyNameLines = (doc.splitTextToSize(company.name || "", 120) as string[]).slice(0, 1)
+  doc.text(companyNameLines, 14, 18)
 
   doc.setFontSize(9)
   doc.setFont(TURKISH_PDF_FONT, "normal")
