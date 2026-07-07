@@ -124,10 +124,12 @@ export async function GET(
     if (!result.success) {
       const raw = result.error || "Bilinmeyen hata"
       const low = raw.toLowerCase()
-      // Mysoft tenant/firma-kullanıcı eşleşmezse kullanıcıyı VKN doğrulamaya yönlendir.
+      // Tüm tenant adayları denendikten sonra hâlâ firma-kullanıcı hatası geliyorsa,
+      // sorun VKN doğrulama DEĞİL, Mysoft API kullanıcısının bu mükellefe bağlı
+      // olmamasıdır. Kullanıcıyı kayıtlı kullanıcı adı/şifresini kontrol etmeye yönlendir.
       const modelError =
         low.includes("firma kullanıcı") || low.includes("kullanıcı bilgileri")
-          ? `${raw} — Mysoft mükellef VKN'niz doğrulanmamış olabilir; E-Dönüşüm Ayarları'ndan VKN'nizi girip "Doğrula"ya basın.`
+          ? `${raw} — Mysoft API kullanıcınız bu firmaya bağlı görünmüyor. E-Dönüşüm Ayarları'ndan kayıtlı Mysoft kullanıcı adı/şifrenizi kontrol edip yeniden kaydedin.`
           : raw
       return NextResponse.json({ ...base, model: null, modelError }, { status: 200 })
     }

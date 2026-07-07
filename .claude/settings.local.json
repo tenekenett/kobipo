@@ -53,7 +53,8 @@
       "Bash(node _tmp_check_roles.mjs)",
       "Bash(node _tmp_verify_resolve.mjs)",
       "Bash(curl -s --max-time 15 \"https://www.tcmb.gov.tr/kurlar/today.xml\")",
-      "Bash(echo \"=== exit: $? ===\")"
+      "Bash(echo \"=== exit: $? ===\")",
+      "Bash(git stash *)"
     ]
   }
 }

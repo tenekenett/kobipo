@@ -30,6 +30,11 @@ export class MysoftEInvoiceProvider implements EInvoiceProvider {
   // login kullanıcısının yetkili olduğu ilk aktif mükellefin VKN'si keşfedilir ve cache'lenir.
   private vknTckn?: string;
   private resolvedTenantVkn?: string;
+  // OAuth token cache — aynı provider örneği içinde yalnızca BİR kez giriş yap,
+  // token süresi dolana kadar tekrar kullan. Tek bir istekte (tenant keşfi +
+  // model çekme gibi) Mysoft'a defalarca oauth/token çağrısı yapmayı önler.
+  private cachedToken?: string;
+  private tokenExpiresAt = 0;
 
   constructor(config: { username: string; passwordText: string; baseUrl?: string; vknTckn?: string }) {
     this.username = config.username;
@@ -1324,6 +1329,13 @@ async sendInvoice(invoiceData: any): Promise<any> {
   }
 
   private async getToken(): Promise<string | null> {
+    // Kayıtlı kullanıcı adı/şifreyle otomatik giriş — token hâlâ geçerliyse
+    // yeniden giriş yapmadan cache'ten kullan. Böylece her istekte tek bir
+    // "giriş" yapılır; gereksiz oauth/token tekrarından ve olası
+    // rate-limit / oturum geçersizleşmesinden kaçınılır.
+    if (this.cachedToken && Date.now() < this.tokenExpiresAt) {
+      return this.cachedToken;
+    }
     try {
       const tokenRes = await fetch(`${this.baseUrl}/oauth/token`, {
         method: "POST",
@@ -1346,7 +1358,17 @@ async sendInvoice(invoiceData: any): Promise<any> {
         });
         return null;
       }
-      return tokenData.access_token;
+      // expires_in (saniye) varsa ona göre, yoksa 5 dk güvenli varsayımla cache'le.
+      // Süre dolmadan 60 sn önce yenilemek için pay bırakılır.
+      const expiresInSec = Number(tokenData.expires_in);
+      const ttlMs =
+        Number.isFinite(expiresInSec) && expiresInSec > 0
+          ? Math.max(30_000, (expiresInSec - 60) * 1000)
+          : 5 * 60_000;
+      const accessToken: string = String(tokenData.access_token);
+      this.cachedToken = accessToken;
+      this.tokenExpiresAt = Date.now() + ttlMs;
+      return accessToken;
     } catch (error: any) {
       console.error("[Mysoft] getToken: istek başarısız (ağ/TLS?).", {
         baseUrl: this.baseUrl,
@@ -1713,28 +1735,65 @@ async sendInvoice(invoiceData: any): Promise<any> {
       const token = await this.getToken()
       if (!token) return { success: false, error: "Mysoft token alınamadı." }
 
-      const url = new URL(`${this.baseUrl}/api/InvoiceInbox/getInvoiceInboxModel`)
-      url.searchParams.set("invoiceETTN", uuid)
-      // Tenant'ı çöz (gerekirse JWT'den keşfet). tenantIdentifierNumber boş gidince
-      // Mysoft "Kullanıcı bilgileri ile firma kullanıcı kaydı bulunamadı" döndürüyor.
-      const inboxTenant = await this.resolveTenantVkn()
-      if (inboxTenant) url.searchParams.set("tenantIdentifierNumber", inboxTenant)
+      // Tenant (mükellef VKN) adaylarını sırayla dene. Mysoft, gönderilen
+      // tenantIdentifierNumber login kullanıcısının firma-kullanıcı kaydıyla
+      // eşleşmezse "Kullanıcı bilgileri ile firma kullanıcı kaydı bulunamadı"
+      // döndürür. Kayıtlı firma VKN'si her zaman Mysoft login'inin gerçek
+      // tenant'ıyla birebir aynı olmayabildiğinden — aynı (tek) giriş token'ıyla:
+      //   1) firma/constructor VKN'si
+      //   2) JWT token'ından keşfedilen GERÇEK tenant (login kullanıcısının)
+      //   3) tenant parametresiz (login kullanıcısının varsayılan tenant'ı)
+      // adaylarını deneyip Mysoft'un kabul ettiği ilk yanıtı kullanırız. Böylece
+      // kullanıcı "VKN doğrula" adımına gerek kalmadan yalnızca kayıtlı kullanıcı
+      // adı/şifresiyle giriş yaparak kalemleri otomatik çekebilir.
+      const candidates: string[] = []
+      const pushCandidate = (v: string | null | undefined) => {
+        const val = typeof v === "string" && v.trim() ? v.trim() : ""
+        if (!candidates.includes(val)) candidates.push(val)
+      }
+      pushCandidate(await this.resolveTenantVkn())
+      try {
+        const fromToken = await this.discoverTenantFromToken()
+        if (fromToken.success) pushCandidate(fromToken.vknFromToken)
+      } catch {
+        // token'dan keşif başarısızsa diğer adaylarla devam et
+      }
+      pushCandidate("") // parametresiz — login kullanıcısının varsayılan tenant'ı
 
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      })
+      const isFirmaUserError = (msg: unknown): boolean => {
+        const low = String(msg || "").toLowerCase()
+        return low.includes("firma kullanıcı") || low.includes("kullanıcı bilgileri")
+      }
 
-      const result = await res.json().catch(() => null)
-      if (!result || result.succeed === false) {
-        return {
-          success: false,
-          error: result?.message || `HTTP ${res.status}`,
-          rawResponse: result,
+      let result: any = null
+      let lastError = ""
+      for (const tenant of candidates) {
+        const url = new URL(`${this.baseUrl}/api/InvoiceInbox/getInvoiceInboxModel`)
+        url.searchParams.set("invoiceETTN", uuid)
+        if (tenant) url.searchParams.set("tenantIdentifierNumber", tenant)
+
+        const res = await fetch(url.toString(), {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        })
+        const body = await res.json().catch(() => null)
+        if (body && body.succeed !== false) {
+          result = body
+          break
         }
+        lastError = body?.message || `HTTP ${res.status}`
+        // firma-kullanıcı hatasıysa sıradaki tenant adayını dene; başka bir hata
+        // (ör. belge bulunamadı, yetki) ise adayları denemenin anlamı yok, çık.
+        if (!isFirmaUserError(lastError)) {
+          return { success: false, error: lastError, rawResponse: body }
+        }
+      }
+
+      if (!result) {
+        return { success: false, error: lastError || "Gelen fatura modeli alınamadı." }
       }
 
       const model: any = result.data || result
