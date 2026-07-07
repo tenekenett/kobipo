@@ -86,4 +86,3 @@ CREATE INDEX IF NOT EXISTS package_orders_companyId_status_idx
   ON public.package_orders("companyId", status);
 CREATE INDEX IF NOT EXISTS package_orders_status_idx
   ON public.package_orders(status);
-</content>
