@@ -25,7 +25,17 @@ InvoiceOutbox/InvoiceInbox uçlarında var. Kontör yükleme zaten bu modelle ç
 Bayi kimliği env'de: `MYSOFT_PARTNER_USERNAME` / `MYSOFT_PARTNER_PASSWORD` /
 `MYSOFT_PARTNER_API_URL` → `lib/integrations/e-invoice/partner.ts` (`createPartnerProvider()`).
 
-## 2. Açık Tek Soru (ticari/hukuki — API dışı)
+## 2. Mysoft'tan Beklenen (BLOKAJLAR — API dışı)
+
+**A) Test bayi hesabı paketi (AKTİF BLOKAJ — 2026-07-07):** addTenant içeride "mükellef
+sorgulama" yapıyor; test bayi API hesabının bu iş için aktif paketi/limiti yok
+(*"Mükellef sorgulama işlemi için aktif bir paketiniz bulunmamaktadır..."*). Mysoft'un test
+bayi hesabına **firma açma + mükellef sorgulama paketi** tanımlaması gerekiyor. Kod tarafı
+createTenant için hazır; bu paket açılmadan test ilerleyemez.
+- Durum: ⏳ Mysoft'a soruldu / cevap bekleniyor.
+- Cevap: _(buraya)_
+
+**B) Muvafakatname / sözleşme (ticari/hukuki):**
 
 - **Muvafakatname / aracılık sözleşmesi / e-imza:** Bir mükellefi bayi olarak API ile
   aktive ederken GİB/Mysoft'un istediği ıslak/e-imzalı bir evrak var mı? API'de böyle
@@ -108,12 +118,30 @@ serialNumberPrefix}] }`.
 > ad gönderiliyor (kod yok); Mysoft kod isterse vergi dairesi lookup'ı eklenecek.
 > (3) Adres `createTenant`'ta şimdilik gönderilmiyor (opsiyonel) — gerekirse eklenecek.
 
+**Mysoft hata kodları (test 2026-07-06'da görüldü):**
+- `00208` = "Firma zaten başka bir iş ortağı/sistem tarafından açılmış" → VKN **bize bağlı
+  değil**, kullanamayız. (Mysoft demo VKN'si `6271036106` bu durumda.)
+- `00180` = "Girilen bilgilere uygun firma bulunamadı" → `getTenantActivation`/aktivasyon
+  bizim servis kullanıcımıza bağlı olmayan firmada bunu döner.
+- **Düzeltme:** `createTenant` hata verince artık kör "devam" YOK. `getTenantActivationStatus`
+  ile prob atılıyor: succeed dönerse firma bizimdir → devam; dönmezse (00180) → 409
+  `TENANT_NOT_OURS` ile net hata. Böylece 00208 → yanıltıcı 00180 zinciri bitti.
+- **Test için VKN:** `6271036106` başkasının altında; taze/boşta bir VKN gerekli. Checksum
+  geçerli sahte VKN üretici doğrulandı (bkz. günlük). Aktivasyonun test-GİB'de sahte VKN
+  kabul edip etmediği açık → Mysoft'a "test mükellef VKN/TCKN seti var mı?" sorulacak.
+
 ### Faz 3 — UI Sihirbazı
-- [ ] `E-Dönüşüm Ayarları` ekranını başvuru sihirbazına çevir: firma bilgileri (Company'den
-      ön-dolu) → ürün seçimi (E-Fatura/E-Arşiv) → seri ön ekleri → "Başvur ve Aktive Et".
-- [ ] Aktivasyon durumu göstergesi (Onaylandı/Bekliyor/Hata).
-- [ ] Elle kimlik giriş kartını "gelişmiş / mevcut Mysoft hesabım var" fallback'i yap.
-- [ ] (Karar #2'ye göre) muvafakat dijital onay adımı.
+- [x] `E-Dönüşüm Ayarları` ekranı başvuru sihirbazına çevrildi: ürün seçimi (E-Arşiv/E-Fatura)
+      + 3 karakter seri ön ek + "Başvur ve Aktive Et" → `POST /api/e-donusum/onboarding`.
+      Seri ön ekler `eArchivePrefix`/`eFaturaPrefix`'ten ön-dolu.
+- [x] Aktivasyon durumu göstergesi: banner'da durum rozeti + "Durumu Yenile" (`GET /status`)
+      ile GİB satırları (onaylandı/bekliyor/hata).
+- [x] Elle kimlik giriş kartı "Gelişmiş — Mevcut Mysoft hesabımı elle bağla" collapsible'ına
+      indirildi (ortam + kullanıcı/şifre + Test Bağlantısı orada).
+- [ ] (Karar #2'ye göre) muvafakat dijital onay adımı — Mysoft cevabı sonrası.
+
+Değişen dosyalar: `app/(dashboard)/ayarlar/e-donusum/page.tsx` (yeniden yazıldı),
+`app/api/companies/[id]/route.ts` (GET select'e 4 onboarding alanı eklendi).
 
 ### Faz 4 — Belge işlemlerini bayi kimliğine taşı
 - [ ] `sendInvoice` / `getInvoiceStatus` / inbox / iptal / pdf uçlarını **bayi provider +
@@ -158,6 +186,52 @@ denemek istersek bayi test kimliğiyle `MYSOFT_PARTNER_API_URL`'i test URL'sine 
 - **2026-07-06 (2)** — Kullanıcı `npm run db:push` çalıştırdı (Faz 0 bitti). Tasarım kararı:
   onboarding **register akışında değil, E-Dönüşüm Ayarları ekranında** yapılacak. Faz 2
   route'ları yazıldı: `POST /api/e-donusum/onboarding` + `GET /api/e-donusum/onboarding/status`.
-  `tsc` temiz. Sıradaki: **Faz 3 UI sihirbazı** (`app/(dashboard)/ayarlar/e-donusum/page.tsx`
-  ekranını "Başvur ve Aktive Et" akışına çevir; bu route'ları çağır). Henüz gerçek Mysoft
-  test çağrısı yapılmadı — Faz 3 UI ile ya da elle bir POST ile denenecek.
+  `tsc` temiz.
+- **2026-07-06 (3)** — Faz 3 UI sihirbazı bitti. E-Dönüşüm Ayarları ekranı yeniden yazıldı
+  (ürün seçimi + seri ön ek + Başvur/Durumu Yenile); elle kimlik girişi "Gelişmiş" bölümüne
+  indirildi. companies GET'e 4 onboarding alanı eklendi. Proje geneli `tsc` 0 hata.
+  **Sıradaki: UI üzerinden gerçek test.** Kullanıcı `.env`'e bayi TEST kimliğini
+  (`MYSOFT_PARTNER_USERNAME/PASSWORD`, `MYSOFT_PARTNER_API_URL=https://edocumentapi.mytest.tr`)
+  girip `npm run dev` ile ekrandan "Başvur ve Aktive Et" deneyecek. Açık payload noktaları
+  (registerNo/taxOffice kodu/adres) ilk gerçek çağrıda netleşecek → Faz 2 §"Açık noktalar".
+  Test OK olursa **Faz 4** (belge gönderimini bayi + tenantIdentifierNumber'a taşıma).
+- **2026-07-06 (4)** — İlk gerçek TEST çağrısı yapıldı (VKN 6271036106). Sonuç: addTenant
+  `00208` (firma başka iş ortağı altında), ardından aktivasyon `00180`. Teşhis: 6271036106
+  Mysoft demo VKN'si, bize bağlı değil. Kod düzeltildi (createTenant hatasında
+  getTenantActivation prob'u ile "bizim mi" ayrımı → 409 TENANT_NOT_OURS). Kullanıcıya taze
+  checksum-geçerli test VKN'leri üretildi.
+- **2026-07-06 (5)** — Taze VKN 4457389606, E-Arşiv aktivasyonu hep `00180`. E-Arşiv'de
+  `internetSerialNumberPrefix` da zorunlu diye onu eklendik (Swagger 19454) — ama 00180 sürdü.
+- **2026-07-06 (6)** — **KÖK NEDEN BULUNDU.** Prob mantığı `createTenant` hatasını gizliyormuş.
+  `force:true` teşhisiyle gerçek addTenant yanıtı görüldü: `00081 "Vergi dairesi tanımı
+  bulunamadı. Ad: pamukkale"`. Yani createTenant HİÇ başarılı olmamış; serbest metin vergi
+  dairesi ("pamukkale") reddediliyor. 00180 sadece bunun yan etkisiymiş.
+  **Düzeltmeler:** (a) prob kaldırıldı, createTenant başarısızsa NET hata + DUR (aktivasyona
+  geçme), timestamp yalnızca başarıda yazılır; (b) `force` param'ı eklendi (teşhis/retry);
+  (c) provider'a `listTaxOffices()` (`GET /api/GeneralCard/taxOffice`) eklendi; (d) route
+  firmanın vergi dairesini bu listeyle eşleyip **kod+resmi ad** gönderiyor (normalizeTr ile
+  Türkçe eşleme), eşleşmezse taxOffice'i hiç göndermiyor.
+  **Sıradaki:** kullanıcı `force:true` ile tekrar deneyecek → addTenant artık başarılı olmalı
+  → aktivasyon sonucunu göreceğiz. Sonra Faz 3.1'de UI'a vergi dairesi seçici eklenebilir.
+- **2026-07-06 (7)** — force retry → vergi dairesi hatası geçti, yeni hata `00094 "Firma Adres
+  bilgisi alanları zorunludur"`. Yani addTenant adresi ZORUNLU tutuyor (swagger'da opsiyonel
+  görünse de). Düzeltme: provider'a `listCities()` (`GET /api/GeneralCard/city`) eklendi;
+  route company.city'yi şehir listesiyle eşleyip `tenantAdress` gönderiyor (ülke sabit TR,
+  şehir kod+ad lookup'tan, ilçe/citySubdivision şimdilik il ile dolduruluyor, streetName=
+  company.address, buildingNumber="1"). company select'ine city+address eklendi.
+- **2026-07-07 (8)** — Kullanıcı VKN'yi kısa süre 6271036106 (Mysoft'un kendi VKN'si) yaptı →
+  `00208` (açılamaz, başkasının). Kavram netleştirildi: gelen fatura için KENDİ VKN'si aktive
+  edilmeli, Mysoft'un VKN'si değil. VKN 4457389606'ya dönüldü. force retry sonucu:
+  **payload TAMAMEN DOĞRU** — tüm alan doğrulamaları (vergi dairesi + adres) geçti. Yeni hata
+  KOD DEĞİL, HESAP: addTenant içeride "mükellef sorgulama" yapıyor ve **test bayi API hesabının
+  bu işlem için aktif paketi/limiti yok** ("Mükellef sorgulama işlemi için aktif bir paketiniz
+  bulunmamaktadır veya paket limitiniz yetersizdir"). ⛔ **BLOKAJ (Mysoft provizyon):** test
+  bayi hesabına firma açma + mükellef sorgulama paketi tanımlanmalı. Kullanıcı Mysoft'a soracak.
+  **Kod tarafı createTenant için TAMAM.** Paket açılınca retry → addTenant geçmeli → aktivasyon.
+  Bu arada Faz 4 (belge gönderimini bayi+tenantIdentifierNumber'a taşıma) YAZILABİLİR (test için
+  aktif tenant gerektiğinden ancak paket sonrası TEST edilir).
+- **2026-07-07 (9)** — Mysoft paketi beklenirken proje BEKLEMEDE. Kullanıcı diğer site
+  kısımlarını geliştirmeye devam edecek. UI kararı: E-Dönüşüm Ayarları ekranı ESKİ haline
+  döndürüldü (ortam + API kimlik girişi ana içerik). Onboarding başvuru sihirbazı en alta,
+  **kapalı (collapsed) "Beta"** bölüm olarak taşındı — mantık/işlevsellik korunuyor, sadece
+  gizli. Kod hazır; paket gelince o bölüm açılıp test edilecek. tsc 0 hata.

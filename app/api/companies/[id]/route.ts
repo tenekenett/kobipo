@@ -47,6 +47,11 @@ export async function GET(
         eFaturaPrefix: true,
         eArchivePrefix: true,
         eDonusumTenantVkn: true,
+        // Bayi self-servis onboarding durumu (docs/e-donusum-onboarding/PLAN.md)
+        eDonusumOnboardingStatus: true,
+        eDonusumTenantCreatedAt: true,
+        eDonusumActivatedProducts: true,
+        eDonusumActivationError: true,
         sector: true,
         businessModel: true,
         employeeRange: true,

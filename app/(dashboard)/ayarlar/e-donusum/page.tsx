@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,10 +10,14 @@ import { useToast } from "@/components/ui/use-toast"
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  Clock,
   FileText,
   Globe,
   KeyRound,
   Loader2,
+  RefreshCw,
+  Rocket,
   Save,
   ShieldCheck,
   XCircle,
@@ -21,9 +25,13 @@ import {
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { MYSOFT_PROD_URL, MYSOFT_TEST_URL } from "@/lib/integrations/e-invoice/constants"
+
 interface Company {
   id: string
+  name?: string | null
   taxNumber?: string | null
+  taxOffice?: string | null
+  email?: string | null
   isEDonusumEnabled?: boolean
   eDonusumIntegrator?: string
   eDonusumProvider?: string
@@ -34,10 +42,40 @@ interface Company {
   eDonusumLastTestedAt?: string | null
   eDonusumLastTestSuccess?: boolean | null
   eDonusumTenantVkn?: string | null
+  eFaturaPrefix?: string | null
+  eArchivePrefix?: string | null
+  eDonusumOnboardingStatus?: string | null
+  eDonusumTenantCreatedAt?: string | null
+  eDonusumActivatedProducts?: string[]
+  eDonusumActivationError?: string | null
 }
 
 const PROVIDER_KEY = "mysoft"
 const PROVIDER_LABEL = "Mysoft"
+
+// Onboarding durum → görünen etiket + renk tonu.
+const STATUS_META: Record<string, { label: string; tone: "muted" | "amber" | "emerald" | "red" }> = {
+  NONE: { label: "Başvuru yapılmadı", tone: "muted" },
+  TENANT_CREATED: { label: "Firma açıldı — aktivasyon bekliyor", tone: "amber" },
+  ACTIVATION_PENDING: { label: "GİB onayı bekleniyor", tone: "amber" },
+  ACTIVE: { label: "Aktif", tone: "emerald" },
+  FAILED: { label: "Hata", tone: "red" },
+}
+
+const TONE_CLASS: Record<string, string> = {
+  muted: "bg-muted text-muted-foreground",
+  amber: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+  emerald: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+  red: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+}
+
+type StatusRow = {
+  productType: string | null
+  demandStatus: string | null
+  state: "approved" | "error" | "pending"
+  gibServiceMessage: string | null
+  serialNumberPrefix: string | null
+}
 
 export default function EDonusumAyarlariPage() {
   const searchParams = useSearchParams()
@@ -48,6 +86,7 @@ export default function EDonusumAyarlariPage() {
   const [hasSavedPassword, setHasSavedPassword] = useState(false)
   const [lastTestedAt, setLastTestedAt] = useState<string | null>(null)
   const [lastTestSuccess, setLastTestSuccess] = useState<boolean | null>(null)
+
   // Ortam seçimi: company.eDonusumApiUrl alanına eşlenir. Canlı → MYSOFT_PROD_URL,
   // Test → MYSOFT_TEST_URL. Kayıtlı URL prod ile birebir eşleşmiyorsa güvenli
   // varsayılan olarak "test" kabul edilir.
@@ -62,9 +101,25 @@ export default function EDonusumAyarlariPage() {
   // Mysoft mükellef VKN'si — firmanın VKN'sinden okunur (sadece görüntü).
   const [tenantVkn, setTenantVkn] = useState("")
 
+  // --- Onboarding (bayi self-servis başvuru) — alttaki kapalı bölüm ---
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [onboardingStatus, setOnboardingStatus] = useState<string>("NONE")
+  const [activationError, setActivationError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isChecking, setIsChecking] = useState(false)
+  const [statusRows, setStatusRows] = useState<StatusRow[] | null>(null)
+  const [submitResult, setSubmitResult] = useState<Array<{ type: string; ok: boolean; error?: string }> | null>(
+    null,
+  )
+  const [products, setProducts] = useState({
+    EArchive: { enabled: true, prefix: "" },
+    EInvoice: { enabled: false, prefix: "", aliasPrefix: "", aliasDomain: "" },
+  })
+
   useEffect(() => {
     if (!companyId) return
     fetchCompany()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
 
   const fetchCompany = async () => {
@@ -77,7 +132,6 @@ export default function EDonusumAyarlariPage() {
     setEnvironment((data.eDonusumApiUrl || "").trim() === MYSOFT_PROD_URL ? "live" : "test")
     setLastTestedAt(data.eDonusumLastTestedAt || null)
     setLastTestSuccess(typeof data.eDonusumLastTestSuccess === "boolean" ? data.eDonusumLastTestSuccess : null)
-    // Mükellef VKN: eski kayıtlı değer varsa o, yoksa firmanın kendi VKN'si.
     const companyVkn = (data.eDonusumTenantVkn || data.taxNumber || "").replace(/\D/g, "")
     setTenantVkn(companyVkn)
     setFormData({
@@ -86,11 +140,16 @@ export default function EDonusumAyarlariPage() {
       eDonusumApiPassword: passwordIsPlaceholder ? "" : (data.eDonusumApiPassword || ""),
       eDonusumAlias: data.eDonusumAlias || "",
     })
+
+    // Onboarding durumu (alttaki bölüm)
+    setOnboardingStatus(data.eDonusumOnboardingStatus || "NONE")
+    setActivationError(data.eDonusumActivationError || null)
+    setProducts((prev) => ({
+      EArchive: { ...prev.EArchive, prefix: (data.eArchivePrefix || prev.EArchive.prefix || "").toUpperCase() },
+      EInvoice: { ...prev.EInvoice, prefix: (data.eFaturaPrefix || prev.EInvoice.prefix || "").toUpperCase() },
+    }))
   }
 
-  // Ayarları (özellikle seçili ortam = eDonusumApiUrl) DB'ye yazar. Hem "Kaydet"
-  // hem de Doğrula/Otomatik Bul öncesi çağrılır — böylece kullanıcı ortamı seçip
-  // kaydetmeyi unutsa bile keşif/doğrulama doğru ortama (test/canlı) gider.
   const persistSettings = async (): Promise<boolean> => {
     if (!companyId) return false
     const response = await fetch(`/api/companies/${companyId}`, {
@@ -130,22 +189,13 @@ export default function EDonusumAyarlariPage() {
 
   const testConnection = async () => {
     if (!formData.eDonusumApiUsername) {
-      toast({
-        title: "Eksik Bilgi",
-        description: "Lütfen API Kullanıcı Adı'nı doldurun.",
-        variant: "destructive",
-      })
+      toast({ title: "Eksik Bilgi", description: "Lütfen API Kullanıcı Adı'nı doldurun.", variant: "destructive" })
       return
     }
     if (!formData.eDonusumApiPassword && !hasSavedPassword) {
-      toast({
-        title: "Şifre Gerekli",
-        description: "Lütfen API Şifresini girin veya önce kaydedin.",
-        variant: "destructive",
-      })
+      toast({ title: "Şifre Gerekli", description: "Lütfen API Şifresini girin veya önce kaydedin.", variant: "destructive" })
       return
     }
-
     setIsTesting(true)
     try {
       const response = await fetch("/api/test-mysoft", {
@@ -159,12 +209,8 @@ export default function EDonusumAyarlariPage() {
         }),
       })
       const data = await response.json()
-
       if (data.success) {
-        toast({
-          title: "Bağlantı Başarılı",
-          description: "Mysoft sistemine başarıyla giriş yapıldı.",
-        })
+        toast({ title: "Bağlantı Başarılı", description: "Mysoft sistemine başarıyla giriş yapıldı." })
         setLastTestSuccess(true)
         setLastTestedAt(new Date().toISOString())
       } else {
@@ -183,6 +229,89 @@ export default function EDonusumAyarlariPage() {
     }
   }
 
+  // --- Onboarding (alttaki kapalı bölüm) ---
+  const submitOnboarding = async () => {
+    if (!companyId) return
+    const payloadProducts: any[] = []
+    if (products.EArchive.enabled) {
+      payloadProducts.push({ type: "EArchive", serialNumberPrefix: products.EArchive.prefix })
+    }
+    if (products.EInvoice.enabled) {
+      const p: any = { type: "EInvoice", serialNumberPrefix: products.EInvoice.prefix }
+      if (products.EInvoice.aliasPrefix.trim()) p.aliasPrefix = products.EInvoice.aliasPrefix.trim()
+      if (products.EInvoice.aliasDomain.trim()) p.aliasDomain = products.EInvoice.aliasDomain.trim()
+      payloadProducts.push(p)
+    }
+    if (payloadProducts.length === 0) {
+      toast({ title: "Ürün seçin", description: "En az bir ürün (E-Arşiv / E-Fatura) seçin.", variant: "destructive" })
+      return
+    }
+    for (const p of payloadProducts) {
+      if (!/^[A-Z0-9]{3}$/.test((p.serialNumberPrefix || "").toUpperCase())) {
+        toast({
+          title: "Seri ön ek gerekli",
+          description: `${p.type === "EInvoice" ? "E-Fatura" : "E-Arşiv"} için 3 karakterlik seri ön ek girin (ör. KBP).`,
+          variant: "destructive",
+        })
+        return
+      }
+      p.serialNumberPrefix = p.serialNumberPrefix.toUpperCase()
+    }
+
+    setIsSubmitting(true)
+    setSubmitResult(null)
+    try {
+      const res = await fetch("/api/e-donusum/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, products: payloadProducts }),
+      })
+      const data = await res.json()
+      setSubmitResult(Array.isArray(data.activations) ? data.activations : null)
+      if (data.success) {
+        setOnboardingStatus(data.status || "ACTIVATION_PENDING")
+        toast({
+          title: "Başvuru alındı",
+          description: "Firma açıldı ve aktivasyon başvurusu GİB'e iletildi. Durumu 'Yenile' ile takip edin.",
+        })
+        fetchCompany()
+      } else {
+        throw new Error(data.error || "Başvuru başarısız")
+      }
+    } catch (error) {
+      toast({
+        title: "Başvuru hatası",
+        description: error instanceof Error ? error.message : "Bir hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const refreshStatus = async () => {
+    if (!companyId) return
+    setIsChecking(true)
+    try {
+      const res = await fetch(`/api/e-donusum/onboarding/status?companyId=${encodeURIComponent(companyId)}`)
+      const data = await res.json()
+      if (!data.success) throw new Error(data.error || "Durum alınamadı")
+      setStatusRows(Array.isArray(data.activations) ? data.activations : [])
+      if (data.status) setOnboardingStatus(data.status)
+      if (data.allApproved) {
+        toast({ title: "Aktivasyon onaylandı", description: "Tüm ürünler GİB tarafından onaylandı." })
+      }
+    } catch (error) {
+      toast({
+        title: "Durum hatası",
+        description: error instanceof Error ? error.message : "Bir hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setIsChecking(false)
+    }
+  }
+
   if (!companyId) {
     return (
       <Card>
@@ -197,14 +326,14 @@ export default function EDonusumAyarlariPage() {
   const formatTested = (iso: string | null) => {
     if (!iso) return null
     try {
-      return new Date(iso).toLocaleString("tr-TR", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      })
+      return new Date(iso).toLocaleString("tr-TR", { dateStyle: "medium", timeStyle: "short" })
     } catch {
       return null
     }
   }
+
+  const statusMeta = STATUS_META[onboardingStatus] || STATUS_META.NONE
+  const hasStarted = onboardingStatus !== "NONE"
 
   return (
     <div className="space-y-5">
@@ -275,9 +404,7 @@ export default function EDonusumAyarlariPage() {
           </div>
           <Switch
             checked={formData.isEDonusumEnabled}
-            onCheckedChange={(checked) =>
-              setFormData((prev) => ({ ...prev, isEDonusumEnabled: checked }))
-            }
+            onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, isEDonusumEnabled: checked }))}
             disabled={isLoading}
           />
         </CardContent>
@@ -361,15 +488,11 @@ export default function EDonusumAyarlariPage() {
               <Input
                 id="alias"
                 value={formData.eDonusumAlias}
-                onChange={(event) =>
-                  setFormData((prev) => ({ ...prev, eDonusumAlias: event.target.value }))
-                }
+                onChange={(event) => setFormData((prev) => ({ ...prev, eDonusumAlias: event.target.value }))}
                 placeholder="urn:mail:..."
                 disabled={isLoading}
               />
-              <p className="text-xs text-muted-foreground">
-                GİB tarafından firmanıza atanan posta kutusu etiketi
-              </p>
+              <p className="text-xs text-muted-foreground">GİB tarafından firmanıza atanan posta kutusu etiketi</p>
             </div>
 
             <div className="space-y-2">
@@ -377,9 +500,7 @@ export default function EDonusumAyarlariPage() {
               <Input
                 id="username"
                 value={formData.eDonusumApiUsername}
-                onChange={(event) =>
-                  setFormData((prev) => ({ ...prev, eDonusumApiUsername: event.target.value }))
-                }
+                onChange={(event) => setFormData((prev) => ({ ...prev, eDonusumApiUsername: event.target.value }))}
                 autoComplete="off"
                 disabled={isLoading}
               />
@@ -391,8 +512,7 @@ export default function EDonusumAyarlariPage() {
                   API Şifre
                   {hasSavedPassword && (
                     <span className="ml-2 inline-flex items-center gap-1 text-xs font-normal text-emerald-700 dark:text-emerald-400">
-                      <CheckCircle2 className="h-3 w-3" />
-                      Kayıtlı
+                      <CheckCircle2 className="h-3 w-3" /> Kayıtlı
                     </span>
                   )}
                 </span>
@@ -401,14 +521,8 @@ export default function EDonusumAyarlariPage() {
                 id="password"
                 type="password"
                 value={formData.eDonusumApiPassword}
-                onChange={(event) =>
-                  setFormData((prev) => ({ ...prev, eDonusumApiPassword: event.target.value }))
-                }
-                placeholder={
-                  hasSavedPassword
-                    ? "Değiştirmek için yeni şifre girin (boş bırakılırsa korunur)"
-                    : "API şifresi"
-                }
+                onChange={(event) => setFormData((prev) => ({ ...prev, eDonusumApiPassword: event.target.value }))}
+                placeholder={hasSavedPassword ? "Değiştirmek için yeni şifre girin (boş bırakılırsa korunur)" : "API şifresi"}
                 autoComplete="new-password"
                 disabled={isLoading}
               />
@@ -417,7 +531,7 @@ export default function EDonusumAyarlariPage() {
         </CardContent>
       </Card>
 
-      {/* Mysoft Mükellef VKN — firmanın VKN'sinden otomatik (ayrı doğrulama yok) */}
+      {/* Mysoft Mükellef VKN */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
@@ -463,9 +577,8 @@ export default function EDonusumAyarlariPage() {
           <div className="space-y-1 text-muted-foreground">
             <p className="font-medium text-foreground">Bağlantı bilgilerinizi nasıl alırsınız?</p>
             <p>
-              Mysoft müşteri panelinizden API kullanıcı adı ve şifrenizi alabilirsiniz. Bağlantı
-              kuramazsanız <span className="font-medium text-foreground">Destek</span> ekranından
-              talep oluşturun.
+              Mysoft müşteri panelinizden API kullanıcı adı ve şifrenizi alabilirsiniz. Bağlantı kuramazsanız{" "}
+              <span className="font-medium text-foreground">Destek</span> ekranından talep oluşturun.
             </p>
           </div>
         </CardContent>
@@ -476,8 +589,7 @@ export default function EDonusumAyarlariPage() {
         <Button variant="outline" onClick={testConnection} disabled={isTesting || isLoading}>
           {isTesting ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Test ediliyor…
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Test ediliyor…
             </>
           ) : (
             "Test Bağlantısı"
@@ -489,6 +601,214 @@ export default function EDonusumAyarlariPage() {
         </Button>
       </div>
 
+      {/* En altta, kapalı: Kobipo ile e-Dönüşüm başvurusu (beta — geliştiriliyor) */}
+      <Card className="border-dashed">
+        <button
+          type="button"
+          onClick={() => setShowOnboarding((v) => !v)}
+          className="flex w-full items-center justify-between gap-3 p-5 text-left"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <Rocket className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold">
+                Kobipo ile e-Dönüşüm Başvurusu
+                <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                  Beta
+                </span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Mysoft ile uğraşmadan hesabınızı Kobipo'dan açın (geliştirme aşamasında)
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasStarted && (
+              <span className={`hidden rounded-full px-2 py-0.5 text-[10px] font-medium sm:inline ${TONE_CLASS[statusMeta.tone]}`}>
+                {statusMeta.label}
+              </span>
+            )}
+            <ChevronDown className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${showOnboarding ? "rotate-180" : ""}`} />
+          </div>
+        </button>
+
+        {showOnboarding && (
+          <CardContent className="space-y-4 border-t pt-5">
+            {!tenantVkn && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>
+                  Firma VKN'niz boş.{" "}
+                  <a href={`/ayarlar/firma?company=${companyId}`} className="font-medium underline">
+                    Firma Ayarları
+                  </a>
+                  'ndan VKN'yi girmeden başvuru yapılamaz.
+                </p>
+              </div>
+            )}
+
+            <ProductRow
+              title="E-Arşiv Fatura"
+              desc="Nihai tüketiciye/mükellef olmayanlara kesilen faturalar"
+              enabled={products.EArchive.enabled}
+              onToggle={(v) => setProducts((p) => ({ ...p, EArchive: { ...p.EArchive, enabled: v } }))}
+              prefix={products.EArchive.prefix}
+              onPrefix={(v) => setProducts((p) => ({ ...p, EArchive: { ...p.EArchive, prefix: v } }))}
+            />
+
+            <ProductRow
+              title="E-Fatura"
+              desc="GİB e-Fatura mükelleflerine kesilen faturalar (posta kutusu etiketi gerekebilir)"
+              enabled={products.EInvoice.enabled}
+              onToggle={(v) => setProducts((p) => ({ ...p, EInvoice: { ...p.EInvoice, enabled: v } }))}
+              prefix={products.EInvoice.prefix}
+              onPrefix={(v) => setProducts((p) => ({ ...p, EInvoice: { ...p.EInvoice, prefix: v } }))}
+            >
+              {products.EInvoice.enabled && (
+                <div className="grid gap-3 pt-2 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Etiket ön eki (alias) — opsiyonel</Label>
+                    <Input
+                      value={products.EInvoice.aliasPrefix}
+                      onChange={(e) => setProducts((p) => ({ ...p, EInvoice: { ...p.EInvoice, aliasPrefix: e.target.value } }))}
+                      placeholder="ör. firmaadi"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Etiket alan adı (domain) — opsiyonel</Label>
+                    <Input
+                      value={products.EInvoice.aliasDomain}
+                      onChange={(e) => setProducts((p) => ({ ...p, EInvoice: { ...p.EInvoice, aliasDomain: e.target.value } }))}
+                      placeholder="ör. firma.com.tr"
+                    />
+                  </div>
+                </div>
+              )}
+            </ProductRow>
+
+            {activationError && (
+              <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
+                <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>
+                  <span className="font-semibold">Son hata:</span> {activationError}
+                </p>
+              </div>
+            )}
+
+            {submitResult && submitResult.length > 0 && (
+              <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-xs">
+                <p className="font-semibold">Başvuru sonucu</p>
+                {submitResult.map((a) => (
+                  <div key={a.type} className="flex items-center gap-2">
+                    {a.ok ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    ) : (
+                      <XCircle className="h-3.5 w-3.5 text-red-600" />
+                    )}
+                    <span className="font-medium">{a.type === "EInvoice" ? "E-Fatura" : a.type === "EArchive" ? "E-Arşiv" : a.type}</span>
+                    {!a.ok && a.error && <span className="text-red-700 dark:text-red-300">— {a.error}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {statusRows && statusRows.length > 0 && (
+              <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-xs">
+                <p className="font-semibold">GİB aktivasyon durumu</p>
+                {statusRows.map((r, i) => (
+                  <div key={`${r.productType}-${i}`} className="flex flex-wrap items-center gap-2">
+                    {r.state === "approved" ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    ) : r.state === "error" ? (
+                      <XCircle className="h-3.5 w-3.5 text-red-600" />
+                    ) : (
+                      <Clock className="h-3.5 w-3.5 text-amber-600" />
+                    )}
+                    <span className="font-medium">{r.productType || "—"}</span>
+                    <span className="text-muted-foreground">{r.demandStatus || r.state}</span>
+                    {r.serialNumberPrefix && <span className="text-muted-foreground">· {r.serialNumberPrefix}</span>}
+                    {r.gibServiceMessage && <span className="text-muted-foreground">· {r.gibServiceMessage}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button onClick={submitOnboarding} disabled={isSubmitting || isChecking || !tenantVkn}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Başvuruluyor…
+                  </>
+                ) : (
+                  <>
+                    <Rocket className="mr-2 h-4 w-4" />
+                    {hasStarted ? "Tekrar Başvur / Ürün Ekle" : "Başvur ve Aktive Et"}
+                  </>
+                )}
+              </Button>
+              {hasStarted && (
+                <Button variant="outline" onClick={refreshStatus} disabled={isChecking || isSubmitting}>
+                  {isChecking ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sorgulanıyor…
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" /> Durumu Yenile
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// Ürün seçim satırı: aç/kapa + 3 karakter seri ön ek.
+function ProductRow({
+  title,
+  desc,
+  enabled,
+  onToggle,
+  prefix,
+  onPrefix,
+  children,
+}: {
+  title: string
+  desc: string
+  enabled: boolean
+  onToggle: (v: boolean) => void
+  prefix: string
+  onPrefix: (v: string) => void
+  children?: ReactNode
+}) {
+  return (
+    <div className={`rounded-lg border p-4 transition ${enabled ? "border-kobipo-blue/40 bg-kobipo-blue/5 dark:border-primary/40 dark:bg-primary/5" : "border-muted-foreground/20"}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="text-xs text-muted-foreground">{desc}</p>
+        </div>
+        <Switch checked={enabled} onCheckedChange={onToggle} />
+      </div>
+      {enabled && (
+        <div className="mt-3 space-y-1.5">
+          <Label className="text-xs">Seri ön eki (3 karakter) *</Label>
+          <Input
+            value={prefix}
+            onChange={(e) => onPrefix(e.target.value.toUpperCase().slice(0, 3))}
+            placeholder="ör. KBP"
+            maxLength={3}
+            className="max-w-[140px] font-mono tracking-widest"
+          />
+          {children}
+        </div>
+      )}
     </div>
   )
 }

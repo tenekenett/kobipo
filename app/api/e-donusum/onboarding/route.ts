@@ -27,6 +27,26 @@ export const dynamic = "force-dynamic"
  * bazlı test/canlı seçici burada geçerli değildir.
  */
 
+// Türkçe metni sadeleştirir (vergi dairesi eşlemesi için): Türkçe karakter → ASCII,
+// küçük harf, "vergi dairesi / mal müdürlüğü / vd" ekleri atılır, alfasayısal dışı silinir.
+// Örn: "PAMUKKALE VERGİ DAİRESİ" ve "pamukkale" → "pamukkale".
+function normalizeTr(s: string): string {
+  const ascii = (s || "")
+    .replace(/ı/g, "i").replace(/İ/g, "i")
+    .replace(/ş/g, "s").replace(/Ş/g, "s")
+    .replace(/ğ/g, "g").replace(/Ğ/g, "g")
+    .replace(/ü/g, "u").replace(/Ü/g, "u")
+    .replace(/ö/g, "o").replace(/Ö/g, "o")
+    .replace(/ç/g, "c").replace(/Ç/g, "c")
+    .toLowerCase()
+  return ascii
+    .replace(/vergi dairesi/g, "")
+    .replace(/mal mudurlugu/g, "")
+    .replace(/mudurlugu/g, "")
+    .replace(/\bvd\b/g, "")
+    .replace(/[^a-z0-9]/g, "")
+}
+
 // Aktivasyonu desteklediğimiz ürünler (Swagger activationProductType enum alt kümesi).
 const SUPPORTED_PRODUCTS = new Set([
   "EInvoice",
@@ -58,6 +78,8 @@ export async function POST(request: Request) {
         name: true,
         taxNumber: true,
         taxOffice: true,
+        address: true,
+        city: true,
         email: true,
         phone: true,
         eDonusumOnboardingStatus: true,
@@ -127,40 +149,125 @@ export async function POST(request: Request) {
       )
     }
 
-    // 1) Firma aç — daha önce açıldıysa atla (idempotent).
+    // 1) Firma aç — daha önce BAŞARIYLA açıldıysa atla (idempotent). Test/teşhis için
+    // body.force=true gönderilirse atlamayı bypass edip addTenant'ı yeniden dener
+    // (ham Mysoft yanıtını görmek için).
     let tenantId: number | undefined
+    const force = body?.force === true
     const alreadyCreated =
-      Boolean(company.eDonusumTenantCreatedAt) ||
-      ["TENANT_CREATED", "ACTIVATION_PENDING", "ACTIVE"].includes(
-        company.eDonusumOnboardingStatus || "",
-      )
+      !force &&
+      (Boolean(company.eDonusumTenantCreatedAt) ||
+        ["TENANT_CREATED", "ACTIVATION_PENDING", "ACTIVE"].includes(
+          company.eDonusumOnboardingStatus || "",
+        ))
 
     if (!alreadyCreated) {
+      // Vergi dairesini Mysoft'un tanımlı listesiyle eşle. Serbest metin ("pamukkale")
+      // reddediliyor (00081); Mysoft kod + resmi ad bekler. Eşleşme bulunamazsa taxOffice
+      // GÖNDERİLMEZ (addTenant required listesinde değil) — böylece en azından firma açılır.
+      let taxOfficeCode: string | undefined
+      let taxOfficeName: string | undefined
+      if (company.taxOffice && company.taxOffice.trim()) {
+        const offices = await provider.listTaxOffices()
+        if (offices.success) {
+          const target = normalizeTr(company.taxOffice)
+          const match =
+            offices.data.find((o) => normalizeTr(o.name) === target) ||
+            (target.length >= 3
+              ? offices.data.find((o) => normalizeTr(o.name).includes(target))
+              : undefined)
+          if (match) {
+            taxOfficeCode = match.code
+            taxOfficeName = match.name
+          } else {
+            console.warn(
+              `[onboarding] Vergi dairesi eşleşmedi: "${company.taxOffice}" — taxOffice gönderilmeyecek`,
+            )
+          }
+        } else {
+          console.warn("[onboarding] Vergi dairesi listesi alınamadı:", offices.error)
+        }
+      }
+
+      // Adres — Mysoft ZORUNLU tutuyor (00094 "Firma Adres bilgisi alanları zorunludur").
+      // Ülke sabit TR; şehir kodu city lookup'tan (adres modeli kod bekliyor).
+      const cityName = (company.city || "").trim()
+      if (!cityName) {
+        await prisma.company.update({
+          where: { id: companyId },
+          data: {
+            eDonusumOnboardingStatus: "FAILED",
+            eDonusumActivationError: "Firma adresi eksik: şehir (il) zorunlu.",
+          },
+        })
+        return NextResponse.json(
+          {
+            success: false,
+            stage: "createTenant",
+            error: "Firma adresi eksik: şehir (il) zorunlu. Firma Ayarları'ndan şehir bilgisini girin.",
+          },
+          { status: 400 },
+        )
+      }
+      let cityCode: string | undefined
+      let officialCityName = cityName
+      const cities = await provider.listCities()
+      if (cities.success) {
+        const target = normalizeTr(cityName)
+        const cm =
+          cities.data.find((c) => normalizeTr(c.name) === target) ||
+          (target.length >= 3
+            ? cities.data.find((c) => normalizeTr(c.name).includes(target))
+            : undefined)
+        if (cm) {
+          cityCode = cm.code
+          officialCityName = cm.name
+        } else {
+          console.warn(`[onboarding] Şehir eşleşmedi: "${cityName}"`)
+        }
+      } else {
+        console.warn("[onboarding] Şehir listesi alınamadı:", cities.error)
+      }
+
       const created = await provider.createTenant({
         tenantName: company.name,
         shortName: company.name.slice(0, 50),
         vknTckn: vkn,
         email,
         registerNo,
-        taxOfficeName: company.taxOffice || undefined,
+        taxOfficeCode,
+        taxOfficeName,
         telephone: company.phone || undefined,
+        address: {
+          countryCode: "TR",
+          countryName: "TÜRKİYE",
+          cityCode,
+          cityName: officialCityName,
+          citySubdivision: cityName, // ilçe bilinmiyor → il ile doldur (zorunlu alan)
+          streetName: (company.address || "").trim() || "-",
+          buildingNumber: "1",
+        },
       })
       if (!created.success) {
+        // createTenant başarısız → NET hata dön ve DUR. Aktivasyona GEÇME (yoksa firma
+        // gerçekte açılmadığı için 00180 "firma bulunamadı" ile kafa karışır). Timestamp
+        // YAZMA ki sonraki deneme addTenant'ı tekrar denesin ve ham yanıt görünür kalsın.
         const msg = created.error || "Firma açılamadı"
-        // Mysoft "zaten kayıtlı" derse firma vardır — aktivasyona devam et.
-        const existsHint = /kayıtl|kayitl|mevcut|already|zaten|bulunmakta|tanımlı/i.test(msg)
-        if (!existsHint) {
-          await prisma.company.update({
-            where: { id: companyId },
-            data: { eDonusumOnboardingStatus: "FAILED", eDonusumActivationError: msg },
-          })
-          return NextResponse.json({ success: false, error: msg, stage: "createTenant" }, { status: 502 })
-        }
-        console.warn("[onboarding] createTenant: firma zaten var kabul edildi →", msg)
-      } else {
-        tenantId = created.tenantId
+        const code = created.raw?.errorCode || null
+        await prisma.company.update({
+          where: { id: companyId },
+          data: {
+            eDonusumOnboardingStatus: "FAILED",
+            eDonusumTenantVkn: vkn,
+            eDonusumActivationError: code ? `[${code}] ${msg}` : msg,
+          },
+        })
+        return NextResponse.json(
+          { success: false, stage: "createTenant", mysoftErrorCode: code, error: msg },
+          { status: 502 },
+        )
       }
-
+      tenantId = created.tenantId
       await prisma.company.update({
         where: { id: companyId },
         data: {
@@ -178,11 +285,15 @@ export async function POST(request: Request) {
     // diğerleri denenmeye devam eder, sonuçlar toplanır.
     const activations: Array<{ type: string; ok: boolean; activationId?: number; error?: string }> = []
     for (const p of products) {
+      // E-Arşiv'de internetSerialNumberPrefix da ZORUNLU (Swagger). UI vermezse
+      // normal seri ön ekle aynısını gönder — böylece aktivasyon eksik-alandan patlamaz.
+      const internetPrefix =
+        p.internetSerialNumberPrefix || (p.type === "EArchive" ? p.serialNumberPrefix : "")
       const r = await provider.activateProduct({
         vknTckn: vkn,
         activationProductType: p.type,
         serialNumberPrefix: p.serialNumberPrefix || undefined,
-        internetSerialNumberPrefix: p.internetSerialNumberPrefix || undefined,
+        internetSerialNumberPrefix: internetPrefix || undefined,
         aliasPrefix: p.aliasPrefix || undefined,
         aliasDomain: p.aliasDomain || undefined,
       })

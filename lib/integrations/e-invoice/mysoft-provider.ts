@@ -580,6 +580,80 @@ export class MysoftEInvoiceProvider implements EInvoiceProvider {
     }
   }
 
+  /**
+   * Mysoft'ta tanımlı vergi dairelerini (kod + ad) döndürür.
+   * Swagger v8: GET /api/GeneralCard/taxOffice (TaxOfficeModelListResultModel).
+   * addTenant için taxOffice serbest metinle DEĞİL, bu listedeki kod+ad ile gönderilmeli
+   * (aksi halde errorCode 00081 "Vergi dairesi tanımı bulunamadı").
+   */
+  async listTaxOffices(): Promise<{
+    success: boolean
+    data: Array<{ code: string; name: string }>
+    error?: string
+  }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, data: [], error: "Mysoft token alınamadı." }
+      const res = await fetch(`${this.baseUrl}/api/GeneralCard/taxOffice`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      })
+      const data = await res.json().catch(() => null)
+      if (!data?.succeed) {
+        return { success: false, data: [], error: data?.message || `HTTP ${res.status}` }
+      }
+      const rows: any[] = Array.isArray(data?.data) ? data.data : []
+      return {
+        success: true,
+        data: rows
+          .map((r) => ({
+            code: String(r?.taxOfficeCode ?? "").trim(),
+            name: String(r?.taxOfficeName ?? "").trim(),
+          }))
+          .filter((r) => r.code && r.name),
+      }
+    } catch (error: any) {
+      return { success: false, data: [], error: error?.message || "Bilinmeyen hata" }
+    }
+  }
+
+  /**
+   * Mysoft'ta tanımlı şehirleri (kod + ad) döndürür.
+   * Swagger v8: GET /api/GeneralCard/city (CityModelListResultModel).
+   * addTenant adresinde şehir GeneralLookupModel {code,name} bekler; kod bu listeden gelir.
+   */
+  async listCities(): Promise<{
+    success: boolean
+    data: Array<{ code: string; name: string; countryCode: string }>
+    error?: string
+  }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, data: [], error: "Mysoft token alınamadı." }
+      const res = await fetch(`${this.baseUrl}/api/GeneralCard/city`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      })
+      const data = await res.json().catch(() => null)
+      if (!data?.succeed) {
+        return { success: false, data: [], error: data?.message || `HTTP ${res.status}` }
+      }
+      const rows: any[] = Array.isArray(data?.data) ? data.data : []
+      return {
+        success: true,
+        data: rows
+          .map((r) => ({
+            code: String(r?.cityCode ?? "").trim(),
+            name: String(r?.cityName ?? "").trim(),
+            countryCode: String(r?.countryCode ?? "").trim(),
+          }))
+          .filter((r) => r.code && r.name),
+      }
+    } catch (error: any) {
+      return { success: false, data: [], error: error?.message || "Bilinmeyen hata" }
+    }
+  }
+
 async sendInvoice(invoiceData: any): Promise<any> {
     try {
       // 1. TOKEN ALMA
