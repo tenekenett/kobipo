@@ -31,7 +31,7 @@ import {
   type Density,
   type PageMargin,
 } from "@/lib/integrations/e-invoice/template-designer"
-import { ExternalLink, Eye, Hash, ImageIcon, Landmark, Loader2, Palette, Plus, RotateCcw, Save, Sparkles, Stamp, Upload, X } from "lucide-react"
+import { AlertTriangle, ExternalLink, Eye, Hash, ImageIcon, Landmark, Loader2, Palette, Plus, RotateCcw, Save, Sparkles, Stamp, Upload, X } from "lucide-react"
 
 const ASSIGN_NEW = "__new__"
 const ASSIGN_SKIP = "__skip__"
@@ -133,8 +133,6 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
 
   const [opts, setOpts] = useState<TemplateDesignOptions>({ ...DEFAULT_DESIGN_OPTIONS })
   const [xsltName, setXsltName] = useState("")
-  const [isHasLogo, setIsHasLogo] = useState(false)
-  const [isHasStamp, setIsHasStamp] = useState(false)
 
   const isEditing = !!editName
 
@@ -143,8 +141,6 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
     if (!editName || !editOptions) return
     setOpts({ ...DEFAULT_DESIGN_OPTIONS, ...editOptions })
     setXsltName(editName)
-    setIsHasLogo(Boolean(editOptions.logoDataUri))
-    setIsHasStamp(Boolean(editOptions.stampDataUri))
   // editNonce her tıklamada arttığı için aynı satıra tekrar basınca da yeniden doldurur.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editNonce])
@@ -152,8 +148,6 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
   const cancelEdit = () => {
     setXsltName("")
     setOpts({ ...DEFAULT_DESIGN_OPTIONS })
-    setIsHasLogo(false)
-    setIsHasStamp(false)
     onEditDone?.()
   }
 
@@ -350,6 +344,16 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
       toast({ title: "Şablon adı gerekli", description: "Tasarımınıza bir ad verin.", variant: "destructive" })
       return
     }
+    // E-Arşiv faturalarda imza/kaşe görseli ZORUNLUDUR (GİB görseli için). docType===2 = e-Arşiv.
+    if (docType === 2 && !opts.stampDataUri) {
+      toast({
+        title: "İmza/kaşe görseli gerekli",
+        description:
+          "E-Arşiv faturalarda imza/kaşe görseli zorunludur. 'Logo & Kaşe' sekmesinden bir görsel yükleyin.",
+        variant: "destructive",
+      })
+      return
+    }
     setIsSaving(true)
     try {
       const content = await generateContent()
@@ -357,7 +361,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
       const res = await fetch("/api/e-donusum/templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, eDocumentType: docType, xsltName: xsltName.trim(), content, isHasLogo, isHasStamp }),
+        body: JSON.stringify({ companyId, eDocumentType: docType, xsltName: xsltName.trim(), content }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || "Tasarım kaydedilemedi")
@@ -658,6 +662,19 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
                 disabled={busy}
               />
 
+              {docType === 2 && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>
+                    <span className="font-semibold">E-Arşiv zorunluluğu:</span> Faturada imza/kaşe görseli
+                    bulunmalıdır. Aşağıdan bir kaşe/imza görseli yükleyin.
+                    {!opts.stampDataUri && (
+                      <span className="font-semibold"> (Şu an eksik — kaydedilemez.)</span>
+                    )}
+                  </p>
+                </div>
+              )}
+
               <ImageUpload
                 title="Kaşe / Mühür"
                 icon={<Stamp className="h-4 w-4 text-muted-foreground" />}
@@ -674,16 +691,6 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
                 disabled={busy}
               />
 
-              <div className="flex flex-wrap gap-x-6 gap-y-2 border-t pt-3">
-                <label className="flex cursor-pointer items-center gap-2 text-sm">
-                  <input type="checkbox" checked={isHasLogo} onChange={(e) => setIsHasLogo(e.target.checked)} disabled={busy} className="h-4 w-4 rounded border accent-kobipo-blue dark:accent-primary" />
-                  Mysoft logo tanımı da kullanılsın
-                </label>
-                <label className="flex cursor-pointer items-center gap-2 text-sm">
-                  <input type="checkbox" checked={isHasStamp} onChange={(e) => setIsHasStamp(e.target.checked)} disabled={busy} className="h-4 w-4 rounded border accent-kobipo-blue dark:accent-primary" />
-                  Mysoft kaşe tanımı da kullanılsın
-                </label>
-              </div>
             </TabsContent>
 
             {/* TABLO & DÜZEN */}
