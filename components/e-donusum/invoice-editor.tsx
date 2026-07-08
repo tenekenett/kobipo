@@ -35,13 +35,14 @@ import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combob
 import { WithholdingCombobox } from "@/components/e-donusum/withholding-combobox"
 
 
-type LineExtraKey = "description" | "discountRate" | "withholdingRate" | "exciseRate"
+type LineExtraKey = "description" | "discountRate" | "withholdingRate" | "exciseRate" | "otherTaxRate"
 
 const LINE_EXTRA_LABEL: Record<LineExtraKey, string> = {
   description: "Satır açıklaması",
   discountRate: "İskonto",
   withholdingRate: "Tevkifat (%)",
   exciseRate: "ÖTV (%)",
+  otherTaxRate: "Diğer Vergi",
 }
 
 type DiscountMode = "PERCENT" | "AMOUNT"
@@ -51,6 +52,7 @@ const LINE_EXTRA_ORDER: LineExtraKey[] = [
   "discountRate",
   "withholdingRate",
   "exciseRate",
+  "otherTaxRate",
 ]
 
 const INVOICE_UNIT_OPTIONS = ["ADET", "KG", "MT", "M2", "M3", "LT", "SA", "GUN", "PAKET"] as const
@@ -70,7 +72,7 @@ const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
 interface Customer { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Supplier { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Product { id: string; name: string; code?: string; salePrice?: number; vatRate: number; unit?: string }
-export interface InvoiceItem { productId?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number }
+export interface InvoiceItem { productId?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; otherTaxRate?: number; otherTaxName?: string; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number }
 interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean }
 
 export type InvoiceEditorMode = "create" | "edit"
@@ -316,6 +318,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 const vat = Number(ln.vatRate ?? 20)
                 const discRate = Number(ln.discountRate ?? 0)
                 const discAmount = Number(ln.discountAmount ?? 0)
+                // KDV dışı "Diğer Vergiler" (ör. Konaklama Vergisi) — matrahın üzerine
+                // eklenen ek vergi. Oran + ad gelen faturadan taşınır.
+                const otherTaxRate = Number(ln.otherTaxRate ?? 0)
                 return {
                   productId: matchedProduct?.id,
                   description: desc || (matchedProduct?.name ?? ""),
@@ -328,6 +333,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   vatRate: Number.isFinite(vat) ? vat : 20,
                   withholdingRate: 0,
                   exciseRate: 0,
+                  otherTaxRate: Number.isFinite(otherTaxRate) && otherTaxRate > 0 ? otherTaxRate : 0,
+                  otherTaxName: (ln.otherTaxName as string) || undefined,
                 }
               })
             : [
@@ -369,6 +376,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             const extras: LineExtraKey[] = []
             if (it.description) extras.push("description")
             if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
+            if ((it.otherTaxRate || 0) > 0) extras.push("otherTaxRate")
             return extras
           }),
         )
@@ -667,6 +675,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               withholdingCode: item.withholdingCode || undefined,
               withholdingName: item.withholdingName || undefined,
               exciseRate: Number(item.exciseRate) || 0,
+              otherTaxRate: Number(item.otherTaxRate) || 0,
+              otherTaxName: item.otherTaxName || undefined,
               taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
               taxExemptionReason: item.taxExemptionReason || undefined,
             }
@@ -680,6 +690,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
         if ((it.withholdingRate || 0) > 0 || it.withholdingCode) extras.push("withholdingRate")
         if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
+        if ((it.otherTaxRate || 0) > 0) extras.push("otherTaxRate")
         return extras
       }))
     } catch (e: any) {
@@ -734,6 +745,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               withholdingCode: item.withholdingCode || undefined,
               withholdingName: item.withholdingName || undefined,
               exciseRate: Number(item.exciseRate) || 0,
+              otherTaxRate: Number(item.otherTaxRate) || 0,
+              otherTaxName: item.otherTaxName || undefined,
               taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
               taxExemptionReason: item.taxExemptionReason || undefined,
             }
@@ -751,6 +764,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
         if ((it.withholdingRate || 0) > 0 || it.withholdingCode) extras.push("withholdingRate")
         if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
+        if ((it.otherTaxRate || 0) > 0) extras.push("otherTaxRate")
         return extras
       }))
 
@@ -875,6 +889,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       )
     }
     if (key === "exciseRate") updateItem(index, "exciseRate", 0)
+    if (key === "otherTaxRate") {
+      setItems((prev) =>
+        prev.map((it, i) =>
+          i === index ? { ...it, otherTaxRate: 0, otherTaxName: undefined } : it,
+        ),
+      )
+    }
   }
 
   const setDiscountMode = (index: number, mode: DiscountMode) => {
@@ -940,8 +961,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     const net = gross - computeItemDiscount(item, gross)
     const vat = net * (Number(item.vatRate) || 0) / 100
     const excise = net * (Number(item.exciseRate) || 0) / 100
+    const otherTax = net * (Number(item.otherTaxRate) || 0) / 100
     const withholding = vat * (Number(item.withholdingRate) || 0) / 100
-    return net + vat + excise - withholding
+    return net + vat + excise + otherTax - withholding
   }
 
   // Kullanıcı "Tutar" (KDV dahil) alanına doğrudan değer yazınca, o toplamı miktara
@@ -955,9 +977,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
     const vatRate = Number(item.vatRate) || 0
     const exciseRate = Number(item.exciseRate) || 0
+    const otherTaxRate = Number(item.otherTaxRate) || 0
     const withholdingRate = Number(item.withholdingRate) || 0
-    // total = net * (1 + kdv + ötv - kdv*tevkifat)
-    const factor = 1 + vatRate / 100 + exciseRate / 100 - (vatRate / 100) * (withholdingRate / 100)
+    // total = net * (1 + kdv + ötv + diğer vergi - kdv*tevkifat)
+    const factor = 1 + vatRate / 100 + exciseRate / 100 + otherTaxRate / 100 - (vatRate / 100) * (withholdingRate / 100)
     if (factor <= 0) return
     const net = desiredTotal / factor
 
@@ -980,7 +1003,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   }
 
   const calculateTotals = () => {
-    let netAmount = 0, discountAmount = 0, vatAmount = 0, withholdingAmount = 0, exciseAmount = 0
+    let netAmount = 0, discountAmount = 0, vatAmount = 0, withholdingAmount = 0, exciseAmount = 0, otherTaxAmount = 0
     items.forEach((item) => {
       const itemGross = item.quantity * item.unitPrice
       const itemDiscount = computeItemDiscount(item, itemGross)
@@ -989,11 +1012,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       // KDV tevkifatı: tevkif edilen tutar KDV üzerinden hesaplanır (matrah değil).
       const itemWithholding = itemVat * ((item.withholdingRate || 0) / 100)
       const itemExcise = itemNet * ((item.exciseRate || 0) / 100)
-      netAmount += itemNet; discountAmount += itemDiscount; vatAmount += itemVat; withholdingAmount += itemWithholding; exciseAmount += itemExcise
+      const itemOtherTax = itemNet * ((item.otherTaxRate || 0) / 100)
+      netAmount += itemNet; discountAmount += itemDiscount; vatAmount += itemVat; withholdingAmount += itemWithholding; exciseAmount += itemExcise; otherTaxAmount += itemOtherTax
     })
 
     // Fatura altı iskonto: kullanıcının girdiği değeri tutara çevir, KDV matrahını
-    // oransal olarak düşür, vat/withholding/excise'i yeniden hesapla.
+    // oransal olarak düşür, vat/withholding/excise/diğer vergi'yi yeniden hesapla.
     const rawGlobal = parseFloat(globalDiscountInput) || 0
     const globalDiscount = !globalDiscountEnabled || rawGlobal <= 0 || netAmount <= 0
       ? 0
@@ -1006,7 +1030,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     const adjVat = vatAmount * (1 - ratio)
     const adjWithholding = withholdingAmount * (1 - ratio)
     const adjExcise = exciseAmount * (1 - ratio)
-    const totalAmount = adjNet + adjVat + adjExcise - adjWithholding
+    const adjOtherTax = otherTaxAmount * (1 - ratio)
+    const totalAmount = adjNet + adjVat + adjExcise + adjOtherTax - adjWithholding
 
     return {
       netAmount: adjNet,
@@ -1016,6 +1041,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       vatAmount: adjVat,
       withholdingAmount: adjWithholding,
       exciseAmount: adjExcise,
+      otherTaxAmount: adjOtherTax,
       totalAmount,
     }
   }
@@ -1589,6 +1615,44 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                 </div>
                               )
                             }
+                            if (key === "otherTaxRate") {
+                              return (
+                                <div key={key} className="col-span-2 md:col-span-2 space-y-1.5">
+                                  <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Diğer Vergi</Label>{removable}</div>
+                                  <div className="flex gap-1.5">
+                                    <Input
+                                      type="text"
+                                      className="h-9 flex-1 font-medium"
+                                      placeholder="Vergi adı (ör. Konaklama Vergisi)"
+                                      value={item.otherTaxName || ""}
+                                      onChange={(e) => updateItem(index, "otherTaxName", e.target.value)}
+                                    />
+                                    <div className="relative w-24 shrink-0">
+                                      <Input
+                                        type="number"
+                                        className="h-9 pr-6 font-medium"
+                                        min="0"
+                                        step="0.01"
+                                        placeholder="Oran"
+                                        value={item.otherTaxRate || ""}
+                                        onChange={(e) => updateItem(index, "otherTaxRate", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)}
+                                      />
+                                      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                                    </div>
+                                  </div>
+                                  {(item.otherTaxRate || 0) > 0 && (() => {
+                                    const gross = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)
+                                    const net = gross - computeItemDiscount(item, gross)
+                                    const amt = net * (Number(item.otherTaxRate) || 0) / 100
+                                    return (
+                                      <p className="text-[10px] text-kobipo-blue">
+                                        <span className="font-semibold">{item.otherTaxName || "Diğer Vergi"}</span> · %{item.otherTaxRate} = ₺{amt.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} matraha eklenir.
+                                      </p>
+                                    )
+                                  })()}
+                                </div>
+                              )
+                            }
                             const numericProps = { label: "ÖTV (%)", value: item.exciseRate || "", onChange: (v: string) => updateItem(index, "exciseRate", v === "" ? 0 : parseFloat(v) || 0) }
                             return (
                               <div key={key} className="col-span-1 md:col-span-1 space-y-1.5">
@@ -1690,6 +1754,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               <div className="flex justify-between text-sm"><span className="text-muted-foreground">KDV Toplam:</span><span className="font-medium">₺{totals.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
               {totals.withholdingAmount > 0 && <div className="flex justify-between text-sm text-red-600"><span>Tevkifat:</span><span>- ₺{totals.withholdingAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
               {totals.exciseAmount > 0 && <div className="flex justify-between text-sm text-blue-600"><span>ÖTV:</span><span>+ ₺{totals.exciseAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
+              {(totals.otherTaxAmount ?? 0) > 0 && <div className="flex justify-between text-sm text-blue-600"><span>{items.find((it) => (it.otherTaxRate || 0) > 0)?.otherTaxName || "Diğer Vergi"}:</span><span>+ ₺{(totals.otherTaxAmount ?? 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
               <div className="flex justify-between border-t border-slate-200 pt-3 mt-2 text-lg font-bold"><span>Genel Toplam:</span><span style={{ color: BRAND_COLOR }}>₺{totals.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
             </div>
           </div>

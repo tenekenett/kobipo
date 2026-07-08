@@ -1,6 +1,19 @@
 import { EInvoiceProvider } from "./types"
 import { resolveMysoftBaseUrl } from "./constants"
 
+// GİB "Diğer Vergiler" (KDV/ÖTV dışı) vergi türü kodları → okunur ad. Gelen faturada
+// alt-toplamın taxName'i boş gelirse bu tablodan ada çevrilir; kod da tanınmıyorsa
+// "Diğer Vergi (kod)" olarak gösterilir. Böylece hangi vergi kalemi olduğu hep bellidir.
+const GIB_OTHER_TAX_NAMES: Record<string, string> = {
+  "0059": "Konaklama Vergisi",
+  "4071": "Elektrik Tüketim Vergisi",
+}
+function resolveOtherTaxName(code: string | null | undefined): string | null {
+  const c = (code ?? "").trim()
+  if (!c) return null
+  return GIB_OTHER_TAX_NAMES[c] || `Diğer Vergi (${c})`
+}
+
 // Mysoft ürün tipi kodları → okunur etiket (CreditRequestModel açıklamasından).
 const MYSOFT_PRODUCT_LABELS: Record<number, string> = {
   1: "E-Fatura",
@@ -1864,10 +1877,27 @@ async sendInvoice(invoiceData: any): Promise<any> {
           ln.taxTotal && typeof ln.taxTotal === "object" && !Array.isArray(ln.taxTotal)
             ? ln.taxTotal
             : null
-        const taxSub =
+        const subList: any[] =
           taxTotalObj && Array.isArray(taxTotalObj.taxSubtotalList)
-            ? taxTotalObj.taxSubtotalList[0]
-            : null
+            ? taxTotalObj.taxSubtotalList
+            : []
+        // KDV alt-toplamı GİB vergi kodu "0015" ile gelir. Kod hiç yoksa (eski/flat
+        // varyant) ilk alt-toplamı KDV kabul ederiz (eski davranış korunur).
+        const anyTaxCode = subList.some(
+          (s) => s && s.taxTypeCode != null && String(s.taxTypeCode).trim() !== "",
+        )
+        const taxSub = anyTaxCode
+          ? subList.find((s) => String(s?.taxTypeCode ?? "").trim() === "0015") ||
+            subList[0] ||
+            null
+          : subList[0] || null
+        // KDV DIŞI satır vergileri = "Diğer Vergiler" (ör. Konaklama Vergisi %1).
+        // Matrahın üzerine eklenen ek vergilerdir; editördeki ayrı "Diğer Vergi" alanına
+        // taşınır. Önceden yalnız taxSubtotalList[0] (KDV) alındığı için bu vergiler
+        // tamamen düşüyordu → alış tutarı eksik çıkıyordu.
+        const otherSubs = subList.filter(
+          (s) => s && s !== taxSub && (num(s.taxAmount) ?? 0) !== 0,
+        )
         const vatAmount = taxSub
           ? num(taxSub.taxAmount)
           : taxTotalObj
@@ -1880,6 +1910,26 @@ async sendInvoice(invoiceData: any): Promise<any> {
         let vatRate = taxSub
           ? num(taxSub.percent)
           : num(pick(ln, "vatRate", "taxRate", "taxPercent"))
+
+        // Diğer vergilerin toplamı + adı + oranı. Tek diğer-vergi varsa alt-toplamın
+        // kendi percent'ini kullan; yoksa/çoklu ise oranı aşağıda net tutardan türet.
+        const otherTaxAmount =
+          otherSubs.length > 0
+            ? otherSubs.reduce((sum, s) => sum + (num(s.taxAmount) ?? 0), 0)
+            : null
+        // Diğer verginin ADI: önce Mysoft'un verdiği taxName, yoksa GİB vergi
+        // kodundan türet, o da yoksa kodu göster. "Hangi vergi kaleminden" olduğunu
+        // kullanıcıya net göstermek için ad boş bırakılmaz.
+        const otherTaxCode =
+          otherSubs.length > 0
+            ? (pick(otherSubs[0], "taxTypeCode", "taxCode") as string | null)
+            : null
+        const otherTaxName =
+          otherSubs.length > 0
+            ? ((pick(otherSubs[0], "taxName") as string | null) ||
+                resolveOtherTaxName(otherTaxCode))
+            : null
+        let otherTaxRate = otherSubs.length === 1 ? num(otherSubs[0].percent) : null
 
         // Mysoft bazı fatura tiplerinde (özellikle iskontolu / e-Arşiv) satır BİRİM
         // FİYATINI boş/0 döndürüp yalnız net satır tutarını (lineExtensionAmount) veriyor.
@@ -1901,6 +1951,16 @@ async sendInvoice(invoiceData: any): Promise<any> {
         if (vatRate == null && vatAmount != null && lineTotal != null && lineTotal > 0) {
           vatRate = Math.round((vatAmount / lineTotal) * 100)
         }
+        // Diğer vergi oranı alt-toplamdan gelmediyse tutar / net satır tutarından türet
+        // (2 ondalık). Editör "Diğer Vergi = net × oran/100" ile yeniden hesapladığı için
+        // bu oran net ile birebir aynı ek vergi tutarını verir.
+        if (
+          otherTaxRate == null &&
+          otherTaxAmount != null && otherTaxAmount !== 0 &&
+          lineTotal != null && lineTotal > 0
+        ) {
+          otherTaxRate = Math.round((otherTaxAmount / lineTotal) * 10000) / 100
+        }
 
         return {
           description: productName || itemDesc || null,
@@ -1918,9 +1978,87 @@ async sendInvoice(invoiceData: any): Promise<any> {
           discountAmount,
           vatRate,
           vatAmount,
+          otherTaxRate,
+          otherTaxAmount,
+          otherTaxName,
           lineTotal,
         }
       })
+
+      // Tam model (InvoiceForApiModel) toplamları legalMonetaryTotal altında NESTED,
+      // KDV ise taxTotal[] dizisinde gelir. Özet/flat varyantta ise top-level'dedir.
+      // Önce top-level pick, yoksa nested değere düş. Aksi halde kalem gelmeyen
+      // faturalarda placeholder tutarı (data.taxExclusiveAmount) null → editörde 0/boş çıkıyordu.
+      const lmt =
+        model.legalMonetaryTotal && typeof model.legalMonetaryTotal === "object"
+          ? model.legalMonetaryTotal
+          : null
+      const headerVat = Array.isArray(model.taxTotal)
+        ? model.taxTotal.reduce((s: number, t: any) => s + (num(t?.taxAmount) ?? 0), 0)
+        : null
+
+      // BAŞLIK-VERGİLİ FATURALAR (elektrik/telekom vb.): Bazı faturalarda kalemlerin
+      // KENDİ vergisi yoktur (detailList[].taxTotal = null → satır vatRate null) ve TÜM
+      // vergi fatura BAŞLIĞINDA (taxTotal[]) gelir. Ayrıca KDV matrahı, satır net
+      // toplamından büyük olabilir çünkü KDV DIŞI ama KDV MATRAHINA DAHİL vergiler
+      // (ör. Elektrik Tüketim Vergisi / BTV, kod 4071) vardır. Bu durumda editör satırdan
+      // yeniden hesaplayınca hem oranı hem matrahı kaçırıp tutarı EKSİK/YANLIŞ üretiyordu.
+      // Düzeltme: (1) vergisiz satırlara başlıktaki KDV oranını ata, (2) KDV matrahı ile
+      // satır net toplamı farkını (matraha dahil ek vergiler) ADI korunarak sentetik bir
+      // satır olarak ekle → dönüştürülen alış faturasının matrah/KDV/toplamı orijinalle tutar.
+      const headerSubs: any[] =
+        Array.isArray(model.taxTotal) &&
+        model.taxTotal[0] &&
+        Array.isArray(model.taxTotal[0].taxSubtotalList)
+          ? model.taxTotal[0].taxSubtotalList
+          : []
+      const kdvSubs = headerSubs.filter((s) => String(s?.taxTypeCode ?? "").trim() === "0015")
+      const kdvSubHeader = kdvSubs.length === 1 ? kdvSubs[0] : null
+      const linesHaveNoTax =
+        lines.length > 0 &&
+        lines.every((l) => l.vatRate == null && (l.vatAmount == null || l.vatAmount === 0))
+      if (kdvSubHeader && linesHaveNoTax) {
+        const kdvRate = num(kdvSubHeader.percent)
+        const kdvBase = num(kdvSubHeader.taxableAmount)
+        if (kdvRate != null) {
+          for (const l of lines) if (l.vatRate == null) l.vatRate = kdvRate
+          const lineNetSum = lines.reduce(
+            (s, l) => s + (num(l.lineTotal) ?? (num(l.quantity) ?? 0) * (num(l.unitPrice) ?? 0)),
+            0,
+          )
+          if (kdvBase != null && kdvBase - lineNetSum > 0.01) {
+            const gap = Math.round((kdvBase - lineNetSum) * 100) / 100
+            const extraName =
+              headerSubs
+                .filter(
+                  (s) =>
+                    String(s?.taxTypeCode ?? "").trim() !== "0015" && (num(s.taxAmount) ?? 0) > 0,
+                )
+                .map(
+                  (s) =>
+                    (pick(s, "taxName") as string) ||
+                    resolveOtherTaxName(pick(s, "taxTypeCode") as string),
+                )
+                .filter(Boolean)
+                .join(" + ") || "Matraha Dahil Diğer Vergiler"
+            lines.push({
+              description: extraName,
+              productCode: null,
+              unit: null,
+              quantity: 1,
+              unitPrice: gap,
+              discountRate: null,
+              discountAmount: null,
+              vatRate: kdvRate,
+              vatAmount: null,
+              otherTaxRate: null,
+              otherTaxAmount: null,
+              otherTaxName: null,
+              lineTotal: gap,
+            })
+          }
+        }
+      }
 
       return {
         success: true,
@@ -1967,10 +2105,18 @@ async sendInvoice(invoiceData: any): Promise<any> {
               "district",
             ) as string | null,
           },
-          totalAmount: num(pick(model, "payableAmount", "totalAmount", "payableAmountTra")),
-          taxExclusiveAmount: num(pick(model, "taxExclusiveAmount", "amtTra", "netAmount")),
-          taxInclusiveAmount: num(pick(model, "taxInclusiveAmount")),
-          vatAmount: num(pick(model, "taxTotalTra", "vatAmount", "totalVatAmount")),
+          totalAmount:
+            num(pick(model, "payableAmount", "totalAmount", "payableAmountTra")) ??
+            (lmt ? num(pick(lmt, "payableAmount", "taxInclusiveAmount")) : null),
+          taxExclusiveAmount:
+            num(pick(model, "taxExclusiveAmount", "amtTra", "netAmount")) ??
+            (lmt ? num(pick(lmt, "taxExclusiveAmount", "lineExtensionAmount")) : null),
+          taxInclusiveAmount:
+            num(pick(model, "taxInclusiveAmount")) ??
+            (lmt ? num(pick(lmt, "taxInclusiveAmount")) : null),
+          vatAmount:
+            num(pick(model, "taxTotalTra", "vatAmount", "totalVatAmount")) ??
+            (headerVat && headerVat > 0 ? headerVat : null),
           lines,
           raw: model,
         },

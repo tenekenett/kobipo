@@ -944,6 +944,11 @@ export default function FaturaOnizlemePage() {
                           {item.withholdingName ? ` · ${item.withholdingName}` : ""} · KDV %{Number(item.withholdingRate) || 0}
                         </div>
                       )}
+                      {Number((item as any).otherTaxAmount || 0) > 0 && (
+                        <div className="mt-1 inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+                          {(item as any).otherTaxName || "Diğer Vergi"} · %{Number((item as any).otherTaxRate) || 0} · {formatCurrency(Number((item as any).otherTaxAmount) || 0)}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       {Number(item.quantity || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
@@ -985,6 +990,15 @@ export default function FaturaOnizlemePage() {
               (sum, it) => sum + Number((it as any).withholdingAmount || 0),
               0,
             )
+            // KDV dışı "Diğer Vergiler" (ör. Konaklama Vergisi) — matrahın üzerine eklenir.
+            const otherTaxTotal = invoice.items.reduce(
+              (sum, it) => sum + Number((it as any).otherTaxAmount || 0),
+              0,
+            )
+            const otherTaxLabel =
+              (invoice.items.find(
+                (it) => Number((it as any).otherTaxAmount || 0) > 0 && (it as any).otherTaxName,
+              ) as any)?.otherTaxName || "Diğer Vergi"
             return (
               <div className="flex justify-end mt-6">
                 <div className="w-80 space-y-2 rounded-lg border bg-muted/30 p-4 tabular-nums">
@@ -1016,6 +1030,12 @@ export default function FaturaOnizlemePage() {
                     <div className="flex justify-between text-sm text-red-600 dark:text-red-400">
                       <span>Tevkifat (KDV)</span>
                       <span>- {formatCurrency(withholdingTotal)}</span>
+                    </div>
+                  )}
+                  {otherTaxTotal > 0 && (
+                    <div className="flex justify-between text-sm text-blue-600 dark:text-blue-400">
+                      <span>{otherTaxLabel}</span>
+                      <span>+ {formatCurrency(otherTaxTotal)}</span>
                     </div>
                   )}
                   <div className="flex justify-between border-t pt-2 text-lg font-bold">

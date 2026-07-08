@@ -894,6 +894,11 @@ model InvoiceItem {
   withholdingAmount      Decimal? @db.Decimal(10, 2)
   exciseRate             Decimal? @db.Decimal(5, 2)
   exciseAmount           Decimal? @db.Decimal(10, 2)
+  // KDV/ÖTV dışı "Diğer Vergiler" (ör. Konaklama Vergisi). Matrahın üzerine eklenir.
+  // otherTaxAmount = net * otherTaxRate / 100. otherTaxName = verginin adı (ör. "Konaklama Vergisi").
+  otherTaxName           String?  @db.VarChar(255)
+  otherTaxRate           Decimal? @db.Decimal(5, 2)
+  otherTaxAmount         Decimal? @db.Decimal(10, 2)
   totalAmount            Decimal  @db.Decimal(10, 2)
   taxExemptionReasonCode String?  @db.VarChar(10)
   taxExemptionReason     String?  @db.VarChar(255)

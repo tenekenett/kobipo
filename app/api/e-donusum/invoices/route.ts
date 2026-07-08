@@ -226,6 +226,12 @@ const company = await prisma.company.findUnique({
             ? item.withholdingName.trim()
             : null,
         exciseRate: parseFloat(item.exciseRate) || 0,
+        // KDV dışı "Diğer Vergi" (ör. Konaklama Vergisi): matrahın üzerine eklenir.
+        otherTaxRate: parseFloat(item.otherTaxRate) || 0,
+        otherTaxName:
+          typeof item.otherTaxName === "string" && item.otherTaxName.trim()
+            ? item.otherTaxName.trim()
+            : null,
         taxExemptionReasonCode:
           typeof item.taxExemptionReasonCode === "string" && item.taxExemptionReasonCode.trim()
             ? item.taxExemptionReasonCode.trim()
@@ -266,7 +272,8 @@ const company = await prisma.company.findUnique({
       // KDV tevkifatı: tevkif edilen tutar KDV üzerinden hesaplanır (matrah değil).
       const itemWithholding = itemVat * (item.withholdingRate / 100)
       const itemExcise = itemNet * (item.exciseRate / 100)
-      const itemTotal = itemNet + itemVat + itemExcise - itemWithholding
+      const itemOtherTax = itemNet * (item.otherTaxRate / 100)
+      const itemTotal = itemNet + itemVat + itemExcise + itemOtherTax - itemWithholding
 
       netAmount += itemNet
       vatAmount += itemVat
@@ -336,8 +343,11 @@ const company = await prisma.company.findUnique({
               withholdingAmount: net * (item.vatRate / 100) * (item.withholdingRate / 100),
               exciseRate: item.exciseRate || null,
               exciseAmount: net * (item.exciseRate / 100),
+              otherTaxRate: item.otherTaxRate || null,
+              otherTaxAmount: net * (item.otherTaxRate / 100),
+              otherTaxName: item.otherTaxName,
               totalAmount:
-                net * (1 + item.vatRate / 100 + item.exciseRate / 100) -
+                net * (1 + item.vatRate / 100 + item.exciseRate / 100 + item.otherTaxRate / 100) -
                 net * (item.vatRate / 100) * (item.withholdingRate / 100),
               taxExemptionReasonCode: item.taxExemptionReasonCode,
               taxExemptionReason: item.taxExemptionReason,

@@ -178,21 +178,23 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
   // Get the final Y position after the table
   const finalY = (doc as any).lastAutoTable.finalY + 10
   
-  // Totals
-  const totalsX = 130
+  // Totals — etiket solda, değer tablo sağ kenarına (196) sağa hizalı. Büyük/bold
+  // "GENEL TOPLAM:" etiketiyle değerin üst üste binmemesi için etiket x'i sola alındı.
+  const totalsLabelX = 120
+  const totalsValueX = 196
   doc.setFontSize(10)
-  
-  doc.text("Ara Toplam:", totalsX, finalY)
-  doc.text(`₺${data.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY, { align: "right" })
-  
-  doc.text("KDV Toplam:", totalsX, finalY + 6)
-  doc.text(`₺${data.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 6, { align: "right" })
-  
+
+  doc.text("Ara Toplam:", totalsLabelX, finalY)
+  doc.text(`₺${data.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, totalsValueX, finalY, { align: "right" })
+
+  doc.text("KDV Toplam:", totalsLabelX, finalY + 6)
+  doc.text(`₺${data.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, totalsValueX, finalY + 6, { align: "right" })
+
   doc.setFont(FONT, "bold")
   doc.setFontSize(12)
-  doc.text("GENEL TOPLAM:", totalsX, finalY + 14)
+  doc.text("GENEL TOPLAM:", totalsLabelX, finalY + 14)
   doc.setTextColor(34, 197, 94)
-  doc.text(`₺${data.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, 180, finalY + 14, { align: "right" })
+  doc.text(`₺${data.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, totalsValueX, finalY + 14, { align: "right" })
   doc.setTextColor(0, 0, 0)
   
   // Notes

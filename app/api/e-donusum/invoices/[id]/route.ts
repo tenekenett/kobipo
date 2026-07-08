@@ -47,6 +47,12 @@ function normalizeInvoiceItem(item: any) {
         ? item.withholdingName.trim()
         : null,
     exciseRate: parseFloat(item.exciseRate) || 0,
+    // KDV dışı "Diğer Vergi" (ör. Konaklama Vergisi): matrahın üzerine eklenir.
+    otherTaxRate: parseFloat(item.otherTaxRate) || 0,
+    otherTaxName:
+      typeof item.otherTaxName === "string" && item.otherTaxName.trim()
+        ? item.otherTaxName.trim()
+        : null,
     taxExemptionReasonCode:
       typeof item.taxExemptionReasonCode === "string" && item.taxExemptionReasonCode.trim()
         ? item.taxExemptionReasonCode.trim()
@@ -251,7 +257,8 @@ export async function PUT(
         // KDV tevkifatı: tevkif edilen tutar KDV üzerinden hesaplanır (matrah değil).
         const itemWithholding = itemVat.times(new Decimal(item.withholdingRate || 0).div(100))
         const itemExcise = itemNet.times(new Decimal(item.exciseRate || 0).div(100))
-        const itemTotal = itemNet.plus(itemVat).plus(itemExcise).minus(itemWithholding)
+        const itemOtherTax = itemNet.times(new Decimal(item.otherTaxRate || 0).div(100))
+        const itemTotal = itemNet.plus(itemVat).plus(itemExcise).plus(itemOtherTax).minus(itemWithholding)
 
         netAmount = netAmount.plus(itemNet)
         vatAmount = vatAmount.plus(itemVat)
@@ -325,11 +332,15 @@ export async function PUT(
               .times(new Decimal(item.withholdingRate || 0).div(100)),
             exciseRate: new Decimal(item.exciseRate),
             exciseAmount: net.times(new Decimal(item.exciseRate || 0).div(100)),
+            otherTaxRate: item.otherTaxRate ? new Decimal(item.otherTaxRate) : null,
+            otherTaxAmount: net.times(new Decimal(item.otherTaxRate || 0).div(100)),
+            otherTaxName: item.otherTaxName,
             totalAmount: net
               .times(
                 new Decimal(1)
                   .plus(new Decimal(item.vatRate).div(100))
-                  .plus(new Decimal(item.exciseRate || 0).div(100)),
+                  .plus(new Decimal(item.exciseRate || 0).div(100))
+                  .plus(new Decimal(item.otherTaxRate || 0).div(100)),
               )
               .minus(
                 net
@@ -497,6 +508,14 @@ export async function DELETE(
             reference: invoice.id,
             referenceType: { in: ["INVOICE_AUTO", "INVOICE_AUTO_VAT"] },
           },
+        })
+
+        // Bu fatura bir gelen e-faturadan dönüştürülmüşse, kaynak kaydın bağlantısını
+        // çöz → gelen e-fatura tekrar "Alış Faturasına Dönüştür" edilebilir hale gelsin.
+        // (Aksi halde silinen faturaya bağlı kalıp "dönüştürülmüş" görünmeye devam eder.)
+        await tx.incomingInvoice.updateMany({
+          where: { linkedInvoiceId: invoiceId },
+          data: { isLinkedToPurchase: false, linkedInvoiceId: null },
         })
 
         // Son olarak faturayı sil (bağlı kayıtlar cascade ile temizlenir).
