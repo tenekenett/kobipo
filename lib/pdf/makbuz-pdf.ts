@@ -40,11 +40,19 @@ export async function generateMakbuzPDF(data: MakbuzData): Promise<void> {
   const FONT = TURKISH_PDF_FONT
   const isIncome = data.kind === "Tahsilat" || data.kind === "Gelir"
 
+  // Başlık genişliğini önce ölç ki firma unvanı buna göre sarılsın ve üst üste
+  // binmesin (uzun unvanlarda "...TİCARET" ile "TAHSİLAT MAKBUZU" çakışıyordu).
+  const titleStr = `${data.kind.toLocaleUpperCase("tr-TR")} MAKBUZU`
+  doc.setFontSize(18)
+  doc.setFont(FONT, "bold")
+  const titleLeftX = 196 - doc.getTextWidth(titleStr)
+
   // --- Üst: firma bilgileri (sol) ---
   doc.setFontSize(16)
   doc.setFont(FONT, "bold")
-  // Uzun unvan sağdaki makbuz başlığına binmesin diye ~120mm'e sarılır.
-  const companyNameLines: string[] = doc.splitTextToSize(data.company.name || "", 120)
+  // Unvanı başlığın sol kenarından 8mm önce bitecek şekilde sar (min 70mm).
+  const companyMaxW = Math.max(70, titleLeftX - 14 - 8)
+  const companyNameLines: string[] = doc.splitTextToSize(data.company.name || "", companyMaxW)
   doc.text(companyNameLines, 14, 20)
   doc.setFontSize(9)
   doc.setFont(FONT, "normal")
@@ -57,7 +65,7 @@ export async function generateMakbuzPDF(data: MakbuzData): Promise<void> {
   // --- Üst: makbuz başlığı (sağ) ---
   doc.setFontSize(18)
   doc.setFont(FONT, "bold")
-  doc.text(`${data.kind.toLocaleUpperCase("tr-TR")} MAKBUZU`, 196, 20, { align: "right" })
+  doc.text(titleStr, 196, 20, { align: "right" })
   doc.setFontSize(10)
   doc.setFont(FONT, "normal")
   doc.text(`Makbuz No: ${data.makbuzNo}`, 196, 28, { align: "right" })

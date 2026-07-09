@@ -28,10 +28,16 @@ async function startDoc(company: PdfCompany, title: string): Promise<jsPDF> {
   const doc = new jsPDF()
   await registerTurkishFont(doc)
 
+  // Başlık genişliğini önce ölç ki uzun unvan sağdaki başlığa binmesin.
+  doc.setFontSize(16)
+  doc.setFont(TURKISH_PDF_FONT, "bold")
+  const titleLeftX = 196 - doc.getTextWidth(title)
+
   doc.setFontSize(15)
   doc.setFont(TURKISH_PDF_FONT, "bold")
-  // Uzun unvan sağdaki başlığa binmesin diye ~120mm'e sarılır; kompakt başlık için tek satır.
-  const companyNameLines = (doc.splitTextToSize(company.name || "", 120) as string[]).slice(0, 1)
+  // Unvanı başlığın sol kenarından 8mm önce bitecek şekilde sar (min 70mm); tek satır.
+  const companyMaxW = Math.max(70, titleLeftX - 14 - 8)
+  const companyNameLines = (doc.splitTextToSize(company.name || "", companyMaxW) as string[]).slice(0, 1)
   doc.text(companyNameLines, 14, 18)
 
   doc.setFontSize(9)

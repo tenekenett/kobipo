@@ -178,23 +178,28 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
   // Get the final Y position after the table
   const finalY = (doc as any).lastAutoTable.finalY + 10
   
-  // Totals — etiket solda, değer tablo sağ kenarına (196) sağa hizalı. Büyük/bold
-  // "GENEL TOPLAM:" etiketiyle değerin üst üste binmemesi için etiket x'i sola alındı.
-  const totalsLabelX = 120
+  // Totals — hem etiket hem değer sağa hizalı. Etiket, değerin ölçülen
+  // genişliğinden 6mm önce biter; böylece büyük (7+ haneli) tutarlarda etiket ile
+  // değer üst üste binmez ("GENEL TOPLAM:" ile tutarın iç içe geçmesi sorunu).
   const totalsValueX = 196
+  const drawTotalRow = (label: string, value: string, rowY: number) => {
+    doc.text(value, totalsValueX, rowY, { align: "right" })
+    const labelRightX = totalsValueX - doc.getTextWidth(value) - 6
+    doc.text(label, labelRightX, rowY, { align: "right" })
+  }
+
+  doc.setFont(FONT, "normal")
   doc.setFontSize(10)
-
-  doc.text("Ara Toplam:", totalsLabelX, finalY)
-  doc.text(`₺${data.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, totalsValueX, finalY, { align: "right" })
-
-  doc.text("KDV Toplam:", totalsLabelX, finalY + 6)
-  doc.text(`₺${data.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, totalsValueX, finalY + 6, { align: "right" })
+  drawTotalRow("Ara Toplam:", `₺${data.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, finalY)
+  drawTotalRow("KDV Toplam:", `₺${data.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, finalY + 6)
 
   doc.setFont(FONT, "bold")
   doc.setFontSize(12)
-  doc.text("GENEL TOPLAM:", totalsLabelX, finalY + 14)
+  const grandTotal = `₺${data.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`
+  const grandLabelRightX = totalsValueX - doc.getTextWidth(grandTotal) - 6
+  doc.text("GENEL TOPLAM:", grandLabelRightX, finalY + 14, { align: "right" })
   doc.setTextColor(34, 197, 94)
-  doc.text(`₺${data.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, totalsValueX, finalY + 14, { align: "right" })
+  doc.text(grandTotal, totalsValueX, finalY + 14, { align: "right" })
   doc.setTextColor(0, 0, 0)
   
   // Notes
