@@ -192,7 +192,14 @@ export async function GET(
         id: trx.id,
         date: trx.date.toISOString(),
         type: trx.type === "EXPENSE" ? "PAYMENT" : "INCOME",
-        description: trx.description || `${trx.type} - ${trx.account?.name || ""}`,
+        // Açıklama boşsa işlem türüne göre insanca etiket: ödeme/tahsilat.
+        description:
+          trx.description ||
+          (trx.type === "EXPENSE"
+            ? "Ödeme"
+            : trx.type === "INCOME"
+              ? "Tahsilat"
+              : `${trx.type} - ${trx.account?.name || ""}`),
         // Ekstrede yürüyen bakiye `credit - debit` ile hesaplanır: ödeme (EXPENSE)
         // borç sütunu → borcu azaltır, tahsilat (INCOME) alacak sütunu → artırır.
         debit: trx.type === "EXPENSE" ? Number(trx.amount) : 0,

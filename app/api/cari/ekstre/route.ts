@@ -135,7 +135,14 @@ export async function GET(request: Request) {
         type: "TRANSACTION",
         id: trx.id,
         date: trx.date,
-        description: trx.description || `${trx.type} - ${trx.account.name}`,
+        // Açıklama boşsa işlem türüne göre insanca etiket: ödeme/tahsilat.
+        description:
+          trx.description ||
+          (trx.type === "EXPENSE"
+            ? "Ödeme"
+            : trx.type === "INCOME"
+              ? "Tahsilat"
+              : `${trx.type} - ${trx.account.name}`),
         // Cari ekstrede ödeme (EXPENSE) cariyi borçlandırır → BORÇ sütunu;
         // tahsilat (INCOME) cariyi alacaklandırır → ALACAK sütunu. Fatura tarafıyla
         // tutarlı (SALES→borç, PURCHASE→alacak): müşteri tahsilatı bakiyeyi azaltır,

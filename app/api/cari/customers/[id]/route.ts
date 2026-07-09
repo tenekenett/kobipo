@@ -198,7 +198,14 @@ export async function GET(
         id: trx.id,
         date: trx.date.toISOString(),
         type: trx.type === "INCOME" ? "PAYMENT" : "EXPENSE",
-        description: trx.description || `${trx.type} - ${trx.account?.name || ""}`,
+        // Açıklama boşsa işlem türüne göre insanca etiket: ödeme/tahsilat.
+        description:
+          trx.description ||
+          (trx.type === "EXPENSE"
+            ? "Ödeme"
+            : trx.type === "INCOME"
+              ? "Tahsilat"
+              : `${trx.type} - ${trx.account?.name || ""}`),
         // EXPENSE (ör. müşteri adına masraf) cariyi borçlandırır → Borç sütunu.
         // Bakiye formülü de EXPENSE'i +olarak sayar (yukarı, satır ~104); burada
         // atlanırsa ekstrenin yürüyen bakiyesi üstteki Bakiye kartıyla tutmaz.
