@@ -3,6 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { resolveSlugId } from "@/lib/slug-resolve"
 
 export const dynamic = 'force-dynamic'
 
@@ -134,6 +135,16 @@ export async function POST(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
+    // Cari id'leri SEF URL'lerinden slug olarak gelebilir (ör. cari detay sayfasındaki
+    // "Yeni Ödeme/Tahsilat"). Gerçek cuid'e çöz; aksi halde transaction.create
+    // supplierId/customerId FK ihlaliyle 500 (Internal server error) verir.
+    const resolvedCustomerId = customerId
+      ? await resolveSlugId("customer", customerId, companyId)
+      : null
+    const resolvedSupplierId = supplierId
+      ? await resolveSlugId("supplier", supplierId, companyId)
+      : null
+
     const account = await prisma.financialAccount.findUnique({
       where: { id: accountId },
     })
@@ -180,8 +191,8 @@ export async function POST(request: Request) {
       }
       const partyOk =
         type === "INCOME"
-          ? inv.type === "SALES" && (!customerId || inv.customerId === customerId)
-          : inv.type === "PURCHASE" && (!supplierId || inv.supplierId === supplierId)
+          ? inv.type === "SALES" && (!resolvedCustomerId || inv.customerId === resolvedCustomerId)
+          : inv.type === "PURCHASE" && (!resolvedSupplierId || inv.supplierId === resolvedSupplierId)
       if (!partyOk) {
         return NextResponse.json(
           { error: "Seçilen fatura bu cari veya işlem tipiyle eşleşmiyor" },
@@ -213,8 +224,8 @@ export async function POST(request: Request) {
           description,
           date: transactionDate,
           reference: reference || (type === "TRANSFER" ? `TRANSFER:${transferAccountId}` : undefined),
-          customerId,
-          supplierId,
+          customerId: resolvedCustomerId,
+          supplierId: resolvedSupplierId,
           createdBy: user.id,
         },
       })

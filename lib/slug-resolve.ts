@@ -18,7 +18,14 @@ import { looksLikeCuid } from "@/lib/slug"
  * tx içindekiler dahil) hiç değişmeden çalışır; yetki yine
  * `ensureCompanyAccess(record.companyId)` ile yapılır.
  */
-type SlugModel = "product" | "quote" | "employee" | "financialAccount" | "invoice"
+type SlugModel =
+  | "product"
+  | "quote"
+  | "employee"
+  | "financialAccount"
+  | "invoice"
+  | "customer"
+  | "supplier"
 
 type SlugDelegate = {
   findFirst: (args: {

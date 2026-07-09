@@ -3,6 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { resolveSlugId } from "@/lib/slug-resolve"
 
 export const dynamic = "force-dynamic"
 
@@ -33,13 +34,22 @@ export async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
+    // Cari id'leri SEF URL'lerinden slug olarak gelebilir → gerçek cuid'e çöz,
+    // aksi halde faturalar eşleşmez ve liste boş döner.
+    const resolvedCustomerId = customerId
+      ? await resolveSlugId("customer", customerId, companyId)
+      : null
+    const resolvedSupplierId = supplierId
+      ? await resolveSlugId("supplier", supplierId, companyId)
+      : null
+
     const invoices = await prisma.invoice.findMany({
       where: {
         companyId,
         status: { not: "CANCELLED" },
-        ...(customerId
-          ? { customerId, type: "SALES" }
-          : { supplierId, type: "PURCHASE" }),
+        ...(resolvedCustomerId
+          ? { customerId: resolvedCustomerId, type: "SALES" }
+          : { supplierId: resolvedSupplierId, type: "PURCHASE" }),
       },
       select: {
         id: true,

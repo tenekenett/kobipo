@@ -3,6 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { resolveSlugId } from "@/lib/slug-resolve"
 import { Decimal } from "@prisma/client/runtime/library"
 
 export const dynamic = 'force-dynamic'
@@ -114,6 +115,15 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
+
+    // companyId ve cari id'leri SEF URL'lerinden slug olarak gelebilir (cari detay
+    // sayfasındaki "Yeni Ödeme/Tahsilat" → çek/senet). Gerçek cuid'e çöz; aksi halde
+    // create supplierId/customerId FK ihlaliyle 500 verir.
+    data.companyId = await resolveCompanyId(data.companyId)
+    if (data.customerId)
+      data.customerId = await resolveSlugId("customer", data.customerId, data.companyId)
+    if (data.supplierId)
+      data.supplierId = await resolveSlugId("supplier", data.supplierId, data.companyId)
 
     await ensureCompanyAccess(data.companyId)
 

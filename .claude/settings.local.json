@@ -70,7 +70,8 @@
       "Bash(curl -s -o /dev/null -w \"orders      GET  -> HTTP %{http_code}\\\\n\" \"http://localhost:3000/api/billing/orders?companyId=x\" --max-time 90)",
       "Bash(curl -s -o /dev/null -w \"sub/cancel  POST -> HTTP %{http_code}\\\\n\" -X POST \"http://localhost:3000/api/billing/subscription/cancel\" --max-time 90)",
       "Bash(curl -s -o /dev/null -w \"paytrtoken  POST -> HTTP %{http_code}\\\\n\" -X POST \"http://localhost:3000/api/billing/orders/test123/paytr-token\" --max-time 90)",
-      "Bash(node --env-file=.env.local ./probe-tmp.mjs)"
+      "Bash(node --env-file=.env.local ./probe-tmp.mjs)",
+      "Bash(node _tmp_slug.mjs)"
     ]
   }
 }
