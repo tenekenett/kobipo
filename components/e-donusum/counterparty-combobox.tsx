@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { X } from "lucide-react"
+import { Plus, X } from "lucide-react"
+import { QuickCariDialog, type CreatedCari, type CariKind } from "@/components/e-donusum/quick-cari-dialog"
 
 export type Counterparty = {
   id: string
@@ -23,6 +24,14 @@ type CounterpartyComboboxProps = {
   /** Liste açılmadan önce gereken minimum karakter sayısı (varsayılan 2). */
   minChars?: number
   placeholder?: string
+  /** Hızlı cari ekleme için gerekli. Verilirse "+ Yeni cari ekle" aksiyonu çıkar. */
+  companyId?: string
+  /** Yeni cari oluşturulunca (oluşan cari + tip) çağrılır. companyId ile birlikte gerekir. */
+  onCreated?: (created: CreatedCari, kind: CariKind) => void
+  /** Ekleme dialog'unda ön seçili tip. Satış → "customer", alış → "supplier". */
+  defaultCreateKind?: CariKind
+  /** Ekleme aksiyonunu zorla aç/kapat. Varsayılan: companyId ve onCreated verildiyse açık. */
+  allowCreate?: boolean
 }
 
 const MAX_RESULTS = 50
@@ -38,6 +47,10 @@ export function CounterpartyCombobox({
   disabled,
   minChars = 2,
   placeholder = "İsim veya VKN/TCKN yazın…",
+  companyId,
+  onCreated,
+  defaultCreateKind = "customer",
+  allowCreate,
 }: CounterpartyComboboxProps) {
   const listId = useId()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -46,6 +59,11 @@ export function CounterpartyCombobox({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [highlighted, setHighlighted] = useState(-1)
+
+  // Hızlı cari ekleme dialog'u durumu.
+  const canCreate = (allowCreate ?? true) && Boolean(companyId && onCreated)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createName, setCreateName] = useState("")
 
   const selectedDisplay = useMemo(() => {
     if (selectedCustomerId) {
@@ -114,6 +132,22 @@ export function CounterpartyCombobox({
       inputRef.current?.blur()
     },
     [onSelect, close],
+  )
+
+  // "+ Yeni cari ekle": o an yazılan metni isim olarak taşıyıp dialog'u aç,
+  // dropdown'ı kapat (close query'i sıfırladığı için önce yakalıyoruz).
+  const openCreate = useCallback(() => {
+    setCreateName(query.trim())
+    close()
+    setCreateOpen(true)
+  }, [query, close])
+
+  const handleCreated = useCallback(
+    (created: CreatedCari, kind: CariKind) => {
+      onCreated?.(created, kind)
+      setCreateOpen(false)
+    },
+    [onCreated],
   )
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -221,7 +255,22 @@ export function CounterpartyCombobox({
               Aramak için en az {minChars} karakter yazın
             </div>
           ) : flatRows.length === 0 ? (
-            <div className="px-2 py-3 text-sm text-muted-foreground">Sonuç yok</div>
+            <div className="space-y-1">
+              <div className="px-2 py-3 text-sm text-muted-foreground">Sonuç yok</div>
+              {canCreate ? (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-sm border border-dashed border-kobipo-blue/40 bg-kobipo-pale/30 px-2 py-2 text-left text-sm font-medium text-kobipo-navy hover:bg-kobipo-pale/60 dark:border-primary/40 dark:bg-primary/10 dark:text-primary"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={openCreate}
+                >
+                  <Plus className="h-4 w-4 shrink-0" />
+                  <span className="truncate">
+                    {q ? `“${query.trim()}” adıyla yeni cari ekle` : "Yeni cari ekle"}
+                  </span>
+                </button>
+              ) : null}
+            </div>
           ) : (
             <>
               {customerRows.length > 0 ? (
@@ -236,9 +285,31 @@ export function CounterpartyCombobox({
                 </div>
               ) : null}
               {supplierRows.map((row, i) => renderRow(row, customerRows.length + i))}
+              {canCreate ? (
+                <button
+                  type="button"
+                  className="mt-1 flex w-full items-center gap-2 rounded-sm border-t px-2 py-2 text-left text-sm font-medium text-kobipo-navy hover:bg-accent dark:text-primary"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={openCreate}
+                >
+                  <Plus className="h-4 w-4 shrink-0" />
+                  Yeni cari ekle
+                </button>
+              ) : null}
             </>
           )}
         </div>
+      ) : null}
+
+      {canCreate && companyId ? (
+        <QuickCariDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          companyId={companyId}
+          defaultKind={defaultCreateKind}
+          initialName={createName}
+          onCreated={handleCreated}
+        />
       ) : null}
     </div>
   )

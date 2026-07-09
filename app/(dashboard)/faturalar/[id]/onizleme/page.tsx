@@ -116,13 +116,12 @@ export default function FaturaOnizlemePage() {
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  // Yerel PDF şablonu sabit "standart" (Standart/Kurumsal seçimi kaldırıldı).
-  const [template] = useState("standart")
   const [email, setEmail] = useState("")
   const [attachments, setAttachments] = useState<any[]>([])
   const [attachmentName, setAttachmentName] = useState("")
   const [isCheckingStatus, setIsCheckingStatus] = useState(false)
   const [isDownloadingGibPdf, setIsDownloadingGibPdf] = useState(false)
+  const [isDownloadingPreviewPdf, setIsDownloadingPreviewPdf] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [isSendingToProvider, setIsSendingToProvider] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
@@ -184,12 +183,46 @@ export default function FaturaOnizlemePage() {
     if (response.ok) setAttachments(await response.json())
   }
 
-  const handleDownloadPDF = () => {
-    // Gerçek cuid'i (invoice.id) kullan; URL'deki invoiceId slug (fatura no) olabilir ve
-    // PDF endpoint'i onu bulamaz. Firma scope'u için company param'ını da geçir.
-    const idForPdf = invoice?.id || invoiceId
-    const companyQs = companyId ? `&company=${encodeURIComponent(companyId)}` : ""
-    window.open(`/api/faturalar/${idForPdf}/pdf?template=${template}${companyQs}`, "_blank")
+  const handleDownloadPDF = async () => {
+    if (!invoice) return
+    // "PDF İndir": taslak sayfasındaki (editör) GİB düzeninde ön izleme PDF'inin
+    // kaydedilmiş fatura sürümünü indirir. Resmî GİB PDF'i (ETTN'li) ayrı buton.
+    setIsDownloadingPreviewPdf(true)
+    try {
+      const idForPdf = invoice.id || invoiceId
+      const companyQs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""
+      const response = await fetch(`/api/e-donusum/invoices/${idForPdf}/preview-pdf${companyQs}`)
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        toast({ title: "PDF indirilemedi", description: data.error || "Bilinmeyen hata", variant: "destructive" })
+        return
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = filenameFromContentDisposition(response.headers.get("Content-Disposition")) || `${invoice.invoiceNo}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (error: any) {
+      toast({ title: "Hata", description: error?.message || "PDF indirilirken hata oluştu", variant: "destructive" })
+    } finally {
+      setIsDownloadingPreviewPdf(false)
+    }
+  }
+
+  // "Taslak Olarak Kaydet": fatura zaten (editörde) DRAFT olarak kaydedildi; bu
+  // aksiyon kullanıcıyı satış/alış listesine döndürüp kaydın oluştuğunu bildirir.
+  const handleSaveDraftAndReturn = () => {
+    if (!invoice) return
+    toast({ title: "Taslak kaydedildi", description: "Fatura taslak olarak kaydedildi." })
+    const target =
+      invoice.type === "PURCHASE"
+        ? `/alis/fatura?company=${companyId || ""}`
+        : `/satis/fatura?company=${companyId || ""}`
+    router.push(target)
   }
 
   const handleCheckStatus = async () => {
@@ -569,6 +602,12 @@ export default function FaturaOnizlemePage() {
               </Button>
             </Link>
           )}
+          {invoice.status === "DRAFT" && (
+            <Button variant="success" onClick={handleSaveDraftAndReturn}>
+              <CheckCircle2 className="h-4 w-4 mr-2" />
+              Taslak Olarak Kaydet
+            </Button>
+          )}
           {invoice.status === "DRAFT" &&
             !invoice.uuid &&
             (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
@@ -613,8 +652,12 @@ export default function FaturaOnizlemePage() {
             </Button>
           )}
           {!hasOfficialGibPdf && (
-            <Button onClick={handleDownloadPDF}>
-              <Download className="h-4 w-4 mr-2" />
+            <Button onClick={handleDownloadPDF} disabled={isDownloadingPreviewPdf}>
+              {isDownloadingPreviewPdf ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
               PDF İndir
             </Button>
           )}

@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Trash2, X, Clock, Check } from "lucide-react"
+import { Plus, Trash2, X, Clock, Check, Eye, Download, Loader2 } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -147,6 +147,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const [isPriceHistoryLoading, setIsPriceHistoryLoading] = useState(false)
   const [activeItemIndexForPrices, setActiveItemIndexForPrices] = useState<number | null>(null)
 
+  // GİB formatı taslak önizleme modalı
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+
   const [formData, setFormData] = useState({
     type: "SALES",
     invoiceType: "E_ARCHIVE",
@@ -187,6 +192,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     fetchProducts()
     fetchCompanySettings()
   }, [companyId])
+
+  // Önizleme blob URL'ini bileşen kapanırken serbest bırak (bellek sızıntısı olmasın).
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    }
+  }, [previewUrl])
 
   // Hazır GİB tevkifat kodlarını çek (e-dönüşüm açık firmalarda dolu döner).
   useEffect(() => {
@@ -1090,6 +1102,78 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     return Array.from(new Set(messages))
   }, [isEDonusumActive, effectiveInvoiceType, formData.customerId, formData.supplierId, companySettings, customers, suppliers])
 
+  // Eksik alanların kaynağını ayır: firma bilgisi eksikse firma ayarlarına,
+  // cari (müşteri/tedarikçi) bilgisi eksikse ilgili carinin düzenleme sayfasına yönlendir.
+  const hasCompanyMissing = eInvoiceMissingMessages.some((m) => m.startsWith("Firma"))
+  const hasCounterpartyMissing = eInvoiceMissingMessages.some(
+    (m) => m.startsWith("Müşteri") || m.startsWith("Tedarikçi"),
+  )
+  const counterpartyEditHref = useMemo(() => {
+    const company = encodeURIComponent(companyId)
+    if (formData.customerId) return `/cari/customers/${formData.customerId}/edit?company=${company}`
+    if (formData.supplierId) return `/cari/suppliers/${formData.supplierId}/edit?company=${company}`
+    return null
+  }, [formData.customerId, formData.supplierId, companyId])
+
+  // GİB formatı taslak önizleme (kaydetmeden). preview-pdf endpoint'i canlı
+  // formdan GİB düzeninde "TASLAK" filigranlı PDF üretir; iframe'de gösteririz.
+  const buildPreviewPayload = () => ({
+    companyId,
+    type: formData.type,
+    invoiceType: effectiveInvoiceType,
+    invoiceNo: formData.invoiceNo,
+    customerId: formData.customerId,
+    supplierId: formData.supplierId,
+    date: formData.date,
+    dueDate: formData.dueDate,
+    currency: formData.currency,
+    notes: formData.notes,
+    items,
+    globalDiscountAmount: totals.globalDiscount > 0 ? totals.globalDiscount : 0,
+  })
+
+  const handlePreview = async () => {
+    const meaningful = items.some(
+      (it) => it.productId || (Number(it.quantity) || 0) > 0 || (Number(it.unitPrice) || 0) > 0 || it.description?.trim(),
+    )
+    if (!meaningful) {
+      return toast({ title: "Önizleme için kalem gerekli", description: "En az bir fatura kalemi girin", variant: "destructive" })
+    }
+    setIsPreviewLoading(true)
+    try {
+      const res = await fetch("/api/e-donusum/invoices/preview-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildPreviewPayload()),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Önizleme oluşturulamadı")
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      setPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return url
+      })
+      setIsPreviewOpen(true)
+    } catch (e: any) {
+      toast({ title: "Önizleme başarısız", description: e?.message || "Bir hata oluştu", variant: "destructive" })
+    } finally {
+      setIsPreviewLoading(false)
+    }
+  }
+
+  const handleDownloadPreview = () => {
+    if (!previewUrl) return
+    const a = document.createElement("a")
+    a.href = previewUrl
+    a.download = `taslak-fatura${formData.invoiceNo ? "-" + formData.invoiceNo : ""}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+
   const handleSubmit = async () => {
     if (items.length === 0) return toast({ title: "Hata", description: "En az bir kalem ekleyin", variant: "destructive" })
     if (!formData.customerId && !formData.supplierId) return toast({ title: "Hata", description: "Müşteri veya tedarikçi seçin", variant: "destructive" })
@@ -1159,9 +1243,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       <Card className="w-full min-w-0">
         <CardContent className="space-y-8 pt-6">
 
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-3">
+            <Button onClick={handlePreview} disabled={isPreviewLoading || isLoading} variant="outline">
+              {isPreviewLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
+              Önizle (GİB)
+            </Button>
             <Button onClick={handleSubmit} disabled={isLoading} variant="success">
-              {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Oluşturuluyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Faturayı Kaydet"}
+              {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Kaydediliyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Taslak Olarak Kaydet"}
             </Button>
           </div>
 
@@ -1204,7 +1292,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 {eInvoiceMissingMessages.map((m) => (<li key={m}>{m}</li>))}
               </ul>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" asChild><Link href={`/ayarlar/firma?company=${encodeURIComponent(companyId)}`}>Firma ayarları</Link></Button>
+                {hasCompanyMissing && (
+                  <Button variant="outline" size="sm" asChild><Link href={`/ayarlar/firma?company=${encodeURIComponent(companyId)}`}>Firma ayarları</Link></Button>
+                )}
+                {hasCounterpartyMissing && counterpartyEditHref && (
+                  <Button variant="outline" size="sm" asChild><Link href={counterpartyEditHref}>Cariyi düzenle</Link></Button>
+                )}
               </div>
             </div>
           )}
@@ -1275,6 +1368,31 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   suppliers={suppliers}
                   selectedCustomerId={formData.customerId || undefined}
                   selectedSupplierId={formData.supplierId || undefined}
+                  companyId={companyId}
+                  defaultCreateKind={formData.type === "PURCHASE" ? "supplier" : "customer"}
+                  onCreated={(created, kind) => {
+                    if (kind === "customer") {
+                      const c: Customer = {
+                        id: created.id,
+                        name: created.name,
+                        taxNumber: created.taxNumber ?? null,
+                        taxOffice: created.taxOffice ?? null,
+                        address: created.address ?? null,
+                      }
+                      setCustomers((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev]))
+                      setFormData((prev) => ({ ...prev, customerId: created.id, supplierId: "" }))
+                    } else {
+                      const s: Supplier = {
+                        id: created.id,
+                        name: created.name,
+                        taxNumber: created.taxNumber ?? null,
+                        taxOffice: created.taxOffice ?? null,
+                        address: created.address ?? null,
+                      }
+                      setSuppliers((prev) => (prev.some((x) => x.id === s.id) ? prev : [s, ...prev]))
+                      setFormData((prev) => ({ ...prev, supplierId: created.id, customerId: "" }))
+                    }
+                  }}
                   onSelect={(sel) => {
                     if (!sel) {
                       setFormData({ ...formData, customerId: "", supplierId: "" })
@@ -1761,8 +1879,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
           <div className="flex flex-wrap justify-end gap-3 border-t pt-6">
             <Button variant="outline" onClick={() => { resetForm(); goBack() }}>İptal</Button>
+            <Button onClick={handlePreview} disabled={isPreviewLoading || isLoading} variant="outline">
+              {isPreviewLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
+              Önizle (GİB)
+            </Button>
             <Button onClick={handleSubmit} disabled={isLoading} variant="success">
-              {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Oluşturuluyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Faturayı Kaydet"}
+              {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Kaydediliyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Taslak Olarak Kaydet"}
             </Button>
           </div>
         </CardContent>
@@ -1876,6 +1998,47 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             <div className="bg-slate-50 p-4 flex justify-end border-t">
               <Button variant="secondary" onClick={() => setIsPriceModalOpen(false)}>Kapat</Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* GİB FORMATI TASLAK ÖNİZLEME MODALI */}
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <DialogContent className="max-w-4xl p-0 overflow-hidden gap-0">
+          <DialogHeader className="p-5 pb-3">
+            <DialogTitle>Fatura Önizleme — GİB Formatı (TASLAK)</DialogTitle>
+            <DialogDescription>
+              Bu bir ön izlemedir; mali/yasal değeri yoktur. Resmî belge, faturayı
+              resmileştirdikten sonra GİB tarafından üretilir.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="bg-slate-100 dark:bg-muted px-5">
+            {previewUrl ? (
+              <iframe
+                src={previewUrl}
+                title="Taslak fatura önizleme"
+                className="h-[68vh] w-full rounded-md border bg-white"
+              />
+            ) : (
+              <div className="flex h-[68vh] items-center justify-center text-muted-foreground">
+                Önizleme yükleniyor…
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap justify-end gap-3 border-t bg-slate-50 p-4 dark:bg-muted/40">
+            <Button variant="outline" onClick={() => setIsPreviewOpen(false)}>Kapat</Button>
+            <Button variant="outline" onClick={handleDownloadPreview} disabled={!previewUrl}>
+              <Download className="mr-2 h-4 w-4" />
+              Taslak PDF İndir
+            </Button>
+            <Button
+              variant="success"
+              disabled={isLoading}
+              onClick={() => { setIsPreviewOpen(false); void handleSubmit() }}
+            >
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Taslak Olarak Kaydet
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
