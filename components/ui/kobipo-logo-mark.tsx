@@ -26,8 +26,10 @@ export function KobipoLogoMark({ className }: { className?: string }) {
       <path d="M18,50 A22,22 0 1,1 62,50" fill="none" stroke="white" strokeWidth={5} strokeLinecap="round" />
       <path d="M58,35 L62,50 L51,47" fill="none" stroke="white" strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />
       <circle cx="40" cy="56" r="8" fill="#52B788" />
-      <text x="88" y="46" fontFamily="'DM Sans', 'Helvetica Neue', Arial, sans-serif" fontSize="36" fontWeight="800" fill="#ffffff" letterSpacing="-1">kobi</text>
-      <text x="184" y="46" fontFamily="'DM Sans', 'Helvetica Neue', Arial, sans-serif" fontSize="36" fontWeight="300" fill="#B5D4F4" letterSpacing="-1">po</text>
+      <text x="88" y="46" fontFamily="'DM Sans', 'Helvetica Neue', Arial, sans-serif" fontSize="36" letterSpacing="-1">
+        <tspan fontWeight="800" fill="#ffffff">kobi</tspan>
+        <tspan fontWeight="300" fill="#B5D4F4">po</tspan>
+      </text>
       <text x="89" y="68" fontFamily="'DM Sans', 'Helvetica Neue', Arial, sans-serif" fontSize="16" fontWeight="700" fill="#52B788" fontStyle="italic" letterSpacing="0.3">Az laf, dogru rakam.</text>
     </svg>
   )
