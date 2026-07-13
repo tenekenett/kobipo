@@ -86,7 +86,15 @@
       "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 node ./_checkcols_tmp.js)",
       "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 node ./_dumpcols_tmp.js)",
       "Bash(node_modules/.bin/tsx _tevkifat_repro.ts)",
-      "Bash(pdftotext -layout __TRACKED_VAR__/tevkifat.pdf -)"
+      "Bash(pdftotext -layout __TRACKED_VAR__/tevkifat.pdf -)",
+      "Bash(node /tmp/claude-1000/-home-yasin-Belgeler-sirketselmidir-kobipo/7971c84c-b125-42fd-9c43-d1f920d3c87c/scratchpad/diag-telekom.js)",
+      "Bash(grep -iE \"^tsx$|ts-node\")",
+      "Bash(timeout 120 node_modules/.bin/tsx scripts/_diag-model.ts)",
+      "Bash(grep -oiE \"[0-9]{4}[^\\\\\"]{0,4}\\(iletişim|iletisim|özel iletişim\\)\" swagger-v8.json)",
+      "Bash(grep -oiE \"\\(iletişim|iletisim|konaklama|elektrik tüketim\\)[^\\\\\"]{0,30}\" swagger-v8.json)",
+      "Bash(node *)",
+      "Bash(timeout 300 node_modules/.bin/tsc --noEmit -p tsconfig.json)",
+      "Bash(tee /tmp/claude-1000/-home-yasin-Belgeler-sirketselmidir-kobipo/7971c84c-b125-42fd-9c43-d1f920d3c87c/scratchpad/tsc.log)"
     ]
   }
 }

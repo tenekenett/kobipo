@@ -45,6 +45,10 @@ interface InvoiceData {
   netAmount: number
   vatAmount: number
   totalAmount: number
+  // KDV dışı "Diğer Vergiler" (ör. Özel İletişim Vergisi/ÖİV). >0 ise KDV ile Genel
+  // Toplam arasına ayrı satır olarak yazılır; verilmezse çizilmez (geriye uyumlu).
+  otherTaxAmount?: number
+  otherTaxLabel?: string
   notes?: string
 }
 
@@ -192,14 +196,25 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<void> {
   doc.setFontSize(10)
   drawTotalRow("Ara Toplam:", `₺${data.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, finalY)
   drawTotalRow("KDV Toplam:", `₺${data.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`, finalY + 6)
+  // KDV dışı diğer vergiler (ör. ÖİV) varsa ayrı satır — aksi halde Genel Toplam,
+  // Ara Toplam + KDV ile tutmaz görünürdü.
+  let rowY = finalY + 6
+  if ((data.otherTaxAmount || 0) > 0) {
+    rowY += 6
+    drawTotalRow(
+      `${data.otherTaxLabel || "Diğer Vergiler"}:`,
+      `₺${(data.otherTaxAmount as number).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`,
+      rowY,
+    )
+  }
 
   doc.setFont(FONT, "bold")
   doc.setFontSize(12)
   const grandTotal = `₺${data.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`
   const grandLabelRightX = totalsValueX - doc.getTextWidth(grandTotal) - 6
-  doc.text("GENEL TOPLAM:", grandLabelRightX, finalY + 14, { align: "right" })
+  doc.text("GENEL TOPLAM:", grandLabelRightX, rowY + 8, { align: "right" })
   doc.setTextColor(34, 197, 94)
-  doc.text(grandTotal, totalsValueX, finalY + 14, { align: "right" })
+  doc.text(grandTotal, totalsValueX, rowY + 8, { align: "right" })
   doc.setTextColor(0, 0, 0)
   
   // Notes

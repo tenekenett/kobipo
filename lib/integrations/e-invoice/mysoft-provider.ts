@@ -7,6 +7,7 @@ import { resolveMysoftBaseUrl } from "./constants"
 const GIB_OTHER_TAX_NAMES: Record<string, string> = {
   "0059": "Konaklama Vergisi",
   "4071": "Elektrik Tüketim Vergisi",
+  "4080": "Özel İletişim Vergisi",
 }
 function resolveOtherTaxName(code: string | null | undefined): string | null {
   const c = (code ?? "").trim()
@@ -1737,8 +1738,17 @@ async sendInvoice(invoiceData: any): Promise<any> {
             discountAmount: number | null
             vatRate: number | null
             vatAmount: number | null
+            otherTaxRate: number | null
+            otherTaxAmount: number | null
+            otherTaxName: string | null
+            withholdingRate: number | null
+            withholdingCode: string | null
+            withholdingName: string | null
             lineTotal: number | null
           }>
+          // Başlık toplamları satırlarla birebir tutmadığında (tevkifat/avans mahsubu)
+          // kullanıcıya gösterilecek bilgilendirme notu. Matrahı bozmadan üretilir.
+          reconcileNote?: string | null
           raw: any
         }
       }
@@ -1981,6 +1991,11 @@ async sendInvoice(invoiceData: any): Promise<any> {
           otherTaxRate,
           otherTaxAmount,
           otherTaxName,
+          // KDV tevkifatı (varsa detailList'ten; yoksa aşağıda başlık invoiceType=TEVKIFAT
+          // reconciliation'ında hesaplanır). withholdingRate = tevkif edilen KDV yüzdesi.
+          withholdingRate: num(pick(ln, "withholdingTaxPercentage", "withholdingRate")),
+          withholdingCode: pick(ln, "withholdingTaxTypeCode", "withholdingCode") as string | null,
+          withholdingName: pick(ln, "withholdingTaxTypeName", "withholdingName") as string | null,
           lineTotal,
         }
       })
@@ -2054,8 +2069,176 @@ async sendInvoice(invoiceData: any): Promise<any> {
               otherTaxRate: null,
               otherTaxAmount: null,
               otherTaxName: null,
+              withholdingRate: null,
+              withholdingCode: null,
+              withholdingName: null,
               lineTotal: gap,
             })
+          }
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // BAŞLIK TOPLAMI RECONCILIATION — "Diğer Vergiler" (ÖİV vb.) + tevkifat notu
+      // ---------------------------------------------------------------------
+      // Gelen faturanın RESMÎ başlık toplamları (taxExclusive/taxInclusive/payable +
+      // KDV kırılımı) her zaman doğrudur. Editör satır ORANLARINDAN yeniden hesapladığı
+      // için, KDV MATRAHINA girmeyen ama toplama EKLENEN vergiler (Özel İletişim
+      // Vergisi/ÖİV, Konaklama Vergisi vb.) satır alt-toplamlarında gelmediğinde tamamen
+      // düşüyor ve alış faturası tutarı EKSİK çıkıyordu (telekom faturaları — Vodafone/
+      // Türk Telekom/NetGSM). Burada başlık kırılımından eksik "diğer vergi"yi hesaplayıp
+      // satırlara PAY olarak dağıtıyoruz → dönüştürülen faturanın "vergiler dâhil" toplamı
+      // orijinalle KURUŞU KURUŞUNA tutuyor. Matrah ve KDV asla bozulmaz.
+      let reconcileNote: string | null = null
+      const r2 = (x: number) => Math.round(x * 100) / 100
+      const hNet =
+        num(pick(model, "taxExclusiveAmount", "amtTra", "netAmount")) ??
+        (lmt ? num(pick(lmt, "taxExclusiveAmount", "lineExtensionAmount")) : null)
+      const hInclusive =
+        num(pick(model, "taxInclusiveAmount")) ?? (lmt ? num(pick(lmt, "taxInclusiveAmount")) : null)
+      const hPayable =
+        num(pick(model, "payableAmount", "payableAmountTra", "totalAmount")) ??
+        (lmt ? num(pick(lmt, "payableAmount", "taxInclusiveAmount")) : null)
+      const hRounding =
+        num(pick(model, "payableRoundingAmount")) ??
+        (lmt ? num(pick(lmt, "payableRoundingAmount")) : null) ??
+        0
+      // Brüt KDV: önce flat vatTotalTraNN (NN = oran) toplamı — en güvenilir; yoksa
+      // taxTotal[] içindeki 0015 (KDV) alt-toplamları; yoksa headerVat (son çare).
+      let hKdv = 0
+      let flatKdvSeen = false
+      let dominantKdvRate: number | null = null
+      let dominantKdvBase = -1
+      for (const k of Object.keys(model)) {
+        const mm = /^vatTotalTra(\d+)$/.exec(k)
+        if (!mm) continue
+        const v = num((model as any)[k]) ?? 0
+        if (v === 0) continue
+        hKdv += v
+        flatKdvSeen = true
+        const base = num((model as any)[`taxableVatTotalTra${mm[1]}`]) ?? 0
+        if (base > dominantKdvBase) {
+          dominantKdvBase = base
+          dominantKdvRate = Number(mm[1])
+        }
+      }
+      if (!flatKdvSeen) {
+        const kdvFromSubs = headerSubs
+          .filter((s) => String(s?.taxTypeCode ?? "").trim() === "0015")
+          .reduce((acc, sub) => acc + (num(sub.taxAmount) ?? 0), 0)
+        hKdv = kdvFromSubs || headerVat || 0
+        if (kdvSubHeader) dominantKdvRate = num(kdvSubHeader.percent)
+      }
+      // "Diğer vergi" adı: başlık alt-toplamlarındaki KDV DIŞI kalemlerden türet
+      // (ör. Özel İletişim Vergisi), yoksa genel ad.
+      const headerOtherName =
+        headerSubs
+          .filter(
+            (s) => String(s?.taxTypeCode ?? "").trim() !== "0015" && (num(s.taxAmount) ?? 0) !== 0,
+          )
+          .map((s) => (pick(s, "taxName") as string) || resolveOtherTaxName(pick(s, "taxTypeCode") as string))
+          .filter(Boolean)
+          .join(" + ") || "Diğer Vergiler"
+
+      if (hInclusive != null && hInclusive > 0) {
+        // Kalem hiç gelmediyse başlıktan tek satırlık GERÇEK kalem kur (net + KDV);
+        // diğer vergi aşağıda residual olarak eklenir. Böylece kalemsiz telekom
+        // faturaları da tam tutar.
+        if (lines.length === 0 && hNet != null && hNet > 0) {
+          lines.push({
+            description: "Mal/Hizmet",
+            productCode: null,
+            unit: null,
+            quantity: 1,
+            unitPrice: hNet,
+            discountRate: null,
+            discountAmount: null,
+            vatRate: dominantKdvRate ?? (hKdv > 0 ? r2((hKdv / hNet) * 100) : 20),
+            vatAmount: hKdv > 0 ? hKdv : null,
+            otherTaxRate: null,
+            otherTaxAmount: null,
+            otherTaxName: null,
+            withholdingRate: null,
+            withholdingCode: null,
+            withholdingName: null,
+            lineTotal: hNet,
+          })
+        }
+
+        const lineNetOf = (l: any): number =>
+          num(l.lineTotal) ??
+          (num(l.quantity) ?? 0) * (num(l.unitPrice) ?? 0) - (num(l.discountAmount) ?? 0)
+        const lineNetSum = lines.reduce((acc, l) => acc + (lineNetOf(l) || 0), 0)
+        // Editörün MEVCUT satırlardan yeniden kuracağı "vergiler dâhil" toplam
+        // (net + KDV + halihazırdaki diğer vergi). Reconciliation'ı bu GERÇEK yeniden
+        // kurulum üzerinden yaparız; matrah/KDV-baz varsayımı yapmayız.
+        const reconstructed = lines.reduce((acc, l) => {
+          const n = lineNetOf(l) || 0
+          return acc + n + n * ((num(l.vatRate) ?? 0) / 100) + n * ((num(l.otherTaxRate) ?? 0) / 100)
+        }, 0)
+        // Eksik kalan = matraha GİRMEYEN, toplama eklenen vergiler (ÖİV, konaklama, BSMV…).
+        // ÖNEMLİ: Matraha DÂHİL vergilerde (elektrik BTV, gazoz ÖTV) satır neti zaten
+        // KDV matrahını içerdiğinden yeniden-kurulum orijinal toplama ulaşır → residual≈0,
+        // yani ÇİFT SAYIM OLMAZ. Yalnızca gerçekten üste eklenen vergi kadar tamamlanır.
+        const residual = r2(hInclusive - reconstructed)
+        if (residual > 0.02 && lineNetSum > 0) {
+          // Net oranında PAY dağıt; ORANI YUVARLAMA (büyük matrahta drift olmasın),
+          // yuvarlama kalanını son satıra ver → toplam kuruşu kuruşuna tutar.
+          let distributed = 0
+          lines.forEach((l, i) => {
+            const n = lineNetOf(l) || 0
+            if (n <= 0) return
+            const isLast = i === lines.length - 1
+            const share = isLast ? r2(residual - distributed) : r2(residual * (n / lineNetSum))
+            if (!isLast) distributed += share
+            l.otherTaxRate = (num(l.otherTaxRate) ?? 0) + (share / n) * 100
+            l.otherTaxAmount = (num(l.otherTaxAmount) ?? 0) + share
+            if (!l.otherTaxName) l.otherTaxName = headerOtherName
+          })
+        } else if (residual < -0.02) {
+          // Satır vergileri, faturanın RESMÎ vergiler-dâhil toplamını AŞIYOR. Bu ancak kaynak
+          // veri tutarsızsa olur (ör. KDV istisnalı satıra oran gelmesi). Sessizce yanlış tutar
+          // üretmemek için kullanıcıyı uyarırız; matrahı otomatik değiştirmeyiz.
+          const curr = (pick(model, "currencyCode", "currency") as string) || "TL"
+          reconcileNote =
+            `Dikkat: hesaplanan kalem vergileri, faturanın resmî vergiler-dâhil toplamını ` +
+            `(${hInclusive.toFixed(2)} ${curr}) aşıyor. Kalem KDV/vergi oranlarını kaynak ` +
+            `faturayla karşılaştırıp elle düzeltin.`
+        }
+
+        // Tevkifat / avans mahsubu: ödenecek < vergiler dâhil.
+        const hWithholding = r2(hInclusive - (hPayable ?? hInclusive) + (hRounding ?? 0))
+        if (hWithholding > 0.02) {
+          const invoiceType = String(pick(model, "invoiceType", "documentType") ?? "").toUpperCase()
+          const curr = (pick(model, "currencyCode", "currency") as string) || "TL"
+          // Satırlarda (detailList'ten) zaten tevkifat geldiyse tekrar uygulama.
+          const alreadyWithheld = lines.reduce(
+            (acc, l) =>
+              acc +
+              (lineNetOf(l) || 0) *
+                ((num(l.vatRate) ?? 0) / 100) *
+                ((num(l.withholdingRate) ?? 0) / 100),
+            0,
+          )
+          // GERÇEK KDV tevkifatı: invoiceType=TEVKIFAT ve tevkif edilen ≤ toplam KDV.
+          // (Vodafone gibi avans/mahsup — invoiceType=SATIS veya fark>KDV — buraya GİRMEZ,
+          // matrahı bozmadan not olarak kalır.)
+          if (invoiceType === "TEVKIFAT" && hKdv > 0 && hWithholding <= hKdv + 0.02 && alreadyWithheld < 0.02) {
+            // Tevkif edilen KDV'yi satırlara ORAN olarak uygula: withRate = tevkifat / toplam KDV.
+            // Editör/kayıt: Σ (satırKDV × withRate/100) = tevkifat → ödenecek tutar orijinalle tutar.
+            const withRate = (Math.min(hWithholding, hKdv) / hKdv) * 100
+            for (const l of lines) {
+              const lv = (lineNetOf(l) || 0) * ((num(l.vatRate) ?? 0) / 100)
+              if (lv > 0) {
+                l.withholdingRate = withRate
+                if (!l.withholdingName) l.withholdingName = "KDV Tevkifatı"
+              }
+            }
+          } else {
+            reconcileNote =
+              `Kaynak faturada vergiler dâhil toplam ${hInclusive.toFixed(2)} ${curr}, ödenecek ` +
+              `${(hPayable ?? hInclusive).toFixed(2)} ${curr} (aradaki ${hWithholding.toFixed(2)} ${curr} ` +
+              `avans/mahsup farkıdır). Fatura matrahı ve KDV'si korunmuştur.`
           }
         }
       }
@@ -2118,6 +2301,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
             num(pick(model, "taxTotalTra", "vatAmount", "totalVatAmount")) ??
             (headerVat && headerVat > 0 ? headerVat : null),
           lines,
+          reconcileNote,
           raw: model,
         },
       }

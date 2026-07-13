@@ -489,21 +489,71 @@ export async function POST(request: Request) {
         }
       }
 
-      let netAmount = Number(ublInvoice.rootNetAmount || 0)
-      let vatAmount = Number(ublInvoice.rootVatAmount || 0)
-      let totalAmount = Number(ublInvoice.rootTotalAmount || 0)
-      if (netAmount <= 0 || totalAmount <= 0) {
-        netAmount = 0
-        vatAmount = 0
-        totalAmount = 0
-        ublInvoice.items.forEach((item) => {
-          const lineNet = item.lineNetAmount > 0 ? item.lineNetAmount : item.quantity * item.unitPrice
-          const lineVat = item.lineVatAmount > 0 ? item.lineVatAmount : lineNet * (item.vatRate / 100)
-          netAmount += lineNet
-          vatAmount += lineVat
-          totalAmount += lineNet + lineVat
+      // Kalemleri net + KDV ile kur, sonra faturanın RESMÎ "vergiler dâhil" toplamına
+      // (TaxInclusiveAmount) RESIDUAL ile tamamla. UBL satırında ÖİV/ÖTV gibi KDV DIŞI
+      // vergiler gelmese bile tutar orijinalle tutar — gelen e-fatura dönüşümündeki
+      // reconciliation ile simetrik. Böylece kalemler başlık toplamından EKSİK kalmaz.
+      const r2 = (x: number) => Math.round(x * 100) / 100
+      const computedItems = ublInvoice.items.map((item) => {
+        const safeQuantity = item.quantity > 0 ? item.quantity : 0
+        const safeUnitPrice =
+          item.unitPrice > 0
+            ? item.unitPrice
+            : item.lineNetAmount > 0 && safeQuantity > 0
+              ? item.lineNetAmount / safeQuantity
+              : 0
+        const lineNet =
+          item.lineNetAmount > 0 ? item.lineNetAmount : safeQuantity * safeUnitPrice
+        const vatRate = Number(item.vatRate) || 0
+        const lineVat = lineNet * (vatRate / 100)
+        const exciseRate = Number(item.exciseRate) || 0
+        const withholdingRate = Number(item.withholdingRate) || 0
+        return {
+          description: item.description,
+          quantity: safeQuantity,
+          unitPrice: safeUnitPrice,
+          discountRate: Number(item.discountRate) || 0,
+          vatRate,
+          lineNet,
+          lineVat,
+          exciseRate,
+          exciseAmount: lineNet * (exciseRate / 100),
+          withholdingRate,
+          withholdingAmount: lineVat * (withholdingRate / 100),
+          otherTaxRate: 0,
+          otherTaxAmount: 0,
+          otherTaxName: null as string | null,
+          lineTotal: 0,
+        }
+      })
+      const sumNet = computedItems.reduce((s, it) => s + it.lineNet, 0)
+      const sumVat = computedItems.reduce((s, it) => s + it.lineVat, 0)
+      const sumExcise = computedItems.reduce((s, it) => s + it.exciseAmount, 0)
+      const sumWithholding = computedItems.reduce((s, it) => s + it.withholdingAmount, 0)
+      const reconstructed = sumNet + sumVat + sumExcise - sumWithholding
+      const headerTotal = Number(ublInvoice.rootTotalAmount || 0)
+      const targetTotal = headerTotal > 0 ? headerTotal : r2(reconstructed)
+      // Eksik kalan = KDV matrahına girmeyen, toplama eklenen vergiler (ÖİV, konaklama…).
+      const residual = r2(targetTotal - reconstructed)
+      if (residual > 0.02 && sumNet > 0) {
+        let distributed = 0
+        computedItems.forEach((it, i) => {
+          if (it.lineNet <= 0) return
+          const isLast = i === computedItems.length - 1
+          const share = isLast ? r2(residual - distributed) : r2(residual * (it.lineNet / sumNet))
+          if (!isLast) distributed += share
+          it.otherTaxAmount = r2(it.otherTaxAmount + share)
+          it.otherTaxRate = it.lineNet > 0 ? (it.otherTaxAmount / it.lineNet) * 100 : 0
+          it.otherTaxName = "Diğer Vergiler"
         })
       }
+      for (const it of computedItems) {
+        it.lineTotal = r2(it.lineNet + it.lineVat + it.exciseAmount + it.otherTaxAmount - it.withholdingAmount)
+      }
+      const netAmount = sumNet > 0 ? r2(sumNet) : Number(ublInvoice.rootNetAmount || 0)
+      const vatAmount = sumNet > 0 ? r2(sumVat) : Number(ublInvoice.rootVatAmount || 0)
+      const totalAmount =
+        sumNet > 0 ? r2(computedItems.reduce((s, it) => s + it.lineTotal, 0)) : targetTotal
 
       const preview = {
         invoiceNo: normalizedInvoiceNo,
@@ -553,33 +603,25 @@ export async function POST(request: Request) {
           notes: "UBL/XML içe aktarımdan oluşturuldu",
           createdBy: user.id,
           items: {
-            create: ublInvoice.items.map((item, index) => {
-              const safeQuantity = item.quantity > 0 ? item.quantity : 0
-              const safeUnitPrice =
-                item.unitPrice > 0
-                  ? item.unitPrice
-                  : item.lineNetAmount > 0 && safeQuantity > 0
-                    ? item.lineNetAmount / safeQuantity
-                    : 0
-              const lineNet = safeQuantity * safeUnitPrice
-              const lineVat = lineNet * (item.vatRate / 100)
-
-              return {
-                description: item.description,
-                quantity: safeQuantity,
-                unitPrice: safeUnitPrice,
-                discountRate: item.discountRate,
-                discountAmount: lineNet * (item.discountRate / 100),
-                vatRate: item.vatRate,
-                vatAmount: lineVat,
-                withholdingRate: item.withholdingRate,
-                withholdingAmount: 0,
-                exciseRate: item.exciseRate,
-                exciseAmount: 0,
-                totalAmount: lineNet + lineVat,
-                order: index,
-              }
-            }),
+            // Reconciliation'lı kalemler (ÖİV/ÖTV/tevkifat dâhil, başlık toplamına tam).
+            create: computedItems.map((it, index) => ({
+              description: it.description,
+              quantity: it.quantity,
+              unitPrice: it.unitPrice,
+              discountRate: it.discountRate || null,
+              discountAmount: it.lineNet * (it.discountRate / 100),
+              vatRate: it.vatRate,
+              vatAmount: r2(it.lineVat),
+              withholdingRate: it.withholdingRate || null,
+              withholdingAmount: r2(it.withholdingAmount),
+              exciseRate: it.exciseRate || null,
+              exciseAmount: r2(it.exciseAmount),
+              otherTaxRate: it.otherTaxRate || null,
+              otherTaxAmount: r2(it.otherTaxAmount),
+              otherTaxName: it.otherTaxName,
+              totalAmount: it.lineTotal,
+              order: index,
+            })),
           },
         },
       })

@@ -45,6 +45,8 @@ interface IncomingLine {
   discountAmount: number | null
   vatRate: number | null
   vatAmount: number | null
+  otherTaxRate: number | null
+  otherTaxName: string | null
   lineTotal: number | null
 }
 
@@ -179,12 +181,14 @@ export default function GelenEFaturaDetailPage() {
         const unitPrice = Number(l.unitPrice) || 0
         const net = Number(l.lineTotal) || qty * unitPrice
         const vatRate = Number(l.vatRate) || 0
+        const otherTaxRate = Number(l.otherTaxRate) || 0
         return {
           description: l.description || "-",
           quantity: qty || 1,
           unitPrice,
           vatRate,
-          total: net * (1 + vatRate / 100),
+          // KDV + KDV dışı diğer vergi (ör. ÖİV) dâhil satır tutarı.
+          total: net * (1 + vatRate / 100 + otherTaxRate / 100),
         }
       })
       const netAmount = lines.reduce((s, l) => s + (Number(l.lineTotal) || 0), 0)
@@ -192,6 +196,15 @@ export default function GelenEFaturaDetailPage() {
         (s, l) => s + (Number(l.lineTotal) || 0) * (Number(l.vatRate) || 0) / 100,
         0,
       )
+      // KDV dışı "Diğer Vergiler" (ör. ÖİV) — önceden hesaba katılmadığından Kobipo
+      // kopya PDF'i telekom faturasında tutarı eksik gösteriyordu.
+      const otherTaxAmount = lines.reduce(
+        (s, l) => s + (Number(l.lineTotal) || 0) * (Number(l.otherTaxRate) || 0) / 100,
+        0,
+      )
+      const otherTaxLabel =
+        lines.find((l) => (Number(l.otherTaxRate) || 0) > 0 && l.otherTaxName)?.otherTaxName ||
+        "Diğer Vergiler"
       await generateInvoicePDF({
         invoiceNo: record.invoiceNo || record.uuid,
         date: record.date || new Date().toISOString(),
@@ -214,7 +227,9 @@ export default function GelenEFaturaDetailPage() {
         items,
         netAmount,
         vatAmount,
-        totalAmount: netAmount + vatAmount,
+        otherTaxAmount,
+        otherTaxLabel,
+        totalAmount: netAmount + vatAmount + otherTaxAmount,
         notes: `Gelen e-fatura (Kobipo kopyası): ${record.invoiceNo || ""} (ETTN ${record.uuid})`,
       })
     } catch (e: any) {

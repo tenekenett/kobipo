@@ -333,6 +333,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 // KDV dışı "Diğer Vergiler" (ör. Konaklama Vergisi) — matrahın üzerine
                 // eklenen ek vergi. Oran + ad gelen faturadan taşınır.
                 const otherTaxRate = Number(ln.otherTaxRate ?? 0)
+                // KDV tevkifatı: gelen faturadan (başlık invoiceType=TEVKIFAT reconciliation'ı
+                // ya da detailList) taşınır. Önceden hep 0'a sabitlendiği için tevkifat düşüyordu.
+                const withholdingRate = Number(ln.withholdingRate ?? 0)
                 return {
                   productId: matchedProduct?.id,
                   description: desc || (matchedProduct?.name ?? ""),
@@ -343,7 +346,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   discountAmount: discAmount,
                   discountMode: discAmount > 0 && discRate === 0 ? "AMOUNT" as DiscountMode : "PERCENT" as DiscountMode,
                   vatRate: Number.isFinite(vat) ? vat : 20,
-                  withholdingRate: 0,
+                  withholdingRate: Number.isFinite(withholdingRate) && withholdingRate > 0 ? withholdingRate : 0,
+                  withholdingCode: (ln.withholdingCode as string) || undefined,
+                  withholdingName: (ln.withholdingName as string) || undefined,
                   exciseRate: 0,
                   otherTaxRate: Number.isFinite(otherTaxRate) && otherTaxRate > 0 ? otherTaxRate : 0,
                   otherTaxName: (ln.otherTaxName as string) || undefined,
@@ -365,7 +370,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 },
               ]
 
-        const sourceNote = `Kaynak gelen e-fatura: ${data.invoiceNo || ""} (ETTN ${fromIncomingUuid})`
+        // Başlık toplamları satırlarla birebir tutmadığında (tevkifat/avans mahsubu)
+        // provider bir bilgilendirme notu döndürür; kullanıcı görsün diye notlara ekle.
+        const reconcileNote: string =
+          typeof data.model?.reconcileNote === "string" ? data.model.reconcileNote.trim() : ""
+        const sourceNote =
+          `Kaynak gelen e-fatura: ${data.invoiceNo || ""} (ETTN ${fromIncomingUuid})` +
+          (reconcileNote ? `\n${reconcileNote}` : "")
         // Tedarikçinin gerçek fatura numarasını koru — POST endpoint'i body.invoiceNo
         // varsa kendi numarasını üretmiyor (generateInvoiceNumber fallback'i atlanıyor).
         const importedInvoiceNo = typeof data.invoiceNo === "string" ? data.invoiceNo.trim() : ""
@@ -388,6 +399,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             const extras: LineExtraKey[] = []
             if (it.description) extras.push("description")
             if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
+            if ((it.withholdingRate || 0) > 0) extras.push("withholdingRate")
             if ((it.otherTaxRate || 0) > 0) extras.push("otherTaxRate")
             return extras
           }),
