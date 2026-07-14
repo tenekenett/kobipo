@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Trash2, X, Clock, Check, Eye, Download, Loader2 } from "lucide-react"
+import { Plus, Trash2, X, Clock, Check, Eye, Download, Loader2, Wand2, Truck } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,6 +33,9 @@ import {
 import { ProductCombobox } from "@/components/e-donusum/product-combobox"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 import { WithholdingCombobox } from "@/components/e-donusum/withholding-combobox"
+import { UnitCombobox } from "@/components/ui/unit-combobox"
+import { quickCreateProduct } from "@/lib/stock/quick-create-product"
+import { normalizeUnitCode } from "@/lib/data/units"
 
 
 type LineExtraKey = "description" | "discountRate" | "withholdingRate" | "exciseRate" | "otherTaxRate"
@@ -55,7 +58,6 @@ const LINE_EXTRA_ORDER: LineExtraKey[] = [
   "otherTaxRate",
 ]
 
-const INVOICE_UNIT_OPTIONS = ["ADET", "KG", "MT", "M2", "M3", "LT", "SA", "GUN", "PAKET"] as const
 const E_DOC_TYPES = new Set(["E_INVOICE", "E_ARCHIVE"])
 const BRAND_COLOR = "#143d6b"
 
@@ -71,9 +73,34 @@ const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
 
 interface Customer { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Supplier { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
-interface Product { id: string; name: string; code?: string; salePrice?: number; vatRate: number; unit?: string }
-export interface InvoiceItem { productId?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; otherTaxRate?: number; otherTaxName?: string; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number }
+interface Product { id: string; name: string; code?: string; salePrice?: number; vatRate: number; unit?: string; stockQuantity?: number | string; minStockLevel?: number | string | null; isService?: boolean }
+// Faturaya bağlanabilir alış irsaliyesi (stoğa işlenmiş + henüz bağlanmamış).
+interface LinkableWaybillItem {
+  productId?: string | null
+  description?: string | null
+  quantity?: number | string | null
+  unit?: string | null
+  product?: { id: string; name?: string | null; unit?: string | null; vatRate?: number | string | null; purchasePrice?: number | string | null; salePrice?: number | string | null } | null
+}
+interface LinkableWaybill { id: string; waybillNo: string; date: string; supplierId?: string | null; stockProcessed?: boolean; invoiceId?: string | null; _count?: { items: number }; items?: LinkableWaybillItem[] }
+export interface InvoiceItem { productId?: string; code?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; otherTaxRate?: number; otherTaxName?: string; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number; sourceWaybillId?: string }
 interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean }
+
+// Kayıtlı olmayan (ürün kartı bağlı olmayan) anlamlı kalemleri "ürün/hizmet olarak
+// kaydet" taslaklarına çevirir. Hem gelen e-faturadan içe aktarma anında (erken uyarı)
+// hem de kaydetme öncesi son kontrolde aynı mantıkla kullanılır.
+type UnregDraft = { index: number; name: string; code: string; isService: boolean }
+function computeUnregisteredDrafts(list: InvoiceItem[]): UnregDraft[] {
+  return list
+    .map((it, index) => ({ it, index }))
+    .filter(({ it }) => !it.productId && (it.description || "").trim() !== "" && Number(it.quantity) > 0)
+    .map(({ it, index }) => ({
+      index,
+      name: it.description.trim(),
+      code: (it.code || "").trim(),
+      isService: false,
+    }))
+}
 
 export type InvoiceEditorMode = "create" | "edit"
 
@@ -98,6 +125,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(false)
+
+  // Alış faturasına bağlanacak irsaliyeler (yalnız oluşturma modunda). Bağlanan
+  // stoğa-işlenmiş irsaliye için fatura stoğu tekrar işlemez (çift stok önleme).
+  const [availableWaybills, setAvailableWaybills] = useState<LinkableWaybill[]>([])
+  const [selectedWaybillIds, setSelectedWaybillIds] = useState<string[]>([])
   const [bootstrappingEdit, setBootstrappingEdit] = useState(mode === "edit")
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
@@ -116,6 +148,20 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     district: string | null
   } | null>(null)
   const [isCreatingSupplier, setIsCreatingSupplier] = useState(false)
+
+  // Kayıtlı olmayan kalemleri "ürün/hizmet olarak kaydet" dialog'u (alış faturası).
+  // Kaydetmeden önce her kalem için stok kodu (gelen faturadan önden dolu) ve
+  // Ürün/Hizmet seçimi alınır; kullanıcı onaylayınca kataloğa eklenip faturaya bağlanır.
+  const [unregDialogOpen, setUnregDialogOpen] = useState(false)
+  const [unregSaving, setUnregSaving] = useState(false)
+  const [unregDrafts, setUnregDrafts] = useState<UnregDraft[]>([])
+  // Dialog nereden açıldı: "prefill" (içe aktarma anındaki erken uyarı — ürünler
+  // oluşturulup formda kalınır, fatura kaydedilmez) veya "save" (kaydet öncesi son
+  // kontrol — ürünler oluşturulup fatura hemen kaydedilir).
+  const [unregMode, setUnregMode] = useState<"prefill" | "save">("save")
+  // Erken uyarıda kullanıcı "ürünsüz devam et" derse, kaydederken tekrar sormayalım.
+  const unregDismissedRef = useRef(false)
+
   // useRef: state'ten farklı olarak senkron güncellenir, effect re-run'larda race olmaz.
   // Aynı prefill mantığını birden çok kez çalıştırırsak notlar ve kalemler tekrar eder.
   const prefilledFromIncomingRef = useRef(false)
@@ -182,6 +228,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const [editingTotalIndex, setEditingTotalIndex] = useState<number | null>(null)
   const [editingTotalValue, setEditingTotalValue] = useState<string>("")
 
+  // Başlık altı "tüm satırlara toplu uygula" alanları. Seçilen KDV/İskonto anında
+  // tüm mevcut kalemlere yazılır (sonrasında satır bazında yine düzenlenebilir).
+  const [bulkVat, setBulkVat] = useState<string>("")
+  const [bulkDiscountMode, setBulkDiscountMode] = useState<DiscountMode>("PERCENT")
+  const [bulkDiscountInput, setBulkDiscountInput] = useState<string>("")
+
   const listHref = backHref || `/e-donusum?company=${encodeURIComponent(companyId)}`
   const goBack = () => router.push(listHref)
 
@@ -214,6 +266,45 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       active = false
     }
   }, [companyId])
+
+  // Alış faturasında (oluşturma modu) seçili tedarikçinin stoğa işlenmiş, henüz
+  // faturaya bağlanmamış irsaliyelerini getir. Tedarikçi/tip değişince seçim sıfırlanır.
+  useEffect(() => {
+    setSelectedWaybillIds([])
+    // Tedarikçi/tip değişince önceki irsaliyeden otomatik dolan (etiketli) kalemleri
+    // temizle; elle girilenler korunur. (items/lineExtras kasıtlı olarak deps'te değil —
+    // yalnız tedarikçi/tip/mod/firma değişiminde çalışsın.)
+    if (items.some((it) => it.sourceWaybillId)) {
+      const keepIdx: number[] = []
+      items.forEach((it, i) => { if (!it.sourceWaybillId) keepIdx.push(i) })
+      if (keepIdx.length === 0) {
+        setItems([{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }])
+        setLineExtras([[]])
+      } else {
+        setItems(keepIdx.map((i) => items[i]))
+        setLineExtras(keepIdx.map((i) => lineExtras[i] || []))
+      }
+    }
+    if (mode !== "create" || formData.type !== "PURCHASE" || !formData.supplierId || !companyId) {
+      setAvailableWaybills([])
+      return
+    }
+    let active = true
+    fetch(`/api/irsaliye?companyId=${encodeURIComponent(companyId)}&type=PURCHASE&withItems=1`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list: any) => {
+        if (!active) return
+        const arr: LinkableWaybill[] = Array.isArray(list) ? list : []
+        setAvailableWaybills(
+          arr.filter((w) => w.supplierId === formData.supplierId && w.stockProcessed && !w.invoiceId),
+        )
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, formData.type, formData.supplierId, companyId])
 
   useEffect(() => {
     if (defaultManual) setFormData((prev) => ({ ...prev, invoiceType: "MANUAL" }))
@@ -338,8 +429,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 const withholdingRate = Number(ln.withholdingRate ?? 0)
                 return {
                   productId: matchedProduct?.id,
+                  // Stok kodu: gelen faturadaki ürün kodu → yoksa eşleşen ürünün kodu.
+                  // Kayıtlı olmayan kalemi ürün olarak kaydederken kullanılır.
+                  code: code || matchedProduct?.code || undefined,
                   description: desc || (matchedProduct?.name ?? ""),
-                  unit: (ln.unit as string) || matchedProduct?.unit || "ADET",
+                  // Gelen faturanın birim kodunu (C62/MTR…) uygulama birimine çevir.
+                  unit: normalizeUnitCode(ln.unit as string) || matchedProduct?.unit || "ADET",
                   quantity: qty > 0 ? qty : 1,
                   unitPrice,
                   discountRate: discRate,
@@ -352,6 +447,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   exciseRate: 0,
                   otherTaxRate: Number.isFinite(otherTaxRate) && otherTaxRate > 0 ? otherTaxRate : 0,
                   otherTaxName: (ln.otherTaxName as string) || undefined,
+                  // Satış Fiyatı sütunu salt-okunur; eşleşen ürünün kayıtlı satış
+                  // fiyatını referans olarak göster (yeni oluşturulacaklarda boş kalır).
+                  salePrice: matchedProduct?.salePrice != null ? Number(matchedProduct.salePrice) : undefined,
                 }
               })
             : [
@@ -404,6 +502,19 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             return extras
           }),
         )
+        // ERKEN UYARI: İçe aktarılan kalemlerde ürün kartında olmayanları, kullanıcı
+        // formu doldururken (kaydetmeyi beklemeden) hemen "ürün/hizmet olarak kaydet"
+        // dialog'uyla sor. Kullanıcı ürünleri oluşturunca satırlar bağlı olarak kalır;
+        // fatura burada KAYDEDİLMEZ, kullanıcı incelemeyi bitirip kendisi kaydeder.
+        // Yalnızca gerçek kalem listesi geldiyse erken sor. Mysoft kalem detayı
+        // döndürmediğinde tek satırlık "Mal/Hizmet" placeholder'ı için sormayız;
+        // kullanıcı önce satırı düzenler, kayıtlı olmayan kalem kontrolü save'de yapılır.
+        const earlyDrafts = modelLines.length > 0 ? computeUnregisteredDrafts(newItems) : []
+        if (earlyDrafts.length > 0) {
+          setUnregDrafts(earlyDrafts)
+          setUnregMode("prefill")
+          setUnregDialogOpen(true)
+        }
       } catch (e: any) {
         setIncomingPrefillError(e?.message || "Pre-fill sırasında hata")
       }
@@ -849,7 +960,17 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   }
 
   const addItem = () => {
-    setItems([...items, { description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }])
+    const base: InvoiceItem = { description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }
+    // Başlık altı "tümüne uygula" değerleri doluysa yeni satıra da taşı — böylece toplu
+    // KDV/İskonto sonradan eklenen satırlar için de tutarlı kalır (ekrandaki değerle uyumlu).
+    if (bulkVat !== "") base.vatRate = parseFloat(bulkVat) || 0
+    const bd = bulkDiscountInput.trim()
+    if (bd !== "") {
+      const v = parseFloat(bd) || 0
+      if (bulkDiscountMode === "PERCENT") { base.discountMode = "PERCENT"; base.discountRate = v }
+      else { base.discountMode = "AMOUNT"; base.discountAmount = v }
+    }
+    setItems((prev) => [...prev, base])
     setLineExtras((prev) => [...prev, []])
   }
 
@@ -869,6 +990,41 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       newItems[index].taxExemptionReason = undefined
     }
     setItems(newItems)
+  }
+
+  // Başlık altı toplu KDV: seçilen oranı tüm satırlara uygula (istisna alanlarını da
+  // tek satır davranışıyla tutarlı tut).
+  const applyBulkVat = (v: string) => {
+    setBulkVat(v)
+    const rate = parseFloat(v) || 0
+    setItems((prev) =>
+      prev.map((it) => {
+        const next: InvoiceItem = { ...it, vatRate: rate }
+        if (rate !== 0) {
+          next.taxExemptionReasonCode = undefined
+          next.taxExemptionReason = undefined
+        }
+        return next
+      }),
+    )
+  }
+
+  // Başlık altı toplu İskonto: girilen değeri seçilen moda (% / TL) göre tüm satırlara
+  // yaz ve İskonto alanını her satırda görünür yap. Boş bırakılırsa satırlara dokunmaz
+  // (mod değişiminde değeri boş olan satırların iskontosunu sıfırlamamak için).
+  const applyBulkDiscount = (rawValue: string, mode: DiscountMode) => {
+    if (rawValue.trim() === "") return
+    const v = parseFloat(rawValue) || 0
+    // Değeri tüm satırlara yaz; satır altı İskonto bölümünü OTOMATİK AÇMA (kalabalık
+    // görünmesin). İndirim "Tutar" ve alttaki "Satır İskontoları" toplamında görünür;
+    // istenirse satırın + menüsünden açılıp düzenlenir.
+    setItems((prev) =>
+      prev.map((it) =>
+        mode === "PERCENT"
+          ? { ...it, discountMode: "PERCENT" as DiscountMode, discountRate: v, discountAmount: 0 }
+          : { ...it, discountMode: "AMOUNT" as DiscountMode, discountAmount: v, discountRate: 0 },
+      ),
+    )
   }
 
   // Tevkifat kodu seçimi: ad ve oran koddan otomatik gelir. Kod 650 ("diğer")
@@ -902,8 +1058,23 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     setLineExtras((prev) => prev.map((arr, i) => (i === index ? arr.filter((k) => k !== key) : arr)))
     if (key === "description") updateItem(index, "description", "")
     if (key === "discountRate") {
-      updateItem(index, "discountRate", 0)
-      updateItem(index, "discountAmount", 0)
+      // Başlık altı toplu İskonto aktifse, satırın kendi (override) iskontosunu kaldırınca
+      // 0'a değil TOPLU değere geri dön — "tümüne uygula" bu satır için de geçerli kalsın.
+      // (Tek fonksiyonel güncelleme; iki ayrı updateItem çağrısı aynı state'i okuyup
+      //  birbirini ezmesin diye.)
+      const bd = bulkDiscountInput.trim()
+      const bulkVal = bd === "" ? 0 : parseFloat(bd) || 0
+      setItems((prev) =>
+        prev.map((it, i) => {
+          if (i !== index) return it
+          if (bulkVal > 0) {
+            return bulkDiscountMode === "PERCENT"
+              ? { ...it, discountMode: "PERCENT" as DiscountMode, discountRate: bulkVal, discountAmount: 0 }
+              : { ...it, discountMode: "AMOUNT" as DiscountMode, discountAmount: bulkVal, discountRate: 0 }
+          }
+          return { ...it, discountRate: 0, discountAmount: 0 }
+        }),
+      )
     }
     if (key === "withholdingRate") {
       setItems((prev) =>
@@ -962,6 +1133,78 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   const mergeProductIntoList = (product: Product) => {
     setProducts((prev) => (prev.some((p) => p.id === product.id) ? prev : [product, ...prev]))
+  }
+
+  // Satıra bağlı ürünün güncel stok bilgisi (kataloğdan). Hizmet ürünlerinde stok
+  // takibi yok → null döner. quantity string (Decimal) gelebileceğinden Number'a çevrilir.
+  const getLineStock = (productId?: string): { qty: number; unit: string; low: boolean } | null => {
+    if (!productId) return null
+    const p = products.find((x) => x.id === productId)
+    if (!p || p.isService) return null
+    const qty = Number(p.stockQuantity)
+    const min = p.minStockLevel != null && p.minStockLevel !== "" ? Number(p.minStockLevel) : null
+    const safeQty = Number.isFinite(qty) ? qty : 0
+    return {
+      qty: safeQty,
+      unit: (p.unit || "ADET").toUpperCase(),
+      low: safeQty <= 0 || (min != null && Number.isFinite(min) && safeQty <= min),
+    }
+  }
+
+  // İrsaliye kalemlerini fatura satırına çevir. Fiyat: ürünün kayıtlı alış fiyatı
+  // ön-dolu gelir (irsaliyede fiyat yok), KDV/birim de üründen. Satırlar kaynak
+  // irsaliyeyle etiketlenir (sourceWaybillId) → işaret kaldırılınca geri çıkarılır.
+  const buildWaybillLines = (w: LinkableWaybill): InvoiceItem[] =>
+    (w.items || []).map((it) => {
+      const prod = it.product
+      const purchase = prod?.purchasePrice != null ? Number(prod.purchasePrice) : 0
+      const vat = prod?.vatRate != null ? Number(prod.vatRate) : 20
+      return {
+        productId: it.productId || undefined,
+        sourceWaybillId: w.id,
+        description: String(it.description || prod?.name || "").trim(),
+        unit: String(it.unit || prod?.unit || "ADET").toUpperCase(),
+        quantity: Number(it.quantity) > 0 ? Number(it.quantity) : 1,
+        unitPrice: Number.isFinite(purchase) ? purchase : 0,
+        discountRate: 0,
+        vatRate: Number.isFinite(vat) ? vat : 20,
+        withholdingRate: 0,
+        exciseRate: 0,
+        salePrice: prod?.salePrice != null ? Number(prod.salePrice) : undefined,
+      }
+    })
+
+  const isBlankLine = (it: InvoiceItem) =>
+    !it.productId && !(it.description || "").trim() && (Number(it.unitPrice) || 0) === 0
+
+  // İrsaliye seç/kaldır: seçilince kalemleri faturaya ekler (tek boş placeholder satırı
+  // varsa onu değiştirir), kaldırılınca o irsaliyeden gelen kalemleri çıkarır. items ve
+  // lineExtras birlikte tutarlı güncellenir.
+  const toggleWaybill = (w: LinkableWaybill, checked: boolean) => {
+    if (checked) {
+      const newLines = buildWaybillLines(w)
+      if (newLines.length === 0) {
+        setSelectedWaybillIds((prev) => (prev.includes(w.id) ? prev : [...prev, w.id]))
+        return
+      }
+      const onlyBlank = items.length === 1 && isBlankLine(items[0])
+      const baseItems = onlyBlank ? [] : items
+      const baseExtras = onlyBlank ? [] : lineExtras
+      setItems([...baseItems, ...newLines])
+      setLineExtras([...baseExtras, ...newLines.map(() => [] as LineExtraKey[])])
+      setSelectedWaybillIds((prev) => (prev.includes(w.id) ? prev : [...prev, w.id]))
+    } else {
+      const keepIdx: number[] = []
+      items.forEach((it, i) => { if (it.sourceWaybillId !== w.id) keepIdx.push(i) })
+      if (keepIdx.length === 0) {
+        setItems([{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }])
+        setLineExtras([[]])
+      } else {
+        setItems(keepIdx.map((i) => items[i]))
+        setLineExtras(keepIdx.map((i) => lineExtras[i] || []))
+      }
+      setSelectedWaybillIds((prev) => prev.filter((x) => x !== w.id))
+    }
   }
 
   const computeItemDiscount = (item: InvoiceItem, itemGross: number) => {
@@ -1027,7 +1270,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   }
 
   const calculateTotals = () => {
-    let netAmount = 0, discountAmount = 0, vatAmount = 0, withholdingAmount = 0, exciseAmount = 0, otherTaxAmount = 0
+    let grossAmount = 0, netAmount = 0, discountAmount = 0, vatAmount = 0, withholdingAmount = 0, exciseAmount = 0, otherTaxAmount = 0
     items.forEach((item) => {
       const itemGross = item.quantity * item.unitPrice
       const itemDiscount = computeItemDiscount(item, itemGross)
@@ -1037,7 +1280,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       const itemWithholding = itemVat * ((item.withholdingRate || 0) / 100)
       const itemExcise = itemNet * ((item.exciseRate || 0) / 100)
       const itemOtherTax = itemNet * ((item.otherTaxRate || 0) / 100)
-      netAmount += itemNet; discountAmount += itemDiscount; vatAmount += itemVat; withholdingAmount += itemWithholding; exciseAmount += itemExcise; otherTaxAmount += itemOtherTax
+      grossAmount += itemGross; netAmount += itemNet; discountAmount += itemDiscount; vatAmount += itemVat; withholdingAmount += itemWithholding; exciseAmount += itemExcise; otherTaxAmount += itemOtherTax
     })
 
     // Fatura altı iskonto: kullanıcının girdiği değeri tutara çevir, KDV matrahını
@@ -1059,7 +1302,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
     return {
       netAmount: adjNet,
-      grossNetAmount: netAmount, // global iskonto öncesi ara toplam (gösterim için)
+      grossAmount, // satır iskontoları öncesi brüt ara toplam (Ara Toplam gösterimi)
+      grossNetAmount: netAmount, // global iskonto öncesi (satır iskontosu sonrası) ara toplam
       discountAmount,
       globalDiscount,
       vatAmount: adjVat,
@@ -1204,23 +1448,53 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       }
     }
 
+    // ALIŞ faturasında ürün kartında OLMAYAN (productId'siz) anlamlı kalemler varsa,
+    // kaydetmeden önce "ürün/hizmet olarak kaydet" dialog'unu aç. Kullanıcı her kalem
+    // için stok kodu (gelen faturadan önden dolu) ve Ürün/Hizmet tipini belirler.
+    // Erken uyarı (içe aktarma anında) zaten gösterilip kullanıcı "ürünsüz devam et"
+    // dediyse burada tekrar sormayız. Aksi halde kayıtlı olmayan kalemler varsa
+    // kaydetmeden önce son kez sorulur.
+    if (formData.type === "PURCHASE" && !unregDismissedRef.current) {
+      const drafts = computeUnregisteredDrafts(items)
+      if (drafts.length > 0) {
+        setUnregDrafts(drafts)
+        setUnregMode("save")
+        setUnregDialogOpen(true)
+        return
+      }
+    }
+
+    await performSave(items)
+  }
+
+  // Faturayı kaydeder (create → POST, edit → PUT). handleSubmit ve kayıtsız-kalem
+  // dialog'u ortak bu fonksiyonu çağırır.
+  const performSave = async (itemsForSave: InvoiceItem[]) => {
     setIsLoading(true)
     try {
       const isEditing = Boolean(editingInvoiceId)
       // sendInvoice: false → fatura DRAFT olarak kaydedilir. Mysoft'a göndermek
       // için kullanıcı önizleme sayfasındaki "Mysoft'a Gönder" butonuna basar.
       // Bu sayede kesilen her fatura önce gözden geçirilir, sonra GİB'e gider.
-      const response = await fetch(isEditing ? `/api/e-donusum/invoices/${editingInvoiceId}` : "/api/e-donusum/invoices", {
+      // Düzenlemede (PUT) companyId query param'ı ZORUNLU: [id] slug olabilir ve
+      // slug yalnızca firma içinde benzersizdir. companyId olmadan slug→id çevrimi
+      // global yapılır ve başka firmanın aynı slug'lı (ör. gönderilmiş) faturasına
+      // düşerek "Only draft invoices can be updated" hatası verir. GET akışı da
+      // aynı sebeple companyId taşır (bkz. fetchInvoiceForEdit).
+      const editUrl = `/api/e-donusum/invoices/${editingInvoiceId}?companyId=${encodeURIComponent(companyId || "")}`
+      const response = await fetch(isEditing ? editUrl : "/api/e-donusum/invoices", {
         method: isEditing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           companyId,
           ...formData,
           invoiceType: effectiveInvoiceType,
-          items,
+          items: itemsForSave,
           globalDiscountAmount: totals.globalDiscount > 0 ? totals.globalDiscount : 0,
           sendInvoice: false,
           ...(fromIncomingUuid && !isEditing ? { fromIncomingUuid } : {}),
+          // İrsaliye bağlama yalnız oluşturmada (POST): seçili irsaliyeler faturaya bağlanır.
+          ...(!isEditing && selectedWaybillIds.length > 0 ? { waybillIds: selectedWaybillIds } : {}),
         }),
       })
 
@@ -1245,6 +1519,70 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     }
   }
 
+  // Dialog: kayıtlı olmayan kalemleri seçilen tip (ürün/hizmet) ve stok koduyla
+  // kataloğa ekle, faturaya bağla, sonra kaydet. Aynı isimde ürün varsa ona bağlanır.
+  const handleRegisterUnregistered = async () => {
+    setUnregSaving(true)
+    try {
+      const next = [...items]
+      let createdOrLinked = 0
+      for (const draft of unregDrafts) {
+        const it = items[draft.index]
+        if (!it) continue
+        const pname = draft.name.trim() || (it.description || "").trim()
+        if (!pname) continue
+        try {
+          const p = await quickCreateProduct({
+            companyId,
+            name: pname,
+            code: draft.code.trim() || undefined,
+            unit: it.unit || "ADET",
+            vatRate: it.vatRate,
+            purchasePrice: draft.isService ? undefined : it.unitPrice,
+            isService: draft.isService,
+          })
+          next[draft.index] = { ...next[draft.index], productId: p.id }
+          createdOrLinked++
+        } catch {
+          // Aynı isimde ürün zaten varsa yeni kayıt açılmaz; mevcut olanı bulup bağla.
+          try {
+            const res = await fetch(
+              `/api/stok/products?companyId=${encodeURIComponent(companyId)}&search=${encodeURIComponent(pname)}`,
+            )
+            if (res.ok) {
+              const list = await res.json()
+              const match = Array.isArray(list)
+                ? list.find((p: any) => (p.name || "").trim().toLowerCase() === pname.toLowerCase())
+                : null
+              if (match?.id) {
+                next[draft.index] = { ...next[draft.index], productId: match.id }
+                createdOrLinked++
+              }
+            }
+          } catch {
+            /* yut: kalem yine de serbest metin olarak kaydedilir */
+          }
+        }
+      }
+      setItems(next)
+      if (createdOrLinked > 0) {
+        toast({
+          title: unregMode === "save" ? "Kaydedildi" : "Ürünler oluşturuldu",
+          description: `${createdOrLinked} ürün/hizmet kataloğa eklendi ve faturaya bağlandı.`,
+        })
+        void fetchProducts()
+      }
+      setUnregDialogOpen(false)
+      // Yalnızca "save" modunda faturayı kaydederiz. Erken (prefill) modda kullanıcı
+      // bağlı ürünlerle forma döner ve incelemeyi bitirince kendisi kaydeder.
+      if (unregMode === "save") {
+        await performSave(next)
+      }
+    } finally {
+      setUnregSaving(false)
+    }
+  }
+
   const totals = calculateTotals()
   const isEditMode = mode === "edit" && editingInvoiceId
 
@@ -1252,6 +1590,84 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   return (
     <>
+      <Dialog open={unregDialogOpen} onOpenChange={(o) => { if (!unregSaving) setUnregDialogOpen(o) }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Kayıtlı olmayan kalemler</DialogTitle>
+            <DialogDescription>
+              {unregMode === "prefill"
+                ? "İçe aktarılan bu kalemler ürün kartında bulunmuyor. Stok kodunu düzenleyip her kalemin Ürün mü yoksa Hizmet mi olduğunu seçin; ürünler oluşturulup faturaya bağlanır ve forma devam edersiniz. Dilerseniz ürünsüz de devam edebilirsiniz."
+                : "Aşağıdaki kalemler ürün kartında bulunmuyor. Stok kodunu düzenleyip her kalemin Ürün mü yoksa Hizmet mi olduğunu seçin; kaydedilince kataloğa eklenip faturaya bağlanır. Dilerseniz ürünsüz de devam edebilirsiniz."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {unregDrafts.map((d, i) => (
+              <div key={d.index} className="grid grid-cols-12 items-end gap-2 rounded-md border p-3">
+                <div className="col-span-12 md:col-span-5">
+                  <Label className="text-xs text-muted-foreground">Ad</Label>
+                  <div className="truncate text-sm font-medium" title={d.name}>{d.name}</div>
+                </div>
+                <div className="col-span-7 md:col-span-4">
+                  <Label htmlFor={`unreg-code-${i}`} className="text-xs text-muted-foreground">Stok Kodu</Label>
+                  <Input
+                    id={`unreg-code-${i}`}
+                    value={d.code}
+                    placeholder="(opsiyonel)"
+                    disabled={unregSaving}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setUnregDrafts((prev) => prev.map((x, idx) => (idx === i ? { ...x, code: v } : x)))
+                    }}
+                  />
+                </div>
+                <div className="col-span-5 md:col-span-3">
+                  <Label className="text-xs text-muted-foreground">Tip</Label>
+                  <Select
+                    value={d.isService ? "SERVICE" : "PRODUCT"}
+                    onValueChange={(v) =>
+                      setUnregDrafts((prev) =>
+                        prev.map((x, idx) => (idx === i ? { ...x, isService: v === "SERVICE" } : x)),
+                      )
+                    }
+                    disabled={unregSaving}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PRODUCT">Ürün</SelectItem>
+                      <SelectItem value="SERVICE">Hizmet</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setUnregDialogOpen(false)} disabled={unregSaving}>
+              İptal
+            </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                setUnregDialogOpen(false)
+                if (unregMode === "save") {
+                  await performSave(items)
+                } else {
+                  // Erken uyarıda "ürünsüz devam et": formda kal, kaydederken tekrar sorma.
+                  unregDismissedRef.current = true
+                }
+              }}
+              disabled={unregSaving}
+            >
+              Ürünsüz devam et
+            </Button>
+            <Button onClick={handleRegisterUnregistered} disabled={unregSaving}>
+              {unregSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {unregMode === "save" ? "Kaydet ve devam et" : "Ürünleri oluştur"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Card className="w-full min-w-0">
         <CardContent className="space-y-8 pt-6">
 
@@ -1430,6 +1846,57 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             </div>
           </div>
 
+          {/* --- İRSALİYE BAĞLA (yalnız alış faturası + tedarikçi seçili + oluşturma) --- */}
+          {mode === "create" && formData.type === "PURCHASE" && formData.supplierId && (
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <Label className="flex items-center gap-2 text-base font-semibold">
+                    <Truck className="h-4 w-4 text-kobipo-navy" /> İrsaliye Bağla
+                  </Label>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Bu tedarikçinin <span className="font-medium">stoğa işlenmiş</span> ve henüz faturaya bağlanmamış irsaliyeleri. Seçince <span className="font-medium">kalemleri faturaya otomatik gelir</span> (fiyatı sen girersin) ve fatura bağlanır; mal zaten girdiği için <span className="font-medium">stok tekrar işlenmez</span>.
+                  </p>
+                </div>
+                {selectedWaybillIds.length > 0 && (
+                  <span className="rounded-full bg-kobipo-navy/10 px-2.5 py-1 text-xs font-semibold text-kobipo-navy">
+                    {selectedWaybillIds.length} seçili
+                  </span>
+                )}
+              </div>
+              {availableWaybills.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Uygun irsaliye yok. (İrsaliyeyi <span className="font-medium">Alış → İrsaliye</span> ekranından "Teslim alındı" yapınca burada listelenir.)
+                </p>
+              ) : (
+                <div className="grid max-h-56 gap-1.5 overflow-y-auto sm:grid-cols-2">
+                  {availableWaybills.map((w) => {
+                    const checked = selectedWaybillIds.includes(w.id)
+                    return (
+                      <label
+                        key={w.id}
+                        className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${checked ? "border-kobipo-blue bg-kobipo-pale/50" : "border-slate-200 bg-white hover:bg-slate-50"}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded"
+                          checked={checked}
+                          onChange={(e) => toggleWaybill(w, e.target.checked)}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold">{w.waybillNo}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {new Date(w.date).toLocaleDateString("tr-TR")} · {w._count?.items ?? 0} kalem
+                          </div>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* --- FATURA KALEMLERİ (TABLO GÖRÜNÜMÜ) --- */}
           {/* --- FATURA KALEMLERİ (KUSURSUZ RESPONSIVE YAPI) --- */}
           <div className="space-y-3">
@@ -1450,6 +1917,66 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 {formData.type === "PURCHASE" && <div className="col-span-1 text-right">Satış Fiyatı</div>}
                 <div className="col-span-2 text-right">Tutar</div>
                 <div className="col-span-1 text-center">İşlem</div>
+              </div>
+
+              {/* --- TÜM SATIRLARA TOPLU UYGULA --- */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 border-b border-slate-200 bg-slate-100/70 px-4 py-3 dark:bg-muted/40">
+                <div className="flex items-center gap-1.5 text-kobipo-navy dark:text-kobipo-blue">
+                  <Wand2 className="h-3.5 w-3.5" />
+                  <span className="text-xs font-bold uppercase tracking-wide">Tümüne uygula</span>
+                </div>
+
+                {/* Toplu KDV */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">KDV</span>
+                  <Select value={bulkVat} onValueChange={applyBulkVat}>
+                    <SelectTrigger className="h-9 w-[86px] bg-white dark:bg-card"><SelectValue placeholder="—" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">%0</SelectItem>
+                      <SelectItem value="1">%1</SelectItem>
+                      <SelectItem value="8">%8</SelectItem>
+                      <SelectItem value="10">%10</SelectItem>
+                      <SelectItem value="18">%18</SelectItem>
+                      <SelectItem value="20">%20</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="hidden h-6 w-px bg-slate-300/70 sm:block" />
+
+                {/* Toplu İskonto */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">İskonto</span>
+                  <div className="flex h-9 items-stretch overflow-hidden rounded-md border-2 border-kobipo-blue/25 bg-white shadow-sm focus-within:border-kobipo-blue/60 dark:bg-card">
+                    <button
+                      type="button"
+                      className={`flex w-9 shrink-0 items-center justify-center text-sm font-bold transition-all ${bulkDiscountMode === "PERCENT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                      aria-pressed={bulkDiscountMode === "PERCENT"}
+                      onClick={() => { setBulkDiscountMode("PERCENT"); applyBulkDiscount(bulkDiscountInput, "PERCENT") }}
+                      title="Oran (%)"
+                    >
+                      %
+                    </button>
+                    <button
+                      type="button"
+                      className={`flex w-9 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-xs font-bold tracking-wide transition-all ${bulkDiscountMode === "AMOUNT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                      aria-pressed={bulkDiscountMode === "AMOUNT"}
+                      onClick={() => { setBulkDiscountMode("AMOUNT"); applyBulkDiscount(bulkDiscountInput, "AMOUNT") }}
+                      title="Tutar (TL)"
+                    >
+                      TL
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="w-24 min-w-0 border-0 bg-transparent px-2.5 text-sm font-medium outline-none focus:ring-0"
+                      value={bulkDiscountInput}
+                      onChange={(e) => { setBulkDiscountInput(e.target.value); applyBulkDiscount(e.target.value, bulkDiscountMode) }}
+                      placeholder={bulkDiscountMode === "PERCENT" ? "%0" : "0,00 ₺"}
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* --- KALEMLER LİSTESİ --- */}
@@ -1477,8 +2004,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                             selectedLabel={item.description}
                             defaults={
                               formData.type === "PURCHASE"
-                                ? { unit: item.unit, vatRate: item.vatRate, purchasePrice: item.unitPrice }
-                                : { unit: item.unit, vatRate: item.vatRate, salePrice: item.unitPrice }
+                                ? { unit: item.unit, vatRate: item.vatRate, purchasePrice: item.unitPrice, code: item.code }
+                                : { unit: item.unit, vatRate: item.vatRate, salePrice: item.unitPrice, code: item.code }
                             }
                             priceContext={formData.type === "PURCHASE" ? "purchase" : "sale"}
                             onSelect={(p) => { mergeProductIntoList(p as Product); applyProductToLine(index, p as Product) }}
@@ -1489,10 +2016,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                         {/* 2. BİRİM */}
                         <div className="col-span-4 md:col-span-1">
                           <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Birim</Label>
-                          <Select value={(item.unit || "ADET").toUpperCase()} onValueChange={(v) => updateItem(index, "unit", v)}>
-                            <SelectTrigger className="w-full font-medium"><SelectValue /></SelectTrigger>
-                            <SelectContent>{INVOICE_UNIT_OPTIONS.map((u) => (<SelectItem key={u} value={u}>{u}</SelectItem>))}</SelectContent>
-                          </Select>
+                          <UnitCombobox
+                            value={item.unit || "ADET"}
+                            onChange={(v) => updateItem(index, "unit", v)}
+                          />
                         </div>
 
                         {/* 3. MİKTAR */}
@@ -1505,10 +2032,23 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                         <div className="col-span-4 md:col-span-2">
                           <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Birim Fiyat</Label>
                           <Input type="number" min="0" step="any" className="text-right font-medium" value={item.unitPrice || ""} onChange={(e) => updateItem(index, "unitPrice", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)} onFocus={(e) => (e.target as HTMLInputElement).select()} title="6 ondalık basamağa kadar girilebilir (UBL standardı)" />
-                          <div className="flex justify-end mt-1.5">
+                          <div className="flex items-center justify-between gap-2 mt-1.5">
+                            {(() => {
+                              const s = getLineStock(item.productId)
+                              return s ? (
+                                <span
+                                  className={`text-[11px] font-semibold tabular-nums ${s.low ? "text-red-600" : "text-slate-500"}`}
+                                  title="Ürünün güncel stok miktarı"
+                                >
+                                  Stok: {s.qty.toLocaleString("tr-TR")} {s.unit}
+                                </span>
+                              ) : (
+                                <span />
+                              )
+                            })()}
                             <button
                               type="button"
-                              className="text-[11px] font-semibold text-[#48c79c] hover:text-[#38a37f] transition-colors flex items-center"
+                              className="text-[11px] font-semibold text-[#48c79c] hover:text-[#38a37f] transition-colors flex items-center shrink-0"
                               onClick={() => handleOpenPricesModal(index, item.productId)}
                               disabled={!item.productId}
                             >
@@ -1532,15 +2072,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                             <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Satış Fiyatı</Label>
                             <Input
                               type="number"
-                              min="0"
-                              step="0.01"
+                              disabled
                               className="text-right font-medium"
                               value={item.salePrice ?? ""}
-                              onChange={(e) => updateItem(index, "salePrice", e.target.value === "" ? undefined : parseFloat(e.target.value) || 0)}
-                              onFocus={(e) => (e.target as HTMLInputElement).select()}
-                              disabled={!item.productId}
-                              placeholder="(opsiyonel)"
-                              title="Ürünün satış fiyatını güncelle"
+                              placeholder="—"
+                              title="Ürünün kayıtlı satış fiyatı — bu ekranda düzenlenemez"
                             />
                           </div>
                         )}
@@ -1814,7 +2350,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             </div>
 
             <div className="w-full md:w-80 bg-slate-50 rounded-lg p-4 border space-y-2">
-              <div className="flex justify-between text-sm"><span className="text-muted-foreground">Ara Toplam:</span><span className="font-medium">₺{(totals.grossNetAmount ?? totals.netAmount).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-muted-foreground">Ara Toplam:</span><span className="font-medium">₺{totals.grossAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
               {totals.discountAmount > 0 && <div className="flex justify-between text-sm text-red-600"><span>Satır İskontoları:</span><span>- ₺{totals.discountAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
 
               {/* Fatura altı (genel) iskonto */}

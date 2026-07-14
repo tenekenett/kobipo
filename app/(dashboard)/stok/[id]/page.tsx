@@ -13,9 +13,10 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Package, TrendingUp, TrendingDown, BarChart3 } from "lucide-react"
+import { ArrowLeft, Package, TrendingUp, TrendingDown, BarChart3, Pencil } from "lucide-react"
 import Link from "next/link"
 import { looksLikeCuid } from "@/lib/slug"
+import { ProductEditDialog } from "@/components/stok/product-edit-dialog"
 
 interface StockMovement {
   id: string
@@ -35,10 +36,14 @@ interface ProductDetail {
   code?: string
   name: string
   barcode?: string
+  category?: string | null
   unit: string
   vatRate: number
   purchasePrice?: number
   salePrice?: number
+  currency?: string | null
+  purchasePriceVatIncluded?: boolean | null
+  salePriceVatIncluded?: boolean | null
   stockQuantity: number
   minStockLevel?: number
   isService: boolean
@@ -59,6 +64,7 @@ export default function ProductDetailPage() {
   
   const [product, setProduct] = useState<ProductDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isEditOpen, setIsEditOpen] = useState(false)
   const [whStocks, setWhStocks] = useState<Array<{ warehouseName: string; quantity: number; unit: string }>>([])
 
   useEffect(() => {
@@ -159,6 +165,10 @@ export default function ProductDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setIsEditOpen(true)}>
+            <Pencil className="h-4 w-4 mr-2" />
+            Düzenle
+          </Button>
           <span className={`px-3 py-1 rounded-full text-sm font-medium ${
             product.isActive ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" : "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
           }`}>
@@ -398,6 +408,16 @@ export default function ProductDetailPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {companyId && (
+        <ProductEditDialog
+          companyId={companyId}
+          product={product}
+          open={isEditOpen}
+          onOpenChange={setIsEditOpen}
+          onSaved={fetchProduct}
+        />
+      )}
     </div>
   )
 }

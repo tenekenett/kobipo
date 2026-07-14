@@ -968,6 +968,7 @@ model Waybill {
   customerId        String?
   supplierId        String?
   invoiceId         String? // İlgili fatura
+  stockProcessed    Boolean   @default(false) // Alış irsaliyesi stoğa işlendi mi? (Teslim alındı → stok girişi)
   date              DateTime  @default(now())
   deliveryDate      DateTime?
   carrier           String? // Taşıyıcı firma

@@ -1,5 +1,6 @@
 import { EInvoiceProvider } from "./types"
 import { resolveMysoftBaseUrl } from "./constants"
+import { normalizeUnitCode } from "@/lib/data/units"
 
 // GİB "Diğer Vergiler" (KDV/ÖTV dışı) vergi türü kodları → okunur ad. Gelen faturada
 // alt-toplamın taxName'i boş gelirse bu tablodan ada çevrilir; kod da tanınmıyorsa
@@ -1981,7 +1982,10 @@ async sendInvoice(invoiceData: any): Promise<any> {
             "productCode",
             "itemCode",
           ) as string | null,
-          unit: pick(ln, "unitCode", "unit", "quantityUnitCode") as string | null,
+          // UBL/GİB birim kodunu (ör. C62→ADET, MTR→MT) uygulama birimine çevir.
+          unit:
+            normalizeUnitCode(pick(ln, "unitCode", "unit", "quantityUnitCode") as string | null) ||
+            null,
           quantity,
           unitPrice,
           discountRate,

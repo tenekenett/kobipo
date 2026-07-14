@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { adjustWarehouseStock, ensureDefaultWarehouseId, revertStockByReference } from "@/lib/stock/warehouse"
 
 export const dynamic = "force-dynamic"
 
@@ -99,6 +100,70 @@ export async function PUT(
       _count: { select: { items: true } },
     },
   })
+
+  // Alış irsaliyesi stok girişi: "Teslim alındı" (DELIVERED) olunca kalemler BİR KEZ
+  // stoğa girer; bu durumdan çıkınca geri alınır. reference = "waybill:<id>". Böylece
+  // faturaya bağlanınca fatura stoğu tekrar İŞLEMEZ (çift stok önlenir). Hizmet ürünleri
+  // stok takibi yapmaz → atlanır. stockProcessed bayrağı idempotentliği garanti eder.
+  if (existing.type === "PURCHASE" && status !== undefined) {
+    const nowDelivered = waybill.status === "DELIVERED"
+    const reference = `waybill:${existing.id}`
+    try {
+      if (nowDelivered && !existing.stockProcessed) {
+        const full = await prisma.waybill.findUnique({
+          where: { id: existing.id },
+          include: { items: true },
+        })
+        const wItems = full?.items ?? []
+        const productIds = Array.from(
+          new Set(wItems.map((i) => i.productId).filter((x): x is string => Boolean(x))),
+        )
+        const serviceIds = new Set(
+          productIds.length > 0
+            ? (
+                await prisma.product.findMany({
+                  where: { id: { in: productIds }, isService: true },
+                  select: { id: true },
+                })
+              ).map((p) => p.id)
+            : [],
+        )
+        await prisma.$transaction(async (tx) => {
+          const whId = await ensureDefaultWarehouseId(tx, existing.companyId)
+          for (const it of wItems) {
+            if (!it.productId || serviceIds.has(it.productId)) continue
+            const qty = Number(it.quantity) || 0
+            if (qty <= 0) continue
+            await adjustWarehouseStock(tx, {
+              companyId: existing.companyId,
+              productId: it.productId,
+              warehouseId: whId,
+              delta: qty,
+              type: "IN",
+              description: `${waybill.waybillNo} - Alış irsaliyesi (stok girişi)`,
+              reference,
+              createdBy: user.id,
+            })
+          }
+          await tx.waybill.update({ where: { id: existing.id }, data: { stockProcessed: true } })
+        })
+        ;(waybill as { stockProcessed?: boolean }).stockProcessed = true
+      } else if (!nowDelivered && existing.stockProcessed) {
+        await prisma.$transaction(async (tx) => {
+          await revertStockByReference(tx, {
+            companyId: existing.companyId,
+            reference,
+            description: `${waybill.waybillNo} - İrsaliye stok geri alındı`,
+            createdBy: user.id,
+          })
+          await tx.waybill.update({ where: { id: existing.id }, data: { stockProcessed: false } })
+        })
+        ;(waybill as { stockProcessed?: boolean }).stockProcessed = false
+      }
+    } catch (stockErr) {
+      console.error("[İrsaliye stok işleme hatası]", stockErr)
+    }
+  }
 
   return NextResponse.json(waybill)
 }

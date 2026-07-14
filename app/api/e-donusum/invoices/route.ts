@@ -378,12 +378,48 @@ const company = await prisma.company.findUnique({
       })
       .filter((x): x is { productId: string; delta: number; unitPrice: number | null } => x !== null)
 
-    if (stockItems.length > 0) {
+    // Hizmet (isService) ürünleri stok takibi yapmaz → stok hareketi oluşturma.
+    const stockProductIds = Array.from(new Set(stockItems.map((s) => s.productId)))
+    const serviceProductIds = new Set(
+      stockProductIds.length > 0
+        ? (
+            await prisma.product.findMany({
+              where: { id: { in: stockProductIds }, isService: true },
+              select: { id: true },
+            })
+          ).map((p) => p.id)
+        : [],
+    )
+    const stockableItems = stockItems.filter((s) => !serviceProductIds.has(s.productId))
+
+    // İRSALİYE BAĞLAMA (alış): İstemci seçili irsaliye(ler)i gönderdiyse bu faturaya
+    // bağla. Stoğa işlenmiş irsaliye bağlıysa mal zaten depoya girmiştir → fatura stoğu
+    // TEKRAR İŞLEMEZ (çift stok önleme). Fatura silinince bağ onDelete:SetNull ile çözülür.
+    let skipInvoiceStock = false
+    const waybillIdList: string[] = Array.isArray(body.waybillIds)
+      ? body.waybillIds.filter((x: any) => typeof x === "string" && x.trim())
+      : []
+    if (waybillIdList.length > 0 && safeType === "PURCHASE") {
+      const linkable = await prisma.waybill.findMany({
+        where: { id: { in: waybillIdList }, companyId, type: "PURCHASE", invoiceId: null },
+        select: { id: true, stockProcessed: true },
+      })
+      if (linkable.length > 0) {
+        await prisma.waybill.updateMany({
+          where: { id: { in: linkable.map((w) => w.id) } },
+          data: { invoiceId: invoice.id },
+        })
+        // Bağlanan irsaliyelerden en az biri stoğa işlenmişse fatura stoğunu atla.
+        skipInvoiceStock = linkable.some((w) => w.stockProcessed)
+      }
+    }
+
+    if (!skipInvoiceStock && stockableItems.length > 0) {
       try {
         await prisma.$transaction(async (tx) => {
           const whId = warehouseId || (await ensureDefaultWarehouseId(tx, companyId))
           const label = safeType === "SALES" ? "Satış" : safeType === "PURCHASE" ? "Satın alma" : "İade"
-          for (const it of stockItems) {
+          for (const it of stockableItems) {
             await adjustWarehouseStock(tx, {
               companyId,
               productId: it.productId,

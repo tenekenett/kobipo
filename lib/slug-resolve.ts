@@ -40,8 +40,19 @@ export async function resolveSlugId(
   companyId?: string | null
 ): Promise<string> {
   if (looksLikeCuid(param)) return param
-  const where = companyId ? { slug: param, companyId } : { slug: param }
+  // GÜVENLİK: slug yalnızca firma içinde benzersizdir (@@unique([companyId, slug])).
+  // companyId verilmezse global bir `findFirst({ where: { slug } })` başka bir
+  // firmanın aynı slug'lı kaydına düşebilir (cross-tenant karışması) — ör. taslak
+  // düzenlerken yanlışlıkla başka firmanın gönderilmiş faturasına gidip
+  // "Only draft invoices can be updated" hatası vermesi. Bu yüzden companyId yoksa
+  // slug'ı çözmeyi reddedip param'ı aynen döneriz; çağıran taraftaki
+  // `findUnique({ where: { id } })` doğal olarak "bulunamadı" (404) verir (güvenli
+  // hata modu — yanlış firmaya veri sızmaz). Eski cuid URL'leri yukarıda zaten döner.
+  if (!companyId) return param
   const delegate = prisma[model] as unknown as SlugDelegate
-  const rec = await delegate.findFirst({ where, select: { id: true } })
+  const rec = await delegate.findFirst({
+    where: { slug: param, companyId },
+    select: { id: true },
+  })
   return rec?.id ?? param
 }

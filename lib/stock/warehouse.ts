@@ -111,18 +111,18 @@ export async function adjustWarehouseStock(
  *    çağrıda net zaten 0 olur ve tekrar etki etmez. Böylece "iptal sonra silme"
  *    gibi durumlarda stok çift geri alınmaz.
  */
-export async function revertInvoiceStock(
+export async function revertStockByReference(
   db: Db,
   args: {
     companyId: string
-    invoiceId: string
-    invoiceNo?: string | null
+    reference: string
+    description?: string | null
     createdBy?: string | null
   },
 ): Promise<void> {
   const grouped = await db.stockMovement.groupBy({
     by: ["productId", "warehouseId"],
-    where: { companyId: args.companyId, reference: args.invoiceId },
+    where: { companyId: args.companyId, reference: args.reference },
     _sum: { quantity: true },
   })
 
@@ -136,11 +136,28 @@ export async function revertInvoiceStock(
       warehouseId: row.warehouseId,
       delta: -net,
       type: net < 0 ? "IN" : "OUT",
-      description: `${args.invoiceNo || args.invoiceId} - Fatura iptali (stok iade)`,
-      reference: args.invoiceId,
+      description: args.description ?? null,
+      reference: args.reference,
       createdBy: args.createdBy ?? null,
     })
   }
+}
+
+export async function revertInvoiceStock(
+  db: Db,
+  args: {
+    companyId: string
+    invoiceId: string
+    invoiceNo?: string | null
+    createdBy?: string | null
+  },
+): Promise<void> {
+  await revertStockByReference(db, {
+    companyId: args.companyId,
+    reference: args.invoiceId,
+    description: `${args.invoiceNo || args.invoiceId} - Fatura iptali (stok iade)`,
+    createdBy: args.createdBy ?? null,
+  })
 }
 
 /**

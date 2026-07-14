@@ -50,6 +50,8 @@ export async function GET(request: Request) {
   const where: any = { companyId }
   if (type) where.type = normalizeType(type)
   if (status) where.status = status
+  // withItems=1 → faturaya otomatik kalem doldurma için kalemleri de döndür.
+  const withItems = searchParams.get("withItems") === "1"
 
   const waybills = await prisma.waybill.findMany({
     where,
@@ -58,6 +60,18 @@ export async function GET(request: Request) {
       supplier: { select: { id: true, name: true } },
       invoice: { select: { id: true, invoiceNo: true } },
       _count: { select: { items: true } },
+      ...(withItems
+        ? {
+            items: {
+              include: {
+                product: {
+                  select: { id: true, name: true, unit: true, vatRate: true, purchasePrice: true, salePrice: true },
+                },
+              },
+              orderBy: { order: "asc" as const },
+            },
+          }
+        : {}),
     },
     orderBy: { createdAt: "desc" },
   })

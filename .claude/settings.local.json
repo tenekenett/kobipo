@@ -94,7 +94,11 @@
       "Bash(grep -oiE \"\\(iletişim|iletisim|konaklama|elektrik tüketim\\)[^\\\\\"]{0,30}\" swagger-v8.json)",
       "Bash(node *)",
       "Bash(timeout 300 node_modules/.bin/tsc --noEmit -p tsconfig.json)",
-      "Bash(tee /tmp/claude-1000/-home-yasin-Belgeler-sirketselmidir-kobipo/7971c84c-b125-42fd-9c43-d1f920d3c87c/scratchpad/tsc.log)"
+      "Bash(tee /tmp/claude-1000/-home-yasin-Belgeler-sirketselmidir-kobipo/7971c84c-b125-42fd-9c43-d1f920d3c87c/scratchpad/tsc.log)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\(p.scripts,null,2\\)\\)\")",
+      "Bash(awk '/^model Invoice \\\\{/,/^\\\\}/' prisma/schema.prisma)",
+      "Bash(awk '/^model StockMovement \\\\{/,/^\\\\}/' prisma/schema.prisma)",
+      "Bash(GIT_EDITOR=true git rebase --continue)"
     ]
   }
 }

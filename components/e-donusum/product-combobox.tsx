@@ -39,7 +39,7 @@ type ProductComboboxProps = {
   selectedProductId?: string
   /** Ürün listede yokken veya yükleme sırasında gösterilecek etiket */
   selectedLabel?: string
-  defaults: { unit?: string; vatRate?: number; salePrice?: number; purchasePrice?: number }
+  defaults: { unit?: string; vatRate?: number; salePrice?: number; purchasePrice?: number; code?: string }
   /**
    * Yeni ürün popup'ında satır birim fiyatının hangi alana pre-fill edileceğini belirler.
    * Satış faturası bağlamında "sale" (default), alış faturasında "purchase".
@@ -235,7 +235,9 @@ export function ProductCombobox({
         lineUnitPrice != null && lineUnitPrice > 0 ? String(lineUnitPrice) : ""
       setDraftProduct({
         name: seedName,
-        code: "",
+        // Gelen faturadan içe aktarılan stok kodunu koru (varsa). Böylece satır içinden
+        // ürün oluşturulduğunda da içe aktarılan kod kataloğa yazılır.
+        code: defaults.code || "",
         barcode: "",
         category: "",
         unit: defaults.unit || "ADET",
