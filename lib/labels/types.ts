@@ -145,8 +145,8 @@ export function createDefaultDesign(): LabelDesign {
     version: LABEL_DESIGN_VERSION,
     page: {
       labelType: "ROLL",
-      widthMm: 40,
-      heightMm: 20,
+      widthMm: 20,
+      heightMm: 40,
       columns: 1,
       gapXMm: 2,
       gapYMm: 2,
@@ -316,8 +316,8 @@ export function normalizeLabelDesign(raw: unknown): LabelDesign {
   const a4Raw = (p.a4 ?? null) as Record<string, unknown> | null
   const page: LabelPage = {
     labelType,
-    widthMm: num(p.widthMm, 40, 5, 210),
-    heightMm: num(p.heightMm, 20, 5, 297),
+    widthMm: num(p.widthMm, 20, 5, 210),
+    heightMm: num(p.heightMm, 40, 5, 297),
     columns: Math.round(num(p.columns, 1, 1, 12)),
     gapXMm: num(p.gapXMm, 2, 0, 50),
     gapYMm: num(p.gapYMm, 2, 0, 50),

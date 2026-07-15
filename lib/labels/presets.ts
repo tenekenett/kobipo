@@ -25,6 +25,7 @@ export interface SizePreset {
 }
 
 export const SIZE_PRESETS: SizePreset[] = [
+  { label: "Rulo 20×40", labelType: "ROLL", widthMm: 20, heightMm: 40, gapXMm: 2, gapYMm: 2 },
   { label: "Rulo 40×20", labelType: "ROLL", widthMm: 40, heightMm: 20, gapXMm: 2, gapYMm: 2 },
   { label: "Rulo 50×30", labelType: "ROLL", widthMm: 50, heightMm: 30, gapXMm: 2, gapYMm: 2 },
   { label: "Rulo 60×40", labelType: "ROLL", widthMm: 60, heightMm: 40, gapXMm: 2, gapYMm: 2 },
