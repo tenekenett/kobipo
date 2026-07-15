@@ -26,6 +26,7 @@ type SlugModel =
   | "invoice"
   | "customer"
   | "supplier"
+  | "labelTemplate"
 
 type SlugDelegate = {
   findFirst: (args: {

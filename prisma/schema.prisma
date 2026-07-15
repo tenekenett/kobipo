@@ -249,6 +249,7 @@ model Company {
   packageOrders           PackageOrder[]
   eInvoiceTemplates       EInvoiceTemplate[]
   eInvoiceSeriesTemplates EInvoiceSeriesTemplate[]
+  labelTemplates          LabelTemplate[]
 
   @@index([parentCompanyId])
   @@map("companies")
@@ -521,6 +522,30 @@ model Product {
   @@index([companyId])
   @@index([companyId, category])
   @@map("products")
+}
+
+// Ürün etiketi tasarım şablonları (Etiket Tasarımcısı, /stok/etiket).
+// design: versiyonlu element ağacı (lib/labels/types.ts LabelDesign) — mm tabanlı
+// sayfa ayarları + öğeler (ürün alanı, metin, barkod, QR, şekil, görsel/emoji).
+// Görsel/emoji öğeleri küçültülmüş PNG data-URI olarak design içinde saklanır;
+// barkod/QR görüntüleri saklanmaz, her render'da üretilir. Şablon firma (şube)
+// kapsamlıdır; başka şubeye aktarım "kopyala" API'siyle yapılır.
+model LabelTemplate {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  slug      String   @default("")
+  labelType String   @default("ROLL") // ROLL (rulo) | A4 (yaprak)
+  design    Json
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, slug])
+  @@index([companyId])
+  @@map("label_templates")
 }
 
 model StockMovement {

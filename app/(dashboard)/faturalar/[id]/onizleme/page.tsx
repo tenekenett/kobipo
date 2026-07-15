@@ -677,7 +677,7 @@ export default function FaturaOnizlemePage() {
           {invoice.status === "DRAFT" && (
             <Button variant="success" onClick={handleSaveDraftAndReturn}>
               <CheckCircle2 className="h-4 w-4 mr-2" />
-              Taslak Olarak Kaydet
+              Faturayı Kaydet
             </Button>
           )}
           {invoice.status === "DRAFT" &&
@@ -693,7 +693,7 @@ export default function FaturaOnizlemePage() {
                 ) : (
                   <ShieldCheck className="mr-2 h-4 w-4" />
                 )}
-                Resmileştir
+                Faturayı Gönder
               </Button>
             )}
           {/* GİB taslağı: kesinleştir (GİB'e gönder) veya geri al (yeniden düzenle). */}

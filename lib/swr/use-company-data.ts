@@ -13,11 +13,15 @@ export type RefProduct = {
   id: string
   name: string
   code?: string | null
+  barcode?: string | null
   salePrice: number | null
   purchasePrice: number | null
   vatRate: number
   unit?: string | null
   category?: string | null
+  currency?: string | null
+  stockQuantity?: number
+  isService?: boolean
 }
 export type RefCounterparty = { id: string; name: string; taxNumber?: string | null }
 export type RefAccount = { id: string; name: string; type: string }
@@ -36,11 +40,15 @@ export function useProducts(companyId: string | null, opts?: { isService?: boole
         id: p.id,
         name: p.name,
         code: p.code ?? null,
+        barcode: p.barcode ?? null,
         salePrice: p.salePrice != null ? Number(p.salePrice) : null,
         purchasePrice: p.purchasePrice != null ? Number(p.purchasePrice) : null,
         vatRate: Number(p.vatRate) || 20,
         unit: p.unit ?? null,
         category: p.category ?? null,
+        currency: p.currency ?? null,
+        stockQuantity: p.stockQuantity != null ? Number(p.stockQuantity) : undefined,
+        isService: Boolean(p.isService),
       })),
     [data]
   )
