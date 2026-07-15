@@ -2610,13 +2610,6 @@ async sendInvoice(invoiceData: any): Promise<any> {
         const n = Number((s.includes("/") ? s.split("/")[0] : s).replace(",", "."))
         return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0
       }
-      // Mysoft'un gerçek alan adı/oran formatını görebilmek için 601 + ilk kayıtları logla.
-      console.log(
-        "[Mysoft] withholdingTaxType raw — 601:",
-        JSON.stringify(raw.find((w: any) => String(w?.withholdingTaxTypeCode) === "601")),
-        "| ilk2:",
-        JSON.stringify(raw.slice(0, 2)),
-      )
       const data = raw
         .map((w) => ({
           code: String(w?.withholdingTaxTypeCode ?? "").trim(),

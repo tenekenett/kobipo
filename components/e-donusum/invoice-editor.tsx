@@ -267,6 +267,28 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     }
   }, [companyId])
 
+  // Tevkifat kod listesi yüklendiğinde, kodu OLUP oranı boş kalmış kalemlerin
+  // oranını koddan otomatik tamamla. `applyWithholdingCode`'un tetiklenmediği
+  // durumları kapsar: alış faturası içe aktarma, kayıtlı faturayı düzenleme veya
+  // liste geç yüklenirken kalemin hazır gelmesi. Böylece kodu bilinen kalemde
+  // "Oran otomatik gelmedi" kalmaz. Oran Mysoft verisinden gelir (gömülü değil);
+  // 650 ("diğer") serbest olduğu ve kullanıcının girdiği oranlar korunur.
+  useEffect(() => {
+    if (withholdingTypes.length === 0) return
+    setItems((prev) => {
+      let changed = false
+      const next = prev.map((it) => {
+        if (!it.withholdingCode || it.withholdingCode === "650") return it
+        if (it.withholdingRate && it.withholdingRate > 0) return it
+        const w = withholdingTypes.find((t) => t.code === it.withholdingCode)
+        if (!w || !w.rate) return it
+        changed = true
+        return { ...it, withholdingRate: w.rate, withholdingName: it.withholdingName || w.name }
+      })
+      return changed ? next : prev
+    })
+  }, [withholdingTypes])
+
   // Alış faturasında (oluşturma modu) seçili tedarikçinin stoğa işlenmiş, henüz
   // faturaya bağlanmamış irsaliyelerini getir. Tedarikçi/tip değişince seçim sıfırlanır.
   useEffect(() => {
@@ -426,7 +448,18 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 const otherTaxRate = Number(ln.otherTaxRate ?? 0)
                 // KDV tevkifatı: gelen faturadan (başlık invoiceType=TEVKIFAT reconciliation'ı
                 // ya da detailList) taşınır. Önceden hep 0'a sabitlendiği için tevkifat düşüyordu.
-                const withholdingRate = Number(ln.withholdingRate ?? 0)
+                // Oran gelmediyse ama kod geldiyse oranı koddan (Mysoft listesinden) türet;
+                // liste henüz yüklenmediyse yukarıdaki repair efekti sonradan tamamlar.
+                const incomingWithholdingCode = (ln.withholdingCode as string) || undefined
+                const rawWithholdingRate = Number(ln.withholdingRate ?? 0)
+                const codeRate =
+                  incomingWithholdingCode && incomingWithholdingCode !== "650"
+                    ? withholdingTypes.find((t) => t.code === incomingWithholdingCode)?.rate || 0
+                    : 0
+                const withholdingRate =
+                  Number.isFinite(rawWithholdingRate) && rawWithholdingRate > 0
+                    ? rawWithholdingRate
+                    : codeRate
                 return {
                   productId: matchedProduct?.id,
                   // Stok kodu: gelen faturadaki ürün kodu → yoksa eşleşen ürünün kodu.
@@ -442,7 +475,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   discountMode: discAmount > 0 && discRate === 0 ? "AMOUNT" as DiscountMode : "PERCENT" as DiscountMode,
                   vatRate: Number.isFinite(vat) ? vat : 20,
                   withholdingRate: Number.isFinite(withholdingRate) && withholdingRate > 0 ? withholdingRate : 0,
-                  withholdingCode: (ln.withholdingCode as string) || undefined,
+                  withholdingCode: incomingWithholdingCode,
                   withholdingName: (ln.withholdingName as string) || undefined,
                   exciseRate: 0,
                   otherTaxRate: Number.isFinite(otherTaxRate) && otherTaxRate > 0 ? otherTaxRate : 0,
