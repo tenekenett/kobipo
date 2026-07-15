@@ -11,19 +11,32 @@ export type SendInvoiceResult =
   | { ok: true; uuid: string; providerName: string }
   | { ok: false; status: number; error: string; integrationStatus: string }
 
+export type DraftPdfResult =
+  | { ok: true; pdfBuffer: Buffer; filename: string }
+  | { ok: false; status: number; error: string }
+
+type SendContext =
+  | {
+      ok: true
+      invoice: { id: string; uuid: string | null }
+      provider: any
+      invoiceData: any
+      effectiveInvoiceType: "E_INVOICE" | "E_ARCHIVE"
+      resolvedPrefix?: string
+    }
+  | { ok: false; status: number; error: string; integrationStatus: string }
+
 /**
- * Bir faturayı Mysoft'a (veya konfigüre edilmiş e-Belge sağlayıcısına) gönderir.
- * Hem ilk gönderim (POST /api/e-donusum/invoices) hem de "Yeniden Gönder"
- * (POST /api/e-donusum/invoices/[id]) bu helper'ı kullanır.
- *
- * - invoiceSeriesPrefix Mysoft payload'ına KARIŞMAZ — sadece eFaturaPrefix/eArchivePrefix.
- * - Hiçbiri tanımlı değilse provider Mysoft'tan aktif default numaratörü otomatik seçer.
- * - Mysoft "numaratör bulunamadı" hatası kullanıcıya CTA içeren mesaja dönüştürülür.
+ * Bir e-belge faturasını Mysoft'a göndermek/önizlemek için ORTAK bağlamı hazırlar:
+ * faturayı+firmayı çeker, provider'ı çözer, e-Arşiv→e-Fatura VKN sorgusunu yapar,
+ * prefix + xsltName'i belirler ve Mysoft `invoiceData` payload'ını kurar. Hem taslak
+ * OLUŞTURMA (createGibDraft) hem taslak PDF ÖNİZLEME (getGibDraftPdf) bunu kullanır —
+ * ikisi de Mysoft'un kabul ettiği AYNI tam modeli göndermelidir.
  */
-export async function sendInvoiceToProvider(
+async function resolveSendContext(
   invoiceId: string,
-  options?: { eInvoiceProfile?: "TICARIFATURA" | "TEMELFATURA" },
-): Promise<SendInvoiceResult> {
+  opts: { requireStatus: "DRAFT" | "GIB_DRAFT"; eInvoiceProfile?: "TICARIFATURA" | "TEMELFATURA" },
+): Promise<SendContext> {
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
     include: {
@@ -39,11 +52,14 @@ export async function sendInvoiceToProvider(
     return { ok: false, status: 404, error: "Fatura bulunamadı", integrationStatus: "" }
   }
 
-  if (invoice.status !== "DRAFT") {
+  if (invoice.status !== opts.requireStatus) {
     return {
       ok: false,
       status: 400,
-      error: "Sadece taslak faturalar gönderilebilir.",
+      error:
+        opts.requireStatus === "DRAFT"
+          ? "Sadece taslak faturalar gönderilebilir."
+          : "Bu işlem yalnızca GİB taslağındaki faturada yapılabilir.",
       integrationStatus: "",
     }
   }
@@ -126,7 +142,6 @@ export async function sendInvoiceToProvider(
   let effectiveInvoiceType: "E_INVOICE" | "E_ARCHIVE" = invoice.invoiceType as
     | "E_INVOICE"
     | "E_ARCHIVE"
-  let autoSwitched = false
   const customerVkn = (invoice.customer?.taxNumber || "").replace(/\D/g, "")
   if (
     effectiveInvoiceType === "E_ARCHIVE" &&
@@ -138,7 +153,6 @@ export async function sendInvoiceToProvider(
       const gibCheck = await (provider as any).getGibAccount(customerVkn)
       if (gibCheck?.success && gibCheck.data?.isEInvoiceTaxpayer) {
         effectiveInvoiceType = "E_INVOICE"
-        autoSwitched = true
         await prisma.invoice.update({
           where: { id: invoice.id },
           data: { invoiceType: "E_INVOICE" },
@@ -175,13 +189,13 @@ export async function sendInvoiceToProvider(
         : `urn:mail:${rawReceiverAlias}`
       : undefined
 
-  const invoiceData = {
+  const invoiceData: any = {
     invoiceType: effectiveInvoiceType,
     // Alıcının pinlediği posta kutusu (yoksa undefined → Mysoft otomatik seçer).
     pkAlias: receiverPkAlias,
     // E-Fatura'da kullanıcının seçtiği profil (Ticari/Temel). E-Arşiv'de yok sayılır.
     eInvoiceProfile:
-      effectiveInvoiceType === "E_INVOICE" ? options?.eInvoiceProfile : undefined,
+      effectiveInvoiceType === "E_INVOICE" ? opts.eInvoiceProfile : undefined,
     prefix: resolvedPrefix,
     tenantIdentifierNumber: tenantVkn || undefined,
     invoiceNo: invoice.invoiceNo,
@@ -240,18 +254,6 @@ export async function sendInvoiceToProvider(
     globalDiscountAmount: Number(invoice.globalDiscountAmount || 0),
   }
 
-  console.log("[helper] invoice from DB →", {
-    id: invoice.id,
-    invoiceNo: invoice.invoiceNo,
-    globalDiscountAmount: invoice.globalDiscountAmount,
-    globalDiscountType: typeof invoice.globalDiscountAmount,
-    itemDiscounts: invoice.items.map((it) => ({
-      desc: it.description,
-      discountAmount: it.discountAmount,
-      discountRate: it.discountRate,
-    })),
-  })
-
   // Gönderimde kullanılacak belge dizaynını (xsltName) çöz: önce faturanın
   // prefix'ine (seri no) atanmış şablon, yoksa firma genel aktif şablonu.
   // Belge tipi olarak (E-Arşiv→E-Fatura otomatik dönüşümü olabildiğinden)
@@ -282,10 +284,41 @@ export async function sendInvoiceToProvider(
       }
     }
     const xsltName = await getXsltNameForSeries(invoice.companyId, eDocumentType, prefixForTemplate)
-    if (xsltName) (invoiceData as any).xsltName = xsltName
+    if (xsltName) invoiceData.xsltName = xsltName
   }
 
-  const response: any = await provider.sendInvoice(invoiceData)
+  return {
+    ok: true,
+    invoice: { id: invoice.id, uuid: invoice.uuid },
+    provider,
+    invoiceData,
+    effectiveInvoiceType,
+    resolvedPrefix,
+  }
+}
+
+/**
+ * Faturayı Mysoft'ta GİB TASLAĞI olarak oluşturur — GİB'e GÖNDERMEZ (isSaveAsDraft).
+ * "Resmileştir" akışının 1. adımı: POST /api/e-donusum/invoices/[id] bunu çağırır.
+ * Taslak ETTN + belge/sıra no üretilir; kullanıcı taslak PDF'ini görüp
+ * finalizeGibDraft ile kesinleştirir (2. adım) ya da discardGibDraft ile geri alır.
+ */
+export async function createGibDraft(
+  invoiceId: string,
+  options?: { eInvoiceProfile?: "TICARIFATURA" | "TEMELFATURA" },
+): Promise<SendInvoiceResult> {
+  const ctx = await resolveSendContext(invoiceId, {
+    requireStatus: "DRAFT",
+    eInvoiceProfile: options?.eInvoiceProfile,
+  })
+  if (!ctx.ok) {
+    return { ok: false, status: ctx.status, error: ctx.error, integrationStatus: ctx.integrationStatus }
+  }
+  const { provider, invoiceData, invoice, effectiveInvoiceType, resolvedPrefix } = ctx
+
+  // isSaveAsDraft: Mysoft faturayı GİB'e GÖNDERMEZ, taslak olarak saklar. Aynı ettn
+  // (payload.ettn = bizim ürettiğimiz GUID) ile finalizeGibDraft kesinleştirir.
+  const response: any = await provider.sendInvoice({ ...invoiceData, isSaveAsDraft: true })
 
   if (response.success && response.uuid) {
     const officialDocNo =
@@ -294,12 +327,13 @@ export async function sendInvoiceToProvider(
       where: { id: invoice.id },
       data: {
         uuid: response.uuid,
-        // Mysoft resmi belge no'yu (seçilen prefix ile) gönderim yanıtında verirse
-        // hemen kaydet; vermezse durum sorgusunda doldurulur.
+        // Taslakta üretilen belge/sıra no (isGenerateDocNoForDraft). Kesinleşmede güncellenebilir.
         ...(officialDocNo ? { eDocumentNo: officialDocNo } : {}),
-        status: "SENT",
+        // GİB TASLAĞI: Mysoft'ta taslak var ama GİB'e gitmedi. uuid dolu olsa da
+        // "gönderilmiş" DEĞİL — ayrım status==="SENT" ile yapılır.
+        status: "GIB_DRAFT",
         integrationId: provider.name,
-        integrationStatus: "SENT",
+        integrationStatus: "DRAFT",
       },
     })
     return { ok: true, uuid: response.uuid, providerName: provider.name }
@@ -353,4 +387,160 @@ export async function sendInvoiceToProvider(
     error: friendlyError,
     integrationStatus,
   }
+}
+
+/**
+ * GİB taslağının önizleme PDF'ini üretir. getInvoiceOutboxDraftPdfAsZip TAM fatura
+ * modeli istediğinden, taslak oluştururken kullanılan aynı invoiceData'yı kurup
+ * provider.sendInvoice'a draftPdfOnly=true ile veririz (ettn = mevcut taslağınki).
+ */
+export async function getGibDraftPdf(invoiceId: string): Promise<DraftPdfResult> {
+  const ctx = await resolveSendContext(invoiceId, { requireStatus: "GIB_DRAFT" })
+  if (!ctx.ok) return { ok: false, status: ctx.status, error: ctx.error }
+
+  const response: any = await ctx.provider.sendInvoice({
+    ...ctx.invoiceData,
+    draftPdfOnly: true,
+    ettn: ctx.invoice.uuid || undefined,
+  })
+
+  if (!response.success || !response.pdfBuffer) {
+    return { ok: false, status: 502, error: response.error || "Taslak PDF alınamadı." }
+  }
+  return { ok: true, pdfBuffer: response.pdfBuffer, filename: response.filename || "taslak.pdf" }
+}
+
+// ---- GİB Taslağı: kesinleştirme ve geri alma ----
+
+type ProviderContext =
+  | { ok: true; provider: any; tenantVkn: string | null; company: any }
+  | { ok: false; status: number; error: string }
+
+// Firmanın Mysoft provider'ını + tenant VKN'sini çözer. finalize/discard için ortak;
+// bunlar invoiceData kurmaz (yalnız ettn ile çalışır) — o yüzden resolveSendContext'i kullanmaz.
+async function resolveCompanyProvider(companyId: string): Promise<ProviderContext> {
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: {
+      isEDonusumEnabled: true,
+      eDonusumApiUsername: true,
+      eDonusumApiPassword: true,
+      eDonusumApiUrl: true,
+      eDonusumTenantVkn: true,
+      eDonusumOnboardingStatus: true,
+      eFaturaPrefix: true,
+      eArchivePrefix: true,
+      parentCompany: { select: { taxNumber: true } },
+    },
+  })
+  if (!company) return { ok: false, status: 404, error: "Firma bulunamadı" }
+  if (!company.isEDonusumEnabled)
+    return { ok: false, status: 400, error: "Bu firmada e-fatura özelliği kapalı." }
+  try {
+    assertEInvoiceRuntimeReady()
+  } catch (error: any) {
+    return { ok: false, status: 503, error: error?.message || "E-belge çalışma zamanı hazır değil." }
+  }
+  const resolved = resolveCompanyEInvoiceProvider(company)
+  if (!resolved.ok) return { ok: false, status: resolved.status, error: resolved.error }
+  return { ok: true, provider: resolved.provider, tenantVkn: resolved.tenantVkn, company }
+}
+
+/**
+ * GİB taslağını KESİNLEŞTİRİR: sendDraftInvoiceToGIB ile GİB'e gönderir. "Resmileştir"
+ * akışının 2. adımı. Ön koşul: fatura GIB_DRAFT ve uuid (taslak ETTN) dolu.
+ */
+export async function finalizeGibDraft(invoiceId: string): Promise<SendInvoiceResult> {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    select: { id: true, companyId: true, status: true, uuid: true, invoiceType: true },
+  })
+  if (!invoice) return { ok: false, status: 404, error: "Fatura bulunamadı", integrationStatus: "" }
+  if (invoice.status !== "GIB_DRAFT" || !invoice.uuid) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Yalnızca GİB taslağındaki faturalar kesinleştirilebilir.",
+      integrationStatus: "",
+    }
+  }
+
+  const ctx = await resolveCompanyProvider(invoice.companyId)
+  if (!ctx.ok) return { ok: false, status: ctx.status, error: ctx.error, integrationStatus: "" }
+
+  // Prefix taslak oluştururken hangi tipe göre çözüldüyse (DB'deki invoiceType) aynısı.
+  const resolvedPrefix: string | undefined =
+    invoice.invoiceType === "E_INVOICE"
+      ? ctx.company.eFaturaPrefix || undefined
+      : ctx.company.eArchivePrefix || undefined
+
+  const response = await ctx.provider.sendDraftToGib({
+    ettn: invoice.uuid,
+    prefix: resolvedPrefix,
+    tenantIdentifierNumber: ctx.tenantVkn || undefined,
+  })
+
+  if (response.success) {
+    await prisma.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        status: "SENT",
+        integrationStatus: "SENT",
+        ...(response.docNo ? { eDocumentNo: response.docNo } : {}),
+      },
+    })
+    return { ok: true, uuid: invoice.uuid, providerName: ctx.provider.name }
+  }
+
+  const friendlyError = response.error || "Taslak GİB'e gönderilemedi."
+  const integrationStatus = `ERROR:${friendlyError}`
+  await prisma.invoice.update({
+    where: { id: invoice.id },
+    data: { integrationStatus },
+  })
+  return { ok: false, status: 400, error: friendlyError, integrationStatus }
+}
+
+/**
+ * GİB taslağını GERİ ALIR: Mysoft'tan taslağı siler ve faturayı DRAFT'a döndürür
+ * (yeniden düzenlenebilir). Ön koşul: fatura GIB_DRAFT.
+ */
+export async function discardGibDraft(invoiceId: string): Promise<SendInvoiceResult> {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    select: { id: true, companyId: true, status: true, uuid: true },
+  })
+  if (!invoice) return { ok: false, status: 404, error: "Fatura bulunamadı", integrationStatus: "" }
+  if (invoice.status !== "GIB_DRAFT") {
+    return {
+      ok: false,
+      status: 400,
+      error: "Yalnızca GİB taslağındaki faturalar geri alınabilir.",
+      integrationStatus: "",
+    }
+  }
+
+  const ctx = await resolveCompanyProvider(invoice.companyId)
+  if (!ctx.ok) return { ok: false, status: ctx.status, error: ctx.error, integrationStatus: "" }
+
+  if (invoice.uuid) {
+    const response = await ctx.provider.deleteDraft({
+      ettn: invoice.uuid,
+      tenantIdentifierNumber: ctx.tenantVkn || undefined,
+    })
+    if (!response.success) {
+      return {
+        ok: false,
+        status: 400,
+        error: response.error || "Taslak Mysoft'tan silinemedi.",
+        integrationStatus: "",
+      }
+    }
+  }
+
+  await prisma.invoice.update({
+    where: { id: invoice.id },
+    data: { status: "DRAFT", uuid: null, eDocumentNo: null, integrationStatus: null },
+  })
+  return { ok: true, uuid: "", providerName: ctx.provider.name }
 }

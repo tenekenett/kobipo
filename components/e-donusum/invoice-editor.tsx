@@ -1500,7 +1500,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
       if (response.ok) {
         const saved = await response.json().catch(() => null)
-        const savedId: string | undefined = saved?.id || editingInvoiceId
+        // Düzenlemede kayıt sonrası her zaman faturanın önizlemesine dön: PUT cevabındaki
+        // id, o yoksa state'teki editingInvoiceId, o da yoksa URL'den gelen invoiceId.
+        // (Aksi halde savedId boş kalırsa listeye düşülüyordu.)
+        const savedId: string | undefined = saved?.id || editingInvoiceId || (isEditing ? invoiceId : undefined)
         toast({ title: "Başarılı", description: isEditing ? "Fatura güncellendi" : "Fatura oluşturuldu" })
         resetForm()
         if (savedId) {

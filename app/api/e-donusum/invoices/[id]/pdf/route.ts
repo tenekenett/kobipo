@@ -42,6 +42,7 @@ export async function GET(
         uuid: true,
         invoiceNo: true,
         invoiceType: true,
+        status: true,
       },
     })
 
@@ -51,9 +52,11 @@ export async function GET(
 
     await ensureCompanyAccess(invoice.companyId)
 
-    if (!invoice.uuid) {
+    // Resmî PDF yalnızca kesinleşmiş (GİB'e gönderilmiş) faturada olur. GİB taslağında
+    // uuid dolu olsa da resmî belge yoktur — taslak PDF için ../draft-pdf kullanılır.
+    if (invoice.status !== "SENT" || !invoice.uuid) {
       return NextResponse.json(
-        { error: "Fatura Mysoft'a gönderilmemiş (UUID yok)" },
+        { error: "Fatura henüz GİB'e gönderilmemiş (resmî PDF yok)." },
         { status: 400 }
       )
     }

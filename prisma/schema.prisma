@@ -716,7 +716,7 @@ model Invoice {
   slug                 String    @default("")
   type                 String // SALES, PURCHASE
   invoiceType          String // E_INVOICE, E_ARCHIVE
-  status               String    @default("DRAFT") // DRAFT, SENT, CANCELLED
+  status               String    @default("DRAFT") // DRAFT, GIB_DRAFT (Mysoft taslağı, GİB'e gitmedi), SENT, CANCELLED
   customerId           String?
   supplierId           String?
   date                 DateTime  @default(now())

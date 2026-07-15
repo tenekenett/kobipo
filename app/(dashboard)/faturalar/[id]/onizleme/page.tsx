@@ -129,6 +129,8 @@ export default function FaturaOnizlemePage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
   const [cancelNote, setCancelNote] = useState("Kullanıcı tarafından iptal edildi")
+  const [isFinalizing, setIsFinalizing] = useState(false)
+  const [isDiscarding, setIsDiscarding] = useState(false)
 
   useEffect(() => {
     if (!invoiceId) return
@@ -346,18 +348,17 @@ export default function FaturaOnizlemePage() {
   }
 
   // Profil seçildikten sonra (E-Fatura'da) veya doğrudan (E-Arşiv'de) çağrılır.
-  // Resmileştirme öncesi son onay — kullanıcıya taslak PDF'ini kontrol etme fırsatı.
+  // 1. ADIM: Mysoft'ta GİB TASLAĞI oluşturur — GİB'e GÖNDERMEZ. Kullanıcı sonraki
+  // adımda taslak PDF'ini görüp kesinleştirir; taslak geri alınabildiği için yumuşak onay.
   const confirmAndSend = async (eInvoiceProfile?: "TICARIFATURA" | "TEMELFATURA") => {
     setProfileDialogOpen(false)
     const profileLabel = eInvoiceProfile
       ? eInvoiceProfile === "TICARIFATURA" ? " (Ticari Fatura)" : " (Temel Fatura)"
       : ""
-    const docTypeLabel = invoice?.invoiceType === "E_INVOICE" ? "e-Fatura" : "e-Arşiv"
     const ok = await confirm({
-      title: "Faturayı resmileştir",
-      description: `Fatura${profileLabel} olarak Mysoft üzerinden GİB sistemine resmen iletilecek. Bu işlem geri alınamaz; ${docTypeLabel === "e-Fatura" ? "yalnız alıcıya iade faturası kesilebilir" : "yalnız iptal yoluyla geri alınabilir"}. Taslak PDF'ini kontrol ettiyseniz devam edebilirsiniz.`,
-      confirmLabel: "Resmileştir ve Gönder",
-      variant: "destructive",
+      title: "GİB taslağı oluştur",
+      description: `Fatura${profileLabel} Mysoft'ta TASLAK olarak oluşturulacak — henüz GİB'e gönderilmez. Ardından taslak PDF'ini kontrol edip "Kesinleştir ve GİB'e Gönder" diyeceksiniz. Bu adım geri alınabilir.`,
+      confirmLabel: "Taslak Oluştur",
     })
     if (!ok) return
     await handleSendToProvider(eInvoiceProfile)
@@ -375,21 +376,85 @@ export default function FaturaOnizlemePage() {
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(data?.error || "Gönderilemedi")
+        throw new Error(data?.error || "Taslak oluşturulamadı")
       }
       toast({
-        title: "Fatura gönderildi",
-        description: data.uuid ? `ETTN: ${data.uuid}` : "Fatura başarıyla iletildi.",
+        title: "GİB taslağı oluşturuldu",
+        description: "Taslak PDF'ini kontrol edip kesinleştirebilirsiniz.",
       })
       fetchInvoice()
     } catch (error: any) {
       toast({
-        title: "Gönderim başarısız",
+        title: "Taslak oluşturulamadı",
         description: error?.message || "Bilinmeyen hata",
         variant: "destructive",
       })
     } finally {
       setIsSendingToProvider(false)
+    }
+  }
+
+  // 2. ADIM: GİB taslağını KESİNLEŞTİR — sendDraftInvoiceToGIB ile GİB'e gönderir.
+  // Geri alınamaz; taslak PDF kontrol edildikten sonra son onayla çağrılır.
+  const handleFinalize = async () => {
+    if (!invoice) return
+    const ok = await confirm({
+      title: "Faturayı kesinleştir ve GİB'e gönder",
+      description: `Taslak, Mysoft üzerinden GİB sistemine resmen iletilecek. Bu işlem geri alınamaz; ${
+        invoice.invoiceType === "E_INVOICE"
+          ? "yalnız alıcıya iade faturası kesilebilir"
+          : "yalnız iptal yoluyla geri alınabilir"
+      }. Taslak PDF'ini kontrol ettiyseniz devam edin.`,
+      confirmLabel: "Kesinleştir ve Gönder",
+      variant: "destructive",
+    })
+    if (!ok) return
+    setIsFinalizing(true)
+    try {
+      const response = await fetch(`/api/e-donusum/invoices/${invoice.id}/finalize`, { method: "POST" })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.error || "Kesinleştirilemedi")
+      toast({
+        title: "Fatura GİB'e gönderildi",
+        description: data.uuid ? `ETTN: ${data.uuid}` : "Fatura resmileştirildi.",
+      })
+      fetchInvoice()
+    } catch (error: any) {
+      toast({
+        title: "Kesinleştirme başarısız",
+        description: error?.message || "Bilinmeyen hata",
+        variant: "destructive",
+      })
+    } finally {
+      setIsFinalizing(false)
+    }
+  }
+
+  // GİB taslağını GERİ AL — Mysoft'tan siler, fatura DRAFT'a döner (yeniden düzenlenebilir).
+  const handleDiscardDraft = async () => {
+    if (!invoice) return
+    const ok = await confirm({
+      title: "Taslağı geri al",
+      description:
+        "GİB taslağı Mysoft'tan silinecek ve fatura yeniden düzenlenebilir duruma (taslak) dönecek. GİB'e herhangi bir belge gitmediği için bu güvenlidir.",
+      confirmLabel: "Taslağı Geri Al",
+    })
+    if (!ok) return
+    setIsDiscarding(true)
+    try {
+      const response = await fetch(`/api/e-donusum/invoices/${invoice.id}/discard-draft`, { method: "POST" })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.error || "Geri alınamadı")
+      toast({ title: "Taslak geri alındı", description: "Fatura yeniden düzenlenebilir." })
+      fetchInvoice()
+    } catch (error: any) {
+      toast({
+        title: "Geri alma başarısız",
+        description: error?.message || "Bilinmeyen hata",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDiscarding(false)
     }
   }
 
@@ -499,7 +564,10 @@ export default function FaturaOnizlemePage() {
   // GİB tarafında ETTN'lenmiş bir e-Belge varsa resmî PDF tek geçerli belgedir;
   // bizim oluşturduğumuz şablon PDF'i göstermiyoruz. Bu koşul "Resmî PDF (GİB)"
   // butonunun göründüğü koşulla aynı.
+  // Resmî GİB PDF'i yalnızca KESİNLEŞMİŞ (SENT) belgede vardır. GİB taslağında uuid
+  // dolu olsa da resmî belge yok — taslak PDF ayrı kartta (draft-pdf) gösterilir.
   const hasOfficialGibPdf =
+    invoice.status === "SENT" &&
     Boolean(invoice.uuid) &&
     (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE")
   // Geri butonu: Faturaya bir cari kartından gelindiyse (`from` parametresi),
@@ -558,25 +626,29 @@ export default function FaturaOnizlemePage() {
           )}
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-3">
-              {invoice.status === "DRAFT" ? "Fatura Önizleme" : "Fatura Detayı"}
+              {invoice.status === "DRAFT" || invoice.status === "GIB_DRAFT" ? "Fatura Önizleme" : "Fatura Detayı"}
               <span
                 className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                   invoice.status === "SENT"
                     ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300"
-                    : invoice.status === "DRAFT"
-                      ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
-                      : invoice.status === "CANCELLED"
-                        ? "bg-gray-200 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300"
-                        : "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300"
+                    : invoice.status === "GIB_DRAFT"
+                      ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-300"
+                      : invoice.status === "DRAFT"
+                        ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+                        : invoice.status === "CANCELLED"
+                          ? "bg-gray-200 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300"
+                          : "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300"
                 }`}
               >
                 {invoice.status === "SENT"
                   ? "Onaylandı"
-                  : invoice.status === "DRAFT"
-                    ? "Taslak"
-                    : invoice.status === "CANCELLED"
-                      ? "İptal Edildi"
-                      : invoice.status}
+                  : invoice.status === "GIB_DRAFT"
+                    ? "GİB Taslağı"
+                    : invoice.status === "DRAFT"
+                      ? "Taslak"
+                      : invoice.status === "CANCELLED"
+                        ? "İptal Edildi"
+                        : invoice.status}
               </span>
             </h1>
             <p className="text-muted-foreground">Fatura No: {invoice.eDocumentNo || invoice.invoiceNo}</p>
@@ -624,6 +696,31 @@ export default function FaturaOnizlemePage() {
                 Resmileştir
               </Button>
             )}
+          {/* GİB taslağı: kesinleştir (GİB'e gönder) veya geri al (yeniden düzenle). */}
+          {invoice.status === "GIB_DRAFT" && (
+            <>
+              <Button
+                onClick={handleFinalize}
+                disabled={isFinalizing || isDiscarding}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {isFinalizing ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <ShieldCheck className="mr-2 h-4 w-4" />
+                )}
+                Kesinleştir ve GİB'e Gönder
+              </Button>
+              <Button variant="outline" onClick={handleDiscardDraft} disabled={isFinalizing || isDiscarding}>
+                {isDiscarding ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Ban className="mr-2 h-4 w-4" />
+                )}
+                Taslağı Geri Al
+              </Button>
+            </>
+          )}
           {invoice.status === "DRAFT" && invoice.invoiceType === "MANUAL" && (
             <Button
               onClick={handleApproveManual}
@@ -640,7 +737,7 @@ export default function FaturaOnizlemePage() {
           )}
 
           {/* Çıktı aksiyonları: resmî GİB PDF veya yerel PDF */}
-          {invoice.uuid && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
+          {invoice.status === "SENT" && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
             <Button
               variant="outline"
               onClick={handleDownloadGibPdf}
@@ -694,7 +791,7 @@ export default function FaturaOnizlemePage() {
                 <Printer className="mr-2 h-4 w-4" />
                 Yazdır
               </DropdownMenuItem>
-              {invoice.uuid && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
+              {invoice.status === "SENT" && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
                 <>
                   <DropdownMenuItem className="cursor-pointer" onClick={handleCheckStatus} disabled={isCheckingStatus}>
                     {isCheckingStatus ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
@@ -740,6 +837,8 @@ export default function FaturaOnizlemePage() {
             className={`px-3 py-1 rounded-full text-sm font-medium ${
               invoice.status === "SENT"
                 ? "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300"
+                : invoice.status === "GIB_DRAFT"
+                ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-300"
                 : invoice.status === "DRAFT"
                 ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-300"
                 : invoice.status === "CANCELLED"
@@ -749,6 +848,8 @@ export default function FaturaOnizlemePage() {
           >
             {invoice.status === "SENT"
               ? "Gönderildi"
+              : invoice.status === "GIB_DRAFT"
+              ? "GİB Taslağı"
               : invoice.status === "DRAFT"
               ? "Taslak"
               : invoice.status === "CANCELLED"
@@ -811,6 +912,30 @@ export default function FaturaOnizlemePage() {
             </div>
           )
         })()}
+
+      {/* GİB taslağı: Mysoft'un ürettiği resmi taslak PDF'i (kesinleştirmeden önce kontrol). */}
+      {invoice.status === "GIB_DRAFT" && (
+        <Card className="border-indigo-200 dark:border-indigo-900">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              GİB Taslak Önizlemesi
+            </CardTitle>
+            <CardDescription>
+              Fatura Mysoft'ta taslak olarak oluşturuldu; henüz GİB'e gönderilmedi. Aşağıdaki PDF,
+              belgenin GİB'de nasıl görüneceğinin önizlemesidir. Kontrol edip yukarıdan
+              &quot;Kesinleştir ve GİB&apos;e Gönder&quot; ile resmileştirin.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <iframe
+              src={`/api/e-donusum/invoices/${invoice.id}/draft-pdf?company=${encodeURIComponent(companyId || "")}`}
+              className="h-[70vh] w-full rounded-md border bg-white"
+              title="GİB Taslak PDF önizlemesi"
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

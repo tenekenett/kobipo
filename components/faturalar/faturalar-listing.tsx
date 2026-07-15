@@ -426,10 +426,14 @@ export default function FaturalarListing({
         ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200"
         : s === "RED" || s === "REJECTED" || s === "CANCELLED"
           ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200"
-          : s === "DRAFT"
-            ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-200"
-            : "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-200"
-    return <span className={`rounded px-2 py-0.5 text-[10px] font-medium ${cls}`}>{status}</span>
+          : s === "GIB_DRAFT"
+            ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-200"
+            : s === "DRAFT"
+              ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-200"
+              : "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-200"
+    // GİB taslağı ham "GIB_DRAFT" yerine okunur etiket göster.
+    const label = s === "GIB_DRAFT" ? "GİB Taslağı" : status
+    return <span className={`rounded px-2 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>
   }
 
   const resolvedTitle = pageTitle ?? "Faturalar"
@@ -623,7 +627,9 @@ export default function FaturalarListing({
                   const isInvoiceRow = row.id.startsWith("invoice:")
                   const isEDoc =
                     row.invoiceType === "E_INVOICE" || row.invoiceType === "E_ARCHIVE"
-                  const canCheckGib = Boolean(isInvoiceRow && row.uuid && isEDoc)
+                  // GİB durumu sorgulama / resmî PDF yalnızca kesinleşmiş (SENT) belgede;
+                  // GİB taslağında uuid dolu olsa da belge henüz GİB'de değil.
+                  const canCheckGib = Boolean(isInvoiceRow && row.status === "SENT" && isEDoc)
                   const canDownloadGibPdf = canCheckGib
                   const editable = isInvoiceRow && row.status === "DRAFT"
 
@@ -802,10 +808,9 @@ export default function FaturalarListing({
         title="Faturayı sil"
         description={(() => {
           const target = rows.find((r) => r.id === deleteTargetId)
-          const sentToGib =
-            !!target &&
-            (Boolean(target.uuid) || target.status === "SENT") &&
-            target.status !== "CANCELLED"
+          // "GİB'e gönderilmiş" uyarısı yalnızca kesinleşmiş belgede; GİB taslağında
+          // (uuid dolu ama status GIB_DRAFT) belge GİB'e gitmediğinden normal silme uyarısı.
+          const sentToGib = !!target && target.status === "SENT"
           return sentToGib ? (
             <>
               Bu fatura <strong>GİB&apos;e gönderilmiş</strong> (e-Fatura/e-Arşiv). Silme işlemi{" "}

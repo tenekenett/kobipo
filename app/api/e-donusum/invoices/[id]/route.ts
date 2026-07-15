@@ -3,7 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { sendInvoiceToProvider } from "@/lib/integrations/e-invoice/send-invoice-helper"
+import { createGibDraft } from "@/lib/integrations/e-invoice/send-invoice-helper"
 import { revertInvoiceStock } from "@/lib/stock/warehouse"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { Decimal } from "@prisma/client/runtime/library"
@@ -399,20 +399,23 @@ export async function POST(
     // Yetki kontrolü için faturanın companyId'sini önce çek.
     const existing = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id },
-      select: { companyId: true, uuid: true },
+      select: { companyId: true, uuid: true, status: true },
     })
     if (!existing) {
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
     }
     await ensureCompanyAccess(existing.companyId)
 
-    // Çift gönderim koruması: zaten Mysoft'a iletilmiş (uuid var) faturayı yeniden gönderme.
-    if (existing.uuid) {
+    // Tekrar koruması: taslakta uuid dolu olsa da "gönderilmiş" DEĞİL — ayrım status ile.
+    if (existing.status === "SENT") {
       return NextResponse.json(
-        {
-          error:
-            "Bu fatura zaten Mysoft'a gönderilmiş (ETTN mevcut). Yeniden göndermek için önce iptal edin.",
-        },
+        { error: "Bu fatura zaten Mysoft'a gönderilmiş. Yeniden göndermek için önce iptal edin." },
+        { status: 400 }
+      )
+    }
+    if (existing.status === "GIB_DRAFT") {
+      return NextResponse.json(
+        { error: "Bu fatura için zaten bir GİB taslağı var. Taslağı kesinleştirin veya geri alın." },
         { status: 400 }
       )
     }
@@ -424,7 +427,7 @@ export async function POST(
         ? body.eInvoiceProfile
         : undefined
 
-    const result = await sendInvoiceToProvider(resolvedParams.id, { eInvoiceProfile })
+    const result = await createGibDraft(resolvedParams.id, { eInvoiceProfile })
     if (!result.ok) {
       return NextResponse.json(
         { error: result.error, integrationStatus: result.integrationStatus },

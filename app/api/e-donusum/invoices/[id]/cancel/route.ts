@@ -46,9 +46,11 @@ export async function POST(
 
     await ensureCompanyAccess(invoice.companyId)
 
-    if (!invoice.uuid) {
+    // İptal yalnızca kesinleşmiş (GİB'e gönderilmiş) belgede. GİB taslağında uuid
+    // dolu olsa da belge GİB'de değil — taslak için "Taslağı Geri Al" kullanılır.
+    if (invoice.status !== "SENT" || !invoice.uuid) {
       return NextResponse.json(
-        { error: "Fatura Mysoft'a gönderilmemiş (UUID yok)" },
+        { error: "Yalnızca GİB'e gönderilmiş (kesinleşmiş) faturalar iptal edilebilir." },
         { status: 400 }
       )
     }

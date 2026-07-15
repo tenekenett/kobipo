@@ -907,14 +907,18 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // 2. MYSOFT v8 PAYLOAD
       // ETTN: belgeyi pre-tracking için kendimiz üretiyoruz. Mysoft hem accept edip
       // bunu kullanır hem de yanıtta aynı GUID'i invoiceETTN olarak döner.
+      // Taslak PDF/kesinleştirme akışında ETTN dışarıdan (mevcut taslağın uuid'si)
+      // verilebilir; verilmezse yeni üret. Böylece taslak ve önizleme aynı ETTN'i taşır.
       const generatedEttn =
-        typeof (globalThis as any).crypto?.randomUUID === "function"
-          ? (globalThis as any).crypto.randomUUID()
-          : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}-4${Math.random()
-              .toString(16)
-              .slice(2, 5)}-${Math.random().toString(16).slice(2, 5)}-${Math.random()
-              .toString(16)
-              .slice(2, 14)}`
+        typeof invoiceData.ettn === "string" && invoiceData.ettn.trim()
+          ? invoiceData.ettn.trim()
+          : typeof (globalThis as any).crypto?.randomUUID === "function"
+            ? (globalThis as any).crypto.randomUUID()
+            : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}-4${Math.random()
+                .toString(16)
+                .slice(2, 5)}-${Math.random().toString(16).slice(2, 5)}-${Math.random()
+                .toString(16)
+                .slice(2, 14)}`
 
       // Mükellef VKN/TCKN: yalnızca E-Dönüşüm Ayarları'nda DOĞRULANMIŞ olarak
       // kayıtlı tenant VKN'sini kullan (invoiceData.tenantIdentifierNumber).
@@ -958,6 +962,12 @@ async sendInvoice(invoiceData: any): Promise<any> {
         // şablonunu Belge Şablonları ekranından yüklerse o kullanılır.
         "isSendWithGeneralXsltIfDefaultNotExists": true,
         "isManuelCalculation": false,
+        // Taslak modu: isSaveAsDraft=true ise Mysoft faturayı GİB'e GÖNDERMEZ,
+        // taslak olarak saklar; isGenerateDocNoForDraft ile belge/sıra no da üretir.
+        // Aynı ettn (payload.ettn) hem taslakta hem kesinleştirmede kullanılır.
+        ...(invoiceData.isSaveAsDraft
+          ? { isSaveAsDraft: true, isGenerateDocNoForDraft: true }
+          : {}),
         // Fatura not/açıklama alanı (UBL cbc:Note). Mysoft NoteModel listesi bekler;
         // boşsa hiç gönderme. Hem e-Fatura hem e-Arşiv'de belgede görünür.
         ...(typeof invoiceData.notes === "string" && invoiceData.notes.trim()
@@ -1036,6 +1046,29 @@ async sendInvoice(invoiceData: any): Promise<any> {
         })
       };
 
+
+      // TASLAK PDF ÖNİZLEME modu: payload (Mysoft'un kabul ettiği tam model) hazır;
+      // gönderim yerine getInvoiceOutboxDraftPdfAsZip'e verip filigranlı PDF alırız.
+      // getInvoiceOutboxDraftPdfAsZip tam model ister — bu yüzden sendInvoice'ın
+      // kurduğu payload'ı yeniden kullanıyoruz (ettn dışarıdan taslağınkiyle gelir).
+      if (invoiceData.draftPdfOnly) {
+        const draftBody = { ...payload, isSaveAsDraft: true, isPrintDraftWatermark: true }
+        const pdfRes = await fetch(`${this.baseUrl}/api/InvoiceOutbox/getInvoiceOutboxDraftPdfAsZip`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${tokenData.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(draftBody),
+        })
+        const r = await pdfRes.json().catch(() => null)
+        if (!r?.succeed || !r?.data) {
+          return { success: false, error: r?.message || "Taslak PDF alınamadı." }
+        }
+        const pdf = await this.unzipFirstPdf(r.data)
+        if (!pdf) return { success: false, error: "Zip içinde taslak PDF bulunamadı." }
+        return { success: true, isPdf: true, pdfBuffer: pdf.pdfBuffer, filename: pdf.filename }
+      }
 
       // 3. MYSOFT'A GÖNDER (profile fallback ile)
       const sendOnce = async (currentPayload: any) => {
@@ -2358,6 +2391,20 @@ async sendInvoice(invoiceData: any): Promise<any> {
     }
   }
 
+  // base64-zip → içindeki ilk PDF'i Buffer olarak çıkarır. Resmî (getInvoicePdf) ve
+  // taslak (getDraftInvoicePdf) PDF'leri ortak kullanır — GİB PDF'leri hep zip içinde döner.
+  private async unzipFirstPdf(base64Zip: string): Promise<{ pdfBuffer: Buffer; filename: string } | null> {
+    const zipBuffer = Buffer.from(base64Zip, "base64");
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(zipBuffer);
+    const pdfEntry = Object.values(zip.files).find((f) => !f.dir && f.name.toLowerCase().endsWith(".pdf"));
+    if (!pdfEntry) return null;
+    const pdfBuffer = await pdfEntry.async("nodebuffer");
+    // GİB zip'i içindeki PDF, resmî belge adıyla gelir (klasör yolu olmadan al).
+    const filename = pdfEntry.name.split("/").pop() || pdfEntry.name;
+    return { pdfBuffer, filename };
+  }
+
   async getInvoicePdf(uuid: string): Promise<{ success: true; pdfBuffer: Buffer; filename?: string } | { success: false; error: string }> {
     try {
       const token = await this.getToken();
@@ -2380,18 +2427,89 @@ async sendInvoice(invoiceData: any): Promise<any> {
         return { success: false, error: result?.message || "PDF alınamadı." };
       }
 
-      // base64 → zip Buffer → içindeki .pdf dosyasını çıkar
-      const zipBuffer = Buffer.from(result.data, "base64");
-      const JSZip = (await import("jszip")).default;
-      const zip = await JSZip.loadAsync(zipBuffer);
-      const pdfEntry = Object.values(zip.files).find((f) => !f.dir && f.name.toLowerCase().endsWith(".pdf"));
-      if (!pdfEntry) return { success: false, error: "Zip içinde PDF bulunamadı." };
-      const pdfBuffer = await pdfEntry.async("nodebuffer");
-      // GİB zip'i içindeki PDF, resmî belge adıyla gelir (klasör yolu olmadan al).
-      const filename = pdfEntry.name.split("/").pop() || pdfEntry.name;
-      return { success: true, pdfBuffer, filename };
+      const pdf = await this.unzipFirstPdf(result.data);
+      if (!pdf) return { success: false, error: "Zip içinde PDF bulunamadı." };
+      return { success: true, pdfBuffer: pdf.pdfBuffer, filename: pdf.filename };
     } catch (error: any) {
       return { success: false, error: error?.message || "PDF indirilirken hata oluştu." };
+    }
+  }
+
+  /**
+   * TASLAK giden faturayı GİB'e gönderir (kesinleştirme). Swagger v8:
+   * POST /api/InvoiceOutbox/sendDraftInvoiceToGIB (SendDraftInvoiceRequestModel).
+   * ettn = taslak oluştururken kaydedilen ETTN'dir (biz üretip payload.ettn ile göndermiştik).
+   */
+  async sendDraftToGib(params: {
+    ettn: string;
+    prefix?: string;
+    tenantIdentifierNumber?: string;
+    connectorGuid?: string;
+  }): Promise<{ success: boolean; error?: string; message?: string; docNo?: string }> {
+    try {
+      const token = await this.getToken();
+      if (!token) return { success: false, error: "Mysoft token alınamadı." };
+
+      const body: any = {
+        ettn: params.ettn,
+        ...(params.prefix ? { prefix: params.prefix } : {}),
+        ...(params.tenantIdentifierNumber ? { tenantIdentifierNumber: params.tenantIdentifierNumber } : {}),
+        ...(params.connectorGuid ? { connectorGuid: params.connectorGuid } : {}),
+      };
+
+      const res = await fetch(`${this.baseUrl}/api/InvoiceOutbox/sendDraftInvoiceToGIB`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      const result = await res.json();
+      if (!result?.succeed) {
+        return { success: false, error: result?.message || "Taslak gönderilemedi." };
+      }
+      const data = (result && typeof result.data === "object" && result.data !== null) ? result.data : result;
+      const rawDocNo = data?.docNo ?? data?.documentNo ?? data?.invoiceNo;
+      const docNo = typeof rawDocNo === "string" && rawDocNo.trim() ? rawDocNo.trim() : undefined;
+      return { success: true, message: result?.message, docNo };
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Taslak gönderilirken hata oluştu." };
+    }
+  }
+
+  /**
+   * TASLAK giden faturayı siler (kullanıcı taslağı geri alıp yeniden düzenlemek isterse).
+   * Swagger v8: GET /api/InvoiceOutbox/deleteDraftInvoiceOutbox?invoiceETTN=&tenantIdentifierNumber=
+   */
+  async deleteDraft(params: {
+    ettn: string;
+    tenantIdentifierNumber?: string;
+  }): Promise<{ success: boolean; error?: string; message?: string }> {
+    try {
+      const token = await this.getToken();
+      if (!token) return { success: false, error: "Mysoft token alınamadı." };
+
+      const url = new URL(`${this.baseUrl}/api/InvoiceOutbox/deleteDraftInvoiceOutbox`);
+      url.searchParams.set("invoiceETTN", params.ettn);
+      if (params.tenantIdentifierNumber) url.searchParams.set("tenantIdentifierNumber", params.tenantIdentifierNumber);
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      const result = await res.json();
+      if (!result?.succeed) {
+        return { success: false, error: result?.message || "Taslak silinemedi." };
+      }
+      return { success: true, message: result?.message };
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Taslak silinirken hata oluştu." };
     }
   }
 
