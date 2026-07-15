@@ -62,13 +62,6 @@ export async function POST(
       )
     }
 
-    if (invoice.status === "CANCELLED") {
-      return NextResponse.json(
-        { error: "Fatura zaten iptal edilmiş." },
-        { status: 400 }
-      )
-    }
-
     // GİB kuralı: e-Arşiv 24 saat içinde iptal edilebilir
     const hoursSinceCreated = (Date.now() - new Date(invoice.createdAt).getTime()) / (1000 * 60 * 60)
     if (hoursSinceCreated > 24) {

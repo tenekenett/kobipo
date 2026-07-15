@@ -797,7 +797,7 @@ export default function FaturaOnizlemePage() {
                     {isCheckingStatus ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
                     GİB Durumu
                   </DropdownMenuItem>
-                  {invoice.invoiceType === "E_ARCHIVE" && invoice.status !== "CANCELLED" && (
+                  {invoice.invoiceType === "E_ARCHIVE" && (
                     <DropdownMenuItem
                       className="cursor-pointer text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
                       onSelect={(e) => {
