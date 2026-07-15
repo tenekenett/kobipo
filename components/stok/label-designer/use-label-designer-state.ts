@@ -42,6 +42,7 @@ type Action =
   | { type: "PATCH_ELEMENT"; id: string; patch: Partial<LabelElement> }
   | { type: "SET_PAGE"; patch: Partial<LabelPage> }
   | { type: "REORDER_Z"; id: string; dir: "up" | "down" }
+  | { type: "REPLACE_DESIGN"; design: LabelDesign }
   | { type: "LOAD_DESIGN"; design: LabelDesign; template: TemplateMeta }
   | { type: "MARK_SAVED"; template: TemplateMeta }
   | { type: "UNDO" }
@@ -162,6 +163,13 @@ function reducer(state: DesignerState, action: Action): DesignerState {
       return pushHistory(state, withElements(state.design, swapped.map((el, i) => ({ ...el, z: i }))))
     }
 
+    case "REPLACE_DESIGN": {
+      // Hazır şablon uygulama: LOAD_DESIGN'dan farkı geçmişe yazması ve şablon
+      // meta'sını korumasıdır (geri alınabilir; kaydet mevcut şablonu günceller).
+      const design = normalizeLabelDesign(action.design)
+      return { ...pushHistory(state, design), selectedId: null }
+    }
+
     case "LOAD_DESIGN": {
       const design = normalizeLabelDesign(action.design)
       return {
@@ -222,6 +230,7 @@ export interface DesignerApi {
   patchElement: (id: string, patch: Partial<LabelElement>) => void
   setPage: (patch: Partial<LabelPage>) => void
   reorderZ: (id: string, dir: "up" | "down") => void
+  replaceDesign: (design: LabelDesign) => void
   loadDesign: (design: LabelDesign, template: TemplateMeta) => void
   markSaved: (template: TemplateMeta) => void
   undo: () => void
@@ -253,6 +262,10 @@ export function useLabelDesignerState(): DesignerApi {
   const setPage = useCallback((patch: Partial<LabelPage>) => dispatch({ type: "SET_PAGE", patch }), [])
   const reorderZ = useCallback(
     (id: string, dir: "up" | "down") => dispatch({ type: "REORDER_Z", id, dir }),
+    []
+  )
+  const replaceDesign = useCallback(
+    (design: LabelDesign) => dispatch({ type: "REPLACE_DESIGN", design }),
     []
   )
   const loadDesign = useCallback(
@@ -289,6 +302,7 @@ export function useLabelDesignerState(): DesignerApi {
     patchElement,
     setPage,
     reorderZ,
+    replaceDesign,
     loadDesign,
     markSaved,
     undo,

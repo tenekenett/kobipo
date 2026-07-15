@@ -28,6 +28,7 @@ import {
   Receipt,
   Scale,
   ScrollText,
+  Sticker,
   Store,
   Tags,
   TrendingDown,
@@ -88,6 +89,7 @@ export const allNavItems: NavItemDef[] = [
   { href: "/stok/hizmetler", label: "Hizmet Listesi", icon: Wrench, roles: ["ADMIN", BM, "ACCOUNTANT", "STOCK", "SALES"] },
   { href: "/depolar", label: "Depo Listesi", icon: Warehouse, roles: ["ADMIN", BM, "STOCK"] },
   { href: "/stok/transfer", label: "Stok Transfer", icon: ArrowLeftRight, roles: ["ADMIN", BM, "STOCK"] },
+  { href: "/stok/etiket", label: "Etiket Tasarımı", icon: Sticker, roles: ["ADMIN", BM, "STOCK", "SALES"] },
 
   // Finans
   { href: "/finans/kanallar", label: "Finans Kanalları", icon: Banknote, roles: ["ADMIN", BM, "ACCOUNTANT"] },
@@ -160,7 +162,7 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
   },
   {
     title: "Stok",
-    hrefs: ["/stok/urunler", "/stok/hizmetler", "/depolar", "/stok/transfer"],
+    hrefs: ["/stok/urunler", "/stok/hizmetler", "/depolar", "/stok/transfer", "/stok/etiket"],
   },
   {
     title: "Finans",

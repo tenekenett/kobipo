@@ -34,7 +34,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, Tags } from "lucide-react"
+import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, Sticker, Tags } from "lucide-react"
 import Link from "next/link"
 
 interface Product {
@@ -473,6 +473,12 @@ export default function StokPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" asChild>
+          <Link href="/stok/etiket">
+            <Sticker className="mr-2 h-4 w-4" />
+            Etiket Tasarımı
+          </Link>
+        </Button>
         <Button variant="outline" onClick={() => setIsCategoryDialogOpen(true)}>
           <Tags className="mr-2 h-4 w-4" />
           Kategoriler
