@@ -1713,7 +1713,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               Önizle (GİB)
             </Button>
             <Button onClick={handleSubmit} disabled={isLoading} variant="success">
-              {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Kaydediliyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Taslak Olarak Kaydet"}
+              {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Kaydediliyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Yeni Fatura Olarak Kaydet"}
             </Button>
           </div>
 
@@ -2468,7 +2468,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               Önizle (GİB)
             </Button>
             <Button onClick={handleSubmit} disabled={isLoading} variant="success">
-              {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Kaydediliyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Taslak Olarak Kaydet"}
+              {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Kaydediliyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Yeni Fatura Olarak Kaydet"}
             </Button>
           </div>
         </CardContent>
@@ -2621,7 +2621,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               onClick={() => { setIsPreviewOpen(false); void handleSubmit() }}
             >
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Taslak Olarak Kaydet
+              Yeni Fatura Olarak Kaydet
             </Button>
           </div>
         </DialogContent>
