@@ -158,6 +158,7 @@ const DYNAMIC_ENTRIES: Array<[pattern: string, title: string]> = [
   // Faturalar
   ["/faturalar/:id/odemeler", "Fatura Ödemeleri"],
   ["/faturalar/:id/onizleme", "Fatura Önizleme"],
+  ["/faturalar/:id/etiket", "Etiket Yazdır"],
 
   // E-Dönüşüm
   ["/e-donusum/kontor/odeme/:id", "Kart ile Ödeme"],

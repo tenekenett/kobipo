@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, ArrowLeft, Pencil, ShieldCheck, FileDown, Ban, Loader2, CheckCircle2, XCircle, Clock, AlertTriangle, Hash, Building2, Trash2, Printer, Copy, MoreVertical } from "lucide-react"
+import { Download, ArrowLeft, Pencil, ShieldCheck, FileDown, Ban, Loader2, CheckCircle2, XCircle, Clock, AlertTriangle, Hash, Building2, Trash2, Printer, Copy, MoreVertical, Tag } from "lucide-react"
 import Link from "next/link"
 import {
   DropdownMenu,
@@ -29,6 +29,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
 import { looksLikeCuid } from "@/lib/slug"
+import { buildInvoiceLabelItems } from "@/lib/labels/invoice-label-items"
 
 const PROFILE_LABELS: Record<string, string> = {
   TICARIFATURA: "Ticari",
@@ -93,6 +94,7 @@ interface Invoice {
   items: Array<{
     id: string
     description: string
+    unit?: string | null
     quantity: number
     unitPrice: number
     discountRate?: number
@@ -100,7 +102,19 @@ interface Invoice {
     vatRate: number
     vatAmount: number
     totalAmount: number
-    product?: { name: string; code?: string | null } | null
+    product?: {
+      id?: string
+      name: string
+      code?: string | null
+      barcode?: string | null
+      // Prisma Decimal alanları JSON'da string olarak gelebilir → Number ile çevrilir.
+      salePrice?: number | string | null
+      vatRate?: number | string | null
+      unit?: string | null
+      category?: string | null
+      currency?: string | null
+      isService?: boolean
+    } | null
   }>
 }
 
@@ -131,6 +145,13 @@ export default function FaturaOnizlemePage() {
   const [cancelNote, setCancelNote] = useState("Kullanıcı tarafından iptal edildi")
   const [isFinalizing, setIsFinalizing] = useState(false)
   const [isDiscarding, setIsDiscarding] = useState(false)
+
+  // Etiketlenebilir kalem var mı? (buton görünürlüğü). Dönüşüm mantığı ortak
+  // yardımcıda; etiket yazdırma ayrı bir sayfada (/faturalar/[id]/etiket).
+  const hasLabelableItems = useMemo(
+    () => (invoice ? buildInvoiceLabelItems(invoice.items).length > 0 : false),
+    [invoice]
+  )
 
   useEffect(() => {
     if (!invoiceId) return
@@ -766,6 +787,18 @@ export default function FaturaOnizlemePage() {
               )}
               PDF İndir
             </Button>
+          )}
+
+          {invoice.type === "PURCHASE" && hasLabelableItems && (
+            <Link href={`/faturalar/${invoiceId}/etiket?company=${encodeURIComponent(companyId || "")}`}>
+              <Button
+                variant="outline"
+                title="Faturadaki ürünlerin barkod/fiyat etiketini yazdır"
+              >
+                <Tag className="h-4 w-4 mr-2" />
+                Etiket Yazdır
+              </Button>
+            </Link>
           )}
 
           <Link href={duplicateHref}>
