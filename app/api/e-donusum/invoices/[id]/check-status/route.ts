@@ -98,14 +98,25 @@ export async function POST(
 
     // İç status mapping
     // - APPROVED → invoice.status: "SENT" (zaten gönderilmiş; alt-statüsü integrationStatus'ta)
-    // - CANCELLED → invoice.status: "CANCELLED"
-    // - REJECTED → invoice.status: SENT kalır, integrationStatus REJECTED:... olur
+    // - CANCELLED (IPTAL_EDILDI) → invoice.status: "CANCELLED"
+    // - REJECTED/RED (alıcı ticari faturayı reddetti) → belge geçersiz: iç status
+    //   "CANCELLED" yapılır ki tüm cari/rapor sorguları (status <> CANCELLED) faturayı
+    //   hariç tutsun; böylece alacak, müşterinin cari bakiyesinden düşer. integrationStatus
+    //   "REJECTED:RED" olarak kalır → ekranda "İptal" değil "Reddedildi" olarak ayrışır.
+    //   (e-İrsaliye durum akışında da REJECTED → CANCELLED aynı deseni uygulanır.)
+    //   Yalnızca gerçek RED geçersiz kılar; HATA da getInvoiceStatus'ta REJECTED'a
+    //   maplenir ama (geçici/entegrasyon hatası olabileceği için) faturayı iptal ETMEZ.
     // - PROCESSING/DRAFT → değiştirmeyelim
+    const rawUpper = (result.rawText || "").trim().toUpperCase()
     const becomesCancelled = result.status === "CANCELLED" && invoice.status !== "CANCELLED"
+    const becomesRejected =
+      result.status === "REJECTED" && rawUpper === "RED" && invoice.status !== "CANCELLED"
+    const becomesVoid = becomesCancelled || becomesRejected
+
     const updateData: { status?: string; integrationStatus: string; eDocumentNo?: string } = {
       integrationStatus,
     }
-    if (becomesCancelled) {
+    if (becomesVoid) {
       updateData.status = "CANCELLED"
     }
     // Mysoft prefix ile resmi belge no'yu (docNo) bu aşamada döndürür — kaydet.
@@ -113,9 +124,10 @@ export async function POST(
       updateData.eDocumentNo = result.docNo.trim()
     }
 
-    if (becomesCancelled) {
-      // Portal/GİB tarafında iptal edilmiş: stoğu geri al ve durumu güncelle (atomik).
-      // Bakiye otomatik düzelir (cari sorguları CANCELLED faturaları hariç tutar).
+    if (becomesVoid) {
+      // Portal/GİB tarafında iptal ya da alıcı tarafından reddedilmiş: belge geçersiz.
+      // Stoğu geri al ve durumu CANCELLED yap (atomik). Bakiye otomatik düzelir — cari
+      // sorguları CANCELLED faturaları (ve onlara bağlı InvoicePayment'ları) hariç tutar.
       await prisma.$transaction(async (tx) => {
         await revertInvoiceStock(tx, {
           companyId: invoice.companyId,

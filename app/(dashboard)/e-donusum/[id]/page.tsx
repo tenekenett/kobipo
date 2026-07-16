@@ -330,6 +330,11 @@ export default function InvoiceDetailPage() {
   }
 
   const recipient = invoice.type === "SALES" ? invoice.customer : invoice.supplier
+  // Alıcının reddettiği fatura iç status'te CANCELLED tutulur (bkz. check-status route:
+  // bakiye/rapor sorguları CANCELLED'ı hariç tutar). Rozette "İptal Edildi" yerine
+  // "Reddedildi" göstermek için GİB alt-durumunu (integrationStatus) kontrol ederiz.
+  const voidedByRejection =
+    invoice.status === "CANCELLED" && parseGibStatus(invoice.integrationStatus)?.bucket === "rejected"
 
   return (
     <div className="space-y-6 print:space-y-4">
@@ -421,6 +426,8 @@ export default function InvoiceDetailPage() {
               ? "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300"
               : invoice.status === "DRAFT"
               ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-300"
+              : voidedByRejection
+              ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
               : invoice.status === "CANCELLED"
               ? "bg-gray-200 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300"
               : "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
@@ -430,6 +437,8 @@ export default function InvoiceDetailPage() {
             ? "Gönderildi"
             : invoice.status === "DRAFT"
             ? "Taslak"
+            : voidedByRejection
+            ? "Reddedildi"
             : invoice.status === "CANCELLED"
             ? "İptal Edildi"
             : invoice.status}
@@ -465,6 +474,20 @@ export default function InvoiceDetailPage() {
           </span>
         )}
       </div>
+
+      {/* Alıcı reddetti → belge geçersiz: finansal etkiyi açıkça bildir */}
+      {voidedByRejection && (
+        <div className="flex flex-wrap items-start gap-3 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100 print:hidden">
+          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">Fatura alıcı tarafından reddedildi</p>
+            <p className="mt-1 break-words">
+              Belge geçersiz sayıldı. Tutarı cari hesap bakiyesine ve mali raporlara dahil
+              edilmez; varsa stok hareketi geri alınmıştır.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Invoice Content */}
       <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2">

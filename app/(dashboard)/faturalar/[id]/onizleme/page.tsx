@@ -561,6 +561,11 @@ export default function FaturaOnizlemePage() {
   }
 
   const isFromIncoming = Boolean(invoice.incomingSource)
+  // Alıcının reddettiği fatura iç status'te CANCELLED tutulur (bkz. check-status route:
+  // bakiye/rapor sorguları CANCELLED'ı hariç tutar → alacak cari bakiyeden düşer).
+  // Durum rozetinde "İptal Edildi" yerine "Reddedildi" göstermek için GİB alt-durumuna bak.
+  const voidedByRejection =
+    invoice.status === "CANCELLED" && parseGibStatus(invoice.integrationStatus)?.bucket === "rejected"
   // GİB tarafında ETTN'lenmiş bir e-Belge varsa resmî PDF tek geçerli belgedir;
   // bizim oluşturduğumuz şablon PDF'i göstermiyoruz. Bu koşul "Resmî PDF (GİB)"
   // butonunun göründüğü koşulla aynı.
@@ -635,9 +640,11 @@ export default function FaturaOnizlemePage() {
                       ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-300"
                       : invoice.status === "DRAFT"
                         ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
-                        : invoice.status === "CANCELLED"
-                          ? "bg-gray-200 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300"
-                          : "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300"
+                        : voidedByRejection
+                          ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
+                          : invoice.status === "CANCELLED"
+                            ? "bg-gray-200 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300"
+                            : "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300"
                 }`}
               >
                 {invoice.status === "SENT"
@@ -646,9 +653,11 @@ export default function FaturaOnizlemePage() {
                     ? "GİB Taslağı"
                     : invoice.status === "DRAFT"
                       ? "Taslak"
-                      : invoice.status === "CANCELLED"
-                        ? "İptal Edildi"
-                        : invoice.status}
+                      : voidedByRejection
+                        ? "Reddedildi"
+                        : invoice.status === "CANCELLED"
+                          ? "İptal Edildi"
+                          : invoice.status}
               </span>
             </h1>
             <p className="text-muted-foreground">Fatura No: {invoice.eDocumentNo || invoice.invoiceNo}</p>
@@ -841,6 +850,8 @@ export default function FaturaOnizlemePage() {
                 ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-300"
                 : invoice.status === "DRAFT"
                 ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-300"
+                : voidedByRejection
+                ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
                 : invoice.status === "CANCELLED"
                 ? "bg-gray-200 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300"
                 : "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
@@ -852,6 +863,8 @@ export default function FaturaOnizlemePage() {
               ? "GİB Taslağı"
               : invoice.status === "DRAFT"
               ? "Taslak"
+              : voidedByRejection
+              ? "Reddedildi"
               : invoice.status === "CANCELLED"
               ? "İptal Edildi"
               : invoice.status}
@@ -884,6 +897,20 @@ export default function FaturaOnizlemePage() {
               ETTN: {invoice.uuid}
             </span>
           )}
+        </div>
+      )}
+
+      {/* Alıcı reddetti → belge geçersiz: finansal etkiyi açıkça bildir */}
+      {voidedByRejection && (
+        <div className="flex flex-wrap items-start gap-3 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">Fatura alıcı tarafından reddedildi</p>
+            <p className="mt-1 break-words">
+              Belge geçersiz sayıldı. Tutarı cari hesap bakiyesine ve mali raporlara dahil
+              edilmez; varsa stok hareketi geri alınmıştır.
+            </p>
+          </div>
         </div>
       )}
 
