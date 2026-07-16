@@ -138,6 +138,10 @@ export async function POST(request: Request) {
       globalDiscountAmount,
     } = body
 
+    // Fiş: hızlı satış/alış ile kesilen gayriresmî belge. Stok + tahsilat işler ama
+    // GİB/e-belge ve otomatik muhasebe fişi oluşturmaz; ayrı "FS-" numara dizisi alır.
+    const isReceipt = body.isReceipt === true
+
     if (!companyId || !type || !invoiceType || !items || items.length === 0) {
       return NextResponse.json(
         { error: "Missing required fields" },
@@ -192,7 +196,8 @@ const company = await prisma.company.findUnique({
       finalInvoiceNo = await generateInvoiceNumber(
         companyId,
         type as "SALES" | "PURCHASE" | "RETURN",
-        date ? new Date(date) : undefined
+        date ? new Date(date) : undefined,
+        isReceipt
       )
     }
 
@@ -320,6 +325,7 @@ const company = await prisma.company.findUnique({
         globalDiscountAmount: appliedGlobalDiscount > 0 ? appliedGlobalDiscount : null,
         notes,
         status: "DRAFT",
+        isReceipt,
         createdBy: user.id,
         items: {
           create: normalizedItems.map((item, index: number) => {
@@ -474,8 +480,9 @@ const company = await prisma.company.findUnique({
       }
     }
 
-    // Otomatik muhasebe fişi: Satış faturaları için temel kayıt.
-    if (type === "SALES") {
+    // Otomatik muhasebe fişi: Satış faturaları için temel kayıt. Fişlerde
+    // oluşturulmaz — muhasebe kaydı yalnızca resmî faturada (dönüştürmede) yapılır.
+    if (type === "SALES" && !isReceipt) {
       const companyPlans = await prisma.accountPlan.findMany({
         where: { companyId, code: { in: ["120", "600", "391"] } },
         select: { id: true, code: true },
@@ -527,10 +534,11 @@ const company = await prisma.company.findUnique({
       }
     }
 
-    // Send invoice if requested
+    // Send invoice if requested. Fişler asla GİB'e gönderilmez (resmî belge değil).
     if (
       company.isEDonusumEnabled &&
       sendInvoice &&
+      !isReceipt &&
       type === "SALES" &&
       (invoiceType === "E_INVOICE" || invoiceType === "E_ARCHIVE")
     ) {

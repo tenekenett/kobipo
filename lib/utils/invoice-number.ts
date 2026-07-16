@@ -3,11 +3,13 @@ import { prisma } from "@/lib/db/prisma"
 /**
  * Firma bazlı otomatik fatura numarası oluşturur
  * Format: SAT-YYYY-XXXX veya ALI-YYYY-XXXX
+ * Fiş (isReceipt=true) için: FS-SAT-YYYY-XXXX / FS-ALI-YYYY-XXXX (ayrık dizi).
  */
 export async function generateInvoiceNumber(
   companyId: string,
   type: "SALES" | "PURCHASE" | "RETURN",
-  date?: Date
+  date?: Date,
+  isReceipt?: boolean
 ): Promise<string> {
   const invoiceDate = date || new Date()
   const year = invoiceDate.getFullYear()
@@ -16,7 +18,13 @@ export async function generateInvoiceNumber(
     select: { invoiceSeriesPrefix: true },
   })
   const defaultPrefix = type === "SALES" ? "SAT" : type === "RETURN" ? "IAD" : "ALI"
-  const prefix = type === "RETURN" ? defaultPrefix : company?.invoiceSeriesPrefix || defaultPrefix
+  // Fiş numarası firmanın fatura önekinden bağımsız, sabit "FS-" ile başlar; böylece
+  // resmî fatura numaralarıyla çakışmaz ve fiş dizisi ayrı ilerler.
+  const prefix = isReceipt
+    ? `FS-${defaultPrefix}`
+    : type === "RETURN"
+      ? defaultPrefix
+      : company?.invoiceSeriesPrefix || defaultPrefix
   const fullPrefix = `${prefix}-${year}-`
 
   // Aynı önekli mevcut faturaları çek. Sayma (count+1) tabanlı üretim, silme

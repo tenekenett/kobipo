@@ -67,7 +67,7 @@ export async function GET(
           select: { id: true, name: true, email: true },
         },
         invoices: {
-          where: { status: { not: "CANCELLED" } },
+          where: { status: { notIn: ["CANCELLED", "CONVERTED"] } },
           orderBy: { date: "desc" },
           take: 10,
         },
@@ -86,7 +86,7 @@ export async function GET(
 
     // Get all invoices and payments
     const allInvoices = await prisma.invoice.findMany({
-      where: { supplierId: supplier.id, status: { not: "CANCELLED" } },
+      where: { supplierId: supplier.id, status: { notIn: ["CANCELLED", "CONVERTED"] } },
       include: {
         payments: {
           select: {

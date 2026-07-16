@@ -35,7 +35,7 @@ export async function GET(request: Request) {
       where: {
         companyId,
         type: "SALES",
-        status: { not: "CANCELLED" },
+        status: { notIn: ["CANCELLED", "CONVERTED"] },
         date: { gte: start, lte: end },
       },
       _sum: {
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
       where: {
         companyId,
         type: "PURCHASE",
-        status: { not: "CANCELLED" },
+        status: { notIn: ["CANCELLED", "CONVERTED"] },
         date: { gte: start, lte: end },
       },
       _sum: {

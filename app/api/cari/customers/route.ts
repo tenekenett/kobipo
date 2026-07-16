@@ -90,7 +90,7 @@ export async function GET(request: Request) {
         FROM invoices i
         INNER JOIN paged_customers pc ON pc.id = i."customerId"
         WHERE i.type = 'SALES'
-          AND i.status <> 'CANCELLED'
+          AND i.status NOT IN ('CANCELLED', 'CONVERTED')
         GROUP BY i."customerId"
       ),
       payment_totals AS (
@@ -99,7 +99,7 @@ export async function GET(request: Request) {
         INNER JOIN invoices inv ON inv.id = ip."invoiceId"
         INNER JOIN paged_customers pc ON pc.id = inv."customerId"
         WHERE inv.type = 'SALES'
-          AND inv.status <> 'CANCELLED'
+          AND inv.status NOT IN ('CANCELLED', 'CONVERTED')
           AND ip."transactionId" IS NULL
         GROUP BY inv."customerId"
       ),

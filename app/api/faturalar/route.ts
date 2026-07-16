@@ -133,6 +133,7 @@ export async function GET(request: Request) {
         where: {
           companyId,
           type: "PURCHASE",
+          isReceipt: false, // fişler bu listede değil; ayrı "Alış Fişleri" listesinde
           date: { gte: start, lte: end },
           ...(status ? { status } : {}),
           ...(search
@@ -218,6 +219,7 @@ export async function GET(request: Request) {
         where: {
           companyId,
           type: "SALES",
+          isReceipt: false, // fişler bu listede değil; ayrı "Satış Fişleri" listesinde
           date: { gte: start, lte: end },
           ...(status ? { status } : {}),
           ...(search

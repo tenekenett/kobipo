@@ -73,6 +73,7 @@ export const allNavItems: NavItemDef[] = [
   { href: "/satis/irsaliye", label: "Satış İrsaliyesi", icon: Truck, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES", "STOCK"] },
   { href: "/satis/siparis", label: "Satış Siparişi", icon: ClipboardList, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/satis/hizli", label: "Hızlı Satış", icon: Zap, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
+  { href: "/satis/fisler", label: "Satış Fişleri", icon: Receipt, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/teklif", label: "Teklif", icon: ScrollText, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
 
   // Alış
@@ -82,6 +83,7 @@ export const allNavItems: NavItemDef[] = [
   { href: "/alis/irsaliye", label: "Alış İrsaliyesi", icon: Truck, roles: ["ADMIN", BM, "ACCOUNTANT", "STOCK"] },
   { href: "/alis/siparis", label: "Alış Siparişi", icon: ClipboardList, roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/alis/hizli", label: "Hızlı Alış", icon: Zap, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/alis/fisler", label: "Alış Fişleri", icon: Receipt, roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/alis/teklif", label: "Satın Alma Teklifi", icon: ScrollText, roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Stok
@@ -145,6 +147,7 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
       "/satis/irsaliye",
       "/satis/siparis",
       "/satis/hizli",
+      "/satis/fisler",
       "/teklif",
     ],
   },
@@ -157,6 +160,7 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
       "/alis/irsaliye",
       "/alis/siparis",
       "/alis/hizli",
+      "/alis/fisler",
       "/alis/teklif",
     ],
   },

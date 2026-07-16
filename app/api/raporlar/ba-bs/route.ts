@@ -36,6 +36,7 @@ export async function GET(request: Request) {
       where: {
         companyId,
         type: "SALES",
+        isReceipt: false, // Ba/Bs yalnızca resmî faturalar; fişler dâhil değil
         status: { not: "CANCELLED" },
         date: { gte: startDate, lte: endDate },
       },
@@ -49,6 +50,7 @@ export async function GET(request: Request) {
       where: {
         companyId,
         type: "PURCHASE",
+        isReceipt: false, // Ba/Bs yalnızca resmî faturalar; fişler dâhil değil
         status: { not: "CANCELLED" },
         date: { gte: startDate, lte: endDate },
       },

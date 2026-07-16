@@ -741,7 +741,14 @@ model Invoice {
   slug                 String    @default("")
   type                 String // SALES, PURCHASE
   invoiceType          String // E_INVOICE, E_ARCHIVE
-  status               String    @default("DRAFT") // DRAFT, GIB_DRAFT (Mysoft taslağı, GİB'e gitmedi), SENT, CANCELLED
+  status               String    @default("DRAFT") // DRAFT, GIB_DRAFT (Mysoft taslağı, GİB'e gitmedi), SENT, CANCELLED, CONVERTED (fiş → faturaya dönüştürüldü)
+  // Fiş: hızlı satış/alış ile kesilen gayriresmî belge. Ekonomik etki (stok, kasa,
+  // cari) fiş anında işler; GİB/e-belge ve otomatik muhasebe fişi yoktur. Birden çok
+  // fiş tek resmî faturaya "toplu dönüştürme" ile birleşir (bkz. convertedInvoiceId).
+  isReceipt            Boolean   @default(false)
+  // Dönüştürülen fişin bağlandığı resmî fatura (self-relation). Fiş dönüşünce
+  // status=CONVERTED olur ve cari ekstre/raporlardan düşer; etki faturaya taşınır.
+  convertedInvoiceId   String?
   customerId           String?
   supplierId           String?
   date                 DateTime  @default(now())
@@ -774,11 +781,17 @@ model Invoice {
   convertedFromQuotes Quote[]
   convertedFromOrders Order[]          @relation("OrderConvertedInvoice")
   waybills            Waybill[]
+  // Fiş → resmî fatura self-relation. convertedInvoice = fişin dönüştürüldüğü fatura;
+  // sourceReceipts = bu faturanın konsolide ettiği fişler.
+  convertedInvoice    Invoice?         @relation("ReceiptToInvoice", fields: [convertedInvoiceId], references: [id], onDelete: SetNull)
+  sourceReceipts      Invoice[]        @relation("ReceiptToInvoice")
 
   @@unique([companyId, invoiceNo])
   @@unique([companyId, slug])
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, status])
+  @@index([companyId, isReceipt])
+  @@index([convertedInvoiceId])
   @@index([companyId, type, customerId])
   @@index([companyId, type, supplierId])
   @@index([customerId])

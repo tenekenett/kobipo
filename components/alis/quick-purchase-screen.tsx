@@ -497,6 +497,8 @@ export function QuickPurchaseScreen() {
 
     setIsSubmitting(true)
     try {
+      // Hızlı alış artık FİŞ keser (resmî fatura değil). Stok girişi + ödeme anında
+      // işler; fiş "Fişler" listesinden toplu faturaya dönüştürülebilir.
       const invoiceRes = await fetch("/api/e-donusum/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -504,6 +506,7 @@ export function QuickPurchaseScreen() {
           companyId,
           type: "PURCHASE",
           invoiceType: "MANUAL",
+          isReceipt: true,
           supplierId: tk.supplierId || null,
           warehouseId: warehouseId || undefined,
           date: new Date().toISOString(),
@@ -520,7 +523,7 @@ export function QuickPurchaseScreen() {
       })
 
       const invoice = await invoiceRes.json().catch(() => ({}))
-      if (!invoiceRes.ok) throw new Error(invoice?.error || "Alış faturası oluşturulamadı")
+      if (!invoiceRes.ok) throw new Error(invoice?.error || "Alış fişi oluşturulamadı")
 
       // Ödeme tutarı, faturanın SUNUCUDA kayıtlı toplamı olmalı: frontend'in
       // yuvarlanmamış t.total'i (ör. birim fiyat geri-hesabından gelen küsurat)
@@ -563,8 +566,8 @@ export function QuickPurchaseScreen() {
           if (!payRes.ok) {
             const payErr = await payRes.json().catch(() => ({}))
             toast({
-              title: "Fatura oluştu, ödeme kaydedilemedi",
-              description: payErr?.error || "Ödemeyi Alış Faturaları üzerinden tekrar deneyin",
+              title: "Fiş oluştu, ödeme kaydedilemedi",
+              description: payErr?.error || "Ödemeyi Fişler üzerinden tekrar deneyin",
               variant: "destructive",
             })
             setIsSubmitting(false)
@@ -576,7 +579,7 @@ export function QuickPurchaseScreen() {
       const paidSum = round2(paymentParts.reduce((s, p) => s + p.amount, 0))
       toast({
         title: "Alış kaydedildi",
-        description: `${invoice.invoiceNo ?? "Fatura"} oluşturuldu${
+        description: `${invoice.invoiceNo ?? "Fiş"} oluşturuldu${
           isCredit ? " (açık hesap)" : ` • ${currency(paidSum)} ödendi`
         }`,
       })

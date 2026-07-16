@@ -56,7 +56,7 @@ export async function GET(request: Request) {
       where: {
         companyId,
         date: dateFilter,
-        status: { not: "CANCELLED" },
+        status: { notIn: ["CANCELLED", "CONVERTED"] },
       },
       include: {
         items: true,

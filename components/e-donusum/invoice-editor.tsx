@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Trash2, X, Clock, Check, Eye, Download, Loader2, Wand2, Truck } from "lucide-react"
+import { Plus, Trash2, X, Clock, Check, Eye, Download, Loader2, Wand2, Truck, Barcode } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -73,7 +73,7 @@ const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
 
 interface Customer { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Supplier { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
-interface Product { id: string; name: string; code?: string; salePrice?: number; vatRate: number; unit?: string; stockQuantity?: number | string; minStockLevel?: number | string | null; isService?: boolean }
+interface Product { id: string; name: string; code?: string; barcode?: string | null; salePrice?: number; vatRate: number; unit?: string; stockQuantity?: number | string; minStockLevel?: number | string | null; isService?: boolean }
 // Faturaya bağlanabilir alış irsaliyesi (stoğa işlenmiş + henüz bağlanmamış).
 interface LinkableWaybillItem {
   productId?: string | null
@@ -1192,6 +1192,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     }
   }
 
+  // Seçili ürünün kayıtlı barkodu (varsa). Ürün yoksa/barkod boşsa null.
+  const getLineBarcode = (productId?: string): string | null => {
+    if (!productId) return null
+    const p = products.find((x) => x.id === productId)
+    return p?.barcode ? String(p.barcode) : null
+  }
+
   // İrsaliye kalemlerini fatura satırına çevir. Fiyat: ürünün kayıtlı alış fiyatı
   // ön-dolu gelir (irsaliyede fiyat yok), KDV/birim de üründen. Satırlar kaynak
   // irsaliyeyle etiketlenir (sourceWaybillId) → işaret kaldırılınca geri çıkarılır.
@@ -2007,11 +2014,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             <div className="w-full min-w-0 rounded-xl border border-slate-200 overflow-hidden shadow-sm bg-slate-50/30">
               
               {/* --- MASAÜSTÜ BAŞLIKLAR (Mobilde tamamen gizlenir) --- */}
-              <div 
-                className="hidden md:grid grid-cols-12 gap-2 p-3 font-semibold text-sm items-center" 
+              <div
+                className="hidden md:grid grid-cols-[repeat(16,minmax(0,1fr))] gap-2 p-3 font-semibold text-sm items-center"
                 style={{ backgroundColor: BRAND_COLOR, color: "white" }}
               >
                 <div className={`${formData.type === "PURCHASE" ? "col-span-3" : "col-span-4"} pl-1`}>Ürün / Hizmet</div>
+                <div className="col-span-2">Barkod</div>
+                <div className="col-span-2 text-center">Stok</div>
                 <div className="col-span-1">Birim</div>
                 <div className="col-span-1 text-center">Miktar</div>
                 <div className="col-span-2 text-right pr-2">Birim Fiyat</div>
@@ -2093,8 +2102,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                       // Mobilde: Gölgesi olan şık bir KART. Masaüstünde: Gölgesiz, kenarlıksız düz bir SATIR.
                       className="p-4 md:p-3 bg-white hover:bg-slate-50/80 transition-all rounded-xl md:rounded-none border border-slate-200 md:border-0 shadow-sm md:shadow-none"
                     >
-                      {/* 12 KOLONLU ANA GRID (Mobilde ve PC'de Ortak) */}
-                      <div className="grid grid-cols-12 gap-y-4 gap-x-3 md:gap-x-2 md:items-start">
+                      {/* ANA GRID — mobilde 12 kolon (stack), masaüstünde 16 kolon */}
+                      <div className="grid grid-cols-12 md:grid-cols-[repeat(16,minmax(0,1fr))] gap-y-4 gap-x-3 md:gap-x-2 md:items-start">
                         
                         {/* 1. ÜRÜN */}
                         <div className={`col-span-12 ${formData.type === "PURCHASE" ? "md:col-span-3" : "md:col-span-4"}`}>
@@ -2113,6 +2122,47 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                             onSelect={(p) => { mergeProductIntoList(p as Product); applyProductToLine(index, p as Product) }}
                             onClearBinding={() => updateItem(index, "productId", undefined)}
                           />
+                        </div>
+
+                        {/* 1b. BARKOD (seçili üründen okunur — salt görüntü) */}
+                        <div className="col-span-6 md:col-span-2">
+                          <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Barkod</Label>
+                          <div className="flex h-10 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3">
+                            <Barcode className="h-4 w-4 shrink-0 text-slate-400" />
+                            {(() => {
+                              const bc = getLineBarcode(item.productId)
+                              return bc ? (
+                                <span
+                                  className="min-w-0 truncate font-mono text-sm font-semibold tracking-wide tabular-nums text-slate-700"
+                                  title={bc}
+                                >
+                                  {bc}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )
+                            })()}
+                          </div>
+                        </div>
+
+                        {/* 1c. STOK (seçili üründen okunur — salt görüntü) */}
+                        <div className="col-span-6 md:col-span-2">
+                          <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Stok</Label>
+                          <div className="flex h-10 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2">
+                            {(() => {
+                              const s = getLineStock(item.productId)
+                              return s ? (
+                                <span
+                                  className={`truncate text-sm font-semibold tabular-nums ${s.low ? "text-red-600" : "text-slate-700"}`}
+                                  title={s.low ? "Stok kritik seviyede veya tükendi" : "Ürünün güncel stok miktarı"}
+                                >
+                                  {s.qty.toLocaleString("tr-TR")} {s.unit}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )
+                            })()}
+                          </div>
                         </div>
 
                         {/* 2. BİRİM */}
@@ -2134,20 +2184,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                         <div className="col-span-4 md:col-span-2">
                           <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Birim Fiyat</Label>
                           <Input type="number" min="0" step="any" className="text-right font-medium" value={item.unitPrice || ""} onChange={(e) => updateItem(index, "unitPrice", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)} onFocus={(e) => (e.target as HTMLInputElement).select()} title="6 ondalık basamağa kadar girilebilir (UBL standardı)" />
-                          <div className="flex items-center justify-between gap-2 mt-1.5">
-                            {(() => {
-                              const s = getLineStock(item.productId)
-                              return s ? (
-                                <span
-                                  className={`text-[11px] font-semibold tabular-nums ${s.low ? "text-red-600" : "text-slate-500"}`}
-                                  title="Ürünün güncel stok miktarı"
-                                >
-                                  Stok: {s.qty.toLocaleString("tr-TR")} {s.unit}
-                                </span>
-                              ) : (
-                                <span />
-                              )
-                            })()}
+                          <div className="flex items-center justify-end gap-2 mt-1.5">
                             <button
                               type="button"
                               className="text-[11px] font-semibold text-[#48c79c] hover:text-[#38a37f] transition-colors flex items-center shrink-0"

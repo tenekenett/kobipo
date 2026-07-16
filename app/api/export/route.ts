@@ -53,7 +53,8 @@ export async function GET(request: Request) {
     ])
   } else if (moduleName === "invoices") {
     const items = await prisma.invoice.findMany({
-      where: { companyId },
+      // Dönüştürülmüş fişler hariç (yerine konsolide fatura gelir; çift kayıt olmaz).
+      where: { companyId, status: { not: "CONVERTED" } },
       include: { customer: true, supplier: true, items: true },
       orderBy: { date: "desc" },
     })

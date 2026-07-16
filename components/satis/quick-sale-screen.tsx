@@ -244,7 +244,6 @@ function buildReceiptHtml(r: ReceiptData, autoPrint = false): string {
 export function QuickSaleScreen() {
   const { selectedCompanyId, selectedCompany } = useDashboardCompany()
   const companyId = selectedCompanyId
-  const isEDonusumEnabled = Boolean(selectedCompany?.isEDonusumEnabled)
   const { toast } = useToast()
 
   // Referans veriler SWR ile önbelleklenir: ekranlar arası paylaşılır ve her
@@ -269,7 +268,6 @@ export function QuickSaleScreen() {
   const [isCredit, setIsCredit] = useState(false) // Veresiye / Açık Hesap
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH")
   const [accountId, setAccountId] = useState<string>("")
-  const [eArsiv, setEArsiv] = useState(false)
   const [activeCat, setActiveCat] = useState<string>(ALL_CATEGORIES)
   const [miscAmount, setMiscAmount] = useState("")
 
@@ -468,7 +466,6 @@ export function QuickSaleScreen() {
   const resetSale = useCallback(() => {
     setTickets((prev) => prev.map((t, i) => (i === activeTicket ? emptyTicket() : t)))
     setIsCredit(false)
-    setEArsiv(false)
     setPaymentMethod("CASH")
     setSplit({ CASH: "", CREDIT_CARD: "", BANK_TRANSFER: "" })
   }, [activeTicket])
@@ -492,19 +489,22 @@ export function QuickSaleScreen() {
 
     setIsSubmitting(true)
     try {
-      const useEArsiv = eArsiv && isEDonusumEnabled
+      // Hızlı satış artık FİŞ keser (resmî fatura değil): daima MANUAL, GİB'e gönderim
+      // yok. Stok + tahsilat anında işler. Fiş, "Fişler" listesinden toplu faturaya
+      // dönüştürülebilir; e-Arşiv/e-Fatura yalnız dönüştürülen faturada seçilir.
       const invoiceRes = await fetch("/api/e-donusum/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           companyId,
           type: "SALES",
-          invoiceType: useEArsiv ? "E_ARCHIVE" : "MANUAL",
+          invoiceType: "MANUAL",
+          isReceipt: true,
           customerId: tk.customerId || null,
           warehouseId: warehouseId || undefined,
           date: new Date().toISOString(),
           currency: "TRY",
-          sendInvoice: useEArsiv,
+          sendInvoice: false,
           items: cart.map((l) => ({
             productId: l.productId || undefined,
             description: l.description,
@@ -517,7 +517,7 @@ export function QuickSaleScreen() {
       })
 
       const invoice = await invoiceRes.json().catch(() => ({}))
-      if (!invoiceRes.ok) throw new Error(invoice?.error || "Satış faturası oluşturulamadı")
+      if (!invoiceRes.ok) throw new Error(invoice?.error || "Satış fişi oluşturulamadı")
 
       // Ödeme tutarı, faturanın SUNUCUDA kayıtlı toplamı olmalı: frontend'in
       // yuvarlanmamış t.total'i (ör. birim fiyat geri-hesabından gelen küsurat)
@@ -560,8 +560,8 @@ export function QuickSaleScreen() {
           if (!payRes.ok) {
             const payErr = await payRes.json().catch(() => ({}))
             toast({
-              title: "Fatura oluştu, tahsilat kaydedilemedi",
-              description: payErr?.error || "Ödemeyi Satış Faturaları üzerinden tekrar deneyin",
+              title: "Fiş oluştu, tahsilat kaydedilemedi",
+              description: payErr?.error || "Ödemeyi Fişler üzerinden tekrar deneyin",
               variant: "destructive",
             })
             setIsSubmitting(false)
@@ -573,7 +573,7 @@ export function QuickSaleScreen() {
       const paidSum = round2(paymentParts.reduce((s, p) => s + p.amount, 0))
       toast({
         title: "Satış tamamlandı",
-        description: `${invoice.invoiceNo ?? "Fatura"} oluşturuldu${
+        description: `${invoice.invoiceNo ?? "Fiş"} oluşturuldu${
           isCredit ? " (veresiye)" : ` • ${currency(paidSum)} tahsil edildi`
         }`,
       })
@@ -620,7 +620,7 @@ export function QuickSaleScreen() {
         isCredit,
         parts: receiptParts,
       }
-      setLastSale({ id: invoice.id, invoiceNo: invoice.invoiceNo, isEArsiv: useEArsiv, receipt })
+      setLastSale({ id: invoice.id, invoiceNo: invoice.invoiceNo, isEArsiv: false, receipt })
       resetSale()
     } catch (error: any) {
       toast({ title: "Hata", description: error?.message || "Satış tamamlanamadı", variant: "destructive" })
@@ -631,8 +631,6 @@ export function QuickSaleScreen() {
     companyId,
     tickets,
     activeTicket,
-    eArsiv,
-    isEDonusumEnabled,
     warehouseId,
     isCredit,
     paymentMethod,
@@ -1223,13 +1221,6 @@ export function QuickSaleScreen() {
                 <p className="px-1 text-xs text-muted-foreground">
                   Nakit kasaya, kart/havale bankaya otomatik işlenir. Kalan tutar açık hesap olarak kalır.
                 </p>
-              )}
-
-              {isEDonusumEnabled && (
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={eArsiv} onChange={(e) => setEArsiv(e.target.checked)} className="rounded" />
-                  E-Arşiv olarak kes (GİB&apos;e gönder)
-                </label>
               )}
             </CardContent>
           </Card>

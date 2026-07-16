@@ -43,7 +43,8 @@ export async function GET(request: Request) {
       orderBy: { date: "asc" },
     }),
     prisma.invoice.findMany({
-      where: { companyId, ...(dateWhere ? { date: dateWhere } : {}) },
+      // Dönüştürülmüş fişler hariç (yerine konsolide fatura gelir; çift kayıt olmaz).
+      where: { companyId, status: { not: "CONVERTED" }, ...(dateWhere ? { date: dateWhere } : {}) },
       include: { customer: true, supplier: true },
       orderBy: { date: "asc" },
     }),

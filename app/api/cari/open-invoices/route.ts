@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     const invoices = await prisma.invoice.findMany({
       where: {
         companyId,
-        status: { not: "CANCELLED" },
+        status: { notIn: ["CANCELLED", "CONVERTED"] },
         ...(resolvedCustomerId
           ? { customerId: resolvedCustomerId, type: "SALES" }
           : { supplierId: resolvedSupplierId, type: "PURCHASE" }),

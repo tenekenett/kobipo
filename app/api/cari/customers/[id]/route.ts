@@ -71,7 +71,7 @@ export async function GET(
           select: { id: true, name: true, email: true },
         },
         invoices: {
-          where: { status: { not: "CANCELLED" } },
+          where: { status: { notIn: ["CANCELLED", "CONVERTED"] } },
           orderBy: { date: "desc" },
           take: 10,
           include: {
@@ -99,7 +99,7 @@ export async function GET(
     // Calculate balance using database aggregation to avoid N+1 queries
     const [invoiceAggregate, paymentAggregate, incomeTransactionAggregate, expenseTransactionAggregate] = await Promise.all([
       prisma.invoice.aggregate({
-        where: { customerId: customer.id, type: "SALES", status: { not: "CANCELLED" } },
+        where: { customerId: customer.id, type: "SALES", status: { notIn: ["CANCELLED", "CONVERTED"] } },
         _sum: { totalAmount: true },
       }),
       prisma.invoicePayment.aggregate({
@@ -107,7 +107,7 @@ export async function GET(
         // (− gelir) yansıdığı için burada hariç tutulur (çift sayımı önler).
         where: {
           transactionId: null,
-          invoice: { customerId: customer.id, type: "SALES", status: { not: "CANCELLED" } },
+          invoice: { customerId: customer.id, type: "SALES", status: { notIn: ["CANCELLED", "CONVERTED"] } },
         },
         _sum: { amount: true },
       }),
@@ -130,7 +130,7 @@ export async function GET(
     // Get all invoices and transactions for display (with payments included to avoid N+1)
     const [allInvoices, allTransactions, allChecks, allNotes] = await Promise.all([
       prisma.invoice.findMany({
-        where: { customerId: customer.id, status: { not: "CANCELLED" } },
+        where: { customerId: customer.id, status: { notIn: ["CANCELLED", "CONVERTED"] } },
         include: {
           payments: {
             select: { amount: true },

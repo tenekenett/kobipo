@@ -78,7 +78,7 @@ export async function GET(request: Request) {
         companyId,
         type: "SALES",
         date: dateFilter,
-        status: { not: "CANCELLED" },
+        status: { notIn: ["CANCELLED", "CONVERTED"] },
       },
     })
 
@@ -88,7 +88,7 @@ export async function GET(request: Request) {
         companyId,
         type: "PURCHASE",
         date: dateFilter,
-        status: { not: "CANCELLED" },
+        status: { notIn: ["CANCELLED", "CONVERTED"] },
       },
     })
 
