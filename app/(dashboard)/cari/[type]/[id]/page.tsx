@@ -301,7 +301,7 @@ export default function CustomerSupplierDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           <Link
-            href={`/e-donusum/yeni?company=${companyId}&type=${isCustomer ? "SALES" : "PURCHASE"}&${isCustomer ? "customerId" : "supplierId"}=${id}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`}
+            href={`/e-donusum/yeni?company=${companyId}&type=${isCustomer ? "SALES" : "PURCHASE"}&${isCustomer ? "customerId" : "supplierId"}=${data.id}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`}
           >
             <Button variant="default" size="sm">
               <FileText className="mr-2 h-4 w-4" />
