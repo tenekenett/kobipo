@@ -89,7 +89,15 @@ interface CompanySettings { id: string; name?: string; taxNumber?: string | null
 // Kayıtlı olmayan (ürün kartı bağlı olmayan) anlamlı kalemleri "ürün/hizmet olarak
 // kaydet" taslaklarına çevirir. Hem gelen e-faturadan içe aktarma anında (erken uyarı)
 // hem de kaydetme öncesi son kontrolde aynı mantıkla kullanılır.
-type UnregDraft = { index: number; name: string; code: string; isService: boolean }
+// matchedProductId: kullanıcı bu kalemi mevcut bir stok ürününe eşleştirdiyse o
+// ürünün id'si — set ise yeni ürün OLUŞTURULMAZ, kalem mevcut ürüne bağlanır.
+type UnregDraft = {
+  index: number
+  name: string
+  code: string
+  isService: boolean
+  matchedProductId?: string
+}
 function computeUnregisteredDrafts(list: InvoiceItem[]): UnregDraft[] {
   return list
     .map((it, index) => ({ it, index }))
@@ -1562,9 +1570,17 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     try {
       const next = [...items]
       let createdOrLinked = 0
+      let matchedCount = 0
       for (const draft of unregDrafts) {
         const it = items[draft.index]
         if (!it) continue
+        // Kullanıcı bu kalemi mevcut bir ürüne eşleştirdiyse: yeni ürün oluşturmadan
+        // doğrudan o ürüne bağla.
+        if (draft.matchedProductId) {
+          next[draft.index] = { ...next[draft.index], productId: draft.matchedProductId }
+          matchedCount++
+          continue
+        }
         const pname = draft.name.trim() || (it.description || "").trim()
         if (!pname) continue
         try {
@@ -1601,12 +1617,16 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         }
       }
       setItems(next)
-      if (createdOrLinked > 0) {
+      if (createdOrLinked > 0 || matchedCount > 0) {
+        const parts: string[] = []
+        if (matchedCount > 0) parts.push(`${matchedCount} kalem mevcut ürüne eşleştirildi`)
+        if (createdOrLinked > 0) parts.push(`${createdOrLinked} ürün/hizmet kataloğa eklendi`)
         toast({
-          title: unregMode === "save" ? "Kaydedildi" : "Ürünler oluşturuldu",
-          description: `${createdOrLinked} ürün/hizmet kataloğa eklendi ve faturaya bağlandı.`,
+          title: unregMode === "save" ? "Kaydedildi" : "Uygulandı",
+          description: `${parts.join(" · ")} ve faturaya bağlandı.`,
         })
-        void fetchProducts()
+        // Yalnız yeni ürün oluşturulduysa katalog listesini tazele.
+        if (createdOrLinked > 0) void fetchProducts()
       }
       setUnregDialogOpen(false)
       // Yalnızca "save" modunda faturayı kaydederiz. Erken (prefill) modda kullanıcı
@@ -1632,50 +1652,96 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             <DialogTitle>Kayıtlı olmayan kalemler</DialogTitle>
             <DialogDescription>
               {unregMode === "prefill"
-                ? "İçe aktarılan bu kalemler ürün kartında bulunmuyor. Stok kodunu düzenleyip her kalemin Ürün mü yoksa Hizmet mi olduğunu seçin; ürünler oluşturulup faturaya bağlanır ve forma devam edersiniz. Dilerseniz ürünsüz de devam edebilirsiniz."
-                : "Aşağıdaki kalemler ürün kartında bulunmuyor. Stok kodunu düzenleyip her kalemin Ürün mü yoksa Hizmet mi olduğunu seçin; kaydedilince kataloğa eklenip faturaya bağlanır. Dilerseniz ürünsüz de devam edebilirsiniz."}
+                ? "İçe aktarılan bu kalemler ürün kartında bulunmuyor. Her kalemi ya mevcut bir stok ürününüzle EŞLEŞTİRİN ya da yeni ürün/hizmet olarak oluşturun. Dilerseniz ürünsüz de devam edebilirsiniz."
+                : "Aşağıdaki kalemler ürün kartında bulunmuyor. Her kalemi ya mevcut bir stok ürününüzle EŞLEŞTİRİN ya da yeni ürün/hizmet olarak oluşturun. Dilerseniz ürünsüz de devam edebilirsiniz."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {unregDrafts.map((d, i) => (
-              <div key={d.index} className="grid grid-cols-12 items-end gap-2 rounded-md border p-3">
-                <div className="col-span-12 md:col-span-5">
-                  <Label className="text-xs text-muted-foreground">Ad</Label>
-                  <div className="truncate text-sm font-medium" title={d.name}>{d.name}</div>
+            {unregDrafts.map((d, i) => {
+              const line = items[d.index]
+              const matched = Boolean(d.matchedProductId)
+              return (
+                <div key={d.index} className="space-y-2 rounded-md border p-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Fatura kalemi</Label>
+                    <div className="truncate text-sm font-medium" title={d.name}>{d.name}</div>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Mevcut ürünle eşleştir</Label>
+                    <ProductCombobox
+                      companyId={companyId}
+                      products={products}
+                      selectedProductId={d.matchedProductId}
+                      selectedLabel={d.name}
+                      defaults={{
+                        unit: line?.unit,
+                        vatRate: line?.vatRate,
+                        purchasePrice: line?.unitPrice,
+                        code: d.code,
+                      }}
+                      priceContext="purchase"
+                      onSelect={(p) => {
+                        // Combobox içinden yeni ürün oluşturulmuşsa listeye ekle (adı
+                        // görünsün, diğer satırlarda da seçilebilsin); mevcut üründe no-op.
+                        mergeProductIntoList(p as Product)
+                        setUnregDrafts((prev) =>
+                          prev.map((x, idx) => (idx === i ? { ...x, matchedProductId: p.id } : x)),
+                        )
+                      }}
+                      onClearBinding={() =>
+                        setUnregDrafts((prev) =>
+                          prev.map((x, idx) => (idx === i ? { ...x, matchedProductId: undefined } : x)),
+                        )
+                      }
+                      disabled={unregSaving}
+                    />
+                  </div>
+
+                  {matched ? (
+                    <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      Bu kalem seçili mevcut ürüne bağlanacak; yeni ürün oluşturulmaz.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-12 items-end gap-2">
+                      <div className="col-span-7">
+                        <Label htmlFor={`unreg-code-${i}`} className="text-xs text-muted-foreground">
+                          Yeni ürün stok kodu
+                        </Label>
+                        <Input
+                          id={`unreg-code-${i}`}
+                          value={d.code}
+                          placeholder="(opsiyonel)"
+                          disabled={unregSaving}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setUnregDrafts((prev) => prev.map((x, idx) => (idx === i ? { ...x, code: v } : x)))
+                          }}
+                        />
+                      </div>
+                      <div className="col-span-5">
+                        <Label className="text-xs text-muted-foreground">Tip</Label>
+                        <Select
+                          value={d.isService ? "SERVICE" : "PRODUCT"}
+                          onValueChange={(v) =>
+                            setUnregDrafts((prev) =>
+                              prev.map((x, idx) => (idx === i ? { ...x, isService: v === "SERVICE" } : x)),
+                            )
+                          }
+                          disabled={unregSaving}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="PRODUCT">Ürün</SelectItem>
+                            <SelectItem value="SERVICE">Hizmet</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="col-span-7 md:col-span-4">
-                  <Label htmlFor={`unreg-code-${i}`} className="text-xs text-muted-foreground">Stok Kodu</Label>
-                  <Input
-                    id={`unreg-code-${i}`}
-                    value={d.code}
-                    placeholder="(opsiyonel)"
-                    disabled={unregSaving}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setUnregDrafts((prev) => prev.map((x, idx) => (idx === i ? { ...x, code: v } : x)))
-                    }}
-                  />
-                </div>
-                <div className="col-span-5 md:col-span-3">
-                  <Label className="text-xs text-muted-foreground">Tip</Label>
-                  <Select
-                    value={d.isService ? "SERVICE" : "PRODUCT"}
-                    onValueChange={(v) =>
-                      setUnregDrafts((prev) =>
-                        prev.map((x, idx) => (idx === i ? { ...x, isService: v === "SERVICE" } : x)),
-                      )
-                    }
-                    disabled={unregSaving}
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="PRODUCT">Ürün</SelectItem>
-                      <SelectItem value="SERVICE">Hizmet</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
           <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button variant="ghost" onClick={() => setUnregDialogOpen(false)} disabled={unregSaving}>
@@ -1698,7 +1764,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             </Button>
             <Button onClick={handleRegisterUnregistered} disabled={unregSaving}>
               {unregSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {unregMode === "save" ? "Kaydet ve devam et" : "Ürünleri oluştur"}
+              {unregMode === "save" ? "Kaydet ve devam et" : "Uygula ve devam et"}
             </Button>
           </div>
         </DialogContent>
