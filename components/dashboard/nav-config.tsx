@@ -124,6 +124,7 @@ export const allNavItems: NavItemDef[] = [
 
   // Ayarlar
   { href: "/ayarlar/firma", label: "Firma Bilgileri", icon: Building2, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/ayarlar/fis-tasarim", label: "Fiş Tasarımı", icon: Receipt, roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/ayarlar/tanimlar", label: "Tanımlar", icon: Tags, roles: ["ADMIN", BM, "ACCOUNTANT"] },
   // KISITLI: yalnız ADMIN
   { href: "/ayarlar/ekip", label: "Kullanıcı Yönetimi", icon: UserCog, roles: ["ADMIN"] },
@@ -208,6 +209,7 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
     title: "Ayarlar",
     hrefs: [
       "/ayarlar/firma",
+      "/ayarlar/fis-tasarim",
       "/ayarlar/tanimlar",
       "/ayarlar/ekip",
       "/ayarlar/sube-mudurleri",

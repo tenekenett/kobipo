@@ -30,6 +30,7 @@ const STATIC_TITLES: Record<string, string> = {
 
   // Satış
   "/satis/fatura": "Satış Faturaları",
+  "/satis/fisler": "Satış Fişleri",
   "/satis/hizli": "Hızlı Satış",
   "/satis/irsaliye": "Satış İrsaliyeleri",
   "/satis/siparis": "Satış Siparişleri",
@@ -37,6 +38,7 @@ const STATIC_TITLES: Record<string, string> = {
 
   // Alış
   "/alis/fatura": "Alış Faturaları",
+  "/alis/fisler": "Alış Fişleri",
   "/alis/gelen-e-faturalar": "Gelen E-Faturalar",
   "/alis/hizli": "Hızlı Alış",
   "/alis/irsaliye": "Alış İrsaliyeleri",
@@ -119,6 +121,7 @@ const STATIC_TITLES: Record<string, string> = {
   "/ayarlar/e-donusum": "E-Dönüşüm Ayarları",
   "/ayarlar/ekip": "Ekip Yönetimi",
   "/ayarlar/firma": "Firma Bilgileri",
+  "/ayarlar/fis-tasarim": "Fiş Tasarımı",
   "/ayarlar/profil": "Profil ve Güvenlik",
   "/ayarlar/sube-bilgileri": "Şube Bilgileri",
   "/ayarlar/subeler": "Şube Yönetimi",
@@ -159,6 +162,10 @@ const DYNAMIC_ENTRIES: Array<[pattern: string, title: string]> = [
   ["/faturalar/:id/odemeler", "Fatura Ödemeleri"],
   ["/faturalar/:id/onizleme", "Fatura Önizleme"],
   ["/faturalar/:id/etiket", "Etiket Yazdır"],
+
+  // Fişler
+  ["/fisler/:id", "Fiş Detayı"],
+  ["/fisler/:id/yazdir", "Fiş Yazdır"],
 
   // E-Dönüşüm
   ["/e-donusum/kontor/odeme/:id", "Kart ile Ödeme"],

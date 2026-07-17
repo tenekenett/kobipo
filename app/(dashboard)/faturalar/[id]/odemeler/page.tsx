@@ -86,6 +86,13 @@ export default function FaturaOdemelerPage() {
   const { toast } = useToast()
   const { confirm } = useConfirm()
 
+  // Bu ekrana fatura listesi dışından da gelinir (ör. fiş detayı). Çağıran taraf
+  // `?return=` ile dönüş yolunu verir; yoksa belge tipine göre fatura listesine döner.
+  // Güvenlik: yalnızca uygulama içi mutlak yol kabul edilir (açık yönlendirme olmasın).
+  const returnParam = searchParams.get("return")
+  const returnTo =
+    returnParam && returnParam.startsWith("/") && !returnParam.startsWith("//") ? returnParam : null
+
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [payments, setPayments] = useState<Payment[]>([])
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
@@ -320,9 +327,10 @@ export default function FaturaOdemelerPage() {
               <div className="flex items-center gap-2 mb-2">
                 <Link
                   href={
-                    invoice.type === "PURCHASE"
+                    returnTo ??
+                    (invoice.type === "PURCHASE"
                       ? `/alis/fatura?company=${companyId || ""}`
-                      : `/satis/fatura?company=${companyId || ""}`
+                      : `/satis/fatura?company=${companyId || ""}`)
                   }
                 >
                   <Button variant="ghost" size="sm">

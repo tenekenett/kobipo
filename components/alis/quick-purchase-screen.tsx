@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-html"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -39,6 +40,7 @@ import {
   useAccounts,
   useWarehouses,
   useProductCategories,
+  useReceiptTemplate,
 } from "@/lib/swr/use-company-data"
 import { cn } from "@/lib/utils"
 import {
@@ -107,11 +109,10 @@ const PRICE_TABS: { key: PriceTab; label: string }[] = [
   { key: "sales", label: "Önceki Satışlar" },
 ]
 
-type Ticket = { cart: CartLine[]; supplierId?: string; tendered: string }
-const emptyTicket = (): Ticket => ({ cart: [], supplierId: undefined, tendered: "" })
-
-const currency = (n: number) =>
-  new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(n || 0)
+// note: alış anında girilen kısa fiş notu (fişe basılır). Ticket'ta tutulur ki
+// park edilen alışlar arasında geçiş yapınca kaybolmasın.
+type Ticket = { cart: CartLine[]; supplierId?: string; tendered: string; note: string }
+const emptyTicket = (): Ticket => ({ cart: [], supplierId: undefined, tendered: "", note: "" })
 
 /** type="number" input'larda 0 değerini boş göster — baştaki "0" takılmasın. */
 const numInput = (n: number) => (n === 0 ? "" : String(n))
@@ -146,110 +147,6 @@ function cartTotals(cart: CartLine[]) {
   )
 }
 
-// Alış fişi (80mm termal) — tamamlanan alışın anlık görüntüsünden üretilir.
-type ReceiptData = {
-  invoiceNo?: string | null
-  date: string
-  companyName: string
-  supplierName?: string | null
-  items: { description: string; quantity: number; unit: string; unitPrice: number; vatRate: number; total: number }[]
-  net: number
-  vat: number
-  total: number
-  paymentLabel: string
-  tendered: number
-  change: number
-  isCredit: boolean
-  // Parçalı ödeme dökümü (varsa) — yöntem başına ödenen tutar.
-  parts?: { label: string; amount: number }[]
-}
-
-const escapeHtml = (s: string) =>
-  s.replace(
-    /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string
-  )
-
-function buildReceiptHtml(r: ReceiptData, autoPrint = false): string {
-  const dateStr = new Date(r.date).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" })
-  const qtyFmt = (n: number) => n.toLocaleString("tr-TR", { maximumFractionDigits: 3 })
-  const items = r.items
-    .map(
-      (it) => `
-      <div class="item">
-        <div class="name">${escapeHtml(it.description)}</div>
-        <div class="row muted">
-          <span>${qtyFmt(it.quantity)} ${escapeHtml(it.unit)} × ${currency(it.unitPrice)} · KDV %${it.vatRate}</span>
-          <span>${currency(it.total)}</span>
-        </div>
-      </div>`
-    )
-    .join("")
-
-  const payRows = r.isCredit
-    ? `<div class="row"><span>Ödeme</span><span>Açık Hesap</span></div>`
-    : r.parts && r.parts.length > 0
-      ? r.parts
-          .map((p) => `<div class="row"><span>${escapeHtml(p.label)}</span><span>${currency(p.amount)}</span></div>`)
-          .join("") + `<div class="row"><span>Para Üstü</span><span>${currency(r.change)}</span></div>`
-      : `<div class="row"><span>Ödeme</span><span>${escapeHtml(r.paymentLabel)}</span></div>
-       <div class="row"><span>Ödenen</span><span>${currency(r.tendered)}</span></div>
-       <div class="row"><span>Para Üstü</span><span>${currency(r.change)}</span></div>`
-
-  return `<!doctype html>
-<html lang="tr">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Alış Fişi${r.invoiceNo ? ` — ${escapeHtml(r.invoiceNo)}` : ""}</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: "Courier New", ui-monospace, monospace; background: #f3f4f6; color: #000; }
-  .toolbar { position: sticky; top: 0; z-index: 1; display: flex; gap: 8px; justify-content: center; padding: 12px; background: #fff; border-bottom: 1px solid #e5e7eb; }
-  .toolbar button { font: inherit; font-size: 13px; font-weight: 600; padding: 8px 18px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #0f172a; cursor: pointer; }
-  .toolbar button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-  .receipt { width: 80mm; margin: 16px auto; background: #fff; padding: 6mm 4mm; font-size: 12px; line-height: 1.4; box-shadow: 0 1px 6px rgba(0,0,0,.15); }
-  .center { text-align: center; }
-  .bold { font-weight: 700; }
-  .muted { color: #333; }
-  .row { display: flex; justify-content: space-between; gap: 8px; }
-  .item { margin: 4px 0; }
-  .item .name { font-weight: 600; }
-  .big { font-size: 15px; font-weight: 700; }
-  hr { border: none; border-top: 1px dashed #000; margin: 6px 0; }
-  @media print {
-    body { background: #fff; }
-    .toolbar { display: none; }
-    .receipt { width: auto; margin: 0; box-shadow: none; }
-    @page { margin: 0; }
-  }
-</style>
-</head>
-<body${autoPrint ? ' onload="window.print()"' : ""}>
-  <div class="toolbar">
-    <button class="primary" onclick="window.print()">Yazdır</button>
-    <button onclick="window.close()">Kapat</button>
-  </div>
-  <div class="receipt">
-    <div class="center bold" style="font-size:14px">${escapeHtml(r.companyName || "Alış")}</div>
-    <div class="center muted">ALIŞ FİŞİ</div>
-    <hr />
-    <div class="row"><span>Tarih</span><span>${dateStr}</span></div>
-    <div class="row"><span>Tedarikçi</span><span>${escapeHtml(r.supplierName || "Serbest")}</span></div>
-    ${r.invoiceNo ? `<div class="row"><span>Belge No</span><span>${escapeHtml(r.invoiceNo)}</span></div>` : ""}
-    <hr />
-    ${items}
-    <hr />
-    <div class="row"><span>Ara Toplam</span><span>${currency(r.net)}</span></div>
-    <div class="row"><span>KDV</span><span>${currency(r.vat)}</span></div>
-    <div class="row big"><span>TOPLAM</span><span>${currency(r.total)}</span></div>
-    <hr />
-    ${payRows}
-  </div>
-</body>
-</html>`
-}
-
 export function QuickPurchaseScreen() {
   const { selectedCompanyId, selectedCompany } = useDashboardCompany()
   const companyId = selectedCompanyId
@@ -262,6 +159,8 @@ export function QuickPurchaseScreen() {
   const { accounts } = useAccounts(companyId)
   const { warehouses } = useWarehouses(companyId)
   const { categories: categoryOptions } = useProductCategories(companyId)
+  // Fiş tasarımı (Ayarlar > Fiş Tasarımı); kaydedilmemişse varsayılan gelir.
+  const { template: receiptTemplate, company: receiptCompany } = useReceiptTemplate(companyId)
   const [warehouseId, setWarehouseId] = useState<string>("")
   // Alış bağlamı: satır/kutucuk birim fiyatı ürünün ALIŞ fiyatından gelsin.
   const products = useMemo<QuickProduct[]>(
@@ -511,6 +410,7 @@ export function QuickPurchaseScreen() {
           warehouseId: warehouseId || undefined,
           date: new Date().toISOString(),
           currency: "TRY",
+          notes: tk.note.trim() || undefined,
           items: cart.map((l) => ({
             productId: l.productId || undefined,
             description: l.description,
@@ -605,10 +505,13 @@ export function QuickPurchaseScreen() {
         receiptParts = undefined
       }
       const receipt: ReceiptData = {
+        direction: "incoming",
         invoiceNo: invoice.invoiceNo ?? null,
         date: new Date().toISOString(),
         companyName: selectedCompany?.name ?? "",
-        supplierName: tk.supplierId ? suppliers.find((s) => s.id === tk.supplierId)?.name ?? null : null,
+        company: receiptCompany,
+        counterpartyName: tk.supplierId ? suppliers.find((s) => s.id === tk.supplierId)?.name ?? null : null,
+        notes: tk.note.trim() || null,
         items: cart.map((l) => ({
           description: l.description,
           quantity: l.quantity,
@@ -685,7 +588,7 @@ export function QuickPurchaseScreen() {
       })
       return
     }
-    w.document.write(buildReceiptHtml(lastPurchase.receipt, autoPrint))
+    w.document.write(buildReceiptHtml(lastPurchase.receipt, autoPrint, receiptTemplate))
     w.document.close()
     w.focus()
   }
@@ -999,6 +902,20 @@ export function QuickPurchaseScreen() {
                     placeholder="Tedarikçi ara (serbest alış için boş bırakın)…"
                   />
                 </div>
+              </div>
+
+              <div>
+                <Label htmlFor="fisNotu" className="text-xs text-muted-foreground">
+                  Fiş notu (opsiyonel)
+                </Label>
+                <Input
+                  id="fisNotu"
+                  className="mt-1.5"
+                  value={active.note}
+                  maxLength={200}
+                  placeholder="Fişe yazılacak kısa not…"
+                  onChange={(e) => patchTicket({ note: e.target.value })}
+                />
               </div>
 
               {warehouses.length > 1 && (

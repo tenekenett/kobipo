@@ -187,6 +187,10 @@ model Company {
   eDonusumLastTestedAt      DateTime?
   eDonusumLastTestSuccess   Boolean?
   invoiceSeriesPrefix       String?
+  // Fiş (hızlı satış/alış) tasarım şablonu: logo, üst başlık, alt not, görünürlük
+  // tercihleri, kağıt genişliği. Şekil: lib/fis/receipt-template.ts (ReceiptTemplate).
+  // Boşsa varsayılan (bugünkü sabit) fiş görünümü kullanılır.
+  receiptTemplate           Json?
   eFaturaPrefix             String?
   eArchivePrefix            String?
   eDonusumTenantVkn         String?

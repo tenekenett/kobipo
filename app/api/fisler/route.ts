@@ -29,16 +29,25 @@ export async function GET(request: Request) {
     const direction = url.searchParams.get("direction") === "incoming" ? "incoming" : "outgoing"
     const type = direction === "incoming" ? "PURCHASE" : "SALES"
 
+    // scope=active (varsayılan): işlem görebilen fişler — toplu faturaya dönüştürülebilir.
+    // scope=archived: kapanmış fişler (iptal edilmiş + faturaya dönüştürülmüş); salt görüntüleme.
+    const scope = url.searchParams.get("scope") === "archived" ? "archived" : "active"
+    const statusFilter =
+      scope === "archived"
+        ? { status: { in: ["CANCELLED", "CONVERTED"] } }
+        : { status: { notIn: ["CANCELLED", "CONVERTED"] } }
+
     const receipts = await prisma.invoice.findMany({
       where: {
         companyId,
         isReceipt: true,
         type,
-        status: { notIn: ["CANCELLED", "CONVERTED"] },
+        ...statusFilter,
       },
       include: {
         customer: { select: { id: true, name: true } },
         supplier: { select: { id: true, name: true } },
+        convertedInvoice: { select: { id: true, invoiceNo: true } },
       },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 500,
@@ -63,6 +72,10 @@ export async function GET(request: Request) {
         id: r.id,
         slug: r.slug,
         direction,
+        status: r.status,
+        // Arşivde "hangi faturaya dönüştü" bilgisi gösterilir.
+        convertedInvoiceId: r.convertedInvoice?.id ?? null,
+        convertedInvoiceNo: r.convertedInvoice?.invoiceNo ?? null,
         receiptNo: r.invoiceNo,
         date: r.date.toISOString(),
         createdAt: r.createdAt.toISOString(),

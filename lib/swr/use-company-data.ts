@@ -8,6 +8,12 @@
 import { useMemo } from "react"
 import useSWR from "swr"
 import { jsonFetcher } from "./fetcher"
+import {
+  DEFAULT_RECEIPT_TEMPLATE,
+  normalizeReceiptTemplate,
+  type ReceiptTemplate,
+} from "@/lib/fis/receipt-template"
+import type { ReceiptCompanyInfo } from "@/lib/fis/receipt-html"
 
 export type RefProduct = {
   id: string
@@ -119,4 +125,29 @@ export function useWarehouseStocks(companyId: string | null) {
     [data]
   )
   return { stocks, isLoading, error, mutate }
+}
+
+/**
+ * Fiş tasarım şablonu (Ayarlar > Fiş Tasarımı). Hızlı satış/alış fişi basmadan önce
+ * buna ihtiyaç duyar. Şablon yüklenmemişse/çekilemezse varsayılan döner — fiş
+ * yazdırma şablon yüzünden asla kırılmamalı.
+ */
+export function useReceiptTemplate(companyId: string | null) {
+  const key = companyKey(companyId, "/api/fis-tasarim")
+  const { data, error, isLoading, mutate } = useSWR<any>(key, jsonFetcher)
+  const template = useMemo<ReceiptTemplate>(
+    () => (data?.template ? normalizeReceiptTemplate(data.template) : DEFAULT_RECEIPT_TEMPLATE),
+    [data]
+  )
+  // Fişe basılacak firma künyesi (adres/telefon/vergi) — şablonla aynı istekte gelir.
+  const company = useMemo<ReceiptCompanyInfo>(
+    () => ({
+      address: data?.company?.address ?? null,
+      phone: data?.company?.phone ?? null,
+      taxOffice: data?.company?.taxOffice ?? null,
+      taxNumber: data?.company?.taxNumber ?? null,
+    }),
+    [data]
+  )
+  return { template, company, isLoading, error, mutate }
 }
