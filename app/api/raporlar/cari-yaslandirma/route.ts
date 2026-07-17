@@ -252,7 +252,7 @@ export async function GET(request: Request) {
         openingBalanceType: true,
         createdAt: true,
         invoices: {
-          where: { type: "SALES", status: { not: "CANCELLED" } },
+          where: { type: "SALES", status: { notIn: ["CANCELLED", "CONVERTED"] } },
           select: {
             id: true,
             invoiceNo: true,
@@ -281,7 +281,7 @@ export async function GET(request: Request) {
         openingBalanceType: true,
         createdAt: true,
         invoices: {
-          where: { type: "PURCHASE", status: { not: "CANCELLED" } },
+          where: { type: "PURCHASE", status: { notIn: ["CANCELLED", "CONVERTED"] } },
           select: {
             id: true,
             invoiceNo: true,

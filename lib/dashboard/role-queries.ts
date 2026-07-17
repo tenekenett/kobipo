@@ -45,8 +45,10 @@ export const getAccountantStats = cache(async function getAccountantStats(
     SELECT
       (SELECT COUNT(*) FROM "customers" WHERE "companyId" = ${companyId}) AS customer_count,
       (SELECT COUNT(*) FROM "suppliers" WHERE "companyId" = ${companyId}) AS supplier_count,
-      (SELECT COUNT(*) FROM "invoices" WHERE "companyId" = ${companyId}) AS invoice_count,
-      (SELECT COUNT(*) FROM "invoices" WHERE "companyId" = ${companyId} AND "status" = 'DRAFT') AS pending_count,
+      -- Fişler resmî belge değil → fatura sayısına ve "bekleyen" sayısına girmez
+      -- (fişler de DRAFT açılır; filtresiz kalırsa her fiş bekleyen fatura görünür).
+      (SELECT COUNT(*) FROM "invoices" WHERE "companyId" = ${companyId} AND "isReceipt" = false) AS invoice_count,
+      (SELECT COUNT(*) FROM "invoices" WHERE "companyId" = ${companyId} AND "isReceipt" = false AND "status" = 'DRAFT') AS pending_count,
       (SELECT COALESCE(SUM(amount), 0) FROM "transactions" WHERE "companyId" = ${companyId} AND "type" = 'INCOME') AS income_total,
       (SELECT COALESCE(SUM(amount), 0) FROM "transactions" WHERE "companyId" = ${companyId} AND "type" = 'EXPENSE') AS expense_total
   `
@@ -107,8 +109,10 @@ export const getSalesStats = cache(async function getSalesStats(
     SELECT
       (SELECT COUNT(*) FROM "customers" WHERE "companyId" = ${companyId}) AS customer_count,
       (SELECT COUNT(*) FROM "products" WHERE "companyId" = ${companyId} AND "isActive" = true) AS product_count,
-      (SELECT COUNT(*) FROM "invoices" WHERE "companyId" = ${companyId} AND "type" = 'SALES' AND "createdAt" >= ${thirty}) AS monthly_invoice_count,
-      (SELECT COALESCE(SUM("totalAmount"), 0) FROM "invoices" WHERE "companyId" = ${companyId} AND "type" = 'SALES' AND "createdAt" >= ${thirty}) AS monthly_sales_total
+      -- Ekonomik ciro → fişler dâhil, ama iptal ve faturaya dönüştürülmüş fişler hariç
+      -- (dönüşen fişin yerine konsolide fatura sayılır; ikisi de sayılırsa ciro çift olur).
+      (SELECT COUNT(*) FROM "invoices" WHERE "companyId" = ${companyId} AND "type" = 'SALES' AND "status" NOT IN ('CANCELLED', 'CONVERTED') AND "createdAt" >= ${thirty}) AS monthly_invoice_count,
+      (SELECT COALESCE(SUM("totalAmount"), 0) FROM "invoices" WHERE "companyId" = ${companyId} AND "type" = 'SALES' AND "status" NOT IN ('CANCELLED', 'CONVERTED') AND "createdAt" >= ${thirty}) AS monthly_sales_total
   `
   const r = rows[0]
   return {

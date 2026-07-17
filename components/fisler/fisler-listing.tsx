@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -33,10 +33,13 @@ type ReceiptRow = {
 const fmt = (n: number) =>
   n.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })
 
-const PAYMENT_BADGE: Record<ReceiptRow["paymentStatus"], { label: string; cls: string }> = {
-  PAID: { label: "Tahsil edildi", cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
-  PARTIAL: { label: "Kısmî", cls: "bg-amber-100 text-amber-700 border-amber-200" },
-  OPEN: { label: "Açık hesap", cls: "bg-slate-100 text-slate-600 border-slate-200" },
+const PAYMENT_BADGE: Record<
+  ReceiptRow["paymentStatus"],
+  { label: string; variant: ComponentProps<typeof Badge>["variant"] }
+> = {
+  PAID: { label: "Tahsil edildi", variant: "odendi" },
+  PARTIAL: { label: "Kısmî", variant: "bekliyor" },
+  OPEN: { label: "Açık hesap", variant: "secondary" },
 }
 
 export default function FislerListing({
@@ -240,9 +243,7 @@ export default function FislerListing({
                         <TableCell className="text-right font-semibold tabular-nums">{fmt(r.totalAmount)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(r.paidAmount)}</TableCell>
                         <TableCell className="text-center">
-                          <Badge variant="outline" className={badge.cls}>
-                            {badge.label}
-                          </Badge>
+                          <Badge variant={badge.variant}>{badge.label}</Badge>
                         </TableCell>
                       </TableRow>
                     )
