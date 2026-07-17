@@ -42,6 +42,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { jsonFetcher } from "@/lib/swr/fetcher"
+import { fitZoom } from "@/lib/labels/geometry"
 import { type RefProduct, useProducts } from "@/lib/swr/use-company-data"
 import { createDefaultDesign } from "@/lib/labels/types"
 import { SAMPLE_COMPANY, SAMPLE_PRODUCT } from "@/lib/labels/fields"
@@ -61,8 +62,13 @@ interface TemplateListItem {
   updatedAt: string
 }
 
-const ZOOM_STEPS = [1, 1.5, 2, 3, 4, 5, 6, 8]
+// 0.25–0.75: büyük etiketler (80mm+ rulo, A4 sayfa) dar laptop ekranına ancak
+// %100'ün altında sığar; bu adımlar olmadan "sığdır" imkânsızdı.
+const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5, 6, 8]
 const EMPTY_META = { id: null, name: "", isDefault: false }
+/** Tuvalin p-8 dolgusu + altındaki "80 × 40 mm" ölçü yazısı için pay. */
+const CANVAS_PAD_X = 72
+const CANVAS_PAD_Y = 96
 
 export function LabelDesignerScreen() {
   const { selectedCompanyId: companyId, selectedCompany, companies } = useDashboardCompany()
@@ -75,6 +81,10 @@ export function LabelDesignerScreen() {
   const [printOpen, setPrintOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loadingTpl, setLoadingTpl] = useState(false)
+  // Tuval alanı: zoom'u buraya sığdırmak için ölçülür (bkz. fitToScreen).
+  const canvasBoxRef = useRef<HTMLDivElement>(null)
+  const pageW = api.design.page.widthMm
+  const pageH = api.design.page.heightMm
   // Önizleme ürünü: tuval bu ürünün verisiyle çizilir (null → örnek ürün).
   // Yalnız önizlemedir; şablona kaydedilmez, yazdırma seçiminden bağımsızdır.
   const [previewProduct, setPreviewProduct] = useState<RefProduct | null>(null)
@@ -257,6 +267,25 @@ export function LabelDesignerScreen() {
     })
   }
 
+  /** Etiketi tuval alanına sığdıran zoom adımına iner. */
+  const fitToScreen = useCallback(() => {
+    const el = canvasBoxRef.current
+    if (!el) return
+    const availW = el.clientWidth - CANVAS_PAD_X
+    const availH = el.clientHeight - CANVAS_PAD_Y
+    // Alan henüz ölçülmediyse (0) dokunma: fitZoom en küçük adımı döndürür ve
+    // tasarımcı %25'te açılırdı. Ölçüm gelince effect yeniden çalışır.
+    if (availW <= 0 || availH <= 0) return
+    setZoom(fitZoom(pageW, pageH, availW, availH, ZOOM_STEPS))
+  }, [pageW, pageH])
+
+  // Etiket boyutu değişince (önayar/genişlik/yükseklik ya da şablon yüklenince)
+  // zoom'u sığdır. Sabit %400 açılış, 80mm gibi ölçülerde etiketi ekran dışında
+  // bırakıyordu. Kullanıcının elle yaptığı zoom, boyut değişene dek korunur.
+  useEffect(() => {
+    fitToScreen()
+  }, [fitToScreen])
+
   if (!companyId) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -386,9 +415,14 @@ export function LabelDesignerScreen() {
             >
               <ZoomOut className="h-4 w-4" />
             </Button>
-            <span className="w-12 text-center text-xs tabular-nums text-muted-foreground">
+            <button
+              type="button"
+              onClick={fitToScreen}
+              title="Ekrana sığdır"
+              className="w-12 rounded text-center text-xs tabular-nums text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
               {Math.round(zoom * 100)}%
-            </span>
+            </button>
             <Button
               type="button"
               variant="outline"
@@ -437,7 +471,7 @@ export function LabelDesignerScreen() {
               </span>
             )}
           </div>
-          <div className="min-h-0 flex-1">
+          <div ref={canvasBoxRef} className="min-h-0 flex-1">
             <DesignerCanvas
               api={api}
               zoom={zoom}

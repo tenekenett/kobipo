@@ -26,6 +26,39 @@ export function snapMm(v: number, step = 0.5): number {
   return Math.round((Math.round(v / step) * step) * 100) / 100
 }
 
+/**
+ * Etiketin verilen tuval alanına sığdığı en büyük zoom adımını seçer.
+ *
+ * Gerekçe: zoom sabit %400 başlıyordu; bu 20×40mm'de doğru ama 80×40mm etiket
+ * 96dpi'da 1209px eder ve dar bir laptopta tuval alanı ~450px'dir → etiket ekrana
+ * sığmaz. Boyut değiştiğinde/açılışta buradan hesaplanan adıma inilir.
+ *
+ * Hiçbir adım sığmıyorsa (ör. A4 sayfa, çok küçük alan) en küçük adım döner —
+ * kullanıcı yine de kaydırarak çalışabilir.
+ */
+export function fitZoom(
+  pageWmm: number,
+  pageHmm: number,
+  availWpx: number,
+  availHpx: number,
+  steps: readonly number[],
+): number {
+  const smallest = steps[0] ?? 1
+  if (!(availWpx > 0) || !(availHpx > 0)) return smallest
+  if (!(pageWmm > 0) || !(pageHmm > 0)) return smallest
+
+  const needWpx = pageWmm * BASE_PX_PER_MM
+  const needHpx = pageHmm * BASE_PX_PER_MM
+  // Her iki eksende de sığmalı → kısıtlayıcı olan eksen belirler.
+  const raw = Math.min(availWpx / needWpx, availHpx / needHpx)
+
+  let best = smallest
+  for (const s of steps) {
+    if (s <= raw && s > best) best = s
+  }
+  return best
+}
+
 export interface RectMm {
   x: number
   y: number
