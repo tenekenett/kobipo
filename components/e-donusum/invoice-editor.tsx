@@ -33,6 +33,7 @@ import {
 import { ProductCombobox } from "@/components/e-donusum/product-combobox"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 import { WithholdingCombobox } from "@/components/e-donusum/withholding-combobox"
+import { TaxTypeCombobox } from "@/components/e-donusum/tax-type-combobox"
 import { UnitCombobox } from "@/components/ui/unit-combobox"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { normalizeUnitCode } from "@/lib/data/units"
@@ -71,6 +72,48 @@ const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
   { code: "301", label: "301 - İhracat (uyarı: IHRACAT profili + gümrük alanları gerekir)" },
 ]
 
+// GİB ÖTV Vergi Türü Kodları (liste-bazlı). ÖTV oranı girildiğinde GİB'e hangi
+// liste koduyla gönderileceğini kullanıcı seçer; boşsa 0074 (IV. Liste) varsayılır.
+// GİB ÖTV listeleri (TaxTypeCombobox'a {code, name} verilir; ÖTV oranı liste-bazlı
+// SABİT DEĞİL — ürüne göre değişir — o yüzden rate yok, oran elle girilir).
+const EXCISE_CODES: { code: string; name: string }[] = [
+  { code: "0074", name: "IV. Liste (dayanıklı tüketim / diğer mallar)" },
+  { code: "0071", name: "I. Liste (petrol / doğalgaz ürünleri)" },
+  { code: "9077", name: "II. Liste (motorlu taşıt araçları - tescile tabi)" },
+  { code: "0073", name: "III. Liste (kolalı gazoz, alkollü içecek, tütün)" },
+  { code: "0075", name: "III-A Liste (alkollü içecekler)" },
+  { code: "0076", name: "III-B Liste (tütün mamülleri)" },
+  { code: "0077", name: "III-C Liste (kolalı gazozlar)" },
+]
+const DEFAULT_EXCISE_CODE = "0074"
+
+// GİB "Diğer Vergiler" (KDV/ÖTV dışı) Vergi Türü Kodları (UBL-TR kod listesi).
+// Diğer Vergi kalemi eklenince kullanıcı GİB türünü seçer — kod ZORUNLU (boş
+// TaxTypeCode GİB şematronunca reddedilir). Seçilince ad ve (varsa) standart oran
+// otomatik dolar; oran her zaman düzenlenebilir çünkü bazı vergiler değişken orana
+// (ör. Elektrik %1/%5) ya da maktu tutara tabidir → o türlerde oran boş bırakılır.
+const OTHER_TAX_CODES: { code: string; name: string; rate?: number }[] = [
+  { code: "0059", name: "Konaklama Vergisi", rate: 2 },
+  { code: "4080", name: "Özel İletişim Vergisi (ÖİV)", rate: 10 },
+  { code: "4081", name: "Özel İletişim Vergisi (5035 SK)", rate: 10 },
+  { code: "4071", name: "Elektrik ve Havagazı Tüketim Vergisi" },
+  { code: "8005", name: "Elektrik Tüketim Vergisi" },
+  { code: "8002", name: "Enerji Fonu" },
+  { code: "8004", name: "TRT Payı" },
+  { code: "0021", name: "Banka Muameleleri Vergisi (BMV)" },
+  { code: "0022", name: "Sigorta Muameleleri Vergisi" },
+  { code: "9021", name: "Banka Sigorta Muameleleri Vergisi (4961)" },
+  { code: "0061", name: "Kaynak Kullanımı Destekleme Fonu (KKDF)" },
+  { code: "1047", name: "Damga Vergisi" },
+  { code: "1048", name: "Damga Vergisi (5035 SK)" },
+  { code: "8001", name: "Borsa Tescil Ücreti" },
+  { code: "8006", name: "Telsiz Kullanım Ücreti" },
+  { code: "8007", name: "Telsiz Ruhsat Ücreti" },
+  { code: "8008", name: "Çevre Temizlik Vergisi" },
+  { code: "9040", name: "Mera Fonu" },
+  { code: "9944", name: "Belediyelere Ödenen Hal Rüsumu" },
+]
+
 interface Customer { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Supplier { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Product { id: string; name: string; code?: string; barcode?: string | null; salePrice?: number; vatRate: number; unit?: string; stockQuantity?: number | string; minStockLevel?: number | string | null; isService?: boolean }
@@ -83,7 +126,7 @@ interface LinkableWaybillItem {
   product?: { id: string; name?: string | null; unit?: string | null; vatRate?: number | string | null; purchasePrice?: number | string | null; salePrice?: number | string | null } | null
 }
 interface LinkableWaybill { id: string; waybillNo: string; date: string; supplierId?: string | null; stockProcessed?: boolean; invoiceId?: string | null; _count?: { items: number }; items?: LinkableWaybillItem[] }
-export interface InvoiceItem { productId?: string; code?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; otherTaxRate?: number; otherTaxName?: string; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number; sourceWaybillId?: string }
+export interface InvoiceItem { productId?: string; code?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; exciseCode?: string; otherTaxRate?: number; otherTaxName?: string; otherTaxCode?: string; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number; sourceWaybillId?: string }
 interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean }
 
 // Kayıtlı olmayan (ürün kartı bağlı olmayan) anlamlı kalemleri "ürün/hizmet olarak
@@ -851,8 +894,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               withholdingCode: item.withholdingCode || undefined,
               withholdingName: item.withholdingName || undefined,
               exciseRate: Number(item.exciseRate) || 0,
+              exciseCode: item.exciseCode || undefined,
               otherTaxRate: Number(item.otherTaxRate) || 0,
               otherTaxName: item.otherTaxName || undefined,
+              otherTaxCode: item.otherTaxCode || undefined,
               taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
               taxExemptionReason: item.taxExemptionReason || undefined,
             }
@@ -921,8 +966,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               withholdingCode: item.withholdingCode || undefined,
               withholdingName: item.withholdingName || undefined,
               exciseRate: Number(item.exciseRate) || 0,
+              exciseCode: item.exciseCode || undefined,
               otherTaxRate: Number(item.otherTaxRate) || 0,
               otherTaxName: item.otherTaxName || undefined,
+              otherTaxCode: item.otherTaxCode || undefined,
               taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
               taxExemptionReason: item.taxExemptionReason || undefined,
             }
@@ -2421,16 +2468,34 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                               )
                             }
                             if (key === "otherTaxRate") {
+                              // Tevkifat gibi: aranabilir GİB vergi türü + oran. Tür seçilince kod,
+                              // ad ve (standart oranı varsa) oran otomatik dolar. Kod ZORUNLU —
+                              // boş TaxTypeCode GİB şematronunca reddedilir.
                               return (
                                 <div key={key} className="col-span-2 md:col-span-2 space-y-1.5">
                                   <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Diğer Vergi</Label>{removable}</div>
                                   <div className="flex gap-1.5">
-                                    <Input
-                                      type="text"
-                                      className="h-9 flex-1 font-medium"
-                                      placeholder="Vergi adı (ör. Konaklama Vergisi)"
-                                      value={item.otherTaxName || ""}
-                                      onChange={(e) => updateItem(index, "otherTaxName", e.target.value)}
+                                    <TaxTypeCombobox
+                                      types={OTHER_TAX_CODES}
+                                      value={item.otherTaxCode || ""}
+                                      onChange={(code) => {
+                                        const picked = OTHER_TAX_CODES.find((c) => c.code === code)
+                                        setItems((prev) =>
+                                          prev.map((it, i) => {
+                                            if (i !== index) return it
+                                            if (!code) return { ...it, otherTaxCode: undefined, otherTaxName: undefined }
+                                            return {
+                                              ...it,
+                                              otherTaxCode: code,
+                                              otherTaxName: picked?.name || it.otherTaxName,
+                                              // Standart oranı olan türde oranı otomatik doldur
+                                              // (düzenlenebilir); değişken/maktu türlerde oranı koru.
+                                              otherTaxRate: picked?.rate != null ? picked.rate : it.otherTaxRate,
+                                            }
+                                          }),
+                                        )
+                                      }}
+                                      placeholder="Vergi türü ara (kod/isim)…"
                                     />
                                     <div className="relative w-24 shrink-0">
                                       <Input
@@ -2448,21 +2513,76 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                   {(item.otherTaxRate || 0) > 0 && (() => {
                                     const gross = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)
                                     const net = gross - computeItemDiscount(item, gross)
-                                    const amt = net * (Number(item.otherTaxRate) || 0) / 100
-                                    return (
+                                    // Fatura altı (genel) iskonto varsa satır vergisi de aynı oranda
+                                    // küçülür — özet/GİB taslağı ile tutması için aynı faktörü uygula.
+                                    const globalFactor =
+                                      totals.grossNetAmount > 0 ? totals.netAmount / totals.grossNetAmount : 1
+                                    const amt = (net * (Number(item.otherTaxRate) || 0) / 100) * globalFactor
+                                    // Kod yoksa GİB reddeder → kullanıcıyı uyar.
+                                    return item.otherTaxCode ? (
                                       <p className="text-[10px] text-kobipo-blue">
-                                        <span className="font-semibold">{item.otherTaxName || "Diğer Vergi"}</span> · %{item.otherTaxRate} = ₺{amt.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} matraha eklenir.
+                                        <span className="font-semibold">{item.otherTaxName || "Diğer Vergi"}</span> · %{item.otherTaxRate} = ₺{amt.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} matraha eklenir{globalFactor < 1 ? " (fatura iskontosu sonrası)" : ""}. GİB'e <span className="font-semibold">{item.otherTaxCode}</span> koduyla gider.
+                                      </p>
+                                    ) : (
+                                      <p className="text-[10px] text-amber-600">
+                                        GİB vergi türü seçin — kod olmadan bu vergi GİB'e gönderilemez (fatura reddedilir).
                                       </p>
                                     )
                                   })()}
                                 </div>
                               )
                             }
-                            const numericProps = { label: "ÖTV (%)", value: item.exciseRate || "", onChange: (v: string) => updateItem(index, "exciseRate", v === "" ? 0 : parseFloat(v) || 0) }
                             return (
-                              <div key={key} className="col-span-1 md:col-span-1 space-y-1.5">
-                                <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{numericProps.label}</Label>{removable}</div>
-                                <Input type="number" className="h-9 font-medium" min="0" step="0.01" value={numericProps.value} onChange={(e) => numericProps.onChange(e.target.value)} />
+                              <div key={key} className="col-span-2 md:col-span-2 space-y-1.5">
+                                <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ÖTV</Label>{removable}</div>
+                                {/* Tevkifat gibi: aranabilir GİB ÖTV listesi + oran. ÖTV oranı ürüne
+                                    göre değiştiğinden elle girilir; liste seçilince kod otomatik gelir. */}
+                                <div className="flex gap-1.5">
+                                  <TaxTypeCombobox
+                                    types={EXCISE_CODES}
+                                    value={item.exciseCode || ""}
+                                    onChange={(code) =>
+                                      setItems((prev) =>
+                                        prev.map((it, i) => (i === index ? { ...it, exciseCode: code || undefined } : it)),
+                                      )
+                                    }
+                                    placeholder="ÖTV listesi ara (kod/isim)…"
+                                  />
+                                  <div className="relative w-24 shrink-0">
+                                    <Input
+                                      type="number"
+                                      className="h-9 pr-6 font-medium"
+                                      min="0"
+                                      step="0.01"
+                                      placeholder="Oran"
+                                      value={item.exciseRate || ""}
+                                      onChange={(e) => {
+                                        const rate = e.target.value === "" ? 0 : parseFloat(e.target.value) || 0
+                                        // Oran>0 iken GİB liste kodu boşsa varsayılanı ata (tek setItems).
+                                        setItems((prev) =>
+                                          prev.map((it, i) =>
+                                            i === index
+                                              ? { ...it, exciseRate: rate, exciseCode: rate > 0 ? (it.exciseCode || DEFAULT_EXCISE_CODE) : it.exciseCode }
+                                              : it,
+                                          ),
+                                        )
+                                      }}
+                                    />
+                                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                                  </div>
+                                </div>
+                                {(item.exciseRate || 0) > 0 && (() => {
+                                  const gross = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)
+                                  const net = gross - computeItemDiscount(item, gross)
+                                  const globalFactor =
+                                    totals.grossNetAmount > 0 ? totals.netAmount / totals.grossNetAmount : 1
+                                  const amt = (net * (Number(item.exciseRate) || 0) / 100) * globalFactor
+                                  return (
+                                    <p className="text-[10px] text-kobipo-blue">
+                                      ÖTV · %{item.exciseRate} = ₺{amt.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} matraha eklenir{globalFactor < 1 ? " (fatura iskontosu sonrası)" : ""}. GİB'e <span className="font-semibold">{item.exciseCode || DEFAULT_EXCISE_CODE}</span> koduyla gider.
+                                    </p>
+                                  )
+                                })()}
                               </div>
                             )
                           })}

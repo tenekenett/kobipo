@@ -16,6 +16,23 @@ function resolveOtherTaxName(code: string | null | undefined): string | null {
   return GIB_OTHER_TAX_NAMES[c] || `Diğer Vergi (${c})`
 }
 
+// GİDEN fatura: "Diğer Vergi" ADINDAN GİB vergi türü kodunu türetir (tax[].taxCode).
+// GIB_OTHER_TAX_NAMES'in ters yönü + yaygın eşanlamlılar. Bulunamazsa null döner →
+// o zaman kod göndermeden yalnız taxName ile "diğer vergi" olarak iletilir.
+function resolveOtherTaxCode(name: string | null | undefined): string | null {
+  const n = (name ?? "").trim().toLocaleLowerCase("tr")
+  if (!n) return null
+  if (n.includes("konaklama")) return "0059"
+  if (n.includes("elektrik") || n.includes("havagaz") || n.includes("btv")) return "4071"
+  if (n.includes("özel iletişim") || n.includes("ozel iletisim") || n === "öiv" || n === "oiv")
+    return "4080"
+  return null
+}
+
+// ÖTV vergi türü kodu belirsizse (kullanıcı liste seçmediyse / eski kayıt) son çare.
+// 0074 = IV sayılı liste (dayanıklı tüketim ve diğer mallar) — en yaygın genel kategori.
+const DEFAULT_EXCISE_CODE = "0074"
+
 // Mysoft ürün tipi kodları → okunur etiket (CreditRequestModel açıklamasından).
 const MYSOFT_PRODUCT_LABELS: Record<number, string> = {
   1: "E-Fatura",
@@ -734,8 +751,23 @@ async sendInvoice(invoiceData: any): Promise<any> {
             ? item.withholdingName.trim()
             : null;
           const withholdingRate = Number(item.withholdingRate) || 0;
+          // ÖTV: oran + GİB liste kodu (0071/0073/0074...). Tutar iskonto sonrası
+          // matrah (l.taxable) üzerinden hesaplanır — KDV ile aynı taban.
+          const exciseRate = Number(item.exciseRate) || 0;
+          const exciseCode = typeof item.exciseCode === "string" && item.exciseCode.trim()
+            ? item.exciseCode.trim()
+            : null;
+          // Diğer Vergi (KDV/ÖTV dışı ek vergi): oran + serbest ad. Ad → GİB kodu
+          // resolveOtherTaxCode ile türetilir.
+          const otherTaxRate = Number(item.otherTaxRate) || 0;
+          const otherTaxName = typeof item.otherTaxName === "string" && item.otherTaxName.trim()
+            ? item.otherTaxName.trim()
+            : null;
+          const otherTaxCode = typeof item.otherTaxCode === "string" && item.otherTaxCode.trim()
+            ? item.otherTaxCode.trim()
+            : null;
           // Pro-rata global discount payı sonradan eklenecek.
-          return { item, qty, unitPrice, vatRate, rowTotal, lineDiscount, discountRate, exemptionCode, exemptionReason, withholdingCode, withholdingName, withholdingRate, globalShare: 0, taxable: rowTotal - lineDiscount, rowVat: 0 };
+          return { item, qty, unitPrice, vatRate, rowTotal, lineDiscount, discountRate, exemptionCode, exemptionReason, withholdingCode, withholdingName, withholdingRate, exciseRate, exciseCode, otherTaxRate, otherTaxName, otherTaxCode, globalShare: 0, taxable: rowTotal - lineDiscount, rowVat: 0, excise: 0, otherTax: 0 };
         })
         .filter((l: any) => l.rowTotal > 0);
 
@@ -771,6 +803,10 @@ async sendInvoice(invoiceData: any): Promise<any> {
       lineData.forEach((l: any) => {
         l.taxable = round2(l.rowTotal - l.lineDiscount - l.globalShare);
         l.rowVat = round2((l.taxable * l.vatRate) / 100);
+        // ÖTV ve Diğer Vergi de iskonto sonrası matrah (l.taxable) üzerinden — KDV ile
+        // aynı taban. Böylece GİB'e giden ek vergiler editör/önizleme özetiyle tutar.
+        l.excise = l.exciseRate > 0 ? round2((l.taxable * l.exciseRate) / 100) : 0;
+        l.otherTax = l.otherTaxRate > 0 ? round2((l.taxable * l.otherTaxRate) / 100) : 0;
         l.lineDiscount = round2(l.lineDiscount);
         l.rowTotal = round2(l.rowTotal);
         // l.unitPrice: round'lamadan orijinal hassasiyetle gönderilir.
@@ -1041,6 +1077,47 @@ async sendInvoice(invoiceData: any): Promise<any> {
                 // Yüzdeyi her kodda gönder: GİB şematronu UBL'de Percent alanının
                 // 0/boş olmasını reddediyor ("601 vergi tipinin yüzdesi 0 olamaz").
                 detail.withholdingTaxPercentage = l.withholdingRate;
+            }
+            // EK VERGİLER (ÖTV + Diğer Vergi) → InvoiceOutboxDetailTaxModel dizisi.
+            // KDV satırın kendi alanlarına yazılır (yukarıda); tax[] YALNIZ ÖİV/ÖTV/diğer
+            // ek vergiler içindir (Swagger v8). Taban her zaman iskonto sonrası matrah
+            // (l.taxable) — KDV ile aynı — böylece GİB toplamı editör/önizleme ile tutar.
+            const extraTaxes: any[] = [];
+            if (l.exciseRate > 0 && l.excise > 0) {
+                // ÖTV: GİB liste koduyla tanınır (0071/0073/0074...). Swagger notu gereği
+                // ÖTV/ÖİV için taxName ayrıca gönderilmez; kod belirsizse son çare 0074.
+                extraTaxes.push({
+                    taxCode: l.exciseCode || DEFAULT_EXCISE_CODE,
+                    taxRate: l.exciseRate,
+                    taxAmount: l.excise,
+                    taxableAmount: l.taxable,
+                });
+            }
+            if (l.otherTaxRate > 0 && l.otherTax > 0) {
+                // Diğer Vergi: önce kullanıcının seçtiği GİB kodu (otherTaxCode), yoksa
+                // addan türet (Konaklama 0059 / Elektrik 4071 / ÖİV 4080). GİB şematronu
+                // BOŞ TaxTypeCode'u reddettiğinden, kod hiç çözülemezse bu ek vergiyi
+                // GÖNDERMEYİZ (faturanın tamamı reddedilmesin) ve uyarı loglarız.
+                const otherCode = l.otherTaxCode || resolveOtherTaxCode(l.otherTaxName);
+                if (otherCode) {
+                    const entry: any = {
+                        taxCode: otherCode,
+                        taxRate: l.otherTaxRate,
+                        taxAmount: l.otherTax,
+                        taxableAmount: l.taxable,
+                    };
+                    // ÖİV (4080) hariç serbest adı da gönder (Swagger: KDV/ÖİV/ÖTV'de ad
+                    // ayrıca yazılmaz). Konaklama/Elektrik'te ad GİB görselinde görünür.
+                    if (l.otherTaxName && otherCode !== "4080") entry.taxName = l.otherTaxName;
+                    extraTaxes.push(entry);
+                } else {
+                    console.warn(
+                        `[Mysoft] Diğer Vergi GİB koduna çevrilemedi (ad="${l.otherTaxName ?? ""}"), GİB'e gönderilmiyor. Kalem: ${l.item?.description ?? ""}`,
+                    );
+                }
+            }
+            if (extraTaxes.length > 0) {
+                detail.tax = extraTaxes;
             }
             return detail;
         })

@@ -106,9 +106,15 @@ export async function GET(
 
     const grossTotal = invoice.items.reduce((s, it) => s + n(it.quantity) * n(it.unitPrice), 0)
     const lineDiscountTotal = invoice.items.reduce((s, it) => s + n(it.discountAmount), 0)
-    const withholdingAmount = invoice.items.reduce((s, it) => s + n(it.withholdingAmount), 0)
-    const exciseAmount = invoice.items.reduce((s, it) => s + n(it.exciseAmount), 0)
-    const otherTaxAmount = invoice.items.reduce((s, it) => s + n(it.otherTaxAmount), 0)
+    // Kalem vergileri (tevkifat/ÖTV/diğer) DB'de fatura altı (genel) iskonto UYGULANMADAN
+    // saklanır; başlık matrah/KDV ise iskonto düşülmüş haldedir. Toplamın kırılımla tutması
+    // için kalem vergilerini de aynı oranda küçültürüz (Kobipo önizleme ile birebir).
+    const globalDiscountAmt = n(invoice.globalDiscountAmount)
+    const preGlobalNet = n(invoice.netAmount) + globalDiscountAmt
+    const globalFactor = preGlobalNet > 0 ? n(invoice.netAmount) / preGlobalNet : 1
+    const withholdingAmount = invoice.items.reduce((s, it) => s + n(it.withholdingAmount), 0) * globalFactor
+    const exciseAmount = invoice.items.reduce((s, it) => s + n(it.exciseAmount), 0) * globalFactor
+    const otherTaxAmount = invoice.items.reduce((s, it) => s + n(it.otherTaxAmount), 0) * globalFactor
     const otherTaxLabel =
       invoice.items.find((it) => n(it.otherTaxAmount) > 0 && it.otherTaxName)?.otherTaxName || null
 

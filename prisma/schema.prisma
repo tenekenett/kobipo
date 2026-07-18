@@ -934,11 +934,18 @@ model InvoiceItem {
   withholdingName        String?  @db.VarChar(255)
   withholdingRate        Decimal? @db.Decimal(5, 2)
   withholdingAmount      Decimal? @db.Decimal(10, 2)
+  // ÖTV. exciseRate = oran (%), exciseAmount = net * exciseRate / 100. exciseCode =
+  // GİB ÖTV vergi türü kodu (liste-bazlı: 0071 I. Liste / 0073 III. Liste /
+  // 0074 IV. Liste ...). GİB payload'ında tax[].taxCode olarak gönderilir.
   exciseRate             Decimal? @db.Decimal(5, 2)
+  exciseCode             String?  @db.VarChar(10)
   exciseAmount           Decimal? @db.Decimal(10, 2)
   // KDV/ÖTV dışı "Diğer Vergiler" (ör. Konaklama Vergisi). Matrahın üzerine eklenir.
   // otherTaxAmount = net * otherTaxRate / 100. otherTaxName = verginin adı (ör. "Konaklama Vergisi").
+  // otherTaxCode = GİB vergi türü kodu (0059 Konaklama / 4071 Elektrik / 4080 ÖİV).
+  // GİB payload'ında tax[].taxCode olarak ZORUNLU — kod olmadan GİB şematronu reddeder.
   otherTaxName           String?  @db.VarChar(255)
+  otherTaxCode           String?  @db.VarChar(10)
   otherTaxRate           Decimal? @db.Decimal(5, 2)
   otherTaxAmount         Decimal? @db.Decimal(10, 2)
   totalAmount            Decimal  @db.Decimal(10, 2)

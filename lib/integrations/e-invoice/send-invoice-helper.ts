@@ -241,6 +241,13 @@ async function resolveSendContext(
       withholdingCode: item.withholdingCode || undefined,
       withholdingName: item.withholdingName || undefined,
       withholdingRate: Number(item.withholdingRate || 0),
+      // ÖTV: oran + GİB liste kodu. Diğer Vergi: oran + ad (provider ad→kod çevirir).
+      // Provider bunları iskonto sonrası matrah üzerinden tax[]'e yazar.
+      exciseRate: Number(item.exciseRate || 0),
+      exciseCode: item.exciseCode || undefined,
+      otherTaxRate: Number(item.otherTaxRate || 0),
+      otherTaxName: item.otherTaxName || undefined,
+      otherTaxCode: item.otherTaxCode || undefined,
       taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
       taxExemptionReason: item.taxExemptionReason || undefined,
       // Satır iskontosu: tutar (hesaplanmış) + opsiyonel oran. Mysoft v8

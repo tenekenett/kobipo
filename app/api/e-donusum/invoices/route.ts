@@ -247,11 +247,21 @@ const company = await prisma.company.findUnique({
             ? item.withholdingName.trim()
             : null,
         exciseRate: parseFloat(item.exciseRate) || 0,
+        // ÖTV GİB liste kodu (0071/0073/0074...). GİB payload'ında tax[].taxCode.
+        exciseCode:
+          typeof item.exciseCode === "string" && item.exciseCode.trim()
+            ? item.exciseCode.trim()
+            : null,
         // KDV dışı "Diğer Vergi" (ör. Konaklama Vergisi): matrahın üzerine eklenir.
         otherTaxRate: parseFloat(item.otherTaxRate) || 0,
         otherTaxName:
           typeof item.otherTaxName === "string" && item.otherTaxName.trim()
             ? item.otherTaxName.trim()
+            : null,
+        // Diğer Vergi GİB kodu (0059/4071/4080). GİB payload'ında tax[].taxCode.
+        otherTaxCode:
+          typeof item.otherTaxCode === "string" && item.otherTaxCode.trim()
+            ? item.otherTaxCode.trim()
             : null,
         taxExemptionReasonCode:
           typeof item.taxExemptionReasonCode === "string" && item.taxExemptionReasonCode.trim()
@@ -364,10 +374,12 @@ const company = await prisma.company.findUnique({
               // Tevkifat KDV üzerinden: (net * vatRate/100) * withholdingRate/100
               withholdingAmount: net * (item.vatRate / 100) * (item.withholdingRate / 100),
               exciseRate: item.exciseRate || null,
+              exciseCode: item.exciseCode || null,
               exciseAmount: net * (item.exciseRate / 100),
               otherTaxRate: item.otherTaxRate || null,
               otherTaxAmount: net * (item.otherTaxRate / 100),
               otherTaxName: item.otherTaxName,
+              otherTaxCode: item.otherTaxCode || null,
               totalAmount:
                 net * (1 + item.vatRate / 100 + item.exciseRate / 100 + item.otherTaxRate / 100) -
                 net * (item.vatRate / 100) * (item.withholdingRate / 100),
@@ -632,6 +644,17 @@ const invoiceData = {
     unitPrice: Number(item.unitPrice),
     vatRate: Number(item.vatRate),
     productId: item.productId || undefined,
+    // KDV tevkifatı — provider satır KDV'sinden matrah/tutarı hesaplar.
+    withholdingCode: item.withholdingCode || undefined,
+    withholdingName: item.withholdingName || undefined,
+    withholdingRate: Number(item.withholdingRate || 0),
+    // ÖTV (oran + GİB liste kodu) ve Diğer Vergi (oran + ad) — provider iskonto
+    // sonrası matrah üzerinden tax[]'e yazar; aksi halde GİB'e hiç gitmezdi.
+    exciseRate: Number(item.exciseRate || 0),
+    exciseCode: item.exciseCode || undefined,
+    otherTaxRate: Number(item.otherTaxRate || 0),
+    otherTaxName: item.otherTaxName || undefined,
+    otherTaxCode: item.otherTaxCode || undefined,
     taxExemptionReasonCode: item.taxExemptionReasonCode || undefined,
     taxExemptionReason: item.taxExemptionReason || undefined,
     discountAmount: Number(item.discountAmount || 0),

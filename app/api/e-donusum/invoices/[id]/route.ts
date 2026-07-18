@@ -47,11 +47,21 @@ function normalizeInvoiceItem(item: any) {
         ? item.withholdingName.trim()
         : null,
     exciseRate: parseFloat(item.exciseRate) || 0,
+    // ÖTV GİB liste kodu (0071/0073/0074...). GİB payload'ında tax[].taxCode.
+    exciseCode:
+      typeof item.exciseCode === "string" && item.exciseCode.trim()
+        ? item.exciseCode.trim()
+        : null,
     // KDV dışı "Diğer Vergi" (ör. Konaklama Vergisi): matrahın üzerine eklenir.
     otherTaxRate: parseFloat(item.otherTaxRate) || 0,
     otherTaxName:
       typeof item.otherTaxName === "string" && item.otherTaxName.trim()
         ? item.otherTaxName.trim()
+        : null,
+    // Diğer Vergi GİB kodu (0059/4071/4080). GİB payload'ında tax[].taxCode.
+    otherTaxCode:
+      typeof item.otherTaxCode === "string" && item.otherTaxCode.trim()
+        ? item.otherTaxCode.trim()
         : null,
     taxExemptionReasonCode:
       typeof item.taxExemptionReasonCode === "string" && item.taxExemptionReasonCode.trim()
@@ -331,10 +341,12 @@ export async function PUT(
               .times(new Decimal(item.vatRate).div(100))
               .times(new Decimal(item.withholdingRate || 0).div(100)),
             exciseRate: new Decimal(item.exciseRate),
+            exciseCode: item.exciseCode || null,
             exciseAmount: net.times(new Decimal(item.exciseRate || 0).div(100)),
             otherTaxRate: item.otherTaxRate ? new Decimal(item.otherTaxRate) : null,
             otherTaxAmount: net.times(new Decimal(item.otherTaxRate || 0).div(100)),
             otherTaxName: item.otherTaxName,
+            otherTaxCode: item.otherTaxCode || null,
             totalAmount: net
               .times(
                 new Decimal(1)

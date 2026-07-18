@@ -1214,15 +1214,30 @@ export default function FaturaOnizlemePage() {
               0,
             )
             const globalDiscount = Number((invoice as any).globalDiscountAmount || 0)
-            const withholdingTotal = invoice.items.reduce(
-              (sum, it) => sum + Number((it as any).withholdingAmount || 0),
-              0,
-            )
+            // Kalem tutarları (withholding/ÖTV/diğer vergi) DB'de fatura altı (genel)
+            // iskonto UYGULANMADAN, satır net'i üzerinden saklanır. Başlık matrah/KDV ise
+            // global iskonto düşülmüş halde saklıdır. Kırılımın toplamla tutması için
+            // kalem vergilerini de aynı oranda küçültürüz (GİB taslağı ve editör özeti
+            // ile birebir). factor = matrah(iskonto sonrası) / matrah(iskonto öncesi).
+            const preGlobalNet = Number(invoice.netAmount || 0) + globalDiscount
+            const globalFactor = preGlobalNet > 0 ? Number(invoice.netAmount || 0) / preGlobalNet : 1
+            const withholdingTotal =
+              invoice.items.reduce(
+                (sum, it) => sum + Number((it as any).withholdingAmount || 0),
+                0,
+              ) * globalFactor
+            // ÖTV (matrahın üzerine eklenen ek vergi).
+            const exciseTotal =
+              invoice.items.reduce(
+                (sum, it) => sum + Number((it as any).exciseAmount || 0),
+                0,
+              ) * globalFactor
             // KDV dışı "Diğer Vergiler" (ör. Konaklama Vergisi) — matrahın üzerine eklenir.
-            const otherTaxTotal = invoice.items.reduce(
-              (sum, it) => sum + Number((it as any).otherTaxAmount || 0),
-              0,
-            )
+            const otherTaxTotal =
+              invoice.items.reduce(
+                (sum, it) => sum + Number((it as any).otherTaxAmount || 0),
+                0,
+              ) * globalFactor
             const otherTaxLabel =
               (invoice.items.find(
                 (it) => Number((it as any).otherTaxAmount || 0) > 0 && (it as any).otherTaxName,
@@ -1254,6 +1269,12 @@ export default function FaturaOnizlemePage() {
                     <span className="text-muted-foreground">KDV Toplam</span>
                     <span>{formatCurrency(invoice.vatAmount)}</span>
                   </div>
+                  {exciseTotal > 0 && (
+                    <div className="flex justify-between text-sm text-blue-600 dark:text-blue-400">
+                      <span>ÖTV</span>
+                      <span>+ {formatCurrency(exciseTotal)}</span>
+                    </div>
+                  )}
                   {withholdingTotal > 0 && (
                     <div className="flex justify-between text-sm text-red-600 dark:text-red-400">
                       <span>Tevkifat (KDV)</span>
