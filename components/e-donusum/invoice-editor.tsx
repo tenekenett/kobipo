@@ -37,6 +37,12 @@ import { TaxTypeCombobox } from "@/components/e-donusum/tax-type-combobox"
 import { UnitCombobox } from "@/components/ui/unit-combobox"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { normalizeUnitCode } from "@/lib/data/units"
+import {
+  GIB_EXCISE_TAX_TYPES,
+  GIB_OTHER_TAX_TYPES,
+  DEFAULT_EXCISE_CODE,
+  type GibTaxType,
+} from "@/lib/integrations/e-invoice/gib-tax-types"
 
 
 type LineExtraKey = "description" | "discountRate" | "withholdingRate" | "exciseRate" | "otherTaxRate"
@@ -72,47 +78,10 @@ const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
   { code: "301", label: "301 - İhracat (uyarı: IHRACAT profili + gümrük alanları gerekir)" },
 ]
 
-// GİB ÖTV Vergi Türü Kodları (liste-bazlı). ÖTV oranı girildiğinde GİB'e hangi
-// liste koduyla gönderileceğini kullanıcı seçer; boşsa 0074 (IV. Liste) varsayılır.
-// GİB ÖTV listeleri (TaxTypeCombobox'a {code, name} verilir; ÖTV oranı liste-bazlı
-// SABİT DEĞİL — ürüne göre değişir — o yüzden rate yok, oran elle girilir).
-const EXCISE_CODES: { code: string; name: string }[] = [
-  { code: "0074", name: "IV. Liste (dayanıklı tüketim / diğer mallar)" },
-  { code: "0071", name: "I. Liste (petrol / doğalgaz ürünleri)" },
-  { code: "9077", name: "II. Liste (motorlu taşıt araçları - tescile tabi)" },
-  { code: "0073", name: "III. Liste (kolalı gazoz, alkollü içecek, tütün)" },
-  { code: "0075", name: "III-A Liste (alkollü içecekler)" },
-  { code: "0076", name: "III-B Liste (tütün mamülleri)" },
-  { code: "0077", name: "III-C Liste (kolalı gazozlar)" },
-]
-const DEFAULT_EXCISE_CODE = "0074"
-
-// GİB "Diğer Vergiler" (KDV/ÖTV dışı) Vergi Türü Kodları (UBL-TR kod listesi).
-// Diğer Vergi kalemi eklenince kullanıcı GİB türünü seçer — kod ZORUNLU (boş
-// TaxTypeCode GİB şematronunca reddedilir). Seçilince ad ve (varsa) standart oran
-// otomatik dolar; oran her zaman düzenlenebilir çünkü bazı vergiler değişken orana
-// (ör. Elektrik %1/%5) ya da maktu tutara tabidir → o türlerde oran boş bırakılır.
-const OTHER_TAX_CODES: { code: string; name: string; rate?: number }[] = [
-  { code: "0059", name: "Konaklama Vergisi", rate: 2 },
-  { code: "4080", name: "Özel İletişim Vergisi (ÖİV)", rate: 10 },
-  { code: "4081", name: "Özel İletişim Vergisi (5035 SK)", rate: 10 },
-  { code: "4071", name: "Elektrik ve Havagazı Tüketim Vergisi" },
-  { code: "8005", name: "Elektrik Tüketim Vergisi" },
-  { code: "8002", name: "Enerji Fonu" },
-  { code: "8004", name: "TRT Payı" },
-  { code: "0021", name: "Banka Muameleleri Vergisi (BMV)" },
-  { code: "0022", name: "Sigorta Muameleleri Vergisi" },
-  { code: "9021", name: "Banka Sigorta Muameleleri Vergisi (4961)" },
-  { code: "0061", name: "Kaynak Kullanımı Destekleme Fonu (KKDF)" },
-  { code: "1047", name: "Damga Vergisi" },
-  { code: "1048", name: "Damga Vergisi (5035 SK)" },
-  { code: "8001", name: "Borsa Tescil Ücreti" },
-  { code: "8006", name: "Telsiz Kullanım Ücreti" },
-  { code: "8007", name: "Telsiz Ruhsat Ücreti" },
-  { code: "8008", name: "Çevre Temizlik Vergisi" },
-  { code: "9040", name: "Mera Fonu" },
-  { code: "9944", name: "Belediyelere Ödenen Hal Rüsumu" },
-]
+// GİB vergi türü listeleri (ÖTV + diğer vergiler) artık paylaşılan modülden gelir
+// (lib/integrations/e-invoice/gib-tax-types) — /api/e-donusum/tax-types ucuyla
+// aynı kaynak. Buradaki gömülü liste yalnız başlangıç/fallback değeridir; uç
+// Mysoft'ta canlı liste bulursa state onunla değiştirilir.
 
 interface Customer { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
 interface Supplier { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
@@ -177,6 +146,14 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const [products, setProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
+  // Fatura satırında ürün barkodu/stoğu düzenlenebilir. Yazım sırasında ürün
+  // kataloğunu (products) her tuşta güncellemek yerine geçici taslak tutulur;
+  // odak kaybında (blur) kalıcılaştırılır. productId ile anahtarlanır (aynı ürün
+  // birden fazla satırda olabilir → hepsinde tutarlı görünür).
+  const [barcodeDrafts, setBarcodeDrafts] = useState<Record<string, string>>({})
+  const [stockDrafts, setStockDrafts] = useState<Record<string, string>>({})
+  const [savingProduct, setSavingProduct] = useState<Record<string, boolean>>({})
+
   // Alış faturasına bağlanacak irsaliyeler (yalnız oluşturma modunda). Bağlanan
   // stoğa-işlenmiş irsaliye için fatura stoğu tekrar işlemez (çift stok önleme).
   const [availableWaybills, setAvailableWaybills] = useState<LinkableWaybill[]>([])
@@ -187,6 +164,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   // Hazır GİB tevkifat kodları (Mysoft'tan). E-dönüşüm açık firmalarda dolu döner;
   // boşsa tevkifat alanı serbest yüzde girişine geri düşer.
   const [withholdingTypes, setWithholdingTypes] = useState<Array<{ code: string; name: string; rate: number }>>([])
+  // GİB vergi türü listeleri (ÖTV + diğer vergiler) — ÖTV/Diğer Vergi seçicilerini
+  // besler. Gömülü GİB listesiyle başlar (seçici anında çalışsın); /tax-types ucu
+  // Mysoft'ta canlı liste bulursa onunla değiştirir, yoksa aynı GİB listesi döner.
+  const [taxTypes, setTaxTypes] = useState<{ excise: GibTaxType[]; other: GibTaxType[] }>({
+    excise: GIB_EXCISE_TAX_TYPES,
+    other: GIB_OTHER_TAX_TYPES,
+  })
 
   // Gelen e-faturadan dönüştürme akışı için
   const [incomingPrefillError, setIncomingPrefillError] = useState<string | null>(null)
@@ -318,6 +302,26 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     }
   }, [companyId])
 
+  // ÖTV / Diğer Vergi tür listelerini çek — varsa Mysoft'tan, yoksa sunucu gömülü
+  // GİB listesini döner. Fetch başarısızsa state'in başlangıç değeri (aynı gömülü
+  // GİB listesi) kullanılmaya devam eder; seçici hiçbir durumda boş kalmaz.
+  useEffect(() => {
+    if (!companyId) return
+    let active = true
+    fetch(`/api/e-donusum/tax-types?companyId=${companyId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!active || !d?.data) return
+        const excise = Array.isArray(d.data.excise) && d.data.excise.length > 0 ? d.data.excise : GIB_EXCISE_TAX_TYPES
+        const other = Array.isArray(d.data.other) && d.data.other.length > 0 ? d.data.other : GIB_OTHER_TAX_TYPES
+        setTaxTypes({ excise, other })
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [companyId])
+
   // Tevkifat kod listesi yüklendiğinde, kodu OLUP oranı boş kalmış kalemlerin
   // oranını koddan otomatik tamamla. `applyWithholdingCode`'un tetiklenmediği
   // durumları kapsar: alış faturası içe aktarma, kayıtlı faturayı düzenleme veya
@@ -339,6 +343,33 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       return changed ? next : prev
     })
   }, [withholdingTypes])
+
+  // Vergi türü listesi yüklendiğinde/değiştiğinde, kodu OLUP adı ya da oranı boş
+  // kalmış "Diğer Vergi" kalemlerini listeden tamamla (kayıtlı faturayı düzenleme
+  // veya içe aktarma ile hazır gelen kalemler — tevkifat backfill'iyle aynı desen).
+  // Değişken oranlı türlerde listede rate yok → oran elle girilmeye devam eder.
+  useEffect(() => {
+    const list = taxTypes.other
+    if (list.length === 0) return
+    setItems((prev) => {
+      let changed = false
+      const next = prev.map((it) => {
+        if (!it.otherTaxCode) return it
+        const t = list.find((x) => x.code === it.otherTaxCode)
+        if (!t) return it
+        const fillName = !it.otherTaxName && !!t.name
+        const fillRate = !(it.otherTaxRate && it.otherTaxRate > 0) && t.rate != null
+        if (!fillName && !fillRate) return it
+        changed = true
+        return {
+          ...it,
+          otherTaxName: fillName ? t.name : it.otherTaxName,
+          otherTaxRate: fillRate ? t.rate : it.otherTaxRate,
+        }
+      })
+      return changed ? next : prev
+    })
+  }, [taxTypes])
 
   // Alış faturasında (oluşturma modu) seçili tedarikçinin stoğa işlenmiş, henüz
   // faturaya bağlanmamış irsaliyelerini getir. Tedarikçi/tip değişince seçim sıfırlanır.
@@ -1244,6 +1275,82 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     if (!productId) return null
     const p = products.find((x) => x.id === productId)
     return p?.barcode ? String(p.barcode) : null
+  }
+
+  // Barkodu ürün kaydına kalıcı yaz (PATCH — yalnız barkod alanı; diğer alanlar
+  // korunur). Optimistik günceller, hata olursa geri alır.
+  const persistBarcode = async (productId: string, rawValue: string) => {
+    const p = products.find((x) => x.id === productId)
+    if (!p) return
+    const current = p.barcode ? String(p.barcode) : ""
+    const next = rawValue.trim()
+    if (next === current) return
+    const prevBarcode = p.barcode ?? null
+    setProducts((prev) => prev.map((x) => (x.id === productId ? { ...x, barcode: next || null } : x)))
+    setSavingProduct((s) => ({ ...s, [productId]: true }))
+    try {
+      const res = await fetch(`/api/stok/products/${productId}?companyId=${companyId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ barcode: next || null }),
+      })
+      if (!res.ok) throw new Error("patch-failed")
+      toast({ title: "Barkod güncellendi", description: p.name })
+    } catch {
+      setProducts((prev) => prev.map((x) => (x.id === productId ? { ...x, barcode: prevBarcode } : x)))
+      toast({ title: "Barkod güncellenemedi", variant: "destructive" })
+    } finally {
+      setSavingProduct((s) => { const n = { ...s }; delete n[productId]; return n })
+    }
+  }
+
+  // Stoğu ürün kaydına kalıcı yaz. Denetim izi için ADJUSTMENT stok hareketi
+  // oluşturur (endpoint stockQuantity'yi bu değere sabitler). Optimistik günceller.
+  const persistStock = async (productId: string, rawValue: string) => {
+    const p = products.find((x) => x.id === productId)
+    if (!p || p.isService) return
+    const current = Number(p.stockQuantity)
+    const safeCurrent = Number.isFinite(current) ? current : 0
+    const next = parseFloat(rawValue)
+    if (!Number.isFinite(next) || next < 0 || next === safeCurrent) return
+    setProducts((prev) => prev.map((x) => (x.id === productId ? { ...x, stockQuantity: next } : x)))
+    setSavingProduct((s) => ({ ...s, [productId]: true }))
+    try {
+      const res = await fetch(`/api/stok/movements`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId,
+          productId,
+          type: "ADJUSTMENT",
+          quantity: next,
+          description: "Fatura ekranından stok düzeltmesi",
+        }),
+      })
+      if (!res.ok) throw new Error("movement-failed")
+      toast({ title: "Stok güncellendi", description: `${p.name}: ${next.toLocaleString("tr-TR")}` })
+    } catch {
+      setProducts((prev) => prev.map((x) => (x.id === productId ? { ...x, stockQuantity: safeCurrent } : x)))
+      toast({ title: "Stok güncellenemedi", variant: "destructive" })
+    } finally {
+      setSavingProduct((s) => { const n = { ...s }; delete n[productId]; return n })
+    }
+  }
+
+  // Barkod/stok input'larının blur davranışı: taslağı kalıcılaştır, sonra temizle.
+  const commitBarcodeDraft = (productId: string) => {
+    const v = barcodeDrafts[productId]
+    if (v !== undefined) {
+      persistBarcode(productId, v)
+      setBarcodeDrafts((d) => { const n = { ...d }; delete n[productId]; return n })
+    }
+  }
+  const commitStockDraft = (productId: string) => {
+    const v = stockDrafts[productId]
+    if (v !== undefined) {
+      persistStock(productId, v)
+      setStockDrafts((d) => { const n = { ...d }; delete n[productId]; return n })
+    }
   }
 
   // İrsaliye kalemlerini fatura satırına çevir. Fiyat: ürünün kayıtlı alış fiyatı
@@ -2171,45 +2278,70 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                           />
                         </div>
 
-                        {/* 1b. BARKOD (seçili üründen okunur — salt görüntü) */}
+                        {/* 1b. BARKOD (seçili üründe düzenlenebilir — ürün kaydına yazılır) */}
                         <div className="col-span-6 md:col-span-2">
                           <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Barkod</Label>
-                          <div className="flex h-10 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3">
-                            <Barcode className="h-4 w-4 shrink-0 text-slate-400" />
-                            {(() => {
-                              const bc = getLineBarcode(item.productId)
-                              return bc ? (
-                                <span
-                                  className="min-w-0 truncate font-mono text-sm font-semibold tracking-wide tabular-nums text-slate-700"
-                                  title={bc}
-                                >
-                                  {bc}
-                                </span>
-                              ) : (
-                                <span className="text-slate-300">—</span>
-                              )
-                            })()}
-                          </div>
+                          {item.productId ? (
+                            <div className="flex h-10 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 focus-within:border-[#48c79c] focus-within:ring-2 focus-within:ring-[#48c79c]/30 transition-colors">
+                              <Barcode className="h-4 w-4 shrink-0 text-slate-400" />
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                className="min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold tracking-wide tabular-nums text-slate-700 outline-none placeholder:font-sans placeholder:font-normal placeholder:text-slate-300"
+                                placeholder="Barkod"
+                                value={barcodeDrafts[item.productId] ?? (getLineBarcode(item.productId) ?? "")}
+                                title="Ürünün barkodunu düzenle — kaydedince ürün kartına işlenir"
+                                onChange={(e) => {
+                                  const pid = item.productId!
+                                  const val = e.target.value
+                                  setBarcodeDrafts((d) => ({ ...d, [pid]: val }))
+                                }}
+                                onBlur={() => commitBarcodeDraft(item.productId!)}
+                                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur() }}
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex h-10 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3">
+                              <Barcode className="h-4 w-4 shrink-0 text-slate-400" />
+                              <span className="text-slate-300">—</span>
+                            </div>
+                          )}
                         </div>
 
-                        {/* 1c. STOK (seçili üründen okunur — salt görüntü) */}
+                        {/* 1c. STOK (seçili üründe düzenlenebilir — stok hareketiyle güncellenir) */}
                         <div className="col-span-6 md:col-span-2">
                           <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Stok</Label>
-                          <div className="flex h-10 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2">
-                            {(() => {
-                              const s = getLineStock(item.productId)
-                              return s ? (
-                                <span
-                                  className={`truncate text-sm font-semibold tabular-nums ${s.low ? "text-red-600" : "text-slate-700"}`}
-                                  title={s.low ? "Stok kritik seviyede veya tükendi" : "Ürünün güncel stok miktarı"}
-                                >
-                                  {s.qty.toLocaleString("tr-TR")} {s.unit}
-                                </span>
-                              ) : (
-                                <span className="text-slate-300">—</span>
+                          {(() => {
+                            const s = getLineStock(item.productId)
+                            if (!s) {
+                              return (
+                                <div className="flex h-10 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2">
+                                  <span className="text-slate-300">—</span>
+                                </div>
                               )
-                            })()}
-                          </div>
+                            }
+                            const pid = item.productId!
+                            return (
+                              <div className={`flex h-10 items-center gap-1 rounded-md border bg-white px-2 focus-within:border-[#48c79c] focus-within:ring-2 focus-within:ring-[#48c79c]/30 transition-colors ${s.low ? "border-red-300" : "border-slate-200"}`}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  className={`min-w-0 flex-1 bg-transparent text-center text-sm font-semibold tabular-nums outline-none ${s.low ? "text-red-600" : "text-slate-700"}`}
+                                  value={stockDrafts[pid] ?? String(s.qty)}
+                                  title={s.low ? "Stok kritik seviyede veya tükendi — düzeltmek için değeri değiştirin" : "Güncel stok miktarı — değiştirip stoğu düzeltebilirsiniz"}
+                                  onChange={(e) => {
+                                    const val = e.target.value
+                                    setStockDrafts((d) => ({ ...d, [pid]: val }))
+                                  }}
+                                  onFocus={(e) => (e.target as HTMLInputElement).select()}
+                                  onBlur={() => commitStockDraft(pid)}
+                                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur() }}
+                                />
+                                <span className="shrink-0 text-[11px] font-medium text-slate-400">{s.unit}</span>
+                              </div>
+                            )
+                          })()}
                         </div>
 
                         {/* 2. BİRİM */}
@@ -2442,7 +2574,14 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                         )}
                                       </div>
                                       {item.withholdingCode ? (
-                                        item.withholdingRate ? (
+                                        // Tevkifat hesaplanan KDV'den kesilir; KDV %0 (istisna) ise
+                                        // tevkif edilecek KDV yok → seçim etkisizdir, kullanıcıyı uyar.
+                                        Number(item.vatRate) === 0 ? (
+                                          <p className="text-[10px] text-amber-600">
+                                            Bu satırda KDV %0 — tevkifat <span className="font-semibold">uygulanmaz</span> (tevkifat
+                                            hesaplanan KDV üzerinden kesilir). Faturaya ve GİB&apos;e tevkifat tutarı gitmeyecek.
+                                          </p>
+                                        ) : item.withholdingRate ? (
                                           <p className="text-[10px] text-kobipo-blue">
                                             KDV'nin <span className="font-semibold">%{item.withholdingRate}</span>'i tevkif edilecek.
                                           </p>
@@ -2454,15 +2593,23 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                       ) : null}
                                     </>
                                   ) : (
-                                    <Input
-                                      type="number"
-                                      className="h-9 font-medium"
-                                      min="0"
-                                      step="0.01"
-                                      placeholder="KDV'nin %'si"
-                                      value={item.withholdingRate || ""}
-                                      onChange={(e) => updateItem(index, "withholdingRate", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)}
-                                    />
+                                    <>
+                                      <Input
+                                        type="number"
+                                        className="h-9 font-medium"
+                                        min="0"
+                                        step="0.01"
+                                        placeholder="KDV'nin %'si"
+                                        value={item.withholdingRate || ""}
+                                        onChange={(e) => updateItem(index, "withholdingRate", e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)}
+                                      />
+                                      {(Number(item.withholdingRate) || 0) > 0 && Number(item.vatRate) === 0 && (
+                                        <p className="text-[10px] text-amber-600">
+                                          Bu satırda KDV %0 — tevkifat <span className="font-semibold">uygulanmaz</span> (tevkifat
+                                          hesaplanan KDV üzerinden kesilir).
+                                        </p>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               )
@@ -2476,10 +2623,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                   <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Diğer Vergi</Label>{removable}</div>
                                   <div className="flex gap-1.5">
                                     <TaxTypeCombobox
-                                      types={OTHER_TAX_CODES}
+                                      types={taxTypes.other}
                                       value={item.otherTaxCode || ""}
                                       onChange={(code) => {
-                                        const picked = OTHER_TAX_CODES.find((c) => c.code === code)
+                                        const picked = taxTypes.other.find((c) => c.code === code)
                                         setItems((prev) =>
                                           prev.map((it, i) => {
                                             if (i !== index) return it
@@ -2539,13 +2686,24 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                     göre değiştiğinden elle girilir; liste seçilince kod otomatik gelir. */}
                                 <div className="flex gap-1.5">
                                   <TaxTypeCombobox
-                                    types={EXCISE_CODES}
+                                    types={taxTypes.excise}
                                     value={item.exciseCode || ""}
-                                    onChange={(code) =>
+                                    onChange={(code) => {
+                                      const picked = taxTypes.excise.find((c) => c.code === code)
                                       setItems((prev) =>
-                                        prev.map((it, i) => (i === index ? { ...it, exciseCode: code || undefined } : it)),
+                                        prev.map((it, i) => {
+                                          if (i !== index) return it
+                                          if (!code) return { ...it, exciseCode: undefined }
+                                          return {
+                                            ...it,
+                                            exciseCode: code,
+                                            // Listede standart oran varsa (Mysoft verebilir) otomatik dolar;
+                                            // GİB gömülü ÖTV listelerinde oran ürüne göre değişir → elle girilir.
+                                            exciseRate: picked?.rate != null ? picked.rate : it.exciseRate,
+                                          }
+                                        }),
                                       )
-                                    }
+                                    }}
                                     placeholder="ÖTV listesi ara (kod/isim)…"
                                   />
                                   <div className="relative w-24 shrink-0">

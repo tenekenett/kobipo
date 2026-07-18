@@ -581,6 +581,15 @@ export default function FaturaOnizlemePage() {
     )
   }
 
+  // Kalem tutarları (KDV/ÖTV/diğer vergi/satır toplamı) DB'de fatura altı (genel)
+  // iskonto UYGULANMADAN saklanır; başlık matrah/KDV/toplam ise iskonto düşülmüş
+  // haldedir. Satır hücreleri de GİB'e giden değerlerle birebir tutsun diye kalem
+  // bazlı gösterimler aynı oranda küçültülür (özet kırılımı ve resmî GİB
+  // görseliyle aynı). factor = matrah(iskonto sonrası) / matrah(iskonto öncesi).
+  const globalDiscount = Number((invoice as any).globalDiscountAmount || 0)
+  const preGlobalNet = Number(invoice.netAmount || 0) + globalDiscount
+  const globalFactor = preGlobalNet > 0 ? Number(invoice.netAmount || 0) / preGlobalNet : 1
+
   const isFromIncoming = Boolean(invoice.incomingSource)
   // Alıcının reddettiği fatura iç status'te CANCELLED tutulur (bkz. check-status route:
   // bakiye/rapor sorguları CANCELLED'ı hariç tutar → alacak cari bakiyeden düşer).
@@ -1135,6 +1144,11 @@ export default function FaturaOnizlemePage() {
                   // metaverisi yanlışlıkla ürün adı sanılıyor.
                   const showDescription =
                     description && description !== productName
+                  // Bu satıra düşen fatura altı iskonto payı (satır net'i × pay oranı).
+                  // DB'de satır bazında saklanmaz; gösterim için türetilir.
+                  const lineGross = Number(item.quantity || 0) * Number(item.unitPrice || 0)
+                  const lineGlobalShare =
+                    (lineGross - Number(item.discountAmount || 0)) * (1 - globalFactor)
                   return (
                   <TableRow key={item.id || index}>
                     <TableCell>{index + 1}</TableCell>
@@ -1170,11 +1184,14 @@ export default function FaturaOnizlemePage() {
                         <div className="mt-1 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                           Tevkifat{item.withholdingCode ? ` ${item.withholdingCode}` : ""}
                           {item.withholdingName ? ` · ${item.withholdingName}` : ""} · KDV %{Number(item.withholdingRate) || 0}
+                          {/* KDV %0 (istisna) → tevkif edilecek KDV yok; kod kayıtlı ama etkisiz.
+                              Rozet kafa karıştırmasın diye açıkça belirtilir. */}
+                          {Number(item.vatRate) === 0 && <span className="font-semibold"> · KDV %0 — uygulanmadı</span>}
                         </div>
                       )}
                       {Number((item as any).otherTaxAmount || 0) > 0 && (
                         <div className="mt-1 inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
-                          {(item as any).otherTaxName || "Diğer Vergi"} · %{Number((item as any).otherTaxRate) || 0} · {formatCurrency(Number((item as any).otherTaxAmount) || 0)}
+                          {(item as any).otherTaxName || "Diğer Vergi"} · %{Number((item as any).otherTaxRate) || 0} · {formatCurrency((Number((item as any).otherTaxAmount) || 0) * globalFactor)}
                         </div>
                       )}
                     </TableCell>
@@ -1187,10 +1204,19 @@ export default function FaturaOnizlemePage() {
                       {Number(item.discountRate || 0) > 0 && (
                         <div className="text-xs text-muted-foreground">%{Number(item.discountRate || 0)}</div>
                       )}
+                      {/* Fatura altı iskontonun bu satıra düşen payı — satır hücreleri
+                          (KDV/Tutar) bu pay düşülmüş gösterildiği için görünür olmalı. */}
+                      {lineGlobalShare > 0.005 && (
+                        <div className="text-xs text-muted-foreground">
+                          Fatura isk. -{formatCurrency(lineGlobalShare)}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">%{Number(item.vatRate || 0)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(Number(item.vatAmount || 0))}</TableCell>
-                    <TableCell className="text-right font-medium">{formatCurrency(Number(item.totalAmount || 0))}</TableCell>
+                    {/* KDV/Tutar: fatura altı iskonto payı düşülmüş — GİB'e giden satır
+                        KDV'siyle ve özet kırılımıyla birebir (Σ satır = özet satırı). */}
+                    <TableCell className="text-right">{formatCurrency(Number(item.vatAmount || 0) * globalFactor)}</TableCell>
+                    <TableCell className="text-right font-medium">{formatCurrency(Number(item.totalAmount || 0) * globalFactor)}</TableCell>
                   </TableRow>
                   )
                 })
@@ -1213,14 +1239,9 @@ export default function FaturaOnizlemePage() {
               (sum, it) => sum + Number(it.discountAmount || 0),
               0,
             )
-            const globalDiscount = Number((invoice as any).globalDiscountAmount || 0)
-            // Kalem tutarları (withholding/ÖTV/diğer vergi) DB'de fatura altı (genel)
-            // iskonto UYGULANMADAN, satır net'i üzerinden saklanır. Başlık matrah/KDV ise
-            // global iskonto düşülmüş halde saklıdır. Kırılımın toplamla tutması için
-            // kalem vergilerini de aynı oranda küçültürüz (GİB taslağı ve editör özeti
-            // ile birebir). factor = matrah(iskonto sonrası) / matrah(iskonto öncesi).
-            const preGlobalNet = Number(invoice.netAmount || 0) + globalDiscount
-            const globalFactor = preGlobalNet > 0 ? Number(invoice.netAmount || 0) / preGlobalNet : 1
+            // globalDiscount/globalFactor bileşen gövdesinde hesaplanır (satır
+            // hücreleri de aynı faktörü kullanır). Kalem vergileri DB'de iskonto
+            // öncesi saklandığından kırılım için aynı oranda küçültülür.
             const withholdingTotal =
               invoice.items.reduce(
                 (sum, it) => sum + Number((it as any).withholdingAmount || 0),

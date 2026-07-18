@@ -193,6 +193,63 @@ export async function PUT(
   }
 }
 
+// Kısmi güncelleme: yalnızca gövdede gönderilen alanları değiştirir, geri kalan
+// alanları (fiyat, stok, minStokSeviyesi vb.) OLDUĞU GİBİ korur. Fatura ekranından
+// hızlı barkod düzenlemesi için kullanılır — PUT tüm alanları beklediğinden burada
+// güvenli tekil alan güncellemesi yapılır.
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getCurrentUser()
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const resolvedParams = await params
+    resolvedParams.id = await resolveSlugId("product", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
+    const product = await prisma.product.findUnique({
+      where: { id: resolvedParams.id },
+    })
+
+    if (!product) {
+      return NextResponse.json({ error: "Product not found" }, { status: 404 })
+    }
+
+    await ensureCompanyAccess(product.companyId)
+
+    const body = await request.json()
+    const data: Record<string, unknown> = {}
+
+    if ("barcode" in body) {
+      const raw = body.barcode
+      const trimmed = raw == null ? "" : String(raw).trim()
+      data.barcode = trimmed ? trimmed : null
+    }
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ error: "No updatable fields provided" }, { status: 400 })
+    }
+
+    const updated = await prisma.product.update({
+      where: { id: resolvedParams.id },
+      data,
+    })
+
+    return NextResponse.json(updated)
+  } catch (error: any) {
+    if (error.message.includes("Access denied")) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+    console.error("Error patching product:", error)
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
+}
+
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }

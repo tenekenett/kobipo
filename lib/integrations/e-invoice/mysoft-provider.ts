@@ -830,6 +830,43 @@ async sendInvoice(invoiceData: any): Promise<any> {
         return { success: false, error: "Faturada sıfır tutarsız kalem bulunamadı (tüm kalemler 0)." };
       }
 
+      // --- BAŞLIK (LegalMonetaryTotal / "dip toplamlar") ---
+      // isManuelCalculation:false iken Mysoft başlığı Σ(miktar × birim fiyat)'tan
+      // kurar ve İSKONTOLARI HİÇ DÜŞMEZ → resmî GİB görselinde "Vergiler Dahil
+      // Toplam Tutar" ve "Ödenecek Tutar" toplam iskonto kadar şişkin çıkar.
+      // (Satır amtTra'sını net göndermek veya isSubtractDiscountFromAmtTra bayrağı
+      // başlığı DEĞİŞTİRMİYOR — draft UBL/şematron uçlarıyla doğrulandı.)
+      // Çözüm: dip toplamları invoiceCalculation ile kendimiz göndeririz
+      // (Swagger: "isManuelCalculation = true gönderilirse buradaki rakamlar
+      // kullanılır"). Eşitlikler kurgu gereği tutarlı: allowanceTotal brüt−matrah
+      // olarak TÜRETİLİR ki kuruş yuvarlama kaymasında bile denklem bozulmasın.
+      const totalGross = round2(lineData.reduce((s: number, l: any) => s + l.rowTotal, 0))
+      const totalTaxable = round2(lineData.reduce((s: number, l: any) => s + l.taxable, 0))
+      const totalVat = round2(lineData.reduce((s: number, l: any) => s + l.rowVat, 0))
+      const totalExtraTax = round2(lineData.reduce((s: number, l: any) => s + l.excise + l.otherTax, 0))
+      // Satırlara yazılan tevkifat tutarlarının birebir toplamı (aynı koşul + aynı
+      // yuvarlama — detail.withholdingTaxAmount ile kuruşu kuruşuna aynı olmalı).
+      const totalWithholding = round2(
+        lineData.reduce(
+          (s: number, l: any) =>
+            s +
+            (l.withholdingCode && l.withholdingRate > 0 && l.rowVat > 0
+              ? round2((l.rowVat * l.withholdingRate) / 100)
+              : 0),
+          0,
+        ),
+      )
+      const taxInclusiveTotal = round2(totalTaxable + totalVat + totalExtraTax)
+      const invoiceCalculation = {
+        lineExtensionAmount: totalGross,          // Σ miktar × birim fiyat (brüt)
+        taxExclusiveAmount: totalTaxable,         // iskontolar düşülmüş net matrah
+        taxInclusiveAmount: taxInclusiveTotal,    // matrah + KDV + ek vergiler (ÖTV/ÖİV/diğer)
+        allowanceTotalAmount: round2(totalGross - totalTaxable),
+        chargeTotalAmount: 0,
+        payableRoundingAmount: 0,
+        payableAmount: round2(taxInclusiveTotal - totalWithholding),
+      }
+
       const isoDate = invoiceData.date instanceof Date ? invoiceData.date.toISOString() : new Date(invoiceData.date).toISOString();
 
       // İstisnalı (vatRate=0 + exemption kodu olan) en az bir kalem varsa Mysoft'un
@@ -997,7 +1034,10 @@ async sendInvoice(invoiceData: any): Promise<any> {
         // GİB standart dizaynı devreye girdiği için sorun çıkmıyordu). Kullanıcı kendi
         // şablonunu Belge Şablonları ekranından yüklerse o kullanılır.
         "isSendWithGeneralXsltIfDefaultNotExists": true,
-        "isManuelCalculation": false,
+        // Dip toplamlar bizden (yukarıdaki invoiceCalculation). false bırakılırsa
+        // Mysoft brütten kurup iskontoyu düşmüyor → Ödenecek Tutar yanlış çıkıyordu.
+        "isManuelCalculation": true,
+        "invoiceCalculation": invoiceCalculation,
         // Taslak modu: isSaveAsDraft=true ise Mysoft faturayı GİB'e GÖNDERMEZ,
         // taslak olarak saklar; isGenerateDocNoForDraft ile belge/sıra no da üretir.
         // Aynı ettn (payload.ettn) hem taslakta hem kesinleştirmede kullanılır.
@@ -2695,6 +2735,63 @@ async sendInvoice(invoiceData: any): Promise<any> {
           rate: parseRate(w?.rate ?? w?.withholdingTaxPercentage ?? w?.percent ?? w?.ratio),
         }))
         .filter((w) => w.code)
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." }
+    }
+  }
+
+  /**
+   * GİB vergi türü kod listesini döner (ÖTV listeleri + diğer vergiler; kod + ad + varsa oran).
+   *
+   * DİKKAT: Bu uç Swagger v8'de YOKTUR — `withholdingTaxType` ile aynı adlandırma
+   * düzenine göre yoklanır (probe). Mysoft ileride `GET /api/GeneralCard/taxType`
+   * eklerse liste otomatik akmaya başlar; bugün 404/başarısız döner ve çağıran
+   * (/api/e-donusum/tax-types) gömülü GİB UBL-TR listesine düşer. Bu yüzden
+   * başarısızlık burada beklenen bir sonuçtur, hata loglanmaz.
+   */
+  async listTaxTypes(): Promise<{
+    success: boolean
+    data?: Array<{ code: string; name: string; rate?: number }>
+    error?: string
+  }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const res = await fetch(`${this.baseUrl}/api/GeneralCard/taxType`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      })
+
+      // Uç mevcut değilse 404 gövdesi JSON olmayabilir — sessizce başarısız say.
+      const result = await res.json().catch(() => null)
+      if (!res.ok || !result?.succeed) {
+        return { success: false, error: result?.message || "Vergi türü listesi alınamadı." }
+      }
+      const raw: any[] = Array.isArray(result.data) ? result.data : []
+      // Tevkifat oranıyla aynı biçim varyantları: "10", "33,33", "4/10" → yüzdeye çevir.
+      const parseRate = (rawRate: any): number => {
+        const s = String(rawRate ?? "").trim()
+        if (!s) return 0
+        const n = Number((s.includes("/") ? s.split("/")[0] : s).replace(",", "."))
+        return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0
+      }
+      const data = raw
+        .map((t) => {
+          const rate = parseRate(t?.rate ?? t?.taxRate ?? t?.percent ?? t?.ratio)
+          return {
+            code: String(t?.taxTypeCode ?? t?.code ?? "").trim(),
+            name: String(t?.taxTypeName ?? t?.name ?? t?.description ?? "").trim(),
+            rate: rate > 0 ? rate : undefined,
+          }
+        })
+        // GİB vergi türü kodları 4 haneli sayıdır ("0059", "9077"...). Belgesiz uçtan
+        // beklenmedik veri gelirse (farklı semantik) seçiciyi kirletmesin diye ele.
+        .filter((t) => /^\d{4}$/.test(t.code) && t.name)
       return { success: true, data }
     } catch (error: any) {
       return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." }
