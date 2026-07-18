@@ -8,6 +8,7 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
+import { revertInvoiceStock } from "@/lib/stock/warehouse"
 
 export const dynamic = "force-dynamic"
 
@@ -96,15 +97,49 @@ export async function POST(
     }
 
     // Başarılıysa yerel durumu güncelle (bir sonraki sync zaten doğrular).
-    const updated = await prisma.incomingInvoice.update({
-      where: { companyId_uuid: { companyId, uuid } },
-      data: { status: action === "accept" ? "KABUL" : "RED" },
-      select: { status: true },
-    })
+    if (action === "reject") {
+      // Gelen fatura reddedildiğinde, daha önce bir alış faturasına dönüştürülmüşse
+      // (borç oluşturmuşsa) o faturayı da geçersiz kıl: stoğu geri al + status=CANCELLED.
+      // Böylece borç tedarikçi carisinden otomatik düşer (cari/rapor sorguları CANCELLED'ı
+      // hariç tutar) ve önizlemede "İptal" yerine "Reddedildi" rozeti çıkar
+      // (integrationStatus=REJECTED:RED → parseGibStatus bucket "rejected").
+      // Giden fatura RED deseninin aynasıdır — bkz. invoices/[id]/check-status/route.ts.
+      const linkedInvoice =
+        record.isLinkedToPurchase && record.linkedInvoiceId
+          ? await prisma.invoice.findUnique({
+              where: { id: record.linkedInvoiceId },
+              select: { id: true, status: true, invoiceNo: true },
+            })
+          : null
+
+      await prisma.$transaction(async (tx) => {
+        if (linkedInvoice && linkedInvoice.status !== "CANCELLED") {
+          await revertInvoiceStock(tx, {
+            companyId,
+            invoiceId: linkedInvoice.id,
+            invoiceNo: linkedInvoice.invoiceNo,
+            createdBy: user.id,
+          })
+          await tx.invoice.update({
+            where: { id: linkedInvoice.id },
+            data: { status: "CANCELLED", integrationStatus: "REJECTED:RED" },
+          })
+        }
+        await tx.incomingInvoice.update({
+          where: { companyId_uuid: { companyId, uuid } },
+          data: { status: "RED" },
+        })
+      })
+    } else {
+      await prisma.incomingInvoice.update({
+        where: { companyId_uuid: { companyId, uuid } },
+        data: { status: "KABUL" },
+      })
+    }
 
     return NextResponse.json({
       success: true,
-      status: updated.status,
+      status: action === "accept" ? "KABUL" : "RED",
       message: result.message,
     })
   } catch (error: any) {

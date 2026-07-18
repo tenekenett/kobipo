@@ -689,11 +689,12 @@ function StatusBadge({ status }: { status: string | null }) {
       : s === "RED"
         ? "border-red-300 bg-red-100 text-red-800 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200"
         : "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200"
+  const label = s === "KABUL" ? "Kabul Edildi" : s === "RED" ? "Reddedildi" : status
   return (
     <span
       className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cls}`}
     >
-      {status}
+      {label}
     </span>
   )
 }

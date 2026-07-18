@@ -74,6 +74,16 @@ interface IncomingDetail {
   modelError?: string | null
 }
 
+// Mysoft ham durum kodunu (KABUL/RED/…) okunaklı Türkçe etikete çevirir.
+function incomingStatusLabel(status: string | null | undefined): string | null {
+  const s = (status || "").toUpperCase()
+  if (!s) return null
+  if (s === "RED") return "Reddedildi"
+  if (s === "KABUL") return "Kabul Edildi"
+  if (s === "BEKLEMEDE") return "Beklemede"
+  return status || null
+}
+
 export default function GelenEFaturaDetailPage() {
   const params = useParams<{ uuid: string }>()
   const uuid = decodeURIComponent(params?.uuid || "")
@@ -348,6 +358,7 @@ export default function GelenEFaturaDetailPage() {
   // Yanıt akışı: yalnızca ticari fatura ve henüz kabul/ret edilmemişse yanıtlanabilir.
   const statusUpper = (record.status || "").toUpperCase()
   const isResponded = statusUpper === "KABUL" || statusUpper === "RED"
+  const isRejected = statusUpper === "RED"
   const canRespond = record.profile === "TICARIFATURA" && !isResponded
 
   return (
@@ -430,6 +441,11 @@ export default function GelenEFaturaDetailPage() {
                 İlişkili alış faturasını aç
               </Link>
             </Button>
+          ) : isRejected ? (
+            <Button disabled variant="outline" title="Reddedilmiş fatura alış faturasına dönüştürülemez">
+              <Repeat2 className="mr-2 h-4 w-4" />
+              Alış Faturasına Dönüştür
+            </Button>
           ) : (
             <Button onClick={handleConvertToPurchase}>
               <Repeat2 className="mr-2 h-4 w-4" />
@@ -451,11 +467,26 @@ export default function GelenEFaturaDetailPage() {
         </Card>
       )}
 
-      {record.isLinkedToPurchase && (
+      {record.isLinkedToPurchase && !isRejected && (
         <Card className="border-emerald-300 bg-emerald-50">
           <CardContent className="pt-6 text-sm text-emerald-900">
             Bu fatura zaten bir alış faturasına dönüştürülmüş. Stok ve cari hareketleri ilişkili
             faturadan görüntüleyebilirsiniz.
+          </CardContent>
+        </Card>
+      )}
+
+      {isRejected && (
+        <Card className="border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40">
+          <CardContent className="flex items-start gap-2 pt-6 text-sm text-red-900 dark:text-red-100">
+            <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Bu fatura <strong>reddedildi</strong> (GİB'e RED yanıtı iletildi). Belge geçersiz
+              sayılır; alış faturasına dönüştürülemez.{" "}
+              {record.isLinkedToPurchase
+                ? "Daha önce dönüştürülmüş olan alış faturası iptal edildi ve tutar cari borçtan düşüldü."
+                : "Cari borç oluşmaz."}
+            </span>
           </CardContent>
         </Card>
       )}
@@ -483,7 +514,7 @@ export default function GelenEFaturaDetailPage() {
             <Row label="Profil" value={record.profile} />
             <Row label="Tip" value={record.invoiceType} />
             <Row label="Para Birimi" value={currency} />
-            <Row label="Durum" value={record.status} />
+            <Row label="Durum" value={incomingStatusLabel(record.status)} />
             <Row label="Zarf" value={record.envelopeStatusDesc} />
           </CardContent>
         </Card>

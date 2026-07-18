@@ -142,6 +142,22 @@ export async function POST(request: Request) {
     // GİB/e-belge ve otomatik muhasebe fişi oluşturmaz; ayrı "FS-" numara dizisi alır.
     const isReceipt = body.isReceipt === true
 
+    // Reddedilmiş gelen fatura alışa DÖNÜŞTÜRÜLEMEZ: RED yanıtı GİB'e iletilmiş, belge
+    // geçersiz sayılır → ondan borç yaratmak yanlış olur. (Reddetme, bağlı bir alış
+    // faturası varsa onu zaten iptal eder — bkz. inbox/[uuid]/respond/route.ts.)
+    if (fromIncomingUuid && String(type || "").toUpperCase() === "PURCHASE") {
+      const incoming = await prisma.incomingInvoice.findUnique({
+        where: { companyId_uuid: { companyId, uuid: String(fromIncomingUuid) } },
+        select: { status: true },
+      })
+      if ((incoming?.status || "").toUpperCase() === "RED") {
+        return NextResponse.json(
+          { error: "Bu gelen fatura reddedilmiş (RED); alış faturasına dönüştürülemez." },
+          { status: 400 },
+        )
+      }
+    }
+
     if (!companyId || !type || !invoiceType || !items || items.length === 0) {
       return NextResponse.json(
         { error: "Missing required fields" },

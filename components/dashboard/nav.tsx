@@ -4,10 +4,9 @@ import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
-import { Logo } from "@/components/ui/Logo"
 import { KobipoLogoMark } from "@/components/ui/kobipo-logo-mark"
 import { cn } from "@/lib/utils"
-import { LogOut, Menu, X, ChevronDown, Loader2, PanelLeftClose } from "lucide-react"
+import { LogOut, Menu, X, ChevronDown, Loader2 } from "lucide-react"
 import { allNavItems, navGroups, navItemActive, standaloneNavHrefs, type NavItemDef } from "@/components/dashboard/nav-config"
 import { MODULE_GROUP_TO_KEY } from "@/lib/modules"
 import { useState, useEffect, useCallback, useMemo } from "react"
@@ -20,7 +19,7 @@ export function DashboardNav() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [pendingHref, setPendingHref] = useState<string | null>(null)
   const { userRole, selectedCompany } = useDashboardCompany()
-  const { collapsed, setCollapsed } = useSidebar()
+  const { collapsed } = useSidebar()
 
   // Aktif firma seçimi URL'de ?company=<slug> ile taşınır. Nav linkleri bunu KORUMALIDIR;
   // aksi halde her gezinme param'sız gider ve server tarafı varsayılan (ilk/ana) firmaya
@@ -139,19 +138,10 @@ export function DashboardNav() {
           collapsed ? "lg:hidden" : "lg:flex"
         )}
       >
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-4">
+        <div className="flex h-14 shrink-0 items-center border-b border-white/10 px-4">
           <Link href={withCompany(roleToDashboardPath(userRole))} className="inline-flex shrink-0 items-center">
             <KobipoLogoMark className="h-12 w-auto" />
           </Link>
-          <button
-            type="button"
-            onClick={() => setCollapsed(true)}
-            className="rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-            aria-label="Menüyü daralt"
-            title="Menüyü daralt"
-          >
-            <PanelLeftClose className="h-5 w-5" />
-          </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-3 [-webkit-overflow-scrolling:touch]">
           <div className="space-y-1">
@@ -235,13 +225,16 @@ export function DashboardNav() {
         </div>
       </div>
 
-      <nav className="fixed left-0 right-0 top-0 z-40 h-14 border-b border-kobipo-border bg-white dark:border-border dark:bg-card lg:hidden">
-        <div className="flex h-14 items-center justify-between px-6">
-          <Logo variant="light" size="sm" href="/" />
+      <nav className="fixed left-0 right-0 top-0 z-40 h-14 border-b border-white/10 bg-kobipo-navy dark:border-border dark:bg-card lg:hidden">
+        <div className="flex h-14 items-center justify-between px-4">
+          <Link href={withCompany(roleToDashboardPath(userRole))} className="inline-flex shrink-0 items-center">
+            <KobipoLogoMark className="h-11 w-auto" />
+          </Link>
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setMobileMenuOpen(true)}
+            className="text-white hover:bg-white/10 hover:text-white"
           >
             <Menu className="h-5 w-5" />
           </Button>
@@ -252,14 +245,14 @@ export function DashboardNav() {
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="fixed inset-0 bg-kobipo-navy/40 backdrop-blur-sm dark:bg-black/60" onClick={() => setMobileMenuOpen(false)} />
-          <div className="fixed inset-y-0 right-0 w-full max-w-xs bg-white shadow-lg dark:bg-card">
-            <div className="flex items-center justify-between border-b border-kobipo-border p-4 dark:border-border">
+          <div className="fixed inset-y-0 right-0 flex w-full max-w-xs flex-col bg-white shadow-lg dark:bg-card">
+            <div className="flex shrink-0 items-center justify-between border-b border-kobipo-border p-4 dark:border-border">
               <span className="font-semibold text-kobipo-navy dark:text-foreground">Menü</span>
               <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(false)}>
                 <X className="h-5 w-5" />
               </Button>
             </div>
-            <div className="space-y-2 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-y-contain p-4 [-webkit-overflow-scrolling:touch]">
               {groupedItems.map((group) => (
                 <div key={`mobile-${group.title}`} className="rounded-lg border border-kobipo-border bg-kobipo-offwhite/80 dark:border-border dark:bg-muted/30">
                   <button
