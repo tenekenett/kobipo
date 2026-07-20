@@ -8,7 +8,7 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
-import { revertInvoiceStock } from "@/lib/stock/warehouse"
+import { voidInvoice } from "@/lib/integrations/e-invoice/void-invoice"
 
 export const dynamic = "force-dynamic"
 
@@ -114,15 +114,12 @@ export async function POST(
 
       await prisma.$transaction(async (tx) => {
         if (linkedInvoice && linkedInvoice.status !== "CANCELLED") {
-          await revertInvoiceStock(tx, {
-            companyId,
+          await voidInvoice(tx, {
             invoiceId: linkedInvoice.id,
+            companyId,
             invoiceNo: linkedInvoice.invoiceNo,
+            integrationStatus: "REJECTED:RED",
             createdBy: user.id,
-          })
-          await tx.invoice.update({
-            where: { id: linkedInvoice.id },
-            data: { status: "CANCELLED", integrationStatus: "REJECTED:RED" },
           })
         }
         await tx.incomingInvoice.update({

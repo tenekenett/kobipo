@@ -9,6 +9,7 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
+import { voidInvoice } from "@/lib/integrations/e-invoice/void-invoice"
 
 export const dynamic = "force-dynamic"
 
@@ -87,6 +88,7 @@ export async function POST(request: Request) {
     let inserted = 0
     let updated = 0
     let skipped = 0
+    let voidedLinked = 0
     const errors: Array<{ uuid: string; error: string }> = []
 
     for (const row of result.data) {
@@ -95,6 +97,25 @@ export async function POST(request: Request) {
         continue
       }
       try {
+        // Yerel yanıt durumunu (KABUL/RED) koru: uygulama içinden Kabul/Reddet
+        // yaptıktan sonra Mysoft bunu HEMEN yansıtmayabilir (propagasyon gecikmesi).
+        // O aralıkta gelen non-terminal status ("YANIT_BEKLENIYOR" vb.) yerel yanıtı
+        // GERİ EZERSE: (1) Kabul/Reddet butonları yeniden açılır, (2) daha kötüsü
+        // "reddedilmiş fatura dönüştürülemez" koruması (status==='RED') bypass olup
+        // reddedilen faturadan yeniden borç yaratılabilir. Bu yüzden yerelde KABUL/RED
+        // varken, Mysoft henüz terminal (KABUL/RED) döndürmediyse yereli koruyoruz.
+        const existing = await prisma.incomingInvoice.findUnique({
+          where: { companyId_uuid: { companyId, uuid: row.uuid } },
+          select: { status: true, linkedInvoiceId: true },
+        })
+        const localStatusUpper = (existing?.status || "").toUpperCase()
+        const incomingStatusUpper = (row.status || "").toUpperCase()
+        const localIsTerminal = localStatusUpper === "KABUL" || localStatusUpper === "RED"
+        const incomingIsTerminal =
+          incomingStatusUpper === "KABUL" || incomingStatusUpper === "RED"
+        const effectiveStatus =
+          localIsTerminal && !incomingIsTerminal ? existing!.status : row.status
+
         const data: Prisma.IncomingInvoiceUpsertArgs["create"] = {
           companyId,
           uuid: row.uuid,
@@ -113,7 +134,7 @@ export async function POST(request: Request) {
           vatAmount: row.vatAmount !== null ? new Prisma.Decimal(row.vatAmount) : null,
           payableAmount: row.totalAmount !== null ? new Prisma.Decimal(row.totalAmount) : null,
           vatBreakdown: extractVatBreakdown(row.raw),
-          status: row.status,
+          status: effectiveStatus,
           envelopeStatusCode: row.envelopeStatusCode,
           envelopeStatusDesc: row.envelopeStatusDesc,
           isArchived: row.isArchived,
@@ -133,6 +154,34 @@ export async function POST(request: Request) {
         } else {
           updated++
         }
+
+        // Gelen fatura RED (reddedilmiş) ve daha önce bir alış faturasına
+        // dönüştürülmüşse (borç oluşturmuşsa), o faturayı da geçersiz kıl:
+        // stok geri al + status=CANCELLED → tedarikçi borcu cariden otomatik düşer.
+        // Bu, red işlemi uygulama içi "Reddet" (respond route) yerine doğrudan
+        // GİB/portal üzerinden yapıldığında da borcun düşmesini garanti eder.
+        // voidInvoice idempotenttir; zaten CANCELLED olan atlanır.
+        if (
+          (result2.status || "").toUpperCase() === "RED" &&
+          result2.linkedInvoiceId
+        ) {
+          const linked = await prisma.invoice.findUnique({
+            where: { id: result2.linkedInvoiceId },
+            select: { id: true, status: true, invoiceNo: true },
+          })
+          if (linked && linked.status !== "CANCELLED") {
+            await prisma.$transaction(async (tx) => {
+              await voidInvoice(tx, {
+                invoiceId: linked.id,
+                companyId,
+                invoiceNo: linked.invoiceNo,
+                integrationStatus: "REJECTED:RED",
+                createdBy: user.id,
+              })
+            })
+            voidedLinked++
+          }
+        }
       } catch (e: any) {
         errors.push({ uuid: row.uuid, error: e?.message || "upsert error" })
       }
@@ -144,6 +193,7 @@ export async function POST(request: Request) {
       inserted,
       updated,
       skipped,
+      voidedLinked,
       errors,
     })
   } catch (error: any) {

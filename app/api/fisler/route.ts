@@ -11,6 +11,8 @@ export const dynamic = "force-dynamic"
  * Query:
  *  - companyId  (zorunlu)
  *  - direction  ("outgoing" = satış fişleri | "incoming" = alış fişleri)
+ *  - customerId (opsiyonel) — yalnız bu müşterinin fişleri (cari detay için)
+ *  - supplierId (opsiyonel) — yalnız bu tedarikçinin fişleri (cari detay için)
  *
  * Yalnızca aktif (dönüştürülmemiş/iptal edilmemiş) fişler döner; bunlar toplu
  * faturaya dönüştürülebilir. Her satırda ödenen tutar da gelir.
@@ -29,25 +31,38 @@ export async function GET(request: Request) {
     const direction = url.searchParams.get("direction") === "incoming" ? "incoming" : "outgoing"
     const type = direction === "incoming" ? "PURCHASE" : "SALES"
 
+    // Cari detay sayfası tek bir cariye ait fişleri ister; verilirse ona göre süz.
+    const customerId = url.searchParams.get("customerId") || undefined
+    const supplierId = url.searchParams.get("supplierId") || undefined
+    const cariFilter = {
+      ...(customerId ? { customerId } : {}),
+      ...(supplierId ? { supplierId } : {}),
+    }
+
     // scope=active (varsayılan): işlem görebilen fişler — toplu faturaya dönüştürülebilir.
     // scope=archived: kapanmış fişler (iptal edilmiş + faturaya dönüştürülmüş); salt görüntüleme.
-    const scope = url.searchParams.get("scope") === "archived" ? "archived" : "active"
+    // scope=all: hepsi (cari detayında dönüşmüş fişler de görünsün diye).
+    const scopeParam = url.searchParams.get("scope")
+    const scope = scopeParam === "archived" ? "archived" : scopeParam === "all" ? "all" : "active"
     const statusFilter =
-      scope === "archived"
-        ? { status: { in: ["CANCELLED", "CONVERTED"] } }
-        : { status: { notIn: ["CANCELLED", "CONVERTED"] } }
+      scope === "all"
+        ? {}
+        : scope === "archived"
+          ? { status: { in: ["CANCELLED", "CONVERTED"] } }
+          : { status: { notIn: ["CANCELLED", "CONVERTED"] } }
 
     const receipts = await prisma.invoice.findMany({
       where: {
         companyId,
         isReceipt: true,
         type,
+        ...cariFilter,
         ...statusFilter,
       },
       include: {
         customer: { select: { id: true, name: true } },
         supplier: { select: { id: true, name: true } },
-        convertedInvoice: { select: { id: true, invoiceNo: true } },
+        convertedInvoice: { select: { id: true, invoiceNo: true, eDocumentNo: true } },
       },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 500,
@@ -73,9 +88,11 @@ export async function GET(request: Request) {
         slug: r.slug,
         direction,
         status: r.status,
-        // Arşivde "hangi faturaya dönüştü" bilgisi gösterilir.
+        // Arşivde "hangi faturaya dönüştü" bilgisi gösterilir (resmi GİB no öncelikli).
         convertedInvoiceId: r.convertedInvoice?.id ?? null,
-        convertedInvoiceNo: r.convertedInvoice?.invoiceNo ?? null,
+        convertedInvoiceNo: r.convertedInvoice
+          ? r.convertedInvoice.eDocumentNo || r.convertedInvoice.invoiceNo
+          : null,
         receiptNo: r.invoiceNo,
         date: r.date.toISOString(),
         createdAt: r.createdAt.toISOString(),

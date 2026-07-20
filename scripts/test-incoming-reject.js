@@ -265,11 +265,152 @@ async function status(company) {
   if (supplier && invoice) printLinks(company, supplier, invoice)
 }
 
+// ============================================================================
+// verify: uçtan uca otomatik doğrulama (PASS/FAIL). Sadece eski red sonucunu
+// değil, son eklenen iki düzeltmeyi de test eder:
+//   (1) inbox/sync yereldeki RED/KABUL yanıtını GERİ EZMEZ.
+//   (2) reddedilen gelen fatura (status ezilse bile) alışa DÖNÜŞTÜRÜLEMEZ.
+// Test verisini kurar, doğrular ve sonunda temizler. Kod yollarındaki KARAR
+// ifadeleri (effectiveStatus / conversion guard) route'lardan birebir kopyadır.
+// ============================================================================
+
+// inbox/sync/route.ts ile BİREBİR aynı ifade.
+function computeEffectiveStatus(localStatus, incomingStatus) {
+  const localStatusUpper = (localStatus || "").toUpperCase()
+  const incomingStatusUpper = (incomingStatus || "").toUpperCase()
+  const localIsTerminal = localStatusUpper === "KABUL" || localStatusUpper === "RED"
+  const incomingIsTerminal = incomingStatusUpper === "KABUL" || incomingStatusUpper === "RED"
+  return localIsTerminal && !incomingIsTerminal ? localStatus : incomingStatus
+}
+
+// invoices/route.ts (dönüştürme koruması) ile BİREBİR aynı mantık.
+async function isConversionBlocked(companyId, uuid) {
+  const incoming = await prisma.incomingInvoice.findUnique({
+    where: { companyId_uuid: { companyId, uuid } },
+    select: { status: true, linkedInvoiceId: true },
+  })
+  let alreadyRejected = (incoming?.status || "").toUpperCase() === "RED"
+  if (!alreadyRejected && incoming?.linkedInvoiceId) {
+    const linked = await prisma.invoice.findUnique({
+      where: { id: incoming.linkedInvoiceId },
+      select: { status: true, integrationStatus: true },
+    })
+    if (
+      linked?.status === "CANCELLED" &&
+      (linked.integrationStatus || "").toUpperCase().includes("REJECTED")
+    ) {
+      alreadyRejected = true
+    }
+  }
+  return alreadyRejected
+}
+
+async function verify(company) {
+  const results = []
+  const check = (name, ok, detail) => {
+    results.push({ name, ok })
+    console.log(`  ${ok ? "✓ PASS" : "✗ FAIL"}  ${name}${detail ? `  — ${detail}` : ""}`)
+  }
+
+  console.log(`\n=== GELEN E-FATURA REDDETME — OTOMATİK DOĞRULAMA (${company.name}) ===\n`)
+
+  // 1) Temiz kurulum: borç oluşmuş bekleyen fatura
+  await cleanup(company.id)
+  const supplier = await prisma.supplier.create({
+    data: {
+      companyId: company.id, code: TEST.supplierCode, name: TEST.supplierName,
+      slug: `${TEST.supplierSlug}-${Date.now()}`, taxNumber: "1111111111",
+      openingBalanceAmount: 0, openingBalanceType: "DEBIT",
+    },
+  })
+  const invoice = await prisma.invoice.create({
+    data: {
+      companyId: company.id, invoiceNo: TEST.invoiceNo, slug: `${TEST.invoiceSlug}-${Date.now()}`,
+      type: "PURCHASE", invoiceType: "E_INVOICE", status: "SENT", supplierId: supplier.id,
+      date: new Date(), netAmount: TEST.net, vatAmount: TEST.vat, totalAmount: TEST.total, currency: "TRY",
+    },
+  })
+  await prisma.incomingInvoice.create({
+    data: {
+      companyId: company.id, uuid: TEST.incomingUuid, invoiceNo: TEST.incomingNo, docDate: new Date(),
+      senderTaxNumber: supplier.taxNumber, senderName: supplier.name, profile: "TICARIFATURA",
+      invoiceType: "SATIS", currencyCode: "TRY", taxExclusiveAmount: TEST.net, taxInclusiveAmount: TEST.total,
+      vatAmount: TEST.vat, payableAmount: TEST.total, status: "BEKLEMEDE",
+      isLinkedToPurchase: true, linkedInvoiceId: invoice.id, raw: { test: true },
+    },
+  })
+
+  console.log("[1] Kurulum: bekleyen gelen fatura + bağlı alış faturası (borç var)")
+  const balanceBefore = await computeSupplierBalance(supplier.id)
+  check("Reddetmeden önce tedarikçi borcu = 1200 TL", Number(balanceBefore) === TEST.total, fmtTL(balanceBefore))
+
+  // 2) Reddet (respond route yerel etkisi = voidInvoice etkisi)
+  console.log("\n[2] Reddet: bağlı fatura CANCELLED + gelen fatura RED")
+  await prisma.$transaction(async (tx) => {
+    await tx.invoice.update({
+      where: { id: invoice.id },
+      data: { status: "CANCELLED", integrationStatus: "REJECTED:RED" },
+    })
+    await tx.incomingInvoice.update({
+      where: { companyId_uuid: { companyId: company.id, uuid: TEST.incomingUuid } },
+      data: { status: "RED" },
+    })
+  })
+  const balanceAfter = await computeSupplierBalance(supplier.id)
+  check("Reddettikten sonra tedarikçi borcu = 0 TL (borç düştü)", Number(balanceAfter) === 0, fmtTL(balanceAfter))
+  const inv2 = await prisma.invoice.findUnique({ where: { id: invoice.id } })
+  check("Bağlı alış faturası CANCELLED + REJECTED", inv2.status === "CANCELLED" && (inv2.integrationStatus || "").includes("REJECTED"), `${inv2.status} / ${inv2.integrationStatus}`)
+
+  // 3) DÜZELTME (a): sync yereldeki RED'i geri ezmez
+  console.log("\n[3] Senkron koruması: Mysoft 'YANIT_BEKLENIYOR' dönse bile yerel RED korunur")
+  const existing = await prisma.incomingInvoice.findUnique({
+    where: { companyId_uuid: { companyId: company.id, uuid: TEST.incomingUuid } },
+    select: { status: true },
+  })
+  const effective = computeEffectiveStatus(existing.status, "YANIT_BEKLENIYOR")
+  await prisma.incomingInvoice.update({
+    where: { companyId_uuid: { companyId: company.id, uuid: TEST.incomingUuid } },
+    data: { status: effective },
+  })
+  const afterSync = await prisma.incomingInvoice.findUnique({
+    where: { companyId_uuid: { companyId: company.id, uuid: TEST.incomingUuid } },
+    select: { status: true },
+  })
+  check("Senkron sonrası gelen fatura hâlâ RED (geri ezilmedi)", afterSync.status === "RED", afterSync.status)
+  const balanceAfterSync = await computeSupplierBalance(supplier.id)
+  check("Senkron sonrası borç hâlâ 0 TL", Number(balanceAfterSync) === 0, fmtTL(balanceAfterSync))
+  // Karşı kontrol: koruma olmasaydı non-terminal değer yazılırdı.
+  check("Karşı kontrol: koruma mantığı non-terminal değeri elerdi", computeEffectiveStatus("RED", "YANIT_BEKLENIYOR") === "RED" && computeEffectiveStatus("BEKLEMEDE", "KABUL") === "KABUL")
+
+  // 4) DÜZELTME (b): reddedilen fatura dönüştürülemez (iki yol)
+  console.log("\n[4] Dönüştürme engeli: reddedilen fatura tekrar alışa dönüştürülemez")
+  const blockedByStatus = await isConversionBlocked(company.id, TEST.incomingUuid)
+  check("status=RED iken dönüştürme engellenir", blockedByStatus === true)
+  // Yarış durumu: status yanlışlıkla BEKLEMEDE'ye dönmüş; bağlı fatura CANCELLED+REJECTED
+  await prisma.incomingInvoice.update({
+    where: { companyId_uuid: { companyId: company.id, uuid: TEST.incomingUuid } },
+    data: { status: "BEKLEMEDE" },
+  })
+  const blockedByLinked = await isConversionBlocked(company.id, TEST.incomingUuid)
+  check("status ezilse bile (bağlı fatura CANCELLED+REJECTED) dönüştürme engellenir", blockedByLinked === true)
+
+  // 5) Temizlik
+  console.log("\n[5] Temizlik")
+  const removed = await cleanup(company.id)
+  check("Test verisi silindi", removed === true)
+
+  const passed = results.filter((r) => r.ok).length
+  const failed = results.length - passed
+  console.log("\n--------------------------------------------------")
+  console.log(`SONUÇ: ${passed}/${results.length} test geçti${failed ? `  (${failed} BAŞARISIZ)` : "  — HEPSİ GEÇTİ ✓"}`)
+  if (failed) process.exitCode = 1
+}
+
 async function main() {
   const [, , cmdArg, companyRef] = process.argv
   const cmd = (cmdArg || "").toLowerCase()
-  if (!["setup", "reject", "status", "cleanup"].includes(cmd)) {
-    console.log("Kullanım: node scripts/test-incoming-reject.js <setup|status|reject|cleanup> <firma>")
+  if (!["setup", "reject", "status", "cleanup", "verify"].includes(cmd)) {
+    console.log("Kullanım: node scripts/test-incoming-reject.js <setup|status|reject|cleanup|verify> <firma>")
     const company = await resolveCompany(companyRef)
     void company
     return
@@ -280,6 +421,7 @@ async function main() {
   if (cmd === "setup") return setup(company)
   if (cmd === "reject") return reject(company)
   if (cmd === "status") return status(company)
+  if (cmd === "verify") return verify(company)
   if (cmd === "cleanup") {
     const removed = await cleanup(company.id)
     console.log(removed ? "✓ Test verisi silindi." : "Silinecek test verisi yoktu.")

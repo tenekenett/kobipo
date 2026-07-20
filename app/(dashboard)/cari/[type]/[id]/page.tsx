@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { TransactionDialog } from "@/components/cari/transaction-dialog"
 import { CariArchiveDeleteDialog } from "@/components/cari/cari-archive-delete-dialog"
+import { CariFislerSection } from "@/components/cari/cari-fisler-section"
 import { looksLikeCuid } from "@/lib/slug"
 
 // İsimden baş harf(ler) üret: "Acme Ltd" → "AL", "Ahmet" → "AH"
@@ -37,7 +38,13 @@ function getInitials(name: string): string {
 interface Transaction {
   id: string
   date: string
+  createdAt?: string
   type: string
+  isReceipt?: boolean
+  converted?: boolean
+  convertedToId?: string | null
+  convertedToNo?: string | null
+  receiptAmount?: number
   description: string
   debit: number
   credit: number
@@ -236,10 +243,10 @@ export default function CustomerSupplierDetailPage() {
     }).format(amount)
   }
 
-  // API ekstreyi kronolojik (eski→yeni) ve kümülatif bakiyeli döndürür.
-  // Ekstre yukarıdan aşağı kronolojik aksın: her satırın yürüyen bakiyesi
-  // o satıra kadarki toplamı gösterir, en alt satır güncel bakiyeyi verir.
-  const orderedTransactions = data.transactions
+  // API ekstreyi kronolojik (eski→yeni) ve kümülatif bakiyeli döndürür. Ekranda
+  // en yeni hareket en üstte olsun diye ters çeviriyoruz; her satırın yürüyen
+  // bakiyesi o hareket anındaki bakiyeyi gösterir (banka ekstresi mantığı).
+  const orderedTransactions = [...data.transactions].reverse()
 
   // Renk şirket gözünden ("lehimize mi?"). Müşteride pozitif bakiye = müşteri bize
   // borçlu = bizim alacağımız (lehimize, yeşil). Tedarikçide ise pozitif bakiye =
@@ -491,8 +498,12 @@ export default function CustomerSupplierDetailPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Uzun ekstre sayfayı aşırı uzatmasın: sabit yükseklik + iç kaydırma.
+              Yükseklik sınırı Table'ın kendi overflow sarmalayıcısına uygulanır
+              (aksi halde sticky başlık çalışmaz). */}
+          <div className="[&>div]:max-h-[560px] [&>div]:rounded-md [&>div]:border">
           <Table>
-            <TableHeader className="bg-muted/50">
+            <TableHeader className="sticky top-0 z-10 bg-muted">
               <TableRow>
                 <TableHead>Tarih</TableHead>
                 <TableHead>İşlem</TableHead>
@@ -532,16 +543,25 @@ export default function CustomerSupplierDetailPage() {
                     }
                   >
                     <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
-                      {new Date(tx.date).toLocaleDateString("tr-TR")}
+                      <div>{new Date(tx.date).toLocaleDateString("tr-TR")}</div>
+                      {tx.createdAt && (
+                        <div className="text-xs text-muted-foreground/70">
+                          {new Date(tx.createdAt).toLocaleTimeString("tr-TR", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                        tx.type === "INVOICE" && tx.isReceipt ? "bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-300" :
                         tx.type === "INVOICE" ? "bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300" :
                         tx.type === "PAYMENT" ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" :
                         tx.type === "OPENING" ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" :
                         "bg-gray-100 text-gray-800 dark:bg-gray-500/15 dark:text-gray-300"
                       }`}>
-                        {tx.type === "INVOICE" ? "Fatura" :
+                        {tx.type === "INVOICE" ? (tx.isReceipt ? "Fiş" : "Fatura") :
                          tx.type === "PAYMENT" ? "Ödeme" :
                          tx.type === "OPENING" ? "Açılış" :
                          tx.type === "EXPENSE" ? "Gider" :
@@ -551,7 +571,26 @@ export default function CustomerSupplierDetailPage() {
                          tx.type}
                       </span>
                     </TableCell>
-                    <TableCell>{tx.description}</TableCell>
+                    <TableCell>
+                      {tx.description}
+                      {tx.converted && tx.convertedToNo && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          →{" "}
+                          {tx.convertedToId ? (
+                            <Link
+                              href={`/faturalar/${tx.convertedToId}/onizleme?company=${companyId}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`}
+                              className="text-blue-600 hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {tx.convertedToNo}
+                            </Link>
+                          ) : (
+                            <span className="font-medium">{tx.convertedToNo}</span>
+                          )}{" "}
+                          faturasına dönüştürüldü
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {tx.invoiceNo ? (
                         <Link href={`/faturalar/${tx.id}/onizleme?company=${companyId}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`} className="text-blue-600 hover:underline">
@@ -560,13 +599,25 @@ export default function CustomerSupplierDetailPage() {
                       ) : <span className="text-muted-foreground">-</span>}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-red-600">
-                      {tx.debit > 0 ? formatCurrency(tx.debit) : <span className="text-muted-foreground">-</span>}
+                      {tx.debit > 0 ? (
+                        formatCurrency(tx.debit)
+                      ) : tx.converted && isCustomer && tx.receiptAmount ? (
+                        <span className="text-muted-foreground/60 line-through">{formatCurrency(tx.receiptAmount)}</span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-green-600">
-                      {tx.credit > 0 ? formatCurrency(tx.credit) : <span className="text-muted-foreground">-</span>}
+                      {tx.credit > 0 ? (
+                        formatCurrency(tx.credit)
+                      ) : tx.converted && !isCustomer && tx.receiptAmount ? (
+                        <span className="text-muted-foreground/60 line-through">{formatCurrency(tx.receiptAmount)}</span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </TableCell>
-                    <TableCell className={`text-right font-medium tabular-nums ${tx.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
-                      {formatCurrency(tx.balance)}
+                    <TableCell className={`text-right font-medium tabular-nums ${tx.converted ? "text-muted-foreground" : tx.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {tx.converted ? <span className="text-muted-foreground">-</span> : formatCurrency(tx.balance)}
                     </TableCell>
                     <TableCell className="text-right">
                       {isMovement ? (
@@ -579,8 +630,21 @@ export default function CustomerSupplierDetailPage() {
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
+
+      {/* Fişler: ekstrenin ALTında; kendi içinde sınırlı yükseklik + kaydırma ile
+          ekstreyi bastırmaması sağlanır. */}
+      {companyId && (
+        <CariFislerSection
+          companyId={companyId}
+          cariId={data.id}
+          direction={isCustomer ? "outgoing" : "incoming"}
+          onConverted={fetchData}
+        />
+      )}
+
       {companyId && (
         <TransactionDialog
           open={isTransactionDialogOpen}

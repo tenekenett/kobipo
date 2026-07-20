@@ -117,6 +117,7 @@ export default function FaturalarListing({
   const [company, setCompany] = useState<Company | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [isSyncingStatuses, setIsSyncingStatuses] = useState(false)
   const [direction, setDirection] = useState<"all" | "incoming" | "outgoing">(() =>
     fixedDirection ?? resolveInitialDirection(searchParams),
   )
@@ -208,7 +209,9 @@ export default function FaturalarListing({
       }
       toast({
         title: "Mysoft Inbox senkronize edildi",
-        description: `${data.fetched} kayıt · ${data.inserted} yeni · ${data.updated} güncel`,
+        description:
+          `${data.fetched} kayıt · ${data.inserted} yeni · ${data.updated} güncel` +
+          (data.voidedLinked ? ` · ${data.voidedLinked} reddedilen alış iptal edildi` : ""),
       })
       await fetchList()
     } catch (e: any) {
@@ -219,6 +222,45 @@ export default function FaturalarListing({
       })
     } finally {
       setIsSyncing(false)
+    }
+  }
+
+  // Giden faturaların GİB/entegratör durumunu toplu sorgular; alıcının reddettiği
+  // (RED) faturaları CANCELLED yapıp cari bakiyeden düşürür. Tek tek "Durumu
+  // Kontrol Et" yerine tek tıkla tüm gönderilmiş faturaları senkronize eder.
+  const handleSyncStatuses = async () => {
+    if (!companyId) return
+    setIsSyncingStatuses(true)
+    try {
+      const res = await fetch("/api/e-donusum/invoices/sync-statuses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast({
+          title: "Durum senkronu başarısız",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+        return
+      }
+      toast({
+        title: "Fatura durumları senkronize edildi",
+        description:
+          `${data.checked} fatura kontrol edildi` +
+          (data.voided ? ` · ${data.voided} reddedilen/iptal cari bakiyeden düşürüldü` : " · değişiklik yok"),
+      })
+      await fetchList()
+    } catch (e: any) {
+      toast({
+        title: "Hata",
+        description: e?.message || "Durum senkronu sırasında hata",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSyncingStatuses(false)
     }
   }
 
@@ -472,6 +514,21 @@ export default function FaturalarListing({
                 <Inbox className="mr-2 h-4 w-4" />
               )}
               Mysoft Inbox Senkronize
+            </Button>
+          )}
+          {fixedDirection !== "incoming" && (
+            <Button
+              variant="outline"
+              onClick={handleSyncStatuses}
+              disabled={isSyncingStatuses}
+              title="Gönderilmiş faturaların GİB durumunu topluca sorgula; reddedilen (RED) faturaları iptal edip cari bakiyeden düşür"
+            >
+              {isSyncingStatuses ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <ShieldCheck className="mr-2 h-4 w-4" />
+              )}
+              Durumları Senkronize Et
             </Button>
           )}
           <Button variant="outline" onClick={fetchList} disabled={isLoading}>

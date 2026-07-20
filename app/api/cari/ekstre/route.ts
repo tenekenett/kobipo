@@ -124,11 +124,12 @@ export async function GET(request: Request) {
         type: "INVOICE",
         id: inv.id,
         date: inv.date,
-        description: `Fatura ${inv.invoiceNo}`,
+        // Ekstrede resmi GİB belge no'yu göster; yoksa iç seri numarasına düş.
+        description: `Fatura ${inv.eDocumentNo || inv.invoiceNo}`,
         debit: inv.type === "SALES" ? Number(inv.totalAmount) : 0,
         credit: inv.type === "PURCHASE" ? Number(inv.totalAmount) : 0,
         balance: 0,
-        reference: inv.invoiceNo,
+        reference: inv.eDocumentNo || inv.invoiceNo,
         data: inv,
       })),
       ...transactions.map((trx) => ({

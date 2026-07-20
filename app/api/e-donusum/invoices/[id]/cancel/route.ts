@@ -7,7 +7,7 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
-import { revertInvoiceStock } from "@/lib/stock/warehouse"
+import { voidInvoice } from "@/lib/integrations/e-invoice/void-invoice"
 
 export const dynamic = "force-dynamic"
 
@@ -111,18 +111,12 @@ export async function POST(
     // Bakiye ayrıca otomatik düzelir: cari bakiye/ekstre sorguları CANCELLED
     // faturaları (ve onlara bağlı InvoicePayment'ları) zaten hariç tutuyor.
     await prisma.$transaction(async (tx) => {
-      await revertInvoiceStock(tx, {
-        companyId: invoice.companyId,
+      await voidInvoice(tx, {
         invoiceId: invoice.id,
+        companyId: invoice.companyId,
         invoiceNo: invoice.invoiceNo,
+        integrationStatus: "CANCELLED:IPTAL_EDILDI",
         createdBy: user.id,
-      })
-      await tx.invoice.update({
-        where: { id: invoice.id },
-        data: {
-          status: "CANCELLED",
-          integrationStatus: "CANCELLED:IPTAL_EDILDI",
-        },
       })
     })
 

@@ -148,9 +148,25 @@ export async function POST(request: Request) {
     if (fromIncomingUuid && String(type || "").toUpperCase() === "PURCHASE") {
       const incoming = await prisma.incomingInvoice.findUnique({
         where: { companyId_uuid: { companyId, uuid: String(fromIncomingUuid) } },
-        select: { status: true },
+        select: { status: true, linkedInvoiceId: true },
       })
-      if ((incoming?.status || "").toUpperCase() === "RED") {
+      let alreadyRejected = (incoming?.status || "").toUpperCase() === "RED"
+      // Savunma katmanı: Mysoft senkronu yerel RED'i geri ezmiş olabilir. Bu durumda
+      // status RED görünmese de, red anında bağlı alış faturası CANCELLED + REJECTED
+      // yapılmıştı — bunu yakalayıp yeniden borç yaratılmasını engelle.
+      if (!alreadyRejected && incoming?.linkedInvoiceId) {
+        const linked = await prisma.invoice.findUnique({
+          where: { id: incoming.linkedInvoiceId },
+          select: { status: true, integrationStatus: true },
+        })
+        if (
+          linked?.status === "CANCELLED" &&
+          (linked.integrationStatus || "").toUpperCase().includes("REJECTED")
+        ) {
+          alreadyRejected = true
+        }
+      }
+      if (alreadyRejected) {
         return NextResponse.json(
           { error: "Bu gelen fatura reddedilmiş (RED); alış faturasına dönüştürülemez." },
           { status: 400 },

@@ -54,6 +54,7 @@ export async function GET(request: Request) {
       select: {
         id: true,
         invoiceNo: true,
+        eDocumentNo: true,
         date: true,
         dueDate: true,
         totalAmount: true,
@@ -68,7 +69,8 @@ export async function GET(request: Request) {
         const openAmount = Number(inv.totalAmount) - paid
         return {
           id: inv.id,
-          invoiceNo: inv.invoiceNo,
+          // Açık faturalarda resmi GİB belge no'yu göster; yoksa iç seri numarasına düş.
+          invoiceNo: inv.eDocumentNo || inv.invoiceNo,
           date: inv.date,
           dueDate: inv.dueDate,
           totalAmount: Number(inv.totalAmount),

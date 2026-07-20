@@ -7,7 +7,7 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
-import { revertInvoiceStock } from "@/lib/stock/warehouse"
+import { voidInvoice, evaluateGibVoid } from "@/lib/integrations/e-invoice/void-invoice"
 
 export const dynamic = "force-dynamic"
 
@@ -93,54 +93,40 @@ export async function POST(
       )
     }
 
-    // Mysoft'tan dönen detaylı durumu integrationStatus'a yaz
-    const integrationStatus = `${result.status}:${result.rawText || result.message}`
-
-    // İç status mapping
+    // İç status mapping — TEK KARAR NOKTASI evaluateGibVoid (bkz. void-invoice.ts):
     // - APPROVED → invoice.status: "SENT" (zaten gönderilmiş; alt-statüsü integrationStatus'ta)
     // - CANCELLED (IPTAL_EDILDI) → invoice.status: "CANCELLED"
     // - REJECTED/RED (alıcı ticari faturayı reddetti) → belge geçersiz: iç status
     //   "CANCELLED" yapılır ki tüm cari/rapor sorguları (status <> CANCELLED) faturayı
     //   hariç tutsun; böylece alacak, müşterinin cari bakiyesinden düşer. integrationStatus
     //   "REJECTED:RED" olarak kalır → ekranda "İptal" değil "Reddedildi" olarak ayrışır.
-    //   (e-İrsaliye durum akışında da REJECTED → CANCELLED aynı deseni uygulanır.)
-    //   Yalnızca gerçek RED geçersiz kılar; HATA da getInvoiceStatus'ta REJECTED'a
-    //   maplenir ama (geçici/entegrasyon hatası olabileceği için) faturayı iptal ETMEZ.
+    //   Yalnızca gerçek RED geçersiz kılar; HATA faturayı iptal ETMEZ.
     // - PROCESSING/DRAFT → değiştirmeyelim
-    const rawUpper = (result.rawText || "").trim().toUpperCase()
-    const becomesCancelled = result.status === "CANCELLED" && invoice.status !== "CANCELLED"
-    const becomesRejected =
-      result.status === "REJECTED" && rawUpper === "RED" && invoice.status !== "CANCELLED"
-    const becomesVoid = becomesCancelled || becomesRejected
+    const { becomesVoid, integrationStatus } = evaluateGibVoid(result)
+    const shouldVoid = becomesVoid && invoice.status !== "CANCELLED"
 
-    const updateData: { status?: string; integrationStatus: string; eDocumentNo?: string } = {
-      integrationStatus,
-    }
-    if (becomesVoid) {
-      updateData.status = "CANCELLED"
-    }
-    // Mysoft prefix ile resmi belge no'yu (docNo) bu aşamada döndürür — kaydet.
-    if (typeof result.docNo === "string" && result.docNo.trim()) {
-      updateData.eDocumentNo = result.docNo.trim()
-    }
+    const eDocumentNo =
+      typeof result.docNo === "string" && result.docNo.trim() ? result.docNo.trim() : undefined
 
-    if (becomesVoid) {
-      // Portal/GİB tarafında iptal ya da alıcı tarafından reddedilmiş: belge geçersiz.
-      // Stoğu geri al ve durumu CANCELLED yap (atomik). Bakiye otomatik düzelir — cari
-      // sorguları CANCELLED faturaları (ve onlara bağlı InvoicePayment'ları) hariç tutar.
+    if (shouldVoid) {
+      // Belge geçersiz (iptal/red): stoğu geri al + status=CANCELLED (atomik).
+      // Bakiye otomatik düzelir — cari sorguları CANCELLED'ı hariç tutar.
       await prisma.$transaction(async (tx) => {
-        await revertInvoiceStock(tx, {
-          companyId: invoice.companyId,
+        await voidInvoice(tx, {
           invoiceId: invoice.id,
+          companyId: invoice.companyId,
           invoiceNo: invoice.invoiceNo,
+          integrationStatus,
           createdBy: user.id,
         })
-        await tx.invoice.update({ where: { id: invoice.id }, data: updateData })
+        if (eDocumentNo) {
+          await tx.invoice.update({ where: { id: invoice.id }, data: { eDocumentNo } })
+        }
       })
     } else {
       await prisma.invoice.update({
         where: { id: invoice.id },
-        data: updateData,
+        data: { integrationStatus, ...(eDocumentNo ? { eDocumentNo } : {}) },
       })
     }
 
@@ -150,7 +136,7 @@ export async function POST(
       rawText: result.rawText,
       message: result.message,
       declineReason: result.declineReason,
-      eDocumentNo: updateData.eDocumentNo,
+      eDocumentNo,
     })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""

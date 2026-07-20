@@ -105,7 +105,7 @@ export async function GET(
     })
 
     // Tedarikçiye verilen çek/senet (iade/protesto hariç) borcumuzu kapatır.
-    const [allChecks, allNotes] = await Promise.all([
+    const [allChecks, allNotes, convertedReceipts] = await Promise.all([
       prisma.check.findMany({
         where: { supplierId: supplier.id, status: { notIn: [...CHECK_NOTE_NON_SETTLING] } },
         orderBy: { issueDate: "asc" },
@@ -113,6 +113,14 @@ export async function GET(
       prisma.promissoryNote.findMany({
         where: { supplierId: supplier.id, status: { notIn: [...CHECK_NOTE_NON_SETTLING] } },
         orderBy: { issueDate: "asc" },
+      }),
+      // Faturaya dönüştürülmüş fişler: ekstrede bilgi amaçlı ("Fiş" olarak, hangi
+      // faturaya dönüştüğü belirtilerek). Ekonomik etki artık faturada; bakiyeye
+      // ETKİ ETMEZ (borç/alacak = 0) — çift sayımı önler.
+      prisma.invoice.findMany({
+        where: { supplierId: supplier.id, isReceipt: true, status: "CONVERTED" },
+        include: { convertedInvoice: { select: { id: true, invoiceNo: true, eDocumentNo: true } } },
+        orderBy: { date: "asc" },
       }),
     ])
     // Tedarikçide verilen çek borcu azaltır; alınan çek (iade) artırır.
@@ -164,6 +172,7 @@ export async function GET(
             {
               id: `opening-${supplier.id}`,
               date: supplier.createdAt.toISOString(),
+              createdAt: supplier.createdAt.toISOString(),
               type: "OPENING",
               description: `Açılış Bakiyesi (${openingType === "CREDIT" ? "Alacak" : "Borç"})`,
               // Aynalı işaret (yürüyen bakiye credit−debit ile hesaplanır):
@@ -181,16 +190,40 @@ export async function GET(
       ...allInvoices.map((inv) => ({
         id: inv.id,
         date: inv.date.toISOString(),
+        createdAt: inv.createdAt.toISOString(),
         type: "INVOICE",
-        description: `Fatura ${inv.invoiceNo}`,
+        // Fiş, gayriresmî belge; ekstrede fatura ile aynı satırda ama "Fiş" etiketli.
+        isReceipt: inv.isReceipt,
+        // Cari ekstrede resmi GİB belge no'yu göster; yoksa iç seri numarasına düş.
+        description: `${inv.isReceipt ? "Fiş" : "Fatura"} ${inv.eDocumentNo || inv.invoiceNo}`,
         debit: 0,
         credit: inv.type === "PURCHASE" ? Number(inv.totalAmount) : 0,
         balance: 0,
-        invoiceNo: inv.invoiceNo,
+        invoiceNo: inv.eDocumentNo || inv.invoiceNo,
+      })),
+      // Dönüştürülmüş fişler: bilgi satırı — bakiyeye etki etmez (borç/alacak = 0).
+      ...convertedReceipts.map((inv) => ({
+        id: inv.id,
+        date: inv.date.toISOString(),
+        createdAt: inv.createdAt.toISOString(),
+        type: "INVOICE",
+        isReceipt: true,
+        converted: true,
+        convertedToId: inv.convertedInvoice?.id ?? null,
+        convertedToNo: inv.convertedInvoice
+          ? inv.convertedInvoice.eDocumentNo || inv.convertedInvoice.invoiceNo
+          : null,
+        receiptAmount: Number(inv.totalAmount),
+        description: `Fiş ${inv.eDocumentNo || inv.invoiceNo}`,
+        debit: 0,
+        credit: 0,
+        balance: 0,
+        invoiceNo: inv.eDocumentNo || inv.invoiceNo,
       })),
       ...transactions.map((trx) => ({
         id: trx.id,
         date: trx.date.toISOString(),
+        createdAt: trx.createdAt.toISOString(),
         type: trx.type === "EXPENSE" ? "PAYMENT" : "INCOME",
         // Açıklama boşsa işlem türüne göre insanca etiket: ödeme/tahsilat.
         description:
@@ -213,6 +246,7 @@ export async function GET(
         return {
           id: ch.id,
           date: ch.issueDate.toISOString(),
+          createdAt: ch.createdAt.toISOString(),
           type: "CHECK",
           description: `Çek ${ch.checkNo}${ch.bankName ? ` - ${ch.bankName}` : ""}`,
           debit: received ? 0 : Number(ch.amount),
@@ -226,6 +260,7 @@ export async function GET(
         return {
           id: nt.id,
           date: nt.issueDate.toISOString(),
+          createdAt: nt.createdAt.toISOString(),
           type: "NOTE",
           description: `Senet ${nt.noteNo}`,
           debit: received ? 0 : Number(nt.amount),
@@ -234,7 +269,14 @@ export async function GET(
           invoiceNo: null,
         }
       }),
-    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      // İş tarihine göre kronolojik; aynı gün içinde kayıt saatine (createdAt) göre
+      // dengele ki yürüyen bakiye kararlı olsun ve saatler doğru sırada görünsün.
+    ].sort((a, b) => {
+      const byDate = new Date(a.date).getTime() - new Date(b.date).getTime()
+      return byDate !== 0
+        ? byDate
+        : new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    })
 
     // Calculate running balance
     let runningBalance = 0
