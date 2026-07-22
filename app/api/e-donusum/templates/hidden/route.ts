@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     }
     if (!xsltName) return NextResponse.json({ error: "Şablon adı zorunlu." }, { status: 400 })
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     const key = { companyId_eDocumentType_xsltName: { companyId, eDocumentType, xsltName } }
 

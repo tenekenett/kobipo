@@ -3,7 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { Prisma } from "@prisma/client"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { normalizeDesignOptions } from "@/lib/integrations/e-invoice/template-designer"
 
 export const dynamic = "force-dynamic"
@@ -98,7 +98,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Şablon adı zorunlu." }, { status: 400 })
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     const normalized = normalizeDesignOptions(options) as unknown as Prisma.InputJsonValue
     const name = xsltName.trim()

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { isValidTcKimlik } from "@/lib/personel/validation"
 
 export const dynamic = "force-dynamic"
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
   if (body.nationalId && String(body.nationalId).trim() && !isValidTcKimlik(body.nationalId)) {
     return NextResponse.json({ error: "Geçersiz T.C. Kimlik No" }, { status: 400 })
   }
-  await ensureCompanyAccess(companyId)
+  await ensureCompanyWrite(companyId)
 
   const employee = await prisma.employee.create({
     data: {

@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 
 export const dynamic = "force-dynamic"
@@ -39,8 +39,8 @@ export async function POST(
       return NextResponse.json({ error: "Şablon bulunamadı" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(source.companyId)
-    await ensureCompanyAccess(targetCompanyId)
+    await ensureCompanyWrite(source.companyId)
+    await ensureCompanyWrite(targetCompanyId)
 
     if (targetCompanyId === source.companyId) {
       return NextResponse.json(

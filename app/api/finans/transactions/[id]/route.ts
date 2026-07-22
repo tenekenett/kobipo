@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -85,7 +85,7 @@ export async function DELETE(
       return NextResponse.json({ error: "İşlem bulunamadı" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(transaction.companyId)
+    await ensureCompanyWrite(transaction.companyId)
 
     if (transaction.type === "TRANSFER" || transaction.reference?.startsWith("TRANSFER:")) {
       return NextResponse.json(

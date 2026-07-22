@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -15,7 +15,7 @@ export async function DELETE(
   const { id } = await params
   const existing = await prisma.employeeDocument.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Belge bulunamadı" }, { status: 404 })
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   // Belgeyi sil — bağlı blob (dosya içeriği) FK onDelete: Cascade ile gider.
   await prisma.employeeDocument.delete({ where: { id } })

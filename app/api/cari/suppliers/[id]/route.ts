@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { customerHasBusinessReferences } from "@/lib/cari/dual-role"
 import { getSupplierDeletability } from "@/lib/cari/archive-guard"
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
@@ -328,7 +328,7 @@ export async function PUT(
       return NextResponse.json({ error: "Supplier not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(supplier.companyId)
+    await ensureCompanyWrite(supplier.companyId)
 
     const body = await request.json()
     const {
@@ -615,7 +615,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Supplier not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(supplier.companyId)
+    await ensureCompanyWrite(supplier.companyId)
 
     const deletability = await getSupplierDeletability(supplier.id)
     if (!deletability.canDelete) {
@@ -668,7 +668,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Supplier not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(supplier.companyId)
+    await ensureCompanyWrite(supplier.companyId)
 
     const body = await request.json().catch(() => ({}))
     const action = body?.action === "unarchive" ? "unarchive" : "archive"

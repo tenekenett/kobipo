@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -35,7 +35,7 @@ export async function POST(
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(invoice.companyId)
+    await ensureCompanyWrite(invoice.companyId)
     const targetEmail = recipientEmail || invoice.customer?.email || invoice.supplier?.email
     if (!targetEmail) {
       return NextResponse.json({ error: "Recipient email not found" }, { status: 400 })

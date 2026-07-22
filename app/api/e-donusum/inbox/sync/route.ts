@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import {
   resolveCompanyEInvoiceProvider,
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
     assertEInvoiceRuntimeReady()
 
     const company = await prisma.company.findUnique({

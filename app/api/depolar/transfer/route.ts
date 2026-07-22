@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { transferWarehouseStock } from "@/lib/stock/warehouse"
 
 export const dynamic = 'force-dynamic'
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Geçerli bir miktar girin" }, { status: 400 })
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     // Gerçek transfer: kaynak depo stoğunu düşür, hedef depo stoğunu artır
     // (toplam stok değişmez); her iki tarafa TRANSFER hareketi yazılır.

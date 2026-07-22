@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -23,7 +23,7 @@ export async function PUT(
     include: { employee: { select: { firstName: true, lastName: true } } },
   })
   if (!existing) return NextResponse.json({ error: "Bordro bulunamadı" }, { status: 404 })
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   const body = await request.json()
 
@@ -113,7 +113,7 @@ export async function DELETE(
   const { id } = await params
   const existing = await prisma.payrollRecord.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Bordro bulunamadı" }, { status: 404 })
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   if (existing.status === "PAID") {
     return NextResponse.json({ error: "Ödenmiş bordro silinemez" }, { status: 400 })

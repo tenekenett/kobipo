@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { createGibDraft } from "@/lib/integrations/e-invoice/send-invoice-helper"
 import { revertInvoiceStock } from "@/lib/stock/warehouse"
 import { resolveSlugId } from "@/lib/slug-resolve"
@@ -213,7 +213,7 @@ export async function PUT(
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(invoice.companyId)
+    await ensureCompanyWrite(invoice.companyId)
 
     if (invoice.status !== "DRAFT") {
       return NextResponse.json(
@@ -416,7 +416,7 @@ export async function POST(
     if (!existing) {
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
     }
-    await ensureCompanyAccess(existing.companyId)
+    await ensureCompanyWrite(existing.companyId)
 
     // Tekrar koruması: taslakta uuid dolu olsa da "gönderilmiş" DEĞİL — ayrım status ile.
     if (existing.status === "SENT") {
@@ -494,7 +494,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(invoice.companyId)
+    await ensureCompanyWrite(invoice.companyId)
 
     // NOT: GİB'e gönderilmiş (uuid/ETTN) fatura da FİZİKSEL silinebilir. Bu silme
     // yalnızca Kobipo'daki LOKAL (ön muhasebe / cari) kaydı kaldırır; GİB'deki resmi

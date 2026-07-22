@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = 'force-dynamic'
 
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
       )
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     const parsedOpeningBalance =
       openingBalance != null && openingBalance !== "" && !Number.isNaN(parseFloat(openingBalance))

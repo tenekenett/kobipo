@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 
 export const dynamic = "force-dynamic"
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     const companyId = await resolveCompanyId(body.companyId)
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     const receiptIds: string[] = Array.isArray(body.receiptIds)
       ? body.receiptIds.filter((x: any) => typeof x === "string" && x.trim())

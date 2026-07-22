@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import {
   resolveCompanyEInvoiceProvider,
@@ -44,7 +44,7 @@ export async function POST(
       return NextResponse.json({ error: "Fatura bulunamadı" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(invoice.companyId)
+    await ensureCompanyWrite(invoice.companyId)
 
     // İptal yalnızca kesinleşmiş (GİB'e gönderilmiş) belgede. GİB taslağında uuid
     // dolu olsa da belge GİB'de değil — taslak için "Taslağı Geri Al" kullanılır.

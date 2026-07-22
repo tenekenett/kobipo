@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 
 
@@ -95,7 +95,7 @@ export async function PUT(
       return NextResponse.json({ error: "Account not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(account.companyId)
+    await ensureCompanyWrite(account.companyId)
 
     const body = await request.json()
     const {
@@ -156,7 +156,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Account not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(account.companyId)
+    await ensureCompanyWrite(account.companyId)
 
     await prisma.financialAccount.update({
       where: { id: resolvedParams.id },

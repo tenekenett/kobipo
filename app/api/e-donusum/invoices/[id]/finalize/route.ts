@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { finalizeGibDraft } from "@/lib/integrations/e-invoice/send-invoice-helper"
 
 export const dynamic = "force-dynamic"
@@ -37,7 +37,7 @@ export async function POST(
     if (!existing) {
       return NextResponse.json({ error: "Fatura bulunamadı" }, { status: 404 })
     }
-    await ensureCompanyAccess(existing.companyId)
+    await ensureCompanyWrite(existing.companyId)
 
     const result = await finalizeGibDraft(id)
     if (!result.ok) {

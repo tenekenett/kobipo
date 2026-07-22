@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -76,7 +76,7 @@ export async function PUT(
   const { id } = await params
   const existing = await prisma.order.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Order not found" }, { status: 404 })
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   if (existing.status === "CONVERTED" || existing.convertedInvoiceId) {
     return NextResponse.json(
@@ -135,7 +135,7 @@ export async function DELETE(
   const { id } = await params
   const existing = await prisma.order.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Order not found" }, { status: 404 })
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   if (existing.status === "CONVERTED" || existing.convertedInvoiceId) {
     return NextResponse.json(

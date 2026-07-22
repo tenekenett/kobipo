@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { Decimal } from "@prisma/client/runtime/library"
 
@@ -125,7 +125,7 @@ export async function POST(request: Request) {
     if (data.supplierId)
       data.supplierId = await resolveSlugId("supplier", data.supplierId, data.companyId)
 
-    await ensureCompanyAccess(data.companyId)
+    await ensureCompanyWrite(data.companyId)
 
     if (type === "CHECK") {
       const {

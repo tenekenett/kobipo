@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -15,7 +15,7 @@ export async function PUT(
   const { id } = await params
   const existing = await prisma.assetAssignment.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Zimmet kaydı bulunamadı" }, { status: 404 })
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   const body = await request.json()
   const data: any = {}
@@ -56,7 +56,7 @@ export async function DELETE(
   const { id } = await params
   const existing = await prisma.assetAssignment.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Zimmet kaydı bulunamadı" }, { status: 404 })
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   await prisma.assetAssignment.delete({ where: { id } })
   return NextResponse.json({ message: "Zimmet kaydı silindi" })

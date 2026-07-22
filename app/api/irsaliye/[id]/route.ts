@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { adjustWarehouseStock, ensureDefaultWarehouseId, revertStockByReference } from "@/lib/stock/warehouse"
 
 export const dynamic = "force-dynamic"
@@ -41,7 +41,7 @@ export async function PUT(
   const { id } = await params
   const existing = await prisma.waybill.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Waybill not found" }, { status: 404 })
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   const body = await request.json()
   const {
@@ -178,7 +178,7 @@ export async function DELETE(
   const { id } = await params
   const existing = await prisma.waybill.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Waybill not found" }, { status: 404 })
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   await prisma.waybill.delete({ where: { id } })
   return NextResponse.json({ message: "Waybill deleted" })

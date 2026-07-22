@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { Decimal } from "@prisma/client/runtime/library"
 
 export const dynamic = 'force-dynamic'
@@ -111,7 +111,7 @@ export async function PUT(
         )
       }
 
-      await ensureCompanyAccess(check.companyId)
+      await ensureCompanyWrite(check.companyId)
 
       const updateData: any = {}
       if (data.checkNo !== undefined) updateData.checkNo = data.checkNo
@@ -160,7 +160,7 @@ export async function PUT(
         )
       }
 
-      await ensureCompanyAccess(note.companyId)
+      await ensureCompanyWrite(note.companyId)
 
       const updateData: any = {}
       if (data.noteNo !== undefined) updateData.noteNo = data.noteNo
@@ -240,7 +240,7 @@ export async function DELETE(
         )
       }
 
-      await ensureCompanyAccess(check.companyId)
+      await ensureCompanyWrite(check.companyId)
 
       await prisma.check.delete({
         where: { id: resolvedParams.id },
@@ -259,7 +259,7 @@ export async function DELETE(
         )
       }
 
-      await ensureCompanyAccess(note.companyId)
+      await ensureCompanyWrite(note.companyId)
 
       await prisma.promissoryNote.delete({
         where: { id: resolvedParams.id },

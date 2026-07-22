@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { MAX_DESIGN_JSON_BYTES, normalizeLabelDesign } from "@/lib/labels/types"
 
 export const dynamic = "force-dynamic"
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "design zorunludur" }, { status: 400 })
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     // Bozuk/eski payload'ı temizle; labelType kolonunu normalize edilmiş
     // tasarımın sayfa tipiyle senkron tut (ayrı bir body alanına güvenme).

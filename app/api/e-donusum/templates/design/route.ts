@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { readSampleTemplate } from "@/lib/integrations/e-invoice/sample-templates"
 import {
   applyThemeToXslt,
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Geçerli bir belge tipi seçin (1=E-Fatura, 2=E-Arşiv)." }, { status: 400 })
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     const sample = await readSampleTemplate(sampleKey)
     if (!sample.available || !sample.content) {

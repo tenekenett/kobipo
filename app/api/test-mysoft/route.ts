@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
-import { ensureCompanyAccess } from "@/lib/middleware/company";
+import { ensureCompanyWrite } from "@/lib/middleware/company";
 import { resolveCompanyId } from "@/lib/company/resolve-company";
 import { decryptSecret } from "@/lib/crypto/secrets";
 import { resolveMysoftBaseUrl } from "@/lib/integrations/e-invoice/constants";
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     // istek yanlışlıkla TEST ortamına gider.
     if ((passwordIsPlaceholder || usernameIsMissing || !apiUrl) && companyId) {
       try {
-        await ensureCompanyAccess(companyId);
+        await ensureCompanyWrite(companyId);
         const company = await prisma.company.findUnique({
           where: { id: companyId },
           select: {

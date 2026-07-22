@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     }
     if (!prefix) return NextResponse.json({ error: "Prefix zorunlu." }, { status: 400 })
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     const key = { companyId_eDocumentType_prefix: { companyId, eDocumentType, prefix } }
 

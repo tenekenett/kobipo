@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import {
   resolveCompanyEInvoiceProvider,
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     // Aşırı çağrıyı sınırla; varsayılan 200 fatura/istek.
     const limit = Math.min(Math.max(Number(body?.limit) || 200, 1), 500)
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
     assertEInvoiceRuntimeReady()
 
     const company = await prisma.company.findUnique({

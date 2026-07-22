@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { revertInvoiceStock } from "@/lib/stock/warehouse"
 
@@ -37,7 +37,7 @@ export async function POST(
     const companyId = await resolveCompanyId(body?.companyId)
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     const { id: param } = await params
     const id = await resolveSlugId("invoice", param, companyId)

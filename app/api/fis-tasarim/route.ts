@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import {
   DEFAULT_RECEIPT_TEMPLATE,
   normalizeReceiptTemplate,
@@ -76,7 +76,7 @@ export async function PUT(request: Request) {
     const companyId = await resolveCompanyId(body?.companyId)
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     // İstemciye güvenilmez: logo yalnız png/jpeg data URL + boyut sınırlı, metinler
     // kırpılır, genişlik iki değerden biri (bkz. normalizeReceiptTemplate).

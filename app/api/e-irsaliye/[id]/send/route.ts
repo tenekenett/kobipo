@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 
@@ -25,7 +25,7 @@ export async function POST(
   })
   if (!waybill) return NextResponse.json({ error: "Waybill not found" }, { status: 404 })
 
-  await ensureCompanyAccess(waybill.companyId)
+  await ensureCompanyWrite(waybill.companyId)
   if (waybill.status !== "DRAFT") {
     return NextResponse.json({ error: "Only draft waybills can be sent" }, { status: 400 })
   }

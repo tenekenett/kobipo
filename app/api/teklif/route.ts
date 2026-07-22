@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -122,7 +122,7 @@ export async function POST(request: Request) {
   if (!companyId || !items?.length) {
     return NextResponse.json({ error: "companyId and items are required" }, { status: 400 })
   }
-  await ensureCompanyAccess(companyId)
+  await ensureCompanyWrite(companyId)
 
   const { normalized, netAmount, vatAmount, totalAmount } = calculateTotals(items)
   if (!normalized.length) {

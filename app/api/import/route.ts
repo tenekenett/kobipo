@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { XMLParser } from "fast-xml-parser"
 import * as XLSX from "xlsx"
 
@@ -379,7 +379,7 @@ export async function POST(request: Request) {
   if (!companyId || !module) {
     return NextResponse.json({ error: "companyId and module are required" }, { status: 400 })
   }
-  await ensureCompanyAccess(companyId)
+  await ensureCompanyWrite(companyId)
   const company = await prisma.company.findUnique({
     where: { id: companyId },
     select: { name: true, taxNumber: true },

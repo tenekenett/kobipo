@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = 'force-dynamic'
 
@@ -71,7 +71,7 @@ export async function PUT(
       )
     }
 
-    await ensureCompanyAccess(warehouse.companyId)
+    await ensureCompanyWrite(warehouse.companyId)
 
     const body = await request.json()
     const { code, name, address, city, isActive } = body
@@ -122,7 +122,7 @@ export async function DELETE(
       )
     }
 
-    await ensureCompanyAccess(warehouse.companyId)
+    await ensureCompanyWrite(warehouse.companyId)
 
     // Depoyu pasif yap (silme)
     await prisma.warehouse.update({

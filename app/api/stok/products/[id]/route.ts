@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 
 
@@ -119,7 +119,7 @@ export async function PUT(
       return NextResponse.json({ error: "Product not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(product.companyId)
+    await ensureCompanyWrite(product.companyId)
 
     const body = await request.json()
     const {
@@ -217,7 +217,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Product not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(product.companyId)
+    await ensureCompanyWrite(product.companyId)
 
     const body = await request.json()
     const data: Record<string, unknown> = {}
@@ -270,7 +270,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Product not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(product.companyId)
+    await ensureCompanyWrite(product.companyId)
 
     await prisma.product.delete({
       where: { id: resolvedParams.id },

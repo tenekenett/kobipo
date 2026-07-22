@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { Decimal } from "@prisma/client/runtime/library"
 
 export const dynamic = 'force-dynamic'
@@ -78,7 +78,7 @@ export async function DELETE(
       )
     }
 
-    await ensureCompanyAccess(payment.companyId)
+    await ensureCompanyWrite(payment.companyId)
 
     // Çift yazımlı tahsilat/ödeme (bir Transaction'a bağlı): kasa hareketi
     // ödemede değil işlemde tutulur. Bu yüzden bağlı işlemi silip onun kasa

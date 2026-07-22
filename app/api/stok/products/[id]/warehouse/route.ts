@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { transferWarehouseStock } from "@/lib/stock/warehouse"
 
 export const dynamic = "force-dynamic"
@@ -21,7 +21,7 @@ export async function POST(
 
   const product = await prisma.product.findUnique({ where: { id }, select: { id: true, companyId: true, isService: true } })
   if (!product) return NextResponse.json({ error: "Ürün bulunamadı" }, { status: 404 })
-  await ensureCompanyAccess(product.companyId)
+  await ensureCompanyWrite(product.companyId)
 
   if (product.isService) {
     return NextResponse.json({ error: "Hizmet kartında depo değiştirilemez" }, { status: 400 })

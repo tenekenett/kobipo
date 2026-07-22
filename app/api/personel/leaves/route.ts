@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
   if (!VALID_TYPES.includes(type)) {
     return NextResponse.json({ error: "Geçersiz izin türü" }, { status: 400 })
   }
-  await ensureCompanyAccess(companyId)
+  await ensureCompanyWrite(companyId)
 
   const employee = await prisma.employee.findFirst({ where: { id: employeeId, companyId } })
   if (!employee) return NextResponse.json({ error: "Personel bulunamadı" }, { status: 404 })

@@ -15,6 +15,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
   const uc = await ensureCompanyAccess(companyId)
   if (uc.role !== "ADMIN") return NextResponse.json({ error: "Only admin can update role" }, { status: 403 })
+  // IDOR koruması: hedef üyelik gerçekten bu firmaya ait olmalı. Aksi halde bir firma
+  // admini, başka firmanın üyelik id'sini vererek o üyeliğin rolünü değiştirebilirdi.
+  const membership = await prisma.userCompany.findFirst({ where: { id, companyId } })
+  if (!membership) return NextResponse.json({ error: "Üye bulunamadı" }, { status: 404 })
   const updated = await prisma.userCompany.update({ where: { id }, data: { role } })
   return NextResponse.json(updated)
 }
@@ -27,6 +31,9 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
   const uc = await ensureCompanyAccess(companyId)
   if (uc.role !== "ADMIN") return NextResponse.json({ error: "Only admin can remove member" }, { status: 403 })
+  // IDOR koruması: hedef üyelik gerçekten bu firmaya ait olmalı (bkz. PATCH).
+  const membership = await prisma.userCompany.findFirst({ where: { id, companyId } })
+  if (!membership) return NextResponse.json({ error: "Üye bulunamadı" }, { status: 404 })
   await prisma.userCompany.delete({ where: { id } })
   return NextResponse.json({ success: true })
 }

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { resolveSlugId } from "@/lib/slug-resolve"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import crypto from "crypto"
 
 export const dynamic = "force-dynamic"
@@ -54,7 +54,7 @@ export async function POST(
     include: { payments: true },
   })
   if (!invoice) return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
-  await ensureCompanyAccess(invoice.companyId)
+  await ensureCompanyWrite(invoice.companyId)
 
   const totalPaid = invoice.payments.reduce((sum, item) => sum + Number(item.amount), 0)
   const remaining = Number(invoice.totalAmount) - totalPaid

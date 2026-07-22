@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { isValidTcKimlik } from "@/lib/personel/validation"
 import { resolveSlugId } from "@/lib/slug-resolve"
 
@@ -55,7 +55,7 @@ export async function PUT(
   const id = await resolveSlugId("employee", rawId, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
   const existing = await prisma.employee.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Employee not found" }, { status: 404 })
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   const body = await request.json()
   if (body.nationalId !== undefined && body.nationalId && String(body.nationalId).trim() && !isValidTcKimlik(body.nationalId)) {
@@ -99,7 +99,7 @@ export async function DELETE(
     include: { _count: { select: { payrolls: true } } },
   })
   if (!existing) return NextResponse.json({ error: "Employee not found" }, { status: 404 })
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   // Bordro kaydı olan personel silinmez (mali geçmiş korunur) → işten çıkar.
   if (existing._count.payrolls > 0) {

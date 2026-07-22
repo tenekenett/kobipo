@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   if (!companyId || !periodYear || !periodMonth) {
     return NextResponse.json({ error: "companyId, periodYear, periodMonth zorunlu" }, { status: 400 })
   }
-  await ensureCompanyAccess(companyId)
+  await ensureCompanyWrite(companyId)
 
   const [employees, existing] = await Promise.all([
     prisma.employee.findMany({ where: { companyId, status: "ACTIVE" }, select: { id: true, grossSalary: true } }),

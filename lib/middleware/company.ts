@@ -128,3 +128,20 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
   }
 })
 
+/**
+ * Yazma (mutasyon) uçları için erişim + rol kontrolü. Salt-okuma rolü VIEWER reddedilir —
+ * nav-config'te VIEWER yalnızca raporları görür, hiçbir yazma ekranında yer almaz; bu yüzden
+ * veri-yazan uçlar VIEWER'a kapalıdır. "Access denied" ifadesi mevcut route catch'lerinde
+ * 403'e maplenir; catch'i olmayan uçlarda istek yine (fail-closed) reddedilir. Modül-bazlı
+ * ince kısıt (ör. SALES ↛ stok yazma) bu sürümde uygulanmaz, ayrıca ele alınır.
+ */
+export async function ensureCompanyWrite(
+  companyId: string,
+): Promise<UserCompanyContext> {
+  const context = await ensureCompanyAccess(companyId)
+  if (context.role === "VIEWER") {
+    throw new Error("Access denied: read-only role (VIEWER)")
+  }
+  return context
+}
+

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider"
 import { getActiveXsltName } from "@/lib/integrations/e-invoice/active-template"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
@@ -181,7 +181,7 @@ export async function POST(request: Request) {
       )
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
 const company = await prisma.company.findUnique({
   where: { id: companyId },

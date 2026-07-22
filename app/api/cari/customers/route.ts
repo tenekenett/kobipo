@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { toBool } from "@/lib/cari/repair-dual-role"
 import { Prisma } from "@prisma/client"
 
@@ -271,7 +271,7 @@ export async function POST(request: Request) {
       )
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
     const parsedOpeningBalanceAmount =
       openingBalanceAmount !== undefined && openingBalanceAmount !== null && openingBalanceAmount !== ""
         ? Number(openingBalanceAmount)

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     // Boş xsltName = aktif seçimi kaldır (Mysoft varsayılanına dön).
     const name = typeof xsltName === "string" ? xsltName.trim() : ""
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     await prisma.$transaction(async (tx) => {
       // Aynı firma+tip içindeki tüm aktif bayrakları sıfırla.

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { adjustWarehouseStock } from "@/lib/stock/warehouse"
 
@@ -21,7 +21,7 @@ export async function POST(
   })
   if (!quote) return NextResponse.json({ error: "Quote not found" }, { status: 404 })
 
-  await ensureCompanyAccess(quote.companyId)
+  await ensureCompanyWrite(quote.companyId)
 
   if (quote.convertedInvoiceId) {
     return NextResponse.json({ error: "Quote already converted" }, { status: 400 })

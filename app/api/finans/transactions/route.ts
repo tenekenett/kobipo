@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 
 export const dynamic = 'force-dynamic'
@@ -133,7 +133,7 @@ export async function POST(request: Request) {
       )
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     // Cari id'leri SEF URL'lerinden slug olarak gelebilir (ör. cari detay sayfasındaki
     // "Yeni Ödeme/Tahsilat"). Gerçek cuid'e çöz; aksi halde transaction.create

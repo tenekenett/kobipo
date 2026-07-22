@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { createEInvoiceProvider } from "@/lib/integrations/e-invoice/factory"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 
@@ -17,7 +17,7 @@ export async function POST(
   const { id } = await params
   const waybill = await prisma.waybill.findUnique({ where: { id } })
   if (!waybill) return NextResponse.json({ error: "Waybill not found" }, { status: 404 })
-  await ensureCompanyAccess(waybill.companyId)
+  await ensureCompanyWrite(waybill.companyId)
 
   if (!waybill.uuid) {
     return NextResponse.json({ error: "Waybill has no integration uuid" }, { status: 400 })

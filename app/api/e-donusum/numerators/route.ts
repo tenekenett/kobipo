@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import {
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       )
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
     assertEInvoiceRuntimeReady()
 
     const loaded = await loadProviderAndVkn(companyId)

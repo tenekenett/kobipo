@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 
 export const dynamic = "force-dynamic"
@@ -81,7 +81,7 @@ export async function PUT(
   const existing = await prisma.quote.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Quote not found" }, { status: 404 })
 
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
 
   if (existing.status === "CONVERTED") {
     return NextResponse.json({ error: "Faturalanmış teklif düzenlenemez." }, { status: 400 })
@@ -131,7 +131,7 @@ export async function DELETE(
   const existing = await prisma.quote.findUnique({ where: { id } })
   if (!existing) return NextResponse.json({ error: "Quote not found" }, { status: 404 })
 
-  await ensureCompanyAccess(existing.companyId)
+  await ensureCompanyWrite(existing.companyId)
   await prisma.quote.delete({ where: { id } })
   return NextResponse.json({ success: true })
 }

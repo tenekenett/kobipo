@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { MAX_DESIGN_JSON_BYTES, normalizeLabelDesign } from "@/lib/labels/types"
 
@@ -72,7 +72,7 @@ export async function PUT(
       return NextResponse.json({ error: "Şablon bulunamadı" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(existing.companyId)
+    await ensureCompanyWrite(existing.companyId)
 
     const data: Prisma.LabelTemplateUpdateInput = {}
 
@@ -152,7 +152,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Şablon bulunamadı" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(existing.companyId)
+    await ensureCompanyWrite(existing.companyId)
 
     await prisma.labelTemplate.delete({ where: { id: existing.id } })
 

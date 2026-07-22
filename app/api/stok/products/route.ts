@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 
 export const dynamic = 'force-dynamic'
@@ -144,7 +144,7 @@ export async function POST(request: Request) {
       )
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyWrite(companyId)
 
     // KDV dahil girilen fiyatları net'e çevir (DB net saklar). Bayrak yalnızca
     // kullanıcı tercihini hatırlamak içindir.
