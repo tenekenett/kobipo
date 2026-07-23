@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import { prisma } from "@/lib/db/prisma"
 import bcrypt from "bcryptjs"
 import { verifyRecaptcha } from "@/lib/auth/recaptcha"
+import { getRequestIp, isLoginLocked, recordLoginFailure, clearLoginFailures } from "@/lib/auth/login-rate-limit"
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -14,8 +15,18 @@ export const authOptions: NextAuthOptions = {
         captchaToken: { label: "Captcha", type: "text" },
         signupToken: { label: "Signup Token", type: "text" }
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) {
+          return null
+        }
+
+        // Brute-force lockout (DB, IP bazlı). FAIL-OPEN: rate-limit katmanı hata verirse
+        // giriş ENGELLENMEZ (bkz. login-rate-limit.ts). Kilitliyse şifre bile kontrol edilmez.
+        const ip = getRequestIp(req?.headers)
+        if (await isLoginLocked(ip)) {
+          // Kilitliyken şifre kontrol EDİLMEZ; generic null döneriz (kilit NextAuth yanıtında
+          // kendini belli etmez). Kullanıcıya görünür "çok fazla deneme" mesajını signin ekranı
+          // ayrı bir uçtan (/api/auth/lock-status) alır.
           return null
         }
 
@@ -41,6 +52,7 @@ export const authOptions: NextAuthOptions = {
         if (!captchaBypass) {
           const captchaOk = await verifyRecaptcha(credentials.captchaToken)
           if (!captchaOk) {
+            await recordLoginFailure(ip, credentials.email)
             return null
           }
         }
@@ -61,6 +73,7 @@ export const authOptions: NextAuthOptions = {
           })
 
           if (!user || !user.password) {
+            await recordLoginFailure(ip, credentials.email)
             return null
           }
 
@@ -70,8 +83,12 @@ export const authOptions: NextAuthOptions = {
           )
 
           if (!isPasswordValid) {
+            await recordLoginFailure(ip, credentials.email)
             return null
           }
+
+          // Başarılı giriş: bu IP'nin başarısız-deneme sayacını sıfırla.
+          await clearLoginFailures(ip)
 
           return {
             id: user.id,

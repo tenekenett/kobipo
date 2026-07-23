@@ -163,6 +163,22 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
+// Brute-force koruması: başarısız giriş denemelerini IP bazlı sayar; eşik aşılınca IP'yi
+// geçici kilitler. `authorize` (lib/auth/config.ts) fail-open kullanır — bu tabloya
+// erişilemezse giriş ENGELLENMEZ (kilit yalnızca ek savunma katmanıdır).
+model LoginAttempt {
+  id          String    @id @default(cuid())
+  ip          String    @unique
+  failedCount Int       @default(0)
+  windowStart DateTime  @default(now())
+  lockedUntil DateTime?
+  lastEmail   String?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([lockedUntil])
+  @@map("login_attempts")
+}
+
 model Company {
   id                        String             @id @default(cuid())
   slug                      String             @unique @default("")

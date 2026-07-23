@@ -97,6 +97,11 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
+    // Tutar pozitif olmalı: negatif ödeme fatura "ödendi" durumunu ve hesap bakiyesini
+    // bozardı (satır ~172 bakiyeyi ±amount günceller). NaN/0 da reddedilir.
+    if (!(Number(amount) > 0)) {
+      return NextResponse.json({ error: "Ödeme tutarı 0'dan büyük olmalı" }, { status: 400 })
+    }
 
     await ensureCompanyWrite(companyId)
 

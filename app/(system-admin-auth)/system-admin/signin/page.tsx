@@ -37,9 +37,20 @@ export default function SystemAdminSignIn() {
       })
 
       if (result?.error) {
+        // Çok fazla başarısız deneme → IP kilitliyse net mesaj göster (aksi halde generic).
+        let lockMsg: string | null = null
+        try {
+          const s = await fetch("/api/auth/lock-status", { cache: "no-store" }).then((r) => r.json())
+          if (s?.locked) {
+            const mins = Math.max(1, Math.ceil((s.retryAfterSeconds || 0) / 60))
+            lockMsg = `Çok fazla başarısız deneme. Lütfen ~${mins} dakika sonra tekrar deneyin.`
+          }
+        } catch {
+          // sessiz
+        }
         toast({
-          title: "Erişim Reddedildi",
-          description: "Geçersiz kimlik bilgileri veya yetki eksikliği",
+          title: lockMsg ? "Çok fazla deneme" : "Erişim Reddedildi",
+          description: lockMsg ?? "Geçersiz kimlik bilgileri veya yetki eksikliği",
           variant: "destructive",
         })
       } else {

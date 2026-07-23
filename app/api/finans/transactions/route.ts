@@ -126,6 +126,10 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
+    // Tutar pozitif olmalı: negatif işlem hesap bakiyesini ters yönde bozardı (NaN/0 dahil red).
+    if (!(Number(amount) > 0)) {
+      return NextResponse.json({ error: "Tutar 0'dan büyük olmalı" }, { status: 400 })
+    }
     if (type === "TRANSFER" && !transferAccountId) {
       return NextResponse.json(
         { error: "transferAccountId is required for transfer" },

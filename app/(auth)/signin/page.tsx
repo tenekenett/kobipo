@@ -77,9 +77,20 @@ export default function SignInPage() {
       })
 
       if (result?.error) {
+        // Giriş başarısızsa: IP kilitli mi diye sor ve kullanıcıya net söyle (çok fazla deneme).
+        let lockMsg: string | null = null
+        try {
+          const s = await fetch("/api/auth/lock-status", { cache: "no-store" }).then((r) => r.json())
+          if (s?.locked) {
+            const mins = Math.max(1, Math.ceil((s.retryAfterSeconds || 0) / 60))
+            lockMsg = `Çok fazla başarısız deneme. Lütfen ~${mins} dakika sonra tekrar deneyin.`
+          }
+        } catch {
+          // sessiz — generic mesaja düş
+        }
         toast({
-          title: "Hata",
-          description: "Email veya şifre hatalı",
+          title: lockMsg ? "Çok fazla deneme" : "Hata",
+          description: lockMsg ?? "Email veya şifre hatalı",
           variant: "destructive",
         })
         resetCaptcha()
