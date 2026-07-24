@@ -223,7 +223,7 @@ export async function PUT(
     }
 
     const body = await request.json()
-    const { customerId, supplierId, date, dueDate, items, notes, globalDiscountAmount } = body
+    const { customerId, supplierId, date, dueDate, items, notes, globalDiscountAmount, invoiceNo } = body
 
     const normalizedItems =
       Array.isArray(items) && items.length > 0
@@ -297,6 +297,11 @@ export async function PUT(
     const updated = await prisma.invoice.update({
       where: { id: resolvedParams.id },
       data: {
+        // Fatura No düzenlemesi (özellikle alışta tedarikçi belge no'su). Yalnız
+        // dolu gelirse güncelle; boş bırakılırsa mevcut numarayı koru.
+        ...(typeof invoiceNo === "string" && invoiceNo.trim()
+          ? { invoiceNo: invoiceNo.trim() }
+          : {}),
         customerId: customerId !== undefined ? (customerId || null) : invoice.customerId,
         supplierId: supplierId !== undefined ? (supplierId || null) : invoice.supplierId,
         date: date ? new Date(date) : invoice.date,
@@ -386,6 +391,13 @@ export async function PUT(
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+    // Fatura No çakışması (@@unique([companyId, invoiceNo])) → net mesaj.
+    if (error?.code === "P2002") {
+      return NextResponse.json(
+        { error: "Bu Fatura No bu firmada zaten kayıtlı. Farklı bir numara girin." },
+        { status: 409 }
+      )
     }
     console.error("Error updating invoice:", error)
     return NextResponse.json(

@@ -1059,8 +1059,10 @@ async sendInvoice(invoiceData: any): Promise<any> {
             // İlçe: carinin gerçek ilçe bilgisi. Girilmemişse il'e geri düşeriz
             // (Mysoft boş citySubdivision'ı reddedebiliyor) — sabit ilçe ASLA yazma.
             "citySubdivision": invoiceData.customer?.district || invoiceData.customer?.city || "DENİZLİ",
-            "streetName": invoiceData.customer?.address || "-",
-            "buildingNumber": "1"
+            // Kobipo'da cari adresi tek serbest metin (kapı/bina no dahil) → tümü
+            // streetName'e. buildingNumber (Bina No) AccountModel'de opsiyonel/nullable;
+            // sabit "1" gönderilince tüm faturalarda adreste "No:1" çıkıyordu → boş bırak.
+            "streetName": invoiceData.customer?.address || "-"
         },
 
         "invoiceDetail": lineData.map((l: any) => {

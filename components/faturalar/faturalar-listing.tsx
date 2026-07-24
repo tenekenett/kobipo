@@ -460,11 +460,15 @@ export default function FaturalarListing({
     )
   }
 
-  const statusBadge = (status: string | null) => {
+  const statusBadge = (status: string | null, source?: FaturaRow["source"]) => {
     if (!status) return <span className="text-xs text-muted-foreground">-</span>
     const s = status.toUpperCase()
+    // Alış faturası (manuel girilmiş veya gelen e-faturadan dönüştürülmüş) bir ALINAN
+    // belgedir; taslak/onay akışı yoktur → DRAFT'ı "Taslak/DRAFT" değil "Kayıtlı" göster.
+    const isRecordedPurchase =
+      s === "DRAFT" && (source === "manual_purchase" || source === "converted_inbox")
     const cls =
-      s === "KABUL" || s === "APPROVED" || s === "SENT"
+      isRecordedPurchase || s === "KABUL" || s === "APPROVED" || s === "SENT"
         ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200"
         : s === "RED" || s === "REJECTED" || s === "CANCELLED"
           ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200"
@@ -474,7 +478,7 @@ export default function FaturalarListing({
               ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-200"
               : "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-200"
     // GİB taslağı ham "GIB_DRAFT" yerine okunur etiket göster.
-    const label = s === "GIB_DRAFT" ? "GİB Taslağı" : status
+    const label = isRecordedPurchase ? "Kayıtlı" : s === "GIB_DRAFT" ? "GİB Taslağı" : status
     return <span className={`rounded px-2 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>
   }
 
@@ -745,7 +749,7 @@ export default function FaturalarListing({
                       <TableCell className="text-right text-xs font-semibold whitespace-nowrap">
                         {fmt(row.totalAmount, row.currency || "TRY")}
                       </TableCell>
-                      <TableCell>{statusBadge(row.status)}</TableCell>
+                      <TableCell>{statusBadge(row.status, row.source)}</TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           {isInvoiceRow ? (

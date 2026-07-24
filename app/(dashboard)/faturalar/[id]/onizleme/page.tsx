@@ -240,7 +240,11 @@ export default function FaturaOnizlemePage() {
   // aksiyon kullanıcıyı satış/alış listesine döndürüp kaydın oluştuğunu bildirir.
   const handleSaveDraftAndReturn = () => {
     if (!invoice) return
-    toast({ title: "Taslak kaydedildi", description: "Fatura taslak olarak kaydedildi." })
+    toast(
+      invoice.type === "PURCHASE"
+        ? { title: "Fatura kaydedildi", description: "Alış faturası kaydedildi." }
+        : { title: "Taslak kaydedildi", description: "Fatura taslak olarak kaydedildi." }
+    )
     const target =
       invoice.type === "PURCHASE"
         ? `/alis/fatura?company=${companyId || ""}`
@@ -641,6 +645,30 @@ export default function FaturaOnizlemePage() {
   // editör ekranı açar. Kaydedilene kadar hiçbir şey oluşmaz / gönderilmez.
   const duplicateHref = `/e-donusum/yeni?company=${encodeURIComponent(companyId || "")}&duplicate=${invoiceId}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`
 
+  // Alış faturası bir "ALINAN belge"dir: taslak → onayla → GİB'e gönder akışı yoktur;
+  // kaydedildiği an kesinleşmiş bir kayıttır. Bu yüzden alışta "Taslak/Önizleme"
+  // ve "Onayla" göstermeyiz — DRAFT durumunu "Kayıtlı" olarak sunarız. (İç status
+  // DRAFT kalır; bakiye/raporlar zaten DRAFT'ı sayar, yalnız etiketleme değişir.)
+  const isPurchase = invoice.type === "PURCHASE"
+  const headerTitle =
+    !isPurchase && (invoice.status === "DRAFT" || invoice.status === "GIB_DRAFT")
+      ? "Fatura Önizleme"
+      : "Fatura Detayı"
+  const headerBadge: { label: string; cls: string } =
+    isPurchase && (invoice.status === "DRAFT" || invoice.status === "SENT")
+      ? { label: "Kayıtlı", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" }
+      : invoice.status === "SENT"
+        ? { label: "Onaylandı", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" }
+        : invoice.status === "GIB_DRAFT"
+          ? { label: "GİB Taslağı", cls: "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-300" }
+          : invoice.status === "DRAFT"
+            ? { label: "Taslak", cls: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" }
+            : voidedByRejection
+              ? { label: "Reddedildi", cls: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" }
+              : invoice.status === "CANCELLED"
+                ? { label: "İptal Edildi", cls: "bg-gray-200 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300" }
+                : { label: invoice.status, cls: "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300" }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -661,33 +689,9 @@ export default function FaturaOnizlemePage() {
           )}
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-3">
-              {invoice.status === "DRAFT" || invoice.status === "GIB_DRAFT" ? "Fatura Önizleme" : "Fatura Detayı"}
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                  invoice.status === "SENT"
-                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300"
-                    : invoice.status === "GIB_DRAFT"
-                      ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-300"
-                      : invoice.status === "DRAFT"
-                        ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
-                        : voidedByRejection
-                          ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
-                          : invoice.status === "CANCELLED"
-                            ? "bg-gray-200 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300"
-                            : "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300"
-                }`}
-              >
-                {invoice.status === "SENT"
-                  ? "Onaylandı"
-                  : invoice.status === "GIB_DRAFT"
-                    ? "GİB Taslağı"
-                    : invoice.status === "DRAFT"
-                      ? "Taslak"
-                      : voidedByRejection
-                        ? "Reddedildi"
-                        : invoice.status === "CANCELLED"
-                          ? "İptal Edildi"
-                          : invoice.status}
+              {headerTitle}
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${headerBadge.cls}`}>
+                {headerBadge.label}
               </span>
             </h1>
             <p className="text-muted-foreground">Fatura No: {invoice.eDocumentNo || invoice.invoiceNo}</p>
@@ -760,7 +764,9 @@ export default function FaturaOnizlemePage() {
               </Button>
             </>
           )}
-          {invoice.status === "DRAFT" && invoice.invoiceType === "MANUAL" && (
+          {/* "Onayla" yalnız kesilen (giden) manuel belgeler içindir. Alış faturası
+              alınan bir belgedir; onaylanacak/gönderilecek bir şey yoktur → gizle. */}
+          {invoice.status === "DRAFT" && invoice.invoiceType === "MANUAL" && !isPurchase && (
             <Button
               onClick={handleApproveManual}
               disabled={isApproving}
@@ -1108,7 +1114,13 @@ export default function FaturaOnizlemePage() {
             <div className="rounded-lg border p-3">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Durum</p>
               <p className="font-medium">
-                {invoice.status === "SENT" ? "Gönderildi" : invoice.status === "DRAFT" ? "Taslak" : invoice.status}
+                {isPurchase
+                  ? headerBadge.label
+                  : invoice.status === "SENT"
+                    ? "Gönderildi"
+                    : invoice.status === "DRAFT"
+                      ? "Taslak"
+                      : invoice.status}
                 {(() => {
                   const profileLabel = formatProfileLabel(invoice.profile)
                   return profileLabel ? (

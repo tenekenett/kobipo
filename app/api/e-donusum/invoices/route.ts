@@ -761,6 +761,15 @@ const invoiceData = {
     if (error.message.includes("Access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
+    // Aynı firmada aynı Fatura No: @@unique([companyId, invoiceNo]) ihlali. Kullanıcı
+    // alış faturasında tedarikçi numarasını elle girdiğinde (aynı numarayı iki kez)
+    // oluşabilir → net mesajla dön (generic 500 yerine).
+    if (error?.code === "P2002") {
+      return NextResponse.json(
+        { error: "Bu Fatura No bu firmada zaten kayıtlı. Farklı bir numara girin veya boş bırakıp otomatik atanmasına izin verin." },
+        { status: 409 }
+      )
+    }
     console.error("Error creating invoice:", error)
     return NextResponse.json(
       { error: "Internal server error" },

@@ -2098,6 +2098,18 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             </div>
 
             <div className="space-y-4">
+              {/* Alış faturasında numara TEDARİKÇİNİN faturasından gelir → kullanıcı
+                  elle girer. Boş bırakılırsa API otomatik ALI-YYYY-XXXX üretir. */}
+              {formData.type === "PURCHASE" && (
+                <div className="space-y-2">
+                  <Label>Fatura No</Label>
+                  <Input
+                    value={formData.invoiceNo}
+                    onChange={(e) => setFormData({ ...formData, invoiceNo: e.target.value })}
+                    placeholder="Tedarikçinin fatura numarası (boş = otomatik atanır)"
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Fatura Tarihi</Label>
                 <Input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} />
