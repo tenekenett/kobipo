@@ -8,9 +8,11 @@ import {
   Briefcase,
   Building2,
   CalendarCheck,
+  ChefHat,
   ClipboardList,
   Coins,
   CreditCard,
+  CupSoda,
   Database,
   DollarSign,
   FileCheck,
@@ -49,6 +51,14 @@ export type NavItemDef = {
   label: string
   icon: LucideIcon
   roles: string[]
+  /**
+   * Öğeyi grubundan BAĞIMSIZ olarak bu modüle bağlar. Verilmezse bugünkü davranış
+   * geçerlidir: öğe grubunun modülünü miras alır.
+   *
+   * Örn. "Reçeteler" sayfası Stok grubunda yaşar (reçete stok kavramıdır) ama
+   * yalnızca Restoran & Kafe paketi olanlara görünür.
+   */
+  module?: string
 }
 
 const ALL_ROLES = ["ADMIN", "BRANCH_MANAGER", "ACCOUNTANT", "STOCK", "SALES", "VIEWER"]
@@ -92,6 +102,16 @@ export const allNavItems: NavItemDef[] = [
   { href: "/depolar", label: "Depo Listesi", icon: Warehouse, roles: ["ADMIN", BM, "STOCK"] },
   { href: "/stok/transfer", label: "Stok Transfer", icon: ArrowLeftRight, roles: ["ADMIN", BM, "STOCK"] },
   { href: "/stok/etiket", label: "Etiket Tasarımı", icon: Sticker, roles: ["ADMIN", BM, "STOCK", "SALES"] },
+  // Reçete stok kavramıdır (mamül → hammadde) ama ticari olarak Restoran & Kafe
+  // paketinin parçası → grubu Stok, modülü restaurant.
+  { href: "/stok/receteler", label: "Reçeteler", icon: ChefHat, roles: ["ADMIN", BM, "STOCK", "ACCOUNTANT"], module: "restaurant" },
+
+  // Restoran & Kafe
+  { href: "/restoran/satis", label: "Kahveci Satış", icon: CupSoda, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
+  { href: "/restoran/karlilik", label: "Karlılık", icon: TrendingUp, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/restoran/menu-performans", label: "Menü Performansı", icon: BarChart3, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/restoran/tuketim", label: "Hammadde Tüketimi", icon: Package, roles: ["ADMIN", BM, "ACCOUNTANT", "STOCK"] },
+  { href: "/restoran/gun-sonu", label: "Gün Sonu", icon: ClipboardList, roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Finans
   { href: "/finans/kanallar", label: "Finans Kanalları", icon: Banknote, roles: ["ADMIN", BM, "ACCOUNTANT"] },
@@ -167,7 +187,24 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
   },
   {
     title: "Stok",
-    hrefs: ["/stok/urunler", "/stok/hizmetler", "/depolar", "/stok/transfer", "/stok/etiket"],
+    hrefs: [
+      "/stok/urunler",
+      "/stok/hizmetler",
+      "/depolar",
+      "/stok/transfer",
+      "/stok/etiket",
+      "/stok/receteler",
+    ],
+  },
+  {
+    title: "Restoran & Kafe",
+    hrefs: [
+      "/restoran/satis",
+      "/restoran/karlilik",
+      "/restoran/menu-performans",
+      "/restoran/tuketim",
+      "/restoran/gun-sonu",
+    ],
   },
   {
     title: "Finans",
@@ -293,10 +330,22 @@ export function navItemActive(
 }
 
 /**
+ * Grubundan farklı bir modüle bağlı sayfalar. Grup taramasından ÖNCE bakılır,
+ * böylece ModuleGuard URL ile doğrudan girişi de doğru modüle göre kilitler.
+ * (Menüdeki karşılığı: NavItemDef.module)
+ */
+const PATH_MODULE_OVERRIDES: Record<string, string> = {
+  "/stok/receteler": "restaurant",
+}
+
+/**
  * Bir path'in hangi yönetilebilir modüle ait olduğunu döndürür (yoksa null).
  * Modül route guard'ı bunu kullanarak kapalı modüllerin sayfalarını engeller.
  */
 export function moduleKeyForPath(pathname: string): string | null {
+  for (const [prefix, moduleKey] of Object.entries(PATH_MODULE_OVERRIDES)) {
+    if (pathname === prefix || pathname.startsWith(prefix + "/")) return moduleKey
+  }
   for (const group of navGroups) {
     const moduleKey = MODULE_GROUP_TO_KEY[group.title]
     if (!moduleKey) continue

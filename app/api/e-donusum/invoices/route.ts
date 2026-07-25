@@ -9,6 +9,8 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
 import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
+import { loadRecipeContext, resolveComponentCosts } from "@/lib/stock/recipe"
+import { expandRecipeLines } from "@/lib/stock/recipe-expand"
 
 
 export const dynamic = 'force-dynamic'
@@ -428,8 +430,100 @@ const company = await prisma.company.findUnique({
       })
       .filter((x): x is { productId: string; delta: number; unitPrice: number | null } => x !== null)
 
+    // REÇETE GENİŞLETME — yalnız SATIŞ. Reçetesi olan mamül (Latte) kendi stoğundan
+    // DÜŞMEZ; bileşenlerine açılır ve bileşenin de reçetesi varsa (yarı mamül,
+    // ör. Espresso) hammaddeye kadar inilir. Reçetesi olmayan ürün bugünkü gibi
+    // kendisi düşer. Alış/iade GENİŞLETİLMEZ: mal olarak ne alındıysa o girer.
+    //
+    // Bileşen hareketleri de aynı reference (invoice.id) ile yazılır — böylece
+    // fiş iptalinde revertStockByReference hammaddeyi otomatik geri verir ve
+    // reçete sonradan değişse bile geri alma KAYITLI harekete göre yapılır.
+    // Bkz. docs/restoran/PLAN.md "Adım 4".
+    type StockOp = {
+      productId: string
+      delta: number
+      unitPrice: number | null
+      /** Reçeteden türeyenlerde "Reçete: <mamül>" eki; doğrudan düşümlerde null. */
+      recipeNote: string | null
+    }
+    let stockOps: StockOp[] = stockItems.map((s) => ({ ...s, recipeNote: null }))
+
+    if (safeType === "SALES" && stockItems.length > 0) {
+      try {
+        const { recipes, unitOf } = await loadRecipeContext(prisma, companyId)
+
+        // Yalnızca reçetesi OLAN kalemler genişleticiye girer; kalanlar dokunulmadan
+        // geçer. Böylece reçetesiz ürünlerin mevcut davranışı BİREBİR korunur —
+        // aynı üründen iki satır varsa yine iki ayrı hareket, her biri kendi birim
+        // fiyatıyla yazılır (genişletici bunları tek satırda toplardı).
+        const willExpand = (id: string) => {
+          const r = recipes.get(id)
+          return Boolean(r && r.isActive && r.items.length > 0)
+        }
+        const toExpand = stockItems.filter((s) => willExpand(s.productId))
+        const passthrough = stockItems.filter((s) => !willExpand(s.productId))
+
+        if (toExpand.length > 0) {
+          const { direct, components, errors } = expandRecipeLines({
+            // stockItems'ta satış deltası negatiftir; genişletme pozitif miktar bekler.
+            lines: toExpand.map((s) => ({ productId: s.productId, quantity: -s.delta })),
+            recipes,
+            unitOf,
+          })
+
+          if (errors.length > 0) {
+            // Satışı ENGELLEME (mevcut akışta stok hatası hiçbir zaman fişi bloklamaz),
+            // ama sessiz kalma — bozuk reçete fark edilebilsin.
+            console.error("[Reçete] Genişletme hataları:", invoice.invoiceNo, errors)
+          }
+
+          const unitPriceByProduct = new Map(stockItems.map((s) => [s.productId, s.unitPrice]))
+          const costs = await resolveComponentCosts(
+            companyId,
+            components.map((c) => c.productId)
+          )
+          const sourceIds = Array.from(new Set(components.flatMap((c) => c.sources)))
+          const sourceNames = new Map(
+            sourceIds.length > 0
+              ? (
+                  await prisma.product.findMany({
+                    where: { id: { in: sourceIds } },
+                    select: { id: true, name: true },
+                  })
+                ).map((p) => [p.id, p.name] as const)
+              : []
+          )
+
+          stockOps = [
+            // Reçetesiz kalemler: satır satır, dokunulmamış.
+            ...passthrough.map((s) => ({ ...s, recipeNote: null })),
+            // Güvenlik ağı: normalde boştur (genişleticiye yalnızca reçeteli kalemler
+            // girdi), ama reçete boşalmış bir kenar durumda kalem kaybolmasın.
+            ...direct.map((d) => ({
+              productId: d.productId,
+              delta: -d.quantity,
+              unitPrice: unitPriceByProduct.get(d.productId) ?? null,
+              recipeNote: null,
+            })),
+            ...components.map((c) => ({
+              productId: c.productId,
+              delta: -c.quantity,
+              // Maliyet burada DONDURULUR: sonradan gelen zam geçmiş karlılığı bozmasın.
+              unitPrice: costs.get(c.productId) ?? null,
+              recipeNote: `Reçete: ${c.sources.map((id) => sourceNames.get(id) ?? id).join(", ")}`,
+            })),
+          ]
+        }
+      } catch (recipeError) {
+        // Reçete katmanı çökerse satış, genişletme öncesi davranışla devam eder.
+        console.error("[Reçete] Genişletme başarısız, ham kalemlerle devam ediliyor:", recipeError)
+      }
+    }
+
     // Hizmet (isService) ürünleri stok takibi yapmaz → stok hareketi oluşturma.
-    const stockProductIds = Array.from(new Set(stockItems.map((s) => s.productId)))
+    // DİKKAT: bu filtre genişletmeden SONRA uygulanır; aksi halde reçeteli bir
+    // menü ürünü hizmet sayılıp bileşenleri hiç düşmeden atlanabilirdi.
+    const stockProductIds = Array.from(new Set(stockOps.map((s) => s.productId)))
     const serviceProductIds = new Set(
       stockProductIds.length > 0
         ? (
@@ -440,7 +534,7 @@ const company = await prisma.company.findUnique({
           ).map((p) => p.id)
         : [],
     )
-    const stockableItems = stockItems.filter((s) => !serviceProductIds.has(s.productId))
+    const stockableItems = stockOps.filter((s) => !serviceProductIds.has(s.productId))
 
     // İRSALİYE BAĞLAMA (alış): İstemci seçili irsaliye(ler)i gönderdiyse bu faturaya
     // bağla. Stoğa işlenmiş irsaliye bağlıysa mal zaten depoya girmiştir → fatura stoğu
@@ -477,7 +571,11 @@ const company = await prisma.company.findUnique({
               delta: it.delta,
               type: safeType === "SALES" ? "OUT" : "IN",
               unitPrice: it.unitPrice,
-              description: `${invoice.invoiceNo} - ${label} faturası`,
+              // Reçeteden türeyen hareketler "Reçete:" ile işaretlenir — karlılık ve
+              // hammadde tüketim raporları bunları doğrudan satıştan böyle ayırır.
+              description: it.recipeNote
+                ? `${invoice.invoiceNo} - ${it.recipeNote}`
+                : `${invoice.invoiceNo} - ${label} faturası`,
               reference: invoice.id,
               createdBy: user.id,
             })

@@ -6,7 +6,12 @@
 // böylece menü gizleme / route guard / server context hiç değişmeden çalışır. Bkz. [[lib/modules.ts]].
 
 import { prisma } from "@/lib/db/prisma"
-import { MODULE_KEYS, sanitizeDisabledModules } from "@/lib/modules"
+import {
+  DEFAULT_TRIAL_MODULE_KEYS,
+  MODULE_KEYS,
+  sanitizeDisabledModules,
+  withModuleDependencies,
+} from "@/lib/modules"
 import type { BillingCycle } from "@/lib/billing/constants"
 
 /**
@@ -58,13 +63,19 @@ export function isPaidActive(sub: SubStatusView | null | undefined, now = new Da
 
 /**
  * Aboneliğe göre efektif AÇIK modül anahtarları:
- * - Deneme aktifse → tüm modüller (deneme boyunca her şey açık).
+ * - Deneme aktifse → opt-in OLMAYAN tüm modüller. Sektörel modüller (ör. Restoran
+ *   & Kafe) denemeye dahil DEĞİLDİR; aksi halde alakasız sektörlerdeki her deneme
+ *   hesabına o menü çıkardı. Bkz. lib/modules.ts ModuleDef.optIn
  * - Ücretli aktifse → satın alınan modüller.
  * - Aksi halde (yok/expired/cancelled) → hiçbiri.
+ *
+ * Her iki durumda da modül bağımlılıkları tamamlanır (ör. restaurant → stock).
  */
 export function resolveGrantedModules(sub: SubStatusView | null | undefined, now = new Date()): string[] {
-  if (isTrialActive(sub, now)) return [...MODULE_KEYS]
-  if (isPaidActive(sub, now)) return sanitizeDisabledModules(sub!.purchasedModules)
+  if (isTrialActive(sub, now)) return [...DEFAULT_TRIAL_MODULE_KEYS]
+  if (isPaidActive(sub, now)) {
+    return withModuleDependencies(sanitizeDisabledModules(sub!.purchasedModules))
+  }
   return []
 }
 
@@ -73,7 +84,9 @@ export function resolveGrantedModules(sub: SubStatusView | null | undefined, now
  * `company.disabledModules = TÜM − granted` yazar. Tek transaction.
  */
 export async function applyEntitlements(rootCompanyId: string, grantedModules: string[]): Promise<void> {
-  const granted = new Set(sanitizeDisabledModules(grantedModules))
+  // Bağımlılıklar burada da tamamlanır: arayüz atlanıp bu fonksiyon doğrudan
+  // çağrılsa bile DB'ye tutarsız bir küme (ör. restaurant açık, stock kapalı) yazılmasın.
+  const granted = new Set(withModuleDependencies(sanitizeDisabledModules(grantedModules)))
   const disabled = MODULE_KEYS.filter((k) => !granted.has(k))
 
   await prisma.$transaction([

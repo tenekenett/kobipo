@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { QuantityStepper } from "@/components/ui/quantity-stepper"
-import { MANAGEABLE_MODULES } from "@/lib/modules"
+import { MANAGEABLE_MODULES, modulesRequiring, withModuleDependencies } from "@/lib/modules"
 import { computeOrder, type PricingMap, type PlanPricing } from "@/lib/billing/pricing"
 import { modulePriceKey, BRANCH_ITEM_KEY, type BillingCycle } from "@/lib/billing/constants"
 import { Check, Loader2, AlertTriangle, Sparkles, CheckCircle2 } from "lucide-react"
@@ -176,8 +176,19 @@ export default function AbonelikPage() {
   function toggleExtra(key: string) {
     setExtras((prev) => {
       const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+      if (next.has(key)) {
+        // Bu modülü zorunlu kılan başka bir modül seçiliyse kaldırılamaz
+        // (buton zaten devre dışı; burası ikinci savunma).
+        const selected = [...next, ...includedModuleSet]
+        if (modulesRequiring(key, selected).length > 0) return prev
+        next.delete(key)
+      } else {
+        // Bağımlılıkları otomatik ekle (ör. Restoran & Kafe → Stok).
+        // Pakete zaten dahil olanları extra'ya yazmaya gerek yok.
+        for (const dep of withModuleDependencies([key])) {
+          if (!includedModuleSet.has(dep)) next.add(dep)
+        }
+      }
       return next
     })
   }
@@ -403,15 +414,21 @@ export default function AbonelikPage() {
             const included = includedModuleSet.has(m.key)
             const checked = included || extras.has(m.key)
             const price = cyclePrice(modulePriceKey(m.key))
+            // Seçili başka bir modül bunu zorunlu kılıyorsa kaldırılamaz
+            // (ör. Restoran & Kafe seçiliyken Stok).
+            const requiredBy = checked
+              ? modulesRequiring(m.key, [...extras, ...includedModuleSet])
+              : []
+            const locked = requiredBy.length > 0
             return (
               <button
                 key={m.key}
                 type="button"
-                disabled={included}
+                disabled={included || locked}
                 onClick={() => toggleExtra(m.key)}
                 className={`flex items-start justify-between gap-3 rounded-lg border p-3 text-left transition-colors ${
                   checked ? "border-primary/60 bg-primary/5" : "hover:border-primary/40"
-                } ${included ? "cursor-default opacity-90" : ""}`}
+                } ${included || locked ? "cursor-default opacity-90" : ""}`}
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -425,6 +442,14 @@ export default function AbonelikPage() {
                     <span className="font-medium">{m.label}</span>
                   </div>
                   <p className="mt-1 pl-6 text-xs text-muted-foreground">{m.description}</p>
+                  {locked && (
+                    <p className="mt-1 pl-6 text-xs text-muted-foreground">
+                      {requiredBy
+                        .map((k) => MANAGEABLE_MODULES.find((x) => x.key === k)?.label || k)
+                        .join(", ")}{" "}
+                      için gerekli
+                    </p>
+                  )}
                 </div>
                 <span className="shrink-0 text-xs font-medium text-muted-foreground">
                   {included ? "Pakete dahil" : price > 0 ? `+${tl.format(price)}` : "—"}

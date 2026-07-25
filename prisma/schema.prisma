@@ -270,6 +270,7 @@ model Company {
   eInvoiceTemplates       EInvoiceTemplate[]
   eInvoiceSeriesTemplates EInvoiceSeriesTemplate[]
   labelTemplates          LabelTemplate[]
+  productRecipes          ProductRecipe[]
 
   @@index([parentCompanyId])
   @@map("companies")
@@ -523,9 +524,20 @@ model Product {
   // göstermek içindir — hesaplamaları etkilemez.
   salePriceVatIncluded     Boolean  @default(false)
   purchasePriceVatIncluded Boolean  @default(false)
-  stockQuantity            Decimal  @default(0) @db.Decimal(10, 2)
-  minStockLevel            Decimal? @db.Decimal(10, 2)
+  // 4 ondalık: reçeteli satışta gram/mililitre düşümü. Kahve KG cinsinden
+  // tutulurken 20 gr = 0,02; 5 ml vanilya LT cinsinden 0,005 eder — 2 ondalık
+  // bunları yuvarlayıp sessizce kaybederdi. En küçük birim 0,0001 (0,1 gram).
+  stockQuantity            Decimal  @default(0) @db.Decimal(14, 4)
+  minStockLevel            Decimal? @db.Decimal(14, 4)
   isService                Boolean  @default(false)
+  // Satış/menü ekranlarında listelenir mi? Hammaddeler (süt, kahve çekirdeği,
+  // karton bardak) false yapılır. Varsayılan true — mevcut ürünler etkilenmez.
+  //
+  // "Hammadde" AYRI bir bayrak DEĞİLDİR: bir ürünün hammadde olup olmadığı
+  // ProductRecipeItem'da kullanılıp kullanılmadığından türetilir. Böylece kahve
+  // çekirdeği hem 250 gr paket olarak satılabilir (isSellable=true) hem de latte
+  // reçetesinde bileşen olarak durabilir — tek kart, tek stok bakiyesi.
+  isSellable               Boolean  @default(true)
   isActive                 Boolean  @default(true)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
@@ -537,11 +549,64 @@ model Product {
   orderItems      OrderItem[]
   warehouseStocks WarehouseStock[]
   waybillItems    WaybillItem[]
+  // Bu ürünün reçetesi (mamül/yarı mamül ise) ve bu ürünün bileşen olarak
+  // geçtiği reçete kalemleri (hammadde/yarı mamül ise).
+  recipe          ProductRecipe?      @relation("RecipeProduct")
+  usedInRecipes   ProductRecipeItem[] @relation("RecipeComponent")
 
   @@unique([companyId, slug])
   @@index([companyId])
   @@index([companyId, category])
   @@map("products")
+}
+
+// Bir ürünün hangi bileşenlerden oluştuğu (reçete / BOM). Satış anında mamülün
+// KENDİSİ stoktan düşmez; bileşenleri düşer. Bir bileşenin de reçetesi varsa
+// (yarı mamül, ör. "Espresso") özyinelemeli olarak hammaddeye kadar açılır —
+// yarı mamüller SANALDIR, stok bakiyeleri tutulmaz. Bkz. lib/stock/recipe-expand.ts
+//
+// Yarı mamül için ayrı bir tip/bayrak yoktur: yarı mamül = reçetesi olan ve
+// isSellable=false olan ürün. Genişletme kuralı tek cümledir:
+// "bileşenin aktif reçetesi VARSA açılır, YOKSA düşülür."
+model ProductRecipe {
+  id            String   @id @default(cuid())
+  companyId     String
+  productId     String   @unique // ürün başına tek reçete
+  // Reçete kaç adet mamül üretir. Bileşen miktarları buna bölünerek birim
+  // başına düşen miktar bulunur (ör. 10 porsiyonluk sos reçetesi → yield 10).
+  yieldQuantity Decimal  @default(1) @db.Decimal(12, 4)
+  isActive      Boolean  @default(true)
+  note          String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product             @relation("RecipeProduct", fields: [productId], references: [id], onDelete: Cascade)
+  items   ProductRecipeItem[]
+
+  @@index([companyId])
+  @@map("product_recipes")
+}
+
+model ProductRecipeItem {
+  id                 String   @id @default(cuid())
+  recipeId           String
+  componentProductId String
+  // Aşağıdaki `unit` cinsinden miktar. Bileşenin STOK biriminden farklı
+  // olabilir (süt LT stoklanır, reçetede 200 ML geçer); dönüşüm aynı birim
+  // ailesi içinde yapılır — bkz. lib/data/units.ts convertUnit().
+  quantity           Decimal  @db.Decimal(14, 4)
+  unit               String
+  wastageRate        Decimal? @db.Decimal(5, 2) // fire yüzdesi (opsiyonel)
+  order              Int      @default(0)
+
+  recipe    ProductRecipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  // Restrict: bir reçetede kullanılan hammadde silinemesin.
+  component Product       @relation("RecipeComponent", fields: [componentProductId], references: [id], onDelete: Restrict)
+
+  @@unique([recipeId, componentProductId])
+  @@index([componentProductId])
+  @@map("product_recipe_items")
 }
 
 // Ürün etiketi tasarım şablonları (Etiket Tasarımcısı, /stok/etiket).
@@ -574,7 +639,7 @@ model StockMovement {
   productId   String
   warehouseId String? // Depo ID (opsiyonel, geriye dönük uyumluluk için)
   type        String // IN, OUT, TRANSFER, ADJUSTMENT
-  quantity    Decimal  @db.Decimal(10, 2)
+  quantity    Decimal  @db.Decimal(14, 4) // 4 ondalık: reçete bileşen düşümü (bkz. Product.stockQuantity)
   unitPrice   Decimal? @db.Decimal(15, 6) // 6 ondalık: UBL e-Fatura birim fiyat hassasiyeti
   description String?  @db.Text
   reference   String? // Invoice ID, etc.
@@ -615,7 +680,7 @@ model WarehouseStock {
   id          String   @id @default(cuid())
   warehouseId String
   productId   String
-  quantity    Decimal  @default(0) @db.Decimal(10, 2)
+  quantity    Decimal  @default(0) @db.Decimal(14, 4) // Σ(WarehouseStock) = Product.stockQuantity — aynı hassasiyet
   updatedAt   DateTime @updatedAt
 
   warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)

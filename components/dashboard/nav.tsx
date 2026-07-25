@@ -67,7 +67,11 @@ export function DashboardNav() {
           ...group,
           items: group.hrefs
             .map((href) => navItems.find((item) => item.href === href))
-            .filter((item): item is NavItemDef => Boolean(item)),
+            .filter((item): item is NavItemDef => Boolean(item))
+            // Öğe kendi modülünü belirtmişse (grubundan bağımsız) o modül kapalıyken
+            // düşer. Örn. Stok grubundaki "Reçeteler" yalnızca Restoran & Kafe açıkken
+            // görünür. Modül belirtmeyen öğeler grubun kararına tabidir.
+            .filter((item) => !(item.module && disabledModules.has(item.module))),
         }))
         .filter((group) => group.items.length > 0),
     [navItems, disabledModules]

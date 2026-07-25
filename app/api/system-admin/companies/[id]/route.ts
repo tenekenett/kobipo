@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
 import { encryptSecret } from "@/lib/crypto/secrets"
 import { EDonusumIntegrator, Prisma } from "@prisma/client"
-import { sanitizeDisabledModules } from "@/lib/modules"
+import { reconcileDisabledModules } from "@/lib/modules"
 
 export const dynamic = "force-dynamic"
 
@@ -117,7 +117,9 @@ export async function PUT(
       data.invoiceSeriesPrefix = clean(body.invoiceSeriesPrefix)
     }
     if (body.disabledModules !== undefined) {
-      data.disabledModules = sanitizeDisabledModules(body.disabledModules)
+      // reconcile: açık bir modülün gerektirdiği modül kapalı kalamaz
+      // (ör. Restoran & Kafe açıkken Stok da açılır).
+      data.disabledModules = reconcileDisabledModules(body.disabledModules)
     }
 
     const company = await prisma.company.update({

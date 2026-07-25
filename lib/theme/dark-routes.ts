@@ -15,6 +15,7 @@ export const DARK_ROUTE_PREFIXES = [
   "/muhasebe",
   "/personel",
   "/raporlar",
+  "/restoran",
   "/satis",
   "/stok",
   "/teklif",

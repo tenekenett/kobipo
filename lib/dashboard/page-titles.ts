@@ -61,6 +61,14 @@ const STATIC_TITLES: Record<string, string> = {
   "/stok/hizmetler": "Hizmetler",
   "/stok/transfer": "Stok Transferi",
   "/stok/etiket": "Etiket Tasarımcısı",
+  "/stok/receteler": "Reçeteler",
+
+  // Restoran & Kafe
+  "/restoran/satis": "Kahveci Satış",
+  "/restoran/karlilik": "Karlılık",
+  "/restoran/menu-performans": "Menü Performansı",
+  "/restoran/tuketim": "Hammadde Tüketimi",
+  "/restoran/gun-sonu": "Gün Sonu",
   "/depolar": "Depolar",
   "/depolar/transfer": "Depo Transferleri",
 

@@ -2,7 +2,7 @@
 // istemciden gelen tutara ASLA güvenilmez. İstemci yalnızca seçimi (paket + ekstra modül +
 // şube adedi + periyot) gönderir, tutarı sunucu belirler.
 
-import { sanitizeDisabledModules } from "@/lib/modules"
+import { sanitizeDisabledModules, withModuleDependencies } from "@/lib/modules"
 import {
   BRANCH_ITEM_KEY,
   modulePriceKey,
@@ -76,7 +76,10 @@ function planPrice(plan: PlanPricing, cycle: BillingCycle): number {
 export function computeOrder(input: ComputeOrderInput): ComputedOrder {
   const { plan, billingCycle, pricing } = input
 
-  const chosen = sanitizeDisabledModules(input.chosenModules) // aynı whitelist: geçerli modül anahtarları
+  // Whitelist + modül bağımlılıkları (ör. "restaurant" seçildiyse "stock" da eklenir).
+  // Bağımlılık BURADA tamamlanmalı: aksi halde applyEntitlements onu yine de açar
+  // ama sipariş satırlarına girmediği için ÜCRETSİZ verilmiş olurdu.
+  const chosen = withModuleDependencies(sanitizeDisabledModules(input.chosenModules))
   const included = plan ? sanitizeDisabledModules(plan.includedModules) : []
   const includedSet = new Set(included)
 

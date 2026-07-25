@@ -11,6 +11,18 @@ export interface ModuleDef {
   group: string
   label: string
   description: string
+  /**
+   * Bu modül açıkken zorunlu olarak açık olması gereken modüller.
+   * Örn. Restoran & Kafe → Stok: reçetenin tek işi stok düşürmek, Stok kapalıyken
+   * anlamsız; ayrıca reçete sayfası "Stok" nav grubunda yaşıyor.
+   */
+  requires?: string[]
+  /**
+   * Sektörel/opt-in modül: deneme hesaplarının "her şey açık" erişimine DAHİL
+   * DEĞİLDİR. Bu olmadan her deneme hesabına (nalbura, tekstilciye) alakasız
+   * dikey modüller görünürdü. Bkz. lib/billing/entitlements.ts resolveGrantedModules.
+   */
+  optIn?: boolean
 }
 
 export const MANAGEABLE_MODULES: ModuleDef[] = [
@@ -50,9 +62,50 @@ export const MANAGEABLE_MODULES: ModuleDef[] = [
     label: "Personel",
     description: "Personel, maaş, izin, zimmet, İK",
   },
+  {
+    key: "restaurant",
+    group: "Restoran & Kafe",
+    label: "Restoran & Kafe",
+    description: "Menü, reçeteli stok düşümü, kahveci satış ekranı, günlük karlılık",
+    requires: ["stock"],
+    optIn: true,
+  },
 ]
 
 export const MODULE_KEYS = MANAGEABLE_MODULES.map((m) => m.key)
+
+/** Deneme hesaplarına toplu açılan modüller (opt-in sektörel modüller hariç). */
+export const DEFAULT_TRIAL_MODULE_KEYS = MANAGEABLE_MODULES.filter((m) => !m.optIn).map(
+  (m) => m.key
+)
+
+const MODULE_BY_KEY = new Map(MANAGEABLE_MODULES.map((m) => [m.key, m]))
+
+/**
+ * Seçilen modül kümesini bağımlılıklarıyla birlikte tamamlar (ör. "restaurant"
+ * seçiliyse "stock" da eklenir). Hem satın alma arayüzünde hem de hak uygulanırken
+ * çağrılır; böylece arayüz atlansa bile DB'ye tutarlı bir küme yazılır.
+ */
+export function withModuleDependencies(keys: string[]): string[] {
+  const result = new Set<string>()
+  const visit = (key: string) => {
+    if (result.has(key)) return
+    const def = MODULE_BY_KEY.get(key)
+    if (!def) return
+    result.add(key)
+    for (const dep of def.requires ?? []) visit(dep)
+  }
+  for (const key of keys) visit(key)
+  return Array.from(result)
+}
+
+/** Bir modülün kaldırılmasını engelleyen modüller (ör. "stock" ← "restaurant"). */
+export function modulesRequiring(key: string, selected: string[]): string[] {
+  const selectedSet = new Set(selected)
+  return MANAGEABLE_MODULES.filter(
+    (m) => selectedSet.has(m.key) && (m.requires ?? []).includes(key)
+  ).map((m) => m.key)
+}
 
 /** navGroups başlığı -> modül anahtarı (yalnızca yönetilebilir gruplar için) */
 export const MODULE_GROUP_TO_KEY: Record<string, string> = Object.fromEntries(
@@ -68,4 +121,17 @@ export function sanitizeDisabledModules(input: unknown): string[] {
 
 export function isModuleEnabled(disabledModules: string[] | undefined | null, key: string): boolean {
   return !(disabledModules ?? []).includes(key)
+}
+
+/**
+ * Kapalı modül listesini bağımlılıklarla tutarlı hale getirir: açık bir modülün
+ * gerektirdiği modül kapalı bırakılamaz (ör. Restoran & Kafe açıkken Stok).
+ * Elle modül yönetimi yapan uçlarda (sistem-admin) sanitize'ın hemen ardından
+ * çağrılır.
+ */
+export function reconcileDisabledModules(disabled: string[]): string[] {
+  const disabledSet = new Set(sanitizeDisabledModules(disabled))
+  const enabled = withModuleDependencies(MODULE_KEYS.filter((k) => !disabledSet.has(k)))
+  const enabledSet = new Set(enabled)
+  return MODULE_KEYS.filter((k) => !enabledSet.has(k))
 }
