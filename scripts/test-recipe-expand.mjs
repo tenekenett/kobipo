@@ -61,7 +61,9 @@ try {
   )
   writeFileSync(join(out, "package.json"), '{"type":"module"}')
 
-  const { expandRecipeLines, findRecipePath } = await import(pathToFileURL(expandPath).href)
+  const { expandRecipeLines, findRecipePath, buildRecipeMap } = await import(
+    pathToFileURL(expandPath).href
+  )
   const { convertUnit, canConvert, convertibleUnits } = await import(
     pathToFileURL(join(out, "data", "units.js")).href
   )
@@ -207,6 +209,20 @@ try {
   })
   eq("UNIT_MISMATCH (ADET -> KG)", rU.errors.map((e) => e.reason), ["UNIT_MISMATCH"])
   eq("hatalı dal düşülmedi", rU.components, [])
+
+  console.log("\n== buildRecipeMap (API kaydı -> genişletme haritası) ==")
+  // Reçete ekranı ve satış ekranı haritayı buradan kuruyor; sunucudaki
+  // loadRecipeContext ile aynı kuralı uygulamak zorunda: yalnız AKTİF reçeteler.
+  const built = buildRecipeMap([
+    { productId: LATTE, yieldQuantity: 1, isActive: true, items: [{ componentProductId: SUT, quantity: 200, unit: "ML", wastageRate: null }] },
+    { productId: "pasif", yieldQuantity: 1, isActive: false, items: [{ componentProductId: SUT, quantity: 50, unit: "ML" }] },
+    { productId: "sifiryield", yieldQuantity: 0, isActive: true, items: [{ componentProductId: SUT, quantity: 100, unit: "ML" }] },
+  ])
+  eq("pasif reçete haritaya girmez", built.has("pasif"), false)
+  eq("aktif reçete haritada", built.has(LATTE), true)
+  eq("yieldQuantity 0 -> 1", built.get("sifiryield").yieldQuantity, 1)
+  const rBuilt = expandRecipeLines({ lines: [{ productId: LATTE, quantity: 2 }], recipes: built, unitOf })
+  eq("harita genişletmede çalışıyor (2 x 200ML = 0,4 LT)", rBuilt.components[0].quantity, 0.4)
 
   console.log(`\n${fail === 0 ? "TÜMÜ GEÇTİ" : "BAŞARISIZ"} — ${pass} geçti, ${fail} kaldı\n`)
   process.exit(fail === 0 ? 0 : 1)

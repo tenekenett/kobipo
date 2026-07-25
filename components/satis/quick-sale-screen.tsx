@@ -353,10 +353,16 @@ export function QuickSaleScreen() {
     return Array.from(set).sort((a, b) => a.localeCompare(b, "tr"))
   }, [products])
 
+  // Hızlı ürün tuşlarında yalnız satılabilir ürünler: kahvecide "Süt"/"Kahve
+  // Çekirdeği" gibi hammaddeler (isSellable=false) menüde satılacak kalem değil.
+  // Arama/barkod kutusu (ProductCombobox) tümünü göstermeye devam eder — hammadde
+  // bilinçli olarak satılmak istenirse oradan bulunur.
   const quickProducts = useMemo(() => {
-    const list = activeCat === ALL_CATEGORIES ? products : products.filter((p) => p.category === activeCat)
+    const list = refProducts.filter(
+      (p) => p.isSellable && (activeCat === ALL_CATEGORIES || p.category === activeCat)
+    )
     return list.slice(0, 60)
-  }, [products, activeCat])
+  }, [refProducts, activeCat])
 
   const setTendered = (v: string) => patchTicket({ tendered: v })
   const addCash = (n: number) => patchTicket({ tendered: String(Math.max(0, round2(tenderedNum + n))) })

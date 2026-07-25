@@ -39,6 +39,8 @@ export interface EditableProduct {
   stockQuantity?: number | string
   minStockLevel?: number | string | null
   isService: boolean
+  /** Satış/menü ekranlarında listelenir mi. Bkz. docs/restoran/PLAN.md "Adım 2". */
+  isSellable?: boolean
 }
 
 interface ProductEditDialogProps {
@@ -90,6 +92,7 @@ export function ProductEditDialog({
     salePriceVatIncluded: false,
     minStockLevel: "",
     isService: false,
+    isSellable: true,
   })
   const [isLoading, setIsLoading] = useState(false)
 
@@ -131,6 +134,8 @@ export function ProductEditDialog({
       salePriceVatIncluded: Boolean(product.salePriceVatIncluded),
       minStockLevel: product.minStockLevel != null ? String(product.minStockLevel) : "",
       isService: product.isService,
+      // Şema varsayılanı true; alan gelmezse ürün satılabilir sayılır.
+      isSellable: product.isSellable !== false,
     })
     setMarginEdit(null)
     setAddingFormCategory(false)
@@ -561,17 +566,38 @@ export function ProductEditDialog({
               </div>
             )}
             <div className="space-y-2 md:col-span-2">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="edit-isService"
-                  checked={formData.isService}
-                  onChange={(e) => setFormData({ ...formData, isService: e.target.checked })}
-                  disabled={isLoading}
-                  className="rounded"
-                />
-                <Label htmlFor="edit-isService">Hizmet</Label>
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="edit-isService"
+                    checked={formData.isService}
+                    onChange={(e) => setFormData({ ...formData, isService: e.target.checked })}
+                    disabled={isLoading}
+                    className="rounded"
+                  />
+                  <Label htmlFor="edit-isService">Hizmet</Label>
+                </div>
+                {/* Hammadde ayrımı: kapalıysa ürün satış/menü ızgaralarında listelenmez
+                    ama reçetede bileşen olarak kullanılmaya devam eder. */}
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="edit-isSellable"
+                    checked={formData.isSellable}
+                    onChange={(e) => setFormData({ ...formData, isSellable: e.target.checked })}
+                    disabled={isLoading}
+                    className="rounded"
+                  />
+                  <Label htmlFor="edit-isSellable">Satışta göster</Label>
+                </div>
               </div>
+              {!formData.isSellable && (
+                <p className="text-xs text-muted-foreground">
+                  Hızlı satış ve menü ızgaralarında görünmez; aramayla yine bulunur ve
+                  reçetelerde bileşen olarak kullanılabilir.
+                </p>
+              )}
             </div>
           </div>
           <div className="flex justify-end space-x-2">

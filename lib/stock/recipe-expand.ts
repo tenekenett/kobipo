@@ -175,6 +175,41 @@ export function expandRecipeLines(args: {
   return { direct, components, errors }
 }
 
+/** buildRecipeMap girdisi — /api/restoran/recipes yanıtıyla yapısal olarak uyumlu. */
+export type RecipeRecord = {
+  productId: string
+  yieldQuantity: number
+  isActive: boolean
+  items: RecipeItemInput[]
+}
+
+/**
+ * Reçete kayıtlarını genişletme haritasına çevirir.
+ *
+ * Sunucudaki loadRecipeContext (lib/stock/recipe.ts) ile AYNI kuralı uygular:
+ * haritaya yalnızca AKTİF reçeteler girer. Pasif reçete satışta açılmadığı için
+ * istemcideki maliyet/yetersizlik hesabında da açılmamış sayılmalı — bu tek
+ * satırlık fark iki tarafın sessizce ayrışmasına yeter, o yüzden tek yerde durur.
+ */
+export function buildRecipeMap(recipes: RecipeRecord[]): RecipeMap {
+  const map: RecipeMap = new Map()
+  for (const recipe of recipes) {
+    if (!recipe.isActive) continue
+    const yieldQty = Number(recipe.yieldQuantity)
+    map.set(recipe.productId, {
+      yieldQuantity: yieldQty > 0 ? yieldQty : 1,
+      isActive: true,
+      items: recipe.items.map((item) => ({
+        componentProductId: item.componentProductId,
+        quantity: Number(item.quantity) || 0,
+        unit: item.unit,
+        wastageRate: item.wastageRate != null ? Number(item.wastageRate) : null,
+      })),
+    })
+  }
+  return map
+}
+
 /**
  * `from` ürününün reçete ağacında `target` ürününe giden bir yol var mı?
  * Varsa zinciri döndürür (ör. ["Espresso", "Latte"]), yoksa null.

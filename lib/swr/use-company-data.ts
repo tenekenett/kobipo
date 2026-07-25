@@ -14,6 +14,7 @@ import {
   type ReceiptTemplate,
 } from "@/lib/fis/receipt-template"
 import type { ReceiptCompanyInfo } from "@/lib/fis/receipt-html"
+import { buildRecipeMap, type RecipeRecord } from "@/lib/stock/recipe-expand"
 
 export type RefProduct = {
   id: string
@@ -22,12 +23,18 @@ export type RefProduct = {
   barcode?: string | null
   salePrice: number | null
   purchasePrice: number | null
+  /** Ağırlıklı ortalama alış (AVCO); yoksa purchasePrice'a düşer (API hesaplar). */
+  avgPurchasePrice: number | null
   vatRate: number
   unit?: string | null
   category?: string | null
   currency?: string | null
   stockQuantity?: number
+  minStockLevel?: number | null
   isService?: boolean
+  /** Menüde/satışta listelenir mi — hammaddeler false. Bkz. docs/restoran/PLAN.md "Adım 2". */
+  isSellable: boolean
+  isActive: boolean
 }
 export type RefCounterparty = { id: string; name: string; taxNumber?: string | null }
 export type RefAccount = { id: string; name: string; type: string }
@@ -49,12 +56,17 @@ export function useProducts(companyId: string | null, opts?: { isService?: boole
         barcode: p.barcode ?? null,
         salePrice: p.salePrice != null ? Number(p.salePrice) : null,
         purchasePrice: p.purchasePrice != null ? Number(p.purchasePrice) : null,
+        avgPurchasePrice: p.avgPurchasePrice != null ? Number(p.avgPurchasePrice) : null,
         vatRate: Number(p.vatRate) || 20,
         unit: p.unit ?? null,
         category: p.category ?? null,
         currency: p.currency ?? null,
         stockQuantity: p.stockQuantity != null ? Number(p.stockQuantity) : undefined,
+        minStockLevel: p.minStockLevel != null ? Number(p.minStockLevel) : null,
         isService: Boolean(p.isService),
+        // Şema varsayılanı true; alan gelmezse eski davranış (her ürün satılabilir).
+        isSellable: p.isSellable !== false,
+        isActive: p.isActive !== false,
       })),
     [data]
   )
@@ -125,6 +137,40 @@ export function useWarehouseStocks(companyId: string | null) {
     [data]
   )
   return { stocks, isLoading, error, mutate }
+}
+
+export type RefRecipe = RecipeRecord & { id: string; note: string | null }
+
+/**
+ * Firmanın reçeteleri (Restoran & Kafe modülü). Satış ekranı bunları yetersiz
+ * stok uyarısı için, reçete ekranı maliyet önizlemesi için kullanır.
+ *
+ * `recipeMap` sunucunun stok düşümünde kullandığı haritanın birebir aynısıdır
+ * (buildRecipeMap → yalnız aktif reçeteler), böylece ekrandaki uyarı ile fiilen
+ * düşen miktarlar çelişemez.
+ */
+export function useRecipes(companyId: string | null) {
+  const key = companyKey(companyId, "/api/restoran/recipes")
+  const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
+  const recipes = useMemo<RefRecipe[]>(
+    () =>
+      (Array.isArray(data) ? data : []).map((r) => ({
+        id: r.id,
+        productId: r.productId,
+        yieldQuantity: Number(r.yieldQuantity) || 1,
+        isActive: Boolean(r.isActive),
+        note: r.note ?? null,
+        items: (Array.isArray(r.items) ? r.items : []).map((i: any) => ({
+          componentProductId: i.componentProductId,
+          quantity: Number(i.quantity) || 0,
+          unit: i.unit,
+          wastageRate: i.wastageRate != null ? Number(i.wastageRate) : null,
+        })),
+      })),
+    [data]
+  )
+  const recipeMap = useMemo(() => buildRecipeMap(recipes), [recipes])
+  return { recipes, recipeMap, isLoading, error, mutate }
 }
 
 /**

@@ -58,6 +58,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { convertUnit, convertibleUnits, normalizeUnitCode } from "@/lib/data/units"
 import {
+  buildRecipeMap,
   expandRecipeLines,
   findRecipePath,
   type RecipeMap,
@@ -230,25 +231,10 @@ export default function ReceptelerPage() {
   /**
    * Kayıtlı reçeteler → genişletme haritası. Sunucudaki loadRecipeContext ile
    * aynı şekilde YALNIZCA aktif reçeteler alınır; pasif reçete satışta da
-   * açılmadığı için maliyeti de açılmamış gibi hesaplanmalı.
+   * açılmadığı için maliyeti de açılmamış gibi hesaplanmalı. Bu kural tek yerde
+   * (buildRecipeMap) yaşıyor — satış ekranı da aynı haritayı kuruyor.
    */
-  const recipeMap = useMemo<RecipeMap>(() => {
-    const map: RecipeMap = new Map()
-    for (const r of recipes) {
-      if (!r.isActive) continue
-      map.set(r.productId, {
-        yieldQuantity: r.yieldQuantity || 1,
-        isActive: r.isActive,
-        items: r.items.map((i) => ({
-          componentProductId: i.componentProductId,
-          quantity: i.quantity,
-          unit: i.unit,
-          wastageRate: i.wastageRate,
-        })),
-      })
-    }
-    return map
-  }, [recipes])
+  const recipeMap = useMemo<RecipeMap>(() => buildRecipeMap(recipes), [recipes])
 
   /**
    * Bir mamülün 1 birimlik maliyeti. Çok seviyeli reçetede ara katlar

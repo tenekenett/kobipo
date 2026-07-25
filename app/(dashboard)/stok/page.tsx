@@ -34,7 +34,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, Sticker, Tags } from "lucide-react"
+import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, ChefHat, Sticker, Tags } from "lucide-react"
+import { useRecipes } from "@/lib/swr/use-company-data"
 import Link from "next/link"
 
 interface Product {
@@ -55,6 +56,8 @@ interface Product {
   stockQuantity: number
   minStockLevel?: number | null
   isService: boolean
+  /** Satış/menü ızgaralarında listelenir mi. Bkz. docs/restoran/PLAN.md "Adım 2". */
+  isSellable?: boolean
   isActive: boolean
 }
 
@@ -97,6 +100,7 @@ const emptyProductForm = {
   stockQuantity: "0",
   minStockLevel: "",
   isService: false,
+  isSellable: true,
 }
 
 /** Net fiyatı, KDV dahil gösterilecekse brüte çevirir (gösterim için). */
@@ -113,6 +117,10 @@ export default function StokPage() {
   const companyId = searchParams.get("company")
   const { toast } = useToast()
   const { confirm } = useConfirm()
+  // Aktif reçeteler — reçetesi olan ürün satışta KENDİSİ düşmediği için
+  // stok bakiyesi anlamsızdır; listede rozetle işaretlenip sayı gizlenir.
+  // (Reçete yoksa boş döner, restoran modülü kapalı firmalarda hiçbir etkisi olmaz.)
+  const { recipeMap } = useRecipes(companyId)
   const [products, setProducts] = useState<Product[]>([])
   const [search, setSearch] = useState("")
   const [filterService, setFilterService] = useState<string | null>(null)
@@ -392,6 +400,8 @@ export default function StokPage() {
       stockQuantity: String(product.stockQuantity),
       minStockLevel: product.minStockLevel != null ? String(product.minStockLevel) : "",
       isService: product.isService,
+      // Şema varsayılanı true; alan gelmezse ürün satılabilir sayılır.
+      isSellable: product.isSellable !== false,
     })
     // Ürünün mevcut deposu: en çok stoğun olduğu depo; yoksa varsayılan.
     const rows = warehouseStocks.filter((s) => s.productId === product.id)
@@ -450,7 +460,11 @@ export default function StokPage() {
     ])
   ).sort((a, b) => a.localeCompare(b, "tr"))
 
-  const lowStockCount = products.filter((p) => stockState(p) !== "ok").length
+  // Reçeteli ürünün bakiyesi hiç değişmediği için "tükendi" sayılamaz — uyarıdan
+  // ve düşük stok filtresinden dışarıda tutulur (tabloda da "—" gösteriliyor).
+  const isLowStock = (p: Product) => !recipeMap.has(p.id) && stockState(p) !== "ok"
+
+  const lowStockCount = products.filter(isLowStock).length
   let visibleProducts = products
   if (warehouseFilter !== "ALL") {
     visibleProducts = visibleProducts.filter((p) => inSelectedWh.has(p.id))
@@ -458,7 +472,7 @@ export default function StokPage() {
   if (categoryFilter !== "ALL") {
     visibleProducts = visibleProducts.filter((p) => (p.category || "") === categoryFilter)
   }
-  if (onlyLowStock) visibleProducts = visibleProducts.filter((p) => stockState(p) !== "ok")
+  if (onlyLowStock) visibleProducts = visibleProducts.filter(isLowStock)
 
   // Depo sütunu/filtresi yalnızca birden çok depo varsa anlamlı.
   const showWhCol = warehouses.length > 1
@@ -800,19 +814,42 @@ export default function StokPage() {
                   </div>
                 )}
                 <div className="space-y-2 md:col-span-2">
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id="isService"
-                      checked={formData.isService}
-                      onChange={(e) =>
-                        setFormData({ ...formData, isService: e.target.checked })
-                      }
-                      disabled={isLoading}
-                      className="rounded"
-                    />
-                    <Label htmlFor="isService">Hizmet</Label>
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="isService"
+                        checked={formData.isService}
+                        onChange={(e) =>
+                          setFormData({ ...formData, isService: e.target.checked })
+                        }
+                        disabled={isLoading}
+                        className="rounded"
+                      />
+                      <Label htmlFor="isService">Hizmet</Label>
+                    </div>
+                    {/* Hammadde ayrımı: kapalıysa ürün satış/menü ızgaralarında listelenmez
+                        ama reçetede bileşen olarak kullanılmaya devam eder. */}
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="isSellable"
+                        checked={formData.isSellable}
+                        onChange={(e) =>
+                          setFormData({ ...formData, isSellable: e.target.checked })
+                        }
+                        disabled={isLoading}
+                        className="rounded"
+                      />
+                      <Label htmlFor="isSellable">Satışta göster</Label>
+                    </div>
                   </div>
+                  {!formData.isSellable && (
+                    <p className="text-xs text-muted-foreground">
+                      Hızlı satış ve menü ızgaralarında görünmez; aramayla yine bulunur ve
+                      reçetelerde bileşen olarak kullanılabilir.
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex justify-end space-x-2">
@@ -1026,7 +1063,18 @@ export default function StokPage() {
                   >
                     <TableCell><MonoCell value={product.code} /></TableCell>
                     <TableCell className="font-medium">
-                      <EntityCell name={product.name} />
+                      <div className="flex items-center gap-1.5">
+                        <EntityCell name={product.name} />
+                        {recipeMap.has(product.id) && (
+                          <span
+                            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-kobipo-pale px-2 py-0.5 text-[11px] font-semibold text-kobipo-blue"
+                            title="Bu ürünün reçetesi var: satışta kendisi değil, bileşenleri stoktan düşer."
+                          >
+                            <ChefHat className="h-3 w-3" />
+                            Reçeteli
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {product.category ? (
@@ -1053,6 +1101,15 @@ export default function StokPage() {
                     <TableCell className="text-right whitespace-nowrap">
                       {product.isService ? (
                         "-"
+                      ) : recipeMap.has(product.id) ? (
+                        // Reçeteli ürünün bakiyesi hiç değişmez; sayıyı (ve "Tükendi"
+                        // uyarısını) göstermek yanıltıcı olurdu.
+                        <span
+                          className="text-muted-foreground"
+                          title="Reçeteli ürün — stok bileşenlerinden düşer, kendi bakiyesi tutulmaz"
+                        >
+                          —
+                        </span>
                       ) : warehouseFilter !== "ALL" ? (
                         <span className="font-medium">
                           {new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(whQtyByProduct.get(product.id) ?? 0)}

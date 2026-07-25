@@ -15,10 +15,13 @@ await p.company.update({ where: { id: COMPANY_ID }, data: { disabledModules: dis
 console.log(`Modüller açıldı — ${company.name}; kapalı kalanlar:`, disabled)
 
 // 2) Ürünler
+// minStock: kahveci satış ekranındaki "Kritik hammadde" paneli bunu kullanıyor
+// (stok <= minStockLevel). Vanilya bilinçli olarak eşiğin ALTINDA bırakıldı ki
+// panel demo veriyle boş görünmesin.
 const defs = [
-  { name: "Kahve Çekirdeği", unit: "KG", purchasePrice: 500, stock: 10, isSellable: false },
-  { name: "Süt", unit: "LT", purchasePrice: 30, stock: 20, isSellable: false },
-  { name: "Vanilya Şurubu", unit: "LT", purchasePrice: 200, stock: 2, isSellable: false },
+  { name: "Kahve Çekirdeği", unit: "KG", purchasePrice: 500, stock: 10, minStock: 2, isSellable: false },
+  { name: "Süt", unit: "LT", purchasePrice: 30, stock: 20, minStock: 5, isSellable: false },
+  { name: "Vanilya Şurubu", unit: "LT", purchasePrice: 200, stock: 2, minStock: 3, isSellable: false },
   { name: "Espresso", unit: "ADET", purchasePrice: null, stock: 0, isSellable: false },
   { name: "Latte", unit: "ADET", purchasePrice: null, salePrice: 85, stock: 0, isSellable: true },
 ]
@@ -36,6 +39,7 @@ for (const d of defs) {
     isSellable: d.isSellable,
     isService: false,
     stockQuantity: d.stock,
+    minStockLevel: d.minStock ?? null,
   }
   const product = existing
     ? await p.product.update({ where: { id: existing.id }, data })
