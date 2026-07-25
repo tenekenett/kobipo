@@ -19,6 +19,7 @@ export async function GET(request: Request) {
     const companyId = await resolveCompanyId(searchParams.get("companyId"))
     const search = searchParams.get("search")
     const isService = searchParams.get("isService")
+    const isSellable = searchParams.get("isSellable")
     const category = searchParams.get("category")
 
     if (!companyId) {
@@ -44,6 +45,11 @@ export async function GET(request: Request) {
 
     if (isService !== null) {
       where.isService = isService === "true"
+    }
+
+    // Menü/hammadde ayrımı: satış ve reçete ekranları listeyi buna göre daraltır.
+    if (isSellable !== null) {
+      where.isSellable = isSellable === "true"
     }
 
     if (category) {
@@ -134,6 +140,7 @@ export async function POST(request: Request) {
       stockQuantity,
       minStockLevel,
       isService,
+      isSellable,
       warehouseId,
     } = body
 
@@ -212,6 +219,8 @@ export async function POST(request: Request) {
         stockQuantity: 0,
         minStockLevel: minStockLevel ? parseFloat(minStockLevel) : null,
         isService: isService || false,
+        // Gönderilmezse true (şema varsayılanı) — mevcut çağıranların davranışı değişmez.
+        isSellable: isSellable === undefined ? true : Boolean(isSellable),
       },
     })
 

@@ -137,6 +137,7 @@ export async function PUT(
       minStockLevel,
       isService,
       isActive,
+      isSellable,
     } = body
 
     // KDV dahil girilen fiyatları net'e çevir (DB net saklar).
@@ -177,6 +178,7 @@ export async function PUT(
         minStockLevel: minStockLevel ? parseFloat(minStockLevel) : null,
         isService: isService !== undefined ? isService : product.isService,
         isActive: isActive !== undefined ? isActive : product.isActive,
+        isSellable: isSellable !== undefined ? Boolean(isSellable) : product.isSellable,
       },
     })
 
@@ -226,6 +228,12 @@ export async function PATCH(
       const raw = body.barcode
       const trimmed = raw == null ? "" : String(raw).trim()
       data.barcode = trimmed ? trimmed : null
+    }
+
+    // Reçete ekranı, ürünü menüden çıkarıp hammaddeye çevirmek için bunu tek
+    // başına gönderir; fiyat/stok alanlarına dokunmadan güncellenmeli.
+    if ("isSellable" in body) {
+      data.isSellable = Boolean(body.isSellable)
     }
 
     if (Object.keys(data).length === 0) {
