@@ -64,7 +64,7 @@ try {
   const { expandRecipeLines, findRecipePath, buildRecipeMap } = await import(
     pathToFileURL(expandPath).href
   )
-  const { convertUnit, canConvert, convertibleUnits } = await import(
+  const { convertUnit, canConvert, convertibleUnits, defaultRecipeUnit } = await import(
     pathToFileURL(join(out, "data", "units.js")).href
   )
 
@@ -90,6 +90,18 @@ try {
   eq("ADET -> GR (tanımsız)", convertUnit(1, "ADET", "GR"), null)
   eq("canConvert kg/gram (serbest yazım)", canConvert("kilogram", "gram"), true)
   eq("convertibleUnits(LT)", convertibleUnits("LT").sort(), ["LT", "ML"])
+
+  // defaultRecipeUnit: reçetede kullanılacak VARSAYILAN birim ailenin küçüğüdür.
+  // Stok birimini varsayılan yapmak, "200" yazan kullanıcıya 200 ml yerine
+  // 200 LİTRE yazdırıyordu (gerçek testte stok 19,4 -> -180,6 LT oldu).
+  eq("defaultRecipeUnit(LT) -> ML", defaultRecipeUnit("LT"), "ML")
+  eq("defaultRecipeUnit(ML) -> ML", defaultRecipeUnit("ML"), "ML")
+  eq("defaultRecipeUnit(KG) -> GR", defaultRecipeUnit("KG"), "GR")
+  eq("defaultRecipeUnit(TON) -> GR", defaultRecipeUnit("TON"), "GR")
+  eq("defaultRecipeUnit(MT) -> CM", defaultRecipeUnit("MT"), "CM")
+  eq("defaultRecipeUnit(ADET) -> ADET (aile yok)", defaultRecipeUnit("ADET"), "ADET")
+  eq("defaultRecipeUnit(bos) -> bos", defaultRecipeUnit(null), "")
+  eq("varsayilan birim daima donusturulebilir", canConvert(defaultRecipeUnit("LT"), "LT"), true)
 
   // PLAN.md kurulumu: Latte = 1 Espresso + 200 ML süt + 5 ML vanilya
   //                   Espresso = 20 GR kahve   (yarı mamül, sanal)

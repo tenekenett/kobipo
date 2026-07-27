@@ -520,6 +520,62 @@ doğrulanmadı — tarayıcı eklentisi bağlı değil.
 
 ---
 
+## İş 10 — Reçete birim tuzağı (2026-07-27) ✅ **veri bozan hata**
+
+### Bulgu
+
+Kullanıcı "tutarlar ve birimler konusunda sıkıntı var, hammaddeden ne kadar
+kullanılacağı net seçilemiyor" dedi. Sebep bulundu ve **gerçek veride kanıtlandı**.
+
+`selectComponent` bileşen seçilince reçete birimini **stok birimine** eşitliyordu:
+
+```
+Süt seç  →  birim otomatik "LT" gelir  →  kullanıcı "200" yazar (200 ml kastederek)
+         →  reçeteye porsiyon başına 200 LİTRE süt girer
+```
+
+Hiçbir katman itiraz etmiyor çünkü `LT → LT` geçerli bir dönüşüm. Kayıt kabul
+ediliyor, `canConvert` geçiyor, `UNIT_MISMATCH` çıkmıyor.
+
+**Demo Firma'da koşulan kanıt:** 200 LT'lik reçeteyle **tek bir adet** satıldığında
+süt stoğu `19,4 LT → −180,6 LT` oldu. (Fiş iptal edildi, stok geri alındı.)
+
+### Düzeltme — üç katman
+
+**1. Varsayılan birim ailenin KÜÇÜĞÜ.** Yeni `defaultRecipeUnit()`
+(`lib/data/units.ts`): `LT→ML`, `KG→GR`, `TON→GR`, `MT→CM`, aile dışı birimler
+kendileri. Reçete miktarları neredeyse daima küçük birimdedir; yanlış tarafa
+düşmek artık bilinçli bir seçim gerektiriyor.
+
+**2. Dönüşüm satırda AÇIKÇA yazıyor.** Her bileşen satırının altında
+`Stoktan düşecek: 0,2 LT / porsiyon`. "200 LT → 200 LT" ile "200 ML → 0,2 LT"
+arasındaki fark artık gözle yakalanabilir.
+
+**3. Aşırı tüketim uyarısı.** Tek porsiyon eldeki stoğun tamamını aşıyorsa kırmızı
+uyarı çıkıyor ve **tek tıkla doğru birime çeviren** bir düğme sunuyor
+("ML mi olmalıydı?"). Engellemiyor — stok gerçekten bitmiş olabilir (PLAN.md
+"Adım 4": uyar, engelleme) — ama sessiz de geçmiyor.
+
+Satış ekranındaki mevcut yetersizlik uyarısı dördüncü katman olarak duruyor.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Hatanın yeniden üretimi | ✅ `200 LT` kaydı kabul edildi, 1 satışta stok `19,4 → −180,6 LT` |
+| Düzeltme sonrası aynı giriş | ✅ `200 ML` → 1 satışta stok `19,4 → 19,2 LT` |
+| Birim testleri | ✅ `test-recipe-expand.mjs` **45/45** (37'den; `defaultRecipeUnit` için 8 yeni test) |
+| Demo verisi | ✅ test fişleri iptal + silindi, stoklar açılış değerlerinde |
+
+### Not
+
+Bu, altyapının değil **arayüz varsayılanının** yol açtığı bir veri bozulmasıydı:
+genişletme motoru, dönüşüm ve stok düşümü baştan beri doğru çalışıyordu — kendisine
+verilen sayıyı doğru işliyordu, sadece verilen sayı yanlıştı. "Altyapı sağlam ama UI
+karışık" tespitinin en pahalı örneği.
+
+---
+
 ### Sırada ne var
 
 - **Modül kapısının sunucu tarafı** — bilinçli kapsam dışı bırakıldı (yukarı bak). `restaurant`

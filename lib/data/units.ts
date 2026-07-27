@@ -227,3 +227,27 @@ export function convertibleUnits(unit?: string | null): string[] {
   if (!family) return [u] // aile dışı birim yalnızca kendisiyle eşleşir
   return Object.keys(UNIT_FAMILIES).filter((k) => UNIT_FAMILIES[k].family === family)
 }
+
+/**
+ * Bir bileşenin REÇETEDE varsayılan olarak yazılacağı birim.
+ *
+ * Stok birimini varsayılan yapmak tehlikeliydi: süt LT stoklanıyor, kullanıcı
+ * bileşeni seçince birim LT geliyor, "200" yazıp 200 ml kastediyor ve reçeteye
+ * porsiyon başına 200 LİTRE süt giriyordu. LT→LT dönüşümü geçerli olduğu için
+ * hiçbir katman itiraz etmiyordu (gerçek testte 19,4 LT stok tek satışta
+ * −180,6 LT'ye düştü).
+ *
+ * Reçete miktarları neredeyse daima ailenin KÜÇÜK birimindedir (gram, mililitre,
+ * santimetre) — varsayılan artık o. Kullanıcı yine aynı aile içinde büyük birime
+ * geçebilir; yanlış tarafa düşmek artık bilinçli bir seçim gerektiriyor.
+ */
+export function defaultRecipeUnit(stockUnit?: string | null): string {
+  const u = normalizeUnitCode(stockUnit)
+  if (!u) return ""
+  const family = UNIT_FAMILIES[u]?.family
+  if (!family) return u // ADET/PAKET gibi aile dışı birimlerde seçenek yok
+  // Aynı ailenin en küçük tabanlı birimi (mass→GR, volume→ML, length→CM).
+  return Object.keys(UNIT_FAMILIES)
+    .filter((k) => UNIT_FAMILIES[k].family === family)
+    .reduce((min, k) => (UNIT_FAMILIES[k].toBase < UNIT_FAMILIES[min].toBase ? k : min))
+}

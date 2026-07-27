@@ -55,7 +55,13 @@ import {
 } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { UNIT_OPTIONS, convertUnit, convertibleUnits, normalizeUnitCode } from "@/lib/data/units"
+import {
+  UNIT_OPTIONS,
+  convertUnit,
+  convertibleUnits,
+  defaultRecipeUnit,
+  normalizeUnitCode,
+} from "@/lib/data/units"
 import { quickCreateProduct, type CreatedProduct } from "@/lib/stock/quick-create-product"
 import { RawMaterialDialog } from "@/components/restoran/raw-material-dialog"
 import { cn } from "@/lib/utils"
@@ -425,11 +431,12 @@ export default function ReceptelerPage() {
 
   function selectComponent(key: string, componentId: string) {
     const component = productById.get(componentId)
-    // Birim, bileşenin stok birimiyle başlar; kullanıcı aynı aileden (KG↔GR)
-    // başka bir birime geçebilir. Aile dışına çıkması engellenir.
+    // Birim, ailenin KÜÇÜK biriminde başlar (süt LT stoklansa da reçetede ML).
+    // Eskiden stok birimiyle başlıyordu ve "200" yazan kullanıcı 200 ml yerine
+    // 200 LİTRE giriyordu — bkz. defaultRecipeUnit().
     patchItem(key, {
       componentProductId: componentId,
-      unit: component?.unit ? normalizeUnitCode(component.unit) : "",
+      unit: defaultRecipeUnit(component?.unit),
     })
   }
 
@@ -1079,6 +1086,16 @@ export default function ReceptelerPage() {
                       : null
                   const lineCost =
                     unitCost != null && convertedQty != null ? convertedQty * unitCost : null
+                  const yieldForPreview = num(draft.yieldQuantity) > 0 ? num(draft.yieldQuantity) : 1
+                  /**
+                   * Birim hatası alarmı: TEK porsiyon eldeki stoğun tamamını
+                   * aşıyorsa büyük ihtimalle birim yanlış seçilmiş (200 ML yerine
+                   * 200 LT). Yarı mamülde stok tutulmadığı için kontrol edilmez.
+                   */
+                  const overStock =
+                    !isSemiFinished &&
+                    convertedQty != null &&
+                    convertedQty / yieldForPreview > Number(component?.stockQuantity ?? 0)
 
                   return (
                     <div
@@ -1145,14 +1162,61 @@ export default function ReceptelerPage() {
                       </div>
 
                       {component && (
-                        <div className="text-xs text-muted-foreground sm:col-span-12">
-                          Stok birimi <strong>{component.unit}</strong>
-                          {!isSemiFinished && ` · Stok ${qty(component.stockQuantity ?? 0)}`}
-                          {unitCost != null
-                            ? ` · Birim maliyet ${money(unitCost)}/${component.unit}`
-                            : " · Alış fiyatı girilmemiş"}
-                          {lineCost != null ? ` · Satır maliyeti ${money(lineCost)}` : ""}
-                          {isSemiFinished ? " · Yarı mamül (hammaddeye kadar açılacak)" : ""}
+                        <div className="space-y-1 sm:col-span-12">
+                          {/* Dönüşümü AÇIKÇA göster. Birim yanlış seçildiğinde
+                              hata buradan görülür: "200 LT → 200 LT düşer" ile
+                              "200 ML → 0,2 LT düşer" arasındaki fark gözle
+                              yakalanabilir olmalı. */}
+                          {convertedQty != null && (
+                            <p className="text-xs font-medium">
+                              <span className="text-muted-foreground">Stoktan düşecek: </span>
+                              <span
+                                className={cn(
+                                  "tabular-nums",
+                                  overStock ? "text-red-600 dark:text-red-400" : "text-foreground"
+                                )}
+                              >
+                                {qty(convertedQty)} {component.unit}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {" "}
+                                / porsiyon
+                                {yieldForPreview > 1 ? ` (${yieldForPreview} porsiyonluk reçete)` : ""}
+                              </span>
+                            </p>
+                          )}
+                          {/* Birim hatasının en tipik belirtisi: tek porsiyon
+                              eldeki tüm stoğu aşıyor. Engellemiyoruz (stok
+                              gerçekten bitmiş olabilir) ama sessiz de geçmiyoruz. */}
+                          {overStock && (
+                            <p className="flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400">
+                              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                              <span>
+                                Tek porsiyon için eldeki stoktan ({qty(component.stockQuantity ?? 0)}{" "}
+                                {component.unit}) fazlası gerekiyor. Birimi kontrol edin — {item.unit}{" "}
+                                yerine{" "}
+                                <button
+                                  type="button"
+                                  className="font-semibold underline underline-offset-2"
+                                  onClick={() =>
+                                    patchItem(item.key, { unit: defaultRecipeUnit(component.unit) })
+                                  }
+                                >
+                                  {defaultRecipeUnit(component.unit)}
+                                </button>{" "}
+                                mi olmalıydı?
+                              </span>
+                            </p>
+                          )}
+                          <p className="text-xs text-muted-foreground">
+                            Stok birimi <strong>{component.unit}</strong>
+                            {!isSemiFinished && ` · Stok ${qty(component.stockQuantity ?? 0)}`}
+                            {unitCost != null
+                              ? ` · Birim maliyet ${money(unitCost)}/${component.unit}`
+                              : " · Alış fiyatı girilmemiş"}
+                            {lineCost != null ? ` · Satır maliyeti ${money(lineCost)}` : ""}
+                            {isSemiFinished ? " · Yarı mamül (hammaddeye kadar açılacak)" : ""}
+                          </p>
                         </div>
                       )}
                     </div>
