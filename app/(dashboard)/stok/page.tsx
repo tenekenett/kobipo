@@ -36,6 +36,15 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, ChefHat, Sticker, Tags } from "lucide-react"
 import { useRecipes } from "@/lib/swr/use-company-data"
+import { useModuleEnabled } from "@/lib/swr/use-module"
+import {
+  flagsForKind,
+  matchesKindFilter,
+  productKindOf,
+  productKindOptions,
+  type ProductKind,
+} from "@/lib/stock/product-kind"
+import { cn } from "@/lib/utils"
 import Link from "next/link"
 
 interface Product {
@@ -58,6 +67,8 @@ interface Product {
   isService: boolean
   /** Satış/menü ızgaralarında listelenir mi. Bkz. docs/restoran/PLAN.md "Adım 2". */
   isSellable?: boolean
+  /** Reçetelerde bileşen olarak kullanılan kalem mi. isSellable ile birbirini dışlamaz. */
+  isIngredient?: boolean
   isActive: boolean
 }
 
@@ -101,6 +112,7 @@ const emptyProductForm = {
   minStockLevel: "",
   isService: false,
   isSellable: true,
+  isIngredient: false,
 }
 
 /** Net fiyatı, KDV dahil gösterilecekse brüte çevirir (gösterim için). */
@@ -123,13 +135,42 @@ export default function StokPage() {
   const { recipeMap } = useRecipes(companyId)
   const [products, setProducts] = useState<Product[]>([])
   const [search, setSearch] = useState("")
-  const [filterService, setFilterService] = useState<string | null>(null)
+  /**
+   * Restoran & Kafe açıkken tür isimleri menü diline geçer (Menü ürünü /
+   * Hammadde / Her ikisi / Hizmet) ve liste varsayılan olarak hammaddeleri
+   * gösterir — menü ürünleri Menü & Reçeteler'den yönetiliyor. Kapalıyken
+   * aynı bayraklar "Ürün / Ürün (satışta gizli) / Hizmet" olur.
+   */
+  const isRestaurant = useModuleEnabled("restaurant")
+  const kindOptions = useMemo(() => productKindOptions(isRestaurant), [isRestaurant])
+  /**
+   * TEK tür filtresi (null = tümü). Eskiden iki ayrı süzgeç vardı —
+   * "Tümü/Ürünler/Hizmetler" ve "Hammaddeler/Menüde görünenler/Tümü" — ve
+   * "hizmet" ikisinde birden geçiyordu; hangi kombinasyonun ne gösterdiği
+   * belirsizdi. İkisi burada birleşti, isimler ürün formuyla AYNI.
+   */
+  const [kindFilter, setKindFilter] = useState<ProductKind | null>(null)
+  /** Kullanıcı filtreye dokunduysa varsayılan bir daha uygulanmaz. */
+  const [kindFilterTouched, setKindFilterTouched] = useState(false)
+
+  useEffect(() => {
+    // Restoran açıkken bu ekran hammadde deposu gibi davranır; varsayılanı
+    // modül bilgisi firma çözülünce bir kez kur.
+    if (isRestaurant && !kindFilterTouched) setKindFilter("ingredient")
+  }, [isRestaurant, kindFilterTouched])
+
+  const chooseKindFilter = (value: ProductKind | null) => {
+    setKindFilterTouched(true)
+    setKindFilter(value)
+  }
   const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState("ALL")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({ ...emptyProductForm })
+  /** Formdaki üç bayraktan türetilen tek seçim (lib/stock/product-kind.ts). */
+  const productKind = productKindOf(formData)
   // Güncel TCMB kuru — döviz üründe kârın TL karşılığını göstermek için.
   const [rates, setRates] = useState<{ USD: number; EUR: number } | null>(null)
   useEffect(() => {
@@ -206,7 +247,7 @@ export default function StokPage() {
     if (companyId) {
       fetchProducts()
     }
-  }, [companyId, search, filterService])
+  }, [companyId, search])
 
   useEffect(() => {
     if (companyId) fetchCategories()
@@ -308,7 +349,6 @@ export default function StokPage() {
       const params = new URLSearchParams({
         companyId,
         ...(search && { search }),
-        ...(filterService !== null && { isService: filterService }),
       })
 
       const [response, stockRes] = await Promise.all([
@@ -402,6 +442,7 @@ export default function StokPage() {
       isService: product.isService,
       // Şema varsayılanı true; alan gelmezse ürün satılabilir sayılır.
       isSellable: product.isSellable !== false,
+      isIngredient: product.isIngredient === true,
     })
     // Ürünün mevcut deposu: en çok stoğun olduğu depo; yoksa varsayılan.
     const rows = warehouseStocks.filter((s) => s.productId === product.id)
@@ -471,6 +512,9 @@ export default function StokPage() {
   }
   if (categoryFilter !== "ALL") {
     visibleProducts = visibleProducts.filter((p) => (p.category || "") === categoryFilter)
+  }
+  if (kindFilter) {
+    visibleProducts = visibleProducts.filter((p) => matchesKindFilter(p, kindFilter))
   }
   if (onlyLowStock) visibleProducts = visibleProducts.filter(isLowStock)
 
@@ -813,43 +857,34 @@ export default function StokPage() {
                     </p>
                   </div>
                 )}
+                {/* TEK SORU. Eskiden üç ayrı onay kutusuydu (Hizmet / Menüde
+                    göster / Hammadde) → 8 kombinasyon, 4'ü anlamsız: hizmette
+                    "menüde göster" hiçbir şey yapmıyordu, üçü birden kapalı olan
+                    ürün hiçbir listede görünmüyordu. Bkz. lib/stock/product-kind.ts */}
                 <div className="space-y-2 md:col-span-2">
-                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="isService"
-                        checked={formData.isService}
-                        onChange={(e) =>
-                          setFormData({ ...formData, isService: e.target.checked })
-                        }
-                        disabled={isLoading}
-                        className="rounded"
-                      />
-                      <Label htmlFor="isService">Hizmet</Label>
-                    </div>
-                    {/* Hammadde ayrımı: kapalıysa ürün satış/menü ızgaralarında listelenmez
-                        ama reçetede bileşen olarak kullanılmaya devam eder. */}
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="isSellable"
-                        checked={formData.isSellable}
-                        onChange={(e) =>
-                          setFormData({ ...formData, isSellable: e.target.checked })
-                        }
-                        disabled={isLoading}
-                        className="rounded"
-                      />
-                      <Label htmlFor="isSellable">Satışta göster</Label>
-                    </div>
+                  <Label>Bu ürün nedir?</Label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {kindOptions.map((opt) => {
+                      const isActive = productKind === opt.value
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          disabled={isLoading}
+                          onClick={() => setFormData({ ...formData, ...flagsForKind(opt.value) })}
+                          className={cn(
+                            "rounded-lg border-2 px-3 py-2 text-left transition-colors disabled:opacity-60",
+                            isActive
+                              ? "border-kobipo-blue bg-kobipo-blue/5 dark:border-primary dark:bg-primary/10"
+                              : "border-border hover:border-kobipo-blue/50"
+                          )}
+                        >
+                          <span className="block text-sm font-semibold">{opt.label}</span>
+                          <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                        </button>
+                      )
+                    })}
                   </div>
-                  {!formData.isSellable && (
-                    <p className="text-xs text-muted-foreground">
-                      Hızlı satış ve menü ızgaralarında görünmez; aramayla yine bulunur ve
-                      reçetelerde bileşen olarak kullanılabilir.
-                    </p>
-                  )}
                 </div>
               </div>
               <div className="flex justify-end space-x-2">
@@ -989,16 +1024,23 @@ export default function StokPage() {
                   className="pl-8 w-full sm:w-64"
                 />
               </div>
+              {/* TEK tür filtresi — seçenek isimleri ürün formundakilerle aynı,
+                  böylece "kaydederken ne dediysem burada onu arıyorum". */}
               <select
-                value={filterService ?? ""}
+                value={kindFilter ?? "ALL"}
                 onChange={(e) =>
-                  setFilterService(e.target.value || null)
+                  chooseKindFilter(
+                    e.target.value === "ALL" ? null : (e.target.value as ProductKind)
+                  )
                 }
                 className="rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                <option value="">Tümü</option>
-                <option value="false">Ürünler</option>
-                <option value="true">Hizmetler</option>
+                <option value="ALL">Tüm türler</option>
+                {kindOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </select>
               {categoryOptions.length > 0 && (
                 <select

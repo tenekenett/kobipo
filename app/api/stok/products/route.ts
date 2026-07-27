@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
+import { resolveAllUnitCosts } from "@/lib/stock/cost"
 
 export const dynamic = 'force-dynamic'
 
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
     const search = searchParams.get("search")
     const isService = searchParams.get("isService")
     const isSellable = searchParams.get("isSellable")
+    const isIngredient = searchParams.get("isIngredient")
     const category = searchParams.get("category")
 
     if (!companyId) {
@@ -47,9 +49,15 @@ export async function GET(request: Request) {
       where.isService = isService === "true"
     }
 
-    // Menü/hammadde ayrımı: satış ve reçete ekranları listeyi buna göre daraltır.
+    // Menüde görünürlük: satış ekranları ızgarayı buna göre daraltır.
     if (isSellable !== null) {
       where.isSellable = isSellable === "true"
+    }
+
+    // Hammadde (reçete bileşeni) ayrımı. isSellable ile BİRBİRİNİ DIŞLAMAZ:
+    // kahve çekirdeği hem menüde satılıp hem latte reçetesinde durabilir.
+    if (isIngredient !== null) {
+      where.isIngredient = isIngredient === "true"
     }
 
     if (category) {
@@ -61,45 +69,19 @@ export async function GET(request: Request) {
       orderBy: { name: "asc" },
     })
 
-    // Ağırlıklı ortalama alış fiyatı (AVCO): geçmiş alış hareketlerinin
-    // birim fiyatları, alınan miktarla ağırlıklandırılarak hesaplanır.
-    // Sadece fiyatı kayıtlı (unitPrice != null) alış hareketleri dikkate alınır.
-    const productIds = products.map((p) => p.id)
-    const avgPurchasePriceByProduct = new Map<string, number>()
-
-    if (productIds.length > 0) {
-      const purchaseMovements = await prisma.stockMovement.findMany({
-        where: {
-          companyId,
-          productId: { in: productIds },
-          type: { in: ["IN", "PURCHASE"] },
-          unitPrice: { not: null },
-        },
-        select: { productId: true, quantity: true, unitPrice: true },
-      })
-
-      const totals = new Map<string, { amount: number; qty: number }>()
-      for (const m of purchaseMovements) {
-        const qty = Math.abs(Number(m.quantity))
-        const price = Number(m.unitPrice)
-        if (qty <= 0) continue
-        const acc = totals.get(m.productId) || { amount: 0, qty: 0 }
-        acc.amount += qty * price
-        acc.qty += qty
-        totals.set(m.productId, acc)
-      }
-
-      totals.forEach(({ amount, qty }, productId) => {
-        if (qty > 0) avgPurchasePriceByProduct.set(productId, amount / qty)
-      })
-    }
+    // Ağırlıklı ortalama alış fiyatı (AVCO). Tanım TEK yerde: lib/stock/cost.ts.
+    // Reçete ekranı, satış anındaki maliyet dondurma ve restoran raporları da
+    // aynı kapıyı kullanır — aksi halde aynı ürün için farklı maliyet gösterirler
+    // (bkz. docs/restoran/SADELESTIRME.md "İş 2").
+    //
+    // Eskiden burada firmanın TÜM alış hareketleri belleğe çekilip JS'te
+    // toplanıyordu; hareket tablosu her satışla büyüdüğü için bu uç sınırsız
+    // yavaşlıyordu. Artık tek GROUP BY sorgusu, satırlar uygulamaya hiç gelmiyor.
+    const costByProduct = await resolveAllUnitCosts(companyId)
 
     const result = products.map((p) => ({
       ...p,
-      // Hareketlerden hesaplanan ortalama yoksa manuel girilen alış fiyatına düş.
-      avgPurchasePrice:
-        avgPurchasePriceByProduct.get(p.id) ??
-        (p.purchasePrice != null ? Number(p.purchasePrice) : null),
+      avgPurchasePrice: costByProduct.get(p.id) ?? null,
     }))
 
     return NextResponse.json(result)
@@ -141,6 +123,7 @@ export async function POST(request: Request) {
       minStockLevel,
       isService,
       isSellable,
+      isIngredient,
       warehouseId,
     } = body
 
@@ -221,6 +204,9 @@ export async function POST(request: Request) {
         isService: isService || false,
         // Gönderilmezse true (şema varsayılanı) — mevcut çağıranların davranışı değişmez.
         isSellable: isSellable === undefined ? true : Boolean(isSellable),
+        // Reçete bileşeni olarak kullanılan kalem mi. isSellable ile birbirini
+        // dışlamaz; varsayılan false (mevcut çağıranlar hammadde üretmiyor).
+        isIngredient: Boolean(isIngredient),
       },
     })
 

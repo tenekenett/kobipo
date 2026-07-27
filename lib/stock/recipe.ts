@@ -1,7 +1,6 @@
 // Reçete verisinin sunucu tarafı yükleyicisi ve kayıt-anı doğrulamaları.
 // Saf genişletme mantığı ayrı dosyada: lib/stock/recipe-expand.ts
 
-import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { findRecipePath, type RecipeMap } from "@/lib/stock/recipe-expand"
 
@@ -70,54 +69,11 @@ export async function loadRecipeContext(db: Db, companyId: string): Promise<Reci
   return { recipes, unitOf: (id) => units.get(id) ?? null }
 }
 
-/**
- * Reçete bileşenlerinin birim maliyetini çözer.
- *
- * Öncelik: `Product.purchasePrice` → yoksa ürünün SON alış (IN) hareketindeki
- * `unitPrice`. Gerekçe: purchasePrice yalnızca elle güncelleniyor (alış faturası
- * kesmek onu değiştirmiyor), ama StockMovement her alışta gerçekten ödenen
- * fiyatı zaten kaydediyor. Aynı kabul mevcut bilanço raporunda da var
- * (app/api/raporlar/bilanco/route.ts).
- *
- * Dönen değer satış anında StockMovement.unitPrice'a YAZILIR (dondurulur):
- * böylece sonradan gelen zam geçmiş günlerin karlılığını değiştirmez.
- */
-export async function resolveComponentCosts(
-  companyId: string,
-  productIds: string[]
-): Promise<Map<string, number | null>> {
-  const costs = new Map<string, number | null>()
-  const ids = Array.from(new Set(productIds.filter(Boolean)))
-  if (ids.length === 0) return costs
-
-  const products = await prisma.product.findMany({
-    where: { id: { in: ids }, companyId },
-    select: { id: true, purchasePrice: true },
-  })
-  for (const p of products) {
-    costs.set(p.id, p.purchasePrice != null ? Number(p.purchasePrice) : null)
-  }
-
-  const missing = ids.filter((id) => costs.get(id) == null)
-  if (missing.length === 0) return costs
-
-  // Ürün başına SON alış hareketi — tek sorguda (Postgres DISTINCT ON).
-  // Alternatifi ürün başına findFirst döngüsü olurdu (N sorgu).
-  const rows = await prisma.$queryRaw<Array<{ productId: string; unitPrice: Prisma.Decimal | null }>>`
-    SELECT DISTINCT ON ("productId") "productId", "unitPrice"
-    FROM public.stock_movements
-    WHERE "companyId" = ${companyId}
-      AND "productId" IN (${Prisma.join(missing)})
-      AND "type" = 'IN'
-      AND "unitPrice" IS NOT NULL
-    ORDER BY "productId", "createdAt" DESC
-  `
-  for (const row of rows) {
-    if (row.unitPrice != null) costs.set(row.productId, Number(row.unitPrice))
-  }
-
-  return costs
-}
+// NOT: Bileşen maliyeti artık burada çözülmüyor. Tek tanım lib/stock/cost.ts →
+// `resolveUnitCosts` (AVCO). Eskiden bu dosyadaki `resolveComponentCosts`
+// "purchasePrice → son alış" önceliğini uygularken reçete ekranı tam TERSİNİ
+// (AVCO → purchasePrice) kullanıyordu; ekrandaki marj ile rapordaki marj bu
+// yüzden ayrışıyordu. Bkz. docs/restoran/SADELESTIRME.md "İş 2".
 
 export class RecipeCycleError extends Error {
   constructor(public chain: string[]) {

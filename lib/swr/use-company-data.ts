@@ -32,8 +32,10 @@ export type RefProduct = {
   stockQuantity?: number
   minStockLevel?: number | null
   isService?: boolean
-  /** Menüde/satışta listelenir mi — hammaddeler false. Bkz. docs/restoran/PLAN.md "Adım 2". */
+  /** Menüde/satışta listelenir mi. Bkz. docs/restoran/PLAN.md "Adım 2". */
   isSellable: boolean
+  /** Reçete bileşeni mi. isSellable ile birbirini DIŞLAMAZ (paket kahve çekirdeği ikisi de). */
+  isIngredient: boolean
   isActive: boolean
 }
 export type RefCounterparty = { id: string; name: string; taxNumber?: string | null }
@@ -66,6 +68,7 @@ export function useProducts(companyId: string | null, opts?: { isService?: boole
         isService: Boolean(p.isService),
         // Şema varsayılanı true; alan gelmezse eski davranış (her ürün satılabilir).
         isSellable: p.isSellable !== false,
+        isIngredient: p.isIngredient === true,
         isActive: p.isActive !== false,
       })),
     [data]

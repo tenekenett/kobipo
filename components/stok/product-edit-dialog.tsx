@@ -14,6 +14,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
+import { useModuleEnabled } from "@/lib/swr/use-module"
+import {
+  flagsForKind,
+  productKindOf,
+  productKindOptions,
+} from "@/lib/stock/product-kind"
+import { cn } from "@/lib/utils"
 import { Plus } from "lucide-react"
 
 /**
@@ -41,6 +48,8 @@ export interface EditableProduct {
   isService: boolean
   /** Satış/menü ekranlarında listelenir mi. Bkz. docs/restoran/PLAN.md "Adım 2". */
   isSellable?: boolean
+  /** Reçete bileşeni mi. isSellable ile birbirini dışlamaz. */
+  isIngredient?: boolean
 }
 
 interface ProductEditDialogProps {
@@ -77,6 +86,8 @@ export function ProductEditDialog({
   onSaved,
 }: ProductEditDialogProps) {
   const { toast } = useToast()
+  const isRestaurant = useModuleEnabled("restaurant")
+  const kindOptions = useMemo(() => productKindOptions(isRestaurant), [isRestaurant])
 
   const [formData, setFormData] = useState({
     code: "",
@@ -93,8 +104,11 @@ export function ProductEditDialog({
     minStockLevel: "",
     isService: false,
     isSellable: true,
+    isIngredient: false,
   })
   const [isLoading, setIsLoading] = useState(false)
+  /** Formdaki üç bayraktan türetilen tek seçim (lib/stock/product-kind.ts). */
+  const productKind = productKindOf(formData)
 
   const [categories, setCategories] = useState<{ id: string; label: string }[]>([])
   const [addingFormCategory, setAddingFormCategory] = useState(false)
@@ -136,6 +150,7 @@ export function ProductEditDialog({
       isService: product.isService,
       // Şema varsayılanı true; alan gelmezse ürün satılabilir sayılır.
       isSellable: product.isSellable !== false,
+      isIngredient: product.isIngredient === true,
     })
     setMarginEdit(null)
     setAddingFormCategory(false)
@@ -565,39 +580,32 @@ export function ProductEditDialog({
                 </p>
               </div>
             )}
+            {/* TEK soru — /stok ürün formuyla birebir aynı seçenekler.
+                Bkz. lib/stock/product-kind.ts */}
             <div className="space-y-2 md:col-span-2">
-              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id="edit-isService"
-                    checked={formData.isService}
-                    onChange={(e) => setFormData({ ...formData, isService: e.target.checked })}
-                    disabled={isLoading}
-                    className="rounded"
-                  />
-                  <Label htmlFor="edit-isService">Hizmet</Label>
-                </div>
-                {/* Hammadde ayrımı: kapalıysa ürün satış/menü ızgaralarında listelenmez
-                    ama reçetede bileşen olarak kullanılmaya devam eder. */}
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id="edit-isSellable"
-                    checked={formData.isSellable}
-                    onChange={(e) => setFormData({ ...formData, isSellable: e.target.checked })}
-                    disabled={isLoading}
-                    className="rounded"
-                  />
-                  <Label htmlFor="edit-isSellable">Satışta göster</Label>
-                </div>
+              <Label>Bu ürün nedir?</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {kindOptions.map((opt) => {
+                  const isActive = productKind === opt.value
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      disabled={isLoading}
+                      onClick={() => setFormData({ ...formData, ...flagsForKind(opt.value) })}
+                      className={cn(
+                        "rounded-lg border-2 px-3 py-2 text-left transition-colors disabled:opacity-60",
+                        isActive
+                          ? "border-kobipo-blue bg-kobipo-blue/5 dark:border-primary dark:bg-primary/10"
+                          : "border-border hover:border-kobipo-blue/50"
+                      )}
+                    >
+                      <span className="block text-sm font-semibold">{opt.label}</span>
+                      <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                    </button>
+                  )
+                })}
               </div>
-              {!formData.isSellable && (
-                <p className="text-xs text-muted-foreground">
-                  Hızlı satış ve menü ızgaralarında görünmez; aramayla yine bulunur ve
-                  reçetelerde bileşen olarak kullanılabilir.
-                </p>
-              )}
             </div>
           </div>
           <div className="flex justify-end space-x-2">

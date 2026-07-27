@@ -102,16 +102,14 @@ export const allNavItems: NavItemDef[] = [
   { href: "/depolar", label: "Depo Listesi", icon: Warehouse, roles: ["ADMIN", BM, "STOCK"] },
   { href: "/stok/transfer", label: "Stok Transfer", icon: ArrowLeftRight, roles: ["ADMIN", BM, "STOCK"] },
   { href: "/stok/etiket", label: "Etiket Tasarımı", icon: Sticker, roles: ["ADMIN", BM, "STOCK", "SALES"] },
-  // Reçete stok kavramıdır (mamül → hammadde) ama ticari olarak Restoran & Kafe
-  // paketinin parçası → grubu Stok, modülü restaurant.
-  { href: "/stok/receteler", label: "Reçeteler", icon: ChefHat, roles: ["ADMIN", BM, "STOCK", "ACCOUNTANT"], module: "restaurant" },
 
-  // Restoran & Kafe
+  // Restoran & Kafe — kurulum (menü/reçete), kullanım (satış) ve ölçüm (raporlar)
+  // aynı grupta. Reçete ekranı eskiden Stok grubundaydı; kafeci menüyü kurmak
+  // için iki grup arasında gidip geliyordu. Reçete MANTIĞI hâlâ lib/stock'ta —
+  // taşınan yalnızca ekranın adresi (bkz. docs/restoran/SADELESTIRME.md "İş 3").
   { href: "/restoran/satis", label: "Kahveci Satış", icon: CupSoda, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
-  { href: "/restoran/karlilik", label: "Karlılık", icon: TrendingUp, roles: ["ADMIN", BM, "ACCOUNTANT"] },
-  { href: "/restoran/menu-performans", label: "Menü Performansı", icon: BarChart3, roles: ["ADMIN", BM, "ACCOUNTANT"] },
-  { href: "/restoran/tuketim", label: "Hammadde Tüketimi", icon: Package, roles: ["ADMIN", BM, "ACCOUNTANT", "STOCK"] },
-  { href: "/restoran/gun-sonu", label: "Gün Sonu", icon: ClipboardList, roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/restoran/menu", label: "Menü & Reçeteler", icon: ChefHat, roles: ["ADMIN", BM, "STOCK", "ACCOUNTANT"] },
+  { href: "/restoran/raporlar", label: "Raporlar", icon: BarChart3, roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Finans
   { href: "/finans/kanallar", label: "Finans Kanalları", icon: Banknote, roles: ["ADMIN", BM, "ACCOUNTANT"] },
@@ -193,18 +191,11 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
       "/depolar",
       "/stok/transfer",
       "/stok/etiket",
-      "/stok/receteler",
     ],
   },
   {
     title: "Restoran & Kafe",
-    hrefs: [
-      "/restoran/satis",
-      "/restoran/karlilik",
-      "/restoran/menu-performans",
-      "/restoran/tuketim",
-      "/restoran/gun-sonu",
-    ],
+    hrefs: ["/restoran/satis", "/restoran/menu", "/restoran/raporlar"],
   },
   {
     title: "Finans",
@@ -335,6 +326,9 @@ export function navItemActive(
  * (Menüdeki karşılığı: NavItemDef.module)
  */
 const PATH_MODULE_OVERRIDES: Record<string, string> = {
+  // Eski reçete adresi. Ekran /restoran/menu'ye taşındı ve orası grubundan
+  // (Restoran & Kafe) zaten `restaurant` çözüyor; bu satır yalnızca eski adrese
+  // gelen linkler için duruyor — yönlendirme öncesi de kilitli kalsın.
   "/stok/receteler": "restaurant",
 }
 

@@ -20,7 +20,8 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { loadRecipeContext, resolveComponentCosts } from "@/lib/stock/recipe"
+import { loadRecipeContext } from "@/lib/stock/recipe"
+import { resolveUnitCosts } from "@/lib/stock/cost"
 import { expandRecipeLines } from "@/lib/stock/recipe-expand"
 import { num, parseRange, reportScope, RECIPE_MARK } from "@/lib/restoran/reports"
 
@@ -111,9 +112,10 @@ export async function GET(request: Request) {
       for (const c of components) if (!realizedUnitCost.has(c.productId)) needCost.add(c.productId)
     }
 
-    // Aralıkta hiç hareketi olmayan bileşen/ürün için alış fiyatına düş
-    // (sunucunun satış anında kullandığı öncelikle aynı: purchasePrice → son alış).
-    const fallbackCost = await resolveComponentCosts(companyId, Array.from(needCost))
+    // Aralıkta hiç hareketi olmayan bileşen/ürün için AVCO'ya düş — sunucunun
+    // satış anında dondurduğu ve reçete ekranının gösterdiği tanımın aynısı
+    // (lib/stock/cost.ts).
+    const fallbackCost = await resolveUnitCosts(companyId, Array.from(needCost))
     const unitCostOf = (productId: string): number | null =>
       realizedUnitCost.get(productId) ?? fallbackCost.get(productId) ?? null
 

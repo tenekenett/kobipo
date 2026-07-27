@@ -43,7 +43,7 @@ export async function GET(request: Request) {
 
     const [receiptRows, paymentRows, cashCounts] = await Promise.all([
       prisma.$queryRaw<ReceiptRow[]>`
-        ${reportScope(companyId, start, end)}, ${docCostCte},
+        ${reportScope(companyId, start, end)}, ${docCostCte(companyId)},
         pay AS (
           SELECT p."invoiceId",
                  SUM(p.amount)                              AS paid,
@@ -70,7 +70,15 @@ export async function GET(request: Request) {
         LEFT JOIN pay ON pay."invoiceId" = s.id
         ORDER BY s.date
       `,
-      // Tahsilat tarihine göre — o gün kasaya/bankaya fiilen giren para.
+      // Tahsilat tarihine göre — o gün kasaya/bankaya fiilen GİREN para.
+      //
+      // `type = 'SALES'` şart: InvoicePayment alış faturalarında da kullanılıyor
+      // (faturalar/odemeler/route.ts satışta +tutar, alışta -tutar yazar). Filtre
+      // olmadan tedarikçiye yapılan ödeme "kasaya giren" sayılıyor ve gün sonu
+      // sayım karşılaştırmasını bozuyordu.
+      //
+      // Durum dışlaması reportScope ile AYNI: CONVERTED de düşer, aksi halde
+      // faturaya dönüşmüş fişin ödemesi hem fişte hem faturada sayılabilirdi.
       prisma.$queryRaw<Array<{ method: string; cnt: bigint | number; amount: unknown }>>`
         SELECT p."paymentMethod" AS method,
                COUNT(*)          AS cnt,
@@ -80,7 +88,8 @@ export async function GET(request: Request) {
         WHERE p."companyId" = ${companyId}
           AND p."paymentDate" >= ${start}
           AND p."paymentDate" <= ${end}
-          AND i.status <> 'CANCELLED'
+          AND i.type = 'SALES'
+          AND i.status NOT IN ('CANCELLED', 'CONVERTED')
         GROUP BY p."paymentMethod"
         ORDER BY amount DESC
       `,

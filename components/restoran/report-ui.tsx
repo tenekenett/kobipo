@@ -12,28 +12,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
-export const money = (n: number) =>
-  new Intl.NumberFormat("tr-TR", {
-    style: "currency",
-    currency: "TRY",
-    currencyDisplay: "narrowSymbol",
-    maximumFractionDigits: 2,
-  }).format(Number.isFinite(n) ? n : 0)
-
-export const money0 = (n: number) =>
-  new Intl.NumberFormat("tr-TR", {
-    style: "currency",
-    currency: "TRY",
-    currencyDisplay: "narrowSymbol",
-    maximumFractionDigits: 0,
-  }).format(Number.isFinite(n) ? n : 0)
-
-/** Stok/miktar — Decimal(14,4), gramaj görünür kalsın diye 4 ondalığa kadar. */
-export const qty = (n: number) =>
-  new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 4 }).format(Number(n) || 0)
-
-export const pct = (n: number | null | undefined) =>
-  n == null || !Number.isFinite(n) ? "—" : `%${n.toFixed(1)}`
+// Biçimlendiriciler lib/format.ts'te; rapor sayfaları bunları buradan almaya
+// devam edebilsin diye yeniden dışa aktarılıyor (tek tanım, tek import yolu).
+export { money, money0, qty, pct } from "@/lib/format"
 
 /** YYYY-MM-DD (yerel gün). */
 const isoDay = (d: Date) =>
@@ -98,6 +79,17 @@ export function useReportRange(initial: RangePreset = "week") {
     setDay: (v: string) => setRange([v, v]),
   }
 }
+
+/**
+ * Tarih aralığı artık raporun KENDİSİNE ait değil, onları barındıran sekmeli
+ * sayfaya ait (app/(dashboard)/restoran/raporlar). Böylece kullanıcı aralığı bir
+ * kez seçip sekmeler arasında geziyor; eskiden her rapor kendi aralığını
+ * tuttuğu için sekme değiştirince seçim sıfırlanıyordu.
+ */
+export type ReportRangeState = ReturnType<typeof useReportRange>
+
+/** Sekmeli sayfanın her rapora geçirdiği ortak sözleşme. */
+export type ReportProps = { range: ReportRangeState }
 
 /**
  * Rapor verisi — companyId yokken SWR isteği atmaz.

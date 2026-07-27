@@ -9,7 +9,8 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
 import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
-import { loadRecipeContext, resolveComponentCosts } from "@/lib/stock/recipe"
+import { loadRecipeContext } from "@/lib/stock/recipe"
+import { resolveUnitCosts } from "@/lib/stock/cost"
 import { expandRecipeLines } from "@/lib/stock/recipe-expand"
 
 
@@ -478,7 +479,10 @@ const company = await prisma.company.findUnique({
           }
 
           const unitPriceByProduct = new Map(stockItems.map((s) => [s.productId, s.unitPrice]))
-          const costs = await resolveComponentCosts(
+          // Maliyet AVCO'dan gelir (lib/stock/cost.ts) — reçete ekranının marj
+          // önizlemesiyle AYNI tanım, böylece ekranda görülen maliyet ile donan
+          // maliyet çelişmez.
+          const costs = await resolveUnitCosts(
             companyId,
             components.map((c) => c.productId)
           )

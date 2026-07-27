@@ -9,7 +9,14 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { Prisma } from "@prisma/client"
-import { docCostCte, localDay, num, parseRange, reportScope } from "@/lib/restoran/reports"
+import {
+  docCostCte,
+  localDay,
+  num,
+  parseRange,
+  pricelessCte,
+  reportScope,
+} from "@/lib/restoran/reports"
 
 export const dynamic = "force-dynamic"
 
@@ -34,8 +41,9 @@ export async function GET(request: Request) {
 
     const { start, end } = parseRange(searchParams)
 
-    const rows = await prisma.$queryRaw<DayRow[]>`
-      ${reportScope(companyId, start, end)}, ${docCostCte}
+    const [rows, pricelessRows] = await Promise.all([
+      prisma.$queryRaw<DayRow[]>`
+      ${reportScope(companyId, start, end)}, ${docCostCte(companyId)}
       SELECT ${localDay(Prisma.sql`s.date`)}      AS day,
              COUNT(*)                              AS receipts,
              COALESCE(SUM(s."netAmount"), 0)       AS revenue_net,
@@ -46,7 +54,11 @@ export async function GET(request: Request) {
       LEFT JOIN cost c ON c.doc_id = s.id
       GROUP BY 1
       ORDER BY 1
-    `
+    `,
+      prisma.$queryRaw<Array<{ cnt: bigint | number }>>`
+      ${reportScope(companyId, start, end)}, ${pricelessCte(companyId)}
+    `,
+    ])
 
     const days = rows.map((r) => {
       const revenue = num(r.revenue_net)
@@ -86,6 +98,9 @@ export async function GET(request: Request) {
         cost,
         grossProfit: revenue - cost,
         margin: revenue > 0 ? ((revenue - cost) / revenue) * 100 : null,
+        // Maliyeti hiç bilinmeyen ürün sayısı — bunlar 0 maliyetle toplandı,
+        // yani gerçek marj gösterilenden DÜŞÜK. Ekran uyarı gösterir.
+        pricelessCount: num(pricelessRows[0]?.cnt),
       },
       days,
     })

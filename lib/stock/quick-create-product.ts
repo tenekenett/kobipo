@@ -1,8 +1,14 @@
 /**
- * Belge formlarından (teklif/sipariş/irsaliye) hızlı ürün oluşturma yardımcısı.
- * /api/stok/products POST'una en az companyId + name gönderir; isteğe bağlı
- * fiyat/birim alanları kataloğa kaydedilir. Dönen ürünü sayısallaştırarak verir
- * (Decimal alanlar string gelebilir).
+ * Belge formlarından (teklif/sipariş/irsaliye) ve Menü & Reçeteler ekranından
+ * hızlı ürün oluşturma yardımcısı. /api/stok/products POST'una en az
+ * companyId + name gönderir; isteğe bağlı alanlar kataloğa kaydedilir. Dönen
+ * ürünü sayısallaştırarak verir (Decimal alanlar string gelebilir).
+ *
+ * Menü ekranı bunu iki şekilde kullanır:
+ *  - menü ürünü  → isSellable: true  (+ ardından reçetesi kurulur)
+ *  - hammadde    → isSellable: false (menüde/hızlı satışta listelenmez)
+ * Böylece kullanıcı menü kurmak için Stok ekranına gitmek zorunda kalmıyor;
+ * ürün kartı reçeteyle BİRLİKTE doğuyor. Bkz. docs/restoran/SADELESTIRME.md "İş 7".
  */
 export type CreatedProduct = {
   id: string
@@ -13,6 +19,9 @@ export type CreatedProduct = {
   unit?: string | null
   vatRate?: number | null
   isService?: boolean
+  isSellable?: boolean
+  isIngredient?: boolean
+  category?: string | null
 }
 
 export async function quickCreateProduct(input: {
@@ -24,6 +33,19 @@ export async function quickCreateProduct(input: {
   unit?: string | null
   vatRate?: string | number | null
   isService?: boolean
+  /** Menüde/hızlı satışta listelensin mi. Gönderilmezse sunucu true kabul eder. */
+  isSellable?: boolean
+  /** Reçete bileşeni mi. isSellable ile birbirini DIŞLAMAZ; varsayılan false. */
+  isIngredient?: boolean
+  /** Menü sekmesi kategorisi (serbest metin). */
+  category?: string | null
+  /** Kritik stok seviyesi — hammaddelerde uyarı paneli bunu kullanır. */
+  minStockLevel?: string | number | null
+  /** Açılış stoğu; sunucu depo bazlı hareketle işler. */
+  stockQuantity?: string | number | null
+  /** Fiyat KDV dahil girildiyse true — sunucu net'e çevirip öyle saklar. */
+  salePriceVatIncluded?: boolean
+  purchasePriceVatIncluded?: boolean
 }): Promise<CreatedProduct> {
   const name = input.name.trim()
   if (!name) throw new Error("Ürün adı boş olamaz")
@@ -40,6 +62,13 @@ export async function quickCreateProduct(input: {
       unit: input.unit ?? undefined,
       vatRate: input.vatRate ?? undefined,
       isService: input.isService ?? undefined,
+      isSellable: input.isSellable ?? undefined,
+      isIngredient: input.isIngredient ?? undefined,
+      category: input.category ?? undefined,
+      minStockLevel: input.minStockLevel ?? undefined,
+      stockQuantity: input.stockQuantity ?? undefined,
+      salePriceVatIncluded: input.salePriceVatIncluded ?? undefined,
+      purchasePriceVatIncluded: input.purchasePriceVatIncluded ?? undefined,
     }),
   })
 
@@ -57,5 +86,8 @@ export async function quickCreateProduct(input: {
     unit: data.unit ?? null,
     vatRate: data.vatRate != null ? Number(data.vatRate) : null,
     isService: Boolean(data.isService),
+    isSellable: data.isSellable !== false,
+    isIngredient: data.isIngredient === true,
+    category: data.category ?? null,
   }
 }

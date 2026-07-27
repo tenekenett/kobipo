@@ -65,6 +65,10 @@ const STATIC_TITLES: Record<string, string> = {
 
   // Restoran & Kafe
   "/restoran/satis": "Kahveci Satış",
+  "/restoran/menu": "Menü & Reçeteler",
+  "/restoran/raporlar": "Restoran Raporları",
+  // Eski adresler yönlendirme olarak duruyor; başlıkları da korunuyor ki
+  // yönlendirme tamamlanana kadar sekmede boş/yanlış başlık görünmesin.
   "/restoran/karlilik": "Karlılık",
   "/restoran/menu-performans": "Menü Performansı",
   "/restoran/tuketim": "Hammadde Tüketimi",

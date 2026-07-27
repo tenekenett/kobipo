@@ -12,7 +12,8 @@
 // Uyarı ENGELLEMEZ — PLAN.md "Adım 4": kahvecide stok girişleri gecikir,
 // engelleyici kontrol kasayı kilitler.
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
 import {
   AlertTriangle,
   ChefHat,
@@ -60,6 +61,7 @@ import {
   type RefProduct,
 } from "@/lib/swr/use-company-data"
 import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-html"
+import { qty } from "@/lib/format"
 import {
   buildPaymentParts,
   emptyPaymentState,
@@ -111,12 +113,6 @@ function cartTotals(cart: CafeLine[]) {
   )
 }
 
-/** Stok miktarları Decimal(14,4) — gramaj görünür kalsın diye 4 ondalığa kadar. */
-const qty = (n: number) =>
-  new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 4 }).format(
-    Number(n) || 0
-  )
-
 type Shortage = {
   productId: string
   name: string
@@ -149,6 +145,13 @@ export function CafeSaleScreen() {
   const [warehouseId, setWarehouseId] = useState("")
   const [payment, setPayment] = useState<PaymentState>(() => emptyPaymentState())
   const [isSubmitting, setIsSubmitting] = useState(false)
+  /**
+   * Çift satış kilidi. `isSubmitting` state'i tek başına yetmiyor: F2 basılı
+   * tutulduğunda (klavye tekrarı) ya da butona çift tıklandığında iki çağrı da
+   * aynı render'da geçebilir — state güncellemesi henüz görünmemiştir. Sonuç iki
+   * fiş, iki stok düşümü, iki tahsilat olurdu. Ref senkron okunup yazılır.
+   */
+  const submitLock = useRef(false)
   const [lastSale, setLastSale] = useState<
     { id: string; invoiceNo?: string | null; receipt: ReceiptData } | null
   >(null)
@@ -334,7 +337,7 @@ export function CafeSaleScreen() {
   }, [])
 
   const handleComplete = useCallback(async () => {
-    if (!companyId || cart.length === 0 || isSubmitting) return
+    if (!companyId || cart.length === 0 || submitLock.current) return
     if (cart.some((l) => l.quantity <= 0)) {
       toast({ title: "Geçersiz miktar", description: "Tüm satırlarda adet 0'dan büyük olmalı", variant: "destructive" })
       return
@@ -342,6 +345,7 @@ export function CafeSaleScreen() {
 
     const snapshot = cart
     const t = cartTotals(snapshot)
+    submitLock.current = true
     setIsSubmitting(true)
     try {
       // Fiş kesilir (resmî fatura değil): daima MANUAL, GİB'e gönderim yok.
@@ -457,12 +461,13 @@ export function CafeSaleScreen() {
         variant: "destructive",
       })
     } finally {
+      // Tahsilat hatasında try içinden dönülse bile burası çalışır — kilit tek yerde açılır.
+      submitLock.current = false
       setIsSubmitting(false)
     }
   }, [
     companyId,
     cart,
-    isSubmitting,
     customerId,
     warehouseId,
     note,
@@ -476,15 +481,20 @@ export function CafeSaleScreen() {
   ])
 
   // F2 → satışı tamamla (POS benzeri hızlı kapatma).
+  //
+  // `e.repeat` elenir: tuş basılı tutulduğunda tarayıcı saniyede onlarca keydown
+  // üretir. Satış diyaloğu açıkken de çalışmaz — kasiyer "Yeni Satış"a basmadan
+  // önce F2'ye dokunursa boş sepetle ikinci bir istek gitmesin.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "F2") return
+      if (e.key !== "F2" || e.repeat) return
+      if (lastSale !== null) return
       e.preventDefault()
       void handleComplete()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [handleComplete])
+  }, [handleComplete, lastSale])
 
   // autoPrint=true → pencere açılır açılmaz yazdırma diyaloğu gelir.
   const openReceipt = (autoPrint: boolean) => {
@@ -604,9 +614,17 @@ export function CafeSaleScreen() {
               ) : visibleProducts.length === 0 ? (
                 <div className="py-12 text-center text-sm text-muted-foreground">
                   {menuProducts.length === 0 ? (
+                    // Kurulum artık tek yerde (Menü & Reçeteler) — iki ayrı yol
+                    // tarif etmek yerine doğrudan oraya bağlıyoruz.
                     <>
-                      Menüde ürün yok. Stok kartlarında &quot;Satışta göster&quot; açık bir ürün
-                      oluşturun ya da Reçeteler ekranından bir ürünü menüye alın.
+                      Menüde ürün yok.{" "}
+                      <Link
+                        href="/restoran/menu"
+                        className="font-semibold text-kobipo-blue underline-offset-4 hover:underline dark:text-primary"
+                      >
+                        Menü &amp; Reçeteler
+                      </Link>{" "}
+                      ekranından ürünlerinizi menüye alın.
                     </>
                   ) : (
                     "Bu aramaya/kategoriye uyan ürün yok"

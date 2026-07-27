@@ -6,6 +6,7 @@
 // Bkz. docs/restoran/PLAN.md "Adım 6", ILERLEME.md "Adım 8".
 
 import { Prisma } from "@prisma/client"
+import { avgCostCte } from "@/lib/stock/cost"
 
 /** Reçeteden türeyen stok hareketlerinin işareti — satış anında yazılır. */
 export const RECIPE_MARK = "%Reçete:%"
@@ -97,30 +98,68 @@ export function reportScope(companyId: string, start: Date, end: Date): Prisma.S
 }
 
 /**
- * Belge başına maliyet CTE'si (reportScope'un ardına eklenir).
+ * Belge başına maliyet CTE'si. `reportScope`'un ardına virgülle eklenir ve
+ * ihtiyaç duyduğu `avg_cost` CTE'sini KENDİSİ getirir — çağıranın iki parçayı
+ * doğru sırada dizmesi gerekmesin diye:
+ *
+ * ```ts
+ * prisma.$queryRaw`${reportScope(c, s, e)}, ${docCostCte(c)} SELECT ...`
+ * ```
  *
  * `recipe_cost` — reçeteden türeyen hareketlerin DONDURULMUŞ maliyeti
  * (`|miktar| × unitPrice`, satış anında yazıldı). PLAN.md "Adım 6": kahveye
  * sonradan zam gelse geçmiş günlerin karlılığı değişmez.
  *
  * `direct_cost` — reçetesiz satılan ürünler (şişe su, kutu kola). Bunların stok
- * hareketindeki `unitPrice` SATIŞ fiyatıdır, maliyet değil; o yüzden ürün
- * kartındaki alış fiyatı kullanılır. Ayrı tutulur: reçete maliyeti gerçekleşmiş
- * veriye, bu satır güncel alış fiyatına dayanıyor — aynı kefeye konamazlar.
+ * hareketindeki `unitPrice` SATIŞ fiyatıdır, maliyet değil; o yüzden AVCO
+ * kullanılır (lib/stock/cost.ts). Ayrı tutulur: reçete maliyeti gerçekleşmiş
+ * veriye, bu satır güncel maliyete dayanıyor — aynı kefeye konamazlar.
+ *
+ * Maliyeti HİÇ bilinmeyen ürünler burada yine `0` sayılır (toplam bozulmasın),
+ * ama sessiz kalmamak için ayrıca sayılırlar — bkz. `pricelessCte`.
  */
-export const docCostCte = Prisma.sql`
-  cost AS (
-    SELECT r.doc_id,
-           COALESCE(SUM(CASE WHEN m.description LIKE ${RECIPE_MARK}
-                             THEN ABS(m.quantity) * COALESCE(m."unitPrice", 0) END), 0) AS recipe_cost,
-           COALESCE(SUM(CASE WHEN m.description NOT LIKE ${RECIPE_MARK} AND m.type = 'OUT'
-                             THEN ABS(m.quantity) * COALESCE(p."purchasePrice", 0) END), 0) AS direct_cost
+export function docCostCte(companyId: string): Prisma.Sql {
+  return Prisma.sql`
+    ${avgCostCte(companyId)},
+    cost AS (
+      SELECT r.doc_id,
+             COALESCE(SUM(CASE WHEN m.description LIKE ${RECIPE_MARK}
+                               THEN ABS(m.quantity) * COALESCE(m."unitPrice", 0) END), 0) AS recipe_cost,
+             COALESCE(SUM(CASE WHEN m.description NOT LIKE ${RECIPE_MARK} AND m.type = 'OUT'
+                               THEN ABS(m.quantity) * COALESCE(ac.unit_cost, 0) END), 0) AS direct_cost
+      FROM stock_movements m
+      JOIN ref r ON r.ref_id = m.reference
+      LEFT JOIN avg_cost ac ON ac.product_id = m."productId"
+      GROUP BY r.doc_id
+    )
+  `
+}
+
+/**
+ * Maliyeti bilinmeyen ürünleri sayan sorgu (reportScope'un ardına eklenir, kendi
+ * `avg_cost`'unu getirir). Tek satır döner: `cnt`.
+ *
+ * İki durum birden sayılır:
+ *  - reçete hareketinin DONDURULMUŞ `unitPrice`'ı boş (satış anında da maliyet yoktu),
+ *  - reçetesiz satışta ürünün AVCO'su yok (ne alış hareketi ne alış fiyatı).
+ *
+ * Gerekçe: `direct_cost`/`recipe_cost` bunları 0 sayıyor — toplamı bozmamak için
+ * doğru, ama sessiz bırakılırsa kullanıcı %100 marjı gerçek sanır.
+ */
+export function pricelessCte(companyId: string): Prisma.Sql {
+  return Prisma.sql`
+    ${avgCostCte(companyId)}
+    SELECT COUNT(DISTINCT m."productId") AS cnt
     FROM stock_movements m
     JOIN ref r ON r.ref_id = m.reference
-    LEFT JOIN products p ON p.id = m."productId"
-    GROUP BY r.doc_id
-  )
-`
+    LEFT JOIN avg_cost ac ON ac.product_id = m."productId"
+    WHERE m.type = 'OUT'
+      AND (
+        (m.description LIKE ${RECIPE_MARK} AND m."unitPrice" IS NULL)
+        OR (m.description NOT LIKE ${RECIPE_MARK} AND ac.unit_cost IS NULL)
+      )
+  `
+}
 
 /** Prisma Decimal / bigint / string → number (raw sorgu çıktıları karışık gelir). */
 export const num = (v: unknown): number => {

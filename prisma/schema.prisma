@@ -530,14 +530,22 @@ model Product {
   stockQuantity            Decimal  @default(0) @db.Decimal(14, 4)
   minStockLevel            Decimal? @db.Decimal(14, 4)
   isService                Boolean  @default(false)
-  // Satış/menü ekranlarında listelenir mi? Hammaddeler (süt, kahve çekirdeği,
-  // karton bardak) false yapılır. Varsayılan true — mevcut ürünler etkilenmez.
-  //
-  // "Hammadde" AYRI bir bayrak DEĞİLDİR: bir ürünün hammadde olup olmadığı
-  // ProductRecipeItem'da kullanılıp kullanılmadığından türetilir. Böylece kahve
-  // çekirdeği hem 250 gr paket olarak satılabilir (isSellable=true) hem de latte
-  // reçetesinde bileşen olarak durabilir — tek kart, tek stok bakiyesi.
+  // Satış/menü ekranlarında listelenir mi? Varsayılan true — mevcut ürünler
+  // etkilenmez. Hizmetlerde ANLAMSIZDIR: her iki satış ekranı da isService
+  // ürünleri baştan dışlıyor.
   isSellable               Boolean  @default(true)
+  // Reçetelerde bileşen olarak kullanılan bir kalem mi (süt, kahve çekirdeği)?
+  //
+  // `isSellable` ile BİRBİRİNİ DIŞLAMAZ: kahve çekirdeği hem 250 gr paket olarak
+  // satılabilir (isSellable=true) hem de latte reçetesinde bileşen olabilir
+  // (isIngredient=true) — tek kart, tek stok bakiyesi.
+  //
+  // DİKKAT — bu alan yalnızca SUNUM/FİLTRELEME içindir (Menü & Reçeteler
+  // sekmeleri, /stok filtresi). Bir ürünün reçetede kullanılabilmesini
+  // ENGELLEMEZ: reçete motoru hâlâ ProductRecipeItem'a bakar. Böylece bayrak
+  // gerçekle çelişse bile (işaretli ama hiçbir reçetede yok, ya da tersi)
+  // stok/maliyet hesabı sessizce bozulmaz — yalnızca ürün yanlış sekmede görünür.
+  isIngredient             Boolean  @default(false)
   isActive                 Boolean  @default(true)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt

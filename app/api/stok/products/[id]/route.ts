@@ -138,6 +138,7 @@ export async function PUT(
       isService,
       isActive,
       isSellable,
+      isIngredient,
     } = body
 
     // KDV dahil girilen fiyatları net'e çevir (DB net saklar).
@@ -179,6 +180,8 @@ export async function PUT(
         isService: isService !== undefined ? isService : product.isService,
         isActive: isActive !== undefined ? isActive : product.isActive,
         isSellable: isSellable !== undefined ? Boolean(isSellable) : product.isSellable,
+        isIngredient:
+          isIngredient !== undefined ? Boolean(isIngredient) : product.isIngredient,
       },
     })
 
@@ -230,10 +233,15 @@ export async function PATCH(
       data.barcode = trimmed ? trimmed : null
     }
 
-    // Reçete ekranı, ürünü menüden çıkarıp hammaddeye çevirmek için bunu tek
-    // başına gönderir; fiyat/stok alanlarına dokunmadan güncellenmeli.
-    if ("isSellable" in body) {
-      data.isSellable = Boolean(body.isSellable)
+    // Tür bayrakları (lib/stock/product-kind.ts). Menü & Reçeteler ekranındaki
+    // tür seçici üçünü BİRLİKTE gönderir — tek tek yazılsaydı ara adımda ürün
+    // hiçbir listede görünmeyen bir duruma düşebilirdi. Fiyat/stok alanlarına
+    // dokunulmaz.
+    //
+    // `isService` de kabul edilmeli: aksi halde "hizmete çevir" isteği sessizce
+    // yutulur ve istemci başarılı sanır (yanıt 200, alan değişmemiş).
+    for (const field of ["isService", "isSellable", "isIngredient"] as const) {
+      if (field in body) data[field] = Boolean(body[field])
     }
 
     if (Object.keys(data).length === 0) {
