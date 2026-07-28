@@ -15,6 +15,7 @@ export interface UserCompanyContext {
   createdAt: Date
   // Üyelik DEĞİL; ana firmasının ADMIN'i olduğu için erişilen alt şube.
   isBranch?: boolean
+  parentCompanyId?: string | null
   parentName?: string | null
   viaParent?: boolean
 }
@@ -119,6 +120,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
       disabledModules: b.disabledModules,
       createdAt: new Date(0),
       isBranch: true,
+      parentCompanyId: b.parentCompanyId,
       parentName: b.parentName,
       viaParent: true,
     }))

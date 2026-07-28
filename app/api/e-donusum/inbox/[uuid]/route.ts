@@ -8,6 +8,7 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
+import { describeMysoftError } from "@/lib/integrations/e-invoice/error-messages"
 
 export const dynamic = "force-dynamic"
 
@@ -97,15 +98,10 @@ export async function GET(
 
     const result = await provider.getIncomingInvoiceModel(uuid)
     if (!result.success) {
-      const raw = result.error || "Bilinmeyen hata"
-      const low = raw.toLowerCase()
-      // Tüm tenant adayları denendikten sonra hâlâ firma-kullanıcı hatası geliyorsa,
-      // sorun VKN doğrulama DEĞİL, Mysoft API kullanıcısının bu mükellefe bağlı
-      // olmamasıdır. Kullanıcıyı kayıtlı kullanıcı adı/şifresini kontrol etmeye yönlendir.
-      const modelError =
-        low.includes("firma kullanıcı") || low.includes("kullanıcı bilgileri")
-          ? `${raw} — Mysoft API kullanıcınız bu firmaya bağlı görünmüyor. E-Dönüşüm Ayarları'ndan kayıtlı Mysoft kullanıcı adı/şifrenizi kontrol edip yeniden kaydedin.`
-          : raw
+      // Ham Mysoft metnini kullanıcıya gösterilebilir hâle çevir: firma-kullanıcı
+      // hatasında ayarlara yönlendirir, "mongoda bulunamadı" hatasında belgenin
+      // sağlayıcıda olmadığını açıklar (bkz. error-messages.ts).
+      const modelError = describeMysoftError(result.error)
       return NextResponse.json({ ...base, model: null, modelError }, { status: 200 })
     }
 

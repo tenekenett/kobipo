@@ -38,6 +38,7 @@ import {
   Trash2,
 } from "lucide-react"
 import Link from "next/link"
+import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
@@ -246,11 +247,22 @@ export default function FaturalarListing({
         })
         return
       }
+      const parts: string[] = [`${data.checked} fatura kontrol edildi`]
+      if (data.voided) parts.push(`${data.voided} reddedilen/iptal cari bakiyeden düşürüldü`)
+      // GİB'de hata alan faturaları ayrıca duyur: alıcıya ulaşmamışlardır, yeniden
+      // gönderilmeleri gerekir. Sebebi ilk faturanın zarf mesajından gösteriyoruz.
+      if (data.failed) {
+        const firstReason = data.failedInvoices?.[0]?.reason
+        parts.push(
+          `${data.failed} fatura GİB'de HATA durumunda — alıcıya ulaşmadı` +
+            (firstReason ? ` (${firstReason})` : ""),
+        )
+      }
+      if (!data.voided && !data.failed) parts.push("değişiklik yok")
       toast({
         title: "Fatura durumları senkronize edildi",
-        description:
-          `${data.checked} fatura kontrol edildi` +
-          (data.voided ? ` · ${data.voided} reddedilen/iptal cari bakiyeden düşürüldü` : " · değişiklik yok"),
+        description: parts.join(" · "),
+        variant: data.failed ? "destructive" : undefined,
       })
       await fetchList()
     } catch (e: any) {
@@ -460,9 +472,31 @@ export default function FaturalarListing({
     )
   }
 
-  const statusBadge = (status: string | null, source?: FaturaRow["source"]) => {
+  const statusBadge = (
+    status: string | null,
+    source?: FaturaRow["source"],
+    integrationStatus?: string | null,
+  ) => {
     if (!status) return <span className="text-xs text-muted-foreground">-</span>
     const s = status.toUpperCase()
+
+    // GİB'de HATA olan faturayı "SENT" (yeşil) göstermeyi bırak. Zarf reddedilmişse
+    // (ör. "daha önce kayıtlı bir faturayı içermektedir") belge alıcıya HİÇ ulaşmaz;
+    // yeşil rozet kullanıcıya faturanın gitmiş olduğunu düşündürüyordu. Fatura
+    // CANCELLED yapılmaz — hata geçici olabilir ve cari/stok etkisi bilinçli olarak
+    // korunur (bkz. evaluateGibVoid) — ama durum dürüstçe gösterilir.
+    const gib = parseGibStatus(integrationStatus)
+    if (s === "SENT" && gib && gib.bucket === "rejected") {
+      return (
+        <span
+          className="rounded bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-800 dark:bg-red-500/15 dark:text-red-200"
+          title={gib.detail || gib.label}
+        >
+          GİB: {gib.label}
+        </span>
+      )
+    }
+
     // Alış faturası (manuel girilmiş veya gelen e-faturadan dönüştürülmüş) bir ALINAN
     // belgedir; taslak/onay akışı yoktur → DRAFT'ı "Taslak/DRAFT" değil "Kayıtlı" göster.
     const isRecordedPurchase =
@@ -749,7 +783,9 @@ export default function FaturalarListing({
                       <TableCell className="text-right text-xs font-semibold whitespace-nowrap">
                         {fmt(row.totalAmount, row.currency || "TRY")}
                       </TableCell>
-                      <TableCell>{statusBadge(row.status, row.source)}</TableCell>
+                      <TableCell>
+                        {statusBadge(row.status, row.source, row.meta?.integrationStatus)}
+                      </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           {isInvoiceRow ? (

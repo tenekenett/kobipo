@@ -13,7 +13,12 @@ export function BranchContextBanner() {
 
   if (!selectedCompany?.isBranch) return null
 
-  const mainCompany = companies.find((c) => !c.isBranch)
+  // Şubenin GERÇEK ana firması. Önceden "listedeki ilk ana firma" alınıyordu; birden
+  // fazla ana firması olan kullanıcıda "Ana firmaya dön" alakasız bir firmaya
+  // götürüyordu (şube TEST Ana Firma'nınken kullanıcı reypo'ya düşüyordu).
+  const mainCompany =
+    companies.find((c) => !c.isBranch && c.id === selectedCompany.parentCompanyId) ??
+    companies.find((c) => !c.isBranch)
 
   return (
     <div className="mb-4 flex flex-col gap-2 rounded-lg border border-teal-300 bg-teal-50 p-3 text-sm dark:border-teal-900/50 dark:bg-teal-950/30 sm:flex-row sm:items-center sm:justify-between">

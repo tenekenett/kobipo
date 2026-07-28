@@ -67,6 +67,7 @@ export default async function DashboardLayout({
     isEDonusumEnabled: entry.isEDonusumEnabled,
     disabledModules: entry.disabledModules,
     isBranch: Boolean(entry.isBranch),
+    parentCompanyId: entry.parentCompanyId ?? null,
     parentName: entry.parentName ?? null,
   }))
   // Varsayılan rol: ilk ÜYE firma (şubeler listenin sonunda, sanal ADMIN).

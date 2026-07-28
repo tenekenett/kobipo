@@ -91,10 +91,20 @@ export async function POST(request: Request) {
     let voidedLinked = 0
     const errors: Array<{ uuid: string; error: string }> = []
 
-    for (const row of result.data) {
+    // Mevcut kayıtları TEK sorguda oku. Önceden her fatura için ayrı findUnique
+    // atılıyordu; sayfalama düzeltmesiyle liste 100'den ~500'e çıkınca bu, istek
+    // başına yüzlerce gereksiz gidiş-dönüş demekti (senkron dakikalara uzuyordu).
+    const uuids = result.data.map((r) => r.uuid).filter((u): u is string => Boolean(u))
+    const existingRows = await prisma.incomingInvoice.findMany({
+      where: { companyId, uuid: { in: uuids } },
+      select: { uuid: true, status: true, linkedInvoiceId: true },
+    })
+    const existingByUuid = new Map(existingRows.map((r) => [r.uuid, r]))
+
+    const processRow = async (row: (typeof result.data)[number]) => {
       if (!row.uuid) {
         skipped++
-        continue
+        return
       }
       try {
         // Yerel yanıt durumunu (KABUL/RED) koru: uygulama içinden Kabul/Reddet
@@ -104,10 +114,7 @@ export async function POST(request: Request) {
         // "reddedilmiş fatura dönüştürülemez" koruması (status==='RED') bypass olup
         // reddedilen faturadan yeniden borç yaratılabilir. Bu yüzden yerelde KABUL/RED
         // varken, Mysoft henüz terminal (KABUL/RED) döndürmediyse yereli koruyoruz.
-        const existing = await prisma.incomingInvoice.findUnique({
-          where: { companyId_uuid: { companyId, uuid: row.uuid } },
-          select: { status: true, linkedInvoiceId: true },
-        })
+        const existing = existingByUuid.get(row.uuid)
         const localStatusUpper = (existing?.status || "").toUpperCase()
         const incomingStatusUpper = (row.status || "").toUpperCase()
         const localIsTerminal = localStatusUpper === "KABUL" || localStatusUpper === "RED"
@@ -185,6 +192,13 @@ export async function POST(request: Request) {
       } catch (e: any) {
         errors.push({ uuid: row.uuid, error: e?.message || "upsert error" })
       }
+    }
+
+    // Yazmaları sınırlı eşzamanlılıkla çalıştır. Tamamen sırayla gitmek ~500 kayıtta
+    // dakikalar sürüyordu; sınırsız Promise.all ise bağlantı havuzunu tüketir.
+    const CONCURRENCY = 10
+    for (let i = 0; i < result.data.length; i += CONCURRENCY) {
+      await Promise.all(result.data.slice(i, i + CONCURRENCY).map(processRow))
     }
 
     return NextResponse.json({

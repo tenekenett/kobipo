@@ -228,10 +228,16 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const [isPriceHistoryLoading, setIsPriceHistoryLoading] = useState(false)
   const [activeItemIndexForPrices, setActiveItemIndexForPrices] = useState<number | null>(null)
 
-  // GİB formatı taslak önizleme modalı
+  // GİB formatı önizleme modalı. previewKind: modalda ne gösterildiği —
+  // "incoming" gelen e-faturanın gönderenden alınan resmî GİB PDF'i,
+  // "draft" bizim ürettiğimiz TASLAK önizleme.
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const [isPreviewLoading, setIsPreviewLoading] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewKind, setPreviewKind] = useState<"draft" | "incoming">("draft")
+  // Gelen belge PDF yerine GİB HTML'i olarak geldiyse true — iframe sandbox'lanır
+  // (içerik gönderen tarafa aittir, blob URL kendi origin'imizi miras alır).
+  const [previewIsHtml, setPreviewIsHtml] = useState(false)
 
   const [formData, setFormData] = useState({
     type: "SALES",
@@ -1590,33 +1596,73 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     globalDiscountAmount: totals.globalDiscount > 0 ? totals.globalDiscount : 0,
   })
 
-  const handlePreview = async () => {
-    const meaningful = items.some(
-      (it) => it.productId || (Number(it.quantity) || 0) > 0 || (Number(it.unitPrice) || 0) > 0 || it.description?.trim(),
-    )
-    if (!meaningful) {
-      return toast({ title: "Önizleme için kalem gerekli", description: "En az bir fatura kalemi girin", variant: "destructive" })
+  const fetchDraftPreviewBlob = async (): Promise<Blob> => {
+    const res = await fetch("/api/e-donusum/invoices/preview-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildPreviewPayload()),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || "Önizleme oluşturulamadı")
     }
+    return res.blob()
+  }
+
+  // Gelen e-faturanın GERÇEK belge görüntüsü — resmî GİB PDF'i, o yoksa GİB HTML'i.
+  const fetchIncomingDocBlob = async (uuid: string): Promise<{ blob: Blob; isHtml: boolean }> => {
+    const res = await fetch(
+      `/api/e-donusum/inbox/${encodeURIComponent(uuid)}/view?companyId=${encodeURIComponent(companyId)}`,
+    )
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || "Gelen e-faturanın belge görüntüsü alınamadı")
+    }
+    const isHtml = (res.headers.get("X-Kobipo-Doc-Format") || "").toLowerCase() === "html"
+    return { blob: await res.blob(), isHtml }
+  }
+
+  const handlePreview = async () => {
     setIsPreviewLoading(true)
     try {
-      const res = await fetch("/api/e-donusum/invoices/preview-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPreviewPayload()),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || "Önizleme oluşturulamadı")
+      let blob: Blob
+      let kind: "draft" | "incoming" = "draft"
+      let isHtml = false
+
+      if (fromIncomingUuid) {
+        // Bu ekranda belge zaten mevcut: kullanıcı gelen faturanın kendisini
+        // görmeli. Taslağımıza DÜŞMEYİZ — taslak, faturayı bizim kestiğimiz
+        // izlenimi veren bir temsildir; gerçek belge alınamıyorsa bunu açıkça
+        // söylemek, yanlış belgeyi göstermekten iyidir.
+        const doc = await fetchIncomingDocBlob(fromIncomingUuid)
+        blob = doc.blob
+        isHtml = doc.isHtml
+        kind = "incoming"
+      } else {
+        const meaningful = items.some(
+          (it) => it.productId || (Number(it.quantity) || 0) > 0 || (Number(it.unitPrice) || 0) > 0 || it.description?.trim(),
+        )
+        if (!meaningful) {
+          toast({ title: "Önizleme için kalem gerekli", description: "En az bir fatura kalemi girin", variant: "destructive" })
+          return
+        }
+        blob = await fetchDraftPreviewBlob()
       }
-      const blob = await res.blob()
+
       const url = URL.createObjectURL(blob)
       setPreviewUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev)
         return url
       })
+      setPreviewKind(kind)
+      setPreviewIsHtml(isHtml)
       setIsPreviewOpen(true)
     } catch (e: any) {
-      toast({ title: "Önizleme başarısız", description: e?.message || "Bir hata oluştu", variant: "destructive" })
+      toast({
+        title: fromIncomingUuid ? "Gelen fatura görüntüsü alınamadı" : "Önizleme başarısız",
+        description: e?.message || "Bir hata oluştu",
+        variant: "destructive",
+      })
     } finally {
       setIsPreviewLoading(false)
     }
@@ -1626,7 +1672,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     if (!previewUrl) return
     const a = document.createElement("a")
     a.href = previewUrl
-    a.download = `taslak-fatura${formData.invoiceNo ? "-" + formData.invoiceNo : ""}.pdf`
+    const suffix = formData.invoiceNo ? "-" + formData.invoiceNo : ""
+    a.download =
+      previewKind === "incoming"
+        ? `gelen-fatura${suffix}.${previewIsHtml ? "html" : "pdf"}`
+        : `taslak-fatura${suffix}.pdf`
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -1937,7 +1987,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           <div className="flex flex-wrap justify-end gap-3">
             <Button onClick={handlePreview} disabled={isPreviewLoading || isLoading} variant="outline">
               {isPreviewLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
-              Önizle (GİB)
+              {fromIncomingUuid ? "Gelen Faturayı Görüntüle" : "Önizle (GİB)"}
             </Button>
             <Button onClick={handleSubmit} disabled={isLoading} variant="success">
               {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Kaydediliyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Yeni Fatura Olarak Kaydet"}
@@ -2858,7 +2908,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             <Button variant="outline" onClick={() => { resetForm(); goBack() }}>İptal</Button>
             <Button onClick={handlePreview} disabled={isPreviewLoading || isLoading} variant="outline">
               {isPreviewLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
-              Önizle (GİB)
+              {fromIncomingUuid ? "Gelen Faturayı Görüntüle" : "Önizle (GİB)"}
             </Button>
             <Button onClick={handleSubmit} disabled={isLoading} variant="success">
               {isLoading ? editingInvoiceId ? "Güncelleniyor..." : "Kaydediliyor..." : editingInvoiceId ? "Faturayı Güncelle" : "Yeni Fatura Olarak Kaydet"}
@@ -2979,21 +3029,29 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         </DialogContent>
       </Dialog>
 
-      {/* GİB FORMATI TASLAK ÖNİZLEME MODALI */}
+      {/* GİB ÖNİZLEME MODALI — gelen e-fatura akışında gönderenin resmî belgesi */}
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
         <DialogContent className="max-w-4xl p-0 overflow-hidden gap-0">
           <DialogHeader className="p-5 pb-3">
-            <DialogTitle>Fatura Önizleme — GİB Formatı (TASLAK)</DialogTitle>
+            <DialogTitle>
+              {previewKind === "incoming"
+                ? "Gelen E-Fatura — Resmî GİB Belgesi"
+                : "Fatura Önizleme — GİB Formatı (TASLAK)"}
+            </DialogTitle>
             <DialogDescription>
-              Bu bir ön izlemedir; mali/yasal değeri yoktur. Resmî belge, faturayı
-              resmileştirdikten sonra GİB tarafından üretilir.
+              {previewKind === "incoming"
+                ? "Tedarikçinin düzenlediği e-faturanın GİB görüntüsü. Alış faturanız bu belgeden dolduruldu; kaydettiğinizde stok ve cari hareketleri oluşur."
+                : "Bu bir ön izlemedir; mali/yasal değeri yoktur. Resmî belge, faturayı resmileştirdikten sonra GİB tarafından üretilir."}
             </DialogDescription>
           </DialogHeader>
           <div className="bg-slate-100 dark:bg-muted px-5">
             {previewUrl ? (
               <iframe
                 src={previewUrl}
-                title="Taslak fatura önizleme"
+                title={previewKind === "incoming" ? "Gelen e-fatura görüntüsü" : "Taslak fatura önizleme"}
+                // GİB HTML'i gönderen tarafın içeriği; blob URL origin'imizi miras
+                // aldığı için script/form/aynı-origin erişimini sandbox ile keseriz.
+                sandbox={previewIsHtml ? "" : undefined}
                 className="h-[68vh] w-full rounded-md border bg-white"
               />
             ) : (
@@ -3006,7 +3064,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             <Button variant="outline" onClick={() => setIsPreviewOpen(false)}>Kapat</Button>
             <Button variant="outline" onClick={handleDownloadPreview} disabled={!previewUrl}>
               <Download className="mr-2 h-4 w-4" />
-              Taslak PDF İndir
+              {previewKind === "incoming"
+                ? `Gelen Faturayı İndir (${previewIsHtml ? "HTML" : "PDF"})`
+                : "Taslak PDF İndir"}
             </Button>
             <Button
               variant="success"

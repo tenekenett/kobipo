@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -135,6 +135,7 @@ export default function FaturaOnizlemePage() {
   const [attachmentName, setAttachmentName] = useState("")
   const [isCheckingStatus, setIsCheckingStatus] = useState(false)
   const [isDownloadingGibPdf, setIsDownloadingGibPdf] = useState(false)
+  const [isDownloadingIncomingDoc, setIsDownloadingIncomingDoc] = useState(false)
   const [isDownloadingPreviewPdf, setIsDownloadingPreviewPdf] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [isSendingToProvider, setIsSendingToProvider] = useState(false)
@@ -206,6 +207,38 @@ export default function FaturaOnizlemePage() {
     if (response.ok) setAttachments(await response.json())
   }
 
+  // OTOMATİK DURUM SORGUSU
+  //
+  // GİB durumu daha önce yalnızca kullanıcı "Durumu Kontrol Et" veya listede
+  // "Durumları Senkronize Et" derse güncelleniyordu. Kimse basmazsa fatura,
+  // GİB'de reddedilmiş/hatalı olsa bile ekranda "gönderilmiş" görünüyordu.
+  // Fatura açıldığında, durumu HENÜZ KESİNLEŞMEMİŞ e-belgeler için sorguyu
+  // sessizce (toast'sız) bir kez tetikliyoruz. Terminal durumdakiler (KABUL,
+  // RED, İPTAL, HATA) yeniden sorgulanmaz — gereksiz Mysoft çağrısı olmasın.
+  const autoCheckedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!invoice?.id || !invoice.uuid) return
+    if (invoice.status !== "SENT") return
+    if (invoice.invoiceType !== "E_INVOICE" && invoice.invoiceType !== "E_ARCHIVE") return
+    if (autoCheckedRef.current === invoice.id) return
+
+    const bucket = parseGibStatus(invoice.integrationStatus)?.bucket
+    const isSettled = bucket === "approved" || bucket === "rejected" || bucket === "cancelled"
+    if (isSettled) return
+
+    autoCheckedRef.current = invoice.id
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/e-donusum/invoices/${invoice.id}/check-status`, { method: "POST" })
+        // Sorgu başarısız olsa da sessiz kalırız; kullanıcı butondan tekrar deneyebilir.
+        // check-status kesin hataları zaten integrationStatus'e ERROR: olarak yazıyor.
+        if (res.ok || res.status === 502) fetchInvoice()
+      } catch {
+        /* otomatik sorgu — sessizce geç */
+      }
+    })()
+  }, [invoice?.id, invoice?.uuid, invoice?.status, invoice?.invoiceType, invoice?.integrationStatus])
+
   const handleDownloadPDF = async () => {
     if (!invoice) return
     // "PDF İndir": taslak sayfasındaki (editör) GİB düzeninde ön izleme PDF'inin
@@ -271,6 +304,33 @@ export default function FaturaOnizlemePage() {
       toast({ title: "Hata", description: error?.message || "Hata oluştu", variant: "destructive" })
     } finally {
       setIsCheckingStatus(false)
+    }
+  }
+
+  // Gelen e-faturadan dönüştürülmüş alış faturasının RESMÎ belgesi, göndericinin
+  // GİB belgesidir — bizim şablonumuzla ürettiğimiz PDF değil. Kendi uuid'imiz
+  // olmadığı için outbox PDF'i yoktur; belgeyi inbox'tan çekeriz (PDF, yoksa GİB HTML).
+  const handleDownloadIncomingDoc = async () => {
+    const inboxUuid = invoice?.incomingSource?.uuid
+    if (!inboxUuid || !companyId) return
+    setIsDownloadingIncomingDoc(true)
+    try {
+      const response = await fetch(
+        `/api/e-donusum/inbox/${encodeURIComponent(inboxUuid)}/view?companyId=${encodeURIComponent(companyId)}`,
+      )
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        toast({ title: "Belge açılamadı", description: data.error || "Bilinmeyen hata", variant: "destructive" })
+        return
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, "_blank", "noopener")
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (error: any) {
+      toast({ title: "Hata", description: error?.message || "Belge açılırken hata oluştu", variant: "destructive" })
+    } finally {
+      setIsDownloadingIncomingDoc(false)
     }
   }
 
@@ -654,10 +714,17 @@ export default function FaturaOnizlemePage() {
     !isPurchase && (invoice.status === "DRAFT" || invoice.status === "GIB_DRAFT")
       ? "Fatura Önizleme"
       : "Fatura Detayı"
+  // GİB tarafında hata/red varsa faturayı "Onaylandı" diye sunma: belge alıcıya
+  // ulaşmamıştır. İç status SENT kalır (cari/stok etkisi bilinçli korunur) ama
+  // başlıktaki rozet gerçeği söyler — aksi hâlde aynı ekranda yeşil "Onaylandı"
+  // ile kırmızı "GİB: Hata" yan yana çıkıyordu.
+  const gibFailed = parseGibStatus(invoice.integrationStatus)?.bucket === "rejected"
   const headerBadge: { label: string; cls: string } =
     isPurchase && (invoice.status === "DRAFT" || invoice.status === "SENT")
       ? { label: "Kayıtlı", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" }
-      : invoice.status === "SENT"
+      : invoice.status === "SENT" && gibFailed
+        ? { label: "GİB'de Hatalı", cls: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" }
+        : invoice.status === "SENT"
         ? { label: "Onaylandı", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" }
         : invoice.status === "GIB_DRAFT"
           ? { label: "GİB Taslağı", cls: "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-300" }
@@ -793,7 +860,23 @@ export default function FaturaOnizlemePage() {
               Resmî PDF (GİB)
             </Button>
           )}
-          {!hasOfficialGibPdf && (
+          {/* Gelen e-faturadan dönüşen alış faturasında resmî belge göndericinindir;
+              kendi şablon PDF'imizi sunmak yanıltıcı olurdu (faturayı biz kesmiş gibi). */}
+          {isFromIncoming && (
+            <Button
+              onClick={handleDownloadIncomingDoc}
+              disabled={isDownloadingIncomingDoc}
+              title="Göndericinin düzenlediği e-faturanın resmî GİB belgesi"
+            >
+              {isDownloadingIncomingDoc ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FileDown className="h-4 w-4 mr-2" />
+              )}
+              Resmî PDF (GİB)
+            </Button>
+          )}
+          {!hasOfficialGibPdf && !isFromIncoming && (
             <Button onClick={handleDownloadPDF} disabled={isDownloadingPreviewPdf}>
               {isDownloadingPreviewPdf ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

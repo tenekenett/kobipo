@@ -17,6 +17,7 @@ export type DashboardCompany = {
   disabledModules?: string[]
   // Üyelik değil; parent-admin erişimiyle gelen alt şube. Üst seçicide gizlenir.
   isBranch?: boolean
+  parentCompanyId?: string | null
   parentName?: string | null
 }
 
@@ -107,6 +108,22 @@ export function DashboardCompanyProvider({
   useEffect(() => {
     if (companies.length === 0) return
 
+    // ÖNEMLİ — bu effect ile yukarıdaki "URL/localStorage → seçim" effect'i AYNI
+    // commit'te çalışır ve buradaki `selectedCompanyId`, o render'ın closure'ından
+    // gelir: yukarıdaki effect setSelectedCompanyId(...) çağırmış olsa bile burası
+    // hâlâ ESKİ değeri (ilk render'da null) görür. Bu yüzden aşağıdaki "eşleşme yok →
+    // ilk firmaya dön" dalı, URL'de açıkça belirtilmiş geçerli bir firmayı ezip
+    // adres çubuğunu ilk firmaya çeviriyordu. Birden fazla firması/şubesi olan
+    // kullanıcıda semptom: menüler arasında gezerken aktif firma kendiliğinden
+    // değişiyor. Çözüm: geçerli bir seçim KAYNAĞI varsa (URL param'ı ya da
+    // localStorage) kararı ona bırak — burada hiçbir şey yapma.
+    const urlParam = searchParams.get("company")
+    if (urlParam && findCompanyByParam(companies, urlParam)) return
+    if (!urlParam) {
+      const stored = typeof window !== "undefined" ? localStorage.getItem("selectedCompanyId") : null
+      if (stored && findCompanyByParam(companies, stored)) return
+    }
+
     // selectedCompanyId slug de olabilir (companies yüklenmeden set edildiyse) → cuid'e düzelt.
     const match = findCompanyByParam(companies, selectedCompanyId)
     if (match) {
@@ -117,13 +134,15 @@ export function DashboardCompanyProvider({
       return
     }
 
+    // Buraya yalnızca gerçekten geçerli bir seçim yoksa düşülür: URL'de firma yok
+    // (ya da erişilemeyen bir firma), localStorage'da da kullanılabilir bir kayıt yok.
     const firstCompanyId = getFirstAccessibleCompanyId(companies)
     if (!firstCompanyId) return
 
     setSelectedCompanyId(firstCompanyId)
     localStorage.setItem("selectedCompanyId", firstCompanyId)
     pushCompanyToUrl(firstCompanyId)
-  }, [companies, selectedCompanyId, pushCompanyToUrl])
+  }, [companies, selectedCompanyId, pushCompanyToUrl, searchParams])
 
   const handleCompanyChange = useCallback(
     (companyId: string) => {

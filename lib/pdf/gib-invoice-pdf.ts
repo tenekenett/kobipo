@@ -214,11 +214,21 @@ export async function generateGibInvoicePdfBuffer(data: GibInvoiceData): Promise
     topY = 16
   }
 
-  // --- Firma (gönderen) — sol üst ---
+  // GİB düzeninde sol üst blok belgeyi DÜZENLEYEN (satıcı), "SAYIN" kutusu ise
+  // belgenin muhatabı (alıcı) taraftır. Alış faturasını tedarikçi düzenler,
+  // firmamız alıcıdır — bu yüzden taraflar fatura tipine göre yer değiştirir.
+  // (Aksi hâlde alış faturası, kendimizi satıcı gösteren yanlış bir belge olurdu.)
+  const isPurchase = data.type === "PURCHASE"
+  const issuer: GibInvoiceParty = isPurchase
+    ? data.counterparty || { name: "(tedarikçi seçilmedi)" }
+    : data.company
+  const recipient: GibInvoiceParty | null = isPurchase ? data.company : data.counterparty || null
+
+  // --- Düzenleyen (satıcı) — sol üst ---
   doc.setFont(FONT, "bold")
   doc.setFontSize(14)
   doc.setTextColor(...BRAND)
-  const companyNameLines = doc.splitTextToSize(data.company.name || "-", 105) as string[]
+  const companyNameLines = doc.splitTextToSize(issuer.name || "-", 105) as string[]
   doc.text(companyNameLines, marginX, topY + 4)
   doc.setTextColor(0, 0, 0)
 
@@ -227,16 +237,16 @@ export async function generateGibInvoicePdfBuffer(data: GibInvoiceData): Promise
   doc.setFontSize(8.5)
   doc.setTextColor(...MUTED)
   const companyLines: string[] = []
-  if (data.company.taxOffice || data.company.taxNumber) {
+  if (issuer.taxOffice || issuer.taxNumber) {
     companyLines.push(
-      `${data.company.taxOffice ? data.company.taxOffice + " VD - " : ""}VKN/TCKN: ${data.company.taxNumber || "-"}`,
+      `${issuer.taxOffice ? issuer.taxOffice + " VD - " : ""}VKN/TCKN: ${issuer.taxNumber || "-"}`,
     )
   }
-  if (data.company.address) companyLines.push(data.company.address)
-  const companyLoc = [data.company.district, data.company.city].filter(Boolean).join(" / ")
+  if (issuer.address) companyLines.push(issuer.address)
+  const companyLoc = [issuer.district, issuer.city].filter(Boolean).join(" / ")
   if (companyLoc) companyLines.push(companyLoc)
-  if (data.company.phone) companyLines.push(`Tel: ${data.company.phone}`)
-  if (data.company.email) companyLines.push(`E-Posta: ${data.company.email}`)
+  if (issuer.phone) companyLines.push(`Tel: ${issuer.phone}`)
+  if (issuer.email) companyLines.push(`E-Posta: ${issuer.email}`)
   companyLines.forEach((ln) => {
     const wrapped = doc.splitTextToSize(ln, 105) as string[]
     doc.text(wrapped, marginX, leftY)
@@ -287,10 +297,10 @@ export async function generateGibInvoicePdfBuffer(data: GibInvoiceData): Promise
     infoY += rowH
   })
 
-  // --- Karşı taraf (SAYIN) kutusu ---
+  // --- Muhatap (SAYIN) kutusu — her zaman alıcı taraf ---
   const partyY = Math.max(leftY, infoY) + 4
-  const partyLabel = data.type === "SALES" ? "SAYIN (ALICI)" : "SAYIN (SATICI)"
-  const cp = data.counterparty
+  const partyLabel = "SAYIN (ALICI)"
+  const cp = recipient
   const partyLines: string[] = []
   if (cp) {
     if (cp.taxOffice || cp.taxNumber) {

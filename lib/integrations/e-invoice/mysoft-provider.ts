@@ -1326,12 +1326,18 @@ async sendInvoice(invoiceData: any): Promise<any> {
         ONAYLANDI: "Onaylandı",
       };
 
+      // HATA'da genel "Hata" etiketi işe yaramaz — asıl bilgi zarf mesajıdır
+      // (ör. "GONDERILEN ZARF SISTEMDE DAHA ONCE KAYITLI OLAN BIR FATURAYI
+      // ICERMEKTEDIR"). Kullanıcı ancak bunu görürse ne yapacağını bilir, bu yüzden
+      // hata durumunda zarf metni etiketin ÖNÜNE geçer.
       const message =
-        declineReason ||
-        humanLabel[upper] ||
-        envelopeStatusText ||
-        rawText ||
-        "Durum bilgisi alındı";
+        upper === "HATA"
+          ? declineReason || envelopeStatusText || humanLabel[upper] || rawText || "Hata"
+          : declineReason ||
+            humanLabel[upper] ||
+            envelopeStatusText ||
+            rawText ||
+            "Durum bilgisi alındı";
 
       return {
         success: true,
@@ -1339,6 +1345,8 @@ async sendInvoice(invoiceData: any): Promise<any> {
         rawText,
         message,
         declineReason,
+        envelopeStatusText,
+        envelopeStatusCode: result.data?.envelopeStatusCode ?? null,
         docNo,
       };
 
@@ -1404,35 +1412,61 @@ async sendInvoice(invoiceData: any): Promise<any> {
       const end = params.endDate || new Date()
       const start = params.startDate || new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
 
-      const url = `${this.baseUrl}/api/InvoiceInbox/getInvoiceInboxWithHeaderInfoListForPeriod`
-      const body = {
-        startDate: start.toISOString(),
-        endDate: end.toISOString(),
-      }
+      // SAYFALAMA ŞART: sayfasız uç (getInvoiceInboxWithHeaderInfoListForPeriod)
+      // dönemde kaç fatura olursa olsun EN FAZLA 100 kayıt döndürür ve kalanı sessizce
+      // keser. Kesilen kısım tam olarak EN YENİ faturalardır; bu yüzden yeni gelen
+      // e-faturalar hiç senkronize olmuyor, gelen kutusu eski kayıtlarda donuyordu.
+      // Paging ucu pageNumber (1'den başlar) + pageSize (max 1000) alır ve totalCount
+      // döndürür; sayfa boş gelene ya da totalCount'a ulaşana kadar dönüyoruz.
+      const url = `${this.baseUrl}/api/InvoiceInbox/getInvoiceInboxWithHeaderInfoListForPeriodPaging`
+      const PAGE_SIZE = 500
+      const MAX_PAGES = 40 // güvenlik freni — 20.000 kayıt
+      const items: any[] = []
+      let lastResult: any = null
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      })
+      for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber++) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            startDate: start.toISOString(),
+            endDate: end.toISOString(),
+            pageNumber,
+            pageSize: PAGE_SIZE,
+          }),
+        })
 
-      const result = await res.json().catch(() => null)
-      if (!result || result.succeed === false) {
-        return {
-          success: false,
-          error: result?.message || `HTTP ${res.status}`,
-          rawResponse: result,
+        const result = await res.json().catch(() => null)
+        if (!result || result.succeed === false) {
+          // İlk sayfa başarısızsa gerçek hata; sonraki sayfada patlarsa o ana kadar
+          // toplananla devam etmek, senkronu tümden kaybetmekten iyidir.
+          if (pageNumber === 1) {
+            return {
+              success: false,
+              error: result?.message || `HTTP ${res.status}`,
+              rawResponse: result,
+            }
+          }
+          break
         }
+        lastResult = result
+
+        const page: any[] = Array.isArray(result.data)
+          ? result.data
+          : Array.isArray(result.data?.items)
+            ? result.data.items
+            : []
+        items.push(...page)
+
+        const total = Number(result.totalCount)
+        if (page.length < PAGE_SIZE) break
+        if (Number.isFinite(total) && items.length >= total) break
       }
 
-      const items: any[] = Array.isArray(result.data)
-        ? result.data
-        : Array.isArray(result.data?.items)
-        ? result.data.items
-        : []
+      const result = lastResult
 
       // Defensive mapping — Mysoft'un farklı sürümlerinde alan isimleri değişebiliyor.
       // Yaygın olası isimlerin hepsini deniyor, ilk dolu olanı kullanıyoruz. Ham JSON
@@ -2018,6 +2052,31 @@ async sendInvoice(invoiceData: any): Promise<any> {
         // önce onlara bakılırsa ürün adı ile açıklama yer değiştiriyordu.
         const productName = pick(item, "itemName", "productName", "name") as string | null
         const itemDesc = pick(item, "itemDescription", "description") as string | null
+        // Mysoft şeması: itemName="Stok Adı", itemDescription="Stok Açıklaması",
+        // sellersItemIdentificationId="Satıcı Kodu".
+        const productCode = pick(
+          item,
+          "sellersItemIdentificationId",
+          "sellersItemIdentification",
+          "productCode",
+          "itemCode",
+        ) as string | null
+
+        // Bazı göndericiler stok KODUNU hem "Satıcı Kodu"na hem "Stok Adı"na yazıp
+        // asıl ürün adını "Stok Açıklaması"na koyuyor. Bu durumda itemName'i tercih
+        // etmek, kalemi hem Kod hem Açıklama kolonunda aynı kodla gösteriyordu
+        // (ör. Kod ve Açıklama = "153 43KLM FIN 0120"; gerçek ad "FİNLUX FIN 12000
+        // A++ İNVERTER KLİMA" kayboluyordu). Ad kodun aynısıysa açıklamaya düşüyoruz —
+        // GİB görüntüsündeki "Malzeme/Hizmet Açıklaması" kolonuyla aynı davranış.
+        const normalizeText = (v: string | null) =>
+          (v || "").replace(/\s+/g, " ").trim().toLocaleUpperCase("tr")
+        const nameIsJustCode =
+          Boolean(productName) &&
+          Boolean(productCode) &&
+          normalizeText(productName) === normalizeText(productCode)
+        const lineDescription = nameIsJustCode
+          ? itemDesc || productName || null
+          : productName || itemDesc || null
 
         // İskonto: allowanceChargeList[].chargeIndicator === false (iskonto).
         // multiplierFactorNumeric oran olarak 0..1 gelir → %'ye çeviriyoruz.
@@ -2126,14 +2185,8 @@ async sendInvoice(invoiceData: any): Promise<any> {
         }
 
         return {
-          description: productName || itemDesc || null,
-          productCode: pick(
-            item,
-            "sellersItemIdentificationId",
-            "sellersItemIdentification",
-            "productCode",
-            "itemCode",
-          ) as string | null,
+          description: lineDescription,
+          productCode,
           // UBL/GİB birim kodunu (ör. C62→ADET, MTR→MT) uygulama birimine çevir.
           unit:
             normalizeUnitCode(pick(ln, "unitCode", "unit", "quantityUnitCode") as string | null) ||
@@ -2507,6 +2560,54 @@ async sendInvoice(invoiceData: any): Promise<any> {
       return { success: true, pdfBuffer }
     } catch (error: any) {
       return { success: false, error: error?.message || "PDF indirilirken hata oluştu." }
+    }
+  }
+
+  /**
+   * Gelen e-faturanın GİB HTML görüntüsü (XSLT ile üretilmiş resmî görünüm).
+   *
+   * Swagger v8: GET /api/InvoiceInbox/getInvoiceInboxHTMLAsZip?invoiceETTN={uuid}
+   * Yanıt: StringResultModel { data: base64-zip } — zip içinde .html dosyası.
+   *
+   * PDF'in alınamadığı (ör. Mysoft tarafında PDF üretilmemiş) faturalarda gelen
+   * belgenin gerçek görüntüsünü almanın ikinci yolu budur.
+   *
+   * DİKKAT: Dönen HTML gönderen tarafın içeriğidir — güvenilmez kabul edilmeli,
+   * sandbox'lanmadan kendi origin'imizde çalıştırılmamalıdır.
+   */
+  async getIncomingInvoiceHtml(
+    uuid: string,
+  ): Promise<{ success: true; html: string } | { success: false; error: string }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const url = new URL(`${this.baseUrl}/api/InvoiceInbox/getInvoiceInboxHTMLAsZip`)
+      url.searchParams.set("invoiceETTN", uuid)
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      })
+
+      const result = await res.json()
+      if (!result?.succeed || !result?.data) {
+        return { success: false, error: result?.message || "HTML alınamadı." }
+      }
+
+      const zipBuffer = Buffer.from(result.data, "base64")
+      const JSZip = (await import("jszip")).default
+      const zip = await JSZip.loadAsync(zipBuffer)
+      const htmlEntry = Object.values(zip.files).find(
+        (f) => !f.dir && /\.x?html?$/i.test(f.name),
+      )
+      if (!htmlEntry) return { success: false, error: "Zip içinde HTML bulunamadı." }
+      return { success: true, html: await htmlEntry.async("string") }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "HTML indirilirken hata oluştu." }
     }
   }
 

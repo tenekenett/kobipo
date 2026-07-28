@@ -489,6 +489,31 @@ export function ProductCombobox({
                 autoFocus
               />
             </div>
+            {/* Tip: hizmet kalemleri (nakliye, montaj, danışmanlık…) stok tutmaz.
+                Seçenek yokken her kayıt "Ürün" olarak açılıyor, hizmetler de stoklu
+                ürün gibi davranıp stok raporlarını kirletiyordu. */}
+            <div className="space-y-1">
+              <Label>Tip</Label>
+              <Select
+                value={draftProduct.isService ? "SERVICE" : "PRODUCT"}
+                onValueChange={(v) =>
+                  setDraftProduct((p) => ({
+                    ...p,
+                    isService: v === "SERVICE",
+                    // Hizmete geçildiğinde stok alanlarını temizle ki gizli değer kalmasın.
+                    ...(v === "SERVICE" ? { stockQuantity: "", warehouseId: "" } : {}),
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PRODUCT">Ürün (stok takipli)</SelectItem>
+                  <SelectItem value="SERVICE">Hizmet (stok tutulmaz)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1">
               <Label>Kod</Label>
               <Input
@@ -497,14 +522,16 @@ export function ProductCombobox({
                 placeholder="Opsiyonel"
               />
             </div>
-            <div className="space-y-1">
-              <Label>Barkod</Label>
-              <Input
-                value={draftProduct.barcode}
-                onChange={(e) => setDraftProduct((p) => ({ ...p, barcode: e.target.value }))}
-                placeholder="Opsiyonel"
-              />
-            </div>
+            {!draftProduct.isService && (
+              <div className="space-y-1">
+                <Label>Barkod</Label>
+                <Input
+                  value={draftProduct.barcode}
+                  onChange={(e) => setDraftProduct((p) => ({ ...p, barcode: e.target.value }))}
+                  placeholder="Opsiyonel"
+                />
+              </div>
+            )}
             <div className="sm:col-span-2 space-y-1">
               <Label>Kategori</Label>
               {addingCategory ? (
@@ -651,19 +678,21 @@ export function ProductCombobox({
                 KDV dahil
               </label>
             </div>
-            <div className={`space-y-1 ${warehouses && warehouses.length > 0 ? "" : "sm:col-span-2"}`}>
-              <Label>Başlangıç Stoğu</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={draftProduct.stockQuantity}
-                onChange={(e) =>
-                  setDraftProduct((p) => ({ ...p, stockQuantity: e.target.value }))
-                }
-                placeholder="Opsiyonel"
-              />
-            </div>
-            {warehouses && warehouses.length > 0 && (
+            {!draftProduct.isService && (
+              <div className={`space-y-1 ${warehouses && warehouses.length > 0 ? "" : "sm:col-span-2"}`}>
+                <Label>Başlangıç Stoğu</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={draftProduct.stockQuantity}
+                  onChange={(e) =>
+                    setDraftProduct((p) => ({ ...p, stockQuantity: e.target.value }))
+                  }
+                  placeholder="Opsiyonel"
+                />
+              </div>
+            )}
+            {!draftProduct.isService && warehouses && warehouses.length > 0 && (
               <div className="space-y-1">
                 <Label>Depo</Label>
                 <Select

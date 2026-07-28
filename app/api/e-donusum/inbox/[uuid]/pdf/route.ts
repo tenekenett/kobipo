@@ -8,6 +8,7 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
+import { describeMysoftError } from "@/lib/integrations/e-invoice/error-messages"
 
 export const dynamic = "force-dynamic"
 
@@ -63,7 +64,7 @@ export async function GET(
 
     const result = await provider.getIncomingInvoicePdf(uuid)
     if (!result.success) {
-      return NextResponse.json({ error: result.error }, { status: 502 })
+      return NextResponse.json({ error: describeMysoftError(result.error) }, { status: 502 })
     }
 
     const filename = `Gelen_${incoming?.invoiceNo || uuid.slice(0, 8)}_GIB.pdf`

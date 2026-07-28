@@ -24,7 +24,6 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import {
   ArrowLeft,
   FileDown,
-  FileText,
   Loader2,
   Repeat2,
   ExternalLink,
@@ -33,7 +32,6 @@ import {
   XCircle,
   Clock,
 } from "lucide-react"
-import { generateInvoicePDF } from "@/lib/pdf/invoice-pdf"
 
 interface IncomingLine {
   description: string | null
@@ -96,7 +94,6 @@ export default function GelenEFaturaDetailPage() {
   const [record, setRecord] = useState<IncomingDetail | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
-  const [isKobipoPdf, setIsKobipoPdf] = useState(false)
   const [isResponding, setIsResponding] = useState<"accept" | "reject" | null>(null)
 
   const fetchDetail = useCallback(async () => {
@@ -133,19 +130,23 @@ export default function GelenEFaturaDetailPage() {
     fetchDetail()
   }, [fetchDetail])
 
+  // Gelen faturanın GERÇEK belgesini açar: resmî GİB PDF'i, o yoksa GİB HTML'i.
+  // Kobipo formatında kopya PDF üreten yedek kaldırıldı — gelen belgenin yerine
+  // bizim ürettiğimiz bir temsili göstermek yanıltıcıydı (faturayı biz kesmiş gibi
+  // görünüyordu). Belge sağlayıcıda yoksa artık bunu açıkça söylüyoruz.
   const handleDownloadPdf = async () => {
     if (!companyId || !uuid) return
     setIsDownloadingPdf(true)
     try {
       const res = await fetch(
-        `/api/e-donusum/inbox/${encodeURIComponent(uuid)}/pdf?companyId=${encodeURIComponent(
+        `/api/e-donusum/inbox/${encodeURIComponent(uuid)}/view?companyId=${encodeURIComponent(
           companyId,
         )}`,
       )
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         toast({
-          title: "PDF indirilemedi",
+          title: "Belge açılamadı",
           description: data.error || "Bilinmeyen hata",
           variant: "destructive",
         })
@@ -159,97 +160,6 @@ export default function GelenEFaturaDetailPage() {
       toast({ title: "Hata", description: e?.message || "PDF açılırken hata", variant: "destructive" })
     } finally {
       setIsDownloadingPdf(false)
-    }
-  }
-
-  // Kobipo formatında PDF: gönderenin (Aydem vb.) resmî PDF'i boş/okunmaz gelebildiğinden,
-  // faturanın Mysoft modelinden Kobipo şablonuyla kendi PDF'imizi üretiriz. Kalemler
-  // getIncomingInvoiceModel'den (başlık-vergili faturalarda yeniden kurulmuş haliyle) gelir.
-  const handleKobipoPdf = async () => {
-    if (!companyId || !record) return
-    const lines = record.model?.lines || []
-    if (lines.length === 0) {
-      toast({
-        title: "Kalem bulunamadı",
-        description: "Bu fatura için kalem verisi yok; Kobipo PDF üretilemedi.",
-        variant: "destructive",
-      })
-      return
-    }
-    setIsKobipoPdf(true)
-    try {
-      // Alıcı (kendi) firma bilgileri — PDF başlığı için.
-      let company: any = {}
-      try {
-        const cRes = await fetch(`/api/companies/${encodeURIComponent(companyId)}`)
-        if (cRes.ok) company = await cRes.json()
-      } catch {
-        /* firma detayı alınamazsa yalnız ad olmadan devam */
-      }
-      const items = lines.map((l) => {
-        const qty = Number(l.quantity) || 0
-        const unitPrice = Number(l.unitPrice) || 0
-        const net = Number(l.lineTotal) || qty * unitPrice
-        const vatRate = Number(l.vatRate) || 0
-        const otherTaxRate = Number(l.otherTaxRate) || 0
-        return {
-          description: l.description || "-",
-          quantity: qty || 1,
-          unitPrice,
-          vatRate,
-          // KDV + KDV dışı diğer vergi (ör. ÖİV) dâhil satır tutarı.
-          total: net * (1 + vatRate / 100 + otherTaxRate / 100),
-        }
-      })
-      const netAmount = lines.reduce((s, l) => s + (Number(l.lineTotal) || 0), 0)
-      const vatAmount = lines.reduce(
-        (s, l) => s + (Number(l.lineTotal) || 0) * (Number(l.vatRate) || 0) / 100,
-        0,
-      )
-      // KDV dışı "Diğer Vergiler" (ör. ÖİV) — önceden hesaba katılmadığından Kobipo
-      // kopya PDF'i telekom faturasında tutarı eksik gösteriyordu.
-      const otherTaxAmount = lines.reduce(
-        (s, l) => s + (Number(l.lineTotal) || 0) * (Number(l.otherTaxRate) || 0) / 100,
-        0,
-      )
-      const otherTaxLabel =
-        lines.find((l) => (Number(l.otherTaxRate) || 0) > 0 && l.otherTaxName)?.otherTaxName ||
-        "Diğer Vergiler"
-      await generateInvoicePDF({
-        invoiceNo: record.invoiceNo || record.uuid,
-        date: record.date || new Date().toISOString(),
-        type: "PURCHASE",
-        invoiceType: "E_INVOICE",
-        supplier: {
-          name: record.sender.name || "",
-          taxNumber: record.sender.taxNumber || undefined,
-          address: record.model?.sender.address || undefined,
-        },
-        company: {
-          name: company?.name || "",
-          taxNumber: company?.taxNumber || undefined,
-          taxOffice: company?.taxOffice || undefined,
-          address: company?.address || undefined,
-          city: company?.city || undefined,
-          phone: company?.phone || undefined,
-          email: company?.email || undefined,
-        },
-        items,
-        netAmount,
-        vatAmount,
-        otherTaxAmount,
-        otherTaxLabel,
-        totalAmount: netAmount + vatAmount + otherTaxAmount,
-        notes: `Gelen e-fatura (Kobipo kopyası): ${record.invoiceNo || ""} (ETTN ${record.uuid})`,
-      })
-    } catch (e: any) {
-      toast({
-        title: "Hata",
-        description: e?.message || "Kobipo PDF üretilirken hata",
-        variant: "destructive",
-      })
-    } finally {
-      setIsKobipoPdf(false)
     }
   }
 
@@ -416,19 +326,6 @@ export default function GelenEFaturaDetailPage() {
               <FileDown className="mr-2 h-4 w-4" />
             )}
             PDF aç
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleKobipoPdf}
-            disabled={isKobipoPdf || (record.model?.lines || []).length === 0}
-            title="Gönderenin PDF'i boş/okunmazsa fatura verisinden Kobipo formatında PDF üretir"
-          >
-            {isKobipoPdf ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <FileText className="mr-2 h-4 w-4" />
-            )}
-            Kobipo PDF
           </Button>
           {record.isLinkedToPurchase && record.linkedInvoiceId ? (
             <Button asChild>

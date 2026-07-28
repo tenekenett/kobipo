@@ -43,6 +43,7 @@ export async function GET() {
         isEDonusumEnabled: c.isEDonusumEnabled,
         disabledModules: c.disabledModules,
         isBranch: Boolean(c.isBranch),
+        parentCompanyId: c.parentCompanyId ?? null,
         parentName: c.parentName ?? null,
       }))
 

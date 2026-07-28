@@ -67,6 +67,11 @@ export async function POST(request: Request) {
     let checked = 0
     let voided = 0
     let unchanged = 0
+    // GİB'de HATA durumundaki faturalar: iptal EDİLMEZ (hata geçici olabilir) ama
+    // "değişiklik yok" diye sayılmaları yanıltıcıydı — belge alıcıya ulaşmamıştır.
+    // Ayrı sayıp sebebiyle birlikte döndürüyoruz ki kullanıcı yeniden gönderebilsin.
+    let failed = 0
+    const failedInvoices: Array<{ invoiceNo: string | null; reason: string }> = []
     const errors: Array<{ invoiceNo: string | null; error: string }> = []
 
     for (const inv of invoices) {
@@ -77,7 +82,24 @@ export async function POST(request: Request) {
         const result: any = await provider.getInvoiceStatus(inv.uuid)
         checked++
         if (!result?.success) {
-          errors.push({ invoiceNo: inv.invoiceNo, error: result?.error || "Durum sorgulanamadı" })
+          const err: string = result?.error || "Durum sorgulanamadı"
+          errors.push({ invoiceNo: inv.invoiceNo, error: err })
+          // "Giden fatura kaydı bulunamadı" gibi BELGEYE ÖZGÜ kesin yanıtlar, faturanın
+          // entegratörde karşılığı olmadığını söyler — fatura "SENT" görünmeye devam
+          // etmemeli. check-status tek fatura için bunu zaten ERROR: olarak yazıyordu;
+          // toplu senkron sessiz kalıyordu. Token/ağ gibi GEÇİCİ hatalarda yazmayız,
+          // yoksa tek bir kesinti tüm faturaları kırmızıya boyar.
+          if (/bulunamad/i.test(err)) {
+            const errStatus = `ERROR:${err}`
+            if (errStatus !== inv.integrationStatus) {
+              await prisma.invoice.update({
+                where: { id: inv.id },
+                data: { integrationStatus: errStatus },
+              })
+            }
+            failed++
+            failedInvoices.push({ invoiceNo: inv.invoiceNo, reason: err })
+          }
           continue
         }
         const { becomesVoid, integrationStatus } = evaluateGibVoid(result)
@@ -100,7 +122,15 @@ export async function POST(request: Request) {
               data: { integrationStatus },
             })
           }
-          unchanged++
+          if ((result.rawText || "").trim().toUpperCase() === "HATA") {
+            failed++
+            failedInvoices.push({
+              invoiceNo: inv.invoiceNo,
+              reason: result.message || result.rawText || "Hata",
+            })
+          } else {
+            unchanged++
+          }
         }
       } catch (e: any) {
         errors.push({ invoiceNo: inv.invoiceNo, error: e?.message || "Durum sorgulanamadı" })
@@ -113,6 +143,8 @@ export async function POST(request: Request) {
       checked,
       voided,
       unchanged,
+      failed,
+      failedInvoices,
       errors,
     })
   } catch (error: any) {
