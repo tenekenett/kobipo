@@ -64,6 +64,7 @@ const STATIC_TITLES: Record<string, string> = {
   "/stok/receteler": "Reçeteler",
 
   // Restoran & Kafe
+  "/restoran/masalar": "Masalar",
   "/restoran/satis": "Kahveci Satış",
   "/restoran/menu": "Menü & Reçeteler",
   "/restoran/raporlar": "Restoran Raporları",
@@ -183,6 +184,9 @@ const DYNAMIC_ENTRIES: Array<[pattern: string, title: string]> = [
   ["/e-donusum/kontor/odeme/:id", "Kart ile Ödeme"],
   ["/e-donusum/:id/duzenle", "Fatura Düzenle"],
   ["/e-donusum/:id", "Fatura Detayı"],
+
+  // Restoran & Kafe
+  ["/restoran/adisyon/:id", "Adisyon"],
 
   // Personel
   ["/personel/:id", "Personel Detayı"],

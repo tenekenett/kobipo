@@ -10,8 +10,11 @@
 // dalgalandığı anda ayrışıyordu. Bkz. docs/restoran/SADELESTIRME.md "İş 2".
 //
 // Kural tek cümledir:
-//   "Fiyatı kayıtlı alış hareketlerinin miktarla ağırlıklı ortalaması;
-//    hiç hareket yoksa elle girilen alış fiyatı; o da yoksa BİLİNMİYOR."
+//   "Fiyatı kayıtlı ve GERİ ALINMAMIŞ alış hareketlerinin miktarla ağırlıklı
+//    ortalaması; hiç hareket yoksa elle girilen alış fiyatı; o da yoksa BİLİNMİYOR."
+//
+// "Geri alınmamış" kısmı sonradan eklendi: iptal/silinen alışın fiyatı ortalamada
+// kalıyordu (bkz. AVG_COST_SELECT yorumu ve docs/restoran/SADELESTIRME.md "İş 11").
 //
 // `null` ile `0` ayrımı kritik: maliyeti bilinmeyen ürünü 0 saymak onu bedava
 // gösterir ve marjı %100'e fırlatır. Çağıranlar null'ı sayıya çevirmek yerine
@@ -25,25 +28,60 @@ import { prisma } from "@/lib/db/prisma"
  * tarafı (`resolveUnitCosts`) BUNU kullanır — iki tanımın zamanla ayrışmaması
  * için tek parça olarak duruyor.
  *
- * `LEFT JOIN` + `COALESCE` sırası: hareket yoksa SUM null döner, bölme null olur
- * ve purchasePrice devreye girer. İkisi de yoksa sonuç null kalır.
+ * Ağırlık BELGE bazında hesaplanır (`LEFT JOIN LATERAL` + `GROUP BY doc_key`).
+ * Sebebi: iptal/silme, alış hareketini SİLMEZ — aynı `reference` ile FİYATSIZ bir
+ * ters hareket yazar (`revertStockByReference`). Ters hareket fiyatsız olduğu için
+ * eski "hepsini topla" sorgusunda görünmüyordu ve **iptal edilmiş alış ortalamaya
+ * girmeye devam ediyordu**. Belge içindeki NET miktara bakınca ters hareket
+ * kendiliğinden sayılıyor: net 0 ise o belgenin ağırlığı da 0 olur.
  *
- * Yalnız `IN`/`PURCHASE` ve `unitPrice IS NOT NULL` sayılır; böylece TRANSFER
- * hareketleri ve fiyatsız yazılan iptal/geri alma hareketleri ortalamayı bozmaz.
+ * Bu, belge kaydı ortada olmasa da çalışır — fatura silindiğinde `stock_movements`
+ * satırları `reference`'ı artık var olmayan bir id'yi gösterecek şekilde kalır;
+ * hesap yalnızca hareketlere baktığı için iptal ile silme aynı sonucu verir.
+ *
+ * `doc_key`: `reference` (boşsa hareketin kendi id'si — referanssız elle girilen
+ * hareketler tek tek kendi belgesi sayılır, birbirini götürmesinler diye).
+ *
+ * Fiyatlı ağırlık yalnız `IN`/`PURCHASE` + `unitPrice IS NOT NULL` satırlardan
+ * gelir; net miktar ise belgedeki TÜM satırlardan (ters hareket dahil). Böylece
+ * TRANSFER ve satış hareketleri ortalamayı bozmaz, ters hareket ise götürür.
+ *
+ * `LEAST/GREATEST`: kısmi geri alma (fatura düzenlenip miktar düşürülmüş) hâlinde
+ * ağırlık kalan miktara iner; aşırı geri alma negatife düşmez.
+ *
+ * Hiç fiyatlı alış kalmazsa bölme null olur ve `purchasePrice` devreye girer;
+ * o da yoksa sonuç null kalır.
  */
 const AVG_COST_SELECT = Prisma.sql`
   SELECT p.id AS product_id,
          COALESCE(
-           SUM(ABS(m.quantity) * m."unitPrice") / NULLIF(SUM(ABS(m.quantity)), 0),
+           SUM(
+             CASE WHEN d.priced_qty > 0
+                  THEN LEAST(d.priced_qty, GREATEST(d.net_qty, 0)) * d.priced_value / d.priced_qty
+                  ELSE 0 END
+           )
+           / NULLIF(
+               SUM(
+                 CASE WHEN d.priced_qty > 0
+                      THEN LEAST(d.priced_qty, GREATEST(d.net_qty, 0))
+                      ELSE 0 END
+               ), 0),
            p."purchasePrice"
          ) AS unit_cost
   FROM products p
-  LEFT JOIN stock_movements m
-         ON m."productId" = p.id
-        AND m."companyId" = p."companyId"
-        AND m.type IN ('IN', 'PURCHASE')
-        AND m."unitPrice" IS NOT NULL
-        AND m.quantity <> 0
+  LEFT JOIN LATERAL (
+    SELECT
+      SUM(CASE WHEN m.type IN ('IN', 'PURCHASE') AND m."unitPrice" IS NOT NULL
+               THEN ABS(m.quantity) ELSE 0 END) AS priced_qty,
+      SUM(CASE WHEN m.type IN ('IN', 'PURCHASE') AND m."unitPrice" IS NOT NULL
+               THEN ABS(m.quantity) * m."unitPrice" ELSE 0 END) AS priced_value,
+      SUM(m.quantity) AS net_qty
+    FROM stock_movements m
+    WHERE m."productId" = p.id
+      AND m."companyId" = p."companyId"
+      AND m.quantity <> 0
+    GROUP BY COALESCE(NULLIF(m."reference", ''), m.id)
+  ) d ON TRUE
 `
 
 /**

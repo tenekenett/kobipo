@@ -271,6 +271,10 @@ model Company {
   eInvoiceSeriesTemplates EInvoiceSeriesTemplate[]
   labelTemplates          LabelTemplate[]
   productRecipes          ProductRecipe[]
+  restaurantAreas         RestaurantArea[]
+  restaurantTables        RestaurantTable[]
+  restaurantTickets       RestaurantTicket[]
+  restaurantPlanItems     RestaurantPlanItem[]
 
   @@index([parentCompanyId])
   @@map("companies")
@@ -402,6 +406,7 @@ model Customer {
   classification1 CompanyDefinition? @relation("CustomerClassification1", fields: [classification1Id], references: [id], onDelete: SetNull)
   classification2 CompanyDefinition? @relation("CustomerClassification2", fields: [classification2Id], references: [id], onDelete: SetNull)
   authorizedUser  User?              @relation("AuthorizedCustomerUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
+  restaurantTickets RestaurantTicket[]
 
   @@unique([linkedSupplierId])
   @@unique([companyId, slug])
@@ -561,6 +566,7 @@ model Product {
   // geçtiği reçete kalemleri (hammadde/yarı mamül ise).
   recipe          ProductRecipe?      @relation("RecipeProduct")
   usedInRecipes   ProductRecipeItem[] @relation("RecipeComponent")
+  ticketItems     RestaurantTicketItem[]
 
   @@unique([companyId, slug])
   @@index([companyId])
@@ -615,6 +621,152 @@ model ProductRecipeItem {
   @@unique([recipeId, componentProductId])
   @@index([componentProductId])
   @@map("product_recipe_items")
+}
+
+// ─── Restoran & Kafe Aşama 2: masa, salon planı ve adisyon ─────────────────────
+// Kararlar: docs/restoran/ASAMA2.md · yön: docs/restoran/PLAN.md "Adım 7"
+
+// Bölge/salon: "Bahçe", "Üst Kat". Salon planı ekranında sekme olur.
+model RestaurantArea {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  order     Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company   Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tables    RestaurantTable[]
+  planItems RestaurantPlanItem[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("restaurant_areas")
+}
+
+// Salon planındaki masa DIŞI öğeler — dükkan krokisi: duvar, kapı, bar, mutfak,
+// WC, merdiven, bitki, serbest yazı.
+//
+// Masayla aynı ızgara koordinatını kullanır ama ayrı tablodur: masanın kimliği
+// (adisyon, ciro, kapasite) var, duvarın yok. Aynı tabloda yaşasalardı her
+// "masaları getir" sorgusu duvarları da eleyip durmak zorunda kalırdı ve
+// "boş masa" sayacına duvar karışması an meselesiydi.
+//
+// Plan öğeleri ADİSYON AKIŞINA GİRMEZ: kullanım kipinde tıklanamaz, yalnız
+// düzenleme kipinde taşınır/silinir.
+model RestaurantPlanItem {
+  id        String   @id @default(cuid())
+  companyId String
+  areaId    String?
+  kind      String // WALL | DOOR | BAR | KITCHEN | WC | STAIRS | PLANT | TEXT
+  label     String?
+  x         Int      @default(0)
+  y         Int      @default(0)
+  width     Int      @default(2)
+  height    Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  area    RestaurantArea? @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([areaId])
+  @@map("restaurant_plan_items")
+}
+
+// Masa. Yerleşim (x/y/width/height) BU SATIRDA durur, ayrı bir plan JSON'unda
+// değil: masanın kimliği var (adisyonu, cirosu) ve iki yerde yaşarsa ikisi
+// ayrışır. Gerekçenin tamamı ASAMA2.md "Neden koordinat masanın satırında".
+//
+// Birim: salon planı ızgara hücresi (piksel değil) — ekran ölçeği değişince
+// yerleşim bozulmasın.
+model RestaurantTable {
+  id        String   @id @default(cuid())
+  companyId String
+  areaId    String?
+  name      String
+  capacity  Int?
+  shape     String   @default("SQUARE") // SQUARE | CIRCLE | RECT
+  x         Int      @default(0)
+  y         Int      @default(0)
+  width     Int      @default(2)
+  height    Int      @default(2)
+  // Masa SİLİNMEZ, pasifleştirilir: geçmiş adisyonlar masasız kalmasın.
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  area    RestaurantArea?    @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  tickets RestaurantTicket[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@index([areaId])
+  @@map("restaurant_tables")
+}
+
+// Adisyon — masaya bağlı, saatlerce açık kalan ÇALIŞMA kaydı. Resmî belge değil;
+// kapanışta v1'in fiş yoluna bağlanır (`isReceipt: true`) ve stok O ANDA düşer.
+//
+// `tableId` opsiyonel: paket/gel-al adisyonu masasız açılır.
+model RestaurantTicket {
+  id         String    @id @default(cuid())
+  companyId  String
+  tableId    String?
+  code       String // ADS-2026-0001
+  status     String    @default("OPEN") // OPEN | CLOSED | CANCELLED
+  guestCount Int?
+  note       String?   @db.Text
+  customerId String?
+  openedAt   DateTime  @default(now())
+  openedBy   String?
+  closedAt   DateTime?
+  closedBy   String?
+  // Kapanışta oluşan fiş. Fatura silinirse bağ kopar (SetNull), adisyon geçmişte kalır.
+  invoiceId  String?   @unique
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  company  Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  table    RestaurantTable?       @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  customer Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  invoice  Invoice?               @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  items    RestaurantTicketItem[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@index([tableId])
+  @@map("restaurant_tickets")
+}
+
+// Adisyon kalemi. `unitPrice` NET'tir (KDV hariç) — fatura API'si net bekliyor,
+// ekranda brüt gösterilir (kahveci ekranındaki `grossPrice` ile aynı kural).
+// `description` ürün adının KOPYASIDIR: ürün sonradan yeniden adlandırılsa
+// adisyon değişmez.
+model RestaurantTicketItem {
+  id          String   @id @default(cuid())
+  ticketId    String
+  productId   String?
+  description String
+  unit        String   @default("ADET")
+  quantity    Decimal  @db.Decimal(14, 4)
+  unitPrice   Decimal  @db.Decimal(15, 6)
+  vatRate     Decimal  @default(20) @db.Decimal(5, 2)
+  note        String? // "az şekerli"
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  createdBy   String?
+
+  ticket  RestaurantTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  // SetNull: ürün kartı silinse de adisyon kalemi (adı ve fiyatı kopyalı) durur.
+  product Product?         @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId])
+  @@index([productId])
+  @@map("restaurant_ticket_items")
 }
 
 // Ürün etiketi tasarım şablonları (Etiket Tasarımcısı, /stok/etiket).
@@ -893,6 +1045,8 @@ model Invoice {
   // sourceReceipts = bu faturanın konsolide ettiği fişler.
   convertedInvoice    Invoice?         @relation("ReceiptToInvoice", fields: [convertedInvoiceId], references: [id], onDelete: SetNull)
   sourceReceipts      Invoice[]        @relation("ReceiptToInvoice")
+  // Bu fiş bir adisyonun kapanışıysa buradan geriye bakılır (Aşama 2).
+  restaurantTicket    RestaurantTicket?
 
   @@unique([companyId, invoiceNo])
   @@unique([companyId, slug])

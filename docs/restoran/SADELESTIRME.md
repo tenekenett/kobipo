@@ -576,10 +576,101 @@ karışık" tespitinin en pahalı örneği.
 
 ---
 
+## İş 11 — İptal edilen alış AVCO'ya sızıyordu (2026-07-29) ✅ **maliyet bozan hata**
+
+### Bulgu
+
+İptal (ve silme) alış hareketini **silmez**: `revertStockByReference` aynı `reference` ile
+**fiyatsız** bir ters hareket yazar. AVCO sorgusu ise yalnız `unitPrice IS NOT NULL` olan
+`IN`/`PURCHASE` satırlarını topluyordu — yani ters hareketi hiç görmüyor, **iptal edilmiş
+alışın fiyatı ortalamada kalmaya devam ediyordu**.
+
+Gerçek veride bulundu (REYPO, `Özel Crm Yazılım ve Uygulama`):
+
+```
+28 Tem 09:36  IN   +1  1.000.000  AAA2026000000011 - Satın alma faturası
+28 Tem 09:37  OUT  −1      —      AAA2026000000011 - Fatura iptali (stok iade)
+28 Tem 09:37  IN   +1  1.000.000  AAA2026000000011 - İade faturası
+28 Tem 09:38  OUT  −1      —      AAA2026000000011 - Fatura iptali (stok iade)
+28 Tem 09:40  IN   +1  1.000.000  IAD-2026-0001    - İade faturası
+28 Tem 09:40  OUT  −1      —      IAD-2026-0001    - Fatura iptali (stok iade)
+```
+
+Üç belgenin **üçü de** iptal edilmiş, hatta faturalar DB'den silinmiş (`reference` artık var
+olmayan bir id'yi gösteriyor) — buna rağmen ürünün birim maliyeti **₺1.000.000** görünüyordu.
+
+### Neden "faturaya bakıp iptal olanı ele" yetmez
+
+İlk akla gelen çözüm `stock_movements.reference` → `invoices.status = 'CANCELLED'` join'i.
+Yukarıdaki gerçek vaka bunu çürütüyor: fatura **silindiğinde** satır DB'de kalmıyor, join
+boş dönüyor ve hareket yine sayılırdı. Doğru bilgi belgede değil, **hareketlerin kendisinde**.
+
+### Düzeltme — ağırlık artık belge bazında
+
+`AVG_COST_SELECT` tek `LEFT JOIN` yerine `LEFT JOIN LATERAL` + `GROUP BY doc_key` kullanıyor
+(`doc_key` = `reference`, boşsa hareketin kendi id'si):
+
+| Belge başına | Nereden |
+|---|---|
+| `priced_qty` / `priced_value` | yalnız fiyatlı `IN`/`PURCHASE` satırları |
+| `net_qty` | belgenin **TÜM** satırları (ters hareket dahil) |
+| ağırlık | `LEAST(priced_qty, GREATEST(net_qty, 0))` |
+
+Ters hareket fiyatsız olsa da `net_qty`'yi sıfırlıyor → belgenin ağırlığı 0 oluyor.
+Kısmi geri almada (fatura düzenlenip miktar düşürülmüş) ağırlık kalana iniyor.
+Referanssız elle hareketler tek tek kendi belgesi sayılıyor — bir fire çıkışı, ilgisiz bir
+elle girişi götürmesin diye.
+
+Yazma tarafına **hiç dokunulmadı**: şema değişmedi, ters hareket hâlâ fiyatsız yazılıyor.
+Bu yüzden düzeltme **geçmiş veriye de** uygulanıyor — migration gerekmiyor.
+
+### Doğrulama — `node scripts/test-avco-revert.js`
+
+Test, koşacağı SQL'i `lib/stock/cost.ts`'ten **okur** (kopya tutmaz, sorgu değişirse test de
+değişir) ve tüm senaryoları gerçek DB'de tek transaction'da kurup **geri sarar** — kalıcı
+hiçbir şey yazmaz.
+
+| Senaryo | Sonuç |
+|---|---|
+| Hareketsiz ürün → elle girilen fiyat | ✅ `100` |
+| İki alış (10×50 + 10×100) | ✅ `75` |
+| **Biri iptal (fiyatsız ters hareket)** | ✅ `50` — eski sorgu aynı veride hâlâ `75` diyor |
+| Kısmi geri alma (10×200 → 5 iade) | ✅ `125` → `100` |
+| Satış + satış iptali | ✅ ortalama değişmiyor (satış fiyatı `300` sızmıyor) |
+| Referanssız elle giriş/çıkış | ✅ birbirini götürmüyor (`84` sabit) |
+| TRANSFER `999` fiyatlı | ✅ ortalamaya girmiyor |
+| Hepsi geri alınırsa | ✅ elle girilen fiyata dönüyor |
+| `avgCostCte` / `resolveUnitCosts` biçimleri | ✅ ikisi de derleniyor (15/15 geçti) |
+| `tsc --noEmit` | ✅ temiz |
+
+**Gerçek veri taraması** (tüm firmalar, eski↔yeni karşılaştırması): tek fark yukarıdaki
+REYPO ürünü — `1.000.000 → null`. `null` doğru cevap: ürünün `purchasePrice`'ı yok, fiyatlı
+alışların hepsi geri alınmış, yani maliyet gerçekten **bilinmiyor**. Raporlarda "maliyeti
+eksik" sayacına düşer (bkz. İş 2 `pricelessCount`). **Demo Firma dahil diğer tüm firmalarda
+tek kuruş değişmedi** — `855 / 551 / 304` aynı.
+
+**Sorgu planı** (116 ürünlü firma): ürün başına `stock_movements_productId_idx` üzerinden
+index taraması, `Execution Time: 0,997 ms`. Eski sorguyla ölçülen süre farkı yok.
+
+### Yol boyunca görülen, DÜZELTİLMEYEN iki şey
+
+- **İade faturası alış fiyatı gibi işleniyor.** `RETURN` tipli fatura `type: "IN"` + kalem
+  fiyatıyla hareket yazıyor (`invoices/route.ts:465`); satış iadesinde bu **satış fiyatı**
+  olduğu için AVCO'ya satış fiyatı girer. Yukarıdaki ₺1.000.000 kayıtlarının ikisi tam olarak
+  bu. Ayrı iş: iade, alış iadesi mi satış iadesi mi ayırt edilmeli.
+- **Alış irsaliyesi fiyatsız stok girişi yazıyor** (`irsaliye/[id]/route.ts:137` `unitPrice`
+  vermiyor). İrsaliyeyle giren mal AVCO'ya hiç katılmıyor; faturası kesilene kadar maliyet
+  elle girilen `purchasePrice`'tan geliyor.
+
+---
+
 ### Sırada ne var
 
-- **Modül kapısının sunucu tarafı** — bilinçli kapsam dışı bırakıldı (yukarı bak). `restaurant`
-  kapalı bir firmanın kullanıcısı `/api/restoran/*` uçlarını hâlâ çağırabilir.
+- **Modül kapısının sunucu tarafı** — kapı artık VAR (`assertRestaurantModule`,
+  `lib/restoran/tickets.ts`) ve Aşama 2 uçlarının hepsi ondan geçiyor. v1'in altı ucu
+  (dört rapor + iki reçete) hâlâ korumasız: `restaurant` kapalı bir firmanın kullanıcısı
+  onları çağırabiliyor. Her birine tek satır eklemek kaldı.
 - **ÖKC / yazarkasa konumlandırması** — ticari karar, PLAN.md "Açık riskler" 1.
-- **İptal edilen alışın AVCO'ya sızması** — ters hareket fiyatsız yazıldığı için iptal edilmiş
-  alış hâlâ ortalamaya giriyor (bu fazdan önce de böyleydi).
+- ~~İptal edilen alışın AVCO'ya sızması~~ → **İş 11'de düzeltildi**.
+- **Aşama 2 — masa/adisyon + salon planı**: PLAN.md "Adım 7", ayrı plan belgesi
+  [ASAMA2.md](./ASAMA2.md).

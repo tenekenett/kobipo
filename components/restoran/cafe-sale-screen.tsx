@@ -13,17 +13,13 @@
 // engelleyici kontrol kasayı kilitler.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import Link from "next/link"
 import {
   AlertTriangle,
-  ChefHat,
   CheckCircle2,
-  CupSoda,
   Loader2,
   PackageMinus,
   Printer,
   Receipt,
-  Search,
   ShoppingCart,
   Trash2,
 } from "lucide-react"
@@ -47,6 +43,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { QuantityStepper } from "@/components/ui/quantity-stepper"
+import { MenuGrid } from "@/components/restoran/menu-grid"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 import { PaymentPanel } from "@/components/satis/payment-panel"
 import { useToast } from "@/components/ui/use-toast"
@@ -63,7 +60,6 @@ import {
 import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-html"
 import { qty } from "@/lib/format"
 import {
-  buildPaymentParts,
   emptyPaymentState,
   paymentSummary,
   receiptParts,
@@ -71,8 +67,8 @@ import {
   PAYMENT_METHOD_LABELS,
   type PaymentState,
 } from "@/lib/satis/payment"
+import { submitReceiptSale } from "@/lib/satis/submit-receipt-sale"
 import { expandRecipeLines } from "@/lib/stock/recipe-expand"
-import { cn } from "@/lib/utils"
 
 type CafeLine = {
   key: string
@@ -85,16 +81,10 @@ type CafeLine = {
   quantity: number
 }
 
-const ALL_CATEGORIES = "__ALL__"
-
 const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random()}`
-
-/** Menüde gösterilen KDV dahil fiyat — kahvecide fiyat listesi brüttür. */
-const grossPrice = (p: { salePrice: number | null; vatRate: number }) =>
-  (p.salePrice ?? 0) * (1 + (Number(p.vatRate) || 0) / 100)
 
 const lineNet = (l: CafeLine) => l.quantity * l.unitPrice
 const lineTotal = (l: CafeLine) => lineNet(l) * (1 + l.vatRate / 100)
@@ -138,8 +128,6 @@ export function CafeSaleScreen() {
   const { template: receiptTemplate, company: receiptCompany } = useReceiptTemplate(companyId)
 
   const [cart, setCart] = useState<CafeLine[]>([])
-  const [search, setSearch] = useState("")
-  const [activeCat, setActiveCat] = useState<string>(ALL_CATEGORIES)
   const [note, setNote] = useState("")
   const [customerId, setCustomerId] = useState<string | undefined>()
   const [warehouseId, setWarehouseId] = useState("")
@@ -183,33 +171,6 @@ export function CafeSaleScreen() {
     (productId: string) => productById.get(productId)?.name ?? productId,
     [productById]
   )
-
-  // ---- Menü ----
-
-  const menuProducts = useMemo(
-    () => products.filter((p) => p.isActive && p.isSellable && !p.isService),
-    [products]
-  )
-
-  const categories = useMemo(() => {
-    const set = new Set<string>()
-    for (const p of menuProducts) if (p.category) set.add(p.category)
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "tr-TR"))
-  }, [menuProducts])
-
-  const visibleProducts = useMemo(() => {
-    const q = search.trim().toLocaleLowerCase("tr-TR")
-    return menuProducts
-      .filter((p) => activeCat === ALL_CATEGORIES || p.category === activeCat)
-      .filter(
-        (p) =>
-          !q ||
-          p.name.toLocaleLowerCase("tr-TR").includes(q) ||
-          (p.code ?? "").toLocaleLowerCase("tr-TR").includes(q) ||
-          (p.barcode ?? "").toLocaleLowerCase("tr-TR").includes(q)
-      )
-      .sort((a, b) => a.name.localeCompare(b.name, "tr-TR"))
-  }, [menuProducts, activeCat, search])
 
   // ---- Sepet ----
 
@@ -348,74 +309,43 @@ export function CafeSaleScreen() {
     submitLock.current = true
     setIsSubmitting(true)
     try {
-      // Fiş kesilir (resmî fatura değil): daima MANUAL, GİB'e gönderim yok.
-      // Reçete genişletmesi SUNUCUDA çalışıyor — buradan ek bir şey göndermeye gerek yok.
-      const invoiceRes = await fetch("/api/e-donusum/invoices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          companyId,
-          type: "SALES",
-          invoiceType: "MANUAL",
-          isReceipt: true,
-          customerId: customerId || null,
-          warehouseId: warehouseId || undefined,
-          date: new Date().toISOString(),
-          currency: "TRY",
-          notes: note.trim() || undefined,
-          sendInvoice: false,
-          items: snapshot.map((l) => ({
-            productId: l.productId,
-            description: l.name,
-            unit: l.unit,
-            quantity: l.quantity,
-            unitPrice: l.unitPrice,
-            vatRate: l.vatRate,
-          })),
-        }),
-      })
-      const invoice = await invoiceRes.json().catch(() => ({}))
-      if (!invoiceRes.ok) throw new Error(invoice?.error || "Satış fişi oluşturulamadı")
-
-      // Tahsilat, faturanın SUNUCUDA kayıtlı toplamı üzerinden yazılır: istemcinin
-      // yuvarlanmamış toplamı sunucunun 2 haneye yuvarladığı tutarı aşarsa ödeme reddedilir.
-      const invoiceTotal = invoice?.totalAmount != null ? Number(invoice.totalAmount) : round2(t.total)
-      const cashAccountId = accounts.find((a) => a.type === "CASH")?.id
-      const bankAccountId = accounts.find((a) => a.type !== "CASH")?.id
-      const parts = buildPaymentParts(payment, {
-        total: invoiceTotal,
-        cashAccountId,
-        bankAccountId,
+      // Fiş kesme + tahsilat akışı Adisyon ekranıyla ORTAK
+      // (lib/satis/submit-receipt-sale.ts): tutarın SUNUCUNUN yazdığı toplamdan
+      // gelmesi gibi ayrıntılar iki ekranda ayrışmasın.
+      const result = await submitReceiptSale({
+        companyId,
+        items: snapshot.map((l) => ({
+          productId: l.productId,
+          description: l.name,
+          unit: l.unit,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          vatRate: l.vatRate,
+        })),
+        payment,
+        accounts,
+        customerId,
+        warehouseId,
+        notes: note,
+        fallbackTotal: t.total,
       })
 
-      for (const part of parts) {
-        const payRes = await fetch("/api/faturalar/odemeler", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            invoiceId: invoice.id,
-            companyId,
-            amount: part.amount,
-            paymentMethod: part.method,
-            accountId: part.accountId,
-            paymentDate: new Date().toISOString(),
-          }),
-        })
-        if (!payRes.ok) {
-          const payErr = await payRes.json().catch(() => ({}))
+      if (!result.ok) {
+        if (result.stage === "payment") {
           // Fiş oluştu, stok düştü — geri almak yerine kullanıcıyı uyar: tahsilat
           // Fişler ekranından tamamlanabilir, fişi silmek stoğu da geri alırdı.
           toast({
             title: "Fiş oluştu, tahsilat kaydedilemedi",
-            description: payErr?.error || "Ödemeyi Fişler üzerinden tekrar deneyin",
+            description: result.error,
             variant: "destructive",
           })
           setIsSubmitting(false)
           return
         }
+        throw new Error(result.error)
       }
 
-      const paidSum = round2(parts.reduce((s, p) => s + p.amount, 0))
+      const { invoice, parts, paidSum, total: invoiceTotal } = result
       const done = paymentSummary(payment, invoiceTotal)
       toast({
         title: "Satış tamamlandı",
@@ -521,14 +451,6 @@ export function CafeSaleScreen() {
     )
   }
 
-  const catTab = (isActive: boolean) =>
-    cn(
-      "shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
-      isActive
-        ? "bg-kobipo-blue text-white dark:bg-primary dark:text-primary-foreground"
-        : "bg-muted text-muted-foreground hover:bg-muted/70"
-    )
-
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -560,116 +482,16 @@ export function CafeSaleScreen() {
       <div className="grid items-start gap-4 xl:grid-cols-[1fr_400px]">
         {/* === SOL: menü === */}
         <div className="space-y-3">
-          <Card>
-            <CardContent className="space-y-3 p-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2">
-                  <CupSoda className="h-4 w-4 text-kobipo-blue dark:text-primary" />
-                  <span className="text-sm font-semibold">Menü</span>
-                  <span className="text-xs text-muted-foreground">
-                    ({menuProducts.length} ürün · fiyatlar KDV dahil)
-                  </span>
-                </div>
-                <div className="relative w-full sm:w-64">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Ürün ara…"
-                    className="h-10 pl-9"
-                  />
-                </div>
-              </div>
-
-              {categories.length > 0 && (
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                  <button
-                    type="button"
-                    onClick={() => setActiveCat(ALL_CATEGORIES)}
-                    className={catTab(activeCat === ALL_CATEGORIES)}
-                  >
-                    Tümü
-                  </button>
-                  {categories.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setActiveCat(c)}
-                      className={catTab(activeCat === c)}
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Yükleme ve hata durumu boş menüden AYRI: ürün listesi çekilemediğinde
-                  "menüde ürün yok" demek kasiyeri yanıltır — menü dolu ama ekran boş. */}
-              {productsError ? (
-                <div className="py-12 text-center text-sm text-red-600 dark:text-red-400">
-                  Menü yüklenemedi. Bağlantınızı kontrol edip sayfayı yenileyin.
-                </div>
-              ) : productsLoading && products.length === 0 ? (
-                <div className="py-12 text-center text-sm text-muted-foreground">Menü yükleniyor…</div>
-              ) : visibleProducts.length === 0 ? (
-                <div className="py-12 text-center text-sm text-muted-foreground">
-                  {menuProducts.length === 0 ? (
-                    // Kurulum artık tek yerde (Menü & Reçeteler) — iki ayrı yol
-                    // tarif etmek yerine doğrudan oraya bağlıyoruz.
-                    <>
-                      Menüde ürün yok.{" "}
-                      <Link
-                        href="/restoran/menu"
-                        className="font-semibold text-kobipo-blue underline-offset-4 hover:underline dark:text-primary"
-                      >
-                        Menü &amp; Reçeteler
-                      </Link>{" "}
-                      ekranından ürünlerinizi menüye alın.
-                    </>
-                  ) : (
-                    "Bu aramaya/kategoriye uyan ürün yok"
-                  )}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                  {visibleProducts.map((p) => {
-                    const inCart = cart.find((l) => l.productId === p.id)
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => addProduct(p)}
-                        className={cn(
-                          "relative flex min-h-[86px] flex-col justify-between gap-2 rounded-xl border-2 p-3 text-left transition-colors",
-                          inCart
-                            ? "border-kobipo-blue bg-kobipo-blue/5 dark:border-primary dark:bg-primary/10"
-                            : "border-border hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary dark:hover:bg-primary/10"
-                        )}
-                      >
-                        {inCart && (
-                          <span className="absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-kobipo-blue px-1.5 text-xs font-bold text-white dark:bg-primary dark:text-primary-foreground">
-                            {qty(inCart.quantity)}
-                          </span>
-                        )}
-                        <span className="line-clamp-2 pr-7 text-sm font-semibold">{p.name}</span>
-                        <span className="flex items-center gap-1.5">
-                          <span className="text-sm font-bold text-kobipo-blue dark:text-primary">
-                            {p.salePrice != null ? currency(grossPrice(p)) : "—"}
-                          </span>
-                          {recipeMap.has(p.id) && (
-                            <ChefHat
-                              className="h-3.5 w-3.5 text-muted-foreground"
-                              aria-label="Reçeteli"
-                            />
-                          )}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* Izgara Adisyon ekranıyla ORTAK (components/restoran/menu-grid.tsx):
+              "menüde ne görünür" sorusunun iki ekranda ayrışmaması için. */}
+          <MenuGrid
+            products={products}
+            recipeMap={recipeMap}
+            isLoading={productsLoading}
+            error={productsError}
+            badgeOf={(productId) => cart.find((l) => l.productId === productId)?.quantity ?? null}
+            onPick={addProduct}
+          />
 
           {/* Kritik hammadde paneli */}
           {criticalStock.length > 0 && (

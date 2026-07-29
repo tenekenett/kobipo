@@ -23,6 +23,7 @@ import {
   Hash,
   Inbox,
   LayoutDashboard,
+  LayoutGrid,
   LayoutTemplate,
   LifeBuoy,
   Package,
@@ -107,6 +108,7 @@ export const allNavItems: NavItemDef[] = [
   // aynı grupta. Reçete ekranı eskiden Stok grubundaydı; kafeci menüyü kurmak
   // için iki grup arasında gidip geliyordu. Reçete MANTIĞI hâlâ lib/stock'ta —
   // taşınan yalnızca ekranın adresi (bkz. docs/restoran/SADELESTIRME.md "İş 3").
+  { href: "/restoran/masalar", label: "Masalar", icon: LayoutGrid, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/restoran/satis", label: "Kahveci Satış", icon: CupSoda, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/restoran/menu", label: "Menü & Reçeteler", icon: ChefHat, roles: ["ADMIN", BM, "STOCK", "ACCOUNTANT"] },
   { href: "/restoran/raporlar", label: "Raporlar", icon: BarChart3, roles: ["ADMIN", BM, "ACCOUNTANT"] },
@@ -195,7 +197,15 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
   },
   {
     title: "Restoran & Kafe",
-    hrefs: ["/restoran/satis", "/restoran/menu", "/restoran/raporlar"],
+    // "/restoran/adisyon" menüde YOK (masadan girilir) ama modül kapısında olmalı:
+    // adres çubuğuna elle yazılan adisyon linki de `restaurant` kapalıyken kilitlensin.
+    hrefs: [
+      "/restoran/masalar",
+      "/restoran/adisyon",
+      "/restoran/satis",
+      "/restoran/menu",
+      "/restoran/raporlar",
+    ],
   },
   {
     title: "Finans",
