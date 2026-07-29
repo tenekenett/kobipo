@@ -7,6 +7,7 @@ import { createGibDraft } from "@/lib/integrations/e-invoice/send-invoice-helper
 import { revertInvoiceStock } from "@/lib/stock/warehouse"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { Decimal } from "@prisma/client/runtime/library"
+import { normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
 
 
 export const dynamic = 'force-dynamic'
@@ -223,7 +224,14 @@ export async function PUT(
     }
 
     const body = await request.json()
-    const { customerId, supplierId, date, dueDate, items, notes, globalDiscountAmount, invoiceNo } = body
+    const { customerId, supplierId, date, dueDate, items, notes, globalDiscountAmount, globalChargeAmount, payableRoundingAmount, invoiceNo, category, tags } = body
+
+    const manualNo = normalizeManualInvoiceNo(invoiceNo)
+    if (!manualNo.ok) {
+      return NextResponse.json({ error: manualNo.error }, { status: 400 })
+    }
+    const normalizedInvoiceNo = manualNo.value
+
 
     const normalizedItems =
       Array.isArray(items) && items.length > 0
@@ -287,21 +295,30 @@ export async function PUT(
     const appliedGlobalDiscount = netAmount.gt(0)
       ? incomingGlobalDiscount.gt(netAmount) ? netAmount : incomingGlobalDiscount
       : new Decimal(0)
-    if (appliedGlobalDiscount.gt(0) && netAmount.gt(0)) {
-      const adjustment = new Decimal(1).minus(appliedGlobalDiscount.div(netAmount))
-      netAmount = netAmount.minus(appliedGlobalDiscount)
+    // Fatura altı İLAVE (masraf): iskontonun tersi — KDV matrahını ARTIRIR.
+    const appliedGlobalCharge = new Decimal(
+      Math.max(0, parseFloat(globalChargeAmount) || 0),
+    )
+    if (netAmount.gt(0) && (appliedGlobalDiscount.gt(0) || appliedGlobalCharge.gt(0))) {
+      const adjustedNet = netAmount.minus(appliedGlobalDiscount).plus(appliedGlobalCharge)
+      const adjustment = adjustedNet.div(netAmount)
+      netAmount = adjustedNet
       vatAmount = vatAmount.times(adjustment)
       totalAmount = totalAmount.times(adjustment)
     }
+
+    // Dip toplam yuvarlaması: KDV'ye GİRMEZ, yalnız ödenecek tutara eklenir.
+    const appliedRounding = new Decimal(parseFloat(payableRoundingAmount) || 0)
+    totalAmount = totalAmount.plus(appliedRounding)
 
     const updated = await prisma.invoice.update({
       where: { id: resolvedParams.id },
       data: {
         // Fatura No düzenlemesi (özellikle alışta tedarikçi belge no'su). Yalnız
         // dolu gelirse güncelle; boş bırakılırsa mevcut numarayı koru.
-        ...(typeof invoiceNo === "string" && invoiceNo.trim()
-          ? { invoiceNo: invoiceNo.trim() }
-          : {}),
+        // Doğrulama POST ile ORTAK (normalizeManualInvoiceNo) — burada yalnız trim
+        // yapılıyordu, uzunluk/karakter sınırı yoktu.
+        ...(normalizedInvoiceNo ? { invoiceNo: normalizedInvoiceNo } : {}),
         customerId: customerId !== undefined ? (customerId || null) : invoice.customerId,
         supplierId: supplierId !== undefined ? (supplierId || null) : invoice.supplierId,
         date: date ? new Date(date) : invoice.date,
@@ -310,7 +327,26 @@ export async function PUT(
         vatAmount: vatAmount,
         netAmount: netAmount,
         globalDiscountAmount: appliedGlobalDiscount.gt(0) ? appliedGlobalDiscount : null,
+        globalChargeAmount: appliedGlobalCharge.gt(0) ? appliedGlobalCharge : null,
+        payableRoundingAmount: appliedRounding.isZero() ? null : appliedRounding,
         notes: notes !== undefined ? notes : invoice.notes,
+        // Sınıflandırma — gönderilmediyse mevcut değer korunur (create ile aynı temizlik).
+        ...(category !== undefined
+          ? { category: typeof category === "string" && category.trim() ? category.trim() : null }
+          : {}),
+        ...(tags !== undefined
+          ? {
+              tags: Array.isArray(tags)
+                ? Array.from(
+                    new Set(
+                      tags
+                        .map((t: unknown) => (typeof t === "string" ? t.trim() : ""))
+                        .filter((t: string) => t.length > 0),
+                    ),
+                  )
+                : [],
+            }
+          : {}),
       },
     })
 

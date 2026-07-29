@@ -97,7 +97,14 @@ export async function GET(
     await ensureCompanyAccess(customer.companyId)
 
     // Calculate balance using database aggregation to avoid N+1 queries
-    const [invoiceAggregate, paymentAggregate, incomeTransactionAggregate, expenseTransactionAggregate] = await Promise.all([
+    const [
+      invoiceAggregate,
+      paymentAggregate,
+      purchaseAggregate,
+      purchasePaymentAggregate,
+      incomeTransactionAggregate,
+      expenseTransactionAggregate,
+    ] = await Promise.all([
       prisma.invoice.aggregate({
         where: { customerId: customer.id, type: "SALES", status: { notIn: ["CANCELLED", "CONVERTED"] } },
         _sum: { totalAmount: true },
@@ -108,6 +115,21 @@ export async function GET(
         where: {
           transactionId: null,
           invoice: { customerId: customer.id, type: "SALES", status: { notIn: ["CANCELLED", "CONVERTED"] } },
+        },
+        _sum: { amount: true },
+      }),
+      // MAHSUP: aynı cari hem müşteri hem tedarikçi olabilir. Bu müşteriye kayıtlı
+      // bir ALIŞ faturası (ör. gelen e-faturayı müşteri hesabına işlemek) bizim ona
+      // olan borcumuzdur ve alacağımızı azaltır. Önceden bakiye yalnız type='SALES'
+      // topluyordu; fatura ekstrede GÖRÜNÜP bakiyeye hiç girmiyordu.
+      prisma.invoice.aggregate({
+        where: { customerId: customer.id, type: "PURCHASE", status: { notIn: ["CANCELLED", "CONVERTED"] } },
+        _sum: { totalAmount: true },
+      }),
+      prisma.invoicePayment.aggregate({
+        where: {
+          transactionId: null,
+          invoice: { customerId: customer.id, type: "PURCHASE", status: { notIn: ["CANCELLED", "CONVERTED"] } },
         },
         _sum: { amount: true },
       }),
@@ -122,7 +144,10 @@ export async function GET(
     ])
 
     // Calculate balance: unpaid invoices + expenses - income + opening balance
-    let balance = Number(invoiceAggregate._sum.totalAmount || 0) - Number(paymentAggregate._sum.amount || 0) + Number(expenseTransactionAggregate._sum.amount || 0) - Number(incomeTransactionAggregate._sum.amount || 0)
+    // Bu cariye kayıtlı ALIŞ faturalarının ödenmemiş kısmı borcumuzdur → alacaktan düşer.
+    const purchaseOffset =
+      Number(purchaseAggregate._sum.totalAmount || 0) - Number(purchasePaymentAggregate._sum.amount || 0)
+    let balance = Number(invoiceAggregate._sum.totalAmount || 0) - Number(paymentAggregate._sum.amount || 0) - purchaseOffset + Number(expenseTransactionAggregate._sum.amount || 0) - Number(incomeTransactionAggregate._sum.amount || 0)
     balance += customer.openingBalanceType === "CREDIT"
       ? -Number(customer.openingBalanceAmount || 0)
       : Number(customer.openingBalanceAmount || 0)

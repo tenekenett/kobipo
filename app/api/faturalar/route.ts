@@ -71,6 +71,9 @@ export async function GET(request: Request) {
       status: string | null
       profile: string | null
       invoiceType: string | null
+      // Sınıflandırma (yalnız kendi faturalarımızda; gelen e-faturada yok)
+      category?: string | null
+      tags?: string[]
       meta: Record<string, any>
     }
 
@@ -200,6 +203,8 @@ export async function GET(request: Request) {
           status: r.status,
           profile: inbox?.profile ?? null,
           invoiceType: r.invoiceType,
+          category: r.category ?? null,
+          tags: r.tags ?? [],
           meta: {
             integrationStatus: r.integrationStatus,
             integrationId: r.integrationId,
@@ -261,6 +266,8 @@ export async function GET(request: Request) {
           status: r.status,
           profile: null,
           invoiceType: r.invoiceType,
+          category: r.category ?? null,
+          tags: r.tags ?? [],
           meta: {
             integrationStatus: r.integrationStatus,
             integrationId: r.integrationId,

@@ -1,5 +1,14 @@
 import { prisma } from "@/lib/db/prisma"
 
+// Biçim kuralları ayrı modülde: bu dosya prisma çektiği için client component'ten
+// import edilemiyor. Sunucu tarafı çağıranlar buradan da erişebilsin diye re-export.
+export {
+  INVOICE_NO_MAX_LENGTH,
+  INVOICE_NO_ALLOWED,
+  normalizeManualInvoiceNo,
+} from "@/lib/utils/invoice-number-format"
+export type { ManualInvoiceNoResult } from "@/lib/utils/invoice-number-format"
+
 /**
  * Firma bazlı otomatik fatura numarası oluşturur
  * Format: SAT-YYYY-XXXX veya ALI-YYYY-XXXX

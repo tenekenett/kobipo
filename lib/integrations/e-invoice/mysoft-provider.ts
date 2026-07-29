@@ -795,6 +795,30 @@ async sendInvoice(invoiceData: any): Promise<any> {
         });
       }
 
+      // Fatura altı İLAVE (masraf): iskontonun tersi, matrahı ARTIRIR. İskontoyla
+      // AYNI gerekçeyle satırlara pro-rata yayılır — header-level allowanceCharge
+      // bazı XSLT'lerde görünmediği için satıra yayılmış değer her şablonda doğru
+      // render edilir ve KDV doğru hesaplanır. globalShare NEGATİF pay olarak
+      // eklenir; aşağıdaki matrah hesabı (rowTotal - lineDiscount - globalShare)
+      // böylece ilaveyi kendiliğinden ekler.
+      const rawGlobalCharge = Math.max(0, Number(invoiceData.globalChargeAmount) || 0);
+      // Dip toplamlarda ayrıca raporlanacak (chargeTotalAmount / allowanceTotalAmount).
+      const appliedGlobalChargeTotal =
+        rawGlobalCharge > 0 && subtotalNetForGlobal > 0 ? round2(rawGlobalCharge) : 0;
+      const appliedRoundingAmount = round2(Number(invoiceData.payableRoundingAmount) || 0);
+      if (rawGlobalCharge > 0 && subtotalNetForGlobal > 0) {
+        let distributedCharge = 0;
+        lineData.forEach((l: any, idx: number) => {
+          const lineNet = l.rowTotal - l.lineDiscount;
+          const isLast = idx === lineData.length - 1;
+          const share = isLast
+            ? round2(Math.max(0, rawGlobalCharge - distributedCharge))
+            : round2((lineNet / subtotalNetForGlobal) * rawGlobalCharge);
+          l.globalShare = round2(l.globalShare - share);
+          distributedCharge += share;
+        });
+      }
+
       // Yeni matrah ve KDV: lineDiscount + globalShare düşülmüş tutar üzerinden.
       // GİB şematron 2-ondalık kuralı: TUTAR alanları (amtTra/taxableAmtTra/
       // amtVatTra) 2 ondalığa yuvarlanır. unitPriceTra UBL standardında 6+
@@ -861,10 +885,17 @@ async sendInvoice(invoiceData: any): Promise<any> {
         lineExtensionAmount: totalGross,          // Σ miktar × birim fiyat (brüt)
         taxExclusiveAmount: totalTaxable,         // iskontolar düşülmüş net matrah
         taxInclusiveAmount: taxInclusiveTotal,    // matrah + KDV + ek vergiler (ÖTV/ÖİV/diğer)
-        allowanceTotalAmount: round2(totalGross - totalTaxable),
-        chargeTotalAmount: 0,
-        payableRoundingAmount: 0,
-        payableAmount: round2(taxInclusiveTotal - totalWithholding),
+        // İskonto ve İLAVE ayrı raporlanır. İlave satırlara pro-rata yayıldığı için
+        // totalTaxable'ın İÇİNDE; allowanceTotal'ı brüt farkından türetirken ilaveyi
+        // geri eklemezsek iskonto olduğundan AZ görünür (ör. ilave 21,31 varken
+        // allowance 21,31 eksik çıkar) ve GİB dip toplam kontrolü tutmaz.
+        allowanceTotalAmount: round2(totalGross - totalTaxable + appliedGlobalChargeTotal),
+        chargeTotalAmount: appliedGlobalChargeTotal,
+        // Dip toplam yuvarlaması: KDV'ye girmez, yalnız ödenecek tutara eklenir.
+        // Önceden sabit 0 gönderiliyordu; yuvarlamalı fatura kesilirse GİB'e giden
+        // belge, uygulamada gördüğümüz tutardan farklı oluyordu.
+        payableRoundingAmount: appliedRoundingAmount,
+        payableAmount: round2(taxInclusiveTotal - totalWithholding + appliedRoundingAmount),
       }
 
       const isoDate = invoiceData.date instanceof Date ? invoiceData.date.toISOString() : new Date(invoiceData.date).toISOString();

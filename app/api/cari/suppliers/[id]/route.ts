@@ -132,13 +132,17 @@ export async function GET(
     // ödemeler bakiyeye işlem üzerinden yansıdığından burada hariç tutulur.
     let balance = 0
     allInvoices.forEach((inv) => {
-      if (inv.type === "PURCHASE") {
-        const totalPaid = inv.payments.reduce(
-          (sum, p) => sum + (p.transactionId ? 0 : Number(p.amount)),
-          0,
-        )
-        balance += Number(inv.totalAmount) - totalPaid
-      }
+      // MAHSUP: aynı cari hem tedarikçi hem müşteri olabilir. Bu tedarikçiye kayıtlı
+      // bir SATIŞ faturası onun bize borcudur ve bizim ona olan borcumuzu azaltır.
+      // Önceden yalnız PURCHASE sayılıyordu; satış faturası ekstrede GÖRÜNÜP bakiyeye
+      // hiç girmiyordu (müşteri tarafındaki alış faturasıyla aynı hata).
+      if (inv.type !== "PURCHASE" && inv.type !== "SALES") return
+      const totalPaid = inv.payments.reduce(
+        (sum, p) => sum + (p.transactionId ? 0 : Number(p.amount)),
+        0,
+      )
+      const net = Number(inv.totalAmount) - totalPaid
+      balance += inv.type === "PURCHASE" ? net : -net
     })
 
     // Tedarikçide ödeme (EXPENSE → kasadan çıkan) borcu AZALTIR; tahsilat

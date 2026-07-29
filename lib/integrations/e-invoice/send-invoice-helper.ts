@@ -259,6 +259,8 @@ async function resolveSendContext(
     // Fatura altı (genel) iskonto tutarı (DB'de tutar olarak saklı). Header-level
     // allowanceCharge'a yansır, matrah tutar üzerinden oransal düşülür.
     globalDiscountAmount: Number(invoice.globalDiscountAmount || 0),
+    globalChargeAmount: Number(invoice.globalChargeAmount || 0),
+    payableRoundingAmount: Number(invoice.payableRoundingAmount || 0),
   }
 
   // Gönderimde kullanılacak belge dizaynını (xsltName) çöz: önce faturanın

@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Trash2, X, Clock, Check, Eye, Download, Loader2, Wand2, Truck, Barcode } from "lucide-react"
+import { Plus, Trash2, X, Clock, Check, Eye, Download, Loader2, Wand2, Truck, Barcode, Pencil } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +31,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { ProductCombobox } from "@/components/e-donusum/product-combobox"
+import { CategoryCombobox } from "@/components/e-donusum/category-combobox"
+import { INVOICE_NO_MAX_LENGTH, normalizeManualInvoiceNo } from "@/lib/utils/invoice-number-format"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 import { WithholdingCombobox } from "@/components/e-donusum/withholding-combobox"
 import { TaxTypeCombobox } from "@/components/e-donusum/tax-type-combobox"
@@ -103,6 +105,63 @@ interface CompanySettings { id: string; name?: string; taxNumber?: string | null
 // hem de kaydetme öncesi son kontrolde aynı mantıkla kullanılır.
 // matchedProductId: kullanıcı bu kalemi mevcut bir stok ürününe eşleştirdiyse o
 // ürünün id'si — set ise yeni ürün OLUŞTURULMAZ, kalem mevcut ürüne bağlanır.
+/** Tam sayı kısmını Türkçe binlik ayracıyla gruplar ("2692" → "2.692"). */
+function groupTr(digits: string): string {
+  const d = digits.replace(/\D/g, "")
+  return d ? Number(d).toLocaleString("tr-TR") : ""
+}
+
+/**
+ * YAZARKEN canlı biçimlendirme: her tuşta binlik ayracını yeniden kurar.
+ * Yalnız odaktan çıkınca biçimlendirmek yetmiyordu — kullanıcı uzun tutarı
+ * yazarken ayraç görmediği için haneyi gözle sayamıyor.
+ *
+ * Ondalık ayracı VİRGÜL kabul edilir; nokta yazılırsa (sayısal tuş takımı)
+ * ondalık gibi davranıp virgüle çevrilir. Yapıştırmada "1.234.567,89" gibi
+ * karışık biçim de doğru çözülür: virgül varsa noktalar binliktir.
+ */
+function formatAmountLive(raw: string): string {
+  const cleaned = raw.replace(/[^\d.,-]/g, "")
+  const neg = cleaned.trimStart().startsWith("-")
+  const v = cleaned.replace(/-/g, "")
+  const sign = neg ? "-" : ""
+
+  if (v.includes(",")) {
+    const i = v.indexOf(",")
+    const intPart = v.slice(0, i).replace(/\./g, "")
+    const decPart = v.slice(i + 1).replace(/[.,]/g, "").slice(0, 2)
+    return sign + groupTr(intPart) + "," + decPart
+  }
+  // Virgül yok: sondaki nokta 1-2 hane bırakıyorsa ondalıktır ("2692.5" → "2.692,5"),
+  // 3 hane bırakıyorsa binliktir ("1.000" → "1.000").
+  const dec = v.match(/^(\d*)\.(\d{1,2})$/)
+  if (dec) return sign + groupTr(dec[1]) + "," + dec[2]
+  // SONDAKİ nokta her zaman "ondalık yazmaya başladı" demektir. Ekrandaki binlik
+  // ayraçları da nokta olduğu için "yalnızca tek nokta varsa" koşulu yanlıştı:
+  // "2.692." yazınca nokta yutuluyor, ondalık girilemiyordu.
+  if (/\.$/.test(v)) return sign + groupTr(v) + ","
+  return sign + groupTr(v)
+}
+
+/**
+ * Kullanıcının yazdığı tutarı sayıya çevirir (TR biçimi + nokta ondalık toleransı).
+ *
+ * Sadece "noktaları at, virgülü noktaya çevir" YETMİYOR: kullanıcı ondalık ayracı
+ * olarak NOKTA yazarsa ("2692.50") değer 100 katına çıkıyordu (269250) — mali
+ * alanda sessiz ve tehlikeli bir hata. Kural:
+ *   - Virgül varsa: virgül ondalık, noktalar binlik.
+ *   - Virgül yoksa ve tek nokta SONDA 1-2 hane bırakıyorsa: nokta ondalık.
+ *   - Aksi halde (1.000 / 1.234.567): noktalar binlik.
+ */
+function parseAmountInput(raw: string): number {
+  const v = raw.trim().replace(/[^\d.,-]/g, "")
+  if (!v) return NaN
+  if (v.includes(",")) return parseFloat(v.replace(/\./g, "").replace(",", "."))
+  const m = v.match(/^-?\d+\.(\d{1,2})$/)
+  if (m) return parseFloat(v)
+  return parseFloat(v.replace(/\./g, ""))
+}
+
 type UnregDraft = {
   index: number
   name: string
@@ -251,8 +310,32 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     exchangeRate: "",
     exchangeRateDate: "",
     notes: "",
+    category: "",
+    tags: [] as string[],
   })
-  
+
+  // Sınıflandırma: daha önce kullanılmış kategori/etiketler öneri olarak sunulur.
+  const [classificationOptions, setClassificationOptions] = useState<{
+    categories: string[]
+    tags: string[]
+  }>({ categories: [], tags: [] })
+  const [tagInput, setTagInput] = useState("")
+
+  // Fatura No istemci tarafı kontrolü — sunucudaki kuralın aynısı.
+  const invoiceNoError = (() => {
+    const r = normalizeManualInvoiceNo(formData.invoiceNo)
+    return r.ok ? null : r.error
+  })()
+
+  const addTag = (raw: string) => {
+    const t = raw.trim()
+    setTagInput("")
+    if (!t) return
+    setFormData((prev) =>
+      prev.tags.includes(t) ? prev : { ...prev, tags: [...prev.tags, t] },
+    )
+  }
+
   const [items, setItems] = useState<InvoiceItem[]>([
     { description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 },
   ])
@@ -260,7 +343,19 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   // Fatura altı (genel) iskonto: kullanıcı % veya ₺ olarak girer, save'de tutar
   // (globalDiscountAmount) olarak DB'ye yazılır. KDV matrahından oransal düşülür.
+  // Net Matrah elle düzeltme kutusu. Matrah TÜRETİLMİŞ bir değerdir
+  // (Σ satır neti − fatura altı iskonto); doğrudan yazılırsa fatura kendi
+  // kalemleriyle tutarsız olur ve e-Belge doğrulamasından geçmez. Bu yüzden
+  // kullanıcının yazdığı hedef matraha göre FATURA ALTI İSKONTOYU geri
+  // hesaplıyoruz — sonuç hem istenen matrahı verir hem GİB'e geçerli kalır.
+  // null → düzenlenmiyor, türetilmiş değer gösteriliyor.
+  const [netOverrideInput, setNetOverrideInput] = useState<string | null>(null)
+  const [netOverrideWarning, setNetOverrideWarning] = useState<string | null>(null)
   const [globalDiscountEnabled, setGlobalDiscountEnabled] = useState(false)
+  // Fatura altı ilave (masraf) ve dip toplam yuvarlaması.
+  const [globalChargeEnabled, setGlobalChargeEnabled] = useState(false)
+  const [globalChargeInput, setGlobalChargeInput] = useState<string>("")
+  const [payableRoundingInput, setPayableRoundingInput] = useState<string>("")
   const [globalDiscountMode, setGlobalDiscountMode] = useState<DiscountMode>("PERCENT")
   const [globalDiscountInput, setGlobalDiscountInput] = useState<string>("")
 
@@ -284,6 +379,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     fetchSuppliers()
     fetchProducts()
     fetchCompanySettings()
+    // Kategori/etiket önerileri — hata olursa sessizce boş kalır, form çalışmaya devam eder.
+    fetch(`/api/e-donusum/invoices/classifications?companyId=${encodeURIComponent(companyId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) setClassificationOptions({ categories: d.categories || [], tags: d.tags || [] })
+      })
+      .catch(() => {})
   }, [companyId])
 
   // Önizleme blob URL'ini bileşen kapanırken serbest bırak (bellek sızıntısı olmasın).
@@ -899,6 +1001,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         exchangeRate: data.exchangeRate ? String(data.exchangeRate) : "",
         exchangeRateDate: data.exchangeRateDate ? new Date(data.exchangeRateDate).toISOString().split("T")[0] : "",
         notes: data.notes || "",
+        category: data.category || "",
+        tags: Array.isArray(data.tags) ? data.tags : [],
       })
 
       // Fatura altı iskonto: DB'de tutar olarak saklı; yüklerken AMOUNT modunda
@@ -912,6 +1016,18 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         setGlobalDiscountEnabled(false)
         setGlobalDiscountInput("")
       }
+
+      // Fatura altı ilave + dip toplam yuvarlaması.
+      const savedGlobalCharge = Number(data.globalChargeAmount) || 0
+      if (savedGlobalCharge > 0) {
+        setGlobalChargeEnabled(true)
+        setGlobalChargeInput(String(savedGlobalCharge))
+      } else {
+        setGlobalChargeEnabled(false)
+        setGlobalChargeInput("")
+      }
+      const savedRounding = Number(data.payableRoundingAmount) || 0
+      setPayableRoundingInput(savedRounding !== 0 ? String(savedRounding) : "")
 
       const editItems = Array.isArray(data.items)
         ? data.items.map((item: any) => {
@@ -983,6 +1099,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         exchangeRate: data.exchangeRate ? String(data.exchangeRate) : "",
         exchangeRateDate: data.exchangeRateDate ? new Date(data.exchangeRateDate).toISOString().split("T")[0] : "",
         notes: data.notes || "",
+        category: data.category || "",
+        tags: Array.isArray(data.tags) ? data.tags : [],
       })
 
       const copiedItems: InvoiceItem[] = Array.isArray(data.items)
@@ -1500,20 +1618,33 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         ? Math.max(0, Math.min(rawGlobal, netAmount))
         : Math.max(0, Math.min(netAmount * (rawGlobal / 100), netAmount))
 
-    const ratio = netAmount > 0 ? globalDiscount / netAmount : 0
-    const adjNet = netAmount - globalDiscount
-    const adjVat = vatAmount * (1 - ratio)
-    const adjWithholding = withholdingAmount * (1 - ratio)
-    const adjExcise = exciseAmount * (1 - ratio)
-    const adjOtherTax = otherTaxAmount * (1 - ratio)
-    const totalAmount = adjNet + adjVat + adjExcise + adjOtherTax - adjWithholding
+    // Fatura altı İLAVE (masraf): iskontonun tersi, KDV matrahını ARTIRIR.
+    // Ör. elektrik faturasında ETV/Enerji Fonu KDV matrahının içindedir.
+    const rawCharge = parseFloat(globalChargeInput) || 0
+    const globalCharge = !globalChargeEnabled || rawCharge <= 0 ? 0 : rawCharge
+
+    // Matrah hem iskonto hem ilave ile değişir; vergiler aynı ORANDA ölçeklenir
+    // (satır bazında yeniden dağıtmak yerine tek katsayı — iskontodaki mevcut mantık).
+    const adjNet = netAmount - globalDiscount + globalCharge
+    const factor = netAmount > 0 ? adjNet / netAmount : 0
+    const adjVat = vatAmount * factor
+    const adjWithholding = withholdingAmount * factor
+    const adjExcise = exciseAmount * factor
+    const adjOtherTax = otherTaxAmount * factor
+
+    // Dip toplam yuvarlaması: KDV'ye GİRMEZ, yalnız ödenecek tutara eklenir.
+    // Negatif olabilir (aşağı yuvarlama).
+    const rounding = parseFloat(payableRoundingInput) || 0
+    const totalAmount = adjNet + adjVat + adjExcise + adjOtherTax - adjWithholding + rounding
 
     return {
       netAmount: adjNet,
       grossAmount, // satır iskontoları öncesi brüt ara toplam (Ara Toplam gösterimi)
-      grossNetAmount: netAmount, // global iskonto öncesi (satır iskontosu sonrası) ara toplam
+      grossNetAmount: netAmount, // global iskonto/ilave öncesi (satır iskontosu sonrası) ara toplam
       discountAmount,
       globalDiscount,
+      globalCharge,
+      rounding,
       vatAmount: adjVat,
       withholdingAmount: adjWithholding,
       exciseAmount: adjExcise,
@@ -1524,11 +1655,15 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   const resetForm = () => {
     setEditingInvoiceId(null)
-    setFormData({ type: "SALES", invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL", invoiceNo: "", customerId: "", supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", currency: "TRY", exchangeRate: "", exchangeRateDate: "", notes: "" })
+    setFormData({ type: "SALES", invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL", invoiceNo: "", customerId: "", supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", currency: "TRY", exchangeRate: "", exchangeRateDate: "", notes: "", category: "", tags: [] })
+    setTagInput("")
     setItems([{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }])
     setLineExtras([[]])
     setGlobalDiscountEnabled(false)
     setGlobalDiscountInput("")
+    setGlobalChargeEnabled(false)
+    setGlobalChargeInput("")
+    setPayableRoundingInput("")
     setGlobalDiscountMode("PERCENT")
   }
 
@@ -1594,6 +1729,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     notes: formData.notes,
     items,
     globalDiscountAmount: totals.globalDiscount > 0 ? totals.globalDiscount : 0,
+    globalChargeAmount: totals.globalCharge > 0 ? totals.globalCharge : 0,
+    payableRoundingAmount: totals.rounding,
+    category: formData.category,
+    tags: formData.tags,
   })
 
   const fetchDraftPreviewBlob = async (): Promise<Blob> => {
@@ -1685,6 +1824,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const handleSubmit = async () => {
     if (items.length === 0) return toast({ title: "Hata", description: "En az bir kalem ekleyin", variant: "destructive" })
     if (!formData.customerId && !formData.supplierId) return toast({ title: "Hata", description: "Müşteri veya tedarikçi seçin", variant: "destructive" })
+    if (invoiceNoError) return toast({ title: "Fatura No geçersiz", description: invoiceNoError, variant: "destructive" })
     if (isEDonusumActive && E_DOC_TYPES.has(effectiveInvoiceType) && eInvoiceMissingMessages.length > 0) return toast({ title: "E-fatura için eksik bilgi", description: eInvoiceMissingMessages.join(" · "), variant: "destructive" })
 
     // KDV %0 olan kalemlerde istisna sebebi zorunlu (Şematron kuralı)
@@ -1743,6 +1883,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           invoiceType: effectiveInvoiceType,
           items: itemsForSave,
           globalDiscountAmount: totals.globalDiscount > 0 ? totals.globalDiscount : 0,
+          globalChargeAmount: totals.globalCharge > 0 ? totals.globalCharge : 0,
+          payableRoundingAmount: totals.rounding,
           sendInvoice: false,
           ...(fromIncomingUuid && !isEditing ? { fromIncomingUuid } : {}),
           // İrsaliye bağlama yalnız oluşturmada (POST): seçili irsaliyeler faturaya bağlanır.
@@ -2148,16 +2290,35 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             </div>
 
             <div className="space-y-4">
-              {/* Alış faturasında numara TEDARİKÇİNİN faturasından gelir → kullanıcı
-                  elle girer. Boş bırakılırsa API otomatik ALI-YYYY-XXXX üretir. */}
-              {formData.type === "PURCHASE" && (
+              {/* Fatura No elle girilebilir iki durumda:
+                  - ALIŞ: numara TEDARİKÇİNİN faturasından gelir.
+                  - MANUEL belge: numarayı biz veririz; kullanıcı kendi matbu/elden
+                    numarasını girmek isteyebilir (ör. mevcut kaşe sırası).
+                  E-Fatura/E-Arşiv'de numarayı GİB tarafında Mysoft üretir (prefix +
+                  sayaç); elle girilen değer geçersiz olacağı için alan gösterilmez.
+                  Boş bırakılırsa API otomatik numara atar. */}
+              {(formData.type === "PURCHASE" || effectiveInvoiceType === "MANUAL") && (
                 <div className="space-y-2">
                   <Label>Fatura No</Label>
                   <Input
                     value={formData.invoiceNo}
+                    maxLength={INVOICE_NO_MAX_LENGTH}
                     onChange={(e) => setFormData({ ...formData, invoiceNo: e.target.value })}
-                    placeholder="Tedarikçinin fatura numarası (boş = otomatik atanır)"
+                    placeholder={
+                      formData.type === "PURCHASE"
+                        ? "Tedarikçinin fatura numarası (boş = otomatik atanır)"
+                        : "Boş bırakırsan otomatik atanır"
+                    }
                   />
+                  {/* Sunucu aynı kuralı uyguluyor (normalizeManualInvoiceNo); buradaki
+                      uyarı kullanıcının kaydetmeden önce görmesi için. */}
+                  {invoiceNoError ? (
+                    <p className="text-xs text-red-600">{invoiceNoError}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      En fazla {INVOICE_NO_MAX_LENGTH} karakter; harf, rakam ve - _ / . ( )
+                    </p>
+                  )}
                 </div>
               )}
               <div className="space-y-2">
@@ -2168,6 +2329,115 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 <Label>Vade Tarihi</Label>
                 <Input type="date" value={formData.dueDate} onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })} />
               </div>
+            </div>
+          </div>
+
+          {/* SINIFLANDIRMA — kategori (tek) + etiket (çoklu).
+              Faturanın kendi başlık bilgisi olduğu için tarih/numara ile aynı bölgede
+              duruyor; notların üstüne sıkıştırılmıştı, orada çipler "Genel Notlar"
+              başlığına yapışıyordu. Rapor kırılımı ve liste filtresi bu alanları kullanır. */}
+          <div className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50/50 p-4 md:grid-cols-2 dark:border-border dark:bg-muted/20">
+            <div className="space-y-2">
+              <Label>Kategori</Label>
+              <CategoryCombobox
+                value={formData.category}
+                options={classificationOptions.categories}
+                onChange={(v) => setFormData({ ...formData, category: v })}
+                onCreateOption={(v) =>
+                  setClassificationOptions((prev) =>
+                    prev.categories.some((c) => c.toLocaleLowerCase("tr") === v.toLocaleLowerCase("tr"))
+                      ? prev
+                      : { ...prev, categories: [...prev.categories, v].sort((a, b) => a.localeCompare(b, "tr")) },
+                  )
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Faturayı tek bir gruba yazar (raporlarda kırılım, listede filtre).
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Etiketler</Label>
+              <div className="flex gap-2">
+                <Input
+                  className="flex-1"
+                  value={tagInput}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    // Virgülle toplu giriş: "a, b, c" yapıştırılabilsin.
+                    if (v.includes(",")) {
+                      v.split(",").forEach((part) => addTag(part))
+                      return
+                    }
+                    setTagInput(v)
+                  }}
+                  onKeyDown={(e) => {
+                    // datalist KULLANMIYORUZ: açık öneri kutusu Enter'ı yutabildiği için
+                    // etiket ancak başka bir yere tıklayınca (blur) ekleniyordu. Öneriler
+                    // artık aşağıda tıklanabilir çip olarak duruyor; Enter burada garanti.
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                      e.preventDefault()
+                      addTag(tagInput)
+                    }
+                  }}
+                  onBlur={() => addTag(tagInput)}
+                  placeholder="Etiket yaz, Enter'a bas"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0"
+                  disabled={!tagInput.trim()}
+                  onClick={() => addTag(tagInput)}
+                >
+                  Ekle
+                </Button>
+              </div>
+              {/* Daha önce kullanılmış etiketler — tıklayınca eklenir. */}
+              {classificationOptions.tags.filter((t) => !formData.tags.includes(t)).length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="text-[11px] text-muted-foreground">Önceden:</span>
+                  {classificationOptions.tags
+                    .filter((t) => !formData.tags.includes(t))
+                    .slice(0, 8)
+                    .map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => addTag(t)}
+                        className="rounded-full border border-dashed border-slate-300 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-kobipo-blue hover:text-kobipo-navy dark:hover:text-foreground"
+                      >
+                        + {t}
+                      </button>
+                    ))}
+                </div>
+              )}
+              {formData.tags.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {formData.tags.map((t) => (
+                    <span
+                      key={t}
+                      className="inline-flex items-center gap-1 rounded-full border border-kobipo-blue/30 bg-kobipo-pale/60 px-2.5 py-0.5 text-xs font-medium text-kobipo-navy dark:border-primary/40 dark:bg-primary/10 dark:text-foreground"
+                    >
+                      {t}
+                      <button
+                        type="button"
+                        aria-label={`${t} etiketini kaldır`}
+                        className="text-kobipo-navy/60 hover:text-red-600 dark:text-foreground/60"
+                        onClick={() =>
+                          setFormData((prev) => ({ ...prev, tags: prev.tags.filter((x) => x !== t) }))
+                        }
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Serbest işaretler; bir faturaya birden çok eklenebilir (proje, şube, kampanya).
+                </p>
+              )}
             </div>
           </div>
 
@@ -2895,11 +3165,200 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 </div>
               )}
 
-              <div className="flex justify-between text-sm border-t border-slate-200 pt-2"><span className="text-muted-foreground">Net Matrah:</span><span className="font-medium">₺{totals.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
+              {/* FATURA ALTI İLAVE (masraf) — iskontonun tersi, KDV matrahını artırır.
+                  Elektrik/telekom faturasındaki ETV, Enerji Fonu gibi kalemler için. */}
+              {!globalChargeEnabled ? (
+                <button
+                  type="button"
+                  onClick={() => setGlobalChargeEnabled(true)}
+                  className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-400 hover:bg-white"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Fatura Altı İlave Ekle
+                </button>
+              ) : (
+                <div className="space-y-1 rounded-md border border-kobipo-blue/25 bg-kobipo-pale/25 p-2 dark:border-primary/30 dark:bg-primary/5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-kobipo-navy dark:text-foreground">
+                      Fatura Altı İlave
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-red-600"
+                      onClick={() => {
+                        setGlobalChargeEnabled(false)
+                        setGlobalChargeInput("")
+                      }}
+                    >
+                      kaldır
+                    </button>
+                  </div>
+                  <input
+                    type="number"
+                    className="w-full rounded border bg-transparent px-2 py-1 text-sm outline-none"
+                    min="0"
+                    step="0.01"
+                    value={globalChargeInput}
+                    onChange={(e) => setGlobalChargeInput(e.target.value)}
+                    placeholder="0,00"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    KDV matrahına dahil edilir (ör. Elektrik Tüketim Vergisi, Enerji Fonu).
+                  </p>
+                </div>
+              )}
+              {totals.globalCharge > 0 && (
+                <div className="flex justify-between text-xs text-kobipo-navy dark:text-foreground">
+                  <span>Eklenen:</span>
+                  <span className="font-semibold">
+                    + ₺{totals.globalCharge.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+
+              <div className="border-t border-slate-200 pt-2">
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    Net Matrah:
+                    <Pencil className="h-3 w-3 opacity-60" aria-hidden />
+                  </span>
+                  {/* ₺ ve rakam TEK kutuda: ayrı durunca geniş sağa-yaslı input
+                      yüzünden aralarında boşluk kalıyor ve hizasız görünüyordu. */}
+                  <div className="inline-flex items-center gap-0.5 rounded-md border border-slate-300 bg-white px-1.5 py-0.5 focus-within:border-kobipo-blue focus-within:ring-1 focus-within:ring-kobipo-blue/30 dark:border-border dark:bg-background">
+                    <span className="text-xs text-muted-foreground">₺</span>
+                    {/* type="number" DEĞİL: tarayıcı sayı girdisinde binlik ayracı
+                        gösteremiyor, matrah "2692,50" diye çıkıp yanındaki salt-okunur
+                        satırlarla (₺2.692,50) uyumsuz duruyordu. Metin girdisinde
+                        odak DIŞINDA Türkçe biçimli, odaktayken ham değer gösterilir. */}
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      title="Matrahı elle düzeltebilirsiniz — fark, fatura altı iskonto ya da ilave olarak uygulanır."
+                      className="w-24 bg-transparent text-right text-sm font-medium outline-none"
+                      value={
+                        netOverrideInput ??
+                        totals.netAmount.toLocaleString("tr-TR", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })
+                      }
+                      onChange={(e) => {
+                        const el = e.target
+                        // İmleç konumunu RAKAM SAYISIYLA koru: biçimlendirme ayraç
+                        // eklediği için karakter indeksi kayar, imleç sona atlardı.
+                        const caret = el.selectionStart ?? el.value.length
+                        const digitsBefore = (el.value.slice(0, caret).match(/\d/g) || []).length
+                        const formatted = formatAmountLive(el.value)
+                        setNetOverrideInput(formatted)
+                        setNetOverrideWarning(null)
+                        // İmleç SONDAYSA sonda kalmalı. Rakam sayısıyla konumlama tek
+                        // başına yetmiyordu: "2.692," yazınca imleç 4 rakamdan sonraya,
+                        // yani VİRGÜLÜN ÖNÜNE düşüyordu; sonraki tuş küsüratı bozup
+                        // sayıyı büyütüyordu ("2.6925," → "26.925,").
+                        const atEnd = caret >= el.value.length
+                        requestAnimationFrame(() => {
+                          let pos = formatted.length
+                          if (!atEnd) {
+                            pos = 0
+                            let seen = 0
+                            while (pos < formatted.length && seen < digitsBefore) {
+                              if (/\d/.test(formatted[pos])) seen++
+                              pos++
+                            }
+                          }
+                          try {
+                            el.setSelectionRange(pos, pos)
+                          } catch {
+                            /* alan odaktan çıkmışsa yoksay */
+                          }
+                        })
+                      }}
+                      onFocus={(e) => {
+                        // Biçimlendirme artık yazarken de sürdüğü için ham değere
+                        // geçmeye gerek yok; sadece tamamını seç.
+                        const el = e.target
+                        setNetOverrideInput(
+                          totals.netAmount.toLocaleString("tr-TR", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          }),
+                        )
+                        requestAnimationFrame(() => el.select())
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur()
+                        if (e.key === "Escape") {
+                          setNetOverrideInput(null)
+                          setNetOverrideWarning(null)
+                        }
+                      }}
+                      onBlur={() => {
+                        if (netOverrideInput === null) return
+                        const target = parseAmountInput(netOverrideInput)
+                        const base = totals.grossNetAmount // fatura altı iskonto ÖNCESİ net
+                        setNetOverrideInput(null)
+                        if (!Number.isFinite(target) || target < 0) return
+                        const diff = base - target
+                        setNetOverrideWarning(null)
+                        const round2 = (n: number) => (Math.round(n * 100) / 100).toFixed(2)
+                        if (Math.abs(diff) <= 0.005) {
+                          // Hedef = satır toplamı → hem iskonto hem ilave kalksın.
+                          setGlobalDiscountEnabled(false)
+                          setGlobalDiscountInput("")
+                          setGlobalChargeEnabled(false)
+                          setGlobalChargeInput("")
+                        } else if (diff > 0) {
+                          // Hedef DÜŞÜK → fatura altı iskonto.
+                          setGlobalChargeEnabled(false)
+                          setGlobalChargeInput("")
+                          setGlobalDiscountEnabled(true)
+                          setGlobalDiscountMode("AMOUNT")
+                          setGlobalDiscountInput(round2(diff))
+                        } else {
+                          // Hedef YÜKSEK → fatura altı ilave (KDV matrahına dahil).
+                          // Elektrik faturasındaki ETV/Enerji Fonu bu şekilde modellenir.
+                          setGlobalDiscountEnabled(false)
+                          setGlobalDiscountInput("")
+                          setGlobalChargeEnabled(true)
+                          setGlobalChargeInput(round2(-diff))
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+                {netOverrideWarning && (
+                  <p className="mt-1 text-right text-xs text-amber-600">{netOverrideWarning}</p>
+                )}
+                {/* Bu iki alanın yazılabilir olduğu ikon + bu satırla belirtiliyor;
+                    sade rakam gibi göründükleri için fark edilmiyorlardı. */}
+                <p className="mt-1 text-right text-[11px] text-muted-foreground">
+                  Net Matrah ve Yuvarlama yazılabilir. Matrahı değiştirirseniz fark, fatura
+                  altı iskonto ya da ilave olarak uygulanır.
+                </p>
+              </div>
               <div className="flex justify-between text-sm"><span className="text-muted-foreground">KDV Toplam:</span><span className="font-medium">₺{totals.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
               {totals.withholdingAmount > 0 && <div className="flex justify-between text-sm text-red-600"><span>Tevkifat:</span><span>- ₺{totals.withholdingAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
               {totals.exciseAmount > 0 && <div className="flex justify-between text-sm text-blue-600"><span>ÖTV:</span><span>+ ₺{totals.exciseAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
               {(totals.otherTaxAmount ?? 0) > 0 && <div className="flex justify-between text-sm text-blue-600"><span>{items.find((it) => (it.otherTaxRate || 0) > 0)?.otherTaxName || "Diğer Vergi"}:</span><span>+ ₺{(totals.otherTaxAmount ?? 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
+              {/* Dip toplam yuvarlaması — KDV'ye girmez, ödenecek tutara eklenir.
+                  Negatif değer aşağı yuvarlamadır (ör. -0,45). */}
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="flex items-center gap-1 text-muted-foreground">
+                  Yuvarlama:
+                  <Pencil className="h-3 w-3 opacity-60" aria-hidden />
+                </span>
+                <div className="inline-flex items-center gap-0.5 rounded-md border border-slate-300 bg-white px-1.5 py-0.5 focus-within:border-kobipo-blue focus-within:ring-1 focus-within:ring-kobipo-blue/30 dark:border-border dark:bg-background">
+                  <span className="text-xs text-muted-foreground">₺</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    title="Dip toplam yuvarlaması — KDV'ye girmez. Negatif değer aşağı yuvarlar."
+                    className="w-24 bg-transparent text-right text-sm outline-none"
+                    value={payableRoundingInput}
+                    onChange={(e) => setPayableRoundingInput(e.target.value)}
+                    placeholder="0,00"
+                  />
+                </div>
+              </div>
               <div className="flex justify-between border-t border-slate-200 pt-3 mt-2 text-lg font-bold"><span>Genel Toplam:</span><span style={{ color: BRAND_COLOR }}>₺{totals.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
             </div>
           </div>

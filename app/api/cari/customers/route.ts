@@ -103,6 +103,27 @@ export async function GET(request: Request) {
           AND ip."transactionId" IS NULL
         GROUP BY inv."customerId"
       ),
+      -- MAHSUP: bu müşteriye kayıtlı ALIŞ faturalarının ödenmemiş kısmı bizim ona
+      -- borcumuzdur ve alacağı azaltır (aynı cari hem müşteri hem tedarikçi olabilir).
+      -- Detay endpoint'iyle (customers/[id]) birebir aynı mantık.
+      purchase_totals AS (
+        SELECT i."customerId", SUM(i."totalAmount") AS total_amount_sum
+        FROM invoices i
+        INNER JOIN paged_customers pc ON pc.id = i."customerId"
+        WHERE i.type = 'PURCHASE'
+          AND i.status NOT IN ('CANCELLED', 'CONVERTED')
+        GROUP BY i."customerId"
+      ),
+      purchase_payment_totals AS (
+        SELECT inv."customerId", SUM(ip.amount) AS payment_amount_sum
+        FROM invoice_payments ip
+        INNER JOIN invoices inv ON inv.id = ip."invoiceId"
+        INNER JOIN paged_customers pc ON pc.id = inv."customerId"
+        WHERE inv.type = 'PURCHASE'
+          AND inv.status NOT IN ('CANCELLED', 'CONVERTED')
+          AND ip."transactionId" IS NULL
+        GROUP BY inv."customerId"
+      ),
       income_totals AS (
         SELECT t."customerId", SUM(t.amount) AS amount_sum
         FROM transactions t
@@ -162,10 +183,14 @@ export async function GET(request: Request) {
         COALESCE(CAST(p.payment_amount_sum AS NUMERIC), 0) AS "paymentTotal",
         COALESCE(CAST(t_in.amount_sum AS NUMERIC), 0) AS "incomeTotal",
         COALESCE(CAST(t_ex.amount_sum AS NUMERIC), 0) AS "expenseTotal",
-        COALESCE(CAST(cn.amount_sum AS NUMERIC), 0) AS "checkNoteTotal"
+        COALESCE(CAST(cn.amount_sum AS NUMERIC), 0) AS "checkNoteTotal",
+        COALESCE(CAST(pu.total_amount_sum AS NUMERIC), 0) AS "purchaseTotal",
+        COALESCE(CAST(pup.payment_amount_sum AS NUMERIC), 0) AS "purchasePaymentTotal"
       FROM paged_customers pc
       LEFT JOIN invoice_totals i ON i."customerId" = pc.id
       LEFT JOIN payment_totals p ON p."customerId" = pc.id
+      LEFT JOIN purchase_totals pu ON pu."customerId" = pc.id
+      LEFT JOIN purchase_payment_totals pup ON pup."customerId" = pc.id
       LEFT JOIN income_totals t_in ON t_in."customerId" = pc.id
       LEFT JOIN expense_totals t_ex ON t_ex."customerId" = pc.id
       LEFT JOIN check_note_totals cn ON cn."customerId" = pc.id
@@ -192,7 +217,9 @@ export async function GET(request: Request) {
     const customersWithBalance = customers.map((row) => {
       const balance =
         Number(row.invoiceTotal || 0) -
-        Number(row.paymentTotal || 0) +
+        Number(row.paymentTotal || 0) -
+        // Bu cariye kayıtlı alış faturalarının ödenmemiş kısmı (mahsup).
+        (Number(row.purchaseTotal || 0) - Number(row.purchasePaymentTotal || 0)) +
         Number(row.expenseTotal || 0) -
         Number(row.incomeTotal || 0) -
         // Müşteriden alınan çek/senet (iade/protesto hariç) alacağı azaltır.
@@ -201,7 +228,16 @@ export async function GET(request: Request) {
           ? -Number(row.openingBalanceAmount || 0)
           : Number(row.openingBalanceAmount || 0))
 
-      const { invoiceTotal, paymentTotal, incomeTotal, expenseTotal, checkNoteTotal, ...customer } = row
+      const {
+        invoiceTotal,
+        paymentTotal,
+        incomeTotal,
+        expenseTotal,
+        checkNoteTotal,
+        purchaseTotal,
+        purchasePaymentTotal,
+        ...customer
+      } = row
       return {
         ...customer,
         balance,

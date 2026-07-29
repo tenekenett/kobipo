@@ -51,6 +51,10 @@ export interface GibInvoiceTotals {
   lineDiscountTotal: number
   /** Fatura altı (genel) iskonto */
   globalDiscount: number
+  /** Fatura altı ilave (masraf) — KDV matrahına dahildir. */
+  globalCharge?: number
+  /** Dip toplam yuvarlaması — KDV'ye girmez, ödenecek tutara eklenir. */
+  rounding?: number
   /** KDV Matrahı */
   netAmount: number
   /** Hesaplanan KDV */
@@ -404,6 +408,8 @@ export async function generateGibInvoicePdfBuffer(data: GibInvoiceData): Promise
   ]
   const discountTotal = (t.lineDiscountTotal || 0) + (t.globalDiscount || 0)
   if (discountTotal > 0) totalsRows.push(["Toplam İskonto", `${fmt(discountTotal)} TL`, false])
+  if ((t.globalCharge || 0) > 0)
+    totalsRows.push(["Fatura Altı İlave", `${fmt(t.globalCharge || 0)} TL`, false])
   totalsRows.push(["KDV Matrahı", `${fmt(t.netAmount)} TL`, false])
   totalsRows.push(["Hesaplanan KDV", `${fmt(t.vatAmount)} TL`, false])
   if ((t.exciseAmount || 0) > 0) totalsRows.push(["ÖTV", `${fmt(t.exciseAmount)} TL`, false])
@@ -414,6 +420,8 @@ export async function generateGibInvoicePdfBuffer(data: GibInvoiceData): Promise
     const wRate = t.vatAmount > 0 ? Math.round((t.withholdingAmount / t.vatAmount) * 100) : 0
     totalsRows.push([`KDV Tevkifatı${wRate ? ` (%${wRate})` : ""}`, `- ${fmt(t.withholdingAmount)} TL`, false])
   }
+  if ((t.rounding || 0) !== 0)
+    totalsRows.push(["Yuvarlama", `${(t.rounding || 0) > 0 ? "" : "- "}${fmt(Math.abs(t.rounding || 0))} TL`, false])
   totalsRows.push(["Ödenecek Tutar", `${fmt(t.totalAmount)} TL`, true])
 
   const totalsW = 92

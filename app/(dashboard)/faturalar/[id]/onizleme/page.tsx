@@ -58,6 +58,8 @@ interface Invoice {
   totalAmount: number
   notes?: string
   uuid?: string | null
+  category?: string | null
+  tags?: string[]
   integrationStatus?: string | null
   integrationId?: string | null
   profile?: string | null
@@ -1130,10 +1132,14 @@ export default function FaturaOnizlemePage() {
               )}
             </div>
             <div className="rounded-lg border bg-muted/30 p-4">
+              {/* Başlık, faturanın TİPİNE göre değil KAYITLI CARİYE göre yazılır: aynı
+                  cari hem müşteri hem tedarikçi olabildiğinden, gelen e-fatura bir
+                  müşteri hesabına işlenebiliyor. Önceden alış faturasında yalnız
+                  supplier'a bakıldığı için bu faturalarda "Bilgi yok" görünüyordu. */}
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {invoice.type === "SALES" ? "Müşteri Bilgileri" : "Tedarikçi Bilgileri"}
+                {invoice.customer ? "Müşteri Bilgileri" : "Tedarikçi Bilgileri"}
               </h3>
-              {invoice.type === "SALES" && invoice.customer ? (
+              {invoice.customer ? (
                 <>
                   <Link
                     href={`/cari/customers/${invoice.customer.id}?company=${companyId || ""}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`}
@@ -1213,6 +1219,33 @@ export default function FaturaOnizlemePage() {
               </p>
             </div>
           </div>
+
+          {/* Sınıflandırma — faturada kayıtlıysa göster. Kategori tek, etiket çoklu. */}
+          {(invoice.category || (invoice.tags && invoice.tags.length > 0)) && (
+            <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border p-3">
+              {invoice.category && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Kategori</span>
+                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-500/20 dark:text-slate-200">
+                    {invoice.category}
+                  </span>
+                </div>
+              )}
+              {invoice.tags && invoice.tags.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Etiketler</span>
+                  {invoice.tags.map((t) => (
+                    <span
+                      key={t}
+                      className="rounded-full border border-kobipo-blue/30 bg-kobipo-pale/50 px-2 py-0.5 text-xs text-kobipo-navy dark:border-primary/40 dark:bg-primary/10 dark:text-foreground"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <Table className="tabular-nums">
             <TableHeader className="bg-muted/50">

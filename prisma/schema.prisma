@@ -853,6 +853,15 @@ model Invoice {
   // yeniden hesaplanır. Tutarı saklarız (UBL AllowanceCharge tutar olarak yazılır);
   // editör UI'da yüzde de seçilebilir ama save anında tutara çevrilir.
   globalDiscountAmount Decimal?  @db.Decimal(15, 2)
+  // Fatura altı İLAVE (masraf) — UBL cac:AllowanceCharge chargeIndicator=true.
+  // İskontonun tersi: KDV MATRAHINI ARTIRIR. Gerekçesi: elektrik/telekom gibi
+  // faturalarda Elektrik Tüketim Vergisi, Enerji Fonu vb. KDV dışı kalemler KDV
+  // matrahının İÇİNDE yer alır (ör. Aydem: satır toplamı 794,15 iken KDV matrahı
+  // 815,46). Yalnız iskonto modellendiği için bu faturaların tutarı tutturulamıyordu.
+  globalChargeAmount   Decimal?  @db.Decimal(15, 2)
+  // Dip toplam yuvarlaması — KDV'ye GİRMEZ, yalnız ödenecek tutara eklenir.
+  // Negatif olabilir (aşağı yuvarlama). Mysoft karşılığı: payableRoundingAmount.
+  payableRoundingAmount Decimal? @db.Decimal(15, 2)
   currency             String    @default("TRY")
   exchangeRate         Decimal?  @db.Decimal(12, 4)
   exchangeRateDate     DateTime?
@@ -861,6 +870,12 @@ model Invoice {
   integrationId        String? // Entegratör ID
   integrationStatus    String? // Entegratör durumu
   notes                String?   @db.Text
+  // Sınıflandırma: kategori TEK değer (gider/gelir grubu — kira, akaryakıt, danışmanlık…),
+  // etiket ÇOKLU serbest metin (proje, şube, kampanya…). Ürün kategorisiyle aynı desen:
+  // ayrı tablo yok, serbest metin + mevcut değerlerden öneri. Filtre/rapor kırılımı için
+  // (companyId, category) indexlenir.
+  category             String?
+  tags                 String[]  @default([])
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   createdBy            String?
@@ -887,6 +902,7 @@ model Invoice {
   @@index([convertedInvoiceId])
   @@index([companyId, type, customerId])
   @@index([companyId, type, supplierId])
+  @@index([companyId, category])
   @@index([customerId])
   @@index([supplierId])
   @@map("invoices")

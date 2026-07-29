@@ -112,6 +112,26 @@ export async function GET(request: Request) {
           AND ip."transactionId" IS NULL
         GROUP BY inv."supplierId"
       ),
+      -- MAHSUP: bu tedarikçiye kayıtlı SATIŞ faturalarının tahsil edilmemiş kısmı
+      -- onun bize borcudur ve bizim borcumuzu azaltır (detay endpoint'iyle aynı mantık).
+      sales_totals AS (
+        SELECT i."supplierId", SUM(i."totalAmount") AS total_amount_sum
+        FROM invoices i
+        INNER JOIN paged_suppliers ps ON ps.id = i."supplierId"
+        WHERE i.type = 'SALES'
+          AND i.status NOT IN ('CANCELLED', 'CONVERTED')
+        GROUP BY i."supplierId"
+      ),
+      sales_payment_totals AS (
+        SELECT inv."supplierId", SUM(ip.amount) AS payment_amount_sum
+        FROM invoice_payments ip
+        INNER JOIN invoices inv ON inv.id = ip."invoiceId"
+        INNER JOIN paged_suppliers ps ON ps.id = inv."supplierId"
+        WHERE inv.type = 'SALES'
+          AND inv.status NOT IN ('CANCELLED', 'CONVERTED')
+          AND ip."transactionId" IS NULL
+        GROUP BY inv."supplierId"
+      ),
       income_totals AS (
         SELECT t."supplierId", SUM(t.amount) AS amount_sum
         FROM transactions t
@@ -172,10 +192,14 @@ export async function GET(request: Request) {
         COALESCE(CAST(p.payment_amount_sum AS NUMERIC), 0) AS "paymentTotal",
         COALESCE(CAST(t_in.amount_sum AS NUMERIC), 0) AS "incomeTotal",
         COALESCE(CAST(t_ex.amount_sum AS NUMERIC), 0) AS "expenseTotal",
-        COALESCE(CAST(cn.amount_sum AS NUMERIC), 0) AS "checkNoteTotal"
+        COALESCE(CAST(cn.amount_sum AS NUMERIC), 0) AS "checkNoteTotal",
+        COALESCE(CAST(sa.total_amount_sum AS NUMERIC), 0) AS "salesTotal",
+        COALESCE(CAST(sap.payment_amount_sum AS NUMERIC), 0) AS "salesPaymentTotal"
       FROM paged_suppliers ps
       LEFT JOIN invoice_totals i ON i."supplierId" = ps.id
       LEFT JOIN payment_totals p ON p."supplierId" = ps.id
+      LEFT JOIN sales_totals sa ON sa."supplierId" = ps.id
+      LEFT JOIN sales_payment_totals sap ON sap."supplierId" = ps.id
       LEFT JOIN income_totals t_in ON t_in."supplierId" = ps.id
       LEFT JOIN expense_totals t_ex ON t_ex."supplierId" = ps.id
       LEFT JOIN check_note_totals cn ON cn."supplierId" = ps.id
@@ -205,6 +229,8 @@ export async function GET(request: Request) {
       const balance =
         Number(row.invoiceTotal || 0) -
         Number(row.paymentTotal || 0) -
+        // Bu cariye kayıtlı satış faturalarının tahsil edilmemiş kısmı (mahsup).
+        (Number(row.salesTotal || 0) - Number(row.salesPaymentTotal || 0)) -
         Number(row.expenseTotal || 0) +
         Number(row.incomeTotal || 0) -
         // Tedarikçiye verilen çek/senet (iade/protesto hariç) borcumuzu azaltır.
@@ -215,7 +241,16 @@ export async function GET(request: Request) {
           ? Number(row.openingBalanceAmount || 0)
           : -Number(row.openingBalanceAmount || 0))
 
-      const { invoiceTotal, paymentTotal, incomeTotal, expenseTotal, checkNoteTotal, ...supplier } = row
+      const {
+        invoiceTotal,
+        paymentTotal,
+        incomeTotal,
+        expenseTotal,
+        checkNoteTotal,
+        salesTotal,
+        salesPaymentTotal,
+        ...supplier
+      } = row
       return {
         ...supplier,
         balance,

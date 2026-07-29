@@ -6,7 +6,7 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider"
 import { getActiveXsltName } from "@/lib/integrations/e-invoice/active-template"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
-import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
+import { generateInvoiceNumber, normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
 import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 import { loadRecipeContext } from "@/lib/stock/recipe"
@@ -139,6 +139,10 @@ export async function POST(request: Request) {
       fromIncomingUuid,
       warehouseId,
       globalDiscountAmount,
+      globalChargeAmount,
+      payableRoundingAmount,
+      category,
+      tags,
     } = body
 
     // Fiş: hızlı satış/alış ile kesilen gayriresmî belge. Stok + tahsilat işler ama
@@ -226,7 +230,14 @@ const company = await prisma.company.findUnique({
       )
     }
 
-    let finalInvoiceNo = invoiceNo
+    // Elle girilen numarayı normalize et + doğrula (kırpma, uzunluk, karakter kümesi).
+    // Önceden ham değer olduğu gibi kaydediliyordu: " ALI-1 " ile "ALI-1" ayrı kayıt
+    // oluyor, sınırsız uzunlukta metin kabul ediliyordu.
+    const manualNo = normalizeManualInvoiceNo(invoiceNo)
+    if (!manualNo.ok) {
+      return NextResponse.json({ error: manualNo.error }, { status: 400 })
+    }
+    let finalInvoiceNo = manualNo.value
     if (!finalInvoiceNo) {
       finalInvoiceNo = await generateInvoiceNumber(
         companyId,
@@ -335,12 +346,24 @@ const company = await prisma.company.findUnique({
     // matrahı aşan değer 0/matrah'a kırpılır.
     const rawGlobalDiscount = Math.max(0, parseFloat(globalDiscountAmount) || 0)
     const appliedGlobalDiscount = netAmount > 0 ? Math.min(rawGlobalDiscount, netAmount) : 0
-    if (appliedGlobalDiscount > 0 && netAmount > 0) {
-      const adjustment = 1 - appliedGlobalDiscount / netAmount
-      netAmount -= appliedGlobalDiscount
+
+    // Fatura altı İLAVE (masraf): iskontonun tersi — KDV matrahını ARTIRIR.
+    // Elektrik/telekom faturasındaki ETV, Enerji Fonu gibi KDV matrahına dahil
+    // kalemler için (bkz. Invoice.globalChargeAmount yorumu).
+    const appliedGlobalCharge = Math.max(0, parseFloat(globalChargeAmount) || 0)
+
+    if (netAmount > 0 && (appliedGlobalDiscount > 0 || appliedGlobalCharge > 0)) {
+      const adjustedNet = netAmount - appliedGlobalDiscount + appliedGlobalCharge
+      const adjustment = adjustedNet / netAmount
+      netAmount = adjustedNet
       vatAmount *= adjustment
       totalAmount *= adjustment
     }
+
+    // Dip toplam yuvarlaması: KDV'ye GİRMEZ, yalnız ödenecek tutara eklenir.
+    // Negatif olabilir (aşağı yuvarlama).
+    const appliedRounding = parseFloat(payableRoundingAmount) || 0
+    totalAmount += appliedRounding
 
     try {
       await ensureUsageLimit(companyId, "invoices_monthly", 1)
@@ -368,7 +391,21 @@ const company = await prisma.company.findUnique({
         vatAmount,
         netAmount,
         globalDiscountAmount: appliedGlobalDiscount > 0 ? appliedGlobalDiscount : null,
+        globalChargeAmount: appliedGlobalCharge > 0 ? appliedGlobalCharge : null,
+        payableRoundingAmount: appliedRounding !== 0 ? appliedRounding : null,
         notes,
+        // Sınıflandırma: kategori tek değer, etiketler çoklu. Serbest metin oldukları
+        // için trim'lenir, boşlar atılır ve etiketlerde tekrar temizlenir.
+        category: typeof category === "string" && category.trim() ? category.trim() : null,
+        tags: Array.isArray(tags)
+          ? Array.from(
+              new Set(
+                tags
+                  .map((t: unknown) => (typeof t === "string" ? t.trim() : ""))
+                  .filter((t: string) => t.length > 0),
+              ),
+            )
+          : [],
         status: "DRAFT",
         isReceipt,
         createdBy: user.id,
@@ -782,6 +819,8 @@ const invoiceData = {
   notes: invoice.notes || undefined,
   // Fatura altı (genel) iskonto — header-level AllowanceCharge'a yansır.
   globalDiscountAmount: Number(invoice.globalDiscountAmount || 0),
+  globalChargeAmount: Number(invoice.globalChargeAmount || 0),
+  payableRoundingAmount: Number(invoice.payableRoundingAmount || 0),
 };
 
         // Kullanıcının seçtiği aktif belge dizaynını (xsltName) gönderime ekle.

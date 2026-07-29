@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -59,6 +59,8 @@ interface FaturaRow {
   status: string | null
   profile: string | null
   invoiceType: string | null
+  category?: string | null
+  tags?: string[]
   meta: Record<string, any>
 }
 
@@ -128,6 +130,9 @@ export default function FaturalarListing({
   }, [searchParams, fixedDirection])
   const [days, setDays] = useState(90)
   const [search, setSearch] = useState("")
+  // Kategori filtresi istemci tarafında uygulanır: liste zaten dönem+arama ile
+  // sunucudan sınırlı geliyor, ek bir istek atmaya gerek yok.
+  const [categoryFilter, setCategoryFilter] = useState("")
   const [checkingStatusId, setCheckingStatusId] = useState<string | null>(null)
   const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null)
   const [downloadingInboxPdfUuid, setDownloadingInboxPdfUuid] = useState<string | null>(null)
@@ -431,6 +436,19 @@ export default function FaturalarListing({
     }
   }
 
+  // Listede geçen kategoriler (filtre menüsü için) ve seçili kategoriye göre satırlar.
+  const availableCategories = useMemo(
+    () =>
+      Array.from(
+        new Set(rows.map((r) => (r.category || "").trim()).filter((c) => c.length > 0)),
+      ).sort((a, b) => a.localeCompare(b, "tr")),
+    [rows],
+  )
+  const visibleRows = useMemo(
+    () => (categoryFilter ? rows.filter((r) => (r.category || "") === categoryFilter) : rows),
+    [rows, categoryFilter],
+  )
+
   if (!companyId) {
     return (
       <Card>
@@ -665,6 +683,21 @@ export default function FaturalarListing({
                   </Button>
                 )
               })}
+            {availableCategories.length > 0 && (
+              <select
+                className="rounded border px-2 py-1 text-sm"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                title="Kategoriye göre filtrele"
+              >
+                <option value="">Tüm kategoriler</option>
+                {availableCategories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            )}
             <div className="relative ml-auto flex-1 max-w-md">
               <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -698,6 +731,7 @@ export default function FaturalarListing({
                 {!fixedDirection && <StyledTableHead className="text-right">Net</StyledTableHead>}
                 {!fixedDirection && <StyledTableHead className="text-right">KDV</StyledTableHead>}
                 <StyledTableHead className="text-right">Toplam</StyledTableHead>
+                <StyledTableHead>Sınıf</StyledTableHead>
                 <StyledTableHead>Durum</StyledTableHead>
                 <StyledTableHead className="text-right">İşlem</StyledTableHead>
               </StyledTableHeaderRow>
@@ -709,7 +743,7 @@ export default function FaturalarListing({
                     <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
-              ) : rows.length === 0 ? (
+              ) : visibleRows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={fixedDirection === "incoming" ? 9 : fixedDirection === "outgoing" ? 8 : 13} className="py-8 text-center">
                     <FileText className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
@@ -717,7 +751,7 @@ export default function FaturalarListing({
                   </TableCell>
                 </TableRow>
               ) : (
-                rows.map((row, idx) => {
+                visibleRows.map((row, idx) => {
                   const rawId = row.id.split(":")[1]
                   const isInvoiceRow = row.id.startsWith("invoice:")
                   const isEDoc =
@@ -782,6 +816,31 @@ export default function FaturalarListing({
                       )}
                       <TableCell className="text-right text-xs font-semibold whitespace-nowrap">
                         {fmt(row.totalAmount, row.currency || "TRY")}
+                      </TableCell>
+                      <TableCell className="max-w-[180px]">
+                        {row.category ? (
+                          <span className="inline-block rounded bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-500/20 dark:text-slate-200">
+                            {row.category}
+                          </span>
+                        ) : null}
+                        {row.tags && row.tags.length > 0 && (
+                          <div className="mt-0.5 flex flex-wrap gap-1">
+                            {row.tags.slice(0, 3).map((t) => (
+                              <span
+                                key={t}
+                                className="rounded-full border border-kobipo-blue/30 px-1.5 text-[10px] text-kobipo-navy dark:border-primary/40 dark:text-foreground"
+                              >
+                                {t}
+                              </span>
+                            ))}
+                            {row.tags.length > 3 && (
+                              <span className="text-[10px] text-muted-foreground">+{row.tags.length - 3}</span>
+                            )}
+                          </div>
+                        )}
+                        {!row.category && (!row.tags || row.tags.length === 0) && (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {statusBadge(row.status, row.source, row.meta?.integrationStatus)}
