@@ -41,6 +41,7 @@ import Link from "next/link"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { ExportButton } from "@/components/export/export-button"
 
 interface FaturaRow {
   id: string
@@ -595,6 +596,21 @@ export default function FaturalarListing({
             )}
             Yenile
           </Button>
+          {/* Ekrandaki yön/tarih/arama/kategori filtreleri sunucuya taşınır.
+              Liste kaynak başına 500 satırda kesiliyor; dışa aktarma 10.000'e
+              çıkar ve yine dolarsa belgeye uyarı yazar. */}
+          <ExportButton
+            dataset="invoices"
+            companyId={companyId ?? ""}
+            size="default"
+            params={{
+              direction,
+              days,
+              search: search.trim(),
+              category: categoryFilter,
+              includeInbox: includeInbox ? null : "false",
+            }}
+          />
           <Button onClick={handleCreateInvoice}>
             <Plus className="mr-2 h-4 w-4" />
             Yeni Fatura

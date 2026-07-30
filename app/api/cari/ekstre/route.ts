@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
-import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { fetchEkstre } from "@/lib/cari/ekstre-query"
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * Cari ekstre. Sorgunun kendisi `lib/cari/ekstre-query.ts`te — dışa aktarma ucu
+ * da aynı fonksiyonu çağırır.
+ */
 export async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
@@ -15,10 +19,6 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const companyId = await resolveCompanyId(searchParams.get("companyId"))
-    const customerId = searchParams.get("customerId")
-    const supplierId = searchParams.get("supplierId")
-    const startDate = searchParams.get("startDate")
-    const endDate = searchParams.get("endDate")
 
     if (!companyId) {
       return NextResponse.json(
@@ -29,195 +29,15 @@ export async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
-    const where: any = {
-      companyId,
-      status: { notIn: ["CANCELLED", "CONVERTED"] },
-    }
-
-    if (customerId) {
-      where.customerId = customerId
-    }
-
-    if (supplierId) {
-      where.supplierId = supplierId
-    }
-
-    if (startDate || endDate) {
-      where.date = {}
-      if (startDate) {
-        where.date.gte = new Date(startDate)
-      }
-      if (endDate) {
-        where.date.lte = new Date(endDate)
-      }
-    }
-
-    const invoices = await prisma.invoice.findMany({
-      where,
-      include: {
-        customer: true,
-        supplier: true,
-        items: true,
-      },
-      orderBy: { date: "desc" },
-    })
-
-    const transactions = await prisma.transaction.findMany({
-      where: {
+    return NextResponse.json(
+      await fetchEkstre({
         companyId,
-        ...(customerId && { customerId }),
-        ...(supplierId && { supplierId }),
-        ...(startDate || endDate
-          ? {
-              date: {
-                ...(startDate && { gte: new Date(startDate) }),
-                ...(endDate && { lte: new Date(endDate) }),
-              },
-            }
-          : {}),
-      },
-      include: {
-        account: true,
-        customer: true,
-        supplier: true,
-      },
-      orderBy: { date: "desc" },
-    })
-
-    const checks = await prisma.check.findMany({
-      where: {
-        companyId,
-        ...(customerId && { customerId }),
-        ...(supplierId && { supplierId }),
-        ...(startDate || endDate
-          ? {
-              dueDate: {
-                ...(startDate && { gte: new Date(startDate) }),
-                ...(endDate && { lte: new Date(endDate) }),
-              },
-            }
-          : {}),
-      },
-      orderBy: { dueDate: "desc" },
-    })
-
-    const promissoryNotes = await prisma.promissoryNote.findMany({
-      where: {
-        companyId,
-        ...(customerId && { customerId }),
-        ...(supplierId && { supplierId }),
-        ...(startDate || endDate
-          ? {
-              dueDate: {
-                ...(startDate && { gte: new Date(startDate) }),
-                ...(endDate && { lte: new Date(endDate) }),
-              },
-            }
-          : {}),
-      },
-      orderBy: { dueDate: "desc" },
-    })
-
-    // Combine and sort by date
-    const entries = [
-      ...invoices.map((inv) => ({
-        type: "INVOICE",
-        id: inv.id,
-        date: inv.date,
-        // Ekstrede resmi GİB belge no'yu göster; yoksa iç seri numarasına düş.
-        description: `Fatura ${inv.eDocumentNo || inv.invoiceNo}`,
-        debit: inv.type === "SALES" ? Number(inv.totalAmount) : 0,
-        credit: inv.type === "PURCHASE" ? Number(inv.totalAmount) : 0,
-        balance: 0,
-        reference: inv.eDocumentNo || inv.invoiceNo,
-        data: inv,
-      })),
-      ...transactions.map((trx) => ({
-        type: "TRANSACTION",
-        id: trx.id,
-        date: trx.date,
-        // Açıklama boşsa işlem türüne göre insanca etiket: ödeme/tahsilat.
-        description:
-          trx.description ||
-          (trx.type === "EXPENSE"
-            ? "Ödeme"
-            : trx.type === "INCOME"
-              ? "Tahsilat"
-              : `${trx.type} - ${trx.account.name}`),
-        // Cari ekstrede ödeme (EXPENSE) cariyi borçlandırır → BORÇ sütunu;
-        // tahsilat (INCOME) cariyi alacaklandırır → ALACAK sütunu. Fatura tarafıyla
-        // tutarlı (SALES→borç, PURCHASE→alacak): müşteri tahsilatı bakiyeyi azaltır,
-        // tedarikçi ödemesi borcu azaltır.
-        debit: trx.type === "EXPENSE" ? Number(trx.amount) : 0,
-        credit: trx.type === "INCOME" ? Number(trx.amount) : 0,
-        balance: 0,
-        reference: trx.reference,
-        data: trx,
-      })),
-      ...checks.map((check) => ({
-        type: "CHECK",
-        id: check.id,
-        date: check.dueDate,
-        description: `Çek ${check.checkNo}`,
-        debit: check.customerId ? Number(check.amount) : 0,
-        credit: check.supplierId ? Number(check.amount) : 0,
-        balance: 0,
-        reference: check.checkNo,
-        data: check,
-      })),
-      ...promissoryNotes.map((note) => ({
-        type: "PROMISSORY_NOTE",
-        id: note.id,
-        date: note.dueDate,
-        description: `Senet ${note.noteNo}`,
-        debit: note.customerId ? Number(note.amount) : 0,
-        credit: note.supplierId ? Number(note.amount) : 0,
-        balance: 0,
-        reference: note.noteNo,
-        data: note,
-      })),
-    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-
-    // Calculate running balance
-    let runningBalance = 0
-    entries.forEach((entry) => {
-      runningBalance += entry.debit - entry.credit
-      entry.balance = runningBalance
-    })
-
-    const now = new Date()
-    const aging = {
-      current: 0,
-      days_0_30: 0,
-      days_31_60: 0,
-      days_61_90: 0,
-      days_90_plus: 0,
-    }
-
-    entries.forEach((entry) => {
-      const openAmount = entry.debit - entry.credit
-      if (openAmount === 0) return
-      const ageDays = Math.floor((now.getTime() - new Date(entry.date).getTime()) / (1000 * 60 * 60 * 24))
-      if (ageDays < 0) {
-        aging.current += openAmount
-      } else if (ageDays <= 30) {
-        aging.days_0_30 += openAmount
-      } else if (ageDays <= 60) {
-        aging.days_31_60 += openAmount
-      } else if (ageDays <= 90) {
-        aging.days_61_90 += openAmount
-      } else {
-        aging.days_90_plus += openAmount
-      }
-    })
-
-    return NextResponse.json({
-      entries,
-      totalDebit: entries.reduce((sum, e) => sum + e.debit, 0),
-      totalCredit: entries.reduce((sum, e) => sum + e.credit, 0),
-      finalBalance: runningBalance,
-      aging,
-    })
+        customerId: searchParams.get("customerId"),
+        supplierId: searchParams.get("supplierId"),
+        startDate: searchParams.get("startDate"),
+        endDate: searchParams.get("endDate"),
+      }),
+    )
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
@@ -229,4 +49,3 @@ export async function GET(request: Request) {
     )
   }
 }
-

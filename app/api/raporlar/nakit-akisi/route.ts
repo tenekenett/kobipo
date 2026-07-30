@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
-import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { computeCashFlow } from "@/lib/raporlar/nakit-akisi"
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * Nakit akış tablosu. Hesabın kendisi `lib/raporlar/nakit-akisi.ts`te — dışa
+ * aktarma ucu da aynı fonksiyonu çağırır.
+ */
 export async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
@@ -15,8 +19,6 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const companyId = await resolveCompanyId(searchParams.get("companyId"))
-    const startDate = searchParams.get("startDate")
-    const endDate = searchParams.get("endDate")
 
     if (!companyId) {
       return NextResponse.json(
@@ -27,129 +29,13 @@ export async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
-    const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1)
-    const end = endDate ? new Date(endDate) : new Date()
-
-    // Başlangıç bakiyesi
-    const startBalance = await prisma.financialAccount.aggregate({
-      where: {
+    return NextResponse.json(
+      await computeCashFlow({
         companyId,
-        isActive: true,
-        createdAt: { lt: start },
-      },
-      _sum: {
-        balance: true,
-      },
-    })
-
-    // İşletme faaliyetlerinden nakit akışı.
-    // NOT (çift sayım önleme): Bir tahsilat/ödeme faturaya eşleştirildiğinde hem
-    // bir Transaction hem de transactionId dolu bir InvoicePayment oluşur. Aynı
-    // nakit hareketini iki kez saymamak için InvoicePayment'lerden yalnızca
-    // transactionId IS NULL olanlar (Transaction üretmeyen doğrudan ödemeler)
-    // alınır; işleme bağlı tahsilat/ödemeler aşağıdaki Transaction toplamlarında
-    // (otherIncome/otherExpense) zaten yer alır.
-    // - Müşterilerden doğrudan tahsilatlar
-    const collections = await prisma.invoicePayment.aggregate({
-      where: {
-        companyId,
-        transactionId: null,
-        paymentDate: { gte: start, lte: end },
-        invoice: {
-          type: "SALES",
-        },
-      },
-      _sum: {
-        amount: true,
-      },
-    })
-
-    // - Tedarikçilere doğrudan ödemeler
-    const payments = await prisma.invoicePayment.aggregate({
-      where: {
-        companyId,
-        transactionId: null,
-        paymentDate: { gte: start, lte: end },
-        invoice: {
-          type: "PURCHASE",
-        },
-      },
-      _sum: {
-        amount: true,
-      },
-    })
-
-    // - Gelir işlemleri (faturaya bağlı tahsilatlar dahil tüm INCOME hareketleri)
-    const otherIncome = await prisma.transaction.aggregate({
-      where: {
-        companyId,
-        type: "INCOME",
-        date: { gte: start, lte: end },
-      },
-      _sum: {
-        amount: true,
-      },
-    })
-
-    // - Gider işlemleri (faturaya bağlı ödemeler dahil tüm EXPENSE hareketleri)
-    const otherExpense = await prisma.transaction.aggregate({
-      where: {
-        companyId,
-        type: "EXPENSE",
-        date: { gte: start, lte: end },
-      },
-      _sum: {
-        amount: true,
-      },
-    })
-
-    const operatingCashFlow = 
-      Number(collections._sum.amount || 0) +
-      Number(otherIncome._sum.amount || 0) -
-      Number(payments._sum.amount || 0) -
-      Number(otherExpense._sum.amount || 0)
-
-    // Yatırım faaliyetlerinden nakit akışı (şimdilik 0)
-    const investingCashFlow = 0
-
-    // Finansman faaliyetlerinden nakit akışı (şimdilik 0)
-    const financingCashFlow = 0
-
-    const netCashFlow = operatingCashFlow + investingCashFlow + financingCashFlow
-
-    // Bitiş bakiyesi
-    const endBalance = await prisma.financialAccount.aggregate({
-      where: {
-        companyId,
-        isActive: true,
-      },
-      _sum: {
-        balance: true,
-      },
-    })
-
-    return NextResponse.json({
-      period: {
-        startDate: start.toISOString(),
-        endDate: end.toISOString(),
-      },
-      beginningBalance: Number(startBalance._sum.balance || 0),
-      operatingActivities: {
-        collections: Number(collections._sum.amount || 0),
-        payments: Number(payments._sum.amount || 0),
-        otherIncome: Number(otherIncome._sum.amount || 0),
-        otherExpense: Number(otherExpense._sum.amount || 0),
-        net: operatingCashFlow,
-      },
-      investingActivities: {
-        net: investingCashFlow,
-      },
-      financingActivities: {
-        net: financingCashFlow,
-      },
-      netCashFlow,
-      endingBalance: Number(endBalance._sum.balance || 0),
-    })
+        startDate: searchParams.get("startDate"),
+        endDate: searchParams.get("endDate"),
+      }),
+    )
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
@@ -161,4 +47,3 @@ export async function GET(request: Request) {
     )
   }
 }
-

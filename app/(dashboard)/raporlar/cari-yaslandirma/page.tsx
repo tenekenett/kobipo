@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { ExportButton } from "@/components/export/export-button"
 import {
   Table,
   TableBody,
@@ -162,11 +163,16 @@ export default function CariYaslandirmaPage() {
             Açık faturalardan üretilen, vadeye göre yaşlandırma raporu
           </p>
         </div>
-        {data?.asOf ? (
-          <div className="text-xs text-muted-foreground">
-            Hesaplama tarihi: {new Date(data.asOf).toLocaleString("tr-TR")}
-          </div>
-        ) : null}
+        <div className="flex flex-col items-end gap-2">
+          {/* Dosya her iki sekmeyi de içerir (Alacaklar + Borçlar); rapor
+              zaten tek hesaplamadan çıkıyor, ikiye bölmek anlamsız olurdu. */}
+          <ExportButton dataset="rapor-cari-yaslandirma" companyId={companyId} disabled={!data} />
+          {data?.asOf ? (
+            <div className="text-xs text-muted-foreground">
+              Hesaplama tarihi: {new Date(data.asOf).toLocaleString("tr-TR")}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex gap-2 border-b">

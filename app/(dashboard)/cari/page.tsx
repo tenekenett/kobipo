@@ -29,6 +29,7 @@ import {
   CariArchiveDeleteDialog,
   type CariDeletability,
 } from "@/components/cari/cari-archive-delete-dialog"
+import { ExportButton } from "@/components/export/export-button"
 
 function TableSkeleton({ rows = 8 }: { rows?: number }) {
   return (
@@ -288,12 +289,22 @@ export default function CariPage() {
             Müşteri ve tedarikçi yönetimi
           </p>
         </div>
-        <Link href={`/cari/${activeTab}/new?company=${companyId}`}>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Yeni {activeTab === "customers" ? "Müşteri" : "Tedarikçi"}
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          {/* Aktif sekme + arama sunucuya gider: indirilen dosya ekranın 50'lik
+              sayfasını değil, filtreye uyan TÜM carileri içerir. */}
+          <ExportButton
+            dataset="cari"
+            companyId={companyId}
+            params={{ tab: activeTab, search: debouncedSearch }}
+            size="default"
+          />
+          <Link href={`/cari/${activeTab}/new?company=${companyId}`}>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Yeni {activeTab === "customers" ? "Müşteri" : "Tedarikçi"}
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="flex space-x-2 border-b">

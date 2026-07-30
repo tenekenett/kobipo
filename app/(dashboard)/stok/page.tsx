@@ -45,6 +45,7 @@ import {
   type ProductKind,
 } from "@/lib/stock/product-kind"
 import { cn } from "@/lib/utils"
+import { ExportButton } from "@/components/export/export-button"
 import Link from "next/link"
 
 interface Product {
@@ -531,6 +532,20 @@ export default function StokPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+        {/* Ekrandaki filtrelerin aynısı sunucuya gider — indirilen dosya
+            tablodaki satırların birebir aynısını içerir. */}
+        <ExportButton
+          dataset="products"
+          companyId={companyId ?? ""}
+          size="default"
+          params={{
+            search,
+            kind: kindFilter,
+            category: categoryFilter === "ALL" ? null : categoryFilter,
+            warehouseId: warehouseFilter === "ALL" ? null : warehouseFilter,
+            lowStock: onlyLowStock ? "1" : null,
+          }}
+        />
         <Button variant="outline" asChild>
           <Link href="/stok/etiket">
             <Sticker className="mr-2 h-4 w-4" />

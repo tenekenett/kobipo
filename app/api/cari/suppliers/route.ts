@@ -3,11 +3,9 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
-import { Prisma } from "@prisma/client"
+import { fetchSupplierList } from "@/lib/cari/list-query"
 
 export const dynamic = 'force-dynamic'
-const LIST_CACHE_TTL_MS = 15000
-const listCache = new Map<string, { expiresAt: number; payload: unknown }>()
 
 function parseOpeningBalanceType(value: unknown) {
   return String(value || "").toUpperCase() === "CREDIT" ? "CREDIT" : "DEBIT"
@@ -59,213 +57,26 @@ export async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
-    const safePage = Number.isFinite(page) && page > 0 ? page : 1
-    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(pageSize, 200) : 50
-    const offset = (safePage - 1) * safePageSize
-    const hasSearch = Boolean(search && search.trim().length > 0)
-    const searchLike = `%${search?.trim() || ""}%`
-    const cacheKey = `${companyId}|${searchLike}|${safePage}|${safePageSize}|${usePagination ? "1" : "0"}`
-
-    const now = Date.now()
-    const cached = listCache.get(cacheKey)
-    if (cached && cached.expiresAt > now) {
-      return NextResponse.json(cached.payload)
-    }
-
-    const [suppliers, countRows] = await Promise.all([
-      prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-      WITH filtered_suppliers AS (
-        SELECT s.*
-        FROM suppliers s
-        WHERE s."companyId" = ${companyId}
-          AND s."archivedAt" IS NULL
-          ${hasSearch
-            ? Prisma.sql`AND (
-              s.name ILIKE ${searchLike}
-              OR s.code ILIKE ${searchLike}
-              OR s."taxNumber" ILIKE ${searchLike}
-              OR s.email ILIKE ${searchLike}
-            )`
-            : Prisma.empty}
-      ),
-      paged_suppliers AS (
-        SELECT *
-        FROM filtered_suppliers
-        ORDER BY name ASC
-        ${usePagination ? Prisma.sql`LIMIT ${safePageSize} OFFSET ${offset}` : Prisma.empty}
-      ),
-      invoice_totals AS (
-        SELECT i."supplierId", SUM(i."totalAmount") AS total_amount_sum
-        FROM invoices i
-        INNER JOIN paged_suppliers ps ON ps.id = i."supplierId"
-        WHERE i.type = 'PURCHASE'
-          AND i.status NOT IN ('CANCELLED', 'CONVERTED')
-        GROUP BY i."supplierId"
-      ),
-      payment_totals AS (
-        SELECT inv."supplierId", SUM(ip.amount) AS payment_amount_sum
-        FROM invoice_payments ip
-        INNER JOIN invoices inv ON inv.id = ip."invoiceId"
-        INNER JOIN paged_suppliers ps ON ps.id = inv."supplierId"
-        WHERE inv.type = 'PURCHASE'
-          AND inv.status NOT IN ('CANCELLED', 'CONVERTED')
-          AND ip."transactionId" IS NULL
-        GROUP BY inv."supplierId"
-      ),
-      -- MAHSUP: bu tedarikçiye kayıtlı SATIŞ faturalarının tahsil edilmemiş kısmı
-      -- onun bize borcudur ve bizim borcumuzu azaltır (detay endpoint'iyle aynı mantık).
-      sales_totals AS (
-        SELECT i."supplierId", SUM(i."totalAmount") AS total_amount_sum
-        FROM invoices i
-        INNER JOIN paged_suppliers ps ON ps.id = i."supplierId"
-        WHERE i.type = 'SALES'
-          AND i.status NOT IN ('CANCELLED', 'CONVERTED')
-        GROUP BY i."supplierId"
-      ),
-      sales_payment_totals AS (
-        SELECT inv."supplierId", SUM(ip.amount) AS payment_amount_sum
-        FROM invoice_payments ip
-        INNER JOIN invoices inv ON inv.id = ip."invoiceId"
-        INNER JOIN paged_suppliers ps ON ps.id = inv."supplierId"
-        WHERE inv.type = 'SALES'
-          AND inv.status NOT IN ('CANCELLED', 'CONVERTED')
-          AND ip."transactionId" IS NULL
-        GROUP BY inv."supplierId"
-      ),
-      income_totals AS (
-        SELECT t."supplierId", SUM(t.amount) AS amount_sum
-        FROM transactions t
-        INNER JOIN paged_suppliers ps ON ps.id = t."supplierId"
-        WHERE t.type = 'INCOME'
-        GROUP BY t."supplierId"
-      ),
-      expense_totals AS (
-        SELECT t."supplierId", SUM(t.amount) AS amount_sum
-        FROM transactions t
-        INNER JOIN paged_suppliers ps ON ps.id = t."supplierId"
-        WHERE t.type = 'EXPENSE'
-        GROUP BY t."supplierId"
-      ),
-      check_note_totals AS (
-        -- Tedarikçide verilen (GIVEN/null) çek borcu azaltır (+); alınan (RECEIVED, iade) artırır (−).
-        SELECT cn."supplierId", SUM(cn.amount) AS amount_sum
-        FROM (
-          SELECT ch."supplierId", (CASE WHEN ch.direction = 'RECEIVED' THEN -ch.amount ELSE ch.amount END) AS amount
-          FROM checks ch
-          WHERE ch.status NOT IN ('İADE_EDİLDİ', 'PROTESTOLU')
-          UNION ALL
-          SELECT n."supplierId", (CASE WHEN n.direction = 'RECEIVED' THEN -n.amount ELSE n.amount END) AS amount
-          FROM promissory_notes n
-          WHERE n.status NOT IN ('İADE_EDİLDİ', 'PROTESTOLU')
-        ) cn
-        INNER JOIN paged_suppliers ps ON ps.id = cn."supplierId"
-        GROUP BY cn."supplierId"
-      )
-      SELECT
-        ps.id,
-        ps."companyId",
-        ps.code,
-        ps.slug,
-        ps.name,
-        ps."taxNumber",
-        ps."taxOffice",
-        ps.address,
-        ps.city,
-        ps.country,
-        ps.phone,
-        ps.email,
-        ps."contactPerson",
-        ps."paymentDueDays",
-        ps."openingBalanceAmount",
-        ps."openingBalanceType",
-        ps."riskLimit",
-        ps."bankInfo",
-        ps.note,
-        ps."classification1Id",
-        ps."classification2Id",
-        ps."authorizedUserId",
-        ps."isAlsoCustomer",
-        ps."linkedCustomerId",
-        ps."createdAt",
-        ps."updatedAt",
-        COALESCE(CAST(i.total_amount_sum AS NUMERIC), 0) AS "invoiceTotal",
-        COALESCE(CAST(p.payment_amount_sum AS NUMERIC), 0) AS "paymentTotal",
-        COALESCE(CAST(t_in.amount_sum AS NUMERIC), 0) AS "incomeTotal",
-        COALESCE(CAST(t_ex.amount_sum AS NUMERIC), 0) AS "expenseTotal",
-        COALESCE(CAST(cn.amount_sum AS NUMERIC), 0) AS "checkNoteTotal",
-        COALESCE(CAST(sa.total_amount_sum AS NUMERIC), 0) AS "salesTotal",
-        COALESCE(CAST(sap.payment_amount_sum AS NUMERIC), 0) AS "salesPaymentTotal"
-      FROM paged_suppliers ps
-      LEFT JOIN invoice_totals i ON i."supplierId" = ps.id
-      LEFT JOIN payment_totals p ON p."supplierId" = ps.id
-      LEFT JOIN sales_totals sa ON sa."supplierId" = ps.id
-      LEFT JOIN sales_payment_totals sap ON sap."supplierId" = ps.id
-      LEFT JOIN income_totals t_in ON t_in."supplierId" = ps.id
-      LEFT JOIN expense_totals t_ex ON t_ex."supplierId" = ps.id
-      LEFT JOIN check_note_totals cn ON cn."supplierId" = ps.id
-      ORDER BY ps.name ASC
-    `),
-      usePagination
-        ? prisma.$queryRaw<Array<{ total_count: bigint | number }>>(Prisma.sql`
-            SELECT COUNT(*) AS total_count
-            FROM suppliers s
-            WHERE s."companyId" = ${companyId}
-            AND s."archivedAt" IS NULL
-            ${hasSearch
-              ? Prisma.sql`AND (
-                s.name ILIKE ${searchLike}
-                OR s.code ILIKE ${searchLike}
-                OR s."taxNumber" ILIKE ${searchLike}
-                OR s.email ILIKE ${searchLike}
-              )`
-              : Prisma.empty}
-          `)
-        : Promise.resolve([] as Array<{ total_count: bigint | number }>),
-    ])
-
-    const suppliersWithBalance = suppliers.map((row) => {
-      // Tedarikçide ödeme (EXPENSE) borcu azaltır, tahsilat (INCOME) artırır —
-      // müşteri formülünün simetriği (bkz. suppliers/[id]/route.ts).
-      const balance =
-        Number(row.invoiceTotal || 0) -
-        Number(row.paymentTotal || 0) -
-        // Bu cariye kayıtlı satış faturalarının tahsil edilmemiş kısmı (mahsup).
-        (Number(row.salesTotal || 0) - Number(row.salesPaymentTotal || 0)) -
-        Number(row.expenseTotal || 0) +
-        Number(row.incomeTotal || 0) -
-        // Tedarikçiye verilen çek/senet (iade/protesto hariç) borcumuzu azaltır.
-        Number(row.checkNoteTotal || 0) +
-        // Aynalı işaret (bkz. suppliers/[id]/route.ts): CREDIT (Alacak) bakiyeyi
-        // artırır, DEBIT (Borç/avans) azaltır.
-        (row.openingBalanceType === "CREDIT"
-          ? Number(row.openingBalanceAmount || 0)
-          : -Number(row.openingBalanceAmount || 0))
-
-      const {
-        invoiceTotal,
-        paymentTotal,
-        incomeTotal,
-        expenseTotal,
-        checkNoteTotal,
-        salesTotal,
-        salesPaymentTotal,
-        ...supplier
-      } = row
-      return {
-        ...supplier,
-        balance,
-      }
+    // Sorgu ve bakiye formülü lib/cari/list-query.ts'te — dışa aktarma da aynı
+    // fonksiyonu çağırır, böylece ekran ile indirilen dosya asla ayrışmaz.
+    const result = await fetchSupplierList({
+      companyId,
+      search,
+      page,
+      pageSize,
+      paginate: usePagination,
     })
 
     if (usePagination) {
-      const totalCount = Number(countRows[0]?.total_count || 0)
-      const payload = { items: suppliersWithBalance, totalCount, page: safePage, pageSize: safePageSize }
-      listCache.set(cacheKey, { expiresAt: now + LIST_CACHE_TTL_MS, payload })
-      return NextResponse.json(payload)
+      return NextResponse.json({
+        items: result.items,
+        totalCount: result.totalCount ?? 0,
+        page: result.page,
+        pageSize: result.pageSize,
+      })
     }
 
-    listCache.set(cacheKey, { expiresAt: now + LIST_CACHE_TTL_MS, payload: suppliersWithBalance })
-    return NextResponse.json(suppliersWithBalance)
+    return NextResponse.json(result.items)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })

@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ArrowUpRight, Receipt, TrendingUp, Users } from "lucide-react"
+import { ExportButton } from "@/components/export/export-button"
 
 interface Invoice {
   id: string
@@ -107,12 +108,15 @@ export default function SatisRaporlariPage() {
             Fatura, detay, iade ve satışçı performansı için özet veriler
           </p>
         </div>
-        <Link href={`/satis/fatura?company=${encodeURIComponent(companyId)}`}>
-          <Button variant="outline">
-            Tüm satış faturaları
-            <ArrowUpRight className="ml-2 h-4 w-4" />
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <ExportButton dataset="rapor-satis" companyId={companyId} size="default" />
+          <Link href={`/satis/fatura?company=${encodeURIComponent(companyId)}`}>
+            <Button variant="outline">
+              Tüm satış faturaları
+              <ArrowUpRight className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">

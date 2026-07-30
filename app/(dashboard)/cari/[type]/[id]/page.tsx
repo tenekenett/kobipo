@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { TransactionDialog } from "@/components/cari/transaction-dialog"
+import { ExportButton } from "@/components/export/export-button"
 import { CariArchiveDeleteDialog } from "@/components/cari/cari-archive-delete-dialog"
 import { CariFislerSection } from "@/components/cari/cari-fisler-section"
 import { looksLikeCuid } from "@/lib/slug"
@@ -319,6 +320,14 @@ export default function CustomerSupplierDetailPage() {
             <Plus className="mr-2 h-4 w-4" />
             {isCustomer ? "Tahsilat Ekle" : "Ödeme Ekle"}
           </Button>
+          {/* Bu carinin ekstresi — hareketler + yaşlandırma özeti. URL'deki `id`
+              slug olabildiği için çözülmüş `data.id` gönderiliyor. */}
+          <ExportButton
+            dataset="ekstre"
+            companyId={companyId ?? ""}
+            label="Ekstre"
+            params={isCustomer ? { customerId: data.id } : { supplierId: data.id }}
+          />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon" aria-label="Daha fazla işlem">

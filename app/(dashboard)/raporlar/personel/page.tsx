@@ -13,6 +13,7 @@ import {
   StyledTableRow,
 } from "@/components/ui/styled-table"
 import { RefreshCcw, Users, Wallet, CalendarCheck, TrendingDown } from "lucide-react"
+import { ExportButton } from "@/components/export/export-button"
 
 type Report = {
   year: number
@@ -65,6 +66,7 @@ export default function PersonelRaporlariPage() {
               {years.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
             </SelectContent>
           </Select>
+          <ExportButton dataset="rapor-personel" companyId={companyId} params={{ year }} disabled={!data} />
           <Button variant="outline" size="sm" onClick={fetchReport}><RefreshCcw className="mr-1 h-4 w-4" /> Yenile</Button>
         </div>
       </div>

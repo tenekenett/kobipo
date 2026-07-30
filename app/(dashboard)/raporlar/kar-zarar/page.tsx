@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ExportButton } from "@/components/export/export-button"
 
 interface ProfitLossReport {
   period: {
@@ -111,10 +112,17 @@ export default function KarZararPage() {
                 onChange={(e) => setEndDate(e.target.value)}
               />
             </div>
-            <div className="flex items-end">
+            <div className="flex items-end gap-2">
               <Button onClick={fetchReport} disabled={isLoading}>
                 {isLoading ? "Yükleniyor..." : "Raporu Getir"}
               </Button>
+              <ExportButton
+                dataset="rapor-kar-zarar"
+                companyId={companyId}
+                size="default"
+                params={{ startDate, endDate }}
+                disabled={!report}
+              />
             </div>
           </div>
 

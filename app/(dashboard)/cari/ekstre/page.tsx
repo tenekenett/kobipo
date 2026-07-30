@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import Link from "next/link"
-import * as XLSX from "xlsx"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
@@ -17,8 +16,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Download } from "lucide-react"
-import { useToast } from "@/components/ui/use-toast"
+import { ArrowLeft } from "lucide-react"
+import { ExportButton } from "@/components/export/export-button"
 import { cn } from "@/lib/utils"
 
 interface EkstreEntry {
@@ -58,7 +57,6 @@ export default function EkstrePage() {
   const backHref = safeFrom
     ? `${safeFrom}${safeFrom.includes("?") ? "&" : "?"}company=${encodeURIComponent(companyId || "")}`
     : fallbackBack
-  const { toast } = useToast()
   const [entries, setEntries] = useState<EkstreEntry[]>([])
   const [totalDebit, setTotalDebit] = useState(0)
   const [totalCredit, setTotalCredit] = useState(0)
@@ -126,42 +124,6 @@ export default function EkstrePage() {
     if (supplierResponse.ok) {
       setSuppliers(await supplierResponse.json())
     }
-  }
-
-  const handleExportExcel = () => {
-    if (entries.length === 0) {
-      toast({
-        title: "İndirilecek veri yok",
-        description: "Önce filtreleri ayarlayıp kayıtları yükleyin.",
-      })
-      return
-    }
-    const rows = entries.map((entry) => ({
-      Tarih: new Date(entry.date).toLocaleDateString("tr-TR"),
-      Açıklama: entry.description,
-      Referans: entry.reference || "",
-      Borç: entry.debit,
-      Alacak: entry.credit,
-      Bakiye: entry.balance,
-    }))
-    rows.push({
-      Tarih: "",
-      Açıklama: "TOPLAM",
-      Referans: "",
-      Borç: totalDebit,
-      Alacak: totalCredit,
-      Bakiye: finalBalance,
-    })
-    const worksheet = XLSX.utils.json_to_sheet(rows)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Ekstre")
-    const cariName =
-      (customerId && customers.find((c) => c.id === customerId)?.name) ||
-      (supplierId && suppliers.find((s) => s.id === supplierId)?.name) ||
-      "Tumu"
-    const safeName = cariName.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 40)
-    const today = new Date().toISOString().slice(0, 10)
-    XLSX.writeFile(workbook, `Cari_Ekstre_${safeName}_${today}.xlsx`)
   }
 
   if (!companyId) {
@@ -290,14 +252,15 @@ export default function EkstrePage() {
                 }).format(finalBalance)}
               </CardDescription>
             </div>
-            <Button
-              variant="outline"
-              onClick={handleExportExcel}
+            {/* Filtreler sunucuya gider; dosya ekrandaki hareketlerin aynısını
+                (artı yaşlandırma özetini) Excel/PDF/CSV olarak verir. */}
+            <ExportButton
+              dataset="ekstre"
+              companyId={companyId}
+              size="default"
+              params={{ customerId, supplierId, startDate, endDate }}
               disabled={entries.length === 0 || isLoading}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Excel İndir
-            </Button>
+            />
           </div>
         </CardHeader>
         <CardContent>

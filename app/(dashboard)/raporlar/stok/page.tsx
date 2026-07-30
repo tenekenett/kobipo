@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { AlertTriangle, Boxes, PackageCheck, TrendingDown, TrendingUp, Search, RefreshCcw } from "lucide-react"
+import { ExportButton } from "@/components/export/export-button"
 
 interface Product {
   id: string
@@ -202,10 +203,17 @@ export default function StokRaporlariPage() {
             Stok durumu, değerleme ve son hareketler
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={fetchData} disabled={isLoading}>
-          <RefreshCcw className="mr-2 h-4 w-4" />
-          {isLoading ? "Yükleniyor..." : "Yenile"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            dataset="rapor-stok"
+            companyId={companyId}
+            params={{ search, type: typeFilter, stock: stockFilter }}
+          />
+          <Button variant="outline" size="sm" onClick={fetchData} disabled={isLoading}>
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            {isLoading ? "Yükleniyor..." : "Yenile"}
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

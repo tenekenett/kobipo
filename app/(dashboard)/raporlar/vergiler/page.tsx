@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ExportButton } from "@/components/export/export-button"
 
 interface VATDeclaration {
   period: string
@@ -145,10 +146,18 @@ export default function VergilerPage() {
                 max="12"
               />
             </div>
-            <div className="flex items-end">
+            <div className="flex items-end gap-2">
               <Button onClick={fetchReports} disabled={isLoading}>
                 {isLoading ? "Yükleniyor..." : "Raporları Getir"}
               </Button>
+              {/* Üç sekme de aynı dönemin parçası; muhasebeciye tek dosya gider. */}
+              <ExportButton
+                dataset="rapor-vergiler"
+                companyId={companyId}
+                size="default"
+                params={{ year, month }}
+                disabled={!vatDeclaration}
+              />
             </div>
           </div>
 

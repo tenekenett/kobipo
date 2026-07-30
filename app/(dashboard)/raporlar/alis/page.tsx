@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ArrowUpRight, Receipt, TrendingDown, UserRound } from "lucide-react"
+import { ExportButton } from "@/components/export/export-button"
 
 interface Invoice {
   id: string
@@ -96,12 +97,15 @@ export default function AlisRaporlariPage() {
             Alış fatura, masraf ve tedarikçi analizi için özet veriler
           </p>
         </div>
-        <Link href={`/alis/fatura?company=${encodeURIComponent(companyId)}`}>
-          <Button variant="outline">
-            Tüm alış faturaları
-            <ArrowUpRight className="ml-2 h-4 w-4" />
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <ExportButton dataset="rapor-alis" companyId={companyId} size="default" />
+          <Link href={`/alis/fatura?company=${encodeURIComponent(companyId)}`}>
+            <Button variant="outline">
+              Tüm alış faturaları
+              <ArrowUpRight className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">

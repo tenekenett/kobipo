@@ -1,0 +1,128 @@
+/**
+ * Dışa aktarılabilir veri kümelerinin kaydı.
+ *
+ * Yeni bir ekrana dışa aktarma eklemek = buraya bir satır + bir `build*`
+ * fonksiyonu. Route, UI bileşeni ve formatlar dokunulmadan çalışır.
+ */
+
+import type { ExportDataset } from "../types"
+import { buildProductsDataset } from "./products"
+import { buildCariDataset } from "./cari"
+import { buildEkstreDataset } from "./ekstre"
+import { buildInvoicesDataset } from "./invoices"
+import { buildAgingReportDataset, buildProfitLossDataset, buildStockReportDataset } from "./reports"
+import { buildBalanceSheetDataset, buildCashFlowDataset } from "./reports-finansal"
+import { buildSalesPurchaseDataset } from "./reports-satis-alis"
+import { buildHrReportDataset } from "./reports-personel"
+import { buildTaxReportDataset } from "./reports-vergi"
+
+/** `year`/`month` gibi sayısal paramlar için ortak çözücü. */
+function num(params: URLSearchParams, key: string, fallback: number): number {
+  const parsed = Number(params.get(key))
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+type Params = URLSearchParams
+
+export type DatasetBuilder = (companyId: string, params: Params) => Promise<ExportDataset>
+
+export const DATASETS: Record<string, DatasetBuilder> = {
+  products: (companyId, params) =>
+    buildProductsDataset({
+      companyId,
+      search: params.get("search"),
+      category: params.get("category"),
+      kind: params.get("kind"),
+      warehouseId: params.get("warehouseId"),
+      lowStock: params.get("lowStock"),
+      isService: params.get("isService"),
+      isSellable: params.get("isSellable"),
+      isIngredient: params.get("isIngredient"),
+    }),
+
+  cari: (companyId, params) =>
+    buildCariDataset({ companyId, search: params.get("search"), tab: params.get("tab") }),
+
+  ekstre: (companyId, params) =>
+    buildEkstreDataset({
+      companyId,
+      customerId: params.get("customerId"),
+      supplierId: params.get("supplierId"),
+      startDate: params.get("startDate"),
+      endDate: params.get("endDate"),
+    }),
+
+  invoices: (companyId, params) =>
+    buildInvoicesDataset({
+      companyId,
+      direction: params.get("direction"),
+      includeInbox: params.get("includeInbox"),
+      days: params.get("days"),
+      startDate: params.get("startDate"),
+      endDate: params.get("endDate"),
+      status: params.get("status"),
+      search: params.get("search"),
+      category: params.get("category"),
+    }),
+
+  "rapor-stok": (companyId, params) =>
+    buildStockReportDataset({
+      companyId,
+      search: params.get("search"),
+      type: params.get("type"),
+      stock: params.get("stock"),
+    }),
+
+  "rapor-cari-yaslandirma": (companyId) => buildAgingReportDataset({ companyId }),
+
+  "rapor-kar-zarar": (companyId, params) =>
+    buildProfitLossDataset({
+      companyId,
+      startDate: params.get("startDate"),
+      endDate: params.get("endDate"),
+    }),
+
+  "rapor-bilanco": (companyId, params) =>
+    buildBalanceSheetDataset({ companyId, asOfDate: params.get("asOfDate") }),
+
+  "rapor-nakit-akisi": (companyId, params) =>
+    buildCashFlowDataset({
+      companyId,
+      startDate: params.get("startDate"),
+      endDate: params.get("endDate"),
+    }),
+
+  "rapor-satis": (companyId, params) =>
+    buildSalesPurchaseDataset({
+      companyId,
+      type: "SALES",
+      startDate: params.get("startDate"),
+      endDate: params.get("endDate"),
+    }),
+
+  "rapor-alis": (companyId, params) =>
+    buildSalesPurchaseDataset({
+      companyId,
+      type: "PURCHASE",
+      startDate: params.get("startDate"),
+      endDate: params.get("endDate"),
+    }),
+
+  "rapor-personel": (companyId, params) =>
+    buildHrReportDataset({ companyId, year: num(params, "year", new Date().getFullYear()) }),
+
+  "rapor-vergiler": (companyId, params) =>
+    buildTaxReportDataset({
+      companyId,
+      year: num(params, "year", new Date().getFullYear()),
+      month: num(params, "month", new Date().getMonth() + 1),
+    }),
+}
+
+export function isKnownDataset(key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(DATASETS, key)
+}
+
+export function listDatasets(): string[] {
+  return Object.keys(DATASETS)
+}

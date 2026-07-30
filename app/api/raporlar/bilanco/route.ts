@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
-import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { computeBalanceSheet } from "@/lib/raporlar/bilanco"
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * Bilanço. Hesabın kendisi `lib/raporlar/bilanco.ts`te — dışa aktarma ucu da
+ * aynı fonksiyonu çağırır.
+ */
 export async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
@@ -15,7 +19,6 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const companyId = await resolveCompanyId(searchParams.get("companyId"))
-    const asOfDate = searchParams.get("asOfDate")
 
     if (!companyId) {
       return NextResponse.json(
@@ -26,138 +29,9 @@ export async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
-    const date = asOfDate ? new Date(asOfDate) : new Date()
-
-    // Aktifler (Varlıklar)
-    // - Nakit ve banka hesapları
-    const cashAndBanks = await prisma.financialAccount.aggregate({
-      where: {
-        companyId,
-        isActive: true,
-      },
-      _sum: {
-        balance: true,
-      },
-    })
-
-    // - Alacaklar (Müşteri bakiyeleri - ödenmemiş faturalar)
-    const receivables = await prisma.invoice.aggregate({
-      where: {
-        companyId,
-        type: "SALES",
-        status: { notIn: ["CANCELLED", "CONVERTED"] },
-        date: { lte: date },
-      },
-      _sum: {
-        totalAmount: true,
-      },
-    })
-
-    // Ödenen tutarları çıkar
-    const paidAmount = await prisma.invoicePayment.aggregate({
-      where: {
-        companyId,
-        invoice: {
-          type: "SALES",
-          date: { lte: date },
-        },
-        paymentDate: { lte: date },
-      },
-      _sum: {
-        amount: true,
-      },
-    })
-
-    const netReceivables = Number(receivables._sum.totalAmount || 0) - Number(paidAmount._sum.amount || 0)
-
-    // - Stok değeri
-    const inventory = await prisma.product.findMany({
-      where: {
-        companyId,
-        isActive: true,
-      },
-      select: {
-        stockQuantity: true,
-        purchasePrice: true,
-        salePrice: true,
-      },
-    })
-
-    // Satın alma fiyatı yoksa satış fiyatına düş, yine yoksa 0 kabul et.
-    // Bu yaklaşım TODO durumunu kaldırır ve en azından stok bilanço etkisini gösterir.
-    const inventoryValue = inventory.reduce((sum, item) => {
-      const quantity = Number(item.stockQuantity || 0)
-      const unitCost = Number(item.purchasePrice ?? item.salePrice ?? 0)
-      return sum + quantity * unitCost
-    }, 0)
-
-    // Pasifler (Yükümlülükler)
-    // - Borçlar (Tedarikçi bakiyeleri - ödenmemiş faturalar)
-    const payables = await prisma.invoice.aggregate({
-      where: {
-        companyId,
-        type: "PURCHASE",
-        status: { notIn: ["CANCELLED", "CONVERTED"] },
-        date: { lte: date },
-      },
-      _sum: {
-        totalAmount: true,
-      },
-    })
-
-    const paidToSuppliers = await prisma.invoicePayment.aggregate({
-      where: {
-        companyId,
-        invoice: {
-          type: "PURCHASE",
-          date: { lte: date },
-        },
-        paymentDate: { lte: date },
-      },
-      _sum: {
-        amount: true,
-      },
-    })
-
-    const netPayables = Number(payables._sum.totalAmount || 0) - Number(paidToSuppliers._sum.amount || 0)
-
-    // Öz Sermaye
-    // - Başlangıç sermayesi (şimdilik 0, daha sonra Company modeline eklenebilir)
-    const initialCapital = 0
-
-    // - Kar/Zarar (dönem karı)
-    const profitLoss = await prisma.accountingEntry.aggregate({
-      where: {
-        companyId,
-        date: { lte: date },
-      },
-      _sum: {
-        amount: true,
-      },
-    })
-
-    const equity = initialCapital + Number(profitLoss._sum.amount || 0)
-
-    const assets = {
-      cashAndBanks: Number(cashAndBanks._sum.balance || 0),
-      receivables: netReceivables > 0 ? netReceivables : 0,
-      inventory: inventoryValue,
-      total: Number(cashAndBanks._sum.balance || 0) + (netReceivables > 0 ? netReceivables : 0) + inventoryValue,
-    }
-
-    const liabilities = {
-      payables: netPayables > 0 ? netPayables : 0,
-      total: netPayables > 0 ? netPayables : 0,
-    }
-
-    return NextResponse.json({
-      asOfDate: date.toISOString(),
-      assets,
-      liabilities,
-      equity,
-      total: assets.total,
-      totalLiabilitiesAndEquity: liabilities.total + equity,
-    })
+    return NextResponse.json(
+      await computeBalanceSheet({ companyId, asOfDate: searchParams.get("asOfDate") }),
+    )
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
@@ -169,4 +43,3 @@ export async function GET(request: Request) {
     )
   }
 }
-
