@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule, serializeTicket, ticketInclude } from "@/lib/restoran/tickets"
+import { writeCompWasteStock } from "@/lib/restoran/comp-waste-stock"
 
 export const dynamic = "force-dynamic"
 
@@ -49,6 +50,17 @@ export async function GET(request: Request, { params }: Params) {
     }
 
     const view = serializeTicket(ticket)
+    // Fişe yalnız ÖDENEN kalemler girer: ikram 0 TL'lik satır olarak yazılsaydı
+    // KDV matrahını ve menü performansı raporunu kirletirdi; zayi/iptal zaten
+    // müşterinin hesabı değil. İkram/zayi malzemesi kapanışta AYRI yoldan
+    // düşülür (lib/restoran/comp-waste-stock.ts).
+    const billable = view.items.filter((item) => item.status === "NORMAL")
+    if (billable.length === 0) {
+      return NextResponse.json(
+        { error: "Hesapta ödenecek kalem yok (tümü ikram/zayi/iptal)" },
+        { status: 400 },
+      )
+    }
 
     // Fişin notu adisyonu İŞARET EDER: kapanış yarıda kalıp fiş sahipsiz kalırsa
     // (istemci çöktü, ağ gitti) hangi masaya ait olduğu fişten okunabilsin.
@@ -68,9 +80,22 @@ export async function GET(request: Request, { params }: Params) {
         currency: "TRY",
         notes: view.note ? `${stamp} — ${view.note}` : stamp,
         sendInvoice: false,
-        items: view.items.map((item) => ({
+        // Hesap iskontosu fatura ALTI (genel) iskonto olarak gider ve NET
+        // beklenir; `ticketTotals` brüt iskontonun matrah karşılığını veriyor.
+        globalDiscountAmount: view.totals.netDiscount > 0 ? view.totals.netDiscount : undefined,
+        items: billable.map((item) => ({
           productId: item.productId,
-          description: item.note ? `${item.description} (${item.note})` : item.description,
+          // Seçenekler ve not kalem adına yazılır: fişte "Latte (Büyük · Soya sütü)"
+          // görünmezse müşteri ne için para verdiğini okuyamaz.
+          description: [
+            item.description,
+            [item.options.map((o) => o.optionName).join(" · "), item.note]
+              .filter(Boolean)
+              .join(" · "),
+          ]
+            .filter(Boolean)
+            .join(" — ")
+            .slice(0, 500),
           unit: item.unit,
           quantity: item.quantity,
           // NET fiyat — fatura ucu net bekliyor (kahveci ekranıyla aynı kural).
@@ -145,6 +170,25 @@ export async function POST(request: Request, { params }: Params) {
     }
 
     const fresh = await prisma.restaurantTicket.findUnique({ where: { id }, include: ticketInclude })
+
+    // İkram/zayi malzemesi BURADA düşer: fiş kesildi, adisyon kapandı, artık
+    // "bu adisyonda gerçekten neler harcandı" kesinleşti. Fişin id'siyle
+    // yazılıyor ki fiş iptalinde kendiliğinden geri dönsün.
+    await writeCompWasteStock({
+      companyId,
+      ticketCode: ticket.code,
+      reference: invoiceId,
+      warehouseId: body.warehouseId ? String(body.warehouseId) : null,
+      createdBy: user.id,
+      lines: (fresh?.items ?? []).map((item) => ({
+        productId: item.productId,
+        quantity: Number(item.quantity),
+        status: item.status,
+        reasonCode: item.reasonCode,
+        description: item.description,
+      })),
+    })
+
     return NextResponse.json(serializeTicket(fresh!))
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {

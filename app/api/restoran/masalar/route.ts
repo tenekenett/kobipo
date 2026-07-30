@@ -3,7 +3,13 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
-import { assertRestaurantModule, TABLE_SHAPES, ticketTotals } from "@/lib/restoran/tickets"
+import {
+  assertRestaurantModule,
+  isBillableItem,
+  TABLE_SHAPES,
+  ticketDiscountOf,
+  ticketTotals,
+} from "@/lib/restoran/tickets"
 
 export const dynamic = "force-dynamic"
 
@@ -42,7 +48,11 @@ export async function GET(request: Request) {
         tickets: {
           where: { status: "OPEN" },
           orderBy: { openedAt: "asc" },
-          include: { items: { select: { quantity: true, unitPrice: true, vatRate: true } } },
+          include: {
+            items: {
+              select: { quantity: true, unitPrice: true, vatRate: true, status: true },
+            },
+          },
         },
       },
     })
@@ -71,8 +81,8 @@ export async function GET(request: Request) {
                 code: open.code,
                 openedAt: open.openedAt,
                 guestCount: open.guestCount,
-                itemCount: open.items.length,
-                total: ticketTotals(open.items).total,
+                itemCount: open.items.filter((i) => isBillableItem(i.status)).length,
+                total: ticketTotals(open.items, ticketDiscountOf(open)).total,
               }
             : null,
         }

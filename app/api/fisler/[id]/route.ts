@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic"
 const PAYMENT_METHOD_LABEL: Record<string, string> = {
   CASH: "Nakit",
   CREDIT_CARD: "Kredi Kartı",
+  MEAL_CARD: "Yemek Kartı",
   BANK_TRANSFER: "Havale/EFT",
   CHECK: "Çek",
   OTHER: "Diğer",

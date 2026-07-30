@@ -64,6 +64,7 @@ import {
 } from "@/lib/data/units"
 import { quickCreateProduct, type CreatedProduct } from "@/lib/stock/quick-create-product"
 import { RawMaterialDialog } from "@/components/restoran/raw-material-dialog"
+import { ProductOptionsDialog } from "@/components/restoran/product-options-dialog"
 import { cn } from "@/lib/utils"
 import {
   buildRecipeMap,
@@ -72,6 +73,7 @@ import {
   type RecipeMap,
 } from "@/lib/stock/recipe-expand"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { useProductOptions } from "@/lib/swr/use-restoran"
 import {
   useProducts,
   useRecipes,
@@ -206,6 +208,9 @@ export default function ReceptelerPage() {
   // cuid'e normalize ediyor, URL ise slug taşıyabiliyor — ikisi farklı SWR
   // anahtarı üretir ve ortak önbellek çalışmazdı.
   const { products, isLoading: productsLoading, mutate: mutateProducts } = useProducts(companyId)
+  // Seçenek (porsiyon/modifier) tanımları — satır bazında düzenlenir.
+  const { groupsOf, mutate: mutateOptions } = useProductOptions(companyId)
+  const [optionsFor, setOptionsFor] = useState<{ id: string; name: string } | null>(null)
   const { recipes, isLoading: recipesLoading, mutate: mutateRecipes } = useRecipes(companyId)
   const loading = productsLoading || recipesLoading
 
@@ -814,7 +819,9 @@ export default function ReceptelerPage() {
           products={filtered}
           recipeByProduct={recipeByProduct}
           costOf={(id) => costOf(id, recipeMap)}
+          optionCountOf={(id) => groupsOf(id).length}
           onEdit={openForProduct}
+          onOptions={(p) => setOptionsFor({ id: p.id, name: p.name })}
           onDelete={handleDelete}
           onChangeKind={changeKind}
         />
@@ -1299,6 +1306,15 @@ export default function ReceptelerPage() {
         companyId={companyId}
         onCreated={handleRawCreated}
       />
+
+      <ProductOptionsDialog
+        open={!!optionsFor}
+        companyId={companyId}
+        product={optionsFor}
+        groups={optionsFor ? groupsOf(optionsFor.id) : []}
+        onClose={() => setOptionsFor(null)}
+        onSaved={() => void mutateOptions()}
+      />
     </div>
   )
 }
@@ -1438,14 +1454,18 @@ function MenuTable({
   products,
   recipeByProduct,
   costOf,
+  optionCountOf,
   onEdit,
+  onOptions,
   onDelete,
   onChangeKind,
 }: {
   products: Product[]
   recipeByProduct: Map<string, Recipe>
   costOf: (productId: string) => { total: number; priceless: string[]; hasRecipe: boolean }
+  optionCountOf: (productId: string) => number
   onEdit: (p: Product) => void
+  onOptions: (p: Product) => void
   onDelete: (r: Recipe) => void
   onChangeKind: (p: Product, kind: ProductKind) => void
 }) {
@@ -1557,6 +1577,18 @@ function MenuTable({
                         <Trash2 className="h-4 w-4 text-red-500" />
                       </Button>
                     )}
+                    {/* Seçenek (boy/süt/ekstra) — sayısı rozette, tanımı diyalogda. */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onOptions(p)}
+                      title="Porsiyon / seçenek tanımla"
+                    >
+                      <span className="text-xs">
+                        Seçenek
+                        {optionCountOf(p.id) > 0 ? ` (${optionCountOf(p.id)})` : ""}
+                      </span>
+                    </Button>
                     {/* Tür değişimi TEK seçim — iki ayrı anahtar 4 kombinasyon
                         üretiyordu ve ikisi de kapalıyken ürün hiçbir sekmede
                         görünmüyordu. Bkz. lib/stock/product-kind.ts */}

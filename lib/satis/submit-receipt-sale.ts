@@ -47,6 +47,11 @@ export async function submitReceiptSale(args: {
   customerId?: string | null
   warehouseId?: string | null
   notes?: string | null
+  /**
+   * Fatura altı (genel) iskonto — NET tutar. Adisyon hesabına uygulanan iskonto
+   * buradan geçer; fatura ucu matrahtan oransal düşer, KDV de aynı oranda azalır.
+   */
+  globalDiscountAmount?: number | null
   /** İstemcinin hesapladığı toplam; sunucu toplam döndürmezse yedek olarak kullanılır. */
   fallbackTotal: number
 }): Promise<ReceiptSaleResult> {
@@ -63,6 +68,10 @@ export async function submitReceiptSale(args: {
       date: new Date().toISOString(),
       currency: "TRY",
       notes: args.notes?.trim() || undefined,
+      globalDiscountAmount:
+        args.globalDiscountAmount && args.globalDiscountAmount > 0
+          ? args.globalDiscountAmount
+          : undefined,
       sendInvoice: false,
       items: args.items.map((l) => ({
         productId: l.productId ?? undefined,
@@ -97,6 +106,10 @@ export async function submitReceiptSale(args: {
         amount: part.amount,
         paymentMethod: part.method,
         accountId: part.accountId,
+        // Yemek kartı sağlayıcısı tahsilat notuna yazılır: yöntem "MEAL_CARD"
+        // olarak gruplanırken hangi sağlayıcıdan tahsil edildiği kaybolmasın —
+        // ekstre mutabakatı sağlayıcı bazında yapılıyor.
+        notes: part.provider ? `Yemek kartı: ${part.provider}` : undefined,
         paymentDate: new Date().toISOString(),
       }),
     })

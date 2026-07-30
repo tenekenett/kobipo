@@ -52,6 +52,16 @@ export type ReceiptData = {
   parts?: { label: string; amount: number }[]
   /** Fişin notu; yalnız şablonda showNotes açıksa basılır. */
   notes?: string | null
+  /**
+   * HESAP FİŞİ (ödeme öncesi döküm). Müşteriye "borcunuz bu" demek için basılır;
+   * ödeme henüz alınmadığı için ödeme satırları YAZILMAZ ve altına mali değeri
+   * olmadığı yazılır. Adisyon kapatılmaz — asıl fiş ödemeden sonra kesilir.
+   */
+  prebill?: boolean
+  /** Hesap fişinde belge no yerine yazılan üst satır: "ADS-2026-0001 · Masa 5". */
+  reference?: string | null
+  /** İskonto satırı (varsa) — hesap fişinde ve fişte aynı görünsün. */
+  discount?: { label: string; amount: number } | null
 }
 
 /** Şablonda alt not boşken satış fişinde basılan varsayılan kapanış. */
@@ -63,6 +73,12 @@ const DEFAULT_SALES_FOOTER = "Bizi tercih ettiğiniz için teşekkürler"
  * belgenin fatura sanılmaması buna bağlıdır. Kullanıcı tercihine bırakılmaz.
  */
 const LEGAL_NOTICE = "Bilgilendirme Amaçlıdır"
+
+/**
+ * Hesap fişinin (ödeme öncesi döküm) alt ibaresi. Fişten daha net olmalı:
+ * bu belge ödeme belgesi DEĞİL, ödenecek tutarın dökümüdür.
+ */
+const PREBILL_NOTICE = "HESAP FİŞİDİR · Mali değeri yoktur · Ödeme alınmamıştır"
 
 export const currency = (n: number) =>
   new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(n || 0)
@@ -79,8 +95,8 @@ export function buildReceiptHtml(
   template: ReceiptTemplate = DEFAULT_RECEIPT_TEMPLATE,
 ): string {
   const isSales = r.direction === "outgoing"
-  const docTitle = isSales ? "Satış Fişi" : "Alış Fişi"
-  const docHeader = isSales ? "SATIŞ FİŞİ" : "ALIŞ FİŞİ"
+  const docTitle = r.prebill ? "Hesap Fişi" : isSales ? "Satış Fişi" : "Alış Fişi"
+  const docHeader = r.prebill ? "HESAP FİŞİ" : isSales ? "SATIŞ FİŞİ" : "ALIŞ FİŞİ"
   const counterpartyLabel = isSales ? "Müşteri" : "Tedarikçi"
   const counterpartyFallback = isSales ? "Perakende" : "Serbest"
   const creditLabel = isSales ? "Veresiye / Açık Hesap" : "Açık Hesap"
@@ -125,7 +141,11 @@ export function buildReceiptHtml(
     .map((l) => `<div class="center info">${l}</div>`)
     .join("\n    ")
 
-  const payRows = r.isCredit
+  // Hesap fişinde ödeme satırı YOK: para henüz alınmadı, "Ödeme: Nakit" yazmak
+  // müşteriyi de kasiyeri de yanıltırdı.
+  const payRows = r.prebill
+    ? ""
+    : r.isCredit
     ? `<div class="row"><span>Ödeme</span><span>${creditLabel}</span></div>`
     : r.parts && r.parts.length > 0
       ? r.parts
@@ -187,6 +207,7 @@ export function buildReceiptHtml(
         : ""
     }
     ${r.invoiceNo ? `<div class="row"><span>Belge No</span><span>${escapeHtml(r.invoiceNo)}</span></div>` : ""}
+    ${r.reference ? `<div class="row"><span>Adisyon</span><span>${escapeHtml(r.reference)}</span></div>` : ""}
     <hr />
     ${items}
     <hr />
@@ -196,17 +217,21 @@ export function buildReceiptHtml(
     <div class="row"><span>KDV</span><span>${currency(r.vat)}</span></div>`
         : ""
     }
+    ${
+      r.discount
+        ? `<div class="row"><span>${escapeHtml(r.discount.label)}</span><span>−${currency(r.discount.amount)}</span></div>`
+        : ""
+    }
     <div class="row big"><span>TOPLAM</span><span>${currency(r.total)}</span></div>
-    <hr />
-    ${payRows}
+    ${payRows ? `<hr />\n    ${payRows}` : ""}
     ${
       template.showNotes && r.notes
         ? `<hr />\n    <div class="note muted">${escapeHtml(r.notes)}</div>`
         : ""
     }
-    ${footerText ? `<hr />\n    <div class="center muted">${escapeHtml(footerText)}</div>` : ""}
+    ${footerText && !r.prebill ? `<hr />\n    <div class="center muted">${escapeHtml(footerText)}</div>` : ""}
     <hr />
-    <div class="center info">${LEGAL_NOTICE}</div>
+    <div class="center info">${r.prebill ? PREBILL_NOTICE : LEGAL_NOTICE}</div>
   </div>
 </body>
 </html>`

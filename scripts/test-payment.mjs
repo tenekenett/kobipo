@@ -50,8 +50,15 @@ try {
   }
   writeFileSync(join(out, "package.json"), '{"type":"module"}')
 
-  const { buildPaymentParts, paymentSummary, parseAmount, splitTotal, emptyPaymentState } =
-    await import(pathToFileURL(modPath).href)
+  const {
+    buildPaymentParts,
+    paymentSummary,
+    parseAmount,
+    portionsTotal,
+    splitEqually,
+    paymentLabelOf,
+    emptyPaymentState,
+  } = await import(pathToFileURL(modPath).href)
 
   let pass = 0
   let fail = 0
@@ -75,7 +82,15 @@ try {
   eq("noktalı giriş", parseAmount("12.50"), 12.5)
   eq("boş giriş", parseAmount(""), 0)
   eq("çöp giriş", parseAmount("abc"), 0)
-  eq("splitTotal", splitTotal({ CASH: "10,5", CREDIT_CARD: "20", BANK_TRANSFER: "" }), 30.5)
+  eq(
+    "portionsTotal",
+    portionsTotal([
+      { id: "1", method: "CASH", amount: "10,5" },
+      { id: "2", method: "CREDIT_CARD", amount: "20" },
+      { id: "3", method: "BANK_TRANSFER", amount: "" },
+    ]),
+    30.5,
+  )
 
   console.log("\n== Tek yöntem: nakit ==")
   const cash = state({ method: "CASH", tendered: "100" })
@@ -99,58 +114,104 @@ try {
   eq("tahsilat yazılmaz", buildPaymentParts(credit, { total: 85, ...accounts }), [])
   eq("tamamı açık kalır", paymentSummary(credit, 85).remaining, 85)
 
-  console.log("\n== Parçalı ödeme ==")
-  const split = (s) => state({ splitMode: true, split: { CASH: "", CREDIT_CARD: "", BANK_TRANSFER: "", ...s } })
+  console.log("\n== Parçalı ödeme (parça listesi) ==")
+  let seq = 0
+  const portion = (method, amount, provider) => ({
+    id: `t${++seq}`,
+    method,
+    amount,
+    ...(provider ? { provider } : {}),
+  })
+  const split = (portions) => state({ splitMode: true, portions })
 
-  const exact = split({ CREDIT_CARD: "60", CASH: "40" })
+  const exact = split([portion("CREDIT_CARD", "60"), portion("CASH", "40")])
   eq("kart önce, nakit sonra", buildPaymentParts(exact, { total: 100, ...accounts }), [
-    { method: "CREDIT_CARD", amount: 60, accountId: "banka1" },
-    { method: "CASH", amount: 40, accountId: "kasa1" },
+    { method: "CREDIT_CARD", amount: 60, provider: undefined, accountId: "banka1" },
+    { method: "CASH", amount: 40, provider: undefined, accountId: "kasa1" },
   ])
   eq("tam ödendi", paymentSummary(exact, 100).remaining, 0)
 
+  // Eski model yönteme ANAHTARLI idi: iki kredi kartı tek satıra çöküyordu.
+  // Kafede en sık bölme biçimi bu — iki ayrı çekim, iki ayrı tahsilat satırı.
+  const twoCards = split([portion("CREDIT_CARD", "50"), portion("CREDIT_CARD", "50")])
+  eq("iki kredi kartı AYRI satır", buildPaymentParts(twoCards, { total: 100, ...accounts }), [
+    { method: "CREDIT_CARD", amount: 50, provider: undefined, accountId: "banka1" },
+    { method: "CREDIT_CARD", amount: 50, provider: undefined, accountId: "banka1" },
+  ])
+
+  const mealCards = split([
+    portion("MEAL_CARD", "60", "Multinet"),
+    portion("MEAL_CARD", "40", "Sodexo (Pluxee)"),
+  ])
+  eq("yemek kartı sağlayıcıları ayrı", buildPaymentParts(mealCards, { total: 100, ...accounts }), [
+    { method: "MEAL_CARD", amount: 60, provider: "Multinet", accountId: "banka1" },
+    { method: "MEAL_CARD", amount: 40, provider: "Sodexo (Pluxee)", accountId: "banka1" },
+  ])
+  eq("etiket sağlayıcıyı taşır", paymentLabelOf("MEAL_CARD", "Multinet"), "Yemek Kartı (Multinet)")
+  eq("sağlayıcısız yöntemde sade etiket", paymentLabelOf("CREDIT_CARD"), "Kredi Kartı")
+
   // Nakit fazlası para üstüdür: kart gerçekten çekildiği için kırpılmamalı,
   // kırpma NAKİTTEN yapılır.
-  const overCash = split({ CREDIT_CARD: "60", CASH: "60" })
+  const overCash = split([portion("CREDIT_CARD", "60"), portion("CASH", "60")])
   eq("nakit kırpılır (60 -> 40)", buildPaymentParts(overCash, { total: 100, ...accounts }), [
-    { method: "CREDIT_CARD", amount: 60, accountId: "banka1" },
-    { method: "CASH", amount: 40, accountId: "kasa1" },
+    { method: "CREDIT_CARD", amount: 60, provider: undefined, accountId: "banka1" },
+    { method: "CASH", amount: 40, provider: undefined, accountId: "kasa1" },
   ])
   eq("para üstü 20", paymentSummary(overCash, 100).change, 20)
   eq("kaydedilen tahsilat tutarı aşmaz", paymentSummary(overCash, 100).paid, 100)
 
-  const under = split({ CASH: "40" })
+  const under = split([portion("CASH", "40")])
   eq("eksik ödeme olduğu gibi yazılır", buildPaymentParts(under, { total: 100, ...accounts }), [
-    { method: "CASH", amount: 40, accountId: "kasa1" },
+    { method: "CASH", amount: 40, provider: undefined, accountId: "kasa1" },
   ])
   eq("kalan 60 açık hesap", paymentSummary(under, 100).remaining, 60)
 
   eq(
     "sıfır/boş satırlar atlanır",
-    buildPaymentParts(split({ CASH: "100", BANK_TRANSFER: "0" }), { total: 100, ...accounts }),
-    [{ method: "CASH", amount: 100, accountId: "kasa1" }]
+    buildPaymentParts(split([portion("CASH", "100"), portion("BANK_TRANSFER", "0")]), {
+      total: 100,
+      ...accounts,
+    }),
+    [{ method: "CASH", amount: 100, provider: undefined, accountId: "kasa1" }],
   )
   eq(
     "toplam 0 ise tahsilat yok",
-    buildPaymentParts(split({ CASH: "50" }), { total: 0, ...accounts }),
-    []
+    buildPaymentParts(split([portion("CASH", "50")]), { total: 0, ...accounts }),
+    [],
   )
   eq(
     "hesap bulunamazsa seçili hesaba düşer",
-    buildPaymentParts(split({ BANK_TRANSFER: "50" }), { total: 50 }),
-    [{ method: "BANK_TRANSFER", amount: 50, accountId: "kasa1" }]
+    buildPaymentParts(split([portion("BANK_TRANSFER", "50")]), { total: 50 }),
+    [{ method: "BANK_TRANSFER", amount: 50, provider: undefined, accountId: "kasa1" }],
+  )
+
+  console.log("\n== Eşit bölme ==")
+  eq("ikiye bölünür", splitEqually(100, 2), ["50.00", "50.00"])
+  // Kuruş farkı İLK parçaya yüklenir; aksi halde hesap 1 kuruş açık kalırdı.
+  eq("üçe bölmede kuruş ilk parçada", splitEqually(100, 3), ["33.34", "33.33", "33.33"])
+  eq(
+    "eşit bölme toplamı korur",
+    splitEqually(100, 3).reduce((s, v) => s + parseFloat(v), 0),
+    100,
   )
 
   console.log("\n== Kuruş yuvarlama ==")
   eq(
     "küsuratlı parçalar kırpılmadan yazılır",
-    buildPaymentParts(split({ CASH: "0,1", CREDIT_CARD: "0,2" }), { total: 0.3, ...accounts }),
+    buildPaymentParts(split([portion("CASH", "0,1"), portion("CREDIT_CARD", "0,2")]), {
+      total: 0.3,
+      ...accounts,
+    }),
     [
-      { method: "CREDIT_CARD", amount: 0.2, accountId: "banka1" },
-      { method: "CASH", amount: 0.1, accountId: "kasa1" },
-    ]
+      { method: "CREDIT_CARD", amount: 0.2, provider: undefined, accountId: "banka1" },
+      { method: "CASH", amount: 0.1, provider: undefined, accountId: "kasa1" },
+    ],
   )
-  eq("kart+nakit toplamı 0,3'ü aşmaz", paymentSummary(split({ CASH: "0,1", CREDIT_CARD: "0,2" }), 0.3).paid, 0.3)
+  eq(
+    "kart+nakit toplamı 0,3'ü aşmaz",
+    paymentSummary(split([portion("CASH", "0,1"), portion("CREDIT_CARD", "0,2")]), 0.3).paid,
+    0.3,
+  )
 
   console.log(`\n${fail === 0 ? "TÜMÜ GEÇTİ" : "BAŞARISIZ"} — ${pass} geçti, ${fail} kaldı\n`)
   process.exit(fail === 0 ? 0 : 1)

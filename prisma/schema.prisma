@@ -275,6 +275,7 @@ model Company {
   restaurantTables        RestaurantTable[]
   restaurantTickets       RestaurantTicket[]
   restaurantPlanItems     RestaurantPlanItem[]
+  productOptionGroups     ProductOptionGroup[]
 
   @@index([parentCompanyId])
   @@map("companies")
@@ -567,6 +568,7 @@ model Product {
   recipe          ProductRecipe?      @relation("RecipeProduct")
   usedInRecipes   ProductRecipeItem[] @relation("RecipeComponent")
   ticketItems     RestaurantTicketItem[]
+  optionGroups    ProductOptionGroup[]
 
   @@unique([companyId, slug])
   @@index([companyId])
@@ -721,6 +723,13 @@ model RestaurantTicket {
   guestCount Int?
   note       String?   @db.Text
   customerId String?
+  // Adisyon (hesap) iskontosu. PERCENT → yüzde, AMOUNT → KDV DAHİL tutar:
+  // kullanıcı hesabın altındaki rakama bakarak "50 lira indirim" der. Fişe
+  // giderken matrah bazına çevrilir (Invoice.globalDiscountAmount NET bekler).
+  // Kalem bazlı iskonto YOK — kafede nadir, üç ekranda daha düzeltme demek.
+  discountType   String? @db.VarChar(10) // PERCENT | AMOUNT
+  discountValue  Decimal? @db.Decimal(12, 2)
+  discountReason String?  @db.VarChar(255)
   openedAt   DateTime  @default(now())
   openedBy   String?
   closedAt   DateTime?
@@ -756,6 +765,19 @@ model RestaurantTicketItem {
   unitPrice   Decimal  @db.Decimal(15, 6)
   vatRate     Decimal  @default(20) @db.Decimal(5, 2)
   note        String? // "az şekerli"
+  // Kalemin akıbeti. Üçünün stok/hesap davranışı FARKLI (docs/restoran/SATIS-EKRANI.md K2):
+  //   NORMAL → hesaba girer, fişe girer, stok kapanışta düşer
+  //   COMP   → ikram: hesapta 0,00 satır olarak GÖRÜNÜR, fişe girmez, stok DÜŞER
+  //   WASTE  → zayi: hesapta görünmez, fişe girmez, stok DÜŞER
+  //   VOID   → yanlış giriş: hiçbir yerde görünmez, stok düşmez (yalnız iz)
+  // Silmek yerine işaretlemenin sebebi: ikram/zayi ölçülemezse kaçak da ölçülemez.
+  status      String   @default("NORMAL") @db.VarChar(10)
+  reasonCode  String?  @db.VarChar(30)
+  reason      String?  @db.VarChar(255)
+  // Seçilen porsiyon/seçenekler: [{ groupName, optionName, priceDelta }] — ürün
+  // adı gibi KOPYALANIR, sonradan seçenek tanımı değişse adisyon değişmez.
+  // priceDelta KDV DAHİL saklanır (kullanıcı brüt düşünür); unitPrice'a net olarak yansır.
+  options     Json?
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   createdBy   String?
@@ -767,6 +789,53 @@ model RestaurantTicketItem {
   @@index([ticketId])
   @@index([productId])
   @@map("restaurant_ticket_items")
+}
+
+// Ürün seçenekleri — "Boy", "Süt", "Ekstra" gibi bir SORU (grup) ve altındaki
+// şıklar (option). Kahvecide boy sorunu "her boy ayrı ürün" ile çözülmüştü;
+// seçenek bunun ölçeklenen hali (PLAN.md "Açık riskler" 2).
+//
+// Neden ürün kartında bir Json değil de iki tablo: şıkkın kendi fiyat farkı ve
+// sırası var, menüde tek tek düzenleniyor; Json olsaydı her düzenleme tüm
+// tanımı yeniden yazmak olurdu (Etiket Tasarımcısı'nda doğru olan desen burada
+// yanlış — bkz. ASAMA2.md "Neden koordinat masanın satırında").
+model ProductOptionGroup {
+  id         String   @id @default(cuid())
+  companyId  String
+  productId  String
+  name       String   @db.VarChar(80) // "Boy", "Süt", "Ekstra"
+  // Zorunlu grupta seçim yapılmadan ürün sepete eklenemez (ör. Boy).
+  isRequired Boolean  @default(false)
+  // Çoklu seçim: "Ekstra" gibi gruplarda birden çok şık işaretlenebilir.
+  isMulti    Boolean  @default(false)
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  options ProductOption[]
+
+  @@index([companyId])
+  @@index([productId])
+  @@map("product_option_groups")
+}
+
+model ProductOption {
+  id         String   @id @default(cuid())
+  groupId    String
+  name       String   @db.VarChar(80) // "Küçük", "Soya sütü"
+  // Fiyat farkı KDV DAHİL (menüdeki fiyat gibi); 0 olabilir, negatif de olabilir.
+  priceDelta Decimal  @default(0) @db.Decimal(12, 2)
+  isDefault  Boolean  @default(false)
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  group ProductOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@map("product_options")
 }
 
 // Ürün etiketi tasarım şablonları (Etiket Tasarımcısı, /stok/etiket).

@@ -303,6 +303,7 @@ export default function FaturaOdemelerPage() {
       BANK_TRANSFER: "Banka Transferi",
       CHECK: "Çek",
       CREDIT_CARD: "Kredi Kartı",
+      MEAL_CARD: "Yemek Kartı",
       OTHER: "Diğer",
     }
     return methods[method] || method

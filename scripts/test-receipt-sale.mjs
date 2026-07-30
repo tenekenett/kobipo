@@ -173,7 +173,12 @@ console.log("\n4) Parçalı ödeme — her parça ayrı tahsilat")
     payment: {
       ...emptyPaymentState("acc-cash"),
       splitMode: true,
-      split: { CASH: "100", CREDIT_CARD: "206", BANK_TRANSFER: "" },
+      // Parça LİSTESİ (yönteme anahtarlı değil): aynı yöntem birden çok kez
+      // yazılabilsin diye — iki kredi kartıyla ödenen hesap kafede sık.
+      portions: [
+        { id: "a", method: "CASH", amount: "100" },
+        { id: "b", method: "CREDIT_CARD", amount: "206" },
+      ],
     },
     accounts: ACCOUNTS,
     fallbackTotal: 306,

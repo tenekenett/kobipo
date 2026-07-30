@@ -3,7 +3,14 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
-import { assertRestaurantModule, serializeTicket, ticketInclude } from "@/lib/restoran/tickets"
+import {
+  assertRestaurantModule,
+  serializeTicket,
+  ticketInclude,
+  TICKET_ITEM_REASONS,
+  TICKET_ITEM_STATUSES,
+  type TicketItemStatus,
+} from "@/lib/restoran/tickets"
 
 export const dynamic = "force-dynamic"
 
@@ -53,6 +60,30 @@ export async function PATCH(request: Request, { params }: Params) {
     if (body.note !== undefined) {
       const note = String(body.note || "").trim()
       data.note = note || null
+    }
+
+    // İkram / zayi / iptal. Silmek yerine işaretlemenin sebebi: silinen kalem
+    // ölçülemez ve — daha kötüsü — stok kapanışta düştüğü için malzemesi hiç
+    // düşmez. Sebep zorunlu: raporun gruplanabilmesi buna bağlı.
+    if (body.status !== undefined) {
+      const status = String(body.status || "NORMAL").toUpperCase()
+      if (!TICKET_ITEM_STATUSES.includes(status as TicketItemStatus)) {
+        return NextResponse.json({ error: "Geçersiz kalem durumu" }, { status: 400 })
+      }
+      if (status === "NORMAL") {
+        data.status = "NORMAL"
+        data.reasonCode = null
+        data.reason = null
+      } else {
+        const allowed = TICKET_ITEM_REASONS[status as Exclude<TicketItemStatus, "NORMAL">]
+        const code = String(body.reasonCode || "").trim()
+        if (!allowed.some((r) => r.code === code)) {
+          return NextResponse.json({ error: "Sebep seçilmeli" }, { status: 400 })
+        }
+        data.status = status
+        data.reasonCode = code
+        data.reason = body.reason ? String(body.reason).trim().slice(0, 255) || null : null
+      }
     }
 
     await prisma.restaurantTicketItem.update({ where: { id: itemId }, data })

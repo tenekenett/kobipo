@@ -3,7 +3,13 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
-import { assertRestaurantModule, serializeTicket, ticketInclude } from "@/lib/restoran/tickets"
+import {
+  assertRestaurantModule,
+  parseItemOptions,
+  serializeTicket,
+  ticketInclude,
+  type TicketItemOption,
+} from "@/lib/restoran/tickets"
 
 export const dynamic = "force-dynamic"
 
@@ -83,18 +89,61 @@ export async function POST(request: Request, { params }: Params) {
 
       const note = line?.note ? String(line.note).trim() : null
 
-      const twin =
+      // Seçenekler (porsiyon/modifier). Fiyat farkını İSTEMCİ DEĞİL sunucu
+      // hesaplar — fiyatın ürün kartından kopyalanmasıyla aynı gerekçe: ekrana
+      // güvenilirse zamlanmış seçenek eski fiyattan satılabilir.
+      let options: TicketItemOption[] = []
+      const optionIds: string[] = Array.isArray(line?.optionIds)
+        ? line.optionIds.map((v: unknown) => String(v)).filter(Boolean)
+        : []
+      if (optionIds.length > 0) {
+        if (!productId) {
+          return NextResponse.json({ error: "Seçenek için ürün gerekli" }, { status: 400 })
+        }
+        const picked = await prisma.productOption.findMany({
+          where: { id: { in: optionIds }, group: { productId, companyId } },
+          include: { group: { select: { name: true, order: true } } },
+          orderBy: [{ group: { order: "asc" } }, { order: "asc" }],
+        })
+        if (picked.length !== optionIds.length) {
+          return NextResponse.json({ error: "Seçenek bulunamadı" }, { status: 404 })
+        }
+        options = picked.map((o) => ({
+          groupName: o.group.name,
+          optionName: o.name,
+          priceDelta: Number(o.priceDelta),
+        }))
+        // `priceDelta` KDV DAHİL girilir (menü fiyatı gibi); kalem NET tutulur.
+        const grossDelta = options.reduce((s, o) => s + o.priceDelta, 0)
+        unitPrice = unitPrice + grossDelta / (1 + vatRate / 100)
+        if (unitPrice < 0) unitPrice = 0
+      }
+
+      const optionsKey = options.map((o) => `${o.groupName}:${o.optionName}`).join("|")
+
+      // Birleştirme yalnız GERÇEKTEN aynı kalemde: seçenekleri farklı iki kahve
+      // (soya / laktozsuz) fiyatı eşit olsa bile ayrı satırdır — mutfağa ve
+      // müşteriye giden bilgi farklı. İkram/zayi işaretli satıra da eklenmez.
+      const twins =
         merge && productId
-          ? await prisma.restaurantTicketItem.findFirst({
+          ? await prisma.restaurantTicketItem.findMany({
               where: {
                 ticketId: id,
                 productId,
                 note: note ?? null,
                 unitPrice,
                 vatRate,
+                status: "NORMAL",
               },
             })
-          : null
+          : []
+      const twin =
+        twins.find(
+          (t) =>
+            parseItemOptions(t.options)
+              .map((o) => `${o.groupName}:${o.optionName}`)
+              .join("|") === optionsKey,
+        ) ?? null
 
       if (twin) {
         await prisma.restaurantTicketItem.update({
@@ -121,6 +170,7 @@ export async function POST(request: Request, { params }: Params) {
           unitPrice,
           vatRate,
           note,
+          options: options.length > 0 ? options : undefined,
           order: (last?.order ?? -1) + 1,
           createdBy: user.id,
         },

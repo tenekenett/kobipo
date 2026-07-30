@@ -9,50 +9,16 @@
 import { prisma } from "@/lib/db/prisma"
 import { Prisma } from "@prisma/client"
 
-/** Adisyon kalemi fiyatları NET (KDV hariç) tutulur — fatura API'si net bekler. */
-export const TICKET_STATUSES = ["OPEN", "CLOSED", "CANCELLED"] as const
-export type TicketStatus = (typeof TICKET_STATUSES)[number]
-
-export const TABLE_SHAPES = ["SQUARE", "CIRCLE", "RECT"] as const
-
-/**
- * Dükkan krokisi öğeleri. Masa DEĞİLLER: adisyon açılmaz, doluluk sayılmaz —
- * salonun neye benzediğini anlatırlar (bkz. ASAMA2.md "Dükkan krokisi").
- */
-export const PLAN_ITEM_KINDS = [
-  "WALL", // duvar / bölme
-  "DOOR", // kapı / giriş
-  "BAR", // bar, tezgâh, kasa
-  "KITCHEN", // mutfak
-  "WC", // tuvalet
-  "STAIRS", // merdiven
-  "PLANT", // bitki / dekor
-  "TEXT", // serbest yazı ("Sigara içilir", "Teras")
-] as const
-
-export type PlanItemKind = (typeof PLAN_ITEM_KINDS)[number]
-
-/** Öğe eklenirken kullanılan varsayılan ölçüler (ızgara hücresi). */
-export function planItemDefaults(kind: string): { width: number; height: number } {
-  switch (kind) {
-    case "WALL":
-      return { width: 8, height: 1 }
-    case "DOOR":
-      return { width: 2, height: 1 }
-    case "BAR":
-      return { width: 6, height: 2 }
-    case "KITCHEN":
-      return { width: 5, height: 4 }
-    case "WC":
-      return { width: 3, height: 3 }
-    case "STAIRS":
-      return { width: 2, height: 4 }
-    case "PLANT":
-      return { width: 1, height: 1 }
-    default:
-      return { width: 4, height: 1 }
-  }
-}
+// Saf sabitler/hesaplar ayrı dosyada (istemci de kullanıyor); sunucu tarafı
+// eskiden olduğu gibi hepsini bu dosyadan görmeye devam eder.
+export * from "./ticket-constants"
+import {
+  parseItemOptions,
+  reasonLabel,
+  ticketDiscountOf,
+  ticketTotals,
+  type TicketItemStatus,
+} from "./ticket-constants"
 
 /**
  * Modül kapısı (sunucu tarafı). `restaurant` kapalı bir firmada bu uçlar
@@ -119,42 +85,28 @@ export const ticketInclude = Prisma.validator<Prisma.RestaurantTicketInclude>()(
 
 type TicketWithRelations = Prisma.RestaurantTicketGetPayload<{ include: typeof ticketInclude }>
 
-export type TicketTotals = { net: number; vat: number; total: number }
-
-/**
- * Adisyon toplamı. Kalem `unitPrice`'ı NET olduğu için KDV burada eklenir —
- * ekranda gösterilen tutar brüttür (kahveci ekranındaki `grossPrice` ile aynı
- * kural). Fişin kesin toplamı yine SUNUCUDA fatura ucunda hesaplanır; bu değer
- * ekranda gösterim ve kapanış öncesi kontrol içindir.
- */
-export function ticketTotals(
-  items: Array<{ quantity: unknown; unitPrice: unknown; vatRate: unknown }>,
-): TicketTotals {
-  let net = 0
-  let vat = 0
-  for (const item of items) {
-    const lineNet = Number(item.quantity) * Number(item.unitPrice)
-    net += lineNet
-    vat += lineNet * (Number(item.vatRate) / 100)
-  }
-  const round2 = (v: number) => Math.round(v * 100) / 100
-  return { net: round2(net), vat: round2(vat), total: round2(net + vat) }
-}
-
-/** Decimal alanları sayıya çevirir; istemci string ile uğraşmasın. */
 export function serializeTicket(ticket: TicketWithRelations) {
-  const items = ticket.items.map((item) => ({
-    id: item.id,
-    productId: item.productId,
-    description: item.description,
-    unit: item.unit,
-    quantity: Number(item.quantity),
-    unitPrice: Number(item.unitPrice),
-    vatRate: Number(item.vatRate),
-    note: item.note,
-    order: item.order,
-    createdAt: item.createdAt,
-  }))
+  const items = ticket.items.map((item) => {
+    const status = (item.status ?? "NORMAL") as TicketItemStatus
+    return {
+      id: item.id,
+      productId: item.productId,
+      description: item.description,
+      unit: item.unit,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unitPrice),
+      vatRate: Number(item.vatRate),
+      note: item.note,
+      status,
+      reasonCode: item.reasonCode,
+      reason: item.reason,
+      reasonLabel: reasonLabel(status, item.reasonCode),
+      options: parseItemOptions(item.options),
+      order: item.order,
+      createdAt: item.createdAt,
+    }
+  })
+  const discount = ticketDiscountOf(ticket)
 
   return {
     id: ticket.id,
@@ -171,7 +123,10 @@ export function serializeTicket(ticket: TicketWithRelations) {
     closedAt: ticket.closedAt,
     invoiceId: ticket.invoiceId,
     invoiceNo: ticket.invoice?.invoiceNo ?? null,
+    discountType: discount?.type ?? null,
+    discountValue: discount?.value ?? null,
+    discountReason: ticket.discountReason,
     items,
-    totals: ticketTotals(items),
+    totals: ticketTotals(items, discount),
   }
 }

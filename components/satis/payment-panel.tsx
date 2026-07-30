@@ -1,13 +1,17 @@
 "use client"
 
-// Ödeme kutusu — nakit/kart/havale, parçalı ödeme, para üstü, veresiye.
+// Ödeme kutusu — nakit/kart/yemek kartı/havale, parçalı ödeme, para üstü, veresiye.
 // Mantık saf modülde: lib/satis/payment.ts
 //
 // Durumu ÇAĞIRAN tutar (state + onChange): satışı tamamlayan kod aynı state'ten
 // hem tahsilat parçalarını hem fiş dökümünü üretiyor; panelin kendi içinde
 // saklasaydı ikisi ayrışabilirdi.
+//
+// Parçalı ödeme SATIR LİSTESİ (yönteme anahtarlı değil): "ikisi de kartla
+// ödeyecek" kafede en sık bölme biçimi ve eski modelde iki kart tek satıra
+// çöküyordu — POS'ta iki ayrı çekim yapılırken kayıtta tek satır kalıyordu.
 
-import { Banknote, CreditCard, Landmark, Split } from "lucide-react"
+import { Banknote, CreditCard, Landmark, Plus, Split, Ticket, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -21,19 +25,24 @@ import { cn } from "@/lib/utils"
 import { currency } from "@/lib/fis/receipt-html"
 import type { RefAccount } from "@/lib/swr/use-company-data"
 import {
+  MEAL_CARD_PROVIDERS,
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
+  newPortion,
   parseAmount,
   paymentSummary,
+  portionsTotal,
   round2,
-  splitTotal,
+  splitEqually,
   type PaymentMethod,
+  type PaymentPortion,
   type PaymentState,
 } from "@/lib/satis/payment"
 
 const METHOD_ICONS: Record<PaymentMethod, typeof Banknote> = {
   CASH: Banknote,
   CREDIT_CARD: CreditCard,
+  MEAL_CARD: Ticket,
   BANK_TRANSFER: Landmark,
 }
 
@@ -54,20 +63,31 @@ export function PaymentPanel({
   className?: string
 }) {
   const summary = paymentSummary(state, total)
-  const entered = splitTotal(state.split)
+  const entered = portionsTotal(state.portions)
   const splitRemaining = round2(total - entered)
 
-  const setSplit = (method: PaymentMethod, value: string) =>
-    onChange({ split: { ...state.split, [method]: value } })
+  const patchPortion = (id: string, patch: Partial<PaymentPortion>) =>
+    onChange({ portions: state.portions.map((p) => (p.id === id ? { ...p, ...patch } : p)) })
 
-  /** Kalan tutarı nakit alanına ekler (tek tuşla kapatma). */
-  const fillRemainder = () => {
+  const removePortion = (id: string) =>
+    onChange({ portions: state.portions.filter((p) => p.id !== id) })
+
+  const addPortion = () =>
+    onChange({ portions: [...state.portions, newPortion("CREDIT_CARD")] })
+
+  /** Kalan tutarı seçilen parçaya yazar (tek dokunuşla kapatma). */
+  const fillRemainder = (id: string) => {
     if (splitRemaining <= 0) return
+    const current = state.portions.find((p) => p.id === id)
+    patchPortion(id, { amount: String(round2(parseAmount(current?.amount) + splitRemaining)) })
+  }
+
+  /** Hesabı N eşit parçaya böler — "ayrı ayrı ödeyeceğiz" akışının kısayolu. */
+  const equalSplit = (count: number) => {
+    const amounts = splitEqually(total, count)
     onChange({
-      split: {
-        ...state.split,
-        CASH: String(round2(parseAmount(state.split.CASH) + splitRemaining)),
-      },
+      splitMode: true,
+      portions: amounts.map((amount) => ({ ...newPortion("CREDIT_CARD"), amount })),
     })
   }
 
@@ -85,30 +105,103 @@ export function PaymentPanel({
           )}
         >
           <Split className="h-4 w-4" />
-          Parçalı Ödeme{state.splitMode ? " • Açık" : ""}
+          Hesabı Böl{state.splitMode ? " • Açık" : ""}
         </button>
       )}
 
       {state.isCredit ? null : state.splitMode ? (
         <div className="space-y-2">
-          {PAYMENT_METHODS.map((m) => {
-            const Icon = METHOD_ICONS[m]
-            return (
-              <div key={m} className="flex items-center gap-2">
-                <span className="flex w-28 shrink-0 items-center gap-1.5 text-sm font-medium">
-                  <Icon className="h-4 w-4 text-muted-foreground" />
-                  {PAYMENT_METHOD_LABELS[m]}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Eşit böl</span>
+            {[2, 3, 4].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => equalSplit(n)}
+                className="h-8 w-9 rounded-lg border text-sm font-semibold transition-colors hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary dark:hover:bg-primary/10"
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+
+          {state.portions.map((portion, index) => (
+            <div key={portion.id} className="rounded-lg border p-2">
+              <div className="flex items-center gap-2">
+                <span className="w-5 shrink-0 text-center text-xs font-semibold text-muted-foreground">
+                  {index + 1}
                 </span>
+                <div className="flex flex-1 gap-1">
+                  {PAYMENT_METHODS.map((m) => {
+                    const Icon = METHOD_ICONS[m]
+                    const isActive = portion.method === m
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        title={PAYMENT_METHOD_LABELS[m]}
+                        aria-label={PAYMENT_METHOD_LABELS[m]}
+                        onClick={() => patchPortion(portion.id, { method: m })}
+                        className={cn(
+                          "flex h-9 flex-1 items-center justify-center rounded-lg border transition-colors",
+                          isActive
+                            ? "border-kobipo-blue bg-kobipo-blue/10 text-kobipo-blue dark:border-primary dark:bg-primary/15 dark:text-primary"
+                            : "border-border text-muted-foreground hover:bg-muted"
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </button>
+                    )
+                  })}
+                </div>
                 <Input
-                  value={state.split[m]}
-                  onChange={(e) => setSplit(m, e.target.value)}
+                  value={portion.amount}
+                  onChange={(e) => patchPortion(portion.id, { amount: e.target.value })}
+                  onFocus={() => splitRemaining > 0.005 && !portion.amount && fillRemainder(portion.id)}
                   inputMode="decimal"
                   placeholder="0,00"
-                  className="h-10 flex-1 text-right tabular-nums"
+                  className="h-9 w-28 text-right tabular-nums"
                 />
+                {state.portions.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removePortion(portion.id)}
+                    aria-label="Parçayı kaldır"
+                    className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
-            )
-          })}
+              {portion.method === "MEAL_CARD" && (
+                <Select
+                  value={portion.provider ?? ""}
+                  onValueChange={(v) => patchPortion(portion.id, { provider: v })}
+                >
+                  <SelectTrigger className="mt-2 h-8">
+                    <SelectValue placeholder="Yemek kartı sağlayıcısı" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MEAL_CARD_PROVIDERS.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={addPortion}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed py-2 text-sm font-semibold text-muted-foreground transition-colors hover:bg-muted"
+          >
+            <Plus className="h-4 w-4" />
+            Parça ekle
+          </button>
+
           <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-1.5 text-sm">
             <span className="text-muted-foreground">Toplam ödenen</span>
             <span className="font-semibold tabular-nums">{currency(entered)}</span>
@@ -126,15 +219,6 @@ export function PaymentPanel({
               {currency(Math.abs(splitRemaining))}
             </span>
           </div>
-          {splitRemaining > 0.005 && (
-            <button
-              type="button"
-              onClick={fillRemainder}
-              className="w-full rounded-lg border border-kobipo-green/40 bg-kobipo-green/10 py-2 text-sm font-semibold text-kobipo-green transition-colors hover:bg-kobipo-green/20"
-            >
-              Kalanı nakite ekle
-            </button>
-          )}
         </div>
       ) : (
         <>
@@ -176,7 +260,7 @@ export function PaymentPanel({
             </>
           )}
 
-          <div className={cn("grid grid-cols-3 gap-2", state.method === "CASH" && "border-t pt-3")}>
+          <div className={cn("grid grid-cols-4 gap-2", state.method === "CASH" && "border-t pt-3")}>
             {PAYMENT_METHODS.map((m) => {
               const Icon = METHOD_ICONS[m]
               const isActive = !state.isCredit && state.method === m
@@ -200,6 +284,21 @@ export function PaymentPanel({
               )
             })}
           </div>
+
+          {state.method === "MEAL_CARD" && (
+            <Select value={state.provider ?? ""} onValueChange={(v) => onChange({ provider: v })}>
+              <SelectTrigger>
+                <SelectValue placeholder="Yemek kartı sağlayıcısı" />
+              </SelectTrigger>
+              <SelectContent>
+                {MEAL_CARD_PROVIDERS.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </>
       )}
 
@@ -235,7 +334,7 @@ export function PaymentPanel({
       )}
       {!state.isCredit && state.splitMode && (
         <p className="px-1 text-xs text-muted-foreground">
-          Nakit kasaya, kart/havale bankaya otomatik işlenir. Kalan tutar açık hesap olarak kalır.
+          Nakit kasaya, kart/yemek kartı/havale bankaya işlenir. Kalan tutar açık hesap kalır.
         </p>
       )}
     </div>

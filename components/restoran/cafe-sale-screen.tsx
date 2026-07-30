@@ -18,9 +18,9 @@ import {
   CheckCircle2,
   Loader2,
   PackageMinus,
+  Percent,
   Printer,
   Receipt,
-  ShoppingCart,
   Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -42,7 +42,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { QuantityStepper } from "@/components/ui/quantity-stepper"
 import { MenuGrid } from "@/components/restoran/menu-grid"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 import { PaymentPanel } from "@/components/satis/payment-panel"
@@ -61,12 +60,16 @@ import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-
 import { qty } from "@/lib/format"
 import {
   emptyPaymentState,
+  paymentLabelOf,
   paymentSummary,
   receiptParts,
   round2,
-  PAYMENT_METHOD_LABELS,
   type PaymentState,
 } from "@/lib/satis/payment"
+import { TicketPanel } from "@/components/restoran/ticket-panel"
+import { OptionDialog } from "@/components/restoran/option-dialog"
+import { DiscountDialog, type DiscountValue } from "@/components/restoran/discount-dialog"
+import { useProductOptions } from "@/lib/swr/use-restoran"
 import { submitReceiptSale } from "@/lib/satis/submit-receipt-sale"
 import { expandRecipeLines } from "@/lib/stock/recipe-expand"
 
@@ -75,16 +78,25 @@ type CafeLine = {
   productId: string
   name: string
   unit: string
-  /** KDV hariç birim fiyat — fatura API'si net bekliyor. */
+  /** KDV hariç birim fiyat — fatura API'si net bekliyor. Seçenek farkı buna dahildir. */
   unitPrice: number
   vatRate: number
   quantity: number
+  /** Seçilen porsiyon/seçenekler — fişte ve sepette ürün adının altında görünür. */
+  options?: Array<{ groupName: string; optionName: string; priceDelta: number }>
+  note?: string | null
 }
 
 const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random()}`
+
+/** Fişte/panelde görünen ad: "Latte · Büyük · Soya sütü · az şekerli". */
+const describeLine = (l: CafeLine) =>
+  [l.name, (l.options ?? []).map((o) => o.optionName).join(" · "), l.note]
+    .filter(Boolean)
+    .join(" · ")
 
 const lineNet = (l: CafeLine) => l.quantity * l.unitPrice
 const lineTotal = (l: CafeLine) => lineNet(l) * (1 + l.vatRate / 100)
@@ -126,8 +138,12 @@ export function CafeSaleScreen() {
   const { warehouses } = useWarehouses(companyId)
   const { customers } = useCustomers(companyId)
   const { template: receiptTemplate, company: receiptCompany } = useReceiptTemplate(companyId)
+  const { groupsOf } = useProductOptions(companyId)
 
   const [cart, setCart] = useState<CafeLine[]>([])
+  const [optionFor, setOptionFor] = useState<RefProduct | null>(null)
+  const [discountOpen, setDiscountOpen] = useState(false)
+  const [discount, setDiscount] = useState<DiscountValue>(null)
   const [note, setNote] = useState("")
   const [customerId, setCustomerId] = useState<string | undefined>()
   const [warehouseId, setWarehouseId] = useState("")
@@ -174,28 +190,67 @@ export function CafeSaleScreen() {
 
   // ---- Sepet ----
 
-  const addProduct = useCallback((product: RefProduct) => {
-    setCart((prev) => {
-      const idx = prev.findIndex((l) => l.productId === product.id)
-      if (idx >= 0) {
-        const next = [...prev]
-        next[idx] = { ...next[idx], quantity: round2(next[idx].quantity + 1) }
-        return next
+  /**
+   * Sepete ekler. Seçenek farkı KDV DAHİL girildiği için net'e çevrilip birim
+   * fiyata bineriyor (adisyon ucundaki hesabın istemci tarafı karşılığı).
+   */
+  const addLine = useCallback(
+    (
+      product: RefProduct,
+      extra?: {
+        options?: Array<{ groupName: string; optionName: string; priceDelta: number }>
+        note?: string | null
+      },
+    ) => {
+      const vatRate = Number(product.vatRate) || 0
+      const grossDelta = (extra?.options ?? []).reduce((s, o) => s + o.priceDelta, 0)
+      const unitPrice =
+        (product.salePrice != null ? Number(product.salePrice) : 0) + grossDelta / (1 + vatRate / 100)
+      const optionKey = (extra?.options ?? []).map((o) => o.optionName).join("|")
+
+      setCart((prev) => {
+        // Birleştirme yalnız GERÇEKTEN aynı satırda: farklı seçenek = farklı satır.
+        const idx = prev.findIndex(
+          (l) =>
+            l.productId === product.id &&
+            (l.options ?? []).map((o) => o.optionName).join("|") === optionKey &&
+            (l.note ?? null) === (extra?.note ?? null),
+        )
+        if (idx >= 0) {
+          const next = [...prev]
+          next[idx] = { ...next[idx], quantity: round2(next[idx].quantity + 1) }
+          return next
+        }
+        return [
+          ...prev,
+          {
+            key: uid(),
+            productId: product.id,
+            name: product.name,
+            unit: product.unit || "ADET",
+            unitPrice,
+            vatRate,
+            quantity: 1,
+            options: extra?.options,
+            note: extra?.note ?? null,
+          },
+        ]
+      })
+    },
+    [],
+  )
+
+  /** Seçeneği olan ürün diyalog açar; olmayan TEK DOKUNUŞTA sepete girer. */
+  const addProduct = useCallback(
+    (product: RefProduct) => {
+      if (groupsOf(product.id).length > 0) {
+        setOptionFor(product)
+        return
       }
-      return [
-        ...prev,
-        {
-          key: uid(),
-          productId: product.id,
-          name: product.name,
-          unit: product.unit || "ADET",
-          unitPrice: product.salePrice != null ? Number(product.salePrice) : 0,
-          vatRate: Number(product.vatRate) || 0,
-          quantity: 1,
-        },
-      ]
-    })
-  }, [])
+      addLine(product)
+    },
+    [addLine, groupsOf],
+  )
 
   const setLineQty = useCallback((key: string, quantity: number) => {
     setCart((prev) =>
@@ -210,8 +265,37 @@ export function CafeSaleScreen() {
     []
   )
 
-  const totals = useMemo(() => cartTotals(cart), [cart])
+  /**
+   * İskonto sepetin TAMAMINA, KDV dahil tutar üzerinden uygulanır; faturaya
+   * matrah karşılığı (`netDiscount`) gider — adisyon ekranındaki kuralın aynısı
+   * (lib/restoran/ticket-constants.ts `ticketTotals`).
+   */
+  const totals = useMemo(() => {
+    const raw = cartTotals(cart)
+    const gross = round2(raw.total)
+    const discountGross = !discount
+      ? 0
+      : discount.type === "PERCENT"
+        ? round2(gross * (Math.min(100, Math.max(0, discount.value)) / 100))
+        : round2(Math.min(discount.value, gross))
+    const netDiscount = gross > 0 ? round2(discountGross * (raw.net / gross)) : 0
+    return {
+      net: round2(raw.net),
+      vat: round2(raw.vat),
+      gross,
+      discount: discountGross,
+      netDiscount,
+      total: round2(gross - discountGross),
+    }
+  }, [cart, discount])
+
   const summary = paymentSummary(payment, totals.total)
+
+  const discountLabel = !discount
+    ? null
+    : [discount.type === "PERCENT" ? `İskonto %${discount.value}` : "İskonto", discount.reason]
+        .filter(Boolean)
+        .join(" · ")
 
   // ---- Yetersiz stok uyarısı ----
 
@@ -293,6 +377,7 @@ export function CafeSaleScreen() {
   const resetSale = useCallback(() => {
     setCart([])
     setNote("")
+    setDiscount(null)
     setCustomerId(undefined)
     setPayment((p) => ({ ...emptyPaymentState(p.accountId) }))
   }, [])
@@ -305,7 +390,7 @@ export function CafeSaleScreen() {
     }
 
     const snapshot = cart
-    const t = cartTotals(snapshot)
+    const t = totals
     submitLock.current = true
     setIsSubmitting(true)
     try {
@@ -316,7 +401,7 @@ export function CafeSaleScreen() {
         companyId,
         items: snapshot.map((l) => ({
           productId: l.productId,
-          description: l.name,
+          description: describeLine(l),
           unit: l.unit,
           quantity: l.quantity,
           unitPrice: l.unitPrice,
@@ -327,6 +412,7 @@ export function CafeSaleScreen() {
         customerId,
         warehouseId,
         notes: note,
+        globalDiscountAmount: t.netDiscount,
         fallbackTotal: t.total,
       })
 
@@ -365,7 +451,7 @@ export function CafeSaleScreen() {
           : null,
         notes: note.trim() || null,
         items: snapshot.map((l) => ({
-          description: l.name,
+          description: describeLine(l),
           quantity: l.quantity,
           unit: l.unit,
           unitPrice: l.unitPrice,
@@ -376,7 +462,10 @@ export function CafeSaleScreen() {
         vat: invoice?.vatAmount != null ? Number(invoice.vatAmount) : t.vat,
         total: invoiceTotal,
         // Parçalı ödemede döküm `parts`ta; buradaki etiket tek yöntemli satışın başlığı.
-        paymentLabel: payment.isCredit ? "Veresiye" : PAYMENT_METHOD_LABELS[payment.method],
+        discount: t.discount > 0 ? { label: discountLabel ?? "İskonto", amount: t.discount } : null,
+        paymentLabel: payment.isCredit
+          ? "Veresiye"
+          : paymentLabelOf(payment.method, payment.provider),
         tendered: done.tendered,
         change: done.change,
         isCredit: payment.isCredit,
@@ -398,6 +487,8 @@ export function CafeSaleScreen() {
   }, [
     companyId,
     cart,
+    totals,
+    discountLabel,
     customerId,
     warehouseId,
     note,
@@ -523,76 +614,60 @@ export function CafeSaleScreen() {
 
         {/* === SAĞ: sepet + ödeme === */}
         <div className="space-y-3 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
-          <Card>
-            <CardContent className="space-y-3 p-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-semibold">Sepet</span>
-                  <span className="text-xs text-muted-foreground">({cart.length} kalem)</span>
-                </div>
-                {cart.length > 0 && (
+          {/* Sepet paneli Adisyon ekranıyla ORTAK (components/restoran/ticket-panel.tsx):
+              kalem satırında tek kontrol (⋮), toplam bloğunda tek satır. */}
+          <TicketPanel
+            title="Sepet"
+            items={cart.map((l) => ({
+              id: l.key,
+              description: l.name,
+              note: l.note,
+              options: l.options,
+              quantity: l.quantity,
+              unitPrice: l.unitPrice,
+              vatRate: l.vatRate,
+              status: "NORMAL" as const,
+            }))}
+            totals={totals}
+            discountLabel={discountLabel}
+            // Kahveci ekranında ikram/zayi YOK: satış henüz oluşmadı, malzeme
+            // harcanmadı. Yanlış giren satır silinir.
+            allowStatus={false}
+            className="xl:static"
+            onQuantity={(id, q) => setLineQty(id, q)}
+            footer={
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
                   <Button
-                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={cart.length === 0}
+                    onClick={() => setDiscountOpen(true)}
+                  >
+                    <Percent className="mr-1.5 h-4 w-4" />
+                    İskonto
+                  </Button>
+                  <Button
                     variant="ghost"
                     size="sm"
                     className="text-destructive hover:text-destructive"
+                    disabled={cart.length === 0}
                     onClick={() => setCart([])}
                   >
-                    <Trash2 className="mr-1 h-4 w-4" />
+                    <Trash2 className="mr-1.5 h-4 w-4" />
                     Temizle
                   </Button>
-                )}
+                </div>
+                <Input
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  maxLength={200}
+                  placeholder="Fiş notu (masa no, sipariş notu…)"
+                  className="h-9 text-sm"
+                />
               </div>
-
-              {cart.length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">
-                  <ShoppingCart className="mx-auto mb-2 h-7 w-7 opacity-40" />
-                  Menüden ürün seçin
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {cart.map((l) => (
-                    <div
-                      key={l.key}
-                      className="flex items-center gap-2 rounded-lg border border-border p-2"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold">{l.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {currency(l.unitPrice * (1 + l.vatRate / 100))} × {qty(l.quantity)}
-                        </p>
-                      </div>
-                      <QuantityStepper
-                        value={l.quantity}
-                        onChange={(v) => setLineQty(l.key, v)}
-                      />
-                      <span className="w-20 shrink-0 text-right text-sm font-bold tabular-nums">
-                        {currency(lineTotal(l))}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 shrink-0"
-                        onClick={() => removeLine(l.key)}
-                        title="Satırı sil"
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <Input
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                maxLength={200}
-                placeholder="Fiş notu (masa no, sipariş notu…)"
-                className="h-9 text-sm"
-              />
-            </CardContent>
-          </Card>
+            }
+          />
 
           {/* Yetersiz stok — uyarır, ENGELLEMEZ */}
           {(shortages.length > 0 || expandErrors.length > 0) && (
@@ -762,6 +837,47 @@ export function CafeSaleScreen() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Seçenek / porsiyon — yalnız tanımlı üründe açılır */}
+      <OptionDialog
+        open={!!optionFor}
+        productName={optionFor?.name ?? ""}
+        basePrice={
+          optionFor
+            ? Number(optionFor.salePrice ?? 0) * (1 + (Number(optionFor.vatRate) || 0) / 100)
+            : 0
+        }
+        groups={optionFor ? groupsOf(optionFor.id) : []}
+        onCancel={() => setOptionFor(null)}
+        onConfirm={(pick) => {
+          const product = optionFor
+          setOptionFor(null)
+          if (!product) return
+          const picked = groupsOf(product.id)
+            .flatMap((g) =>
+              g.options
+                .filter((o) => pick.optionIds.includes(o.id))
+                .map((o) => ({
+                  groupName: g.name,
+                  optionName: o.name,
+                  priceDelta: o.priceDelta,
+                })),
+            )
+          addLine(product, { options: picked, note: pick.note })
+        }}
+      />
+
+      {/* İskonto */}
+      <DiscountDialog
+        open={discountOpen}
+        gross={totals.gross}
+        current={discount}
+        onClose={() => setDiscountOpen(false)}
+        onApply={(v) => {
+          setDiscount(v)
+          setDiscountOpen(false)
+        }}
+      />
+
     </div>
   )
 }

@@ -65,6 +65,7 @@ const STATIC_TITLES: Record<string, string> = {
 
   // Restoran & Kafe
   "/restoran/masalar": "Masalar",
+  "/restoran/adisyonlar": "Açık Adisyonlar",
   "/restoran/satis": "Kahveci Satış",
   "/restoran/menu": "Menü & Reçeteler",
   "/restoran/raporlar": "Restoran Raporları",

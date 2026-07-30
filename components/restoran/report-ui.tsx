@@ -9,6 +9,7 @@ import { useMemo, useState } from "react"
 import useSWR from "swr"
 import { jsonFetcher } from "@/lib/swr/fetcher"
 import { Card, CardContent } from "@/components/ui/card"
+import { FetchErrorText } from "@/components/ui/fetch-error"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
@@ -255,7 +256,7 @@ export function ReportState({
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-red-600 dark:text-red-400">
-          Rapor yüklenemedi. Sayfayı yenilemeyi deneyin.
+          <FetchErrorText error={error} subject="Rapor" />
         </CardContent>
       </Card>
     )

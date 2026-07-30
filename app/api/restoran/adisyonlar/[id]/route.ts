@@ -3,7 +3,12 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
-import { assertRestaurantModule, serializeTicket, ticketInclude } from "@/lib/restoran/tickets"
+import {
+  assertRestaurantModule,
+  serializeTicket,
+  ticketInclude,
+  TICKET_DISCOUNT_TYPES,
+} from "@/lib/restoran/tickets"
 
 export const dynamic = "force-dynamic"
 
@@ -38,7 +43,7 @@ export async function GET(request: Request, { params }: Params) {
 }
 
 /**
- * Adisyonu günceller: not, kişi sayısı, müşteri ve MASA TAŞIMA.
+ * Adisyonu günceller: not, kişi sayısı, müşteri, İSKONTO ve MASA TAŞIMA.
  *
  * Masa taşıma ayrı bir uç değil çünkü tek alan değişiyor (`tableId`); hedef
  * masada açık adisyon varsa reddedilir — iki hesap sessizce üst üste binmesin.
@@ -96,8 +101,36 @@ export async function PATCH(request: Request, { params }: Params) {
       data.guestCount = Number.isFinite(Number(body.guestCount)) ? Number(body.guestCount) : null
     }
     if (body.note !== undefined) {
-      const note = String(body.note || "").trim()
-      data.note = note || null
+      const noteValue = String(body.note || "").trim()
+      data.note = noteValue || null
+    }
+
+    // Hesap iskontosu. `AMOUNT` KDV DAHİL girilir (kullanıcı hesabın altındaki
+    // rakama bakıp "50 lira düş" der); faturaya matrah karşılığı gider.
+    // `discountType: null` iskontoyu kaldırır.
+    if (body.discountType !== undefined) {
+      const type = body.discountType ? String(body.discountType).toUpperCase() : null
+      if (type === null) {
+        data.discountType = null
+        data.discountValue = null
+        data.discountReason = null
+      } else {
+        if (!TICKET_DISCOUNT_TYPES.includes(type as (typeof TICKET_DISCOUNT_TYPES)[number])) {
+          return NextResponse.json({ error: "Geçersiz iskonto türü" }, { status: 400 })
+        }
+        const value = Number(body.discountValue)
+        if (!Number.isFinite(value) || value <= 0) {
+          return NextResponse.json({ error: "İskonto sıfırdan büyük olmalı" }, { status: 400 })
+        }
+        if (type === "PERCENT" && value > 100) {
+          return NextResponse.json({ error: "Yüzde 100'den büyük olamaz" }, { status: 400 })
+        }
+        data.discountType = type
+        data.discountValue = value
+        data.discountReason = body.discountReason
+          ? String(body.discountReason).trim().slice(0, 255) || null
+          : null
+      }
     }
 
     const ticket = await prisma.restaurantTicket.update({

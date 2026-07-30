@@ -1,0 +1,212 @@
+// Adisyon ekranlarının SAF sabit ve hesapları — Prisma/DB bağı YOK.
+//
+// Neden ayrı dosya: bu tanımların bir kısmı (kalem durumları, sebep listeleri,
+// toplam hesabı) İSTEMCİ tarafında da lazım. tickets.ts prisma import ettiği
+// için oradan içe aktarmak Prisma istemcisini tarayıcı paketine sokardı.
+// Sunucu tarafı bu dosyayı tickets.ts üzerinden görmeye devam ediyor.
+//
+// Kararlar: docs/restoran/ASAMA2.md · docs/restoran/SATIS-EKRANI.md
+
+/** Adisyon kalemi fiyatları NET (KDV hariç) tutulur — fatura API'si net bekler. */
+export const TICKET_STATUSES = ["OPEN", "CLOSED", "CANCELLED"] as const
+export type TicketStatus = (typeof TICKET_STATUSES)[number]
+
+/**
+ * Kalemin akıbeti. Üçü de "sil" değildir ve stok davranışları FARKLIDIR
+ * (docs/restoran/SATIS-EKRANI.md K2):
+ *
+ * | durum  | hesapta            | fişte | stok        |
+ * |--------|--------------------|-------|-------------|
+ * | NORMAL | tutarıyla          | var   | kapanışta   |
+ * | COMP   | 0,00 satır olarak  | yok   | kapanışta   |
+ * | WASTE  | görünmez           | yok   | kapanışta   |
+ * | VOID   | görünmez           | yok   | hiç düşmez  |
+ *
+ * İkram (COMP) ve zayi (WASTE) stoktan DÜŞER: malzeme gerçekten harcandı.
+ * Eskiden bunlar kalem silinerek yapılıyordu ve malzeme stokta duruyor
+ * görünüyordu — maliyet raporlarını sessizce yalancı çıkaran durum buydu.
+ */
+export const TICKET_ITEM_STATUSES = ["NORMAL", "COMP", "WASTE", "VOID"] as const
+export type TicketItemStatus = (typeof TICKET_ITEM_STATUSES)[number]
+
+/** Hesaba ve fişe giren tek durum. */
+export const isBillableItem = (status: string | null | undefined) =>
+  (status ?? "NORMAL") === "NORMAL"
+
+/** Malzemesi harcanmış sayılan durumlar — kapanışta stok düzeltmesi yazılır. */
+export const consumesStock = (status: string | null | undefined) =>
+  status === "COMP" || status === "WASTE"
+
+/**
+ * Sebep listeleri sabit ve kısa: serbest metin olsaydı rapor gruplanamazdı
+ * ("ikram", "İKRAM", "ikram ettik" üç ayrı satır olurdu). Açıklama isteyen
+ * kullanıcı `reason` alanına yazar.
+ */
+export const TICKET_ITEM_REASONS: Record<
+  Exclude<TicketItemStatus, "NORMAL">,
+  Array<{ code: string; label: string }>
+> = {
+  COMP: [
+    { code: "COMPLAINT", label: "Müşteri şikâyeti" },
+    { code: "STAFF", label: "Personel / aile" },
+    { code: "PROMO", label: "Tanıtım ikramı" },
+    { code: "OTHER", label: "Diğer" },
+  ],
+  WASTE: [
+    { code: "SPILLED", label: "Döküldü / kırıldı" },
+    { code: "WRONG_PREP", label: "Yanlış hazırlandı" },
+    { code: "EXPIRED", label: "Bozuldu / süresi doldu" },
+    { code: "OTHER", label: "Diğer" },
+  ],
+  VOID: [
+    { code: "MISENTRY", label: "Yanlış girildi" },
+    { code: "CUSTOMER_CANCEL", label: "Müşteri vazgeçti" },
+    { code: "OTHER", label: "Diğer" },
+  ],
+}
+
+export const reasonLabel = (status: string, code: string | null | undefined): string | null => {
+  if (!code) return null
+  const list = TICKET_ITEM_REASONS[status as Exclude<TicketItemStatus, "NORMAL">]
+  return list?.find((r) => r.code === code)?.label ?? null
+}
+
+/** Seçilen porsiyon/seçenek. `priceDelta` KDV DAHİL (menü fiyatı gibi). */
+export type TicketItemOption = { groupName: string; optionName: string; priceDelta: number }
+
+/** Json alanını güvenli okur: elle/eski kayıtlarda şekil garantisi yok. */
+export function parseItemOptions(value: unknown): TicketItemOption[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((o): o is Record<string, unknown> => !!o && typeof o === "object")
+    .map((o) => ({
+      groupName: String(o.groupName ?? ""),
+      optionName: String(o.optionName ?? ""),
+      priceDelta: Number(o.priceDelta ?? 0) || 0,
+    }))
+    .filter((o) => o.optionName)
+}
+
+/** Seçeneklerin kalem satırında gösterilecek özeti: "Büyük · Soya sütü". */
+export const optionsLabel = (options: TicketItemOption[]) =>
+  options.map((o) => o.optionName).join(" · ")
+
+export const TABLE_SHAPES = ["SQUARE", "CIRCLE", "RECT"] as const
+
+/**
+ * Dükkan krokisi öğeleri. Masa DEĞİLLER: adisyon açılmaz, doluluk sayılmaz —
+ * salonun neye benzediğini anlatırlar (bkz. ASAMA2.md "Dükkan krokisi").
+ */
+export const PLAN_ITEM_KINDS = [
+  "WALL", // duvar / bölme
+  "DOOR", // kapı / giriş
+  "BAR", // bar, tezgâh, kasa
+  "KITCHEN", // mutfak
+  "WC", // tuvalet
+  "STAIRS", // merdiven
+  "PLANT", // bitki / dekor
+  "TEXT", // serbest yazı ("Sigara içilir", "Teras")
+] as const
+
+export type PlanItemKind = (typeof PLAN_ITEM_KINDS)[number]
+
+/** Öğe eklenirken kullanılan varsayılan ölçüler (ızgara hücresi). */
+export function planItemDefaults(kind: string): { width: number; height: number } {
+  switch (kind) {
+    case "WALL":
+      return { width: 8, height: 1 }
+    case "DOOR":
+      return { width: 2, height: 1 }
+    case "BAR":
+      return { width: 6, height: 2 }
+    case "KITCHEN":
+      return { width: 5, height: 4 }
+    case "WC":
+      return { width: 3, height: 3 }
+    case "STAIRS":
+      return { width: 2, height: 4 }
+    case "PLANT":
+      return { width: 1, height: 1 }
+    default:
+      return { width: 4, height: 1 }
+  }
+}
+
+export type TicketTotals = {
+  /** KDV hariç, iskonto ÖNCESİ. */
+  net: number
+  vat: number
+  /** KDV dahil, iskonto öncesi. */
+  gross: number
+  /** Uygulanan iskonto — KDV DAHİL tutar (ekrandaki rakam). */
+  discount: number
+  /** Aynı iskontonun matrah (net) karşılığı — fatura `globalDiscountAmount` net bekler. */
+  netDiscount: number
+  /** Ödenecek tutar. */
+  total: number
+}
+
+/** Adisyon (hesap) iskontosu. `AMOUNT` KDV DAHİL girilir. */
+export type TicketDiscount = { type: "PERCENT" | "AMOUNT"; value: number } | null
+
+export const TICKET_DISCOUNT_TYPES = ["PERCENT", "AMOUNT"] as const
+
+/** Prisma kaydından iskonto okur; tanımsız/bozuk değer iskontosuz sayılır. */
+export function ticketDiscountOf(ticket: {
+  discountType?: string | null
+  discountValue?: unknown
+}): TicketDiscount {
+  const type = ticket.discountType
+  const value = Number(ticket.discountValue ?? 0)
+  if ((type !== "PERCENT" && type !== "AMOUNT") || !Number.isFinite(value) || value <= 0) return null
+  return { type, value }
+}
+
+const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100
+
+/**
+ * Adisyon toplamı. Kalem `unitPrice`'ı NET olduğu için KDV burada eklenir —
+ * ekranda gösterilen tutar brüttür (kahveci ekranındaki `grossPrice` ile aynı
+ * kural). Fişin kesin toplamı yine SUNUCUDA fatura ucunda hesaplanır; bu değer
+ * ekranda gösterim ve kapanış öncesi kontrol içindir.
+ *
+ * **Yalnız `NORMAL` kalemler sayılır**: ikram 0,00'dır, zayi ve iptal hesapta
+ * yoktur. Durumu olmayan (eski) kalem NORMAL sayılır — geriye dönük uyumluluk.
+ *
+ * İskonto KDV DAHİL uygulanır (kullanıcı hesabın altındaki rakama bakar), ama
+ * faturaya matrah karşılığı gider: `netDiscount = discount * net/gross`. Fatura
+ * ucu matrahtan oransal düşüp KDV'yi de aynı oranda azalttığı için iki taraf
+ * aynı sonucu verir.
+ */
+export function ticketTotals(
+  items: Array<{ quantity: unknown; unitPrice: unknown; vatRate: unknown; status?: string | null }>,
+  discount: TicketDiscount = null,
+): TicketTotals {
+  let net = 0
+  let vat = 0
+  for (const item of items) {
+    if (!isBillableItem(item.status)) continue
+    const lineNet = Number(item.quantity) * Number(item.unitPrice)
+    net += lineNet
+    vat += lineNet * (Number(item.vatRate) / 100)
+  }
+  const gross = net + vat
+
+  let discountGross = 0
+  if (discount && gross > 0) {
+    discountGross =
+      discount.type === "PERCENT"
+        ? gross * (Math.min(100, Math.max(0, discount.value)) / 100)
+        : Math.min(discount.value, gross)
+  }
+  const netDiscount = gross > 0 ? discountGross * (net / gross) : 0
+
+  return {
+    net: round2(net),
+    vat: round2(vat),
+    gross: round2(gross),
+    discount: round2(discountGross),
+    netDiscount: round2(netDiscount),
+    total: round2(gross - discountGross),
+  }
+}

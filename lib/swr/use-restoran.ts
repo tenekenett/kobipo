@@ -8,6 +8,8 @@
 
 import useSWR from "swr"
 import { jsonFetcher } from "./fetcher"
+import type { OptionGroupView } from "@/lib/restoran/product-options"
+import type { TicketItemOption, TicketItemStatus } from "@/lib/restoran/ticket-constants"
 
 export type PlanTable = {
   id: string
@@ -41,6 +43,12 @@ export type TicketItem = {
   unitPrice: number
   vatRate: number
   note: string | null
+  /** NORMAL | COMP (ikram) | WASTE (zayi) | VOID (iptal) — bkz. ticket-constants. */
+  status: TicketItemStatus
+  reasonCode: string | null
+  reason: string | null
+  reasonLabel: string | null
+  options: TicketItemOption[]
   order: number
   createdAt: string
 }
@@ -60,8 +68,19 @@ export type Ticket = {
   closedAt: string | null
   invoiceId: string | null
   invoiceNo: string | null
+  discountType: "PERCENT" | "AMOUNT" | null
+  discountValue: number | null
+  discountReason: string | null
   items: TicketItem[]
-  totals: { net: number; vat: number; total: number }
+  totals: {
+    net: number
+    vat: number
+    /** İskonto öncesi, KDV dahil. */
+    gross: number
+    discount: number
+    netDiscount: number
+    total: number
+  }
 }
 
 export type Area = { id: string; name: string; order: number; isActive: boolean }
@@ -115,6 +134,50 @@ export function usePlanItems(companyId: string | null) {
     { revalidateOnFocus: false },
   )
   return { planItems: Array.isArray(data) ? data : [], error, isLoading, mutate }
+}
+
+/**
+ * Açık adisyonlar. Salon planı masaya bakar; bu liste HESABA bakar — masasız
+ * (paket/gel-al) adisyonun tek görünür olduğu yer burasıdır.
+ */
+export function useOpenTickets(companyId: string | null, opts?: { refreshInterval?: number }) {
+  const { data, error, isLoading, mutate } = useSWR<Ticket[]>(
+    key(companyId, "/api/restoran/adisyonlar"),
+    jsonFetcher,
+    { refreshInterval: opts?.refreshInterval ?? 20000, revalidateOnFocus: true },
+  )
+  return { tickets: Array.isArray(data) ? data : [], error, isLoading, mutate }
+}
+
+/**
+ * Ürün seçenekleri (porsiyon/modifier) — firma başına TEK çağrı.
+ *
+ * Ürün başına çağırmak, kasiyerin bastığı her üründe ağ turu demekti; seçenek
+ * diyaloğunun ANINDA açılması bu ekranın tek performans şartı. Seçenek tanımı
+ * nadir değiştiği için tazeleme de kapalı.
+ */
+export function useProductOptions(companyId: string | null) {
+  const { data, error, isLoading, mutate } = useSWR<OptionGroupView[]>(
+    key(companyId, "/api/restoran/urun-secenekleri"),
+    jsonFetcher,
+    { revalidateOnFocus: false },
+  )
+  const groups = Array.isArray(data) ? data : []
+  const byProduct = new Map<string, OptionGroupView[]>()
+  for (const group of groups) {
+    const list = byProduct.get(group.productId) ?? []
+    list.push(group)
+    byProduct.set(group.productId, list)
+  }
+  return {
+    optionGroups: groups,
+    /** Ürünün seçenek grupları; yoksa boş dizi (diyalog hiç açılmaz). */
+    groupsOf: (productId: string | null | undefined) =>
+      (productId ? byProduct.get(productId) : undefined) ?? [],
+    error,
+    isLoading,
+    mutate,
+  }
 }
 
 export function useTicket(companyId: string | null, ticketId: string | null) {

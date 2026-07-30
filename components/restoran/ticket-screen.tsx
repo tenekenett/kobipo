@@ -1,14 +1,20 @@
 "use client"
 
-// Adisyon ekranı — masanın açık hesabı. Kararlar: docs/restoran/ASAMA2.md (Faz C)
+// Adisyon ekranı — masanın açık hesabı.
+// Kararlar: docs/restoran/ASAMA2.md (Faz C) · docs/restoran/SATIS-EKRANI.md
 //
 // Kahveci Satış ekranından farkı: sepet TARAYICIDA değil, SUNUCUDA yaşıyor.
 // Adisyon saatlerce açık kalır ve başka bir cihazdan (garson tablet, kasa) da
 // görülür; bu yüzden her kalem işlemi anında uca gider ve dönen adisyon ekranı
-// tazeler. Menü ızgarası ve fiş/tahsilat akışı satış ekranıyla ORTAK.
+// tazeler. Menü ızgarası, hesap paneli ve fiş/tahsilat akışı satış ekranıyla ORTAK.
 //
 // Stok, kalem eklerken DEĞİL adisyon kapanırken düşer (ASAMA2.md). Yetersiz stok
 // uyarısı yine canlı gösterilir ve ENGELLEMEZ — PLAN.md "Adım 4".
+//
+// EKRANIN KURALI (SATIS-EKRANI.md K1/K8): yeni yetenekler düğme olarak eklenmez.
+// Kalemin işlemleri satırdaki "⋮" menüsünde, hesabın işlemleri üstteki tek
+// "İşlemler" tepsisinde toplanır. Depo seçici, KDV dökümü ve hammadde kartı
+// servis akışından çıkarıldı — garsonun kararını değiştirmiyorlardı.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
@@ -17,25 +23,29 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
+  ChevronDown,
   Clock,
   Loader2,
+  Percent,
   Printer,
   Receipt,
+  Split,
   StickyNote,
   Trash2,
   Users,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { FetchErrorText } from "@/components/ui/fetch-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Dialog,
   DialogContent,
@@ -44,8 +54,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { QuantityStepper } from "@/components/ui/quantity-stepper"
 import { MenuGrid } from "@/components/restoran/menu-grid"
+import { TicketPanel } from "@/components/restoran/ticket-panel"
+import { OptionDialog } from "@/components/restoran/option-dialog"
+import { DiscountDialog, type DiscountValue } from "@/components/restoran/discount-dialog"
+import { SplitDialog } from "@/components/restoran/split-dialog"
 import { PaymentPanel } from "@/components/satis/payment-panel"
 import { useToast } from "@/components/ui/use-toast"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
@@ -57,14 +70,15 @@ import {
   useWarehouses,
   type RefProduct,
 } from "@/lib/swr/use-company-data"
-import { useTicket, type Ticket } from "@/lib/swr/use-restoran"
+import { useProductOptions, useTicket, type Ticket } from "@/lib/swr/use-restoran"
 import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-html"
-import { qty } from "@/lib/format"
+import type { TicketItemStatus } from "@/lib/restoran/ticket-constants"
 import {
   emptyPaymentState,
+  newPortion,
+  paymentLabelOf,
   paymentSummary,
   receiptParts,
-  PAYMENT_METHOD_LABELS,
   type PaymentState,
 } from "@/lib/satis/payment"
 import { submitReceiptSale } from "@/lib/satis/submit-receipt-sale"
@@ -81,6 +95,12 @@ function elapsedLabel(fromIso: string, now: number): string {
   return `${Math.floor(mins / 60)} sa ${mins % 60} dk`
 }
 
+const discountLabelOf = (ticket: Ticket | null) => {
+  if (!ticket?.discountType) return null
+  const base = ticket.discountType === "PERCENT" ? `İskonto %${ticket.discountValue}` : "İskonto"
+  return ticket.discountReason ? `${base} · ${ticket.discountReason}` : base
+}
+
 export function TicketScreen({ ticketId }: { ticketId: string }) {
   const { selectedCompanyId: companyId, selectedCompany } = useDashboardCompany()
   const { toast } = useToast()
@@ -94,6 +114,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   const { accounts } = useAccounts(companyId)
   const { warehouses } = useWarehouses(companyId)
   const { template: receiptTemplate, company: receiptCompany } = useReceiptTemplate(companyId)
+  const { groupsOf } = useProductOptions(companyId)
 
   const [pendingProductId, setPendingProductId] = useState<string | null>(null)
   const [warehouseId, setWarehouseId] = useState("")
@@ -101,7 +122,12 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   const [payOpen, setPayOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [infoDialog, setInfoDialog] = useState<{ guestCount: string; note: string } | null>(null)
+  const [noteDialog, setNoteDialog] = useState<{ itemId: string; note: string } | null>(null)
+  const [discountOpen, setDiscountOpen] = useState(false)
+  const [splitOpen, setSplitOpen] = useState(false)
+  const [optionFor, setOptionFor] = useState<RefProduct | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [shortagesOpen, setShortagesOpen] = useState(false)
   const [lastSale, setLastSale] = useState<{ invoiceNo?: string | null; receipt: ReceiptData } | null>(
     null,
   )
@@ -115,6 +141,8 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     return () => clearInterval(t)
   }, [])
 
+  // Depo artık ekranda SORULMUYOR (garson servis sırasında depo değiştirmez);
+  // varsayılan depo sessizce seçilir ve kapanışta kullanılır.
   useEffect(() => {
     if (warehouseId || warehouses.length === 0) return
     const def = warehouses.find((w) => w.isDefault) ?? warehouses[0]
@@ -163,22 +191,43 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     [applyTicket, mutate, toast],
   )
 
-  const addProduct = useCallback(
-    async (product: RefProduct) => {
-      if (!isOpen) return
-      setPendingProductId(product.id)
+  const addLine = useCallback(
+    async (productId: string, extra?: { optionIds?: string[]; note?: string | null }) => {
+      setPendingProductId(productId)
       await callTicketApi(
         `/api/restoran/adisyonlar/${ticketId}/kalemler`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ companyId, productId: product.id, quantity: 1 }),
+          body: JSON.stringify({
+            companyId,
+            productId,
+            quantity: 1,
+            optionIds: extra?.optionIds,
+            note: extra?.note ?? undefined,
+          }),
         },
         "Kalem eklenemedi",
       )
       setPendingProductId(null)
     },
-    [callTicketApi, companyId, isOpen, ticketId],
+    [callTicketApi, companyId, ticketId],
+  )
+
+  /**
+   * Menüden ürün seçimi. Seçeneği OLAN ürün diyalog açar, olmayan TEK DOKUNUŞTA
+   * sepete girer — kahveciyi yavaşlatacak tek şey her üründe açılan diyalogdur.
+   */
+  const pickProduct = useCallback(
+    async (product: RefProduct) => {
+      if (!isOpen) return
+      if (groupsOf(product.id).length > 0) {
+        setOptionFor(product)
+        return
+      }
+      await addLine(product.id)
+    },
+    [addLine, groupsOf, isOpen],
   )
 
   const setItemQty = useCallback(
@@ -204,6 +253,41 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     [callTicketApi, companyId, ticketId],
   )
 
+  /** İkram / zayi / iptal — kalem SİLİNMEZ, işaretlenir (SATIS-EKRANI.md K2). */
+  const setItemStatus = useCallback(
+    async (
+      itemId: string,
+      status: TicketItemStatus,
+      reasonCode: string | null,
+      reason: string | null,
+    ) => {
+      await callTicketApi(
+        `/api/restoran/adisyonlar/${ticketId}/kalemler/${itemId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, status, reasonCode, reason }),
+        },
+        "Kalem güncellenemedi",
+      )
+    },
+    [callTicketApi, companyId, ticketId],
+  )
+
+  const saveNote = useCallback(async () => {
+    if (!noteDialog) return
+    const ok = await callTicketApi(
+      `/api/restoran/adisyonlar/${ticketId}/kalemler/${noteDialog.itemId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, note: noteDialog.note }),
+      },
+      "Not kaydedilemedi",
+    )
+    if (ok) setNoteDialog(null)
+  }, [callTicketApi, companyId, noteDialog, ticketId])
+
   const saveInfo = useCallback(async () => {
     if (!infoDialog) return
     const ok = await callTicketApi(
@@ -222,6 +306,27 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     if (ok) setInfoDialog(null)
   }, [callTicketApi, companyId, infoDialog, ticketId])
 
+  const applyDiscount = useCallback(
+    async (value: DiscountValue) => {
+      const ok = await callTicketApi(
+        `/api/restoran/adisyonlar/${ticketId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId,
+            discountType: value?.type ?? null,
+            discountValue: value?.value,
+            discountReason: value?.reason,
+          }),
+        },
+        "İskonto uygulanamadı",
+      )
+      if (ok) setDiscountOpen(false)
+    },
+    [callTicketApi, companyId, ticketId],
+  )
+
   const cancelTicket = useCallback(async () => {
     try {
       const res = await fetch(`/api/restoran/adisyonlar/${ticketId}?companyId=${companyId}`, {
@@ -237,12 +342,14 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   }, [companyId, router, ticketId, toast])
 
   // ---- Yetersiz stok uyarısı ---------------------------------------------
+  // Servis akışının ortasındaki büyük kart yerine TEK SATIRLIK şerit: bilgi
+  // kaybolmuyor ama sipariş girerken göz önünde durmuyor (SATIS-EKRANI.md K8).
 
   const expansion = useMemo(
     () =>
       expandRecipeLines({
         lines: (ticket?.items ?? [])
-          .filter((i) => i.productId)
+          .filter((i) => i.productId && i.status !== "VOID")
           .map((i) => ({ productId: i.productId as string, quantity: i.quantity })),
         recipes: recipeMap,
         unitOf,
@@ -265,6 +372,62 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     return rows.sort((a, b) => a.after - b.after)
   }, [expansion, productById])
 
+  // ---- Hesap fişi (ödeme öncesi döküm) ------------------------------------
+
+  const buildPrebill = useCallback((): ReceiptData | null => {
+    if (!ticket) return null
+    const billable = ticket.items.filter((i) => i.status === "NORMAL" || i.status === "COMP")
+    return {
+      direction: "outgoing",
+      prebill: true,
+      date: new Date().toISOString(),
+      companyName: selectedCompany?.name ?? "",
+      company: receiptCompany,
+      counterpartyName: ticket.customerName,
+      reference: [ticket.code, ticket.tableName ? `Masa ${ticket.tableName}` : null]
+        .filter(Boolean)
+        .join(" · "),
+      items: billable.map((l) => ({
+        description: [l.description, l.options.map((o) => o.optionName).join(" · "), l.note]
+          .filter(Boolean)
+          .join(" · "),
+        quantity: l.quantity,
+        unit: l.unit,
+        unitPrice: l.status === "COMP" ? 0 : l.unitPrice,
+        vatRate: l.vatRate,
+        total: l.status === "COMP" ? 0 : l.quantity * l.unitPrice * (1 + l.vatRate / 100),
+      })),
+      net: ticket.totals.net,
+      vat: ticket.totals.vat,
+      total: ticket.totals.total,
+      discount:
+        ticket.totals.discount > 0
+          ? { label: discountLabelOf(ticket) ?? "İskonto", amount: ticket.totals.discount }
+          : null,
+      paymentLabel: "",
+      tendered: 0,
+      isCredit: false,
+    }
+  }, [receiptCompany, selectedCompany, ticket])
+
+  const openPrintWindow = useCallback(
+    (data: ReceiptData, autoPrint: boolean) => {
+      const w = window.open("", "_blank", "width=420,height=720")
+      if (!w) {
+        toast({
+          title: "Açılır pencere engellendi",
+          description: "Fiş için bu siteye açılır pencere izni verin.",
+          variant: "destructive",
+        })
+        return
+      }
+      w.document.write(buildReceiptHtml(data, autoPrint, receiptTemplate))
+      w.document.close()
+      w.focus()
+    },
+    [receiptTemplate, toast],
+  )
+
   // ---- Kapanış ------------------------------------------------------------
 
   const handleClose = useCallback(async () => {
@@ -276,7 +439,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     submitLock.current = true
     setIsSubmitting(true)
     try {
-      // 1) Fiş gövdesini SUNUCU hazırlar (kalem eşlemesi tek yerde durur).
+      // 1) Fiş gövdesini SUNUCU hazırlar (kalem eşlemesi ve iskonto tek yerde).
       const prepRes = await fetch(
         `/api/restoran/adisyonlar/${ticketId}/kapat?companyId=${companyId}`,
       )
@@ -287,6 +450,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
       const result = await submitReceiptSale({
         companyId,
         items: prep.invoicePayload.items,
+        globalDiscountAmount: prep.invoicePayload.globalDiscountAmount,
         payment,
         accounts,
         customerId: prep.invoicePayload.customerId,
@@ -307,7 +471,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
           await fetch(`/api/restoran/adisyonlar/${ticketId}/kapat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ companyId, invoiceId: result.invoice.id }),
+            body: JSON.stringify({ companyId, invoiceId: result.invoice.id, warehouseId }),
           })
           void mutate()
           setPayOpen(false)
@@ -317,11 +481,11 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
         throw new Error(result.error)
       }
 
-      // 3) Adisyonu fişe bağla ve kapat.
+      // 3) Adisyonu fişe bağla ve kapat (ikram/zayi stok düzeltmesi de burada).
       const closeRes = await fetch(`/api/restoran/adisyonlar/${ticketId}/kapat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, invoiceId: result.invoice.id }),
+        body: JSON.stringify({ companyId, invoiceId: result.invoice.id, warehouseId }),
       })
       const closed = await closeRes.json().catch(() => ({}))
       if (!closeRes.ok) {
@@ -347,18 +511,29 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
         notes: [ticket.tableName ? `Masa ${ticket.tableName}` : null, ticket.code]
           .filter(Boolean)
           .join(" · "),
-        items: ticket.items.map((l) => ({
-          description: l.note ? `${l.description} (${l.note})` : l.description,
-          quantity: l.quantity,
-          unit: l.unit,
-          unitPrice: l.unitPrice,
-          vatRate: l.vatRate,
-          total: l.quantity * l.unitPrice * (1 + l.vatRate / 100),
-        })),
+        // Fişte yalnız ÖDENEN kalemler: ikram/zayi/iptal müşterinin hesabı değil.
+        items: ticket.items
+          .filter((l) => l.status === "NORMAL")
+          .map((l) => ({
+            description: [l.description, l.options.map((o) => o.optionName).join(" · "), l.note]
+              .filter(Boolean)
+              .join(" · "),
+            quantity: l.quantity,
+            unit: l.unit,
+            unitPrice: l.unitPrice,
+            vatRate: l.vatRate,
+            total: l.quantity * l.unitPrice * (1 + l.vatRate / 100),
+          })),
         net: result.invoice?.netAmount != null ? Number(result.invoice.netAmount) : ticket.totals.net,
         vat: result.invoice?.vatAmount != null ? Number(result.invoice.vatAmount) : ticket.totals.vat,
         total: result.total,
-        paymentLabel: payment.isCredit ? "Veresiye" : PAYMENT_METHOD_LABELS[payment.method],
+        discount:
+          ticket.totals.discount > 0
+            ? { label: discountLabelOf(ticket) ?? "İskonto", amount: ticket.totals.discount }
+            : null,
+        paymentLabel: payment.isCredit
+          ? "Veresiye"
+          : paymentLabelOf(payment.method, payment.provider),
         tendered: done.tendered,
         change: done.change,
         isCredit: payment.isCredit,
@@ -392,22 +567,6 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     warehouseId,
   ])
 
-  const openReceipt = (autoPrint: boolean) => {
-    if (!lastSale) return
-    const w = window.open("", "_blank", "width=420,height=720")
-    if (!w) {
-      toast({
-        title: "Açılır pencere engellendi",
-        description: "Fiş için bu siteye açılır pencere izni verin.",
-        variant: "destructive",
-      })
-      return
-    }
-    w.document.write(buildReceiptHtml(lastSale.receipt, autoPrint, receiptTemplate))
-    w.document.close()
-    w.focus()
-  }
-
   if (!companyId) {
     return (
       <div className="flex h-[60vh] items-center justify-center">
@@ -422,7 +581,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
         <BackLink />
         <Card>
           <CardContent className="py-16 text-center text-sm text-red-600 dark:text-red-400">
-            Adisyon yüklenemedi. Bağlantınızı kontrol edip sayfayı yenileyin.
+            <FetchErrorText error={error} subject="Adisyon" />
           </CardContent>
         </Card>
       </div>
@@ -445,7 +604,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   if (!ticket) return null
 
   const totals = ticket.totals
-  const itemCount = ticket.items.reduce((s, i) => s + i.quantity, 0)
+  const hasBillable = ticket.items.some((i) => i.status === "NORMAL")
 
   return (
     <div className="space-y-4">
@@ -453,7 +612,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
         <div className="space-y-1">
           <BackLink />
           <h1 className="text-3xl font-bold">
-            {ticket.tableName ? `Masa ${ticket.tableName}` : "Adisyon"}
+            {ticket.tableName ? `Masa ${ticket.tableName}` : "Paket / Gel-al"}
           </h1>
           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
             <span>{ticket.code}</span>
@@ -480,40 +639,55 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
             )}
           </div>
         </div>
+
+        {/* Hesabın TÜM işlemleri tek tepside — üst barda tek kontrol. */}
         {isOpen && (
-          <div className="flex flex-wrap items-center gap-2">
-            {warehouses.length > 1 && (
-              <Select value={warehouseId} onValueChange={setWarehouseId}>
-                <SelectTrigger className="w-44">
-                  <SelectValue placeholder="Depo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {warehouses.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>
-                      {w.name} {w.isDefault ? "(Ana)" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                setInfoDialog({
-                  guestCount: ticket.guestCount != null ? String(ticket.guestCount) : "",
-                  note: ticket.note ?? "",
-                })
-              }
-            >
-              <Users className="mr-1.5 h-4 w-4" />
-              Kişi / Not
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setCancelOpen(true)}>
-              <Trash2 className="mr-1.5 h-4 w-4" />
-              Adisyonu iptal et
-            </Button>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                İşlemler
+                <ChevronDown className="ml-1.5 h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem
+                onClick={() => {
+                  const data = buildPrebill()
+                  if (data) openPrintWindow(data, true)
+                }}
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                Hesap fişi
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setDiscountOpen(true)}>
+                <Percent className="mr-2 h-4 w-4" />
+                İskonto
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSplitOpen(true)}>
+                <Split className="mr-2 h-4 w-4" />
+                Hesabı böl
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() =>
+                  setInfoDialog({
+                    guestCount: ticket.guestCount != null ? String(ticket.guestCount) : "",
+                    note: ticket.note ?? "",
+                  })
+                }
+              >
+                <Users className="mr-2 h-4 w-4" />
+                Kişi sayısı / not
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-red-600 dark:text-red-400"
+                onClick={() => setCancelOpen(true)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Adisyonu iptal et
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
 
@@ -528,10 +702,10 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
               error={productsError}
               badgeOf={(productId) =>
                 ticket.items
-                  .filter((i) => i.productId === productId)
+                  .filter((i) => i.productId === productId && i.status === "NORMAL")
                   .reduce((s, i) => s + i.quantity, 0) || null
               }
-              onPick={addProduct}
+              onPick={pickProduct}
             />
           ) : (
             <Card>
@@ -542,129 +716,90 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
           )}
 
           {shortages.length > 0 && (
-            <Card className="border-amber-300 dark:border-amber-700/60">
-              <CardContent className="space-y-2 p-3">
-                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
-                  <AlertTriangle className="h-4 w-4" />
-                  <span className="text-sm font-semibold">
-                    Yetersiz hammadde ({shortages.length}) — satış engellenmez
-                  </span>
-                </div>
-                <div className="grid gap-1.5 sm:grid-cols-2">
+            <div className="rounded-lg border border-amber-300 bg-amber-50/60 text-xs dark:border-amber-700/60 dark:bg-amber-950/20">
+              <button
+                type="button"
+                onClick={() => setShortagesOpen((v) => !v)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-amber-700 dark:text-amber-400"
+              >
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span className="font-semibold">
+                  {shortages.length} üründe hammadde yetersiz — satış engellenmez
+                </span>
+                <ChevronDown
+                  className={`ml-auto h-3.5 w-3.5 transition-transform ${shortagesOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {shortagesOpen && (
+                <div className="grid gap-1 px-3 pb-2 sm:grid-cols-2">
                   {shortages.map((s) => (
-                    <div
-                      key={s.productId}
-                      className="flex items-center justify-between gap-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs dark:bg-amber-950/30"
-                    >
-                      <span className="truncate font-medium">{s.name}</span>
+                    <div key={s.productId} className="flex items-center justify-between gap-2">
+                      <span className="truncate">{s.name}</span>
                       <span className="shrink-0 tabular-nums text-amber-700 dark:text-amber-400">
-                        {qty(s.stock)} → {qty(s.after)} {s.unit}
+                        {s.stock} → {s.after} {s.unit}
                       </span>
                     </div>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
+              )}
+            </div>
           )}
         </div>
 
-        {/* SAĞ: adisyon */}
-        <Card className="xl:sticky xl:top-4">
-          <CardContent className="space-y-3 p-3">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-sm font-semibold">
-                <Receipt className="h-4 w-4 text-kobipo-blue dark:text-primary" />
-                Adisyon
-              </span>
-              <span className="text-xs text-muted-foreground">{qty(itemCount)} adet</span>
-            </div>
-
-            {ticket.items.length === 0 ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">
-                Menüden ürün seçin
-              </p>
-            ) : (
-              <div className="max-h-[46vh] space-y-1.5 overflow-y-auto pr-1">
-                {ticket.items.map((item) => (
-                  <div key={item.id} className="rounded-lg border p-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{item.description}</p>
-                        {item.note && (
-                          <p className="truncate text-xs text-muted-foreground">{item.note}</p>
-                        )}
-                        <p className="text-xs text-muted-foreground">
-                          {currency(item.unitPrice * (1 + item.vatRate / 100))} × {qty(item.quantity)}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-sm font-semibold tabular-nums">
-                        {currency(item.quantity * item.unitPrice * (1 + item.vatRate / 100))}
-                      </span>
-                    </div>
-                    {isOpen && (
-                      <div className="mt-1.5 flex items-center justify-between">
-                        <QuantityStepper
-                          value={item.quantity}
-                          onChange={(v) => void setItemQty(item.id, v)}
-                          min={0}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void setItemQty(item.id, 0)}
-                          aria-label="Kalemi sil"
-                        >
-                          <Trash2 className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
+        {/* SAĞ: hesap (ortak panel) */}
+        <TicketPanel
+          items={ticket.items}
+          totals={totals}
+          discountLabel={discountLabelOf(ticket)}
+          readOnly={!isOpen}
+          onQuantity={(id, q) => void setItemQty(id, q)}
+          onSetStatus={(id, status, code, reason) => void setItemStatus(id, status, code, reason)}
+          onEditNote={(id) => {
+            const item = ticket.items.find((i) => i.id === id)
+            setNoteDialog({ itemId: id, note: item?.note ?? "" })
+          }}
+          footer={
+            isOpen ? (
+              <div className="grid grid-cols-[auto_1fr] gap-2">
+                <Button
+                  variant="outline"
+                  className="h-12"
+                  disabled={ticket.items.length === 0}
+                  onClick={() => {
+                    const data = buildPrebill()
+                    if (data) openPrintWindow(data, true)
+                  }}
+                >
+                  <Printer className="mr-1.5 h-4 w-4" />
+                  Hesap Fişi
+                </Button>
+                <Button
+                  className="h-12 text-base"
+                  disabled={!hasBillable}
+                  onClick={() => setPayOpen(true)}
+                >
+                  ÖDEME
+                </Button>
               </div>
-            )}
-
-            <div className="space-y-1 border-t pt-2 text-sm">
-              <div className="flex justify-between text-muted-foreground">
-                <span>Ara toplam</span>
-                <span className="tabular-nums">{currency(totals.net)}</span>
-              </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>KDV</span>
-                <span className="tabular-nums">{currency(totals.vat)}</span>
-              </div>
-              <div className="flex justify-between text-lg font-bold">
-                <span>Toplam</span>
-                <span className="tabular-nums">{currency(totals.total)}</span>
-              </div>
-            </div>
-
-            {isOpen && (
-              <Button
-                className="h-12 w-full text-base"
-                disabled={ticket.items.length === 0}
-                onClick={() => setPayOpen(true)}
-              >
-                Hesabı Kapat
-              </Button>
-            )}
-          </CardContent>
-        </Card>
+            ) : null
+          }
+        />
       </div>
 
       {/* Ödeme */}
-      <Dialog open={payOpen} onOpenChange={(o) => !isSubmitting && setPayOpen(o)}>
+      <Dialog open={payOpen} onOpenChange={(open) => !isSubmitting && setPayOpen(open)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Hesabı kapat</DialogTitle>
             <DialogDescription>
-              {ticket.tableName ? `Masa ${ticket.tableName} · ` : ""}
-              {ticket.code} · {currency(totals.total)}
+              {ticket.tableName ? `Masa ${ticket.tableName}` : "Paket / Gel-al"} ·{" "}
+              {currency(totals.total)}
             </DialogDescription>
           </DialogHeader>
           <PaymentPanel
+            total={totals.total}
             state={payment}
             onChange={(patch) => setPayment((p) => ({ ...p, ...patch }))}
-            total={totals.total}
             accounts={accounts}
           />
           <DialogFooter>
@@ -672,34 +807,36 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
               Vazgeç
             </Button>
             <Button onClick={handleClose} disabled={isSubmitting}>
-              {isSubmitting ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="mr-1.5 h-4 w-4" />
-              )}
-              Satışı Tamamla
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Tahsil Et
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Kapanış sonrası fiş */}
-      <Dialog open={lastSale !== null} onOpenChange={(o) => !o && setLastSale(null)}>
-        <DialogContent className="sm:max-w-md">
+      {/* Satış sonrası */}
+      <Dialog open={!!lastSale} onOpenChange={(open) => !open && setLastSale(null)}>
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              <CheckCircle2 className="h-5 w-5 text-kobipo-green" />
               Hesap kapatıldı
             </DialogTitle>
-            <DialogDescription>{lastSale?.invoiceNo} oluşturuldu.</DialogDescription>
+            <DialogDescription>{lastSale?.invoiceNo ?? "Fiş oluşturuldu"}</DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:justify-between">
-            <Button variant="outline" onClick={() => openReceipt(false)}>
+            <Button
+              variant="outline"
+              onClick={() => lastSale && openPrintWindow(lastSale.receipt, false)}
+            >
               <Receipt className="mr-1.5 h-4 w-4" />
               Fişi göster
             </Button>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => openReceipt(true)}>
+              <Button
+                variant="outline"
+                onClick={() => lastSale && openPrintWindow(lastSale.receipt, true)}
+              >
                 <Printer className="mr-1.5 h-4 w-4" />
                 Yazdır
               </Button>
@@ -709,61 +846,139 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
         </DialogContent>
       </Dialog>
 
-      {/* Kişi / not */}
-      <Dialog open={infoDialog !== null} onOpenChange={(o) => !o && setInfoDialog(null)}>
-        <DialogContent className="sm:max-w-md">
+      {/* Seçenek / porsiyon */}
+      <OptionDialog
+        open={!!optionFor}
+        productName={optionFor?.name ?? ""}
+        basePrice={
+          optionFor ? Number(optionFor.salePrice ?? 0) * (1 + Number(optionFor.vatRate ?? 20) / 100) : 0
+        }
+        groups={optionFor ? groupsOf(optionFor.id) : []}
+        onCancel={() => setOptionFor(null)}
+        onConfirm={(pick) => {
+          const product = optionFor
+          setOptionFor(null)
+          if (product) void addLine(product.id, { optionIds: pick.optionIds, note: pick.note })
+        }}
+      />
+
+      {/* İskonto */}
+      <DiscountDialog
+        open={discountOpen}
+        gross={totals.gross}
+        current={
+          ticket.discountType
+            ? {
+                type: ticket.discountType,
+                value: Number(ticket.discountValue ?? 0),
+                reason: ticket.discountReason,
+              }
+            : null
+        }
+        onClose={() => setDiscountOpen(false)}
+        onApply={(v) => void applyDiscount(v)}
+      />
+
+      {/* Hesabı böl — kalemler parçalara dağıtılır, ödeme parçalı yazılır */}
+      <SplitDialog
+        open={splitOpen}
+        factor={totals.gross > 0 ? totals.total / totals.gross : 1}
+        items={ticket.items
+          .filter((i) => i.status === "NORMAL")
+          .map((i) => ({
+            id: i.id,
+            description: i.description,
+            quantity: i.quantity,
+            lineGross: i.quantity * i.unitPrice * (1 + i.vatRate / 100),
+          }))}
+        onClose={() => setSplitOpen(false)}
+        onConfirm={(amounts) => {
+          setSplitOpen(false)
+          setPayment((p) => ({
+            ...p,
+            splitMode: true,
+            isCredit: false,
+            portions: amounts.map((a) => ({ ...newPortion("CREDIT_CARD"), amount: a.toFixed(2) })),
+          }))
+          setPayOpen(true)
+        }}
+      />
+
+      {/* Kalem notu */}
+      <Dialog open={!!noteDialog} onOpenChange={(open) => !open && setNoteDialog(null)}>
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Adisyon bilgisi</DialogTitle>
-            <DialogDescription>Kişi sayısı ve not fişe de yazılır.</DialogDescription>
+            <DialogTitle>Kalem notu</DialogTitle>
+            <DialogDescription>Not fişte kalemin yanında görünür.</DialogDescription>
           </DialogHeader>
-          {infoDialog && (
-            <div className="space-y-3">
-              <div>
-                <Label>Kişi sayısı</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={infoDialog.guestCount}
-                  onChange={(e) => setInfoDialog({ ...infoDialog, guestCount: e.target.value })}
-                  className="mt-1.5"
-                />
-              </div>
-              <div>
-                <Label>Not</Label>
-                <Input
-                  value={infoDialog.note}
-                  onChange={(e) => setInfoDialog({ ...infoDialog, note: e.target.value })}
-                  placeholder="Doğum günü, ikram…"
-                  className="mt-1.5"
-                />
-              </div>
-            </div>
-          )}
+          <Input
+            value={noteDialog?.note ?? ""}
+            onChange={(e) => setNoteDialog((d) => (d ? { ...d, note: e.target.value } : d))}
+            placeholder="az şekerli, buzsuz…"
+          />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setInfoDialog(null)}>
+            <Button variant="outline" onClick={() => setNoteDialog(null)}>
               Vazgeç
             </Button>
-            <Button onClick={saveInfo}>Kaydet</Button>
+            <Button onClick={() => void saveNote()}>Kaydet</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* İptal onayı */}
+      {/* Kişi / not */}
+      <Dialog open={!!infoDialog} onOpenChange={(open) => !open && setInfoDialog(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Adisyon bilgisi</DialogTitle>
+            <DialogDescription>Kişi sayısı ve not fişe de yazılır.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Kişi sayısı</Label>
+              <Input
+                value={infoDialog?.guestCount ?? ""}
+                onChange={(e) =>
+                  setInfoDialog((d) => (d ? { ...d, guestCount: e.target.value } : d))
+                }
+                inputMode="numeric"
+                placeholder="2"
+                className="mt-1.5"
+              />
+            </div>
+            <div>
+              <Label>Not</Label>
+              <Input
+                value={infoDialog?.note ?? ""}
+                onChange={(e) => setInfoDialog((d) => (d ? { ...d, note: e.target.value } : d))}
+                placeholder="Doğum günü, ikram…"
+                className="mt-1.5"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInfoDialog(null)}>
+              Vazgeç
+            </Button>
+            <Button onClick={() => void saveInfo()}>Kaydet</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Adisyon iptali */}
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Adisyon iptal edilsin mi?</DialogTitle>
             <DialogDescription>
-              Stok ve cari etkilenmez — açık adisyon henüz hiçbirine dokunmadı. Kalemi olan
-              adisyon iptal kaydı olarak saklanır.
+              Kalemler iptal kaydı olarak kalır; stok ve cari etkilenmez.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCancelOpen(false)}>
               Vazgeç
             </Button>
-            <Button variant="destructive" onClick={cancelTicket}>
-              İptal et
+            <Button variant="destructive" onClick={() => void cancelTicket()}>
+              Adisyonu iptal et
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -776,7 +991,7 @@ function BackLink() {
   return (
     <Link
       href="/restoran/masalar"
-      className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
     >
       <ArrowLeft className="h-4 w-4" />
       Masalar

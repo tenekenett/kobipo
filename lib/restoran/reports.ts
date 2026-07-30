@@ -7,7 +7,7 @@
 
 import { Prisma } from "@prisma/client"
 import { avgCostCte } from "@/lib/stock/cost"
-import { ticketTotals } from "@/lib/restoran/tickets"
+import { isBillableItem, ticketDiscountOf, ticketTotals } from "@/lib/restoran/tickets"
 import type { prisma } from "@/lib/db/prisma"
 
 /** Reçeteden türeyen stok hareketlerinin işareti — satış anında yazılır. */
@@ -232,8 +232,12 @@ export async function loadOpenTickets(
       code: true,
       guestCount: true,
       openedAt: true,
+      // İskonto ve kalem durumu toplamı DEĞİŞTİRİR: ikram/zayi hesaba girmez,
+      // iskontolu masanın açık tutarı da indirimli olandır (bkz. ticketTotals).
+      discountType: true,
+      discountValue: true,
       table: { select: { name: true } },
-      items: { select: { quantity: true, unitPrice: true, vatRate: true } },
+      items: { select: { quantity: true, unitPrice: true, vatRate: true, status: true } },
     },
     orderBy: { openedAt: "asc" },
   })
@@ -245,7 +249,7 @@ export async function loadOpenTickets(
     guestCount: t.guestCount,
     openedAt: t.openedAt.toISOString(),
     minutes: Math.max(0, Math.round((instant.getTime() - t.openedAt.getTime()) / 60000)),
-    itemCount: t.items.length,
-    total: ticketTotals(t.items).total,
+    itemCount: t.items.filter((i) => isBillableItem(i.status)).length,
+    total: ticketTotals(t.items, ticketDiscountOf(t)).total,
   }))
 }

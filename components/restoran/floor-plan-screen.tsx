@@ -35,6 +35,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { FetchErrorText } from "@/components/ui/fetch-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -571,7 +572,7 @@ export function FloorPlanScreen() {
       {error ? (
         <Card>
           <CardContent className="py-16 text-center text-sm text-red-600 dark:text-red-400">
-            Masalar yüklenemedi. Bağlantınızı kontrol edip sayfayı yenileyin.
+            <FetchErrorText error={error} subject="Masalar" />
           </CardContent>
         </Card>
       ) : isLoading && tables.length === 0 ? (

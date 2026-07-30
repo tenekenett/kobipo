@@ -15,6 +15,7 @@ import { useMemo, useState } from "react"
 import Link from "next/link"
 import { ChefHat, CupSoda, Search } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
+import { FetchErrorText } from "@/components/ui/fetch-error"
 import { Input } from "@/components/ui/input"
 import { currency } from "@/lib/fis/receipt-html"
 import { qty } from "@/lib/format"
@@ -132,7 +133,7 @@ export function MenuGrid({
             "menüde ürün yok" demek kasiyeri yanıltır — menü dolu ama ekran boş. */}
         {error ? (
           <div className="py-12 text-center text-sm text-red-600 dark:text-red-400">
-            Menü yüklenemedi. Bağlantınızı kontrol edip sayfayı yenileyin.
+            <FetchErrorText error={error} subject="Menü" />
           </div>
         ) : isLoading && products.length === 0 ? (
           <div className="py-12 text-center text-sm text-muted-foreground">Menü yükleniyor…</div>
