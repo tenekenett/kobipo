@@ -11,7 +11,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { docCostCte, num, parseRange, reportScope } from "@/lib/restoran/reports"
+import { docCostCte, loadOpenTickets, num, parseRange, reportScope } from "@/lib/restoran/reports"
 
 export const dynamic = "force-dynamic"
 
@@ -41,7 +41,7 @@ export async function GET(request: Request) {
 
     const { start, end } = parseRange(searchParams)
 
-    const [receiptRows, paymentRows, cashCounts] = await Promise.all([
+    const [receiptRows, paymentRows, cashCounts, openTickets] = await Promise.all([
       prisma.$queryRaw<ReceiptRow[]>`
         ${reportScope(companyId, start, end)}, ${docCostCte(companyId)},
         pay AS (
@@ -98,6 +98,10 @@ export async function GET(request: Request) {
         include: { account: { select: { name: true } } },
         orderBy: { countDate: "asc" },
       }),
+      // Gün KAPANIRKEN hâlâ açık olan masalar (Faz D). Bunlar fişe dönüşmediği
+      // için yukarıdaki ciroda YOK ve stokları da düşmemiştir — gün sonu sayımı
+      // yapan kişi bu tutarı bilmezse kasada eksik para arar.
+      loadOpenTickets(prisma, companyId, end),
     ])
 
     const receipts = receiptRows.map((r) => ({
@@ -141,9 +145,14 @@ export async function GET(request: Request) {
         paid: paidTotal,
         unpaid: revenueGross - paidTotal,
         cashReceived,
+        // Açık masalar ciroya DAHİL DEĞİL; ayrı alan olarak veriliyor ki ekran
+        // "henüz kesinleşmemiş" diye gösterebilsin.
+        openTicketCount: openTickets.length,
+        openTicketTotal: openTickets.reduce((a, t) => a + t.total, 0),
       },
       receipts,
       payments,
+      openTickets,
       cashCounts: cashCounts.map((c) => ({
         id: c.id,
         accountName: c.account?.name ?? "",

@@ -79,7 +79,7 @@ Kararlar:
 | **A** | Şema + migration + API (bölge/masa CRUD, adisyon aç/kalem/kapat) + testler | ✅ 2026-07-29 |
 | **B** | Salon planı ekranı `/restoran/masalar` — sürükle-bırak yerleşim, durum renkleri | ✅ 2026-07-30 |
 | **C** | Adisyon ekranı — menü ızgarası, kalem ekleme, kapanış → ödeme → fiş | ✅ 2026-07-30 |
-| **D** | Raporlara bağlanma: gün sonunda açık adisyonlar, ortalama masa süresi/sepet | ⏳ |
+| **D** | Raporlara bağlanma: gün sonunda açık adisyonlar, ortalama masa süresi/sepet | ✅ 2026-07-30 |
 
 Faz A'dan sonra ekran olmadan da uçtan uca çalışıyordu (API üzerinden adisyon açılıp
 kapatılıyor, fiş kesiliyor, stok düşüyor); B ve C bunun üstüne oturdu.
@@ -280,6 +280,101 @@ kalmıyor.
 | Temizlik | ✅ kalan kroki öğesi 0 |
 
 `tsc --noEmit` ve `eslint` temiz.
+
+---
+
+## Faz D — Uygulandı (2026-07-30) ✅
+
+Adisyon artık **ölçülüyor**. İki ayrı soru, iki ayrı yer:
+
+### 1. Gün sonunda açık kalan masalar (mevcut gün sonu raporuna eklendi)
+
+Açık adisyon fişe dönüşmediği için ciroda **yok** ve malzemesi stoktan **düşmedi**
+(stok kapanışta düşer — yukarıdaki "Neden stok kapanışta düşer"). Gün sonu sayımı
+yapan kişi bunu bilmezse kasada olmayan parayı arar.
+
+Rapor artık `openTickets` + `summary.openTicketCount/openTicketTotal` döndürüyor;
+ekranda amber bir kart olarak listeleniyor (masa, süre, kalem sayısı, tutar) ve her
+satır adisyona link. Tutar **ciroya eklenmiyor**, ayrı alanda duruyor.
+
+**Kritik ayrıntı — `status` alanına bakılmıyor.** `status` ANLIK bir alandır: dün
+23:00'te açık olan masa bugün kapanmıştır ve artık `CLOSED` görünür. Geçmiş bir gün
+sorulduğunda doğru soru zaman aralığıdır:
+
+```
+openedAt <= gün_sonu  AND  (closedAt IS NULL OR closedAt > gün_sonu)
+```
+
+İptaller hariç: ne ciroya döndüler ne stok düşürdüler. Ortak yardımcı
+`loadOpenTickets` (`lib/restoran/reports.ts`) — toplam `ticketTotals` ile hesaplanır,
+SQL'de ikinci bir formül yazılmadı: adisyon ekranı, salon planı ve rapor aynı sayıyı
+göstermek zorunda.
+
+### 2. Yeni "Masalar" rapor sekmesi
+
+`GET /api/restoran/raporlar/masalar` + `components/restoran/reports/masalar.tsx`.
+Diğer dört rapor ÜRÜNE bakar (ne satıldı, ne kazandırdı); bu MASAYA bakar.
+
+| Ölçü | Tanım |
+|---|---|
+| Ortalama masa süresi | `closedAt − openedAt`, kapanan adisyonlarda |
+| Ortalama sepet | fiş toplamı (KDV dahil) / adisyon |
+| Masa devir hızı | adisyon sayısı / **aktif** masa sayısı |
+| Kişi başı ortalama | yalnız `guestCount` girilmiş adisyonlardan |
+| Kırılımlar | masa · bölge · açılış saati (yoğunluk grafiği) |
+
+Kararlar:
+
+- **Tarih ekseni kapanış (`closedAt`)** — diğer raporlar belge tarihini kullanır;
+  burada ölçülen şey masanın boşaldığı andır. Pratikte ikisi aynı ana denk gelir
+  (fiş adisyon kapanırken kesiliyor).
+- **Ciro fatura satırından gelir**, adisyon kalemlerinden değil: kesin tutarı
+  (iskonto, yuvarlama) fatura ucu hesaplıyor. İptal/dönüştürülmüş fişler `reportScope`
+  ile aynı şekilde dışlanıyor.
+- **Devir hızının paydası aktif masa sayısı** — kaldırılmış (pasif) bir masa bugünkü
+  devir hızını düşürmemeli.
+- **Süresi negatif çıkan adisyon ortalamaya girmez** (saat düzeltmesi/elle müdahale);
+  0 saymak ortalamayı sessizce aşağı çekerdi.
+- Masasız (paket/gel-al) adisyonlar hem masa hem bölge kırılımında **kendi satırında**
+  toplanır; bölgesiz masalar "Bölgesiz" kovasına düşer — aksi halde bölge toplamları
+  genel toplamı tutmaz ve kullanıcı farkı arar.
+- Saat yerel: `localHour` (`AT TIME ZONE 'Europe/Istanbul'`), `localDay` ile aynı
+  dönüşüm. "En yoğun saat 20:00" derken kastedilen TSİ 20:00'dir.
+
+**Yeni uç modül kapısından geçiyor** (`assertRestaurantModule`). v1'in dört rapor ve
+iki reçete ucu hâlâ korumasız — ayrı iş, bkz. SADELESTIRME.md "Sırada ne var";
+yenisini açık bırakmadık.
+
+### Doğrulama — `node scripts/test-restoran-adisyon.mjs` (68/68)
+
+Faz A–C'nin 47 kontrolüne 21 yeni kontrol eklendi (gerçek uçlar, gerçek HTTP):
+
+| Kontrol | Sonuç |
+|---|---|
+| Masa cirosu **fişin toplamıyla** aynı | ✅ `102` vs `102` |
+| Masa tek adisyon saydı · ortalama sepet = ciro | ✅ |
+| Masa süresi ölçüldü (negatif değil) | ✅ |
+| **Açık adisyon masa raporuna GİRMİYOR** | ✅ masa 1 yok |
+| Devir hızı · saat yoğunluğu | ✅ 2 aktif masa · 1 dilim |
+| Gün sonunda açık adisyon listelendi | ✅ `ADS-2026-0002` |
+| Açık tutar adisyon ekranıyla aynı | ✅ `204` |
+| **Kapanan adisyon açık listesinde YOK** | ✅ |
+| **Açık hesap ciroya EKLENMEDİ** | ✅ ciro `102` = fişler, açık `204` hariç |
+| **Bir hafta önceki günde bugünün açık adisyonu yok** (`status` tuzağı) | ✅ |
+| Masalar / gün sonu sekmeleri render | ✅ HTTP 200 |
+| Modül kapalıyken masa raporu | ✅ 403 |
+
+Mevcut betikler bozulmadı: `test-receipt-sale` 19/19 · `test-recipe-expand` 45/45 ·
+`test-payment` 25/25 · `test-module-gating` 20/20 · `test-avco-revert` 15/15.
+`tsc --noEmit` ve `eslint` temiz.
+
+> Not: Next 16'da `next lint` kaldırıldı; lint artık `npx eslint <dosyalar>` ile
+> çalıştırılıyor (`npm run lint` hata veriyor).
+
+### Elle bakılmayan
+
+Ekranların **görüntüsü** tarayıcıda gözle doğrulanmadı (kullanıcı tercihi). Veri yolu
+ve sayfa render'ı yukarıdaki testlerle doğrulandı.
 
 ---
 

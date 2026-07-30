@@ -324,8 +324,115 @@ async function main() {
       `${milkBefore} → ${Number(milkAfter.stockQuantity)}`,
     )
 
-    // ── 9. Dükkan krokisi + bölge ayrımı ────────────────────────────────────
-    console.log("\n9) Dükkan krokisi")
+    // ── 9. Faz D: masa raporu + gün sonu açık adisyonlar ────────────────────
+    // Bu noktada VERİ TAM: open1 kapandı (fişli), `other` masa 1'de hâlâ açık.
+    // İkisi iki ayrı raporun konusu — kapanan ölçülür, açık uyarır.
+    console.log("\n9) Faz D — masa raporu ve açık adisyonlar")
+
+    // Açık adisyona kalem ekleniyor: boş adisyonun tutarı 0 olurdu ve "açık
+    // hesap tutarı" iddiası hiçbir şey doğrulamazdı.
+    const openWithItem = await api("POST", `/api/restoran/adisyonlar/${other.body.id}/kalemler`, {
+      companyId: company.id,
+      productId: latte.id,
+      quantity: 2,
+    })
+    const openTotal = openWithItem.body?.totals?.total
+    check("açık adisyona kalem eklendi", openWithItem.status === 201, `${openTotal} ₺`)
+
+    const dayStart = new Date()
+    dayStart.setHours(0, 0, 0, 0)
+    const dayEnd = new Date()
+    dayEnd.setHours(23, 59, 59, 999)
+    const rangeQ = `startDate=${encodeURIComponent(dayStart.toISOString())}&endDate=${encodeURIComponent(dayEnd.toISOString())}`
+
+    const tablesReport = await api(
+      "GET",
+      `/api/restoran/raporlar/masalar?companyId=${company.id}&${rangeQ}`,
+    )
+    check("masa raporu geldi", tablesReport.status === 200, `HTTP ${tablesReport.status}`)
+
+    // Ciro FİŞTEN gelmeli, adisyon kalemlerinden değil (iskonto/yuvarlama farkı).
+    const soldInvoice = await prisma.invoice.findUnique({
+      where: { id: invoice.body.id },
+      select: { totalAmount: true },
+    })
+    const t2Bucket = (tablesReport.body?.tables ?? []).find((r) => r.name === t2.body.name)
+    check("kapanan adisyon masasıyla raporda", t2Bucket != null, t2Bucket?.name)
+    check(
+      "masa cirosu fişin toplamıyla aynı",
+      near(t2Bucket?.revenue, Number(soldInvoice?.totalAmount ?? 0)),
+      `${t2Bucket?.revenue} vs ${Number(soldInvoice?.totalAmount ?? 0)}`,
+    )
+    check("masa tek adisyon saydı", t2Bucket?.tickets === 1, `${t2Bucket?.tickets} adisyon`)
+    check("masa ortalama sepeti tek adisyonda ciroya eşit", near(t2Bucket?.avgTicket, t2Bucket?.revenue))
+    check(
+      "masa süresi ölçüldü (negatif değil)",
+      t2Bucket?.avgMinutes != null && t2Bucket.avgMinutes >= 0,
+      `${t2Bucket?.avgMinutes} dk`,
+    )
+    check(
+      "AÇIK adisyon masa raporuna GİRMİYOR",
+      !(tablesReport.body?.tables ?? []).some((r) => r.name === t1.body.name),
+      "masa 1 yok (adisyonu açık)",
+    )
+    check(
+      "devir hızı hesaplandı",
+      tablesReport.body?.summary?.turnover != null &&
+        tablesReport.body?.summary?.activeTables >= 2,
+      `${tablesReport.body?.summary?.activeTables} aktif masa`,
+    )
+    check(
+      "saat yoğunluğu dolu",
+      Array.isArray(tablesReport.body?.hours) && tablesReport.body.hours.length > 0,
+      `${tablesReport.body?.hours?.length} saat dilimi`,
+    )
+
+    const dayReport = await api(
+      "GET",
+      `/api/restoran/raporlar/gun-sonu?companyId=${company.id}&${rangeQ}`,
+    )
+    check("gün sonu raporu geldi", dayReport.status === 200, `HTTP ${dayReport.status}`)
+    const openRow = (dayReport.body?.openTickets ?? []).find((t) => t.id === other.body.id)
+    check("gün sonunda açık adisyon listelendi", openRow != null, openRow?.code)
+    check("açık adisyon tutarı adisyon ekranıyla aynı", near(openRow?.total, openTotal), `${openRow?.total}`)
+    check("açık adisyon masasıyla geldi", openRow?.tableName === t1.body.name, openRow?.tableName)
+    check(
+      "KAPANAN adisyon açık listesinde YOK",
+      !(dayReport.body?.openTickets ?? []).some((t) => t.id === open1.body.id),
+    )
+    const openSum = (dayReport.body?.openTickets ?? []).reduce((a, t) => a + t.total, 0)
+    check(
+      "açık hesap toplamı listeyle tutuyor",
+      near(dayReport.body?.summary?.openTicketTotal, openSum),
+      `${dayReport.body?.summary?.openTicketTotal}`,
+    )
+    // Ciro yalnız FİŞLERDEN oluşmalı: açık masa tutarı buraya sızarsa gün sonu
+    // sayımı olduğundan yüksek çıkar ve kasada sürekli "eksik" görünür.
+    const receiptSum = (dayReport.body?.receipts ?? []).reduce((a, r) => a + r.total, 0)
+    check(
+      "açık hesap ciroya EKLENMEDİ",
+      near(dayReport.body?.summary?.revenueGross, receiptSum),
+      `ciro ${dayReport.body?.summary?.revenueGross} = fişler ${receiptSum.toFixed(2)} (açık ${openSum} hariç)`,
+    )
+
+    // Geçmiş bir gün sorulduğunda "şu an açık" olan adisyon görünmemeli: adisyon
+    // o gün daha AÇILMAMIŞTI. `status` alanına bakan bir uygulama bunu kaçırırdı.
+    const past = new Date(dayStart)
+    past.setDate(past.getDate() - 7)
+    const pastEnd = new Date(past)
+    pastEnd.setHours(23, 59, 59, 999)
+    const pastReport = await api(
+      "GET",
+      `/api/restoran/raporlar/gun-sonu?companyId=${company.id}&startDate=${encodeURIComponent(past.toISOString())}&endDate=${encodeURIComponent(pastEnd.toISOString())}`,
+    )
+    check(
+      "bir hafta önceki günde bugünün açık adisyonu YOK",
+      !(pastReport.body?.openTickets ?? []).some((t) => t.id === other.body.id),
+      `${pastReport.body?.openTickets?.length ?? 0} açık adisyon`,
+    )
+
+    // ── 10. Dükkan krokisi + bölge ayrımı ───────────────────────────────────
+    console.log("\n10) Dükkan krokisi")
     const wall = await api("POST", "/api/restoran/plan", {
       companyId: company.id,
       areaId: created.areaId,
@@ -391,28 +498,32 @@ async function main() {
     check("bölge 1 masaları", a1.length === 2, `${a1.length} masa`)
     check("bölge 2 masaları", a2.length === 1, `${a2.length} masa`)
 
-    // ── 10. Ekranlar ────────────────────────────────────────────────────────
+    // ── 11. Ekranlar ────────────────────────────────────────────────────────
     // Sayfalar Client Component; 200 dönmesi derlendiklerini ve sunucuda hatasız
     // render edildiklerini gösterir (render hatası Next'te 500 döner).
-    console.log("\n10) Ekranlar")
+    console.log("\n11) Ekranlar")
     for (const [label, path] of [
       ["salon planı", "/restoran/masalar"],
       ["adisyon", `/restoran/adisyon/${open1.body.id}`],
       ["kahveci satış (refactor sonrası)", "/restoran/satis"],
       ["menü & reçeteler", "/restoran/menu"],
+      ["raporlar — masalar sekmesi", "/restoran/raporlar?rapor=masalar"],
+      ["raporlar — gün sonu sekmesi", "/restoran/raporlar?rapor=gun-sonu"],
     ]) {
       const res = await fetch(`${BASE}${path}`, { headers: { cookie } })
       check(`${label} sayfası`, res.status === 200, `HTTP ${res.status}`)
     }
 
-    // ── 11. Modül kapısı ────────────────────────────────────────────────────
-    console.log("\n11) Modül kapısı (sunucu tarafı)")
+    // ── 12. Modül kapısı ────────────────────────────────────────────────────
+    console.log("\n12) Modül kapısı (sunucu tarafı)")
     await prisma.company.update({
       where: { id: company.id },
       data: { disabledModules: { set: [...(company.disabledModules ?? []), "restaurant"] } },
     })
     const blocked = await api("GET", `/api/restoran/masalar?companyId=${company.id}`)
     check("modül kapalıyken uç 403", blocked.status === 403, blocked.body?.error)
+    const blockedReport = await api("GET", `/api/restoran/raporlar/masalar?companyId=${company.id}`)
+    check("modül kapalıyken masa raporu 403", blockedReport.status === 403, blockedReport.body?.error)
     await prisma.company.update({
       where: { id: company.id },
       data: { disabledModules: { set: company.disabledModules ?? [] } },
@@ -421,7 +532,7 @@ async function main() {
     check("modül geri açıldı", restored.status === 200)
   } finally {
     // ── Temizlik ──────────────────────────────────────────────────────────
-    console.log("\n12) Temizlik (test verisi geri alınıyor)")
+    console.log("\n13) Temizlik (test verisi geri alınıyor)")
     for (const invoiceId of created.invoiceIds.filter(Boolean)) {
       const del = await fetch(`${BASE}/api/e-donusum/invoices/${invoiceId}?companyId=${company.id}`, {
         method: "DELETE",

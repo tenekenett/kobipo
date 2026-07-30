@@ -219,6 +219,20 @@ export function Bar({ pct: value, tone = "brand" }: { pct: number; tone?: "brand
   )
 }
 
+/**
+ * Dakika → "2 sa 15 dk". Masa süresi hem gün sonunda (açık masalar) hem masa
+ * raporunda (ortalama süre) gösteriliyor; iki yerde ayrı yazılsaydı biri
+ * "135 dk" diğeri "2 sa" derdi.
+ */
+export function duration(minutes: number | null | undefined): string {
+  if (minutes == null || !Number.isFinite(minutes)) return "—"
+  const total = Math.max(0, Math.round(minutes))
+  const h = Math.floor(total / 60)
+  const m = total % 60
+  if (h === 0) return `${m} dk`
+  return m === 0 ? `${h} sa` : `${h} sa ${m} dk`
+}
+
 export function marginTone(margin: number | null): "good" | "warn" | "bad" | "default" {
   if (margin == null) return "default"
   if (margin < 0) return "bad"

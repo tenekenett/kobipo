@@ -1,6 +1,6 @@
 "use client"
 
-// Restoran & Kafe raporları — dördü tek sayfada, sekmeli.
+// Restoran & Kafe raporları — hepsi tek sayfada, sekmeli.
 //
 // Eskiden dört ayrı sayfaydı ve menüde dört satır kaplıyordu; her biri KENDİ
 // tarih aralığını tuttuğu için "bu ay"ı seçip menü performansından karlılığa
@@ -12,11 +12,12 @@
 
 import { Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { BarChart3, ClipboardList, Package, TrendingUp } from "lucide-react"
+import { BarChart3, ClipboardList, LayoutGrid, Package, TrendingUp } from "lucide-react"
 import { RangeBar, useReportRange } from "@/components/restoran/report-ui"
 import { KarlilikReport } from "@/components/restoran/reports/karlilik"
 import { MenuPerformansReport } from "@/components/restoran/reports/menu-performans"
 import { TuketimReport } from "@/components/restoran/reports/tuketim"
+import { MasalarReport } from "@/components/restoran/reports/masalar"
 import { GunSonuReport } from "@/components/restoran/reports/gun-sonu"
 import { cn } from "@/lib/utils"
 
@@ -24,6 +25,7 @@ const TABS = [
   { key: "karlilik", label: "Karlılık", icon: TrendingUp },
   { key: "menu", label: "Menü Performansı", icon: BarChart3 },
   { key: "tuketim", label: "Hammadde Tüketimi", icon: Package },
+  { key: "masalar", label: "Masalar", icon: LayoutGrid },
   { key: "gun-sonu", label: "Gün Sonu", icon: ClipboardList },
 ] as const
 
@@ -53,7 +55,7 @@ function RaporlarContent() {
       <div>
         <h1 className="text-3xl font-bold">Restoran Raporları</h1>
         <p className="text-muted-foreground">
-          Karlılık, menü performansı, hammadde tüketimi ve gün sonu — tek yerde.
+          Karlılık, menü performansı, hammadde tüketimi, masa doluluğu ve gün sonu — tek yerde.
         </p>
       </div>
 
@@ -87,6 +89,7 @@ function RaporlarContent() {
       {active === "karlilik" && <KarlilikReport range={range} />}
       {active === "menu" && <MenuPerformansReport range={range} />}
       {active === "tuketim" && <TuketimReport range={range} />}
+      {active === "masalar" && <MasalarReport range={range} />}
       {active === "gun-sonu" && <GunSonuReport range={day} />}
     </div>
   )

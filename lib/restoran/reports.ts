@@ -7,6 +7,8 @@
 
 import { Prisma } from "@prisma/client"
 import { avgCostCte } from "@/lib/stock/cost"
+import { ticketTotals } from "@/lib/restoran/tickets"
+import type { prisma } from "@/lib/db/prisma"
 
 /** Reçeteden türeyen stok hareketlerinin işareti — satış anında yazılır. */
 export const RECIPE_MARK = "%Reçete:%"
@@ -18,6 +20,13 @@ export const RECIPE_MARK = "%Reçete:%"
  */
 export const localDay = (col: Prisma.Sql) =>
   Prisma.sql`((${col}) AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul')::date`
+
+/**
+ * Yerel saat (0–23). Yoğunluk grafiği için: "en yoğun saat 20:00" derken kastedilen
+ * TSİ 20:00'dir, UTC 20:00 değil. `localDay` ile aynı dönüşüm.
+ */
+export const localHour = (col: Prisma.Sql) =>
+  Prisma.sql`EXTRACT(HOUR FROM ((${col}) AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul'))::int`
 
 export type ReportRange = { start: Date; end: Date }
 
@@ -166,4 +175,77 @@ export const num = (v: unknown): number => {
   if (v == null) return 0
   const n = Number(v)
   return Number.isFinite(n) ? n : 0
+}
+
+/**
+ * Belirli bir ANDA açık olan adisyonlar (Faz D — ASAMA2.md).
+ *
+ * `status` ANLIK bir alandır; geçmiş bir gün sorulduğunda ona bakmak yanlış
+ * olurdu: dün 23:00'te açık olan masa bugün kapanmıştır ve artık `CLOSED`
+ * görünür. Doğru soru zaman aralığıdır — "o an açılmıştı ve henüz kapanmamıştı".
+ *
+ * İptaller HARİÇ: iptal edilen adisyon ne ciroya döndü ne stok düşürdü, oysa
+ * panelin tek işi "bu tutar henüz ciroya girmedi, bu mallar henüz stoktan
+ * düşmedi" demek. `closedAt` iptalde de yazıldığı için (adisyonlar/[id] DELETE)
+ * bugünün iptalleri zaten aralık koşuluyla eleniyor; `status` filtresi geçmiş
+ * günlerde kalanları da alır.
+ */
+export function openTicketsWhere(companyId: string, instant: Date) {
+  return {
+    companyId,
+    status: { not: "CANCELLED" },
+    openedAt: { lte: instant },
+    OR: [{ closedAt: null }, { closedAt: { gt: instant } }],
+  } satisfies Prisma.RestaurantTicketWhereInput
+}
+
+export type OpenTicketSummary = {
+  id: string
+  code: string
+  tableName: string | null
+  guestCount: number | null
+  openedAt: string
+  /** Açılışından `instant`a kadar geçen dakika — "3 saattir açık" uyarısı için. */
+  minutes: number
+  itemCount: number
+  /** KDV DAHİL — adisyon ekranında görünen tutarın aynısı. */
+  total: number
+}
+
+/**
+ * Açık adisyonları tutarlarıyla getirir. Toplam `ticketTotals` ile hesaplanır
+ * (SQL'de tekrar yazılmıyor): adisyon ekranı, salon planı ve rapor aynı sayıyı
+ * göstermek zorunda — ikinci bir toplama formülü er geç ayrışırdı.
+ *
+ * ORM ile çekiliyor çünkü açık adisyon sayısı doğası gereği küçüktür (salondaki
+ * masa sayısıyla sınırlı); ham SQL'e inmenin karşılığı yok.
+ */
+export async function loadOpenTickets(
+  db: Pick<typeof prisma, "restaurantTicket">,
+  companyId: string,
+  instant: Date,
+): Promise<OpenTicketSummary[]> {
+  const tickets = await db.restaurantTicket.findMany({
+    where: openTicketsWhere(companyId, instant),
+    select: {
+      id: true,
+      code: true,
+      guestCount: true,
+      openedAt: true,
+      table: { select: { name: true } },
+      items: { select: { quantity: true, unitPrice: true, vatRate: true } },
+    },
+    orderBy: { openedAt: "asc" },
+  })
+
+  return tickets.map((t) => ({
+    id: t.id,
+    code: t.code,
+    tableName: t.table?.name ?? null,
+    guestCount: t.guestCount,
+    openedAt: t.openedAt.toISOString(),
+    minutes: Math.max(0, Math.round((instant.getTime() - t.openedAt.getTime()) / 60000)),
+    itemCount: t.items.length,
+    total: ticketTotals(t.items).total,
+  }))
 }

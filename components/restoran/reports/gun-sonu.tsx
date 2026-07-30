@@ -22,6 +22,7 @@ import {
   Bar,
   ReportState,
   StatTile,
+  duration,
   marginTone,
   money,
   pct,
@@ -43,6 +44,18 @@ type Receipt = {
   cost: number
 }
 
+/** Gün kapanırken hâlâ açık olan masa — henüz fişe dönüşmemiş hesap. */
+type OpenTicket = {
+  id: string
+  code: string
+  tableName: string | null
+  guestCount: number | null
+  openedAt: string
+  minutes: number
+  itemCount: number
+  total: number
+}
+
 type Data = {
   summary: {
     receipts: number
@@ -55,8 +68,11 @@ type Data = {
     paid: number
     unpaid: number
     cashReceived: number
+    openTicketCount: number
+    openTicketTotal: number
   }
   receipts: Receipt[]
+  openTickets: OpenTicket[]
   payments: { method: string; count: number; amount: number }[]
   cashCounts: {
     id: string
@@ -90,6 +106,7 @@ export function GunSonuReport({ range }: ReportProps) {
   const s = data?.summary
   const payments = data?.payments ?? []
   const receipts = data?.receipts ?? []
+  const openTickets = data?.openTickets ?? []
   const maxPayment = Math.max(0, ...payments.map((p) => p.amount))
   const paymentTotal = payments.reduce((a, p) => a + p.amount, 0)
 
@@ -142,6 +159,16 @@ export function GunSonuReport({ range }: ReportProps) {
           tone={(s?.unpaid ?? 0) > 0.005 ? "warn" : "good"}
         />
         <StatTile label="Nakit tahsilat" value={money(s?.cashReceived ?? 0)} hint="kasaya giren" />
+        {/* Yalnız açık masa varken gösteriliyor: masasız çalışan bir kahvecide
+            sürekli "0" yazan bir kutu gürültüden başka bir şey değil. */}
+        {(s?.openTicketCount ?? 0) > 0 && (
+          <StatTile
+            label="Açık masalar"
+            value={money(s?.openTicketTotal ?? 0)}
+            hint={`${s?.openTicketCount} hesap · ciroya dahil değil`}
+            tone="warn"
+          />
+        )}
         <StatTile label="Hammadde maliyeti" value={money(s?.cost ?? 0)} />
         <StatTile
           label="Brüt kâr"
@@ -155,9 +182,50 @@ export function GunSonuReport({ range }: ReportProps) {
       <ReportState
         isLoading={isLoading && !data}
         error={error}
-        empty={receipts.length === 0 && payments.length === 0}
+        empty={receipts.length === 0 && payments.length === 0 && openTickets.length === 0}
         emptyText="Bu günde satış ya da tahsilat yok."
       />
+
+      {openTickets.length > 0 && (
+        <Card className="border-amber-300 dark:border-amber-800/60">
+          <CardHeader>
+            <CardTitle className="text-amber-700 dark:text-amber-400">
+              Gün sonunda açık kalan masalar
+            </CardTitle>
+            <CardDescription>
+              Bu hesaplar fişe dönüşmedi: yukarıdaki ciroya girmiyorlar ve malzemeleri
+              henüz stoktan düşmedi. Kasa sayımında bu tutarı hesaba katın.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {openTickets.map((t) => (
+              <Link
+                key={t.id}
+                href={`/restoran/adisyon/${t.id}?company=${companyId}`}
+                className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/50"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-semibold">
+                    {t.tableName || "Paket / Gel-al"}
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">{t.code}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Açılış {time(t.openedAt)} · {duration(t.minutes)} açık · {t.itemCount} kalem
+                    {t.guestCount ? ` · ${t.guestCount} kişi` : ""}
+                  </p>
+                </div>
+                <span className="shrink-0 font-bold tabular-nums">{money(t.total)}</span>
+              </Link>
+            ))}
+            <div className="flex items-center justify-between border-t pt-2 text-sm">
+              <span className="font-semibold">Toplam açık hesap</span>
+              <span className="font-bold tabular-nums text-amber-700 dark:text-amber-400">
+                {money(s?.openTicketTotal ?? 0)}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {(payments.length > 0 || (data?.cashCounts.length ?? 0) > 0) && (
         <div className="grid gap-4 lg:grid-cols-2">
