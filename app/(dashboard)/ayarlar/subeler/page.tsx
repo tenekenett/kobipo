@@ -7,9 +7,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ArrowRight, Building2, CheckCircle2, Plus } from "lucide-react"
+import { findCompanyByParam } from "@/lib/company/client-selection"
 
 interface Company {
   id: string
+  slug?: string
   name: string
   isEDonusumEnabled?: boolean
   isBranch?: boolean
@@ -25,6 +27,9 @@ export default function SubelerPage() {
     : "/companies/new?mode=branch"
   const [companies, setCompanies] = useState<Company[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  // `?company=` SEF sonrası slug taşır; kartlardaki "Aktif" rozeti cuid ile karşılaştırıldığı
+  // için hiç görünmüyordu. Param'ı önce gerçek id'ye çöz.
+  const activeId = findCompanyByParam(companies, activeCompanyId)?.id ?? activeCompanyId
 
   useEffect(() => {
     let cancelled = false
@@ -93,7 +98,7 @@ export default function SubelerPage() {
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {companies.map((c) => {
-                const isActive = c.id === activeCompanyId
+                const isActive = c.id === activeId
                 return (
                   <div
                     key={c.id}

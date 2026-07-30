@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { getUserContext } from "@/lib/auth/user-context"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
 import {
   getAccountSubscription,
   countAccountBranches,
@@ -87,7 +88,12 @@ export async function POST(request: Request) {
     // Şube modu: parentCompanyId verilirse, oluşturulan kayıt ana firmaya bağlı bir
     // şubedir. VKN/vergi dairesi/e-Dönüşüm kimliği ana firmadan DEVRALINIR (aynı tüzel
     // kişi) — istemciden gelen taxNumber/taxOffice/e-Dönüşüm alanları yok sayılır.
-    const normalizedParentId = normalizeOptionalString(parentCompanyId)
+    //
+    // SEF sonrası dashboard URL'leri `?company=<slug>` taşır ve "Yeni Şube" bağlantısı bu
+    // değeri `parent=` olarak aktarır → buraya cuid yerine SLUG gelebilir. resolveCompanyId
+    // ile cuid'e çevrilmezse ensureCompanyAccess eşleşme bulamaz ve kullanıcı kendi ana
+    // firmasındayken "Ana firmaya erişiminiz yok" hatası alır.
+    const normalizedParentId = await resolveCompanyId(normalizeOptionalString(parentCompanyId))
 
     const trimmedName = String(name || "").trim()
     const normalizedTaxNumber = normalizeOptionalString(taxNumber)

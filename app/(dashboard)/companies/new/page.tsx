@@ -108,7 +108,13 @@ export default function NewCompanyPage() {
         body: JSON.stringify(payload),
       })
 
-      let data: { id?: string; error?: string; code?: string } = {}
+      let data: {
+        id?: string
+        error?: string
+        code?: string
+        branchQuota?: number
+        currentBranches?: number
+      } = {}
       try {
         data = await response.json()
       } catch {
@@ -117,6 +123,14 @@ export default function NewCompanyPage() {
 
       if (!response.ok) {
         if (data.code === "PLAN_LIMIT_EXCEEDED") {
+          // Şube kotası ile firma (maxCompanies) limiti ayrı sınırlar — mesajı karıştırma.
+          if (isBranch) {
+            const quota = data.branchQuota ?? 0
+            throw new Error(
+              `Şube kotanız dolu (${data.currentBranches ?? 0}/${quota}). ` +
+                "Yeni şube eklemek için aboneliğinizden ek şube satın alın."
+            )
+          }
           throw new Error("Bu paketle yeni şirket ekleyemezsiniz. Lütfen paketinizi yükseltin.")
         }
         if (data.code === "COMPANY_TAX_NUMBER_CONFLICT") {
