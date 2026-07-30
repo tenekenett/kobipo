@@ -316,7 +316,7 @@ function PricingSection({ items, onChanged }: { items: PricingItem[]; onChanged:
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-white">Tekil Fiyatlar (à la carte)</h2>
+          <h2 className="text-lg font-semibold text-white">Tekil Fiyatlar</h2>
           <p className="text-sm text-slate-500">
             Paket dışı tekil modül ekleme ve ek şube birim fiyatları.
           </p>

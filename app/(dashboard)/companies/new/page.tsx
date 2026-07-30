@@ -178,17 +178,6 @@ export default function NewCompanyPage() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
-            <div className="flex justify-end">
-              <Button type="submit" variant="success" disabled={isLoading}>
-                {isBranch
-                  ? isLoading
-                    ? "Ekleniyor..."
-                    : "Şube Ekle"
-                  : isLoading
-                    ? "Oluşturuluyor..."
-                    : "Firma Oluştur"}
-              </Button>
-            </div>
             {isBranch && (
               <div className="flex items-start gap-2 rounded-md border border-kobipo-blue/30 bg-kobipo-blue/5 p-3 text-xs text-kobipo-navy dark:border-primary/30 dark:bg-primary/10 dark:text-foreground">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-kobipo-blue dark:text-primary" />
