@@ -64,6 +64,8 @@ export default async function DashboardLayout({
     id: entry.companyId,
     slug: entry.companySlug,
     name: entry.companyName,
+    // Rol firma bazındadır: provider aktif rolü seçili firmadan türetir.
+    role: entry.role,
     isEDonusumEnabled: entry.isEDonusumEnabled,
     disabledModules: entry.disabledModules,
     isBranch: Boolean(entry.isBranch),

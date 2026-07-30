@@ -18,6 +18,7 @@ import { Building2, Check, ChevronDown, Laptop, LogOut, Moon, PanelLeftClose, Pa
 import { NotificationBell } from "@/components/dashboard/notification-bell"
 import { MenuSearch } from "@/components/dashboard/menu-search"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { CompanyLink } from "@/components/dashboard/company-link"
 import { useSidebar } from "@/components/dashboard/sidebar-provider"
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
 import { useTheme } from "@/components/providers/theme-provider"
@@ -180,16 +181,17 @@ export function DashboardHeader() {
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/ayarlar/profil" className="flex items-center gap-2">
+                <CompanyLink href="/ayarlar/profil" className="flex items-center gap-2">
                   <User className="h-4 w-4" />
                   Profil
-                </Link>
+                </CompanyLink>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/ayarlar/firma" className="flex items-center gap-2">
+                {/* Param'sız gitse `/ayarlar/firma` seçili şubeyi bırakıp ilk firmaya düşüyordu. */}
+                <CompanyLink href="/ayarlar/firma" className="flex items-center gap-2">
                   <Settings className="h-4 w-4" />
                   Firma Ayarları
-                </Link>
+                </CompanyLink>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

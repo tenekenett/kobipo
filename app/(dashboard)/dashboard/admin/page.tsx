@@ -3,6 +3,8 @@ import { redirect } from "next/navigation"
 import { Settings } from "lucide-react"
 import { Role } from "@prisma/client"
 import { getAuthContext, resolveActiveCompany } from "@/lib/middleware/authorization"
+import { roleToDashboardPath } from "@/lib/auth/role-paths"
+import { withCompanyHref } from "@/lib/company/href"
 import { DashboardStats } from "@/components/dashboard/admin/dashboard-stats"
 import { DashboardCashflow } from "@/components/dashboard/admin/dashboard-cashflow"
 import { DashboardRecentInvoices } from "@/components/dashboard/admin/dashboard-recent-invoices"
@@ -35,7 +37,9 @@ export default async function AdminDashboard({
     activeCompany.role !== Role.ADMIN &&
     activeCompany.role !== Role.BRANCH_MANAGER
   ) {
-    redirect("/")
+    // Rolün kendi paneline gönder — `/` panel değil, pazarlama sayfasıdır (app/page.tsx).
+    // Firma param'ı korunmazsa kullanıcı ayrıca seçili şube/firmadan da düşer.
+    redirect(withCompanyHref(roleToDashboardPath(activeCompany.role), activeCompany.companySlug))
   }
 
   const companyId = activeCompany.companyId
@@ -77,7 +81,7 @@ export default async function AdminDashboard({
         <Suspense fallback={<RecentInvoicesSkeleton />}>
           <DashboardRecentInvoices companyId={companyId} />
         </Suspense>
-        <DashboardQuickActions />
+        <DashboardQuickActions companyId={companyId} />
       </div>
     </div>
   )

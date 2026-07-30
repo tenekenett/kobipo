@@ -1,8 +1,17 @@
 import Link from "next/link"
 import { FileText, Package, TrendingUp, Users } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { withCompanyHref } from "@/lib/company/href"
 
-export function DashboardQuickActions() {
+interface DashboardQuickActionsProps {
+  companyId: string
+}
+
+export function DashboardQuickActions({ companyId }: DashboardQuickActionsProps) {
+  // Aksiyonlar panelin gösterdiği firmaya gider; param düşerse kullanıcı başka firmada
+  // kayıt açmaya başlar. Bkz. [[lib/company/href.ts]]
+  const href = (path: string) => withCompanyHref(path, companyId)
+
   return (
     <Card>
       <CardHeader>
@@ -12,7 +21,7 @@ export function DashboardQuickActions() {
       <CardContent>
         <div className="grid grid-cols-2 gap-3">
           <Link
-            href="/cari"
+            href={href("/cari")}
             className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors"
           >
             <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
@@ -25,7 +34,7 @@ export function DashboardQuickActions() {
           </Link>
 
           <Link
-            href="/e-donusum"
+            href={href("/e-donusum")}
             className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors"
           >
             <div className="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
@@ -38,7 +47,7 @@ export function DashboardQuickActions() {
           </Link>
 
           <Link
-            href="/stok"
+            href={href("/stok")}
             className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors"
           >
             <div className="w-10 h-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
@@ -51,7 +60,7 @@ export function DashboardQuickActions() {
           </Link>
 
           <Link
-            href="/raporlar"
+            href={href("/raporlar")}
             className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors"
           >
             <div className="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">

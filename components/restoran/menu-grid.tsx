@@ -12,7 +12,7 @@
 // adisyondaki adet gösterilir.
 
 import { useMemo, useState } from "react"
-import Link from "next/link"
+import { CompanyLink } from "@/components/dashboard/company-link"
 import { ChefHat, CupSoda, Search } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { FetchErrorText } from "@/components/ui/fetch-error"
@@ -144,12 +144,12 @@ export function MenuGrid({
               // etmek yerine doğrudan oraya bağlıyoruz.
               <>
                 Menüde ürün yok.{" "}
-                <Link
+                <CompanyLink
                   href="/restoran/menu"
                   className="font-semibold text-kobipo-blue underline-offset-4 hover:underline dark:text-primary"
                 >
                   Menü &amp; Reçeteler
-                </Link>{" "}
+                </CompanyLink>{" "}
                 ekranından ürünlerinizi menüye alın.
               </>
             ) : (

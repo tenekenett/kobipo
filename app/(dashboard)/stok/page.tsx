@@ -1,5 +1,7 @@
 "use client"
 
+import { withCompanyHref } from "@/lib/company/href"
+
 import { useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -547,7 +549,7 @@ export default function StokPage() {
           }}
         />
         <Button variant="outline" asChild>
-          <Link href="/stok/etiket">
+          <Link href={withCompanyHref("/stok/etiket", companyId)}>
             <Sticker className="mr-2 h-4 w-4" />
             Etiket Tasarımı
           </Link>

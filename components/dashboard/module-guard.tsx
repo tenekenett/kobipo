@@ -1,9 +1,9 @@
 "use client"
 
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Lock } from "lucide-react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { CompanyLink } from "@/components/dashboard/company-link"
 import { moduleKeyForPath } from "@/components/dashboard/nav-config"
 
 /**
@@ -35,12 +35,12 @@ export function ModuleGuard({ children }: { children: React.ReactNode }) {
             Bu modül firmanız için kapatılmış. Erişim açmak için sistem yöneticinizle iletişime
             geçin.
           </p>
-          <Link
+          <CompanyLink
             href="/dashboard"
             className="mt-6 inline-block rounded-lg bg-kobipo-blue px-4 py-2 text-sm font-medium text-white hover:opacity-90"
           >
             Panele dön
-          </Link>
+          </CompanyLink>
         </div>
       </div>
     )

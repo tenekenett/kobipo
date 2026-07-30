@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { AlertTriangle, CheckCircle2, Loader2, Mailbox, RefreshCw, Save } from "lucide-react"
 import Link from "next/link"
 import { getFirstAccessibleCompanyId } from "@/lib/company/client-selection"
+import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 
 interface Company {
   id: string
@@ -37,6 +38,11 @@ export default function FirmaAyarlariPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
+  const {
+    selectedCompany,
+    companies: accessibleCompanies,
+    isLoading: isLoadingCompanies,
+  } = useDashboardCompany()
   const { toast } = useToast()
   const [company, setCompany] = useState<Company | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -74,43 +80,21 @@ export default function FirmaAyarlariPage() {
       return
     }
 
-    let isMounted = true
+    // Param yoksa SEÇİMİ PROVIDER ÇÖZER (URL → localStorage → cookie) ve `?company=`
+    // olarak adres çubuğuna yazar. Burada eskiden /api/companies çekilip KOŞULSUZ
+    // ilk firmaya `router.replace` ediliyordu: header'daki "Firma Ayarları" linki
+    // param taşımadığı için şubedeki kullanıcı ana firmanın ayarlarına düşüyor,
+    // üstelik provider ile yarışıyordu. Artık yalnızca provider'ın da bir seçim
+    // üretemediği durumda (hiç firma yok) kuruluma yönlendiriyoruz.
+    setIsResolvingCompany(true)
+    if (isLoadingCompanies) return
 
-    const resolveCompany = async () => {
-      setIsResolvingCompany(true)
-      try {
-        const response = await fetch("/api/companies")
-        if (!response.ok) {
-          throw new Error("Failed to fetch companies")
-        }
-
-        const companies: Company[] = await response.json()
-        if (!isMounted) return
-
-        const firstCompanyId = getFirstAccessibleCompanyId(companies)
-        if (firstCompanyId) {
-          router.replace(`/ayarlar/firma?company=${firstCompanyId}`)
-        } else {
-          router.replace("/companies/new")
-        }
-      } catch (error) {
-        console.error("Error resolving company:", error)
-        if (isMounted) {
-          router.replace("/dashboard")
-        }
-      } finally {
-        if (isMounted) {
-          setIsResolvingCompany(false)
-        }
-      }
-    }
-
-    resolveCompany()
-
-    return () => {
-      isMounted = false
-    }
-  }, [companyId, router])
+    const selected = selectedCompany?.slug ?? selectedCompany?.id
+    const fallback = selected ?? getFirstAccessibleCompanyId(accessibleCompanies)
+    router.replace(
+      fallback ? `/ayarlar/firma?company=${encodeURIComponent(fallback)}` : "/companies/new"
+    )
+  }, [companyId, isLoadingCompanies, selectedCompany, accessibleCompanies, router])
 
   const fetchCompany = async () => {
     if (!companyId) return

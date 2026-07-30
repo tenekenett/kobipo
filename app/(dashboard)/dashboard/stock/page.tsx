@@ -12,6 +12,8 @@ import {
 import { Role } from "@prisma/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { getAuthContext, resolveActiveCompany } from "@/lib/middleware/authorization"
+import { roleToDashboardPath } from "@/lib/auth/role-paths"
+import { withCompanyHref } from "@/lib/company/href"
 import {
   RecentInvoicesSkeleton,
   StatsSkeleton,
@@ -26,6 +28,7 @@ export const dynamic = "force-dynamic"
 
 async function StockStatsCards({ companyId }: { companyId: string }) {
   const stats = await getStockStats(companyId)
+  const href = (path: string) => withCompanyHref(path, companyId)
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       <Card className="rounded-2xl border border-kobipo-border shadow-card">
@@ -35,7 +38,7 @@ async function StockStatsCards({ companyId }: { companyId: string }) {
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold">{stats.totalProducts}</div>
-          <Link href="/stok" className="text-xs text-orange-500 hover:underline">
+          <Link href={href("/stok")} className="text-xs text-orange-500 hover:underline">
             Tümünü gör →
           </Link>
         </CardContent>
@@ -117,6 +120,7 @@ async function LowStockCard({ companyId }: { companyId: string }) {
 
 async function RecentMovementsCard({ companyId }: { companyId: string }) {
   const recentMovements = await getRecentStockMovements(companyId, 10)
+  const href = (path: string) => withCompanyHref(path, companyId)
   return (
     <Card>
       <CardHeader>
@@ -125,7 +129,7 @@ async function RecentMovementsCard({ companyId }: { companyId: string }) {
             <ArrowUpDown className="h-5 w-5 text-blue-500" />
             Son Stok Hareketleri
           </span>
-          <Link href="/stok" className="text-sm text-blue-500 hover:underline font-normal">
+          <Link href={href("/stok")} className="text-sm text-blue-500 hover:underline font-normal">
             Tümü →
           </Link>
         </CardTitle>
@@ -178,7 +182,8 @@ async function RecentMovementsCard({ companyId }: { companyId: string }) {
   )
 }
 
-function StockQuickActions() {
+function StockQuickActions({ companyId }: { companyId: string }) {
+  const href = (path: string) => withCompanyHref(path, companyId)
   return (
     <Card>
       <CardHeader>
@@ -187,28 +192,28 @@ function StockQuickActions() {
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 gap-3">
-          <Link href="/stok" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+          <Link href={href("/stok")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
             <Package className="w-8 h-8 text-orange-500" />
             <div>
               <p className="font-medium text-sm">Yeni Ürün</p>
               <p className="text-xs text-muted-foreground">Ürün ekle</p>
             </div>
           </Link>
-          <Link href="/stok" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+          <Link href={href("/stok")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
             <TrendingUp className="w-8 h-8 text-green-500" />
             <div>
               <p className="font-medium text-sm">Stok Girişi</p>
               <p className="text-xs text-muted-foreground">Stok ekle</p>
             </div>
           </Link>
-          <Link href="/stok" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+          <Link href={href("/stok")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
             <TrendingDown className="w-8 h-8 text-red-500" />
             <div>
               <p className="font-medium text-sm">Stok Çıkışı</p>
               <p className="text-xs text-muted-foreground">Stok düş</p>
             </div>
           </Link>
-          <Link href="/raporlar" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+          <Link href={href("/raporlar")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
             <BarChart3 className="w-8 h-8 text-blue-500" />
             <div>
               <p className="font-medium text-sm">Stok Raporu</p>
@@ -235,7 +240,8 @@ export default async function StockDashboard({
   const activeCompany = resolveActiveCompany(authContext, requested) ?? authContext.activeCompany
   const allowedRoles: Role[] = [Role.STOCK, Role.ADMIN]
   if (!allowedRoles.includes(activeCompany.role)) {
-    redirect("/")
+    // `/` panel değil pazarlama sayfasıdır (app/page.tsx); rolün kendi paneline gönder.
+    redirect(withCompanyHref(roleToDashboardPath(activeCompany.role), activeCompany.companySlug))
   }
   const companyId = activeCompany.companyId
 
@@ -267,7 +273,7 @@ export default async function StockDashboard({
         <Suspense fallback={<RecentInvoicesSkeleton />}>
           <RecentMovementsCard companyId={companyId} />
         </Suspense>
-        <StockQuickActions />
+        <StockQuickActions companyId={companyId} />
       </div>
     </div>
   )

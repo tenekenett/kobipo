@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getRecentInvoices } from "@/lib/dashboard/admin-queries"
+import { withCompanyHref } from "@/lib/company/href"
 
 interface DashboardRecentInvoicesProps {
   companyId: string
@@ -14,7 +15,11 @@ export async function DashboardRecentInvoices({ companyId }: DashboardRecentInvo
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <span>Son Faturalar</span>
-          <Link href="/e-donusum" className="text-sm text-blue-500 hover:underline font-normal">
+          {/* Liste hangi firmaya aitse link de oraya gider — şube detayında aktif seçim ana firmadır. */}
+          <Link
+            href={withCompanyHref("/e-donusum", companyId)}
+            className="text-sm text-blue-500 hover:underline font-normal"
+          >
             Tümü →
           </Link>
         </CardTitle>

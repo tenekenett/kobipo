@@ -4,7 +4,7 @@
 // Maliyet satış anında donduruldu (StockMovement.unitPrice); bu ekran onu okur,
 // yeniden hesaplamaz — sonradan gelen zam geçmiş günleri değiştirmez.
 
-import Link from "next/link"
+import { CompanyLink } from "@/components/dashboard/company-link"
 import { AlertTriangle } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
@@ -95,12 +95,12 @@ export function KarlilikReport({ range }: ReportProps) {
               <strong>{totals?.pricelessCount}</strong> üründe maliyet bilgisi yok (ne alış
               hareketi ne de alış fiyatı). Bu ürünler <strong>sıfır maliyetle</strong> hesaba
               girdi — gerçek kâr burada görünenden düşük. Alış fiyatlarını{" "}
-              <Link
+              <CompanyLink
                 href="/restoran/menu"
                 className="font-semibold text-kobipo-blue underline-offset-4 hover:underline dark:text-primary"
               >
                 Menü &amp; Reçeteler
-              </Link>{" "}
+              </CompanyLink>{" "}
               ekranından tamamlayabilirsiniz.
             </p>
           </CardContent>

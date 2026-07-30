@@ -13,6 +13,8 @@ export type DashboardCompany = {
   id: string
   slug?: string
   name: string
+  /** Kullanıcının BU firmadaki rolü (şubede parent-admin'den gelen sanal ADMIN). */
+  role?: string
   isEDonusumEnabled?: boolean
   disabledModules?: string[]
   // Üyelik değil; parent-admin erişimiyle gelen alt şube. Üst seçicide gizlenir.
@@ -48,7 +50,7 @@ export function DashboardCompanyProvider({
   const searchParams = useSearchParams()
   const [companies, setCompanies] = useState<DashboardCompany[]>(initialCompanies)
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
-  const [userRole, setUserRole] = useState(initialRole)
+  const [fallbackRole, setFallbackRole] = useState(initialRole)
   const [isLoading, setIsLoading] = useState(initialCompanies.length === 0)
 
   const pushCompanyToUrl = useCallback(
@@ -60,7 +62,7 @@ export function DashboardCompanyProvider({
 
   useEffect(() => {
     setCompanies(initialCompanies)
-    setUserRole(initialRole)
+    setFallbackRole(initialRole)
     setIsLoading(initialCompanies.length === 0)
   }, [initialCompanies, initialRole])
 
@@ -165,6 +167,13 @@ export function DashboardCompanyProvider({
     () => companies.find((c) => c.id === selectedCompanyId) ?? null,
     [companies, selectedCompanyId]
   )
+
+  // Rol SEÇİLİ firmadan gelir. Önceden yalnızca `initialRole` (ilk ÜYE firmanın rolü)
+  // kullanılıyor ve firma değişince güncellenmiyordu: A firmasında ACCOUNTANT, B'de ADMIN
+  // olan kullanıcı B'ye geçtiğinde hâlâ muhasebeci menüsünü görüyordu. Şubede de aynı —
+  // şubedeki (parent-admin) sanal ADMIN rolü yerine ana firmanın rolü uygulanıyordu.
+  // Seçim çözülene kadar ilk firmanın rolüne düşülür.
+  const userRole = selectedCompany?.role ?? fallbackRole
 
   const value = useMemo(
     () => ({

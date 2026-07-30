@@ -15,6 +15,8 @@ import {
 import { Role } from "@prisma/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { getAuthContext, resolveActiveCompany } from "@/lib/middleware/authorization"
+import { roleToDashboardPath } from "@/lib/auth/role-paths"
+import { withCompanyHref } from "@/lib/company/href"
 import {
   RecentInvoicesSkeleton,
   StatsSkeleton,
@@ -29,6 +31,7 @@ export const dynamic = "force-dynamic"
 
 async function SalesStatsCards({ companyId }: { companyId: string }) {
   const stats = await getSalesStats(companyId)
+  const href = (path: string) => withCompanyHref(path, companyId)
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       <Card className="rounded-2xl border border-kobipo-border shadow-card">
@@ -50,7 +53,7 @@ async function SalesStatsCards({ companyId }: { companyId: string }) {
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold">{stats.customerCount}</div>
-          <Link href="/cari" className="text-xs text-blue-500 hover:underline">
+          <Link href={href("/cari")} className="text-xs text-blue-500 hover:underline">
             Müşteri listesi →
           </Link>
         </CardContent>
@@ -62,7 +65,7 @@ async function SalesStatsCards({ companyId }: { companyId: string }) {
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold">{stats.productCount}</div>
-          <Link href="/stok" className="text-xs text-orange-500 hover:underline">
+          <Link href={href("/stok")} className="text-xs text-orange-500 hover:underline">
             Ürün kataloğu →
           </Link>
         </CardContent>
@@ -83,6 +86,7 @@ async function SalesStatsCards({ companyId }: { companyId: string }) {
 
 async function RecentSalesInvoicesCard({ companyId }: { companyId: string }) {
   const recentInvoices = await getRecentSalesInvoices(companyId, 5)
+  const href = (path: string) => withCompanyHref(path, companyId)
   return (
     <Card>
       <CardHeader>
@@ -91,7 +95,7 @@ async function RecentSalesInvoicesCard({ companyId }: { companyId: string }) {
             <Receipt className="h-5 w-5 text-green-500" />
             Son Satış Faturaları
           </span>
-          <Link href="/e-donusum" className="text-sm text-green-500 hover:underline font-normal">
+          <Link href={href("/e-donusum")} className="text-sm text-green-500 hover:underline font-normal">
             Tümü →
           </Link>
         </CardTitle>
@@ -197,9 +201,11 @@ export default async function SalesDashboard({
   const activeCompany = resolveActiveCompany(authContext, requested) ?? authContext.activeCompany
   const allowedRoles: Role[] = [Role.SALES, Role.ADMIN]
   if (!allowedRoles.includes(activeCompany.role)) {
-    redirect("/")
+    // `/` panel değil pazarlama sayfasıdır (app/page.tsx); rolün kendi paneline gönder.
+    redirect(withCompanyHref(roleToDashboardPath(activeCompany.role), activeCompany.companySlug))
   }
   const companyId = activeCompany.companyId
+  const href = (path: string) => withCompanyHref(path, activeCompany.companySlug)
 
   return (
     <div className="space-y-6">
@@ -232,7 +238,7 @@ export default async function SalesDashboard({
 
       {/* Öne çıkan: Hızlı Satış */}
       <Link
-        href="/satis/hizli"
+        href={href("/satis/hizli")}
         className="group relative flex items-center justify-between gap-4 overflow-hidden rounded-2xl bg-gradient-to-br from-kobipo-blue to-kobipo-mid p-5 text-white shadow-lg shadow-kobipo-blue/20 transition hover:shadow-xl"
       >
         <div className="flex items-center gap-4">
@@ -257,28 +263,28 @@ export default async function SalesDashboard({
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Link href="/e-donusum" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+            <Link href={href("/e-donusum")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
               <FileText className="w-8 h-8 text-green-500" />
               <div>
                 <p className="font-medium text-sm">Yeni Satış</p>
                 <p className="text-xs text-muted-foreground">Fatura oluştur</p>
               </div>
             </Link>
-            <Link href="/cari" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+            <Link href={href("/cari")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
               <Users className="w-8 h-8 text-blue-500" />
               <div>
                 <p className="font-medium text-sm">Yeni Müşteri</p>
                 <p className="text-xs text-muted-foreground">Müşteri ekle</p>
               </div>
             </Link>
-            <Link href="/stok" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+            <Link href={href("/stok")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
               <Package className="w-8 h-8 text-orange-500" />
               <div>
                 <p className="font-medium text-sm">Stok Kontrol</p>
                 <p className="text-xs text-muted-foreground">Stok durumu</p>
               </div>
             </Link>
-            <Link href="/raporlar" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+            <Link href={href("/raporlar")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
               <TrendingUp className="w-8 h-8 text-purple-500" />
               <div>
                 <p className="font-medium text-sm">Satış Raporu</p>

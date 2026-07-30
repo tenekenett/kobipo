@@ -4,6 +4,8 @@ import Link from "next/link"
 import { BarChart3, Eye, FileText, Package, TrendingUp, Users } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { getAuthContext, resolveActiveCompany } from "@/lib/middleware/authorization"
+import { roleToDashboardPath } from "@/lib/auth/role-paths"
+import { withCompanyHref } from "@/lib/company/href"
 import { DashboardCashflow } from "@/components/dashboard/admin/dashboard-cashflow"
 import {
   CashflowChartSkeleton,
@@ -74,6 +76,7 @@ export default async function ViewerDashboard({
   const requested = typeof sp.company === "string" ? sp.company : undefined
   const activeCompany = resolveActiveCompany(authContext, requested) ?? authContext.activeCompany
   const companyId = activeCompany.companyId
+  const href = (path: string) => withCompanyHref(path, activeCompany.companySlug)
 
   return (
     <div className="space-y-6">
@@ -128,28 +131,28 @@ export default async function ViewerDashboard({
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Link href="/raporlar" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+            <Link href={href("/raporlar")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
               <TrendingUp className="w-8 h-8 text-green-500" />
               <div>
                 <p className="font-medium text-sm">Gelir/Gider</p>
                 <p className="text-xs text-muted-foreground">Finansal analiz</p>
               </div>
             </Link>
-            <Link href="/raporlar" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+            <Link href={href("/raporlar")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
               <FileText className="w-8 h-8 text-blue-500" />
               <div>
                 <p className="font-medium text-sm">KDV Raporu</p>
                 <p className="text-xs text-muted-foreground">Vergi özeti</p>
               </div>
             </Link>
-            <Link href="/raporlar" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+            <Link href={href("/raporlar")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
               <Package className="w-8 h-8 text-orange-500" />
               <div>
                 <p className="font-medium text-sm">Stok Raporu</p>
                 <p className="text-xs text-muted-foreground">Stok durumu</p>
               </div>
             </Link>
-            <Link href="/raporlar" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+            <Link href={href("/raporlar")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
               <Users className="w-8 h-8 text-purple-500" />
               <div>
                 <p className="font-medium text-sm">Cari Rapor</p>

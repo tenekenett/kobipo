@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ArrowRight, Building2, CheckCircle2, Plus } from "lucide-react"
 import { findCompanyByParam } from "@/lib/company/client-selection"
+import { withCompanyHref } from "@/lib/company/href"
 
 interface Company {
   id: string
@@ -134,7 +135,12 @@ export default function SubelerPage() {
                     </div>
                     {c.isBranch ? (
                       <Link
-                        href={`/ayarlar/subeler/${encodeURIComponent(c.id)}`}
+                        // Aktif firma taşınır: detay sayfası ŞUBEnin verisini gösterir ama
+                        // seçim ana firmadadır; param düşerse geri dönüş bağlamı kaybolur.
+                        href={withCompanyHref(
+                          `/ayarlar/subeler/${encodeURIComponent(c.id)}`,
+                          activeCompanyId
+                        )}
                         className="inline-flex shrink-0 self-center items-center gap-1.5 rounded-md border border-teal-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-teal-700 transition hover:bg-teal-50 dark:border-teal-800 dark:bg-transparent dark:text-teal-300 dark:hover:bg-teal-900/30"
                         aria-label="Şube detayı"
                       >

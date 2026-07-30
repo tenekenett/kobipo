@@ -41,6 +41,8 @@ export async function GET() {
         id: c.companyId,
         slug: c.companySlug,
         name: c.companyName,
+        // Rol firma bazında değişir; istemci aktif rolü seçili firmadan türetir.
+        role: c.role,
         isEDonusumEnabled: c.isEDonusumEnabled,
         disabledModules: c.disabledModules,
         isBranch: Boolean(c.isBranch),

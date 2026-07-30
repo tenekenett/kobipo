@@ -17,7 +17,6 @@
 // servis akışından çıkarıldı — garsonun kararını değiştirmiyorlardı.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
@@ -62,6 +61,8 @@ import { SplitDialog } from "@/components/restoran/split-dialog"
 import { PaymentPanel } from "@/components/satis/payment-panel"
 import { useToast } from "@/components/ui/use-toast"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { CompanyLink } from "@/components/dashboard/company-link"
+import { withCompanyHref } from "@/lib/company/href"
 import {
   useAccounts,
   useProducts,
@@ -335,7 +336,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body?.error || "İptal edilemedi")
       toast({ title: "Adisyon iptal edildi" })
-      router.push("/restoran/masalar")
+      router.push(withCompanyHref("/restoran/masalar", companyId))
     } catch (e: any) {
       toast({ title: "İptal edilemedi", description: e.message, variant: "destructive" })
     }
@@ -840,7 +841,9 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
                 <Printer className="mr-1.5 h-4 w-4" />
                 Yazdır
               </Button>
-              <Button onClick={() => router.push("/restoran/masalar")}>Masalara dön</Button>
+              <Button onClick={() => router.push(withCompanyHref("/restoran/masalar", companyId))}>
+                Masalara dön
+              </Button>
             </div>
           </DialogFooter>
         </DialogContent>
@@ -989,12 +992,12 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
 
 function BackLink() {
   return (
-    <Link
+    <CompanyLink
       href="/restoran/masalar"
       className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
     >
       <ArrowLeft className="h-4 w-4" />
       Masalar
-    </Link>
+    </CompanyLink>
   )
 }

@@ -11,6 +11,7 @@ import { allNavItems, navGroups, navItemActive, standaloneNavHrefs, type NavItem
 import { MODULE_GROUP_TO_KEY } from "@/lib/modules"
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { withCompanyHref } from "@/lib/company/href"
 import { useSidebar } from "@/components/dashboard/sidebar-provider"
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
 export function DashboardNav() {
@@ -26,11 +27,7 @@ export function DashboardNav() {
   // düşer — kullanıcı sürekli ana firmaya "geri atılır". Bkz. resolveActiveCompany.
   const companyParam = selectedCompany?.slug ?? selectedCompany?.id ?? null
   const withCompany = useCallback(
-    (href: string) => {
-      if (!companyParam) return href
-      const sep = href.includes("?") ? "&" : "?"
-      return `${href}${sep}company=${encodeURIComponent(companyParam)}`
-    },
+    (href: string) => withCompanyHref(href, companyParam),
     [companyParam]
   )
   /** Grup başlığı -> kapalıysa true (varsayılan: tüm gruplar kapalı) */

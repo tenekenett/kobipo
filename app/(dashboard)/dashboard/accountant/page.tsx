@@ -14,6 +14,8 @@ import {
 import { Role } from "@prisma/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { getAuthContext, resolveActiveCompany } from "@/lib/middleware/authorization"
+import { roleToDashboardPath } from "@/lib/auth/role-paths"
+import { withCompanyHref } from "@/lib/company/href"
 import { RevenueChart } from "@/components/dashboard/revenue-chart"
 import {
   CashflowChartSkeleton,
@@ -28,6 +30,7 @@ export const dynamic = "force-dynamic"
 
 async function AccountantStatsCards({ companyId }: { companyId: string }) {
   const stats = await getAccountantStats(companyId)
+  const href = (path: string) => withCompanyHref(path, companyId)
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       <Card className="rounded-2xl border border-kobipo-border shadow-card">
@@ -37,7 +40,7 @@ async function AccountantStatsCards({ companyId }: { companyId: string }) {
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold">{stats.customerCount}</div>
-          <Link href="/cari" className="text-xs text-blue-500 hover:underline">
+          <Link href={href("/cari")} className="text-xs text-blue-500 hover:underline">
             Cari hesaplar →
           </Link>
         </CardContent>
@@ -49,7 +52,7 @@ async function AccountantStatsCards({ companyId }: { companyId: string }) {
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold">{stats.supplierCount}</div>
-          <Link href="/cari" className="text-xs text-purple-500 hover:underline">
+          <Link href={href("/cari")} className="text-xs text-purple-500 hover:underline">
             Cari hesaplar →
           </Link>
         </CardContent>
@@ -61,7 +64,7 @@ async function AccountantStatsCards({ companyId }: { companyId: string }) {
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold">{stats.invoiceCount}</div>
-          <Link href="/e-donusum" className="text-xs text-green-500 hover:underline">
+          <Link href={href("/e-donusum")} className="text-xs text-green-500 hover:underline">
             Faturalar →
           </Link>
         </CardContent>
@@ -154,12 +157,13 @@ async function AccountantCashflow({ companyId }: { companyId: string }) {
 
 async function RecentTransactionsCard({ companyId }: { companyId: string }) {
   const recentTransactions = await getRecentTransactions(companyId, 10)
+  const href = (path: string) => withCompanyHref(path, companyId)
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <span>Son İşlemler</span>
-          <Link href="/finans" className="text-sm text-blue-500 hover:underline font-normal">
+          <Link href={href("/finans")} className="text-sm text-blue-500 hover:underline font-normal">
             Tümü →
           </Link>
         </CardTitle>
@@ -196,7 +200,8 @@ async function RecentTransactionsCard({ companyId }: { companyId: string }) {
   )
 }
 
-function QuickActions() {
+function QuickActions({ companyId }: { companyId: string }) {
+  const href = (path: string) => withCompanyHref(path, companyId)
   return (
     <Card>
       <CardHeader>
@@ -205,28 +210,28 @@ function QuickActions() {
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 gap-3">
-          <Link href="/e-donusum" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+          <Link href={href("/e-donusum")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
             <FileText className="w-8 h-8 text-green-500" />
             <div>
               <p className="font-medium text-sm">Yeni Fatura</p>
               <p className="text-xs text-muted-foreground">Fatura oluştur</p>
             </div>
           </Link>
-          <Link href="/cari/ekstre" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+          <Link href={href("/cari/ekstre")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
             <Receipt className="w-8 h-8 text-blue-500" />
             <div>
               <p className="font-medium text-sm">Cari Ekstre</p>
               <p className="text-xs text-muted-foreground">Ekstre görüntüle</p>
             </div>
           </Link>
-          <Link href="/finans" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+          <Link href={href("/finans")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
             <Wallet className="w-8 h-8 text-purple-500" />
             <div>
               <p className="font-medium text-sm">Finans</p>
               <p className="text-xs text-muted-foreground">Hesap hareketleri</p>
             </div>
           </Link>
-          <Link href="/raporlar" className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
+          <Link href={href("/raporlar")} className="flex items-center gap-3 p-4 rounded-lg border hover:bg-muted transition-colors">
             <TrendingUp className="w-8 h-8 text-orange-500" />
             <div>
               <p className="font-medium text-sm">KDV Raporu</p>
@@ -253,7 +258,8 @@ export default async function AccountantDashboard({
   const activeCompany = resolveActiveCompany(authContext, requested) ?? authContext.activeCompany
   const allowedRoles: Role[] = [Role.ACCOUNTANT, Role.ADMIN]
   if (!allowedRoles.includes(activeCompany.role)) {
-    redirect("/")
+    // `/` panel değil pazarlama sayfasıdır (app/page.tsx); rolün kendi paneline gönder.
+    redirect(withCompanyHref(roleToDashboardPath(activeCompany.role), activeCompany.companySlug))
   }
   const companyId = activeCompany.companyId
 
@@ -292,7 +298,7 @@ export default async function AccountantDashboard({
         <Suspense fallback={<RecentInvoicesSkeleton />}>
           <RecentTransactionsCard companyId={companyId} />
         </Suspense>
-        <QuickActions />
+        <QuickActions companyId={companyId} />
       </div>
     </div>
   )

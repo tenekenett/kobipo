@@ -1,5 +1,7 @@
 "use client"
 
+import { withCompanyHref } from "@/lib/company/href"
+
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import Link from "next/link"
@@ -93,7 +95,7 @@ export default function KontorOdemePage() {
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4">
       <Link
-        href="/e-donusum/kontor"
+        href={withCompanyHref("/e-donusum/kontor", companyId)}
         className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
@@ -121,7 +123,7 @@ export default function KontorOdemePage() {
                 Kontör bakiyeniz güncellendi. Detaylar Kontör sayfasında.
               </p>
               <Button asChild className="mt-2">
-                <Link href="/e-donusum/kontor">Kontör'e dön</Link>
+                <Link href={withCompanyHref("/e-donusum/kontor", companyId)}>Kontör'e dön</Link>
               </Button>
             </div>
           ) : isFailed ? (
@@ -135,7 +137,7 @@ export default function KontorOdemePage() {
                   "Ekibimiz durumu görebiliyor; kısa sürede tamamlanacaktır. Sorun sürerse destekle iletişime geçin."}
               </p>
               <Button asChild variant="outline" className="mt-2">
-                <Link href="/e-donusum/kontor">Kontör'e dön</Link>
+                <Link href={withCompanyHref("/e-donusum/kontor", companyId)}>Kontör'e dön</Link>
               </Button>
             </div>
           ) : tokenError ? (

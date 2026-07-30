@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import { Role } from "@prisma/client"
 import { ArrowLeft, ArrowRight, Building2 } from "lucide-react"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { withCompanyHref } from "@/lib/company/href"
 import { DashboardStats } from "@/components/dashboard/admin/dashboard-stats"
 import { DashboardCashflow } from "@/components/dashboard/admin/dashboard-cashflow"
 import { DashboardRecentInvoices } from "@/components/dashboard/admin/dashboard-recent-invoices"
@@ -18,10 +19,16 @@ export const dynamic = "force-dynamic"
 
 export default async function BranchDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
 }) {
   const { id } = await params
+  // Geri linki AKTİF firmayı korur: bu sayfa şubenin verisini gösterir ama seçim
+  // (ve Şube Yönetimi listesi) ana firmadadır — param düşerse kullanıcı bağlamı kaybeder.
+  const query = (await searchParams) ?? {}
+  const activeCompany = typeof query.company === "string" ? query.company : null
 
   // Yetki: bu firmaya/şubeye erişimi olmalı (ana firma ADMIN'i ya da kendisinin
   // ADMIN'i). ensureCompanyAccess parent-admin şubelerini de kapsar.
@@ -40,7 +47,7 @@ export default async function BranchDetailPage({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <Link
-            href="/ayarlar/subeler"
+            href={withCompanyHref("/ayarlar/subeler", activeCompany)}
             className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
             <ArrowLeft className="h-3.5 w-3.5" />

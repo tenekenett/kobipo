@@ -55,6 +55,7 @@ import {
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { withCompanyHref } from "@/lib/company/href"
 import {
   useAreas,
   usePlanItems,
@@ -314,7 +315,7 @@ export function FloorPlanScreen() {
   const openTable = useCallback(
     async (table: PlanTable) => {
       if (table.openTicket) {
-        router.push(`/restoran/adisyon/${table.openTicket.id}`)
+        router.push(withCompanyHref(`/restoran/adisyon/${table.openTicket.id}`, companyId))
         return
       }
       setBusyTableId(table.id)
@@ -329,12 +330,12 @@ export function FloorPlanScreen() {
         // döndürüyor, kullanıcıyı hata ekranına düşürmeden oraya götürüyoruz.
         if (res.status === 409 && body?.ticket?.id) {
           void mutate()
-          router.push(`/restoran/adisyon/${body.ticket.id}`)
+          router.push(withCompanyHref(`/restoran/adisyon/${body.ticket.id}`, companyId))
           return
         }
         if (!res.ok) throw new Error(body?.error || "Adisyon açılamadı")
         void mutate()
-        router.push(`/restoran/adisyon/${body.id}`)
+        router.push(withCompanyHref(`/restoran/adisyon/${body.id}`, companyId))
       } catch (e: any) {
         toast({ title: "Adisyon açılamadı", description: e.message, variant: "destructive" })
       } finally {

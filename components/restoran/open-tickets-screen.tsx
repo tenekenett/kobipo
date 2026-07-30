@@ -17,6 +17,7 @@ import { FetchErrorText } from "@/components/ui/fetch-error"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/use-toast"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { withCompanyHref } from "@/lib/company/href"
 import { useOpenTickets } from "@/lib/swr/use-restoran"
 import { currency } from "@/lib/fis/receipt-html"
 import { cn } from "@/lib/utils"
@@ -70,7 +71,7 @@ export function OpenTicketsScreen() {
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body?.error || "Adisyon açılamadı")
-      router.push(`/restoran/adisyon/${body.id}`)
+      router.push(withCompanyHref(`/restoran/adisyon/${body.id}`, companyId))
     } catch (e: any) {
       toast({ title: "Adisyon açılamadı", description: e.message, variant: "destructive" })
     } finally {
@@ -175,7 +176,7 @@ export function OpenTicketsScreen() {
               <button
                 key={t.id}
                 type="button"
-                onClick={() => router.push(`/restoran/adisyon/${t.id}`)}
+                onClick={() => router.push(withCompanyHref(`/restoran/adisyon/${t.id}`, companyId))}
                 className="rounded-xl border bg-card p-3 text-left transition-colors hover:border-kobipo-blue dark:hover:border-primary"
               >
                 <div className="flex items-start justify-between gap-2">

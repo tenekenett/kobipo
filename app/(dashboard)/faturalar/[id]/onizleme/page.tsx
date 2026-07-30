@@ -1,5 +1,7 @@
 "use client"
 
+import { withCompanyHref } from "@/lib/company/href"
+
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -640,7 +642,7 @@ export default function FaturaOnizlemePage() {
           </Button>
         ) : (
           <Button variant="outline" asChild>
-            <Link href="/satis/fatura">Faturalara dön</Link>
+            <Link href={withCompanyHref("/satis/fatura", companyId)}>Faturalara dön</Link>
           </Button>
         )}
       </div>

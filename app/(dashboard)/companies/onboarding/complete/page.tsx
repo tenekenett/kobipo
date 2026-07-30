@@ -57,7 +57,9 @@ export default function OnboardingCompletePage() {
           </p>
         </CardContent>
         <CardFooter className="justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => router.push("/dashboard")}>
+          {/* Otomatik yönlendirme ve "Yenile ve Devam Et" yeni firmaya gider; bu buton
+              param'sız gidip kullanıcıyı ilk/eski firmaya düşürüyordu. */}
+          <Button type="button" variant="outline" onClick={() => router.push(dashboardUrl)}>
             Dashboard'a Dön
           </Button>
           <Button type="button" onClick={handleManualRefreshAndContinue}>
