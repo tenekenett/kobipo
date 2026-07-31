@@ -72,6 +72,11 @@ import { DiscountDialog, type DiscountValue } from "@/components/restoran/discou
 import { useProductOptions } from "@/lib/swr/use-restoran"
 import { submitReceiptSale } from "@/lib/satis/submit-receipt-sale"
 import { expandRecipeLines } from "@/lib/stock/recipe-expand"
+import {
+  optionEffect,
+  optionRecipeEffects,
+  type TicketItemOption,
+} from "@/lib/restoran/ticket-constants"
 
 type CafeLine = {
   key: string
@@ -82,8 +87,12 @@ type CafeLine = {
   unitPrice: number
   vatRate: number
   quantity: number
-  /** Seçilen porsiyon/seçenekler — fişte ve sepette ürün adının altında görünür. */
-  options?: Array<{ groupName: string; optionName: string; priceDelta: number }>
+  /**
+   * Seçilen porsiyon/seçenekler — fişte ve sepette ürün adının altında görünür.
+   * Reçete etkisini de taşır (soya sütü, ekstra shot, büyük boy): adisyon
+   * kalemiyle AYNI şekil, aynı yardımcılar iki ekranda da çalışsın diye.
+   */
+  options?: TicketItemOption[]
   note?: string | null
 }
 
@@ -302,7 +311,13 @@ export function CafeSaleScreen() {
   const expansion = useMemo(
     () =>
       expandRecipeLines({
-        lines: cart.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+        // Seçenek etkileri uyarıya da girer: soya sütlü latte satarken uyarı
+        // ineğin sütünü değil soya sütünü göstermeli, yoksa uyarı ile fiilen
+        // düşen miktar ayrışır (bu ekranın temel sözü).
+        lines: cart.map((l) => {
+          const { effects, recipeFactor } = optionRecipeEffects(l.options)
+          return { productId: l.productId, quantity: l.quantity, effects, recipeFactor }
+        }),
         recipes: recipeMap,
         unitOf,
       }),
@@ -399,14 +414,21 @@ export function CafeSaleScreen() {
       // gelmesi gibi ayrıntılar iki ekranda ayrışmasın.
       const result = await submitReceiptSale({
         companyId,
-        items: snapshot.map((l) => ({
-          productId: l.productId,
-          description: describeLine(l),
-          unit: l.unit,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          vatRate: l.vatRate,
-        })),
+        items: snapshot.map((l) => {
+          // Seçeneğin reçete etkisi fiş ucuna ayrı alanlarla gider; faturaya
+          // yazılmaz, yalnız stok düşümünü yönlendirir (K6).
+          const { effects, recipeFactor } = optionRecipeEffects(l.options)
+          return {
+            productId: l.productId,
+            description: describeLine(l),
+            unit: l.unit,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            vatRate: l.vatRate,
+            recipeEffects: effects,
+            recipeFactor,
+          }
+        }),
         payment,
         accounts,
         customerId,
@@ -852,16 +874,20 @@ export function CafeSaleScreen() {
           const product = optionFor
           setOptionFor(null)
           if (!product) return
-          const picked = groupsOf(product.id)
-            .flatMap((g) =>
-              g.options
-                .filter((o) => pick.optionIds.includes(o.id))
-                .map((o) => ({
-                  groupName: g.name,
-                  optionName: o.name,
-                  priceDelta: o.priceDelta,
-                })),
-            )
+          const picked = groupsOf(product.id).flatMap((g) =>
+            g.options
+              .filter((o) => pick.optionIds.includes(o.id))
+              .map((o) => ({
+                groupName: g.name,
+                optionName: o.name,
+                priceDelta: o.priceDelta,
+                // Reçete etkisi seçim anında kopyalanır (adisyon ucundaki
+                // kuralın aynısı): sepetteki satır menü sonradan değişse de
+                // hangi malzemeyi harcadığını kendi içinde taşır.
+                effect: optionEffect(o),
+                recipeFactor: o.recipeFactor,
+              })),
+          )
           addLine(product, { options: picked, note: pick.note })
         }}
       />

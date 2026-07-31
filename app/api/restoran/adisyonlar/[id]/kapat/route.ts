@@ -3,7 +3,13 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
-import { assertRestaurantModule, serializeTicket, ticketInclude } from "@/lib/restoran/tickets"
+import {
+  assertRestaurantModule,
+  optionRecipeEffects,
+  parseItemOptions,
+  serializeTicket,
+  ticketInclude,
+} from "@/lib/restoran/tickets"
 import { writeCompWasteStock } from "@/lib/restoran/comp-waste-stock"
 
 export const dynamic = "force-dynamic"
@@ -83,25 +89,33 @@ export async function GET(request: Request, { params }: Params) {
         // Hesap iskontosu fatura ALTI (genel) iskonto olarak gider ve NET
         // beklenir; `ticketTotals` brüt iskontonun matrah karşılığını veriyor.
         globalDiscountAmount: view.totals.netDiscount > 0 ? view.totals.netDiscount : undefined,
-        items: billable.map((item) => ({
-          productId: item.productId,
-          // Seçenekler ve not kalem adına yazılır: fişte "Latte (Büyük · Soya sütü)"
-          // görünmezse müşteri ne için para verdiğini okuyamaz.
-          description: [
-            item.description,
-            [item.options.map((o) => o.optionName).join(" · "), item.note]
+        items: billable.map((item) => {
+          // Seçeneğin reçeteye etkisi fiş ucuna AYRI alanlarla gider: fatura
+          // kalemine yazılmaz (belgede işi yok), yalnız stok düşümünü yönlendirir.
+          // Soya sütlü latte satılınca inek sütü düşmesin diye — K6.
+          const { effects, recipeFactor } = optionRecipeEffects(item.options)
+          return {
+            productId: item.productId,
+            // Seçenekler ve not kalem adına yazılır: fişte "Latte (Büyük · Soya sütü)"
+            // görünmezse müşteri ne için para verdiğini okuyamaz.
+            description: [
+              item.description,
+              [item.options.map((o) => o.optionName).join(" · "), item.note]
+                .filter(Boolean)
+                .join(" · "),
+            ]
               .filter(Boolean)
-              .join(" · "),
-          ]
-            .filter(Boolean)
-            .join(" — ")
-            .slice(0, 500),
-          unit: item.unit,
-          quantity: item.quantity,
-          // NET fiyat — fatura ucu net bekliyor (kahveci ekranıyla aynı kural).
-          unitPrice: item.unitPrice,
-          vatRate: item.vatRate,
-        })),
+              .join(" — ")
+              .slice(0, 500),
+            unit: item.unit,
+            quantity: item.quantity,
+            // NET fiyat — fatura ucu net bekliyor (kahveci ekranıyla aynı kural).
+            unitPrice: item.unitPrice,
+            vatRate: item.vatRate,
+            recipeEffects: effects,
+            recipeFactor,
+          }
+        }),
       },
     })
   } catch (error: any) {
@@ -180,13 +194,18 @@ export async function POST(request: Request, { params }: Params) {
       reference: invoiceId,
       warehouseId: body.warehouseId ? String(body.warehouseId) : null,
       createdBy: user.id,
-      lines: (fresh?.items ?? []).map((item) => ({
-        productId: item.productId,
-        quantity: Number(item.quantity),
-        status: item.status,
-        reasonCode: item.reasonCode,
-        description: item.description,
-      })),
+      lines: (fresh?.items ?? []).map((item) => {
+        const { effects, recipeFactor } = optionRecipeEffects(parseItemOptions(item.options))
+        return {
+          productId: item.productId,
+          quantity: Number(item.quantity),
+          status: item.status,
+          reasonCode: item.reasonCode,
+          description: item.description,
+          effects,
+          recipeFactor,
+        }
+      }),
     })
 
     return NextResponse.json(serializeTicket(fresh!))

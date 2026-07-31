@@ -12,7 +12,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { resolveUnitCosts } from "@/lib/stock/cost"
-import { expandRecipeLines } from "@/lib/stock/recipe-expand"
+import { expandRecipeLines, type RecipeEffect } from "@/lib/stock/recipe-expand"
 import { loadRecipeContext } from "@/lib/stock/recipe"
 import { adjustWarehouseStock } from "@/lib/stock/warehouse"
 import { reasonLabel } from "@/lib/restoran/tickets"
@@ -23,6 +23,10 @@ export type CompWasteLine = {
   status: string
   reasonCode: string | null
   description: string
+  /** Kalemin seçeneklerinden kopyalanan reçete sapmaları (soya sütü, ekstra shot). */
+  effects?: RecipeEffect[]
+  /** Porsiyon çarpanı ("büyük boy" = 1,5). */
+  recipeFactor?: number
 }
 
 /**
@@ -56,7 +60,14 @@ export async function writeCompWasteStock(args: {
     // Hizmet ürünlerinin stoğu yok; genişletmeden SONRA elenir (reçeteli bir
     // menü ürünü hizmet işaretliyse bile bileşenleri düşmeli).
     const { direct, components, errors } = expandRecipeLines({
-      lines: lines.map((l) => ({ productId: l.productId as string, quantity: l.quantity })),
+      lines: lines.map((l) => ({
+        productId: l.productId as string,
+        quantity: l.quantity,
+        // İkram edilen soya sütlü latte'de de soya sütü düşmeli: seçenek etkisi
+        // satış yolundaki ile AYNI (SATIS-EKRANI.md K6).
+        effects: l.effects,
+        recipeFactor: l.recipeFactor,
+      })),
       recipes,
       unitOf,
     })

@@ -11,7 +11,11 @@ import { ensureUsageLimit } from "@/lib/middleware/usage"
 import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 import { loadRecipeContext } from "@/lib/stock/recipe"
 import { resolveUnitCosts } from "@/lib/stock/cost"
-import { expandRecipeLines } from "@/lib/stock/recipe-expand"
+import {
+  expandRecipeLines,
+  hasActiveRecipe,
+  parseRecipeEffects,
+} from "@/lib/stock/recipe-expand"
 
 
 export const dynamic = 'force-dynamic'
@@ -301,6 +305,13 @@ const company = await prisma.company.findUnique({
           typeof item.taxExemptionReason === "string" && item.taxExemptionReason.trim()
             ? item.taxExemptionReason.trim()
             : null,
+        // Seçeneğin (porsiyon/modifier) reçeteye etkisi — restoran satış
+        // ekranlarından gelir, YALNIZ stok düşümünde kullanılır ve faturaya
+        // YAZILMAZ: müşterinin belgesinde seçenek zaten kalem adında duruyor,
+        // "0,2 LT soya sütü" satırı orada işi olmayan bir üretim ayrıntısıdır.
+        // Bkz. docs/restoran/SATIS-EKRANI.md K6.
+        recipeEffects: parseRecipeEffects(item.recipeEffects),
+        recipeFactor: Number(item.recipeFactor) > 0 ? Number(item.recipeFactor) : 1,
       }))
 
     if (normalizedItems.length === 0) {
@@ -456,6 +467,7 @@ const company = await prisma.company.findUnique({
     // Stok hareketi: depo bazlı. warehouseId verilmezse firmanın varsayılan deposu
     // kullanılır. Satış → çıkış (OUT, − miktar), Alış/İade → giriş (IN, + miktar).
     const safeType = String(type || "").trim().toUpperCase()
+    type StockItem = { productId: string; delta: number; unitPrice: number | null; order: number }
     const stockItems = invoice.items
       .map((item) => {
         const safeProductId = item.productId || (item as any).product?.id || null
@@ -464,9 +476,17 @@ const company = await prisma.company.findUnique({
         if (safeType === "SALES") delta = -Number(item.quantity)
         else if (safeType === "PURCHASE" || safeType === "RETURN") delta = Number(item.quantity)
         if (delta === 0) return null
-        return { productId: safeProductId as string, delta, unitPrice: item.unitPrice != null ? Number(item.unitPrice) : null }
+        return {
+          productId: safeProductId as string,
+          delta,
+          unitPrice: item.unitPrice != null ? Number(item.unitPrice) : null,
+          // Reçete etkisi SATIRA özeldir (soya sütlü latte ile normal latte aynı
+          // üründür); eşleme `order` üzerinden yapılır çünkü `invoice.items`
+          // dönüş sırası garantili değil.
+          order: Number(item.order) || 0,
+        }
       })
-      .filter((x): x is { productId: string; delta: number; unitPrice: number | null } => x !== null)
+      .filter((x): x is StockItem => x !== null)
 
     // REÇETE GENİŞLETME — yalnız SATIŞ. Reçetesi olan mamül (Latte) kendi stoğundan
     // DÜŞMEZ; bileşenlerine açılır ve bileşenin de reçetesi varsa (yarı mamül,
@@ -494,17 +514,38 @@ const company = await prisma.company.findUnique({
         // geçer. Böylece reçetesiz ürünlerin mevcut davranışı BİREBİR korunur —
         // aynı üründen iki satır varsa yine iki ayrı hareket, her biri kendi birim
         // fiyatıyla yazılır (genişletici bunları tek satırda toplardı).
-        const willExpand = (id: string) => {
-          const r = recipes.get(id)
-          return Boolean(r && r.isActive && r.items.length > 0)
+        const willExpand = (id: string) => hasActiveRecipe(recipes, id)
+        const extrasOf = (order: number) => {
+          const item = normalizedItems[order]
+          if (!item) return null
+          if (item.recipeEffects.length === 0 && item.recipeFactor === 1) return null
+          return { effects: item.recipeEffects, recipeFactor: item.recipeFactor }
         }
+
         const toExpand = stockItems.filter((s) => willExpand(s.productId))
         const passthrough = stockItems.filter((s) => !willExpand(s.productId))
+        // Reçetesiz ama seçeneğinde EK MALZEME olan satırlar ("kutu kola +
+        // pipet"): ürünün kendisi yukarıdaki gibi satır satır geçer, yalnız ek
+        // malzemesi genişletilir (`expandBase: false`).
+        const effectsOnly = passthrough.filter((s) => extrasOf(s.order))
 
-        if (toExpand.length > 0) {
+        if (toExpand.length > 0 || effectsOnly.length > 0) {
           const { direct, components, errors } = expandRecipeLines({
             // stockItems'ta satış deltası negatiftir; genişletme pozitif miktar bekler.
-            lines: toExpand.map((s) => ({ productId: s.productId, quantity: -s.delta })),
+            lines: [
+              ...toExpand.map((s) => ({
+                productId: s.productId,
+                quantity: -s.delta,
+                effects: extrasOf(s.order)?.effects,
+                recipeFactor: extrasOf(s.order)?.recipeFactor,
+              })),
+              ...effectsOnly.map((s) => ({
+                productId: s.productId,
+                quantity: -s.delta,
+                effects: extrasOf(s.order)?.effects,
+                expandBase: false,
+              })),
+            ],
             recipes,
             unitOf,
           })

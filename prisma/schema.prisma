@@ -569,6 +569,9 @@ model Product {
   usedInRecipes   ProductRecipeItem[] @relation("RecipeComponent")
   ticketItems     RestaurantTicketItem[]
   optionGroups    ProductOptionGroup[]
+  // Bu ürünün seçenek reçete etkisinde geçtiği yerler (süt → soya sütü).
+  optionEffectFrom ProductOption[] @relation("OptionEffectFrom")
+  optionEffectTo   ProductOption[] @relation("OptionEffectTo")
 
   @@unique([companyId, slug])
   @@index([companyId])
@@ -829,10 +832,36 @@ model ProductOption {
   priceDelta Decimal  @default(0) @db.Decimal(12, 2)
   isDefault  Boolean  @default(false)
   order      Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+
+  // ---- Reçete etkisi (docs/restoran/SATIS-EKRANI.md K6) ----------------------
+  // Seçenek yalnız FİYATI değil MALZEMEYİ de değiştirir: soya sütlü latte'de
+  // stoktan inek sütü düşerse ikram/zayi düzeltmesi kadar sessiz bir maliyet
+  // yalanı doğar. Üç mod, hepsi isteğe bağlı:
+  //
+  //   SWAP → reçetedeki `fromProduct` yerine `toProduct` düşer (miktar REÇETEDEN
+  //          gelir; `toProduct` boşsa bileşen hiç düşmez: "şekersiz")
+  //   ADD  → reçeteye ek olarak `toProduct` × `effectQuantity effectUnit` düşer
+  //          ("ekstra shot"); eklenen ürünün kendi reçetesi de açılır
+  //   —    → `recipeFactor` tek başına kullanılabilir: reçetenin TAMAMI ölçeklenir
+  //          ("büyük boy" = 1.5). Reçetesi olmayan üründe etkisizdir.
+  //
+  // Etki, seçim anında adisyon kalemine KOPYALANIR (fiyat gibi): tanım sonradan
+  // değişse açık adisyonun stok karşılığı değişmez.
+  effectMode     String?  @db.VarChar(10) // SWAP | ADD | null
+  fromProductId  String?
+  toProductId    String?
+  effectQuantity Decimal? @db.Decimal(14, 4)
+  effectUnit     String?  @db.VarChar(20)
+  recipeFactor   Decimal? @db.Decimal(6, 3)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   group ProductOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  // SetNull: hammadde kartı silinse de seçenek (ve menü) ayakta kalır; eksik
+  // taraflı etki genişletmede sessizce atlanır.
+  fromProduct Product? @relation("OptionEffectFrom", fields: [fromProductId], references: [id], onDelete: SetNull)
+  toProduct   Product? @relation("OptionEffectTo", fields: [toProductId], references: [id], onDelete: SetNull)
 
   @@index([groupId])
   @@map("product_options")

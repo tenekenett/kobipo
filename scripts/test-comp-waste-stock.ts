@@ -129,6 +129,59 @@ async function main() {
   const expectedAfter = before + expected + expected / 3
   check("ürün bakiyesi güncellendi", Math.abs(after - expectedAfter) < 0.0001, `${before} → ${after}`)
 
+  // Seçeneğin reçete etkisi ikram/zayi yolunda da geçerli olmalı: soya sütlü
+  // bir latte ikram edildiğinde inek sütü düşerse ikram maliyeti de yanlış olur
+  // (docs/restoran/SATIS-EKRANI.md K6). Etkinin fiilen uygulandığını iki uçtan
+  // kanıtlıyoruz: "çıkar" hiç düşmemeli, çarpan tam katına düşmeli.
+  console.log("\n== Seçenek reçete etkisi ==")
+  const removeRef = `TEST-SWAP-${Date.now()}`
+  await writeCompWasteStock({
+    companyId: company.id,
+    lines: [
+      {
+        productId: mamul.id,
+        quantity: 1,
+        status: "COMP",
+        reasonCode: "PROMO",
+        description: mamul.name,
+        // "Şekersiz" deseni: bileşen reçeteden çıkarıldı.
+        effects: [{ mode: "SWAP", fromProductId: component.id, toProductId: null }],
+      },
+    ],
+    ticketCode: "ADS-TEST-SWAP",
+    reference: removeRef,
+  })
+  const removedMove = await prisma.stockMovement.count({
+    where: { companyId: company.id, reference: removeRef, productId: component.id },
+  })
+  check("değişimle ÇIKARILAN bileşen ikramda da düşmedi", removedMove === 0, `${removedMove} hareket`)
+
+  const factorRef = `TEST-FACTOR-${Date.now()}`
+  await writeCompWasteStock({
+    companyId: company.id,
+    lines: [
+      {
+        productId: mamul.id,
+        quantity: 1,
+        status: "COMP",
+        reasonCode: "PROMO",
+        description: mamul.name,
+        recipeFactor: 2,
+      },
+    ],
+    ticketCode: "ADS-TEST-FACTOR",
+    reference: factorRef,
+  })
+  const factorMove = await prisma.stockMovement.findFirst({
+    where: { companyId: company.id, reference: factorRef, productId: component.id },
+    select: { quantity: true },
+  })
+  check(
+    "porsiyon çarpanı malzemeyi ölçekledi (2 kat)",
+    Math.abs(num(factorMove?.quantity) - num(unitMove?.quantity) * 2) < 0.0001,
+    `${num(factorMove?.quantity)} = 2 × ${num(unitMove?.quantity)}`,
+  )
+
   console.log("\n== VOID tek başına hiçbir şey yazmaz ==")
   const voidRef = `TEST-VOID-${Date.now()}`
   await writeCompWasteStock({
@@ -145,7 +198,7 @@ async function main() {
   check("iptal hareketi yok", voidMoves === 0, `${voidMoves} hareket`)
 
   console.log("\n== Temizlik ==")
-  const testRefs = [reference, unitRef]
+  const testRefs = [reference, unitRef, removeRef, factorRef]
   const moved = await prisma.stockMovement.groupBy({
     by: ["productId"],
     where: { companyId: company.id, reference: { in: testRefs } },

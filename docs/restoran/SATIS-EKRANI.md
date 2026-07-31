@@ -163,8 +163,20 @@ Model: `ProductOptionGroup` (ad, zorunlu mu, çoklu seçim mi, min/max) + `Produ
 (ad, fiyat farkı, isteğe bağlı hammadde bağı). Adisyon kalemi seçilenleri `description`'a
 kopyalar (ürün adı kopyalama kuralıyla aynı) ve fiyat farkını `unitPrice`'a yansıtır.
 
-**Reçete etkisi Faz 3'ün ikinci yarısı:** "soya sütü" seçildiğinde reçetedeki sütün yerine
-soya sütü düşmeli. Önce fiyat farkı (kolay ve paranın kaçtığı yer), sonra malzeme değişimi.
+**Reçete etkisi Faz 3'ün ikinci yarısı** — *2026-07-31'de yapıldı, aşağıya bak.* Seçenek
+yalnız fiyatı değil MALZEMEYİ de değiştirir; üç mod:
+
+| Mod | Ne yapar | Örnek |
+|---|---|---|
+| **Değişim** (`SWAP`) | Reçetedeki bileşenin yerine başkası düşer; **miktar reçeteden gelir** | süt → soya sütü |
+| — hedefsiz | Bileşen hiç düşmez | "şekersiz" |
+| **Ekleme** (`ADD`) | Reçeteye ek malzeme düşer (kendi reçetesi de açılır) | +1 ekstra shot |
+| **Çarpan** (`recipeFactor`) | Reçetenin TAMAMI ölçeklenir; moddan bağımsız | büyük boy = 1,5× |
+
+Değişimde miktarın ayrıca sorulmaması bilinçli: sorulsaydı aynı sayı iki yerde yaşar ve
+reçete güncellenince sessizce yanlışa dönerdi. Çarpan **reçetesi olmayan üründe yok
+sayılır** ("1,5 şişe su" diye bir şey yok) ve **ek malzemeyi ölçeklemez** (büyük boy latte
+yine tek ekstra shot).
 
 ### K7 — İki ekran kalır, panel ortaklaşır
 
@@ -240,6 +252,13 @@ ortaklaştırma çizgisinin devamı.
   ────────────────────
   🗑 Adisyonu iptal et
 ```
+
+> **Masayı değiştir** ve **veresiye carisi** 2026-07-31'de eklendi. İkisinin de
+> sunucu tarafı baştan hazırdı (`PATCH /adisyonlar/[id]` → `tableId` / `customerId`),
+> yalnız ekranda girişi yoktu: masa değişince tek çare adisyonu iptal etmek,
+> veresiyede ise borç kimseye yazılmıyordu. Cari, ödeme diyaloğunda **yalnız
+> "Veresiye" seçilince** sorulur (kahveci ekranıyla aynı desen) ve adisyona
+> yazılır — kapanış gövdesini sunucu üretiyor, seçim sayfa yenilenince kaybolmamalı.
 
 ### 4.4 Ödeme diyaloğu (tek adım)
 
@@ -317,6 +336,7 @@ RestaurantTicketItem  + status      NORMAL | COMP | WASTE | VOID
                       + optionsJson seçilen seçenekler (ad + fiyat farkı)  ← F3
 RestaurantTicket      + discountType/discountValue/discountReason          ← F1
 ProductOptionGroup / ProductOption                                         ← F3
+ProductOption         + effectMode/from/to/quantity/unit/recipeFactor      ← F3.5 (reçete etkisi)
 PaymentMethod         + MEAL_CARD (+ sağlayıcı adı)                        ← F2
 ```
 
@@ -392,10 +412,71 @@ kartı (tek satırlık açılır şeride indi), satırdaki çöp ikonu.
 ### Yapılmayan / sonraki
 
 - **F4:** gerçek adisyon bölme (ayrı fiş), masa birleştirme, kalem transferi.
-- Seçeneğin **reçeteye** etkisi (soya sütü seçilince reçetedeki sütün yerine soya
-  sütünün düşmesi) — şu an yalnız FİYAT farkı işliyor.
 - Kalem bazlı iskonto (bilinçli: K3).
 - Ekranların tarayıcıda gözle doğrulaması.
+
+---
+
+## Seçeneğin reçeteye etkisi — 2026-07-31 ✅
+
+K6'nın "Faz 3'ün ikinci yarısı" olarak bırakılan kısmı. Bundan önce soya sütlü latte
+satılınca stoktan **inek sütü** düşüyordu: menü doğru, maliyet yalandı.
+
+### Nereden geçiyor
+
+Zincirin can alıcı yeri şuydu: stok düşümü `/api/e-donusum/invoices` içinde satırın
+`productId`'sine göre yapılıyor, seçenekler ise faturaya yalnız **metin** olarak gidiyor
+("Latte — Soya sütü"). Bu yüzden etki, faturaya YAZILMAYAN ayrı bir alanla taşınıyor:
+
+```
+Seçenek tanımı (ProductOption)
+   └─ seçim anında KOPYALANIR → adisyon kalemi options JSON  (fiyat gibi)
+        └─ kapanış: kapat GET → invoicePayload.items[].recipeEffects / recipeFactor
+             └─ fatura ucu: yalnız expandRecipeLines'a girer, InvoiceItem'a YAZILMAZ
+```
+
+Faturanın kaleminde yalnız seçeneğin **adı** durur — müşterinin belgesinde "0,2 LT soya
+sütü" satırının işi yok. Kopyalama kuralı fiyatınkiyle aynı: menü sonradan düzenlense
+açık adisyonun stok karşılığı değişmez.
+
+| Ne | Nerede |
+|---|---|
+| Etki tipi + güvenli okuyucu | `lib/stock/recipe-expand.ts` — `RecipeEffect`, `parseRecipeEffects`, `hasActiveRecipe` |
+| Genişletme | Aynı dosya: SWAP **her derinlikte** uygulanır (kahve, Espresso'nun içinden gelse de), ADD kök mamüle atfedilir, çarpan yalnız reçeteli üründe |
+| Tanım → etki çevrimi | `lib/restoran/ticket-constants.ts` — `optionEffect`, `optionRecipeEffects` (çarpanlar ÇARPILARAK birleşir) |
+| Kaleme kopyalama | `adisyonlar/[id]/kalemler` POST |
+| Kapanış | `kapat` GET (fiş gövdesi) + `writeCompWasteStock` (ikram/zayi de aynı etkiyi uygular) |
+| Kahveci | `cafe-sale-screen` → `submitReceiptSale` (`recipeEffects`/`recipeFactor` alanları) |
+| Kurulum | `product-options-dialog` — şık satırındaki 🧪 düğmesinin arkasında (K8 mantığı: dört alan her şıkta açık durmaz) |
+| Uyarı | İki satış ekranının "yetersiz stok" şeridi de etkileri hesaba katar — uyarı ile fiilen düşen miktar ayrışmaz |
+
+`expandBase: false` bayrağı: reçetesiz bir ürünün seçeneğinde ek malzeme varsa
+(kutu kola + pipet) ürünün kendi hareketi satır satır korunur, yalnız ek malzeme
+genişletilir. Genişletici aynı ürünün iki satırını tek satırda toplardı.
+
+### Doğrulama
+
+| Betik | Sonuç |
+|---|---|
+| `node scripts/test-recipe-expand.mjs` | **84/84** (+39): değişim, alt reçetede değişim, çıkarma, ekleme (iç içe reçeteyle), çarpan, çarpanın ek malzemeyi ölçeklememesi, satır bazlılık, birim uyuşmazlığı, silinmiş hedef |
+| `node scripts/test-ticket-totals.mjs` | **38/38** (+13): etkinin kaleme kopyalanıp geri okunması, bozuk etkinin elenmesi, çarpanların çarpılması |
+| `npx tsx scripts/test-comp-waste-stock.ts` | **13/13** (+2): ikramda da çıkarma ve çarpan uygulanıyor |
+| `node scripts/test-receipt-sale.mjs` | **23/23** (+4): etki fiş ucuna gidiyor, etkisiz satıra alan eklenmiyor |
+| `node scripts/test-restoran-adisyon.mjs` (gerçek uçlar) | **80/80** (+12): **"sütsüz" seçilince süt 0 düştü**, **"büyük boy" tam 2 kat düştü**, başka firmanın ürünü etkiye bağlanamıyor, fatura kalemi yalnız seçenek adını taşıyor |
+| `test-payment` · `test-avco-revert` | 32/32 · 15/15 |
+
+`tsc --noEmit` ve `eslint` temiz.
+
+### Bilinçli sınırlar
+
+- **Menü performansı raporu** maliyeti fatura kaleminden + reçeteden türetiyor; etkiler
+  faturada durmadığı için o rapor soya sütlü latte'yi **temel reçeteyle** maliyetlendirir.
+  Stok bakiyesi ve karlılık raporu doğru (hareketler gerçek malzemeyi taşıyor). Kesin
+  çözüm `stock_movements.sourceProductId` — ilerleme.md'de zaten açık duran iş.
+- Değişimde miktar reçeteden gelir; "yarım porsiyon soya sütü" gibi bir ayar yok
+  (gerekirse ekleme + hedefsiz değişim ile kurulur).
+- Etkiyi olmayan bir bileşene bağlamak (reçetede geçmeyen ürün) sessizce etkisizdir —
+  hata değil: reçete sonradan değişebilir.
 
 ## Kaynaklar
 

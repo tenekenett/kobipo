@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import {
   assertRestaurantModule,
+  checkOptionEffectProducts,
   normalizeOptionInput,
   optionGroupInclude,
   serializeOptionGroup,
@@ -73,6 +74,8 @@ export async function POST(request: Request) {
     if (options.length === 0) {
       return NextResponse.json({ error: "En az bir seçenek gerekli" }, { status: 400 })
     }
+    const effectError = await checkOptionEffectProducts(prisma, companyId, options)
+    if (effectError) return NextResponse.json({ error: effectError }, { status: 400 })
 
     const last = await prisma.productOptionGroup.findFirst({
       where: { productId },

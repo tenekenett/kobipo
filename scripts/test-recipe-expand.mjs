@@ -61,9 +61,8 @@ try {
   )
   writeFileSync(join(out, "package.json"), '{"type":"module"}')
 
-  const { expandRecipeLines, findRecipePath, buildRecipeMap } = await import(
-    pathToFileURL(expandPath).href
-  )
+  const { expandRecipeLines, findRecipePath, buildRecipeMap, parseRecipeEffects, hasActiveRecipe } =
+    await import(pathToFileURL(expandPath).href)
   const { convertUnit, canConvert, convertibleUnits, defaultRecipeUnit } = await import(
     pathToFileURL(join(out, "data", "units.js")).href
   )
@@ -235,6 +234,184 @@ try {
   eq("yieldQuantity 0 -> 1", built.get("sifiryield").yieldQuantity, 1)
   const rBuilt = expandRecipeLines({ lines: [{ productId: LATTE, quantity: 2 }], recipes: built, unitOf })
   eq("harita genişletmede çalışıyor (2 x 200ML = 0,4 LT)", rBuilt.components[0].quantity, 0.4)
+
+  // ---- Seçeneğin reçeteye etkisi (docs/restoran/SATIS-EKRANI.md K6) ---------
+  // Buradaki her kontrol bir PARA sorusudur: soya sütlü latte satılınca inek
+  // sütü düşerse hem soya sütü stokta şişer hem maliyet yalan söyler.
+
+  const SOYA = "soya"
+  const DEKAF = "dekaf"
+  const SISESU = "sisesu"
+  units[SOYA] = "LT"
+  units[DEKAF] = "KG"
+  units[SISESU] = "ADET"
+
+  const swapSut = { mode: "SWAP", fromProductId: SUT, toProductId: SOYA }
+  const qtyOf = (result, id) => result.components.find((c) => c.productId === id)?.quantity
+
+  console.log("\n== Etki: DEĞİŞİM (soya sütü) ==")
+  const rSwap = expandRecipeLines({
+    lines: [{ productId: LATTE, quantity: 1, effects: [swapSut] }],
+    recipes,
+    unitOf,
+  })
+  eq("hata yok", rSwap.errors, [])
+  eq("soya sütü düştü (0,2 LT)", qtyOf(rSwap, SOYA), 0.2)
+  eq("inek sütü HİÇ düşmedi", qtyOf(rSwap, SUT), undefined)
+  eq("diğer bileşenler dokunulmadı (kahve 0,02 KG)", qtyOf(rSwap, KAHVE), 0.02)
+  eq("değişen bileşen de mamüle atfedilir", rSwap.components.find((c) => c.productId === SOYA)?.sources, [LATTE])
+
+  console.log("\n== Etki: DEĞİŞİM hedefsiz (çıkar / 'şekersiz') ==")
+  const rRemove = expandRecipeLines({
+    lines: [
+      { productId: LATTE, quantity: 1, effects: [{ mode: "SWAP", fromProductId: VANILYA, toProductId: null }] },
+    ],
+    recipes,
+    unitOf,
+  })
+  eq("vanilya düşmedi", qtyOf(rRemove, VANILYA), undefined)
+  eq("hata üretilmedi (bilinçli çıkarma)", rRemove.errors, [])
+  eq("süt normal düştü", qtyOf(rRemove, SUT), 0.2)
+
+  console.log("\n== Etki: DEĞİŞİM alt reçetede (kahve -> dekaf) ==")
+  // Kahve, Latte'nin doğrudan bileşeni DEĞİL — Espresso'nun içinden geliyor.
+  // "Dekaf latte" istendiğinde değişimin oraya kadar inmesi gerekir.
+  const rDeep = expandRecipeLines({
+    lines: [
+      { productId: LATTE, quantity: 1, effects: [{ mode: "SWAP", fromProductId: KAHVE, toProductId: DEKAF }] },
+    ],
+    recipes,
+    unitOf,
+  })
+  eq("dekaf düştü (0,02 KG)", qtyOf(rDeep, DEKAF), 0.02)
+  eq("normal kahve düşmedi", qtyOf(rDeep, KAHVE), undefined)
+
+  console.log("\n== Etki: EKLEME (ekstra shot) ==")
+  const extraShot = { mode: "ADD", productId: ESPRESSO, quantity: 1, unit: "ADET" }
+  const rAdd = expandRecipeLines({
+    lines: [{ productId: LATTE, quantity: 1, effects: [extraShot] }],
+    recipes,
+    unitOf,
+  })
+  eq("eklenen yarı mamül de açıldı: kahve 0,02 + 0,02 = 0,04 KG", qtyOf(rAdd, KAHVE), 0.04)
+  eq("espresso'nun kendisi düşmez (sanal)", qtyOf(rAdd, ESPRESSO), undefined)
+  eq("ek malzeme satılan mamüle atfedilir", rAdd.components.find((c) => c.productId === KAHVE)?.sources, [LATTE])
+
+  console.log("\n== Etki: EKLEME satır adediyle çarpılır ==")
+  const rAdd2 = expandRecipeLines({
+    lines: [{ productId: LATTE, quantity: 2, effects: [extraShot] }],
+    recipes,
+    unitOf,
+  })
+  eq("2 latte + 2 shot = 0,08 KG kahve", qtyOf(rAdd2, KAHVE), 0.08)
+
+  console.log("\n== Etki: EKLEME reçetesiz ürüne ==")
+  const rAddPlain = expandRecipeLines({
+    lines: [
+      { productId: SISESU, quantity: 2, effects: [{ mode: "ADD", productId: SUT, quantity: 50, unit: "ML" }] },
+    ],
+    recipes,
+    unitOf,
+  })
+  eq("ürünün kendisi direct'te kalır", rAddPlain.direct, [{ productId: SISESU, quantity: 2 }])
+  eq("ek malzeme components'ta (2 x 50ML = 0,1 LT)", qtyOf(rAddPlain, SUT), 0.1)
+
+  console.log("\n== Etki: PORSİYON ÇARPANI ==")
+  const rBig = expandRecipeLines({
+    lines: [{ productId: LATTE, quantity: 1, recipeFactor: 1.5 }],
+    recipes,
+    unitOf,
+  })
+  eq("süt 1,5 kat (0,3 LT)", qtyOf(rBig, SUT), 0.3)
+  eq("alt reçete de ölçeklendi: kahve 0,03 KG", qtyOf(rBig, KAHVE), 0.03)
+
+  console.log("\n== Etki: çarpan reçetesiz üründe YOK SAYILIR ==")
+  const rBigPlain = expandRecipeLines({
+    lines: [{ productId: SISESU, quantity: 2, recipeFactor: 1.5 }],
+    recipes,
+    unitOf,
+  })
+  eq("1,5 şişe su diye bir şey yok — 2 kalır", rBigPlain.direct, [{ productId: SISESU, quantity: 2 }])
+
+  console.log("\n== Etki: çarpan ek malzemeyi ölçeklemez ==")
+  const rBigAdd = expandRecipeLines({
+    lines: [{ productId: LATTE, quantity: 1, recipeFactor: 2, effects: [extraShot] }],
+    recipes,
+    unitOf,
+  })
+  // Reçete 2 kat (0,04) + ekstra shot TEK (0,02) = 0,06. Ekstra shot da
+  // ölçeklenseydi 0,08 çıkardı — büyük boy sipariş çift shot yazardı.
+  eq("2x reçete + 1 shot = 0,06 KG kahve", qtyOf(rBigAdd, KAHVE), 0.06)
+
+  console.log("\n== Etki: bozuk çarpan 1 sayılır ==")
+  const rBadFactor = expandRecipeLines({
+    lines: [{ productId: LATTE, quantity: 1, recipeFactor: 0 }],
+    recipes,
+    unitOf,
+  })
+  eq("çarpan 0 -> 1 (süt 0,2 LT)", qtyOf(rBadFactor, SUT), 0.2)
+
+  console.log("\n== Etki: expandBase=false (yalnız etkiler) ==")
+  const rNoBase = expandRecipeLines({
+    lines: [
+      { productId: SISESU, quantity: 2, expandBase: false, effects: [{ mode: "ADD", productId: SUT, quantity: 50, unit: "ML" }] },
+    ],
+    recipes,
+    unitOf,
+  })
+  eq("ürünün kendisi genişletilmedi", rNoBase.direct, [])
+  eq("ek malzeme yine düştü", qtyOf(rNoBase, SUT), 0.1)
+
+  console.log("\n== Etki: satıra ÖZELDİR (aynı ürünün iki satırı) ==")
+  const rTwoLines = expandRecipeLines({
+    lines: [
+      { productId: LATTE, quantity: 1, effects: [swapSut] },
+      { productId: LATTE, quantity: 1 },
+    ],
+    recipes,
+    unitOf,
+  })
+  eq("soya sütlü satır: 0,2 LT soya", qtyOf(rTwoLines, SOYA), 0.2)
+  eq("normal satır: 0,2 LT süt", qtyOf(rTwoLines, SUT), 0.2)
+  eq("kahve iki satırdan toplandı (0,04 KG)", qtyOf(rTwoLines, KAHVE), 0.04)
+
+  console.log("\n== Etki: birim çevrilemezse SESSİZ KALMAZ ==")
+  const rSwapBad = expandRecipeLines({
+    // Süt (ML cinsinden reçetede) kahveyle (KG stok) değiştirilirse dönüşüm yok.
+    lines: [{ productId: LATTE, quantity: 1, effects: [{ mode: "SWAP", fromProductId: SUT, toProductId: KAHVE }] }],
+    recipes,
+    unitOf,
+  })
+  eq("UNIT_MISMATCH üretildi", rSwapBad.errors.map((e) => e.reason), ["UNIT_MISMATCH"])
+  eq("hatalı dal düşülmedi", rSwapBad.components.some((c) => c.productId === KAHVE && c.quantity === 0.2), false)
+
+  const rSwapGone = expandRecipeLines({
+    // Hedef ürün silinmiş: unitOf null döner, uydurma miktar düşülmemeli.
+    lines: [{ productId: LATTE, quantity: 1, effects: [{ mode: "SWAP", fromProductId: SUT, toProductId: "silinmis" }] }],
+    recipes,
+    unitOf,
+  })
+  eq("silinmiş hedef -> UNIT_MISMATCH", rSwapGone.errors.map((e) => e.reason), ["UNIT_MISMATCH"])
+  eq("süt de düşmedi (değişim uygulandı)", qtyOf(rSwapGone, SUT), undefined)
+
+  console.log("\n== parseRecipeEffects (dış dünyadan gelen girdi) ==")
+  eq("dizi değilse boş", parseRecipeEffects("x"), [])
+  eq("tanınmayan mod elenir", parseRecipeEffects([{ mode: "NUKE", productId: SUT }]), [])
+  eq("kaynaksız SWAP elenir", parseRecipeEffects([{ mode: "SWAP", toProductId: SOYA }]), [])
+  eq("negatif miktarlı ADD elenir", parseRecipeEffects([{ mode: "ADD", productId: SUT, quantity: -1, unit: "ML" }]), [])
+  eq(
+    "geçerli olanlar korunur",
+    parseRecipeEffects([{ mode: "SWAP", fromProductId: SUT, toProductId: SOYA }, null, { mode: "ADD", productId: ESPRESSO, quantity: 1, unit: "ADET" }]),
+    [swapSut, extraShot]
+  )
+  eq("hedefsiz SWAP geçerli (çıkar)", parseRecipeEffects([{ mode: "SWAP", fromProductId: SUT }]), [
+    { mode: "SWAP", fromProductId: SUT, toProductId: null },
+  ])
+
+  console.log("\n== hasActiveRecipe ==")
+  eq("reçeteli ürün", hasActiveRecipe(recipes, LATTE), true)
+  eq("reçetesiz ürün", hasActiveRecipe(recipes, SISESU), false)
+  eq("pasif reçete", hasActiveRecipe(new Map([[LATTE, { yieldQuantity: 1, isActive: false, items: [{ componentProductId: SUT, quantity: 1, unit: "LT" }] }]]), LATTE), false)
 
   console.log(`\n${fail === 0 ? "TÜMÜ GEÇTİ" : "BAŞARISIZ"} — ${pass} geçti, ${fail} kaldı\n`)
   process.exit(fail === 0 ? 0 : 1)

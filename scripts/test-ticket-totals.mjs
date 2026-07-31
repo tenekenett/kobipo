@@ -11,7 +11,7 @@
  * yanlışı sessizce yanlış fiş keser.
  */
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, existsSync, writeFileSync, rmSync } from "node:fs"
+import { mkdtempSync, existsSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -32,6 +32,10 @@ try {
       [
         tsc,
         "lib/restoran/ticket-constants.ts",
+        // Seçenek reçete etkisinin tek tanımı genişletme çekirdeğinde
+        // (parseRecipeEffects); o da birim dönüşümünü kullanıyor.
+        "lib/stock/recipe-expand.ts",
+        "lib/data/units.ts",
         "--outDir", out,
         "--rootDir", "lib",
         "--module", "es2020",
@@ -50,6 +54,15 @@ try {
     console.error("tsc çıktı üretemedi:\n" + tscOutput)
     process.exit(1)
   }
+  // tsc "@/..." alias'ını çözmüyor; emit edilen dosyalarda göreli yola çeviriyoruz.
+  const rewrite = (file, from, to) =>
+    writeFileSync(file, readFileSync(file, "utf8").replace(from, to))
+  rewrite(modPath, /["']@\/lib\/stock\/recipe-expand["']/, '"../stock/recipe-expand.js"')
+  rewrite(
+    join(out, "stock", "recipe-expand.js"),
+    /["']@\/lib\/data\/units["']/,
+    '"../data/units.js"',
+  )
   writeFileSync(join(out, "package.json"), '{"type":"module"}')
 
   const {
@@ -59,6 +72,8 @@ try {
     consumesStock,
     parseItemOptions,
     reasonLabel,
+    optionEffect,
+    optionRecipeEffects,
   } = await import(pathToFileURL(modPath).href)
 
   let pass = 0
@@ -155,11 +170,57 @@ try {
   eq(
     "seçenekler okunur",
     parseItemOptions([{ groupName: "Boy", optionName: "Büyük", priceDelta: 15 }]),
-    [{ groupName: "Boy", optionName: "Büyük", priceDelta: 15 }],
+    [{ groupName: "Boy", optionName: "Büyük", priceDelta: 15, effect: null, recipeFactor: null }],
   )
   eq("adsız şık atılır", parseItemOptions([{ groupName: "Boy" }]), [])
   eq("dizi değilse boş", parseItemOptions("bozuk"), [])
   eq("null güvenli", parseItemOptions(null), [])
+
+  // Reçete etkisi kaleme KOPYALANIR (SATIS-EKRANI.md K6): menü sonradan
+  // değişse de açık adisyonun stok karşılığı sabit kalmalı.
+  console.log("\n== Seçeneğin reçete etkisi ==")
+  const swap = { mode: "SWAP", fromProductId: "sut", toProductId: "soya" }
+  eq(
+    "kaydedilmiş etki geri okunur",
+    parseItemOptions([{ groupName: "Süt", optionName: "Soya", priceDelta: 15, effect: swap, recipeFactor: 1.5 }])[0],
+    { groupName: "Süt", optionName: "Soya", priceDelta: 15, effect: swap, recipeFactor: 1.5 },
+  )
+  eq(
+    "bozuk etki etkisiz sayılır",
+    parseItemOptions([{ optionName: "X", effect: { mode: "NUKE" } }])[0].effect,
+    null,
+  )
+  eq("etkisiz seçenekler", optionRecipeEffects([{ optionName: "Küçük", priceDelta: 0 }]), {
+    effects: [],
+    recipeFactor: 1,
+  })
+  eq(
+    "etkiler toplanır, çarpanlar ÇARPILIR",
+    optionRecipeEffects([
+      { optionName: "Soya", effect: swap },
+      { optionName: "Büyük", recipeFactor: 1.5 },
+      { optionName: "Duble", recipeFactor: 2 },
+    ]),
+    { effects: [swap], recipeFactor: 3 },
+  )
+  eq("bozuk çarpan yok sayılır", optionRecipeEffects([{ optionName: "X", recipeFactor: 0 }]).recipeFactor, 1)
+  eq("seçenek yoksa nötr", optionRecipeEffects(null), { effects: [], recipeFactor: 1 })
+
+  console.log("\n== optionEffect (tanım -> etki) ==")
+  eq("SWAP", optionEffect({ effectMode: "SWAP", fromProductId: "sut", toProductId: "soya" }), swap)
+  eq("hedefsiz SWAP = çıkar", optionEffect({ effectMode: "SWAP", fromProductId: "seker" }), {
+    mode: "SWAP",
+    fromProductId: "seker",
+    toProductId: null,
+  })
+  eq("kaynaksız SWAP geçersiz", optionEffect({ effectMode: "SWAP", toProductId: "soya" }), null)
+  eq(
+    "ADD",
+    optionEffect({ effectMode: "ADD", toProductId: "espresso", effectQuantity: 1, effectUnit: "ADET" }),
+    { mode: "ADD", productId: "espresso", quantity: 1, unit: "ADET" },
+  )
+  eq("miktarsız ADD geçersiz", optionEffect({ effectMode: "ADD", toProductId: "espresso" }), null)
+  eq("mod yoksa etki yok", optionEffect({ recipeFactor: 1.5 }), null)
 
   console.log(`\n${fail === 0 ? "TÜMÜ GEÇTİ" : "BAŞARISIZ"} — ${pass} geçti, ${fail} kaldı\n`)
   process.exit(fail === 0 ? 0 : 1)

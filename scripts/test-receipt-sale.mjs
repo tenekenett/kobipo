@@ -220,5 +220,45 @@ console.log("\n6) Tahsilat hatasında fiş bilgisi GERİ DÖNER (fiş silinmez)"
   check("fatura çağırana veriliyor", res.ok === false && res.invoice?.id === "inv6", "adisyon bunu kapatmak için kullanıyor")
 }
 
+console.log("\n7) Seçeneğin reçete etkisi fiş ucuna GİDER, faturaya yazılmaz")
+{
+  // Soya sütlü latte: fatura kalemi değişmez (müşterinin belgesinde üretim
+  // ayrıntısı olmaz), ama stok düşümünü yönlendiren alanlar satırla birlikte
+  // gider. Bu alanlar gitmezse kasada inek sütü düşer — SATIS-EKRANI.md K6.
+  const swap = { mode: "SWAP", fromProductId: "sut", toProductId: "soya" }
+  const calls = stubFetch([
+    { ok: true, status: 200, json: { id: "inv7", invoiceNo: "FS-SAT-2026-0007", totalAmount: 120 } },
+    { ok: true, status: 200, json: { id: "pay7" } },
+  ])
+  await submitReceiptSale({
+    companyId: "c1",
+    items: [
+      {
+        productId: "latte",
+        description: "Latte · Soya sütü",
+        unit: "ADET",
+        quantity: 1,
+        unitPrice: 100,
+        vatRate: 20,
+        recipeEffects: [swap],
+        recipeFactor: 1.5,
+      },
+      { productId: "cay", description: "Çay", unit: "ADET", quantity: 1, unitPrice: 20, vatRate: 20 },
+    ],
+    payment: { ...emptyPaymentState("acc-cash"), method: "CASH", tendered: "120" },
+    accounts: ACCOUNTS,
+    fallbackTotal: 120,
+  })
+
+  const sent = calls[0]?.body?.items ?? []
+  check("etki satırla birlikte gitti", JSON.stringify(sent[0]?.recipeEffects) === JSON.stringify([swap]))
+  check("porsiyon çarpanı gitti", sent[0]?.recipeFactor === 1.5, String(sent[0]?.recipeFactor))
+  check(
+    "etkisiz satıra alan EKLENMEZ (gövde şişmesin)",
+    sent[1] && !("recipeEffects" in sent[1]) && !("recipeFactor" in sent[1]),
+  )
+  check("kalem adı/fiyatı değişmedi", sent[0]?.description === "Latte · Soya sütü" && sent[0]?.unitPrice === 100)
+}
+
 console.log(`\n${fail === 0 ? "TÜMÜ GEÇTİ" : "BAŞARISIZ"} — ${pass} geçti, ${fail} kaldı`)
 process.exitCode = fail === 0 ? 0 : 1

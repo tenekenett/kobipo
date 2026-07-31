@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import {
   assertRestaurantModule,
+  optionEffect,
   parseItemOptions,
   serializeTicket,
   ticketInclude,
@@ -112,6 +113,17 @@ export async function POST(request: Request, { params }: Params) {
           groupName: o.group.name,
           optionName: o.name,
           priceDelta: Number(o.priceDelta),
+          // Reçete etkisi de fiyatla AYNI ANDA kopyalanır: menü sonradan
+          // düzenlense (soya sütü başka karta bağlansa, çarpan değişse) açık
+          // adisyonun stok karşılığı değişmemeli.
+          effect: optionEffect({
+            effectMode: o.effectMode,
+            fromProductId: o.fromProductId,
+            toProductId: o.toProductId,
+            effectQuantity: o.effectQuantity != null ? Number(o.effectQuantity) : null,
+            effectUnit: o.effectUnit,
+          }),
+          recipeFactor: o.recipeFactor != null ? Number(o.recipeFactor) : null,
         }))
         // `priceDelta` KDV DAHİL girilir (menü fiyatı gibi); kalem NET tutulur.
         const grossDelta = options.reduce((s, o) => s + o.priceDelta, 0)

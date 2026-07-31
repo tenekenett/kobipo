@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import {
   assertRestaurantModule,
+  checkOptionEffectProducts,
   normalizeOptionInput,
   optionGroupInclude,
   serializeOptionGroup,
@@ -52,6 +53,9 @@ export async function PATCH(request: Request, { params }: Params) {
       if (options.length === 0) {
         return NextResponse.json({ error: "En az bir seçenek gerekli" }, { status: 400 })
       }
+      const effectError = await checkOptionEffectProducts(prisma, companyId, options)
+      if (effectError) return NextResponse.json({ error: effectError }, { status: 400 })
+
       await prisma.$transaction([
         prisma.productOption.deleteMany({ where: { groupId: id } }),
         prisma.productOptionGroup.update({

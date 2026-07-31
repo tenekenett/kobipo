@@ -7,6 +7,13 @@
 //
 // Kararlar: docs/restoran/ASAMA2.md · docs/restoran/SATIS-EKRANI.md
 
+// Reçete etkisi tipi genişletme çekirdeğinden gelir (o dosya da saf ve
+// izomorfik): seçeneğin stok karşılığı ile stoğu fiilen düşen mantık tek tanımı
+// paylaşsın.
+import { parseRecipeEffects, type RecipeEffect } from "@/lib/stock/recipe-expand"
+
+export type { RecipeEffect }
+
 /** Adisyon kalemi fiyatları NET (KDV hariç) tutulur — fatura API'si net bekler. */
 export const TICKET_STATUSES = ["OPEN", "CLOSED", "CANCELLED"] as const
 export type TicketStatus = (typeof TICKET_STATUSES)[number]
@@ -71,8 +78,85 @@ export const reasonLabel = (status: string, code: string | null | undefined): st
   return list?.find((r) => r.code === code)?.label ?? null
 }
 
-/** Seçilen porsiyon/seçenek. `priceDelta` KDV DAHİL (menü fiyatı gibi). */
-export type TicketItemOption = { groupName: string; optionName: string; priceDelta: number }
+/**
+ * Seçilen porsiyon/seçenek. `priceDelta` KDV DAHİL (menü fiyatı gibi).
+ *
+ * `effect`/`recipeFactor` seçim ANINDA kopyalanır — fiyatın ürün kartından
+ * kopyalanmasıyla aynı gerekçe: menü sonradan düzenlense (soya sütü başka bir
+ * karta bağlansa) açık adisyonun stok karşılığı değişmemeli.
+ */
+export type TicketItemOption = {
+  groupName: string
+  optionName: string
+  priceDelta: number
+  /** Reçete sapması: bileşen değişimi ya da ek malzeme. */
+  effect?: RecipeEffect | null
+  /** Porsiyon çarpanı ("büyük boy" = 1.5). */
+  recipeFactor?: number | null
+}
+
+/**
+ * Seçenek tanımının (DB satırı ya da API görünümü) reçete etkisi alanları.
+ * Yapısal tip: hem Prisma satırı hem `OptionGroupView` şıkkı buna oturur.
+ */
+export type OptionEffectSource = {
+  effectMode?: string | null
+  fromProductId?: string | null
+  toProductId?: string | null
+  effectQuantity?: number | null
+  effectUnit?: string | null
+  recipeFactor?: number | null
+}
+
+/**
+ * Seçenek tanımını genişleticinin anladığı etkiye çevirir.
+ *
+ * Yarım kalan tanım (hedefi silinmiş hammadde, miktarsız ekleme) SESSİZCE
+ * etkisiz sayılır: menüdeki bir eksik yüzünden satış akışı durmamalı, stok da
+ * uydurma bir miktarla bozulmamalı.
+ */
+export function optionEffect(option: OptionEffectSource): RecipeEffect | null {
+  if (option.effectMode === "SWAP") {
+    if (!option.fromProductId) return null
+    return {
+      mode: "SWAP",
+      fromProductId: option.fromProductId,
+      // Hedef yoksa "çıkar" demektir ("şekersiz") — bu geçerli bir tanımdır.
+      toProductId: option.toProductId || null,
+    }
+  }
+  if (option.effectMode === "ADD") {
+    const quantity = Number(option.effectQuantity)
+    if (!option.toProductId || !Number.isFinite(quantity) || quantity <= 0) return null
+    return {
+      mode: "ADD",
+      productId: option.toProductId,
+      quantity,
+      unit: String(option.effectUnit || ""),
+    }
+  }
+  return null
+}
+
+/**
+ * Kalemin seçeneklerinden genişletici girdisi üretir.
+ *
+ * Çarpanlar ÇARPILARAK birleşir: "büyük boy" (1,5) + "duble" (2) = 3. Toplama
+ * yapmak 1,5 + 2 = 3,5 gibi anlamsız bir sonuç verirdi.
+ */
+export function optionRecipeEffects(options: TicketItemOption[] | null | undefined): {
+  effects: RecipeEffect[]
+  recipeFactor: number
+} {
+  const effects: RecipeEffect[] = []
+  let recipeFactor = 1
+  for (const option of options ?? []) {
+    if (option.effect) effects.push(option.effect)
+    const factor = Number(option.recipeFactor)
+    if (Number.isFinite(factor) && factor > 0 && factor !== 1) recipeFactor *= factor
+  }
+  return { effects, recipeFactor }
+}
 
 /** Json alanını güvenli okur: elle/eski kayıtlarda şekil garantisi yok. */
 export function parseItemOptions(value: unknown): TicketItemOption[] {
@@ -83,6 +167,10 @@ export function parseItemOptions(value: unknown): TicketItemOption[] {
       groupName: String(o.groupName ?? ""),
       optionName: String(o.optionName ?? ""),
       priceDelta: Number(o.priceDelta ?? 0) || 0,
+      // Kaydedilmiş etkiyi genişleticinin kendi güvenli okuyucusu çözer:
+      // tanınmayan/eksik şekil etkisiz sayılır.
+      effect: parseRecipeEffects([o.effect])[0] ?? null,
+      recipeFactor: Number.isFinite(Number(o.recipeFactor)) ? Number(o.recipeFactor) : null,
     }))
     .filter((o) => o.optionName)
 }

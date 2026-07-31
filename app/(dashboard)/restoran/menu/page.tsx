@@ -427,6 +427,15 @@ export default function ReceptelerPage() {
     [products, recipeByProduct]
   )
 
+  /** Seçenek reçete etkisinde seçilebilecek kartlar (birimiyle: ekleme miktarı için). */
+  const effectProducts = useMemo(
+    () =>
+      products
+        .filter((p) => p.isActive && !p.isService)
+        .map((p) => ({ id: p.id, name: p.name, unit: p.unit })),
+    [products]
+  )
+
   function patchItem(key: string, patch: Partial<DraftItem>) {
     setDraft((d) => ({
       ...d,
@@ -1312,6 +1321,14 @@ export default function ReceptelerPage() {
         companyId={companyId}
         product={optionsFor}
         groups={optionsFor ? groupsOf(optionsFor.id) : []}
+        // Reçete etkisi için ürün listesi: hammadde de seçilebilmeli (asıl iş
+        // "sütün yerine soya sütü"), o yüzden menü filtresi UYGULANMAZ.
+        products={effectProducts}
+        recipeComponentIds={
+          optionsFor
+            ? (recipeByProduct.get(optionsFor.id)?.items ?? []).map((i) => i.componentProductId)
+            : []
+        }
         onClose={() => setOptionsFor(null)}
         onSaved={() => void mutateOptions()}
       />

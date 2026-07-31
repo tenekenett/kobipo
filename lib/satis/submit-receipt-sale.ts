@@ -18,6 +18,7 @@ import {
   type PaymentState,
 } from "@/lib/satis/payment"
 import type { RefAccount } from "@/lib/swr/use-company-data"
+import type { RecipeEffect } from "@/lib/stock/recipe-expand"
 
 export type ReceiptSaleItem = {
   productId?: string | null
@@ -27,6 +28,14 @@ export type ReceiptSaleItem = {
   /** KDV HARİÇ birim fiyat — fatura ucu net bekliyor. */
   unitPrice: number
   vatRate: number
+  /**
+   * Seçeneğin (porsiyon/modifier) reçeteye etkisi. Faturaya YAZILMAZ; fiş ucu
+   * yalnız stok düşümünü buna göre yönlendirir — soya sütlü latte satılınca
+   * inek sütü düşmesin diye (docs/restoran/SATIS-EKRANI.md K6).
+   */
+  recipeEffects?: RecipeEffect[]
+  /** Porsiyon çarpanı: 1,5 → reçetenin tamamı 1,5 kat düşer ("büyük boy"). */
+  recipeFactor?: number
 }
 
 export type ReceiptSaleResult =
@@ -80,6 +89,8 @@ export async function submitReceiptSale(args: {
         quantity: l.quantity,
         unitPrice: l.unitPrice,
         vatRate: l.vatRate,
+        recipeEffects: l.recipeEffects?.length ? l.recipeEffects : undefined,
+        recipeFactor: l.recipeFactor && l.recipeFactor !== 1 ? l.recipeFactor : undefined,
       })),
     }),
   })

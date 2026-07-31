@@ -105,6 +105,8 @@ async function main() {
     ticketIds: [],
     invoiceIds: [],
     planItemIds: [],
+    optionGroupIds: [],
+    customerIds: [],
   }
 
   try {
@@ -263,6 +265,32 @@ async function main() {
     })
     check("dolu masaya taşıma reddedildi", clash.status === 409, clash.body?.error)
 
+    // Veresiye carisi: borcun yazılacağı müşteri adisyona bağlanır. Ekranda
+    // ödeme diyaloğunda "Veresiye" seçilince sorulur; seçilmezse fiş ödenmemiş
+    // kalır ve borç kimseye yazılmaz.
+    // Demo Firma'da cari yok; testin kendi müşterisini kurup sonunda siliyoruz.
+    const testCustomer = await prisma.customer.create({
+      data: { companyId: company.id, name: `TEST Müşteri ${stamp}` },
+      select: { id: true, name: true },
+    })
+    created.customerIds.push(testCustomer.id)
+
+    const withCustomer = await api("PATCH", `/api/restoran/adisyonlar/${open1.body.id}`, {
+      companyId: company.id,
+      customerId: testCustomer.id,
+    })
+    check(
+      "adisyona cari bağlandı (veresiye için)",
+      withCustomer.body?.customerId === testCustomer.id &&
+        withCustomer.body?.customerName === testCustomer.name,
+      withCustomer.body?.customerName,
+    )
+    const cleared = await api("PATCH", `/api/restoran/adisyonlar/${open1.body.id}`, {
+      companyId: company.id,
+      customerId: null,
+    })
+    check("cari kaldırılabiliyor", cleared.body?.customerId === null)
+
     const emptyClose = await api(
       "GET",
       `/api/restoran/adisyonlar/${other.body.id}/kapat?companyId=${company.id}`,
@@ -322,6 +350,105 @@ async function main() {
       "KAPANIŞTA stok düştü (reçete genişledi)",
       Number(milkAfter.stockQuantity) < milkBefore,
       `${milkBefore} → ${Number(milkAfter.stockQuantity)}`,
+    )
+
+    // ── 8b. Seçeneğin REÇETEYE etkisi ───────────────────────────────────────
+    // Tek soru: menüde "sütsüz" tanımlanmışsa kasada süt düşüyor mu?
+    // Zincirin tamamı burada sınanıyor: seçenek tanımı → adisyon kalemine
+    // kopyalanan etki → fiş gövdesi → fatura ucunun stok düşümü.
+    console.log("\n8b) Seçeneğin reçeteye etkisi")
+    const optGroup = await api("POST", "/api/restoran/urun-secenekleri", {
+      companyId: company.id,
+      productId: latte.id,
+      name: `TEST Süt ${stamp}`,
+      options: [
+        { name: "Sütsüz", priceDelta: 0, effectMode: "SWAP", fromProductId: milk.id },
+        { name: "Büyük", priceDelta: 10, recipeFactor: 2 },
+      ],
+    })
+    check("seçenek grubu kuruldu", optGroup.status === 201, optGroup.body?.name)
+    created.optionGroupIds.push(optGroup.body?.id)
+
+    const optNoMilk = optGroup.body?.options?.[0]
+    const optBig = optGroup.body?.options?.[1]
+    check(
+      "değişim etkisi kaydedildi (hedefsiz = çıkar)",
+      optNoMilk?.effectMode === "SWAP" &&
+        optNoMilk?.fromProductId === milk.id &&
+        optNoMilk?.toProductId === null,
+      `${optNoMilk?.effectMode} ${optNoMilk?.fromProductId} → ${optNoMilk?.toProductId}`,
+    )
+    check("porsiyon çarpanı kaydedildi", Number(optBig?.recipeFactor) === 2, `${optBig?.recipeFactor}`)
+
+    const bogusEffect = await api("POST", "/api/restoran/urun-secenekleri", {
+      companyId: company.id,
+      productId: latte.id,
+      name: `TEST Kaçak ${stamp}`,
+      options: [{ name: "Sızıntı", effectMode: "SWAP", fromProductId: "baska-firmanin-urunu" }],
+    })
+    check("başka firmanın ürünü etkiye bağlanamıyor", bogusEffect.status === 400, bogusEffect.body?.error)
+
+    /** Paket adisyonda 1 latte satar, kapatır ve sütteki DÜŞÜŞÜ döndürür. */
+    const sellLatte = async (optionIds) => {
+      const stockOf = async () =>
+        Number(
+          (await prisma.product.findUnique({ where: { id: milk.id }, select: { stockQuantity: true } }))
+            ?.stockQuantity ?? 0,
+        )
+      const before = await stockOf()
+      const ticket = await api("POST", "/api/restoran/adisyonlar", {
+        companyId: company.id,
+        note: `TEST paket ${stamp}`,
+      })
+      created.ticketIds.push(ticket.body?.id)
+      await api("POST", `/api/restoran/adisyonlar/${ticket.body.id}/kalemler`, {
+        companyId: company.id,
+        productId: latte.id,
+        quantity: 1,
+        optionIds,
+      })
+      const payload = await api(
+        "GET",
+        `/api/restoran/adisyonlar/${ticket.body.id}/kapat?companyId=${company.id}`,
+      )
+      const inv = await api("POST", "/api/e-donusum/invoices", payload.body.invoicePayload)
+      created.invoiceIds.push(inv.body?.id)
+      await api("POST", `/api/restoran/adisyonlar/${ticket.body.id}/kapat`, {
+        companyId: company.id,
+        invoiceId: inv.body.id,
+      })
+      return { drop: before - (await stockOf()), payload: payload.body.invoicePayload }
+    }
+
+    const plainSale = await sellLatte([])
+    check("seçeneksiz latte sütü düşürdü (referans)", plainSale.drop > 0, `${plainSale.drop} LT`)
+
+    const noMilkSale = await sellLatte([optNoMilk.id])
+    check(
+      "SÜTSÜZ seçildi → süt HİÇ düşmedi",
+      Math.abs(noMilkSale.drop) < 0.00005,
+      `${noMilkSale.drop} LT`,
+    )
+    check(
+      "etki fiş gövdesine eklendi",
+      noMilkSale.payload?.items?.[0]?.recipeEffects?.[0]?.mode === "SWAP",
+      JSON.stringify(noMilkSale.payload?.items?.[0]?.recipeEffects),
+    )
+    const noMilkInvoice = await prisma.invoice.findUnique({
+      where: { id: created.invoiceIds[created.invoiceIds.length - 1] },
+      include: { items: true },
+    })
+    check(
+      "fatura kalemi seçeneği ADIYLA taşıyor (üretim ayrıntısı yazılmadı)",
+      (noMilkInvoice?.items?.[0]?.description ?? "").includes("Sütsüz"),
+      noMilkInvoice?.items?.[0]?.description,
+    )
+
+    const bigSale = await sellLatte([optBig.id])
+    check(
+      "BÜYÜK BOY → süt tam 2 kat düştü",
+      Math.abs(bigSale.drop - plainSale.drop * 2) < 0.0001,
+      `${bigSale.drop} = 2 × ${plainSale.drop}`,
     )
 
     // ── 9. Faz D: masa raporu + gün sonu açık adisyonlar ────────────────────
@@ -551,6 +678,13 @@ async function main() {
     })
     await prisma.restaurantPlanItem.deleteMany({
       where: { id: { in: created.planItemIds.filter(Boolean) } },
+    })
+    // Şıklar CASCADE ile gider.
+    await prisma.productOptionGroup.deleteMany({
+      where: { id: { in: created.optionGroupIds.filter(Boolean) } },
+    })
+    await prisma.customer.deleteMany({
+      where: { id: { in: created.customerIds.filter(Boolean) } },
     })
     await prisma.restaurantTable.deleteMany({
       where: { id: { in: created.tableIds.filter(Boolean) } },

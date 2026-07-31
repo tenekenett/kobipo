@@ -11,6 +11,9 @@
 // Bundan iki şey doğal olarak çıkar:
 //  - Reçeteli mamül (Latte) kendi stoğundan DÜŞMEZ; bileşenleri düşer.
 //  - Yarı mamül (Espresso) SANALDIR; stok bakiyesi tutulmaz, üzerinden geçilir.
+//
+// Satır bazında SAPMA olabilir: porsiyon/modifier seçimi reçeteyi yalnız o satır
+// için değiştirir (soya sütü, ekstra shot, büyük boy) — bkz. `RecipeEffect`.
 
 import { convertUnit } from "@/lib/data/units"
 
@@ -38,6 +41,92 @@ export type RecipeInput = {
 
 /** productId -> reçetesi. Reçetesi olmayan ürünler haritada BULUNMAZ. */
 export type RecipeMap = Map<string, RecipeInput>
+
+/**
+ * Bir satışa (satır) özel reçete sapması — porsiyon/modifier seçiminden doğar.
+ * Kararlar: docs/restoran/SATIS-EKRANI.md K6 "reçete etkisi".
+ *
+ *  SWAP → reçetede `fromProductId` geçtiği her yerde onun YERİNE `toProductId`
+ *         düşülür; MİKTAR REÇETEDEN gelir (soya sütü, sütün kaç litresi ise o
+ *         kadar). `toProductId` null ise bileşen hiç düşmez ("şekersiz").
+ *  ADD  → reçeteye EK olarak düşülür ("ekstra shot"); eklenen ürünün kendi
+ *         reçetesi de açılır ve tüketim satılan mamüle atfedilir.
+ *
+ * Etki YALNIZ kendi satırına uygulanır: aynı üründen soya sütlü ve normal iki
+ * latte satıldığında ikisi ayrı satırdır ve ayrı genişler.
+ */
+export type RecipeEffect =
+  | { mode: "SWAP"; fromProductId: string; toProductId: string | null }
+  | { mode: "ADD"; productId: string; quantity: number; unit: string }
+
+export type ExpandLine = {
+  productId: string
+  quantity: number
+  /** Seçeneklerden kopyalanan etkiler; yoksa satır bugünkü gibi genişler. */
+  effects?: RecipeEffect[] | null
+  /**
+   * Porsiyon çarpanı: 1,5 → reçetenin TAMAMI 1,5 kat düşer ("büyük boy").
+   * Reçetesi olmayan üründe YOK SAYILIR — "1,5 şişe su" diye bir şey yok.
+   */
+  recipeFactor?: number | null
+  /**
+   * false → ürünün KENDİSİ genişletilmez, yalnız `effects` işlenir.
+   *
+   * Fatura ucu bunu kullanıyor: reçetesiz bir ürünün satır satır yazılan kendi
+   * hareketi (kendi birim fiyatıyla) korunurken, seçeneğinden gelen ek malzeme
+   * yine de düşsün diye. Genişletici aynı ürünün iki satırını tek satırda
+   * toplar; bu bayrak o toplamayı gerekmediği yerde devre dışı bırakır.
+   */
+  expandBase?: boolean
+}
+
+/**
+ * Dış dünyadan (istemci gövdesi, JSON kolonu) gelen etkileri güvenli okur.
+ *
+ * Etki stoğu düşüren bir girdi olduğu için burada TEK tanım var: tanınmayan mod,
+ * eksik ürün ya da geçersiz miktar sessizce ELENİR — uydurma bir miktarla stok
+ * bozulmasındansa etkisiz kalması yeğdir.
+ */
+export function parseRecipeEffects(value: unknown): RecipeEffect[] {
+  if (!Array.isArray(value)) return []
+  const out: RecipeEffect[] = []
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") continue
+    const effect = raw as Record<string, unknown>
+    if (effect.mode === "SWAP" && effect.fromProductId) {
+      out.push({
+        mode: "SWAP",
+        fromProductId: String(effect.fromProductId),
+        toProductId: effect.toProductId ? String(effect.toProductId) : null,
+      })
+      continue
+    }
+    if (effect.mode === "ADD" && effect.productId) {
+      const quantity = Number(effect.quantity)
+      if (!Number.isFinite(quantity) || quantity <= 0) continue
+      out.push({
+        mode: "ADD",
+        productId: String(effect.productId),
+        quantity,
+        unit: String(effect.unit ?? ""),
+      })
+    }
+  }
+  return out
+}
+
+/** Reçetesi genişletilebilir mi (var, aktif ve dolu)? */
+export function hasActiveRecipe(recipes: RecipeMap, productId: string): boolean {
+  const recipe = recipes.get(productId)
+  return Boolean(recipe && recipe.isActive && recipe.items.length > 0)
+}
+
+/** Bozuk/eksik çarpanı 1'e çeker; makul aralığın dışına çıkmaz. */
+function normalizeFactor(value: unknown): number {
+  const factor = Number(value)
+  if (!Number.isFinite(factor) || factor <= 0) return 1
+  return Math.min(factor, 100)
+}
 
 export type ExpandErrorReason = "CYCLE" | "DEPTH" | "UNIT_MISMATCH"
 
@@ -83,7 +172,7 @@ function roundQty(n: number): number {
  * devam eder — çağıran taraf `errors` boş değilse ne yapacağına kendisi karar verir.
  */
 export function expandRecipeLines(args: {
-  lines: Array<{ productId: string; quantity: number }>
+  lines: ExpandLine[]
   recipes: RecipeMap
   unitOf: (productId: string) => string | null | undefined
 }): ExpandResult {
@@ -95,8 +184,17 @@ export function expandRecipeLines(args: {
   /**
    * @param root Bu dala yol açan üst düzey mamül; null ise henüz reçeteye
    *   girilmemiştir (yani ürünün kendisi satılıyor).
+   * @param swaps Bu SATIRIN seçeneklerinden gelen bileşen değişimleri; alt
+   *   reçetelere de taşınır ("sütsüz" latte'de süt, ara mamülün içinden gelse
+   *   bile düşmemeli).
    */
-  function walk(productId: string, qty: number, path: string[], root: string | null) {
+  function walk(
+    productId: string,
+    qty: number,
+    path: string[],
+    root: string | null,
+    swaps: Map<string, string | null>,
+  ) {
     if (!Number.isFinite(qty) || qty === 0) return
 
     const recipe = recipes.get(productId)
@@ -132,16 +230,26 @@ export function expandRecipeLines(args: {
     const nextPath = [...path, productId]
 
     for (const item of recipe.items) {
+      // Seçenek değişimi: bileşenin YERİNE başkası düşer, miktar reçeteden
+      // gelir. Hedef boşsa bileşen hiç düşmez ("şekersiz").
+      const isSwapped = swaps.has(item.componentProductId)
+      const targetId = isSwapped
+        ? swaps.get(item.componentProductId) ?? null
+        : item.componentProductId
+      if (!targetId) continue
+
       const wastageFactor = 1 + (Number(item.wastageRate) || 0) / 100
       // Reçete kaleminin kendi birimi cinsinden gereken miktar.
       const needInItemUnit = (item.quantity / yieldQty) * qty * wastageFactor
 
-      const stockUnit = unitOf(item.componentProductId)
+      // Birim, DEĞİŞTİRİLEN ürünün stok biriminden okunur: reçete "0,2 LT süt"
+      // diyorsa soya sütü de LT cinsinden düşer. Birimler çevrilemiyorsa
+      // (LT → ADET) hata üretilir; sessizce 0 düşmek stoğu bozardı.
+      const stockUnit = unitOf(targetId)
       const converted = convertUnit(needInItemUnit, item.unit, stockUnit)
       if (converted == null) {
-        // Sessizce 0 kabul etmek stoğu bozar — hata olarak yükselt.
         errors.push({
-          productId: item.componentProductId,
+          productId: targetId,
           reason: "UNIT_MISMATCH",
           detail: `${item.unit || "?"} → ${stockUnit || "?"}`,
         })
@@ -150,13 +258,53 @@ export function expandRecipeLines(args: {
 
       // İlk reçete adımında kök belirlenir; alt seviyelerde aynı kök taşınır,
       // böylece "Espresso üzerinden gelen kahve" de Latte'ye atfedilir.
-      walk(item.componentProductId, converted, nextPath, root ?? productId)
+      walk(targetId, converted, nextPath, root ?? productId, swaps)
     }
   }
 
   for (const line of lines) {
     if (!line?.productId) continue
-    walk(line.productId, Number(line.quantity) || 0, [], null)
+    const quantity = Number(line.quantity) || 0
+    if (!quantity) continue
+
+    const effects = (line.effects ?? []).filter(Boolean)
+    const swaps = new Map<string, string | null>()
+    for (const effect of effects) {
+      if (effect.mode === "SWAP" && effect.fromProductId) {
+        swaps.set(effect.fromProductId, effect.toProductId || null)
+      }
+    }
+
+    // Porsiyon çarpanı reçetenin tamamını ölçekler; reçetesi olmayan üründe
+    // yok sayılır (satılan adet DEĞİŞMEZ, yalnız malzeme ölçeklenir).
+    const factor = hasActiveRecipe(recipes, line.productId)
+      ? normalizeFactor(line.recipeFactor)
+      : 1
+
+    if (line.expandBase !== false) {
+      walk(line.productId, quantity * factor, [], null, swaps)
+    }
+
+    // Ek malzeme (ADD): kök SATILAN üründür — hareket açıklamasında ve tüketim
+    // raporunda "Reçete: Latte" olarak görünsün, doğrudan satışla karışmasın.
+    // Çarpan UYGULANMAZ: büyük boy latte'nin ekstra shot'ı yine tek shot'tır.
+    for (const effect of effects) {
+      if (effect.mode !== "ADD" || !effect.productId) continue
+      const need = (Number(effect.quantity) || 0) * quantity
+      if (!need) continue
+
+      const stockUnit = unitOf(effect.productId)
+      const converted = convertUnit(need, effect.unit, stockUnit)
+      if (converted == null) {
+        errors.push({
+          productId: effect.productId,
+          reason: "UNIT_MISMATCH",
+          detail: `${effect.unit || "?"} → ${stockUnit || "?"}`,
+        })
+        continue
+      }
+      walk(effect.productId, converted, [], line.productId, swaps)
+    }
   }
 
   // 0,0001'in altında kalan artıklar Decimal(14,4)'te saklanamaz; hareket yazılmaz.

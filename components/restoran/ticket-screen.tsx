@@ -25,12 +25,14 @@ import {
   ChevronDown,
   Clock,
   Loader2,
+  MoveRight,
   Percent,
   Printer,
   Receipt,
   Split,
   StickyNote,
   Trash2,
+  User,
   Users,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -65,15 +67,21 @@ import { CompanyLink } from "@/components/dashboard/company-link"
 import { withCompanyHref } from "@/lib/company/href"
 import {
   useAccounts,
+  useCustomers,
   useProducts,
   useRecipes,
   useReceiptTemplate,
   useWarehouses,
   type RefProduct,
 } from "@/lib/swr/use-company-data"
-import { useProductOptions, useTicket, type Ticket } from "@/lib/swr/use-restoran"
+import { useProductOptions, useTables, useTicket, type Ticket } from "@/lib/swr/use-restoran"
+import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
+import { cn } from "@/lib/utils"
 import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-html"
-import type { TicketItemStatus } from "@/lib/restoran/ticket-constants"
+import {
+  optionRecipeEffects,
+  type TicketItemStatus,
+} from "@/lib/restoran/ticket-constants"
 import {
   emptyPaymentState,
   newPortion,
@@ -116,6 +124,10 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   const { warehouses } = useWarehouses(companyId)
   const { template: receiptTemplate, company: receiptCompany } = useReceiptTemplate(companyId)
   const { groupsOf } = useProductOptions(companyId)
+  // Masa listesi yalnız "masayı değiştir" için; salon planındaki 20 sn'lik
+  // tazeleme burada gereksiz — hesap ekranında masa dizilimi izlenmiyor.
+  const { tables, mutate: mutateTables } = useTables(companyId, { refreshInterval: 0 })
+  const { customers } = useCustomers(companyId)
 
   const [pendingProductId, setPendingProductId] = useState<string | null>(null)
   const [warehouseId, setWarehouseId] = useState("")
@@ -128,6 +140,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   const [splitOpen, setSplitOpen] = useState(false)
   const [optionFor, setOptionFor] = useState<RefProduct | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [moveOpen, setMoveOpen] = useState(false)
   const [shortagesOpen, setShortagesOpen] = useState(false)
   const [lastSale, setLastSale] = useState<{ invoiceNo?: string | null; receipt: ReceiptData } | null>(
     null,
@@ -307,6 +320,51 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     if (ok) setInfoDialog(null)
   }, [callTicketApi, companyId, infoDialog, ticketId])
 
+  /**
+   * Masa değiştirme. Sunucu tarafı baştan hazırdı (`PATCH tableId`, dolu masayı
+   * 409 ile reddeder) ama ekranda girişi yoktu — "müşteri masa değiştirdi" kafede
+   * günlük bir olay ve tek çare adisyonu iptal edip yeniden açmaktı.
+   */
+  const moveToTable = useCallback(
+    async (tableId: string | null) => {
+      const ok = await callTicketApi(
+        `/api/restoran/adisyonlar/${ticketId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, tableId }),
+        },
+        "Masa değiştirilemedi",
+      )
+      if (ok) {
+        setMoveOpen(false)
+        // Eski masa boşaldı, yenisi doldu: salon planının önbelleği tazelenmeli.
+        void mutateTables()
+      }
+    },
+    [callTicketApi, companyId, mutateTables, ticketId],
+  )
+
+  /**
+   * Adisyonun carisi. Veresiye kapanışta fatura bu müşteriye borç yazar;
+   * seçilmezse fiş ödenmemiş kalır ve borç KİMSEYE yazılmaz (kahveci ekranındaki
+   * uyarının aynısı). Adisyona yazılıyor, yerel state'te tutulmuyor: kapanış
+   * gövdesini sunucu üretiyor ve sayfa yenilense de seçim kaybolmamalı.
+   */
+  const setCustomer = useCallback(
+    async (customerId: string | null) =>
+      callTicketApi(
+        `/api/restoran/adisyonlar/${ticketId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, customerId }),
+        },
+        "Müşteri kaydedilemedi",
+      ),
+    [callTicketApi, companyId, ticketId],
+  )
+
   const applyDiscount = useCallback(
     async (value: DiscountValue) => {
       const ok = await callTicketApi(
@@ -351,7 +409,17 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
       expandRecipeLines({
         lines: (ticket?.items ?? [])
           .filter((i) => i.productId && i.status !== "VOID")
-          .map((i) => ({ productId: i.productId as string, quantity: i.quantity })),
+          .map((i) => {
+            // Seçenek etkileri uyarıya da girer: kapanışta fiilen düşecek olan
+            // ne ise şerit onu göstermeli (soya sütü, ekstra shot, büyük boy).
+            const { effects, recipeFactor } = optionRecipeEffects(i.options)
+            return {
+              productId: i.productId as string,
+              quantity: i.quantity,
+              effects,
+              recipeFactor,
+            }
+          }),
         recipes: recipeMap,
         unitOf,
       }),
@@ -627,6 +695,12 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
                 {ticket.guestCount} kişi
               </span>
             ) : null}
+            {ticket.customerName ? (
+              <span className="flex items-center gap-1">
+                <User className="h-3.5 w-3.5" />
+                {ticket.customerName}
+              </span>
+            ) : null}
             {ticket.note ? (
               <span className="flex items-center gap-1">
                 <StickyNote className="h-3.5 w-3.5" />
@@ -667,6 +741,10 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
               <DropdownMenuItem onClick={() => setSplitOpen(true)}>
                 <Split className="mr-2 h-4 w-4" />
                 Hesabı böl
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+                <MoveRight className="mr-2 h-4 w-4" />
+                Masayı değiştir
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() =>
@@ -803,6 +881,31 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
             onChange={(patch) => setPayment((p) => ({ ...p, ...patch }))}
             accounts={accounts}
           />
+          {/* Veresiye: borcun YAZILACAĞI cari. Kahveci ekranında bu vardı, masa
+              hesabında yoktu — oysa "hesabı defterime yaz" masada daha sık. */}
+          {payment.isCredit && (
+            <div>
+              <Label className="text-xs text-muted-foreground">
+                Müşteri — veresiye takibi için
+              </Label>
+              <div className="mt-1.5">
+                <CounterpartyCombobox
+                  customers={customers}
+                  suppliers={[]}
+                  selectedCustomerId={ticket.customerId ?? undefined}
+                  onSelect={(sel) =>
+                    void setCustomer(sel && sel.kind === "customer" ? sel.id : null)
+                  }
+                  placeholder="Müşteri ara…"
+                />
+              </div>
+              {!ticket.customerId && (
+                <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+                  Müşteri seçilmezse fiş ödenmemiş kalır ama kimseye borç yazılmaz.
+                </p>
+              )}
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPayOpen(false)} disabled={isSubmitting}>
               Vazgeç
@@ -982,6 +1085,61 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
             </Button>
             <Button variant="destructive" onClick={() => void cancelTicket()}>
               Adisyonu iptal et
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Masayı değiştir — dolu masalar listede ama SEÇİLEMEZ; sunucu da 409
+          veriyor ("bir masada tek açık adisyon"). Masasız (paket) seçeneği en
+          üstte: gel-al'a dönen bir hesap için tek yol buydu. */}
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Masayı değiştir</DialogTitle>
+            <DialogDescription>
+              {ticket.tableName ? `Şu an: Masa ${ticket.tableName}` : "Şu an: Paket / Gel-al"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50vh] space-y-1.5 overflow-y-auto pr-1">
+            {ticket.tableId && (
+              <button
+                type="button"
+                onClick={() => void moveToTable(null)}
+                className="w-full rounded-lg border px-3 py-2 text-left text-sm font-medium hover:bg-muted"
+              >
+                Paket / Gel-al (masasız)
+              </button>
+            )}
+            {tables
+              .filter((t) => t.isActive && t.id !== ticket.tableId)
+              .map((t) => {
+                const busy = !!t.openTicket
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void moveToTable(t.id)}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm",
+                      busy ? "cursor-not-allowed opacity-50" : "font-medium hover:bg-muted",
+                    )}
+                  >
+                    <span>
+                      {t.name}
+                      {t.areaName ? (
+                        <span className="ml-1.5 text-xs text-muted-foreground">{t.areaName}</span>
+                      ) : null}
+                    </span>
+                    {busy && <span className="text-xs text-muted-foreground">dolu</span>}
+                  </button>
+                )
+              })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMoveOpen(false)}>
+              Vazgeç
             </Button>
           </DialogFooter>
         </DialogContent>
