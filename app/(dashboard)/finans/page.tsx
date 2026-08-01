@@ -33,6 +33,11 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { Plus } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  FINANCIAL_ACCOUNT_TYPES,
+  accountHasBankFields,
+  accountTypeLabel,
+} from "@/lib/finans/account-types"
 
 interface Account {
   id: string
@@ -297,11 +302,14 @@ export default function FinansPage() {
                             required
                             disabled={isLoading}
                           >
-                            <option value="CASH">Kasa</option>
-                            <option value="BANK">Banka</option>
+                            {FINANCIAL_ACCOUNT_TYPES.map((t) => (
+                              <option key={t.value} value={t.value}>
+                                {t.label}
+                              </option>
+                            ))}
                           </select>
                         </div>
-                        {accountFormData.type === "BANK" && (
+                        {accountHasBankFields(accountFormData.type) && (
                           <>
                             <div className="space-y-2">
                               <Label htmlFor="bankName">Banka Adı</Label>
@@ -395,7 +403,7 @@ export default function FinansPage() {
                         <TableCell className="font-medium">
                           <EntityCell name={account.name} />
                         </TableCell>
-                        <TableCell className="text-xs">{account.type === "CASH" ? "Kasa" : "Banka"}</TableCell>
+                        <TableCell className="text-xs">{accountTypeLabel(account.type)}</TableCell>
                         <TableCell className="text-xs">{account.bankName || "-"}</TableCell>
                         <TableCell><MonoCell value={account.accountNumber} /></TableCell>
                         <TableCell className="text-right font-semibold whitespace-nowrap">

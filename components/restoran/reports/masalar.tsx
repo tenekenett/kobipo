@@ -34,6 +34,10 @@ type Bucket = {
   revenue: number
   avgTicket: number
   avgMinutes: number | null
+  /** Masa boşaldıktan sonra sıradaki müşteriye kadar geçen ortalama ölü zaman. */
+  avgIdleMinutes: number | null
+  idleMinutes: number
+  idleGaps: number
   guests: number
 }
 
@@ -51,6 +55,12 @@ type Data = {
     tablesUsed: number
     activeTables: number
     turnover: number | null
+    avgIdleMinutes: number | null
+    idleMinutes: number
+    idleGaps: number
+    /** Servis arası sayılıp ortalamaya girmeyen uzun boşluk sayısı. */
+    idleSkipped: number
+    idleMaxMinutes: number
   }
   tables: Bucket[]
   areas: Bucket[]
@@ -86,7 +96,12 @@ export function MasalarReport({ range }: ReportProps) {
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
         Kapanan adisyonlara göre masa süresi, ortalama sepet ve doluluk. Ciro KDV dahil,
-        fişin kesin tutarından alınır.
+        fişin kesin tutarından alınır.{" "}
+        <strong>Boş bekleme</strong>, aynı masada bir müşteri kalktıktan sonra sıradakinin
+        oturmasına kadar geçen ölü zamandır — aynı gün içinde ve en çok{" "}
+        {s?.idleMaxMinutes ?? 120} dakikalık boşluklar sayılır, daha uzunları servis arası
+        kabul edilir
+        {(s?.idleSkipped ?? 0) > 0 ? ` (${s?.idleSkipped} boşluk bu yüzden hariç)` : ""}.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -110,6 +125,15 @@ export function MasalarReport({ range }: ReportProps) {
           label="Masa devir hızı"
           value={s?.turnover != null ? s.turnover.toFixed(1) : "—"}
           hint="masa başına adisyon (aralık boyunca)"
+        />
+        <StatTile
+          label="Ortalama boş bekleme"
+          value={duration(s?.avgIdleMinutes)}
+          hint={
+            (s?.idleGaps ?? 0) > 0
+              ? `${s?.idleGaps} devirde toplam ${duration(s?.idleMinutes)} ölü zaman`
+              : "aynı masaya arka arkaya oturulmamış"
+          }
         />
         <StatTile
           label="Kişi başı ortalama"
@@ -183,6 +207,9 @@ export function MasalarReport({ range }: ReportProps) {
                   <p className="text-xs text-muted-foreground">
                     ortalama süre {duration(a.avgMinutes)}
                   </p>
+                  <p className="text-xs text-muted-foreground">
+                    ortalama boş bekleme {duration(a.avgIdleMinutes)}
+                  </p>
                 </div>
               ))}
             </div>
@@ -199,6 +226,8 @@ export function MasalarReport({ range }: ReportProps) {
                 <StyledTableHead>Bölge</StyledTableHead>
                 <StyledTableHead className="text-right">Adisyon</StyledTableHead>
                 <StyledTableHead className="text-right">Ort. süre</StyledTableHead>
+                <StyledTableHead className="text-right">Ort. boş</StyledTableHead>
+                <StyledTableHead className="text-right">Toplam boş</StyledTableHead>
                 <StyledTableHead className="text-right">Ort. sepet</StyledTableHead>
                 <StyledTableHead className="text-right">Ciro</StyledTableHead>
                 <StyledTableHead className="w-32">Pay</StyledTableHead>
@@ -214,6 +243,12 @@ export function MasalarReport({ range }: ReportProps) {
                   <TableCell className="text-right tabular-nums">{t.tickets}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {duration(t.avgMinutes)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {duration(t.avgIdleMinutes)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {t.idleGaps > 0 ? duration(t.idleMinutes) : "—"}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{money(t.avgTicket)}</TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">

@@ -120,6 +120,7 @@ export function serializeTicket(ticket: TicketWithRelations) {
     guestCount: ticket.guestCount,
     note: ticket.note,
     openedAt: ticket.openedAt,
+    billRequestedAt: ticket.billRequestedAt,
     closedAt: ticket.closedAt,
     invoiceId: ticket.invoiceId,
     invoiceNo: ticket.invoice?.invoiceNo ?? null,

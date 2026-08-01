@@ -105,6 +105,15 @@ export async function PATCH(request: Request, { params }: Params) {
       data.note = noteValue || null
     }
 
+    // "Hesap istendi" işareti. Adisyonu KAPATMAZ — kalem eklenmeye devam
+    // edebilir; yalnız salon planında masayı öne çıkarır. Zaman damgası
+    // saklanıyor ki "hesap ne kadar sürede getirildi" sonradan ölçülebilsin.
+    if (body.billRequested !== undefined) {
+      const wanted = Boolean(body.billRequested)
+      data.billRequestedAt = wanted ? (existing.billRequestedAt ?? new Date()) : null
+      data.billRequestedBy = wanted ? (existing.billRequestedBy ?? user.id) : null
+    }
+
     // Hesap iskontosu. `AMOUNT` KDV DAHİL girilir (kullanıcı hesabın altındaki
     // rakama bakıp "50 lira düş" der); faturaya matrah karşılığı gider.
     // `discountType: null` iskontoyu kaldırır.

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
+import { accountPaymentMethod } from "@/lib/finans/account-types"
 
 export const dynamic = 'force-dynamic'
 
@@ -214,8 +215,9 @@ export async function POST(request: Request) {
       invoiceAllocation = { invoiceId: inv.id, allocated: Math.min(numericAmount, open) }
     }
 
-    const paymentMethod =
-      account.type === "BANK" ? "BANK_TRANSFER" : account.type === "CASH" ? "CASH" : "OTHER"
+    // Ödeme yöntemi kanalın türünden okunur: kredi kartı/POS kanalı BANK_TRANSFER
+    // ("Havale / EFT") olarak yazılmamalı.
+    const paymentMethod = accountPaymentMethod(account.type)
 
     const transaction = await prisma.$transaction(async (db) => {
       const created = await db.transaction.create({

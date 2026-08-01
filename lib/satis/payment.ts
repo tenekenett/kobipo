@@ -151,13 +151,22 @@ export function paymentSummary(state: PaymentState, total: number): PaymentSumma
  */
 export function buildPaymentParts(
   state: PaymentState,
-  args: { total: number; cashAccountId?: string; bankAccountId?: string }
+  args: { total: number; cashAccountId?: string; bankAccountId?: string; cardAccountId?: string }
 ): PaymentPart[] {
   const total = round2(args.total)
   if (state.isCredit || total <= 0) return []
 
-  const accountFor = (m: PaymentMethod) =>
-    ((m === "CASH" ? args.cashAccountId : args.bankAccountId) ?? state.accountId) || undefined
+  // Kart tahsilatı ayrı bir "Kredi Kartı / POS" kanalı varsa oraya düşer; yoksa
+  // eskisi gibi bankaya. Yemek kartı/havale banka kanalını kullanır.
+  const accountFor = (m: PaymentMethod) => {
+    const preferred =
+      m === "CASH"
+        ? args.cashAccountId
+        : m === "CREDIT_CARD"
+          ? (args.cardAccountId ?? args.bankAccountId)
+          : args.bankAccountId
+    return (preferred ?? state.accountId) || undefined
+  }
 
   if (!state.splitMode) {
     return [

@@ -307,9 +307,17 @@ export function QuickSaleScreen() {
   const paidDisplay = splitMode ? splitPaid : tenderedNum
   const changeDisplay = splitMode ? Math.max(0, round2(splitPaid - totals.total)) : change
 
-  // Ödeme parçalarını doğru hesaba yönlendir: nakit → kasa, kart/havale → banka.
+  // Ödeme parçalarını doğru hesaba yönlendir: nakit → kasa, kart → POS kanalı
+  // (yoksa banka), havale → banka.
   const cashAccountId = useMemo(() => accounts.find((a) => a.type === "CASH")?.id, [accounts])
-  const bankAccountId = useMemo(() => accounts.find((a) => a.type !== "CASH")?.id, [accounts])
+  const cardAccountId = useMemo(
+    () => accounts.find((a) => a.type === "CREDIT_CARD" || a.type === "POS")?.id,
+    [accounts],
+  )
+  const bankAccountId = useMemo(
+    () => accounts.find((a) => a.type === "BANK")?.id ?? accounts.find((a) => a.type !== "CASH")?.id,
+    [accounts],
+  )
 
   // Kalan tutarı nakit alanına ekle (Tam benzeri kısayol).
   const fillSplitRemainder = () => {
@@ -441,7 +449,12 @@ export function QuickSaleScreen() {
             if (want <= 0) continue
             const pay = Math.min(want, round2(remaining))
             if (pay <= 0) continue
-            const acc = (m === "CASH" ? cashAccountId : bankAccountId) ?? accountId
+            const acc =
+              (m === "CASH"
+                ? cashAccountId
+                : m === "CREDIT_CARD"
+                  ? (cardAccountId ?? bankAccountId)
+                  : bankAccountId) ?? accountId
             paymentParts.push({ method: m, amount: pay, accountId: acc || undefined })
             remaining = round2(remaining - pay)
           }
@@ -552,6 +565,7 @@ export function QuickSaleScreen() {
     splitPaid,
     cashAccountId,
     bankAccountId,
+    cardAccountId,
   ])
 
   // F2 → satışı tamamla (POS benzeri hızlı kapatma).

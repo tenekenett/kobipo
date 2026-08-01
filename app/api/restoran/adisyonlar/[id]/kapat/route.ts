@@ -183,6 +183,15 @@ export async function POST(request: Request, { params }: Params) {
       return NextResponse.json({ error: "Adisyon zaten kapatılmış" }, { status: 409 })
     }
 
+    // Hesap kapandı → masa "toplanacak". Masayı kilitlemez (yeni adisyon damgayı
+    // temizler), yalnız garsona planda hangi masanın boşaldığını gösterir.
+    if (ticket.tableId) {
+      await prisma.restaurantTable.updateMany({
+        where: { id: ticket.tableId, companyId },
+        data: { cleaningSince: new Date() },
+      })
+    }
+
     const fresh = await prisma.restaurantTicket.findUnique({ where: { id }, include: ticketInclude })
 
     // İkram/zayi malzemesi BURADA düşer: fiş kesildi, adisyon kapandı, artık

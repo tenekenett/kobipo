@@ -23,6 +23,8 @@ export type PlanTable = {
   width: number
   height: number
   isActive: boolean
+  /** Hesap kapandı, masa toplanmadı. Masayı kilitlemez; yeni adisyon temizler. */
+  cleaningSince: string | null
   openTicketCount: number
   openTicket: {
     id: string
@@ -31,6 +33,17 @@ export type PlanTable = {
     guestCount: number | null
     itemCount: number
     total: number
+    /** Müşteri hesap istedi — adisyon hâlâ açık, masa planda ayrı renkte. */
+    billRequestedAt: string | null
+  } | null
+  /** Masanın YAKLAŞAN rezervasyonu (yalnız bekleyen ve zaman penceresindeki). */
+  reservation: {
+    id: string
+    guestName: string
+    guestCount: number | null
+    reservedAt: string
+    /** Rezervasyon saatine kalan dakika; geçtiyse negatif. */
+    minutesUntil: number
   } | null
 }
 
@@ -65,6 +78,8 @@ export type Ticket = {
   guestCount: number | null
   note: string | null
   openedAt: string
+  /** Müşteri hesap istedi (adisyon açık kalır). Kapanışta temizlenir. */
+  billRequestedAt: string | null
   closedAt: string | null
   invoiceId: string | null
   invoiceNo: string | null
@@ -83,7 +98,28 @@ export type Ticket = {
   }
 }
 
-export type Area = { id: string; name: string; order: number; isActive: boolean }
+/** Bölge = bir KROKİ. `gridSize` kare tuvalin kenar uzunluğudur (hücre). */
+export type Area = {
+  id: string
+  name: string
+  order: number
+  gridSize: number
+  isActive: boolean
+}
+
+export type Reservation = {
+  id: string
+  tableId: string | null
+  tableName: string | null
+  guestName: string
+  phone: string | null
+  guestCount: number | null
+  reservedAt: string
+  durationMin: number
+  note: string | null
+  status: "PENDING" | "SEATED" | "NOSHOW" | "CANCELLED"
+  ticketId: string | null
+}
 
 /** Dükkan krokisi öğesi (duvar, bar, kapı…). Masa değildir; adisyon akışına girmez. */
 export type PlanItem = {
@@ -106,6 +142,27 @@ export function useAreas(companyId: string | null) {
     jsonFetcher,
   )
   return { areas: Array.isArray(data) ? data : [], error, isLoading, mutate }
+}
+
+/**
+ * Rezervasyonlar. Varsayılan olarak BUGÜNÜ getirir (`from`/`to` verilmezse) —
+ * rezervasyon listesi geçmişe doğru sınırsız büyür, salon ekranının ilgilendiği
+ * yalnız bugünkü akıştır.
+ */
+export function useReservations(
+  companyId: string | null,
+  opts?: { from?: string; to?: string; refreshInterval?: number },
+) {
+  const query = new URLSearchParams()
+  if (opts?.from) query.set("from", opts.from)
+  if (opts?.to) query.set("to", opts.to)
+  const suffix = query.toString()
+  const { data, error, isLoading, mutate } = useSWR<Reservation[]>(
+    key(companyId, `/api/restoran/rezervasyonlar${suffix ? `?${suffix}` : ""}`),
+    jsonFetcher,
+    { refreshInterval: opts?.refreshInterval ?? 60000 },
+  )
+  return { reservations: Array.isArray(data) ? data : [], error, isLoading, mutate }
 }
 
 /**

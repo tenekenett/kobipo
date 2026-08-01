@@ -185,6 +185,26 @@ try {
     [{ method: "BANK_TRANSFER", amount: 50, provider: undefined, accountId: "kasa1" }],
   )
 
+  console.log("\n== Kart tahsilatı POS kanalına gider ==")
+  // "Kredi Kartı / POS" kanalı varsa kart oraya, havale bankaya yazılır.
+  const withCard = { ...accounts, cardAccountId: "pos1" }
+  eq(
+    "kart POS kanalına, havale bankaya",
+    buildPaymentParts(split([portion("CREDIT_CARD", "60"), portion("BANK_TRANSFER", "40")]), {
+      total: 100,
+      ...withCard,
+    }),
+    [
+      { method: "CREDIT_CARD", amount: 60, provider: undefined, accountId: "pos1" },
+      { method: "BANK_TRANSFER", amount: 40, provider: undefined, accountId: "banka1" },
+    ],
+  )
+  eq(
+    "POS kanalı yoksa kart yine bankaya düşer",
+    buildPaymentParts(split([portion("CREDIT_CARD", "60")]), { total: 60, ...accounts }),
+    [{ method: "CREDIT_CARD", amount: 60, provider: undefined, accountId: "banka1" }],
+  )
+
   console.log("\n== Eşit bölme ==")
   eq("ikiye bölünür", splitEqually(100, 2), ["50.00", "50.00"])
   // Kuruş farkı İLK parçaya yüklenir; aksi halde hesap 1 kuruş açık kalırdı.

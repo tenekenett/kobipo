@@ -1,36 +1,37 @@
 "use client"
 
 // Salon planı — masaların yerleşimi, doluluğu ve DÜKKAN KROKİSİ.
-// Kararlar: docs/restoran/ASAMA2.md (Faz B)
+// Kararlar: docs/restoran/ASAMA2.md (Faz B) · docs/restoran/KROKI-EDITORU.md
 //
 // Yerleşim koordinatı masanın/öğenin KENDİ satırındadır (ayrı bir plan JSON'u
-// yok): sürükleme bittiğinde tek kayıt için `PATCH {x,y}` gider. Koordinat birimi
+// yok): jest bitince tek kayıt için `PATCH {x,y,width,height}` gider. Birim
 // ızgara hücresidir — ekran ölçeği değişince yerleşim bozulmaz.
 //
-// İki kip bilinçli: KULLANIM kipinde masaya dokunmak adisyonu açar (garsonun tek
-// işi bu), DÜZENLEME kipinde masa/kroki sürüklenir. Tek kip olsaydı masayı
-// taşımaya çalışan her dokunuş yanlışlıkla adisyon açardı.
+// İki kip bilinçli: KULLANIM kipinde masaya dokunmak adisyonu açar (garsonun
+// tek işi bu), DÜZENLEME kipinde masa/kroki taşınır ve tutamaçtan boyutlandırılır.
+// Tek kip olsaydı masayı taşımaya çalışan her dokunuş yanlışlıkla adisyon açardı.
 //
-// "Tümü" sekmesinde bölgeler ALT ALTA ayrı tuvaller olarak çizilir. Hepsini tek
-// tuvale koymak yanlış olurdu: koordinatlar bölge içinde anlamlı, iki bölgenin
-// (0,0)'ı aynı yer değil — üst üste binerlerdi.
+// HER BÖLGE AYRI BİR KROKİDİR ve tuvali karedir. "Tümü"de bölgeler alt alta
+// kendi tuvallerinde çizilir — hepsini tek tuvale koymak yanlış olurdu:
+// koordinat bölge içinde anlamlı, iki bölgenin (0,0)'ı aynı yer değil.
+// Boş bölgeler de görünür: yeni açılan "Ön Bahçe" ilk masası konana kadar
+// görünmezse eklenebilir olduğu hissedilmiyordu.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
-  ChefHat,
-  Circle,
-  DoorOpen,
-  Coffee,
-  Leaf,
+  CalendarClock,
+  Copy,
   Loader2,
   Move,
+  Pencil,
   Plus,
   RefreshCw,
+  Settings2,
+  Sparkles,
   Square,
-  StretchHorizontal,
+  Circle,
   Trash2,
-  Type,
   Users,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -64,93 +65,30 @@ import {
   type PlanItem,
   type PlanTable,
 } from "@/lib/swr/use-restoran"
+import { planItemDefaults } from "@/lib/restoran/ticket-constants"
+import {
+  PLAN_GRID_DEFAULT,
+  PLAN_GRID_MIN,
+  PLAN_GRID_STEPS,
+  clampRectToGrid,
+  requiredGrid,
+  type PlanRect,
+} from "@/lib/restoran/floor-plan"
 import { currency } from "@/lib/fis/receipt-html"
 import { cn } from "@/lib/utils"
-
-/** Izgara hücresinin piksel boyu. Masa ve kroki ölçüleri bunun katıdır. */
-const CELL = 48
-const MIN_COLS = 12
-const MIN_ROWS = 7
+import { FloorPlanCanvas, elapsedLabel, type PlanSelection } from "./floor-plan-canvas"
+import { ReservationDialog } from "./reservation-dialog"
+import {
+  PLAN_KINDS,
+  TABLE_STATE_STYLE,
+  TABLE_TOOL,
+  kindDef,
+  tableState,
+  type TableState,
+} from "./plan-kinds"
 
 const ALL_AREAS = "__ALL__"
 const NO_AREA = "__NONE__"
-
-// ---- Kroki öğesi görünümleri ------------------------------------------------
-// Her öğe kendi rengini ve varsayılan adını burada tanımlar; ekranın başka
-// yerinde tür ismi geçmez.
-const PLAN_KINDS: Array<{
-  kind: string
-  label: string
-  icon: typeof Square
-  className: string
-  showLabel: boolean
-}> = [
-  {
-    kind: "WALL",
-    label: "Duvar",
-    icon: StretchHorizontal,
-    className: "bg-foreground/75 border-foreground/75 text-background",
-    showLabel: false,
-  },
-  {
-    kind: "DOOR",
-    label: "Kapı",
-    icon: DoorOpen,
-    className: "border-dashed border-foreground/50 bg-background text-foreground/70",
-    showLabel: true,
-  },
-  {
-    kind: "BAR",
-    label: "Bar",
-    icon: Coffee,
-    className: "border-amber-500/70 bg-amber-200/50 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200",
-    showLabel: true,
-  },
-  {
-    kind: "KITCHEN",
-    label: "Mutfak",
-    icon: ChefHat,
-    className: "border-muted-foreground/30 bg-muted text-muted-foreground",
-    showLabel: true,
-  },
-  {
-    kind: "WC",
-    label: "WC",
-    icon: Square,
-    className: "border-sky-500/50 bg-sky-100/60 text-sky-900 dark:bg-sky-900/30 dark:text-sky-200",
-    showLabel: true,
-  },
-  {
-    kind: "STAIRS",
-    label: "Merdiven",
-    icon: StretchHorizontal,
-    className: "border-muted-foreground/40 bg-[repeating-linear-gradient(45deg,hsl(var(--muted))_0_8px,transparent_8px_16px)] text-muted-foreground",
-    showLabel: true,
-  },
-  {
-    kind: "PLANT",
-    label: "Bitki",
-    icon: Leaf,
-    className: "rounded-full border-emerald-500/60 bg-emerald-100/70 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200",
-    showLabel: false,
-  },
-  {
-    kind: "TEXT",
-    label: "Yazı",
-    icon: Type,
-    className: "border-transparent bg-transparent text-muted-foreground",
-    showLabel: true,
-  },
-]
-
-const kindDef = (kind: string) => PLAN_KINDS.find((k) => k.kind === kind) ?? PLAN_KINDS[0]
-
-/** "2s 15d" — masanın ne kadardır dolu olduğu. */
-function elapsedLabel(fromIso: string, now: number): string {
-  const mins = Math.max(0, Math.floor((now - new Date(fromIso).getTime()) / 60000))
-  if (mins < 60) return `${mins}d`
-  return `${Math.floor(mins / 60)}s ${mins % 60}d`
-}
 
 type TableForm = {
   id?: string
@@ -158,22 +96,37 @@ type TableForm = {
   areaId: string
   capacity: string
   shape: string
-  width: number
-  height: number
+  size: string
 }
 
-type ItemForm = { id: string; kind: string; label: string; width: number; height: number }
+type ItemForm = { id: string; kind: string; label: string; size: string }
+
+/** Bölge formu. `adopt` = "Bölgesiz" planı bu bölgeye dönüştür. */
+type AreaForm = { id?: string; name: string; adopt?: boolean }
 
 const emptyTableForm = (areaId: string | null): TableForm => ({
   name: "",
   areaId: areaId ?? NO_AREA,
   capacity: "",
   shape: "SQUARE",
-  width: 2,
-  height: 2,
+  size: "2 × 2",
 })
 
-type DragTarget = { type: "table" | "item"; id: string; startX: number; startY: number; x: number; y: number }
+/**
+ * Sıradaki masa adı: "M1", "M2"… Kalemle masa koyarken her seferinde ad sormak
+ * 30 masalık bir salonu çizilemez hale getiriyordu; ad sonradan düzenlenir.
+ * Ad firma genelinde benzersiz olduğu için TÜM masalara bakılır.
+ */
+function nextTableName(tables: PlanTable[]): string {
+  let max = 0
+  for (const t of tables) {
+    const m = /^M\s*(\d+)$/i.exec(t.name.trim())
+    if (m) max = Math.max(max, Number(m[1]))
+  }
+  return `M${max + 1}`
+}
+
+const sizeLabel = (r: { width: number; height: number }) => `${r.width} × ${r.height}`
 
 export function FloorPlanScreen() {
   const { selectedCompanyId: companyId } = useDashboardCompany()
@@ -186,11 +139,17 @@ export function FloorPlanScreen() {
 
   const [activeArea, setActiveArea] = useState<string>(ALL_AREAS)
   const [editMode, setEditMode] = useState(false)
+  const [tool, setTool] = useState<string | null>(null)
+  const [selection, setSelection] = useState<PlanSelection | null>(null)
   const [busyTableId, setBusyTableId] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
   const [tableDialog, setTableDialog] = useState<TableForm | null>(null)
   const [itemDialog, setItemDialog] = useState<ItemForm | null>(null)
-  const [areaDialog, setAreaDialog] = useState<{ name: string } | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [areaDialog, setAreaDialog] = useState<AreaForm | null>(null)
+  const [reservationsOpen, setReservationsOpen] = useState(false)
+  const [tableAction, setTableAction] = useState<PlanTable | null>(null)
+  const [drop, setDrop] = useState<{ source: PlanTable; target: PlanTable } | null>(null)
 
   // Süre etiketleri dakikada bir tazelenir; saniyede bir render etmenin anlamı yok.
   const [now, setNow] = useState(() => Date.now())
@@ -199,73 +158,103 @@ export function FloorPlanScreen() {
     return () => clearInterval(t)
   }, [])
 
+  // Düzenlemeden çıkınca araç ve seçim düşer: kullanım kipinde ekranda
+  // "Duvar çiziliyor" ipucunun asılı kalması kafa karıştırıyordu.
+  useEffect(() => {
+    if (!editMode) {
+      setTool(null)
+      setSelection(null)
+    }
+  }, [editMode])
+
+  useEffect(() => {
+    if (!tool) return
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setTool(null)
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [tool])
+
   // ---- Bölümleme ----------------------------------------------------------
-  // "Tümü"de her bölge kendi tuvalinde, alt alta. Tek bölge seçiliyse tek bölüm.
+
   const sections = useMemo(() => {
-    const build = (areaId: string | null, name: string) => ({
-      key: areaId ?? NO_AREA,
-      areaId,
-      name,
-      tables: tables.filter((t) => (areaId ? t.areaId === areaId : !t.areaId)),
-      items: planItems.filter((i) => (areaId ? i.areaId === areaId : !i.areaId)),
-    })
+    const build = (area: Area | null) => {
+      const areaId = area?.id ?? null
+      const sectionTables = tables.filter((t) => (areaId ? t.areaId === areaId : !t.areaId))
+      const sectionItems = planItems.filter((i) => (areaId ? i.areaId === areaId : !i.areaId))
+      // Kayıtlı boyut içeriği kesiyorsa içerik kazanır: bir bölge küçültülüp
+      // sonra başka yoldan masa eklenmişse masa tuvalin dışında kalmasın.
+      const stored = area?.gridSize ?? PLAN_GRID_DEFAULT
+      const needed = requiredGrid([...sectionTables, ...sectionItems], PLAN_GRID_MIN)
+      return {
+        key: areaId ?? NO_AREA,
+        areaId,
+        area,
+        name: area?.name ?? "Bölgesiz",
+        tables: sectionTables,
+        items: sectionItems,
+        grid: Math.max(stored, needed),
+        minGrid: needed,
+      }
+    }
 
     if (activeArea === ALL_AREAS) {
-      const all = [
-        ...areas.map((a: Area) => build(a.id, a.name)),
-        build(null, "Bölgesiz"),
-      ]
-      // Boş bölümler gizlenir; ama hiç bölge yoksa "Bölgesiz" tuvali kalsın ki
-      // ilk masa eklenecek bir yer görünsün.
-      const nonEmpty = all.filter((s) => s.tables.length > 0 || s.items.length > 0)
-      return nonEmpty.length > 0 ? nonEmpty : [build(null, "Bölgesiz")]
+      const all = areas.map(build)
+      const loose = build(null)
+      // Bölgesiz tuvali yalnız içeriği varken (ya da hiç bölge yokken) gösterilir:
+      // her planın altında boş bir "Bölgesiz" karesi gereksiz gürültü olurdu.
+      if (loose.tables.length > 0 || loose.items.length > 0 || all.length === 0) all.push(loose)
+      return all
     }
-    if (activeArea === NO_AREA) return [build(null, "Bölgesiz")]
+    if (activeArea === NO_AREA) return [build(null)]
     const area = areas.find((a) => a.id === activeArea)
-    return [build(activeArea, area?.name ?? "Bölge")]
+    return [build(area ?? null)]
   }, [activeArea, areas, tables, planItems])
 
   const visibleTables = useMemo(() => sections.flatMap((s) => s.tables), [sections])
   const openCount = visibleTables.filter((t) => t.openTicket).length
   const openTotal = visibleTables.reduce((sum, t) => sum + (t.openTicket?.total ?? 0), 0)
+  const stateCount = (state: TableState) =>
+    visibleTables.filter((t) => tableState(t) === state).length
 
-  // ---- Sürükleme ----------------------------------------------------------
-  const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null)
-  const dragRef = useRef<DragTarget | null>(null)
-  /**
-   * Sürükleme bittiğinde tarayıcı `click`'i de tetikler. Bu bayrak olmadan
-   * taşınan her masa, bırakılınca düzenleme diyaloğunu da açardı.
-   */
-  const movedRef = useRef(false)
+  const selected = useMemo(() => {
+    if (!selection) return null
+    if (selection.type === "table") {
+      const table = tables.find((t) => t.id === selection.id)
+      return table ? { kind: "table" as const, table } : null
+    }
+    const item = planItems.find((i) => i.id === selection.id)
+    return item ? { kind: "item" as const, item } : null
+  }, [selection, tables, planItems])
 
-  const commitMove = useCallback(
-    async (target: DragTarget, x: number, y: number) => {
-      if (x === target.x && y === target.y) return
-      const isTable = target.type === "table"
+  // ---- Yerleşim kaydı -----------------------------------------------------
+
+  const commitGeometry = useCallback(
+    async (sel: PlanSelection, rect: PlanRect) => {
+      const isTable = sel.type === "table"
       // İyimser güncelleme: kayıt parmağın bıraktığı yerde kalsın, sunucu
       // yanıtını beklerken eski yerine geri zıplamasın.
       if (isTable) {
-        await mutate((prev) => (prev ?? []).map((t) => (t.id === target.id ? { ...t, x, y } : t)), {
+        await mutate((prev) => (prev ?? []).map((t) => (t.id === sel.id ? { ...t, ...rect } : t)), {
           revalidate: false,
         })
       } else {
         await mutateItems(
-          (prev) => (prev ?? []).map((i) => (i.id === target.id ? { ...i, x, y } : i)),
+          (prev) => (prev ?? []).map((i) => (i.id === sel.id ? { ...i, ...rect } : i)),
           { revalidate: false },
         )
       }
       try {
         const res = await fetch(
-          isTable ? `/api/restoran/masalar/${target.id}` : `/api/restoran/plan/${target.id}`,
+          isTable ? `/api/restoran/masalar/${sel.id}` : `/api/restoran/plan/${sel.id}`,
           {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ companyId, x, y }),
+            body: JSON.stringify({ companyId, ...rect }),
           },
         )
-        if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Taşınamadı")
+        if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Kaydedilemedi")
       } catch (e: any) {
-        toast({ title: "Taşınamadı", description: e.message, variant: "destructive" })
+        toast({ title: "Yerleşim kaydedilemedi", description: e.message, variant: "destructive" })
       } finally {
         if (isTable) void mutate()
         else void mutateItems()
@@ -274,56 +263,140 @@ export function FloorPlanScreen() {
     [companyId, mutate, mutateItems, toast],
   )
 
-  const onPointerDown = (
-    e: React.PointerEvent,
-    type: "table" | "item",
-    id: string,
-    x: number,
-    y: number,
-  ) => {
-    if (!editMode) return
-    e.preventDefault()
-    ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
-    dragRef.current = { type, id, startX: e.clientX, startY: e.clientY, x, y }
-    movedRef.current = false
-    setDrag({ id, dx: 0, dy: 0 })
-  }
+  /** Kalemle çizim: `exact` false ise (tek tık) ölçü aracın varsayılanıdır. */
+  const drawElement = useCallback(
+    async (areaId: string | null, grid: number, kind: string, rect: PlanRect, exact: boolean) => {
+      try {
+        if (kind === TABLE_TOOL) {
+          const size = exact ? { width: rect.width, height: rect.height } : { width: 2, height: 2 }
+          const placed = clampRectToGrid({ ...rect, ...size }, grid)
+          const res = await fetch("/api/restoran/masalar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              companyId,
+              name: nextTableName(tables),
+              areaId,
+              shape: "SQUARE",
+              ...placed,
+            }),
+          })
+          const body = await res.json().catch(() => ({}))
+          if (!res.ok) throw new Error(body?.error || "Masa eklenemedi")
+          void mutate()
+          setSelection({ type: "table", id: body.id })
+          return
+        }
 
-  const onPointerMove = (e: React.PointerEvent) => {
-    const d = dragRef.current
-    if (!d) return
-    const dx = e.clientX - d.startX
-    const dy = e.clientY - d.startY
-    // 4 piksellik eşik: dokunmatikte parmak hiç kıpırdamadan basmak imkânsız,
-    // her dokunuş "sürükleme" sayılsaydı diyalog hiç açılmazdı.
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) movedRef.current = true
-    setDrag({ id: d.id, dx, dy })
-  }
+        const preset = planItemDefaults(kind)
+        const size = exact ? { width: rect.width, height: rect.height } : preset
+        const placed = clampRectToGrid({ ...rect, ...size }, grid)
+        const res = await fetch("/api/restoran/plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, kind, areaId, ...placed }),
+        })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body?.error || "Eklenemedi")
+        void mutateItems()
+        setSelection({ type: "item", id: body.id })
+      } catch (e: any) {
+        toast({ title: "Eklenemedi", description: e.message, variant: "destructive" })
+      }
+    },
+    [companyId, mutate, mutateItems, tables, toast],
+  )
 
-  const onPointerUp = (e: React.PointerEvent) => {
-    const d = dragRef.current
-    dragRef.current = null
-    setDrag(null)
-    if (!d) return
-    const nx = Math.max(0, d.x + Math.round((e.clientX - d.startX) / CELL))
-    const ny = Math.max(0, d.y + Math.round((e.clientY - d.startY) / CELL))
-    void commitMove(d, nx, ny)
-  }
-
-  // ---- Masaya dokunma (kullanım kipi) -------------------------------------
-
-  const openTable = useCallback(
-    async (table: PlanTable) => {
-      if (table.openTicket) {
-        router.push(withCompanyHref(`/restoran/adisyon/${table.openTicket.id}`, companyId))
+  const duplicateSelection = useCallback(async () => {
+    if (!selected) return
+    try {
+      if (selected.kind === "item") {
+        const i = selected.item
+        const res = await fetch("/api/restoran/plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId,
+            kind: i.kind,
+            areaId: i.areaId,
+            label: i.label,
+            x: i.x + 1,
+            y: i.y + 1,
+            width: i.width,
+            height: i.height,
+          }),
+        })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body?.error || "Çoğaltılamadı")
+        void mutateItems()
+        setSelection({ type: "item", id: body.id })
         return
       }
+      const t = selected.table
+      const res = await fetch("/api/restoran/masalar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId,
+          name: nextTableName(tables),
+          areaId: t.areaId,
+          capacity: t.capacity,
+          shape: t.shape,
+          x: t.x + 1,
+          y: t.y + 1,
+          width: t.width,
+          height: t.height,
+        }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error || "Çoğaltılamadı")
+      void mutate()
+      setSelection({ type: "table", id: body.id })
+    } catch (e: any) {
+      toast({ title: "Çoğaltılamadı", description: e.message, variant: "destructive" })
+    }
+  }, [companyId, mutate, mutateItems, selected, tables, toast])
+
+  const deleteSelection = useCallback(async () => {
+    if (!selected) return
+    const isTable = selected.kind === "table"
+    const id = isTable ? selected.table.id : selected.item.id
+    try {
+      const res = await fetch(
+        isTable
+          ? `/api/restoran/masalar/${id}?companyId=${companyId}`
+          : `/api/restoran/plan/${id}?companyId=${companyId}`,
+        { method: "DELETE" },
+      )
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error || "Silinemedi")
+      setSelection(null)
+      if (isTable) {
+        void mutate()
+        toast({
+          title: body?.deactivated ? "Masa kullanım dışı bırakıldı" : "Masa silindi",
+          description: body?.deactivated
+            ? "Geçmiş adisyonları olduğu için kayıt korundu."
+            : undefined,
+        })
+      } else {
+        void mutateItems()
+      }
+    } catch (e: any) {
+      toast({ title: "Silinemedi", description: e.message, variant: "destructive" })
+    }
+  }, [companyId, mutate, mutateItems, selected, toast])
+
+  // ---- Kullanım kipi ------------------------------------------------------
+
+  const openTicketFor = useCallback(
+    async (table: PlanTable, reservationId?: string) => {
       setBusyTableId(table.id)
       try {
         const res = await fetch("/api/restoran/adisyonlar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ companyId, tableId: table.id }),
+          body: JSON.stringify({ companyId, tableId: table.id, reservationId }),
         })
         const body = await res.json().catch(() => ({}))
         // 409 = bu masaya başka biri adisyon açmış; sunucu mevcut adisyonu
@@ -345,6 +418,101 @@ export function FloorPlanScreen() {
     [companyId, mutate, router, toast],
   )
 
+  const onOpenTable = useCallback(
+    (table: PlanTable) => {
+      if (editMode) return
+      if (table.openTicket) {
+        router.push(withCompanyHref(`/restoran/adisyon/${table.openTicket.id}`, companyId))
+        return
+      }
+      // Boş masa doğrudan açılır (garsonun en sık yaptığı iş bir dokunuşta
+      // kalmalı). Belirsiz durumlar — toplanacak, rezerve — önce ne yapılacağını
+      // sorar: rezerve masaya gelen geçen müşteriyi oturtmak rezervasyonu yakardı.
+      if (table.cleaningSince || table.reservation) {
+        setTableAction(table)
+        return
+      }
+      void openTicketFor(table)
+    },
+    [companyId, editMode, openTicketFor, router],
+  )
+
+  const markCleaned = async (table: PlanTable) => {
+    setTableAction(null)
+    await mutate(
+      (prev) => (prev ?? []).map((t) => (t.id === table.id ? { ...t, cleaningSince: null } : t)),
+      { revalidate: false },
+    )
+    try {
+      const res = await fetch(`/api/restoran/masalar/${table.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, cleaned: true }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Güncellenemedi")
+    } catch (e: any) {
+      toast({ title: "Güncellenemedi", description: e.message, variant: "destructive" })
+    } finally {
+      void mutate()
+    }
+  }
+
+  const markNoShow = async (table: PlanTable) => {
+    if (!table.reservation) return
+    setTableAction(null)
+    try {
+      const res = await fetch(`/api/restoran/rezervasyonlar/${table.reservation.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, status: "NOSHOW" }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Güncellenemedi")
+      toast({ title: "Rezervasyon 'gelmedi' işaretlendi" })
+    } catch (e: any) {
+      toast({ title: "Güncellenemedi", description: e.message, variant: "destructive" })
+    } finally {
+      void mutate()
+    }
+  }
+
+  const confirmDrop = async () => {
+    const source = drop?.source
+    const target = drop?.target
+    const sourceTicket = source?.openTicket
+    if (!source || !target || !sourceTicket) return
+    setSaving(true)
+    try {
+      if (target.openTicket) {
+        const res = await fetch(`/api/restoran/adisyonlar/${target.openTicket.id}/birlestir`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, sourceTicketId: sourceTicket.id }),
+        })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body?.error || "Birleştirilemedi")
+        toast({
+          title: "Adisyonlar birleştirildi",
+          description: `${source.name} → ${target.name} · ${body.movedItems} kalem taşındı`,
+        })
+      } else {
+        const res = await fetch(`/api/restoran/adisyonlar/${sourceTicket.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, tableId: target.id }),
+        })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body?.error || "Taşınamadı")
+        toast({ title: "Hesap taşındı", description: `${source.name} → ${target.name}` })
+      }
+      setDrop(null)
+      void mutate()
+    } catch (e: any) {
+      toast({ title: "İşlem yapılamadı", description: e.message, variant: "destructive" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   // ---- Kaydetme -----------------------------------------------------------
 
   const saveTable = async () => {
@@ -362,8 +530,6 @@ export function FloorPlanScreen() {
         areaId: tableDialog.areaId === NO_AREA ? null : tableDialog.areaId,
         capacity: tableDialog.capacity ? Number(tableDialog.capacity) : null,
         shape: tableDialog.shape,
-        width: tableDialog.width,
-        height: tableDialog.height,
       }
       const res = await fetch(
         tableDialog.id ? `/api/restoran/masalar/${tableDialog.id}` : "/api/restoran/masalar",
@@ -377,50 +543,12 @@ export function FloorPlanScreen() {
       if (!res.ok) throw new Error(body?.error || "Kaydedilemedi")
       setTableDialog(null)
       void mutate()
+      if (!tableDialog.id) setSelection({ type: "table", id: body.id })
       toast({ title: tableDialog.id ? "Masa güncellendi" : "Masa eklendi", description: name })
     } catch (e: any) {
       toast({ title: "Kaydedilemedi", description: e.message, variant: "destructive" })
     } finally {
       setSaving(false)
-    }
-  }
-
-  const deleteTable = async () => {
-    if (!tableDialog?.id) return
-    setSaving(true)
-    try {
-      const res = await fetch(`/api/restoran/masalar/${tableDialog.id}?companyId=${companyId}`, {
-        method: "DELETE",
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.error || "Silinemedi")
-      setTableDialog(null)
-      void mutate()
-      toast({
-        title: body?.deactivated ? "Masa kullanım dışı bırakıldı" : "Masa silindi",
-        description: body?.deactivated
-          ? "Geçmiş adisyonları olduğu için kayıt korundu."
-          : undefined,
-      })
-    } catch (e: any) {
-      toast({ title: "Silinemedi", description: e.message, variant: "destructive" })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const addPlanItem = async (kind: string, areaId: string | null) => {
-    try {
-      const res = await fetch("/api/restoran/plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, kind, areaId }),
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.error || "Eklenemedi")
-      void mutateItems()
-    } catch (e: any) {
-      toast({ title: "Eklenemedi", description: e.message, variant: "destructive" })
     }
   }
 
@@ -431,36 +559,13 @@ export function FloorPlanScreen() {
       const res = await fetch(`/api/restoran/plan/${itemDialog.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          companyId,
-          label: itemDialog.label,
-          width: itemDialog.width,
-          height: itemDialog.height,
-        }),
+        body: JSON.stringify({ companyId, label: itemDialog.label }),
       })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.error || "Kaydedilemedi")
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Kaydedilemedi")
       setItemDialog(null)
       void mutateItems()
     } catch (e: any) {
       toast({ title: "Kaydedilemedi", description: e.message, variant: "destructive" })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const deleteItem = async () => {
-    if (!itemDialog) return
-    setSaving(true)
-    try {
-      const res = await fetch(`/api/restoran/plan/${itemDialog.id}?companyId=${companyId}`, {
-        method: "DELETE",
-      })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Silinemedi")
-      setItemDialog(null)
-      void mutateItems()
-    } catch (e: any) {
-      toast({ title: "Silinemedi", description: e.message, variant: "destructive" })
     } finally {
       setSaving(false)
     }
@@ -472,19 +577,67 @@ export function FloorPlanScreen() {
     if (!name) return
     setSaving(true)
     try {
-      const res = await fetch("/api/restoran/bolgeler", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, name }),
-      })
+      const res = await fetch(
+        areaDialog.id ? `/api/restoran/bolgeler/${areaDialog.id}` : "/api/restoran/bolgeler",
+        {
+          method: areaDialog.id ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, name, adoptUnassigned: areaDialog.adopt }),
+        },
+      )
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body?.error || "Kaydedilemedi")
       setAreaDialog(null)
       void mutateAreas()
-      setActiveArea(body.id)
-      toast({ title: "Bölge eklendi", description: name })
+      if (areaDialog.adopt) {
+        void mutate()
+        void mutateItems()
+      }
+      if (!areaDialog.id) setActiveArea(body.id)
+      toast({ title: areaDialog.id ? "Plan yeniden adlandırıldı" : "Plan eklendi", description: name })
     } catch (e: any) {
       toast({ title: "Kaydedilemedi", description: e.message, variant: "destructive" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const setAreaGrid = async (area: Area, gridSize: number) => {
+    await mutateAreas(
+      (prev) => (prev ?? []).map((a) => (a.id === area.id ? { ...a, gridSize } : a)),
+      { revalidate: false },
+    )
+    try {
+      const res = await fetch(`/api/restoran/bolgeler/${area.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, gridSize }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Değiştirilemedi")
+    } catch (e: any) {
+      toast({ title: "Plan boyutu değişmedi", description: e.message, variant: "destructive" })
+    } finally {
+      void mutateAreas()
+    }
+  }
+
+  const deleteArea = async (area: Area) => {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/restoran/bolgeler/${area.id}?companyId=${companyId}`, {
+        method: "DELETE",
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Silinemedi")
+      if (activeArea === area.id) setActiveArea(ALL_AREAS)
+      void mutateAreas()
+      void mutate()
+      void mutateItems()
+      toast({
+        title: "Plan silindi",
+        description: "Masalar silinmedi; 'Bölgesiz' planına taşındı.",
+      })
+    } catch (e: any) {
+      toast({ title: "Silinemedi", description: e.message, variant: "destructive" })
     } finally {
       setSaving(false)
     }
@@ -506,6 +659,9 @@ export function FloorPlanScreen() {
         : "bg-muted text-muted-foreground hover:bg-muted/70",
     )
 
+  const activeToolLabel =
+    tool === TABLE_TOOL ? "Masa" : tool ? kindDef(tool).label : null
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -513,8 +669,8 @@ export function FloorPlanScreen() {
           <h1 className="text-3xl font-bold">Masalar</h1>
           <p className="text-muted-foreground">
             {editMode
-              ? "Masaları ve kroki öğelerini sürükleyerek yerleştirin; dokununca ayarları açılır."
-              : "Boş masaya dokunun, adisyon açılsın. Dolu masa hesabını gösterir."}
+              ? "Araç seçip tuvale sürükleyin; öğeleri kenar ve köşelerinden çekerek boyutlandırın."
+              : "Boş masaya dokunun, adisyon açılsın. Dolu masayı başka masaya sürüklerseniz hesap taşınır."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -522,44 +678,175 @@ export function FloorPlanScreen() {
             <RefreshCw className={cn("mr-1.5 h-4 w-4", isLoading && "animate-spin")} />
             Yenile
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setReservationsOpen(true)}>
+            <CalendarClock className="mr-1.5 h-4 w-4" />
+            Rezervasyon
+          </Button>
           <Button
             variant={editMode ? "default" : "outline"}
             size="sm"
             onClick={() => setEditMode((v) => !v)}
           >
             <Move className="mr-1.5 h-4 w-4" />
-            {editMode ? "Düzenlemeyi bitir" : "Düzenle"}
+            {editMode ? "Düzenlemeyi bitir" : "Planı düzenle"}
           </Button>
-          {editMode && (
-            <Button variant="outline" size="sm" onClick={() => setAreaDialog({ name: "" })}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              Bölge
-            </Button>
-          )}
         </div>
       </div>
 
-      {/* Bölge sekmeleri */}
+      {/* Plan sekmeleri */}
       {(areas.length > 0 || tables.some((t) => !t.areaId)) && (
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-          <button type="button" className={areaTab(activeArea === ALL_AREAS)} onClick={() => setActiveArea(ALL_AREAS)}>
+          <button
+            type="button"
+            className={areaTab(activeArea === ALL_AREAS)}
+            onClick={() => setActiveArea(ALL_AREAS)}
+          >
             Tümü
           </button>
           {areas.map((a: Area) => (
-            <button key={a.id} type="button" className={areaTab(activeArea === a.id)} onClick={() => setActiveArea(a.id)}>
+            <button
+              key={a.id}
+              type="button"
+              className={areaTab(activeArea === a.id)}
+              onClick={() => setActiveArea(a.id)}
+            >
               {a.name}
             </button>
           ))}
           {tables.some((t) => !t.areaId) && (
-            <button type="button" className={areaTab(activeArea === NO_AREA)} onClick={() => setActiveArea(NO_AREA)}>
+            <button
+              type="button"
+              className={areaTab(activeArea === NO_AREA)}
+              onClick={() => setActiveArea(NO_AREA)}
+            >
               Bölgesiz
             </button>
+          )}
+          {editMode && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-1 shrink-0 rounded-full"
+              onClick={() => setAreaDialog({ name: "" })}
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              Plan ekle
+            </Button>
           )}
         </div>
       )}
 
+      {/* Düzenleme araç çubuğu — araç GLOBALDİR, hangi tuvale sürüklerseniz
+          öğe oraya düşer. Bölüm başına ayrı çubuk ekranı doldururdu. */}
+      {editMode && (
+        <Card className="sticky top-2 z-30 shadow-sm">
+          <CardContent className="space-y-2 p-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                size="sm"
+                variant={tool === TABLE_TOOL ? "default" : "outline"}
+                onClick={() => setTool(tool === TABLE_TOOL ? null : TABLE_TOOL)}
+              >
+                <Square className="mr-1 h-3.5 w-3.5" />
+                Masa
+              </Button>
+              <span className="mx-1 hidden text-xs text-muted-foreground sm:inline">Kroki:</span>
+              {PLAN_KINDS.map((k) => {
+                const Icon = k.icon
+                return (
+                  <Button
+                    key={k.kind}
+                    size="sm"
+                    variant={tool === k.kind ? "default" : "outline"}
+                    title={k.label}
+                    onClick={() => setTool(tool === k.kind ? null : k.kind)}
+                  >
+                    <Icon className="mr-1 h-3.5 w-3.5" />
+                    <span className="text-xs">{k.label}</span>
+                  </Button>
+                )
+              })}
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              {activeToolLabel ? (
+                <>
+                  <strong className="text-foreground">{activeToolLabel}</strong> seçili — tuvale
+                  sürükleyerek istediğiniz boyutta çizin, tek tıkla varsayılan boyutta ekleyin.
+                  Bırakmak için <kbd className="rounded border px-1">Esc</kbd>.
+                </>
+              ) : (
+                "Bir araç seçin ya da mevcut bir öğeye dokunup kenarlarından çekin. Ok tuşları taşır, Shift+ok boyutlandırır."
+              )}
+            </p>
+
+            {/* Seçim müfettişi */}
+            {selected && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-2 text-sm">
+                <span className="font-semibold">
+                  {selected.kind === "table"
+                    ? selected.table.name
+                    : selected.item.label || kindDef(selected.item.kind).label}
+                </span>
+                <span className="rounded bg-background px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground">
+                  {sizeLabel(selected.kind === "table" ? selected.table : selected.item)} hücre
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7"
+                    onClick={() =>
+                      selected.kind === "table"
+                        ? setTableDialog({
+                            id: selected.table.id,
+                            name: selected.table.name,
+                            areaId: selected.table.areaId ?? NO_AREA,
+                            capacity:
+                              selected.table.capacity != null
+                                ? String(selected.table.capacity)
+                                : "",
+                            shape: selected.table.shape,
+                            size: sizeLabel(selected.table),
+                          })
+                        : setItemDialog({
+                            id: selected.item.id,
+                            kind: selected.item.kind,
+                            label: selected.item.label ?? "",
+                            size: sizeLabel(selected.item),
+                          })
+                    }
+                  >
+                    <Settings2 className="mr-1 h-3.5 w-3.5" />
+                    Ayarlar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7"
+                    onClick={() => void duplicateSelection()}
+                  >
+                    <Copy className="mr-1 h-3.5 w-3.5" />
+                    Çoğalt
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-red-600 dark:text-red-400"
+                    onClick={() => void deleteSelection()}
+                  >
+                    <Trash2 className="mr-1 h-3.5 w-3.5" />
+                    Sil
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Özet şerit */}
-      <div className="flex flex-wrap items-center gap-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="rounded-lg bg-muted px-3 py-1.5">
           {visibleTables.length} masa · <strong>{openCount} dolu</strong>
         </span>
@@ -568,6 +855,21 @@ export function FloorPlanScreen() {
             Açık hesap: {currency(openTotal)}
           </span>
         )}
+        {(["BILL", "CLEANING", "RESERVED"] as TableState[]).map((state) => {
+          const count = stateCount(state)
+          if (count === 0) return null
+          return (
+            <span
+              key={state}
+              className={cn(
+                "rounded-lg border-2 px-3 py-1 text-xs font-semibold",
+                TABLE_STATE_STYLE[state].className,
+              )}
+            >
+              {count} {TABLE_STATE_STYLE[state].label.toLowerCase()}
+            </span>
+          )
+        })}
       </div>
 
       {error ? (
@@ -583,25 +885,21 @@ export function FloorPlanScreen() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div
+          className={cn(
+            "grid gap-4",
+            // Düzenlerken tek sütun: tuval ne kadar büyükse tutamaç o kadar
+            // rahat. Bakarken geniş ekranda iki plan yan yana sığar.
+            !editMode && sections.length > 1 && "xl:grid-cols-2",
+          )}
+        >
           {sections.map((section) => {
-            const cols = Math.max(
-              MIN_COLS,
-              ...section.tables.map((t) => t.x + t.width + 1),
-              ...section.items.map((i) => i.x + i.width + 1),
-            )
-            const rows = Math.max(
-              MIN_ROWS,
-              ...section.tables.map((t) => t.y + t.height + 1),
-              ...section.items.map((i) => i.y + i.height + 1),
-            )
             const sectionOpen = section.tables.filter((t) => t.openTicket).length
+            const empty = section.tables.length === 0 && section.items.length === 0
 
             return (
               <Card key={section.key}>
                 <CardContent className="space-y-3 p-3">
-                  {/* Bölüm başlığı: "Tümü"de bölge adı, tek bölgede de aynı satır
-                      düzenleme araçlarını taşıyor. */}
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-baseline gap-2">
                       <h2 className="text-lg font-semibold">{section.name}</h2>
@@ -609,184 +907,104 @@ export function FloorPlanScreen() {
                         {section.tables.length} masa · {sectionOpen} dolu
                       </span>
                     </div>
+
                     {editMode && (
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <Button size="sm" onClick={() => setTableDialog(emptyTableForm(section.areaId))}>
-                          <Plus className="mr-1.5 h-4 w-4" />
-                          Masa
-                        </Button>
-                        <span className="mx-1 hidden text-xs text-muted-foreground sm:inline">Kroki:</span>
-                        {PLAN_KINDS.map((k) => {
-                          const Icon = k.icon
-                          return (
-                            <Button
-                              key={k.kind}
-                              variant="outline"
-                              size="sm"
-                              title={k.label}
-                              onClick={() => void addPlanItem(k.kind, section.areaId)}
+                        {section.area ? (
+                          <>
+                            <Select
+                              value={String(section.area.gridSize)}
+                              onValueChange={(v) => void setAreaGrid(section.area!, Number(v))}
                             >
-                              <Icon className="mr-1 h-3.5 w-3.5" />
-                              <span className="text-xs">{k.label}</span>
+                              <SelectTrigger className="h-8 w-[128px] text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {PLAN_GRID_STEPS.map((step) => (
+                                  <SelectItem
+                                    key={step}
+                                    value={String(step)}
+                                    disabled={step < section.minGrid}
+                                  >
+                                    {step} × {step} hücre
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8"
+                              onClick={() =>
+                                setAreaDialog({ id: section.area!.id, name: section.area!.name })
+                              }
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                          )
-                        })}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 text-red-600 dark:text-red-400"
+                              disabled={saving}
+                              onClick={() => void deleteArea(section.area!)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        ) : (
+                          // Bölgesiz planın saklayacak satırı yok → boyutu
+                          // içerikten türetilir. Adlandırmak onu gerçek bir
+                          // plana çevirir ve boyut ayarlanabilir hale gelir.
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            onClick={() => setAreaDialog({ name: "Salon", adopt: true })}
+                          >
+                            Bu planı adlandır
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {section.tables.length === 0 && section.items.length === 0 ? (
+                  {empty && !editMode ? (
                     <div className="space-y-3 py-12 text-center">
-                      <p className="text-sm text-muted-foreground">
-                        Bu bölümde henüz bir şey yok.
-                      </p>
+                      <p className="text-sm text-muted-foreground">Bu planda henüz masa yok.</p>
                       <Button
                         size="sm"
                         onClick={() => {
                           setEditMode(true)
-                          setTableDialog(emptyTableForm(section.areaId))
+                          setTool(TABLE_TOOL)
                         }}
                       >
                         <Plus className="mr-1.5 h-4 w-4" />
-                        Masa ekle
+                        Planı düzenle
                       </Button>
                     </div>
                   ) : (
-                    <div className="overflow-auto">
-                      <div
-                        className="relative rounded-xl bg-[linear-gradient(to_right,hsl(var(--border))_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border))_1px,transparent_1px)] bg-[size:48px_48px]"
-                        style={{ width: cols * CELL, height: rows * CELL, minWidth: "100%" }}
-                        onPointerMove={onPointerMove}
-                      >
-                        {/* Kroki masaların ALTINDA çizilir ve kullanım kipinde
-                            tıklanamaz — garson duvara basıp adisyon açmasın. */}
-                        {section.items.map((item) => {
-                          const def = kindDef(item.kind)
-                          const Icon = def.icon
-                          const dragging = drag?.id === item.id
-                          const text = item.label || (def.showLabel ? def.label : "")
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              tabIndex={editMode ? 0 : -1}
-                              onPointerDown={(e) => onPointerDown(e, "item", item.id, item.x, item.y)}
-                              onPointerUp={onPointerUp}
-                              onClick={() => {
-                                if (movedRef.current) {
-                                  movedRef.current = false
-                                  return
-                                }
-                                if (!editMode) return
-                                setItemDialog({
-                                  id: item.id,
-                                  kind: item.kind,
-                                  label: item.label ?? "",
-                                  width: item.width,
-                                  height: item.height,
-                                })
-                              }}
-                              className={cn(
-                                "absolute flex items-center justify-center gap-1 rounded-md border-2 p-1 text-[10px] font-semibold",
-                                def.className,
-                                editMode ? "cursor-move touch-none" : "pointer-events-none",
-                                dragging && "z-20 opacity-80 shadow-lg",
-                              )}
-                              style={{
-                                left: item.x * CELL,
-                                top: item.y * CELL,
-                                width: item.width * CELL,
-                                height: item.height * CELL,
-                                transform: dragging ? `translate(${drag.dx}px, ${drag.dy}px)` : undefined,
-                              }}
-                            >
-                              {item.kind !== "TEXT" && <Icon className="h-3.5 w-3.5 shrink-0" />}
-                              {text && <span className="line-clamp-2 leading-tight">{text}</span>}
-                            </button>
-                          )
-                        })}
-
-                        {section.tables.map((table) => {
-                          const busy = !!table.openTicket
-                          const dragging = drag?.id === table.id
-                          return (
-                            <button
-                              key={table.id}
-                              type="button"
-                              onPointerDown={(e) => onPointerDown(e, "table", table.id, table.x, table.y)}
-                              onPointerUp={onPointerUp}
-                              onClick={() => {
-                                // Taşıma yapıldıysa bu click sürüklemenin artığıdır.
-                                if (movedRef.current) {
-                                  movedRef.current = false
-                                  return
-                                }
-                                if (editMode) {
-                                  setTableDialog({
-                                    id: table.id,
-                                    name: table.name,
-                                    areaId: table.areaId ?? NO_AREA,
-                                    capacity: table.capacity != null ? String(table.capacity) : "",
-                                    shape: table.shape,
-                                    width: table.width,
-                                    height: table.height,
-                                  })
-                                } else {
-                                  void openTable(table)
-                                }
-                              }}
-                              disabled={busyTableId === table.id}
-                              className={cn(
-                                "absolute z-10 flex flex-col items-center justify-center gap-0.5 border-2 p-1.5 text-center transition-colors",
-                                table.shape === "CIRCLE" ? "rounded-full" : "rounded-xl",
-                                busy
-                                  ? "border-kobipo-blue bg-kobipo-blue/10 dark:border-primary dark:bg-primary/15"
-                                  : "border-dashed border-border bg-card hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary",
-                                editMode && "cursor-move touch-none",
-                                dragging && "z-20 opacity-80 shadow-lg",
-                              )}
-                              style={{
-                                left: table.x * CELL,
-                                top: table.y * CELL,
-                                width: table.width * CELL - 6,
-                                height: table.height * CELL - 6,
-                                transform: dragging ? `translate(${drag.dx}px, ${drag.dy}px)` : undefined,
-                              }}
-                            >
-                              {busyTableId === table.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <>
-                                  <span className="line-clamp-1 text-sm font-bold">{table.name}</span>
-                                  {busy ? (
-                                    <>
-                                      <span className="text-xs font-semibold text-kobipo-blue dark:text-primary">
-                                        {currency(table.openTicket!.total)}
-                                      </span>
-                                      <span className="text-[10px] text-muted-foreground">
-                                        {elapsedLabel(table.openTicket!.openedAt, now)} ·{" "}
-                                        {table.openTicket!.itemCount} kalem
-                                      </span>
-                                    </>
-                                  ) : (
-                                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                      {table.capacity ? (
-                                        <>
-                                          <Users className="h-3 w-3" />
-                                          {table.capacity}
-                                        </>
-                                      ) : (
-                                        "Boş"
-                                      )}
-                                    </span>
-                                  )}
-                                </>
-                              )}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
+                    <FloorPlanCanvas
+                      grid={section.grid}
+                      tables={section.tables}
+                      items={section.items}
+                      editMode={editMode}
+                      tool={tool}
+                      selection={selection}
+                      busyTableId={busyTableId}
+                      now={now}
+                      onSelect={setSelection}
+                      onGeometry={commitGeometry}
+                      onDraw={(kind, rect, exact) =>
+                        void drawElement(section.areaId, section.grid, kind, rect, exact)
+                      }
+                      onOpenTable={onOpenTable}
+                      onTableDrop={(source, target) => {
+                        if (!source.openTicket) return
+                        setDrop({ source, target })
+                      }}
+                      onDeleteSelection={() => void deleteSelection()}
+                      onDuplicateSelection={() => void duplicateSelection()}
+                    />
                   )}
                 </CardContent>
               </Card>
@@ -795,13 +1013,14 @@ export function FloorPlanScreen() {
         </div>
       )}
 
-      {/* Masa ekle/düzenle */}
+      {/* Masa ayarları — ölçü BURADA YOK: tutamaçtan çekilir. Sayı girmek
+          krokiyi çizilemez hale getiriyordu (kullanıcı geri bildirimi). */}
       <Dialog open={tableDialog !== null} onOpenChange={(o) => !o && setTableDialog(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{tableDialog?.id ? "Masayı düzenle" : "Yeni masa"}</DialogTitle>
+            <DialogTitle>{tableDialog?.id ? "Masa ayarları" : "Yeni masa"}</DialogTitle>
             <DialogDescription>
-              Masa adı salonda benzersiz olmalı. Ölçüler ızgara hücresi cinsindendir.
+              Masa adı salonda benzersiz olmalı. Ölçüyü planda kenarlarından çekerek verirsiniz.
             </DialogDescription>
           </DialogHeader>
           {tableDialog && (
@@ -832,7 +1051,7 @@ export function FloorPlanScreen() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <Label>Bölge</Label>
+                  <Label>Plan</Label>
                   <Select
                     value={tableDialog.areaId}
                     onValueChange={(v) => setTableDialog({ ...tableDialog, areaId: v })}
@@ -877,39 +1096,24 @@ export function FloorPlanScreen() {
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Genişlik (hücre)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={tableDialog.width}
-                    onChange={(e) =>
-                      setTableDialog({ ...tableDialog, width: Number(e.target.value) || 1 })
-                    }
-                    className="mt-1.5"
-                  />
-                </div>
-                <div>
-                  <Label>Yükseklik (hücre)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={tableDialog.height}
-                    onChange={(e) =>
-                      setTableDialog({ ...tableDialog, height: Number(e.target.value) || 1 })
-                    }
-                    className="mt-1.5"
-                  />
-                </div>
-              </div>
+              {tableDialog.id && (
+                <p className="text-xs text-muted-foreground">
+                  Ölçü: <strong>{tableDialog.size}</strong> hücre — planda kenar/köşe
+                  tutamaçlarından değiştirin.
+                </p>
+              )}
             </div>
           )}
           <DialogFooter className="gap-2 sm:justify-between">
             {tableDialog?.id ? (
-              <Button variant="outline" onClick={deleteTable} disabled={saving}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setTableDialog(null)
+                  void deleteSelection()
+                }}
+                disabled={saving}
+              >
                 <Trash2 className="mr-1.5 h-4 w-4" />
                 Kaldır
               </Button>
@@ -929,58 +1133,37 @@ export function FloorPlanScreen() {
         </DialogContent>
       </Dialog>
 
-      {/* Kroki öğesi düzenle */}
+      {/* Kroki öğesi */}
       <Dialog open={itemDialog !== null} onOpenChange={(o) => !o && setItemDialog(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{itemDialog ? kindDef(itemDialog.kind).label : ""}</DialogTitle>
             <DialogDescription>
-              Ölçüler ızgara hücresi cinsindendir. Duvarı uzatmak için genişliği artırın.
+              Ölçü {itemDialog?.size} hücre — planda kenarlarından çekerek değiştirin.
             </DialogDescription>
           </DialogHeader>
           {itemDialog && (
-            <div className="space-y-3">
-              <div>
-                <Label>Etiket (isteğe bağlı)</Label>
-                <Input
-                  value={itemDialog.label}
-                  onChange={(e) => setItemDialog({ ...itemDialog, label: e.target.value })}
-                  placeholder={kindDef(itemDialog.kind).label}
-                  className="mt-1.5"
-                />
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Genişlik</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={40}
-                    value={itemDialog.width}
-                    onChange={(e) =>
-                      setItemDialog({ ...itemDialog, width: Number(e.target.value) || 1 })
-                    }
-                    className="mt-1.5"
-                  />
-                </div>
-                <div>
-                  <Label>Yükseklik</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={40}
-                    value={itemDialog.height}
-                    onChange={(e) =>
-                      setItemDialog({ ...itemDialog, height: Number(e.target.value) || 1 })
-                    }
-                    className="mt-1.5"
-                  />
-                </div>
-              </div>
+            <div>
+              <Label>Etiket (isteğe bağlı)</Label>
+              <Input
+                autoFocus
+                value={itemDialog.label}
+                onChange={(e) => setItemDialog({ ...itemDialog, label: e.target.value })}
+                placeholder={kindDef(itemDialog.kind).label}
+                className="mt-1.5"
+                onKeyDown={(e) => e.key === "Enter" && void saveItem()}
+              />
             </div>
           )}
           <DialogFooter className="gap-2 sm:justify-between">
-            <Button variant="outline" onClick={deleteItem} disabled={saving}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setItemDialog(null)
+                void deleteSelection()
+              }}
+              disabled={saving}
+            >
               <Trash2 className="mr-1.5 h-4 w-4" />
               Sil
             </Button>
@@ -997,18 +1180,28 @@ export function FloorPlanScreen() {
         </DialogContent>
       </Dialog>
 
-      {/* Bölge ekle */}
+      {/* Plan ekle / yeniden adlandır */}
       <Dialog open={areaDialog !== null} onOpenChange={(o) => !o && setAreaDialog(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Yeni bölge</DialogTitle>
-            <DialogDescription>Bahçe, Üst Kat, Teras… Planda kendi bölümü olur.</DialogDescription>
+            <DialogTitle>
+              {areaDialog?.id
+                ? "Planı yeniden adlandır"
+                : areaDialog?.adopt
+                  ? "Planı adlandır"
+                  : "Yeni plan"}
+            </DialogTitle>
+            <DialogDescription>
+              {areaDialog?.adopt
+                ? "Bölgesiz masalar ve kroki öğeleri bu plana taşınır; plan boyutu ayarlanabilir hale gelir."
+                : "Ön Bahçe, Arka Bahçe, Üst Kat, Teras… Her plan kendi kare krokisidir."}
+            </DialogDescription>
           </DialogHeader>
           <Input
             autoFocus
             value={areaDialog?.name ?? ""}
-            onChange={(e) => setAreaDialog({ name: e.target.value })}
-            placeholder="Bahçe"
+            onChange={(e) => setAreaDialog({ ...areaDialog!, name: e.target.value })}
+            placeholder="Ön Bahçe"
             onKeyDown={(e) => e.key === "Enter" && void saveArea()}
           />
           <DialogFooter>
@@ -1016,11 +1209,135 @@ export function FloorPlanScreen() {
               Vazgeç
             </Button>
             <Button onClick={saveArea} disabled={saving}>
-              Ekle
+              {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              {areaDialog?.id ? "Kaydet" : "Ekle"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Kullanım kipi — belirsiz durumdaki masaya dokunuldu */}
+      <Dialog open={tableAction !== null} onOpenChange={(o) => !o && setTableAction(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{tableAction?.name}</DialogTitle>
+            <DialogDescription>
+              {tableAction?.reservation
+                ? `${tableAction.reservation.guestName} adına ${new Date(
+                    tableAction.reservation.reservedAt,
+                  ).toLocaleTimeString("tr-TR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })} rezervasyonu var${
+                    tableAction.reservation.guestCount
+                      ? ` (${tableAction.reservation.guestCount} kişi)`
+                      : ""
+                  }.`
+                : tableAction?.cleaningSince
+                  ? `Hesap ${elapsedLabel(tableAction.cleaningSince, now)} önce kapandı, masa henüz toplanmadı.`
+                  : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {tableAction?.reservation && (
+              <Button
+                className="w-full justify-start"
+                onClick={() => {
+                  const t = tableAction
+                  setTableAction(null)
+                  void openTicketFor(t, t.reservation!.id)
+                }}
+              >
+                <Users className="mr-2 h-4 w-4" />
+                Rezervasyonu oturt ve adisyon aç
+              </Button>
+            )}
+            {tableAction?.cleaningSince && (
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => void markCleaned(tableAction)}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                Masa toplandı
+              </Button>
+            )}
+            <Button
+              variant={tableAction?.reservation ? "outline" : "default"}
+              className="w-full justify-start"
+              onClick={() => {
+                const t = tableAction
+                setTableAction(null)
+                if (t) void openTicketFor(t)
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {tableAction?.reservation ? "Rezervasyonsuz adisyon aç" : "Yeni adisyon aç"}
+            </Button>
+            {tableAction?.reservation && (
+              <Button
+                variant="ghost"
+                className="w-full justify-start text-muted-foreground"
+                onClick={() => void markNoShow(tableAction)}
+              >
+                Misafir gelmedi
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Taşı / birleştir onayı */}
+      <Dialog open={drop !== null} onOpenChange={(o) => !o && setDrop(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {drop?.target.openTicket ? "Adisyonları birleştir" : "Hesabı taşı"}
+            </DialogTitle>
+            <DialogDescription>
+              {drop?.target.openTicket ? (
+                <>
+                  <strong>{drop.source.name}</strong> ({currency(drop.source.openTicket!.total)})
+                  hesabı <strong>{drop.target.name}</strong> (
+                  {currency(drop.target.openTicket.total)}) hesabına aktarılacak. Kaynak adisyon
+                  kapanır, kalemleri hedefe geçer.
+                </>
+              ) : (
+                <>
+                  <strong>{drop?.source.name}</strong> masasının açık hesabı{" "}
+                  <strong>{drop?.target.name}</strong> masasına taşınacak.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {drop?.target.openTicket && drop.source.openTicket && (
+            <p className="rounded-lg bg-muted px-3 py-2 text-sm">
+              Birleşen hesap:{" "}
+              <strong>
+                {currency(drop.source.openTicket.total + drop.target.openTicket.total)}
+              </strong>{" "}
+              · Kaynak adisyondaki iskonto düşer, hedefte yeniden verebilirsiniz.
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDrop(null)} disabled={saving}>
+              Vazgeç
+            </Button>
+            <Button onClick={confirmDrop} disabled={saving}>
+              {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              {drop?.target.openTicket ? "Birleştir" : "Taşı"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ReservationDialog
+        open={reservationsOpen}
+        onOpenChange={setReservationsOpen}
+        companyId={companyId}
+        tables={tables}
+        onChanged={() => void mutate()}
+      />
     </div>
   )
 }

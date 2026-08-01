@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { generateMakbuzPDF } from "@/lib/pdf/makbuz-pdf"
+import { accountPaymentMethodLabel } from "@/lib/finans/account-types"
 
 interface TransactionDetail {
   id: string
@@ -36,22 +37,6 @@ interface TransactionDetail {
     amount: string | number
     invoice: { id: string; invoiceNo: string; type: string; totalAmount: string | number } | null
   }>
-}
-
-function paymentMethodLabel(accountType: string): string {
-  switch (accountType) {
-    case "BANK":
-      return "Havale / EFT"
-    case "CASH":
-      return "Nakit"
-    case "CREDIT_CARD":
-    case "POS":
-      return "Kredi Kartı / POS"
-    case "CHECK":
-      return "Çek"
-    default:
-      return "Diğer"
-  }
 }
 
 function formatCurrency(amount: number) {
@@ -150,7 +135,7 @@ export default function FinansHareketDetayPage() {
         currency: tx.currency || "TRY",
         description: tx.description,
         reference: tx.reference,
-        paymentMethod: paymentMethodLabel(tx.account.type),
+        paymentMethod: accountPaymentMethodLabel(tx.account.type),
         account: { name: tx.account.name, bankName: tx.account.bankName },
         company: tx.company || {},
         cari: tx.customer
@@ -245,7 +230,7 @@ export default function FinansHareketDetayPage() {
               </span>
             </Field>
             <Field label="Tarih">{new Date(tx.date).toLocaleDateString("tr-TR")}</Field>
-            <Field label="Ödeme Yöntemi">{paymentMethodLabel(tx.account.type)}</Field>
+            <Field label="Ödeme Yöntemi">{accountPaymentMethodLabel(tx.account.type)}</Field>
             <Field label="Hesap">
               {tx.account.name}
               {tx.account.bankName ? <span className="text-muted-foreground"> · {tx.account.bankName}</span> : null}

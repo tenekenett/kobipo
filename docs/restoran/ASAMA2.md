@@ -378,6 +378,18 @@ ve sayfa render'ı yukarıdaki testlerle doğrulandı.
 
 ---
 
+## Devamı: kroki editörü 2. tur (2026-08-01)
+
+Salon planı bu belgeden sonra bir tur daha gördü — kare/ölçekli tuval, tutamaçtan
+boyutlandırma, kalem modu, çoklu plan yönetimi, masa durumları (hesap istendi /
+toplanacak / rezerve), rezervasyon tablosu ve adisyon birleştirme:
+**[KROKI-EDITORU.md](./KROKI-EDITORU.md)**.
+
+Aşağıdaki "kapsam dışı" listesinden **hesap bölme** ve **masa taşıma** o turdan önce,
+**birleştirme** o turda kapandı.
+
+---
+
 ## Kapsam dışı (bu aşamada değil)
 
 - **Mutfak ekranı / adisyon yazıcısı** — sipariş mutfağa düşmüyor, kalem "hazırlanıyor"

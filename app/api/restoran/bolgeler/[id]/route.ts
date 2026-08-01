@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
+import { PLAN_GRID_MIN, normalizeGrid, requiredGrid } from "@/lib/restoran/floor-plan"
 
 export const dynamic = "force-dynamic"
 
@@ -24,7 +25,7 @@ export async function PATCH(request: Request, { params }: Params) {
     const existing = await prisma.restaurantArea.findFirst({ where: { id, companyId } })
     if (!existing) return NextResponse.json({ error: "Bölge bulunamadı" }, { status: 404 })
 
-    const data: { name?: string; order?: number; isActive?: boolean } = {}
+    const data: { name?: string; order?: number; gridSize?: number; isActive?: boolean } = {}
     if (body.name !== undefined) {
       const name = String(body.name || "").trim()
       if (!name) return NextResponse.json({ error: "Bölge adı zorunlu" }, { status: 400 })
@@ -37,10 +38,35 @@ export async function PATCH(request: Request, { params }: Params) {
     if (body.order !== undefined && Number.isFinite(Number(body.order))) data.order = Number(body.order)
     if (body.isActive !== undefined) data.isActive = Boolean(body.isActive)
 
+    // Plan küçültülürken içerik dışarıda kalmamalı. Kırpmak (masayı zorla içeri
+    // çekmek) sessizce yerleşimi bozardı; bunun yerine reddedip ne kadar
+    // küçültülebileceğini söylüyoruz.
+    if (body.gridSize !== undefined) {
+      const wanted = normalizeGrid(body.gridSize, existing.gridSize)
+      const [tables, planItems] = await Promise.all([
+        prisma.restaurantTable.findMany({
+          where: { companyId, areaId: id },
+          select: { x: true, y: true, width: true, height: true },
+        }),
+        prisma.restaurantPlanItem.findMany({
+          where: { companyId, areaId: id },
+          select: { x: true, y: true, width: true, height: true },
+        }),
+      ])
+      const needed = requiredGrid([...tables, ...planItems], PLAN_GRID_MIN)
+      if (wanted < needed) {
+        return NextResponse.json(
+          { error: `Plan en fazla ${needed} hücreye kadar küçültülebilir; önce kenardaki öğeleri içeri alın` },
+          { status: 409 },
+        )
+      }
+      data.gridSize = wanted
+    }
+
     const area = await prisma.restaurantArea.update({
       where: { id },
       data,
-      select: { id: true, name: true, order: true, isActive: true },
+      select: { id: true, name: true, order: true, gridSize: true, isActive: true },
     })
 
     return NextResponse.json(area)

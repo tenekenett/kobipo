@@ -111,6 +111,23 @@ export async function POST(request: Request) {
       if (!customer) return NextResponse.json({ error: "Müşteri bulunamadı" }, { status: 404 })
     }
 
+    // Rezervasyondan oturtma: hangi rezervasyonun gerçekleştiği TAHMİN EDİLMEZ,
+    // ekran açıkça söyler. Masada bekleyen rezervasyon varken oraya oturan
+    // gelen geçen müşteri rezervasyonu tüketmiş olurdu.
+    const reservationId = body.reservationId ? String(body.reservationId) : null
+    if (reservationId) {
+      const reservation = await prisma.restaurantReservation.findFirst({
+        where: { id: reservationId, companyId },
+        select: { id: true, status: true },
+      })
+      if (!reservation) {
+        return NextResponse.json({ error: "Rezervasyon bulunamadı" }, { status: 404 })
+      }
+      if (reservation.status !== "PENDING") {
+        return NextResponse.json({ error: "Rezervasyon zaten işlenmiş" }, { status: 409 })
+      }
+    }
+
     const code = await nextTicketCode(prisma, companyId)
 
     const ticket = await prisma.restaurantTicket.create({
@@ -125,6 +142,21 @@ export async function POST(request: Request) {
       },
       include: ticketInclude,
     })
+
+    if (tableId) {
+      // Masaya yeni müşteri oturdu → "toplanacak" damgası anlamını yitirdi.
+      await prisma.restaurantTable.updateMany({
+        where: { id: tableId, companyId, cleaningSince: { not: null } },
+        data: { cleaningSince: null },
+      })
+    }
+
+    if (reservationId) {
+      await prisma.restaurantReservation.updateMany({
+        where: { id: reservationId, companyId, status: "PENDING" },
+        data: { status: "SEATED", ticketId: ticket.id, ...(tableId ? { tableId } : {}) },
+      })
+    }
 
     return NextResponse.json(serializeTicket(ticket), { status: 201 })
   } catch (error: any) {

@@ -18,10 +18,21 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { Prisma } from "@prisma/client"
-import { localHour, num, parseRange } from "@/lib/restoran/reports"
+import { localDay, localHour, num, parseRange } from "@/lib/restoran/reports"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
 
 export const dynamic = "force-dynamic"
+
+/**
+ * Bir boşluğun "devir arası bekleme" sayılması için üst sınır (dakika).
+ *
+ * Boş bekleme, aynı masada ARDIŞIK iki adisyonun arasındaki süredir. Sınır
+ * olmasaydı öğle servisi 14:00'te biten bir masanın akşam 19:00'da açılması
+ * "5 saat boş bekledi" diye ortalamaya girer ve rakamı anlamsız kılardı —
+ * oysa orada masa beklemiyor, servis yok. Gün değişimi de zaten dışarıda:
+ * boşluk yalnız aynı YEREL GÜN içinde ölçülüyor.
+ */
+const IDLE_MAX_MINUTES = 120
 
 type TicketRow = {
   id: string
@@ -31,6 +42,9 @@ type TicketRow = {
   area_name: string | null
   guest_count: number | null
   minutes: unknown
+  /** Aynı masada bir önceki adisyonun kapanışından bu adisyonun açılışına
+   *  geçen süre. Günün ilk adisyonunda ve masasız adisyonlarda NULL. */
+  idle_minutes: unknown
   open_hour: number
   net: unknown
   gross: unknown
@@ -48,6 +62,10 @@ type Bucket = {
   minutesTotal: number
   /** Süresi ölçülebilen adisyon sayısı — ortalamanın paydası. */
   minutesCount: number
+  idleTotal: number
+  /** Ölçülebilen boşluk sayısı; ortalamanın paydası adisyon sayısı DEĞİL
+   *  (günün ilk adisyonundan önce boşluk yoktur). */
+  idleCount: number
   guests: number
 }
 
@@ -59,6 +77,8 @@ const emptyBucket = (key: string, name: string, areaName: string | null): Bucket
   revenue: 0,
   minutesTotal: 0,
   minutesCount: 0,
+  idleTotal: 0,
+  idleCount: 0,
   guests: 0,
 })
 
@@ -70,6 +90,9 @@ const finishBucket = (b: Bucket) => ({
   revenue: b.revenue,
   avgTicket: b.tickets > 0 ? b.revenue / b.tickets : 0,
   avgMinutes: b.minutesCount > 0 ? b.minutesTotal / b.minutesCount : null,
+  avgIdleMinutes: b.idleCount > 0 ? b.idleTotal / b.idleCount : null,
+  idleMinutes: b.idleTotal,
+  idleGaps: b.idleCount,
   guests: b.guests,
 })
 
@@ -96,6 +119,16 @@ export async function GET(request: Request) {
                ar.name                                                       AS area_name,
                t."guestCount"                                                AS guest_count,
                EXTRACT(EPOCH FROM (t."closedAt" - t."openedAt")) / 60        AS minutes,
+               -- Boş bekleme: aynı masada bir önceki adisyonun kapanışıyla bu
+               -- adisyonun açılışı arasındaki süre. Bölümleme masa + YEREL GÜN:
+               -- gün değişimini boşluk saymak her masaya her gece "12 saat boş
+               -- bekledi" yazardı. Günün ilk adisyonunda LAG null döner.
+               EXTRACT(EPOCH FROM (
+                 t."openedAt" - LAG(t."closedAt") OVER (
+                   PARTITION BY t."tableId", ${localDay(Prisma.sql`t."openedAt"`)}
+                   ORDER BY t."openedAt"
+                 )
+               )) / 60                                                       AS idle_minutes,
                ${localHour(Prisma.sql`t."openedAt"`)}                        AS open_hour,
                i."netAmount"                                                 AS net,
                i."totalAmount"                                               AS gross
@@ -123,6 +156,9 @@ export async function GET(request: Request) {
     let revenueNet = 0
     let minutesTotal = 0
     let minutesCount = 0
+    let idleTotal = 0
+    let idleCount = 0
+    let idleSkipped = 0
     let guests = 0
     let guestTickets = 0
 
@@ -139,6 +175,18 @@ export async function GET(request: Request) {
       if (hasMinutes) {
         minutesTotal += rawMinutes
         minutesCount += 1
+      }
+
+      // Boş bekleme yalnız GERÇEK masalarda anlamlı: paket/gel-al adisyonlarının
+      // arasındaki boşluk bir masanın beklemesi değildir.
+      const rawIdle = r.idle_minutes == null ? null : Number(r.idle_minutes)
+      const idleMeasured =
+        r.table_id != null && rawIdle != null && Number.isFinite(rawIdle) && rawIdle >= 0
+      const hasIdle = idleMeasured && (rawIdle as number) <= IDLE_MAX_MINUTES
+      if (idleMeasured && !hasIdle) idleSkipped += 1
+      if (hasIdle) {
+        idleTotal += rawIdle as number
+        idleCount += 1
       }
 
       if (r.guest_count != null && r.guest_count > 0) {
@@ -160,6 +208,10 @@ export async function GET(request: Request) {
         tb.minutesTotal += rawMinutes
         tb.minutesCount += 1
       }
+      if (hasIdle) {
+        tb.idleTotal += rawIdle as number
+        tb.idleCount += 1
+      }
 
       // Bölgesiz masalar da bir kovaya düşmeli, yoksa bölge toplamları genel
       // toplamı tutmaz ve kullanıcı farkı arar.
@@ -176,6 +228,10 @@ export async function GET(request: Request) {
       if (hasMinutes) {
         ar.minutesTotal += rawMinutes
         ar.minutesCount += 1
+      }
+      if (hasIdle) {
+        ar.idleTotal += rawIdle as number
+        ar.idleCount += 1
       }
 
       const hour = Number.isFinite(r.open_hour) ? r.open_hour : 0
@@ -206,6 +262,15 @@ export async function GET(request: Request) {
         activeTables,
         // Devir hızı: aralık boyunca masa başına düşen adisyon sayısı.
         turnover: activeTables > 0 ? tickets / activeTables : null,
+        // Boş bekleme: masa boşaldıktan sonra bir sonraki müşteriye kadar geçen
+        // ölü zaman. Devir hızını artırmanın en ucuz yolu burayı kısaltmaktır —
+        // masa eklemek gerekmez.
+        avgIdleMinutes: idleCount > 0 ? idleTotal / idleCount : null,
+        idleMinutes: idleTotal,
+        idleGaps: idleCount,
+        /** Servis arası sayıldığı için ortalamaya girmeyen uzun boşluk sayısı. */
+        idleSkipped,
+        idleMaxMinutes: IDLE_MAX_MINUTES,
       },
       tables: [...byTable.values()].map(finishBucket).sort((a, b) => b.revenue - a.revenue),
       areas: [...byArea.values()].map(finishBucket).sort((a, b) => b.revenue - a.revenue),

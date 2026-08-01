@@ -193,6 +193,9 @@ export const PLAN_ITEM_KINDS = [
   "WC", // tuvalet
   "STAIRS", // merdiven
   "PLANT", // bitki / dekor
+  "SOFA", // sedir / köşe koltuk (masa DEĞİL: adisyon açılmaz)
+  "FRIDGE", // dolap / buzdolabı / vitrin
+  "STAGE", // sahne / canlı müzik alanı
   "TEXT", // serbest yazı ("Sigara içilir", "Teras")
 ] as const
 
@@ -215,6 +218,12 @@ export function planItemDefaults(kind: string): { width: number; height: number 
       return { width: 2, height: 4 }
     case "PLANT":
       return { width: 1, height: 1 }
+    case "SOFA":
+      return { width: 4, height: 1 }
+    case "FRIDGE":
+      return { width: 2, height: 1 }
+    case "STAGE":
+      return { width: 4, height: 3 }
     default:
       return { width: 4, height: 1 }
   }

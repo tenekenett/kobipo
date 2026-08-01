@@ -281,6 +281,7 @@ model Company {
   restaurantTables        RestaurantTable[]
   restaurantTickets       RestaurantTicket[]
   restaurantPlanItems     RestaurantPlanItem[]
+  restaurantReservations  RestaurantReservation[]
   productOptionGroups     ProductOptionGroup[]
 
   @@index([parentCompanyId])
@@ -643,6 +644,9 @@ model RestaurantArea {
   companyId String
   name      String
   order     Int      @default(0)
+  // Bölge = bir KROKİ. Tuval kare olduğu için tek bir kenar uzunluğu yeter
+  // (hücre cinsinden): küçük kafe 12'de kalır, çok masalı mekân 32'ye çıkar.
+  gridSize  Int      @default(16)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -704,14 +708,21 @@ model RestaurantTable {
   y         Int      @default(0)
   width     Int      @default(2)
   height    Int      @default(2)
+  // Hesap kapandı, masa henüz toplanmadı. Adisyon kapanışında damgalanır.
+  //
+  // Masayı KİLİTLEMEZ: üzerine yeni adisyon açmak damgayı temizler. Kilitleseydi
+  // "temizlik" kullanmayan bir işletmede her masa iki dokunuş isterdi; böyle
+  // yalnız bilgi verir (garson hangi masanın toplanacağını plandan görür).
+  cleaningSince DateTime?
   // Masa SİLİNMEZ, pasifleştirilir: geçmiş adisyonlar masasız kalmasın.
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  area    RestaurantArea?    @relation(fields: [areaId], references: [id], onDelete: SetNull)
-  tickets RestaurantTicket[]
+  company      Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  area         RestaurantArea?         @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  tickets      RestaurantTicket[]
+  reservations RestaurantReservation[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -741,23 +752,74 @@ model RestaurantTicket {
   discountReason String?  @db.VarChar(255)
   openedAt   DateTime  @default(now())
   openedBy   String?
+  // Müşteri hesap istedi — masa planda ayrı renge döner. Adisyon hâlâ AÇIKTIR
+  // (kalem eklenebilir); bu yalnız "kasaya git" işaretidir. Kapanışta temizlenir
+  // ki masanın sonraki müşterisi devralmasın.
+  billRequestedAt DateTime?
+  billRequestedBy String?
   closedAt   DateTime?
   closedBy   String?
   // Kapanışta oluşan fiş. Fatura silinirse bağ kopar (SetNull), adisyon geçmişte kalır.
   invoiceId  String?   @unique
+  // Bu adisyon başka bir adisyona BİRLEŞTİRİLDİYSE hedefin id'si. Kaynak kayıt
+  // `CANCELLED` olur ama iptalden ayrılmalıdır: cirosu kaybolmadı, hedefe geçti.
+  // Rapor ve ekran bu alana bakıp "iptal" demez, "birleştirildi" der.
+  mergedIntoId String?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  company  Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  table    RestaurantTable?       @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  customer Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  invoice  Invoice?               @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  items    RestaurantTicketItem[]
+  company    Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  table      RestaurantTable?        @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  customer   Customer?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  invoice    Invoice?                @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  items      RestaurantTicketItem[]
+  mergedInto RestaurantTicket?       @relation("TicketMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom RestaurantTicket[]      @relation("TicketMerge")
+  reservation RestaurantReservation?
 
   @@unique([companyId, code])
   @@index([companyId, status])
   @@index([tableId])
+  @@index([mergedIntoId])
   @@map("restaurant_tickets")
+}
+
+// Rezervasyon — masanın GELECEKTEKİ dolusu.
+//
+// Adisyondan ayrı bir kayıttır: adisyon "şu an oturan"ı, rezervasyon "gelecek
+// olan"ı anlatır. Aynı tabloda yaşasalardı her ciro sorgusu henüz gerçekleşmemiş
+// hesapları elemek zorunda kalırdı ve gün sonu raporuna hayalet masa girerdi.
+//
+// `tableId` opsiyonel: "20:00, 6 kişi" rezervasyonu masası seçilmeden de alınır
+// (masa gün içinde atanır). Masa silinirse rezervasyon masasız kalır, kaybolmaz.
+model RestaurantReservation {
+  id          String   @id @default(cuid())
+  companyId   String
+  tableId     String?
+  guestName   String
+  phone       String?
+  guestCount  Int?
+  // Rezervasyonun BAŞLANGICI. Süre `durationMin` ile tutulur; bitiş saati
+  // saklanmaz, türetilir (iki alan ayrışırdı).
+  reservedAt  DateTime
+  durationMin Int      @default(90)
+  note        String?  @db.Text
+  // PENDING → bekliyor · SEATED → misafir oturdu · NOSHOW → gelmedi · CANCELLED
+  status      String   @default("PENDING") @db.VarChar(10)
+  // Misafir oturunca açılan adisyon. Rezervasyonun gerçekleştiğinin kanıtı ve
+  // "rezervasyon ne kadar ciro getirdi" sorusunun tek bağı.
+  ticketId    String?  @unique
+  createdAt   DateTime @default(now())
+  createdBy   String?
+  updatedAt   DateTime @updatedAt
+
+  company Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  table   RestaurantTable?  @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  ticket  RestaurantTicket? @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, reservedAt])
+  @@index([tableId, reservedAt])
+  @@map("restaurant_reservations")
 }
 
 // Adisyon kalemi. `unitPrice` NET'tir (KDV hariç) — fatura API'si net bekliyor,

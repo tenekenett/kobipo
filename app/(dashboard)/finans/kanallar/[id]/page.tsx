@@ -21,6 +21,11 @@ import {
   Wallet,
 } from "lucide-react"
 
+import {
+  FINANCIAL_ACCOUNT_TYPES,
+  accountHasBankFields,
+  accountTypeLabel,
+} from "@/lib/finans/account-types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -83,9 +88,6 @@ interface AccountDetail {
   transactions: AccountTransaction[]
   _count?: { transactions: number }
 }
-
-const accountTypeLabel = (type: string) =>
-  type === "CASH" ? "Kasa" : type === "BANK" ? "Banka" : type
 
 const formatAmount = (value: number, currency: string) =>
   `${value.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
@@ -351,7 +353,7 @@ export default function FinansKanalDetayPage() {
                 {!account.isActive && <Badge variant="destructive">Pasif</Badge>}
               </div>
               <p className="text-sm text-muted-foreground">
-                {account.bankName ? account.bankName : "Kasa hesabı"}
+                {account.bankName ? account.bankName : accountTypeLabel(account.type)}
                 {account.code ? ` · Kod: ${account.code}` : ""}
               </p>
             </div>
@@ -433,7 +435,7 @@ export default function FinansKanalDetayPage() {
         <CardHeader>
           <CardTitle>Hesap Bilgileri</CardTitle>
           <CardDescription>
-            {isCash ? "Kasa hesabı detayları" : "Banka hesabı detayları"}
+            {accountTypeLabel(account.type)} hesabı detayları
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -637,8 +639,11 @@ export default function FinansKanalDetayPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="BANK">Banka</SelectItem>
-                  <SelectItem value="CASH">Kasa</SelectItem>
+                  {FINANCIAL_ACCOUNT_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -675,7 +680,7 @@ export default function FinansKanalDetayPage() {
                 </Select>
               </div>
             </div>
-            {editForm.type === "BANK" && (
+            {accountHasBankFields(editForm.type) && (
               <>
                 <div className="grid gap-2">
                   <Label>Banka Adı</Label>

@@ -10,6 +10,7 @@ import { Plus } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { accountHasBankFields } from "@/lib/finans/account-types"
 
 interface BankStatement {
   id: string
@@ -73,7 +74,8 @@ export default function BankaMutabakatPage() {
     const response = await fetch(`/api/finans/accounts?companyId=${companyId}`)
     if (response.ok) {
       const data = await response.json()
-      setAccounts(data.filter((item: any) => item.type === "BANK"))
+      // POS/kredi kartı kanalı da bir bankaya bağlıdır; ekstresi mutabakata girer.
+      setAccounts(data.filter((item: any) => accountHasBankFields(item.type)))
     }
   }
 

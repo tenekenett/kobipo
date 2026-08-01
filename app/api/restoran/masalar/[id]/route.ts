@@ -62,6 +62,13 @@ export async function PATCH(request: Request, { params }: Params) {
     if (body.width !== undefined) data.width = clampSize(body.width, existing.width)
     if (body.height !== undefined) data.height = clampSize(body.height, existing.height)
 
+    // Temizlik damgası. `cleaned: true` → masa toplandı (damga silinir),
+    // `false` → elle "toplanacak" işaretlenir (müşteri kalkmış ama hesap başka
+    // masadan kapanmışsa garson kendi işaretler).
+    if (body.cleaned !== undefined) {
+      data.cleaningSince = body.cleaned ? null : (existing.cleaningSince ?? new Date())
+    }
+
     if (body.isActive !== undefined) {
       const next = Boolean(body.isActive)
       if (!next) {
@@ -133,8 +140,14 @@ export async function DELETE(request: Request, { params }: Params) {
   }
 }
 
+/**
+ * Ölçüler 1–40 hücre. Üst sınır kroki öğeleriyle AYNI: gerçek sınırı planın
+ * kendi ızgarası koyuyor (ekran öğeyi kare tuvale sığdırıyor). Masaya ayrı ve
+ * daha dar bir sınır koymak, tutamaçtan çekilen ölçünün sessizce başka bir
+ * değere düşmesine yol açıyordu.
+ */
 function clampSize(value: unknown, fallback: number): number {
   const n = Number(value)
   if (!Number.isFinite(n)) return fallback
-  return Math.min(12, Math.max(1, Math.trunc(n)))
+  return Math.min(40, Math.max(1, Math.trunc(n)))
 }

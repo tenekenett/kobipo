@@ -107,6 +107,7 @@ async function main() {
     planItemIds: [],
     optionGroupIds: [],
     customerIds: [],
+    reservationIds: [],
   }
 
   try {
@@ -625,6 +626,249 @@ async function main() {
     check("bölge 1 masaları", a1.length === 2, `${a1.length} masa`)
     check("bölge 2 masaları", a2.length === 1, `${a2.length} masa`)
 
+    // ── 10b. Kare kroki: plan boyutu ────────────────────────────────────────
+    // Tuval kare olduğu için bölge tek bir kenar uzunluğu (gridSize) tutar.
+    console.log("\n10b) Plan boyutu (kare kroki)")
+    const gridDefault = await api("GET", `/api/restoran/bolgeler?companyId=${company.id}`)
+    const myArea = gridDefault.body.find((a) => a.id === created.areaId)
+    check("bölge varsayılan ızgarayla geliyor", myArea?.gridSize === 16, `${myArea?.gridSize}`)
+
+    const grown = await api("PATCH", `/api/restoran/bolgeler/${created.areaId}`, {
+      companyId: company.id,
+      gridSize: 24,
+    })
+    check("plan büyütüldü", grown.body?.gridSize === 24, `${grown.body?.gridSize}`)
+
+    // 12 hücrelik duvar @x=2 → 14 hücre gerekiyor; 10'a inmek reddedilmeli.
+    const shrunk = await api("PATCH", `/api/restoran/bolgeler/${created.areaId}`, {
+      companyId: company.id,
+      gridSize: 10,
+    })
+    check("içeriği kesecek küçültme reddedildi", shrunk.status === 409, shrunk.body?.error)
+
+    const clamped = await api("PATCH", `/api/restoran/bolgeler/${created.areaId}`, {
+      companyId: company.id,
+      gridSize: 999,
+    })
+    check("uçuk ızgara üst sınıra oturdu", clamped.body?.gridSize === 40, `${clamped.body?.gridSize}`)
+
+    // Kalemle çizim: ekran x/y/width/height'ı kendisi gönderiyor.
+    const drawn = await api("POST", "/api/restoran/plan", {
+      companyId: company.id,
+      areaId: created.areaId,
+      kind: "SOFA",
+      x: 3,
+      y: 9,
+      width: 5,
+      height: 2,
+    })
+    created.planItemIds.push(drawn.body?.id)
+    check(
+      "kalemle çizilen öğe verilen ölçüde doğdu",
+      drawn.status === 201 && drawn.body?.width === 5 && drawn.body?.height === 2,
+      `${drawn.body?.kind} ${drawn.body?.width}×${drawn.body?.height} @(${drawn.body?.x},${drawn.body?.y})`,
+    )
+
+    // ── 10c. Masa durumları ─────────────────────────────────────────────────
+    console.log("\n10c) Masa durumları (hesap istendi / toplanacak)")
+    // 8. adımda kapanan adisyon bu masadaydı: kapanış masayı damgalamış olmalı.
+    const afterClose = await prisma.restaurantTable.findUnique({
+      where: { id: created.tableIds[1] },
+      select: { cleaningSince: true },
+    })
+    check("adisyon kapanınca masa kendiliğinden 'toplanacak' oldu", !!afterClose?.cleaningSince)
+
+    const stateTicket = await api("POST", "/api/restoran/adisyonlar", {
+      companyId: company.id,
+      tableId: created.tableIds[1],
+    })
+    created.ticketIds.push(stateTicket.body?.id)
+
+    const afterReopen = await prisma.restaurantTable.findUnique({
+      where: { id: created.tableIds[1] },
+      select: { cleaningSince: true },
+    })
+    check(
+      "yeni adisyon damgayı temizledi (masa kilitlenmiyor)",
+      afterReopen?.cleaningSince === null,
+    )
+
+    const billOn = await api("PATCH", `/api/restoran/adisyonlar/${stateTicket.body.id}`, {
+      companyId: company.id,
+      billRequested: true,
+    })
+    check("hesap istendi işaretlendi", !!billOn.body?.billRequestedAt, billOn.body?.billRequestedAt)
+
+    const planWithState = await api("GET", `/api/restoran/masalar?companyId=${company.id}`)
+    const billTable = planWithState.body.find((t) => t.id === created.tableIds[1])
+    check(
+      "plan 'hesap istendi'yi masada gösteriyor",
+      !!billTable?.openTicket?.billRequestedAt,
+    )
+
+    const billOff = await api("PATCH", `/api/restoran/adisyonlar/${stateTicket.body.id}`, {
+      companyId: company.id,
+      billRequested: false,
+    })
+    check("hesap isteği kaldırıldı", billOff.body?.billRequestedAt === null)
+
+    const dirty = await api("PATCH", `/api/restoran/masalar/${created.tableIds[1]}`, {
+      companyId: company.id,
+      cleaned: false,
+    })
+    check("masa 'toplanacak' işaretlendi", !!dirty.body?.cleaningSince)
+
+    const cleaned = await api("PATCH", `/api/restoran/masalar/${created.tableIds[1]}`, {
+      companyId: company.id,
+      cleaned: true,
+    })
+    check("masa toplandı", cleaned.body?.cleaningSince === null)
+
+    // ── 10d. Rezervasyon ────────────────────────────────────────────────────
+    console.log("\n10d) Rezervasyon")
+    const inTwoHours = new Date(Date.now() + 2 * 60 * 60000)
+    const resv = await api("POST", "/api/restoran/rezervasyonlar", {
+      companyId: company.id,
+      tableId: created.tableIds[0],
+      guestName: `TEST Misafir ${stamp}`,
+      guestCount: 4,
+      reservedAt: inTwoHours.toISOString(),
+      durationMin: 90,
+    })
+    created.reservationIds.push(resv.body?.id)
+    check("rezervasyon alındı", resv.status === 201, resv.body?.guestName)
+
+    const clashResv = await api("POST", "/api/restoran/rezervasyonlar", {
+      companyId: company.id,
+      tableId: created.tableIds[0],
+      guestName: `TEST Çakışan ${stamp}`,
+      reservedAt: new Date(inTwoHours.getTime() + 30 * 60000).toISOString(),
+    })
+    check("çakışan rezervasyon reddedildi", clashResv.status === 409, clashResv.body?.error)
+
+    const farResv = await api("POST", "/api/restoran/rezervasyonlar", {
+      companyId: company.id,
+      tableId: created.tableIds[0],
+      guestName: `TEST Geç ${stamp}`,
+      reservedAt: new Date(inTwoHours.getTime() + 4 * 60 * 60000).toISOString(),
+    })
+    created.reservationIds.push(farResv.body?.id)
+    check("çakışmayan saat kabul edildi", farResv.status === 201)
+
+    const seatByHand = await api("PATCH", `/api/restoran/rezervasyonlar/${resv.body.id}`, {
+      companyId: company.id,
+      status: "SEATED",
+    })
+    check("'oturdu' el ile verilemiyor", seatByHand.status === 409, seatByHand.body?.error)
+
+    const planWithResv = await api("GET", `/api/restoran/masalar?companyId=${company.id}`)
+    const resvTable = planWithResv.body.find((t) => t.id === created.tableIds[0])
+    check(
+      "plan yaklaşan rezervasyonu masada gösteriyor",
+      resvTable?.reservation?.id === resv.body.id,
+      `${resvTable?.reservation?.guestName} · ${resvTable?.reservation?.minutesUntil} dk`,
+    )
+
+    // ── 10e. Taşı / birleştir ───────────────────────────────────────────────
+    console.log("\n10e) Adisyon taşıma ve birleştirme")
+    const mergeSourceTable = await api("POST", "/api/restoran/masalar", {
+      companyId: company.id,
+      areaId: created.areaId,
+      name: `T${stamp}-M`,
+    })
+    created.tableIds.push(mergeSourceTable.body?.id)
+
+    const mergeSource = await api("POST", "/api/restoran/adisyonlar", {
+      companyId: company.id,
+      tableId: mergeSourceTable.body.id,
+      guestCount: 2,
+    })
+    created.ticketIds.push(mergeSource.body?.id)
+    await api("POST", `/api/restoran/adisyonlar/${mergeSource.body.id}/kalemler`, {
+      companyId: company.id,
+      description: "TEST Çay",
+      quantity: 3,
+      unitPrice: 20,
+      vatRate: 10,
+    })
+
+    const targetBefore = await api("GET", `/api/restoran/adisyonlar/${stateTicket.body.id}?companyId=${company.id}`)
+    const merge = await api("POST", `/api/restoran/adisyonlar/${stateTicket.body.id}/birlestir`, {
+      companyId: company.id,
+      sourceTicketId: mergeSource.body.id,
+    })
+    check("adisyonlar birleştirildi", merge.status === 200, `${merge.body?.movedItems} kalem`)
+    check(
+      "kalemler hedefe geçti",
+      merge.body?.ticket?.items?.length ===
+        (targetBefore.body?.items?.length ?? 0) + (merge.body?.movedItems ?? 0),
+      `${merge.body?.ticket?.items?.length} kalem`,
+    )
+
+    const sourceAfter = await prisma.restaurantTicket.findUnique({
+      where: { id: mergeSource.body.id },
+      select: { status: true, mergedIntoId: true },
+    })
+    check(
+      "kaynak adisyon 'birleştirildi' izi taşıyor (iptalden ayrı)",
+      sourceAfter?.status === "CANCELLED" && sourceAfter?.mergedIntoId === stateTicket.body.id,
+    )
+
+    const selfMerge = await api("POST", `/api/restoran/adisyonlar/${stateTicket.body.id}/birlestir`, {
+      companyId: company.id,
+      sourceTicketId: stateTicket.body.id,
+    })
+    check("adisyon kendisiyle birleştirilemiyor", selfMerge.status === 400, selfMerge.body?.error)
+
+    // ── 10f. Boş bekleme raporu ─────────────────────────────────────────────
+    // Masa 2'de 8. adımda bir adisyon kapanmıştı; birleşen adisyonu da burada
+    // kapatınca aynı masada AYNI GÜN iki kapanış oluyor → aralarındaki boşluk
+    // ölçülebilir hale geliyor. Ölçüm geçmiş veriden türetiliyor, yeni alan yok.
+    console.log("\n10f) Boş bekleme (masa ölü zamanı)")
+    const idlePayload = await api(
+      "GET",
+      `/api/restoran/adisyonlar/${stateTicket.body.id}/kapat?companyId=${company.id}`,
+    )
+    const idleInvoice = await api("POST", "/api/e-donusum/invoices", idlePayload.body.invoicePayload)
+    created.invoiceIds.push(idleInvoice.body?.id)
+    const idleClose = await api("POST", `/api/restoran/adisyonlar/${stateTicket.body.id}/kapat`, {
+      companyId: company.id,
+      invoiceId: idleInvoice.body.id,
+    })
+    check("birleşen adisyon kapatıldı", idleClose.status === 200, idleClose.body?.invoiceNo)
+
+    const idleReport = await api("GET", `/api/restoran/raporlar/masalar?companyId=${company.id}`)
+    const idleTable = idleReport.body?.tables?.find((t) => t.key === created.tableIds[1])
+    check(
+      "aynı masadaki iki devir arasındaki boşluk ölçüldü",
+      idleTable?.idleGaps === 1 && Number.isFinite(idleTable?.avgIdleMinutes),
+      `${idleTable?.idleGaps} boşluk · ort ${Number(idleTable?.avgIdleMinutes).toFixed(1)} dk`,
+    )
+    check(
+      "boş bekleme negatif değil",
+      (idleTable?.avgIdleMinutes ?? 0) >= 0 && (idleTable?.idleMinutes ?? 0) >= 0,
+    )
+    const singleTurn = idleReport.body?.tables?.filter(
+      (t) => t.key !== "__takeaway__" && t.tickets === 1,
+    )
+    check(
+      "tek devirli masada boşluk yok (günün ilk adisyonundan önce boşluk olmaz)",
+      (singleTurn ?? []).every((t) => t.idleGaps === 0),
+      `${singleTurn?.length ?? 0} masa`,
+    )
+    const takeaway = idleReport.body?.tables?.find((t) => t.key === "__takeaway__")
+    check(
+      "masasız (paket) adisyonlar boş bekleme üretmiyor",
+      !takeaway || takeaway.idleGaps === 0,
+      `${takeaway?.tickets ?? 0} paket adisyon`,
+    )
+    check(
+      "özet boş bekleme alanlarını taşıyor",
+      idleReport.body?.summary?.idleGaps >= 1 &&
+        idleReport.body?.summary?.idleMaxMinutes === 120,
+      `ort ${Number(idleReport.body?.summary?.avgIdleMinutes ?? 0).toFixed(1)} dk`,
+    )
+
     // ── 11. Ekranlar ────────────────────────────────────────────────────────
     // Sayfalar Client Component; 200 dönmesi derlendiklerini ve sunucuda hatasız
     // render edildiklerini gösterir (render hatası Next'te 500 döner).
@@ -673,6 +917,10 @@ async function main() {
     })
     console.log(`  · süt stoğu şimdi: ${Number(milkFinal?.stockQuantity ?? 0)}`)
 
+    // Rezervasyon adisyona bağlı olabilir; adisyonlardan ÖNCE silinmeli.
+    await prisma.restaurantReservation.deleteMany({
+      where: { companyId: company.id, id: { in: created.reservationIds.filter(Boolean) } },
+    })
     await prisma.restaurantTicket.deleteMany({
       where: { id: { in: created.ticketIds.filter(Boolean) } },
     })

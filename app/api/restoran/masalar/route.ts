@@ -36,6 +36,13 @@ export async function GET(request: Request) {
     const includeInactive = searchParams.get("all") === "1"
     const areaId = searchParams.get("areaId")?.trim()
 
+    // Rezervasyon penceresi: geçmişte 30 dk (misafir geç kalmış olabilir, masa
+    // hâlâ tutuluyor), gelecekte 6 saat. Tüm rezervasyonları çekmek planı
+    // yarın akşamın kayıtlarıyla doldururdu.
+    const now = new Date()
+    const from = new Date(now.getTime() - 30 * 60000)
+    const to = new Date(now.getTime() + 6 * 60 * 60000)
+
     const tables = await prisma.restaurantTable.findMany({
       where: {
         companyId,
@@ -54,6 +61,12 @@ export async function GET(request: Request) {
             },
           },
         },
+        reservations: {
+          where: { status: "PENDING", reservedAt: { gte: from, lte: to } },
+          orderBy: { reservedAt: "asc" },
+          take: 1,
+          select: { id: true, guestName: true, guestCount: true, reservedAt: true },
+        },
       },
     })
 
@@ -62,6 +75,7 @@ export async function GET(request: Request) {
         // Bir masada normalde tek açık adisyon olur; yine de ilk açılanı esas
         // alıp sayıyı da veriyoruz (birleştirme/yarış durumu görünsün).
         const open = table.tickets[0]
+        const reservation = table.reservations[0]
         return {
           id: table.id,
           name: table.name,
@@ -74,6 +88,7 @@ export async function GET(request: Request) {
           width: table.width,
           height: table.height,
           isActive: table.isActive,
+          cleaningSince: table.cleaningSince,
           openTicketCount: table.tickets.length,
           openTicket: open
             ? {
@@ -83,6 +98,18 @@ export async function GET(request: Request) {
                 guestCount: open.guestCount,
                 itemCount: open.items.filter((i) => isBillableItem(i.status)).length,
                 total: ticketTotals(open.items, ticketDiscountOf(open)).total,
+                billRequestedAt: open.billRequestedAt,
+              }
+            : null,
+          reservation: reservation
+            ? {
+                id: reservation.id,
+                guestName: reservation.guestName,
+                guestCount: reservation.guestCount,
+                reservedAt: reservation.reservedAt,
+                minutesUntil: Math.round(
+                  (reservation.reservedAt.getTime() - now.getTime()) / 60000,
+                ),
               }
             : null,
         }
@@ -160,9 +187,9 @@ export async function POST(request: Request) {
   }
 }
 
-/** Ölçüler 1–12 hücre arasında; 0/negatif masa görünmez olurdu. */
+/** Ölçüler 1–40 hücre; gerçek sınırı planın kendi ızgarası koyar (bkz. [id] ucu). */
 function clampSize(value: unknown, fallback: number): number {
   const n = Number(value)
   if (!Number.isFinite(n)) return fallback
-  return Math.min(12, Math.max(1, Math.trunc(n)))
+  return Math.min(40, Math.max(1, Math.trunc(n)))
 }

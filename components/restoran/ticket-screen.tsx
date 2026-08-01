@@ -321,6 +321,28 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   }, [callTicketApi, companyId, infoDialog, ticketId])
 
   /**
+   * "Hesap istendi" — müşteri hesabı istedi ama henüz ödeme yapılmadı.
+   *
+   * Adisyonu KAPATMAZ (kalem eklenebilir); tek işi salon planında masayı öne
+   * çıkarmak. Kasadaki kişi hangi masanın kalkmak üzere olduğunu, hesap fişini
+   * götüren garsonun kim olduğunu buradan görüyor.
+   */
+  const toggleBillRequested = useCallback(
+    async (wanted: boolean) => {
+      await callTicketApi(
+        `/api/restoran/adisyonlar/${ticketId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, billRequested: wanted }),
+        },
+        "İşaretlenemedi",
+      )
+    },
+    [callTicketApi, companyId, ticketId],
+  )
+
+  /**
    * Masa değiştirme. Sunucu tarafı baştan hazırdı (`PATCH tableId`, dolu masayı
    * 409 ile reddeder) ama ekranda girişi yoktu — "müşteri masa değiştirdi" kafede
    * günlük bir olay ve tek çare adisyonu iptal edip yeniden açmaktı.
@@ -707,6 +729,12 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
                 {ticket.note}
               </span>
             ) : null}
+            {isOpen && ticket.billRequestedAt && (
+              <span className="flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 font-semibold text-orange-900 dark:bg-orange-500/20 dark:text-orange-100">
+                <Receipt className="h-3.5 w-3.5" />
+                Hesap istendi · {elapsedLabel(ticket.billRequestedAt, now)}
+              </span>
+            )}
             {!isOpen && (
               <span className="rounded-full bg-muted px-2 py-0.5 font-semibold">
                 {ticket.status === "CLOSED" ? `Kapandı · ${ticket.invoiceNo ?? ""}` : "İptal"}
@@ -737,6 +765,12 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
               <DropdownMenuItem onClick={() => setDiscountOpen(true)}>
                 <Percent className="mr-2 h-4 w-4" />
                 İskonto
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => void toggleBillRequested(!ticket.billRequestedAt)}
+              >
+                <Receipt className="mr-2 h-4 w-4" />
+                {ticket.billRequestedAt ? "Hesap isteğini kaldır" : "Hesap istendi"}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSplitOpen(true)}>
                 <Split className="mr-2 h-4 w-4" />

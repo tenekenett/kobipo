@@ -25,6 +25,11 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
 import { Banknote, ChevronRight, CreditCard, Plus, Wallet } from "lucide-react"
+import {
+  FINANCIAL_ACCOUNT_TYPES,
+  accountHasBankFields,
+  accountTypeLabel,
+} from "@/lib/finans/account-types"
 
 interface Account {
   id: string
@@ -39,9 +44,6 @@ interface Account {
   balance: number | string
   isActive: boolean
 }
-
-const accountTypeLabel = (type: string) =>
-  type === "CASH" ? "Kasa" : type === "BANK" ? "Banka" : type
 
 export default function FinansKanallariPage() {
   const searchParams = useSearchParams()
@@ -121,7 +123,7 @@ export default function FinansKanallariPage() {
   }
 
   const totalBalance = accounts.reduce((sum, a) => sum + Number(a.balance || 0), 0)
-  const bankCount = accounts.filter((a) => a.type === "BANK").length
+  const bankCount = accounts.filter((a) => accountHasBankFields(a.type)).length
   const cashCount = accounts.filter((a) => a.type === "CASH").length
 
   return (
@@ -154,7 +156,7 @@ export default function FinansKanallariPage() {
         <Card>
           <CardContent className="flex items-start justify-between gap-3 p-5">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Banka Hesabı</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Banka / POS</p>
               <p className="mt-1 font-mono text-2xl font-bold tabular-nums">{bankCount}</p>
             </div>
             <span className="rounded-xl bg-kobipo-green/10 p-2.5 text-kobipo-green-dark dark:bg-emerald-900/30 dark:text-emerald-300">
@@ -205,12 +207,12 @@ export default function FinansKanallariPage() {
                   <div className="flex min-w-0 items-center gap-3">
                     <span
                       className={
-                        acc.type === "BANK"
-                          ? "flex h-9 w-9 items-center justify-center rounded-lg bg-kobipo-blue/10 text-kobipo-blue dark:bg-primary/15 dark:text-primary"
-                          : "flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                        acc.type === "CASH"
+                          ? "flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                          : "flex h-9 w-9 items-center justify-center rounded-lg bg-kobipo-blue/10 text-kobipo-blue dark:bg-primary/15 dark:text-primary"
                       }
                     >
-                      {acc.type === "BANK" ? <CreditCard className="h-4 w-4" /> : <Banknote className="h-4 w-4" />}
+                      {acc.type === "CASH" ? <Banknote className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
                     </span>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
@@ -218,7 +220,7 @@ export default function FinansKanallariPage() {
                         <Badge variant="secondary">{accountTypeLabel(acc.type)}</Badge>
                       </div>
                       <p className="truncate text-xs text-muted-foreground">
-                        {acc.bankName ? `${acc.bankName}` : "Kasa hesabı"}
+                        {acc.bankName ? `${acc.bankName}` : accountTypeLabel(acc.type)}
                         {acc.iban ? ` · ${acc.iban}` : acc.accountNumber ? ` · ${acc.accountNumber}` : ""}
                       </p>
                     </div>
@@ -251,8 +253,11 @@ export default function FinansKanallariPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="BANK">Banka</SelectItem>
-                  <SelectItem value="CASH">Kasa</SelectItem>
+                  {FINANCIAL_ACCOUNT_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -301,7 +306,7 @@ export default function FinansKanallariPage() {
                 Hesabın mevcut/başlangıç bakiyesi. Boş bırakılırsa 0 alınır.
               </p>
             </div>
-            {form.type === "BANK" && (
+            {accountHasBankFields(form.type) && (
               <>
                 <div className="grid gap-2">
                   <Label>Banka Adı</Label>
