@@ -1053,7 +1053,9 @@ export default function FaturaOnizlemePage() {
       {typeof invoice.integrationStatus === "string" &&
         invoice.integrationStatus.startsWith("ERROR:") && (() => {
           const errMsg = invoice.integrationStatus!.replace(/^ERROR:/, "")
-          const isNumeratorError = /numarat[öo]r/i.test(errMsg)
+          // "alternatif belge numarası" (geçmiş tarihli fatura) hatası da seri no
+          // tanımına götürür — mesajda "numaratör" kelimesi geçmediği için ayrıca eşle.
+          const isNumeratorError = /numarat[öo]r|alternatif belge numaras|seri no/i.test(errMsg)
           return (
             <div className="flex flex-wrap items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

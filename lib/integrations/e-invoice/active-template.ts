@@ -28,6 +28,31 @@ export async function getActiveXsltName(
   }
 }
 
+/**
+ * Bir seriye AÇIKÇA atanmış şablon (varsa). getXsltNameForSeries'ten farkı: eşleme
+ * yoksa firma geneline DÜŞMEZ, null döner. Çağıran kendi fallback'ini kurabilsin diye
+ * ayrı — ör. geçmiş tarih serisi, kendi ataması yoksa aktif serinin şablonunu kullanır.
+ */
+export async function getSeriesTemplateOverride(
+  companyId: string,
+  eDocumentType: number,
+  prefix: string | null | undefined,
+): Promise<string | null> {
+  const cleanPrefix = (prefix || "").trim()
+  if (!cleanPrefix) return null
+  try {
+    const mapped = await prisma.eInvoiceSeriesTemplate.findUnique({
+      where: {
+        companyId_eDocumentType_prefix: { companyId, eDocumentType, prefix: cleanPrefix },
+      },
+      select: { xsltName: true },
+    })
+    return mapped?.xsltName || null
+  } catch {
+    return null
+  }
+}
+
 /** Bu firma+belge tipi için tanımlı en az bir prefix→şablon eşlemesi var mı? */
 export async function hasSeriesTemplates(
   companyId: string,

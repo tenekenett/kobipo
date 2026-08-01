@@ -85,8 +85,20 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     body.companyId = await resolveCompanyId(body.companyId)
-    const { companyId, prefix, eDocumentType, isDefault, isInternetSales, isPassive, lastNumber } =
-      body
+    const {
+      companyId,
+      prefix,
+      eDocumentType,
+      isDefault,
+      isInternetSales,
+      isPassive,
+      lastNumber,
+      // "BACKDATE": seri geçmiş tarihli belgeler için ayrılır — Mysoft'ta varsayılan
+      // YAPILMAZ ve firmanın normal (aktif) serisi değişmez; yalnız geçmiş tarih
+      // hatasında yedek olarak kullanılır (send-invoice-helper.ts).
+      usage,
+    } = body
+    const isBackdateSeries = usage === "BACKDATE"
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     if (typeof prefix !== "string" || prefix.trim().length !== 3) {
       return NextResponse.json({ error: "Prefix tam olarak 3 karakter olmalı" }, { status: 400 })
@@ -95,6 +107,14 @@ export async function POST(request: Request) {
     if (!Number.isInteger(docType) || docType < 1 || docType > 11) {
       return NextResponse.json(
         { error: "eDocumentType 1-11 arasında olmalı (1=E-Fatura, 2=E-Arşiv, ...)" },
+        { status: 400 },
+      )
+    }
+    // Geçmiş tarih serisini yalnız gönderim yaptığımız belge tiplerinde tutuyoruz;
+    // diğer tipler için saklayacak bir alan (ve kullanan bir akış) yok.
+    if (isBackdateSeries && docType !== 1 && docType !== 2) {
+      return NextResponse.json(
+        { error: "Geçmiş tarih serisi yalnız E-Fatura ve E-Arşiv için tanımlanabilir" },
         { status: 400 },
       )
     }
@@ -109,10 +129,13 @@ export async function POST(request: Request) {
     const provider = loaded.provider
 
     const cleanPrefix = prefix.trim().toUpperCase()
+    // Geçmiş tarih serisi asla varsayılan olmamalı: Mysoft varsayılanı değişirse
+    // günlük faturalar da bu seriden gitmeye başlar.
+    const makeDefault = isBackdateSeries ? false : Boolean(isDefault)
     const result = await provider.addNumerator({
       prefix: cleanPrefix,
       eDocumentType: docType,
-      isDefault: Boolean(isDefault),
+      isDefault: makeDefault,
       isInternetSales: Boolean(isInternetSales),
       isPassive: Boolean(isPassive),
       lastNumber: typeof lastNumber === "number" && Number.isFinite(lastNumber) ? lastNumber : 0,
@@ -123,16 +146,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: result.error || "Numaratör eklenemedi" }, { status: 502 })
     }
 
-    // Kobipo'da default prefix'i de güncelle (E-Fatura/E-Arşiv için)
-    if (docType === 1) {
+    // Kobipo tarafında seriyi rolüne göre kaydet (E-Fatura/E-Arşiv için):
+    //  - BACKDATE  → yalnız geçmiş tarih yedeği; aktif seri DEĞİŞMEZ.
+    //  - varsayılan→ firmanın gönderimde kullandığı aktif seri olur.
+    // isDefault işaretlenmemiş normal seriler yalnız Mysoft'a eklenir; kullanıcı
+    // tablodaki "Kullan" ile aktif edebilir — eklemek tek başına aktif etmemeli.
+    if ((docType === 1 || docType === 2) && (isBackdateSeries || makeDefault)) {
+      const field = isBackdateSeries
+        ? docType === 1
+          ? "eFaturaBackdatePrefix"
+          : "eArchiveBackdatePrefix"
+        : docType === 1
+          ? "eFaturaPrefix"
+          : "eArchivePrefix"
       await prisma.company.update({
         where: { id: companyId },
-        data: { eFaturaPrefix: cleanPrefix },
-      })
-    } else if (docType === 2) {
-      await prisma.company.update({
-        where: { id: companyId },
-        data: { eArchivePrefix: cleanPrefix },
+        data: { [field]: cleanPrefix },
       })
     }
 

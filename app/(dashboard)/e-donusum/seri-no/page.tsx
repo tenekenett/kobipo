@@ -32,6 +32,7 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import {
   AlertTriangle,
+  CalendarClock,
   CheckCircle2,
   FileText,
   Info,
@@ -54,6 +55,8 @@ interface Company {
   taxNumber?: string | null
   eFaturaPrefix?: string | null
   eArchivePrefix?: string | null
+  eFaturaBackdatePrefix?: string | null
+  eArchiveBackdatePrefix?: string | null
   eDonusumTenantVkn?: string | null
 }
 
@@ -120,6 +123,15 @@ export default function SeriNoTanimlariPage() {
   const [eFaturaPrefix, setEFaturaPrefix] = useState("")
   const [eArchivePrefix, setEArchivePrefix] = useState("")
   const [savingActiveType, setSavingActiveType] = useState<1 | 2 | null>(null)
+  // Geçmiş tarihli belgeler için ayrılmış yedek seriler (normal gönderimde kullanılmaz).
+  const [eFaturaBackdatePrefix, setEFaturaBackdatePrefix] = useState("")
+  const [eArchiveBackdatePrefix, setEArchiveBackdatePrefix] = useState("")
+  const [savingBackdateType, setSavingBackdateType] = useState<1 | 2 | null>(null)
+  const [backdateForm, setBackdateForm] = useState<{
+    docType: 1 | 2
+    mode: "EXISTING" | "NEW"
+    prefix: string
+  } | null>(null)
   // Tablo varsayılan olarak yalnız E-Fatura/E-Arşiv (aktif) numaratörleri gösterir.
   const [showAll, setShowAll] = useState(false)
 
@@ -140,6 +152,8 @@ export default function SeriNoTanimlariPage() {
     const data = (await res.json()) as Company
     setEFaturaPrefix((data.eFaturaPrefix || "").toUpperCase())
     setEArchivePrefix((data.eArchivePrefix || "").toUpperCase())
+    setEFaturaBackdatePrefix((data.eFaturaBackdatePrefix || "").toUpperCase())
+    setEArchiveBackdatePrefix((data.eArchiveBackdatePrefix || "").toUpperCase())
     // Mükellef VKN: eski kayıtlı değer varsa o, yoksa firmanın kendi VKN'si.
     const vkn = (data.eDonusumTenantVkn || data.taxNumber || "").replace(/\D/g, "")
     setTenantVkn(vkn.length === 10 || vkn.length === 11 ? vkn : null)
@@ -319,6 +333,122 @@ export default function SeriNoTanimlariPage() {
     }
   }
 
+  // Bir belge tipinde fiilen kullanılan seri: kullanıcı seçtiyse o, yoksa Mysoft varsayılanı.
+  const effectiveActivePrefix = (docType: 1 | 2) =>
+    docType === 1 ? eFaturaPrefix || efaturaDefaultPrefix : eArchivePrefix || earsivDefaultPrefix
+
+  const backdatePrefixOf = (docType: 1 | 2) =>
+    docType === 1 ? eFaturaBackdatePrefix : eArchiveBackdatePrefix
+
+  // Geçmiş tarih serisi olarak seçilebilecek mevcut seriler: aynı belge tipi, pasif
+  // değil ve fiilen kullanılan seri değil (aynı seri yedek olamaz).
+  const backdateCandidates = (docType: 1 | 2) =>
+    (docType === 1 ? efaturaPrefixes : earsivPrefixes).filter(
+      (n) => n.prefix !== effectiveActivePrefix(docType)
+    )
+
+  // Geçmiş tarih serisini kaydeder/kaldırır. Aktif seriye DOKUNMAZ; bu seri yalnız
+  // Mysoft geçmiş tarihli belgeyi reddettiğinde yedek olarak devreye girer.
+  const saveBackdatePrefix = async (docType: 1 | 2, prefix: string) => {
+    if (!companyId) return false
+    const field = docType === 1 ? "eFaturaBackdatePrefix" : "eArchiveBackdatePrefix"
+    const prevEf = eFaturaBackdatePrefix
+    const prevEa = eArchiveBackdatePrefix
+    if (docType === 1) setEFaturaBackdatePrefix(prefix)
+    else setEArchiveBackdatePrefix(prefix)
+    setSavingBackdateType(docType)
+    try {
+      const res = await fetch(`/api/companies/${companyId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: prefix || null }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || "Kaydedilemedi")
+      }
+      toast({
+        title: prefix ? "Geçmiş tarih serisi tanımlandı" : "Geçmiş tarih serisi kaldırıldı",
+        description: prefix
+          ? `${docTypeLabel(docType)}: geçmiş tarihli faturalar artık ${prefix} serisinden numaralanacak.`
+          : `${docTypeLabel(docType)}: geçmiş tarihli faturalar yeniden ana seriden denenecek.`,
+      })
+      return true
+    } catch (error) {
+      setEFaturaBackdatePrefix(prevEf)
+      setEArchiveBackdatePrefix(prevEa)
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Hata",
+        variant: "destructive",
+      })
+      return false
+    } finally {
+      setSavingBackdateType(null)
+    }
+  }
+
+  const submitBackdateForm = async () => {
+    if (!backdateForm || !companyId) return
+    const { docType, mode } = backdateForm
+    const clean = sanitizePrefix(backdateForm.prefix)
+    if (clean.length !== 3) {
+      toast({
+        title: "Seri seçilmedi",
+        description: "3 karakterlik bir seri (prefix) girin veya listeden seçin.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (clean === effectiveActivePrefix(docType)) {
+      toast({
+        title: "Aynı seri kullanılamaz",
+        description: "Geçmiş tarih serisi, günlük faturaların gittiği seriden farklı olmalı.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (mode === "EXISTING") {
+      const ok = await saveBackdatePrefix(docType, clean)
+      if (ok) setBackdateForm(null)
+      return
+    }
+
+    // Yeni seri: Mysoft'a ekle (varsayılan YAPILMAZ) ve geçmiş tarih serisi olarak kaydet.
+    setSavingBackdateType(docType)
+    try {
+      const res = await fetch("/api/e-donusum/numerators", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId,
+          prefix: clean,
+          eDocumentType: docType,
+          usage: "BACKDATE",
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Mysoft'a kaydedilemedi")
+      if (docType === 1) setEFaturaBackdatePrefix(clean)
+      else setEArchiveBackdatePrefix(clean)
+      toast({
+        title: "Geçmiş tarih serisi oluşturuldu",
+        description: `${docTypeLabel(docType)}: "${clean}" Mysoft'a eklendi ve yedek seri olarak atandı.`,
+      })
+      setBackdateForm(null)
+      await fetchNumerators()
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Hata",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingBackdateType(null)
+    }
+  }
+
   const addNumerator = async () => {
     if (!companyId) return
     const clean = sanitizePrefix(addForm.prefix)
@@ -461,6 +591,78 @@ export default function SeriNoTanimlariPage() {
         />
       </div>
 
+      {/* Geçmiş tarihli belgeler için yedek seri */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CalendarClock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            Geçmiş Tarihli Belgeler
+          </CardTitle>
+          <CardDescription>
+            Bir seride belge numaraları tarih sırasını bozamaz: seride daha yeni tarihli bir fatura
+            varsa, geçmiş tarihli fatura o seriden numara alamaz ve GİB&apos;e gönderilemez. Buraya ayrı
+            bir seri tanımlarsanız geçmiş tarihli faturalar otomatik olarak bu seriden numaralanır —
+            bugünkü faturalar yine ana seriden gider.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2">
+          {([1, 2] as const).map((docType) => {
+            const prefix = backdatePrefixOf(docType)
+            return (
+              <div key={docType} className="rounded-xl border bg-muted/20 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">{docTypeLabel(docType)}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {prefix ? (
+                        <>
+                          Geçmiş tarihli faturalar{" "}
+                          <span className="font-mono font-bold tracking-widest text-foreground">
+                            {prefix}
+                          </span>{" "}
+                          serisinden numaralanır.
+                        </>
+                      ) : (
+                        "Tanımlı değil — geçmiş tarihli faturalar ana seriden denenir."
+                      )}
+                    </p>
+                  </div>
+                  {savingBackdateType === docType && (
+                    <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                  )}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={savingBackdateType === docType}
+                    onClick={() =>
+                      setBackdateForm({
+                        docType,
+                        mode: backdateCandidates(docType).length > 0 ? "EXISTING" : "NEW",
+                        prefix: "",
+                      })
+                    }
+                  >
+                    {prefix ? "Değiştir" : "Seri tanımla"}
+                  </Button>
+                  {prefix && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={savingBackdateType === docType}
+                      onClick={() => saveBackdatePrefix(docType, "")}
+                    >
+                      Kaldır
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </CardContent>
+      </Card>
+
       {/* Seri no'lar & şablonlar tablosu */}
       <Card>
         <CardHeader>
@@ -529,6 +731,12 @@ export default function SeriNoTanimlariPage() {
                               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                                 <CheckCircle2 className="h-2.5 w-2.5" />
                                 Mysoft varsayılan
+                              </span>
+                            )}
+                            {docType && backdatePrefixOf(docType) === n.prefix && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                <CalendarClock className="h-2.5 w-2.5" />
+                                Geçmiş tarih
                               </span>
                             )}
                             {n.isInternetSales && (
@@ -630,6 +838,122 @@ export default function SeriNoTanimlariPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Geçmiş tarih serisi dialog'u */}
+      <Dialog
+        open={backdateForm !== null}
+        onOpenChange={(o) => !savingBackdateType && !o && setBackdateForm(null)}
+      >
+        <DialogContent>
+          {backdateForm && (() => {
+            const { docType, mode } = backdateForm
+            const candidates = backdateCandidates(docType)
+            const busy = savingBackdateType === docType
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>
+                    Geçmiş tarih serisi — {docTypeLabel(docType)}
+                  </DialogTitle>
+                  <DialogDescription>
+                    Bugünkü faturalar ana seriden gitmeye devam eder; yalnızca geçmiş tarihli
+                    faturalar bu seriden numaralanır.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-2">
+                  {candidates.length > 0 && (
+                    <div className="grid gap-2">
+                      <Label>Nasıl tanımlansın?</Label>
+                      <Select
+                        value={mode}
+                        onValueChange={(v) =>
+                          setBackdateForm((f) =>
+                            f ? { ...f, mode: v as "EXISTING" | "NEW", prefix: "" } : f
+                          )
+                        }
+                        disabled={busy}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="EXISTING">Mevcut serilerden seç</SelectItem>
+                          <SelectItem value="NEW">Mysoft&apos;ta yeni seri oluştur</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {mode === "EXISTING" && candidates.length > 0 ? (
+                    <div className="grid gap-2">
+                      <Label>Seri</Label>
+                      <Select
+                        value={backdateForm.prefix}
+                        onValueChange={(v) => setBackdateForm((f) => (f ? { ...f, prefix: v } : f))}
+                        disabled={busy}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seri seçin" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {candidates.map((n) => (
+                            <SelectItem key={n.prefix} value={n.prefix}>
+                              {n.prefix}
+                              {n.isDefault ? " · Mysoft varsayılan" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Hiç kullanılmamış (ya da eski tarihte kalmış) bir seri seçin — bu seride de
+                        faturanızdan yeni tarihli belge varsa gönderim yine reddedilir.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-2">
+                      <Label>Prefix (3 karakter)</Label>
+                      <Input
+                        value={backdateForm.prefix}
+                        onChange={(e) =>
+                          setBackdateForm((f) =>
+                            f ? { ...f, prefix: sanitizePrefix(e.target.value) } : f
+                          )
+                        }
+                        placeholder="GEC"
+                        maxLength={3}
+                        className="font-mono text-base font-semibold uppercase tracking-widest"
+                        disabled={busy}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Örnek belge no:{" "}
+                        <span className="font-mono">
+                          {previewInvoiceNo(sanitizePrefix(backdateForm.prefix))}
+                        </span>
+                        . Mysoft'a eklenir ama varsayılan yapılmaz.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setBackdateForm(null)} disabled={busy}>
+                    Vazgeç
+                  </Button>
+                  <Button onClick={submitBackdateForm} disabled={busy}>
+                    {busy ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Kaydediliyor…
+                      </>
+                    ) : (
+                      "Kaydet"
+                    )}
+                  </Button>
+                </DialogFooter>
+              </>
+            )
+          })()}
+        </DialogContent>
+      </Dialog>
 
       {/* Add numerator dialog */}
       <Dialog open={addOpen} onOpenChange={(o) => !isAdding && setAddOpen(o)}>

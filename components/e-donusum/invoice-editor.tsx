@@ -98,7 +98,7 @@ interface LinkableWaybillItem {
 }
 interface LinkableWaybill { id: string; waybillNo: string; date: string; supplierId?: string | null; stockProcessed?: boolean; invoiceId?: string | null; _count?: { items: number }; items?: LinkableWaybillItem[] }
 export interface InvoiceItem { productId?: string; code?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; exciseCode?: string; otherTaxRate?: number; otherTaxName?: string; otherTaxCode?: string; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number; sourceWaybillId?: string }
-interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean }
+interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean; eFaturaBackdatePrefix?: string | null; eArchiveBackdatePrefix?: string | null }
 
 // Kayıtlı olmayan (ürün kartı bağlı olmayan) anlamlı kalemleri "ürün/hizmet olarak
 // kaydet" taslaklarına çevirir. Hem gelen e-faturadan içe aktarma anında (erken uyarı)
@@ -1674,6 +1674,23 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     return t || "MANUAL"
   }, [formData.invoiceType, isEDonusumActive])
 
+  // Geçmiş tarihli e-belge uyarısı: bir seride belge numaraları tarih sırasını
+  // bozamaz, bu yüzden seride daha yeni tarihli bir fatura varsa Mysoft geçmiş
+  // tarihli belgeyi reddediyor. Firma geçmiş tarih serisi tanımladıysa gönderim
+  // o seriden gittiği için uyarıya gerek yok — yalnız tanımsızsa gösteriyoruz.
+  // "en-CA" = yerel saatte YYYY-MM-DD (formData.date ile aynı biçim).
+  const isBackdatedEDocument = useMemo(() => {
+    if (formData.type !== "SALES") return false
+    if (effectiveInvoiceType !== "E_INVOICE" && effectiveInvoiceType !== "E_ARCHIVE") return false
+    if (!formData.date) return false
+    const backdatePrefix =
+      effectiveInvoiceType === "E_INVOICE"
+        ? companySettings?.eFaturaBackdatePrefix
+        : companySettings?.eArchiveBackdatePrefix
+    if (backdatePrefix) return false
+    return formData.date < new Date().toLocaleDateString("en-CA")
+  }, [formData.type, formData.date, effectiveInvoiceType, companySettings])
+
   const eInvoiceMissingMessages = useMemo(() => {
     if (!isEDonusumActive) return [] as string[]
     if (!E_DOC_TYPES.has(effectiveInvoiceType)) return [] as string[]
@@ -2324,6 +2341,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               <div className="space-y-2">
                 <Label>Fatura Tarihi</Label>
                 <Input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} />
+                {isBackdatedEDocument && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Geçmiş tarih: GİB reddedebilir. Seri No Tanımları&apos;ndan geçmiş tarih serisi
+                    tanımlayın.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Vade Tarihi</Label>

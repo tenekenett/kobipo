@@ -46,6 +46,8 @@ export async function GET(
         invoiceSeriesPrefix: true,
         eFaturaPrefix: true,
         eArchivePrefix: true,
+        eFaturaBackdatePrefix: true,
+        eArchiveBackdatePrefix: true,
         eDonusumTenantVkn: true,
         // Bayi self-servis onboarding durumu (docs/e-donusum-onboarding/PLAN.md)
         eDonusumOnboardingStatus: true,
@@ -122,6 +124,8 @@ export async function PUT(
       invoiceSeriesPrefix,
       eFaturaPrefix,
       eArchivePrefix,
+      eFaturaBackdatePrefix,
+      eArchiveBackdatePrefix,
       eDonusumTenantVkn,
       eDonusumIntegrator,
       eDonusumProvider,
@@ -146,6 +150,15 @@ export async function PUT(
     // VKN'ye yönlendirmesin. [[tenant.ts]] effectiveTenantVkn bu alanı önceler.
     const cleanVknDigits = (v: unknown) =>
       typeof v === "string" ? v.replace(/\D/g, "").slice(0, 11) : ""
+
+    // Mysoft seri (numaratör) ön eki: 3 büyük harf/rakam. Gönderilmediyse (undefined)
+    // DB'deki değere dokunma; boş gönderildiyse temizle.
+    const normalizeSeriesPrefix = (v: unknown) =>
+      v === undefined
+        ? undefined
+        : typeof v === "string" && v.trim()
+          ? v.trim().toUpperCase().slice(0, 3)
+          : null
     let tenantVknUpdate: string | null | undefined
     if (eDonusumTenantVkn !== undefined) {
       const c = cleanVknDigits(eDonusumTenantVkn)
@@ -174,18 +187,10 @@ export async function PUT(
         website,
         isEDonusumEnabled: isEDonusumEnabled !== undefined ? Boolean(isEDonusumEnabled) : undefined,
         invoiceSeriesPrefix: invoiceSeriesPrefix || null,
-        eFaturaPrefix:
-          eFaturaPrefix !== undefined
-            ? (typeof eFaturaPrefix === "string" && eFaturaPrefix.trim()
-                ? eFaturaPrefix.trim().toUpperCase().slice(0, 3)
-                : null)
-            : undefined,
-        eArchivePrefix:
-          eArchivePrefix !== undefined
-            ? (typeof eArchivePrefix === "string" && eArchivePrefix.trim()
-                ? eArchivePrefix.trim().toUpperCase().slice(0, 3)
-                : null)
-            : undefined,
+        eFaturaPrefix: normalizeSeriesPrefix(eFaturaPrefix),
+        eArchivePrefix: normalizeSeriesPrefix(eArchivePrefix),
+        eFaturaBackdatePrefix: normalizeSeriesPrefix(eFaturaBackdatePrefix),
+        eArchiveBackdatePrefix: normalizeSeriesPrefix(eArchiveBackdatePrefix),
         eDonusumTenantVkn: tenantVknUpdate,
         eDonusumIntegrator: eDonusumIntegrator || undefined,
         eDonusumProvider: eDonusumProvider || null,

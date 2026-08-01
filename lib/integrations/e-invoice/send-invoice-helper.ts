@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma"
 import {
+  getSeriesTemplateOverride,
   getXsltNameForSeries,
   hasSeriesTemplates,
   invoiceTypeToEDocumentType,
@@ -18,13 +19,46 @@ export type DraftPdfResult =
 type SendContext =
   | {
       ok: true
-      invoice: { id: string; uuid: string | null }
+      invoice: {
+        id: string
+        companyId: string
+        uuid: string | null
+        eDocumentNo: string | null
+      }
       provider: any
       invoiceData: any
       effectiveInvoiceType: "E_INVOICE" | "E_ARCHIVE"
       resolvedPrefix?: string
+      /** Geçmiş tarihli belge reddedilirse denenecek yedek seri (Seri No Tanımları). */
+      backdatePrefix?: string
     }
   | { ok: false; status: number; error: string; integrationStatus: string }
+
+/**
+ * Mysoft'un geçmiş tarih reddi mi? Ham mesaj:
+ *   "Belge için uygun alternatif belge numarası bulunamamıştır. Belge tarihini eski
+ *    tarih göndermeyiniz veya alternatif belge numarası tanımlayınız."
+ * Sebep: GİB'de bir seri içindeki belge numaraları tarihle birlikte ilerlemek zorunda.
+ * Seride bu faturadan DAHA GEÇ tarihli bir belge kesilmişse geçmiş tarihli faturaya
+ * sıradaki numara verilemez; Mysoft o tarihe uygun ikinci (alternatif) bir seri arar.
+ */
+function isBackdateNumberError(rawError: unknown): boolean {
+  if (typeof rawError !== "string") return false
+  return /alternatif belge numaras/i.test(rawError) || /eski tarih/i.test(rawError)
+}
+
+/** YYYY-MM-DD — verilen zaman diliminde takvim günü. */
+const dayIn = (date: Date, timeZone: string) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone }).format(date)
+
+/**
+ * Fatura bugünden ÖNCEKİ bir güne mi düzenlendi? Gün karşılaştırması mükellefin
+ * takvimine göre yapılır (sunucu UTC'de çalışsa da). Fatura tarihi saatsiz seçilip
+ * UTC gece yarısı olarak saklandığı için invoice.date UTC gününden okunur.
+ */
+function isBackdatedInvoice(date: Date): boolean {
+  return dayIn(date, "UTC") < dayIn(new Date(), "Europe/Istanbul")
+}
 
 /**
  * Bir e-belge faturasını Mysoft'a göndermek/önizlemek için ORTAK bağlamı hazırlar:
@@ -98,6 +132,8 @@ async function resolveSendContext(
       eDonusumOnboardingStatus: true,
       eFaturaPrefix: true,
       eArchivePrefix: true,
+      eFaturaBackdatePrefix: true,
+      eArchiveBackdatePrefix: true,
       parentCompany: { select: { taxNumber: true } },
     },
   })
@@ -169,10 +205,28 @@ async function resolveSendContext(
 
   // Mysoft prefix: kullanıcı seçmediyse undefined geç (provider auto-pick eder).
   // invoiceSeriesPrefix Kobipo iç numarası içindir, Mysoft'a KARIŞMAZ.
-  const resolvedPrefix: string | undefined =
+  const activePrefix: string | undefined =
     effectiveInvoiceType === "E_INVOICE"
       ? company.eFaturaPrefix || undefined
       : company.eArchivePrefix || undefined
+
+  // Geçmiş tarihli belgeler için ayrılmış seri (Seri No Tanımları).
+  const backdatePrefix: string | undefined =
+    effectiveInvoiceType === "E_INVOICE"
+      ? company.eFaturaBackdatePrefix || undefined
+      : company.eArchiveBackdatePrefix || undefined
+
+  // Fatura geçmiş tarihliyse ve bu iş için ayrılmış seri varsa belge DOĞRUDAN o
+  // seriden numaralanır: ana seriye geçmiş tarihli belge yazmak, o serinin bundan
+  // sonraki numaralarını da eski tarihe sabitler. Seri tanımlı değilse ana seriden
+  // denenir; Mysoft reddederse createGibDraft'ta anlaşılır hata verilir.
+  const useBackdateSeries = Boolean(backdatePrefix) && isBackdatedInvoice(invoice.date)
+  const resolvedPrefix: string | undefined = useBackdateSeries ? backdatePrefix : activePrefix
+  if (useBackdateSeries) {
+    console.log(
+      `[send-invoice-helper] Geçmiş tarihli fatura (${dayIn(invoice.date, "UTC")}) → geçmiş tarih serisi "${backdatePrefix}" kullanılıyor (fatura ${invoice.id}).`,
+    )
+  }
 
   // ÖNEMLİ: connectorGuid ve gbAlias (GÖNDERİCİ birim alias'ı) Mysoft'a GÖNDERME —
   // connectorGuid her çağrıda random döner; gbAlias'ı Mysoft tenantIdentifierNumber'dan
@@ -269,7 +323,18 @@ async function resolveSendContext(
   // effectiveInvoiceType esas alınır; prefix de aynı tipe göre çözülmüştü.
   const eDocumentType = invoiceTypeToEDocumentType(effectiveInvoiceType)
   if (eDocumentType) {
+    // Geçmiş tarih serisi şablonu MİRAS ALIR: kullanıcıdan bu seri için ayrıca
+    // şablon tanımlaması beklenmez, faturalar normal serinin dizaynıyla basılır.
+    // Yine de o seriye açıkça şablon atandıysa (Seri No Tanımları) o öne geçer.
     let prefixForTemplate = resolvedPrefix
+    if (useBackdateSeries) {
+      const override = await getSeriesTemplateOverride(
+        invoice.companyId,
+        eDocumentType,
+        backdatePrefix,
+      )
+      prefixForTemplate = override ? backdatePrefix : activePrefix
+    }
     // "Mysoft otomatik" (prefix seçilmemiş) durumda Mysoft kendi varsayılan
     // numaratörünü kullanır. O prefix'e atanmış bir şablon varsa firma geneli
     // aktif şablonun önüne geçmeli — bu yüzden gerçek varsayılan prefix'i çöz.
@@ -298,11 +363,17 @@ async function resolveSendContext(
 
   return {
     ok: true,
-    invoice: { id: invoice.id, uuid: invoice.uuid },
+    invoice: {
+      id: invoice.id,
+      companyId: invoice.companyId,
+      uuid: invoice.uuid,
+      eDocumentNo: invoice.eDocumentNo,
+    },
     provider,
     invoiceData,
     effectiveInvoiceType,
     resolvedPrefix,
+    backdatePrefix,
   }
 }
 
@@ -323,11 +394,35 @@ export async function createGibDraft(
   if (!ctx.ok) {
     return { ok: false, status: ctx.status, error: ctx.error, integrationStatus: ctx.integrationStatus }
   }
-  const { provider, invoiceData, invoice, effectiveInvoiceType, resolvedPrefix } = ctx
+  const { provider, invoiceData, invoice, effectiveInvoiceType, resolvedPrefix, backdatePrefix } =
+    ctx
 
   // isSaveAsDraft: Mysoft faturayı GİB'e GÖNDERMEZ, taslak olarak saklar. Aynı ettn
   // (payload.ettn = bizim ürettiğimiz GUID) ile finalizeGibDraft kesinleştirir.
-  const response: any = await provider.sendInvoice({ ...invoiceData, isSaveAsDraft: true })
+  let response: any = await provider.sendInvoice({ ...invoiceData, isSaveAsDraft: true })
+
+  // Emniyet ağı: gün olarak geçmiş SAYILMAYAN (bugün tarihli) bir belge de seride
+  // daha yeni saatli/tarihli kayıt yüzünden reddedilebiliyor. Böyle bir durumda
+  // geçmiş tarih serisiyle BİR KEZ daha dene. Zaten o seriden gönderdiysek atlanır.
+  if (
+    !response?.success &&
+    isBackdateNumberError(response?.error) &&
+    backdatePrefix &&
+    backdatePrefix !== resolvedPrefix
+  ) {
+    const retryData: any = { ...invoiceData, prefix: backdatePrefix, isSaveAsDraft: true }
+    // Şablon: geçmiş tarih serisine açıkça atanmış bir dizayn varsa o kullanılır;
+    // yoksa invoiceData'daki (ana serinin) şablonu KORUNUR — belge aynı görünsün.
+    const eDocumentType = invoiceTypeToEDocumentType(effectiveInvoiceType)
+    const override = eDocumentType
+      ? await getSeriesTemplateOverride(invoice.companyId, eDocumentType, backdatePrefix)
+      : null
+    if (override) retryData.xsltName = override
+    console.log(
+      `[send-invoice-helper] Geçmiş tarih hatası → yedek seri "${backdatePrefix}" ile tekrar deneniyor (fatura ${invoice.id}).`,
+    )
+    response = await provider.sendInvoice(retryData)
+  }
 
   if (response.success && response.uuid) {
     const officialDocNo =
@@ -362,7 +457,25 @@ export async function createGibDraft(
     lower.includes("fatura pk bilgisi bulunamadı") ||
     lower.includes("pk bilgisi bulunamadı")
   let friendlyError: string
-  if (isNumeratorError) {
+  if (isBackdateNumberError(rawError)) {
+    const invoiceDay = invoiceData.date instanceof Date ? invoiceData.date : new Date(invoiceData.date)
+    const dayLabel = Number.isFinite(invoiceDay.getTime())
+      ? invoiceDay.toLocaleDateString("tr-TR", { timeZone: "UTC" })
+      : "seçtiğiniz tarih"
+    const seriesLabel = resolvedPrefix ? `"${resolvedPrefix}" serisinde` : "kullanılan seride"
+    const rule =
+      "Bir seride belge numaraları tarih sırasını bozamaz — seride bu tarihten daha yeni tarihli belge var."
+    // Geçmiş tarih serisi tanımlıysa gönderim ya doğrudan ondan yapıldı ya da hata
+    // sonrası onunla tekrar denendi; kullanıcıyı zaten yaptığımız çözüme yönlendirme.
+    friendlyError = backdatePrefix
+      ? `${rawError} → Geçmiş tarihli (${dayLabel}) fatura, geçmiş tarih serisi ` +
+        `"${backdatePrefix}" ile de numara alamadı. ${rule} Seri No Tanımları'ndan hiç ` +
+        `kullanılmamış yeni bir geçmiş tarih serisi tanımlayın veya fatura tarihini bugüne çekin.`
+      : `${rawError} → Geçmiş tarihli (${dayLabel}) fatura kesilemedi: ${seriesLabel} ${rule} ` +
+        `Çözüm: (1) fatura tarihini bugüne çekip tekrar gönderin, ya da (2) Seri No ` +
+        `Tanımları'ndan geçmiş tarihli belgeler için ayrı bir seri tanımlayın — tanımlarsanız ` +
+        `geçmiş tarihli faturalar otomatik olarak o seriden gider.`
+  } else if (isNumeratorError) {
     // E-Fatura için "uygun numaratör bulunamadı" hatası YANILTICI olabilir:
     // gerçekte alıcının e-Fatura mükellefi olmaması (GİB kaydı yok) bu hatayı
     // tetikliyor. Kullanıcıya iki ihtimali de açıkla.
@@ -411,6 +524,9 @@ export async function getGibDraftPdf(invoiceId: string): Promise<DraftPdfResult>
     ...ctx.invoiceData,
     draftPdfOnly: true,
     ettn: ctx.invoice.uuid || undefined,
+    // Taslakta atanmış belge numarasını önizlemeye taşı — boş gidince şablondaki
+    // "Fatura No" alanı boş basılıyordu. Numara üretmez, yalnız PDF'e yazdırır.
+    docNo: ctx.invoice.eDocumentNo || undefined,
   })
 
   if (!response.success || !response.pdfBuffer) {
@@ -462,7 +578,14 @@ async function resolveCompanyProvider(companyId: string): Promise<ProviderContex
 export async function finalizeGibDraft(invoiceId: string): Promise<SendInvoiceResult> {
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
-    select: { id: true, companyId: true, status: true, uuid: true, invoiceType: true },
+    select: {
+      id: true,
+      companyId: true,
+      status: true,
+      uuid: true,
+      invoiceType: true,
+      eDocumentNo: true,
+    },
   })
   if (!invoice) return { ok: false, status: 404, error: "Fatura bulunamadı", integrationStatus: "" }
   if (invoice.status !== "GIB_DRAFT" || !invoice.uuid) {
@@ -477,11 +600,17 @@ export async function finalizeGibDraft(invoiceId: string): Promise<SendInvoiceRe
   const ctx = await resolveCompanyProvider(invoice.companyId)
   if (!ctx.ok) return { ok: false, status: ctx.status, error: ctx.error, integrationStatus: "" }
 
-  // Prefix taslak oluştururken hangi tipe göre çözüldüyse (DB'deki invoiceType) aynısı.
+  // Kesinleştirme taslakla AYNI seriden gitmeli. Taslakta numara üretildiyse
+  // (eDocumentNo = 3 hane prefix + 4 hane yıl + 9 hane sıra) gerçek seri odur —
+  // geçmiş tarih yedeğine düşülmüş olabileceği için firma ayarından türetmek yanlış
+  // seriyi gönderir. Numara yoksa firmanın aktif serisine düş.
+  const draftDocNo = (invoice.eDocumentNo || "").trim().toUpperCase()
+  const draftPrefix = /^[A-Z0-9]{3}\d{13}$/.test(draftDocNo) ? draftDocNo.slice(0, 3) : undefined
   const resolvedPrefix: string | undefined =
-    invoice.invoiceType === "E_INVOICE"
+    draftPrefix ||
+    (invoice.invoiceType === "E_INVOICE"
       ? ctx.company.eFaturaPrefix || undefined
-      : ctx.company.eArchivePrefix || undefined
+      : ctx.company.eArchivePrefix || undefined)
 
   const response = await ctx.provider.sendDraftToGib({
     ettn: invoice.uuid,

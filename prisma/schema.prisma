@@ -209,6 +209,12 @@ model Company {
   receiptTemplate           Json?
   eFaturaPrefix             String?
   eArchivePrefix            String?
+  // Geçmiş tarihli belgeler için ayrılmış (alternatif) Mysoft serileri. Bir seride
+  // belge numaraları tarih sırasını bozamadığı için, ana seride daha yeni tarihli
+  // belge varken geçmiş tarihli fatura reddedilir; bu seriler yalnız o durumda
+  // devreye girer (send-invoice-helper.ts). NULL = tanımlı değil.
+  eFaturaBackdatePrefix     String?
+  eArchiveBackdatePrefix    String?
   eDonusumTenantVkn         String?
   eDonusumConnectorGuid     String?
   eDonusumPkAlias           String?
