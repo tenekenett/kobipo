@@ -900,6 +900,27 @@ async sendInvoice(invoiceData: any): Promise<any> {
 
       const isoDate = invoiceData.date instanceof Date ? invoiceData.date.toISOString() : new Date(invoiceData.date).toISOString();
 
+      // Vade tarihi (opsiyonel). Fatura tarihi gibi tarih-only saklandığı için Z ekli
+      // ISO olarak gider; Mysoft tarih kısmını okur.
+      const dueRaw = invoiceData.dueDate
+        ? (invoiceData.dueDate instanceof Date ? invoiceData.dueDate : new Date(invoiceData.dueDate))
+        : null;
+      const isoDueDate = dueRaw && Number.isFinite(dueRaw.getTime()) ? dueRaw.toISOString() : null;
+
+      // docTime: e-Arşiv'de saat bilgisi ZORUNLU (swagger: "e-Arşiv Faturalarda saat
+      // bilgisi koyma zorunluluğunuz bulunuyor"). Fatura tarihi saatsiz seçildiği için
+      // buraya docDate verilirse belge hep 00:00 düzenlenmiş görünüyordu. Belgenin
+      // OLUŞTURULDUĞU andaki Türkiye saatini faturanın kendi gününe yazıyoruz: bugünkü
+      // faturalarda gerçek saat, geçmiş tarihlilerde o güne düşen makul bir saat olur.
+      const trClock = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Istanbul",
+        hourCycle: "h23",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(new Date());
+      const isoDocTime = `${isoDate.slice(0, 10)}T${trClock}.000Z`;
+
       // İstisnalı (vatRate=0 + exemption kodu olan) en az bir kalem varsa Mysoft'un
       // şematron kuralı gereği invoiceType=ISTISNA olmalı (SATIS reddedilir).
       const hasExemption = lineData.some((l: any) => l.vatRate === 0 && l.exemptionCode);
@@ -1044,9 +1065,13 @@ async sendInvoice(invoiceData: any): Promise<any> {
         "invoiceType": resolvedInvoiceType,
         "ettn": generatedEttn,
         "prefix": resolvedPrefix,
-        "docNo": "",
+        // Boş = numarayı Mysoft numaratörden atasın (gerçek gönderim böyle çalışır).
+        // Yalnız TASLAK PDF önizlemesinde, taslakta atanmış numarayı geri veriyoruz;
+        // aksi halde şablondaki "Fatura No" alanı boş basılıyor.
+        "docNo": typeof invoiceData.docNo === "string" ? invoiceData.docNo.trim() : "",
         "docDate": isoDate,
-        "docTime": isoDate,
+        "docTime": isoDocTime,
+        ...(isoDueDate ? { dueDate: isoDueDate } : {}),
         "currencyCode": "TRY",
         "currencyRate": 1.0,
         "senderType": "ELEKTRONIK",
