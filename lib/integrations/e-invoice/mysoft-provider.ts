@@ -501,6 +501,92 @@ export class MysoftEInvoiceProvider implements EInvoiceProvider {
   }
 
   /**
+   * Firmanın tanımlı sözleşme (tarife) kayıtları.
+   * Swagger v8: GET /api/Tenant/getTenantPreContract?vknTckn=...
+   * Aktivasyon öncesi "bu firmada zaten tarife var mı?" kontrolü için kullanılır.
+   */
+  async getPreContract(vknTckn: string): Promise<{
+    success: boolean
+    data: any[]
+    error?: string
+    raw?: any
+  }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, data: [], error: "Mysoft token alınamadı." }
+      const res = await fetch(
+        `${this.baseUrl}/api/Tenant/getTenantPreContract?vknTckn=${encodeURIComponent(
+          vknTckn,
+        )}&limit=50`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        },
+      )
+      const data = await res.json().catch(() => null)
+      console.log("[Mysoft] getTenantPreContract raw:", res.status, JSON.stringify(data))
+      return {
+        success: Boolean(data?.succeed),
+        data: Array.isArray(data?.data) ? data.data : [],
+        error: data?.succeed ? undefined : data?.message || `HTTP ${res.status}`,
+        raw: data,
+      }
+    } catch (error: any) {
+      return { success: false, data: [], error: error?.message || "Bilinmeyen hata" }
+    }
+  }
+
+  /**
+   * Firmaya tarife (sözleşme) tanımlar — Swagger v8: POST /api/Tenant/addTenantPreContract.
+   * Zorunlu: vknTckn, tariffCode, qty, startDate, isLoadCredit.
+   *
+   * AKTİVASYON ÖN KOŞULU: tenant'ta tarife yoksa addTenantActivation
+   * "Üzerinize tanımlı aktivasyon ürün bilgisi bulunmamaktadır." döner.
+   * addTenant'taki `addTariffToTenant:true` tek başına YETMİYOR — 2026-08-03'te canlıda
+   * doğrulandı (tenant 53949: firma açıldı, tarife devretmedi, aktivasyon reddedildi).
+   *
+   * ⚠️ `isLoadCredit=true` ilk kontörü OTOMATİK yükler ve bayi kontör havuzundan düşer.
+   * Onboarding'de false gönderiyoruz; kontör satın alma ayrı akıştır (loadCredit).
+   */
+  async addPreContract(params: {
+    vknTckn: string
+    tariffCode: string
+    qty: number
+    startDate?: string // ISO; boşsa şimdi
+    isLoadCredit?: boolean
+  }): Promise<{ success: boolean; recordId?: number; error?: string; raw?: any }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+      const body = {
+        vknTckn: params.vknTckn,
+        tariffCode: params.tariffCode,
+        qty: params.qty,
+        startDate: params.startDate || new Date().toISOString(),
+        isLoadCredit: params.isLoadCredit ?? false,
+      }
+      const res = await fetch(`${this.baseUrl}/api/Tenant/addTenantPreContract`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => null)
+      console.log("[Mysoft] addTenantPreContract raw:", res.status, JSON.stringify(data))
+      if (!data?.succeed) {
+        return {
+          success: false,
+          error: data?.message || `Firmaya tarife tanımlanamadı (HTTP ${res.status})`,
+          raw: data,
+        }
+      }
+      const recordId = typeof data?.data === "number" ? data.data : Number(data?.data) || undefined
+      return { success: true, recordId, raw: data }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "Bilinmeyen hata" }
+    }
+  }
+
+  /**
    * Firmaya bir e-Dönüşüm ürünü aktive eder (GİB başvurusu oluşturur).
    * Swagger v8: POST /api/Tenant/addTenantActivation (ApiTenantActivationModel).
    * activationProductType: "EInvoice" | "EArchive" | "EDespatch" | ... (bkz. PLAN.md).

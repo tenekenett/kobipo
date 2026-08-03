@@ -140,7 +140,9 @@ gerekiyor (muhtemelen SMS doğrulaması). Sihirbazda önceden uyar, yoksa kullan
 - [x] `createTenant()` — `addTenant`
 - [x] `activateProduct()` — `addTenantActivation`
 - [x] `getTenantActivationStatus()` — `getTenantActivation`
-- [ ] (ops.) `addPreContract()` — ilk kontör otomatik yükleme
+- [x] `addPreContract()` + `getPreContract()` — **opsiyonel DEĞİL, aktivasyon ön koşulu**
+      (2026-08-03 canlı bulgu; bkz. günlük 19). `isLoadCredit:false` ile çağrılıyor:
+      sözleşme tanımlanır, kontör YÜKLENMEZ (kontör ayrı akış).
 
 ### Faz 2 — Onboarding API
 - [x] `POST /api/e-donusum/onboarding` — VKN doğrula → `createTenant` → `activateProduct`
@@ -431,3 +433,31 @@ denemek istersek bayi test kimliğiyle `MYSOFT_PARTNER_API_URL`'i test URL'sine 
   var olmayan `app/(dashboard)/page.tsx`'e atıf — kapsam dışı, önceden mevcut).
   **UI notu:** bölüm hâlâ en altta, kapalı ve "Beta" rozetli. Ana akışa çıkarma işi
   bilerek 6.5 sonrasına bırakıldı — gerçek GİB başvurusu doğrulanmadan öne almak yanlış olur.
+- **2026-08-03 (19)** — 🎉 **addTenant İLK KEZ BAŞARILI** + yeni kök neden bulundu ve düzeltildi.
+  Faz 6 prod'a alındı, gerçek müşteri firmasıyla denendi (ASDOĞUŞ PAZ.SAN.TİC.LTD.ŞTİ.,
+  VKN 0860998219): **tenant 53949 açıldı** — vergi dairesi/adres/şehir doğrulamalarının
+  tamamı geçti, payload doğru. Projede addTenant'ın ilk başarısı.
+  **Aktivasyon takıldı:** `addTenantActivation` → *"Üzerinize tanımlı aktivasyon ürün
+  bilgisi bulunmamaktadır."* İki farklı İVD kullanıcı koduyla denendi (log'da uzunluk 10 ve 8),
+  **ikisinde de aynı hata** → hata İVD kimliğinden DEĞİL, çağrı o aşamaya gelmeden reddediliyor.
+  **Teşhis:** `/api/kontor/tariffs` (mevcut salt-okunur uç) ile bakıldı — bayide **aktif tarife VAR**:
+  `REYPO-001` "REYPO BİLİŞİM YILLIK E BELGE TARİFESİ", `isPassive:false`, ürünleri E-Fatura /
+  E-Arşiv Fatura / E-İrsaliye / E-SMM / E-MM / E-Döviz / E-Adisyon, kademeler 250→10000 kontör.
+  Yani Mysoft provizyonu EKSİK DEĞİL (mükellef sorgulama paketi de zaten tanımlıydı — addTenant'ın
+  başarısı bunu kanıtlıyor). **Kök neden:** `addTenant`'taki `addTariffToTenant:true` tarifeyi
+  tenant'a DEVRETMİYOR; aktivasyondan önce `addTenantPreContract` ile tarife firmaya
+  tanımlanmalı.
+  **Düzeltme:** provider'a `getPreContract()` + `addPreContract()` eklendi; route'a "1.5) tarife
+  ön koşulu" adımı girdi: mevcut sözleşme varsa atlar (idempotent), yoksa aktif tarifelerden
+  istenen ürünleri kapsayanı seçip (`PRODUCT_TARIFF_TEXT` ile Türkçe etiket eşleşmesi) en küçük
+  kademeyle tanımlar. **`isLoadCredit:false`** — sözleşme açılır ama kontör YÜKLENMEZ; otomatik
+  yükleme bayi havuzunu sessizce düşürür ve mevcut satın alma akışıyla çakışırdı.
+  Sözleşme adımı patlarsa `stage:"preContract"` ile net hata döner, aktivasyona geçilmez.
+  Kaynak `tsc` 0 hata. **Sıradaki: prod'a deploy + aynı firmada tekrar başvuru** (addTenant
+  atlanır, tarife tanımlanır, aktivasyon denenir).
+  ⚠️ **Temizlik borcu:** ASDOĞUŞ'ta `isEDonusumEnabled=true` ama aktivasyon yok (elle açılmış
+  olmalı — status route yalnız allApproved'da yazar). Aktivasyon oturana kadar kapatılmalı,
+  yoksa fatura gönderimi Mysoft'ta reddedilir.
+  ⚠️ **Not:** lokal `.env`'deki `MYSOFT_PARTNER_*` canlıda token ALAMIYOR ("Kullanıcı
+  tanımsızdır") — prod'daki kimlik farklı. Bayi çağrılarını lokalden teşhis etmek şu an
+  mümkün değil; prod'daki `/api/kontor/tariffs` gibi uçlar üzerinden bakılmalı.

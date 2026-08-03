@@ -85,6 +85,17 @@ const OUT_OF_SCOPE_PRODUCTS: Record<string, string> = {
 // Seri ön ek (3 karakter) zorunlu olan ürünler.
 const PREFIX_REQUIRED = new Set(["EInvoice", "EArchive", "EDespatch"])
 
+// Bizim ürün kodlarımız ↔ Mysoft tarife detayındaki Türkçe etiketler
+// (getBusinessPartnerTariff → tariffProductDetailList[].activationProductTypeEnumText).
+// Tarife seçerken "bu tarife istediğim ürünü kapsıyor mu?" kontrolü için kullanılır.
+const PRODUCT_TARIFF_TEXT: Record<string, string> = {
+  EArchive: "E-Arşiv Fatura",
+  EInvoice: "E-Fatura",
+  EDespatch: "E-İrsaliye",
+  ESEVoucher: "E-SMM",
+  EProducerVoucher: "E-MM",
+}
+
 export async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
@@ -386,6 +397,71 @@ export async function POST(request: Request) {
       })
     }
 
+    // 1.5) TARİFE (SÖZLEŞME) ÖN KOŞULU
+    // addTenant'taki `addTariffToTenant:true` tek başına yetmiyor: tenant'ta tarife
+    // yoksa addTenantActivation "Üzerinize tanımlı aktivasyon ürün bilgisi
+    // bulunmamaktadır." döner. 2026-08-03'te canlıda doğrulandı (tenant 53949 açıldı,
+    // aktivasyon bu hatayla reddedildi). Bu yüzden aktivasyondan ÖNCE bayinin tarifesini
+    // firmaya tanımlıyoruz. Zaten tanımlıysa atlanır (idempotent — kullanıcı tekrar
+    // başvurduğunda ikinci sözleşme açılmasın).
+    let contractInfo: string | null = null
+    const existingContracts = await provider.getPreContract(vkn)
+    if (existingContracts.data.length === 0) {
+      const tariffs = await provider.getBusinessPartnerTariff(50)
+      const covers = (t: any, productType: string) => {
+        const want = normalizeTr(PRODUCT_TARIFF_TEXT[productType] || "")
+        if (!want) return false
+        return (
+          Array.isArray(t?.tariffProductDetailList) &&
+          t.tariffProductDetailList.some(
+            (d: any) => normalizeTr(String(d?.activationProductTypeEnumText || "")) === want,
+          )
+        )
+      }
+      const active = tariffs.data.filter((t: any) => !t?.isPassive && t?.tariffCode)
+      // Önce istenen ürünlerin HEPSİNİ kapsayan aktif tarife; yoksa herhangi bir aktif tarife.
+      const match = active.find((t: any) => products.every((p) => covers(t, p.type))) || active[0]
+
+      if (!match) {
+        const detail = tariffs.success
+          ? "Bayi hesabında aktif tarife bulunamadı."
+          : `Tarife listesi alınamadı: ${tariffs.error || "bilinmeyen hata"}`
+        await prisma.company.update({
+          where: { id: companyId },
+          data: { eDonusumOnboardingStatus: "FAILED", eDonusumActivationError: detail },
+        })
+        return NextResponse.json({ success: false, stage: "preContract", error: detail }, { status: 502 })
+      }
+
+      // Paket adedi tarifenin en küçük kademesi. isLoadCredit:false olduğu için kontör
+      // YÜKLENMEZ — sadece sözleşme tanımlanır. Otomatik yükleme bayi kontör havuzunu
+      // sessizce düşürür ve mevcut satın alma akışıyla (/e-donusum/kontor) çakışırdı.
+      const qtys: number[] = Array.isArray(match.tariffDetailList)
+        ? match.tariffDetailList
+            .map((d: any) => Number(d?.qty))
+            .filter((n: number) => Number.isFinite(n) && n > 0)
+        : []
+      const qty = qtys.length > 0 ? Math.min(...qtys) : 250
+
+      const pc = await provider.addPreContract({
+        vknTckn: vkn,
+        tariffCode: match.tariffCode,
+        qty,
+        isLoadCredit: false,
+      })
+      if (!pc.success) {
+        const msg = pc.error || "Firmaya tarife tanımlanamadı"
+        await prisma.company.update({
+          where: { id: companyId },
+          data: { eDonusumOnboardingStatus: "FAILED", eDonusumActivationError: msg },
+        })
+        return NextResponse.json({ success: false, stage: "preContract", error: msg }, { status: 502 })
+      }
+      contractInfo = `${match.tariffCode} (${qty} kontörlük paket, kontör yüklenmedi)`
+    } else {
+      contractInfo = "mevcut"
+    }
+
     // 2) Ürünleri aktive et (GİB başvurusu). Her biri bağımsız — biri patlarsa
     // diğerleri denenmeye devam eder, sonuçlar toplanır.
     const activations: Array<{ type: string; ok: boolean; activationId?: number; error?: string }> = []
@@ -443,7 +519,9 @@ export async function POST(request: Request) {
         entityId: companyId,
         details: `Firma ${company.name} (VKN ${vkn}) onboarding — tenant: ${
           tenantId ?? "mevcut"
-        }, aktivasyon: ${activations.map((a) => `${a.type}:${a.ok ? "OK" : "HATA"}`).join(", ")}`,
+        }, tarife: ${contractInfo ?? "-"}, aktivasyon: ${activations
+          .map((a) => `${a.type}:${a.ok ? "OK" : "HATA"}`)
+          .join(", ")}`,
         level: anyFail ? "WARN" : "INFO",
       },
     })
