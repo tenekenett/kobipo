@@ -142,7 +142,7 @@ export async function DELETE(request: Request, { params }: Params) {
 
 /**
  * Ölçüler 1–40 hücre. Üst sınır kroki öğeleriyle AYNI: gerçek sınırı planın
- * kendi ızgarası koyuyor (ekran öğeyi kare tuvale sığdırıyor). Masaya ayrı ve
+ * kendi ızgarası koyuyor (ekran öğeyi tuvale sığdırıyor). Masaya ayrı ve
  * daha dar bir sınır koymak, tutamaçtan çekilen ölçünün sessizce başka bir
  * değere düşmesine yol açıyordu.
  */

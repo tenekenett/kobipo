@@ -626,9 +626,10 @@ async function main() {
     check("bölge 1 masaları", a1.length === 2, `${a1.length} masa`)
     check("bölge 2 masaları", a2.length === 1, `${a2.length} masa`)
 
-    // ── 10b. Kare kroki: plan boyutu ────────────────────────────────────────
-    // Tuval kare olduğu için bölge tek bir kenar uzunluğu (gridSize) tutar.
-    console.log("\n10b) Plan boyutu (kare kroki)")
+    // ── 10b. Yatay kroki: plan genişliği ────────────────────────────────────
+    // Bölge yalnız SÜTUN sayısını (gridSize) saklar; satır sayısı orandan ve
+    // içerikten türetildiği için sunucuya hiç uğramaz.
+    console.log("\n10b) Plan genişliği (yatay kroki)")
     const gridDefault = await api("GET", `/api/restoran/bolgeler?companyId=${company.id}`)
     const myArea = gridDefault.body.find((a) => a.id === created.areaId)
     check("bölge varsayılan ızgarayla geliyor", myArea?.gridSize === 16, `${myArea?.gridSize}`)
@@ -639,12 +640,12 @@ async function main() {
     })
     check("plan büyütüldü", grown.body?.gridSize === 24, `${grown.body?.gridSize}`)
 
-    // 12 hücrelik duvar @x=2 → 14 hücre gerekiyor; 10'a inmek reddedilmeli.
+    // 12 hücrelik duvar @x=2 → 14 sütun gerekiyor; 10'a inmek reddedilmeli.
     const shrunk = await api("PATCH", `/api/restoran/bolgeler/${created.areaId}`, {
       companyId: company.id,
       gridSize: 10,
     })
-    check("içeriği kesecek küçültme reddedildi", shrunk.status === 409, shrunk.body?.error)
+    check("içeriği kesecek daraltma reddedildi", shrunk.status === 409, shrunk.body?.error)
 
     const clamped = await api("PATCH", `/api/restoran/bolgeler/${created.areaId}`, {
       companyId: company.id,

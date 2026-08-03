@@ -34,15 +34,23 @@ sorgulama" yapıyor; bayi API hesabının bu iş için aktif paketi yoktu
   Salt-okunur teşhis (`getGibAccountModel` VKN 6271036106) canlı ortamda gerçek GİB verisi
   döndü ("MYSOFT DİJİTAL DÖNÜŞÜM A.Ş."). Paket/limit hatası YOK. addTenant artık geçmeli.
 
-**B) Muvafakatname / sözleşme (ticari/hukuki):**
+**B) Muvafakatname / sözleşme (✅ KAPANDI — 2026-08-03, Mysoft'a sormaya gerek kalmadı):**
 
-- **Muvafakatname / aracılık sözleşmesi / e-imza:** Bir mükellefi bayi olarak API ile
-  aktive ederken GİB/Mysoft'un istediği ıslak/e-imzalı bir evrak var mı? API'de böyle
-  bir alan yok (`addTenantPreContract` sadece **ticari** tarife/kontör sözleşmesi). Bu
-  Mysoft'a WhatsApp ile soruldu. **Cevap gelince buraya yaz** ve gerekirse Faz 3'e
-  dijital onay adımı ekle.
-  - Durum: ⏳ Mysoft'tan cevap bekleniyor.
-  - Cevap: _(buraya)_
+Soru şuydu: bir mükellefi bayi olarak API ile aktive ederken ıslak/e-imzalı bir evrak
+gerekiyor mu? **Cevap: hayır, ayrı evrak akışı kurmuyoruz.** Yetkilendirme evrakla değil,
+yolun kendisine gömülü olarak veriliyor — bkz. §3.1. Kısaca:
+
+- **e-Arşiv'de yetki = İVD şifresi.** Kullanıcı İnteraktif Vergi Dairesi kimliğini vererek
+  "benim adıma başvur" demiş oluyor. Rakip doğrulaması: Paraşüt'ün "e-Arşiv Fatura
+  (İnteraktif)" akışı da tam olarak İVD kullanıcı kodu + şifre + VKN istiyor ve
+  *"Başvuru esnasında mali mühür ve e-imza almanız gerekmez"* diyor.
+- **e-Fatura'da yetki = mali mührün kendisi.** Mühürle imzalamak zaten hukuki
+  yetkilendirmedir, üstüne kâğıt gerekmez. (Bu yol şimdilik kapsam dışı — §3.1.)
+- **Kobipo–kullanıcı ilişkisi** → uygulama içi onay kutusu + zaman damgası/IP kaydı
+  (Faz 6.3). Paraşüt'teki "Sözleşme onayı → KAYDET VE BİTİR" adımının karşılığı.
+
+Mysoft kendi bayi-müşteri sözleşmesi için ayrıca evrak isterse, bu **bizimle Mysoft
+arasında** hallolur — müşterinin akışına girmez, akışı bloke etmez.
 
 ## 3. API Bulguları (tekrar araştırma yapma — referans)
 
@@ -65,6 +73,47 @@ Test ortamı: `https://edocumentapi.mytest.tr`.
 Nested modeller: `TenantAdressModel` (45777) → `country`/`city` = `GeneralLookupModel`
 `{code,name}` (32375); `citySubdivision`(ilçe) zorunlu. `TaxOfficeLookupModel` (45171) =
 `{taxOfficeCode, taxOfficeName}`. `ApiActivationAliasModel` (19271) = `{aliasPrefix, domainName}`.
+
+## 3.1 Yetkilendirme: İVD vs. mali mühür (2026-08-03 araştırması — tekrar araştırma yapma)
+
+**Kritik bulgu:** `ApiTenantActivationModel`'de `iVdUsername` + `iVdPassword` alanları var
+(İnteraktif Vergi Dairesi kullanıcı adı/şifresi). GİB başvurusunu Mysoft **mükellefin kendi
+İVD kimliğiyle** yapıyor. `getTenantActivation`'ın `gibServiceStatus`/`gibServiceMessage`
+açıklaması da bunu doğruluyor ("aktivasyon başvuru **dosyasının** GİB tarafındaki durumu").
+
+**Swagger tam metin taraması** (kesin, tekrar bakma): `mühür` **0**, `e-imza` **0**,
+`sertifika` **0**, `muvafakat` **0** geçiş. `İnteraktif` 6 geçiş — 2'si aktivasyon modeli,
+4'ü **ilgisiz** bir uç (`TenantPublicIntegrationSaveRequestModel` → `addTenantPublicIntegration`,
+GİB'den e-Arşiv gelen kutusu çekmek için; `publicIntegrationType: İVD(1)/E-Beyanname(2)/
+Türmob(3)` seçenekleri ORADA, aktivasyonda değil — alternatif sanıp peşine düşme).
+
+→ **Aktivasyonda İVD dışında yetkilendirme mekanizması YOK.** Sertifika/mühür API'den
+geçemez: özel anahtar token'ın güvenli yongasından çıkmaz, imzalama token'ın takılı olduğu
+makinede olur. Bu bir eksiklik değil, tasarım gereği.
+
+**e-Arşiv ile e-Fatura farkı (neden biri mühürsüz, diğeri değil):**
+
+| | e-Arşiv | e-Fatura |
+|---|---|---|
+| Mükellefin mührü | **Gerekmez** | **Gerekli** (tüzel: mali mühür, gerçek kişi: e-imza) |
+| Neden | GİB'e sadece raporlama; imzayı özel entegratör kendi mührüyle atar | Mükellef GİB e-Fatura **ağına kayıt** olur; posta kutusu/etiket doğrudan kendi sertifikasına bağlanır → mühür imza aracı değil, **kimliğin kendisi** |
+| Başvuru | İVD kullanıcı kodu + şifre, uygulama içinde, dakikalar | Mühür siparişi (Kamu SM, 3–10 gün, ücretli) → mühürle GİB başvurusu → sonra aktivasyon |
+| Uygulama dışı adım | Yok | **Var** — token'la imzalama kullanıcının kendi makinesinde |
+
+**Rakip doğrulaması (Paraşüt):** İkiye ayırmışlar. e-Arşiv (İnteraktif) = İVD kullanıcı kodu
++ şifre + VKN, mühürsüz, dakikalar içinde "HİZMET DEVREDE". e-Fatura = mali mühür zorunlu,
+ve o yolu yazılımla değil **insanla** çözüyorlar ("Anahtar Teslim e-Fatura" = ücretli
+danışman hizmeti; kendi rehberlerinde "destek ekibine e-posta gönderin" diyorlar). Yani
+e-Fatura'da mühür şartını atlayan teknik bir yol yok — kimsede yok.
+
+**Not (Paraşüt rehberinden):** e-Arşiv (İnteraktif) için **İVD'ye kayıtlı telefon numarası**
+gerekiyor (muhtemelen SMS doğrulaması). Sihirbazda önceden uyar, yoksa kullanıcı orada takılır.
+
+**Kapsam dışı bırakılanlar (2026-08-03 kararı):**
+- **e-Fatura** — mühür gerektirdiği ve uygulama dışı adım içerdiği için şimdilik tamamen
+  bir kenarda. Route seviyesinde de kapalı tutulacak (yanlışlıkla canlı başvuru açılmasın).
+- **ÖKC / yazarkasa yolu** (`addVuk507Activation`, `serviceOperatorType: 1=İdeal, 2=Pavo`)
+  — yeni nesil ÖKC TSM'i üzerinden aktivasyon. Sihirbazda seçenek olarak bile durmayacak.
 
 ## 4. Veri Modeli Değişiklikleri (Company)
 
@@ -137,7 +186,7 @@ serialNumberPrefix}] }`.
       ile GİB satırları (onaylandı/bekliyor/hata).
 - [x] Elle kimlik giriş kartı "Gelişmiş — Mevcut Mysoft hesabımı elle bağla" collapsible'ına
       indirildi (ortam + kullanıcı/şifre + Test Bağlantısı orada).
-- [ ] (Karar #2'ye göre) muvafakat dijital onay adımı — Mysoft cevabı sonrası.
+- [~] Muvafakat dijital onay adımı → **Faz 6.3'e taşındı** (Karar #2 kapandı, §2-B/§3.1).
 
 Değişen dosyalar: `app/(dashboard)/ayarlar/e-donusum/page.tsx` (yeniden yazıldı),
 `app/api/companies/[id]/route.ts` (GET select'e 4 onboarding alanı eklendi).
@@ -170,6 +219,40 @@ Değişen dosyalar: `app/(dashboard)/ayarlar/e-donusum/page.tsx` (yeniden yazıl
 - [ ] **(5.2)** Test ortamında (`mytest.tr`) uçtan uca: firma aç → aktive et → durum sorgula →
       kontör yükle → fatura kes. ⛔ Mysoft test firma-ekleme yetkisi bekliyor (00030).
 - [ ] **(5.3)** Canlıya (`mysoft.com.tr`) geçiş — Karar #2 (hukuk) çözüldükten sonra.
+
+### Faz 6 — e-Arşiv + İVD self-servis başvuru  ← **AKTİF İŞ**
+
+Kapsam kararı (2026-08-03): **yalnızca e-Arşiv + İVD.** e-Fatura ve ÖKC/VUK507 kapsam dışı
+(§3.1). Hedef: kullanıcı Kobipo'dan çıkmadan, mühürsüz, dakikalar içinde e-Arşiv hesabını
+açsın.
+
+Hedef akış:
+1. Ürün: e-Arşiv (tek seçenek) → 2. İVD kullanıcı kodu + şifre → 3. Yetkilendirme onayı →
+4. `addTenantActivation` (İVD bilgileriyle) → 5. `getTenantActivation` ile durum takibi.
+
+- [x] **6.1 Provider** (`mysoft-provider.ts:511` `activateProduct`): params'a
+      `iVdUsername`/`iVdPassword` ekle, body'ye koşullu yaz. Credential'ı **log'a basma**;
+      hata dönüşünde `raw` içinde geri sızdırma (`:546` mevcut log yalnız response basıyor,
+      öyle kalsın).
+- [x] **6.2 Route** (`app/api/e-donusum/onboarding/route.ts`): body'den `ivdUsername` /
+      `ivdPassword` / `consentAccepted` al. e-Arşiv için İVD zorunlu → yoksa 400.
+      `EInvoice`/`EDespatch` gelirse 400 "şimdilik desteklenmiyor" (kapsam dışı ürünle
+      yanlışlıkla canlı GİB başvurusu açılmasın). Credential **DB'ye yazılmaz**.
+- [x] **6.3 Onay kaydı:** `consentAccepted` zorunlu; kabul anı + IP (`x-forwarded-for`) +
+      userId → `SystemLog` (`action: EDONUSUM_ONBOARDING_CONSENT`). Şema değişikliği YOK.
+- [x] **6.4 UI** (`ayarlar/e-donusum/page.tsx:594`): e-Fatura satırı devre dışı ("Yakında"
+      rozeti + mali mühür gerekçesi notu; `ProductRow`'a `disabled`/`badge`/`note` eklendi).
+      İVD kullanıcı kodu + şifre alanları (`type=password`, `autoComplete=off`).
+      "İVD'ye kayıtlı telefon numaranız olmalı" uyarısı. Şifresi olmayan/bilmeyen için
+      ivd.gib.gov.tr yönlendirmesi + "mali müşavirinizde olabilir" notu. Yetkilendirme
+      onay kutusu. **Submit sonrası şifre state'i temizlenir.**
+- [ ] **6.5 Test:** gerçek firmada e-Arşiv aktivasyonu → `getTenantActivation` →
+      `gibServiceStatus`/`gibServiceMessage` gözlemi. Bu aynı zamanda "İVD tek başına
+      yeterli mi" sorusunun **ampirik** cevabıdır — GİB ne isterse orada yazar.
+
+> 🔒 **Değişmez güvenlik kuralı:** İVD şifresi vergi hesabının tamamına erişim verir
+> (beyanname, borç, tebligat). Yalnızca istek gövdesinde taşınır: DB'ye, `SystemLog`'a,
+> console'a, SWR cache'ine, hata mesajına **girmez**. Pass-through, saklama yok.
 
 ## 6. Dosya Haritası
 
@@ -318,3 +401,33 @@ denemek istersek bayi test kimliğiyle `MYSOFT_PARTNER_API_URL`'i test URL'sine 
   `/e-donusum/kontor?company=<id>` (mevcut kontör satın alma akışı). Kod tarafı Faz 5.1 tamam;
   kalan 5.2 (uçtan uca test) ve 5.3 (canlıya geçiş) dış bağımlılık bekliyor (Mysoft yetki /
   muvafakatname). tsc 0 hata.
+- **2026-08-03 (17)** — 🔓 **MUVAFAKATNAME BLOKAJI KALKTI (Mysoft'a sormadan).** Swagger tam
+  metin taraması + mevzuat/rakip araştırmasıyla yetkilendirme mekanizması netleşti → §3.1
+  yazıldı, §2-B kapatıldı. Özet: aktivasyonda yetki `iVdUsername`/`iVdPassword` (İnteraktif
+  Vergi Dairesi) ile veriliyor; swagger'da `mühür`/`e-imza`/`sertifika`/`muvafakat` kelimeleri
+  **hiç geçmiyor** (sertifika API'den geçemez — özel anahtar token'dan çıkmaz). e-Arşiv
+  mühürsüz açılabiliyor; e-Fatura'da mükellefin mali mührü kaçınılmaz (mühür = e-Fatura
+  ağındaki kimliğin kendisi). Paraşüt de tam bu ayrımı yapıyor ve e-Fatura'yı ücretli insan
+  hizmetiyle ("Anahtar Teslim") çözüyor — teknik bir kestirme yok.
+  **Kapsam kararı (kullanıcı):** e-Fatura ve ÖKC/VUK507 tamamen kenara; **yalnızca e-Arşiv +
+  İVD yolu** yapılacak → **Faz 6** açıldı (6.1 provider → 6.2 route → 6.3 onay kaydı →
+  6.4 UI → 6.5 gerçek test). Kod henüz yazılmadı; sıradaki iş 6.1.
+  ⚠️ Faz 6.5 aynı zamanda "İVD tek başına yeter mi" sorusunun ampirik cevabını verecek.
+- **2026-08-03 (18)** — **Faz 6.1–6.4 KOD TAMAM** (kalan: yalnız 6.5 gerçek test).
+  (a) `activateProduct` artık `ivdUsername`/`ivdPassword` alıp body'ye `iVdUsername`/
+  `iVdPassword` yazıyor; mevcut log yalnız response basıyor, request body ASLA loglanmıyor.
+  (b) Route: `SUPPORTED_PRODUCTS` → sadece `EArchive`; `OUT_OF_SCOPE_PRODUCTS` haritası
+  e-Fatura/e-İrsaliye/e-SMM/e-MM'yi 400 `PRODUCT_OUT_OF_SCOPE` ile kapatıyor (UI'da gizlemek
+  yetmez — uç canlıya gidiyor, kazara istek gerçek GİB başvurusu açar). İVD alanları zorunlu
+  (400 `IVD_REQUIRED`), `consentAccepted` zorunlu (400 `CONSENT_REQUIRED`).
+  (c) Onay kaydı `SystemLog`'a `EDONUSUM_ONBOARDING_CONSENT` olarak düşüyor: kullanıcı + IP +
+  ürünler + VKN. Kimlik bilgisi YAZILMIYOR (yalnız kullanıcı kodu uzunluğu). Onay, başvuru
+  sonucundan bağımsız kaydediliyor.
+  (d) UI: e-Fatura satırı kilitli ("Yakında" + mühür gerekçesi), İVD kullanıcı kodu/şifre
+  alanları, İVD'ye kayıtlı telefon uyarısı + ivd.gib.gov.tr yönlendirmesi, yetkilendirme
+  onay kutusu, "şifre saklanmıyor" bilgisi. Şifre başarılı başvurudan sonra state'ten
+  temizleniyor (hatada bırakılıyor — kullanıcı baştan yazmasın).
+  Kaynak `tsc` **0 hata** (yalnız `.next/types/validator.ts` bayat artefakt hatası var,
+  var olmayan `app/(dashboard)/page.tsx`'e atıf — kapsam dışı, önceden mevcut).
+  **UI notu:** bölüm hâlâ en altta, kapalı ve "Beta" rozetli. Ana akışa çıkarma işi
+  bilerek 6.5 sonrasına bırakıldı — gerçek GİB başvurusu doğrulanmadan öne almak yanlış olur.

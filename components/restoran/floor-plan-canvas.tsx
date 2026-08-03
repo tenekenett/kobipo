@@ -1,10 +1,24 @@
 "use client"
 
-// Salon planı tuvali — KARE ızgara üzerinde masa ve kroki öğeleri.
+// Salon planı tuvali — YATAY ızgara üzerinde masa ve kroki öğeleri.
 //
-// Tuval kendi ölçüsünü kapsayıcıdan alır ve daima karedir: `grid × grid` hücre,
-// hücre boyu = kenar / grid. Piksel hiçbir yerde saklanmaz (koordinatlar hücre
-// cinsinden DB'de durur) — plan telefonda da, geniş ekranda da aynı görünür.
+// Tuval `cols × rows` hücredir ve hücre KAREDİR (kroki gerçek bir sketch;
+// yamultmak yuvarlak masayı elips yapardı). Dışarıdan gelen sütun/satır sayıları
+// birer ALT SINIRDIR — kaç hücre çizileceğine tuval karar verir, çünkü cevabı
+// piksel belirler.
+//
+// İki şart aynı anda sağlanır:
+//   1. Plan bir bakışta görünür — ölçek, içeriğin dayattığı ızgarayı kutuya
+//      sığdıracak şekilde seçilir (`scale`).
+//   2. Tuval kutuyu doldurur — artan yer BOŞLUK değil, fazladan zemin hücresi
+//      olur; ızgara sağa ve aşağı uzar.
+//
+// Önce sabit oran (16:9), sonra "genişliği doldur, yüksekliği taşır" denendi:
+// birincisinde tuval kartın ortasında yüzen dar bir kutuydu, ikincisinde derin
+// bir plan sayfayı metrelerce uzatıyordu. Artan yeri zemine çevirmek ikisini de
+// çözüyor ve kullanıcıya masa taşıyacak gerçek alan bırakıyor.
+//
+// Piksel hiçbir yerde saklanmaz (koordinatlar hücre cinsinden DB'de durur).
 //
 // Üç jest, tek yerde: TAŞI (gövdeden çek), BOYUTLANDIR (kenar/köşe tutamacı),
 // ÇİZ (araç seçiliyken boş tuvale sürükle). Hepsi işaretçiyi TUVALE kilitler
@@ -17,8 +31,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Loader2, Users } from "lucide-react"
 import {
+  PLAN_CELLS_MAX,
   RESIZE_HANDLES,
-  clampRectToGrid,
+  clampRect,
+  editRows,
   handleAnchor,
   handleCursor,
   rectBetween,
@@ -38,12 +54,17 @@ import {
 
 export type PlanSelection = { type: "table" | "item"; id: string }
 
-/** Tuvalin büyüyebileceği en büyük kenar. Daha fazlası okumayı kolaylaştırmıyor,
- *  yalnız fareyi yoruyor. */
-const MAX_SIDE = 880
-/** Hücre bundan küçülürse tuval kaydırmaya geçer — 32'lik plan telefonda
+/** Tuvalin kaplayabileceği ekran yüksekliği. Plan bir bakışta görülmeli:
+ *  aşağı kaydırarak okunan kroki, salonun şeklini kafada tutmayı bırakıp
+ *  masa aramaya çeviriyor. */
+const VIEWPORT_RATIO = 0.68
+const MIN_BUDGET = 320
+/** Hücre bundan küçülürse tuval kaydırmaya geçer — 40 sütunluk plan telefonda
  *  8 piksellik hücrelere inip dokunulamaz hale gelmesin. */
 const MIN_CELL = 18
+/** Hücre bundan büyümez: artan yer masayı şişirmek yerine ZEMİNE gider. Küçük
+ *  bir plan geniş ekranda dev masalara dönüşmesin. */
+const MAX_CELL = 96
 /** Jestin "dokunma" mı "sürükleme" mi olduğunu ayıran eşik (hücre). */
 const DRAG_THRESHOLD = 0.25
 
@@ -72,7 +93,11 @@ export function elapsedLabel(fromIso: string, now: number): string {
 }
 
 interface FloorPlanCanvasProps {
-  grid: number
+  /** En az kaç sütun çizilmeli: bölgenin ayarı ve içeriğin dayattığı genişlik.
+   *  Ekranda yer varsa tuval bunun ÜSTÜNE çıkar. */
+  minCols: number
+  /** En az kaç satır çizilmeli (içeriğin dayattığı derinlik). */
+  minRows: number
   tables: PlanTable[]
   items: PlanItem[]
   editMode: boolean
@@ -80,6 +105,10 @@ interface FloorPlanCanvasProps {
   tool: string | null
   selection: PlanSelection | null
   busyTableId: string | null
+  /** Filtre/aramanın seçtiği masalar. null = filtre yok. Eşleşmeyen masa
+   *  soluklaşır ama TIKLANABİLİR kalır: filtre bir görüş yardımıdır, kilit
+   *  değil — garson aradığı masayı görünce yanındakine de servis yapar. */
+  focusIds?: Set<string> | null
   /** Süre etiketlerinin tazelendiği an; dışarıdan verilir ki her tuval aynı
    *  dakikayı göstersin ve her biri kendi zamanlayıcısını kurmasın. */
   now: number
@@ -87,8 +116,14 @@ interface FloorPlanCanvasProps {
   /** Jest bitti — yeni yerleşimi kaydet. */
   onGeometry: (sel: PlanSelection, rect: PlanRect) => void
   /** Kalemle çizildi. `exact` false ise kullanıcı sürüklemedi (tek tık) —
-   *  ölçü aracın varsayılanından alınmalı. */
-  onDraw: (tool: string, rect: PlanRect, exact: boolean) => void
+   *  ölçü aracın varsayılanından alınmalı. `grid` o anki tuvalin ızgarası:
+   *  varsayılan ölçü oraya oturtulacak ve gerçek sayıyı yalnız tuval biliyor. */
+  onDraw: (
+    tool: string,
+    rect: PlanRect,
+    exact: boolean,
+    grid: { cols: number; rows: number },
+  ) => void
   onOpenTable: (table: PlanTable) => void
   /** Dolu masa başka masanın üstüne bırakıldı (taşı/birleştir). */
   onTableDrop: (source: PlanTable, target: PlanTable) => void
@@ -97,13 +132,15 @@ interface FloorPlanCanvasProps {
 }
 
 export function FloorPlanCanvas({
-  grid,
+  minCols,
+  minRows,
   tables,
   items,
   editMode,
   tool,
   selection,
   busyTableId,
+  focusIds,
   now,
   onSelect,
   onGeometry,
@@ -121,6 +158,9 @@ export function FloorPlanCanvas({
   const handledRef = useRef(false)
 
   const [wrapWidth, setWrapWidth] = useState(0)
+  // Yükseklik bütçesi ekrandan gelir. SSR'da pencere yok; 800 makul bir
+  // başlangıç, ilk boyamada gerçek değerle değişiyor.
+  const [viewportHeight, setViewportHeight] = useState(800)
   const [ghost, setGhost] = useState<{ id: string; rect: PlanRect } | null>(null)
   const [draft, setDraft] = useState<PlanRect | null>(null)
   const [carry, setCarry] = useState<{
@@ -142,10 +182,32 @@ export function FloorPlanCanvas({
     return () => ro.disconnect()
   }, [])
 
-  // Kenar: kapsayıcıya sığar ama hücre okunmaz küçüklüğe inmez; inecekse tuval
-  // kaydırılır (kapsayıcıda `overflow-auto`).
-  const side = Math.max(Math.min(Math.max(wrapWidth, 260), MAX_SIDE), grid * MIN_CELL)
-  const cell = side / grid
+  useEffect(() => {
+    const read = () => setViewportHeight(window.innerHeight)
+    read()
+    window.addEventListener("resize", read)
+    return () => window.removeEventListener("resize", read)
+  }, [])
+
+  // 1) Ölçek: zorunlu ızgara (`minCols × minRows`) kutuya tam sığsın. Tam sayı,
+  //    çünkü kesirli hücre tuvali kutudan bir piksel taşırıp gereksiz kaydırma
+  //    çubuğu çıkarabiliyor.
+  const budget = Math.max(MIN_BUDGET, viewportHeight * VIEWPORT_RATIO)
+  const boxWidth = Math.max(wrapWidth, 260)
+  const cell = Math.max(
+    MIN_CELL,
+    Math.min(MAX_CELL, Math.floor(Math.min(boxWidth / minCols, budget / minRows))),
+  )
+  // 2) Artan yer zemine gider: ızgara kutuyu dolduracak kadar uzar. Tavan
+  //    ayarın tavanı DEĞİL (`PLAN_CELLS_MAX`) — 40'ta kesmek, hücrenin küçüldüğü
+  //    derin planlarda tuvali kutudan dar bırakıp yan boşlukları geri getiriyordu.
+  const cols = Math.min(PLAN_CELLS_MAX, Math.max(minCols, Math.floor(boxWidth / cell)))
+  const base = Math.min(PLAN_CELLS_MAX, Math.max(minRows, Math.floor(budget / cell)))
+  // Düzenlerken altta iki boş satır: ızgara zaten kutuyu doldurduğu için derin
+  // bir planda aşağıda hiç yer kalmıyor, plan büyütülemez hale geliyordu.
+  const rows = editMode ? editRows(base) : base
+  const width = cell * cols
+  const height = cell * rows
   const font = (mult: number) => Math.max(8, Math.round(cell * mult))
   const dense = cell < 34
 
@@ -154,11 +216,11 @@ export function FloorPlanCanvas({
       const box = surfaceRef.current?.getBoundingClientRect()
       if (!box) return { x: 0, y: 0 }
       return {
-        x: Math.min(grid - 1, Math.max(0, Math.floor((clientX - box.left) / cell))),
-        y: Math.min(grid - 1, Math.max(0, Math.floor((clientY - box.top) / cell))),
+        x: Math.min(cols - 1, Math.max(0, Math.floor((clientX - box.left) / cell))),
+        y: Math.min(rows - 1, Math.max(0, Math.floor((clientY - box.top) / cell))),
       }
     },
-    [cell, grid],
+    [cell, cols, rows],
   )
 
   const capture = (e: React.PointerEvent) => {
@@ -214,7 +276,7 @@ export function FloorPlanCanvas({
     }
     e.preventDefault()
     const c = cellAt(e.clientX, e.clientY)
-    const first = rectBetween(c.x, c.y, c.x, c.y, grid)
+    const first = rectBetween(c.x, c.y, c.x, c.y, cols, rows)
     gestureRef.current = { kind: "draw", tool, ax: c.x, ay: c.y, moved: false, last: first }
     setDraft(first)
     capture(e)
@@ -228,7 +290,7 @@ export function FloorPlanCanvas({
 
     if (g.kind === "draw") {
       const c = cellAt(e.clientX, e.clientY)
-      const rect = rectBetween(g.ax, g.ay, c.x, c.y, grid)
+      const rect = rectBetween(g.ax, g.ay, c.x, c.y, cols, rows)
       if (c.x !== g.ax || c.y !== g.ay) g.moved = true
       g.last = rect
       setDraft(rect)
@@ -261,11 +323,12 @@ export function FloorPlanCanvas({
 
     const rect =
       g.kind === "move"
-        ? clampRectToGrid(
+        ? clampRect(
             { ...g.start, x: g.start.x + Math.round(dxc), y: g.start.y + Math.round(dyc) },
-            grid,
+            cols,
+            rows,
           )
-        : resizeInGrid(g.start, g.handle!, dxc, dyc, grid)
+        : resizeInGrid(g.start, g.handle!, dxc, dyc, cols, rows)
 
     g.last = rect
     setGhost({ id: g.sel.id, rect })
@@ -281,7 +344,7 @@ export function FloorPlanCanvas({
       setDraft(null)
       // Sürüklenmediyse ölçü kullanıcının değil, aracın varsayılanıdır: tek
       // tıkla "duvar koy" ile sürükleyerek "şu boyda duvar çiz" aynı araçta.
-      if (g.last) onDraw(g.tool, g.last, g.moved)
+      if (g.last) onDraw(g.tool, g.last, g.moved, { cols, rows })
       return
     }
 
@@ -343,8 +406,8 @@ export function FloorPlanCanvas({
     const dy = e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : 0
     // Shift + ok = boyutlandır (sağ/alt kenar), düz ok = taşı.
     const next = e.shiftKey
-      ? clampRectToGrid({ ...start, width: start.width + dx, height: start.height + dy }, grid)
-      : clampRectToGrid({ ...start, x: start.x + dx, y: start.y + dy }, grid)
+      ? clampRect({ ...start, width: start.width + dx, height: start.height + dy }, cols, rows)
+      : clampRect({ ...start, x: start.x + dx, y: start.y + dy }, cols, rows)
     onGeometry(selection, next)
   }
 
@@ -384,18 +447,22 @@ export function FloorPlanCanvas({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
         className={cn(
-          "relative rounded-xl border border-border/70 bg-muted/20 outline-none",
+          // mx-auto: yükseklik bütçesi bağlayıcı olduğunda tuval karttan dar
+          // kalır; sola yapışınca sağda açıklanamayan bir boşluk kalıyordu.
+          "relative mx-auto rounded-xl border border-border/70 bg-muted/25 shadow-inner outline-none",
           editMode && "touch-none",
           tool && editMode && "cursor-crosshair",
         )}
         style={{
-          width: side,
-          height: side,
+          width,
+          height,
+          // Izgara zemindir, desen değil: kullanım kipinde masaların önüne
+          // geçmesin diye çizgiler soluk. Kalın çizgi 4 hücrede bir.
           backgroundImage: `
-            linear-gradient(to right, hsl(var(--border)) 1px, transparent 1px),
-            linear-gradient(to bottom, hsl(var(--border)) 1px, transparent 1px),
-            linear-gradient(to right, hsl(var(--border)/0.45) 1px, transparent 1px),
-            linear-gradient(to bottom, hsl(var(--border)/0.45) 1px, transparent 1px)
+            linear-gradient(to right, hsl(var(--border)/0.6) 1px, transparent 1px),
+            linear-gradient(to bottom, hsl(var(--border)/0.6) 1px, transparent 1px),
+            linear-gradient(to right, hsl(var(--border)/0.28) 1px, transparent 1px),
+            linear-gradient(to bottom, hsl(var(--border)/0.28) 1px, transparent 1px)
           `,
           backgroundSize: `${cell * 4}px ${cell * 4}px, ${cell * 4}px ${cell * 4}px, ${cell}px ${cell}px, ${cell}px ${cell}px`,
         }}
@@ -459,12 +526,31 @@ export function FloorPlanCanvas({
           const carried = carry?.id === table.id
           const isDropTarget = carry?.overId === table.id
           const loading = busyTableId === table.id
+          const dimmed = focusIds ? !focusIds.has(table.id) : false
+          const matched = focusIds ? !dimmed : false
+
+          // Küçük hücrede masaya sığmayan bilgi (kalem sayısı, rezervasyon
+          // sahibi) burada okunur: kutuyu büyütmeden ayrıntı verir.
+          const hint = [
+            table.name,
+            style.label,
+            table.capacity ? `${table.capacity} kişilik` : null,
+            table.openTicket
+              ? `${currency(table.openTicket.total)} · ${table.openTicket.itemCount} kalem · ${elapsedLabel(table.openTicket.openedAt, now)}`
+              : null,
+            table.reservation
+              ? `${table.reservation.guestName} — ${new Date(table.reservation.reservedAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")
 
           return (
             <div
               key={table.id}
               role="button"
               tabIndex={0}
+              title={hint}
               aria-label={`${table.name} — ${style.label}`}
               onPointerDown={(e) => {
                 if (editMode) {
@@ -483,11 +569,18 @@ export function FloorPlanCanvas({
                 if (!editMode) onOpenTable(table)
               }}
               className={cn(
-                "absolute z-10 flex flex-col items-center justify-center gap-0.5 border-2 p-0.5 text-center leading-tight transition-colors",
+                // Geçiş listesi ELLE yazılı: `transition-all` sürüklerken
+                // transform'u ve left/top'u da yumuşatıp jesti parmağın
+                // arkasında bırakıyor.
+                "absolute z-10 flex flex-col items-center justify-center gap-0.5 border-2 p-0.5 text-center leading-tight shadow-sm transition-[background-color,border-color,color,box-shadow,opacity,filter] duration-150",
                 table.shape === "CIRCLE" ? "rounded-full" : "rounded-xl",
                 style.className,
-                editMode ? "cursor-move touch-none" : "cursor-pointer",
+                editMode
+                  ? "cursor-move touch-none"
+                  : "cursor-pointer hover:z-20 hover:shadow-md hover:brightness-[1.03]",
                 isSelected && "z-20 ring-2 ring-kobipo-blue ring-offset-1 dark:ring-primary",
+                matched && !isSelected && "z-20 ring-2 ring-kobipo-blue ring-offset-1 dark:ring-primary",
+                dimmed && "opacity-25 saturate-50",
                 carried && "z-30 opacity-80 shadow-xl",
                 isDropTarget && "z-20 ring-4 ring-emerald-500 ring-offset-1",
                 loading && "opacity-60",

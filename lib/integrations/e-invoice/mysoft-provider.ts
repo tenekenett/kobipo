@@ -516,6 +516,15 @@ export class MysoftEInvoiceProvider implements EInvoiceProvider {
     aliasPrefix?: string
     aliasDomain?: string
     activationDemandDate?: string // ISO; boşsa şimdi
+    /**
+     * Mükellefin İnteraktif Vergi Dairesi kimliği. GİB başvuru dosyasını Mysoft bu
+     * kimlikle oluşturup gönderiyor — mükellefin yetkilendirmesi bununla veriliyor
+     * (mali mühür/e-imza yerine; bkz. docs/e-donusum-onboarding/PLAN.md §3.1).
+     *
+     * 🔒 Sadece bu istekte taşınır: DB'ye, log'a, hata mesajına YAZILMAZ.
+     */
+    ivdUsername?: string
+    ivdPassword?: string
   }): Promise<{ success: boolean; activationId?: number; error?: string; raw?: any }> {
     try {
       const token = await this.getToken()
@@ -536,6 +545,11 @@ export class MysoftEInvoiceProvider implements EInvoiceProvider {
           domainName: params.aliasDomain || null,
         }
       }
+      // İVD kimliği (Swagger: iVdUsername/iVdPassword). Mysoft GİB başvuru dosyasını
+      // bununla imzalayıp gönderiyor. Aşağıdaki log YALNIZCA response'u basar —
+      // request body'yi ASLA loglama, şifre sızar.
+      if (params.ivdUsername) body.iVdUsername = params.ivdUsername
+      if (params.ivdPassword) body.iVdPassword = params.ivdPassword
 
       const res = await fetch(`${this.baseUrl}/api/Tenant/addTenantActivation`, {
         method: "POST",

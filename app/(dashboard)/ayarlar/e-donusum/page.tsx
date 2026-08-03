@@ -111,10 +111,17 @@ export default function EDonusumAyarlariPage() {
   const [submitResult, setSubmitResult] = useState<Array<{ type: string; ok: boolean; error?: string }> | null>(
     null,
   )
+  // Kapsam (2026-08-03): yalnızca e-Arşiv. E-Fatura mükellefin mali mührünü gerektirdiği
+  // için devre dışı — route seviyesinde de kapalı. Bkz. docs/e-donusum-onboarding/PLAN.md §3.1.
   const [products, setProducts] = useState({
     EArchive: { enabled: true },
-    EInvoice: { enabled: false, aliasPrefix: "", aliasDomain: "" },
   })
+
+  // İnteraktif Vergi Dairesi kimliği — GİB başvurusu bununla yapılır (mali mühür yerine).
+  // 🔒 Yalnızca başvuru isteğiyle sunucuya gider; hiçbir yere kaydedilmez ve başarılı
+  // başvurudan sonra state'ten temizlenir.
+  const [ivd, setIvd] = useState({ username: "", password: "" })
+  const [consent, setConsent] = useState(false)
 
   useEffect(() => {
     if (!companyId) return
@@ -232,14 +239,25 @@ export default function EDonusumAyarlariPage() {
     if (products.EArchive.enabled) {
       payloadProducts.push({ type: "EArchive" })
     }
-    if (products.EInvoice.enabled) {
-      const p: any = { type: "EInvoice" }
-      if (products.EInvoice.aliasPrefix.trim()) p.aliasPrefix = products.EInvoice.aliasPrefix.trim()
-      if (products.EInvoice.aliasDomain.trim()) p.aliasDomain = products.EInvoice.aliasDomain.trim()
-      payloadProducts.push(p)
-    }
     if (payloadProducts.length === 0) {
-      toast({ title: "Ürün seçin", description: "En az bir ürün (E-Arşiv / E-Fatura) seçin.", variant: "destructive" })
+      toast({ title: "Ürün seçin", description: "E-Arşiv Fatura'yı açık duruma getirin.", variant: "destructive" })
+      return
+    }
+    if (!ivd.username.trim() || !ivd.password) {
+      toast({
+        title: "İVD bilgileri gerekli",
+        description:
+          "GİB başvurusu İnteraktif Vergi Dairesi kimliğinizle yapılıyor — kullanıcı kodu ve şifre zorunlu.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (!consent) {
+      toast({
+        title: "Onay gerekli",
+        description: "Devam etmek için yetkilendirme onayını işaretleyin.",
+        variant: "destructive",
+      })
       return
     }
     // Seri ön ek (prefix) artık kullanıcıdan İSTENMEZ: Mysoft aktivasyonunda backend
@@ -252,12 +270,21 @@ export default function EDonusumAyarlariPage() {
       const res = await fetch("/api/e-donusum/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, products: payloadProducts }),
+        body: JSON.stringify({
+          companyId,
+          products: payloadProducts,
+          ivdUsername: ivd.username.trim(),
+          ivdPassword: ivd.password,
+          consentAccepted: consent,
+        }),
       })
       const data = await res.json()
       setSubmitResult(Array.isArray(data.activations) ? data.activations : null)
       if (data.success) {
         setOnboardingStatus(data.status || "ACTIVATION_PENDING")
+        // 🔒 Başvuru gittiğine göre şifreye artık gerek yok — bellekten temizle.
+        // (Hata durumunda BIRAKILIYOR ki kullanıcı baştan yazmak zorunda kalmasın.)
+        setIvd((v) => ({ ...v, password: "" }))
         toast({
           title: "Başvuru alındı",
           description: "Firma açıldı ve aktivasyon başvurusu GİB'e iletildi. Durumu 'Yenile' ile takip edin.",
@@ -604,13 +631,13 @@ export default function EDonusumAyarlariPage() {
             </span>
             <div>
               <p className="text-sm font-semibold">
-                Kobipo ile e-Dönüşüm Başvurusu
+                Kobipo ile e-Arşiv Başvurusu
                 <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
                   Beta
                 </span>
               </p>
               <p className="text-xs text-muted-foreground">
-                Mysoft ile uğraşmadan hesabınızı Kobipo'dan açın (geliştirme aşamasında)
+                Mali mühür olmadan, İnteraktif Vergi Dairesi bilgilerinizle e-Arşiv hesabınızı açın
               </p>
             </div>
           </div>
@@ -648,36 +675,106 @@ export default function EDonusumAyarlariPage() {
 
             <ProductRow
               title="E-Fatura"
-              desc="GİB e-Fatura mükelleflerine kesilen faturalar (posta kutusu etiketi gerekebilir)"
-              enabled={products.EInvoice.enabled}
-              onToggle={(v) => setProducts((p) => ({ ...p, EInvoice: { ...p.EInvoice, enabled: v } }))}
-            >
-              {products.EInvoice.enabled && (
-                <div className="grid gap-3 pt-2 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Etiket ön eki (alias) — opsiyonel</Label>
-                    <Input
-                      value={products.EInvoice.aliasPrefix}
-                      onChange={(e) => setProducts((p) => ({ ...p, EInvoice: { ...p.EInvoice, aliasPrefix: e.target.value } }))}
-                      placeholder="ör. firmaadi"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Etiket alan adı (domain) — opsiyonel</Label>
-                    <Input
-                      value={products.EInvoice.aliasDomain}
-                      onChange={(e) => setProducts((p) => ({ ...p, EInvoice: { ...p.EInvoice, aliasDomain: e.target.value } }))}
-                      placeholder="ör. firma.com.tr"
-                    />
-                  </div>
-                </div>
-              )}
-            </ProductRow>
+              desc="GİB e-Fatura mükelleflerine kesilen faturalar"
+              enabled={false}
+              onToggle={() => {}}
+              disabled
+              badge="Yakında"
+              note={
+                <p className="rounded-md border bg-muted/40 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
+                  E-Fatura başvurusu için mükellefin <span className="font-medium">mali mührü</span>{" "}
+                  (tüzel kişi) ya da <span className="font-medium">e-imzası</span> (şahıs firması)
+                  gerekiyor. Mühürle imzalama, cihazın takılı olduğu bilgisayarda yapılmak zorunda
+                  olduğundan bu adım Kobipo üzerinden yürütülemiyor. E-Arşiv'de böyle bir şart yok.
+                </p>
+              }
+            />
 
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               Fatura seri ön eki (numaratör) başvuruda otomatik atanır — sonra{" "}
               <span className="font-medium">Seri No Tanımları</span>'ndan değiştirebilirsiniz.
             </p>
+
+            {/* İVD kimliği — GİB başvurusu bununla yapılır (mali mühür yerine geçen yol) */}
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-start gap-2">
+                <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-semibold">İnteraktif Vergi Dairesi bilgileri</p>
+                  <p className="text-xs text-muted-foreground">
+                    GİB başvurusu adınıza bu kimlikle yapılır — mali mühür veya e-imza gerekmez.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">İVD kullanıcı kodu</Label>
+                  <Input
+                    value={ivd.username}
+                    onChange={(e) => setIvd((v) => ({ ...v, username: e.target.value }))}
+                    placeholder="Genelde VKN / TCKN"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">İVD şifresi</Label>
+                  <Input
+                    type="password"
+                    value={ivd.password}
+                    onChange={(e) => setIvd((v) => ({ ...v, password: e.target.value }))}
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="space-y-1">
+                  <p>
+                    Başvurunun tamamlanabilmesi için{" "}
+                    <span className="font-medium">İnteraktif Vergi Dairesi'ne kayıtlı bir telefon
+                    numaranız</span>{" "}
+                    olmalıdır.
+                  </p>
+                  <p>
+                    Şifrenizi bilmiyorsanız çoğunlukla mali müşavirinizdedir; yoksa{" "}
+                    <a
+                      href="https://ivd.gib.gov.tr"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium underline"
+                    >
+                      ivd.gib.gov.tr
+                    </a>{" "}
+                    üzerinden edinebilirsiniz.
+                  </p>
+                </div>
+              </div>
+
+              <p className="flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
+                <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Şifreniz yalnızca bu başvuru isteğiyle birlikte iletilir — Kobipo veritabanına
+                kaydedilmez, kayıtlara yazılmaz.
+              </p>
+            </div>
+
+            {/* Yetkilendirme onayı — kaydı SystemLog'a düşer (zaman + IP + kullanıcı) */}
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-4 text-xs leading-relaxed">
+              <input
+                type="checkbox"
+                className="mt-0.5 rounded"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+              />
+              <span>
+                Kobipo'yu, girdiğim İnteraktif Vergi Dairesi bilgileriyle{" "}
+                <span className="font-medium">adıma e-Dönüşüm başvurusu yapmak</span> üzere
+                yetkilendiriyorum. Başvurunun özel entegratör (Mysoft) üzerinden GİB'e iletileceğini
+                kabul ediyorum.
+              </span>
+            </label>
 
             {activationError && (
               <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
@@ -778,29 +875,54 @@ export default function EDonusumAyarlariPage() {
 }
 
 // Ürün seçim satırı: aç/kapa (seri ön ek başvuruda otomatik atanır — burada sorulmaz).
+// `disabled` → kapsam dışı ürün: anahtar kilitli, `note` ile gerekçe gösterilir.
 function ProductRow({
   title,
   desc,
   enabled,
   onToggle,
+  disabled,
+  badge,
+  note,
   children,
 }: {
   title: string
   desc: string
   enabled: boolean
   onToggle: (v: boolean) => void
+  disabled?: boolean
+  badge?: string
+  note?: ReactNode
   children?: ReactNode
 }) {
+  const shellClass = disabled
+    ? "border-muted-foreground/20 bg-muted/30"
+    : enabled
+      ? "border-kobipo-blue/40 bg-kobipo-blue/5 dark:border-primary/40 dark:bg-primary/5"
+      : "border-muted-foreground/20"
   return (
-    <div className={`rounded-lg border p-4 transition ${enabled ? "border-kobipo-blue/40 bg-kobipo-blue/5 dark:border-primary/40 dark:bg-primary/5" : "border-muted-foreground/20"}`}>
+    <div className={`rounded-lg border p-4 transition ${shellClass}`}>
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold">{title}</p>
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <span className={disabled ? "text-muted-foreground" : undefined}>{title}</span>
+            {badge && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {badge}
+              </span>
+            )}
+          </p>
           <p className="text-xs text-muted-foreground">{desc}</p>
         </div>
-        <Switch checked={enabled} onCheckedChange={onToggle} />
+        <Switch
+          checked={disabled ? false : enabled}
+          onCheckedChange={onToggle}
+          disabled={disabled}
+          aria-label={title}
+        />
       </div>
-      {enabled && children && <div className="mt-3 space-y-1.5">{children}</div>}
+      {note && <div className="mt-3">{note}</div>}
+      {!disabled && enabled && children && <div className="mt-3 space-y-1.5">{children}</div>}
     </div>
   )
 }

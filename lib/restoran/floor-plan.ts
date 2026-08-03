@@ -1,27 +1,49 @@
 // Salon planı geometrisi — ızgara hücresi cinsinden, saf fonksiyonlar.
 //
-// Tuval KAREDİR ve `grid × grid` hücreden oluşur. Piksel hiç geçmez: hücre boyu
-// ekranda kapsayıcı genişliğinden türetilir (kenar çubuğu açılınca, telefonda,
-// yazdırmada plan aynı kalsın diye). Bu yüzden kroki koordinatı hiçbir zaman
-// çözünürlüğe bağlı olmaz.
+// Kroki YATAYDIR: `cols × rows` hücre, hücrenin kendisi karedir. Piksel hiç
+// geçmez (koordinatlar hücre cinsinden DB'de durur) — kenar çubuğu açılınca,
+// telefonda, yazdırmada plan aynı kalsın diye. Bu yüzden kroki koordinatı
+// hiçbir zaman çözünürlüğe bağlı olmaz.
 //
-// Kare olması bilinçli: dikdörtgen tuval "ne kadar yer var" sorusunu ekran
-// oranına bağlıyordu — aynı plan geniş ekranda bol, dar ekranda dolu görünüyordu.
+// SAKLANAN TEK ÖLÇÜ SÜTUN SAYISIDIR (`RestaurantArea.gridSize`). Satır sayısı
+// türetilir: tuval kartın genişliğini doldursun diye ızgara kutunun oranını
+// alır (hesap tuvalde, piksel orada) ve içeriğin gerektirdiğinden az olamaz —
+// `contentRows` alt sınırı verir. Sebep: hem salonlar hem ekranlar yataydır;
+// kare tuval geniş ekranda ortada yüzen küçük bir kareye dönüşüyor, iki yanında
+// kullanıcının işine yaramayan boşluk bırakıyordu. Satırı da saklamak ikinci bir
+// ayar demekti; kutu oranı + içerik zaten doğru cevabı veriyor ve eski kare
+// planlar (içeriği aşağıya inen) kendiliğinden korunuyor.
 
 import { applyResize, type Rect, type ResizeHandle } from "@/lib/geometry/rect"
 
 export { RESIZE_HANDLES, handleAnchor, handleCursor, type ResizeHandle } from "@/lib/geometry/rect"
 export type { Rect } from "@/lib/geometry/rect"
 
-/** Yeni planın kenar uzunluğu (hücre). 2×2 masayla ~50 masa alır. */
-export const PLAN_GRID_DEFAULT = 16
+/** Yeni planın SÜTUN sayısı. 2×2 masayla bir sırada 8 masa alır. */
+export const PLAN_COLS_DEFAULT = 16
 
-/** Kullanıcıya sunulan kenar uzunlukları. Ara değer gerekmedi; liste seçmek
+/** Kullanıcıya sunulan sütun sayıları. Ara değer gerekmedi; liste seçmek
  *  serbest sayı girmekten hem hızlı hem hatasız. */
-export const PLAN_GRID_STEPS = [10, 12, 16, 20, 24, 32, 40] as const
+export const PLAN_COLS_STEPS = [10, 12, 16, 20, 24, 32, 40] as const
 
-export const PLAN_GRID_MIN = PLAN_GRID_STEPS[0]
-export const PLAN_GRID_MAX = PLAN_GRID_STEPS[PLAN_GRID_STEPS.length - 1]
+export const PLAN_COLS_MIN = PLAN_COLS_STEPS[0]
+export const PLAN_COLS_MAX = PLAN_COLS_STEPS[PLAN_COLS_STEPS.length - 1]
+
+/** Kutu ne kadar basık olursa olsun bu kadar satır çizilir; altı "plan" değil,
+ *  tek sıra masa olurdu. */
+export const PLAN_ROWS_MIN = 3
+
+/**
+ * Izgaranın çizilebileceği mutlak tavan — `PLAN_COLS_MAX`tan (ayarın tavanı)
+ * ayrıdır ve ondan yüksektir.
+ *
+ * Tuval ekranı doldurmak için ayarın ötesine uzuyor; bu uzamayı 40'ta kesmek,
+ * derin bir planda (hücre küçüldüğü için sütun çok gerekiyor) tuvali kutudan dar
+ * bırakıp tam da kaldırmak istediğimiz yan boşlukları geri getiriyordu. İçerik
+ * sınırları da (`requiredCols`/`contentRows`) buraya kadar yükselebilmeli: 40'ta
+ * kırpılırsa oraya konmuş bir masa başka bir ekranda tuvalin dışında kalırdı.
+ */
+export const PLAN_CELLS_MAX = 120
 
 /** Öğenin planda kapladığı yer. API alan adları (`width`/`height`) korunur. */
 export interface PlanRect {
@@ -34,48 +56,60 @@ export interface PlanRect {
 export const toRect = (r: PlanRect): Rect => ({ x: r.x, y: r.y, w: r.width, h: r.height })
 export const fromRect = (r: Rect): PlanRect => ({ x: r.x, y: r.y, width: r.w, height: r.h })
 
-/** Sunucudan/formdan gelen ızgara boyunu geçerli bir adıma oturtur. */
-export function normalizeGrid(value: unknown, fallback = PLAN_GRID_DEFAULT): number {
+/** Sunucudan/formdan gelen sütun sayısını geçerli bir adıma oturtur. */
+export function normalizeCols(value: unknown, fallback = PLAN_COLS_DEFAULT): number {
   const n = Math.trunc(Number(value))
   if (!Number.isFinite(n)) return fallback
-  return Math.min(PLAN_GRID_MAX, Math.max(PLAN_GRID_MIN, n))
+  return Math.min(PLAN_COLS_MAX, Math.max(PLAN_COLS_MIN, n))
 }
 
 /**
- * Dikdörtgeni kare ızgaranın içinde tutar. Önce ölçü kısılır, sonra konum
- * kaydırılır — ters sırada 40 hücrelik bir duvar 16'lık ızgarada `x`'i eksiye
- * itip sol kenardan taşardı.
+ * İçeriğin gerektirdiği satır sayısı — planın DİKEY ALT SINIRI.
+ *
+ * Tuval satırını kutunun oranından hesaplar, ama bu sayının altına inemez: kare
+ * ızgarada çizilmiş eski planların aşağı inen masaları yoksa tuvalin dışında
+ * kalırdı. Aşağı doğru büyümenin yolu da bu — editörde alta fazladan boş satır
+ * verilir (`editRows`), oraya bir öğe konunca plan o yüksekliği kalıcı kazanır.
  */
-export function clampRectToGrid(rect: PlanRect, grid: number): PlanRect {
-  const width = Math.max(1, Math.min(Math.round(rect.width), grid))
-  const height = Math.max(1, Math.min(Math.round(rect.height), grid))
+export function contentRows(rects: PlanRect[], floor = PLAN_ROWS_MIN): number {
+  let rows = floor
+  for (const r of rects) rows = Math.max(rows, r.y + r.height)
+  return Math.min(PLAN_CELLS_MAX, rows)
+}
+
+/** Düzenleme kipinde gösterilen satır: planın altında hep çizilecek yer kalır. */
+export function editRows(rows: number): number {
+  return Math.min(PLAN_CELLS_MAX, rows + 2)
+}
+
+/**
+ * Dikdörtgeni ızgaranın içinde tutar. Önce ölçü kısılır, sonra konum kaydırılır
+ * — ters sırada 40 hücrelik bir duvar 16 sütunluk ızgarada `x`'i eksiye itip
+ * sol kenardan taşardı.
+ */
+export function clampRect(rect: PlanRect, cols: number, rows: number): PlanRect {
+  const width = Math.max(1, Math.min(Math.round(rect.width), cols))
+  const height = Math.max(1, Math.min(Math.round(rect.height), rows))
   return {
     width,
     height,
-    x: Math.min(Math.max(Math.round(rect.x), 0), grid - width),
-    y: Math.min(Math.max(Math.round(rect.y), 0), grid - height),
+    x: Math.min(Math.max(Math.round(rect.x), 0), cols - width),
+    y: Math.min(Math.max(Math.round(rect.y), 0), rows - height),
   }
 }
 
 /**
- * Verilen öğeleri kapsayan EN KÜÇÜK geçerli ızgara.
+ * Verilen öğeleri YATAYDA kapsayan en küçük geçerli sütun sayısı.
  *
- * Bölge kaydı olmayan ("Bölgesiz") plan boyutunu buradan alır: saklayacak satırı
- * olmadığı için boyutu içeriğinden türetilir. Ayrıca bölge küçültülürken alt
- * sınırı belirler — kullanıcı 24'lük planı 12'ye indirip masalarını tuvalin
- * dışında bırakamasın.
+ * Bölge kaydı olmayan ("Bölgesiz") plan genişliğini buradan alır: saklayacak
+ * satırı olmadığı için ölçüsü içeriğinden türer. Ayrıca bölge daraltılırken alt
+ * sınırı belirler — kullanıcı 24 sütunluk planı 12'ye indirip masalarını
+ * tuvalin dışında bırakamasın. Dikey taraf `planRows`'un işi.
  */
-export function requiredGrid(rects: PlanRect[], floor = PLAN_GRID_DEFAULT): number {
+export function requiredCols(rects: PlanRect[], floor = PLAN_COLS_DEFAULT): number {
   let needed = floor
-  for (const r of rects) {
-    needed = Math.max(needed, r.x + r.width, r.y + r.height)
-  }
-  return normalizeGrid(needed, floor)
-}
-
-/** Ölçüyü büyütmeden `needed`'i karşılayan ilk adım (seçim listesi için). */
-export function gridStepsFrom(needed: number): number[] {
-  return PLAN_GRID_STEPS.filter((s) => s >= needed)
+  for (const r of rects) needed = Math.max(needed, r.x + r.width)
+  return Math.min(PLAN_CELLS_MAX, Math.max(PLAN_COLS_MIN, needed))
 }
 
 /**
@@ -90,10 +124,11 @@ export function resizeInGrid(
   handle: ResizeHandle,
   dxCells: number,
   dyCells: number,
-  grid: number,
+  cols: number,
+  rows: number,
 ): PlanRect {
   const moved = applyResize(toRect(start), handle, Math.round(dxCells), Math.round(dyCells), 1)
-  return clampRectToGrid(fromRect(moved), grid)
+  return clampRect(fromRect(moved), cols, rows)
 }
 
 /** Kalem jesti: basılan hücre ile bırakılan hücre arasındaki dikdörtgen. */
@@ -102,16 +137,18 @@ export function rectBetween(
   ay: number,
   bx: number,
   by: number,
-  grid: number,
+  cols: number,
+  rows: number,
 ): PlanRect {
-  return clampRectToGrid(
+  return clampRect(
     {
       x: Math.min(ax, bx),
       y: Math.min(ay, by),
       width: Math.abs(bx - ax) + 1,
       height: Math.abs(by - ay) + 1,
     },
-    grid,
+    cols,
+    rows,
   )
 }
 

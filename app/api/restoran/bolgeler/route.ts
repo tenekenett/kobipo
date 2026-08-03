@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
-import { normalizeGrid } from "@/lib/restoran/floor-plan"
+import { normalizeCols } from "@/lib/restoran/floor-plan"
 
 export const dynamic = "force-dynamic"
 
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
         companyId,
         name,
         order: Number.isFinite(Number(body.order)) ? Number(body.order) : (last?.order ?? -1) + 1,
-        gridSize: normalizeGrid(body.gridSize),
+        gridSize: normalizeCols(body.gridSize),
       },
       select: { id: true, name: true, order: true, gridSize: true, isActive: true },
     })

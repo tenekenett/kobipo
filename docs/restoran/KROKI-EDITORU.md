@@ -22,6 +22,10 @@ rezervasyon ve masa taşıma/birleştirme eklendi; masa QR'ı ertelendi.
 
 ## 1. Tuval artık KARE ve ölçekli
 
+> **2026-08-02'de değişti** — tuval yataya döndü, kare değil. Sebebi ve yeni
+> kurallar bu belgenin sonundaki *"Ek: tuval yataylaştı"* bölümünde; aşağıdaki
+> ölçek/kaydırma kuralları geçerliliğini koruyor.
+
 `grid × grid` hücre; hücrenin piksel boyu kapsayıcı genişliğinden türetilir
 (`components/restoran/floor-plan-canvas.tsx`). Koordinat DB'de **hücre** cinsinden durmaya
 devam ediyor — telefon, geniş ekran ve yazdırma aynı planı gösteriyor.
@@ -53,7 +57,8 @@ Bölgeler zaten ayrı tuvallere çiziliyordu ama **boş bölümler gizleniyordu*
 Artık her bölge kendi kare tuvaliyle listede duruyor.
 
 Bakma kipinde geniş ekranda iki plan yan yana (`xl:grid-cols-2`), düzenleme kipinde tek
-sütun: tuval ne kadar büyükse tutamaç o kadar rahat.
+sütun: tuval ne kadar büyükse tutamaç o kadar rahat. *(2026-08-02: iki sütun kalktı, her
+plan kendi satırını kaplıyor — bkz. ek bölüm.)*
 
 Sekme şeridinden **Plan ekle**, bölüm başlığından **yeniden adlandır / boyut / sil**.
 Bölge silmek masayı silmez (şemadaki `SetNull`), masalar "Bölgesiz"e düşer.
@@ -244,3 +249,72 @@ Betiğe beş bölüm eklendi. Öne çıkanlar:
 - **Birleştirme raporlara yansımıyor**: `mergedIntoId` yazılıyor, gün sonu raporu bu
   adisyonları hâlâ iptal gibi sayıyor.
 - **Masa QR'ı ertelendi** (kullanıcı "şimdilik gerekmiyor" dedi).
+
+---
+
+## Ek: tuval yataylaştı (2026-08-02)
+
+Kullanıcı geri bildirimi: *"tek bölge yatayda sayfayı kaplamalı."* Kare tuval geniş
+ekranda kartın ortasında yüzen küçük bir kareye dönüşüyor, iki yanında açıklanamayan
+boşluk bırakıyordu. Kareyi büyütmek de çare değil: 2000px genişliğinde kare tuval 2000px
+uzar, plan ekrandan taşar.
+
+**Yeni model — saklanan tek ölçü SÜTUN sayısı.** `RestaurantArea.gridSize` artık kenar
+değil **sütun** sayısı. Satır sayısı saklanmaz ve sabit bir orana da bağlı değildir;
+tuvalde, kutunun kendi ölçüsünden çıkar:
+
+```
+minCols = max( gridSize, requiredCols(içerik) )        // zorunlu genişlik
+minRows = contentRows(içerik)                          // zorunlu derinlik
+cell    = floor(min( kutu / minCols, bütçe / minRows )) // 1) hepsi sığsın
+cols    = max( minCols, floor(kutu / cell) )           // 2) artan yer ZEMİN olsun
+rows    = max( minRows, floor(bütçe / cell) )
+```
+
+Yani **saklanan sütun sayısı bir alt sınırdır**, hedef değil: ızgara ekranda yer olduğu
+sürece sağa ve aşağı uzar. Anahtar fikir, artan yeri boşluk değil *kullanılabilir zemin*
+saymak — kullanıcının istediği de buydu ("kenarlara koyacak bir şey bulamadım, kullanıcıya
+daha fazla alan bırakmış oluruz").
+
+Önce iki yaklaşım denendi ve bırakıldı:
+
+1. **Sabit 16:9 oran** — ultra geniş ekranda tuval yine kartın ortasında yüzen dar bir
+   kutuydu.
+2. **"Genişliği doldur, yüksekliği taşır"** — tek bir derin öğe (8×7 hücrelik bir masa
+   yeter) planı 14 satıra çıkarıp tuvali 1600px'e uzatıyordu; salonun tamamı tek ekranda
+   görünmüyordu.
+
+Hücre `MIN_CELL` (18px) ile `MAX_CELL` (96px) arasında kalır: üst sınır olmasa küçük bir
+plan geniş ekranda dev masalara dönüşüyordu — artan yer masayı şişirmek yerine zemine
+gitmeli. Izgara `PLAN_COLS_MAX`/`PLAN_ROWS_MAX` (40) ile sınırlı; ötesine konan bir öğe
+geri okunamazdı.
+
+Koordinatlar hücre cinsinden olduğu için plan her ekranda aynı yerleşimi gösterir; değişen
+tek şey hücrenin piksel boyu ve sağda/altta kaç boş hücre kaldığı.
+
+- **Eski kare planlar bozulmaz**: `contentRows` satır sayısını yukarı çektiği için aşağıya
+  inen masalar tuvalin dışında kalmıyor. Migration gerekmedi, alanın anlamı daraldı.
+- **Aşağı doğru büyüme**: düzenleme kipinde tuval `+2` satır çizilir (`editRows`). Izgara
+  zaten kutuyu doldurduğu için derin bir planda aşağıda hiç yer kalmıyor, plan
+  büyütülemez hale geliyordu. Alt boşluğa bir öğe konunca plan o derinliği kalıcı kazanır.
+- **Daraltma guard'ı yataya indi**: `requiredCols` yalnız `x + width`'e bakar, 409 metni
+  "en fazla N sütuna kadar daraltılabilir".
+- **Plan boyutu seçimi artık "en az N sütun"**: tuval kendiliğinden genişlediği için bu
+  ayar yalnız alt sınırı — dolayısıyla dar ekrandaki genişliği ve ızgaranın sıklığını —
+  belirliyor.
+
+**`MIN_CELL` (18px) kaydırma kuralı aynen duruyor**: 40 sütunluk plan telefonda
+küçülmez, tuval yatay kaydırmaya geçer.
+
+**Her plan kendi satırını kaplar** — `xl:grid-cols-2` kalktı. Yan yana iki plan tuvalin
+genişliğini yarıya indirip masaları küçültüyordu.
+
+**Aynı turda ekrandaki diğer değişiklikler** (`floor-plan-screen.tsx`):
+
+- Masası olmayan planlar kullanım kipinde tuval açmaz, altta tek satırlık çipe iner
+  (çipe basmak o plana geçip düzenlemeyi masa kalemiyle açar). §2'deki "boş bölgeler de
+  görünür" kararı korunuyor — görünme biçimi değişti.
+- Özet şerit **lejant + filtre** oldu: beş durumun renk örneği ve sayacı; tıklayınca o
+  durumdaki masalar planda öne çıkar, diğerleri soluklaşır (yerleşim değişmez).
+- 6'dan çok masa varsa masa arama kutusu (aynı vurgulama mantığı).
+- Sekmelerde `dolu/toplam` rozeti, bölüm başlığında o planın açık hesap toplamı.

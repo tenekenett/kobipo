@@ -14,9 +14,14 @@ export const dynamic = "force-dynamic"
 /**
  * Bayi (İş Ortağı) self-servis e-Dönüşüm hesap açma orkestrasyonu.
  * Müşteri Mysoft ile hiç muhatap olmadan Kobipo'dan hesabını açar:
- *   1) addTenant   → firmayı bayi altında açar
- *   2) addTenantActivation (ürün başına) → GİB'e aktivasyon başvurusu
- *   3) Company.eDonusum* durum alanlarını günceller + SystemLog
+ *   1) yetkilendirme onayı + İVD kimliği doğrulanır (SystemLog'a onay kaydı)
+ *   2) addTenant   → firmayı bayi altında açar
+ *   3) addTenantActivation (ürün başına) → İVD kimliğiyle GİB'e aktivasyon başvurusu
+ *   4) Company.eDonusum* durum alanlarını günceller + SystemLog
+ *
+ * KAPSAM (2026-08-03): yalnızca **e-Arşiv**. e-Fatura mükellefin mali mührünü gerektirir
+ * (uygulama dışı adım), ÖKC/VUK507 ayrı bir uçtur — ikisi de OUT_OF_SCOPE_PRODUCTS ile
+ * route seviyesinde kapalı. Gerekçe: docs/e-donusum-onboarding/PLAN.md §3.1.
  *
  * Tüm çağrılar BAYİ kimliğiyle (createPartnerProvider) yapılır — firmanın kendi
  * Mysoft kullanıcısı yoktur. Aktivasyon GİB onayı asenkron olduğundan sonuç
@@ -61,14 +66,22 @@ function defaultPrefixFromName(name: string): string {
   return /^[A-Z0-9]{3}$/.test(base) ? base : "EFA"
 }
 
-// Aktivasyonu desteklediğimiz ürünler (Swagger activationProductType enum alt kümesi).
-const SUPPORTED_PRODUCTS = new Set([
-  "EInvoice",
-  "EArchive",
-  "EDespatch",
-  "ESEVoucher",
-  "EProducerVoucher",
-])
+// Aktivasyonu desteklediğimiz ürünler. 2026-08-03 kapsam kararı: YALNIZCA e-Arşiv.
+// Gerekçe ve e-Arşiv/e-Fatura farkı: docs/e-donusum-onboarding/PLAN.md §3.1.
+const SUPPORTED_PRODUCTS = new Set(["EArchive"])
+
+// Mysoft'un desteklediği ama bizim şimdilik KAPSAM DIŞI bıraktığımız ürünler.
+// UI'da gizlemek YETMEZ: bu uç canlı Mysoft ortamına gidiyor ve kazara gönderilen bir
+// ürün gerçek (geri alınması zor) bir GİB başvurusu açar. O yüzden route seviyesinde
+// de kapalı tutuluyor.
+const OUT_OF_SCOPE_PRODUCTS: Record<string, string> = {
+  EInvoice:
+    "E-Fatura başvurusu şu anda Kobipo üzerinden yapılamıyor — mükellefin mali mührü (tüzel kişi) veya e-imzası (şahıs firması) gerekiyor.",
+  EDespatch: "E-İrsaliye başvurusu şu anda Kobipo üzerinden yapılamıyor.",
+  ESEVoucher: "E-Serbest Meslek Makbuzu başvurusu şu anda Kobipo üzerinden yapılamıyor.",
+  EProducerVoucher: "E-Müstahsil Makbuzu başvurusu şu anda Kobipo üzerinden yapılamıyor.",
+}
+
 // Seri ön ek (3 karakter) zorunlu olan ürünler.
 const PREFIX_REQUIRED = new Set(["EInvoice", "EArchive", "EDespatch"])
 
@@ -136,6 +149,13 @@ export async function POST(request: Request) {
       )
     }
     for (const p of products) {
+      const outOfScope = OUT_OF_SCOPE_PRODUCTS[p.type]
+      if (outOfScope) {
+        return NextResponse.json(
+          { success: false, code: "PRODUCT_OUT_OF_SCOPE", error: outOfScope },
+          { status: 400 },
+        )
+      }
       if (!SUPPORTED_PRODUCTS.has(p.type)) {
         return NextResponse.json({ success: false, error: `Desteklenmeyen ürün: ${p.type}` }, { status: 400 })
       }
@@ -162,6 +182,59 @@ export async function POST(request: Request) {
         }
       }
     }
+
+    // --- İnteraktif Vergi Dairesi kimliği (mükellefin yetkilendirmesi) ---
+    // GİB başvuru dosyasını Mysoft bu kimlikle oluşturuyor. Mali mühür/e-imza yerine
+    // geçen mekanizma budur (PLAN.md §3.1).
+    //
+    // 🔒 Bu şifre mükellefin TÜM vergi hesabına erişim verir (beyanname, borç, tebligat).
+    // Yalnızca bu isteğin ömrü boyunca bellekte durur ve doğrudan Mysoft'a iletilir:
+    // DB'ye, SystemLog'a, console'a veya hata mesajına ASLA yazılmaz.
+    const ivdUsername = typeof body?.ivdUsername === "string" ? body.ivdUsername.trim() : ""
+    const ivdPassword = typeof body?.ivdPassword === "string" ? body.ivdPassword : ""
+    if (!ivdUsername || !ivdPassword) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "IVD_REQUIRED",
+          error:
+            "İnteraktif Vergi Dairesi kullanıcı kodu ve şifresi gerekli — GİB başvurusu bu kimlikle yapılıyor.",
+        },
+        { status: 400 },
+      )
+    }
+
+    // --- Yetkilendirme onayı ---
+    // Kullanıcı, İVD kimliğinin bizim üzerimizden GİB'e iletilmesine açık onay vermeden
+    // başvuru başlatılmaz. Onay kaydı başvurunun SONUCUNDAN BAĞIMSIZ tutulur: ispat için
+    // gereken şey onayın alınmış olmasıdır, başvurunun başarılı olması değil.
+    if (body?.consentAccepted !== true) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "CONSENT_REQUIRED",
+          error: "Devam etmek için yetkilendirme onayını işaretlemeniz gerekiyor.",
+        },
+        { status: 400 },
+      )
+    }
+    const consentIp =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "bilinmiyor"
+    await prisma.systemLog.create({
+      data: {
+        userId: user.id,
+        action: "EDONUSUM_ONBOARDING_CONSENT",
+        entity: "Company",
+        entityId: companyId,
+        details:
+          `${company.name} (VKN ${vkn}) için e-Dönüşüm başvuru yetkilendirmesi onaylandı. ` +
+          `Ürünler: ${products.map((p) => p.type).join(", ")}. IP: ${consentIp}. ` +
+          `İVD kullanıcı kodu uzunluğu: ${ivdUsername.length} (kimlik bilgisi saklanmaz).`,
+        level: "INFO",
+      },
+    })
 
     const provider = createPartnerProvider()
     if (!provider) {
@@ -328,6 +401,8 @@ export async function POST(request: Request) {
         internetSerialNumberPrefix: internetPrefix || undefined,
         aliasPrefix: p.aliasPrefix || undefined,
         aliasDomain: p.aliasDomain || undefined,
+        ivdUsername,
+        ivdPassword,
       })
       activations.push({ type: p.type, ok: r.success, activationId: r.activationId, error: r.error })
     }

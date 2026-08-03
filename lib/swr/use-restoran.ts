@@ -98,7 +98,8 @@ export type Ticket = {
   }
 }
 
-/** Bölge = bir KROKİ. `gridSize` kare tuvalin kenar uzunluğudur (hücre). */
+/** Bölge = bir KROKİ. `gridSize` tuvalin SÜTUN sayısıdır (hücre); satır sayısı
+ *  saklanmaz, orandan ve içerikten türer (bkz. lib/restoran/floor-plan). */
 export type Area = {
   id: string
   name: string

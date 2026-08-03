@@ -11,28 +11,34 @@
 // tek işi bu), DÜZENLEME kipinde masa/kroki taşınır ve tutamaçtan boyutlandırılır.
 // Tek kip olsaydı masayı taşımaya çalışan her dokunuş yanlışlıkla adisyon açardı.
 //
-// HER BÖLGE AYRI BİR KROKİDİR ve tuvali karedir. "Tümü"de bölgeler alt alta
-// kendi tuvallerinde çizilir — hepsini tek tuvale koymak yanlış olurdu:
-// koordinat bölge içinde anlamlı, iki bölgenin (0,0)'ı aynı yer değil.
-// Boş bölgeler de görünür: yeni açılan "Ön Bahçe" ilk masası konana kadar
-// görünmezse eklenebilir olduğu hissedilmiyordu.
+// HER BÖLGE AYRI BİR KROKİDİR ve tuvali yataydır (sütun saklanır, satır
+// türetilir — bkz. lib/restoran/floor-plan). "Tümü"de bölgeler kendi
+// tuvallerinde çizilir; hepsini tek tuvale koymak yanlış olurdu: koordinat
+// bölge içinde anlamlı, iki bölgenin (0,0)'ı aynı yer değil.
+//
+// Boş bölge KULLANIM kipinde tuval açmaz, altta tek satırlık bir şeride iner:
+// dolu salonu ekranın altına itmeye değmiyordu. Düzenleme kipinde tuvali geri
+// gelir — yeni açılan "Ön Bahçe" masası konana kadar çizilemez olmamalı.
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   CalendarClock,
   Copy,
+  LayoutGrid,
   Loader2,
   Move,
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Settings2,
   Sparkles,
   Square,
   Circle,
   Trash2,
   Users,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -67,11 +73,12 @@ import {
 } from "@/lib/swr/use-restoran"
 import { planItemDefaults } from "@/lib/restoran/ticket-constants"
 import {
-  PLAN_GRID_DEFAULT,
-  PLAN_GRID_MIN,
-  PLAN_GRID_STEPS,
-  clampRectToGrid,
-  requiredGrid,
+  PLAN_COLS_DEFAULT,
+  PLAN_COLS_MIN,
+  PLAN_COLS_STEPS,
+  clampRect,
+  contentRows,
+  requiredCols,
   type PlanRect,
 } from "@/lib/restoran/floor-plan"
 import { currency } from "@/lib/fis/receipt-html"
@@ -89,6 +96,11 @@ import {
 
 const ALL_AREAS = "__ALL__"
 const NO_AREA = "__NONE__"
+
+/** Durum şeridinin sırası: garsonun ilgilendiği sıra. Hesap isteyen masa en
+ *  acil, boş masa en sonda — ama boş sayısı da orada olmalı ("kaç kişi
+ *  oturtabilirim" salonun en sık sorulan sorusu). */
+const STATE_ORDER: TableState[] = ["OPEN", "BILL", "CLEANING", "RESERVED", "FREE"]
 
 type TableForm = {
   id?: string
@@ -139,6 +151,11 @@ export function FloorPlanScreen() {
 
   const [activeArea, setActiveArea] = useState<string>(ALL_AREAS)
   const [editMode, setEditMode] = useState(false)
+  // Görüş yardımı: durum filtresi + masa arama. Yerleşim DEĞİŞMEZ, eşleşmeyen
+  // masa yalnız soluklaşır — masaları listeye indirgemek salonun şeklini,
+  // yani garsonun kafasındaki haritayı bozuyordu.
+  const [focusState, setFocusState] = useState<TableState | null>(null)
+  const [query, setQuery] = useState("")
   const [tool, setTool] = useState<string | null>(null)
   const [selection, setSelection] = useState<PlanSelection | null>(null)
   const [busyTableId, setBusyTableId] = useState<string | null>(null)
@@ -181,10 +198,15 @@ export function FloorPlanScreen() {
       const areaId = area?.id ?? null
       const sectionTables = tables.filter((t) => (areaId ? t.areaId === areaId : !t.areaId))
       const sectionItems = planItems.filter((i) => (areaId ? i.areaId === areaId : !i.areaId))
-      // Kayıtlı boyut içeriği kesiyorsa içerik kazanır: bir bölge küçültülüp
+      // Kayıtlı genişlik içeriği kesiyorsa içerik kazanır: bir bölge daraltılıp
       // sonra başka yoldan masa eklenmişse masa tuvalin dışında kalmasın.
-      const stored = area?.gridSize ?? PLAN_GRID_DEFAULT
-      const needed = requiredGrid([...sectionTables, ...sectionItems], PLAN_GRID_MIN)
+      const content = [...sectionTables, ...sectionItems]
+      const stored = area?.gridSize ?? PLAN_COLS_DEFAULT
+      const needed = requiredCols(content, PLAN_COLS_MIN)
+      const cols = Math.max(stored, needed)
+      // Satır SAKLANMAZ; kaç satır çizileceğine tuval karar verir (cevabı
+      // piksel belirliyor). Buradan giden yalnız içeriğin dayattığı alt sınır.
+      const minRows = contentRows(content)
       return {
         key: areaId ?? NO_AREA,
         areaId,
@@ -192,8 +214,9 @@ export function FloorPlanScreen() {
         name: area?.name ?? "Bölgesiz",
         tables: sectionTables,
         items: sectionItems,
-        grid: Math.max(stored, needed),
-        minGrid: needed,
+        cols,
+        minRows,
+        minCols: needed,
       }
     }
 
@@ -215,6 +238,53 @@ export function FloorPlanScreen() {
   const openTotal = visibleTables.reduce((sum, t) => sum + (t.openTicket?.total ?? 0), 0)
   const stateCount = (state: TableState) =>
     visibleTables.filter((t) => tableState(t) === state).length
+
+  const normalizedQuery = query.trim().toLocaleLowerCase("tr")
+  const hasFocus = focusState !== null || normalizedQuery.length > 0
+  const focusIds = useMemo(() => {
+    if (!hasFocus) return null
+    return new Set(
+      visibleTables
+        .filter(
+          (t) =>
+            (!focusState || tableState(t) === focusState) &&
+            (!normalizedQuery || t.name.toLocaleLowerCase("tr").includes(normalizedQuery)),
+        )
+        .map((t) => t.id),
+    )
+  }, [focusState, hasFocus, normalizedQuery, visibleTables])
+
+  /** Sekme rozetleri: hangi planda kaç masa var, kaçı dolu. Boş bir plana
+   *  tıklayıp "burada bir şey yok" ile karşılaşmak gereksiz bir tur. */
+  const areaStats = useMemo(() => {
+    const map = new Map<string, { total: number; open: number }>()
+    for (const t of tables) {
+      const key = t.areaId ?? NO_AREA
+      const cur = map.get(key) ?? { total: 0, open: 0 }
+      cur.total += 1
+      if (t.openTicket) cur.open += 1
+      map.set(key, cur)
+    }
+    map.set(ALL_AREAS, {
+      total: tables.length,
+      open: tables.filter((t) => t.openTicket).length,
+    })
+    return map
+  }, [tables])
+
+  // Kullanım kipinde BOŞ plan tuval açmaz: iki boş kare, dolu salonu ekranın
+  // altına itiyordu. Düzenlerken tam tersi — üzerine çizecek yüzey şart.
+  const isFilled = (s: (typeof sections)[number]) => s.tables.length > 0 || s.items.length > 0
+  const filledSections = editMode ? sections : sections.filter(isFilled)
+  const emptySections = editMode ? [] : sections.filter((s) => !isFilled(s))
+
+  /** "Şu plana masa koy" kısayolu: doğru sekmeye geç, düzenlemeyi aç, kalemi
+   *  masaya al — üç ayrı tıklama tek düğmeye iner. */
+  const startDrawing = (areaId: string | null) => {
+    if (areaId) setActiveArea(areaId)
+    setEditMode(true)
+    setTool(TABLE_TOOL)
+  }
 
   const selected = useMemo(() => {
     if (!selection) return null
@@ -265,11 +335,18 @@ export function FloorPlanScreen() {
 
   /** Kalemle çizim: `exact` false ise (tek tık) ölçü aracın varsayılanıdır. */
   const drawElement = useCallback(
-    async (areaId: string | null, grid: number, kind: string, rect: PlanRect, exact: boolean) => {
+    async (
+      areaId: string | null,
+      cols: number,
+      rows: number,
+      kind: string,
+      rect: PlanRect,
+      exact: boolean,
+    ) => {
       try {
         if (kind === TABLE_TOOL) {
           const size = exact ? { width: rect.width, height: rect.height } : { width: 2, height: 2 }
-          const placed = clampRectToGrid({ ...rect, ...size }, grid)
+          const placed = clampRect({ ...rect, ...size }, cols, rows)
           const res = await fetch("/api/restoran/masalar", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -290,7 +367,7 @@ export function FloorPlanScreen() {
 
         const preset = planItemDefaults(kind)
         const size = exact ? { width: rect.width, height: rect.height } : preset
-        const placed = clampRectToGrid({ ...rect, ...size }, grid)
+        const placed = clampRect({ ...rect, ...size }, cols, rows)
         const res = await fetch("/api/restoran/plan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -651,13 +728,31 @@ export function FloorPlanScreen() {
     )
   }
 
-  const areaTab = (isActive: boolean) =>
-    cn(
-      "shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
-      isActive
-        ? "bg-kobipo-blue text-white dark:bg-primary dark:text-primary-foreground"
-        : "bg-muted text-muted-foreground hover:bg-muted/70",
+  const areaTab = (key: string, label: string) => {
+    const isActive = activeArea === key
+    const stats = areaStats.get(key)
+    return (
+      <button
+        key={key}
+        type="button"
+        title={stats ? `${stats.open} dolu / ${stats.total} masa` : undefined}
+        onClick={() => setActiveArea(key)}
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
+          isActive
+            ? "bg-kobipo-blue text-white dark:bg-primary dark:text-primary-foreground"
+            : "bg-muted text-muted-foreground hover:bg-muted/70",
+        )}
+      >
+        {label}
+        {stats && stats.total > 0 && (
+          <span className={cn("text-xs font-normal tabular-nums", isActive ? "opacity-80" : "opacity-70")}>
+            {stats.open > 0 ? `${stats.open}/${stats.total}` : stats.total}
+          </span>
+        )}
+      </button>
     )
+  }
 
   const activeToolLabel =
     tool === TABLE_TOOL ? "Masa" : tool ? kindDef(tool).label : null
@@ -696,32 +791,9 @@ export function FloorPlanScreen() {
       {/* Plan sekmeleri */}
       {(areas.length > 0 || tables.some((t) => !t.areaId)) && (
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-          <button
-            type="button"
-            className={areaTab(activeArea === ALL_AREAS)}
-            onClick={() => setActiveArea(ALL_AREAS)}
-          >
-            Tümü
-          </button>
-          {areas.map((a: Area) => (
-            <button
-              key={a.id}
-              type="button"
-              className={areaTab(activeArea === a.id)}
-              onClick={() => setActiveArea(a.id)}
-            >
-              {a.name}
-            </button>
-          ))}
-          {tables.some((t) => !t.areaId) && (
-            <button
-              type="button"
-              className={areaTab(activeArea === NO_AREA)}
-              onClick={() => setActiveArea(NO_AREA)}
-            >
-              Bölgesiz
-            </button>
-          )}
+          {areaTab(ALL_AREAS, "Tümü")}
+          {areas.map((a: Area) => areaTab(a.id, a.name))}
+          {tables.some((t) => !t.areaId) && areaTab(NO_AREA, "Bölgesiz")}
           {editMode && (
             <Button
               variant="outline"
@@ -845,31 +917,89 @@ export function FloorPlanScreen() {
         </Card>
       )}
 
-      {/* Özet şerit */}
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="rounded-lg bg-muted px-3 py-1.5">
-          {visibleTables.length} masa · <strong>{openCount} dolu</strong>
+      {/* Durum şeridi — aynı anda özet, LEJANT ve filtre. Renklerin anlamını
+          ayrı bir kutuda anlatmak yerine sayacın kendisi örnek oluyor;
+          tıklanınca o durumdaki masalar planda öne çıkar. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card px-3 py-2">
+        <span className="text-sm">
+          <strong className="tabular-nums">{visibleTables.length}</strong> masa ·{" "}
+          <strong className="tabular-nums">{openCount}</strong> dolu
         </span>
+
         {openTotal > 0 && (
-          <span className="rounded-lg bg-kobipo-blue/10 px-3 py-1.5 font-semibold text-kobipo-blue dark:bg-primary/10 dark:text-primary">
+          <span className="rounded-lg bg-kobipo-blue/10 px-2.5 py-1 text-sm font-semibold text-kobipo-blue dark:bg-primary/10 dark:text-primary">
             Açık hesap: {currency(openTotal)}
           </span>
         )}
-        {(["BILL", "CLEANING", "RESERVED"] as TableState[]).map((state) => {
-          const count = stateCount(state)
-          if (count === 0) return null
-          return (
-            <span
-              key={state}
-              className={cn(
-                "rounded-lg border-2 px-3 py-1 text-xs font-semibold",
-                TABLE_STATE_STYLE[state].className,
-              )}
-            >
-              {count} {TABLE_STATE_STYLE[state].label.toLowerCase()}
-            </span>
-          )
-        })}
+
+        <div className="flex flex-wrap items-center gap-0.5">
+          {STATE_ORDER.map((state) => {
+            const count = stateCount(state)
+            const active = focusState === state
+            const label = TABLE_STATE_STYLE[state].label
+            return (
+              <button
+                key={state}
+                type="button"
+                disabled={count === 0}
+                aria-pressed={active}
+                title={
+                  count === 0
+                    ? `${label} masa yok`
+                    : `Yalnız ${label.toLowerCase()} masaları vurgula`
+                }
+                onClick={() => setFocusState(active ? null : state)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-colors",
+                  count === 0 ? "opacity-40" : "hover:bg-muted",
+                  active && "bg-muted ring-1 ring-border",
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-3 w-3 shrink-0 rounded-[3px] border-2",
+                    TABLE_STATE_STYLE[state].className,
+                  )}
+                />
+                <span className="font-semibold tabular-nums">{count}</span>
+                <span className="text-muted-foreground">{label}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="ml-auto flex items-center gap-1.5">
+          {hasFocus && (
+            <>
+              <span className="text-xs text-muted-foreground">
+                {focusIds?.size ?? 0} masa vurgulandı
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  setFocusState(null)
+                  setQuery("")
+                }}
+              >
+                <X className="mr-1 h-3.5 w-3.5" />
+                Temizle
+              </Button>
+            </>
+          )}
+          {tables.length > 6 && (
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Masa ara"
+                className="h-8 w-36 pl-8 text-sm"
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {error ? (
@@ -884,17 +1014,56 @@ export function FloorPlanScreen() {
             Salon planı yükleniyor…
           </CardContent>
         </Card>
+      ) : filledSections.length === 0 ? (
+        // Hiçbir planda masa yok. Bu ekranın ilk açılışı: ne yapılacağını
+        // söylemek, boş bir ızgara göstermekten çok daha yararlı.
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+            <div className="rounded-full bg-muted p-3">
+              <LayoutGrid className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold">
+                {sections.length === 1 ? `"${sections[0].name}" planı boş` : "Salon planı boş"}
+              </h3>
+              <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                Masaları krokiye yerleştirin; garson masaya dokunduğunda adisyon açılır. Duvar,
+                bar, mutfak gibi öğelerle salonun şeklini de çizebilirsiniz.
+              </p>
+            </div>
+            {sections.length > 1 ? (
+              <div className="flex flex-wrap justify-center gap-1.5">
+                {sections.map((s) => (
+                  <Button
+                    key={s.key}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => startDrawing(s.areaId)}
+                  >
+                    <Plus className="mr-1 h-3.5 w-3.5" />
+                    {s.name}
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              <Button onClick={() => startDrawing(sections[0]?.areaId ?? null)}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                Masaları yerleştir
+              </Button>
+            )}
+          </CardContent>
+        </Card>
       ) : (
-        <div
-          className={cn(
-            "grid gap-4",
-            // Düzenlerken tek sütun: tuval ne kadar büyükse tutamaç o kadar
-            // rahat. Bakarken geniş ekranda iki plan yan yana sığar.
-            !editMode && sections.length > 1 && "xl:grid-cols-2",
-          )}
-        >
-          {sections.map((section) => {
+        // Her plan kendi satırını kaplar. Yan yana iki plan, tuvalin genişliğini
+        // yarıya indirip masaları küçültüyordu; tuval ne kadar genişse hem masa
+        // okunur hem tutamaç rahat.
+        <div className="grid gap-4">
+          {filledSections.map((section) => {
             const sectionOpen = section.tables.filter((t) => t.openTicket).length
+            const sectionTotal = section.tables.reduce(
+              (sum, t) => sum + (t.openTicket?.total ?? 0),
+              0,
+            )
             const empty = section.tables.length === 0 && section.items.length === 0
 
             return (
@@ -905,6 +1074,7 @@ export function FloorPlanScreen() {
                       <h2 className="text-lg font-semibold">{section.name}</h2>
                       <span className="text-xs text-muted-foreground">
                         {section.tables.length} masa · {sectionOpen} dolu
+                        {sectionTotal > 0 && ` · ${currency(sectionTotal)}`}
                       </span>
                     </div>
 
@@ -912,21 +1082,28 @@ export function FloorPlanScreen() {
                       <div className="flex flex-wrap items-center gap-1.5">
                         {section.area ? (
                           <>
+                            {/* Saklanan ölçü ALT SINIRDIR: tuval ekranda yer
+                                varsa kendiliğinden genişler. Büyük bir değer
+                                seçmek ızgarayı sıklaştırır (hücre küçülür),
+                                dar ekranda da planın genişliğini korur. */}
                             <Select
                               value={String(section.area.gridSize)}
                               onValueChange={(v) => void setAreaGrid(section.area!, Number(v))}
                             >
-                              <SelectTrigger className="h-8 w-[128px] text-xs">
+                              <SelectTrigger
+                                className="h-8 w-[152px] text-xs"
+                                title="Planın en az kaç sütun olacağı — ekranda yer varsa tuval sağa doğru kendiliğinden genişler."
+                              >
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {PLAN_GRID_STEPS.map((step) => (
+                                {PLAN_COLS_STEPS.map((step) => (
                                   <SelectItem
                                     key={step}
                                     value={String(step)}
-                                    disabled={step < section.minGrid}
+                                    disabled={step < section.minCols}
                                   >
-                                    {step} × {step} hücre
+                                    en az {step} sütun
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -968,48 +1145,62 @@ export function FloorPlanScreen() {
                     )}
                   </div>
 
-                  {empty && !editMode ? (
-                    <div className="space-y-3 py-12 text-center">
-                      <p className="text-sm text-muted-foreground">Bu planda henüz masa yok.</p>
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setEditMode(true)
-                          setTool(TABLE_TOOL)
-                        }}
-                      >
-                        <Plus className="mr-1.5 h-4 w-4" />
-                        Planı düzenle
-                      </Button>
-                    </div>
-                  ) : (
-                    <FloorPlanCanvas
-                      grid={section.grid}
-                      tables={section.tables}
-                      items={section.items}
-                      editMode={editMode}
-                      tool={tool}
-                      selection={selection}
-                      busyTableId={busyTableId}
-                      now={now}
-                      onSelect={setSelection}
-                      onGeometry={commitGeometry}
-                      onDraw={(kind, rect, exact) =>
-                        void drawElement(section.areaId, section.grid, kind, rect, exact)
-                      }
-                      onOpenTable={onOpenTable}
-                      onTableDrop={(source, target) => {
-                        if (!source.openTicket) return
-                        setDrop({ source, target })
-                      }}
-                      onDeleteSelection={() => void deleteSelection()}
-                      onDuplicateSelection={() => void duplicateSelection()}
-                    />
+                  {empty && (
+                    <p className="text-xs text-muted-foreground">
+                      Bu plan boş — yukarıdan bir araç seçip tuvale sürükleyin.
+                    </p>
                   )}
+
+                  <FloorPlanCanvas
+                    minCols={section.cols}
+                    minRows={section.minRows}
+                    tables={section.tables}
+                    items={section.items}
+                    editMode={editMode}
+                    tool={tool}
+                    selection={selection}
+                    busyTableId={busyTableId}
+                    focusIds={focusIds}
+                    now={now}
+                    onSelect={setSelection}
+                    onGeometry={commitGeometry}
+                    onDraw={(kind, rect, exact, grid) =>
+                      void drawElement(section.areaId, grid.cols, grid.rows, kind, rect, exact)
+                    }
+                    onOpenTable={onOpenTable}
+                    onTableDrop={(source, target) => {
+                      if (!source.openTicket) return
+                      setDrop({ source, target })
+                    }}
+                    onDeleteSelection={() => void deleteSelection()}
+                    onDuplicateSelection={() => void duplicateSelection()}
+                  />
                 </CardContent>
               </Card>
             )
           })}
+        </div>
+      )}
+
+      {/* Masası olmayan planlar tek satıra iner: boş bir tuval, dolu salonu
+          ekranın altına itmeye değmez — ama plan var olduğu ve masa
+          eklenebildiği görünmeli. */}
+      {filledSections.length > 0 && emptySections.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            Masası olmayan planlar:
+          </span>
+          {emptySections.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => startDrawing(s.areaId)}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium transition-colors hover:border-kobipo-blue hover:text-kobipo-blue dark:hover:border-primary dark:hover:text-primary"
+            >
+              <Plus className="h-3 w-3" />
+              {s.name}
+            </button>
+          ))}
         </div>
       )}
 
@@ -1193,8 +1384,8 @@ export function FloorPlanScreen() {
             </DialogTitle>
             <DialogDescription>
               {areaDialog?.adopt
-                ? "Bölgesiz masalar ve kroki öğeleri bu plana taşınır; plan boyutu ayarlanabilir hale gelir."
-                : "Ön Bahçe, Arka Bahçe, Üst Kat, Teras… Her plan kendi kare krokisidir."}
+                ? "Bölgesiz masalar ve kroki öğeleri bu plana taşınır; plan genişliği ayarlanabilir hale gelir."
+                : "Ön Bahçe, Arka Bahçe, Üst Kat, Teras… Her plan kendi krokisidir."}
             </DialogDescription>
           </DialogHeader>
           <Input
