@@ -3,6 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
+import { assertRestaurantModule } from "@/lib/restoran/tickets"
 
 export const dynamic = "force-dynamic"
 
@@ -19,7 +20,7 @@ export async function GET(request: Request, { params }: Params) {
       return NextResponse.json({ error: "companyId is required" }, { status: 400 })
     }
 
-    await ensureCompanyAccess(companyId)
+    assertRestaurantModule(await ensureCompanyAccess(companyId))
 
     const { id } = await params
     const recipe = await prisma.productRecipe.findFirst({
@@ -65,7 +66,7 @@ export async function DELETE(request: Request, { params }: Params) {
       return NextResponse.json({ error: "companyId is required" }, { status: 400 })
     }
 
-    await ensureCompanyWrite(companyId)
+    assertRestaurantModule(await ensureCompanyWrite(companyId))
 
     const { id } = await params
     const recipe = await prisma.productRecipe.findFirst({

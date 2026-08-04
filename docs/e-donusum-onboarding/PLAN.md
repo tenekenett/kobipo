@@ -461,3 +461,21 @@ denemek istersek bayi test kimliğiyle `MYSOFT_PARTNER_API_URL`'i test URL'sine 
   ⚠️ **Not:** lokal `.env`'deki `MYSOFT_PARTNER_*` canlıda token ALAMIYOR ("Kullanıcı
   tanımsızdır") — prod'daki kimlik farklı. Bayi çağrılarını lokalden teşhis etmek şu an
   mümkün değil; prod'daki `/api/kontor/tariffs` gibi uçlar üzerinden bakılmalı.
+- **2026-08-04 (20)** — Tarife düzeltmesi deploy edildi, tekrar denendi (log 14:06:59Z),
+  **aynı hata**. Ama log kritik bilgiyi verdi: `tarife: mevcut`.
+  Yani `getPreContract(vkn)` BOŞ DÖNMEDİ → idempotency koruması devreye girdi →
+  **`addPreContract` hiç çağrılmadı.** Düzeltme test EDİLMEDİ, koruma kısa devre yaptırdı.
+  Tenant'ta sözleşme kaydı görünüyor ama aktivasyon hâlâ "aktivasyon ürün bilgisi yok" diyor.
+  İki ihtimal: (a) kayıt var ama işe yaramaz/kapsamsız (yanlış tariffCode, süresi geçmiş,
+  ürün kapsamı yok), (b) sorun tarifede değil, başka bir yerde.
+  **Körlemesine ikinci sözleşme açmak yerine görünürlük eklendi:**
+  - Yeni **salt-okunur** teşhis ucu `GET /api/e-donusum/onboarding/diagnose?vkn=` (süper admin):
+    tek çağrıda `getBusinessPartnerTariff` + `getPreContract` + `getTenantActivation` ham
+    çıktısını döner. Hiçbir POST yok. Lokalde bayi kimliği çalışmadığı için teşhis prod'dan
+    yapılmak zorunda — bu uç onun için.
+  - `body.forcePreContract:true` kaçış kapısı: sözleşme kaydı olsa bile tarifeyi yeniden
+    tanımlar. Teşhis çıktısı görülmeden KULLANILMAMALI (mükerrer sözleşme riski).
+  - `contractInfo` artık atlandığında ne bulduğunu yazıyor (kayıt sayısı + tariffCode'lar),
+    böylece bir sonraki denemede SystemLog tek başına teşhis için yeterli olacak.
+  Kaynak `tsc` 0 hata. **Sıradaki: deploy → `/api/e-donusum/onboarding/diagnose?vkn=0860998219`
+  → çıktıya göre karar** (kapsamsız sözleşme ise forcePreContract; değilse yeni hipotez).

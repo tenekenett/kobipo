@@ -72,6 +72,26 @@ export const TICKET_ITEM_REASONS: Record<
   ],
 }
 
+/**
+ * ADİSYON iptal sebepleri (kalem sebeplerinden ayrı liste).
+ *
+ * Kalem iptalinde sebep baştan zorunluydu ama dolu bir hesabı tek tıkla iptal
+ * etmek sebepsizdi — oysa kaçak tek kalemde değil, hesabın tamamında yapılır.
+ * Liste kısa ve sabit: serbest metin olsaydı rapor gruplanamazdı.
+ *
+ * "Birleştirildi" burada YOK: birleştirme iptal değil, ayrı bir izle
+ * (`mergedIntoId`) tutulur.
+ */
+export const TICKET_CANCEL_REASONS = [
+  { code: "CUSTOMER_LEFT", label: "Müşteri vazgeçti / gitti" },
+  { code: "MISOPENED", label: "Yanlış açıldı" },
+  { code: "TEST", label: "Deneme / eğitim" },
+  { code: "OTHER", label: "Diğer" },
+] as const
+
+export const cancelReasonLabel = (code: string | null | undefined): string | null =>
+  code ? (TICKET_CANCEL_REASONS.find((r) => r.code === code)?.label ?? null) : null
+
 export const reasonLabel = (status: string, code: string | null | undefined): string | null => {
   if (!code) return null
   const list = TICKET_ITEM_REASONS[status as Exclude<TicketItemStatus, "NORMAL">]

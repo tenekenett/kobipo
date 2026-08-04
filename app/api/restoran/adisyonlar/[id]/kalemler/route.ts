@@ -17,6 +17,15 @@ export const dynamic = "force-dynamic"
 type Params = { params: Promise<{ id: string }> }
 
 /**
+ * `RestaurantTicketItem.unitPrice` kolonu `Decimal(15, 6)`. Seçenek farkı net'e
+ * çevrilirken (`grossDelta / (1 + kdv/100)`) 6 haneyi aşan bir sayı çıkabiliyor:
+ * DB yazarken yuvarlıyor, aşağıdaki "aynı kalem var mı" sorgusu yuvarlanmamış
+ * değerle aradığı için eşleşmiyordu — aynı ürün adisyonda iki satır oluyordu.
+ * Yazılan ve aranan değer aynı olsun diye tek yerde yuvarlanıyor.
+ */
+const round6 = (v: number) => Math.round(v * 1_000_000) / 1_000_000
+
+/**
  * Adisyona kalem ekler. Stok DÜŞMEZ — adisyon kapanınca fiş kesilir ve stok o an
  * reçeteyle genişletilip düşer (ASAMA2.md "Stok ne zaman düşer").
  *
@@ -130,6 +139,8 @@ export async function POST(request: Request, { params }: Params) {
         unitPrice = unitPrice + grossDelta / (1 + vatRate / 100)
         if (unitPrice < 0) unitPrice = 0
       }
+
+      unitPrice = round6(unitPrice)
 
       const optionsKey = options.map((o) => `${o.groupName}:${o.optionName}`).join("|")
 

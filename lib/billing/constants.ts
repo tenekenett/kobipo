@@ -13,6 +13,9 @@ export function isBillingCycle(v: unknown): v is BillingCycle {
 /** À la carte ek şube kotası fiyat öğesinin anahtarı (PricingItem.key). */
 export const BRANCH_ITEM_KEY = "branch"
 
+/** Elle verilebilen şube kotası üst sınırı (sistem-admin) — yanlış girişe karşı emniyet. */
+export const MAX_BRANCH_QUOTA = 999
+
 /** Bir modül anahtarını PricingItem anahtarına çevirir (ör. "sales" → "module:sales"). */
 export function modulePriceKey(moduleKey: string): string {
   return `module:${moduleKey}`

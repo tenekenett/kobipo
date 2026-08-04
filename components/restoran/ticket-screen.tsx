@@ -80,6 +80,7 @@ import { cn } from "@/lib/utils"
 import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-html"
 import {
   optionRecipeEffects,
+  TICKET_CANCEL_REASONS,
   type TicketItemStatus,
 } from "@/lib/restoran/ticket-constants"
 import {
@@ -139,7 +140,9 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   const [discountOpen, setDiscountOpen] = useState(false)
   const [splitOpen, setSplitOpen] = useState(false)
   const [optionFor, setOptionFor] = useState<RefProduct | null>(null)
-  const [cancelOpen, setCancelOpen] = useState(false)
+  /** İptal sebebi ZORUNLU (uç 400 veriyor): dolu bir hesabı tek tıkla silmek
+      kaçağın en klasik yoluydu. Kalem iptalindeki desenin aynısı. */
+  const [cancelOpen, setCancelOpen] = useState<{ code: string; note: string } | null>(null)
   const [moveOpen, setMoveOpen] = useState(false)
   const [shortagesOpen, setShortagesOpen] = useState(false)
   const [lastSale, setLastSale] = useState<{ invoiceNo?: string | null; receipt: ReceiptData } | null>(
@@ -148,6 +151,22 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
 
   /** Çift kapanış kilidi — kahveci ekranındaki ile aynı gerekçe (İş 5). */
   const submitLock = useRef(false)
+
+  /**
+   * Bu adisyonun damgasını taşıyan, sahipsiz bir fiş bulundu: önceki kapanış
+   * yarıda kalmış (ağ gitti, sekme kapandı). Kullanıcı "mevcut fişe bağla"
+   * derse ikinci fiş kesilmez; "yeni fiş kes" derse bilerek devam eder.
+   */
+  const [orphanInvoice, setOrphanInvoice] = useState<{
+    id: string
+    invoiceNo: string | null
+    total: number
+  } | null>(null)
+  const forceNewReceipt = useRef(false)
+
+  /** Eksik tahsilat onayı — bir kez onaylanınca aynı satışta tekrar sorulmaz. */
+  const [shortPayWarn, setShortPayWarn] = useState<number | null>(null)
+  const shortPayAcked = useRef(false)
 
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -246,11 +265,14 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
 
   const setItemQty = useCallback(
     async (itemId: string, quantity: number) => {
+      // Adisyonda adet 0'a inmez (panelde alt sınır 1): kalem sunucuda kayıtlı
+      // ve silinmesi iz bırakmıyordu. Yine de bu yola düşülürse uç kalemi
+      // silmiyor, "yanlış girildi" sebebiyle VOID işaretliyor.
       if (quantity <= 0) {
         await callTicketApi(
           `/api/restoran/adisyonlar/${ticketId}/kalemler/${itemId}?companyId=${companyId}`,
           { method: "DELETE" },
-          "Kalem silinemedi",
+          "Kalem iptal edilemedi",
         )
         return
       }
@@ -409,8 +431,14 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   )
 
   const cancelTicket = useCallback(async () => {
+    if (!cancelOpen?.code) return
     try {
-      const res = await fetch(`/api/restoran/adisyonlar/${ticketId}?companyId=${companyId}`, {
+      const params = new URLSearchParams({
+        companyId: companyId ?? "",
+        reasonCode: cancelOpen.code,
+      })
+      if (cancelOpen.note.trim()) params.set("reason", cancelOpen.note.trim())
+      const res = await fetch(`/api/restoran/adisyonlar/${ticketId}?${params.toString()}`, {
         method: "DELETE",
       })
       const body = await res.json().catch(() => ({}))
@@ -420,7 +448,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     } catch (e: any) {
       toast({ title: "İptal edilemedi", description: e.message, variant: "destructive" })
     }
-  }, [companyId, router, ticketId, toast])
+  }, [cancelOpen, companyId, router, ticketId, toast])
 
   // ---- Yetersiz stok uyarısı ---------------------------------------------
   // Servis akışının ortasındaki büyük kart yerine TEK SATIRLIK şerit: bilgi
@@ -527,6 +555,14 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
       toast({ title: "Adisyon boş", description: "Önce kalem ekleyin", variant: "destructive" })
       return
     }
+    // Tahsil edilmeyen tutar cariye yazılamıyorsa kimseye borç yazılmıyor demektir
+    // (veresiyedeki uyarının parçalı/eksik ödeme karşılığı). Bir kez onaylanır.
+    const pay = paymentSummary(payment, ticket.totals.total)
+    if (!payment.isCredit && pay.remaining > 0.005 && !ticket.customerId && !shortPayAcked.current) {
+      setShortPayWarn(pay.remaining)
+      return
+    }
+
     submitLock.current = true
     setIsSubmitting(true)
     try {
@@ -536,6 +572,13 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
       )
       const prep = await prepRes.json().catch(() => ({}))
       if (!prepRes.ok) throw new Error(prep?.error || "Kapanış hazırlanamadı")
+
+      // Önceki kapanış yarıda kalmışsa fiş ZATEN var: ikinci fiş stoğu ikinci
+      // kez düşürür, ciroyu ikiye katlar. Kullanıcı karar verene kadar durulur.
+      if (prep.existingInvoice && !forceNewReceipt.current) {
+        setOrphanInvoice(prep.existingInvoice)
+        return
+      }
 
       // 2) Fiş + tahsilat (Kahveci Satış ile ortak akış).
       const result = await submitReceiptSale({
@@ -632,6 +675,9 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
       }
 
       setPayOpen(false)
+      // Onaylar bu satışa aitti; kapanış bitti, bir sonraki için sıfırlanır.
+      forceNewReceipt.current = false
+      shortPayAcked.current = false
       setLastSale({ invoiceNo: result.invoice.invoiceNo, receipt })
       toast({
         title: "Hesap kapatıldı",
@@ -657,6 +703,35 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     toast,
     warehouseId,
   ])
+
+  /**
+   * Sahipsiz fişe bağlanarak kapat: yeni fiş KESİLMEZ, tahsilat da denenmez
+   * (o fiş için ödeme zaten girilmiş olabilir — Fişler ekranından tamamlanır).
+   */
+  const attachExistingInvoice = useCallback(async () => {
+    if (!orphanInvoice) return
+    setIsSubmitting(true)
+    try {
+      const res = await fetch(`/api/restoran/adisyonlar/${ticketId}/kapat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, invoiceId: orphanInvoice.id, warehouseId }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error || "Adisyon kapatılamadı")
+      applyTicket(body as Ticket)
+      setOrphanInvoice(null)
+      setPayOpen(false)
+      toast({
+        title: "Adisyon mevcut fişe bağlandı",
+        description: orphanInvoice.invoiceNo ?? undefined,
+      })
+    } catch (e: any) {
+      toast({ title: "Bağlanamadı", description: e.message, variant: "destructive" })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }, [applyTicket, companyId, orphanInvoice, ticketId, toast, warehouseId])
 
   if (!companyId) {
     return (
@@ -794,7 +869,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-red-600 dark:text-red-400"
-                onClick={() => setCancelOpen(true)}
+                onClick={() => setCancelOpen({ code: "", note: "" })}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Adisyonu iptal et
@@ -1104,8 +1179,66 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
         </DialogContent>
       </Dialog>
 
-      {/* Adisyon iptali */}
-      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+      {/* Yarıda kalmış kapanış: fiş var, adisyon açık kalmış. */}
+      <Dialog open={!!orphanInvoice} onOpenChange={(open) => !open && setOrphanInvoice(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bu adisyon için zaten fiş kesilmiş</DialogTitle>
+            <DialogDescription>
+              {orphanInvoice?.invoiceNo ?? "Fiş"} · {currency(orphanInvoice?.total ?? 0)} — önceki
+              kapanış yarıda kalmış görünüyor. Yeni fiş keserseniz stok ikinci kez düşer ve ciro
+              iki kez yazılır.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              variant="ghost"
+              disabled={isSubmitting}
+              onClick={() => {
+                forceNewReceipt.current = true
+                setOrphanInvoice(null)
+                void handleClose()
+              }}
+            >
+              Yine de yeni fiş kes
+            </Button>
+            <Button disabled={isSubmitting} onClick={() => void attachExistingInvoice()}>
+              Mevcut fişe bağla ve kapat
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Eksik tahsilat: kalan tutar cariye yazılamıyorsa kimseye borç yazılmaz. */}
+      <Dialog open={shortPayWarn !== null} onOpenChange={(open) => !open && setShortPayWarn(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Tahsil edilmeyen tutar var</DialogTitle>
+            <DialogDescription>
+              {currency(shortPayWarn ?? 0)} açık kalıyor ve müşteri seçilmediği için bu tutar
+              kimseye borç yazılmayacak. Veresiye takibi için önce müşteri seçin.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button variant="outline" onClick={() => setShortPayWarn(null)}>
+              Geri dön
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                shortPayAcked.current = true
+                setShortPayWarn(null)
+                void handleClose()
+              }}
+            >
+              Yine de kapat
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Adisyon iptali — sebep zorunlu (kalem iptaliyle aynı kural). */}
+      <Dialog open={!!cancelOpen} onOpenChange={(open) => !open && setCancelOpen(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Adisyon iptal edilsin mi?</DialogTitle>
@@ -1113,11 +1246,43 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
               Kalemler iptal kaydı olarak kalır; stok ve cari etkilenmez.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid gap-1.5">
+              {TICKET_CANCEL_REASONS.map((r) => (
+                <button
+                  key={r.code}
+                  type="button"
+                  onClick={() => setCancelOpen((c) => (c ? { ...c, code: r.code } : c))}
+                  className={cn(
+                    "rounded-lg border p-2.5 text-left text-sm font-medium transition-colors",
+                    cancelOpen?.code === r.code
+                      ? "border-kobipo-blue bg-kobipo-blue/10 text-kobipo-blue dark:border-primary dark:bg-primary/15 dark:text-primary"
+                      : "hover:bg-muted",
+                  )}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Açıklama (isteğe bağlı)</Label>
+              <Input
+                value={cancelOpen?.note ?? ""}
+                onChange={(e) => setCancelOpen((c) => (c ? { ...c, note: e.target.value } : c))}
+                placeholder="Kısa not"
+                className="mt-1.5"
+              />
+            </div>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCancelOpen(false)}>
+            <Button variant="outline" onClick={() => setCancelOpen(null)}>
               Vazgeç
             </Button>
-            <Button variant="destructive" onClick={() => void cancelTicket()}>
+            <Button
+              variant="destructive"
+              disabled={!cancelOpen?.code}
+              onClick={() => void cancelTicket()}
+            >
               Adisyonu iptal et
             </Button>
           </DialogFooter>

@@ -74,8 +74,37 @@ export async function GET(request: Request, { params }: Params) {
       .filter(Boolean)
       .join(" · ")
 
+    // Bu damgayı taşıyan, iptal edilmemiş bir fiş ZATEN VAR MI?
+    //
+    // Kapanış iki adımlı: fiş kesilir, sonra adisyon ona bağlanır. İkinci adım
+    // düşerse (ağ gitti, sekme kapandı) masa AÇIK kalıyor ve kasiyer tekrar
+    // denediğinde İKİNCİ fiş kesiliyordu — stok iki kez düşüyor, ciro iki kez
+    // yazılıyordu. Damga baştan beri yazılıyordu ama kimse okumuyordu; ekran
+    // artık "mevcut fişe bağla / yeni fiş kes" diye soruyor.
+    const orphan = await prisma.invoice.findFirst({
+      where: {
+        companyId,
+        type: "SALES",
+        isReceipt: true,
+        status: { not: "CANCELLED" },
+        notes: { startsWith: view.code },
+        // Başka adisyona bağlanmış fiş sahipsiz değildir.
+        restaurantTicket: { is: null },
+      },
+      select: { id: true, invoiceNo: true, totalAmount: true, date: true },
+      orderBy: { date: "desc" },
+    })
+
     return NextResponse.json({
       ticket: view,
+      existingInvoice: orphan
+        ? {
+            id: orphan.id,
+            invoiceNo: orphan.invoiceNo,
+            total: Number(orphan.totalAmount),
+            date: orphan.date,
+          }
+        : null,
       invoicePayload: {
         companyId,
         type: "SALES",

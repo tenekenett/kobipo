@@ -404,9 +404,15 @@ export async function POST(request: Request) {
     // aktivasyon bu hatayla reddedildi). Bu yüzden aktivasyondan ÖNCE bayinin tarifesini
     // firmaya tanımlıyoruz. Zaten tanımlıysa atlanır (idempotent — kullanıcı tekrar
     // başvurduğunda ikinci sözleşme açılmasın).
+    //
+    // `forcePreContract:true` → mevcut sözleşme kaydı olsa bile tarifeyi YENİDEN tanımla.
+    // Kurtarma kapısıdır: 2026-08-04'te tenant'ta sözleşme GÖRÜNDÜĞÜ hâlde aktivasyon yine
+    // "aktivasyon ürün bilgisi yok" dedi — yani kayıt işe yaramaz olabiliyor. Teşhis ucu
+    // (/api/e-donusum/onboarding/diagnose?vkn=) ile kaydın içeriği görüldükten sonra kullan.
+    const forcePreContract = body?.forcePreContract === true
     let contractInfo: string | null = null
     const existingContracts = await provider.getPreContract(vkn)
-    if (existingContracts.data.length === 0) {
+    if (forcePreContract || existingContracts.data.length === 0) {
       const tariffs = await provider.getBusinessPartnerTariff(50)
       const covers = (t: any, productType: string) => {
         const want = normalizeTr(PRODUCT_TARIFF_TEXT[productType] || "")
@@ -457,9 +463,17 @@ export async function POST(request: Request) {
         })
         return NextResponse.json({ success: false, stage: "preContract", error: msg }, { status: 502 })
       }
-      contractInfo = `${match.tariffCode} (${qty} kontörlük paket, kontör yüklenmedi)`
+      contractInfo = `${match.tariffCode} (${qty} kontörlük paket, kontör yüklenmedi${
+        forcePreContract ? ", ZORLANDI" : ""
+      })`
     } else {
-      contractInfo = "mevcut"
+      // Atlandıysa NE olduğunu logla — "mevcut" tek başına teşhis için işe yaramadı
+      // (2026-08-04). tariffCode ve kayıt sayısı bir sonraki denemede doğrudan görünsün.
+      const codes = existingContracts.data
+        .map((c: any) => c?.tariffCode)
+        .filter(Boolean)
+        .join(" / ")
+      contractInfo = `mevcut (${existingContracts.data.length} kayıt${codes ? `: ${codes}` : ""})`
     }
 
     // 2) Ürünleri aktive et (GİB başvurusu). Her biri bağımsız — biri patlarsa

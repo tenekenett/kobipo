@@ -6,6 +6,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { assertRestaurantModule } from "@/lib/restoran/tickets"
 import { num, parseRange, reportScope, RECIPE_MARK } from "@/lib/restoran/reports"
 
 export const dynamic = "force-dynamic"
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const companyId = await resolveCompanyId(searchParams.get("companyId"))
     if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
-    await ensureCompanyAccess(companyId)
+    assertRestaurantModule(await ensureCompanyAccess(companyId))
 
     const { start, end } = parseRange(searchParams)
 

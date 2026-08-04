@@ -75,7 +75,9 @@ import { expandRecipeLines } from "@/lib/stock/recipe-expand"
 import {
   optionEffect,
   optionRecipeEffects,
+  reasonLabel,
   type TicketItemOption,
+  type TicketItemStatus,
 } from "@/lib/restoran/ticket-constants"
 
 type CafeLine = {
@@ -94,6 +96,17 @@ type CafeLine = {
    */
   options?: TicketItemOption[]
   note?: string | null
+  /**
+   * `NORMAL` | `COMP` (ikram) | `WASTE` (zayi) — adisyon kalemiyle AYNI kavram.
+   *
+   * Tezgâhta bu yol yoktu: personel kahvesi ya hiç girilmiyordu (malzeme stokta
+   * duruyor, maliyet raporu yalan söylüyor) ya tam fiyattan satılmış görünüyordu.
+   * İşaretli satır fişe GİRMEZ, malzemesi `POST /api/restoran/ikram` ile düşer.
+   * `VOID` burada YOK: sepet sunucuda yaşamadığı için yanlış satır silinir.
+   */
+  status?: Extract<TicketItemStatus, "NORMAL" | "COMP" | "WASTE">
+  reasonCode?: string | null
+  reason?: string | null
 }
 
 const uid = () =>
@@ -110,8 +123,11 @@ const describeLine = (l: CafeLine) =>
 const lineNet = (l: CafeLine) => l.quantity * l.unitPrice
 const lineTotal = (l: CafeLine) => lineNet(l) * (1 + l.vatRate / 100)
 
+/** Hesaba giren tek durum — ikram/zayi para istemez (ticket-constants ile aynı kural). */
+const isBillableLine = (l: CafeLine) => (l.status ?? "NORMAL") === "NORMAL"
+
 function cartTotals(cart: CafeLine[]) {
-  return cart.reduce(
+  return cart.filter(isBillableLine).reduce(
     (acc, l) => {
       const net = lineNet(l)
       const vat = net * (l.vatRate / 100)
@@ -165,6 +181,12 @@ export function CafeSaleScreen() {
    * fiş, iki stok düşümü, iki tahsilat olurdu. Ref senkron okunup yazılır.
    */
   const submitLock = useRef(false)
+  /**
+   * Eksik tahsilat onayı. Kalan tutar cariye yazılamıyorsa borç KİMSEYE
+   * yazılmıyor — veresiyede bu uyarı vardı, parçalı/eksik ödemede yoktu.
+   */
+  const [shortPayWarn, setShortPayWarn] = useState<number | null>(null)
+  const shortPayAcked = useRef(false)
   const [lastSale, setLastSale] = useState<
     { id: string; invoiceNo?: string | null; receipt: ReceiptData } | null
   >(null)
@@ -223,7 +245,10 @@ export function CafeSaleScreen() {
           (l) =>
             l.productId === product.id &&
             (l.options ?? []).map((o) => o.optionName).join("|") === optionKey &&
-            (l.note ?? null) === (extra?.note ?? null),
+            (l.note ?? null) === (extra?.note ?? null) &&
+            // İkram/zayi işaretli satıra eklenmez: ücretli olan ile ikram edilen
+            // aynı satırda toplanırsa ikisi de yanlış olur.
+            isBillableLine(l),
         )
         if (idx >= 0) {
           const next = [...prev]
@@ -272,6 +297,24 @@ export function CafeSaleScreen() {
   const removeLine = useCallback(
     (key: string) => setCart((prev) => prev.filter((l) => l.key !== key)),
     []
+  )
+
+  /**
+   * Satırı ikram/zayi işaretler (ya da geri alır). Adisyondaki ⋮ menüsünün
+   * tezgâh karşılığı — yeni görünür kontrol eklenmiyor, menü zaten vardı.
+   */
+  const setLineStatus = useCallback(
+    (key: string, status: TicketItemStatus, reasonCode: string | null, reason: string | null) => {
+      if (status === "VOID") {
+        // Sepette VOID kavramı yok: satış oluşmadığı için "iptal" = sil.
+        setCart((prev) => prev.filter((l) => l.key !== key))
+        return
+      }
+      setCart((prev) =>
+        prev.map((l) => (l.key === key ? { ...l, status, reasonCode, reason } : l)),
+      )
+    },
+    [],
   )
 
   /**
@@ -395,6 +438,8 @@ export function CafeSaleScreen() {
     setDiscount(null)
     setCustomerId(undefined)
     setPayment((p) => ({ ...emptyPaymentState(p.accountId) }))
+    // Onay bu satışa aitti — sonraki satışta yeniden sorulur.
+    shortPayAcked.current = false
   }, [])
 
   const handleComplete = useCallback(async () => {
@@ -404,17 +449,80 @@ export function CafeSaleScreen() {
       return
     }
 
+    if (!payment.isCredit && summary.remaining > 0.005 && !customerId && !shortPayAcked.current) {
+      setShortPayWarn(summary.remaining)
+      return
+    }
+
     const snapshot = cart
+    // Fişe yalnız ÖDENEN satırlar girer; ikram/zayi satırlarının malzemesi ayrı
+    // yoldan düşer (adisyon kapanışındaki kuralın aynısı — SATIS-EKRANI.md K2).
+    const billable = snapshot.filter(isBillableLine)
+    const consumed = snapshot.filter((l) => !isBillableLine(l))
     const t = totals
     submitLock.current = true
     setIsSubmitting(true)
+
+    /** İkram/zayi malzemesini düşer. `invoiceId` varsa fiş iptali geri alır. */
+    const writeCompWaste = async (invoiceId: string | null): Promise<boolean> => {
+      if (consumed.length === 0) return true
+      try {
+        const res = await fetch("/api/restoran/ikram", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId,
+            invoiceId,
+            warehouseId,
+            lines: consumed.map((l) => {
+              const { effects, recipeFactor } = optionRecipeEffects(l.options)
+              return {
+                productId: l.productId,
+                quantity: l.quantity,
+                status: l.status,
+                reasonCode: l.reasonCode,
+                reason: l.reason,
+                description: describeLine(l),
+                effects,
+                recipeFactor,
+              }
+            }),
+          }),
+        })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body?.error || "Stok düzeltmesi yazılamadı")
+        return true
+      } catch (e: any) {
+        toast({
+          title: "İkram/zayi stoktan düşülemedi",
+          description: e.message,
+          variant: "destructive",
+        })
+        return false
+      }
+    }
+
     try {
+      // Sepetin TAMAMI ikram/zayi ise fiş kesilmez: ortada satış yok, yalnız
+      // harcanmış malzeme var.
+      if (billable.length === 0) {
+        const ok = await writeCompWaste(null)
+        if (ok) {
+          toast({
+            title: "İkram/zayi kaydedildi",
+            description: `${consumed.length} satırın malzemesi stoktan düşüldü`,
+          })
+          resetSale()
+        }
+        return
+      }
+
       // Fiş kesme + tahsilat akışı Adisyon ekranıyla ORTAK
       // (lib/satis/submit-receipt-sale.ts): tutarın SUNUCUNUN yazdığı toplamdan
       // gelmesi gibi ayrıntılar iki ekranda ayrışmasın.
       const result = await submitReceiptSale({
         companyId,
-        items: snapshot.map((l) => {
+        items: billable.map((l) => {
           // Seçeneğin reçete etkisi fiş ucuna ayrı alanlarla gider; faturaya
           // yazılmaz, yalnız stok düşümünü yönlendirir (K6).
           const { effects, recipeFactor } = optionRecipeEffects(l.options)
@@ -442,6 +550,8 @@ export function CafeSaleScreen() {
         if (result.stage === "payment") {
           // Fiş oluştu, stok düştü — geri almak yerine kullanıcıyı uyar: tahsilat
           // Fişler ekranından tamamlanabilir, fişi silmek stoğu da geri alırdı.
+          // İkram/zayi de yazılır: fiş var, malzeme gerçekten harcandı.
+          await writeCompWaste(result.invoice.id)
           toast({
             title: "Fiş oluştu, tahsilat kaydedilemedi",
             description: result.error,
@@ -452,6 +562,10 @@ export function CafeSaleScreen() {
         }
         throw new Error(result.error)
       }
+
+      // Fiş kesildi: ikram/zayi malzemesi FİŞİN referansıyla düşer, böylece fiş
+      // iptal edilirse `revertStockByReference` onu da geri alır.
+      await writeCompWaste(result.invoice.id)
 
       const { invoice, parts, paidSum, total: invoiceTotal } = result
       const done = paymentSummary(payment, invoiceTotal)
@@ -472,7 +586,8 @@ export function CafeSaleScreen() {
           ? customers.find((c) => c.id === customerId)?.name ?? null
           : null,
         notes: note.trim() || null,
-        items: snapshot.map((l) => ({
+        // Fişte yalnız ödenen satırlar: ikram/zayi müşterinin hesabı değil.
+        items: billable.map((l) => ({
           description: describeLine(l),
           quantity: l.quantity,
           unit: l.unit,
@@ -510,6 +625,7 @@ export function CafeSaleScreen() {
     companyId,
     cart,
     totals,
+    summary.remaining,
     discountLabel,
     customerId,
     warehouseId,
@@ -522,6 +638,9 @@ export function CafeSaleScreen() {
     resetSale,
     toast,
   ])
+
+  /** Sepette ödenecek satır var mı — yoksa düğme "İkramı Kaydet" olur. */
+  const hasBillable = cart.some(isBillableLine)
 
   // F2 → satışı tamamla (POS benzeri hızlı kapatma).
   //
@@ -648,15 +767,18 @@ export function CafeSaleScreen() {
               quantity: l.quantity,
               unitPrice: l.unitPrice,
               vatRate: l.vatRate,
-              status: "NORMAL" as const,
+              status: l.status ?? "NORMAL",
+              reasonLabel: reasonLabel(l.status ?? "NORMAL", l.reasonCode),
             }))}
             totals={totals}
             discountLabel={discountLabel}
-            // Kahveci ekranında ikram/zayi YOK: satış henüz oluşmadı, malzeme
-            // harcanmadı. Yanlış giren satır silinir.
-            allowStatus={false}
+            // İkram/zayi tezgâhta da var (adisyonla aynı ⋮ menüsü): personel
+            // kahvesinin malzemesi de düşmeli. Silme de AÇIK — sepet yalnız
+            // tarayıcıda yaşadığı için iz kaybettirmiyor (adisyonda tersi).
+            allowDelete
             className="xl:static"
             onQuantity={(id, q) => setLineQty(id, q)}
+            onSetStatus={(id, status, code, reason) => setLineStatus(id, status, code, reason)}
             footer={
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">
@@ -811,7 +933,7 @@ export function CafeSaleScreen() {
                 ) : (
                   <span className="flex items-center justify-center gap-2">
                     <CheckCircle2 className="h-5 w-5" />
-                    Satışı Tamamla
+                    {hasBillable ? "Satışı Tamamla" : "İkramı Kaydet"}
                     {totals.total > 0 && (
                       <span className="ml-1 rounded-md bg-white/20 px-2 py-0.5 text-sm font-bold tabular-nums">
                         {currency(totals.total)}
@@ -829,6 +951,34 @@ export function CafeSaleScreen() {
           </Card>
         </div>
       </div>
+
+      {/* Eksik tahsilat: kalan tutar cariye yazılamıyorsa kimseye borç yazılmaz. */}
+      <Dialog open={shortPayWarn !== null} onOpenChange={(open) => !open && setShortPayWarn(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Tahsil edilmeyen tutar var</DialogTitle>
+            <DialogDescription>
+              {currency(shortPayWarn ?? 0)} açık kalıyor ve müşteri seçilmediği için bu tutar
+              kimseye borç yazılmayacak. Veresiye takibi için önce müşteri seçin.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button variant="outline" onClick={() => setShortPayWarn(null)}>
+              Geri dön
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                shortPayAcked.current = true
+                setShortPayWarn(null)
+                void handleComplete()
+              }}
+            >
+              Yine de tamamla
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={lastSale !== null} onOpenChange={(open) => !open && setLastSale(null)}>
         <DialogContent className="sm:max-w-sm">

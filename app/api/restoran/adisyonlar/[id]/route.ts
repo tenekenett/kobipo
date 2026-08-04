@@ -7,6 +7,7 @@ import {
   assertRestaurantModule,
   serializeTicket,
   ticketInclude,
+  TICKET_CANCEL_REASONS,
   TICKET_DISCOUNT_TYPES,
 } from "@/lib/restoran/tickets"
 
@@ -165,6 +166,11 @@ export async function PATCH(request: Request, { params }: Params) {
  * Hiç kalemi olmayan adisyon (yanlış açılmış) gerçekten silinir; kalemi olan
  * `CANCELLED` olarak kalır — "masa 3'te 4 kalem girildi, sonra iptal edildi"
  * bilgisi kaybolmasın.
+ *
+ * **Kalemi varsa SEBEP ZORUNLU** (`?reasonCode=`). Kalem iptalinde sebep baştan
+ * zorunluydu ama dolu bir hesabı tek tıkla iptal etmek sebepsizdi — kaçak tek
+ * kalemde değil, hesabın tamamında yapılır. Boş adisyonda sorulmuyor: yanlış
+ * açılmış boş kayıt için sebep sormak gürültüdür.
  */
 export async function DELETE(request: Request, { params }: Params) {
   try {
@@ -195,11 +201,29 @@ export async function DELETE(request: Request, { params }: Params) {
       return NextResponse.json({ success: true, deleted: true })
     }
 
+    const reasonCode = String(searchParams.get("reasonCode") || "").trim()
+    if (!TICKET_CANCEL_REASONS.some((r) => r.code === reasonCode)) {
+      return NextResponse.json(
+        {
+          error: "İptal sebebi seçilmeli",
+          reasons: TICKET_CANCEL_REASONS.map((r) => ({ code: r.code, label: r.label })),
+        },
+        { status: 400 },
+      )
+    }
+    const reason = String(searchParams.get("reason") || "").trim().slice(0, 255) || null
+
     await prisma.restaurantTicket.update({
       where: { id },
-      data: { status: "CANCELLED", closedAt: new Date(), closedBy: user.id },
+      data: {
+        status: "CANCELLED",
+        closedAt: new Date(),
+        closedBy: user.id,
+        cancelReasonCode: reasonCode,
+        cancelReason: reason,
+      },
     })
-    return NextResponse.json({ success: true, deleted: false })
+    return NextResponse.json({ success: true, deleted: false, reasonCode })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
       return NextResponse.json({ error: error.message }, { status: 403 })

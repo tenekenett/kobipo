@@ -765,6 +765,12 @@ model RestaurantTicket {
   // `CANCELLED` olur ama iptalden ayrılmalıdır: cirosu kaybolmadı, hedefe geçti.
   // Rapor ve ekran bu alana bakıp "iptal" demez, "birleştirildi" der.
   mergedIntoId String?
+  // İptal sebebi. Kalem iptalinde sebep ZORUNLUydu (`RestaurantTicketItem.reasonCode`)
+  // ama dolu bir adisyonu tek tıkla iptal etmek sebepsizdi — ölçülemeyen kaçak,
+  // olmayan kaçaktır. Kod listesi: lib/restoran/ticket-constants.ts.
+  // BİRLEŞTİRMEDE doldurulmaz: orası iptal değil (bkz. `mergedIntoId`).
+  cancelReasonCode String? @db.VarChar(30)
+  cancelReason     String? @db.VarChar(255)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 

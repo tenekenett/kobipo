@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Loader2, RefreshCw, Search, RotateCcw, Lock, Unlock, XCircle, Building2 } from "lucide-react"
+import { Loader2, RefreshCw, Search, RotateCcw, Lock, Unlock, XCircle, Building2, Check, AlertTriangle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
+import { MAX_BRANCH_QUOTA } from "@/lib/billing/constants"
 
 type Subscription = {
   id: string
@@ -139,6 +140,44 @@ export function SubscriptionAdmin() {
     }
   }
 
+  /**
+   * Şube kotasını elle ayarlar. Aboneliği olmayan hesapta uç 409/NO_SUBSCRIPTION döner;
+   * kota tek başına etkisiz olacağından onay alıp 1 yıllık deneme satırıyla tekrar dener.
+   */
+  const saveBranchQuota = async (acc: Account, quota: number, createTrial = false): Promise<void> => {
+    setBusyId(acc.id)
+    try {
+      const res = await fetch("/api/billing/admin/branch-quota", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: acc.id, branchQuota: quota, createTrialIfMissing: createTrial }),
+      })
+      const data = await res.json().catch(() => ({}))
+
+      if (res.status === 409 && data?.code === "NO_SUBSCRIPTION" && !createTrial) {
+        setBusyId(null)
+        const ok = await confirm({
+          title: `${acc.name} — aboneliği yok`,
+          description:
+            "Şube kotası abonelik satırında tutulur ve şube ekleme aktif abonelik ister. Devam edilirse 1 yıllık deneme aboneliği oluşturulup kota buna yazılacak. Modül yetkileri DEĞİŞMEZ.",
+        })
+        if (!ok) return
+        return saveBranchQuota(acc, quota, true)
+      }
+
+      if (!res.ok) throw new Error(data?.error || "Kota güncellenemedi")
+      toast({
+        title: "Şube kotası güncellendi",
+        description: `${acc.name} → ${data.branchQuota} şube${data.createdSubscription ? " (deneme aboneliği oluşturuldu)" : ""}`,
+      })
+      await load()
+    } catch (e) {
+      toast({ variant: "destructive", title: "Hata", description: e instanceof Error ? e.message : "Kota güncellenemedi" })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const cancelOrder = async (acc: Account, order: Order) => {
     const ok = await confirm({
       title: "Siparişi iptal et",
@@ -199,6 +238,7 @@ export function SubscriptionAdmin() {
               busy={busyId === acc.id}
               onReset={resetAccount}
               onCancelOrder={cancelOrder}
+              onSaveBranchQuota={saveBranchQuota}
             />
           ))}
         </div>
@@ -212,11 +252,13 @@ function AccountCard({
   busy,
   onReset,
   onCancelOrder,
+  onSaveBranchQuota,
 }: {
   acc: Account
   busy: boolean
   onReset: (acc: Account, mode: "trial" | "locked") => void
   onCancelOrder: (acc: Account, order: Order) => void
+  onSaveBranchQuota: (acc: Account, quota: number) => void
 }) {
   const sub = acc.subscriptions[0] ?? null
   const openModules = acc.disabledModules.length === 0
@@ -277,14 +319,17 @@ function AccountCard({
             {sub.billingCycle && <span className="text-slate-400">{sub.billingCycle === "YEARLY" ? "Yıllık" : "Aylık"}</span>}
             {sub.amount != null && <span className="text-slate-400">{tl.format(Number(sub.amount))}</span>}
             <span className="text-slate-400">modüller: {sub.purchasedModules.length ? sub.purchasedModules.join(", ") : "—"}</span>
-            <span className="text-slate-400">şube kotası: {sub.branchQuota}</span>
+            <BranchQuotaEditor acc={acc} sub={sub} busy={busy} onSave={onSaveBranchQuota} />
             <span className="text-slate-500">otoyenile: {sub.autoRenew ? "açık" : "kapalı"}{sub.cancelAtPeriodEnd ? " (iptal edilecek)" : ""}</span>
             <span className="text-slate-500">
               {sub.status === "TRIAL" ? `deneme bitiş: ${fmtDate(sub.trialEndsAt)}` : `dönem sonu: ${fmtDate(sub.periodEnd)}`}
             </span>
           </div>
         ) : (
-          <span className="text-slate-500">Abonelik yok</span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-300">
+            <span className="text-slate-500">Abonelik yok</span>
+            <BranchQuotaEditor acc={acc} sub={null} busy={busy} onSave={onSaveBranchQuota} />
+          </div>
         )}
       </div>
 
@@ -341,4 +386,87 @@ function AccountCard({
       )}
     </div>
   )
+}
+
+/**
+ * Şube kotası (subscription.branchQuota) düzenleyici. Kota HESAP düzeyindedir; şube ekleme
+ * kontrolü en güncel abonelik satırını okur ve abonelik aktif değilse kotayı 0 sayar
+ * (fail-closed) — bu yüzden pasif abonelikte uyarı gösterilir. Bkz. app/api/companies/route.ts
+ */
+function BranchQuotaEditor({
+  acc,
+  sub,
+  busy,
+  onSave,
+}: {
+  acc: Account
+  sub: Subscription | null
+  busy: boolean
+  onSave: (acc: Account, quota: number) => void
+}) {
+  const current = sub?.branchQuota ?? 0
+  const [value, setValue] = useState(String(current))
+
+  // Kaydetme sonrası liste yeniden yüklendiğinde alan sunucudaki değere dönsün.
+  useEffect(() => setValue(String(current)), [current])
+
+  const parsed = Number.parseInt(value, 10)
+  const valid = Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_BRANCH_QUOTA
+  const dirty = valid && parsed !== current
+  const used = acc._count.branches
+  const effective = isSubscriptionEffective(sub)
+  const warning = !effective
+    ? sub
+      ? "abonelik aktif değil — kota etkisiz"
+      : "abonelik yok — kaydederken deneme oluşturulur"
+    : valid && parsed < used
+      ? `mevcut ${used} şubenin altında — yeni şube eklenemez`
+      : null
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="text-slate-400">şube kotası:</span>
+      <input
+        type="number"
+        min={0}
+        max={MAX_BRANCH_QUOTA}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && dirty && !busy) onSave(acc, parsed)
+          if (e.key === "Escape") setValue(String(current))
+        }}
+        disabled={busy}
+        aria-label={`${acc.name} şube kotası`}
+        className={`w-16 rounded-md border bg-slate-800 px-2 py-0.5 text-sm text-white focus:outline-none disabled:opacity-50 ${
+          valid ? "border-slate-700 focus:border-indigo-500" : "border-red-500/60"
+        }`}
+      />
+      <span className="text-xs text-slate-500">kullanılan: {used}</span>
+      {dirty && (
+        <button
+          onClick={() => onSave(acc, parsed)}
+          disabled={busy}
+          className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+          Kaydet
+        </button>
+      )}
+      {warning && (
+        <span className="inline-flex items-center gap-1 text-xs text-amber-400">
+          <AlertTriangle className="h-3 w-3" /> {warning}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** Abonelik şu an geçerli mi? lib/billing/entitlements.ts isTrialActive/isPaidActive ile aynı kural. */
+function isSubscriptionEffective(sub: Subscription | null): boolean {
+  if (!sub) return false
+  const now = Date.now()
+  if (sub.status === "TRIAL") return !sub.trialEndsAt || new Date(sub.trialEndsAt).getTime() > now
+  if (sub.status === "ACTIVE") return !sub.periodEnd || new Date(sub.periodEnd).getTime() > now
+  return false
 }

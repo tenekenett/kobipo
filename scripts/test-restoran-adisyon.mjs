@@ -245,7 +245,71 @@ async function main() {
       "DELETE",
       `/api/restoran/adisyonlar/${open1.body.id}/kalemler/${secondItem.id}?companyId=${company.id}`,
     )
-    check("notlu kalem silindi", removed.body?.items?.length === 1)
+    // Kalem SİLİNMEZ, VOID işaretlenir: ekrandaki adet düşürücü 0'a inip bu ucu
+    // çağırdığında servis edilmiş ürün izsiz kayboluyordu (K2'nin kaçış yolu).
+    const voided = removed.body?.items?.find((i) => i.id === secondItem.id)
+    check(
+      "notlu kalem silinmedi, VOID işaretlendi",
+      removed.body?.items?.length === 2 && voided?.status === "VOID",
+      `${removed.body?.items?.length} kalem · ${voided?.status}/${voided?.reasonCode}`,
+    )
+    check(
+      "VOID kalem hesaba girmiyor",
+      near(removed.body?.totals?.total, 102),
+      `${removed.body?.totals?.total}`,
+    )
+
+    // ── 5b. Adisyon iptalinde sebep ─────────────────────────────────────────
+    // Kalem iptalinde sebep baştan zorunluydu; dolu bir HESABI tek tıkla iptal
+    // etmek sebepsizdi. Boş adisyon (yanlış açılmış) hâlâ sorusuz siliniyor.
+    console.log("\n5b) Adisyon iptalinde sebep zorunlu")
+    const emptyTicket = await api("POST", "/api/restoran/adisyonlar", {
+      companyId: company.id,
+      note: `TEST boş ${stamp}`,
+    })
+    const emptyDeleted = await api(
+      "DELETE",
+      `/api/restoran/adisyonlar/${emptyTicket.body.id}?companyId=${company.id}`,
+    )
+    check("boş adisyon sebepsiz silinebiliyor", emptyDeleted.body?.deleted === true)
+
+    const doomed = await api("POST", "/api/restoran/adisyonlar", {
+      companyId: company.id,
+      note: `TEST iptal ${stamp}`,
+    })
+    created.ticketIds.push(doomed.body?.id)
+    await api("POST", `/api/restoran/adisyonlar/${doomed.body.id}/kalemler`, {
+      companyId: company.id,
+      productId: latte.id,
+      quantity: 1,
+    })
+    const noReason = await api(
+      "DELETE",
+      `/api/restoran/adisyonlar/${doomed.body.id}?companyId=${company.id}`,
+    )
+    check("sebepsiz iptal reddedildi", noReason.status === 400, noReason.body?.error)
+    const badReason = await api(
+      "DELETE",
+      `/api/restoran/adisyonlar/${doomed.body.id}?companyId=${company.id}&reasonCode=UYDURMA`,
+    )
+    check("listede olmayan sebep reddedildi", badReason.status === 400)
+    const cancelled = await api(
+      "DELETE",
+      `/api/restoran/adisyonlar/${doomed.body.id}?companyId=${company.id}&reasonCode=CUSTOMER_LEFT&reason=TEST`,
+    )
+    check("sebepli iptal kabul edildi", cancelled.status === 200, cancelled.body?.reasonCode)
+    const cancelledRow = await prisma.restaurantTicket.findUnique({
+      where: { id: doomed.body.id },
+      select: { status: true, cancelReasonCode: true, cancelReason: true, mergedIntoId: true },
+    })
+    check(
+      "iptal sebebi kaydedildi (birleştirme izi YOK)",
+      cancelledRow?.status === "CANCELLED" &&
+        cancelledRow?.cancelReasonCode === "CUSTOMER_LEFT" &&
+        cancelledRow?.cancelReason === "TEST" &&
+        cancelledRow?.mergedIntoId === null,
+      `${cancelledRow?.status} · ${cancelledRow?.cancelReasonCode}`,
+    )
 
     // ── 6. Masa taşıma ──────────────────────────────────────────────────────
     console.log("\n6) Masa taşıma")
@@ -381,6 +445,33 @@ async function main() {
     )
     check("porsiyon çarpanı kaydedildi", Number(optBig?.recipeFactor) === 2, `${optBig?.recipeFactor}`)
 
+    // Seçenekli kalem BİRLEŞMELİ. "Büyük" (+10 KDV dahil) net'e çevrilince
+    // 85 + 10/1,2 = 93,33333… çıkıyor; kolon Decimal(15,6). Yazarken yuvarlanıp
+    // ararken yuvarlanmadığı için aynı kalem eşleşmiyor ve adisyonda iki satır
+    // görünüyordu.
+    const mergeTicket = await api("POST", "/api/restoran/adisyonlar", {
+      companyId: company.id,
+      note: `TEST birleşme ${stamp}`,
+    })
+    created.ticketIds.push(mergeTicket.body?.id)
+    for (let i = 0; i < 2; i++) {
+      await api("POST", `/api/restoran/adisyonlar/${mergeTicket.body.id}/kalemler`, {
+        companyId: company.id,
+        productId: latte.id,
+        quantity: 1,
+        optionIds: [optBig.id],
+      })
+    }
+    const mergedLines = await api(
+      "GET",
+      `/api/restoran/adisyonlar/${mergeTicket.body.id}?companyId=${company.id}`,
+    )
+    check(
+      "seçenekli aynı kalem tek satırda birleşti (ondalık tuzağı)",
+      mergedLines.body?.items?.length === 1 && near(mergedLines.body.items[0].quantity, 2),
+      `${mergedLines.body?.items?.length} satır · ${mergedLines.body?.items?.[0]?.quantity} adet`,
+    )
+
     const bogusEffect = await api("POST", "/api/restoran/urun-secenekleri", {
       companyId: company.id,
       productId: latte.id,
@@ -450,6 +541,171 @@ async function main() {
       "BÜYÜK BOY → süt tam 2 kat düştü",
       Math.abs(bigSale.drop - plainSale.drop * 2) < 0.0001,
       `${bigSale.drop} = 2 × ${plainSale.drop}`,
+    )
+
+    // ── 8c. Tezgâh ikramı (Kahveci Satış) ───────────────────────────────────
+    // Masada ikram adisyon kalemine yazılıyordu; tezgâhta hiçbir yol yoktu ve
+    // personel kahvesinin malzemesi stokta duruyordu. Yeni uç fişin referansını
+    // kullanıyor: fiş iptal edilince ikram da geri dönüyor.
+    console.log("\n8c) Tezgâh ikramı / zayisi")
+    const milkNow = async () =>
+      Number(
+        (await prisma.product.findUnique({ where: { id: milk.id }, select: { stockQuantity: true } }))
+          ?.stockQuantity ?? 0,
+      )
+
+    const noReasonComp = await api("POST", "/api/restoran/ikram", {
+      companyId: company.id,
+      lines: [{ productId: latte.id, quantity: 1, status: "COMP" }],
+    })
+    check("sebepsiz ikram reddedildi", noReasonComp.status === 400, noReasonComp.body?.error)
+
+    const badStatus = await api("POST", "/api/restoran/ikram", {
+      companyId: company.id,
+      lines: [{ productId: latte.id, quantity: 1, status: "NORMAL", reasonCode: "STAFF" }],
+    })
+    check("normal kalem ikram ucuna gönderilemez", badStatus.status === 400)
+
+    const foreignProduct = await api("POST", "/api/restoran/ikram", {
+      companyId: company.id,
+      lines: [
+        { productId: "baska-firmanin-urunu", quantity: 1, status: "COMP", reasonCode: "STAFF" },
+      ],
+    })
+    check("başka firmanın ürünü ikram edilemez", foreignProduct.status === 404)
+
+    const beforeCompSale = await milkNow()
+    const compInvoice = await api("POST", "/api/e-donusum/invoices", {
+      companyId: company.id,
+      type: "SALES",
+      invoiceType: "MANUAL",
+      isReceipt: true,
+      date: new Date().toISOString(),
+      currency: "TRY",
+      sendInvoice: false,
+      notes: `TEST tezgâh ${stamp}`,
+      items: [
+        {
+          productId: latte.id,
+          description: "Latte",
+          unit: "ADET",
+          quantity: 1,
+          unitPrice: 85,
+          vatRate: 20,
+        },
+      ],
+    })
+    created.invoiceIds.push(compInvoice.body?.id)
+    const afterSaleOnly = await milkNow()
+
+    const comped = await api("POST", "/api/restoran/ikram", {
+      companyId: company.id,
+      invoiceId: compInvoice.body.id,
+      lines: [
+        {
+          productId: latte.id,
+          quantity: 1,
+          status: "COMP",
+          reasonCode: "STAFF",
+          description: "Latte (personel)",
+        },
+      ],
+    })
+    check("ikram kaydedildi", comped.status === 200, `${comped.body?.written} hareket`)
+    const afterComp = await milkNow()
+    check(
+      "ikram edilen latte'nin sütü de düştü",
+      Math.abs(afterSaleOnly - afterComp - plainSale.drop) < 0.0001,
+      `${afterSaleOnly} → ${afterComp}`,
+    )
+
+    const compMovement = await prisma.stockMovement.findFirst({
+      where: { companyId: company.id, reference: compInvoice.body.id, type: "ADJUSTMENT" },
+      select: { description: true, unitPrice: true },
+    })
+    check(
+      "hareket ADJUSTMENT ve sebebiyle yazıldı",
+      (compMovement?.description ?? "").includes("İkram") &&
+        (compMovement?.description ?? "").includes("Personel"),
+      compMovement?.description,
+    )
+    check("ikram maliyeti donduruldu (AVCO)", Number(compMovement?.unitPrice ?? 0) > 0)
+
+    // Fiş iptali ikramı da geri almalı: referans bilinçli olarak FİŞİN id'si.
+    await fetch(`${BASE}/api/e-donusum/invoices/${compInvoice.body.id}?companyId=${company.id}`, {
+      method: "DELETE",
+      headers: { cookie },
+    })
+    created.invoiceIds = created.invoiceIds.filter((id) => id !== compInvoice.body.id)
+    check(
+      "fiş silinince satış VE ikram geri alındı",
+      Math.abs((await milkNow()) - beforeCompSale) < 0.0001,
+      `${beforeCompSale} → ${await milkNow()}`,
+    )
+
+    // ── 8d. Yarıda kalan kapanış (çift fiş koruması) ─────────────────────────
+    // Kapanış iki adımlı: fiş kesilir, sonra adisyon bağlanır. İkinci adım
+    // düşerse masa AÇIK kalıyor ve tekrar denendiğinde İKİNCİ fiş kesiliyordu.
+    console.log("\n8d) Yarıda kalan kapanış — sahipsiz fiş")
+    const halfClosed = await api("POST", "/api/restoran/adisyonlar", {
+      companyId: company.id,
+      note: `TEST yarım ${stamp}`,
+    })
+    created.ticketIds.push(halfClosed.body?.id)
+    await api("POST", `/api/restoran/adisyonlar/${halfClosed.body.id}/kalemler`, {
+      companyId: company.id,
+      productId: latte.id,
+      quantity: 1,
+    })
+    const firstPrep = await api(
+      "GET",
+      `/api/restoran/adisyonlar/${halfClosed.body.id}/kapat?companyId=${company.id}`,
+    )
+    check("temiz adisyonda sahipsiz fiş yok", firstPrep.body?.existingInvoice === null)
+
+    // Fiş kesilir ama adisyon BAĞLANMAZ (ağ koptu senaryosu).
+    const orphanInv = await api("POST", "/api/e-donusum/invoices", firstPrep.body.invoicePayload)
+    created.invoiceIds.push(orphanInv.body?.id)
+
+    const secondPrep = await api(
+      "GET",
+      `/api/restoran/adisyonlar/${halfClosed.body.id}/kapat?companyId=${company.id}`,
+    )
+    check(
+      "ikinci denemede mevcut fiş bulundu",
+      secondPrep.body?.existingInvoice?.id === orphanInv.body.id,
+      secondPrep.body?.existingInvoice?.invoiceNo,
+    )
+
+    const attached = await api("POST", `/api/restoran/adisyonlar/${halfClosed.body.id}/kapat`, {
+      companyId: company.id,
+      invoiceId: orphanInv.body.id,
+    })
+    check(
+      "mevcut fişe bağlanarak kapandı (ikinci fiş kesilmedi)",
+      attached.status === 200 && attached.body?.status === "CLOSED",
+      attached.body?.invoiceNo,
+    )
+
+    // Bağlanan fiş artık sahipsiz değil: başka bir adisyon onu devralamaz.
+    const otherTicket = await api("POST", "/api/restoran/adisyonlar", {
+      companyId: company.id,
+      note: `TEST yarım2 ${stamp}`,
+    })
+    created.ticketIds.push(otherTicket.body?.id)
+    await api("POST", `/api/restoran/adisyonlar/${otherTicket.body.id}/kalemler`, {
+      companyId: company.id,
+      productId: latte.id,
+      quantity: 1,
+    })
+    const otherPrep = await api(
+      "GET",
+      `/api/restoran/adisyonlar/${otherTicket.body.id}/kapat?companyId=${company.id}`,
+    )
+    check("başka adisyon bağlı fişi devralmıyor", otherPrep.body?.existingInvoice === null)
+    await api(
+      "DELETE",
+      `/api/restoran/adisyonlar/${otherTicket.body.id}?companyId=${company.id}&reasonCode=TEST`,
     )
 
     // ── 9. Faz D: masa raporu + gün sonu açık adisyonlar ────────────────────
@@ -896,6 +1152,31 @@ async function main() {
     check("modül kapalıyken uç 403", blocked.status === 403, blocked.body?.error)
     const blockedReport = await api("GET", `/api/restoran/raporlar/masalar?companyId=${company.id}`)
     check("modül kapalıyken masa raporu 403", blockedReport.status === 403, blockedReport.body?.error)
+
+    // v1'in dört rapor + iki reçete ucu Aşama 2'ye kadar kapısızdı: `restaurant`
+    // kapalı bir firmanın kullanıcısı onları çağırabiliyordu (ücretli özellik
+    // baypası). Altısı da tek tek kontrol ediliyor — biri unutulursa görünsün.
+    for (const [label, path] of [
+      ["karlılık", `/api/restoran/raporlar/karlilik?companyId=${company.id}`],
+      ["tüketim", `/api/restoran/raporlar/tuketim?companyId=${company.id}`],
+      ["menü performansı", `/api/restoran/raporlar/menu-performans?companyId=${company.id}`],
+      ["gün sonu", `/api/restoran/raporlar/gun-sonu?companyId=${company.id}`],
+      ["reçete listesi", `/api/restoran/recipes?companyId=${company.id}`],
+    ]) {
+      const res = await api("GET", path)
+      check(`modül kapalıyken ${label} 403`, res.status === 403, `HTTP ${res.status}`)
+    }
+    const blockedRecipeWrite = await api("POST", "/api/restoran/recipes", {
+      companyId: company.id,
+      productId: "yok",
+      items: [],
+    })
+    check(
+      "modül kapalıyken reçete yazma 403",
+      blockedRecipeWrite.status === 403,
+      `HTTP ${blockedRecipeWrite.status}`,
+    )
+
     await prisma.company.update({
       where: { id: company.id },
       data: { disabledModules: { set: company.disabledModules ?? [] } },

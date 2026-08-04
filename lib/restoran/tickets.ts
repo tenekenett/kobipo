@@ -13,6 +13,7 @@ import { Prisma } from "@prisma/client"
 // eskiden olduğu gibi hepsini bu dosyadan görmeye devam eder.
 export * from "./ticket-constants"
 import {
+  cancelReasonLabel,
   parseItemOptions,
   reasonLabel,
   ticketDiscountOf,
@@ -124,6 +125,12 @@ export function serializeTicket(ticket: TicketWithRelations) {
     closedAt: ticket.closedAt,
     invoiceId: ticket.invoiceId,
     invoiceNo: ticket.invoice?.invoiceNo ?? null,
+    // İptal edildiyse NEDEN — ve iptal mi gerçekten? Birleştirilen adisyon da
+    // `CANCELLED` görünür ama cirosu kaybolmadı, hedefe geçti.
+    mergedIntoId: ticket.mergedIntoId,
+    cancelReasonCode: ticket.cancelReasonCode,
+    cancelReason: ticket.cancelReason,
+    cancelReasonLabel: cancelReasonLabel(ticket.cancelReasonCode),
     discountType: discount?.type ?? null,
     discountValue: discount?.value ?? null,
     discountReason: ticket.discountReason,

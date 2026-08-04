@@ -3,6 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
+import { assertRestaurantModule } from "@/lib/restoran/tickets"
 import { assertNoRecipeCycle, RecipeCycleError } from "@/lib/stock/recipe"
 import { canConvert, normalizeUnitCode } from "@/lib/data/units"
 
@@ -78,7 +79,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "companyId is required" }, { status: 400 })
     }
 
-    await ensureCompanyAccess(companyId)
+    assertRestaurantModule(await ensureCompanyAccess(companyId))
 
     const productId = searchParams.get("productId")?.trim() || undefined
 
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "companyId is required" }, { status: 400 })
     }
 
-    await ensureCompanyWrite(companyId)
+    assertRestaurantModule(await ensureCompanyWrite(companyId))
 
     const productId = String(body.productId || "").trim()
     if (!productId) {

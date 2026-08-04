@@ -90,7 +90,14 @@ export async function findReservationClash(
     const rStart = r.reservedAt.getTime()
     const rEnd = rStart + r.durationMin * 60000
     if (start < rEnd && rStart < end) {
-      const hhmm = r.reservedAt.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
+      // Saat dilimi AÇIKÇA veriliyor: sunucunun kendi TZ'si (Vercel'de UTC)
+      // kullanılsaydı kullanıcı "09:46" görürken kayıt TSİ 12:46 olurdu.
+      // Raporlardaki `AT TIME ZONE 'Europe/Istanbul'` ile aynı kural.
+      const hhmm = r.reservedAt.toLocaleTimeString("tr-TR", {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Europe/Istanbul",
+      })
       return `${hhmm} ${r.guestName}`
     }
   }

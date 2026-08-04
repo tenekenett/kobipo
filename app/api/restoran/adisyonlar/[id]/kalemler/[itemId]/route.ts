@@ -100,8 +100,19 @@ export async function PATCH(request: Request, { params }: Params) {
 }
 
 /**
- * Kalemi siler. Adisyon açıkken serbesttir: v1'de mutfak/kasa ayrımı yok, ürün
- * hazırlanmadan önce kalem silmek normal iştir ve stok henüz düşmemiştir.
+ * Kalemi SİLMEZ, `VOID` işaretler — "iptal edildi, hesaba girmiyor".
+ *
+ * Eskiden gerçekten siliyordu ve K2'nin ("kalem silinmez, işaretlenir; sebep
+ * zorunlu") tek kaçış yolu buydu: ekrandaki adet düşürücü 0'a inince bu uç
+ * çağrılıyor, servis edilmiş bir ürün geriye hiç iz bırakmadan kayboluyordu.
+ * Ölçülemeyen kaçak, olmayan kaçaktır.
+ *
+ * Sebep verilmezse `MISENTRY` ("yanlış girildi") sayılır: bu ucu çağıran istemci
+ * zaten "bu satır burada olmamalıydı" diyor. Sebebi seçtirmek isteyen ekran
+ * PATCH'i kullanır (orada sebep ZORUNLUdur).
+ *
+ * `VOID` kalem hesaba, fişe ve stoğa girmez (ticketTotals + kapat + comp-waste);
+ * yani kullanıcı açısından davranış aynı, tek fark artık kaydın durması.
  */
 export async function DELETE(request: Request, { params }: Params) {
   try {
@@ -124,7 +135,15 @@ export async function DELETE(request: Request, { params }: Params) {
     const item = await prisma.restaurantTicketItem.findFirst({ where: { id: itemId, ticketId: id } })
     if (!item) return NextResponse.json({ error: "Kalem bulunamadı" }, { status: 404 })
 
-    await prisma.restaurantTicketItem.delete({ where: { id: itemId } })
+    const requested = String(searchParams.get("reasonCode") || "").trim()
+    const reasonCode = TICKET_ITEM_REASONS.VOID.some((r) => r.code === requested)
+      ? requested
+      : "MISENTRY"
+
+    await prisma.restaurantTicketItem.update({
+      where: { id: itemId },
+      data: { status: "VOID", reasonCode, reason: item.reason ?? null },
+    })
 
     const fresh = await prisma.restaurantTicket.findUnique({ where: { id }, include: ticketInclude })
     return NextResponse.json(serializeTicket(fresh!))

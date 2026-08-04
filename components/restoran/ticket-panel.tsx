@@ -83,6 +83,7 @@ export function TicketPanel({
   discountLabel,
   readOnly = false,
   allowStatus = true,
+  allowDelete = false,
   emptyText = "Menüden ürün seçin",
   footer,
   onQuantity,
@@ -96,8 +97,18 @@ export function TicketPanel({
   /** "İskonto %10" gibi — iskonto satırının etiketi. */
   discountLabel?: string | null
   readOnly?: boolean
-  /** Kahveci ekranında ikram/zayi yok: satış henüz oluşmadı, iptal = sil. */
+  /** İkram/zayi/iptal işaretleme (sebep sorulur). */
   allowStatus?: boolean
+  /**
+   * Satır tamamen silinebilir mi — ve adet 0'a inebilir mi.
+   *
+   * Kahveci sepetinde EVET: sepet yalnız tarayıcıda yaşar, henüz hiçbir şey
+   * olmamıştır. Adisyonda HAYIR: kalem sunucuda kayıtlıdır ve silinmesi iz
+   * bırakmaz — yanlış giren satır ⋮ menüsündeki "İptal" ile SEBEBİYLE
+   * kaydedilir (docs/restoran/SATIS-EKRANI.md K2). Adet düşürücünün 0'a inmesi
+   * bu kuralın sessiz kaçış yoluydu.
+   */
+  allowDelete?: boolean
   emptyText?: string
   footer?: React.ReactNode
   onQuantity: (id: string, quantity: number) => void
@@ -205,7 +216,7 @@ export function TicketPanel({
                           <QuantityStepper
                             value={item.quantity}
                             onChange={(v) => onQuantity(item.id, v)}
-                            min={0}
+                            min={allowDelete ? 0 : 1}
                           />
                         </div>
                         {onEditNote && (
@@ -252,7 +263,7 @@ export function TicketPanel({
                             )}
                           </>
                         )}
-                        {!allowStatus && (
+                        {allowDelete && (
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem

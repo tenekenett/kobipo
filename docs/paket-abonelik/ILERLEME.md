@@ -212,3 +212,23 @@ gittiğinden aktif bug tetiklenmiyor (latent) — bilinçli dokunulmadı.
 - PayTR mağaza panelinde bildirim (callback) URL: `https://<alan-adı>/api/billing/paytr/callback`.
 - Recurring (yinelenen) ödeme özelliğinin PayTR hesabında **açık** olması.
 - `BILLING_CRON_SECRET` env (recurring/reconcile cron endpoint koruması).
+
+---
+
+## Ek — sistem-admin: elle şube kotası (2026-08-04)
+Satın alma akışı dışında destek/demo amaçlı kota verebilmek için sistem-admin abonelik kartındaki
+"şube kotası" artık düzenlenebilir.
+- **Uç** — `POST /api/billing/admin/branch-quota` (süper-admin): `{ companyId, branchQuota,
+  createTrialIfMissing? }`. `lib/billing/admin.ts` → `setAccountBranchQuota()` kök firmayı çözüp
+  **en güncel** abonelik satırını günceller (şube ekleme kontrolü de aynı satırı okur).
+- **Aboneliği olmayan hesap** — kota tek başına etkisizdir (şube ekleme aktif abonelik ister,
+  fail-closed). Uç `409 NO_SUBSCRIPTION` döner; UI onay alıp `createTrialIfMissing:true` ile
+  tekrar çağırır → 1 yıllık deneme satırı açılır. **Modül yetkilerine dokunulmaz** (kota vermek
+  modül açmak değildir; `applyEntitlements` çağrılmaz).
+- **UI** — `components/system-admin/subscription-admin.tsx` `BranchQuotaEditor`: sayı alanı +
+  değişince "Kaydet" (Enter kaydeder, Esc geri alır), "kullanılan: N" ve uyarılar (abonelik pasif
+  → kota etkisiz; kota mevcut şube sayısının altında → yeni şube eklenemez). Üst sınır
+  `MAX_BRANCH_QUOTA` (`lib/billing/constants.ts`, 999).
+- **"Taze trial" artık kotayı korur** — sıfırlama aboneliği silip yeniden kurduğu için elle
+  verilen kota kayboluyordu; `resetAccountBilling` önceki `branchQuota`'yı yeni satıra taşır.
+- `tsc --noEmit` 0 hata (yalnızca `.next/types` kaynaklı eski uyarı), eslint temiz.

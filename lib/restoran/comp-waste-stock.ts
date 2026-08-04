@@ -38,7 +38,8 @@ export type CompWasteLine = {
  * hareketin tutarında durur.
  *
  * Hata durumunda SESSİZ kalır (log'lar): kapanış akışı stok yüzünden çökmemeli,
- * fiş zaten kesilmiş olur.
+ * fiş zaten kesilmiş olur. Yine de SONUÇ döner — fiş kesmeden çağıran (tezgâh
+ * ikramı) kullanıcıya "kaydedilemedi" diyebilsin; adisyon kapanışı yok sayar.
  */
 export async function writeCompWasteStock(args: {
   companyId: string
@@ -48,11 +49,11 @@ export async function writeCompWasteStock(args: {
   reference: string
   warehouseId?: string | null
   createdBy?: string | null
-}): Promise<void> {
+}): Promise<{ written: number; failed: boolean }> {
   const lines = args.lines.filter(
     (l) => l.productId && Number(l.quantity) > 0 && (l.status === "COMP" || l.status === "WASTE"),
   )
-  if (lines.length === 0) return
+  if (lines.length === 0) return { written: 0, failed: false }
 
   try {
     const { recipes, unitOf } = await loadRecipeContext(prisma, args.companyId)
@@ -79,7 +80,7 @@ export async function writeCompWasteStock(args: {
       ...direct.map((d) => ({ productId: d.productId, quantity: d.quantity, fromRecipe: false })),
       ...components.map((c) => ({ productId: c.productId, quantity: c.quantity, fromRecipe: true })),
     ]
-    if (ops.length === 0) return
+    if (ops.length === 0) return { written: 0, failed: false }
 
     const serviceIds = new Set(
       (
@@ -90,7 +91,7 @@ export async function writeCompWasteStock(args: {
       ).map((p) => p.id),
     )
     const stockable = ops.filter((o) => !serviceIds.has(o.productId))
-    if (stockable.length === 0) return
+    if (stockable.length === 0) return { written: 0, failed: false }
 
     const costs = await resolveUnitCosts(
       args.companyId,
@@ -131,7 +132,10 @@ export async function writeCompWasteStock(args: {
         })
       }
     })
+
+    return { written: stockable.length, failed: false }
   } catch (error) {
     console.error("[İkram/Zayi] Stok düzeltmesi yazılamadı:", args.ticketCode, error)
+    return { written: 0, failed: true }
   }
 }
