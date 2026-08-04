@@ -507,3 +507,30 @@ denemek istersek bayi test kimliğiyle `MYSOFT_PARTNER_API_URL`'i test URL'sine 
   bulunmamaktadır." diyor — sözleşme e-Arşiv'i kapsadığı hâlde. Tarife/sözleşme sorunu
   OLMADIĞI artık kesin. Yeni hipotez gerekiyor (firma e-Fatura mükellefi olduğu için e-Arşiv
   ayrı mı ele alınıyor? EArchive'de `internetSerialNumberPrefix` mi sorun?).
+  ⚠️ **Bu maddedeki "bizim çağrımızdan doğdu" ifadesi 22 nolu günlükte DÜZELTİLDİ.**
+- **2026-08-04 (22)** — ✅ **KESİN CEVAP: firma 2021'den beri e-Fatura mükellefi. Günlük 21
+  kısmen YANLIŞTI.** `diagnose` ucuna GİB sicil sorgusu (`getGibAccount`) eklendi; çıktı:
+  - `eInvoiceStartDate: **2021-03-22**T10:25:10` → e-Fatura mükellefiyeti **bizden DEĞİL**,
+    beş yıldır var. `isEInvoiceTaxpayer: true`, `gibAccountType 1`, `isPassive: false`.
+  - Etiketler ayrımı belirleyici:
+    `defaultgb@` / `defaultpk@` → `aliasCreateDate` **2021-03-22** (eski, başka sistemden)
+    `ayhansariigb@` / `ayhansariipk@` → `aliasCreateDate` **2026-08-03 14:41:13** (YENİ, bizden)
+  **Doğru okuma:** 03.08 14:12'deki `addTenantActivation(EInvoice)` çağrımız **yeni mükellefiyet
+  yaratmadı**; mevcut GİB hesabına **kendi etiketlerimizi ekledi** (aktivasyon kaydı 277050,
+  `gibServiceStatus 1300`). Yani gerçekleşen şey "özel entegratöre kayıt" adımıdır.
+  **Sonuçlar:**
+  - Günlük 21'deki "projede ilk kez GİB'e ulaşıldı ve e-Fatura aktivasyonu açıldı" ifadesi
+    yanıltıcı → çağrı GİB'e ulaştı ve başarılı oldu, ama açılan şey **etiket kaydı**.
+  - Günlük 19–21 çevresinde oluşan "müşteri istemediği ürüne kaydoldu / yeni yükümlülük aldı"
+    endişesi **GEÇERSİZ** — zaten mükellefti.
+  - §3.1'deki mali mühür analizi **ÇÜRÜMEDİ**: yeni bir e-Fatura kaydı oluşmadığı için mühür
+    gerektiren adım hiç yaşanmadı. "Kobipo'dan e-Fatura açılabiliyor" SONUCU ÇIKARILAMAZ.
+  ⚠️ **YENİ RİSK (takip et):** Firma 2021'den beri başka bir entegratör/yazılım kullanıyor
+  olmalı (`default*` etiketleri). Biz araya **yeni bir posta kutusu (PK) etiketi** ekledik.
+  PK, gelen e-faturaların yönlendirildiği adrestir → müşterinin mevcut sistemine düşen
+  faturaların bir kısmı artık bize düşüyor olabilir. Müşteriye/mali müşavirine sorulmalı:
+  "e-Faturalarınızı hangi programdan alıyorsunuz, 03.08'den beri eksik gelen var mı?"
+  Gerekirse eklediğimiz etiketlerin kaldırılması gündeme gelir.
+  **Ders (kalıcı):** `eDonusumActivationError` yalnız İLK başarısız ürünün mesajını tutuyordu →
+  EInvoice'un gerçek hata metni kaybolmuş, "bu kayıt bizden mi?" sorusu iki gün cevapsız kalmıştı.
+  Düzeltildi: artık her ürünün hata metni SystemLog'a ayrı yazılıyor.
