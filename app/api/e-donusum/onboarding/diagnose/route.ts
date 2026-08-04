@@ -11,6 +11,10 @@ export const dynamic = "force-dynamic"
 /**
  * TEŞHİS ucu — HİÇBİR ŞEY YAZMAZ, sadece okur (4 adet GET).
  *
+ * Firma ÜYELİĞİ istemez (yalnız süper admin) — bilerek: teşhis edilen firma çoğu zaman
+ * müşterinin firmasıdır ve bizim hesabımız o firmaya üye değildir. `check-vkn` bu yüzden
+ * bu iş için kullanılamıyordu (ensureCompanyAccess → "Access denied").
+ *
  * Onboarding takıldığında "Mysoft tarafında bu firma gerçekte ne durumda?" sorusunu
  * tek çağrıda cevaplar. Bayi kimliğiyle çalışır (createPartnerProvider), çünkü firma
  * kendi Mysoft kullanıcısına sahip değildir.
@@ -39,14 +43,44 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: PARTNER_NOT_CONFIGURED_ERROR }, { status: 400 })
     }
 
-    const [tariffs, contracts, activations] = await Promise.all([
+    const [tariffs, contracts, activations, gib] = await Promise.all([
       provider.getBusinessPartnerTariff(50),
       provider.getPreContract(vkn),
       provider.getTenantActivationStatus(vkn),
+      provider.getGibAccount(vkn),
     ])
+
+    // GİB mükellef sicili — "bu kayıt bizden mi, yoksa firma zaten mükellef miydi?"
+    // sorusunun TEK kesin cevabı. eInvoiceStartDate bizim tenant açtığımız tarihse
+    // (2026-08-03) kayıt bizim çağrımızdan doğmuştur; daha eskiyse firma zaten
+    // e-Fatura mükellefiydi ve biz sadece mevcut durumu görüyoruzdur.
+    const gibData = gib.success ? gib.data : null
+    const gibRaw: any = gibData?.raw || {}
+    const gibAliases: string[] = Array.isArray(gibRaw?.gibAccountAliasList)
+      ? Array.from(
+          new Set(
+            gibRaw.gibAccountAliasList
+              .map((a: any) => String(a?.alias || "").trim())
+              .filter(Boolean),
+          ),
+        )
+      : []
 
     return NextResponse.json({
       vkn,
+      // ⭐ ÖNCE BURAYA BAK: kayıt bizden mi, önceden mi vardı?
+      gibAccount: {
+        ok: gib.success,
+        error: gib.success ? null : gib.error,
+        accountName: gibData?.accountName ?? null,
+        isEInvoiceTaxpayer: gibData?.isEInvoiceTaxpayer ?? null,
+        /** e-Fatura mükellefiyetinin GİB'deki BAŞLANGIÇ tarihi — belirleyici alan. */
+        eInvoiceStartDate: gibData?.eInvoiceStartDate ?? null,
+        eWaybillStartDate: gibData?.eWaybillStartDate ?? null,
+        isPassive: gibData?.isPassive ?? null,
+        aliases: gibAliases,
+        raw: gibRaw,
+      },
       // Bayide tanımlı tarifeler (aktivasyon için hangi ürünleri satabiliyoruz).
       partnerTariffs: {
         ok: tariffs.success,

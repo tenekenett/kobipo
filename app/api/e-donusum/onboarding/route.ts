@@ -534,7 +534,11 @@ export async function POST(request: Request) {
         details: `Firma ${company.name} (VKN ${vkn}) onboarding — tenant: ${
           tenantId ?? "mevcut"
         }, tarife: ${contractInfo ?? "-"}, aktivasyon: ${activations
-          .map((a) => `${a.type}:${a.ok ? "OK" : "HATA"}`)
+          // Her ürünün hata METNİ ayrı yazılır. Eskiden yalnız "HATA" yazılıyor ve
+          // eDonusumActivationError'a sadece İLK başarısız ürünün mesajı düşüyordu →
+          // 2026-08-03'te EInvoice'un gerçek hata metni tamamen kayboldu ve "bu kayıt
+          // bizden mi?" sorusu günlerce cevaplanamadı.
+          .map((a) => `${a.type}:${a.ok ? "OK" : `HATA(${a.error || "mesaj yok"})`}`)
           .join(", ")}`,
         level: anyFail ? "WARN" : "INFO",
       },

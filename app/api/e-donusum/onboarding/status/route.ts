@@ -49,6 +49,8 @@ export async function GET(request: Request) {
         eDonusumTenantVkn: true,
         eDonusumOnboardingStatus: true,
         eDonusumActivatedProducts: true,
+        eFaturaPrefix: true,
+        eArchivePrefix: true,
       },
     })
     if (!company) return NextResponse.json({ success: false, error: "Firma bulunamadı" }, { status: 404 })
@@ -78,13 +80,35 @@ export async function GET(request: Request) {
       serialNumberPrefix: r.serialNumberPrefix,
     }))
 
-    // Bizim başvurduğumuz ürünlerin hepsi onaylandıysa → ACTIVE.
     const submitted = company.eDonusumActivatedProducts || []
     const approvedTypes = new Set(
       activations.filter((a) => a.state === "approved" && a.productType).map((a) => a.productType as string),
     )
-    const allApproved =
-      submitted.length > 0 && submitted.every((t) => approvedTypes.has(t))
+
+    // GERÇEĞİ KAYNAK AL: Mysoft'ta onaylı görünen ürünleri kendi kaydımıza da yaz.
+    // Gerekli, çünkü POST sırasında Mysoft bize hata dönse bile aktivasyon gerçekte
+    // oluşmuş olabiliyor — 2026-08-03'te EInvoice "HATA" diye kaydedildi ama GİB
+    // "BAŞARIYLA TAMAMLANDI" (1300) ile onaylamıştı. Bu senkron olmadan firma
+    // eDonusumActivatedProducts=[] ile sonsuza kadar FAILED'da kalıyordu: allApproved
+    // yalnız BİZİM kaydımıza baktığı için "Durumu Yenile" hiçbir zaman kurtaramıyordu.
+    const merged = Array.from(new Set([...submitted, ...approvedTypes]))
+    const allApproved = merged.length > 0 && merged.every((t) => approvedTypes.has(t))
+
+    // Onaylı aktivasyonun seri ön ekini firmaya yaz — numaratör GİB'deki ile aynı olsun.
+    // (Mysoft prefix'i kendi atamış olabilir; ASDOĞUŞ örneğinde EInvoice → "ADE".)
+    const prefixOf = (type: string) =>
+      activations.find((a) => a.productType === type && a.state === "approved" && a.serialNumberPrefix)
+        ?.serialNumberPrefix || null
+    const eFaturaPrefix = prefixOf("EInvoice")
+    const eArchivePrefix = prefixOf("EArchive")
+
+    const syncData: Record<string, unknown> = {}
+    if (merged.length !== submitted.length) syncData.eDonusumActivatedProducts = merged
+    if (eFaturaPrefix && eFaturaPrefix !== company.eFaturaPrefix) syncData.eFaturaPrefix = eFaturaPrefix
+    if (eArchivePrefix && eArchivePrefix !== company.eArchivePrefix) syncData.eArchivePrefix = eArchivePrefix
+    if (Object.keys(syncData).length > 0) {
+      await prisma.company.update({ where: { id: companyId }, data: syncData })
+    }
 
     let nextStatus = company.eDonusumOnboardingStatus || null
     // Durumu yalnızca ileriye taşı — geri (ACTIVE→PENDING) düşürme.
@@ -107,7 +131,7 @@ export async function GET(request: Request) {
       vkn,
       status: nextStatus,
       allApproved,
-      submitted,
+      submitted: merged,
       activations,
     })
   } catch (error: any) {

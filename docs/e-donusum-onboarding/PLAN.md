@@ -479,3 +479,31 @@ denemek istersek bayi test kimliğiyle `MYSOFT_PARTNER_API_URL`'i test URL'sine 
     böylece bir sonraki denemede SystemLog tek başına teşhis için yeterli olacak.
   Kaynak `tsc` 0 hata. **Sıradaki: deploy → `/api/e-donusum/onboarding/diagnose?vkn=0860998219`
   → çıktıya göre karar** (kapsamsız sözleşme ise forcePreContract; değilse yeni hipotez).
+- **2026-08-04 (21)** — 🎯 **TEŞHİS ÇIKTISI GELDİ — E-FATURA AKTİVASYONU GİB'DE ONAYLI.**
+  ASDOĞUŞ (VKN 0860998219) gerçek durumu:
+  - `tenantActivations`: **EInvoice / TurnOn / `Approved` / gibServiceStatus `1300`
+    "BAŞARIYLA TAMAMLANDI"**, prefix `ADE`, `pkAlias: urn:mail:ayhansariipk@hotmail.com`,
+    `gbAlias: urn:mail:ayhansariigb@hotmail.com`, aktivasyon id 277050, tarih 2026-08-03.
+    → Projede İLK KEZ GİB katmanına ulaşıldı **ve başarılı oldu.** Üstelik bu, 03.08 11:12'deki
+    **eski kod** denemesinden geliyor — yani **İVD alanları HİÇ GÖNDERİLMEDEN**.
+  - `tenantContracts`: `REYPO-001`, 2026-08-03 → 2027-08-02, `creditQty 250`,
+    `isLoadCredit: "Kontör Yüklendi"`. → **Günlük 19'daki tarife hipotezi YANLIŞTI:**
+    `addTenant`'taki `addTariffToTenant:true` sözleşmeyi ZATEN kurmuş ve kontörü yüklemiş.
+    İyi ki idempotency koruması `addPreContract`'ı engellemiş — `forcePreContract` çalışsaydı
+    mükerrer sözleşme + bayi havuzundan ikinci bir 250 kontör gidecekti.
+  **🐞 ORTAYA ÇIKAN BUG (düzeltildi):** POST sırasında Mysoft bize `EInvoice:HATA` döndü ama
+  aktivasyonu GERÇEKTE oluşturup GİB'e gönderdi. Sonuç: DB'de `eDonusumActivatedProducts=[]`,
+  durum `FAILED` — gerçekle uyuşmuyor. Daha kötüsü status route bundan KURTULAMIYORDU:
+  `allApproved` yalnız *bizim kaydettiğimiz* `submitted` listesine bakıyordu, o da boş →
+  "Durumu Yenile" kaç kez basılsa da firma sonsuza kadar FAILED'da kalırdı.
+  **Düzeltme (`onboarding/status/route.ts`):** gerçek kaynak artık Mysoft. Onaylı aktivasyon
+  ürünleri `eDonusumActivatedProducts`'a merge ediliyor, onaylı kaydın `serialNumberPrefix`'i
+  firmaya yazılıyor (EInvoice→`eFaturaPrefix`, EArchive→`eArchivePrefix`), `allApproved` merge
+  edilmiş liste üzerinden hesaplanıyor. Böylece tek bir "Durumu Yenile" firmayı ACTIVE'e alıp
+  `isEDonusumEnabled=true` yapıyor. `tsc` 0 hata.
+  **⚠️ Günlük 19'daki "isEDonusumEnabled'ı kapat" tavsiyesi GEÇERSİZ** — aktivasyon gerçek ve
+  onaylı, kontör yüklü; kapatmak çalışan akışı bozar.
+  **Açık kalan:** `EArchive` aktivasyonu hâlâ "Üzerinize tanımlı aktivasyon ürün bilgisi
+  bulunmamaktadır." diyor — sözleşme e-Arşiv'i kapsadığı hâlde. Tarife/sözleşme sorunu
+  OLMADIĞI artık kesin. Yeni hipotez gerekiyor (firma e-Fatura mükellefi olduğu için e-Arşiv
+  ayrı mı ele alınıyor? EArchive'de `internetSerialNumberPrefix` mi sorun?).
