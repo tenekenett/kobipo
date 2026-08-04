@@ -115,6 +115,59 @@ gerekiyor (muhtemelen SMS doğrulaması). Sihirbazda önceden uyar, yoksa kullan
 - **ÖKC / yazarkasa yolu** (`addVuk507Activation`, `serviceOperatorType: 1=İdeal, 2=Pavo`)
   — yeni nesil ÖKC TSM'i üzerinden aktivasyon. Sihirbazda seçenek olarak bile durmayacak.
 
+## 3.2 Kullanıcı segmentleri ve akış haritası (2026-08-04)
+
+**Temel ayrım — iki farklı şey, karıştırma:**
+
+| | Ne | Kim yapar | Mühür |
+|---|---|---|---|
+| **Mükellefiyet** | GİB nezdinde e-Fatura kullanıcısı olmak (vergi statüsü) | Mükellef, kendi (GİB/İVD üzerinden) | Gerekir |
+| **Entegratör kaydı** | Belgelerin hangi sistemden geçeceği — GİB'e PK/GB **etiketi** eklemek | **BİZ** (`addTenantActivation`) | Gerekmez |
+
+Kobipo **mükellefiyet açmaz**; entegratör kaydı yapar. "Kobipo'dan e-Fatura kesebilme
+yetkisi" = mevcut GİB hesabına bizim etiketimizin eklenmesi.
+
+**Segment tespiti:** VKN → `getGibAccount` (`/api/e-donusum/check-vkn` veya diagnose ucu)
+→ `isEInvoiceTaxpayer`, `eInvoiceStartDate`, `aliases`.
+
+---
+
+### Segment A — e-Fatura mükellefi DEĞİL (kafe / restoran / küçük işletme)
+- **Ürün:** e-Arşiv (mükellefiyet gerektirmez)
+- **Yetki:** İVD kullanıcı kodu + şifre (yeni bir GİB **başvurusu** açılıyor)
+- **Akış:** `addTenant` → tarife (addTariffToTenant ile otomatik) → `addTenantActivation(EArchive, iVd*)` → GİB onayı
+- **Durum:** ⛔ **ÇALIŞMIYOR** — "Üzerinize tanımlı aktivasyon ürün bilgisi bulunmamaktadır."
+  Tarife/sözleşme sorunu olmadığı kesin (günlük 21). Gerçek hata metni bir sonraki denemede
+  log'a düşecek (günlük 22 düzeltmesi).
+
+### Segment B — e-Fatura mükellefi, BAŞKA entegratörde (**ana kitle**)
+- **Ürün:** e-Fatura (+ istenirse e-Arşiv)
+- **Yetki:** yalnız etiket kaydı. **Mühür GEREKMEDİ, İVD bile GEREKMEDİ** — ASDOĞUŞ'ta
+  başarılı çağrı eski kodla, İVD alanları hiç gönderilmeden yapıldı (günlük 22).
+- **Akış:** `addTenant` → `addTenantActivation(EInvoice)` → GİB yeni PK+GB etiketi oluşturur
+- **Durum:** ✅ **TEKNİK OLARAK ÇALIŞTI** (tek örnek: ASDOĞUŞ, aktivasyon 277050,
+  `gibServiceStatus 1300`, etiketler 2026-08-03 14:41'de oluştu).
+- ⚠️ **EKSİK ADIM — GEÇİŞ YÖNETİMİ:** Eski entegratördeki etiket kapatılmıyor. PK etiketi
+  gelen faturaların yönlendirme adresi olduğundan, iki etiket birlikte durursa müşterinin
+  gelen faturaları **bölünür**. ASDOĞUŞ'ta bu fiilen oldu (`default*` 2021'den, bizimkiler
+  03.08'den — dördü de aktif, hiçbirinde `aliasDeleteDate` yok).
+  `ApiTenantActivationModel`'de kapatma alanı YOK (`activationDemandType` sadece GET
+  modelinde: TurnOn/TurnOff/NoActivation). Kapatmanın nasıl yapıldığı **araştırılmadı**.
+
+### Segment C — Mükellef ama hiç entegratörü yok
+Pratikte nadir (mükellefse bir sistemi vardır). Akış B ile aynı, geçiş adımı yok.
+
+---
+
+**Çıkan çalışma modeli (doğrulanacak):** e-Arşiv **yeni GİB başvurusu** gerektirdiği için
+İVD kimliği isteniyor; mevcut mükellefte e-Fatura ise yeni başvuru değil **etiket kaydı**
+olduğu için ne İVD ne mühür istiyor. Bu, Paraşüt'ün akışıyla da tutarlı (e-Arşiv'de İVD
+soruyor, e-Fatura'yı ayrı/insan destekli süreçle yürütüyor).
+
+**Kapsam kararına etkisi:** Günlük 20'deki "e-Fatura'yı tamamen kenara koy" kararı ana kitle
+(Segment B) için FAZLA GENİŞ. Doğru kurgu: VKN sorgusuyla segment tespit edilip ürün
+otomatik seçilmeli (Faz 2'de işaretsiz duran madde tam olarak buydu).
+
 ## 4. Veri Modeli Değişiklikleri (Company)
 
 `prisma/schema.prisma` + `supabase/migrations/*_company_edonusum_onboarding.sql`:
@@ -255,6 +308,37 @@ Hedef akış:
 > 🔒 **Değişmez güvenlik kuralı:** İVD şifresi vergi hesabının tamamına erişim verir
 > (beyanname, borç, tebligat). Yalnızca istek gövdesinde taşınır: DB'ye, `SystemLog`'a,
 > console'a, SWR cache'ine, hata mesajına **girmez**. Pass-through, saklama yok.
+
+### Faz 7 — Yarı otomatik akış (aktivasyon elle tamamlanırken)
+
+Gerekçe: `addTenantActivation` API'den çalışmıyor (günlük 23), ama panelden çalışıyor.
+Mysoft yetkiyi tanımlayana kadar akış **yarı otomatik** yürür — Paraşüt'ün e-Fatura'da
+insan adımı koyması gibi. Yetki gelince bu dal kendiliğinden devre dışı kalır, **kod
+değişmez.**
+
+Müşteri deneyimi:
+1. Sihirbazdan başvurur (e-Arşiv + İVD + onay)
+2. `addTenant` → tenant açılır, tarife + kontör otomatik gelir ✅
+3. `addTenantActivation` → bilinen hata → **başarısız sayılmaz**, durum `ACTIVATION_PENDING`
+4. Ekranda: *"Başvurunuz alındı. Firma kaydınız oluşturuldu, aktivasyon işlemi sürüyor."*
+5. **Biz** Mysoft panelinden aktivasyonu tamamlarız
+6. Kullanıcı **"Durumu Yenile"** → status route gerçeği görüp `ACTIVE` + `isEDonusumEnabled`
+
+- [x] **7.1** Bilinen hata tanınıyor (`MANUAL_ACTIVATION_HINT`) → `ACTIVATION_PENDING`,
+      `success:true`, `manualActivationPending:true`. Teknik metin yine döner (gizlenmiyor).
+- [x] **7.2** UI: bekleme durumunda kırmızı "Son hata" yerine amber "Başvurunuz alındı"
+      bilgilendirmesi. Ham yanıt kopyalanabilir "Teknik yanıt" bloğunda kalır.
+- [x] **7.3** Status route senkronu (günlük 22) bu köprünün diğer ucu: elle yapılan
+      aktivasyonu görüp firmayı ACTIVE'e alıyor, prefix'i yazıyor.
+- [ ] **7.4** Mysoft'a yetki sorusu (aşağıdaki kanıt paketiyle) — **blokajın tek çıkışı.**
+- [ ] **7.5** (yetki gelince) manuel dalın gerçekten devre dışı kaldığını doğrula.
+
+**Mysoft'a sorulacak (kanıt paketi):** canlı bayi hesabımızla `addTenant` çalışıyor
+(tenant 53949), tarife REYPO-001 atanıyor, 250 kontör yükleniyor. Ancak
+`addTenantActivation` **hem `EArchive` hem `EInvoice`** için *"Üzerinize tanımlı aktivasyon
+ürün bilgisi bulunmamaktadır."* dönüyor. **Aynı firmada aynı aktivasyon Mysoft panelinden
+elle yapılınca çalıştı** (aktivasyon 277050, GİB 1300 "BAŞARIYLA TAMAMLANDI").
+→ *Bayi API kullanıcımıza aktivasyon yetkisi ayrıca tanımlanması mı gerekiyor?*
 
 ## 6. Dosya Haritası
 
@@ -534,3 +618,28 @@ denemek istersek bayi test kimliğiyle `MYSOFT_PARTNER_API_URL`'i test URL'sine 
   **Ders (kalıcı):** `eDonusumActivationError` yalnız İLK başarısız ürünün mesajını tutuyordu →
   EInvoice'un gerçek hata metni kaybolmuş, "bu kayıt bizden mi?" sorusu iki gün cevapsız kalmıştı.
   Düzeltildi: artık her ürünün hata metni SystemLog'a ayrı yazılıyor.
+  ⚠️ **Bu maddedeki "aktivasyon bizim çağrımızdan doğdu" ifadesi de 23'te DÜZELTİLDİ.**
+- **2026-08-04 (23)** — ⛔ **KESİN: `addTenantActivation` API'den HİÇ ÇALIŞMADI. Aktivasyon
+  ELLE yapılmış.** Kullanıcı doğruladı: ASDOĞUŞ'a Mysoft hesabı **haber verilmeden açılmış.**
+  Zaman çizelgesi bunu birebir doğruluyor (saatler TR):
+  | 14:12 | bizim `addTenant` → **tenant 53949 açıldı ✅** ; aktivasyonlar `EArchive:HATA, EInvoice:HATA` ❌ |
+  | 14:41:13 | GİB'de yeni etiketler oluştu (`ayhansariipk/gb`) — **elle yapılan kurulumdan** |
+  | 14:41:56 | ASDOĞUŞ'un KENDİ Mysoft kimliğiyle "Test Bağlantısı" → başarılı |
+  Kobipo'da ASDOĞUŞ'un kendi `eDonusumApiUsername`'i tanımlı (canlı, `eDonusumLastTestSuccess:true`).
+  **Doğru tablo — hangi parça çalışıyor:**
+  | Adım | API'den | Durum |
+  |---|---|---|
+  | `addTenant` | ✅ | tenant 53949, alan doğrulamaları geçiyor |
+  | Tarife + kontör (`addTariffToTenant:true`) | ✅ | REYPO-001 atandı, 250 kontör yüklendi |
+  | `addTenantActivation` | ❌ | **HER ZAMAN** "Üzerinize tanımlı aktivasyon ürün bilgisi bulunmamaktadır." |
+  | Aktivasyon (Mysoft **paneli**) | ✅ | elle yapılınca çalışıyor — GİB onayladı (277050) |
+  **Kritik ayrım:** hata **ürüne özgü DEĞİL** — hem `EArchive` hem `EInvoice` aynı mesajı
+  aldı. Yani "e-Arşiv'in özel bir sorunu var" hipotezi de düştü. Aynı işlem panelden
+  yapılınca çalıştığına göre sorun **bayi API kullanıcısının aktivasyon yetkisi**.
+  Bu, 2026-07'deki "mükellef sorgulama paketi yok" blokajıyla aynı aile — o da Mysoft'un
+  hesaba tanım yapmasıyla çözülmüştü.
+  **Düşen iddialar:** günlük 21 ve 22'deki "aktivasyon bizim çağrımızdan doğdu / ilk kez GİB'e
+  ulaşıldı" ifadelerinin ikisi de YANLIŞ. Aynı şekilde 22'deki "biz etiket ekledik, müşterinin
+  gelen faturaları bölünüyor olabilir" endişesi de **bize ait değil** — etiketleri elle yapılan
+  kurulum oluşturdu (yine de iki entegratör durumu müşteri açısından geçerli bir konu).
+  **Ayakta kalan:** §3.1 mali mühür analizi (hiç sınanmadı), Segment A/B haritası (§3.2).

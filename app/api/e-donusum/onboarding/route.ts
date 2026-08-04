@@ -85,6 +85,17 @@ const OUT_OF_SCOPE_PRODUCTS: Record<string, string> = {
 // Seri ön ek (3 karakter) zorunlu olan ürünler.
 const PREFIX_REQUIRED = new Set(["EInvoice", "EArchive", "EDespatch"])
 
+// e-Arşiv'de İKİ AYRI numaratör vardır: normal e-Arşiv ve internet satış e-Arşiv
+// (`internetSerialNumberPrefix`). Aynı ön eki ikisine birden vermek iki seriyi
+// çakıştırır. UI ön ek sormadığı için internet serisini normal ön ekten türetiyoruz:
+// son karakter → "I"; zaten "I" ile bitiyorsa → "N".
+function internetPrefixFrom(base: string): string {
+  const b = (base || "").toUpperCase()
+  if (!/^[A-Z0-9]{3}$/.test(b)) return "EAI"
+  const candidate = `${b.slice(0, 2)}I`
+  return candidate === b ? `${b.slice(0, 2)}N` : candidate
+}
+
 // Bizim ürün kodlarımız ↔ Mysoft tarife detayındaki Türkçe etiketler
 // (getBusinessPartnerTariff → tariffProductDetailList[].activationProductTypeEnumText).
 // Tarife seçerken "bu tarife istediğim ürünü kapsıyor mu?" kontrolü için kullanılır.
@@ -480,10 +491,12 @@ export async function POST(request: Request) {
     // diğerleri denenmeye devam eder, sonuçlar toplanır.
     const activations: Array<{ type: string; ok: boolean; activationId?: number; error?: string }> = []
     for (const p of products) {
-      // E-Arşiv'de internetSerialNumberPrefix da ZORUNLU (Swagger). UI vermezse
-      // normal seri ön ekle aynısını gönder — böylece aktivasyon eksik-alandan patlamaz.
+      // E-Arşiv'de internetSerialNumberPrefix da ZORUNLU (Swagger). UI sormadığı için
+      // normal ön ekten TÜRETİLİR — eskiden aynısı gönderiliyordu, bu iki seriyi
+      // çakıştırıyordu (bkz. internetPrefixFrom).
       const internetPrefix =
-        p.internetSerialNumberPrefix || (p.type === "EArchive" ? p.serialNumberPrefix : "")
+        p.internetSerialNumberPrefix ||
+        (p.type === "EArchive" ? internetPrefixFrom(p.serialNumberPrefix) : "")
       const r = await provider.activateProduct({
         vknTckn: vkn,
         activationProductType: p.type,
@@ -502,8 +515,28 @@ export async function POST(request: Request) {
     const mergedProducts = Array.from(
       new Set([...(company.eDonusumActivatedProducts || []), ...okTypes]),
     )
-    const status = okTypes.length > 0 ? "ACTIVATION_PENDING" : "FAILED"
-    const firstError = activations.find((a) => !a.ok)?.error || null
+
+    // BİLİNEN DURUM (PLAN.md günlük 23): bayi API kullanıcımızın aktivasyon yetkisi yok —
+    // `addTenantActivation` her üründe bu mesajı dönüyor, aynı işlem Mysoft PANELİNDEN elle
+    // yapılınca çalışıyor. Bu hâlde başvuruyu BAŞARISIZ saymak yanlış: tenant açıldı, tarife
+    // ve kontör tanımlandı; geriye yalnız bizim elle tamamlayacağımız adım kaldı.
+    // Kullanıcıya "alındı, işleniyor" denir; biz panelden aktive edince "Durumu Yenile"
+    // gerçeği görüp firmayı ACTIVE yapar (onboarding/status route'undaki senkron).
+    // Mysoft yetkiyi tanımladığında bu dal kendiliğinden devre dışı kalır — kod değişmez.
+    const MANUAL_ACTIVATION_HINT = /aktivasyon ürün bilgisi bulunmamaktadır/i
+    const needsManualActivation =
+      okTypes.length === 0 &&
+      activations.length > 0 &&
+      activations.every((a) => !a.ok && MANUAL_ACTIVATION_HINT.test(a.error || ""))
+
+    const status = okTypes.length > 0 || needsManualActivation ? "ACTIVATION_PENDING" : "FAILED"
+    // TÜM başarısız ürünlerin mesajı tutulur. Eskiden yalnız ilki yazılıyordu ve
+    // 2026-08-03'te EInvoice'un hata metni tamamen kayboldu (bkz. PLAN.md günlük 22).
+    const failed = activations.filter((a) => !a.ok)
+    const firstError =
+      failed.length > 0
+        ? failed.map((a) => `${a.type}: ${a.error || "mesaj yok"}`).join(" | ")
+        : null
 
     // Aktivasyonda kullanılan (çoğunlukla otomatik atanmış) prefix'i firmaya yaz — böylece
     // Seri No Tanımları ekranında görünür ve fatura gönderiminde aynı numaratör kullanılır.
@@ -545,11 +578,19 @@ export async function POST(request: Request) {
     })
 
     return NextResponse.json({
-      success: okTypes.length > 0,
+      success: okTypes.length > 0 || needsManualActivation,
       tenantId,
       status,
       activations,
-      error: okTypes.length === 0 ? firstError || "Aktivasyon başarısız" : undefined,
+      /** true → başvuru alındı, aktivasyonu biz Mysoft panelinden tamamlayacağız. */
+      manualActivationPending: needsManualActivation,
+      // Teknik metin her hâlde döner (ekranda "Teknik yanıt" bloğunda görünür) — manuel
+      // dalda bile gizlemiyoruz, teşhis için gerekli.
+      error:
+        okTypes.length === 0 && !needsManualActivation
+          ? firstError || "Aktivasyon başarısız"
+          : undefined,
+      activationDetail: firstError || undefined,
     })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""

@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
+  ClipboardCopy,
   Clock,
   FileText,
   Globe,
@@ -122,6 +123,12 @@ export default function EDonusumAyarlariPage() {
   // başvurudan sonra state'ten temizlenir.
   const [ivd, setIvd] = useState({ username: "", password: "" })
   const [consent, setConsent] = useState(false)
+
+  // Başvuru ucunun HAM yanıtı (HTTP durumu + gövde). Ekranda kopyalanabilir şekilde
+  // gösterilir: firma hesabı geliştiricide olmadığı için hata teşhisi ancak kullanıcının
+  // bu metni geri iletmesiyle yapılabiliyor. Toast kaybolduğu için yetmiyordu — özellikle
+  // 502'lerde (stage: createTenant / preContract) ekranda hiçbir iz kalmıyordu.
+  const [lastResponse, setLastResponse] = useState<{ httpStatus: number; body: any } | null>(null)
 
   useEffect(() => {
     if (!companyId) return
@@ -266,6 +273,7 @@ export default function EDonusumAyarlariPage() {
 
     setIsSubmitting(true)
     setSubmitResult(null)
+    setLastResponse(null)
     try {
       const res = await fetch("/api/e-donusum/onboarding", {
         method: "POST",
@@ -278,17 +286,28 @@ export default function EDonusumAyarlariPage() {
           consentAccepted: consent,
         }),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({ error: "Yanıt okunamadı (geçersiz JSON)" }))
+      // Ham yanıtı HER durumda sakla — başarıda da hatada da ekranda kalsın.
+      setLastResponse({ httpStatus: res.status, body: data })
       setSubmitResult(Array.isArray(data.activations) ? data.activations : null)
       if (data.success) {
         setOnboardingStatus(data.status || "ACTIVATION_PENDING")
         // 🔒 Başvuru gittiğine göre şifreye artık gerek yok — bellekten temizle.
         // (Hata durumunda BIRAKILIYOR ki kullanıcı baştan yazmak zorunda kalmasın.)
         setIvd((v) => ({ ...v, password: "" }))
-        toast({
-          title: "Başvuru alındı",
-          description: "Firma açıldı ve aktivasyon başvurusu GİB'e iletildi. Durumu 'Yenile' ile takip edin.",
-        })
+        toast(
+          data.manualActivationPending
+            ? {
+                title: "Başvurunuz alındı",
+                description:
+                  "Firma kaydınız oluşturuldu. Aktivasyonunuz tamamlandığında 'Durumu Yenile' ile görebilirsiniz.",
+              }
+            : {
+                title: "Başvuru alındı",
+                description:
+                  "Firma açıldı ve aktivasyon başvurusu GİB'e iletildi. Durumu 'Yenile' ile takip edin.",
+              },
+        )
         fetchCompany()
       } else {
         throw new Error(data.error || "Başvuru başarısız")
@@ -776,13 +795,27 @@ export default function EDonusumAyarlariPage() {
               </span>
             </label>
 
-            {activationError && (
-              <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
-                <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            {/* Aktivasyon bekliyorken kırmızı "Son hata" gösterme — bekleme hata değil.
+                Teknik metin aşağıdaki "Teknik yanıt" bloğunda zaten duruyor. */}
+            {onboardingStatus === "ACTIVATION_PENDING" ? (
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                <Clock className="mt-0.5 h-4 w-4 shrink-0" />
                 <p>
-                  <span className="font-semibold">Son hata:</span> {activationError}
+                  <span className="font-semibold">Başvurunuz alındı.</span> Firma kaydınız
+                  oluşturuldu, aktivasyon işlemi sürüyor. Tamamlandığında{" "}
+                  <span className="font-medium">Durumu Yenile</span>'ye basarak
+                  görebilirsiniz.
                 </p>
               </div>
+            ) : (
+              activationError && (
+                <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
+                  <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>
+                    <span className="font-semibold">Son hata:</span> {activationError}
+                  </p>
+                </div>
+              )
             )}
 
             {submitResult && submitResult.length > 0 && (
@@ -799,6 +832,49 @@ export default function EDonusumAyarlariPage() {
                     {!a.ok && a.error && <span className="text-red-700 dark:text-red-300">— {a.error}</span>}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Ham yanıt — teşhis için. Firma hesabı geliştiricide olmadığından hata
+                metnini ancak kullanıcı geri iletebiliyor; bu yüzden ekranda kalıcı ve
+                kopyalanabilir. */}
+            {lastResponse && (
+              <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold">
+                    Teknik yanıt — HTTP {lastResponse.httpStatus}
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      const text = `HTTP ${lastResponse.httpStatus}\n${JSON.stringify(
+                        lastResponse.body,
+                        null,
+                        2,
+                      )}`
+                      try {
+                        await navigator.clipboard.writeText(text)
+                        toast({ title: "Kopyalandı", description: "Teknik yanıt panoya alındı." })
+                      } catch {
+                        toast({
+                          title: "Kopyalanamadı",
+                          description: "Aşağıdaki metni elle seçip kopyalayın.",
+                          variant: "destructive",
+                        })
+                      }
+                    }}
+                  >
+                    <ClipboardCopy className="mr-2 h-3.5 w-3.5" /> Kopyala
+                  </Button>
+                </div>
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Başvuru beklediğiniz gibi sonuçlanmadıysa bu metnin tamamını geliştiriciye iletin.
+                </p>
+                <pre className="max-h-64 overflow-auto rounded bg-background p-2 text-[11px] leading-relaxed">
+                  {JSON.stringify(lastResponse.body, null, 2)}
+                </pre>
               </div>
             )}
 

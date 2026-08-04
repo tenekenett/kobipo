@@ -43,11 +43,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: PARTNER_NOT_CONFIGURED_ERROR }, { status: 400 })
     }
 
-    const [tariffs, contracts, activations, gib] = await Promise.all([
+    const [tariffs, contracts, activations, gib, partnerCredit] = await Promise.all([
       provider.getBusinessPartnerTariff(50),
       provider.getPreContract(vkn),
       provider.getTenantActivationStatus(vkn),
       provider.getGibAccount(vkn),
+      // Bayi (ana iş ortağı) kontör havuzu — "firma açılınca havuzdan 250 kontör
+      // düşüyor mu?" sorusunun cevabı. Şu an bu ÇIKARIM: ASDOĞUŞ'un sözleşmesinde
+      // creditQty 250 / "Kontör Yüklendi" var ama kodumuz kontör yüklemedi; tek aday
+      // addTenant'taki addTariffToTenant:true. Havuz rakamı bunu doğrular/çürütür.
+      provider.getBusinessPartnerDocumentCreditList(1),
     ])
 
     // GİB mükellef sicili — "bu kayıt bizden mi, yoksa firma zaten mükellef miydi?"
@@ -94,6 +99,13 @@ export async function GET(request: Request) {
         error: contracts.error ?? null,
         count: contracts.data.length,
         data: contracts.data,
+      },
+      // Bayi kontör havuzu — firma açmanın havuza maliyeti var mı?
+      partnerCredit: {
+        ok: partnerCredit.success,
+        error: partnerCredit.error ?? null,
+        count: partnerCredit.data.length,
+        data: partnerCredit.data,
       },
       // Firmanın aktivasyon (GİB başvuru) kayıtları.
       tenantActivations: {
