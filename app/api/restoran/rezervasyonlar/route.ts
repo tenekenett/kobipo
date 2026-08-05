@@ -6,6 +6,7 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
 import {
   clampDuration,
+  expireStaleReservations,
   findReservationClash,
   reservationDayRange,
   reservationInclude,
@@ -27,6 +28,11 @@ export async function GET(request: Request) {
     if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
 
     assertRestaurantModule(await ensureCompanyAccess(companyId))
+
+    // Süresi geçmiş bekleyenler önce NOSHOW'a düşer: "oturdu" yalnız adisyon
+    // açılışıyla verildiği için gelmeyen misafirin kaydı aksi halde sonsuza
+    // kadar PENDING kalıyor ve gelmeme oranı ölçülemiyordu.
+    await expireStaleReservations(prisma, companyId)
 
     const tableId = searchParams.get("tableId")?.trim()
     const reservations = await prisma.restaurantReservation.findMany({

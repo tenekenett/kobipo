@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { companyDisplayName } from "@/lib/company/display-name"
 
 // Dropdown'da "yeni firma" aksiyonu için sahte değer (gerçek cuid ile çakışmaz).
 const NEW_COMPANY = "__new_company__"
@@ -66,7 +67,8 @@ export function CompanySelector() {
           <SelectContent className="min-w-[220px]">
             {mainCompanies.map((company) => (
               <SelectItem key={company.id} value={company.id} className="cursor-pointer">
-                {company.name}
+                {/* Ünvanlar şubeler arasında aynı olabildiği için şube ismi parantezde. */}
+                {companyDisplayName(company)}
               </SelectItem>
             ))}
             <SelectSeparator />

@@ -12,13 +12,14 @@
 
 import { Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { BarChart3, ClipboardList, LayoutGrid, Package, TrendingUp } from "lucide-react"
+import { BarChart3, ClipboardList, LayoutGrid, Package, ShieldAlert, TrendingUp } from "lucide-react"
 import { RangeBar, useReportRange } from "@/components/restoran/report-ui"
 import { KarlilikReport } from "@/components/restoran/reports/karlilik"
 import { MenuPerformansReport } from "@/components/restoran/reports/menu-performans"
 import { TuketimReport } from "@/components/restoran/reports/tuketim"
 import { MasalarReport } from "@/components/restoran/reports/masalar"
 import { GunSonuReport } from "@/components/restoran/reports/gun-sonu"
+import { DenetimReport } from "@/components/restoran/reports/denetim"
 import { cn } from "@/lib/utils"
 
 const TABS = [
@@ -26,6 +27,7 @@ const TABS = [
   { key: "menu", label: "Menü Performansı", icon: BarChart3 },
   { key: "tuketim", label: "Hammadde Tüketimi", icon: Package },
   { key: "masalar", label: "Masalar", icon: LayoutGrid },
+  { key: "denetim", label: "İkram & Denetim", icon: ShieldAlert },
   { key: "gun-sonu", label: "Gün Sonu", icon: ClipboardList },
 ] as const
 
@@ -90,6 +92,7 @@ function RaporlarContent() {
       {active === "menu" && <MenuPerformansReport range={range} />}
       {active === "tuketim" && <TuketimReport range={range} />}
       {active === "masalar" && <MasalarReport range={range} />}
+      {active === "denetim" && <DenetimReport range={range} />}
       {active === "gun-sonu" && <GunSonuReport range={day} />}
     </div>
   )

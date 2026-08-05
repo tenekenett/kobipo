@@ -9,11 +9,13 @@ import { Badge } from "@/components/ui/badge"
 import { ArrowRight, Building2, CheckCircle2, Plus } from "lucide-react"
 import { findCompanyByParam } from "@/lib/company/client-selection"
 import { withCompanyHref } from "@/lib/company/href"
+import { companyDisplayName } from "@/lib/company/display-name"
 
 interface Company {
   id: string
   slug?: string
   name: string
+  branchName?: string | null
   isEDonusumEnabled?: boolean
   isBranch?: boolean
   parentName?: string | null
@@ -111,7 +113,7 @@ export default function SubelerPage() {
                       </span>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <p className="truncate font-semibold">{c.name}</p>
+                          <p className="truncate font-semibold">{companyDisplayName(c)}</p>
                           {isActive && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                               <CheckCircle2 className="h-2.5 w-2.5" />

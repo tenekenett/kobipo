@@ -366,6 +366,7 @@ export async function PUT(
     const {
       code,
       name,
+      nickname,
       taxNumber,
       taxOffice,
       address,
@@ -458,6 +459,11 @@ export async function PUT(
       const merged = {
         code: code !== undefined ? code : current.code,
         name: name !== undefined ? name : current.name,
+        // Gönderilmediyse dokunma; boş gönderildiyse takma adı temizle.
+        nickname:
+          nickname !== undefined
+            ? (typeof nickname === "string" && nickname.trim() ? nickname.trim() : null)
+            : current.nickname,
         taxNumber: taxNumber !== undefined ? taxNumber : current.taxNumber,
         taxOffice: taxOffice !== undefined ? taxOffice : current.taxOffice,
         address: address !== undefined ? address : current.address,
@@ -522,6 +528,7 @@ export async function PUT(
             companyId: current.companyId,
             code: merged.code,
             name: merged.name,
+            nickname: merged.nickname,
             taxNumber: merged.taxNumber,
             taxOffice: merged.taxOffice,
             address: merged.address,
@@ -547,6 +554,7 @@ export async function PUT(
         data: {
           code: merged.code,
           name: merged.name,
+          nickname: merged.nickname,
           taxNumber: merged.taxNumber,
           taxOffice: merged.taxOffice,
           address: merged.address,
@@ -591,6 +599,7 @@ export async function PUT(
           data: {
             code: saved.code,
             name: saved.name,
+            nickname: saved.nickname,
             taxNumber: saved.taxNumber,
             taxOffice: saved.taxOffice,
             address: saved.address,

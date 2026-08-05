@@ -15,6 +15,7 @@ import { useDashboardCompany } from "@/components/dashboard/dashboard-company-pr
 interface Company {
   id: string
   name: string
+  branchName?: string | null
   taxNumber?: string
   taxOffice?: string
   address?: string
@@ -50,6 +51,7 @@ export default function FirmaAyarlariPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
+    branchName: "",
     taxNumber: "",
     taxOffice: "",
     address: "",
@@ -106,6 +108,7 @@ export default function FirmaAyarlariPage() {
         setIsEditing(false)
         setFormData({
           name: data.name || "",
+          branchName: data.branchName || "",
           taxNumber: data.taxNumber || "",
           taxOffice: data.taxOffice || "",
           address: data.address || "",
@@ -284,7 +287,7 @@ export default function FirmaAyarlariPage() {
             )}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="name">Firma Adı *</Label>
+                <Label htmlFor="name">Firma Ünvanı *</Label>
                 <Input
                   id="name"
                   value={formData.name}
@@ -292,6 +295,25 @@ export default function FirmaAyarlariPage() {
                   required
                   disabled={isLoading || !isEditing}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Faturada ve e-belgelerde basılan resmi ünvan.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="branchName">Şube İsmi</Label>
+                <Input
+                  id="branchName"
+                  placeholder="Örn. Kadıköy"
+                  value={formData.branchName}
+                  onChange={(e) => setFormData({ ...formData, branchName: e.target.value })}
+                  disabled={isLoading || !isEditing}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Şubelerin ünvanı aynı olduğu için firma seçicide ünvanın yanında parantez
+                  içinde gösterilir (ör. <span className="font-medium">{formData.name || "Ünvan"}
+                  {formData.branchName ? ` (${formData.branchName})` : " (Kadıköy)"}</span>).
+                  Belgelere yazılmaz.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="taxNumber">Vergi No</Label>

@@ -21,6 +21,7 @@ import { useDashboardCompany } from "@/components/dashboard/dashboard-company-pr
 import { CompanyLink } from "@/components/dashboard/company-link"
 import { useSidebar } from "@/components/dashboard/sidebar-provider"
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
+import { companyDisplayName } from "@/lib/company/display-name"
 import { useTheme } from "@/components/providers/theme-provider"
 
 export function DashboardHeader() {
@@ -91,7 +92,9 @@ export function DashboardHeader() {
         {!companyLoading && selectedCompany?.name && (
           <span className="hidden min-w-0 items-center gap-1.5 rounded-md border border-kobipo-border bg-kobipo-offwhite px-2 py-1 text-xs dark:border-border dark:bg-muted/40 md:inline-flex">
             <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
-            <span className="truncate text-muted-foreground">{selectedCompany.name}</span>
+            <span className="truncate text-muted-foreground">
+              {companyDisplayName(selectedCompany)}
+            </span>
           </span>
         )}
       </div>
@@ -174,7 +177,9 @@ export function DashboardHeader() {
                     <Building2 className="h-3 w-3 shrink-0" />
                     <span className="truncate">
                       <span className="text-muted-foreground">Aktif:</span>{" "}
-                      <span className="font-medium text-foreground">{selectedCompany.name}</span>
+                      <span className="font-medium text-foreground">
+                        {companyDisplayName(selectedCompany)}
+                      </span>
                     </span>
                   </div>
                 </>

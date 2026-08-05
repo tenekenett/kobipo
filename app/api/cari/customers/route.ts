@@ -93,6 +93,7 @@ export async function POST(request: Request) {
       companyId,
       code,
       name,
+      nickname,
       taxNumber,
       taxOffice,
       address,
@@ -123,6 +124,9 @@ export async function POST(request: Request) {
     }
 
     await ensureCompanyWrite(companyId)
+    // Takma ad: boş/whitespace ise NULL yaz ki liste ve arama boş string'e takılmasın.
+    const normalizedNickname =
+      typeof nickname === "string" && nickname.trim() ? nickname.trim() : null
     const parsedOpeningBalanceAmount =
       openingBalanceAmount !== undefined && openingBalanceAmount !== null && openingBalanceAmount !== ""
         ? Number(openingBalanceAmount)
@@ -170,6 +174,7 @@ export async function POST(request: Request) {
           companyId,
           code,
           name,
+          nickname: normalizedNickname,
           taxNumber,
           taxOffice,
           address,
@@ -206,6 +211,8 @@ export async function POST(request: Request) {
             companyId,
             code,
             name,
+            // Aynı kişinin tedarikçi kaydı: takma ad da aynalanır.
+            nickname: normalizedNickname,
             taxNumber,
             taxOffice,
             address,

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
+import { LinkedTableRow } from "@/components/ui/styled-table"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -65,6 +66,7 @@ interface CustomerSupplierDetail {
   code?: string
   slug?: string
   name: string
+  nickname?: string | null
   taxNumber?: string
   taxOffice?: string
   address?: string
@@ -303,6 +305,8 @@ export default function CustomerSupplierDetailPage() {
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
               <User className="h-3.5 w-3.5" />
               {entityLabel}
+              {/* Takma ad ünvanın yerine geçmez; kimlik satırında bilgi olarak durur. */}
+              {data.nickname && ` · ${data.nickname}`}
               {data.code && ` · Kod: ${data.code}`}
             </p>
           </div>
@@ -538,18 +542,21 @@ export default function CustomerSupplierDetailPage() {
               ) : (
                 orderedTransactions.map((tx) => {
                   const isMovement = tx.type === "PAYMENT" || tx.type === "EXPENSE"
+                  const backTo = encodeURIComponent(`/cari/${type}/${id}`)
+                  const company = encodeURIComponent(companyId || "")
+                  // Fatura satırı da artık tıklanabilir (önceden yalnız belge no linkti).
+                  const rowHref = isMovement
+                    ? `/finans/hareketler/${tx.id}?company=${company}&from=${backTo}`
+                    : tx.type === "INVOICE" && !tx.converted
+                      ? `/faturalar/${tx.id}/onizleme?company=${company}&from=${backTo}`
+                      : undefined
                   return (
-                  <TableRow
+                  <LinkedTableRow
                     key={tx.id}
-                    className={isMovement ? "cursor-pointer" : undefined}
-                    onClick={
-                      isMovement
-                        ? () =>
-                            router.push(
-                              `/finans/hareketler/${tx.id}?company=${encodeURIComponent(companyId || "")}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`,
-                            )
-                        : undefined
-                    }
+                    className={rowHref ? "cursor-pointer" : undefined}
+                    // Satırın tamamı bağlantı yüzeyi: sağ tık → "yeni sekmede aç".
+                    // Hareket satırı finans detayına, fatura satırı fatura önizlemesine gider.
+                    href={rowHref}
                   >
                     <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
                       <div>{new Date(tx.date).toLocaleDateString("tr-TR")}</div>
@@ -629,11 +636,11 @@ export default function CustomerSupplierDetailPage() {
                       {tx.converted ? <span className="text-muted-foreground">-</span> : formatCurrency(tx.balance)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {isMovement ? (
+                      {rowHref ? (
                         <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
                       ) : null}
                     </TableCell>
-                  </TableRow>
+                  </LinkedTableRow>
                   )
                 })
               )}

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { CityCombobox } from "@/components/ui/city-combobox"
 import { useToast } from "@/components/ui/use-toast"
+import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { Info } from "lucide-react"
 
 interface ParentCompany {
@@ -28,9 +29,11 @@ export default function NewCompanyPage() {
   // Şubenin bağlanacağı ana firma: ?parent= (yoksa aktif firma ?company=).
   const parentCompanyId = searchParams.get("parent") || searchParams.get("company")
   const { toast } = useToast()
+  const { companies, isLoading: isLoadingCompanies } = useDashboardCompany()
   const [parent, setParent] = useState<ParentCompany | null>(null)
   const [formData, setFormData] = useState({
     name: "",
+    branchName: "",
     taxNumber: "",
     taxOffice: "",
     address: "",
@@ -50,6 +53,9 @@ export default function NewCompanyPage() {
         setParent(data)
         setFormData((prev) => ({
           ...prev,
+          // Şube ana firmayla aynı tüzel kişidir → ünvan da devralınır (elle değiştirilebilir).
+          // Şubeyi ayıran ad ayrı "Şube İsmi" alanında tutulur.
+          name: prev.name || data.name || "",
           taxNumber: data.taxNumber || "",
           taxOffice: data.taxOffice || "",
         }))
@@ -58,6 +64,33 @@ export default function NewCompanyPage() {
       cancelled = true
     }
   }, [isBranch, parentCompanyId])
+
+  // YALNIZCA İLK firmada: kayıt formunda girilen ünvan ve şube ismi burada ön
+  // doldurulur — kullanıcı aynı bilgiyi ikinci kez yazmasın. Kullanıcı üzerine
+  // yazabilir; alan doluysa (kullanıcı yazmaya başladıysa) dokunulmaz.
+  //
+  // Firma sayısı kontrolü ŞART: bu ekran seçicideki "Yeni firma ekle" ve Şube
+  // Yönetimi'ndeki "Yeni Firma" ile de açılır. Kapsam daraltılmazsa ikinci/üçüncü
+  // firmayı açan kullanıcının formu, kayıt sırasında yazdığı BAŞKA firmanın ünvanıyla
+  // dolar ve fark edilmeden kaydedilebilir.
+  useEffect(() => {
+    if (isBranch || isLoadingCompanies || companies.length > 0) return
+    let cancelled = false
+    fetch("/api/auth/profile", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((profile: { companyDisplayName?: string | null; companyBranchName?: string | null } | null) => {
+        if (cancelled || !profile) return
+        setFormData((prev) => ({
+          ...prev,
+          name: prev.name || profile.companyDisplayName || "",
+          branchName: prev.branchName || profile.companyBranchName || "",
+        }))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [isBranch, isLoadingCompanies, companies.length])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -93,6 +126,7 @@ export default function NewCompanyPage() {
       const payload = isBranch
         ? {
             name: formData.name,
+            branchName: formData.branchName,
             address: formData.address,
             city: formData.city,
             phone: formData.phone,
@@ -184,23 +218,44 @@ export default function NewCompanyPage() {
                 <p>
                   Bu şube{" "}
                   <span className="font-semibold">{parent?.name || "ana firmaya"}</span>{" "}
-                  bağlı olarak eklenir. <span className="font-semibold">VKN, vergi dairesi ve
-                  e-Dönüşüm ayarları</span> ana firmadan devralınır — yalnızca şube adı ve adres
-                  bilgilerini girin.
+                  bağlı olarak eklenir. <span className="font-semibold">Ünvan, VKN, vergi dairesi ve
+                  e-Dönüşüm ayarları</span> ana firmadan devralınır — şubeyi ayırt etmek için{" "}
+                  <span className="font-semibold">Şube İsmi</span> ve adres bilgilerini girin.
                 </p>
               </div>
             )}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="name">{isBranch ? "Şube Adı *" : "Firma Adı *"}</Label>
+                <Label htmlFor="name">{isBranch ? "Ünvan *" : "Firma Ünvanı *"}</Label>
                 <Input
                   id="name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder={isBranch ? "Örn. Kadıköy Şubesi" : undefined}
+                  placeholder="Örn. ABC Gıda San. ve Tic. Ltd. Şti."
                   required
                   disabled={isLoading}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Faturada ve e-belgelerde basılan resmi ünvan.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="branchName">{isBranch ? "Şube İsmi *" : "Şube İsmi"}</Label>
+                <Input
+                  id="branchName"
+                  value={formData.branchName}
+                  onChange={(e) => setFormData({ ...formData, branchName: e.target.value })}
+                  placeholder="Örn. Kadıköy"
+                  // Şubede ZORUNLU: ünvan ana firmadan devralındığı için, şube ismi
+                  // olmadan şube listede/seçicide ana firmayla birebir aynı görünür.
+                  required={isBranch}
+                  disabled={isLoading}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {isBranch
+                    ? "Ünvan ana firmayla aynı olduğu için şubeyi ayıran ad budur; listede ünvanın yanında parantez içinde görünür. Belgelere yazılmaz."
+                    : "Ünvanlar aynı olabildiği için firma seçicide ünvanın yanında parantez içinde gösterilir. Belgelere yazılmaz."}
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="taxNumber">

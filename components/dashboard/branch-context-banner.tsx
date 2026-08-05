@@ -2,6 +2,7 @@
 
 import { Building2, ArrowLeft } from "lucide-react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { companyDisplayName } from "@/lib/company/display-name"
 
 /**
  * Parent admin bir alt şubeye "girdiğinde" (selectedCompany.isBranch) üstte uyarı
@@ -25,8 +26,8 @@ export function BranchContextBanner() {
       <div className="flex items-center gap-2 text-teal-800 dark:text-teal-200">
         <Building2 className="h-4 w-4 shrink-0" />
         <span>
-          Şu an <strong>{selectedCompany.name}</strong>
-          {selectedCompany.parentName ? ` (${selectedCompany.parentName})` : ""} şubesinin
+          Şu an <strong>{companyDisplayName(selectedCompany)}</strong>
+          {selectedCompany.parentName ? ` — ${selectedCompany.parentName}` : ""} şubesinin
           panelindesiniz.
         </span>
       </div>

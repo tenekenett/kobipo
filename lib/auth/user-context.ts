@@ -7,7 +7,10 @@ import { getManagedBranches } from "@/lib/auth/branch-access"
 export interface UserCompanyContext {
   companyId: string
   companySlug: string
+  /** Resmi ünvan (belgelerde basılan ad). */
   companyName: string
+  /** Ünvandan ayrı, arayüzde parantez içinde gösterilen kısa şube ismi. */
+  companyBranchName: string | null
   role: Role
   isActive: boolean
   isEDonusumEnabled: boolean
@@ -49,6 +52,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
         id: string
         slug: string
         name: string
+        branchName: string | null
         isActive: boolean
         isEDonusumEnabled: boolean
         disabledModules: string[]
@@ -75,6 +79,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
                 id: true,
                 slug: true,
                 name: true,
+                branchName: true,
                 isActive: true,
                 isEDonusumEnabled: true,
                 disabledModules: true,
@@ -97,6 +102,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
     companyId: entry.company.id,
     companySlug: entry.company.slug,
     companyName: entry.company.name,
+    companyBranchName: entry.company.branchName ?? null,
     role: entry.role,
     isActive: entry.company.isActive,
     isEDonusumEnabled: entry.company.isEDonusumEnabled,
@@ -114,6 +120,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
       companyId: b.id,
       companySlug: b.slug,
       companyName: b.name,
+      companyBranchName: b.branchName,
       role: Role.ADMIN,
       isActive: true,
       isEDonusumEnabled: b.isEDonusumEnabled,

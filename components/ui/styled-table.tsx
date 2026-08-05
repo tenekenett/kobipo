@@ -1,9 +1,55 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { Building2, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { TableRow, TableHead, TableCell } from "@/components/ui/table"
+
+/**
+ * Satırı "bağlantı yüzeyi" yapar: her hücreye, hücreyi tümüyle kaplayan görünmez bir
+ * <Link> yerleştirir.
+ *
+ * NEDEN böyle: tarayıcının sağ tık menüsündeki "Bağlantıyı yeni sekmede aç" seçeneği,
+ * imlecin GERÇEK bir <a href> üzerinde olmasını gerektirir. Satıra `onClick` vermek
+ * (router.push) yalnız düz tıkı çözer; sağ tık/orta tık çalışmaz. Tek bir <a>'yı satırın
+ * tamamına yaymak da tablolarda güvenilir değildir (<tr> üzerinde position:relative
+ * davranışı oynak), bu yüzden kaplama hücre bazında yapılır.
+ *
+ * Konumlandırılmış eleman, akıştaki metnin ÜSTÜNE boyanır — dolayısıyla hücrenin her
+ * yerinde sağ tık bağlantıya isabet eder. Buton/checkbox içeren hücreler
+ * `data-row-link-skip` ile dışarıda bırakılmalıdır, aksi halde tıklanamaz hale gelirler.
+ *
+ * BEDELİ: kaplamanın olduğu hücrelerde metin fare ile seçilemez.
+ */
+function withCellLinkOverlay(children: React.ReactNode, href: string, label?: string) {
+  return React.Children.map(children, (child) => {
+    if (!React.isValidElement(child)) return child
+    const childProps = child.props as { className?: string; children?: React.ReactNode } & Record<
+      string,
+      unknown
+    >
+    if ("data-row-link-skip" in childProps) return child
+    return React.cloneElement(
+      child as React.ReactElement<{ className?: string; children?: React.ReactNode }>,
+      {
+        className: cn("relative", childProps.className),
+        children: (
+          <>
+            <Link
+              href={href}
+              aria-hidden
+              tabIndex={-1}
+              className="absolute inset-0"
+              title={label}
+            />
+            {childProps.children}
+          </>
+        ),
+      },
+    )
+  })
+}
 
 export function StyledTableContainer({
   children,
@@ -71,10 +117,18 @@ StyledTableHead.displayName = "StyledTableHead"
 export interface StyledTableRowProps
   extends React.HTMLAttributes<HTMLTableRowElement> {
   index?: number
+  /**
+   * Verilirse satırın tamamı bağlantı yüzeyi olur: düz tık, ctrl/⌘+tık, orta tık ve
+   * sağ tık menüsü tarayıcının kendi davranışıyla çalışır. Buton/checkbox içeren
+   * hücrelere `data-row-link-skip` eklenmelidir.
+   */
+  href?: string
+  /** Kaplama bağlantısının başlığı (ipucu metni). */
+  hrefLabel?: string
 }
 
 export const StyledTableRow = React.forwardRef<HTMLTableRowElement, StyledTableRowProps>(
-  ({ index = 0, className, ...props }, ref) => {
+  ({ index = 0, className, href, hrefLabel, children, ...props }, ref) => {
     // Şerit kontrastı: açık temada slate-100 net görünüyor, koyu temada bg-muted
     // tam tonlu — kart arka planı 11% lightness, muted 18% → 7 puanlık fark satırı
     // belirgin yapıyor.
@@ -88,11 +142,31 @@ export const StyledTableRow = React.forwardRef<HTMLTableRowElement, StyledTableR
           className,
         )}
         {...props}
-      />
+      >
+        {href ? withCellLinkOverlay(children, href, hrefLabel) : children}
+      </TableRow>
     )
   },
 )
 StyledTableRow.displayName = "StyledTableRow"
+
+/**
+ * Şerit/stil taşımayan tablolarda (düz TableRow kullanan listeler) aynı bağlantı
+ * yüzeyini sağlar. Bkz. withCellLinkOverlay.
+ */
+export interface LinkedTableRowProps extends React.HTMLAttributes<HTMLTableRowElement> {
+  href?: string
+  hrefLabel?: string
+}
+
+export const LinkedTableRow = React.forwardRef<HTMLTableRowElement, LinkedTableRowProps>(
+  ({ href, hrefLabel, children, ...props }, ref) => (
+    <TableRow ref={ref} {...props}>
+      {href ? withCellLinkOverlay(children, href, hrefLabel) : children}
+    </TableRow>
+  ),
+)
+LinkedTableRow.displayName = "LinkedTableRow"
 
 export function EntityCell({
   name,

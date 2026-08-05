@@ -1126,6 +1126,99 @@ async function main() {
       `ort ${Number(idleReport.body?.summary?.avgIdleMinutes ?? 0).toFixed(1)} dk`,
     )
 
+    // ── 10g. Denetim raporu + rezervasyon no-show ───────────────────────────
+    // Bu bölümün verisi ÖNCEKİ bölümlerde doğdu: 5'te VOID kalem, 5b'de sebepli
+    // iptal, 10e'de birleştirme. Rapor yeni veri üretmiyor, yazılıp okunmayan
+    // alanları okuyor (docs/restoran/DENETIM-VE-TEMIZLIK.md Faz 4).
+    console.log("\n10g) Denetim raporu")
+
+    // Süresi geçmiş bekleyen rezervasyon: listeleme onu NOSHOW'a düşürmeli.
+    const stale = await api("POST", "/api/restoran/rezervasyonlar", {
+      companyId: company.id,
+      guestName: `TEST Gelmedi ${stamp}`,
+      guestCount: 2,
+      reservedAt: new Date(Date.now() - 3 * 60 * 60000).toISOString(),
+      durationMin: 60,
+    })
+    created.reservationIds.push(stale.body?.id)
+    const listed = await api("GET", `/api/restoran/rezervasyonlar?companyId=${company.id}`)
+    const staleAfter = (listed.body ?? []).find((r) => r.id === stale.body?.id)
+    check("süresi geçmiş rezervasyon NOSHOW oldu", staleAfter?.status === "NOSHOW", staleAfter?.status)
+    const upcoming = (listed.body ?? []).find((r) => r.id === resv.body?.id)
+    check("yaklaşan rezervasyon PENDING kaldı", upcoming?.status === "PENDING", upcoming?.status)
+
+    // İkram: fiş referanslı yazılır ve fiş temizlikte silinene kadar raporda durur.
+    const auditInvoice = await api("POST", "/api/e-donusum/invoices", {
+      companyId: company.id,
+      type: "SALES",
+      invoiceType: "MANUAL",
+      isReceipt: true,
+      date: new Date().toISOString(),
+      currency: "TRY",
+      sendInvoice: false,
+      notes: `TEST denetim ${stamp}`,
+      items: [
+        { productId: latte.id, description: "Latte", unit: "ADET", quantity: 1, unitPrice: 85, vatRate: 20 },
+      ],
+    })
+    created.invoiceIds.push(auditInvoice.body?.id)
+    await api("POST", "/api/restoran/ikram", {
+      companyId: company.id,
+      invoiceId: auditInvoice.body.id,
+      lines: [
+        { productId: latte.id, quantity: 1, status: "COMP", reasonCode: "STAFF", description: "Latte" },
+        { productId: latte.id, quantity: 1, status: "WASTE", reasonCode: "SPILLED", description: "Latte" },
+      ],
+    })
+
+    const auditStart = new Date()
+    auditStart.setHours(0, 0, 0, 0)
+    const auditEnd = new Date()
+    auditEnd.setHours(23, 59, 59, 999)
+    const auditQuery = `startDate=${encodeURIComponent(auditStart.toISOString())}&endDate=${encodeURIComponent(auditEnd.toISOString())}`
+    const audit = await api("GET", `/api/restoran/raporlar/denetim?companyId=${company.id}&${auditQuery}`)
+    check("denetim raporu geldi", audit.status === 200)
+
+    check(
+      "ikram ve zayi AYRI tutarlanıyor",
+      audit.body?.summary?.compCost > 0 && audit.body?.summary?.wasteCost > 0,
+      `ikram ${audit.body?.summary?.compCost} · zayi ${audit.body?.summary?.wasteCost}`,
+    )
+    check(
+      "ürün kırılımı hammaddeyi gösteriyor (mamülü değil)",
+      (audit.body?.products ?? []).some((p) => p.productId === milk.id),
+      (audit.body?.products ?? []).map((p) => `${p.kind}:${p.name}`).join(", "),
+    )
+    check(
+      "sebep kırılımında ikram/zayi/iptal var",
+      (audit.body?.reasons ?? []).some((r) => r.status === "VOID"),
+      (audit.body?.reasons ?? []).map((r) => `${r.status}/${r.label}:${r.count}`).join(" · "),
+    )
+
+    const auditCancelRow = (audit.body?.cancelled ?? []).find((c) => c.code === doomed.body?.code)
+    check(
+      "iptal edilen adisyon SEBEBİYLE listelendi",
+      auditCancelRow?.reasonLabel === "Müşteri vazgeçti / gitti",
+      `${auditCancelRow?.code} · ${auditCancelRow?.reasonLabel}`,
+    )
+    check(
+      "BİRLEŞTİRİLEN adisyon iptal sayılmıyor",
+      (audit.body?.merged ?? []).some((m) => m.code === mergeSource.body?.code) &&
+        !(audit.body?.cancelled ?? []).some((c) => c.code === mergeSource.body?.code),
+      `${audit.body?.summary?.mergedCount} birleştirme · ${audit.body?.summary?.cancelledCount} iptal`,
+    )
+    const me = (audit.body?.staff ?? []).find((u) => u.userId === membership.userId)
+    check(
+      "personel kırılımı adisyonları sayıyor",
+      !!me && me.opened > 0 && me.closed > 0,
+      me ? `${me.name}: ${me.opened} açtı · ${me.closed} kapattı · ${me.revenue} ciro` : "yok",
+    )
+    check(
+      "gelmeme oranı sonuçlanmışlar üzerinden",
+      audit.body?.summary?.noShow >= 1 && audit.body?.summary?.noShowRate > 0,
+      `${audit.body?.summary?.noShow} gelmedi · %${audit.body?.summary?.noShowRate?.toFixed?.(1)}`,
+    )
+
     // ── 11. Ekranlar ────────────────────────────────────────────────────────
     // Sayfalar Client Component; 200 dönmesi derlendiklerini ve sunucuda hatasız
     // render edildiklerini gösterir (render hatası Next'te 500 döner).
@@ -1137,6 +1230,7 @@ async function main() {
       ["menü & reçeteler", "/restoran/menu"],
       ["raporlar — masalar sekmesi", "/restoran/raporlar?rapor=masalar"],
       ["raporlar — gün sonu sekmesi", "/restoran/raporlar?rapor=gun-sonu"],
+      ["raporlar — denetim sekmesi", "/restoran/raporlar?rapor=denetim"],
     ]) {
       const res = await fetch(`${BASE}${path}`, { headers: { cookie } })
       check(`${label} sayfası`, res.status === 200, `HTTP ${res.status}`)
@@ -1162,6 +1256,7 @@ async function main() {
       ["menü performansı", `/api/restoran/raporlar/menu-performans?companyId=${company.id}`],
       ["gün sonu", `/api/restoran/raporlar/gun-sonu?companyId=${company.id}`],
       ["reçete listesi", `/api/restoran/recipes?companyId=${company.id}`],
+      ["denetim raporu", `/api/restoran/raporlar/denetim?companyId=${company.id}`],
     ]) {
       const res = await api("GET", path)
       check(`modül kapalıyken ${label} 403`, res.status === 403, `HTTP ${res.status}`)

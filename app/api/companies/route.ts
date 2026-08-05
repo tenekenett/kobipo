@@ -41,6 +41,8 @@ export async function GET() {
         id: c.companyId,
         slug: c.companySlug,
         name: c.companyName,
+        // Ünvandan ayrı kısa şube ismi; seçicide "Ünvan (Şube)" olarak gösterilir.
+        branchName: c.companyBranchName ?? null,
         // Rol firma bazında değişir; istemci aktif rolü seçili firmadan türetir.
         role: c.role,
         isEDonusumEnabled: c.isEDonusumEnabled,
@@ -70,6 +72,7 @@ export async function POST(request: Request) {
     const body = await request.json()
     const {
       name,
+      branchName,
       taxNumber,
       taxOffice,
       address,
@@ -98,6 +101,7 @@ export async function POST(request: Request) {
     const normalizedParentId = await resolveCompanyId(normalizeOptionalString(parentCompanyId))
 
     const trimmedName = String(name || "").trim()
+    const normalizedBranchName = normalizeOptionalString(branchName)
     const normalizedTaxNumber = normalizeOptionalString(taxNumber)
     const normalizedTaxOffice = normalizeOptionalString(taxOffice)
     const normalizedAddress = normalizeOptionalString(address)
@@ -113,6 +117,15 @@ export async function POST(request: Request) {
     if (!trimmedName) {
       return NextResponse.json(
         { error: "Firma adı zorunludur" },
+        { status: 400 }
+      )
+    }
+
+    // Şubede ünvan ana firmadan devralınır; şube ismi olmazsa şube, listelerde ve
+    // seçicide ana firmayla birebir aynı görünür (ayırt edilemez). Bu yüzden zorunlu.
+    if (normalizedParentId && !normalizedBranchName) {
+      return NextResponse.json(
+        { error: "Şube ismi zorunludur", code: "BRANCH_NAME_REQUIRED" },
         { status: 400 }
       )
     }
@@ -250,6 +263,7 @@ export async function POST(request: Request) {
       const createdCompany = await tx.company.create({
         data: {
           name: trimmedName,
+          branchName: normalizedBranchName,
           address: normalizedAddress,
           city: normalizedCity,
           phone: normalizedPhone,

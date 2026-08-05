@@ -778,16 +778,18 @@ export default function FaturalarListing({
                   const canDownloadGibPdf = canCheckGib
                   const editable = isInvoiceRow && row.status === "DRAFT"
 
+                  // Satırın hedefi: fatura önizleme. Hem satır gezinmesi hem de
+                  // "Fatura No" hücresindeki gerçek bağlantı aynı adresi kullanır.
+                  const rowHref = `/faturalar/${row.slug || rawId}/onizleme?company=${companyId}`
+
                   return (
                     <StyledTableRow
                       key={row.id}
                       index={idx}
-                      className="cursor-pointer"
-                      onClick={() => {
-                        if (isInvoiceRow) {
-                          router.push(`/faturalar/${row.slug || rawId}/onizleme?company=${companyId}`)
-                        }
-                      }}
+                      className={isInvoiceRow ? "cursor-pointer" : undefined}
+                      // Satırın tamamı bağlantı yüzeyi: sağ tık → "yeni sekmede aç".
+                      href={isInvoiceRow ? rowHref : undefined}
+                      hrefLabel={row.invoiceNo ? `${row.invoiceNo} önizleme` : undefined}
                     >
                       {!fixedDirection && <TableCell>{directionBadge(row)}</TableCell>}
                       <TableCell className="text-xs whitespace-nowrap">
@@ -797,7 +799,14 @@ export default function FaturalarListing({
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs font-medium text-kobipo-blue dark:text-kobipo-mid">
-                        {row.invoiceNo || "-"}
+                        {/* Gerçek bağlantı: sağ tık → "yeni sekmede aç" burada çalışır. */}
+                        {isInvoiceRow && row.invoiceNo ? (
+                          <Link href={rowHref} className="hover:underline">
+                            {row.invoiceNo}
+                          </Link>
+                        ) : (
+                          row.invoiceNo || "-"
+                        )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {row.counterparty.taxNumber || "-"}
@@ -861,7 +870,9 @@ export default function FaturalarListing({
                       <TableCell>
                         {statusBadge(row.status, row.source, row.meta?.integrationStatus)}
                       </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
+                      {/* Aksiyon hücresi bağlantı kaplamasının dışında kalmalı,
+                          yoksa butonlar tıklanamaz olur. */}
+                      <TableCell data-row-link-skip onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           {isInvoiceRow ? (
                             <>

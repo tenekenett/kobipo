@@ -59,6 +59,10 @@ interface Invoice {
   vatAmount: number
   totalAmount: number
   notes?: string
+  // Sevk adresi: il/ilçe e-belgeye gider, açık adres yalnız Kobipo kaydıdır.
+  deliveryAddress?: string | null
+  deliveryDistrict?: string | null
+  deliveryCity?: string | null
   uuid?: string | null
   category?: string | null
   tags?: string[]
@@ -1448,6 +1452,20 @@ export default function FaturaOnizlemePage() {
               </div>
             )
           })()}
+
+          {(invoice.deliveryAddress || invoice.deliveryCity || invoice.deliveryDistrict) && (
+            <div className="mt-6 rounded-lg bg-muted p-4">
+              <p className="mb-2 text-sm font-medium">Sevk Adresi:</p>
+              <p className="text-sm text-muted-foreground">
+                {[
+                  invoice.deliveryAddress,
+                  [invoice.deliveryDistrict, invoice.deliveryCity].filter(Boolean).join(" / "),
+                ]
+                  .filter(Boolean)
+                  .join(" — ")}
+              </p>
+            </div>
+          )}
 
           {invoice.notes && (
             <div className="mt-6 p-4 bg-muted rounded-lg">

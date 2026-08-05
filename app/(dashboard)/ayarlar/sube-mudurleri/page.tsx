@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
+import { companyDisplayName } from "@/lib/company/display-name"
 import { Building2, Plus, Trash2, UserCog, Clock } from "lucide-react"
 
 interface Manager {
@@ -21,6 +22,7 @@ interface PendingInvite {
 interface Unit {
   id: string
   name: string
+  branchName?: string | null
   isBranch: boolean
   parentName: string | null
   managers: Manager[]
@@ -147,7 +149,7 @@ export default function SubeMudurleriPage() {
                   <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-kobipo-blue/10 text-kobipo-blue dark:bg-primary/15 dark:text-primary">
                     <Building2 className="h-4 w-4" />
                   </span>
-                  {unit.name}
+                  {companyDisplayName(unit)}
                   {unit.isBranch ? (
                     <span className="inline-flex items-center rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-semibold text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
                       Şube{unit.parentName ? ` · ${unit.parentName}` : ""}

@@ -5,6 +5,7 @@ import { Role } from "@prisma/client"
 import { ArrowLeft, ArrowRight, Building2 } from "lucide-react"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { withCompanyHref } from "@/lib/company/href"
+import { companyDisplayName } from "@/lib/company/display-name"
 import { DashboardStats } from "@/components/dashboard/admin/dashboard-stats"
 import { DashboardCashflow } from "@/components/dashboard/admin/dashboard-cashflow"
 import { DashboardRecentInvoices } from "@/components/dashboard/admin/dashboard-recent-invoices"
@@ -57,7 +58,7 @@ export default async function BranchDetailPage({
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-kobipo-blue/10 text-kobipo-blue dark:bg-primary/15 dark:text-primary">
               <Building2 className="h-5 w-5" />
             </span>
-            {ctx.companyName}
+            {companyDisplayName({ name: ctx.companyName, branchName: ctx.companyBranchName })}
             {ctx.isBranch && (
               <span className="inline-flex items-center rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-semibold text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
                 Şube{ctx.parentName ? ` · ${ctx.parentName}` : ""}

@@ -3,7 +3,7 @@
 import { withCompanyHref } from "@/lib/company/href"
 
 import { useEffect, useMemo, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { UnitCombobox } from "@/components/ui/unit-combobox"
@@ -127,7 +127,6 @@ function toDisplayPrice(net: number | undefined, included: boolean | undefined, 
 }
 
 export default function StokPage() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
@@ -1118,7 +1117,9 @@ export default function StokPage() {
                     key={product.id}
                     index={idx}
                     className="cursor-pointer"
-                    onClick={() => router.push(`/stok/${product.slug || product.id}?company=${companyId}`)}
+                    // Satırın tamamı bağlantı yüzeyi: sağ tık → "yeni sekmede aç".
+                    href={`/stok/${product.slug || product.id}?company=${companyId}`}
+                    hrefLabel={`${product.name} detayı`}
                   >
                     <TableCell><MonoCell value={product.code} /></TableCell>
                     <TableCell className="font-medium">
@@ -1223,7 +1224,8 @@ export default function StokPage() {
                         <span className="text-green-600">Ürün</span>
                       )}
                     </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
+                    {/* Aksiyon hücresi bağlantı kaplamasının dışında kalmalı. */}
+                    <TableCell data-row-link-skip onClick={(e) => e.stopPropagation()}>
                       <div className="flex gap-1">
                         <Link href={`/stok/${product.slug || product.id}?company=${companyId}`}>
                           <Button variant="ghost" size="sm">

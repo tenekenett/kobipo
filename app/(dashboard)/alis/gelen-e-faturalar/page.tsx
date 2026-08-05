@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback, useMemo } from "react"
+import Link from "next/link"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -542,18 +543,18 @@ export default function GelenEFaturalarPage() {
                   </TableRow>
                 ) : (
                   filtered.map((row, idx) => {
-                    const openDetail = () =>
-                      router.push(
-                        `/alis/gelen-e-faturalar/${encodeURIComponent(
-                          row.uuid,
-                        )}?company=${encodeURIComponent(companyId)}`,
-                      )
+                    // Satır hedefi; "Belge No" hücresindeki gerçek bağlantı da bunu kullanır.
+                    const rowHref = `/alis/gelen-e-faturalar/${encodeURIComponent(
+                      row.uuid,
+                    )}?company=${encodeURIComponent(companyId)}`
                     return (
                       <StyledTableRow
                         key={row.id}
                         index={idx}
                         className="cursor-pointer"
-                        onClick={openDetail}
+                        // Satırın tamamı bağlantı yüzeyi: sağ tık → "yeni sekmede aç".
+                        href={rowHref}
+                        hrefLabel={row.invoiceNo ? `${row.invoiceNo} detayı` : undefined}
                       >
                         <TableCell className="text-xs whitespace-nowrap">
                           <div>{fmtDate(row.date)}</div>
@@ -567,7 +568,14 @@ export default function GelenEFaturalarPage() {
                           {row.sentDate ? fmtDateTime(row.sentDate) : "-"}
                         </TableCell>
                         <TableCell className="font-mono text-xs font-medium text-kobipo-blue dark:text-kobipo-mid">
-                          {row.invoiceNo || "-"}
+                          {/* Gerçek bağlantı: sağ tık → "yeni sekmede aç" burada çalışır. */}
+                          {row.invoiceNo ? (
+                            <Link href={rowHref} className="hover:underline">
+                              {row.invoiceNo}
+                            </Link>
+                          ) : (
+                            "-"
+                          )}
                         </TableCell>
                         <TableCell className="text-xs">
                           <div className="flex items-center gap-1.5">
@@ -610,7 +618,8 @@ export default function GelenEFaturalarPage() {
                         <TableCell className="text-[10px] text-muted-foreground whitespace-nowrap">
                           {fmtDateTime(row.syncedAt)}
                         </TableCell>
-                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                        {/* Aksiyon hücresi bağlantı kaplamasının dışında. */}
+                        <TableCell data-row-link-skip className="text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
                             {row.profile === "TICARIFATURA" &&
                               (row.status || "").toUpperCase() !== "KABUL" &&
@@ -659,7 +668,7 @@ export default function GelenEFaturalarPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={openDetail}
+                              onClick={() => router.push(rowHref)}
                               title="Detay"
                               className="text-amber-600 hover:bg-amber-50 hover:text-amber-700 dark:text-amber-300 dark:hover:bg-amber-500/15 dark:hover:text-amber-200"
                             >

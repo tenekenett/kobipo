@@ -38,7 +38,13 @@ export type RefProduct = {
   isIngredient: boolean
   isActive: boolean
 }
-export type RefCounterparty = { id: string; name: string; taxNumber?: string | null }
+export type RefCounterparty = {
+  id: string
+  name: string
+  /** Takma ad — cari seçicide ünvanın altında görünür ve aramada eşleşir. */
+  nickname?: string | null
+  taxNumber?: string | null
+}
 export type RefAccount = { id: string; name: string; type: string }
 export type RefWarehouse = { id: string; name: string; isDefault?: boolean }
 export type RefWarehouseStock = { warehouseId: string; productId: string; quantity: number }
@@ -82,7 +88,12 @@ function useCounterparties(companyId: string | null, path: string) {
   const { data, error, isLoading, mutate } = useSWR<any>(key, jsonFetcher)
   const list = useMemo<RefCounterparty[]>(() => {
     const items = Array.isArray(data) ? data : data?.items ?? []
-    return items.map((c: any) => ({ id: c.id, name: c.name, taxNumber: c.taxNumber ?? null }))
+    return items.map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      nickname: c.nickname ?? null,
+      taxNumber: c.taxNumber ?? null,
+    }))
   }, [data])
   return { list, isLoading, error, mutate }
 }

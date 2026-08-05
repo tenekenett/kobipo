@@ -42,7 +42,7 @@ export async function GET() {
         { parentCompanyId: { in: adminCompanyIds } },
       ],
     },
-    select: { id: true, name: true, parentCompanyId: true },
+    select: { id: true, name: true, branchName: true, parentCompanyId: true },
     orderBy: { name: "asc" },
   })
   const unitIds = units.map((u) => u.id)
@@ -80,6 +80,8 @@ export async function GET() {
   const result = sorted.map((u) => ({
     id: u.id,
     name: u.name,
+    // Ana firma ve şubeleri aynı ünvanı taşıyabilir; listede ayırt eden ad budur.
+    branchName: u.branchName ?? null,
     isBranch: Boolean(u.parentCompanyId),
     parentName: u.parentCompanyId ? nameById.get(u.parentCompanyId) ?? null : null,
     managers: managers

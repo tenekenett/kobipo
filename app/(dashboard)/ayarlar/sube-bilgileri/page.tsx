@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { companyDisplayName } from "@/lib/company/display-name"
 import {
   ArrowUpRight,
   Building2,
@@ -23,6 +24,7 @@ import {
 interface CompanyDetail {
   id: string
   name: string
+  branchName?: string | null
   taxNumber?: string | null
   taxOffice?: string | null
   address?: string | null
@@ -32,8 +34,8 @@ interface CompanyDetail {
   isEDonusumEnabled?: boolean
   createdAt?: string
   parentCompanyId?: string | null
-  parentCompany?: { id: string; name: string } | null
-  branches?: { id: string; name: string }[]
+  parentCompany?: { id: string; name: string; branchName?: string | null } | null
+  branches?: { id: string; name: string; branchName?: string | null }[]
 }
 
 interface Invoice {
@@ -183,7 +185,7 @@ export default function SubeBilgileriPage() {
           <Card>
             <CardHeader>
               <div className="flex flex-wrap items-center gap-2">
-                <CardTitle className="text-lg">{company.name}</CardTitle>
+                <CardTitle className="text-lg">{companyDisplayName(company)}</CardTitle>
                 {isBranch ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-kobipo-blue/10 px-2 py-0.5 text-xs font-semibold text-kobipo-blue dark:bg-primary/15 dark:text-primary">
                     <GitBranch className="h-3 w-3" />
@@ -269,7 +271,7 @@ export default function SubeBilgileriPage() {
                     >
                       <span className="flex items-center gap-2 truncate">
                         <GitBranch className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="truncate font-medium">{b.name}</span>
+                        <span className="truncate font-medium">{companyDisplayName(b)}</span>
                       </span>
                       <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                     </Link>

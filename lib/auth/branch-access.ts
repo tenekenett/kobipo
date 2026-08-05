@@ -18,6 +18,8 @@ export type ManagedBranch = {
   id: string
   slug: string
   name: string
+  /** Ünvandan ayrı kısa şube ismi (arayüzde parantez içinde gösterilir). */
+  branchName: string | null
   parentCompanyId: string
   parentName: string | null
   isEDonusumEnabled: boolean
@@ -87,6 +89,7 @@ export async function getManagedBranches(userId: string): Promise<ManagedBranch[
       id: true,
       slug: true,
       name: true,
+      branchName: true,
       parentCompanyId: true,
       isEDonusumEnabled: true,
       disabledModules: true,
@@ -100,6 +103,7 @@ export async function getManagedBranches(userId: string): Promise<ManagedBranch[
       id: b.id,
       slug: b.slug,
       name: b.name,
+      branchName: b.branchName ?? null,
       parentCompanyId: b.parentCompanyId as string,
       parentName: adminNameById.get(b.parentCompanyId ?? "") ?? null,
       isEDonusumEnabled: b.isEDonusumEnabled,

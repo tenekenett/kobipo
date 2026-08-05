@@ -58,82 +58,89 @@ export async function writeCompWasteStock(args: {
   try {
     const { recipes, unitOf } = await loadRecipeContext(prisma, args.companyId)
 
-    // Hizmet ürünlerinin stoğu yok; genişletmeden SONRA elenir (reçeteli bir
-    // menü ürünü hizmet işaretliyse bile bileşenleri düşmeli).
-    const { direct, components, errors } = expandRecipeLines({
-      lines: lines.map((l) => ({
-        productId: l.productId as string,
-        quantity: l.quantity,
-        // İkram edilen soya sütlü latte'de de soya sütü düşmeli: seçenek etkisi
-        // satış yolundaki ile AYNI (SATIS-EKRANI.md K6).
-        effects: l.effects,
-        recipeFactor: l.recipeFactor,
-      })),
-      recipes,
-      unitOf,
-    })
-    if (errors.length > 0) {
-      console.error("[İkram/Zayi] Reçete genişletme hataları:", args.ticketCode, errors)
+    // İkram ve zayi AYRI hareketler olarak yazılır (eskiden tek açıklamada
+    // birleşiyorlardı). Sebep: denetim raporu "bu ay ne kadar ikram ettik, ne
+    // kadar zayi verdik" sorusunu ayıramıyordu — aynı adisyonda ikisi de varsa
+    // tek hareketin tutarı ikisine birden aitti ve bölünemiyordu.
+    const groups = (
+      [
+        { label: "İkram", lines: lines.filter((l) => l.status === "COMP") },
+        { label: "Zayi", lines: lines.filter((l) => l.status === "WASTE") },
+      ] as const
+    ).filter((g) => g.lines.length > 0)
+
+    let written = 0
+    for (const group of groups) {
+      // Hizmet ürünlerinin stoğu yok; genişletmeden SONRA elenir (reçeteli bir
+      // menü ürünü hizmet işaretliyse bile bileşenleri düşmeli).
+      const { direct, components, errors } = expandRecipeLines({
+        lines: group.lines.map((l) => ({
+          productId: l.productId as string,
+          quantity: l.quantity,
+          // İkram edilen soya sütlü latte'de de soya sütü düşmeli: seçenek etkisi
+          // satış yolundaki ile AYNI (SATIS-EKRANI.md K6).
+          effects: l.effects,
+          recipeFactor: l.recipeFactor,
+        })),
+        recipes,
+        unitOf,
+      })
+      if (errors.length > 0) {
+        console.error("[İkram/Zayi] Reçete genişletme hataları:", args.ticketCode, errors)
+      }
+
+      const ops = [
+        ...direct.map((d) => ({ productId: d.productId, quantity: d.quantity })),
+        ...components.map((c) => ({ productId: c.productId, quantity: c.quantity })),
+      ]
+      if (ops.length === 0) continue
+
+      const serviceIds = new Set(
+        (
+          await prisma.product.findMany({
+            where: { id: { in: ops.map((o) => o.productId) }, isService: true },
+            select: { id: true },
+          })
+        ).map((p) => p.id),
+      )
+      const stockable = ops.filter((o) => !serviceIds.has(o.productId))
+      if (stockable.length === 0) continue
+
+      const costs = await resolveUnitCosts(
+        args.companyId,
+        stockable.map((o) => o.productId),
+      )
+
+      // Açıklama tek satırda "ne, neden": hareket listesinde ikram ile zayi
+      // birbirinden ve normal satıştan ayırt edilebilsin.
+      const note = `${group.label}: ${group.lines
+        .map((l) => {
+          const why = reasonLabel(l.status, l.reasonCode)
+          return why ? `${l.description} (${why})` : l.description
+        })
+        .join(", ")}`
+
+      await prisma.$transaction(async (tx) => {
+        for (const op of stockable) {
+          await adjustWarehouseStock(tx, {
+            companyId: args.companyId,
+            productId: op.productId,
+            warehouseId: args.warehouseId ?? null,
+            delta: -op.quantity,
+            // ADJUSTMENT: satış değil. Karlılık raporu satış hareketlerine bakar,
+            // bu hareketler oraya karışmaz ama stok bakiyesi doğru kalır.
+            type: "ADJUSTMENT",
+            unitPrice: costs.get(op.productId) ?? null,
+            description: `${args.ticketCode} - ${note}`.slice(0, 500),
+            reference: args.reference,
+            createdBy: args.createdBy ?? null,
+          })
+        }
+      })
+      written += stockable.length
     }
 
-    const ops = [
-      ...direct.map((d) => ({ productId: d.productId, quantity: d.quantity, fromRecipe: false })),
-      ...components.map((c) => ({ productId: c.productId, quantity: c.quantity, fromRecipe: true })),
-    ]
-    if (ops.length === 0) return { written: 0, failed: false }
-
-    const serviceIds = new Set(
-      (
-        await prisma.product.findMany({
-          where: { id: { in: ops.map((o) => o.productId) }, isService: true },
-          select: { id: true },
-        })
-      ).map((p) => p.id),
-    )
-    const stockable = ops.filter((o) => !serviceIds.has(o.productId))
-    if (stockable.length === 0) return { written: 0, failed: false }
-
-    const costs = await resolveUnitCosts(
-      args.companyId,
-      stockable.map((o) => o.productId),
-    )
-
-    // Açıklama tek satırda "ne, neden": hareket listesinde ikram ile zayi
-    // birbirinden ve normal satıştan ayırt edilebilsin.
-    const comps = lines.filter((l) => l.status === "COMP")
-    const wastes = lines.filter((l) => l.status === "WASTE")
-    const summarize = (list: CompWasteLine[], label: string) =>
-      list.length === 0
-        ? null
-        : `${label}: ${list
-            .map((l) => {
-              const why = reasonLabel(l.status, l.reasonCode)
-              return why ? `${l.description} (${why})` : l.description
-            })
-            .join(", ")}`
-    const note = [summarize(comps, "İkram"), summarize(wastes, "Zayi")]
-      .filter(Boolean)
-      .join(" · ")
-
-    await prisma.$transaction(async (tx) => {
-      for (const op of stockable) {
-        await adjustWarehouseStock(tx, {
-          companyId: args.companyId,
-          productId: op.productId,
-          warehouseId: args.warehouseId ?? null,
-          delta: -op.quantity,
-          // ADJUSTMENT: satış değil. Karlılık raporu satış hareketlerine bakar,
-          // bu hareketler oraya karışmaz ama stok bakiyesi doğru kalır.
-          type: "ADJUSTMENT",
-          unitPrice: costs.get(op.productId) ?? null,
-          description: `${args.ticketCode} - ${note}`.slice(0, 500),
-          reference: args.reference,
-          createdBy: args.createdBy ?? null,
-        })
-      }
-    })
-
-    return { written: stockable.length, failed: false }
+    return { written, failed: false }
   } catch (error) {
     console.error("[İkram/Zayi] Stok düzeltmesi yazılamadı:", args.ticketCode, error)
     return { written: 0, failed: true }

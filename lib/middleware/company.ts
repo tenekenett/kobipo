@@ -107,7 +107,14 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
     where: { userId: context.userId, companyId },
     include: {
       company: {
-        select: { slug: true, name: true, isActive: true, isEDonusumEnabled: true, disabledModules: true },
+        select: {
+          slug: true,
+          name: true,
+          branchName: true,
+          isActive: true,
+          isEDonusumEnabled: true,
+          disabledModules: true,
+        },
       },
     },
   })
@@ -120,6 +127,7 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
     companyId: userCompany.companyId,
     companySlug: userCompany.company.slug,
     companyName: userCompany.company.name,
+    companyBranchName: userCompany.company.branchName ?? null,
     role: userCompany.role,
     isActive: userCompany.company.isActive,
     isEDonusumEnabled: userCompany.company.isEDonusumEnabled,

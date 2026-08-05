@@ -26,6 +26,7 @@ export async function GET(
       select: {
         id: true,
         name: true,
+        branchName: true,
         taxNumber: true,
         taxOffice: true,
         address: true,
@@ -66,8 +67,11 @@ export async function GET(
         updatedAt: true,
         // Şube/ana firma ilişkisi (Şube Bilgileri ekranı için)
         parentCompanyId: true,
-        parentCompany: { select: { id: true, name: true } },
-        branches: { select: { id: true, name: true }, orderBy: { name: "asc" } },
+        parentCompany: { select: { id: true, name: true, branchName: true } },
+        branches: {
+          select: { id: true, name: true, branchName: true },
+          orderBy: { name: "asc" },
+        },
       },
     })
 
@@ -113,6 +117,7 @@ export async function PUT(
     const body = await request.json()
     const {
       name,
+      branchName,
       taxNumber,
       taxOffice,
       address,
@@ -178,6 +183,11 @@ export async function PUT(
       where: { id: resolvedParams.id },
       data: {
         name,
+        // Gönderilmediyse (undefined) dokunma; boş gönderildiyse temizle.
+        branchName:
+          branchName === undefined
+            ? undefined
+            : (typeof branchName === "string" && branchName.trim() ? branchName.trim() : null),
         taxNumber,
         taxOffice,
         address,

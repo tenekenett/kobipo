@@ -30,6 +30,39 @@ export const reservationInclude = Prisma.validator<Prisma.RestaurantReservationI
   table: { select: { id: true, name: true } },
 })
 
+/**
+ * Süresi geçmiş `PENDING` rezervasyonları `NOSHOW`'a düşürür ve kaç tanesini
+ * düşürdüğünü döndürür.
+ *
+ * Neden gerekli: "oturdu" YALNIZ adisyon açılışıyla veriliyor (bilinçli karar),
+ * ama gelmeyen misafir için hiçbir yol yoktu — kayıt sonsuza kadar `PENDING`
+ * kalıyor, gelmeme oranı ölçülemiyordu.
+ *
+ * Neden listeleme sırasında: ayrı bir zamanlanmış iş kurmak, tek kullanıcılı bir
+ * kafede çalışmayan bir bağımlılık ekler. Listeleme zaten günde defalarca
+ * çağrılıyor ve bu güncelleme idempotent.
+ *
+ * `GRACE_MINUTES`: rezervasyon SÜRESİ bittikten sonra beklenen ek süre. Misafir
+ * geç gelebilir; 20:00'lik 90 dakikalık rezervasyon 21:30'da değil 22:00'de
+ * "gelmedi" sayılır. Bitiş saati saklanmadığı (süreden türetildiği) için
+ * karşılaştırma SQL'de interval aritmetiğiyle yapılıyor.
+ */
+const GRACE_MINUTES = 30
+
+export async function expireStaleReservations(
+  db: Pick<PrismaClient, "$executeRaw">,
+  companyId: string,
+): Promise<number> {
+  return db.$executeRaw`
+    UPDATE restaurant_reservations
+    SET status = 'NOSHOW', "updatedAt" = NOW()
+    WHERE "companyId" = ${companyId}
+      AND status = 'PENDING'
+      AND "reservedAt" + ("durationMin" * INTERVAL '1 minute')
+          < NOW() - (${GRACE_MINUTES} * INTERVAL '1 minute')
+  `
+}
+
 type ReservationWithRelations = Prisma.RestaurantReservationGetPayload<{
   include: typeof reservationInclude
 }>

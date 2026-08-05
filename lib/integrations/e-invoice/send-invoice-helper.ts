@@ -284,6 +284,17 @@ async function resolveSendContext(
           country: invoice.supplier.country || undefined,
         }
       : undefined,
+    // Sevk adresi. Hiçbiri girilmemişse alan hiç eklenmez → eski davranış korunur.
+    ...(invoice.deliveryAddress || invoice.deliveryCity || invoice.deliveryDistrict
+      ? {
+          delivery: {
+            address: invoice.deliveryAddress || undefined,
+            city: invoice.deliveryCity || undefined,
+            district: invoice.deliveryDistrict || undefined,
+            country: invoice.deliveryCountry || undefined,
+          },
+        }
+      : {}),
     items: invoice.items.map((item) => ({
       description: item.description?.trim() || item.product?.name || "",
       quantity: Number(item.quantity),

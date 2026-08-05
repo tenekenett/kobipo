@@ -20,6 +20,11 @@ import {
 
 export const dynamic = 'force-dynamic'
 
+/** Serbest metin alanı: boş/whitespace ise NULL yaz (boş string saklama). */
+function trimOrNull(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
 function isMeaningfulInvoiceItem(item: any) {
   if (!item || typeof item !== "object") return false
   const hasProduct = typeof item.productId === "string" && item.productId.trim() !== ""
@@ -147,6 +152,10 @@ export async function POST(request: Request) {
       payableRoundingAmount,
       category,
       tags,
+      deliveryAddress,
+      deliveryDistrict,
+      deliveryCity,
+      deliveryCountry,
     } = body
 
     // Fiş: hızlı satış/alış ile kesilen gayriresmî belge. Stok + tahsilat işler ama
@@ -405,6 +414,12 @@ const company = await prisma.company.findUnique({
         globalChargeAmount: appliedGlobalCharge > 0 ? appliedGlobalCharge : null,
         payableRoundingAmount: appliedRounding !== 0 ? appliedRounding : null,
         notes,
+        // Sevk adresi (teslim yeri). Açık adres yalnız Kobipo içindir; il/ilçe
+        // e-belgeye gider (bkz. mysoft-provider payload'ındaki delivery* alanları).
+        deliveryAddress: trimOrNull(deliveryAddress),
+        deliveryDistrict: trimOrNull(deliveryDistrict),
+        deliveryCity: trimOrNull(deliveryCity),
+        deliveryCountry: trimOrNull(deliveryCountry),
         // Sınıflandırma: kategori tek değer, etiketler çoklu. Serbest metin oldukları
         // için trim'lenir, boşlar atılır ve etiketlerde tekrar temizlenir.
         category: typeof category === "string" && category.trim() ? category.trim() : null,

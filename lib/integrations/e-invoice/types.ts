@@ -47,6 +47,18 @@ export interface InvoiceData {
     district?: string
     country?: string
   }
+  // SEVK ADRESİ. İki kanaldan birden gider:
+  //  1) deliveryCity / deliveryCitySubdivisionName / deliveryCountry — standart alanlar.
+  //     Mysoft bunları BUGÜN UBL'e yazmıyor (ölçüldü), yine de gönderiyoruz.
+  //  2) additionalDocumentRef "SEVK_ADRESI" — açık adres dahil belgeye fiilen giren yol.
+  //     Şablon bu referansı okuyup "Sevk Adresi" satırını basar.
+  delivery?: {
+    /** Açık adres (cadde/bina/kapı). Yalnız 2. kanaldan gider. */
+    address?: string
+    city?: string
+    district?: string
+    country?: string
+  }
   items: InvoiceItemData[]
   notes?: string
 }

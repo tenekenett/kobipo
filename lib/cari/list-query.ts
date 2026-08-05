@@ -72,6 +72,7 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
           ${hasSearch
             ? Prisma.sql`AND (
               c.name ILIKE ${searchLike}
+              OR c.nickname ILIKE ${searchLike}
               OR c.code ILIKE ${searchLike}
               OR c."taxNumber" ILIKE ${searchLike}
               OR c.email ILIKE ${searchLike}
@@ -158,10 +159,13 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
         pc.code,
         pc.slug,
         pc.name,
+        pc.nickname,
         pc."taxNumber",
         pc."taxOffice",
         pc.address,
         pc.city,
+        -- district: fatura ekranındaki "Sevk adresini cariden doldur" için gerekli.
+        pc.district,
         pc.email,
         pc.phone,
         pc."contactPerson",
@@ -204,6 +208,7 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
           ${hasSearch
             ? Prisma.sql`AND (
               c.name ILIKE ${searchLike}
+              OR c.nickname ILIKE ${searchLike}
               OR c.code ILIKE ${searchLike}
               OR c."taxNumber" ILIKE ${searchLike}
               OR c.email ILIKE ${searchLike}
@@ -265,6 +270,7 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
           ${hasSearch
             ? Prisma.sql`AND (
               s.name ILIKE ${searchLike}
+              OR s.nickname ILIKE ${searchLike}
               OR s.code ILIKE ${searchLike}
               OR s."taxNumber" ILIKE ${searchLike}
               OR s.email ILIKE ${searchLike}
@@ -350,10 +356,13 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
         ps.code,
         ps.slug,
         ps.name,
+        ps.nickname,
         ps."taxNumber",
         ps."taxOffice",
         ps.address,
         ps.city,
+        -- district: fatura ekranındaki "Sevk adresini cariden doldur" için gerekli.
+        ps.district,
         ps.country,
         ps.phone,
         ps.email,
@@ -397,6 +406,7 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
           ${hasSearch
             ? Prisma.sql`AND (
               s.name ILIKE ${searchLike}
+              OR s.nickname ILIKE ${searchLike}
               OR s.code ILIKE ${searchLike}
               OR s."taxNumber" ILIKE ${searchLike}
               OR s.email ILIKE ${searchLike}

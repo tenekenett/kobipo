@@ -598,7 +598,14 @@ export default function FinansPage() {
                     </TableRow>
                   ) : (
                     transactions.map((transaction, idx) => (
-                      <StyledTableRow key={transaction.id} index={idx}>
+                      <StyledTableRow
+                        key={transaction.id}
+                        index={idx}
+                        className="cursor-pointer"
+                        // Satırın tamamı bağlantı yüzeyi: sağ tık → "yeni sekmede aç".
+                        href={`/finans/hareketler/${transaction.id}?company=${encodeURIComponent(companyId || "")}&from=${encodeURIComponent("/finans")}`}
+                        hrefLabel={`${transaction.description || "Hareket"} detayı`}
+                      >
                         <TableCell className="text-xs whitespace-nowrap">
                           {new Date(transaction.date).toLocaleDateString("tr-TR")}
                         </TableCell>

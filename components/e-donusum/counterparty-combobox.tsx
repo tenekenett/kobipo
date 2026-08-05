@@ -9,6 +9,8 @@ import { QuickCariDialog, type CreatedCari, type CariKind } from "@/components/e
 export type Counterparty = {
   id: string
   name: string
+  /** Takma ad: ünvanı hatırlamayan kullanıcı cariyi bununla bulur. */
+  nickname?: string | null
   taxNumber?: string | null
 }
 
@@ -36,7 +38,11 @@ type CounterpartyComboboxProps = {
 
 const MAX_RESULTS = 50
 
-type Row = CounterpartySelection & { name: string; taxNumber?: string | null }
+type Row = CounterpartySelection & {
+  name: string
+  nickname?: string | null
+  taxNumber?: string | null
+}
 
 export function CounterpartyCombobox({
   customers,
@@ -83,6 +89,8 @@ export function CounterpartyCombobox({
   const matches = useCallback(
     (item: Counterparty) =>
       item.name.toLowerCase().includes(q) ||
+      // Kullanıcı cariyi çoğu zaman ünvanıyla değil takma adıyla arar.
+      (item.nickname ? item.nickname.toLowerCase().includes(q) : false) ||
       (item.taxNumber ? String(item.taxNumber).toLowerCase().includes(q) : false),
     [q],
   )
@@ -92,7 +100,13 @@ export function CounterpartyCombobox({
     return customers
       .filter(matches)
       .slice(0, MAX_RESULTS)
-      .map((c) => ({ kind: "customer", id: c.id, name: c.name, taxNumber: c.taxNumber }))
+      .map((c) => ({
+        kind: "customer",
+        id: c.id,
+        name: c.name,
+        nickname: c.nickname,
+        taxNumber: c.taxNumber,
+      }))
   }, [customers, matches, hasEnough])
 
   const supplierRows = useMemo<Row[]>(() => {
@@ -100,7 +114,13 @@ export function CounterpartyCombobox({
     return suppliers
       .filter(matches)
       .slice(0, MAX_RESULTS)
-      .map((s) => ({ kind: "supplier", id: s.id, name: s.name, taxNumber: s.taxNumber }))
+      .map((s) => ({
+        kind: "supplier",
+        id: s.id,
+        name: s.name,
+        nickname: s.nickname,
+        taxNumber: s.taxNumber,
+      }))
   }, [suppliers, matches, hasEnough])
 
   // Klavye gezinmesi için düz liste (müşteriler + tedarikçiler).
@@ -198,8 +218,11 @@ export function CounterpartyCombobox({
       onClick={() => pick(row)}
     >
       <span className="font-medium">{row.name}</span>
-      {row.taxNumber ? (
-        <span className="text-xs text-muted-foreground">{row.taxNumber}</span>
+      {/* Takma adla arayan kullanıcı hangi kaydın eşleştiğini görebilsin. */}
+      {row.nickname || row.taxNumber ? (
+        <span className="text-xs text-muted-foreground">
+          {[row.nickname, row.taxNumber].filter(Boolean).join(" · ")}
+        </span>
       ) : null}
     </button>
   )

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -61,6 +61,7 @@ interface Customer {
   code?: string
   slug?: string
   name: string
+  nickname?: string | null
   taxNumber?: string
   taxOffice?: string
   address?: string
@@ -77,7 +78,6 @@ interface Customer {
 }
 
 export default function CariPage() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const tabQuery = searchParams.get("tab")
@@ -398,17 +398,29 @@ export default function CariPage() {
                         : balance < 0
                           ? "text-rose-600 dark:text-rose-400"
                           : "text-muted-foreground"
+                    const rowHref = `/cari/${activeTab}/${item.slug || item.id}?company=${companyId}`
                     return (
                       <StyledTableRow
                         key={item.id}
                         index={idx}
                         className="cursor-pointer"
-                        onClick={() =>
-                          router.push(`/cari/${activeTab}/${item.slug || item.id}?company=${companyId}`)
-                        }
+                        // Satırın tamamı bağlantı yüzeyi: sağ tık → "yeni sekmede aç".
+                        href={rowHref}
+                        hrefLabel={`${item.name} detayı`}
                       >
                         <TableCell>
                           <EntityCell name={item.name} maxWidth={360} />
+                          {/* Takma ad: ünvan resmi ad olduğu için kullanıcının cariyi
+                              tanıdığı ad hemen altında, ikinci satırda gösterilir. */}
+                          {item.nickname && (
+                            <p
+                              className="truncate pl-6 text-xs text-muted-foreground"
+                              style={{ maxWidth: 360 }}
+                              title={item.nickname}
+                            >
+                              {item.nickname}
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell><MonoCell value={item.taxNumber} /></TableCell>
                         <TableCell
@@ -421,15 +433,15 @@ export default function CariPage() {
                             ? currencyFormatter.format(item.balance)
                             : "-"}
                         </TableCell>
+                        {/* Aksiyon hücresi bağlantı kaplamasının dışında kalmalı,
+                            yoksa butonlar tıklanamaz olur. */}
                         <TableCell
+                          data-row-link-skip
                           className="text-right"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="flex justify-end gap-0.5">
-                            <Link
-                              href={`/cari/${activeTab}/${item.slug || item.id}?company=${companyId}`}
-                              aria-label="Detay"
-                            >
+                            <Link href={rowHref} aria-label="Detay">
                               <Button variant="ghost" size="icon" className="h-8 w-8">
                                 <Eye className="h-4 w-4" />
                               </Button>

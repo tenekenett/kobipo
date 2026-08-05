@@ -60,7 +60,11 @@ model User {
   id                 String    @id @default(cuid())
   email              String    @unique
   name               String?
+  // Kayıt formunda sorulan firma ünvanı + ayırt edici şube ismi. Kayıt anında henüz
+  // Company kaydı yoktur; ilk firma oluşturulurken (/companies/new) form bu iki
+  // değerle ön doldurulur ve Company.name / Company.branchName'e taşınır.
   companyDisplayName String?
+  companyBranchName  String?
   phone              String?
   password           String
   emailVerified      DateTime?
@@ -182,7 +186,13 @@ model LoginAttempt {
 model Company {
   id                        String             @id @default(cuid())
   slug                      String             @unique @default("")
+  // `name` resmi ÜNVAN'dır (faturada/e-belgede basılan ad). Aynı tüzel kişinin birden
+  // çok şubesi aynı ünvanı taşıdığı için firma seçicide ayırt edilemiyordu; `branchName`
+  // yalnızca ARAYÜZ için kısa ayırt edici addır (ör. "Kadıköy"). Seçici ve şube
+  // listelerinde ünvanın yanına parantez içinde eklenir — bkz. lib/company/display-name.ts.
+  // Belge/e-fatura içeriğinde KULLANILMAZ. NULL/boş = yalnızca ünvan gösterilir.
   name                      String
+  branchName                String?
   // Şubeler ana firmayla aynı VKN'yi paylaşabildiği için taxNumber global benzersiz
   // DEĞİLDİR. Aynı tüzel kişinin (parentCompanyId) birden fazla şubesi olabilir.
   taxNumber                 String?
@@ -372,7 +382,11 @@ model Customer {
   id                   String    @id @default(cuid())
   companyId            String
   code                 String?
+  // `name` resmi ünvandır (faturada/e-belgede basılır). `nickname` günlük hayatta
+  // kullanılan takma addır ("Ali Usta", "Köşedeki bakkal") — yalnızca ARAYÜZ içindir:
+  // listede ünvanın altında görünür ve cari aramasında eşleşir. Belgelere yazılmaz.
   name                 String
+  nickname             String?
   taxNumber            String?
   taxOffice            String?
   address              String?   @db.Text
@@ -431,7 +445,9 @@ model Supplier {
   id                   String    @id @default(cuid())
   companyId            String
   code                 String?
+  // Bkz. Customer.nickname — takma ad, yalnızca arayüz/arama içindir.
   name                 String
+  nickname             String?
   taxNumber            String?
   taxOffice            String?
   address              String?   @db.Text
@@ -1200,6 +1216,17 @@ model Invoice {
   // (companyId, category) indexlenir.
   category             String?
   tags                 String[]  @default([])
+  // SEVK ADRESİ (malın teslim edileceği yer; alıcının fatura adresinden farklı olabilir).
+  // ÖNEMLİ — Mysoft'un fatura modeli (InvoiceOutboxModel) teslim tarafında YALNIZCA
+  // il/ilçe/ülke kabul eder: deliveryCity, deliveryCitySubdivisionName, deliveryCountry.
+  // Açık adres alanları (streetName, buildingNumber…) yalnız alıcı ve gönderen-şube
+  // altında var; e-İrsaliye'deki tam adres modeli (DeliveryAddressModel) faturada yok.
+  // Bu yüzden `deliveryAddress` e-belgeye GİTMEZ — Kobipo ekranlarında ve kendi
+  // çıktılarımızda kullanılır. Boş bırakılırsa payload'a hiçbir delivery alanı eklenmez.
+  deliveryAddress      String?   @db.Text
+  deliveryDistrict     String?
+  deliveryCity         String?
+  deliveryCountry      String?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   createdBy            String?

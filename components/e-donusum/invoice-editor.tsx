@@ -37,6 +37,12 @@ import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combob
 import { WithholdingCombobox } from "@/components/e-donusum/withholding-combobox"
 import { TaxTypeCombobox } from "@/components/e-donusum/tax-type-combobox"
 import { UnitCombobox } from "@/components/ui/unit-combobox"
+import { SearchSelect } from "@/components/ui/search-select"
+import { TURKISH_CITIES } from "@/lib/data/turkish-cities"
+import {
+  TURKISH_PROVINCE_DISTRICTS,
+  PROVINCE_DISTRICT_SEPARATOR as DISTRICT_SEP,
+} from "@/lib/data/turkish-districts"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { normalizeUnitCode } from "@/lib/data/units"
 import {
@@ -85,8 +91,8 @@ const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
 // aynı kaynak. Buradaki gömülü liste yalnız başlangıç/fallback değeridir; uç
 // Mysoft'ta canlı liste bulursa state onunla değiştirilir.
 
-interface Customer { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
-interface Supplier { id: string; name: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null }
+interface Customer { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null }
+interface Supplier { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null }
 interface Product { id: string; name: string; code?: string; barcode?: string | null; salePrice?: number; vatRate: number; unit?: string; stockQuantity?: number | string; minStockLevel?: number | string | null; isService?: boolean }
 // Faturaya bağlanabilir alış irsaliyesi (stoğa işlenmiş + henüz bağlanmamış).
 interface LinkableWaybillItem {
@@ -312,6 +318,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     notes: "",
     category: "",
     tags: [] as string[],
+    // Sevk adresi (teslim yeri). İl/ilçe e-belgeye gider; açık adres yalnız Kobipo içi.
+    deliveryAddress: "",
+    deliveryDistrict: "",
+    deliveryCity: "",
   })
 
   // Sınıflandırma: daha önce kullanılmış kategori/etiketler öneri olarak sunulur.
@@ -326,6 +336,59 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     const r = normalizeManualInvoiceNo(formData.invoiceNo)
     return r.ok ? null : r.error
   })()
+
+  // ————— SEVK ADRESİ —————
+  // İl/ilçe listeleri cari formundaki desenin aynısı: ilçe değeri "İl||İlçe" biçiminde
+  // kodlanır ki aynı adlı ilçeler (Merkez vb.) ilini taşısın.
+  const deliveryCityOptions = useMemo(() => {
+    const opts: { id: string; name: string }[] = []
+    if (formData.deliveryCity && !TURKISH_CITIES.includes(formData.deliveryCity as (typeof TURKISH_CITIES)[number])) {
+      opts.push({ id: formData.deliveryCity, name: `${formData.deliveryCity} (kayıtlı)` })
+    }
+    for (const c of TURKISH_CITIES) opts.push({ id: c, name: c })
+    return opts
+  }, [formData.deliveryCity])
+
+  const deliveryDistrictValue = formData.deliveryDistrict
+    ? `${formData.deliveryCity}${DISTRICT_SEP}${formData.deliveryDistrict}`
+    : ""
+
+  const deliveryDistrictOptions = useMemo(() => {
+    const opts: { id: string; name: string }[] = []
+    const list = formData.deliveryCity ? TURKISH_PROVINCE_DISTRICTS[formData.deliveryCity] ?? [] : null
+    if (formData.deliveryDistrict && (!list || !list.includes(formData.deliveryDistrict))) {
+      opts.push({ id: deliveryDistrictValue, name: `${formData.deliveryDistrict} (kayıtlı)` })
+    }
+    if (list) {
+      for (const d of list) opts.push({ id: `${formData.deliveryCity}${DISTRICT_SEP}${d}`, name: d })
+    } else {
+      for (const [province, districts] of Object.entries(TURKISH_PROVINCE_DISTRICTS)) {
+        for (const d of districts) opts.push({ id: `${province}${DISTRICT_SEP}${d}`, name: `${d} — ${province}` })
+      }
+    }
+    return opts
+  }, [formData.deliveryCity, formData.deliveryDistrict, deliveryDistrictValue])
+
+  // Faturanın carisi (satışta müşteri, alışta tedarikçi) — sevk adresini ondan doldurmak için.
+  const selectedCari = useMemo(
+    () =>
+      formData.customerId
+        ? customers.find((c) => c.id === formData.customerId)
+        : formData.supplierId
+          ? suppliers.find((s) => s.id === formData.supplierId)
+          : undefined,
+    [customers, suppliers, formData.customerId, formData.supplierId],
+  )
+
+  const fillDeliveryFromCari = () => {
+    if (!selectedCari) return
+    setFormData((prev) => ({
+      ...prev,
+      deliveryAddress: selectedCari.address || "",
+      deliveryCity: selectedCari.city || "",
+      deliveryDistrict: selectedCari.district || "",
+    }))
+  }
 
   const addTag = (raw: string) => {
     const t = raw.trim()
@@ -1003,6 +1066,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         notes: data.notes || "",
         category: data.category || "",
         tags: Array.isArray(data.tags) ? data.tags : [],
+        deliveryAddress: data.deliveryAddress || "",
+        deliveryDistrict: data.deliveryDistrict || "",
+        deliveryCity: data.deliveryCity || "",
       })
 
       // Fatura altı iskonto: DB'de tutar olarak saklı; yüklerken AMOUNT modunda
@@ -1101,6 +1167,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         notes: data.notes || "",
         category: data.category || "",
         tags: Array.isArray(data.tags) ? data.tags : [],
+        // Sevk adresi kopyaya taşınır: aynı cariye tekrar sevk çoğunlukla aynı yere.
+        deliveryAddress: data.deliveryAddress || "",
+        deliveryDistrict: data.deliveryDistrict || "",
+        deliveryCity: data.deliveryCity || "",
       })
 
       const copiedItems: InvoiceItem[] = Array.isArray(data.items)
@@ -1655,7 +1725,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   const resetForm = () => {
     setEditingInvoiceId(null)
-    setFormData({ type: "SALES", invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL", invoiceNo: "", customerId: "", supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", currency: "TRY", exchangeRate: "", exchangeRateDate: "", notes: "", category: "", tags: [] })
+    setFormData({ type: "SALES", invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL", invoiceNo: "", customerId: "", supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", currency: "TRY", exchangeRate: "", exchangeRateDate: "", notes: "", category: "", tags: [], deliveryAddress: "", deliveryDistrict: "", deliveryCity: "" })
     setTagInput("")
     setItems([{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }])
     setLineExtras([[]])
@@ -2275,6 +2345,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                       const c: Customer = {
                         id: created.id,
                         name: created.name,
+                        // Listeye takma adıyla girsin: yeni cari daha refetch olmadan
+                        // takma adıyla da aranabilsin.
+                        nickname: created.nickname ?? null,
                         taxNumber: created.taxNumber ?? null,
                         taxOffice: created.taxOffice ?? null,
                         address: created.address ?? null,
@@ -2285,6 +2358,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                       const s: Supplier = {
                         id: created.id,
                         name: created.name,
+                        nickname: created.nickname ?? null,
                         taxNumber: created.taxNumber ?? null,
                         taxOffice: created.taxOffice ?? null,
                         address: created.address ?? null,
@@ -3116,9 +3190,74 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           </div>
 
           <div className="flex flex-col-reverse md:flex-row justify-between gap-6">
-            <div className="flex-1 space-y-2 max-w-lg">
-              <Label>Genel Notlar</Label>
-              <Textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Fatura altına eklenecek notlar..." rows={4} />
+            <div className="flex-1 space-y-4 max-w-lg">
+              {/* SEVK ADRESİ — malın teslim edileceği yer. Mysoft fatura modeli teslim
+                  tarafında yalnız il/ilçe/ülke aldığı için açık adres e-belgeye gitmez. */}
+              <div className="space-y-2 rounded-lg border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label className="flex items-center gap-1.5">
+                    <Truck className="h-4 w-4 text-muted-foreground" />
+                    Sevk Adresi
+                  </Label>
+                  {selectedCari && (
+                    <Button type="button" variant="ghost" size="sm" onClick={fillDeliveryFromCari}>
+                      Cari adresiyle aynı
+                    </Button>
+                  )}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <SearchSelect
+                    id="deliveryCity"
+                    options={deliveryCityOptions}
+                    value={formData.deliveryCity}
+                    onChange={(city) =>
+                      setFormData((prev) => {
+                        const districts = TURKISH_PROVINCE_DISTRICTS[city] ?? []
+                        // İl değişince mevcut ilçe yeni ile ait değilse sıfırlanır.
+                        const keep = prev.deliveryDistrict && districts.includes(prev.deliveryDistrict)
+                        return { ...prev, deliveryCity: city, deliveryDistrict: keep ? prev.deliveryDistrict : "" }
+                      })
+                    }
+                    placeholder="Teslim ili…"
+                    allowClear
+                  />
+                  <SearchSelect
+                    id="deliveryDistrict"
+                    options={deliveryDistrictOptions}
+                    value={deliveryDistrictValue}
+                    onChange={(encoded) => {
+                      if (!encoded) {
+                        setFormData((prev) => ({ ...prev, deliveryDistrict: "" }))
+                        return
+                      }
+                      const [province, district] = encoded.split(DISTRICT_SEP)
+                      // İlçe seçilince ilini de otomatik ayarla.
+                      setFormData((prev) => ({
+                        ...prev,
+                        deliveryCity: province || prev.deliveryCity,
+                        deliveryDistrict: district || "",
+                      }))
+                    }}
+                    placeholder="Teslim ilçesi…"
+                    allowClear
+                  />
+                </div>
+                <Textarea
+                  value={formData.deliveryAddress}
+                  onChange={(e) => setFormData({ ...formData, deliveryAddress: e.target.value })}
+                  placeholder="Açık adres (cadde, bina, kapı no)…"
+                  rows={2}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Boş bırakılırsa faturaya sevk bilgisi eklenmez. <strong>İl/ilçe</strong> e-faturaya
+                  işlenir; <strong>açık adres</strong> entegratörün fatura modelinde karşılığı
+                  olmadığı için e-belgeye yazılmaz, Kobipo kayıtlarında tutulur.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Genel Notlar</Label>
+                <Textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Fatura altına eklenecek notlar..." rows={4} />
+              </div>
             </div>
 
             <div className="w-full md:w-80 bg-slate-50 rounded-lg p-4 border space-y-2">

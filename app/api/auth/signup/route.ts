@@ -12,7 +12,8 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { name, email, password, companyOrPersonName, phone, captchaToken } = body
+    const { name, email, password, companyOrPersonName, companyBranchName, phone, captchaToken } =
+      body
 
     // Bot koruması: reCAPTCHA doğrulaması (anahtar tanımlıysa zorunlu).
     const remoteIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null
@@ -27,6 +28,9 @@ export async function POST(request: Request) {
     const trimmedName = String(name || "").trim()
     const normalizedEmail = String(email || "").trim().toLowerCase()
     const trimmedCompanyOrPersonName = String(companyOrPersonName || "").trim()
+    // Şube ismi OPSİYONELDİR: tek şubeli kullanıcı boş bırakır. Girilirse ilk firma
+    // oluşturulurken forma taşınır ve Company.branchName olur.
+    const trimmedCompanyBranchName = String(companyBranchName || "").trim()
     const trimmedPhone = String(phone || "").trim()
 
     if (!trimmedName || !normalizedEmail || !password || !trimmedCompanyOrPersonName || !trimmedPhone) {
@@ -69,6 +73,7 @@ export async function POST(request: Request) {
         email: normalizedEmail,
         password: hashedPassword,
         companyDisplayName: trimmedCompanyOrPersonName,
+        companyBranchName: trimmedCompanyBranchName || null,
         phone: trimmedPhone,
       },
     })

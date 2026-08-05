@@ -25,6 +25,8 @@ type OpeningBalanceType = "DEBIT" | "CREDIT"
 type FormData = {
   code: string
   name: string
+  /** Günlük kullanılan takma ad; ünvandan ayrı, belgelere yazılmaz. */
+  nickname: string
   taxNumber: string
   taxOffice: string
   address: string
@@ -74,6 +76,7 @@ type CompanyMember = {
 const defaultFormData: FormData = {
   code: "",
   name: "",
+  nickname: "",
   taxNumber: "",
   taxOffice: "",
   address: "",
@@ -203,6 +206,7 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
         setFormData({
           code: data.code || "",
           name: data.name || "",
+          nickname: data.nickname || "",
           taxNumber: data.taxNumber || "",
           taxOffice: data.taxOffice || "",
           address: data.address || "",
@@ -599,6 +603,23 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                       required
                       disabled={isLoading}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Faturada ve e-belgelerde basılan resmi ünvan.
+                    </p>
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="nickname">Takma Ad</Label>
+                    <Input
+                      id="nickname"
+                      value={formData.nickname}
+                      onChange={(e) => setFormData({ ...formData, nickname: e.target.value })}
+                      placeholder="Örn. Ali Usta"
+                      disabled={isLoading}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Cariyi günlük hayatta tanıdığınız ad. Listede ünvanın altında görünür ve
+                      cari aramasında da eşleşir — belgelere yazılmaz.
+                    </p>
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="taxOffice">Vergi Dairesi</Label>

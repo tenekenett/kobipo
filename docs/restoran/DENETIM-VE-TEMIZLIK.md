@@ -168,40 +168,75 @@ bağlandığı için şema hazır — yalnız Prisma client üretmek yeterli.
 `writeCompWasteStock` artık `{ written, failed }` döndürüyor (fiş kesmeden çağıran kullanıcıya
 hata gösterebilsin; adisyon kapanışı eskisi gibi yok sayıyor).
 
-### Faz 3 — kod tamam, doğrulaması yarım (2026-08-04)
+### Faz 3 ✅ (2026-08-04)
 
 | İş | Değişen | Durum |
 |---|---|---|
-| 7 — Çift fiş koruması | `kapat` GET → `existingInvoice` · `ticket-screen` diyaloğu | ✅ e2e'de doğrulandı (8d bölümü) |
-| 8 — Eksik tahsilat uyarısı | `ticket-screen` + `cafe-sale-screen` | ⏳ **e2e yok** — ikisi de saf ekran akışı; elle ya da tarayıcıda bakılmalı |
+| 7 — Çift fiş koruması | `kapat` GET → `existingInvoice` · `ticket-screen` diyaloğu | ✅ e2e (8d bölümü) |
+| 8 — Eksik tahsilat uyarısı | `ticket-screen` + `cafe-sale-screen` | ✅ kod; **e2e yok** — saf ekran akışı, tarayıcıda bakılmalı |
 
 `GET /kapat` artık adisyonun damgasını taşıyan, **başka adisyona bağlı olmayan**, iptal
 edilmemiş fişi arıyor (`restaurantTicket: { is: null }`). Ekran "mevcut fişe bağla / yine de
 yeni fiş kes" diye soruyor; birincisi yeni fiş KESMEZ, tahsilat da denemez.
 
-### Doğrulama durumu
+### Faz 4 ✅ (2026-08-04)
+
+| İş | Değişen | Karar |
+|---|---|---|
+| 9-11 — Denetim raporu | **yeni** `raporlar/denetim/route.ts` + `reports/denetim.tsx` + `?rapor=denetim` sekmesi | Yeni veri YAZMIYOR; yazılıp okunmayan alanları okuyor |
+| 12 — Rezervasyon no-show | `reservations.ts` → `expireStaleReservations` · rezervasyon GET'i | Süresi + 30 dk geçen `PENDING` → `NOSHOW`, listelemede (ayrı zamanlanmış iş kurmadan) |
+
+**İkram ve zayi artık AYRI hareket** (`comp-waste-stock.ts`): eskiden tek açıklamada
+birleşiyorlardı (`İkram: … · Zayi: …`) ve aynı adisyonda ikisi de varsa tutar ikisine birden
+ait olduğu için bölünemiyordu. Rapor bu ayrımın üstünde duruyor.
+
+Raporun **üç tarih ekseni** var, üçü de bilinçli: ikram/zayi → stok hareketinin tarihi;
+VOID kalem → adisyonun AÇILIŞI (kalem servis sırasında iptal edilir, adisyon hâlâ açık
+olabilir, `closedAt` boş olurdu); iptal/birleştirme → `closedAt` (iptal anı).
+
+**Geri alınmış belgeler dışarıda:** fiş iptali aynı referansa "Fatura iptali" hareketi yazar;
+ikram hareketi durur ama geçersizdir. Faturaya join etmek yetmez — belge SİLİNMİŞ olabilir
+(AVCO'daki aynı tuzak, SADELESTIRME.md İş 11). Bu yüzden ters hareketin VARLIĞINA bakılıyor.
+
+**Gün sonu raporuna dokunulmadı:** oradaki açık adisyon listesi `status: { not: "CANCELLED" }`
+kullandığı için birleştirilenler zaten dışarıdaydı; ayrım gereken tek yer denetim raporuydu.
+
+Bilinçli sınırlar: (1) ikram/zayi maliyeti hareketi YAZAN kullanıcıya atfedilir — adisyonda
+bu, hesabı kapatan kişidir (işareti koyan ayrıca saklanmıyor); (2) tezgâh ikramlarının
+adisyon kaydı olmadığı için sebep kırılımında görünmezler, tutarları para tarafında sayılır.
+İkisi de ekranda yazıyor.
+
+### Doğrulama durumu ✅ (2026-08-04, temiz koşu)
 
 | Betik | Sonuç |
 |---|---|
-| `test-restoran-adisyon.mjs` | **131 geçti / 5 kaldı** — kalan 5'i **sayfa render'ı** (`HTTP 500`), Faz 3 dosyaları kaydedilirken Turbopack yeniden derliyordu. Aynı sayfalar hemen ardından elle çağrıldığında **200** döndü. Temiz koşu tekrarlanmadı (oturum kesildi) — **yeni makinede ilk iş bu** |
+| `test-restoran-adisyon.mjs` (gerçek uçlar) | **149/149** |
 | `test-ticket-totals` · `test-payment` · `test-receipt-sale` | 38/38 · 34/34 · 23/23 |
-| `test-recipe-expand` · `test-avco-revert` · `test-comp-waste-stock` | 84/84 · 15/15 · 13/13 |
+| `test-recipe-expand` · `test-avco-revert` · `test-comp-waste-stock` · `test-module-gating` | 84/84 · 15/15 · 14/14 · 20/20 |
 | `tsc --noEmit` | ✅ (kalan tek hata `.next/types/validator.ts` — ESKİ, ilgisiz) |
 | `eslint` (değişen dosyalar) | ✅ temiz |
+| Demo verisi | ✅ süt `19,4`'e döndü, kalan adisyon/kroki kaydı 0 |
 
-Yeni eklenen e2e bölümleri: **8c** (tezgâh ikramı: sebep zorunlu, ADJUSTMENT hareketi,
-maliyetin donması, fiş iptalinde geri alınması), **8d** (yarıda kalan kapanış), **5b** (iptal
-sebebi), modül kapısında 6 uç, seçenekli kalem birleşmesi.
+Yeni e2e bölümleri: **5b** (iptal sebebi), **8c** (tezgâh ikramı: sebep zorunlu, `ADJUSTMENT`
+hareketi, maliyetin donması, fiş iptalinde geri alınması), **8d** (yarıda kalan kapanış),
+**10g** (denetim raporu + no-show), modül kapısında 7 uç, seçenekli kalem birleşmesi.
 
-### Sırada — Faz 4
+> Not: bir ara koşuda beş sayfa `HTTP 500` verdi; sebebi kod değil, **eski dev sunucusu
+> örneğiydi** (şema değişikliğinden önce üretilmiş Prisma client + Turbopack kilit çakışması).
+> Sunucu temiz başlatılınca aynı sayfalar 200 döndü ve tüm koşu geçti. Şema değiştiren bir
+> işten sonra dev sunucusunu YENİDEN BAŞLATMAK gerekiyor.
 
-- **İş 9-11 denetim raporu:** yeni `GET /api/restoran/raporlar/denetim` +
-  `components/restoran/reports/denetim.tsx` + `?rapor=denetim` sekmesi. Kaynaklar hazır:
-  ikram/zayi `ADJUSTMENT` hareketleri (`description LIKE '%İkram:%' / '%Zayi:%'`), VOID
-  kalemler, `cancelReasonCode`, `mergedIntoId` (iptalden AYRI sayılmalı), personel için
-  `openedBy`/`closedBy`/`createdBy` → `users` join. Gün sonu raporundaki iptal sayacı da
-  birleştirmeyi ayırmalı.
-- **İş 12 rezervasyon:** süresi geçmiş `PENDING` → `NOSHOW` (listelemede, grace ile) +
-  denetim sekmesinde rezervasyon özeti.
+### Sırada — Faz 5
 
-Faz 5 (mutfak ekranı, yetki kademesi, vardiya/kasa devri) her biri kendi planını istiyor.
+Üçü de kendi planını istiyor:
+
+- **Mutfak / bar ekranı (KDS)** — sipariş mutfağa hiç düşmüyor. Kalemde `createdAt`/`order`
+  var; "hazırlanıyor / hazır" durumu eklenince İş 4'ün kuralı da kalıcı temelini bulur
+  (servis edilmiş kalem iptal edilemez, ancak zayi/ikram olur).
+- **Yetki kademesi** — iskonto, ikram, adisyon iptali bugün write yetkisi olan herkeste.
+  Denetim raporu artık "kim yaptı"yı gösteriyor; sıradaki adım "kim yapabilir".
+- **Vardiya / kasa devri** — gün sonu takvim gününe bakıyor; iki vardiyalı işletmede
+  mutabakat yok.
+
+Ayrıca açık duran ölçüm işi: **menü performansında seçenek etkisi**
+(`stock_movements.sourceProductId`) — ilerleme.md'de de duruyor.

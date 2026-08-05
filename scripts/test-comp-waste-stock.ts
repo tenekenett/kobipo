@@ -79,8 +79,19 @@ async function main() {
     select: { productId: true, quantity: true, type: true, description: true, unitPrice: true },
   })
 
-  const componentMove = movements.find((m) => m.productId === component.id)
-  check("bileşen için hareket yazıldı", !!componentMove)
+  // İkram ve zayi AYRI hareket yazar (denetim raporu ikisini ayırabilsin diye),
+  // bu yüzden aynı bileşen için iki satır oluşur ve toplamları karşılaştırılır.
+  const componentMoves = movements.filter((m) => m.productId === component.id)
+  const componentQty = componentMoves.reduce((s, m) => s + num(m.quantity), 0)
+  const componentMove = componentMoves[0]
+  check("bileşen için hareket yazıldı", componentMoves.length > 0)
+  check(
+    "ikram ve zayi AYRI hareket",
+    componentMoves.length === 2 &&
+      componentMoves.some((m) => m.description?.includes("İkram")) &&
+      componentMoves.some((m) => m.description?.includes("Zayi")),
+    componentMoves.map((m) => m.description).join(" | "),
+  )
 
   // Beklenen miktarı ELLE hesaplamıyoruz: reçete birim çevrimi yapıyor (20 g
   // çekirdek → 0,02 KG stok). Bunun yerine TEK birimlik bir referans düşüm
@@ -103,18 +114,18 @@ async function main() {
   const expected = num(unitMove?.quantity) * 3
   check(
     "yalnız ikram+zayi kadar düştü (normal ve iptal hariç)",
-    !!componentMove && Math.abs(num(componentMove.quantity) - expected) < 0.0001,
-    `${componentMove ? num(componentMove.quantity) : "yok"} = 3 × ${num(unitMove?.quantity)}`,
+    componentMoves.length > 0 && Math.abs(componentQty - expected) < 0.0001,
+    `${componentMoves.length > 0 ? componentQty : "yok"} = 3 × ${num(unitMove?.quantity)}`,
   )
-  check("düşüm negatif (stoktan çıkış)", num(componentMove?.quantity) < 0)
+  check("düşüm negatif (stoktan çıkış)", componentMoves.every((m) => num(m.quantity) < 0))
   check(
     "hareket tipi ADJUSTMENT (satış değil)",
     movements.every((m) => m.type === "ADJUSTMENT"),
     movements.map((m) => m.type).join(","),
   )
   check(
-    "açıklamada ikram ve zayi ayrı görünüyor",
-    !!componentMove?.description?.includes("İkram") && !!componentMove?.description?.includes("Zayi"),
+    "açıklama sebebi taşıyor",
+    !!componentMove?.description?.includes("ADS-TEST"),
     componentMove?.description ?? "",
   )
   check(

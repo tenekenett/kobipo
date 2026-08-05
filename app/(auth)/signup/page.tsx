@@ -8,6 +8,7 @@ import { Recaptcha } from "@/components/auth/recaptcha"
 import {
   User,
   Building2,
+  Store,
   Phone,
   Mail,
   Lock,
@@ -28,6 +29,7 @@ export default function SignUpPage() {
   const [formData, setFormData] = useState({
     name: "",
     companyOrPersonName: "",
+    companyBranchName: "",
     phone: "",
     email: "",
     password: "",
@@ -100,6 +102,7 @@ export default function SignUpPage() {
         body: JSON.stringify({
           name: formData.name.trim(),
           companyOrPersonName: formData.companyOrPersonName.trim(),
+          companyBranchName: formData.companyBranchName.trim(),
           phone: formData.phone.trim(),
           email: formData.email.trim(),
           password: formData.password,
@@ -208,9 +211,9 @@ export default function SignUpPage() {
         />
         <FloatingInput
           id="companyOrPersonName"
-          label="Firma / Şahıs Adı"
+          label="Firma / Şahıs Ünvanı"
           type="text"
-          placeholder="Firma veya şahıs adı"
+          placeholder="Firma veya şahıs ünvanı"
           value={formData.companyOrPersonName}
           onChange={(v) => setFormData({ ...formData, companyOrPersonName: v })}
           icon={<Building2 className="h-4 w-4" />}
@@ -218,6 +221,25 @@ export default function SignUpPage() {
           required
           delay="0.2s"
         />
+        {/* Ünvan tüm şubelerde aynı olduğu için firmayı ayıran kısa ad ayrıca sorulur.
+            Opsiyoneldir; tek şubeli kullanıcı boş bırakabilir. */}
+        <div>
+          <FloatingInput
+            id="companyBranchName"
+            label="Şube İsmi (opsiyonel)"
+            type="text"
+            placeholder="Örn. Kadıköy"
+            value={formData.companyBranchName}
+            onChange={(v) => setFormData({ ...formData, companyBranchName: v })}
+            icon={<Store className="h-4 w-4" />}
+            disabled={isLoading}
+            delay="0.22s"
+          />
+          <p className="mt-1 text-[11px] leading-snug text-kobipo-gray">
+            Birden fazla şubeniz varsa ünvanlar aynı olur; bu ad panelde ünvanın yanında
+            parantez içinde görünerek şubeleri ayırır.
+          </p>
+        </div>
 
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
           <FloatingInput

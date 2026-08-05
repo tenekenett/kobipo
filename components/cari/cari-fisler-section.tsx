@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -16,6 +15,7 @@ import {
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
 import { FileText, Loader2, Receipt } from "lucide-react"
+import { LinkedTableRow } from "@/components/ui/styled-table"
 
 type ReceiptRow = {
   id: string
@@ -60,7 +60,6 @@ export function CariFislerSection({
   direction: "outgoing" | "incoming"
   onConverted?: () => void
 }) {
-  const router = useRouter()
   const { toast } = useToast()
 
   const [rows, setRows] = useState<ReceiptRow[]>([])
@@ -115,8 +114,8 @@ export function CariFislerSection({
       prev.size === activeRows.length ? new Set() : new Set(activeRows.map((r) => r.id)),
     )
 
-  const openDetail = (r: ReceiptRow) =>
-    router.push(`/fisler/${r.slug || r.id}?company=${encodeURIComponent(companyId)}`)
+  const detailHref = (r: ReceiptRow) =>
+    `/fisler/${r.slug || r.id}?company=${encodeURIComponent(companyId)}`
 
   const selectedRows = useMemo(() => activeRows.filter((r) => selected.has(r.id)), [activeRows, selected])
   const selectedTotal = useMemo(
@@ -208,14 +207,18 @@ export function CariFislerSection({
                 {displayRows.map((r) => {
                   const isConverted = r.status === "CONVERTED"
                   const badge = PAYMENT_BADGE[r.paymentStatus]
+                  const rowHref = detailHref(r)
                   return (
-                    <TableRow
+                    <LinkedTableRow
                       key={r.id}
                       data-state={selected.has(r.id) ? "selected" : undefined}
                       className={`cursor-pointer ${isConverted ? "opacity-70" : ""}`}
-                      onClick={() => openDetail(r)}
+                      // Satırın tamamı bağlantı yüzeyi: sağ tık → "yeni sekmede aç".
+                      href={rowHref}
+                      hrefLabel={`${r.receiptNo} detayı`}
                     >
-                      <TableCell onClick={(e) => e.stopPropagation()}>
+                      {/* Seçim kutusu kaplamanın dışında kalmalı. */}
+                      <TableCell data-row-link-skip onClick={(e) => e.stopPropagation()}>
                         {isConverted ? (
                           <span className="text-muted-foreground">—</span>
                         ) : (
@@ -228,7 +231,12 @@ export function CariFislerSection({
                           />
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-sm font-medium">{r.receiptNo}</TableCell>
+                      <TableCell className="font-mono text-sm font-medium">
+                        {/* Gerçek bağlantı: sağ tık → "yeni sekmede aç" burada çalışır. */}
+                        <Link href={rowHref} className="hover:underline">
+                          {r.receiptNo}
+                        </Link>
+                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         <div>{new Date(r.date).toLocaleDateString("tr-TR")}</div>
                         {r.createdAt && (
@@ -246,7 +254,8 @@ export function CariFislerSection({
                       <TableCell className="text-right tabular-nums text-muted-foreground">
                         {fmt(r.paidAmount)}
                       </TableCell>
-                      <TableCell className="text-center">
+                      {/* İçindeki "dönüştürüldü → fatura" bağlantısı tıklanabilir kalmalı. */}
+                      <TableCell data-row-link-skip className="text-center">
                         {isConverted ? (
                           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                             <Badge variant="secondary">Dönüştürüldü</Badge>
@@ -264,7 +273,7 @@ export function CariFislerSection({
                           <Badge variant={badge.variant}>{badge.label}</Badge>
                         )}
                       </TableCell>
-                    </TableRow>
+                    </LinkedTableRow>
                   )
                 })}
               </TableBody>

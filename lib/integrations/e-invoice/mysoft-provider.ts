@@ -1155,6 +1155,15 @@ async sendInvoice(invoiceData: any): Promise<any> {
         (typeof invoiceData.tenantIdentifierNumber === "string" && invoiceData.tenantIdentifierNumber.trim()) ||
         ""
 
+      // Sevk adresi satırları: 1) açık adres, 2) "İlçe / İl". Boş olanlar atlanır;
+      // hiçbiri yoksa belgeye sevk referansı hiç eklenmez.
+      const deliveryRefLines = [
+        invoiceData.delivery?.address?.trim(),
+        [invoiceData.delivery?.district?.trim(), invoiceData.delivery?.city?.trim()]
+          .filter(Boolean)
+          .join(" / "),
+      ].filter((line): line is string => Boolean(line && line.length > 0))
+
       const payload: any = {
         "id": 0,
         // Mysoft'un hesabımızı tanıdığı GUID — discover-mysoft-config'den geliyor.
@@ -1204,6 +1213,54 @@ async sendInvoice(invoiceData: any): Promise<any> {
         // boşsa hiç gönderme. Hem e-Fatura hem e-Arşiv'de belgede görünür.
         ...(typeof invoiceData.notes === "string" && invoiceData.notes.trim()
           ? { notes: [{ note: invoiceData.notes.trim() }] }
+          : {}),
+
+        // SEVK ADRESİ (teslim yeri). Mysoft fatura modelinde yalnız bu üç alan var;
+        // açık adres (cadde/bina) faturada desteklenmiyor — o yüzden Kobipo'daki
+        // serbest adres metni buraya girmez. Girilmemişse alanlar hiç gönderilmez.
+        //
+        // DİKKAT — 2026-08-05'te ölçüldü: Mysoft bu üç alanı UBL'e YAZMIYOR.
+        // getInvoiceOutboxDraftXMLAsZip ile aynı payload delivery alanlarıyla ve
+        // alansız üretildi; XML'ler birebir aynı çıktı (280943 karakter), üretilen
+        // belgede ne `cac:Delivery` elemanı ne de girilen il/ilçe değerleri var.
+        // Aynı testte `waybillInfo` HONOR EDİLDİ (XML büyüdü) — yani payload kabul
+        // ediliyor, yok sayılan yalnızca delivery*. Alanlar burada bırakıldı:
+        // maliyeti yok ve Mysoft tarafı düzelirse kendiliğinden çalışır.
+        // Sevk adresinin BELGEDE görünmesi isteniyorsa tek pratik yol fatura notu
+        // (cbc:Note); yapısal cac:Delivery için invoiceOutboxWithUblXml'e geçmek gerekir.
+        ...(invoiceData.delivery?.city || invoiceData.delivery?.district
+          ? {
+              deliveryCity: invoiceData.delivery.city || invoiceData.delivery.district,
+              deliveryCitySubdivisionName:
+                invoiceData.delivery.district || invoiceData.delivery.city,
+              deliveryCountry: invoiceData.delivery.country || "TÜRKİYE",
+            }
+          : {}),
+
+        // ÇALIŞAN KANAL — sevk adresini belgeye fiilen sokan yol.
+        // Mysoft `additionalDocumentRef` girdilerini UBL'e şu şekilde yazıyor (ölçüldü):
+        //   <cac:AdditionalDocumentReference>
+        //     <cbc:DocumentType>SEVK_ADRESI</cbc:DocumentType>
+        //     <cbc:DocumentDescription>…</cbc:DocumentDescription>  (her satır için bir tane)
+        //   </cac:AdditionalDocumentReference>
+        // Böylece delivery* alanlarının aksine AÇIK ADRES de belgeye girer. Temel
+        // XSLT'lerimiz (sample-templates/*.xslt) bu referansı okuyup "Sevk Adresi"
+        // satırını basar. Not: bu standarttaki cac:Delivery DEĞİLDİR — alıcının
+        // otomatik sistemi yapısal sevk adresi olarak okumaz, insan gözüyle görünür.
+        ...(deliveryRefLines.length > 0
+          ? {
+              additionalDocumentRef: [
+                {
+                  id:
+                    typeof (globalThis as any).crypto?.randomUUID === "function"
+                      ? (globalThis as any).crypto.randomUUID()
+                      : `${Date.now()}-sevk`,
+                  issueDate: isoDate,
+                  documentType: "SEVK_ADRESI",
+                  documentDescription: deliveryRefLines,
+                },
+              ],
+            }
           : {}),
 
         "invoiceAccount": {

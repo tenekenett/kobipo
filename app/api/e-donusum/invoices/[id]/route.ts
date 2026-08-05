@@ -224,7 +224,7 @@ export async function PUT(
     }
 
     const body = await request.json()
-    const { customerId, supplierId, date, dueDate, items, notes, globalDiscountAmount, globalChargeAmount, payableRoundingAmount, invoiceNo, category, tags } = body
+    const { customerId, supplierId, date, dueDate, items, notes, globalDiscountAmount, globalChargeAmount, payableRoundingAmount, invoiceNo, category, tags, deliveryAddress, deliveryDistrict, deliveryCity, deliveryCountry } = body
 
     const manualNo = normalizeManualInvoiceNo(invoiceNo)
     if (!manualNo.ok) {
@@ -330,6 +330,19 @@ export async function PUT(
         globalChargeAmount: appliedGlobalCharge.gt(0) ? appliedGlobalCharge : null,
         payableRoundingAmount: appliedRounding.isZero() ? null : appliedRounding,
         notes: notes !== undefined ? notes : invoice.notes,
+        // Sevk adresi — gönderilmediyse mevcut değere dokunma, boş gönderildiyse temizle.
+        ...(deliveryAddress !== undefined
+          ? { deliveryAddress: typeof deliveryAddress === "string" && deliveryAddress.trim() ? deliveryAddress.trim() : null }
+          : {}),
+        ...(deliveryDistrict !== undefined
+          ? { deliveryDistrict: typeof deliveryDistrict === "string" && deliveryDistrict.trim() ? deliveryDistrict.trim() : null }
+          : {}),
+        ...(deliveryCity !== undefined
+          ? { deliveryCity: typeof deliveryCity === "string" && deliveryCity.trim() ? deliveryCity.trim() : null }
+          : {}),
+        ...(deliveryCountry !== undefined
+          ? { deliveryCountry: typeof deliveryCountry === "string" && deliveryCountry.trim() ? deliveryCountry.trim() : null }
+          : {}),
         // Sınıflandırma — gönderilmediyse mevcut değer korunur (create ile aynı temizlik).
         ...(category !== undefined
           ? { category: typeof category === "string" && category.trim() ? category.trim() : null }

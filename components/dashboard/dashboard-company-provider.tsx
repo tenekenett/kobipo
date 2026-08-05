@@ -12,7 +12,10 @@ import {
 export type DashboardCompany = {
   id: string
   slug?: string
+  /** Resmi ünvan. Ayırt edici kısa ad için `branchName` ile birlikte kullanın. */
   name: string
+  /** Ünvandan ayrı kısa şube ismi; gösterim için lib/company/display-name.ts. */
+  branchName?: string | null
   /** Kullanıcının BU firmadaki rolü (şubede parent-admin'den gelen sanal ADMIN). */
   role?: string
   isEDonusumEnabled?: boolean

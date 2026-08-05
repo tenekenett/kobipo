@@ -20,6 +20,7 @@ export type CariKind = "customer" | "supplier"
 export type CreatedCari = {
   id: string
   name: string
+  nickname?: string | null
   taxNumber?: string | null
   taxOffice?: string | null
   address?: string | null
@@ -52,6 +53,7 @@ export function QuickCariDialog({
   const [isSaving, setIsSaving] = useState(false)
   const [form, setForm] = useState({
     name: "",
+    nickname: "",
     taxNumber: "",
     taxOffice: "",
     phone: "",
@@ -67,6 +69,8 @@ export function QuickCariDialog({
       setKind(defaultKind)
       setForm({
         name: initialName || "",
+        // Takma ad boş açılır: combobox'ta aranan metin ÜNVAN kutusuna gider.
+        nickname: "",
         taxNumber: "",
         taxOffice: "",
         phone: "",
@@ -112,6 +116,7 @@ export function QuickCariDialog({
         body: JSON.stringify({
           companyId,
           name,
+          nickname: form.nickname.trim() || null,
           taxNumber: vkn || null,
           taxOffice: form.taxOffice.trim() || null,
           phone: form.phone.trim() || null,
@@ -127,6 +132,7 @@ export function QuickCariDialog({
       const created: CreatedCari = {
         id: data.id,
         name: data.name ?? name,
+        nickname: data.nickname ?? (form.nickname.trim() || null),
         taxNumber: data.taxNumber ?? (vkn || null),
         taxOffice: data.taxOffice ?? (form.taxOffice.trim() || null),
         address: data.address ?? (form.address.trim() || null),
@@ -205,6 +211,26 @@ export function QuickCariDialog({
                 }
               }}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="qc-nickname">Takma Ad</Label>
+            <Input
+              id="qc-nickname"
+              value={form.nickname}
+              onChange={(e) => set("nickname", e.target.value)}
+              placeholder="Örn. Ali Usta"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  void handleSubmit()
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              İsteğe bağlı. Cariyi sonraki faturalarda bu adla da arayabilirsiniz; belgelere
+              yazılmaz.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
