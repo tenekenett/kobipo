@@ -1,5 +1,5 @@
-import { OpenTicketsScreen } from "@/components/restoran/open-tickets-screen"
+import { TicketsScreen } from "@/components/restoran/tickets-screen"
 
 export default function RestoranAdisyonlarPage() {
-  return <OpenTicketsScreen />
+  return <TicketsScreen />
 }

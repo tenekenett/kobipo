@@ -29,9 +29,17 @@ export async function GET(request: Request) {
 
     const statusParam = searchParams.get("status")?.toUpperCase()
     const status = TICKET_STATUSES.find((s) => s === statusParam)
+    // `status=ALL` → durum filtresi yok. Adisyon listesi bir GÜNÜN tamamını
+    // (açık + kapanan + iptal) tek çağrıda ister; varsayılan yine OPEN kalıyor
+    // çünkü salon/plan tarafındaki çağrıların tamamı yalnız açık hesapla ilgili.
+    const anyStatus = statusParam === "ALL"
     const tableId = searchParams.get("tableId")?.trim() || undefined
+    // `Number(null)` 0'dır ve `Number.isFinite(0)` doğrudur — eski hâlde limit
+    // VERİLMEYEN her çağrı `Math.max(1, 0)` = 1 ile tek adisyon çekiyordu:
+    // beş dolu masanın yalnız en yenisi listede görünüyordu. Varsayılana
+    // düşme koşulu artık "sayı mı" değil, "geçerli bir limit mi".
     const limitRaw = Number(searchParams.get("limit"))
-    const limit = Number.isFinite(limitRaw) ? Math.min(200, Math.max(1, limitRaw)) : 100
+    const limit = limitRaw >= 1 ? Math.min(200, Math.floor(limitRaw)) : 100
 
     const from = searchParams.get("from")
     const to = searchParams.get("to")
@@ -41,8 +49,11 @@ export async function GET(request: Request) {
         companyId,
         // Varsayılan AÇIK adisyonlar: ekranın %99'u bunu istiyor, kapanmış
         // adisyonların tamamını çekmek zamanla ağırlaşır.
-        status: status ?? "OPEN",
+        ...(anyStatus ? {} : { status: status ?? "OPEN" }),
         ...(tableId ? { tableId } : {}),
+        // Tarih ekseni AÇILIŞ: "o gün kesilen adisyon" adisyonun kendi günüdür,
+        // kapanışı ertesi güne sarkmış olsa bile (gece yarısını geçen masa) —
+        // adisyon numarası da (`ADS-YYYY-NNNN`) bu eksende ilerliyor.
         ...(from || to
           ? {
               openedAt: {

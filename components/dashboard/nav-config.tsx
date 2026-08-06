@@ -110,8 +110,9 @@ export const allNavItems: NavItemDef[] = [
   // taşınan yalnızca ekranın adresi (bkz. docs/restoran/SADELESTIRME.md "İş 3").
   { href: "/restoran/masalar", label: "Masalar", icon: LayoutGrid, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   // Salon planı masaya bakar; bu liste hesaba. Masasız (paket/gel-al) adisyonun
-  // açılabildiği ve görülebildiği tek yer burası.
-  { href: "/restoran/adisyonlar", label: "Açık Adisyonlar", icon: ClipboardList, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
+  // açılabildiği ve görülebildiği tek yer burası — ayrıca kapanmış adisyonun
+  // gün bazında görülebildiği tek yer (gün sonu raporu fişleri sayar).
+  { href: "/restoran/adisyonlar", label: "Adisyonlar", icon: ClipboardList, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/restoran/satis", label: "Kahveci Satış", icon: CupSoda, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/restoran/menu", label: "Menü & Reçeteler", icon: ChefHat, roles: ["ADMIN", BM, "STOCK", "ACCOUNTANT"] },
   { href: "/restoran/raporlar", label: "Raporlar", icon: BarChart3, roles: ["ADMIN", BM, "ACCOUNTANT"] },
