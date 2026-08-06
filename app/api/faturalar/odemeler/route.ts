@@ -120,14 +120,24 @@ export async function POST(request: Request) {
       )
     }
 
-    // Toplam ödeme tutarını hesapla
+    // Toplam ödeme tutarı ve kalan — DECIMAL ile, `Number` ile DEĞİL.
+    //
+    // Kuruşlar ikilik tabanda tam gösterilemiyor: hesabı tam kapatan son parça
+    // float toplamada kendi tutarından büyük çıkıp reddediliyordu. Gerçek vaka
+    // (ADS-2026-0012): ₺5.492,70 üçe bölündü → 3 × ₺1.830,90. İlk iki tahsilat
+    // yazıldı, üçüncüsünde 1830.9 > 1830.8999999999996 oldu ve kasiyer
+    // "Payment amount exceeds remaining invoice amount" gördü — fiş kesilmiş,
+    // hesabın son üçte biri tahsilatsız kalmıştı.
+    //
+    // Yuvarlama toleransı (epsilon) da işi görürdü ama sebebi örtbas ederdi:
+    // tutarlar zaten `Decimal(15,2)` saklanıyor, karşılaştırma da öyle yapılmalı.
     const totalPaid = invoice.payments.reduce(
-      (sum, p) => sum + Number(p.amount),
-      0
+      (sum, p) => sum.plus(p.amount),
+      new Decimal(0)
     )
-    const remainingAmount = Number(invoice.totalAmount) - totalPaid
+    const remainingAmount = new Decimal(invoice.totalAmount).minus(totalPaid)
 
-    if (Number(amount) > remainingAmount) {
+    if (new Decimal(amount).greaterThan(remainingAmount)) {
       return NextResponse.json(
         { error: "Payment amount exceeds remaining invoice amount" },
         { status: 400 }
