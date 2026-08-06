@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react" 
 import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-html"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
