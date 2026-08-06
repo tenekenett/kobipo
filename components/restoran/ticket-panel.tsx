@@ -33,11 +33,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { QuantityStepper } from "@/components/ui/quantity-stepper"
 import { currency } from "@/lib/fis/receipt-html"
 import { qty } from "@/lib/format"
 // Saf sabit modülü: tickets.ts prisma import ediyor, istemciye giremez.
 import { TICKET_ITEM_REASONS, type TicketItemStatus } from "@/lib/restoran/ticket-constants"
+import type { RefEmployee } from "@/lib/swr/use-company-data"
 import { cn } from "@/lib/utils"
 
 export type PanelItem = {
@@ -85,6 +93,7 @@ export function TicketPanel({
   allowStatus = true,
   allowDelete = false,
   emptyText = "Menüden ürün seçin",
+  employees = [],
   footer,
   onQuantity,
   onSetStatus,
@@ -110,6 +119,14 @@ export function TicketPanel({
    */
   allowDelete?: boolean
   emptyText?: string
+  /**
+   * Aktif personel — İKRAM verilirken "kim verdi" bunlardan seçilir.
+   *
+   * BOŞ ise seçici hiç çizilmez ve zorunluluk düşer: `hr` modülünü kullanmayan
+   * bir kafede ikramın tek alan yüzünden kilitlenmesi kabul edilemez. Aynı
+   * koşullu zorunluluk iskontoda da var (SATIS-EKRANI.md K3.1).
+   */
+  employees?: RefEmployee[]
   footer?: React.ReactNode
   onQuantity: (id: string, quantity: number) => void
   onSetStatus?: (
@@ -117,6 +134,8 @@ export function TicketPanel({
     status: TicketItemStatus,
     reasonCode: string | null,
     reason: string | null,
+    /** Yalnız COMP'ta dolu — ikramı veren personelin İK kartı. */
+    employeeId?: string | null,
   ) => void
   onEditNote?: (id: string) => void
   className?: string
@@ -126,7 +145,13 @@ export function TicketPanel({
     status: Exclude<TicketItemStatus, "NORMAL">
     code: string
     note: string
+    employeeId: string | null
   } | null>(null)
+
+  // Personel YALNIZ ikramda sorulur. Zayi bir kayıp kaydıdır (döküldü/bozuldu),
+  // iptal ise yanlış girişin izi — ikisinde de "kim verdi" diye bir muhatap yok.
+  const needsEmployee = reasonFor?.status === "COMP" && employees.length > 0
+  const canApply = !!reasonFor?.code && (!needsEmployee || !!reasonFor?.employeeId)
 
   const billableCount = items
     .filter((i) => (i.status ?? "NORMAL") === "NORMAL")
@@ -240,21 +265,39 @@ export function TicketPanel({
                               <>
                                 <DropdownMenuItem
                                   onClick={() =>
-                                    setReasonFor({ item, status: "VOID", code: "", note: "" })
+                                    setReasonFor({
+                                      item,
+                                      status: "VOID",
+                                      code: "",
+                                      note: "",
+                                      employeeId: null,
+                                    })
                                   }
                                 >
                                   İptal — hazırlanmadı
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() =>
-                                    setReasonFor({ item, status: "COMP", code: "", note: "" })
+                                    setReasonFor({
+                                      item,
+                                      status: "COMP",
+                                      code: "",
+                                      note: "",
+                                      employeeId: employees.length === 1 ? employees[0].id : null,
+                                    })
                                   }
                                 >
                                   İkram — para alınmaz
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() =>
-                                    setReasonFor({ item, status: "WASTE", code: "", note: "" })
+                                    setReasonFor({
+                                      item,
+                                      status: "WASTE",
+                                      code: "",
+                                      note: "",
+                                      employeeId: null,
+                                    })
                                   }
                                 >
                                   Zayi — döküldü / bozuldu
@@ -343,6 +386,27 @@ export function TicketPanel({
                     </button>
                   ))}
                 </div>
+                {needsEmployee && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground">İkramı veren personel</Label>
+                    <Select
+                      value={reasonFor.employeeId ?? ""}
+                      onValueChange={(v) => setReasonFor({ ...reasonFor, employeeId: v || null })}
+                    >
+                      <SelectTrigger className="mt-1.5">
+                        <SelectValue placeholder="Personel seçin" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {employees.map((e) => (
+                          <SelectItem key={e.id} value={e.id}>
+                            {e.name}
+                            {e.position ? ` · ${e.position}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div>
                   <Label className="text-xs text-muted-foreground">Açıklama (isteğe bağlı)</Label>
                   <Input
@@ -358,13 +422,14 @@ export function TicketPanel({
                   Vazgeç
                 </Button>
                 <Button
-                  disabled={!reasonFor.code}
+                  disabled={!canApply}
                   onClick={() => {
                     onSetStatus?.(
                       reasonFor.item.id,
                       reasonFor.status,
                       reasonFor.code,
                       reasonFor.note.trim() || null,
+                      reasonFor.status === "COMP" ? reasonFor.employeeId : null,
                     )
                     setReasonFor(null)
                   }}

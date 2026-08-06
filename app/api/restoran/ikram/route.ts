@@ -61,6 +61,9 @@ export async function POST(request: Request) {
         quantity,
         status,
         reasonCode,
+        // İkramı veren personel — yalnız COMP'ta anlamlı. Kimliği aşağıda toplu
+        // doğrulanır (tek tek sorgu satır başına bir gidiş-dönüş olurdu).
+        employeeId: status === "COMP" && raw?.employeeId ? String(raw.employeeId) : null,
         description: String(raw?.description || "").slice(0, 255) || "Ürün",
         // İstemciden gelen etki güvenli okuyucudan geçirilir (fiş ucundaki
         // `recipeEffects` ile aynı kural).
@@ -80,6 +83,30 @@ export async function POST(request: Request) {
     })
     if (owned !== productIds.length) {
       return NextResponse.json({ error: "Ürün bulunamadı" }, { status: 404 })
+    }
+
+    // İkram personeli: kimlikler firmaya ait olmalı (başka firmanın kartı
+    // bağlanamasın) ve firmada aktif personel VARSA seçim zorunlu — kalem ⋮
+    // menüsündeki kuralın aynısı (SATIS-EKRANI.md K3.1/K3.2).
+    const compLines = lines.filter((l) => l.status === "COMP")
+    if (compLines.length > 0) {
+      const employeeIds = [...new Set(compLines.map((l) => l.employeeId).filter(Boolean))] as string[]
+      if (employeeIds.length > 0) {
+        const ownedEmployees = await prisma.employee.count({
+          where: { id: { in: employeeIds }, companyId },
+        })
+        if (ownedEmployees !== employeeIds.length) {
+          return NextResponse.json({ error: "Personel bulunamadı" }, { status: 404 })
+        }
+      }
+      if (compLines.some((l) => !l.employeeId)) {
+        const activeEmployees = await prisma.employee.count({
+          where: { companyId, status: "ACTIVE" },
+        })
+        if (activeEmployees > 0) {
+          return NextResponse.json({ error: "İkramı veren personel seçilmeli" }, { status: 400 })
+        }
+      }
     }
 
     let reference = ""

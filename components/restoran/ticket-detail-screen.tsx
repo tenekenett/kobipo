@@ -307,13 +307,26 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
                               </span>
                             )}
                           </span>
-                          {(optionText || item.note || item.reasonLabel) && (
-                            <span className="block text-xs text-muted-foreground">
-                              {[optionText, item.note, item.reasonLabel, item.reason]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </span>
-                          )}
+                          {(() => {
+                            // İkramı VEREN personel sebebin yanında durur: "kim
+                            // verdi" sorusunun cevabı ikramın kendisiyle aynı
+                            // satırda olmalı, ayrı bir bloğa düşerse eşleştirmek
+                            // okuyucunun işi olurdu.
+                            const compBy =
+                              status === "COMP" ? ticket.itemCompEmployees?.[item.id] : null
+                            const alt = [
+                              optionText,
+                              item.note,
+                              item.reasonLabel,
+                              item.reason,
+                              compBy ? `ikramı veren: ${compBy}` : null,
+                            ].filter(Boolean)
+                            return alt.length > 0 ? (
+                              <span className="block text-xs text-muted-foreground">
+                                {alt.join(" · ")}
+                              </span>
+                            ) : null
+                          })()}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {qty(item.quantity)} {item.unit}

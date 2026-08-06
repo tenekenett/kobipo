@@ -27,6 +27,8 @@ export type CompWasteLine = {
   effects?: RecipeEffect[]
   /** Porsiyon çarpanı ("büyük boy" = 1,5). */
   recipeFactor?: number
+  /** İkramı VEREN personelin İK kartı — yalnız COMP satırında dolu. */
+  employeeId?: string | null
 }
 
 /**
@@ -62,12 +64,30 @@ export async function writeCompWasteStock(args: {
     // birleşiyorlardı). Sebep: denetim raporu "bu ay ne kadar ikram ettik, ne
     // kadar zayi verdik" sorusunu ayıramıyordu — aynı adisyonda ikisi de varsa
     // tek hareketin tutarı ikisine birden aitti ve bölünemiyordu.
-    const groups = (
-      [
-        { label: "İkram", lines: lines.filter((l) => l.status === "COMP") },
-        { label: "Zayi", lines: lines.filter((l) => l.status === "WASTE") },
-      ] as const
-    ).filter((g) => g.lines.length > 0)
+    //
+    // İkram AYRICA personele göre bölünür: aynı hesapta iki garson ikram
+    // verdiyse tek harekete sıkıştırmak "kim ne kadar ikram etti" sorusunu yine
+    // cevapsız bırakırdı — hareketin `employeeId`'si tek bir kişiyi göstermek
+    // ZORUNDA, aksi halde sütun yanıltıcı olur.
+    const compByEmployee = new Map<string, CompWasteLine[]>()
+    for (const line of lines.filter((l) => l.status === "COMP")) {
+      const key = line.employeeId ?? ""
+      compByEmployee.set(key, [...(compByEmployee.get(key) ?? []), line])
+    }
+    const wasteLines = lines.filter((l) => l.status === "WASTE")
+
+    const groups: Array<{ label: string; employeeId: string | null; lines: CompWasteLine[] }> = [
+      ...[...compByEmployee.entries()].map(([key, group]) => ({
+        label: "İkram",
+        employeeId: key || null,
+        lines: group,
+      })),
+      // Zayide personel yok: döküldü/bozuldu bir kayıp kaydıdır, ikram gibi
+      // birine atfedilen bir karar değil.
+      ...(wasteLines.length > 0
+        ? [{ label: "Zayi", employeeId: null, lines: wasteLines }]
+        : []),
+    ]
 
     let written = 0
     for (const group of groups) {
@@ -134,6 +154,7 @@ export async function writeCompWasteStock(args: {
             description: `${args.ticketCode} - ${note}`.slice(0, 500),
             reference: args.reference,
             createdBy: args.createdBy ?? null,
+            employeeId: group.employeeId,
           })
         }
       })

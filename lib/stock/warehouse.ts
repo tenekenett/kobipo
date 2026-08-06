@@ -69,6 +69,8 @@ export async function adjustWarehouseStock(
     description?: string | null
     reference?: string | null
     createdBy?: string | null
+    /** Hareketten sorumlu İK kartı — bugün yalnız ikram düzeltmesi doldurur. */
+    employeeId?: string | null
   },
 ): Promise<void> {
   const warehouseId = args.warehouseId || (await ensureDefaultWarehouseId(db, args.companyId))
@@ -97,6 +99,7 @@ export async function adjustWarehouseStock(
       description: args.description ?? null,
       reference: args.reference ?? null,
       createdBy: args.createdBy ?? null,
+      employeeId: args.employeeId ?? null,
     },
   })
 }

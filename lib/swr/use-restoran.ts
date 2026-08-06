@@ -315,6 +315,8 @@ export type TicketDetail = Ticket & {
   }
   /** Kalem id → ekleyen kullanıcının adı. */
   itemCreators: Record<string, string>
+  /** Kalem id → ikramı veren personelin adı (yalnız ikram kalemlerinde). */
+  itemCompEmployees: Record<string, string>
   invoice: {
     id: string
     slug: string

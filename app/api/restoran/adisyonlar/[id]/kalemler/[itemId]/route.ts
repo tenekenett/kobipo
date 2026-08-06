@@ -74,6 +74,7 @@ export async function PATCH(request: Request, { params }: Params) {
         data.status = "NORMAL"
         data.reasonCode = null
         data.reason = null
+        data.compEmployeeId = null
       } else {
         const allowed = TICKET_ITEM_REASONS[status as Exclude<TicketItemStatus, "NORMAL">]
         const code = String(body.reasonCode || "").trim()
@@ -83,6 +84,39 @@ export async function PATCH(request: Request, { params }: Params) {
         data.status = status
         data.reasonCode = code
         data.reason = body.reason ? String(body.reason).trim().slice(0, 255) || null : null
+
+        // İkramı VEREN personel. Zorunluluk KOŞULLU: firmada aktif personel kartı
+        // varsa seçim şart, yoksa akış eskisi gibi sürer — `hr` modülünü
+        // kullanmayan bir kafede ikram tek alan yüzünden kilitlenmemeli
+        // (iskontodaki kuralın aynısı, SATIS-EKRANI.md K3.1).
+        //
+        // Yalnız COMP'ta sorulur: zayi bir kayıp kaydı, iptal yanlış girişin izi —
+        // ikisinde de "kim verdi" diye bir muhatap yok.
+        data.compEmployeeId = null
+        if (status === "COMP") {
+          const employeeId = body.compEmployeeId ? String(body.compEmployeeId) : null
+          if (employeeId) {
+            // Başka firmanın personeli bağlanamaz.
+            const employee = await prisma.employee.findFirst({
+              where: { id: employeeId, companyId },
+              select: { id: true },
+            })
+            if (!employee) {
+              return NextResponse.json({ error: "Personel bulunamadı" }, { status: 404 })
+            }
+            data.compEmployeeId = employeeId
+          } else {
+            const activeEmployees = await prisma.employee.count({
+              where: { companyId, status: "ACTIVE" },
+            })
+            if (activeEmployees > 0) {
+              return NextResponse.json(
+                { error: "İkramı veren personel seçilmeli" },
+                { status: 400 },
+              )
+            }
+          }
+        }
       }
     }
 

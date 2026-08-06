@@ -42,6 +42,8 @@ export type TicketDetailExtras = {
   }
   /** Kalem id → ekleyen kullanıcının adı. Kalem listesi serializeTicket'ten gelir. */
   itemCreators: Record<string, string>
+  /** Kalem id → İKRAMI VEREN personelin adı (yalnız ikram kalemlerinde dolu). */
+  itemCompEmployees: Record<string, string>
   invoice: {
     id: string
     slug: string
@@ -109,7 +111,16 @@ const detailSelect = Prisma.validator<Prisma.RestaurantTicketSelect>()({
     orderBy: { closedAt: "asc" },
   },
   reservation: { select: { id: true, guestName: true, reservedAt: true } },
-  items: { select: { id: true, createdBy: true } },
+  // İkram personeli İK kartından okunur (User değil): "kim ikram etti" sorusunun
+  // cevabı oturumu açan kişi değil, o an masaya bakan garsondur — `createdBy`
+  // oturum izi olarak ayrı durur (SATIS-EKRANI.md K3.1/K3.2).
+  items: {
+    select: {
+      id: true,
+      createdBy: true,
+      compEmployee: { select: { firstName: true, lastName: true } },
+    },
+  },
 })
 
 /**
@@ -167,8 +178,13 @@ export async function buildTicketDetail(
     id ? { id, name: names.get(id) ?? id } : null
 
   const itemCreators: Record<string, string> = {}
+  const itemCompEmployees: Record<string, string> = {}
   for (const item of row.items) {
     if (item.createdBy) itemCreators[item.id] = names.get(item.createdBy) ?? item.createdBy
+    if (item.compEmployee) {
+      const ad = `${item.compEmployee.firstName ?? ""} ${item.compEmployee.lastName ?? ""}`.trim()
+      if (ad) itemCompEmployees[item.id] = ad
+    }
   }
 
   return {
@@ -183,6 +199,7 @@ export async function buildTicketDetail(
       discountBy: ref(row.discountBy),
     },
     itemCreators,
+    itemCompEmployees,
     invoice: invoice
       ? (() => {
           // TAHSİLAT TOPLAMI DECIMAL İLE. `Number` ile toplamak kuruş kaymasına

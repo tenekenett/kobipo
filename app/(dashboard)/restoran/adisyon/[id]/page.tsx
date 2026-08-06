@@ -1,4 +1,4 @@
-import { TicketScreen } from "@/components/restoran/ticket-screen"
+import { TicketPage } from "@/components/restoran/ticket-page"
 
 export default async function RestoranAdisyonPage({
   params,
@@ -6,5 +6,7 @@ export default async function RestoranAdisyonPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  return <TicketScreen ticketId={id} />
+  // Açık adisyon POS ekranını, kapanmış/iptal olan detay ekranını açar —
+  // kararı istemcide TicketPage veriyor (docs/restoran/ADISYON-DETAY.md K1).
+  return <TicketPage ticketId={id} />
 }

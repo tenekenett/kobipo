@@ -883,6 +883,11 @@ model RestaurantTicketItem {
   status      String   @default("NORMAL") @db.VarChar(10)
   reasonCode  String?  @db.VarChar(30)
   reason      String?  @db.VarChar(255)
+  // İkramı VEREN personel (İK kartı) — iskontodaki `discountEmployeeId` ile aynı
+  // gerekçe: kasa ortak hesapla açıktır, "kim ikram etti" sorusunun cevabı oturumu
+  // açan kişi değil o an masaya bakan garsondur. `createdBy` (oturum izi) ayrı durur.
+  // İşaretleme ANINDA yazılır; kapanışta stok hareketine taşınır.
+  compEmployeeId String?
   // Seçilen porsiyon/seçenekler: [{ groupName, optionName, priceDelta }] — ürün
   // adı gibi KOPYALANIR, sonradan seçenek tanımı değişse adisyon değişmez.
   // priceDelta KDV DAHİL saklanır (kullanıcı brüt düşünür); unitPrice'a net olarak yansır.
@@ -894,9 +899,11 @@ model RestaurantTicketItem {
   ticket  RestaurantTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   // SetNull: ürün kartı silinse de adisyon kalemi (adı ve fiyatı kopyalı) durur.
   product Product?         @relation(fields: [productId], references: [id], onDelete: SetNull)
+  compEmployee Employee?   @relation("TicketItemCompEmployee", fields: [compEmployeeId], references: [id], onDelete: SetNull)
 
   @@index([ticketId])
   @@index([productId])
+  @@index([compEmployeeId])
   @@map("restaurant_ticket_items")
 }
 
@@ -1009,14 +1016,22 @@ model StockMovement {
   reference   String? // Invoice ID, etc.
   createdAt   DateTime @default(now())
   createdBy   String?
+  // Hareketten SORUMLU personel (İK kartı). Bugün yalnız ikram/zayi düzeltmesi
+  // doldurur: tezgâh satışının adisyonu yoktur, dolayısıyla "bu ikramı kim verdi"
+  // sorusunun tutunacağı tek kalıcı kayıt bu harekettir. `createdBy` oturum izidir
+  // ve ayrı sorunun cevabıdır — ikisi aynı sütuna konsaydı iki kimlik kümesi tek
+  // isimmiş gibi okunurdu (bkz. docs/restoran/SATIS-EKRANI.md K3.1).
+  employeeId  String?
 
   company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
   warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  employee  Employee?  @relation("StockMovementEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
 
   @@index([warehouseId])
   @@index([productId])
   @@index([companyId, createdAt])
+  @@index([employeeId])
   @@map("stock_movements")
 }
 
@@ -2017,6 +2032,11 @@ model Employee {
   // operasyona açılan ilk penceresi: bugüne kadar Employee ile satış tarafı
   // arasında hiçbir bağ yoktu (bkz. docs/restoran/PLAN.md "#7 vardiya/puantaj").
   ticketDiscounts RestaurantTicket[] @relation("TicketDiscountEmployee")
+  // Bu personelin VERDİĞİ ikramlar. İki uçtan gelir ve ikisi de gerekli:
+  // adisyonda kalem işaretlenirken (compItems), tezgâhta ise adisyon olmadığı
+  // için doğrudan stok düzeltmesinde (compMovements).
+  compItems       RestaurantTicketItem[] @relation("TicketItemCompEmployee")
+  compMovements   StockMovement[]        @relation("StockMovementEmployee")
 
   @@unique([companyId, slug])
   @@index([companyId])

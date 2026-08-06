@@ -178,9 +178,42 @@ kartında (`/personel/[id]` → Restoran sekmesi) o personelin verdiği iskontol
 
 **Kapsam dışı (bilinçli):** *(a)* Tezgâh (Kahveci Satış) iskontosu hâlâ kaydedilmiyor —
 sepetin adisyonu yok ve `Invoice`'ta sebep alanı yok (`globalDiscountAmount` yalnız tutar);
-personel/sebep orada sadece ekranda ve yazdırılan fişte yaşar. *(b)* İkramın `STAFF`
-sebebinde hangi personel olduğu hâlâ sorulmuyor. *(c)* Yetki kademesi: bu iş kimin yaptığını
+personel/sebep orada sadece ekranda ve yazdırılan fişte yaşar. *(b)* ~~İkramda personel
+sorulmuyor~~ → **K3.2'de kapatıldı.** *(c)* Yetki kademesi: bu iş kimin yaptığını
 **kaydeder**, kimin yapabileceğini **kısıtlamaz** (bkz. DENETIM-VE-TEMIZLIK.md Faz 5).
+
+#### K3.2 — İkramı veren personel de sorulur (2026-08-06)
+
+K3.1'in ikram tarafındaki eşi: ikramın **tutarı ve malzemesi** ölçülüyordu, **sorumlusu**
+ölçülmüyordu. Kafede ikram günlük bir olaydır; kim verdiği yazılmazsa ikram ile kaçak
+ayırt edilemez.
+
+Personel **yalnız `COMP`'ta** sorulur. Zayi bir kayıp kaydıdır (döküldü/bozuldu), iptal
+yanlış girişin izidir — ikisinde de birine atfedilen bir karar yok.
+
+**İki tabloya yazılır, çünkü iki ekranın kalıcı izi farklı:**
+
+| Ekran | Nereye | Neden |
+|---|---|---|
+| Adisyon | `RestaurantTicketItem.compEmployeeId` | İkram, kapanıştan saatler önce işaretlenir; seçim o ana ait ve kapanışa kadar yaşamalı |
+| Kahveci Satış | `StockMovement.employeeId` | Sepetin adisyonu YOK; ikramın tek kalıcı izi stok düzeltmesidir |
+
+Kapanışta kalemdeki personel **harekete taşınır** (`kapat` GET → `writeCompWasteStock`),
+böylece "bu ay kim ne kadar ikram etti" sorusu iki ekran için de TEK yerden
+(`stock_movements`) cevaplanır. `writeCompWasteStock` ikramı artık personele göre de
+ayrı hareketlere böler: aynı hesapta iki garson ikram verdiyse tek hareketin `employeeId`'si
+yanıltıcı olurdu (İkram/Zayi ayrımının konuluş gerekçesiyle aynı).
+
+**Zorunluluk koşulludur** — firmada aktif personel kartı varsa şart, yoksa akış eskisi gibi
+sürer (K3.1'deki kural). Kural üç yerde: istemci (`ticket-panel.tsx`, "Uygula" kilidi),
+`kalemler/[itemId]` PATCH ve `api/restoran/ikram` POST.
+
+**Arayüz tek yerde:** ikram iki ekranda da ortak `TicketPanel`'in ⋮ menüsünden geçiyor,
+seçici oraya kondu. Tek personel varsa otomatik seçilir.
+
+**Kapsam dışı:** denetim raporu ikramı henüz personele göre GRUPLAMIYOR — veri artık var,
+rapor sorgusu (`raporlar/denetim/route.ts`, stok hareketlerini `description LIKE` ile
+ayırıyor) eski. İskontodaki "İskonto veren personel" kutusunun ikram karşılığı ayrı iş.
 
 ### K4 — Hesap fişi = fiş şablonunun mali olmayan kopyası
 

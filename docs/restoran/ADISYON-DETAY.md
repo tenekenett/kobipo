@@ -163,20 +163,28 @@ veri kümesi de `id` döndürüyor. Rapor bulgusundan kaynağa tek tıkla inilir
 | 1 | API `?detail=1` + ek alanlar | **bitti** | `lib/restoran/ticket-detail.ts` (yeni) · `app/api/restoran/adisyonlar/[id]/route.ts` |
 | 2 | `useTicketDetail` + `TicketDetail` tipi | **bitti** | `lib/swr/use-restoran.ts` |
 | 3 | `printReceipt` çıkarıldı, `ticket-screen` taşındı | **bitti** | `lib/fis/print-receipt.ts` (yeni) |
-| 4 | Detay ekranı | **bitti** (tarayıcıda HENÜZ görülmedi — 5 olmadan erişilemiyor) | `components/restoran/ticket-detail-screen.tsx` (yeni) |
-| 5 | Kip seçici + `page.tsx` | **sırada** | `app/(dashboard)/restoran/adisyon/[id]/page.tsx` |
-| 6 | Liste ve rapor linkleri | bekliyor | `components/restoran/tickets-screen.tsx` · `components/restoran/reports/denetim.tsx` |
+| 4 | Detay ekranı | **bitti** | `components/restoran/ticket-detail-screen.tsx` (yeni) |
+| 5 | Kip seçici + `page.tsx` | **bitti** | `components/restoran/ticket-page.tsx` (yeni) · `app/(dashboard)/restoran/adisyon/[id]/page.tsx` |
+| 6 | Liste ve rapor linkleri | **bitti** | `components/restoran/tickets-screen.tsx` · `components/restoran/reports/denetim.tsx` |
 
 Adım 4'e ek olarak, iskonto etiketi üç ekranın (POS, detay, fiş) ayrışmaması için
 `lib/restoran/ticket-constants.ts` içindeki `ticketDiscountLabel`'a taşındı.
 
-**Adım 5 nasıl yapılacak:** `page.tsx` ince server component olarak kalır; yeni bir istemci
-bileşeni `useTicket` ile durumu okuyup `OPEN → <TicketScreen>`, aksi halde
-`<TicketDetailScreen>` render eder. K1'deki **kip dondurma** şart: kip ilk başarılı
-yüklemede sabitlenir, sonra `status` değişse de değişmez.
+**Adım 5 nasıl yapıldı:** `page.tsx` ince server component olarak kaldı; kararı
+`ticket-page.tsx` veriyor — `useTicket` (POS ile AYNI SWR anahtarı, ek istek yok) ile durumu
+okur, kipi bir `useRef`te **dondurur** ve `OPEN → <TicketScreen>`, aksi halde
+`<TicketDetailScreen>` basar. Yükleme/hata kartı çocuklara devredilmedi, seçicinin kendisinde:
+`TicketScreen` ürün/reçete/depo SWR'larını mount olur olmaz kuruyor, "bilmiyorken POS'u bas"
+yaklaşımı kapalı adisyonda o ağır istekleri boşuna tetiklerdi. Kip bilinmezken dönüş linki
+Adisyonlar'dır (açık/kapalı ayrımı henüz yok).
 
-**Doğrulanmamış olan:** detay ekranı henüz tarayıcıda açılmadı (adım 5 bitmeden yol yok).
-Adım 5 biter bitmez aşağıdaki "Doğrulama" listesi koşulmalı.
+**Doğrulama durumu (2026-08-06):** otomatik kapılar (tsc · eslint · build ·
+`test-restoran-adisyon.mjs` **149/149**) temiz. Tarayıcı kontrolleri de yapıldı — aşağıya bak.
+
+> **`prisma generate` tuzağı gerçek çıktı:** ilk `tsc` koşusu 29 hata verdi
+> (`discountEmployeeId`, `discountReasonCode`, `discountBy` "yok" diyordu). Hiçbiri bu
+> daldaki kodda değildi; hepsi bayat Prisma client'tan geliyordu. Belgenin başındaki uyarı
+> atlanırsa yarım saat buraya gider.
 
 ## Doğrulama
 
@@ -184,17 +192,27 @@ Adım 5 biter bitmez aşağıdaki "Doğrulama" listesi koşulmalı.
 - `node scripts/test-restoran-adisyon.mjs` (dev sunucusu açıkken) — tek adisyon GET'i
   değiştiği için bu paket regresyon kapısıdır. Temizlik adımındaki fiş silme hatası (`P2028`,
   Supabase havuz bağlantısının bilinen kırılganlığı) rastgele düşebilir; tekrar koşulur.
-- Tarayıcıda:
-  - **Kapalı + iskontolu bir adisyon** → süre sabit ("19 dk", artmıyor), iskonto satırında
-    sebep ve veren personel, tahsilat tablosunda yöntem ve kasa
-  - **Parçalı ödenmiş, tahsilatı eksik kalmış bir adisyon** → "Kısmî" rozeti ve eksik tutar
-    görünmeli (bu senaryonun canlı örneği mevcut: FS-SAT-2026-0027)
-  - **Açık bir adisyon** → hâlâ POS ekranı açılmalı
-  - Listede bir karta **sağ tık → yeni sekmede aç** ve **orta tık** çalışmalı, adres çubuğunda
-    `?company=` korunmalı
-  - Denetim raporundaki adisyon kodundan detaya inilmeli
-- **Kapanış regresyonu:** açık bir adisyonu kapat → "Hesap kapatıldı" penceresi görünmeli.
-  K1'deki kip dondurma uygulanmadıysa bu adım patlar.
+- Tarayıcıda (**2026-08-06'da koşuldu, Reypo Medya Ajansı verisiyle**):
+  - ✅ **Kapalı + iskontolu** (ADS-2026-0014) → süre `19:35 – 19:38 · 3 dk` sabit; iskonto
+    satırı oran + sebep kodu + serbest metin + personel taşıyor; tahsilat yöntem ve kasa ile
+  - ✅ **Tahsilatı eksik kalmış** (ADS-2026-0012 / FS-SAT-2026-0027) → "Kısmî tahsilat" rozeti,
+    kırmızı uyarı şeridi ve turuncu `Kalan ₺1.830,90`; rakamlar DB ile birebir
+  - ✅ **Açık adisyon** (ADS-2026-0011) → POS ekranı
+  - ✅ **İptal edilmiş** (ADS-2026-0001) → `İptal` rozeti, tahsilat bloğu yok, İptal kartı
+  - ✅ Liste kartları gerçek `<a>`; Ctrl+tık yeni sekmede açtı, `?company=` korundu
+  - ✅ Denetim raporunda 5 kod da linkli (4 iskonto + 1 iptal), çıplak kod kalmadı
+  - ⬜ **1024px** doğrulanamadı: Chrome maximize pencerede `resize_window`'u yok sayıyor.
+    2560px'te yatay taşma yok.
+  - ⬜ **İKRAM / ZAYİ rozetleri** görülmedi: bu firmada `COMP`/`WASTE` kalemli adisyon yok.
+- ✅ **Kip dondurma (K1) doğrulandı — veri yazmadan.** Açık adisyonun POS ekranındayken
+  `window.fetch` geçici olarak yamalandı, sunucu `CANCELLED` dönüyormuş gibi yapıldı ve
+  `mutate()` bir PATCH ile tetiklendi. Sonuç: ekran `TicketDetailScreen`'e GEÇMEDİ,
+  `TicketScreen` ayakta kaldı. Yöntem not: SWR global ayarı `revalidateOnFocus: false` +
+  `dedupingInterval: 30000` olduğu için sentetik focus olayı yeterli değil — refetch'i
+  tetiklemenin tek yolu bileşenin kendi `mutate()`'i.
+  - ⚠️ **Adisyon iptal ederek test etme yolu işe YARAMAZ:** iptal sonrası POS ekranı
+    `/restoran/masalar`'a yönleniyor, kip sorusu hiç sorulmuyor. Ayrıca kalemi olmayan
+    adisyon iptalde **silinir** (`adisyonlar/[id]/route.ts:252`), CANCELLED olmaz.
 
 ## Kapsam dışı (bilinçli)
 

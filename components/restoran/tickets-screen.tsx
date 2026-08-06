@@ -15,7 +15,6 @@
 // bu yüzden bugüne bakarken de görünmek zorunda.
 
 import { useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
 import {
   ChevronLeft,
   ChevronRight,
@@ -29,9 +28,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { FetchErrorText } from "@/components/ui/fetch-error"
 import { Input } from "@/components/ui/input"
+import { CompanyLink } from "@/components/dashboard/company-link"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { NewTicketDialog } from "@/components/restoran/new-ticket-dialog"
-import { withCompanyHref } from "@/lib/company/href"
 import { useDayTickets, useOpenTickets, useTables, type Ticket } from "@/lib/swr/use-restoran"
 import { currency } from "@/lib/fis/receipt-html"
 import { cn } from "@/lib/utils"
@@ -74,7 +73,6 @@ const FILTERS: Array<[StatusFilter, string]> = [
 
 export function TicketsScreen() {
   const { selectedCompanyId: companyId } = useDashboardCompany()
-  const router = useRouter()
 
   const [day, setDay] = useState(() => isoDay(new Date()))
   const [search, setSearch] = useState("")
@@ -338,9 +336,6 @@ export function TicketsScreen() {
               ticket={t}
               now={now}
               day={day}
-              onOpen={() =>
-                router.push(withCompanyHref(`/restoran/adisyon/${t.id}`, companyId))
-              }
             />
           ))}
         </div>
@@ -361,12 +356,10 @@ function TicketCard({
   ticket: t,
   now,
   day,
-  onOpen,
 }: {
   ticket: Ticket
   now: number
   day: string
-  onOpen: () => void
 }) {
   const isOpen = t.status === "OPEN"
   const mins = minutesSince(t.openedAt, now)
@@ -377,12 +370,15 @@ function TicketCard({
   // açılmış, hâlâ duruyor" unutulmuş masanın tek işareti.
   const fromEarlierDay = isOpen && isoDay(new Date(t.openedAt)) !== day
 
+  // Gerçek <a>: kart `<button onClick={router.push}>` iken sağ tık → yeni
+  // sekmede aç, orta tık ve link önizleme çalışmıyordu — iki adisyonu yan yana
+  // karşılaştırmanın tek yolu bu. Liste AKTİF firmanın adisyonlarını gösterdiği
+  // için CompanyLink doğru araç (CLAUDE.md'deki "farklı firma" istisnası yok).
   return (
-    <button
-      type="button"
-      onClick={onOpen}
+    <CompanyLink
+      href={`/restoran/adisyon/${t.id}`}
       className={cn(
-        "rounded-xl border bg-card p-3 text-left transition-colors hover:border-kobipo-blue dark:hover:border-primary",
+        "block rounded-xl border bg-card p-3 text-left transition-colors hover:border-kobipo-blue dark:hover:border-primary",
         isOpen && "border-l-4 border-l-amber-400 dark:border-l-amber-500",
         t.status === "CANCELLED" && "opacity-70",
       )}
@@ -447,7 +443,7 @@ function TicketCard({
           <span className="truncate">{t.cancelReasonLabel}</span>
         ) : null}
       </div>
-    </button>
+    </CompanyLink>
   )
 }
 

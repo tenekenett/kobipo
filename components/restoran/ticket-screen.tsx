@@ -302,13 +302,14 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
       status: TicketItemStatus,
       reasonCode: string | null,
       reason: string | null,
+      compEmployeeId?: string | null,
     ) => {
       await callTicketApi(
         `/api/restoran/adisyonlar/${ticketId}/kalemler/${itemId}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ companyId, status, reasonCode, reason }),
+          body: JSON.stringify({ companyId, status, reasonCode, reason, compEmployeeId }),
         },
         "Kalem güncellenemedi",
       )
@@ -859,8 +860,11 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
           totals={totals}
           discountLabel={discountLabelOf(ticket)}
           readOnly={!isOpen}
+          employees={employees}
           onQuantity={(id, q) => void setItemQty(id, q)}
-          onSetStatus={(id, status, code, reason) => void setItemStatus(id, status, code, reason)}
+          onSetStatus={(id, status, code, reason, employeeId) =>
+            void setItemStatus(id, status, code, reason, employeeId)
+          }
           onEditNote={(id) => {
             const item = ticket.items.find((i) => i.id === id)
             setNoteDialog({ itemId: id, note: item?.note ?? "" })

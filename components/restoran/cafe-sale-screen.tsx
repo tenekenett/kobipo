@@ -109,6 +109,12 @@ type CafeLine = {
   status?: Extract<TicketItemStatus, "NORMAL" | "COMP" | "WASTE">
   reasonCode?: string | null
   reason?: string | null
+  /**
+   * İkramı VEREN personelin İK kartı. Sepetin adisyonu olmadığı için bu değer
+   * tarayıcıda yaşar ve `POST /api/restoran/ikram` ile STOK HAREKETİNE yazılır —
+   * tezgâh ikramının tek kalıcı izi orasıdır (SATIS-EKRANI.md K3.2).
+   */
+  compEmployeeId?: string | null
 }
 
 const uid = () =>
@@ -307,14 +313,31 @@ export function CafeSaleScreen() {
    * tezgâh karşılığı — yeni görünür kontrol eklenmiyor, menü zaten vardı.
    */
   const setLineStatus = useCallback(
-    (key: string, status: TicketItemStatus, reasonCode: string | null, reason: string | null) => {
+    (
+      key: string,
+      status: TicketItemStatus,
+      reasonCode: string | null,
+      reason: string | null,
+      compEmployeeId?: string | null,
+    ) => {
       if (status === "VOID") {
         // Sepette VOID kavramı yok: satış oluşmadığı için "iptal" = sil.
         setCart((prev) => prev.filter((l) => l.key !== key))
         return
       }
       setCart((prev) =>
-        prev.map((l) => (l.key === key ? { ...l, status, reasonCode, reason } : l)),
+        prev.map((l) =>
+          l.key === key
+            ? {
+                ...l,
+                status,
+                reasonCode,
+                reason,
+                // Zayiye dönen satırda eski ikram personeli asılı kalmasın.
+                compEmployeeId: status === "COMP" ? (compEmployeeId ?? null) : null,
+              }
+            : l,
+        ),
       )
     },
     [],
@@ -494,6 +517,7 @@ export function CafeSaleScreen() {
                 status: l.status,
                 reasonCode: l.reasonCode,
                 reason: l.reason,
+                employeeId: l.compEmployeeId ?? null,
                 description: describeLine(l),
                 effects,
                 recipeFactor,
@@ -788,9 +812,12 @@ export function CafeSaleScreen() {
             // kahvesinin malzemesi de düşmeli. Silme de AÇIK — sepet yalnız
             // tarayıcıda yaşadığı için iz kaybettirmiyor (adisyonda tersi).
             allowDelete
+            employees={employees}
             className="xl:static"
             onQuantity={(id, q) => setLineQty(id, q)}
-            onSetStatus={(id, status, code, reason) => setLineStatus(id, status, code, reason)}
+            onSetStatus={(id, status, code, reason, employeeId) =>
+              setLineStatus(id, status, code, reason, employeeId)
+            }
             footer={
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">

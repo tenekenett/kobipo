@@ -15,6 +15,7 @@ import {
   StyledTableHead,
   StyledTableRow,
 } from "@/components/ui/styled-table"
+import { CompanyLink } from "@/components/dashboard/company-link"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import {
   ReportState,
@@ -126,6 +127,18 @@ const dayTime = (iso: string | null) =>
   iso
     ? new Date(iso).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
     : "—"
+
+/** Rapor bulgusundan KAYNAĞA tek tıkla inilir: kod → adisyonun detay sayfası. */
+function TicketCodeLink({ id, code }: { id: string; code: string }) {
+  return (
+    <CompanyLink
+      href={`/restoran/adisyon/${id}`}
+      className="font-medium underline-offset-4 hover:underline"
+    >
+      {code}
+    </CompanyLink>
+  )
+}
 
 export function DenetimReport({ range }: ReportProps) {
   const { selectedCompanyId: companyId } = useDashboardCompany()
@@ -289,7 +302,9 @@ export function DenetimReport({ range }: ReportProps) {
                 <TableBody>
                   {discounts.map((d) => (
                     <StyledTableRow key={d.id}>
-                      <TableCell className="font-medium">{d.code}</TableCell>
+                      <TableCell>
+                        <TicketCodeLink id={d.id} code={d.code} />
+                      </TableCell>
                       <TableCell className="text-muted-foreground">{d.tableName ?? "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{dayTime(d.closedAt)}</TableCell>
                       <TableCell
@@ -444,7 +459,9 @@ export function DenetimReport({ range }: ReportProps) {
                 <TableBody>
                   {cancelled.map((c) => (
                     <StyledTableRow key={c.id}>
-                      <TableCell className="font-medium">{c.code}</TableCell>
+                      <TableCell>
+                        <TicketCodeLink id={c.id} code={c.code} />
+                      </TableCell>
                       <TableCell>{c.tableName ?? "Paket / Gel-al"}</TableCell>
                       <TableCell className="text-muted-foreground">{dayTime(c.closedAt)}</TableCell>
                       <TableCell>
@@ -461,7 +478,9 @@ export function DenetimReport({ range }: ReportProps) {
                   ))}
                   {merged.map((m) => (
                     <StyledTableRow key={m.id} className="opacity-60">
-                      <TableCell className="font-medium">{m.code}</TableCell>
+                      <TableCell>
+                        <TicketCodeLink id={m.id} code={m.code} />
+                      </TableCell>
                       <TableCell>{m.tableName ?? "Paket / Gel-al"}</TableCell>
                       <TableCell className="text-muted-foreground">{dayTime(m.closedAt)}</TableCell>
                       <TableCell className="text-muted-foreground">Birleştirildi</TableCell>

@@ -239,6 +239,10 @@ export async function POST(request: Request, { params }: Params) {
           quantity: Number(item.quantity),
           status: item.status,
           reasonCode: item.reasonCode,
+          // İşaretleme anında (saatler önce) seçilen personel harekete TAŞINIR:
+          // "kim ne kadar ikram etti" sorusu böylece tezgâhla aynı yerden,
+          // stock_movements üzerinden cevaplanır (SATIS-EKRANI.md K3.2).
+          employeeId: item.compEmployeeId,
           description: item.description,
           effects,
           recipeFactor,

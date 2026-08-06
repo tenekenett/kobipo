@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { signIn, useSession } from "next-auth/react"
+import { signIn, signOut, useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
@@ -30,29 +30,78 @@ export default function SignInPage() {
 
   useEffect(() => {
     if (status !== "authenticated" || !session) return
+    let iptal = false
 
-    if (session.user?.isSuperAdmin) {
-      router.push("/system-admin")
-      return
+    const yonlendir = () => {
+      if (iptal) return
+
+      if (session.user?.isSuperAdmin) {
+        router.push("/system-admin")
+        return
+      }
+
+      // Blog editörü (firmaya bağlı olmayan platform hesabı) yalnız blog panelini görür.
+      if (session.user?.isBlogEditor) {
+        router.push("/blog-admin")
+        return
+      }
+
+      const defaultCompanyId = session.user?.defaultCompanyId
+      const defaultRole = session.user?.defaultRole
+
+      if (defaultCompanyId && defaultRole) {
+        const params = new URLSearchParams({ company: defaultCompanyId })
+        router.push(`${roleToDashboardPath(defaultRole)}?${params.toString()}`)
+        return
+      }
+
+      router.push("/dashboard")
     }
 
-    // Blog editörü (firmaya bağlı olmayan platform hesabı) yalnız blog panelini görür.
-    if (session.user?.isBlogEditor) {
-      router.push("/blog-admin")
-      return
+    /**
+     * Yönlendirmeden ÖNCE sunucunun bu oturumu tanıdığını doğrula.
+     *
+     * NextAuth JWT kendi kendine yeterlidir: kullanıcı veritabanından silinse bile
+     * imzalı çerez süresi dolana kadar (bir ay) istemciye "authenticated" der ve her
+     * istekte kendini yeniler. Sunucu tarafı ise `getUserContext()` ile DB'ye bakar,
+     * kullanıcıyı bulamaz ve panel düzeni `/signin`'e geri yollar. İkisi arasında
+     * sonsuz `/signin → /dashboard → /signin` döngüsü doğardı: adres çubuğu `/signin`'de
+     * sabit kaldığı için ekran "kendi kendine yenileniyor" gibi görünür, giriş formu
+     * animasyonu hiç oturmaz, reCAPTCHA widget'ı sürekli kurulup söküldüğü için
+     * `Timeout (b)` fırlatır. 2026-08-06'da bu yaşandı.
+     *
+     * `/api/companies` 401'i tam olarak "sunucu bağlamı yok" demektir — uç, yalnız
+     * `getUserContext()` null olduğunda bu kodu döner. O durumda çerezi TEMİZLE:
+     * kullanıcı kendi başına çıkamaz, çünkü panele hiç giremiyor.
+     */
+    ;(async () => {
+      let sunucuTaniyor = true
+      try {
+        const res = await fetch("/api/companies", { cache: "no-store" })
+        sunucuTaniyor = res.status !== 401
+      } catch {
+        // Ağ hatası oturumun geçersizliği anlamına gelmez — eski davranışa düş.
+        sunucuTaniyor = true
+      }
+      if (iptal) return
+
+      if (!sunucuTaniyor) {
+        toast({
+          title: "Oturumun artık geçerli değil",
+          description: "Hesap bulunamadı. Lütfen tekrar giriş yap.",
+          variant: "destructive",
+        })
+        await signOut({ redirect: false })
+        return
+      }
+
+      yonlendir()
+    })()
+
+    return () => {
+      iptal = true
     }
-
-    const defaultCompanyId = session.user?.defaultCompanyId
-    const defaultRole = session.user?.defaultRole
-
-    if (defaultCompanyId && defaultRole) {
-      const params = new URLSearchParams({ company: defaultCompanyId })
-      router.push(`${roleToDashboardPath(defaultRole)}?${params.toString()}`)
-      return
-    }
-
-    router.push("/dashboard")
-  }, [session, status, router])
+  }, [session, status, router, toast])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
