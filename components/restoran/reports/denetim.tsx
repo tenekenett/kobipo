@@ -67,6 +67,28 @@ type Staff = {
   voidItems: number
 }
 
+/** İskontoyu UYGULAYAN personel — İK kartı. `Staff` (login kullanıcısı) ile aynı küme değil. */
+type DiscountStaff = {
+  employeeId: string | null
+  name: string
+  position: string | null
+  count: number
+  value: number
+}
+
+type Discount = {
+  id: string
+  code: string
+  closedAt: string | null
+  tableName: string | null
+  type: "PERCENT" | "AMOUNT" | null
+  rate: number | null
+  reasonLabel: string | null
+  reason: string | null
+  employeeName: string | null
+  value: number
+}
+
 type Data = {
   summary: {
     compCost: number
@@ -76,6 +98,8 @@ type Data = {
     cancelledCount: number
     cancelledValue: number
     mergedCount: number
+    discountCount: number
+    discountTotal: number
     reservationTotal: number
     seated: number
     noShow: number
@@ -86,6 +110,9 @@ type Data = {
   cancelReasons: { code: string | null; label: string; count: number; value: number }[]
   cancelled: Cancel[]
   merged: Cancel[]
+  discounts: Discount[]
+  discountReasons: { code: string | null; label: string; count: number; value: number }[]
+  discountStaff: DiscountStaff[]
   staff: Staff[]
 }
 
@@ -113,8 +140,11 @@ export function DenetimReport({ range }: ReportProps) {
   const reasons = data?.reasons ?? []
   const cancelled = data?.cancelled ?? []
   const merged = data?.merged ?? []
+  const discounts = data?.discounts ?? []
+  const discountStaff = data?.discountStaff ?? []
   const staff = data?.staff ?? []
   const maxCost = Math.max(0, ...products.map((p) => p.cost))
+  const maxDiscount = Math.max(0, ...discountStaff.map((d) => d.value))
 
   if (!companyId) {
     return (
@@ -129,18 +159,25 @@ export function DenetimReport({ range }: ReportProps) {
     products.length === 0 &&
     reasons.length === 0 &&
     cancelled.length === 0 &&
-    merged.length === 0
+    merged.length === 0 &&
+    discounts.length === 0
 
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
-        İkram, zayi, iptal ve personel kırılımı. <strong>Maliyet</strong> satış anında
+        İskonto, ikram, zayi, iptal ve personel kırılımı. <strong>Maliyet</strong> satış anında
         dondurulmuş alış maliyetidir (AVCO); ciroya girmez, kâra girmez —{" "}
         <strong>karşılıksız harcanan malzemedir</strong>. İptal edilen fişin ikramı da geri
         alınır, bu rapora girmez.
       </p>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <StatTile
+          label="Verilen iskonto"
+          value={money(s?.discountTotal ?? 0)}
+          hint={`${s?.discountCount ?? 0} adisyon · KDV dahil`}
+          tone={(s?.discountTotal ?? 0) > 0 ? "warn" : "default"}
+        />
         <StatTile
           label="İkram maliyeti"
           value={money(s?.compCost ?? 0)}
@@ -170,8 +207,118 @@ export function DenetimReport({ range }: ReportProps) {
         isLoading={isLoading}
         error={error}
         empty={empty}
-        emptyText="Bu aralıkta ikram, zayi veya iptal kaydı yok."
+        emptyText="Bu aralıkta ikram, zayi, iptal veya iskonto kaydı yok."
       />
+
+      {discountStaff.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>İskonto veren personel</CardTitle>
+            <CardDescription>
+              İskontoyu uygulayan personelin İK kartına göre — aşağıdaki &quot;Personel&quot;
+              tablosundan AYRIDIR (orası adisyonu açan/kapatan <em>kullanıcı</em> hesabıdır).
+              Tezgâh (Kahveci Satış) iskontosunun kaydı tutulmadığı için burada görünmez.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <StyledTableContainer>
+              <Table>
+                <TableHeader>
+                  <StyledTableHeaderRow>
+                    <StyledTableHead>Personel</StyledTableHead>
+                    <StyledTableHead>Görev</StyledTableHead>
+                    <StyledTableHead className="text-right">Adisyon</StyledTableHead>
+                    <StyledTableHead className="text-right">Tutar</StyledTableHead>
+                    <StyledTableHead className="w-32">Pay</StyledTableHead>
+                  </StyledTableHeaderRow>
+                </TableHeader>
+                <TableBody>
+                  {discountStaff.map((d) => (
+                    <StyledTableRow key={d.employeeId ?? "unknown"}>
+                      <TableCell
+                        className={d.employeeId ? "font-medium" : "font-medium text-muted-foreground"}
+                      >
+                        {d.name}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{d.position ?? "—"}</TableCell>
+                      <TableCell className="text-right tabular-nums">{d.count}</TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums">
+                        {money(d.value)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full bg-kobipo-blue dark:bg-primary"
+                            style={{
+                              width: `${maxDiscount > 0 ? (d.value / maxDiscount) * 100 : 0}%`,
+                            }}
+                          />
+                        </div>
+                      </TableCell>
+                    </StyledTableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </StyledTableContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {discounts.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>İskontolu adisyonlar</CardTitle>
+            <CardDescription>
+              Yalnız KAPANMIŞ hesaplar: açık adisyondaki iskonto hâlâ değiştirilebilir, iptal
+              edilende ise tahsil edilmeyen bir para yoktur.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <StyledTableContainer>
+              <Table>
+                <TableHeader>
+                  <StyledTableHeaderRow>
+                    <StyledTableHead>Adisyon</StyledTableHead>
+                    <StyledTableHead>Masa</StyledTableHead>
+                    <StyledTableHead>Zaman</StyledTableHead>
+                    <StyledTableHead>Personel</StyledTableHead>
+                    <StyledTableHead>Sebep</StyledTableHead>
+                    <StyledTableHead className="text-right">Tutar</StyledTableHead>
+                  </StyledTableHeaderRow>
+                </TableHeader>
+                <TableBody>
+                  {discounts.map((d) => (
+                    <StyledTableRow key={d.id}>
+                      <TableCell className="font-medium">{d.code}</TableCell>
+                      <TableCell className="text-muted-foreground">{d.tableName ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{dayTime(d.closedAt)}</TableCell>
+                      <TableCell
+                        className={d.employeeName ? undefined : "italic text-muted-foreground"}
+                      >
+                        {d.employeeName ?? "Belirtilmemiş"}
+                      </TableCell>
+                      <TableCell>
+                        {d.reasonLabel ?? "—"}
+                        {d.reason ? (
+                          <span className="ml-2 text-xs text-muted-foreground">{d.reason}</span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums">
+                        {money(d.value)}
+                        {d.rate != null ? (
+                          <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                            %{d.rate}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                    </StyledTableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </StyledTableContainer>
+          </CardContent>
+        </Card>
+      )}
 
       {products.length > 0 && (
         <Card>

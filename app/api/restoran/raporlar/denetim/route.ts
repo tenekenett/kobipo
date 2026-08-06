@@ -7,17 +7,26 @@
 // ama hiçbir raporda görünmüyordu; `mergedIntoId` yazılıyordu ama birleştirilen
 // adisyon hâlâ "iptal" sayılıyordu.
 //
-// ÜÇ AYRI TARİH EKSENİ var ve üçü de bilinçli:
+// DÖRT AYRI TARİH EKSENİ var ve dördü de bilinçli:
 //   • İkram/zayi  → stok hareketinin tarihi (malzemenin fiilen düştüğü an)
 //   • VOID kalem  → adisyonun AÇILIŞI (kalem servis sırasında iptal edilir,
 //                   adisyon hâlâ açık olabilir; `closedAt` boş olurdu)
 //   • İptal/birleştirme → `closedAt` (iptal ANI — sorulan şey budur)
+//   • İSKONTO     → `closedAt` (uygulama anı DEĞİL). Açık adisyondaki iskonto
+//                   hâlâ değiştirilebilir/kaldırılabilir; tahsil edilmeyen para
+//                   ancak hesap kapanınca gerçekleşir. `discountAt` kayıtta
+//                   duruyor ama ölçüm ekseni değil.
 //
 // Ölçüm sınırları (bilinçli):
 //   • İkram/zayi maliyeti hareketi YAZAN kullanıcıya atfedilir; adisyonda bu,
 //     hesabı KAPATAN kişidir (işareti koyanı ayrıca saklamıyoruz).
 //   • Tezgâh (Kahveci Satış) ikramlarının adisyon kaydı yok; tutarları para
-//     tarafında sayılır, sebep kırılımında görünmezler.
+//     tarafında sayılır, sebep kırılımında görünmezler. Aynısı tezgâh
+//     İSKONTOSU için de geçerli: kaydı hiç tutulmuyor (Invoice'ta sebep alanı
+//     yok), bu yüzden buradaki iskonto ölçümü YALNIZ adisyonları kapsar.
+//   • İskonto personeli İK kartıdır (`Employee`), aşağıdaki "Personel"
+//     tablosunun kullanıcıları (`User`) ile AYNI KÜME DEĞİLDİR — bu yüzden
+//     ayrı bir kırılım olarak döner, o tabloya sütun olarak eklenmez.
 
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
@@ -28,6 +37,7 @@ import { num, parseRange } from "@/lib/restoran/reports"
 import {
   assertRestaurantModule,
   cancelReasonLabel,
+  discountReasonLabel,
   isBillableItem,
   reasonLabel,
   ticketDiscountOf,
@@ -71,7 +81,7 @@ export async function GET(request: Request) {
 
     const { start, end } = parseRange(searchParams)
 
-    const [compRows, itemRows, ticketRows, openedRows, reservationRows] = await Promise.all([
+    const [compRows, itemRows, ticketRows, openedRows, discountRows, reservationRows] = await Promise.all([
       // İkram/zayi PARA tarafı: maliyet satış anında donduruldu (AVCO).
       //
       // Geri alınmış belgeler dışarıda: fiş iptali `revertStockByReference` ile
@@ -157,6 +167,31 @@ export async function GET(request: Request) {
           status: true,
           invoice: { select: { totalAmount: true, status: true } },
         },
+      }),
+      // İskonto: yalnız KAPANMIŞ adisyonlar. Açık hesaptaki iskonto henüz
+      // gerçekleşmedi (kaldırılabilir), iptal edilen adisyonda ise tahsil
+      // edilmeyen bir para yok — ikisi de "verilen indirim" sayılmamalı.
+      prisma.restaurantTicket.findMany({
+        where: {
+          companyId,
+          status: "CLOSED",
+          closedAt: { gte: start, lte: end },
+          discountType: { not: null },
+        },
+        select: {
+          id: true,
+          code: true,
+          closedAt: true,
+          discountType: true,
+          discountValue: true,
+          discountReasonCode: true,
+          discountReason: true,
+          discountEmployeeId: true,
+          discountEmployee: { select: { firstName: true, lastName: true, position: true } },
+          table: { select: { name: true } },
+          items: { select: { quantity: true, unitPrice: true, vatRate: true, status: true } },
+        },
+        orderBy: { closedAt: "desc" },
       }),
       prisma.restaurantReservation.groupBy({
         by: ["status"],
@@ -248,6 +283,77 @@ export async function GET(request: Request) {
     const cancelReasons = [...cancelReasonMap.values()]
       .map((b) => ({ ...b, value: round2(b.value) }))
       .sort((a, b) => b.count - a.count)
+
+    // ---- İskonto -----------------------------------------------------------
+    //
+    // Tutar KDV DAHİL brüt iskontodur: işletmenin sorduğu "bugün ne kadar
+    // indirim verdik" sorusunun cevabı hesabın altındaki rakamdır, matrah
+    // karşılığı değil (faturaya giden net tutar `netDiscount` ayrı hesaplanır).
+
+    const discounts = discountRows.map((t) => ({
+      id: t.id,
+      code: t.code,
+      closedAt: t.closedAt?.toISOString() ?? null,
+      tableName: t.table?.name ?? null,
+      type: t.discountType,
+      // Yüzde iskontoda oran da lazım: "%10" ile "150 ₺" aynı sütunda okunmuyor.
+      rate: t.discountType === "PERCENT" ? Number(t.discountValue ?? 0) : null,
+      reasonCode: t.discountReasonCode,
+      reasonLabel: discountReasonLabel(t.discountReasonCode),
+      reason: t.discountReason,
+      employeeId: t.discountEmployeeId,
+      employeeName: t.discountEmployee
+        ? `${t.discountEmployee.firstName} ${t.discountEmployee.lastName}`.trim()
+        : null,
+      value: ticketTotals(t.items, ticketDiscountOf(t)).discount,
+    }))
+    const discountTotal = round2(discounts.reduce((s, d) => s + d.value, 0))
+
+    const discountReasonMap = new Map<
+      string,
+      { code: string | null; label: string; count: number; value: number }
+    >()
+    for (const d of discounts) {
+      const key = d.reasonCode ?? ""
+      const bucket =
+        discountReasonMap.get(key) ??
+        { code: d.reasonCode, label: d.reasonLabel ?? "Belirtilmemiş", count: 0, value: 0 }
+      bucket.count += 1
+      bucket.value += d.value
+      discountReasonMap.set(key, bucket)
+    }
+    const discountReasons = [...discountReasonMap.values()]
+      .map((b) => ({ ...b, value: round2(b.value) }))
+      .sort((a, b) => b.value - a.value)
+
+    // Personel kırılımı — İK kartı bazında. Aşağıdaki `staff` tablosundan AYRI:
+    // orası login kullanıcısı, burası iskontonun altına imzasını atan personel.
+    // Geçmiş kayıtlarda (alan eklenmeden önce) personel boştur; "Belirtilmemiş"
+    // satırı bilinçli olarak GİZLENMEZ — ölçülemeyen indirim de bir bulgudur.
+    const discountStaffMap = new Map<
+      string,
+      { employeeId: string | null; name: string; position: string | null; count: number; value: number }
+    >()
+    for (const row of discountRows) {
+      const key = row.discountEmployeeId ?? ""
+      const bucket =
+        discountStaffMap.get(key) ??
+        {
+          employeeId: row.discountEmployeeId,
+          name: row.discountEmployee
+            ? `${row.discountEmployee.firstName} ${row.discountEmployee.lastName}`.trim()
+            : "Belirtilmemiş",
+          position: row.discountEmployee?.position ?? null,
+          count: 0,
+          value: 0,
+        }
+      bucket.count += 1
+      bucket.value += ticketTotals(row.items, ticketDiscountOf(row)).discount
+      discountStaffMap.set(key, bucket)
+    }
+    const discountStaff = [...discountStaffMap.values()]
+      .map((b) => ({ ...b, value: round2(b.value) }))
+      .sort((a, b) => b.value - a.value)
 
     // ---- Personel ----------------------------------------------------------
 
@@ -353,6 +459,8 @@ export async function GET(request: Request) {
         cancelledCount: cancelled.length,
         cancelledValue,
         mergedCount: merged.length,
+        discountCount: discounts.length,
+        discountTotal,
         reservationTotal,
         seated,
         noShow,
@@ -365,6 +473,9 @@ export async function GET(request: Request) {
       cancelReasons,
       cancelled,
       merged,
+      discounts,
+      discountReasons,
+      discountStaff,
       staff,
       reservations: reservationCounts,
     })

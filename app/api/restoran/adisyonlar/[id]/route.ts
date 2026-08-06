@@ -8,8 +8,10 @@ import {
   serializeTicket,
   ticketInclude,
   TICKET_CANCEL_REASONS,
+  TICKET_DISCOUNT_REASONS,
   TICKET_DISCOUNT_TYPES,
 } from "@/lib/restoran/tickets"
+import { buildTicketDetail } from "@/lib/restoran/ticket-detail"
 
 export const dynamic = "force-dynamic"
 
@@ -33,7 +35,17 @@ export async function GET(request: Request, { params }: Params) {
     })
     if (!ticket) return NextResponse.json({ error: "Adisyon bulunamadı" }, { status: 404 })
 
-    return NextResponse.json(serializeTicket(ticket))
+    const base = serializeTicket(ticket)
+
+    // Denetim alanları YALNIZ istendiğinde hesaplanır: canlı satış ekranı bu ucu
+    // her kalem eklemede yeniden çekiyor, personel/ödeme sorguları oraya yük
+    // olmamalı. Kararlar: docs/restoran/ADISYON-DETAY.md K2.
+    if (searchParams.get("detail") === "1") {
+      const detail = await buildTicketDetail(ticket.id, companyId)
+      return NextResponse.json({ ...base, ...detail })
+    }
+
+    return NextResponse.json(base)
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
       return NextResponse.json({ error: error.message }, { status: 403 })
@@ -117,13 +129,19 @@ export async function PATCH(request: Request, { params }: Params) {
 
     // Hesap iskontosu. `AMOUNT` KDV DAHİL girilir (kullanıcı hesabın altındaki
     // rakama bakıp "50 lira düş" der); faturaya matrah karşılığı gider.
-    // `discountType: null` iskontoyu kaldırır.
+    // `discountType: null` iskontoyu kaldırır — kaldırırken personel ve iz
+    // alanları da temizlenir, aksi halde "iskontosuz ama personelli" bir kayıt
+    // kalır ve rapor onu iskonto sanardı.
     if (body.discountType !== undefined) {
       const type = body.discountType ? String(body.discountType).toUpperCase() : null
       if (type === null) {
         data.discountType = null
         data.discountValue = null
+        data.discountReasonCode = null
         data.discountReason = null
+        data.discountEmployeeId = null
+        data.discountBy = null
+        data.discountAt = null
       } else {
         if (!TICKET_DISCOUNT_TYPES.includes(type as (typeof TICKET_DISCOUNT_TYPES)[number])) {
           return NextResponse.json({ error: "Geçersiz iskonto türü" }, { status: 400 })
@@ -135,11 +153,46 @@ export async function PATCH(request: Request, { params }: Params) {
         if (type === "PERCENT" && value > 100) {
           return NextResponse.json({ error: "Yüzde 100'den büyük olamaz" }, { status: 400 })
         }
+
+        const reasonCode = body.discountReasonCode
+          ? String(body.discountReasonCode).trim().toUpperCase()
+          : null
+        if (reasonCode && !TICKET_DISCOUNT_REASONS.some((r) => r.code === reasonCode)) {
+          return NextResponse.json({ error: "Geçersiz iskonto sebebi" }, { status: 400 })
+        }
+
+        // İskontoyu uygulayan personel. Firmanın İK kartı olmalı — başka firmanın
+        // personeli seçilemesin. ZORUNLULUK KOŞULLU: personel kartı hiç
+        // tanımlanmamış (ya da `hr` modülü kapalı) firmada iskonto kilitlenmemeli,
+        // yoksa bugüne kadar çalışan bir akış tek alan yüzünden dururdu.
+        const employeeId = body.discountEmployeeId ? String(body.discountEmployeeId) : null
+        if (employeeId) {
+          const employee = await prisma.employee.findFirst({
+            where: { id: employeeId, companyId },
+            select: { id: true },
+          })
+          if (!employee) return NextResponse.json({ error: "Personel bulunamadı" }, { status: 404 })
+        } else {
+          const hasEmployees = await prisma.employee.count({
+            where: { companyId, status: "ACTIVE" },
+          })
+          if (hasEmployees > 0) {
+            return NextResponse.json(
+              { error: "İskontoyu uygulayan personel seçilmeli" },
+              { status: 400 },
+            )
+          }
+        }
+
         data.discountType = type
         data.discountValue = value
+        data.discountReasonCode = reasonCode
         data.discountReason = body.discountReason
           ? String(body.discountReason).trim().slice(0, 255) || null
           : null
+        data.discountEmployeeId = employeeId
+        data.discountBy = user.id
+        data.discountAt = new Date()
       }
     }
 

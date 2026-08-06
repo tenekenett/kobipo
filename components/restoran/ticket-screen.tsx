@@ -11,10 +11,21 @@
 // Stok, kalem eklerken DEĞİL adisyon kapanırken düşer (ASAMA2.md). Yetersiz stok
 // uyarısı yine canlı gösterilir ve ENGELLEMEZ — PLAN.md "Adım 4".
 //
-// EKRANIN KURALI (SATIS-EKRANI.md K1/K8): yeni yetenekler düğme olarak eklenmez.
-// Kalemin işlemleri satırdaki "⋮" menüsünde, hesabın işlemleri üstteki tek
-// "İşlemler" tepsisinde toplanır. Depo seçici, KDV dökümü ve hammadde kartı
-// servis akışından çıkarıldı — garsonun kararını değiştirmiyorlardı.
+// EKRANIN KURALI (SATIS-EKRANI.md K1/K8): kalemin işlemleri satırdaki "⋮"
+// menüsünde toplanır. Depo seçici, KDV dökümü ve hammadde kartı servis
+// akışından çıkarıldı — garsonun kararını değiştirmiyorlardı.
+//
+// 2026-08-06: hesabın işlemleri artık tepside DEĞİL, SAĞ SÜTUNDA — hesap
+// panelinin toplamıyla ÖDEME düğmesinin arasında açık düğme olarak duruyor
+// (K1 bu ekran için geri alındı). Sebep: iskonto / hesabı böl / masa değiştir
+// servis sırasında sık kullanılıyor, tepsi hepsini iki dokunuş arkasına
+// saklıyordu; kararlar da zaten hesaba bakarken veriliyor. "Hesap fişi" ayrıca
+// eklenmedi — aynı blokta zaten kendi düğmesi var. İptal ÖDEME'nin de altında.
+//
+// Aynı gün "Hesap istendi" düğmesi de ŞİMDİLİK kaldırıldı. Dikkat: bayrağı
+// (`billRequestedAt`) kuran başka bir ekran YOK — salon planındaki "BILL"
+// (turuncu masa) durumu ve başlıktaki rozet artık yalnız birleştirmeden devralınan
+// eski kayıtlarda görünür. Geri istenirse ya buraya ya masalar ekranına konmalı.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
@@ -41,13 +52,6 @@ import { FetchErrorText } from "@/components/ui/fetch-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -68,6 +72,7 @@ import { withCompanyHref } from "@/lib/company/href"
 import {
   useAccounts,
   useCustomers,
+  useEmployees,
   useProducts,
   useRecipes,
   useReceiptTemplate,
@@ -77,9 +82,11 @@ import {
 import { useProductOptions, useTables, useTicket, type Ticket } from "@/lib/swr/use-restoran"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 import { cn } from "@/lib/utils"
-import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-html"
+import { currency, type ReceiptData } from "@/lib/fis/receipt-html"
+import { printReceipt } from "@/lib/fis/print-receipt"
 import {
   optionRecipeEffects,
+  ticketDiscountLabel,
   TICKET_CANCEL_REASONS,
   type TicketItemStatus,
 } from "@/lib/restoran/ticket-constants"
@@ -105,11 +112,9 @@ function elapsedLabel(fromIso: string, now: number): string {
   return `${Math.floor(mins / 60)} sa ${mins % 60} dk`
 }
 
-const discountLabelOf = (ticket: Ticket | null) => {
-  if (!ticket?.discountType) return null
-  const base = ticket.discountType === "PERCENT" ? `İskonto %${ticket.discountValue}` : "İskonto"
-  return ticket.discountReason ? `${base} · ${ticket.discountReason}` : base
-}
+/** Etiketin kendisi ortak dosyada: adisyon ekranı, detay sayfası ve fiş aynı
+ *  metni basmalı (lib/restoran/ticket-constants.ts `ticketDiscountLabel`). */
+const discountLabelOf = (ticket: Ticket | null) => ticketDiscountLabel(ticket)
 
 export function TicketScreen({ ticketId }: { ticketId: string }) {
   const { selectedCompanyId: companyId, selectedCompany } = useDashboardCompany()
@@ -123,6 +128,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   const { recipeMap } = useRecipes(companyId)
   const { accounts } = useAccounts(companyId)
   const { warehouses } = useWarehouses(companyId)
+  const { employees } = useEmployees(companyId)
   const { template: receiptTemplate, company: receiptCompany } = useReceiptTemplate(companyId)
   const { groupsOf } = useProductOptions(companyId)
   // Masa listesi yalnız "masayı değiştir" için; salon planındaki 20 sn'lik
@@ -343,28 +349,6 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   }, [callTicketApi, companyId, infoDialog, ticketId])
 
   /**
-   * "Hesap istendi" — müşteri hesabı istedi ama henüz ödeme yapılmadı.
-   *
-   * Adisyonu KAPATMAZ (kalem eklenebilir); tek işi salon planında masayı öne
-   * çıkarmak. Kasadaki kişi hangi masanın kalkmak üzere olduğunu, hesap fişini
-   * götüren garsonun kim olduğunu buradan görüyor.
-   */
-  const toggleBillRequested = useCallback(
-    async (wanted: boolean) => {
-      await callTicketApi(
-        `/api/restoran/adisyonlar/${ticketId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ companyId, billRequested: wanted }),
-        },
-        "İşaretlenemedi",
-      )
-    },
-    [callTicketApi, companyId, ticketId],
-  )
-
-  /**
    * Masa değiştirme. Sunucu tarafı baştan hazırdı (`PATCH tableId`, dolu masayı
    * 409 ile reddeder) ama ekranda girişi yoktu — "müşteri masa değiştirdi" kafede
    * günlük bir olay ve tek çare adisyonu iptal edip yeniden açmaktı.
@@ -420,7 +404,9 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
             companyId,
             discountType: value?.type ?? null,
             discountValue: value?.value,
+            discountReasonCode: value?.reasonCode,
             discountReason: value?.reason,
+            discountEmployeeId: value?.employeeId,
           }),
         },
         "İskonto uygulanamadı",
@@ -531,18 +517,13 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
 
   const openPrintWindow = useCallback(
     (data: ReceiptData, autoPrint: boolean) => {
-      const w = window.open("", "_blank", "width=420,height=720")
-      if (!w) {
+      if (!printReceipt(data, autoPrint, receiptTemplate)) {
         toast({
           title: "Açılır pencere engellendi",
           description: "Fiş için bu siteye açılır pencere izni verin.",
           variant: "destructive",
         })
-        return
       }
-      w.document.write(buildReceiptHtml(data, autoPrint, receiptTemplate))
-      w.document.close()
-      w.focus()
     },
     [receiptTemplate, toast],
   )
@@ -774,109 +755,47 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <BackLink />
-          <h1 className="text-3xl font-bold">
-            {ticket.tableName ? `Masa ${ticket.tableName}` : "Paket / Gel-al"}
-          </h1>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-            <span>{ticket.code}</span>
+      <div className="space-y-1">
+        <BackLink />
+        <h1 className="text-3xl font-bold">
+          {ticket.tableName ? `Masa ${ticket.tableName}` : "Paket / Gel-al"}
+        </h1>
+        <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+          <span>{ticket.code}</span>
+          <span className="flex items-center gap-1">
+            <Clock className="h-3.5 w-3.5" />
+            {elapsedLabel(ticket.openedAt, now)}
+          </span>
+          {ticket.guestCount ? (
             <span className="flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5" />
-              {elapsedLabel(ticket.openedAt, now)}
+              <Users className="h-3.5 w-3.5" />
+              {ticket.guestCount} kişi
             </span>
-            {ticket.guestCount ? (
-              <span className="flex items-center gap-1">
-                <Users className="h-3.5 w-3.5" />
-                {ticket.guestCount} kişi
-              </span>
-            ) : null}
-            {ticket.customerName ? (
-              <span className="flex items-center gap-1">
-                <User className="h-3.5 w-3.5" />
-                {ticket.customerName}
-              </span>
-            ) : null}
-            {ticket.note ? (
-              <span className="flex items-center gap-1">
-                <StickyNote className="h-3.5 w-3.5" />
-                {ticket.note}
-              </span>
-            ) : null}
-            {isOpen && ticket.billRequestedAt && (
-              <span className="flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 font-semibold text-orange-900 dark:bg-orange-500/20 dark:text-orange-100">
-                <Receipt className="h-3.5 w-3.5" />
-                Hesap istendi · {elapsedLabel(ticket.billRequestedAt, now)}
-              </span>
-            )}
-            {!isOpen && (
-              <span className="rounded-full bg-muted px-2 py-0.5 font-semibold">
-                {ticket.status === "CLOSED" ? `Kapandı · ${ticket.invoiceNo ?? ""}` : "İptal"}
-              </span>
-            )}
-          </div>
+          ) : null}
+          {ticket.customerName ? (
+            <span className="flex items-center gap-1">
+              <User className="h-3.5 w-3.5" />
+              {ticket.customerName}
+            </span>
+          ) : null}
+          {ticket.note ? (
+            <span className="flex items-center gap-1">
+              <StickyNote className="h-3.5 w-3.5" />
+              {ticket.note}
+            </span>
+          ) : null}
+          {isOpen && ticket.billRequestedAt && (
+            <span className="flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 font-semibold text-orange-900 dark:bg-orange-500/20 dark:text-orange-100">
+              <Receipt className="h-3.5 w-3.5" />
+              Hesap istendi · {elapsedLabel(ticket.billRequestedAt, now)}
+            </span>
+          )}
+          {!isOpen && (
+            <span className="rounded-full bg-muted px-2 py-0.5 font-semibold">
+              {ticket.status === "CLOSED" ? `Kapandı · ${ticket.invoiceNo ?? ""}` : "İptal"}
+            </span>
+          )}
         </div>
-
-        {/* Hesabın TÜM işlemleri tek tepside — üst barda tek kontrol. */}
-        {isOpen && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline">
-                İşlemler
-                <ChevronDown className="ml-1.5 h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem
-                onClick={() => {
-                  const data = buildPrebill()
-                  if (data) openPrintWindow(data, true)
-                }}
-              >
-                <Printer className="mr-2 h-4 w-4" />
-                Hesap fişi
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setDiscountOpen(true)}>
-                <Percent className="mr-2 h-4 w-4" />
-                İskonto
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => void toggleBillRequested(!ticket.billRequestedAt)}
-              >
-                <Receipt className="mr-2 h-4 w-4" />
-                {ticket.billRequestedAt ? "Hesap isteğini kaldır" : "Hesap istendi"}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSplitOpen(true)}>
-                <Split className="mr-2 h-4 w-4" />
-                Hesabı böl
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setMoveOpen(true)}>
-                <MoveRight className="mr-2 h-4 w-4" />
-                Masayı değiştir
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() =>
-                  setInfoDialog({
-                    guestCount: ticket.guestCount != null ? String(ticket.guestCount) : "",
-                    note: ticket.note ?? "",
-                  })
-                }
-              >
-                <Users className="mr-2 h-4 w-4" />
-                Kişi sayısı / not
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-600 dark:text-red-400"
-                onClick={() => setCancelOpen({ code: "", note: "" })}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Adisyonu iptal et
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
       </div>
 
       <div className="grid items-start gap-4 xl:grid-cols-[1fr_400px]">
@@ -948,25 +867,70 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
           }}
           footer={
             isOpen ? (
-              <div className="grid grid-cols-[auto_1fr] gap-2">
+              <div className="space-y-2">
+                {/* Hesabın işlemleri — tepsi yerine açık düğmeler, hesabın
+                    KENDİ sütununda. Toplamın hemen altı: garson zaten oraya
+                    bakarken iskonto/bölme/masa kararını veriyor. */}
+                <div className="grid grid-cols-2 gap-2 border-t pt-2">
+                  <Button variant="outline" size="sm" onClick={() => setDiscountOpen(true)}>
+                    <Percent className="mr-1.5 h-4 w-4" />
+                    İskonto
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setSplitOpen(true)}>
+                    <Split className="mr-1.5 h-4 w-4" />
+                    Hesabı böl
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setMoveOpen(true)}>
+                    <MoveRight className="mr-1.5 h-4 w-4" />
+                    Masayı değiştir
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setInfoDialog({
+                        guestCount: ticket.guestCount != null ? String(ticket.guestCount) : "",
+                        note: ticket.note ?? "",
+                      })
+                    }
+                  >
+                    <Users className="mr-1.5 h-4 w-4" />
+                    Kişi sayısı / not
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-[auto_1fr] gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-12"
+                    disabled={ticket.items.length === 0}
+                    onClick={() => {
+                      const data = buildPrebill()
+                      if (data) openPrintWindow(data, true)
+                    }}
+                  >
+                    <Printer className="mr-1.5 h-4 w-4" />
+                    Hesap Fişi
+                  </Button>
+                  <Button
+                    className="h-12 text-base"
+                    disabled={!hasBillable}
+                    onClick={() => setPayOpen(true)}
+                  >
+                    ÖDEME
+                  </Button>
+                </div>
+
+                {/* İptal en altta ve ÖDEME'nin ötesinde — yıkıcı olan tek işlem,
+                    diğerlerinin arasında durursa yanlışlıkla değiliyor. */}
                 <Button
-                  variant="outline"
-                  className="h-12"
-                  disabled={ticket.items.length === 0}
-                  onClick={() => {
-                    const data = buildPrebill()
-                    if (data) openPrintWindow(data, true)
-                  }}
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
+                  onClick={() => setCancelOpen({ code: "", note: "" })}
                 >
-                  <Printer className="mr-1.5 h-4 w-4" />
-                  Hesap Fişi
-                </Button>
-                <Button
-                  className="h-12 text-base"
-                  disabled={!hasBillable}
-                  onClick={() => setPayOpen(true)}
-                >
-                  ÖDEME
+                  <Trash2 className="mr-1.5 h-4 w-4" />
+                  Adisyonu iptal et
                 </Button>
               </div>
             ) : null
@@ -1037,26 +1001,34 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
             </DialogTitle>
             <DialogDescription>{lastSale?.invoiceNo ?? "Fiş oluşturuldu"}</DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2 sm:justify-between">
+          {/* Kahveci Satış'taki yerleşimin aynısı: iki ikincil eylem yan yana,
+              birincil eylem tam genişlikte. Üçü tek satıra dizildiğinde toplam
+              genişlikleri `sm:max-w-sm`in iç genişliğini (336px) aşıyor ve
+              `DialogFooter`da `flex-wrap` olmadığı için son düğme kartın dışına
+              taşıyordu. Tam genişlik ayrıca tablette dokunma hedefini büyütür. */}
+          <div className="grid grid-cols-2 gap-2">
             <Button
               variant="outline"
               onClick={() => lastSale && openPrintWindow(lastSale.receipt, false)}
             >
-              <Receipt className="mr-1.5 h-4 w-4" />
+              <Receipt className="mr-2 h-4 w-4" />
               Fişi göster
             </Button>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => lastSale && openPrintWindow(lastSale.receipt, true)}
-              >
-                <Printer className="mr-1.5 h-4 w-4" />
-                Yazdır
-              </Button>
-              <Button onClick={() => router.push(withCompanyHref("/restoran/masalar", companyId))}>
-                Masalara dön
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              onClick={() => lastSale && openPrintWindow(lastSale.receipt, true)}
+            >
+              <Printer className="mr-2 h-4 w-4" />
+              Yazdır
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button
+              className="w-full"
+              onClick={() => router.push(withCompanyHref("/restoran/masalar", companyId))}
+            >
+              Masalara dön
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1081,12 +1053,15 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
       <DiscountDialog
         open={discountOpen}
         gross={totals.gross}
+        employees={employees}
         current={
           ticket.discountType
             ? {
                 type: ticket.discountType,
                 value: Number(ticket.discountValue ?? 0),
+                reasonCode: ticket.discountReasonCode,
                 reason: ticket.discountReason,
+                employeeId: ticket.discountEmployeeId,
               }
             : null
         }

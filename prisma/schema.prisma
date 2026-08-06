@@ -765,7 +765,20 @@ model RestaurantTicket {
   // Kalem bazlı iskonto YOK — kafede nadir, üç ekranda daha düzeltme demek.
   discountType   String? @db.VarChar(10) // PERCENT | AMOUNT
   discountValue  Decimal? @db.Decimal(12, 2)
+  // Sebep artık İKİ alan: sabit kod (rapor gruplar) + serbest açıklama (kasiyer
+  // yazar). Kalem ve iptal sebeplerindeki kuralın aynısı — serbest metin tek
+  // başına kalsaydı "Personel"/"personel"/"personele" üç ayrı satır olurdu.
+  discountReasonCode String? @db.VarChar(30)
   discountReason String?  @db.VarChar(255)
+  // İskontoyu UYGULAYAN personel — İK kartı (Employee), login kullanıcısı DEĞİL.
+  // Kafede kasa çoğu zaman ortak hesapla açıktır; "indirimi kim verdi" sorusunun
+  // cevabı oturumu açan kişi değil, o an masaya bakan garsondur. İskonto silinince
+  // birlikte temizlenir; personel kartı silinirse bağ kopar (SetNull), iskonto kalır.
+  discountEmployeeId String?
+  // Oturum izi: kaydı fiilen yazan kullanıcı ve anı. `billRequestedBy` deseniyle
+  // aynı — seçilen personelden AYRI tutulur, ikisi farklı soruyu cevaplar.
+  discountBy String?
+  discountAt DateTime?
   openedAt   DateTime  @default(now())
   openedBy   String?
   // Müşteri hesap istedi — masa planda ayrı renge döner. Adisyon hâlâ AÇIKTIR
@@ -794,6 +807,7 @@ model RestaurantTicket {
   table      RestaurantTable?        @relation(fields: [tableId], references: [id], onDelete: SetNull)
   customer   Customer?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
   invoice    Invoice?                @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  discountEmployee Employee?         @relation("TicketDiscountEmployee", fields: [discountEmployeeId], references: [id], onDelete: SetNull)
   items      RestaurantTicketItem[]
   mergedInto RestaurantTicket?       @relation("TicketMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
   mergedFrom RestaurantTicket[]      @relation("TicketMerge")
@@ -803,6 +817,8 @@ model RestaurantTicket {
   @@index([companyId, status])
   @@index([tableId])
   @@index([mergedIntoId])
+  // Personel kartındaki "verdiği iskontolar" listesi bu indeksten okur.
+  @@index([discountEmployeeId])
   @@map("restaurant_tickets")
 }
 
@@ -1997,6 +2013,10 @@ model Employee {
   leaves    LeaveRecord[]
   assets    AssetAssignment[]
   documents EmployeeDocument[]
+  // Restoran modülünde bu personelin UYGULADIĞI hesap iskontoları. İK kartının
+  // operasyona açılan ilk penceresi: bugüne kadar Employee ile satış tarafı
+  // arasında hiçbir bağ yoktu (bkz. docs/restoran/PLAN.md "#7 vardiya/puantaj").
+  ticketDiscounts RestaurantTicket[] @relation("TicketDiscountEmployee")
 
   @@unique([companyId, slug])
   @@index([companyId])

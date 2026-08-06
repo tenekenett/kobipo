@@ -50,6 +50,7 @@ import { useDashboardCompany } from "@/components/dashboard/dashboard-company-pr
 import {
   useAccounts,
   useCustomers,
+  useEmployees,
   useProducts,
   useRecipes,
   useReceiptTemplate,
@@ -76,6 +77,7 @@ import {
   optionEffect,
   optionRecipeEffects,
   reasonLabel,
+  TICKET_DISCOUNT_REASONS,
   type TicketItemOption,
   type TicketItemStatus,
 } from "@/lib/restoran/ticket-constants"
@@ -161,6 +163,7 @@ export function CafeSaleScreen() {
   const { recipes, recipeMap } = useRecipes(companyId)
   const { accounts } = useAccounts(companyId)
   const { warehouses } = useWarehouses(companyId)
+  const { employees } = useEmployees(companyId)
   const { customers } = useCustomers(companyId)
   const { template: receiptTemplate, company: receiptCompany } = useReceiptTemplate(companyId)
   const { groupsOf } = useProductOptions(companyId)
@@ -343,9 +346,18 @@ export function CafeSaleScreen() {
 
   const summary = paymentSummary(payment, totals.total)
 
+  // Tezgâhta iskonto adisyon ekranıyla AYNI pencereden girilir ve etiketi de
+  // aynı sırayı izler. Fark: burada adisyon kaydı yok, etiket yalnız ekranda ve
+  // yazdırılan fişte yaşar — sebep/personel DB'ye yazılmaz. Kalıcılaştırmak ayrı
+  // iş (Invoice.globalDiscountReason gerekiyor, bugün böyle bir alan yok).
   const discountLabel = !discount
     ? null
-    : [discount.type === "PERCENT" ? `İskonto %${discount.value}` : "İskonto", discount.reason]
+    : [
+        discount.type === "PERCENT" ? `İskonto %${discount.value}` : "İskonto",
+        TICKET_DISCOUNT_REASONS.find((r) => r.code === discount.reasonCode)?.label,
+        discount.reason,
+        employees.find((e) => e.id === discount.employeeId)?.name,
+      ]
         .filter(Boolean)
         .join(" · ")
 
@@ -1046,6 +1058,7 @@ export function CafeSaleScreen() {
       <DiscountDialog
         open={discountOpen}
         gross={totals.gross}
+        employees={employees}
         current={discount}
         onClose={() => setDiscountOpen(false)}
         onApply={(v) => {

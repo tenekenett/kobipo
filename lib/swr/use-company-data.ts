@@ -46,6 +46,8 @@ export type RefCounterparty = {
   taxNumber?: string | null
 }
 export type RefAccount = { id: string; name: string; type: string }
+/** İK kartı — restoran ekranlarında "iskontoyu uygulayan personel" seçimi için. */
+export type RefEmployee = { id: string; name: string; position: string | null }
 export type RefWarehouse = { id: string; name: string; isDefault?: boolean }
 export type RefWarehouseStock = { warehouseId: string; productId: string; quantity: number }
 
@@ -126,6 +128,29 @@ export function useWarehouses(companyId: string | null) {
     [data]
   )
   return { warehouses, isLoading, error, mutate }
+}
+
+/**
+ * Aktif personel listesi. Yalnız `ACTIVE`: işten ayrılmış personel yeni bir
+ * iskontonun altına imza atamaz (geçmiş kayıtlar ilişkiden okunmaya devam eder).
+ *
+ * Personel kartı hiç tanımlanmamışsa liste BOŞ döner — çağıran ekran seçiciyi
+ * gizler ve iskonto akışı bugünkü haliyle sürer (sunucu da aynı koşulla zorunlu
+ * tutuyor: adisyonlar/[id]/route.ts).
+ */
+export function useEmployees(companyId: string | null) {
+  const key = companyKey(companyId, "/api/personel/employees", "&status=ACTIVE")
+  const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
+  const employees = useMemo<RefEmployee[]>(
+    () =>
+      (Array.isArray(data) ? data : []).map((e) => ({
+        id: e.id,
+        name: `${e.firstName ?? ""} ${e.lastName ?? ""}`.trim() || "—",
+        position: e.position ?? null,
+      })),
+    [data]
+  )
+  return { employees, isLoading, error, mutate }
 }
 
 export function useProductCategories(companyId: string | null) {

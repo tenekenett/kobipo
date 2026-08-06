@@ -21,6 +21,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
+import {
+  EmployeeRestoranTab,
+  useRestoranActivity,
+} from "@/components/personel/employee-restoran-tab"
 import { ArrowLeft, FileText, FileDown, ExternalLink, Plus, Pencil, Trash2, Wallet, CalendarCheck, BadgeCheck, FolderOpen } from "lucide-react"
 
 type Employee = {
@@ -106,6 +110,10 @@ export default function PersonelDetayPage() {
   const id = params.id
   const [emp, setEmp] = useState<Employee | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+
+  // Restoran aktivitesi (uygulanan iskontolar). Route param'ı verilir: uç slug'ı
+  // da çözüyor, böylece personel kaydını beklemeye gerek kalmıyor.
+  const { data: restoran } = useRestoranActivity(id, companyId)
 
   // Düzenle diyaloğu
   const [editOpen, setEditOpen] = useState(false)
@@ -367,6 +375,13 @@ export default function PersonelDetayPage() {
           <TabsTrigger value="izin">İzin ({emp.leaves.length})</TabsTrigger>
           <TabsTrigger value="zimmet">Zimmet ({emp.assets.length})</TabsTrigger>
           <TabsTrigger value="belge">Belgeler ({emp.documents.length})</TabsTrigger>
+          {/* Restoran modülü kapalıysa sekme hiç çizilmez — İK ekranı
+              kullanılmayan bir modülün boş tablosunu göstermemeli. */}
+          {restoran?.enabled && (
+            <TabsTrigger value="restoran">
+              Restoran ({restoran.summary?.count ?? 0})
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ÖZET */}
@@ -621,6 +636,13 @@ export default function PersonelDetayPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* RESTORAN — bu personelin uyguladığı hesap iskontoları */}
+        {restoran?.enabled && (
+          <TabsContent value="restoran">
+            <EmployeeRestoranTab data={restoran} />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Personel Düzenle */}

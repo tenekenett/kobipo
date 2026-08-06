@@ -89,6 +89,46 @@ export const TICKET_CANCEL_REASONS = [
   { code: "OTHER", label: "Diğer" },
 ] as const
 
+/**
+ * İSKONTO sebepleri. Kalem ve iptal sebepleriyle aynı gerekçe: sabit ve kısa,
+ * çünkü denetim raporu bunları gruplar. Kasiyerin ayrıntısı serbest metin
+ * `discountReason` alanına yazılır — kod onun yerine geçmez, yanında durur.
+ */
+export const TICKET_DISCOUNT_REASONS = [
+  { code: "STAFF", label: "Personel / aile" },
+  { code: "STUDENT", label: "Öğrenci" },
+  { code: "LOYAL", label: "Sadık müşteri" },
+  { code: "COMPLAINT", label: "Şikâyet telafisi" },
+  { code: "PROMO", label: "Kampanya" },
+  { code: "OTHER", label: "Diğer" },
+] as const
+
+export const discountReasonLabel = (code: string | null | undefined): string | null =>
+  code ? (TICKET_DISCOUNT_REASONS.find((r) => r.code === code)?.label ?? null) : null
+
+/**
+ * İskonto satırının etiketi — hesabın altında, adisyon detayında ve FİŞTE aynı
+ * metin görünür. Üç ekranın ayrı ayrı kurması, birinde personel adı eklenip
+ * diğerinde unutulması demekti.
+ *
+ * Sıra bilinçli: önce ne kadar, sonra NİYE, sonra KİM. Uygulayan personel en
+ * sonda çünkü müşteri için anlamsız, denetim için vazgeçilmez; öne alınırsa
+ * "%10 · Ahmet Yılmaz" okunur ve sebep gözden kaçar.
+ */
+export function ticketDiscountLabel(ticket: {
+  discountType?: string | null
+  discountValue?: number | string | null
+  discountReasonLabel?: string | null
+  discountReason?: string | null
+  discountEmployeeName?: string | null
+} | null): string | null {
+  if (!ticket?.discountType) return null
+  const base = ticket.discountType === "PERCENT" ? `İskonto %${ticket.discountValue}` : "İskonto"
+  return [base, ticket.discountReasonLabel, ticket.discountReason, ticket.discountEmployeeName]
+    .filter(Boolean)
+    .join(" · ")
+}
+
 export const cancelReasonLabel = (code: string | null | undefined): string | null =>
   code ? (TICKET_CANCEL_REASONS.find((r) => r.code === code)?.label ?? null) : null
 

@@ -14,6 +14,7 @@ import { Prisma } from "@prisma/client"
 export * from "./ticket-constants"
 import {
   cancelReasonLabel,
+  discountReasonLabel,
   parseItemOptions,
   reasonLabel,
   ticketDiscountOf,
@@ -82,6 +83,9 @@ export const ticketInclude = Prisma.validator<Prisma.RestaurantTicketInclude>()(
   table: { select: { id: true, name: true, areaId: true } },
   customer: { select: { id: true, name: true } },
   invoice: { select: { id: true, invoiceNo: true, status: true } },
+  // Adı KOPYALANMAZ, ilişkiden okunur: iskonto personeli açık adisyonda
+  // değiştirilebilen bir SEÇİM, kalem fiyatı gibi donmuş bir kopya değil.
+  discountEmployee: { select: { id: true, firstName: true, lastName: true } },
 })
 
 type TicketWithRelations = Prisma.RestaurantTicketGetPayload<{ include: typeof ticketInclude }>
@@ -133,7 +137,16 @@ export function serializeTicket(ticket: TicketWithRelations) {
     cancelReasonLabel: cancelReasonLabel(ticket.cancelReasonCode),
     discountType: discount?.type ?? null,
     discountValue: discount?.value ?? null,
+    discountReasonCode: ticket.discountReasonCode,
     discountReason: ticket.discountReason,
+    discountReasonLabel: discountReasonLabel(ticket.discountReasonCode),
+    // İskontoyu uygulayan personel (İK kartı) — ekranda iskonto satırının
+    // altında, fişte iskonto etiketinde görünür.
+    discountEmployeeId: ticket.discountEmployeeId,
+    discountEmployeeName: ticket.discountEmployee
+      ? `${ticket.discountEmployee.firstName} ${ticket.discountEmployee.lastName}`.trim()
+      : null,
+    discountAt: ticket.discountAt,
     items,
     totals: ticketTotals(items, discount),
   }

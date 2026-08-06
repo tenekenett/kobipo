@@ -109,6 +109,16 @@ ele alınıyor.
 Gerekçe: Adisyo ve Loyverse ikisi de bunu yapıyor; alternatif (her yetenek bir düğme) altı
 düğme demek ve tablet genişliğinde ikinci satıra taşıyor.
 
+> **2026-08-06 — hesap tarafı için geri alındı.** Adisyon ekranında İşlemler tepsisi
+> kaldırıldı; iskonto · hesabı böl · masayı değiştir · kişi/not · iptal
+> artık **sağ sütunda, hesap panelinin içinde** açık düğme (`ticket-screen.tsx`, panelin
+> `footer` prop'u). Serviste bu altısı sık kullanılıyordu ve tepsi hepsini iki dokunuş
+> arkasına saklıyordu. Yer sol üstteki başlık değil hesap paneli: karar zaten toplama
+> bakarken veriliyor, üstelik `xl:sticky` panel kaydırınca da ekranda kalıyor. 2 sütunlu
+> ızgara "altı düğme ikinci satıra taşar" endişesini çözer — taşması tasarımın kendisi.
+> Hesap fişi listeye eklenmedi, aynı blokta zaten kendi düğmesi var.
+> **Kalem ⋮ menüsü aynen duruyor.**
+
 ### K2 — İkram / Zayi / İptal üç ayrı şey; stok davranışları farklı
 
 | İşlem | Ne zaman | Hesapta | Stok | Rapor |
@@ -135,6 +145,42 @@ Yüzde veya tutar + sebep. Fişe fatura altı (genel) iskonto olarak gider — b
 zaten `globalFactor` ile doğru işleniyor (bkz. `[[giden-otv-diger-vergi]]` deseni: display
 katmanı faktörü uygular). Kalem bazlı iskonto kafede nadir; eklemek üç ekranda daha hesap
 düzeltmesi demek. **Gerekirse sonra.**
+
+#### K3.1 — İskontoyu uygulayan personel sorulur (2026-08-06)
+
+İskontonun **tutarı** kaydediliyordu, **sorumlusu** kaydedilmiyordu: ekranda write yetkisi
+olan herkes sınırsız indirim verebiliyor ve hiçbir raporda kimin verdiği görünmüyordu.
+Sebep de serbest metindi — `"Personel"` / `"personel"` / `"personele"` raporda üç ayrı satır.
+
+Eklenen alanlar (`RestaurantTicket`):
+
+| Alan | Ne cevaplar |
+|---|---|
+| `discountReasonCode` | **Niye** — sabit liste (`TICKET_DISCOUNT_REASONS`), rapor bunu gruplar |
+| `discountReason` | Serbest açıklama; kodun yerine geçmez, yanında durur |
+| `discountEmployeeId` | **Kim verdi** — İK kartı (`Employee`) |
+| `discountBy` / `discountAt` | Oturum izi: kaydı fiilen yazan kullanıcı ve anı |
+
+**Neden `Employee`, `User` değil:** kafede kasa çoğu zaman ortak hesapla açıktır; "indirimi
+kim verdi" sorusunun cevabı oturumu açan kişi değil, o an masaya bakan garsondur. Oturum izi
+(`discountBy`) yine de yazılır — ikisi farklı soruyu cevaplar ve denetim raporunda **ayrı
+tablolarda** durur (`discountStaff` ↔ `staff`); aynı sütuna konsalardı iki farklı kimlik
+kümesi tek isimmiş gibi okunurdu.
+
+**Zorunluluk koşulludur:** firmada aktif personel kartı varsa seçim zorunlu, yoksa akış
+bugünkü gibi sürer. `hr` modülünü kullanmayan bir kafede iskontonun tek alan yüzünden
+kilitlenmesi kabul edilemezdi (kural hem istemcide hem `adisyonlar/[id]/route.ts`'te).
+
+**Ölçüm:** denetim raporunda "Verilen iskonto" kutusu + personel ve adisyon kırılımı; personel
+kartında (`/personel/[id]` → Restoran sekmesi) o personelin verdiği iskontolar. Ayrı bir
+"defter" tablosu YOK — para iki yerde yaşasaydı iskonto düzeltildiğinde ikisi ayrışırdı.
+Ölçüm ekseni `closedAt`: açık adisyondaki iskonto hâlâ kaldırılabilir.
+
+**Kapsam dışı (bilinçli):** *(a)* Tezgâh (Kahveci Satış) iskontosu hâlâ kaydedilmiyor —
+sepetin adisyonu yok ve `Invoice`'ta sebep alanı yok (`globalDiscountAmount` yalnız tutar);
+personel/sebep orada sadece ekranda ve yazdırılan fişte yaşar. *(b)* İkramın `STAFF`
+sebebinde hangi personel olduğu hâlâ sorulmuyor. *(c)* Yetki kademesi: bu iş kimin yaptığını
+**kaydeder**, kimin yapabileceğini **kısıtlamaz** (bkz. DENETIM-VE-TEMIZLIK.md Faz 5).
 
 ### K4 — Hesap fişi = fiş şablonunun mali olmayan kopyası
 
@@ -190,11 +236,11 @@ ortaklaştırma çizgisinin devamı.
 
 | Çıkan | Nereye |
 |---|---|
-| Depo seçici (adisyon üst barı) | Ayarlar → varsayılan depo. Çok depolu firmada İşlemler tepsisinde |
+| Depo seçici (adisyon üst barı) | Ayarlar → varsayılan depo. Çok depolu firmada hesap panelinde |
 | "Ara toplam" ve "KDV" satırları | Yalnız **Toplam** kalır; döküm hesap fişinde ve fişte |
 | Yetersiz hammadde kartı | Ürün kartında küçük rozet + Menü ekranında panel |
 | Kritik hammadde paneli (kahveci) | Aynı şekilde — servis ekranından çıkar |
-| "Adisyonu iptal et" üst düğmesi | İşlemler tepsisine |
+| "Adisyonu iptal et" üst düğmesi | 2026-08-06'dan beri hesap panelinin en altında (bkz. K1 notu) |
 | Kalem satırındaki çöp ikonu | ⋮ menüsüne (İptal/İkram/Zayi ayrımıyla birlikte) |
 
 ---
@@ -205,7 +251,7 @@ ortaklaştırma çizgisinin devamı.
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│ ← Masalar    Masa 5 · 42 dk · 2 kişi            [ İşlemler ▾ ] │   ← 1 kontrol
+│ ← Masalar    Masa 5 · 42 dk · 2 kişi                           │
 ├──────────────────────────────────┬─────────────────────────────┤
 │ [ara]  Tümü  Kahve  Tatlı  …     │  Adisyon            6 adet  │
 │ ┌──────┐┌──────┐┌──────┐┌──────┐ │  ┌───────────────────────┐  │
@@ -218,14 +264,17 @@ ortaklaştırma çizgisinin devamı.
 │                                  │  İskonto %10        −₺27    │
 │                                  │  ───────────────────────    │
 │                                  │  TOPLAM            ₺243,00  │
+│                                  │  [ % İskonto ][ ⑂ Böl   ]  │   ← işlemler (§4.3)
+│                                  │  [ ↔ Masa    ][ 👥 Kişi ]  │
 │                                  │  [ Hesap Fişi ] [ ÖDEME ]   │
+│                                  │      🗑 Adisyonu iptal et   │
 └──────────────────────────────────┴─────────────────────────────┘
 ```
 
 - Adet artık satırda `2 ×` olarak yazı; azalt/artır ⋮ menüsünde **ve** ürüne tekrar dokunarak
   (menüden basmak zaten +1 ekliyor — stepper'ın asıl işi azaltmak).
 - İkram/zayi satırı **renkli rozetle** görünür; müşteriye ne verildiği kaybolmaz.
-- Alt bar iki düğme: **Hesap Fişi** (servis sırasında en sık) ve **ÖDEME**.
+- Panelin altı: işlem düğmeleri → **Hesap Fişi** + **ÖDEME** → en altta iptal.
 
 ### 4.2 Kalem ⋮ menüsü
 
@@ -241,17 +290,28 @@ ortaklaştırma çizgisinin devamı.
 ```
 İkram/zayi/iptal seçilince: sebep listesi (6 kısa seçenek) + isteğe bağlı not. Tek adım.
 
-### 4.3 İşlemler tepsisi
+### 4.3 Hesap işlemleri (2026-08-06'ya kadar "İşlemler tepsisi")
+
+Sağ sütunda, TOPLAM ile ÖDEME'nin arasında — tek dokunuş:
 
 ```
-  🧾 Hesap fişi
-  %  İskonto
-  ⑂  Hesabı böl
-  ↔  Masayı değiştir
-  👥 Kişi sayısı / not
-  ────────────────────
-  🗑 Adisyonu iptal et
+  TOPLAM                  ₺243,00
+  ────────────────────────────────
+  [ % İskonto  ][ ⑂ Hesabı böl ]
+  [ ↔ Masa değ.][ 👥 Kişi / not]
+  [ Hesap Fişi ][    ÖDEME     ]
+        🗑 Adisyonu iptal et
 ```
+
+- **Adisyonu iptal et** ÖDEME'nin de ALTINDA, ghost + kırmızı: yıkıcı olan tek işlem
+  diğerlerinin arasında durursa yanlışlıkla değiliyor.
+- **Hesap fişi** listeye ayrıca eklenmedi; aynı blokta zaten kendi düğmesi var.
+
+> **"Hesap istendi" 2026-08-06'da ekrandan kaldırıldı.** Sunucu tarafı duruyor
+> (`PATCH /adisyonlar/[id]` → `billRequested`), yalnız düğmesi yok. Bayrağı kuran
+> BAŞKA ekran olmadığı için salon planındaki turuncu **BILL** durumu ve adisyon
+> başlığındaki rozet pratikte tetiklenmiyor — yeniden istenirse düğme buraya ya da
+> masalar ekranına geri konmalı, aksi halde o iki gösterge ölü kod.
 
 > **Masayı değiştir** ve **veresiye carisi** 2026-07-31'de eklendi. İkisinin de
 > sunucu tarafı baştan hazırdı (`PATCH /adisyonlar/[id]` → `tableId` / `customerId`),
@@ -293,10 +353,24 @@ ortaklaştırma çizgisinin devamı.
                                   [ Ekle — ₺117,00 ]
 ```
 
-### 4.7 Açık adisyonlar `/restoran/adisyonlar`
+### 4.7 Adisyonlar `/restoran/adisyonlar`
 
-Satır: masa/ad · kod · süre · kalem · **tutar** · açan kişi. Arama + sıralama (tutar / süre).
-Sağ üstte **`+ Paket / Gel-al`** — masasız adisyonun bugün UI'da olmayan tek girişi.
+Kart: masa/ad · kod · süre (açıksa) veya açılış–kapanış saati · kalem · **tutar** · durum.
+Arama (masa, kod, müşteri, fiş no) + sıralama (tutar / süre) + durum filtresi.
+Sağ üstte **`+ Yeni adisyon`** — masa OPSİYONEL, seçilmezse paket/gel-al açılır.
+
+Ekran **bir GÜNE** bakar (ileri/geri gün gezinme + tarih seçici). Gün ekseni AÇILIŞ
+tarihidir: kapanışı gece yarısını geçen masa kendi gününde kalır, adisyon numarası da
+(`ADS-YYYY-NNNN`) o eksende ilerler.
+
+İki liste birleşir: o gün kesilen adisyonlar (açık + kapanan + iptal) **ve** —yalnız bugüne
+bakarken— hâlâ açık duran tüm hesaplar. Gerekçesi: dünden sarkan masa bugünün gün
+listesinde yoktur (açılışı düne düşer) ama hâlâ tahsil edilmeyi bekler. Bu kartlar
+"önceki günden" damgası taşır ve gün sayacına değil, ayrı bir satıra (`+ N önceki günden
+açık`) yazılır — aksi halde "bugün 1 adisyon kesildi" yanlışı doğardı.
+
+Kapanmış adisyonun gün bazında görülebildiği tek yer burasıdır: gün sonu raporu FİŞLERİ
+sayar, adisyonları değil.
 
 ### 4.8 Kontrol bütçesi (kabul ölçütü)
 

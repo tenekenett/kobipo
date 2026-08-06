@@ -83,9 +83,21 @@ export type Ticket = {
   closedAt: string | null
   invoiceId: string | null
   invoiceNo: string | null
+  /** Doluysa adisyon iptal DEĞİL, başka adisyona birleştirildi — cirosu orada. */
+  mergedIntoId: string | null
+  cancelReasonCode: string | null
+  cancelReason: string | null
+  cancelReasonLabel: string | null
   discountType: "PERCENT" | "AMOUNT" | null
   discountValue: number | null
+  /** Sabit sebep kodu (rapor bunu gruplar) — serbest metin `discountReason` yanında durur. */
+  discountReasonCode: string | null
   discountReason: string | null
+  discountReasonLabel: string | null
+  /** İskontoyu UYGULAYAN personel (İK kartı) — oturumu açan kullanıcı değil. */
+  discountEmployeeId: string | null
+  discountEmployeeName: string | null
+  discountAt: string | null
   items: TicketItem[]
   totals: {
     net: number
@@ -208,6 +220,41 @@ export function useOpenTickets(companyId: string | null, opts?: { refreshInterva
 }
 
 /**
+ * Bir GÜNÜN adisyonları — açık, kapanan ve iptal edilenler birlikte.
+ *
+ * `useOpenTickets`ten ayrı duruyor çünkü ikisi farklı soruya bakıyor: açık liste
+ * "şu an hangi hesap duruyor" (gün fark etmez, dünden sarkan masa da orada),
+ * bu ise "seçilen gün ne kesildi". Adisyon ekranı ikisini birleştirip gösteriyor.
+ *
+ * Tazeleme yok: geçmiş bir gün seçiliyken periyodik istek boşa gider; bugünün
+ * canlı tarafını zaten `useOpenTickets` tazeliyor.
+ */
+export function useDayTickets(companyId: string | null, day: string | null) {
+  const range = day ? dayRange(day) : null
+  const { data, error, isLoading, mutate } = useSWR<Ticket[]>(
+    range
+      ? key(
+          companyId,
+          `/api/restoran/adisyonlar?status=ALL&limit=200&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+        )
+      : null,
+    jsonFetcher,
+    { revalidateOnFocus: true },
+  )
+  return { tickets: Array.isArray(data) ? data : [], error, isLoading, mutate }
+}
+
+/** `YYYY-MM-DD` → günün YEREL sınırları. Sunucuya UTC gider ama gün, kullanıcının
+ *  saatiyle başlayıp biter: 00:30'da kesilen adisyon dünün listesine düşmesin. */
+function dayRange(day: string): { from: string; to: string } {
+  const [y, m, d] = day.split("-").map(Number)
+  return {
+    from: new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0).toISOString(),
+    to: new Date(y, (m ?? 1) - 1, d ?? 1, 23, 59, 59, 999).toISOString(),
+  }
+}
+
+/**
  * Ürün seçenekleri (porsiyon/modifier) — firma başına TEK çağrı.
  *
  * Ürün başına çağırmak, kasiyerin bastığı her üründe ağ turu demekti; seçenek
@@ -241,6 +288,73 @@ export function useProductOptions(companyId: string | null) {
 export function useTicket(companyId: string | null, ticketId: string | null) {
   const { data, error, isLoading, mutate } = useSWR<Ticket>(
     companyId && ticketId ? `/api/restoran/adisyonlar/${ticketId}?companyId=${companyId}` : null,
+    jsonFetcher,
+  )
+  return { ticket: data ?? null, error, isLoading, mutate }
+}
+
+/** Kim yaptı — adisyon detayındaki personel izi. */
+export type StaffRef = { id: string; name: string } | null
+
+/**
+ * Kapanmış adisyonun DENETİM görünümü: `Ticket` + "bu hesapta ne oldu" alanları.
+ * Kararlar: docs/restoran/ADISYON-DETAY.md K2
+ *
+ * Tip ELLE yazılıyor, sunucudaki `TicketDetailExtras`tan türetilmiyor: o dosya
+ * (`lib/restoran/ticket-detail.ts`) prisma import ediyor ve istemci paketine
+ * girmemeli. `Ticket` tipi de aynı sebeple burada elle duruyor.
+ */
+export type TicketDetail = Ticket & {
+  /** Oturma süresi (dk). Adisyon açıkken null. */
+  durationMin: number | null
+  staff: {
+    openedBy: StaffRef
+    closedBy: StaffRef
+    billRequestedBy: StaffRef
+    discountBy: StaffRef
+  }
+  /** Kalem id → ekleyen kullanıcının adı. */
+  itemCreators: Record<string, string>
+  invoice: {
+    id: string
+    slug: string
+    invoiceNo: string
+    status: string
+    netAmount: number
+    vatAmount: number
+    totalAmount: number
+    globalDiscountAmount: number
+    paidTotal: number
+    /** Tahsil edilmemiş kalan — kapanışta parça yazılamamışsa burada görünür. */
+    remaining: number
+    paymentStatus: "PAID" | "PARTIAL" | "OPEN"
+    payments: Array<{
+      id: string
+      amount: number
+      method: string
+      methodLabel: string
+      paymentDate: string
+      accountName: string | null
+      notes: string | null
+    }>
+  } | null
+  merge: {
+    into: { id: string; code: string } | null
+    from: Array<{ id: string; code: string; total: number }>
+  }
+  reservation: { id: string; guestName: string; reservedAt: string } | null
+}
+
+/**
+ * Adisyon + denetim alanları. `useTicket`ten AYRI bir SWR anahtarı kullanır
+ * (`&detail=1`): canlı satış ekranı sade uçtan beslenmeye devam etsin, personel
+ * ve ödeme sorguları her kalem eklemede tekrarlanmasın.
+ */
+export function useTicketDetail(companyId: string | null, ticketId: string | null) {
+  const { data, error, isLoading, mutate } = useSWR<TicketDetail>(
+    companyId && ticketId
+      ? `/api/restoran/adisyonlar/${ticketId}?companyId=${companyId}&detail=1`
+      : null,
     jsonFetcher,
   )
   return { ticket: data ?? null, error, isLoading, mutate }

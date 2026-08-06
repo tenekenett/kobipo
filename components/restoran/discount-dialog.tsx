@@ -1,12 +1,17 @@
 "use client"
 
-// Hesap iskontosu — yüzde ya da tutar, sebebiyle birlikte.
+// Hesap iskontosu — yüzde ya da tutar, sebebiyle ve UYGULAYAN PERSONELLE birlikte.
 // Kararlar: docs/restoran/SATIS-EKRANI.md K3
 //
 // Tutar KDV DAHİL girilir: kullanıcı hesabın altındaki rakama bakıp "50 lira
 // düş" der. Matrah karşılığına çevirmek sunucunun işi (lib/restoran/tickets.ts).
+//
+// Personel seçimi İK kartından (Employee) gelir, oturumu açan kullanıcıdan
+// DEĞİL: kafede kasa çoğu zaman ortak hesapla açıktır, "indirimi kim verdi"
+// sorusunun cevabı o an masaya bakan garsondur. Oturum izi ayrıca ve sessizce
+// yazılır (`discountBy`) — biri sorumluluğu, diğeri kaydı gösterir.
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -18,16 +23,28 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { currency } from "@/lib/fis/receipt-html"
+import { TICKET_DISCOUNT_REASONS } from "@/lib/restoran/ticket-constants"
+import type { RefEmployee } from "@/lib/swr/use-company-data"
 import { cn } from "@/lib/utils"
 
 export type DiscountValue = {
   type: "PERCENT" | "AMOUNT"
   value: number
+  /** Sabit sebep kodu — rapor bunu gruplar. */
+  reasonCode: string | null
+  /** Serbest açıklama; kodun yerine geçmez, yanında durur. */
   reason: string | null
+  /** İskontoyu uygulayan personelin İK kartı id'si. */
+  employeeId: string | null
 } | null
-
-const REASONS = ["Personel", "Öğrenci", "Sadık müşteri", "Şikâyet telafisi", "Kampanya"]
 
 /** Sık kullanılan yüzdeler — kasiyer sayı yazmadan tek dokunuşla seçsin. */
 const QUICK_PERCENTS = [5, 10, 15, 20]
@@ -36,6 +53,7 @@ export function DiscountDialog({
   open,
   gross,
   current,
+  employees,
   onClose,
   onApply,
 }: {
@@ -43,16 +61,33 @@ export function DiscountDialog({
   /** İskonto öncesi hesap toplamı (KDV dahil) — önizleme için. */
   gross: number
   current: DiscountValue
+  /**
+   * Aktif personel. BOŞ ise seçici hiç çizilmez: personel kartı tanımlamamış
+   * (ya da `hr` modülünü kullanmayan) işletmede iskonto kilitlenmemeli.
+   */
+  employees: RefEmployee[]
   onClose: () => void
   onApply: (value: DiscountValue) => void
 }) {
   const [type, setType] = useState<"PERCENT" | "AMOUNT">(current?.type ?? "PERCENT")
   const [value, setValue] = useState(current ? String(current.value) : "")
+  const [reasonCode, setReasonCode] = useState<string | null>(current?.reasonCode ?? null)
   const [reason, setReason] = useState(current?.reason ?? "")
+  const [employeeId, setEmployeeId] = useState<string | null>(current?.employeeId ?? null)
 
   const parsed = parseFloat(value.replace(",", ".")) || 0
   const discount =
     type === "PERCENT" ? gross * (Math.min(100, Math.max(0, parsed)) / 100) : Math.min(parsed, gross)
+
+  // Personel varsa seçim ZORUNLU — sunucudaki kuralın aynısı, kullanıcı
+  // "Uygula"ya basıp hata mesajıyla karşılaşmasın.
+  const needsEmployee = employees.length > 0
+  const canApply = parsed > 0 && (!needsEmployee || !!employeeId)
+
+  const employeeLabel = useMemo(
+    () => employees.find((e) => e.id === employeeId)?.name ?? null,
+    [employees, employeeId],
+  )
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -111,41 +146,73 @@ export function DiscountDialog({
             />
           </div>
 
+          {needsEmployee && (
+            <div>
+              <Label className="text-xs text-muted-foreground">İskontoyu uygulayan personel</Label>
+              <Select value={employeeId ?? ""} onValueChange={(v) => setEmployeeId(v || null)}>
+                <SelectTrigger className="mt-1.5 h-11">
+                  <SelectValue placeholder="Personel seçin" />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.name}
+                      {e.position ? (
+                        <span className="ml-2 text-xs text-muted-foreground">{e.position}</span>
+                      ) : null}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div>
             <Label className="text-xs text-muted-foreground">Sebep</Label>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {REASONS.map((r) => (
+              {TICKET_DISCOUNT_REASONS.map((r) => (
                 <button
-                  key={r}
+                  key={r.code}
                   type="button"
-                  onClick={() => setReason(r === reason ? "" : r)}
+                  onClick={() => setReasonCode(r.code === reasonCode ? null : r.code)}
                   className={cn(
                     "rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors",
-                    reason === r
+                    reasonCode === r.code
                       ? "border-kobipo-blue bg-kobipo-blue/10 text-kobipo-blue dark:border-primary dark:bg-primary/15 dark:text-primary"
                       : "hover:bg-muted",
                   )}
                 >
-                  {r}
+                  {r.label}
                 </button>
               ))}
             </div>
             <Input
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="veya yazın"
+              placeholder="Açıklama (isteğe bağlı)"
               className="mt-2"
             />
           </div>
 
-          <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-sm">
-            <span className="text-muted-foreground">Yeni toplam</span>
-            <span className="font-bold tabular-nums">
-              {currency(Math.max(0, gross - discount))}
-              <span className="ml-2 text-xs font-normal text-kobipo-green">
-                −{currency(discount)}
+          <div className="space-y-1 rounded-lg bg-muted/50 px-3 py-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Yeni toplam</span>
+              <span className="font-bold tabular-nums">
+                {currency(Math.max(0, gross - discount))}
+                <span className="ml-2 text-xs font-normal text-kobipo-green">
+                  −{currency(discount)}
+                </span>
               </span>
-            </span>
+            </div>
+            {/* Kaydedilecek not, uygulanmadan ÖNCE aynen gösterilir: kasiyer
+                hesabın altında ne yazacağını burada görür. */}
+            {employeeLabel && (
+              <div className="text-xs text-muted-foreground">
+                {[employeeLabel, TICKET_DISCOUNT_REASONS.find((r) => r.code === reasonCode)?.label, reason.trim()]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
+            )}
           </div>
         </div>
 
@@ -162,8 +229,16 @@ export function DiscountDialog({
               Vazgeç
             </Button>
             <Button
-              disabled={parsed <= 0}
-              onClick={() => onApply({ type, value: parsed, reason: reason.trim() || null })}
+              disabled={!canApply}
+              onClick={() =>
+                onApply({
+                  type,
+                  value: parsed,
+                  reasonCode,
+                  reason: reason.trim() || null,
+                  employeeId,
+                })
+              }
             >
               Uygula
             </Button>
