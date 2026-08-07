@@ -292,6 +292,12 @@ export function VardiyaTimeline({
   }
 
   const minWidth = NAME_W + (span / 60) * HOUR_PX
+  /**
+   * Satır yüksekliği personel sayısına göre esner: dört kişilik bir ekipte sabit
+   * 46px'lik satırlar sayfanın altında yarım ekran boşluk bırakıyordu. Kalabalık
+   * listede tavan devreye girer, aksi halde ızgara ekrana sığmazdı.
+   */
+  const rowHeight = employees.length <= 4 ? 84 : employees.length <= 8 ? 62 : 46
 
   return (
     <div className="overflow-x-auto rounded-xl border border-border/70 bg-card">
@@ -315,16 +321,27 @@ export function VardiyaTimeline({
             Personel
           </div>
           <div className="relative flex-1 py-2">
-            {hours.map((m) => (
-              <div
-                key={m}
-                className="absolute top-1 -translate-x-1/2 text-[11px] tabular-nums text-muted-foreground"
-                style={{ left: `${pct(m)}%` }}
-              >
-                {minuteToHHMM(m)}
-                {crossesMidnight(m) && <span className="ml-0.5 text-[9px] text-amber-600">+1</span>}
-              </div>
-            ))}
+            {hours.map((m, idx) => {
+              // İlk ve son etiket ORTALANMAZ, kenara yaslanır: -translate-x-1/2
+              // onları yarı yarıya ızgaranın dışına taşırıyordu — soldaki personel
+              // sütununun üstüne biniyor, sağdaki ise 16px'lik sahte bir yatay
+              // kaydırma çubuğu yaratıyordu (ölçüldü: scrollW-clientW = 16).
+              const first = idx === 0
+              const last = idx === hours.length - 1
+              return (
+                <div
+                  key={m}
+                  className={cn(
+                    "absolute top-1 text-[11px] tabular-nums text-muted-foreground",
+                    !first && !last && "-translate-x-1/2",
+                  )}
+                  style={last ? { right: `${100 - pct(m)}%` } : { left: `${pct(m)}%` }}
+                >
+                  {minuteToHHMM(m)}
+                  {crossesMidnight(m) && <span className="ml-0.5 text-[9px] text-amber-600">+1</span>}
+                </div>
+              )
+            })}
             <div className="h-4" />
           </div>
         </div>
@@ -405,7 +422,13 @@ export function VardiyaTimeline({
                   {emp.position || emp.department || "—"}
                 </p>
               </div>
-              <Track pct={pct} hours={hours} opening={holiday ? null : opening} holiday={holiday}>
+              <Track
+                pct={pct}
+                hours={hours}
+                opening={holiday ? null : opening}
+                holiday={holiday}
+                height={rowHeight}
+              >
                 {/* Boş zemin: sürüklenerek yeni vardiya çizilir. */}
                 <div
                   className={cn("absolute inset-0", !readOnly && "cursor-crosshair")}
@@ -445,6 +468,7 @@ export function VardiyaTimeline({
                         overnight={crossesMidnight(end)}
                         readOnly={readOnly}
                         muted={absent}
+                        labelTop={hollow && !absent}
                         onBodyDown={(e) => beginMove(e, s)}
                         onEdgeDown={(e, edge) => beginResize(e, s, edge)}
                       />
@@ -493,16 +517,19 @@ function Track({
   hours,
   opening,
   holiday,
+  height,
   children,
 }: {
   pct: (m: number) => number
   hours: number[]
   opening?: OpeningDay | null
   holiday?: { halfDayFrom: number | null } | null
+  /** Personel satırlarında esnek; başlık ve açılış satırında sabit. */
+  height?: number
   children: React.ReactNode
 }) {
   return (
-    <div className="relative min-h-[46px] flex-1">
+    <div className="relative flex-1" style={{ minHeight: height ?? 46 }}>
       {/* Tatil zemini: yarım günde yalnız tatile düşen KISIM boyanır, sabah
           çalışılan bölüm normal kalsın. */}
       {holiday && (
@@ -523,14 +550,16 @@ function Track({
           style={{ left: `${pct(opening.start)}%`, width: `${pct(opening.end) - pct(opening.start)}%` }}
         />
       )}
-      {hours.map((m) => (
+      {hours.map((m, idx) => (
         <div
           key={m}
           className={cn(
             "pointer-events-none absolute inset-y-0 w-px",
             m % DAY_MINUTES === 0 ? "bg-border" : "bg-border/40",
           )}
-          style={{ left: `${pct(m)}%` }}
+          // Son çizgi SAĞA yaslanır: `left:100%` 1px genişliğindeki çizgiyi tamamen
+          // dışarı atıp yatay kaydırma çubuğu doğuruyordu.
+          style={idx === hours.length - 1 ? { right: 0 } : { left: `${pct(m)}%` }}
         />
       ))}
       {children}
@@ -581,10 +610,16 @@ function ActualOverlay({
       onClick={onOpen}
       title={deviation ?? "Planına uygun"}
       className={cn(
-        "absolute inset-y-[9px] z-10 flex items-center justify-center overflow-hidden rounded px-2 shadow-sm",
+        "absolute z-10 flex items-center justify-center overflow-hidden rounded px-2 shadow-sm",
         color,
       )}
+      // Fiilî bar plan çerçevesinin ALT ŞERİDİNE oturur, ortasına değil: fazla
+      // mesaide bar kendi planının dışına taşıp KOMŞU vardiyanın barını tamamen
+      // örtüyordu (z-10 üstte). Alt şeritte durunca komşu planın üst yarısı
+      // görünür kalıyor. Oran piksel değil yüzde — satır yüksekliği esniyor.
       style={{
+        top: "46%",
+        bottom: "14%",
         left: `${pct(actualStart)}%`,
         width: `${Math.max(0, pct(actualEnd) - pct(actualStart))}%`,
       }}
@@ -606,6 +641,7 @@ function ShiftBar({
   overnight,
   readOnly,
   muted,
+  labelTop,
   onBodyDown,
   onEdgeDown,
 }: {
@@ -617,6 +653,9 @@ function ShiftBar({
   readOnly?: boolean
   /** Devamsızlık: bar soluklaşır, çapraz tarama ile "çalışılmadı" okunur olur. */
   muted?: boolean
+  /** Fiilî bar alt şeritte olduğunda plan etiketi ÜST şeride çekilir; ortada
+   *  kalsaydı dolu bar onu yarıdan keserdi. */
+  labelTop?: boolean
   onBodyDown: (e: React.PointerEvent) => void
   onEdgeDown: (e: React.PointerEvent, edge: "start" | "end") => void
 }) {
@@ -624,7 +663,8 @@ function ShiftBar({
     <div
       onPointerDown={onBodyDown}
       className={cn(
-        "absolute inset-y-1.5 flex items-center justify-center overflow-hidden rounded-md px-2 shadow-sm",
+        "absolute inset-y-1.5 flex justify-center overflow-hidden rounded-md px-2 shadow-sm",
+        labelTop ? "items-start pt-1" : "items-center",
         !readOnly && "cursor-grab active:cursor-grabbing",
         muted && "opacity-60 saturate-50",
         color,

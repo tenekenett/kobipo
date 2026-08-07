@@ -67,6 +67,9 @@ export function VardiyaHafta({
   onOpenShift: (shift: WeekShift) => void
   onAddShift: (employeeId: string, day: string) => void
 }) {
+  // Gün görünümüyle aynı gerekçe: az kişide hücreler yayılsın, kalabalıkta sığsın.
+  const cellHeight = employees.length <= 4 ? 92 : employees.length <= 8 ? 72 : 58
+
   return (
     <div className="overflow-x-auto rounded-xl border border-border/70 bg-card">
       <div className="min-w-[840px]">
@@ -121,8 +124,9 @@ export function VardiyaHafta({
                 return (
                   <div
                     key={day}
+                    style={{ minHeight: cellHeight }}
                     className={cn(
-                      "group relative min-h-[58px] flex-1 space-y-1 border-r border-border/40 p-1 last:border-r-0",
+                      "group relative flex-1 space-y-1 border-r border-border/40 p-1 last:border-r-0",
                       // Tatil zemini bugünün vurgusunu EZER: tatilde vardiya
                       // planlamak istisnadır, önce o görünmeli.
                       holidays.has(day)
