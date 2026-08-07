@@ -8,6 +8,7 @@ import {
   Briefcase,
   Building2,
   CalendarCheck,
+  CalendarClock,
   ChefHat,
   ClipboardList,
   Coins,
@@ -136,6 +137,8 @@ export const allNavItems: NavItemDef[] = [
   // Personel
   { href: "/personel", label: "Personeller", icon: UsersRound, roles: ["ADMIN", BM] },
   { href: "/personel/maas", label: "Maaş-Ödemeler", icon: DollarSign, roles: ["ADMIN", BM] },
+  { href: "/personel/vardiya", label: "Vardiya Takvimi", icon: CalendarClock, roles: ["ADMIN", BM] },
+  { href: "/personel/puantaj", label: "Aylık Puantaj", icon: ClipboardList, roles: ["ADMIN", BM] },
   { href: "/personel/izin", label: "İzin-Devam", icon: CalendarCheck, roles: ["ADMIN", BM] },
   { href: "/personel/zimmet", label: "Zimmet", icon: BadgeCheck, roles: ["ADMIN", BM] },
   { href: "/personel/ik", label: "İnsan Kaynakları", icon: FolderOpen, roles: ["ADMIN", BM] },
@@ -163,6 +166,14 @@ export const allNavItems: NavItemDef[] = [
   { href: "/ayarlar/profil", label: "Profil", icon: UserCog, roles: ALL_ROLES },
 ]
 
+/**
+ * Kenar çubuğundaki grupların İÇERİĞİ. Sıra buradaki sıradır.
+ *
+ * DİKKAT — yeni bir sayfa İKİ yere birden eklenir: yukarıdaki `allNavItems`
+ * (etiket + ikon + rol) ve buradaki grup `hrefs` listesi. Yalnız `allNavItems`'a
+ * eklenen öğe hiçbir grupta yer almadığı için kenar çubuğunda GÖRÜNMEZ — sayfa
+ * çalışır, adresine gidilebilir, ama menüden ulaşılamaz.
+ */
 export const navGroups: Array<{ title: string; hrefs: string[] }> = [
   {
     title: "Satış",
@@ -239,6 +250,8 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
     hrefs: [
       "/personel",
       "/personel/maas",
+      "/personel/vardiya",
+      "/personel/puantaj",
       "/personel/izin",
       "/personel/zimmet",
       "/personel/ik",

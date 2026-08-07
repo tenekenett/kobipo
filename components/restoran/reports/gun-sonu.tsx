@@ -95,6 +95,21 @@ const methodLabel = (m: string) =>
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
 
+/**
+ * Belgenin detay sayfası — fiş ile fatura AYRI sayfalara gider. Fişi
+ * `/faturalar/.../onizleme`de açmak onu "Satış Faturası" başlığıyla gösteriyordu.
+ *
+ * `from` ile geri dönüş yolu taşınıyor; iki sayfanın "Geri" düğmesi de aksi halde
+ * kendi listesine (Satış Faturaları / Satış Fişleri) gider, rapora değil. Değer
+ * kendi `?rapor=` param'ını taşıdığı için ENCODE ŞART.
+ */
+const belgeHref = (r: Receipt, companyId: string | null | undefined) => {
+  const q = `?company=${companyId ?? ""}&from=${encodeURIComponent(
+    "/restoran/raporlar?rapor=gun-sonu",
+  )}`
+  return r.isReceipt ? `/fisler/${r.id}${q}` : `/faturalar/${r.id}/onizleme${q}`
+}
+
 export function GunSonuReport({ range }: ReportProps) {
   const { selectedCompanyId: companyId } = useDashboardCompany()
   const { data, error, isLoading } = useReport<Data>(
@@ -352,7 +367,7 @@ export function GunSonuReport({ range }: ReportProps) {
                   <TableCell className="tabular-nums text-muted-foreground">{time(r.date)}</TableCell>
                   <TableCell>
                     <Link
-                      href={`/faturalar/${r.id}/onizleme?company=${companyId}`}
+                      href={belgeHref(r, companyId)}
                       className="font-medium hover:underline"
                     >
                       {r.invoiceNo}

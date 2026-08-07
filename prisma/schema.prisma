@@ -243,6 +243,11 @@ model Company {
   onboardingCompletedAt     DateTime?
   isActive                  Boolean            @default(true) // Firma aktif/pasif durumu
   disabledModules           String[]           @default([]) // Kapalı modül anahtarları (boş = tüm modüller açık)
+  // İşletmenin haftalık açılış saati. Vardiya takviminde hem en üstteki "Açılış
+  // saati" satırını hem de personel satırlarının arkasındaki gölge bandı çizer:
+  // "işletme açık ama kimse yok" boşluğu ancak bu bantla görünür hale geliyor.
+  // Şekil: lib/personel/opening-hours.ts (OpeningHours). NULL = tanımsız (bant çizilmez).
+  openingHours              Json?
   // Şube ise ana firmaya işaret eder; ana (merkez) firmada null'dır. Şube,
   // ana firmayla aynı VKN/vergi dairesi/e-Dönüşüm kimliğini paylaşır (mağaza gibi).
   parentCompanyId           String?
@@ -293,6 +298,9 @@ model Company {
   restaurantPlanItems     RestaurantPlanItem[]
   restaurantReservations  RestaurantReservation[]
   productOptionGroups     ProductOptionGroup[]
+  workShifts              WorkShift[]
+  shiftTemplates          ShiftTemplate[]
+  holidays                CompanyHoliday[]
 
   @@index([parentCompanyId])
   @@map("companies")
@@ -2037,11 +2045,101 @@ model Employee {
   // için doğrudan stok düzeltmesinde (compMovements).
   compItems       RestaurantTicketItem[] @relation("TicketItemCompEmployee")
   compMovements   StockMovement[]        @relation("StockMovementEmployee")
+  shifts          WorkShift[]
 
   @@unique([companyId, slug])
   @@index([companyId])
   @@index([companyId, status])
   @@map("employees")
+}
+
+// Bir personelin bir güne ait vardiyası.
+//
+// ZAMAN NEDEN Int DAKİKA? Bu projede saat dilimi bir kez pahalıya patladı:
+// tarihler UTC saklanıyor, yerel gün çıplak gönderilince TSİ 00:00–03:00 arası
+// kayıtlar yanlış güne düşüyordu (bkz. components/restoran/report-ui.tsx içindeki
+// startIso/endIso notu). Gün (workDate, saatsiz) + gün başından itibaren dakika
+// ikilisi bu sınıf hatayı tamamen ortadan kaldırır; 0–24 ızgarasında konum da
+// doğrudan start/1440 oranıdır.
+//
+// GECE VARDİYASI: bitiş 1440'ı AŞABİLİR (22:00–02:00 → 1320–1560). "Bitiş
+// başlangıçtan küçükse ertesi gündür" tahmini kasıtlı olarak kullanılmıyor —
+// yanlış girilmiş saatle gece vardiyası ayırt edilemezdi.
+//
+// actualStart/actualEnd şimdilik YAZILMIYOR (v1 yalnız plan). Alanlar baştan
+// duruyor ki fiilî giriş-çıkış fazı API sözleşmesini ve takvim bileşenini
+// yeniden şekillendirmesin: bar çerçeve=plan, dolgu=fiilî çizilecek.
+model WorkShift {
+  id           String   @id @default(cuid())
+  companyId    String
+  employeeId   String
+  workDate     DateTime @db.Date // vardiyanın ait olduğu iş günü (gece vardiyasında BAŞLADIĞI gün)
+  plannedStart Int // gün başından dakika: 09:00 → 540
+  plannedEnd   Int // 17:00 → 1020; gece vardiyasında > 1440 olabilir
+  actualStart  Int?
+  actualEnd    Int?
+  breakMinutes Int      @default(0)
+  status       String   @default("PLANNED") // PLANNED, WORKED, ABSENT
+  templateId   String?
+  note         String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdBy    String?
+
+  company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  template ShiftTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, workDate])
+  @@index([employeeId, workDate])
+  @@map("work_shifts")
+}
+
+// İşletmenin tatil günü — işveren kendi belirler.
+//
+// NEDEN GÖMÜLÜ BİR TAKVİM DEĞİL: dinî bayramlar (Ramazan, Kurban) ay takvimine
+// göre kaydığı için yıl yıl sabit bir listeden üretilemez; üstelik her işletme
+// resmî tatilde çalışmaz/çalışır. Sabit tarihli resmî tatiller arayüzden tek
+// tuşla eklenebilir (lib/personel/tatil.ts), kayanları işveren kendi girer.
+//
+// `recurring`: yalnızca AY+GÜN eşleşir, yıl yok sayılır — 1 Ocak'ı her yıl
+// yeniden girmek gerekmesin. Kayan bayramlarda false olmalı, yoksa gelecek yıl
+// yanlış güne düşer.
+model CompanyHoliday {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  date      DateTime @db.Date
+  recurring Boolean  @default(false)
+  // Arife günü: yarım gün tatil. Bu dakikadan SONRASI tatildir (13:00 → 780).
+  // NULL = tam gün tatil.
+  halfDayFrom Int?
+  createdAt DateTime @default(now())
+  createdBy String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, date])
+  @@map("company_holidays")
+}
+
+// Tekrar eden vardiya kalıbı ("Sabah 09:00–17:00") — takvimi tek tıkla doldurmak için.
+model ShiftTemplate {
+  id           String   @id @default(cuid())
+  companyId    String
+  name         String
+  startMinute  Int
+  endMinute    Int
+  breakMinutes Int      @default(0)
+  color        String? // takvimdeki bar rengi (token adı); boşsa sırayla atanır
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  company Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  shifts  WorkShift[]
+
+  @@index([companyId])
+  @@map("shift_templates")
 }
 
 model PayrollRecord {

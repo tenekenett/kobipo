@@ -122,6 +122,8 @@ const STATIC_TITLES: Record<string, string> = {
   "/personel/ik": "Personel Belge Dolabı",
   "/personel/izin": "İzin ve Devam",
   "/personel/maas": "Maaş ve Bordro",
+  "/personel/puantaj": "Aylık Puantaj",
+  "/personel/vardiya": "Vardiya Takvimi",
   "/personel/zimmet": "Zimmet",
 
   // Muhasebe

@@ -128,6 +128,20 @@ export default function FisDetayPage() {
     ? `${fis.direction === "incoming" ? "/alis/fisler" : "/satis/fisler"}?company=${companyId ?? ""}`
     : "#"
 
+  // Geri butonu: fişe başka bir ekrandan (ör. restoran kârlılık raporu) gelindiyse
+  // `from` ile oraya dön; yoksa fişin kendi listesine. Fatura önizlemesiyle aynı
+  // sözleşme — açık `/` ile başlama kontrolü dış siteye yönlendirmeyi engelliyor.
+  const fromParam = searchParams.get("from")
+  const safeFrom = fromParam && fromParam.startsWith("/") ? fromParam : null
+  const backHref = safeFrom
+    ? `${safeFrom}${safeFrom.includes("?") ? "&" : "?"}company=${companyId ?? ""}`
+    : listHref
+  const backLabel = safeFrom
+    ? "Geri"
+    : fis?.direction === "incoming"
+      ? "Alış Fişleri"
+      : "Satış Fişleri"
+
   /** Termal fiş (80mm) — hızlı satış/alıştaki fişin aynısı, ortak lib'den. */
   const printReceipt = () => {
     if (!fis) return
@@ -276,9 +290,9 @@ export default function FisDetayPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" asChild>
-            <Link href={listHref}>
+            <Link href={backHref}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              {fis.direction === "incoming" ? "Alış Fişleri" : "Satış Fişleri"}
+              {backLabel}
             </Link>
           </Button>
           <div>

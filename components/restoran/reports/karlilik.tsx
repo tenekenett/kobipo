@@ -362,7 +362,7 @@ export function KarlilikReport({ range }: ReportProps) {
                                     </TableCell>
                                     <TableCell>
                                       <CompanyLink
-                                        href={`/faturalar/${d.id}/onizleme`}
+                                        href={belgeHref(d)}
                                         className="text-xs font-medium underline-offset-4 hover:underline"
                                       >
                                         {d.invoiceNo}

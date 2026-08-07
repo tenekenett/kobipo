@@ -12,8 +12,10 @@ import {
   StyledTableHead,
   StyledTableRow,
 } from "@/components/ui/styled-table"
-import { RefreshCcw, Users, Wallet, CalendarCheck, TrendingDown } from "lucide-react"
+import { RefreshCcw, Users, Wallet, CalendarCheck, ClipboardList, TrendingDown } from "lucide-react"
 import { ExportButton } from "@/components/export/export-button"
+import { CompanyLink } from "@/components/dashboard/company-link"
+import { durationLabel } from "@/lib/personel/vardiya"
 
 type Report = {
   year: number
@@ -25,6 +27,9 @@ type Report = {
 }
 
 const LEAVE_LABELS: Record<string, string> = { ANNUAL: "Yıllık", EXCUSE: "Mazeret", SICK: "Hastalık", UNPAID: "Ücretsiz" }
+
+/** Bu ayın puantaj toplamı — ayrıntısı /personel/puantaj'da. */
+type PuantajOzet = { planned: number; actual: number; late: number; overtime: number; absent: number }
 const fmt = (n: number) => Number(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 export default function PersonelRaporlariPage() {
@@ -33,6 +38,7 @@ export default function PersonelRaporlariPage() {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [data, setData] = useState<Report | null>(null)
+  const [puantaj, setPuantaj] = useState<PuantajOzet | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
   const fetchReport = useCallback(async () => {
@@ -46,7 +52,40 @@ export default function PersonelRaporlariPage() {
     }
   }, [companyId, year])
 
+  // Puantaj AY bazlıdır, bu sayfanın geri kalanı YIL bazlı: bu yüzden ayrı çekilir
+  // ve kart kendi döneminin adını taşır — iki ölçü aynı başlığın altında karışmasın.
+  const fetchPuantaj = useCallback(async () => {
+    if (!companyId) return
+    const res = await fetch(
+      `/api/personel/shifts/ozet?companyId=${companyId}&year=${now.getFullYear()}&month=${now.getMonth() + 1}`,
+    )
+    if (!res.ok) return
+    const { rows } = (await res.json()) as {
+      rows: Array<{
+        plannedMinutes: number
+        actualMinutes: number
+        lateMinutes: number
+        overtimeMinutes: number
+        absentCount: number
+      }>
+    }
+    setPuantaj(
+      rows.reduce(
+        (acc, r) => ({
+          planned: acc.planned + r.plannedMinutes,
+          actual: acc.actual + r.actualMinutes,
+          late: acc.late + r.lateMinutes,
+          overtime: acc.overtime + r.overtimeMinutes,
+          absent: acc.absent + r.absentCount,
+        }),
+        { planned: 0, actual: 0, late: 0, overtime: 0, absent: 0 },
+      ),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId])
+
   useEffect(() => { fetchReport() }, [fetchReport])
+  useEffect(() => { fetchPuantaj() }, [fetchPuantaj])
 
   if (!companyId) return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
 
@@ -107,6 +146,57 @@ export default function PersonelRaporlariPage() {
                   </div>
                 </CardContent>
               </Card>
+              {puantaj && puantaj.planned > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <ClipboardList className="h-5 w-5" /> Puantaj (bu ay)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Planlanan</span>
+                      <span className="font-medium">{durationLabel(puantaj.planned)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Fiilî</span>
+                      <span className="font-medium">
+                        {puantaj.actual > 0 ? durationLabel(puantaj.actual) : "—"}
+                      </span>
+                    </div>
+                    {puantaj.overtime > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Fazla mesai</span>
+                        <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                          {durationLabel(puantaj.overtime)}
+                        </span>
+                      </div>
+                    )}
+                    {puantaj.late > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Gecikme</span>
+                        <span className="font-medium text-amber-600 dark:text-amber-400">
+                          {durationLabel(puantaj.late)}
+                        </span>
+                      </div>
+                    )}
+                    {puantaj.absent > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Devamsızlık</span>
+                        <span className="font-medium text-red-600 dark:text-red-400">
+                          {puantaj.absent} gün
+                        </span>
+                      </div>
+                    )}
+                    <CompanyLink
+                      href="/personel/puantaj"
+                      className="block border-t pt-2 text-xs underline-offset-4 hover:underline"
+                    >
+                      Personel kırılımı →
+                    </CompanyLink>
+                  </CardContent>
+                </Card>
+              )}
               <Card>
                 <CardHeader><CardTitle className="flex items-center gap-2 text-base"><CalendarCheck className="h-5 w-5" /> İzin Kullanımı ({data.year})</CardTitle></CardHeader>
                 <CardContent className="space-y-2 text-sm">

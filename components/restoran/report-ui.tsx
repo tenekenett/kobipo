@@ -55,10 +55,21 @@ const PRESETS: { key: RangePreset; label: string; range: () => [string, string] 
   { key: "month", label: "Bu ay", range: () => [monthStart(), today()] },
 ]
 
+/**
+ * Seçili aralık + hangi hazır düğmeyle seçildiği.
+ *
+ * `preset` AYRI tutuluyor, tarihlerden türetilmiyor: iki hazır aralık aynı günlere
+ * denk gelebiliyor (ayın 7'sinde "Son 7 gün" de "Bu ay" da 01–07) ve tarihe bakarak
+ * karşılaştıran çubuk ikisini birden vurguluyordu. Tarihler elle değişince `preset`
+ * null olur — artık hiçbir düğme "seçili" değildir.
+ */
+type RangeState = { from: string; to: string; preset: RangePreset | null }
+
 export function useReportRange(initial: RangePreset = "week") {
-  const [[from, to], setRange] = useState<[string, string]>(
-    () => PRESETS.find((p) => p.key === initial)!.range()
-  )
+  const [{ from, to, preset }, setRange] = useState<RangeState>(() => {
+    const [f, t] = PRESETS.find((p) => p.key === initial)!.range()
+    return { from: f, to: t, preset: initial }
+  })
   const query = useMemo(
     () => `startDate=${encodeURIComponent(startIso(from))}&endDate=${encodeURIComponent(endIso(to))}`,
     [from, to]
@@ -66,18 +77,22 @@ export function useReportRange(initial: RangePreset = "week") {
   return {
     from,
     to,
+    preset,
     query,
-    setFrom: (v: string) => setRange(([, t]) => [v, t]),
-    setTo: (v: string) => setRange(([f]) => [f, v]),
-    setPreset: (key: RangePreset) => setRange(PRESETS.find((p) => p.key === key)!.range()),
+    setFrom: (v: string) => setRange((s) => ({ ...s, from: v, preset: null })),
+    setTo: (v: string) => setRange((s) => ({ ...s, to: v, preset: null })),
+    setPreset: (key: RangePreset) => {
+      const [f, t] = PRESETS.find((p) => p.key === key)!.range()
+      setRange({ from: f, to: t, preset: key })
+    },
     /** Tek günlük raporlarda (gün sonu) ileri/geri gitmek için. */
     shiftDay: (delta: number) =>
-      setRange(([f]) => {
-        const [y, m, d] = f.split("-").map(Number)
+      setRange((s) => {
+        const [y, m, d] = s.from.split("-").map(Number)
         const next = isoDay(new Date(y, (m ?? 1) - 1, (d ?? 1) + delta))
-        return [next, next]
+        return { from: next, to: next, preset: null }
       }),
-    setDay: (v: string) => setRange([v, v]),
+    setDay: (v: string) => setRange({ from: v, to: v, preset: null }),
   }
 }
 
@@ -128,8 +143,7 @@ export function RangeBar({
     <div className={cn("flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between", className)}>
       <div className="flex flex-wrap items-center gap-1.5">
         {PRESETS.map((p) => {
-          const [f, t] = p.range()
-          const isActive = range.from === f && range.to === t
+          const isActive = range.preset === p.key
           return (
             <button
               key={p.key}

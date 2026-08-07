@@ -25,6 +25,7 @@ import {
   EmployeeRestoranTab,
   useRestoranActivity,
 } from "@/components/personel/employee-restoran-tab"
+import { EmployeeVardiyaTab } from "@/components/personel/employee-vardiya-tab"
 import { ArrowLeft, FileText, FileDown, ExternalLink, Plus, Pencil, Trash2, Wallet, CalendarCheck, BadgeCheck, FolderOpen } from "lucide-react"
 
 type Employee = {
@@ -372,6 +373,7 @@ export default function PersonelDetayPage() {
         <TabsList className="flex-wrap">
           <TabsTrigger value="ozet">Özet</TabsTrigger>
           <TabsTrigger value="bordro">Bordro ({emp.payrolls.length})</TabsTrigger>
+          <TabsTrigger value="vardiya">Vardiya</TabsTrigger>
           <TabsTrigger value="izin">İzin ({emp.leaves.length})</TabsTrigger>
           <TabsTrigger value="zimmet">Zimmet ({emp.assets.length})</TabsTrigger>
           <TabsTrigger value="belge">Belgeler ({emp.documents.length})</TabsTrigger>
@@ -638,6 +640,12 @@ export default function PersonelDetayPage() {
         </TabsContent>
 
         {/* RESTORAN — bu personelin uyguladığı hesap iskontoları */}
+        {/* VARDİYA — sayaç YOK: sekme aya göre veri çekiyor, başlıktaki sayı
+            hangi ayı sayacağı belirsiz olurdu. */}
+        <TabsContent value="vardiya">
+          <EmployeeVardiyaTab employeeId={emp.id} companyId={companyId} />
+        </TabsContent>
+
         {restoran?.enabled && (
           <TabsContent value="restoran">
             <EmployeeRestoranTab data={restoran} />
