@@ -295,6 +295,33 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     [callTicketApi, companyId, ticketId],
   )
 
+  /**
+   * Kapanıştan sonra ekrandan ÇIK.
+   *
+   * Kapanan adisyonun POS ekranı ölü bir sayfadır: ortada "Bu adisyon kapandı"
+   * yazan boş bir kart kalır, yapılacak hiçbir şey yoktur. Kip dondurma (K1) bu
+   * ekranı bilerek ayakta tutuyor — yoksa "Hesap kapatıldı" penceresi görünmeden
+   * unmount olurdu — ama pencere kapandıktan sonra kullanıcıyı orada bırakmak
+   * çıkmaz sokaktı.
+   *
+   * İKİ çağıranı var ve ikisi de şart: başarılı kapanış penceresinin her kapanma
+   * yolu (düğme, X, Esc, dışarı tıklama) ve "fiş oluştu, tahsilat kaydedilemedi"
+   * dalı — o dalda adisyon kapanıyor ama pencere HİÇ açılmıyor, kullanıcı doğruca
+   * ölü ekranda kalıyordu.
+   *
+   * Hedef masaya göre: masalı hesap salon planına döner (bir sonraki iş orada),
+   * paket/gel-al ise salon planında hiç görünmediği için adisyon listesine.
+   */
+  const leaveAfterClose = useCallback(() => {
+    setLastSale(null)
+    router.push(
+      withCompanyHref(
+        ticket?.tableId ? "/restoran/masalar" : "/restoran/adisyonlar",
+        companyId,
+      ),
+    )
+  }, [router, companyId, ticket?.tableId])
+
   /** İkram / zayi / iptal — kalem SİLİNMEZ, işaretlenir (SATIS-EKRANI.md K2). */
   const setItemStatus = useCallback(
     async (
@@ -592,6 +619,10 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
           void mutate()
           setPayOpen(false)
           setIsSubmitting(false)
+          // Adisyon KAPANDI (yukarıda), yani bu ekranda yapılacak bir şey kalmadı.
+          // Eksik tahsilat kaybolmuyor: adisyon listesinde ve detay sayfasında
+          // "Kısmî tahsilat" rozetiyle görünür (docs/restoran/ADISYON-DETAY.md K3).
+          leaveAfterClose()
           return
         }
         throw new Error(result.error)
@@ -676,6 +707,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     applyTicket,
     companyId,
     isOpen,
+    leaveAfterClose,
     mutate,
     payment,
     receiptCompany,
@@ -753,6 +785,8 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
 
   const totals = ticket.totals
   const hasBillable = ticket.items.some((i) => i.status === "NORMAL")
+
+  const afterCloseLabel = ticket.tableId ? "Masalara dön" : "Adisyonlara dön"
 
   return (
     <div className="space-y-4">
@@ -996,7 +1030,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
       </Dialog>
 
       {/* Satış sonrası */}
-      <Dialog open={!!lastSale} onOpenChange={(open) => !open && setLastSale(null)}>
+      <Dialog open={!!lastSale} onOpenChange={(open) => !open && leaveAfterClose()}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1027,11 +1061,8 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
             </Button>
           </div>
           <DialogFooter>
-            <Button
-              className="w-full"
-              onClick={() => router.push(withCompanyHref("/restoran/masalar", companyId))}
-            >
-              Masalara dön
+            <Button className="w-full" onClick={leaveAfterClose}>
+              {afterCloseLabel}
             </Button>
           </DialogFooter>
         </DialogContent>

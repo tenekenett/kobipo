@@ -4,9 +4,17 @@
 // Maliyet satış anında donduruldu (StockMovement.unitPrice); bu ekran onu okur,
 // yeniden hesaplamaz — sonradan gelen zam geçmiş günleri değiştirmez.
 
+import { useState } from "react"
 import { CompanyLink } from "@/components/dashboard/company-link"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHeader } from "@/components/ui/table"
+import {
+  StyledTableContainer,
+  StyledTableHeaderRow,
+  StyledTableHead,
+  StyledTableRow,
+} from "@/components/ui/styled-table"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import {
   Bar,
@@ -19,6 +27,44 @@ import {
   useReport,
   type ReportProps,
 } from "@/components/restoran/report-ui"
+import { PAYMENT_METHOD_LABELS } from "@/lib/satis/payment"
+import { cn } from "@/lib/utils"
+
+/** Tahsil edilmemiş dilimin sahte yöntem kodu — gerçek bir ödeme tipi değil. */
+const UNPAID = "__UNPAID__"
+
+/**
+ * Belgenin detay sayfası.
+ *
+ * Fiş ile fatura AYRI sayfalara gider: fişi `/faturalar/.../onizleme`de açmak onu
+ * "Satış Faturası" başlığıyla gösteriyordu — restoran fişi fatura değildir.
+ *
+ * `from` ile geri dönüş yolu taşınıyor; iki sayfanın "Geri" düğmesi de aksi halde
+ * kendi listesine (Satış Faturaları / Satış Fişleri) gider, rapora değil.
+ * ENCODE ŞART: `from` değerinin kendi `?rapor=` parametresi var, kodlanmazsa
+ * hedef sayfa onu ayrı bir param sanar ve geri dönüş sekmesi kaybolur.
+ */
+const belgeHref = (d: Doc) => {
+  const from = encodeURIComponent("/restoran/raporlar?rapor=karlilik")
+  return d.isReceipt
+    ? `/fisler/${d.id}?from=${from}`
+    : `/faturalar/${d.id}/onizleme?from=${from}`
+}
+
+/** Belge listesindeki tarih — aralık birden çok güne yayılabildiği için gün + saat. */
+const gunSaat = (iso: string) =>
+  new Date(iso).toLocaleString("tr-TR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+
+/** Ödeme yöntemi etiketi — fatura tarafında CHECK ve OTHER da geçebiliyor. */
+const methodLabel = (m: string) =>
+  (PAYMENT_METHOD_LABELS as Record<string, string>)[m] ??
+  ({ CHECK: "Çek/Senet", OTHER: "Diğer" } as Record<string, string>)[m] ??
+  m
 
 type Day = {
   day: string
@@ -32,12 +78,31 @@ type Day = {
   margin: number | null
 }
 
+type Payment = { method: string; count: number; amount: number }
+
+/** Dilimi oluşturan belge — tıklayınca açılan listede gösterilir. */
+type Doc = {
+  id: string
+  invoiceNo: string
+  date: string
+  isReceipt: boolean
+  customerName: string | null
+  total: number
+  paid: number
+  unpaid: number
+  methods: Record<string, number>
+}
+
 type Data = {
+  payments: Payment[]
+  documents: Doc[]
   totals: {
     revenue: number
     revenueGross: number
     receipts: number
     avgTicket: number
+    paidTotal: number
+    unpaid: number
     recipeCost: number
     directCost: number
     cost: number
@@ -67,6 +132,48 @@ export function KarlilikReport({ range }: ReportProps) {
   const totals = data?.totals
   const days = data?.days ?? []
   const maxRevenue = Math.max(0, ...days.map((d) => d.revenue))
+
+  /**
+   * Gelirin ödeme tipine göre dağılımı.
+   *
+   * NAKİT ve KREDİ KARTI kayıt olmasa da her zaman çizilir: "bu dönemde hiç
+   * nakit yok" bilgisi, satırın hiç görünmemesinden farklı bir şeydir — ikincisi
+   * "rapor eksik mi" sorusunu doğurur. Diğer tipler (havale, yemek kartı, çek…)
+   * yalnız o aralıkta gerçekten varsa listeye girer.
+   *
+   * Payda ciro KDV DAHİL: tahsilatlar KDV dahil tutarlardır, KDV hariç ciroya
+   * oranlansaydı yüzdeler %100'ü aşardı.
+   */
+  const payments = data?.payments ?? []
+  const revenueGross = totals?.revenueGross ?? 0
+  const unpaid = totals?.unpaid ?? 0
+  const paymentOf = (m: string) => payments.find((p) => p.method === m)
+  const digerleri = payments.filter((p) => p.method !== "CASH" && p.method !== "CREDIT_CARD")
+  const dilimler = [
+    { method: "CASH", count: paymentOf("CASH")?.count ?? 0, amount: paymentOf("CASH")?.amount ?? 0 },
+    {
+      method: "CREDIT_CARD",
+      count: paymentOf("CREDIT_CARD")?.count ?? 0,
+      amount: paymentOf("CREDIT_CARD")?.amount ?? 0,
+    },
+    ...digerleri,
+  ]
+  const payda = revenueGross > 0 ? revenueGross : 0
+  const oran = (tutar: number) => (payda > 0 ? (tutar / payda) * 100 : 0)
+
+  /**
+   * Açık dilim — "CASH" gibi bir yöntem kodu ya da tahsil edilmemiş için
+   * `UNPAID`. Aynı anda tek dilim açık: yan yana iki liste hangi satırın
+   * hangisine ait olduğunu belirsizleştirirdi.
+   */
+  const [acikDilim, setAcikDilim] = useState<string | null>(null)
+  const documents = data?.documents ?? []
+  const dilimBelgeleri = (method: string): Array<Doc & { pay: number }> =>
+    method === UNPAID
+      ? documents.filter((d) => d.unpaid > 0).map((d) => ({ ...d, pay: d.unpaid }))
+      : documents
+          .filter((d) => (d.methods[method] ?? 0) > 0)
+          .map((d) => ({ ...d, pay: d.methods[method] }))
 
   if (!companyId) {
     return (
@@ -143,6 +250,159 @@ export function KarlilikReport({ range }: ReportProps) {
           hesaplanır (satış anında dondurulmaz); reçeteli ürünlerin maliyeti gerçekleşen
           hareketlerden gelir.
         </p>
+      )}
+
+      {days.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Gelir dağılımı — ödeme tipi</CardTitle>
+            <CardDescription>
+              Bu aralıkta kesilen belgelerin ödemeleri. Yüzdeler KDV DAHİL ciroya (
+              {money(revenueGross)}) göre. Gün Sonu raporundaki dağılım farklı bir soruyu
+              cevaplar: orası <strong>tahsilat tarihine</strong> bakar (o gün kasaya ne girdi),
+              burası <strong>belge tarihine</strong> (bu ciro neyle ödendi).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {[
+                ...dilimler.map((p) => ({
+                  method: p.method,
+                  label: methodLabel(p.method),
+                  hint: p.count > 0 ? `${p.count} belge` : null,
+                  amount: p.amount,
+                  tone: (p.method === "CASH" ? "green" : "brand") as "green" | "brand" | "amber",
+                  vurgu: false,
+                })),
+                ...(unpaid > 0
+                  ? [
+                      {
+                        method: UNPAID,
+                        label: "Tahsil edilmemiş",
+                        hint: "veresiye / açık hesap",
+                        amount: unpaid,
+                        tone: "amber" as const,
+                        vurgu: true,
+                      },
+                    ]
+                  : []),
+              ].map((p) => {
+                const acik = acikDilim === p.method
+                // Tutarı sıfır olan dilim açılmaz: altında listelenecek belge yok.
+                const acilabilir = p.amount > 0
+                const belgeler = acik ? dilimBelgeleri(p.method) : []
+                return (
+                  <div key={p.method} className="space-y-1">
+                    <button
+                      type="button"
+                      disabled={!acilabilir}
+                      onClick={() => setAcikDilim(acik ? null : p.method)}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-2 rounded-md px-1 py-0.5 text-left text-xs transition-colors",
+                        acilabilir ? "hover:bg-muted" : "cursor-default",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "flex items-center gap-1 font-medium",
+                          p.vurgu && "text-amber-600 dark:text-amber-400",
+                        )}
+                      >
+                        {acilabilir ? (
+                          acik ? (
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                          )
+                        ) : (
+                          <span className="w-3.5" />
+                        )}
+                        {p.label}
+                        {p.hint && <span className="ml-1 text-muted-foreground">{p.hint}</span>}
+                      </span>
+                      <span
+                        className={cn(
+                          "shrink-0 font-semibold tabular-nums",
+                          p.vurgu && "text-amber-600 dark:text-amber-400",
+                        )}
+                      >
+                        {money(p.amount)}
+                        <span className="ml-2 text-muted-foreground">{pct(oran(p.amount))}</span>
+                      </span>
+                    </button>
+                    <Bar pct={oran(p.amount)} tone={p.tone} />
+
+                    {acik && (
+                      <div className="pt-1">
+                        {belgeler.length === 0 ? (
+                          <p className="py-3 text-center text-xs text-muted-foreground">
+                            Bu dilimde belge yok.
+                          </p>
+                        ) : (
+                          <StyledTableContainer>
+                            <Table>
+                              <TableHeader>
+                                <StyledTableHeaderRow>
+                                  <StyledTableHead>Tarih</StyledTableHead>
+                                  <StyledTableHead>Belge</StyledTableHead>
+                                  <StyledTableHead>Müşteri</StyledTableHead>
+                                  <StyledTableHead className="text-right">
+                                    Belge toplamı
+                                  </StyledTableHead>
+                                  <StyledTableHead className="text-right">
+                                    {p.method === UNPAID ? "Kalan" : "Bu yöntemle"}
+                                  </StyledTableHead>
+                                </StyledTableHeaderRow>
+                              </TableHeader>
+                              <TableBody>
+                                {belgeler.map((d) => (
+                                  <StyledTableRow key={d.id}>
+                                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground tabular-nums">
+                                      {gunSaat(d.date)}
+                                    </TableCell>
+                                    <TableCell>
+                                      <CompanyLink
+                                        href={`/faturalar/${d.id}/onizleme`}
+                                        className="text-xs font-medium underline-offset-4 hover:underline"
+                                      >
+                                        {d.invoiceNo}
+                                      </CompanyLink>
+                                    </TableCell>
+                                    <TableCell className="text-xs">
+                                      {d.customerName || "Perakende"}
+                                    </TableCell>
+                                    <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
+                                      {money(d.total)}
+                                    </TableCell>
+                                    <TableCell
+                                      className={cn(
+                                        "text-right text-xs font-semibold tabular-nums",
+                                        p.vurgu && "text-amber-600 dark:text-amber-400",
+                                      )}
+                                    >
+                                      {money(d.pay)}
+                                    </TableCell>
+                                  </StyledTableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </StyledTableContainer>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
+              <div className="flex items-center justify-between border-t pt-2 text-sm">
+                <span className="font-semibold">Toplam</span>
+                <span className="font-bold tabular-nums">
+                  {money((totals?.paidTotal ?? 0) + unpaid)}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <ReportState

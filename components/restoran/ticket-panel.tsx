@@ -12,7 +12,7 @@
 // kontrol (− sayı + çöp) duruyordu ve altı yeni yetenek eklenince satır
 // okunamaz hale gelirdi.
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { MoreVertical, Receipt } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -153,6 +153,24 @@ export function TicketPanel({
   const needsEmployee = reasonFor?.status === "COMP" && employees.length > 0
   const canApply = !!reasonFor?.code && (!needsEmployee || !!reasonFor?.employeeId)
 
+  /**
+   * Adet ve ikram/zayi/iptal ⋮ menüsünden ÇIKARILDI (2026-08-07): serviste sık
+   * kullanılan işler iki dokunuş arkasında duruyordu — İşlemler tepsisinde
+   * 2026-08-06'da verilen kararın kalem tarafındaki eşi (SATIS-EKRANI.md K1 notu).
+   *
+   * Kontrol bütçesi (§4.8) yine korunuyor: satırda hâlâ TEK kontrol var (⋮), çünkü
+   * düğmeler satıra değil panele kondu ve aynı anda YALNIZ bir kalem için çiziliyor.
+   * Bedeli bir dokunuş: önce kalem seçilir, sonra işlem.
+   */
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selected = items.find((i) => i.id === selectedId) ?? null
+
+  // Seçili kalem listeden düşerse (silindi, adisyon kapandı) seçim de düşmeli;
+  // aksi halde blok olmayan bir kalemi göstermeye devam ederdi.
+  useEffect(() => {
+    if (selectedId && !items.some((i) => i.id === selectedId)) setSelectedId(null)
+  }, [items, selectedId])
+
   const billableCount = items
     .filter((i) => (i.status ?? "NORMAL") === "NORMAL")
     .reduce((s, i) => s + i.quantity, 0)
@@ -179,11 +197,31 @@ export function TicketPanel({
               const badge = status === "NORMAL" ? null : STATUS_BADGE[status]
               const lineTotal = item.quantity * grossOf(item)
               const optionText = (item.options ?? []).map((o) => o.optionName).join(" · ")
+              const isSelected = item.id === selectedId
+              const select = () => setSelectedId(isSelected ? null : item.id)
               return (
                 <div
                   key={item.id}
+                  // Satır SEÇİLEBİLİR: adet ve durum düğmeleri artık panelde ve
+                  // hangi kaleme uygulanacağını bu seçim söylüyor.
+                  {...(readOnly
+                    ? {}
+                    : {
+                        role: "button" as const,
+                        tabIndex: 0,
+                        onClick: select,
+                        onKeyDown: (e: React.KeyboardEvent) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            select()
+                          }
+                        },
+                      })}
                   className={cn(
                     "flex items-start gap-2 rounded-lg border p-2",
+                    !readOnly && "cursor-pointer transition-colors hover:bg-muted/50",
+                    isSelected &&
+                      "border-kobipo-blue bg-kobipo-blue/5 dark:border-primary dark:bg-primary/10",
                     status === "VOID" && "opacity-50",
                     status === "WASTE" && "opacity-70",
                   )}
@@ -224,91 +262,30 @@ export function TicketPanel({
                     {currency(status === "COMP" ? 0 : lineTotal)}
                   </span>
 
-                  {!readOnly && (
+                  {/* ⋮ artık yalnız SEYREK işleri taşıyor. Adet ve ikram/zayi/iptal
+                      panele taşındı; ikisi de olmayan bir ekranda menü hiç çizilmez. */}
+                  {!readOnly && (onEditNote || allowDelete) && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
                           aria-label="Kalem işlemleri"
+                          // Menüyü açmak satırı SEÇMESİN: iki farklı niyet.
+                          onClick={(e) => e.stopPropagation()}
                           className="-mr-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted"
                         >
                           <MoreVertical className="h-4 w-4" />
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-56">
-                        <div className="flex items-center justify-between gap-2 px-2 py-1.5">
-                          <span className="text-xs text-muted-foreground">Adet</span>
-                          <QuantityStepper
-                            value={item.quantity}
-                            onChange={(v) => onQuantity(item.id, v)}
-                            min={allowDelete ? 0 : 1}
-                          />
-                        </div>
                         {onEditNote && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => onEditNote(item.id)}>
-                              Not düzenle
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                        {allowStatus && onSetStatus && (
-                          <>
-                            <DropdownMenuSeparator />
-                            {status !== "NORMAL" ? (
-                              <DropdownMenuItem
-                                onClick={() => onSetStatus(item.id, "NORMAL", null, null)}
-                              >
-                                Geri al (hesaba dön)
-                              </DropdownMenuItem>
-                            ) : (
-                              <>
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    setReasonFor({
-                                      item,
-                                      status: "VOID",
-                                      code: "",
-                                      note: "",
-                                      employeeId: null,
-                                    })
-                                  }
-                                >
-                                  İptal — hazırlanmadı
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    setReasonFor({
-                                      item,
-                                      status: "COMP",
-                                      code: "",
-                                      note: "",
-                                      employeeId: employees.length === 1 ? employees[0].id : null,
-                                    })
-                                  }
-                                >
-                                  İkram — para alınmaz
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    setReasonFor({
-                                      item,
-                                      status: "WASTE",
-                                      code: "",
-                                      note: "",
-                                      employeeId: null,
-                                    })
-                                  }
-                                >
-                                  Zayi — döküldü / bozuldu
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </>
+                          <DropdownMenuItem onClick={() => onEditNote(item.id)}>
+                            Not düzenle
+                          </DropdownMenuItem>
                         )}
                         {allowDelete && (
                           <>
-                            <DropdownMenuSeparator />
+                            {onEditNote && <DropdownMenuSeparator />}
                             <DropdownMenuItem
                               className="text-red-600 dark:text-red-400"
                               onClick={() => onQuantity(item.id, 0)}
@@ -323,6 +300,99 @@ export function TicketPanel({
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {/* SEÇİLİ KALEM işlemleri — eskiden ⋮ menüsünün içindeydi.
+            Kalem listesinin hemen altında duruyor: hedefi (seçili satır) hemen
+            üstünde olmayan bir düğme "neye uygulanıyor" sorusunu doğururdu. */}
+        {!readOnly && items.length > 0 && (
+          <div className="space-y-2 rounded-lg border border-dashed p-2">
+            {selected ? (
+              <>
+                <p className="truncate text-xs text-muted-foreground">
+                  Seçili:{" "}
+                  <span className="font-medium text-foreground">{selected.description}</span>
+                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">Adet</span>
+                  <QuantityStepper
+                    value={selected.quantity}
+                    onChange={(v) => onQuantity(selected.id, v)}
+                    min={allowDelete ? 0 : 1}
+                  />
+                </div>
+                {allowStatus &&
+                  onSetStatus &&
+                  ((selected.status ?? "NORMAL") !== "NORMAL" ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => onSetStatus(selected.id, "NORMAL", null, null)}
+                    >
+                      Geri al (hesaba dön)
+                    </Button>
+                  ) : (
+                    // Kısa etiketler: hangi işlemin ne demek olduğunu sebep
+                    // diyaloğunun açıklaması zaten söylüyor.
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        title="Hazırlanmadı — hesapta görünmez, stok etkilenmez"
+                        onClick={() =>
+                          setReasonFor({
+                            item: selected,
+                            status: "VOID",
+                            code: "",
+                            note: "",
+                            employeeId: null,
+                          })
+                        }
+                      >
+                        İptal
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        title="Para alınmaz — hesapta 0,00 görünür, malzemesi stoktan düşer"
+                        onClick={() =>
+                          setReasonFor({
+                            item: selected,
+                            status: "COMP",
+                            code: "",
+                            note: "",
+                            employeeId: employees.length === 1 ? employees[0].id : null,
+                          })
+                        }
+                      >
+                        İkram
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        title="Döküldü / bozuldu — hesapta görünmez, malzemesi stoktan düşer"
+                        onClick={() =>
+                          setReasonFor({
+                            item: selected,
+                            status: "WASTE",
+                            code: "",
+                            note: "",
+                            employeeId: null,
+                          })
+                        }
+                      >
+                        Zayi
+                      </Button>
+                    </div>
+                  ))}
+              </>
+            ) : (
+              <p className="py-1 text-center text-xs text-muted-foreground">
+                Adet, ikram, zayi ve iptal için bir kalem seçin
+              </p>
+            )}
           </div>
         )}
 

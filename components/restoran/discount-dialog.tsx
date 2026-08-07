@@ -82,7 +82,16 @@ export function DiscountDialog({
   // Personel varsa seçim ZORUNLU — sunucudaki kuralın aynısı, kullanıcı
   // "Uygula"ya basıp hata mesajıyla karşılaşmasın.
   const needsEmployee = employees.length > 0
-  const canApply = parsed > 0 && (!needsEmployee || !!employeeId)
+
+  /**
+   * Açıklama ZORUNLU (2026-08-07). Sebep kodu "ne tür bir indirim" sorusunu
+   * cevaplıyor ama "%20 · Sadık müşteri" denetimde tek başına bir şey anlatmıyor:
+   * hangi müşteri, hangi söz, kimin onayı. Kod raporun gruplama ekseni, açıklama
+   * ise tek tek kayda bakan kişinin okuyacağı yer — ikisi farklı iş görüyor ve
+   * biri diğerinin yerine geçmiyor.
+   */
+  const trimmedReason = reason.trim()
+  const canApply = parsed > 0 && (!needsEmployee || !!employeeId) && trimmedReason.length > 0
 
   const employeeLabel = useMemo(
     () => employees.find((e) => e.id === employeeId)?.name ?? null,
@@ -186,11 +195,12 @@ export function DiscountDialog({
                 </button>
               ))}
             </div>
+            <Label className="mt-2 block text-xs text-muted-foreground">Açıklama</Label>
             <Input
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Açıklama (isteğe bağlı)"
-              className="mt-2"
+              placeholder="Örn. Ahmet Bey — sürekli müşteri, söz verildi"
+              className="mt-1.5"
             />
           </div>
 

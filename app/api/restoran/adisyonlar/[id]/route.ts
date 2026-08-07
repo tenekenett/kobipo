@@ -161,6 +161,16 @@ export async function PATCH(request: Request, { params }: Params) {
           return NextResponse.json({ error: "Geçersiz iskonto sebebi" }, { status: 400 })
         }
 
+        // Serbest AÇIKLAMA da zorunlu (2026-08-07). Sebep kodu raporun gruplama
+        // ekseni; "%20 · Sadık müşteri" ise denetimde tek başına bir şey
+        // anlatmıyor — hangi müşteri, hangi söz. İkisi farklı iş görüyor.
+        const reasonText = body.discountReason
+          ? String(body.discountReason).trim().slice(0, 255)
+          : ""
+        if (!reasonText) {
+          return NextResponse.json({ error: "İskonto açıklaması yazılmalı" }, { status: 400 })
+        }
+
         // İskontoyu uygulayan personel. Firmanın İK kartı olmalı — başka firmanın
         // personeli seçilemesin. ZORUNLULUK KOŞULLU: personel kartı hiç
         // tanımlanmamış (ya da `hr` modülü kapalı) firmada iskonto kilitlenmemeli,
@@ -187,9 +197,7 @@ export async function PATCH(request: Request, { params }: Params) {
         data.discountType = type
         data.discountValue = value
         data.discountReasonCode = reasonCode
-        data.discountReason = body.discountReason
-          ? String(body.discountReason).trim().slice(0, 255) || null
-          : null
+        data.discountReason = reasonText
         data.discountEmployeeId = employeeId
         data.discountBy = user.id
         data.discountAt = new Date()

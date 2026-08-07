@@ -157,7 +157,7 @@ Eklenen alanlar (`RestaurantTicket`):
 | Alan | Ne cevaplar |
 |---|---|
 | `discountReasonCode` | **Niye** — sabit liste (`TICKET_DISCOUNT_REASONS`), rapor bunu gruplar |
-| `discountReason` | Serbest açıklama; kodun yerine geçmez, yanında durur |
+| `discountReason` | Serbest açıklama; kodun yerine geçmez, yanında durur. **2026-08-07'den beri ZORUNLU** — "%20 · Sadık müşteri" denetimde tek başına bir şey anlatmıyor (hangi müşteri, hangi söz). Kod gruplama ekseni, açıklama tek tek kayda bakanın okuyacağı yer. Kural hem `discount-dialog.tsx`'te (iki ekran ortak) hem `adisyonlar/[id]` PATCH'te; iskonto KALDIRIRKEN istenmiyor |
 | `discountEmployeeId` | **Kim verdi** — İK kartı (`Employee`) |
 | `discountBy` / `discountAt` | Oturum izi: kaydı fiilen yazan kullanıcı ve anı |
 
@@ -310,6 +310,14 @@ ortaklaştırma çizgisinin devamı.
 - Panelin altı: işlem düğmeleri → **Hesap Fişi** + **ÖDEME** → en altta iptal.
 
 ### 4.2 Kalem ⋮ menüsü
+
+> **2026-08-07 — menü boşaltıldı.** Adet ve İkram/Zayi/İptal ⋮'dan ÇIKTI; artık hesap
+> panelinde, kalem listesinin hemen altında açık düğmeler. Satır dokunuşla SEÇİLİYOR,
+> düğmeler seçili kaleme uygulanıyor. Gerekçe İşlemler tepsisininkiyle aynı (K1 notu):
+> serviste sık kullanılan iş iki dokunuş arkasında duruyordu. Kontrol bütçesi (§4.8)
+> korunuyor — satırda hâlâ tek kontrol var, düğmeler satıra değil panele kondu ve aynı
+> anda yalnız bir kalem için çiziliyor. ⋮'da yalnız *Not düzenle* (ve tezgâhta *Satırı
+> sil*) kaldı; ikisi de yoksa menü hiç çizilmiyor. Aşağıdaki şema ESKİ hali gösteriyor.
 
 ```
   Adet: [ − ] 2 [ + ]
