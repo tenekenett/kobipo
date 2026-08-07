@@ -20,22 +20,16 @@ import {
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
 import { CompanyLink } from "@/components/dashboard/company-link"
+import { ExportButton } from "@/components/export/export-button"
 import { ChevronLeft, ChevronRight, ClipboardList, Loader2, Wallet } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { money } from "@/lib/format"
 import { durationLabel } from "@/lib/personel/vardiya"
-import { BordroAktarDialog, type PuantajRow } from "@/components/personel/bordro-aktar-dialog"
-
-type Row = PuantajRow & {
-  department: string | null
-  position: string | null
-  shiftCount: number
-  plannedMinutes: number
-  actualMinutes: number
-  stampedCount: number
-  lateCount: number
-  earlyLeaveMinutes: number
-  leaveDays: number
-}
+import { HOURLY_BASIS_LABEL, laborRatio } from "@/lib/personel/maliyet"
+import { BordroAktarDialog } from "@/components/personel/bordro-aktar-dialog"
+// Satırın şekli sunucudaki hesapla aynı yerden gelir; ekranın kendi kopyası
+// olsaydı uca eklenen bir alan burada sessizce eksik kalırdı.
+import type { PuantajRow as Row } from "@/lib/personel/puantaj"
 
 const AYLAR = [
   "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
@@ -51,6 +45,7 @@ export default function PuantajPage() {
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [rows, setRows] = useState<Row[]>([])
+  const [revenue, setRevenue] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [transfer, setTransfer] = useState<Row | null>(null)
@@ -64,7 +59,11 @@ export default function PuantajPage() {
       const res = await fetch(
         `/api/personel/shifts/ozet?companyId=${companyId}&year=${year}&month=${month}`,
       )
-      if (res.ok) setRows((await res.json()).rows)
+      if (res.ok) {
+        const data = await res.json()
+        setRows(data.rows)
+        setRevenue(data.revenue ?? 0)
+      }
     } finally {
       setIsLoading(false)
     }
@@ -89,11 +88,17 @@ export default function PuantajPage() {
           overtime: acc.overtime + r.overtimeMinutes,
           late: acc.late + r.lateMinutes,
           absent: acc.absent + r.absentCount,
+          cost: acc.cost + (r.plannedCost ?? 0),
+          // Maaşı girilmemiş personel maliyet toplamına giremez; sayısı ayrıca
+          // söylenmezse toplam "olduğundan ucuz" okunur.
+          missingSalary: acc.missingSalary + (r.grossSalary == null ? 1 : 0),
         }),
-        { planned: 0, actual: 0, overtime: 0, late: 0, absent: 0 },
+        { planned: 0, actual: 0, overtime: 0, late: 0, absent: 0, cost: 0, missingSalary: 0 },
       ),
     [rows],
   )
+
+  const ratio = laborRatio(totals.cost, revenue)
 
   /**
    * Bordroya yaz: dönemde kayıt varsa prim/kesinti alanları güncellenir, yoksa
@@ -163,7 +168,7 @@ export default function PuantajPage() {
             ekranından gelir.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="icon" onClick={() => shiftMonth(-1)}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -171,6 +176,12 @@ export default function PuantajPage() {
           <Button variant="outline" size="icon" onClick={() => shiftMonth(1)}>
             <ChevronRight className="h-4 w-4" />
           </Button>
+          <ExportButton
+            dataset="personel-puantaj"
+            companyId={companyId}
+            params={{ year, month }}
+            disabled={rows.length === 0}
+          />
         </div>
       </div>
 
@@ -193,6 +204,29 @@ export default function PuantajPage() {
         )}
         {totals.absent > 0 && (
           <span className="text-red-600 dark:text-red-400">{totals.absent} devamsızlık</span>
+        )}
+        {totals.cost > 0 && (
+          <span
+            className="text-muted-foreground"
+            title={`Brüt işçilik — ${HOURLY_BASIS_LABEL}. SGK işveren payı dahil değildir.${
+              totals.missingSalary > 0
+                ? ` ${totals.missingSalary} personelin maaşı girilmediği için toplamda yok.`
+                : ""
+            }`}
+          >
+            İşçilik <span className="font-semibold text-foreground">{money(totals.cost)}</span>
+            {totals.missingSalary > 0 && (
+              <span className="text-amber-600 dark:text-amber-400"> *</span>
+            )}
+          </span>
+        )}
+        {ratio != null && (
+          <span
+            className="text-muted-foreground"
+            title={`Dönem net satışı ${money(revenue)}. Kafe/restoranda en çok bakılan gösterge; sektöre göre %25–35 bandı normal kabul edilir.`}
+          >
+            İşçilik / ciro <span className="font-semibold text-foreground">%{ratio.toFixed(1)}</span>
+          </span>
         )}
       </div>
 
@@ -218,6 +252,7 @@ export default function PuantajPage() {
                 <StyledTableHead className="text-right">Fazla mesai</StyledTableHead>
                 <StyledTableHead className="text-right">Devamsız</StyledTableHead>
                 <StyledTableHead className="text-right">İzin</StyledTableHead>
+                <StyledTableHead className="text-right">İşçilik</StyledTableHead>
                 <StyledTableHead className="text-right">Bordro</StyledTableHead>
               </StyledTableHeaderRow>
             </TableHeader>
@@ -225,7 +260,20 @@ export default function PuantajPage() {
               {rows.map((r) => (
                 <StyledTableRow key={r.employeeId}>
                   <TableCell>
-                    <p className="text-sm font-medium">{r.name}</p>
+                    <p className="flex items-center gap-1.5 text-sm font-medium">
+                      {r.name}
+                      {/* Dönem içinde ayrılan personel listede KALIR: ayın 20'sinde
+                          çıkan kişinin o aya ait çalışması da bordrolanacak. Rozet
+                          olmasa satır "hâlâ çalışıyor" gibi okunurdu. */}
+                      {r.terminated && (
+                        <span
+                          className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground"
+                          title={r.terminationDate ? `Ayrılış: ${r.terminationDate}` : "İşten ayrıldı"}
+                        >
+                          ayrıldı
+                        </span>
+                      )}
+                    </p>
                     <p className="text-[11px] text-muted-foreground">
                       {r.position || r.department || "—"}
                     </p>
@@ -272,6 +320,24 @@ export default function PuantajPage() {
                   </TableCell>
                   <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
                     {r.leaveDays > 0 ? `${r.leaveDays} gün` : "—"}
+                  </TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {r.plannedCost == null ? (
+                      <span className="text-[11px] text-amber-600 dark:text-amber-400" title="Brüt maaş girilmemiş">
+                        maaş yok
+                      </span>
+                    ) : (
+                      <>
+                        <p className="font-semibold">{money(r.plannedCost)}</p>
+                        {/* Fiilî maliyet plandan farklıysa yazılır: aynıysa iki kez
+                            aynı rakamı basmak sütunu okunmaz hale getiriyor. */}
+                        {r.actualCost != null && Math.round(r.actualCost) !== Math.round(r.plannedCost) && (
+                          <p className="text-[11px] text-muted-foreground">
+                            fiilî {money(r.actualCost)}
+                          </p>
+                        )}
+                      </>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button

@@ -8,7 +8,15 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
-import { MAX_MINUTE, MIN_SHIFT_MINUTES, dayToUtcDate, overlaps, utcDateToDay } from "@/lib/personel/vardiya"
+import {
+  MAX_MINUTE,
+  MIN_SHIFT_MINUTES,
+  dayToUtcDate,
+  minuteToHHMM,
+  overlaps,
+  utcDateToDay,
+} from "@/lib/personel/vardiya"
+import { holidayOn, toHolidayDto } from "@/lib/personel/tatil"
 
 export const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -138,29 +146,95 @@ export function statusFor(
 }
 
 /**
- * Aynı personele aynı gün çakışan vardiya var mı? Varsa hata mesajı.
+ * Vardiya yazmayı engelleyen sebep.
  *
- * Çakışma UYARI değil, HATA: tek kişi aynı anda iki yerde olamaz ve üst üste
- * binen iki bar takvimde birbirini gizler — kullanıcı ikincisini hiç göremeden
- * "kaydettim" sanırdı.
+ * `CONFLICT` AŞILAMAZ: tek kişi aynı anda iki yerde olamaz ve üst üste binen iki
+ * bar takvimde birbirini gizler — kullanıcı ikincisini hiç göremeden "kaydettim"
+ * sanırdı. `LEAVE` ve `HOLIDAY` ise "emin misin" sorusudur, yasak değil: izinli
+ * personel çağrılabilir, bayramda çalışan işletme çoktur. İkisi de `force` ile
+ * geçilir; ayrımı istemci `code`dan okur.
  */
-export async function findShiftConflict(
+export type ShiftBlock = { code: "CONFLICT" | "LEAVE" | "HOLIDAY"; message: string }
+
+const LEAVE_LABELS: Record<string, string> = {
+  ANNUAL: "yıllık izinli",
+  EXCUSE: "mazeret izninde",
+  SICK: "raporlu",
+  UNPAID: "ücretsiz izinde",
+}
+
+/**
+ * Bu personele bu gün/saatte vardiya yazılabilir mi?
+ *
+ * Çakışmanın yanında İZİN ve TATİL de burada denetlenir. Daha önce ikisi yalnız
+ * ekranda etiketti: onaylı yıllık izindeki personele vardiya açılabiliyordu ve
+ * puantajda aynı gün hem izin hem planlı çalışma sayılıyordu.
+ *
+ * `LeaveRecord.startDate/endDate` saatsiz gün olarak (UTC gece yarısı) yazılır;
+ * karşılaştırma da öyle yapılır, yoksa iznin son günü kapsam dışında kalır.
+ */
+export async function findShiftBlock(
   companyId: string,
   employeeId: string,
   workDate: string,
   start: number,
   end: number,
-  ignoreId?: string,
-): Promise<string | null> {
+  opts: { ignoreId?: string; force?: boolean } = {},
+): Promise<ShiftBlock | null> {
+  const date = dayToUtcDate(workDate)
+
   const sameDay = await prisma.workShift.findMany({
     where: {
       companyId,
       employeeId,
-      workDate: dayToUtcDate(workDate),
-      ...(ignoreId ? { id: { not: ignoreId } } : {}),
+      workDate: date,
+      ...(opts.ignoreId ? { id: { not: opts.ignoreId } } : {}),
     },
     select: { plannedStart: true, plannedEnd: true },
   })
-  const hit = sameDay.some((s) => overlaps(start, end, s.plannedStart, s.plannedEnd))
-  return hit ? "Bu personelin aynı saatlerde başka vardiyası var" : null
+  if (sameDay.some((s) => overlaps(start, end, s.plannedStart, s.plannedEnd))) {
+    return { code: "CONFLICT", message: "Bu personelin aynı saatlerde başka vardiyası var" }
+  }
+
+  // Çakışma dışındaki uyarılar kullanıcı onayıyla geçilmiş olabilir; ikinci
+  // isteği aynı soruyla karşılamamak için burada duruyoruz.
+  if (opts.force) return null
+
+  const [leave, holidays] = await Promise.all([
+    prisma.leaveRecord.findFirst({
+      where: {
+        companyId,
+        employeeId,
+        status: "APPROVED",
+        startDate: { lte: date },
+        endDate: { gte: date },
+      },
+      select: { type: true },
+    }),
+    // Tekrar eden tatiller yalnız AY+GÜN eşleştiği için SQL'de süzülemez; tablo
+    // firma başına birkaç düzine satır, tamamı çekilip `holidayOn` ile bakılır.
+    prisma.companyHoliday.findMany({
+      where: { companyId },
+      select: { id: true, name: true, date: true, recurring: true, halfDayFrom: true },
+    }),
+  ])
+
+  if (leave) {
+    return { code: "LEAVE", message: `Personel bu gün ${LEAVE_LABELS[leave.type] ?? "izinli"}` }
+  }
+
+  const holiday = holidayOn(holidays.map(toHolidayDto), workDate)
+  // Yarım gün tatilde yalnız tatile TAŞAN vardiya sorulur: arifenin sabahı
+  // normal iş günüdür.
+  if (holiday && (holiday.halfDayFrom == null || end > holiday.halfDayFrom)) {
+    return {
+      code: "HOLIDAY",
+      message:
+        holiday.halfDayFrom == null
+          ? `${holiday.name} — bu gün işletme tatili`
+          : `${holiday.name} — ${minuteToHHMM(holiday.halfDayFrom)} sonrası tatil`,
+    }
+  }
+
+  return null
 }

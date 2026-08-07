@@ -7,7 +7,7 @@ import { dayToUtcDate } from "@/lib/personel/vardiya"
 import {
   DAY_RE,
   SHIFT_INCLUDE,
-  findShiftConflict,
+  findShiftBlock,
   toShiftDto,
   validateRange,
 } from "@/lib/personel/shift-api"
@@ -78,8 +78,12 @@ export async function POST(request: Request) {
   const employee = await prisma.employee.findFirst({ where: { id: employeeId, companyId } })
   if (!employee) return NextResponse.json({ error: "Personel bulunamadı" }, { status: 404 })
 
-  const conflict = await findShiftConflict(companyId, employeeId, workDate, range.start, range.end)
-  if (conflict) return NextResponse.json({ error: conflict }, { status: 409 })
+  // İzin ve tatil 409 ile döner ama `code` ile ayrılır: istemci "yine de aç"
+  // diye sorup `force: true` ile aynı isteği tekrarlayabilir. Çakışmada bu yol yok.
+  const block = await findShiftBlock(companyId, employeeId, workDate, range.start, range.end, {
+    force: body.force === true,
+  })
+  if (block) return NextResponse.json({ error: block.message, code: block.code }, { status: 409 })
 
   const created = await prisma.workShift.create({
     data: {

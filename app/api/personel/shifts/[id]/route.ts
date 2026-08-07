@@ -6,7 +6,7 @@ import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { utcDateToDay } from "@/lib/personel/vardiya"
 import {
   SHIFT_INCLUDE,
-  findShiftConflict,
+  findShiftBlock,
   statusFor,
   toShiftDto,
   validateActual,
@@ -46,9 +46,19 @@ export async function PATCH(
     if (!employee) return NextResponse.json({ error: "Personel bulunamadı" }, { status: 404 })
   }
 
+  // Barı başka satıra taşımak hedef personeli değiştirir: izin/tatil denetimi
+  // burada da gerekli, yoksa izinli personelin satırına sürüklenen vardiya
+  // sessizce kabul edilirdi. Saat/personel değişmediyse (not, mola, damga
+  // güncellemesi) sorulmaz — kayıt zaten oradaydı.
+  const moved = employeeId !== existing.employeeId ||
+    range.start !== existing.plannedStart ||
+    range.end !== existing.plannedEnd
   const workDay = utcDateToDay(existing.workDate)
-  const conflict = await findShiftConflict(companyId, employeeId, workDay, range.start, range.end, id)
-  if (conflict) return NextResponse.json({ error: conflict }, { status: 409 })
+  const block = await findShiftBlock(companyId, employeeId, workDay, range.start, range.end, {
+    ignoreId: id,
+    force: body.force === true || !moved,
+  })
+  if (block) return NextResponse.json({ error: block.message, code: block.code }, { status: 409 })
 
   // Fiilî damgalar: gönderilmediyse mevcut değer korunur, açıkça null gönderilirse silinir.
   // Devamsızlık işaretlenirse damgalar TEMİZLENİR — "gelmedi" ile "şu saatte girdi"

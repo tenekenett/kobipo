@@ -20,9 +20,9 @@ import { Label } from "@/components/ui/label"
 import { Loader2 } from "lucide-react"
 import { money } from "@/lib/format"
 import { durationLabel } from "@/lib/personel/vardiya"
-
-/** Haftalık 45 saat × 4,33 hafta ≈ 195 saat — aylık normal çalışma süresi. */
-const MONTHLY_HOURS = 195
+// Saatlik ücretin böleni puantaj ekranında da kullanılıyor: burada ayrı bir
+// sabit dursaydı aynı personel iki ekranda iki farklı saat ücretine sahip olurdu.
+import { MONTHLY_WORK_HOURS } from "@/lib/personel/maliyet"
 
 /** Fazla mesai saat ücreti normalin 1,5 katıdır (İş Kanunu 41. md). */
 const DEFAULT_OVERTIME_MULTIPLIER = 1.5
@@ -61,7 +61,7 @@ export function BordroAktarDialog({
   useEffect(() => {
     if (!row) return
     const gross = row.grossSalary ?? 0
-    setHourlyRate(gross > 0 ? (gross / MONTHLY_HOURS).toFixed(2) : "0")
+    setHourlyRate(gross > 0 ? (gross / MONTHLY_WORK_HOURS).toFixed(2) : "0")
     setDailyRate(gross > 0 ? (gross / MONTHLY_DAYS).toFixed(2) : "0")
     setMultiplier(String(DEFAULT_OVERTIME_MULTIPLIER))
     setCountAbsence(true)
@@ -133,7 +133,7 @@ export function BordroAktarDialog({
                   onChange={(e) => setHourlyRate(e.target.value)}
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Brüt / {MONTHLY_HOURS} sa (haftalık 45 sa)
+                  Brüt / {MONTHLY_WORK_HOURS} sa (haftalık 45 sa)
                 </p>
               </div>
               <div className="space-y-1.5">

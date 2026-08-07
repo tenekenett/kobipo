@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { dayToUtcDate, overlaps, shiftDayIso, utcDateToDay } from "@/lib/personel/vardiya"
+import { holidayOn, toHolidayDto } from "@/lib/personel/tatil"
 import { DAY_RE, validateRange } from "@/lib/personel/shift-api"
 
 export const dynamic = "force-dynamic"
@@ -32,6 +33,12 @@ type Planned = {
  * çiziyordur, sessizce yutulmamalı); toplu doldurmada ise amaç "boş yerleri
  * doldur"dur — zaten vardiyası olan bir güne takıldı diye 200 kaydın hepsini
  * iptal etmek işi kullanılamaz hale getirir. Atlananların sayısı yanıtta döner.
+ *
+ * İZİN ve TATİL de aynı şekilde ATLANIR — burada `force` yolu YOKTUR. Tekil uçta
+ * "izinli, yine de aç?" diye sormak anlamlıdır (kullanıcı tek bir kişiye bakıyor);
+ * 200 kaydı kapsayan bir doldurmada aynı soru cevaplanamaz, sessizce izin gününe
+ * vardiya yazmak ise bu ekranın düzeltmeye çalıştığı hatanın ta kendisidir.
+ * İstisna gerekiyorsa o vardiya takvimden tek tek açılır.
  */
 export async function POST(request: Request) {
   const user = await getCurrentUser()
@@ -56,17 +63,49 @@ export async function POST(request: Request) {
     )
   }
 
-  // Hedef aralıktaki mevcut vardiyalar TEK sorguda çekilir: kayıt başına ayrı
-  // çakışma sorgusu 200 kayıtta 200 gidiş-dönüş demekti.
+  // Hedef aralıktaki mevcut vardiyalar, izinler ve tatiller TEK sorguda çekilir:
+  // kayıt başına ayrı sorgu 200 kayıtta 200 gidiş-dönüş demekti.
   const days = [...new Set(planned.map((p) => p.day))].sort()
-  const existing = await prisma.workShift.findMany({
-    where: {
-      companyId,
-      employeeId: { in: [...new Set(planned.map((p) => p.employeeId))] },
-      workDate: { gte: dayToUtcDate(days[0]), lte: dayToUtcDate(days[days.length - 1]) },
-    },
-    select: { employeeId: true, workDate: true, plannedStart: true, plannedEnd: true },
-  })
+  const employeeIds = [...new Set(planned.map((p) => p.employeeId))]
+  const rangeStart = dayToUtcDate(days[0])
+  const rangeEnd = dayToUtcDate(days[days.length - 1])
+
+  const [existing, leaves, holidayRows] = await Promise.all([
+    prisma.workShift.findMany({
+      where: {
+        companyId,
+        employeeId: { in: employeeIds },
+        workDate: { gte: rangeStart, lte: rangeEnd },
+      },
+      select: { employeeId: true, workDate: true, plannedStart: true, plannedEnd: true },
+    }),
+    // Aralığa DEĞEN izinler: aralıktan önce başlayıp içine sarkanlar da dahil.
+    prisma.leaveRecord.findMany({
+      where: {
+        companyId,
+        employeeId: { in: employeeIds },
+        status: "APPROVED",
+        startDate: { lte: rangeEnd },
+        endDate: { gte: rangeStart },
+      },
+      select: { employeeId: true, startDate: true, endDate: true },
+    }),
+    prisma.companyHoliday.findMany({
+      where: { companyId },
+      select: { id: true, name: true, date: true, recurring: true, halfDayFrom: true },
+    }),
+  ])
+
+  const onLeave = new Set<string>()
+  for (const l of leaves) {
+    for (const day of days) {
+      const d = dayToUtcDate(day)
+      if (l.startDate <= d && d <= l.endDate) onLeave.add(`${l.employeeId}|${day}`)
+    }
+  }
+
+  const holidays = holidayRows.map(toHolidayDto)
+  const holidayByDay = new Map(days.map((day) => [day, holidayOn(holidays, day)]))
 
   // Aynı istek içindeki kayıtlar da birbiriyle çakışabilir (iki şablon aynı güne):
   // kabul edilenler listeye eklenerek sonraki adayların kontrolüne dahil edilir.
@@ -79,11 +118,24 @@ export async function POST(request: Request) {
 
   const accepted: Planned[] = []
   let skipped = 0
+  let skippedLeave = 0
+  let skippedHoliday = 0
   for (const p of planned) {
     const k = keyOf(p.employeeId, p.day)
     const list = busy.get(k) ?? []
     if (list.some((b) => overlaps(p.start, p.end, b.start, b.end))) {
       skipped++
+      continue
+    }
+    if (onLeave.has(k)) {
+      skippedLeave++
+      continue
+    }
+    // Yarım gün tatilde yalnız tatile taşan vardiya atlanır; arifenin sabahı
+    // normal iş günüdür.
+    const holiday = holidayByDay.get(p.day)
+    if (holiday && (holiday.halfDayFrom == null || p.end > holiday.halfDayFrom)) {
+      skippedHoliday++
       continue
     }
     busy.set(k, [...list, { start: p.start, end: p.end }])
@@ -105,7 +157,7 @@ export async function POST(request: Request) {
     })
   }
 
-  return NextResponse.json({ created: accepted.length, skipped })
+  return NextResponse.json({ created: accepted.length, skipped, skippedLeave, skippedHoliday })
 }
 
 /** `template` kipi: personel × gün kartezyeni. */

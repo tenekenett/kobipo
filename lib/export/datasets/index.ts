@@ -14,6 +14,7 @@ import { buildAgingReportDataset, buildProfitLossDataset, buildStockReportDatase
 import { buildBalanceSheetDataset, buildCashFlowDataset } from "./reports-finansal"
 import { buildSalesPurchaseDataset } from "./reports-satis-alis"
 import { buildHrReportDataset } from "./reports-personel"
+import { buildPuantajDataset } from "./personel-puantaj"
 import { buildTaxReportDataset } from "./reports-vergi"
 
 /** `year`/`month` gibi sayısal paramlar için ortak çözücü. */
@@ -110,6 +111,13 @@ export const DATASETS: Record<string, DatasetBuilder> = {
 
   "rapor-personel": (companyId, params) =>
     buildHrReportDataset({ companyId, year: num(params, "year", new Date().getFullYear()) }),
+
+  "personel-puantaj": (companyId, params) =>
+    buildPuantajDataset({
+      companyId,
+      year: num(params, "year", new Date().getFullYear()),
+      month: num(params, "month", new Date().getMonth() + 1),
+    }),
 
   "rapor-vergiler": (companyId, params) =>
     buildTaxReportDataset({

@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { cn } from "@/lib/utils"
 import {
+  AlertTriangle,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -50,6 +51,9 @@ import {
 } from "@/lib/personel/vardiya"
 import { gridWindow, openingOfDay, type OpeningHours } from "@/lib/personel/opening-hours"
 import { holidayMap, holidayOn, type Holiday } from "@/lib/personel/tatil"
+import { laborWarnings, type LaborWarning } from "@/lib/personel/is-kanunu"
+import { HOURLY_BASIS_LABEL, laborCost } from "@/lib/personel/maliyet"
+import { money } from "@/lib/format"
 
 type Employee = {
   id: string
@@ -58,6 +62,8 @@ type Employee = {
   department?: string | null
   position?: string | null
   status: string
+  /** Prisma Decimal JSON'da string gelir; maliyet hesabından önce sayıya çevrilir. */
+  grossSalary?: number | string | null
 }
 
 type Shift = WeekShift & {
@@ -118,6 +124,39 @@ export default function VardiyaPage() {
       toast({ title: fallback, description: data.error || undefined, variant: "destructive" })
     },
     [toast],
+  )
+
+  /**
+   * İzin/tatil uyarısında kullanıcıya sorup isteği `force` ile tekrarlar.
+   *
+   * Sunucu izinli personele ya da tatile denk gelen vardiyayı 409 ile geri
+   * çevirir; bunlar yasak değil "emin misin"dir (izinli personel çağrılabilir,
+   * bayramda çalışan işletme çoktur). Çakışma — `code: "CONFLICT"` — sorulmaz,
+   * o gerçekten aşılamaz. Yanıtı `clone()` ile okuyoruz ki hata yoluna düşerse
+   * `fail` gövdeyi bir kez daha okuyabilsin.
+   */
+  const sendWithForce = useCallback(
+    async (send: (force: boolean) => Promise<Response>, fallback: string): Promise<Response | null> => {
+      let res = await send(false)
+      if (res.status === 409) {
+        const data = await res.clone().json().catch(() => ({}))
+        if (data.code === "LEAVE" || data.code === "HOLIDAY") {
+          const ok = await confirm({
+            title: data.error || "Bu güne vardiya yazılacak",
+            description: "Yine de bu vardiya açılsın mı?",
+            confirmLabel: "Yine de aç",
+          })
+          if (!ok) return null
+          res = await send(true)
+        }
+      }
+      if (!res.ok) {
+        await fail(res, fallback)
+        return null
+      }
+      return res
+    },
+    [confirm, fail],
   )
 
   const loadShifts = useCallback(async () => {
@@ -196,16 +235,59 @@ export default function VardiyaPage() {
     [rows, leaveMap, day],
   )
 
+  /**
+   * İş Kanunu uyarıları HAFTANIN tamamından türer, o yüzden gün görünümünde de
+   * geçerlidir: 45 saati aşan bir planı yalnız hafta ızgarasına geçenler görseydi
+   * uyarı çoğu kullanıcıya hiç ulaşmazdı.
+   */
+  const warningsByEmployee = useMemo(() => {
+    const map = new Map<string, LaborWarning[]>()
+    for (const r of rows) {
+      const list = laborWarnings(
+        shifts.filter((s) => s.employeeId === r.id),
+        weekDays,
+      )
+      if (list.length > 0) map.set(r.id, list)
+    }
+    return map
+  }, [rows, shifts, weekDays])
+
+  const warnedCount = warningsByEmployee.size
+
   const visible = view === "gun" ? dayShifts : shifts
   const totalMinutes = visible.reduce(
     (sum, s) => sum + netMinutes(s.plannedStart, s.plannedEnd, s.breakMinutes),
     0,
   )
+
   // Fiilî toplam yalnız iki ucu da damgalanmış vardiyalardan gelir; yarım damgayı
   // saymak "eksik çalıştı" izlenimi verirdi.
   const actualMinutes = visible.reduce((sum, s) => sum + (actualNetMinutes(s) ?? 0), 0)
   const stampedCount = visible.filter((s) => actualNetMinutes(s) != null).length
   const absentCount = visible.filter((s) => s.status === "ABSENT").length
+
+  const grossById = useMemo(
+    () => new Map(employees.map((e) => [e.id, e.grossSalary == null ? null : Number(e.grossSalary)])),
+    [employees],
+  )
+
+  /**
+   * Görünen aralığın planlı brüt işçilik maliyeti.
+   *
+   * Maaşı girilmemiş personel toplama KATILMAZ ve sayısı ayrıca söylenir —
+   * eksik maaşla hesaplanan bir toplam "ucuz hafta" izlenimi verirdi.
+   */
+  const plannedCost = useMemo(() => {
+    let cost = 0
+    const missing = new Set<string>()
+    for (const s of visible) {
+      const minutes = netMinutes(s.plannedStart, s.plannedEnd, s.breakMinutes)
+      const value = laborCost(minutes, grossById.get(s.employeeId) ?? null)
+      if (value == null) missing.add(s.employeeId)
+      else cost += value
+    }
+    return { cost, missing: missing.size }
+  }, [visible, grossById])
 
   // ---- Yazma ----------------------------------------------------------------
 
@@ -216,23 +298,25 @@ export default function VardiyaPage() {
     note = "",
   ) {
     if (!companyId) return false
-    const res = await fetch("/api/personel/shifts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        companyId,
-        employeeId: next.employeeId,
-        workDate,
-        plannedStart: next.start,
-        plannedEnd: next.end,
-        breakMinutes,
-        note,
-      }),
-    })
-    if (!res.ok) {
-      await fail(res, "Vardiya eklenemedi")
-      return false
-    }
+    const res = await sendWithForce(
+      (force) =>
+        fetch("/api/personel/shifts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId,
+            employeeId: next.employeeId,
+            workDate,
+            plannedStart: next.start,
+            plannedEnd: next.end,
+            breakMinutes,
+            note,
+            force,
+          }),
+        }),
+      "Vardiya eklenemedi",
+    )
+    if (!res) return false
     const created = await res.json()
     setShifts((prev) => [...prev, created])
     return true
@@ -249,19 +333,23 @@ export default function VardiyaPage() {
           : s,
       ),
     )
-    const res = await fetch(`/api/personel/shifts/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        companyId,
-        employeeId: next.employeeId,
-        plannedStart: next.start,
-        plannedEnd: next.end,
-      }),
-    })
-    if (!res.ok) {
+    const res = await sendWithForce(
+      (force) =>
+        fetch(`/api/personel/shifts/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId,
+            employeeId: next.employeeId,
+            plannedStart: next.start,
+            plannedEnd: next.end,
+            force,
+          }),
+        }),
+      "Vardiya güncellenemedi",
+    )
+    if (!res) {
       setShifts(before)
-      await fail(res, "Vardiya güncellenemedi")
       return
     }
     const saved = await res.json()
@@ -282,24 +370,26 @@ export default function VardiyaPage() {
         if (ok) setDraft(null)
         return
       }
-      const res = await fetch(`/api/personel/shifts/${next.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          companyId,
-          plannedStart: next.start,
-          plannedEnd: next.end,
-          actualStart: next.actualStart ?? null,
-          actualEnd: next.actualEnd ?? null,
-          absent: next.absent === true,
-          breakMinutes: next.breakMinutes,
-          note: next.note,
-        }),
-      })
-      if (!res.ok) {
-        await fail(res, "Vardiya güncellenemedi")
-        return
-      }
+      const res = await sendWithForce(
+        (force) =>
+          fetch(`/api/personel/shifts/${next.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              companyId,
+              plannedStart: next.start,
+              plannedEnd: next.end,
+              actualStart: next.actualStart ?? null,
+              actualEnd: next.actualEnd ?? null,
+              absent: next.absent === true,
+              breakMinutes: next.breakMinutes,
+              note: next.note,
+              force,
+            }),
+          }),
+        "Vardiya güncellenemedi",
+      )
+      if (!res) return
       const saved = await res.json()
       setShifts((prev) => prev.map((s) => (s.id === next.id ? saved : s)))
       setDraft(null)
@@ -441,11 +531,18 @@ export default function VardiyaPage() {
         await fail(res, "İşlem tamamlanamadı")
         return
       }
-      const { created, skipped } = await res.json()
+      const { created, skipped, skippedLeave, skippedHoliday } = await res.json()
       await loadShifts()
+      // Atlananların SEBEBİ ayrı yazılır: "12 kayıt atlandı" tek başına, izinli
+      // personelin planda görünmemesini "eksik doldurdu" sanmaya yol açıyordu.
+      const reasons = [
+        skipped > 0 ? `${skipped} kayıt mevcut vardiyayla çakıştı` : null,
+        skippedLeave > 0 ? `${skippedLeave} kayıt izinli güne denk geldi` : null,
+        skippedHoliday > 0 ? `${skippedHoliday} kayıt tatile denk geldi` : null,
+      ].filter(Boolean)
       toast({
         title: created > 0 ? `${created} vardiya açıldı` : emptyMessage,
-        description: skipped > 0 ? `${skipped} kayıt çakıştığı için atlandı.` : undefined,
+        description: reasons.length > 0 ? `${reasons.join(", ")}; atlandı.` : undefined,
       })
       setFillOpen(false)
     } finally {
@@ -584,8 +681,31 @@ export default function VardiyaPage() {
           {visible.length} vardiya · plan {durationLabel(totalMinutes)}
           {stampedCount > 0 && <> · fiilî {durationLabel(actualMinutes)}</>}
         </span>
+        {plannedCost.cost > 0 && (
+          <span
+            className="text-sm text-muted-foreground"
+            title={`Brüt işçilik — ${HOURLY_BASIS_LABEL}${
+              plannedCost.missing > 0
+                ? `. ${plannedCost.missing} personelin maaşı girilmediği için toplama dahil değil.`
+                : ""
+            }`}
+          >
+            işçilik{" "}
+            <span className="font-semibold text-foreground">{money(plannedCost.cost)}</span>
+            {plannedCost.missing > 0 && <span className="text-amber-600 dark:text-amber-400"> *</span>}
+          </span>
+        )}
         {absentCount > 0 && (
           <span className="text-sm text-red-600 dark:text-red-400">{absentCount} devamsızlık</span>
+        )}
+        {warnedCount > 0 && (
+          <span
+            className="flex items-center gap-1 text-sm text-amber-600 dark:text-amber-400"
+            title="Haftalık 45 saat, günlük 11 saat, iki vardiya arası 11 saat dinlenme ve hafta tatili denetlenir. Ayrıntı için hafta görünümündeki personel satırına bakın."
+          >
+            <AlertTriangle className="h-4 w-4" />
+            {warnedCount} personelde mevzuat uyarısı
+          </span>
         )}
         {view === "gun" && holidayToday && (
           <span className="text-sm font-medium text-rose-600 dark:text-rose-400">
@@ -658,6 +778,7 @@ export default function VardiyaPage() {
           shifts={shifts}
           leaveDays={leaveMap}
           holidays={weekHolidays}
+          warningsByEmployee={warningsByEmployee}
           today={todayIso()}
           onOpenShift={(s) => openEditor(s.id)}
           onAddShift={(employeeId, d) => {

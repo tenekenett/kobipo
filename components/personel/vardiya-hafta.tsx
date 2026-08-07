@@ -13,15 +13,15 @@
  */
 
 import { cn } from "@/lib/utils"
-import { Plus } from "lucide-react"
+import { AlertTriangle, Plus } from "lucide-react"
 import {
   deviationLabel,
   durationLabel,
   minuteToHHMM,
   netMinutes,
-  weekdayLabel,
-  weekdayOf,
+  shortDayLabel,
 } from "@/lib/personel/vardiya"
+import { WEEKLY_MAX_MINUTES, type LaborWarning } from "@/lib/personel/is-kanunu"
 import { barClass, softBarClass } from "@/components/personel/shift-colors"
 
 export type WeekShift = {
@@ -40,18 +40,13 @@ export type WeekShift = {
 
 export type WeekEmployee = { id: string; name: string; department?: string | null; position?: string | null }
 
-/** Gün başlığı: "Pzt 4" — dar sütunda tam ad sığmıyor. */
-const shortDay = (day: string) => {
-  const [, , d] = day.split("-")
-  return `${weekdayLabel(weekdayOf(day)).slice(0, 3)} ${Number(d)}`
-}
-
 export function VardiyaHafta({
   days,
   employees,
   shifts,
   leaveDays,
   holidays,
+  warningsByEmployee,
   today,
   onOpenShift,
   onAddShift,
@@ -63,6 +58,12 @@ export function VardiyaHafta({
   leaveDays: Map<string, string>
   /** "gün" → tatil adı. Sütun başlığında ve hücre zemininde görünür. */
   holidays: Map<string, string>
+  /**
+   * "employeeId" → İş Kanunu uyarıları. Bileşen kendi hesaplayabilirdi (elinde
+   * haftanın tamamı var) ama sayfa da özet çubuğunda uyarı sayısını gösteriyor;
+   * iki yerde hesaplanırsa gün görünümüyle hafta görünümü farklı sayı verebilir.
+   */
+  warningsByEmployee?: Map<string, LaborWarning[]>
   today: string
   onOpenShift: (shift: WeekShift) => void
   onAddShift: (employeeId: string, day: string) => void
@@ -95,7 +96,7 @@ export function VardiyaHafta({
                       : "text-muted-foreground",
                 )}
               >
-                {shortDay(d)}
+                {shortDayLabel(d)}
                 {holiday && <p className="truncate text-[10px] font-normal">{holiday}</p>}
               </div>
             )
@@ -103,9 +104,12 @@ export function VardiyaHafta({
         </div>
 
         {employees.map((emp, i) => {
-          const total = shifts
-            .filter((s) => s.employeeId === emp.id)
-            .reduce((sum, s) => sum + netMinutes(s.plannedStart, s.plannedEnd, s.breakMinutes), 0)
+          const own = shifts.filter((s) => s.employeeId === emp.id)
+          const total = own.reduce(
+            (sum, s) => sum + netMinutes(s.plannedStart, s.plannedEnd, s.breakMinutes),
+            0,
+          )
+          const warnings = warningsByEmployee?.get(emp.id) ?? []
           return (
             <div key={emp.id} className="flex border-b border-border/50 last:border-b-0">
               <div
@@ -113,10 +117,28 @@ export function VardiyaHafta({
                 style={{ width: 208 }}
               >
                 <p className="truncate text-sm font-medium">{emp.name}</p>
-                <p className="text-[11px] text-muted-foreground">
-                  {/* Haftalık toplam: fazla mesai kuralı henüz yok, ham süre. */}
+                <p
+                  className={cn(
+                    "text-[11px] text-muted-foreground",
+                    // 45 saati aşan toplam rakamın kendisinde de görünmeli:
+                    // rozet yanındaki sayı normal renkte kalırsa uyarı "başka bir
+                    // şeye ait" gibi okunuyor.
+                    total > WEEKLY_MAX_MINUTES && "font-semibold text-amber-600 dark:text-amber-400",
+                  )}
+                >
                   {total > 0 ? `haftalık ${durationLabel(total)}` : "vardiya yok"}
                 </p>
+                {warnings.length > 0 && (
+                  <p
+                    // Uyarıların tamamı ipucunda: satır başlığı dar, üç uyarıyı
+                    // alt alta yazmak ızgarayı yükseltirdi.
+                    title={warnings.map((w) => `• ${w.message}`).join("\n")}
+                    className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400"
+                  >
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    {warnings.length === 1 ? "1 uyarı" : `${warnings.length} uyarı`}
+                  </p>
+                )}
               </div>
               {days.map((day) => {
                 const cellShifts = shifts.filter((s) => s.employeeId === emp.id && s.workDate === day)

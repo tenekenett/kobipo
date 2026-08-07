@@ -192,6 +192,14 @@ export const weekdayOf = (day: string) => {
 
 const GUNLER = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"]
 
+/**
+ * Dar sütun ve ipucu metinleri için kısaltmalar.
+ *
+ * Tam adı `slice(0, 3)` ile kesmek YETMEZ: "Pazar" ve "Pazartesi" ikisi de "Paz"
+ * olur ve hafta ızgarasında ilk sütunla son sütun aynı görünür.
+ */
+const GUNLER_KISA = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"]
+
 /** "7 Ağustos 2026 Cuma" — takvim başlığı. */
 export const dayTitle = (day: string) => {
   const [y, m, d] = day.split("-").map(Number)
@@ -200,3 +208,9 @@ export const dayTitle = (day: string) => {
 }
 
 export const weekdayLabel = (weekday: number) => GUNLER[weekday] ?? ""
+
+export const weekdayShortLabel = (weekday: number) => GUNLER_KISA[weekday] ?? ""
+
+/** "2026-08-03" → "Pzt 3" — hafta başlığı ve uyarı metinlerinin ortak biçimi. */
+export const shortDayLabel = (day: string) =>
+  `${weekdayShortLabel(weekdayOf(day))} ${Number(day.slice(8))}`
