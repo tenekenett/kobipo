@@ -68,6 +68,7 @@ const STATIC_TITLES: Record<string, string> = {
   "/restoran/adisyonlar": "Adisyonlar",
   "/restoran/satis": "Kahveci Satış",
   "/restoran/menu": "Menü & Reçeteler",
+  "/restoran/kontrol-listesi": "Kontrol Listesi",
   "/restoran/raporlar": "Restoran Raporları",
   // Eski adresler yönlendirme olarak duruyor; başlıkları da korunuyor ki
   // yönlendirme tamamlanana kadar sekmede boş/yanlış başlık görünmesin.

@@ -10,6 +10,7 @@ import useSWR from "swr"
 import { jsonFetcher } from "./fetcher"
 import type { OptionGroupView } from "@/lib/restoran/product-options"
 import type { TicketItemOption, TicketItemStatus } from "@/lib/restoran/ticket-constants"
+import type { ChecklistDay } from "@/lib/restoran/checklist"
 
 export type PlanTable = {
   id: string
@@ -360,4 +361,47 @@ export function useTicketDetail(companyId: string | null, ticketId: string | nul
     jsonFetcher,
   )
   return { ticket: data ?? null, error, isLoading, mutate }
+}
+
+/**
+ * Bir günün açılış/kapanış listesi durumu (maddeler + o günün onayları +
+ * personel seçenekleri, tek istekte).
+ *
+ * `revalidateOnFocus`: uyarı şeridi satış ekranının tepesinde saatlerce açık
+ * durur; listeyi başka bir cihazdan (mutfak tableti) tamamlayan personelin
+ * ardından şerit kendiliğinden kaybolmalı. Periyodik tazeleme YOK — liste günde
+ * bir kez doldurulur, 20 saniyelik yoklama boşa giderdi.
+ */
+export function useChecklistDay(
+  companyId: string | null,
+  type: "OPENING" | "CLOSING",
+  date: string | null,
+) {
+  const { data, error, isLoading, mutate } = useSWR<ChecklistDay>(
+    companyId && date
+      ? `/api/restoran/kontrol-listesi/gun?companyId=${companyId}&type=${type}&date=${date}`
+      : null,
+    jsonFetcher,
+    { revalidateOnFocus: true },
+  )
+  return { day: data ?? null, error, isLoading, mutate }
+}
+
+/** Maddelerin kendisi — patronun düzenleme ekranı için (`all=1` pasifleri de getirir). */
+export function useChecklistItems(companyId: string | null, opts?: { all?: boolean }) {
+  const suffix = opts?.all ? "&all=1" : ""
+  const { data, error, isLoading, mutate } = useSWR<ChecklistItemRow[]>(
+    companyId ? `/api/restoran/kontrol-listesi?companyId=${companyId}${suffix}` : null,
+    jsonFetcher,
+    { revalidateOnFocus: false },
+  )
+  return { items: Array.isArray(data) ? data : [], error, isLoading, mutate }
+}
+
+export type ChecklistItemRow = {
+  id: string
+  type: "OPENING" | "CLOSING"
+  title: string
+  sortOrder: number
+  isActive: boolean
 }

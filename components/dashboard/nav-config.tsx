@@ -27,6 +27,7 @@ import {
   LayoutGrid,
   LayoutTemplate,
   LifeBuoy,
+  ListChecks,
   Package,
   Percent,
   Receipt,
@@ -116,6 +117,10 @@ export const allNavItems: NavItemDef[] = [
   { href: "/restoran/adisyonlar", label: "Adisyonlar", icon: ClipboardList, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/restoran/satis", label: "Kahveci Satış", icon: CupSoda, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/restoran/menu", label: "Menü & Reçeteler", icon: ChefHat, roles: ["ADMIN", BM, "STOCK", "ACCOUNTANT"] },
+  // Açılış/kapanış listesini KURAN ve uyumu ÖLÇEN ekran → patron/müdür. Personel
+  // maddeleri buradan değil, satış ekranındaki uyarı şeridinden onaylar; o yüzden
+  // SALES bu sayfayı görmez ama tik atmaya devam eder.
+  { href: "/restoran/kontrol-listesi", label: "Kontrol Listesi", icon: ListChecks, roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/restoran/raporlar", label: "Raporlar", icon: BarChart3, roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Finans
@@ -220,6 +225,7 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
       "/restoran/adisyon",
       "/restoran/satis",
       "/restoran/menu",
+      "/restoran/kontrol-listesi",
       "/restoran/raporlar",
     ],
   },

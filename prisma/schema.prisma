@@ -297,6 +297,8 @@ model Company {
   restaurantTickets       RestaurantTicket[]
   restaurantPlanItems     RestaurantPlanItem[]
   restaurantReservations  RestaurantReservation[]
+  checklistItems          ChecklistItem[]
+  checklistEntries        ChecklistEntry[]
   productOptionGroups     ProductOptionGroup[]
   workShifts              WorkShift[]
   shiftTemplates          ShiftTemplate[]
@@ -914,6 +916,78 @@ model RestaurantTicketItem {
   @@index([productId])
   @@index([compEmployeeId])
   @@map("restaurant_ticket_items")
+}
+
+// Açılış/kapanış kontrol listesi — patron maddeleri yazar, personel tikler.
+//
+// BLOKLAMAZ. Satış ekranı ve gün sonu raporu yalnızca "şu maddeler onaylanmadı"
+// uyarısı basar; kasa da gün sonu da çalışmaya devam eder. Sert kilit bilinçle
+// reddedildi: kapıda müşteri varken 15 maddelik liste yüzünden satış durursa
+// personel listeyi 5 saniyede tıklar (veri çöp olur) ya da sistemi baypas eder.
+// Tikin doğruluğu da doğrulanmıyor — kimse imza/fotoğraf vermiyor, personel adı
+// listeden SEÇİLİR (arkadaşı da onun adına seçebilir). Bu yüzden özelliğin tek
+// yaptırım gücü patronun uyum raporunda eksikleri görmesidir.
+//
+// Neden ayrı "şablon" tablosu YOK: firma başına tür başına tek liste var
+// ("sabah yapılacaklar", "akşam yapılacaklar"), maddeler doğrudan firmaya bağlı.
+// Şablon satırı yalnızca tek bir ad taşıyacaktı.
+model ChecklistItem {
+  id        String   @id @default(cuid())
+  companyId String
+  type      String // OPENING | CLOSING
+  title     String   @db.VarChar(160)
+  sortOrder Int      @default(0)
+  // Silmek yerine pasifleştirme: madde silinirse geçmiş günlerin tikleri
+  // sahipsiz kalır ve "1 Ağustos'ta liste tam mıydı" sorusu cevapsız kalırdı.
+  // Pasif madde bugünün listesinde çıkmaz, geçmiş raporda durur.
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+  company Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  entries ChecklistEntry[]
+
+  @@index([companyId, type])
+  @@map("checklist_items")
+}
+
+// Bir maddenin bir GÜNDEKİ onayı. Satır yoksa madde yapılmamıştır — "yapılmadı"
+// diye ayrı bir durum tutulmuyor, listenin tamamı her gün sıfırdan doğar.
+model ChecklistEntry {
+  id           String   @id @default(cuid())
+  companyId    String
+  itemId       String?
+  // Madde adı ve personel adı KOPYALANIR. Patron listeyi haftaya değiştirdiğinde
+  // ("buzdolabı ısısı" maddesi çıktı) geçmiş kayıtların "hangi maddeyi kim
+  // onayladı" cevabı bozulmasın.
+  itemTitle    String   @db.VarChar(160)
+  employeeName String   @db.VarChar(160)
+  // Maddeden türetilebilir ama madde SİLİNİRSE (itemId → SetNull) tür de
+  // kaybolur ve tik hiçbir listeye ait olmadan kalırdı. Rapor tür filtresini
+  // maddeye JOIN atmadan uygulayabilsin diye de burada duruyor.
+  type         String // OPENING | CLOSING
+  // Gün, saatsiz: WorkShift.workDate ile aynı gerekçe (TSİ 00:00–03:00 arası
+  // kayıtların yanlış güne düşmesi bu projede bir kez pahalıya patladı).
+  workDate     DateTime @db.Date
+  employeeId   String?
+  note         String?  @db.Text
+  checkedAt    DateTime @default(now())
+  // Tiki EKRANDAN atan Kobipo kullanıcısı — seçilen personelden farklı olabilir
+  // (kasiyer, mutfaktaki arkadaşının adına işaretler). İkisi de kayda geçiyor
+  // ki rapor "kim adına, kim tarafından" ayrımını yapabilsin.
+  checkedBy    String?
+
+  company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item     ChecklistItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  employee Employee?      @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  // Aynı madde aynı gün iki kez onaylanmasın. itemId NULL olan (maddesi silinmiş)
+  // geçmiş kayıtlar Postgres'te bu kısıta takılmaz — istenen davranış.
+  @@unique([companyId, itemId, workDate])
+  @@index([companyId, workDate])
+  @@index([employeeId])
+  @@map("checklist_entries")
 }
 
 // Ürün seçenekleri — "Boy", "Süt", "Ekstra" gibi bir SORU (grup) ve altındaki
@@ -2047,6 +2121,9 @@ model Employee {
   compItems       RestaurantTicketItem[] @relation("TicketItemCompEmployee")
   compMovements   StockMovement[]        @relation("StockMovementEmployee")
   shifts          WorkShift[]
+  // Bu personel adına atılmış açılış/kapanış tikleri. Seçim listeden yapıldığı
+  // için "bu maddeyi o yaptı" kanıtı değil, yalnız beyandır.
+  checklistEntries ChecklistEntry[]
 
   @@unique([companyId, slug])
   @@index([companyId])

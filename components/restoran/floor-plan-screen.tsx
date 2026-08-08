@@ -84,6 +84,7 @@ import {
 import { currency } from "@/lib/fis/receipt-html"
 import { cn } from "@/lib/utils"
 import { FloorPlanCanvas, elapsedLabel, type PlanSelection } from "./floor-plan-canvas"
+import { ChecklistBanner } from "./checklist-banner"
 import { ReservationDialog } from "./reservation-dialog"
 import {
   PLAN_KINDS,
@@ -787,6 +788,10 @@ export function FloorPlanScreen() {
           </Button>
         </div>
       </div>
+
+      {/* Açılış listesi uyarısı — masalı bir mekânda günün ilk satışı buradan
+          başlar; Kahveci Satış ekranı hiç açılmayabilir. ENGELLEMEZ. */}
+      {!editMode && <ChecklistBanner type="OPENING" />}
 
       {/* Plan sekmeleri */}
       {(areas.length > 0 || tables.some((t) => !t.areaId)) && (

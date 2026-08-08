@@ -18,6 +18,7 @@ import {
   StyledTableRow,
 } from "@/components/ui/styled-table"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { ChecklistBanner } from "@/components/restoran/checklist-banner"
 import {
   Bar,
   ReportState,
@@ -159,6 +160,10 @@ export function GunSonuReport({ range }: ReportProps) {
           </Button>
         </div>
       </div>
+
+      {/* Kapanış listesi uyarısı. Gün sonu ALINMASINI engellemez (bu rapor zaten
+          salt-okuma); seçili günün eksiklerini gösterir ve buradan onaylanabilir. */}
+      <ChecklistBanner type="CLOSING" date={range.from} />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <StatTile

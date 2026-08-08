@@ -43,6 +43,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { MenuGrid } from "@/components/restoran/menu-grid"
+import { ChecklistBanner } from "@/components/restoran/checklist-banner"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 import { PaymentPanel } from "@/components/satis/payment-panel"
 import { useToast } from "@/components/ui/use-toast"
@@ -746,6 +747,10 @@ export function CafeSaleScreen() {
           </div>
         )}
       </div>
+
+      {/* Açılış listesi uyarısı — ENGELLEMEZ, yetersiz stok uyarısıyla aynı
+          gerekçe (dosya başlığı): engelleyici kontrol kasayı kilitler. */}
+      <ChecklistBanner type="OPENING" />
 
       <div className="grid items-start gap-4 xl:grid-cols-[1fr_400px]">
         {/* === SOL: menü === */}
