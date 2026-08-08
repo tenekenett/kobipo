@@ -14,13 +14,7 @@
 
 import { cn } from "@/lib/utils"
 import { AlertTriangle, Plus } from "lucide-react"
-import {
-  deviationLabel,
-  durationLabel,
-  minuteToHHMM,
-  netMinutes,
-  shortDayLabel,
-} from "@/lib/personel/vardiya"
+import { durationLabel, minuteToHHMM, netMinutes, shortDayLabel } from "@/lib/personel/vardiya"
 import { WEEKLY_MAX_MINUTES, type LaborWarning } from "@/lib/personel/is-kanunu"
 import { barClass, softBarClass } from "@/components/personel/shift-colors"
 
@@ -162,31 +156,25 @@ export function VardiyaHafta({
                       </div>
                     )}
                     {cellShifts.map((s) => {
+                      // Hücre PLANI gösterir; tek istisna devamsızlıktır ve üzeri
+                      // çizili görünür. Fiilî saat takibi yok.
                       const absent = s.status === "ABSENT"
-                      const stamped = s.actualStart != null && s.actualEnd != null
-                      const deviation = deviationLabel(s)
                       return (
                         <button
                           key={s.id}
                           type="button"
                           onClick={() => onOpenShift(s)}
                           title={
-                            [s.templateName, deviation, absent ? "Gelmedi" : null]
-                              .filter(Boolean)
-                              .join(" · ") || undefined
+                            [s.templateName, absent ? "Gelmedi" : null].filter(Boolean).join(" · ") ||
+                            undefined
                           }
                           className={cn(
                             "block w-full truncate rounded px-1.5 py-1 text-[11px] font-semibold tabular-nums",
-                            // Damgalı vardiya FİİLÎ saatini gösterir: hafta ızgarasında
-                            // asıl soru "planlandı mı" değil, "ne oldu".
                             absent ? softBarClass(s.color, i) : barClass(s.color, i),
                             absent && "line-through opacity-70",
                           )}
                         >
-                          {stamped
-                            ? `${minuteToHHMM(s.actualStart!)}–${minuteToHHMM(s.actualEnd!)}`
-                            : `${minuteToHHMM(s.plannedStart)}–${minuteToHHMM(s.plannedEnd)}`}
-                          {deviation && <span className="ml-1 font-normal opacity-90">!</span>}
+                          {minuteToHHMM(s.plannedStart)}–{minuteToHHMM(s.plannedEnd)}
                         </button>
                       )
                     })}

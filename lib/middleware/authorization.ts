@@ -47,6 +47,8 @@ export interface UserRole {
   companyName: string
   role: Role
   isActive: boolean
+  /** Kapalı modül anahtarları — sunucu sayfaları kilitli hesabı bununla tanır. */
+  disabledModules: string[]
 }
 
 export interface AuthContext {
@@ -71,6 +73,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     companyName: company.companyName,
     role: company.role,
     isActive: company.isActive,
+    disabledModules: company.disabledModules,
   }))
 
   // Aktif firma varsayılanı. Öncelik: (1) URL `?company=` — resolveActiveCompany'de ele alınır;

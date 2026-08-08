@@ -153,6 +153,35 @@ export function useEmployees(companyId: string | null) {
   return { employees, isLoading, error, mutate }
 }
 
+/**
+ * Vardiya takviminin REFERANS verileri: şablonlar, tatiller, açılış saatleri.
+ *
+ * Üçü de firma başına birkaç düzine satır ve haftalarca değişmez; oysa takvim
+ * her hafta değişiminde üçünü birden yeniden çekiyordu (gün ileri–geri gezinen
+ * bir kullanıcıda onlarca gereksiz istek). Vardiyaların KENDİSİ burada değil:
+ * onlar aralığa bağlı ve sürükleme sonrası anında güncellenmesi gereken canlı
+ * veri, SWR önbelleğine girmeleri iyimser güncellemeyi bozardı.
+ */
+export function useShiftTemplates(companyId: string | null) {
+  const key = companyKey(companyId, "/api/personel/shift-templates")
+  const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
+  const templates = useMemo(() => (Array.isArray(data) ? data : []), [data])
+  return { templates, isLoading, error, mutate }
+}
+
+export function useCompanyHolidays(companyId: string | null) {
+  const key = companyKey(companyId, "/api/personel/holidays")
+  const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
+  const holidays = useMemo(() => (Array.isArray(data) ? data : []), [data])
+  return { holidays, isLoading, error, mutate }
+}
+
+export function useOpeningHours(companyId: string | null) {
+  const key = companyKey(companyId, "/api/personel/opening-hours")
+  const { data, error, isLoading, mutate } = useSWR<any>(key, jsonFetcher)
+  return { openingHours: data?.openingHours ?? null, isLoading, error, mutate }
+}
+
 export function useProductCategories(companyId: string | null) {
   const key = companyKey(companyId, "/api/company/definitions", "&type=PRODUCT_CATEGORY")
   const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)

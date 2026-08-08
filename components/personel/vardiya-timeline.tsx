@@ -16,15 +16,15 @@
  * geometriye sahip olduğu için tek bir sarmalayıcı ölçmek yeter.
  */
 
-import { Fragment, useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import { Plus } from "lucide-react"
 import {
   DAY_MINUTES,
   MIN_SHIFT_MINUTES,
+  SNAP_MINUTES,
   clampMinute,
   crossesMidnight,
-  deviationLabel,
   durationLabel,
   minuteToHHMM,
   netMinutes,
@@ -82,8 +82,14 @@ type Gesture =
 /** Sürükleme sayılması için gereken en küçük hareket (dakika). Titrek dokunuş tık sayılsın. */
 const DRAG_THRESHOLD = 10
 
-/** Personel adı sütununun genişliği (px). Piksel↔dakika çevrimi buna dayanır. */
-const NAME_W = 208
+/**
+ * Personel adı sütununun genişliği (px). Piksel↔dakika çevrimi buna dayanır.
+ *
+ * Dışa açık: altındaki kapsama şeridi aynı eksene oturmak zorunda ve kendi
+ * sabitini tutsaydı iki grafik birbirine göre kayardı.
+ */
+export const TIMELINE_NAME_WIDTH = 208
+const NAME_W = TIMELINE_NAME_WIDTH
 
 /** Bir saatin en az kaç piksel olacağı — dar ekranda ızgara yatay kayar. */
 const HOUR_PX = 58
@@ -291,6 +297,54 @@ export function VardiyaTimeline({
     setDraft(null)
   }
 
+  /**
+   * Klavyeyle vardiya düzenleme.
+   *
+   * Izgara bugüne kadar YALNIZ işaretçiyle çalışıyordu: barlar odaklanamayan
+   * `div`lerdi, dolayısıyla klavye kullanan ya da ekran okuyucuyla gezen biri
+   * takvimi hiç kullanamıyordu. Jest deseninin karşılığı:
+   *
+   * - ← →           barı 15 dk kaydırır (Shift ile 1 saat)
+   * - Alt + ← →     yalnız BİTİŞİ oynatır, yani süreyi değiştirir (resize)
+   * - ↑ ↓           barı önceki/sonraki personel satırına taşır
+   * - Enter / Space düzenleme penceresini açar (tıklamanın karşılığı)
+   *
+   * Adım `SNAP_MINUTES` ile aynı: klavyeyle çizilen plan, sürüklenerek çizilenle
+   * aynı ızgaraya oturmalı.
+   */
+  const onBarKeyDown = (e: React.KeyboardEvent, s: TimelineShift) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault()
+      onOpenShift(s)
+      return
+    }
+    if (readOnly) return
+
+    const length = s.plannedEnd - s.plannedStart
+    const step = e.shiftKey ? 60 : SNAP_MINUTES
+
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault()
+      const delta = (e.key === "ArrowLeft" ? -1 : 1) * step
+      if (e.altKey) {
+        const end = clampMinute(Math.max(s.plannedStart + MIN_SHIFT_MINUTES, s.plannedEnd + delta))
+        onUpdate(s.id, { employeeId: s.employeeId, start: s.plannedStart, end })
+      } else {
+        const start = clampMinute(s.plannedStart + delta)
+        onUpdate(s.id, { employeeId: s.employeeId, start, end: start + length })
+      }
+      return
+    }
+
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault()
+      const index = employees.findIndex((emp) => emp.id === s.employeeId)
+      const next = employees[index + (e.key === "ArrowUp" ? -1 : 1)]
+      if (!next) return
+      onUpdate(s.id, { employeeId: next.id, start: s.plannedStart, end: s.plannedEnd })
+    }
+  }
+
   const minWidth = NAME_W + (span / 60) * HOUR_PX
   /**
    * Satır yüksekliği personel sayısına göre esner: dört kişilik bir ekipte sabit
@@ -449,38 +503,33 @@ export function VardiyaTimeline({
                   if (isDragging && draft.employeeId !== emp.id) return null
                   const start = isDragging ? draft.start : s.plannedStart
                   const end = isDragging ? draft.end : s.plannedEnd
+                  // Devamsızlık barı soluklaştırır — takvimdeki TEK istisna durumu.
+                  // Fiilî giriş/çıkış katmanı yok: personelin planına uyduğu varsayılır.
                   const absent = s.status === "ABSENT"
-                  const stamped = s.actualStart != null || s.actualEnd != null
-                  // Damga varken PLAN çerçeveye döner, dolu bar fiiliyi gösterir.
-                  // Sürüklerken bu ayrım kapanır: taşınan şey plandır, o an tek bar olmalı.
-                  const hollow = !isDragging && (stamped || absent)
                   return (
-                    <Fragment key={s.id}>
-                      <ShiftBar
-                        color={hollow ? softBarClass(s.color, i) : barClass(s.color, i)}
-                        left={pct(start)}
-                        width={pct(end) - pct(start)}
-                        label={
-                          absent
-                            ? `${minuteToHHMM(start)} – ${minuteToHHMM(end)} · Gelmedi`
-                            : shiftLabel(start, end, s.breakMinutes)
-                        }
-                        overnight={crossesMidnight(end)}
-                        readOnly={readOnly}
-                        muted={absent}
-                        labelTop={hollow && !absent}
-                        onBodyDown={(e) => beginMove(e, s)}
-                        onEdgeDown={(e, edge) => beginResize(e, s, edge)}
-                      />
-                      {!isDragging && !absent && stamped && (
-                        <ActualOverlay
-                          shift={s}
-                          color={barClass(s.color, i)}
-                          pct={pct}
-                          onOpen={() => onOpenShift(s)}
-                        />
-                      )}
-                    </Fragment>
+                    <ShiftBar
+                      key={s.id}
+                      color={absent ? softBarClass(s.color, i) : barClass(s.color, i)}
+                      left={pct(start)}
+                      width={pct(end) - pct(start)}
+                      label={
+                        absent
+                          ? `${minuteToHHMM(start)} – ${minuteToHHMM(end)} · Gelmedi`
+                          : shiftLabel(start, end, s.breakMinutes)
+                      }
+                      // Ekran okuyucu barın görsel etiketini değil, KİMİN hangi
+                      // saatte çalıştığını okumalı: satırın kime ait olduğu
+                      // görsel bağlamdan geliyor ve seste karşılığı yok.
+                      ariaLabel={`${emp.name}, ${minuteToHHMM(start)} – ${minuteToHHMM(end)}${
+                        absent ? ", gelmedi" : ""
+                      }${s.templateName ? `, ${s.templateName}` : ""}`}
+                      overnight={crossesMidnight(end)}
+                      readOnly={readOnly}
+                      muted={absent}
+                      onBodyDown={(e) => beginMove(e, s)}
+                      onEdgeDown={(e, edge) => beginResize(e, s, edge)}
+                      onKeyDown={(e) => onBarKeyDown(e, s)}
+                    />
                   )
                 })}
 
@@ -567,104 +616,46 @@ function Track({
   )
 }
 
-/**
- * Fiilî giriş/çıkış katmanı — plan çerçevesinin ÜSTÜNE çizilir.
- *
- * Ayrı bir katman olması şart: fazla mesaide fiilî bar planın dışına taşar, plan
- * barının içine çizilseydi kırpılır ve mesai görünmezdi.
- *
- * Tek uç damgalanmışsa (vardiya sürüyor) bar değil İŞARET çizilir: eksik ucu
- * varsayıp bar uzatmak, olmayan bir veriyi uydurmak olurdu.
- */
-function ActualOverlay({
-  shift,
-  color,
-  pct,
-  onOpen,
-}: {
-  shift: TimelineShift
-  color: string
-  pct: (m: number) => number
-  onOpen: () => void
-}) {
-  const { actualStart, actualEnd } = shift
-  const deviation = deviationLabel(shift)
-
-  if (actualStart == null || actualEnd == null) {
-    const mark = actualStart ?? actualEnd!
-    const isIn = actualStart != null
-    return (
-      <button
-        type="button"
-        onClick={onOpen}
-        title={`${isIn ? "Giriş" : "Çıkış"} ${minuteToHHMM(mark)}${deviation ? ` · ${deviation}` : ""}`}
-        className="absolute inset-y-0 z-10 w-1.5 -translate-x-1/2 rounded-full bg-foreground/70 hover:bg-foreground"
-        style={{ left: `${pct(mark)}%` }}
-      />
-    )
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      title={deviation ?? "Planına uygun"}
-      className={cn(
-        "absolute z-10 flex items-center justify-center overflow-hidden rounded px-2 shadow-sm",
-        color,
-      )}
-      // Fiilî bar plan çerçevesinin ALT ŞERİDİNE oturur, ortasına değil: fazla
-      // mesaide bar kendi planının dışına taşıp KOMŞU vardiyanın barını tamamen
-      // örtüyordu (z-10 üstte). Alt şeritte durunca komşu planın üst yarısı
-      // görünür kalıyor. Oran piksel değil yüzde — satır yüksekliği esniyor.
-      style={{
-        top: "46%",
-        bottom: "14%",
-        left: `${pct(actualStart)}%`,
-        width: `${Math.max(0, pct(actualEnd) - pct(actualStart))}%`,
-      }}
-    >
-      <span className="truncate text-[11px] font-semibold">
-        {minuteToHHMM(actualStart)} – {minuteToHHMM(actualEnd)}
-        {deviation && <span className="ml-1 font-normal opacity-90">· {deviation}</span>}
-      </span>
-    </button>
-  )
-}
-
 /** Vardiya barı — gövdesi taşır, iki kenarındaki tutamaç mesai saatini değiştirir. */
 function ShiftBar({
   color,
   left,
   width,
   label,
+  ariaLabel,
   overnight,
   readOnly,
   muted,
-  labelTop,
   onBodyDown,
   onEdgeDown,
+  onKeyDown,
 }: {
   color: string
   left: number
   width: number
   label: string
+  ariaLabel: string
   overnight: boolean
   readOnly?: boolean
-  /** Devamsızlık: bar soluklaşır, çapraz tarama ile "çalışılmadı" okunur olur. */
+  /** Devamsızlık: bar soluklaşır, "çalışılmadı" okunur olur. */
   muted?: boolean
-  /** Fiilî bar alt şeritte olduğunda plan etiketi ÜST şeride çekilir; ortada
-   *  kalsaydı dolu bar onu yarıdan keserdi. */
-  labelTop?: boolean
   onBodyDown: (e: React.PointerEvent) => void
   onEdgeDown: (e: React.PointerEvent, edge: "start" | "end") => void
+  onKeyDown: (e: React.KeyboardEvent) => void
 }) {
   return (
     <div
       onPointerDown={onBodyDown}
+      onKeyDown={onKeyDown}
+      // Odaklanabilir ve düğme rolünde: bar bir `div` olarak kaldığı sürece
+      // klavye kullanıcısı takvimi hiç çalıştıramıyordu. `tabIndex` salt okunur
+      // görünümde de duruyor — okumak da erişilebilirliğin parçası.
+      role="button"
+      tabIndex={0}
+      aria-label={ariaLabel}
       className={cn(
-        "absolute inset-y-1.5 flex justify-center overflow-hidden rounded-md px-2 shadow-sm",
-        labelTop ? "items-start pt-1" : "items-center",
+        "absolute inset-y-1.5 flex items-center justify-center overflow-hidden rounded-md px-2 shadow-sm",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1",
         !readOnly && "cursor-grab active:cursor-grabbing",
         muted && "opacity-60 saturate-50",
         color,

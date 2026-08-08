@@ -125,18 +125,43 @@ export default function IzinDevamPage() {
     }
   }
 
+  /**
+   * Durum değişimi. Onayda sunucu, izne denk gelen vardiyaları 409 ile bildirir:
+   * planlı olanlar kullanıcı onaylarsa silinir, damgalı olanlar korunur (fiilen
+   * çalışılmış saat sonradan onaylanan bir izin yüzünden kaybolmamalı).
+   */
   async function setStatus(l: Leave, status: string) {
-    const res = await fetch(`/api/personel/leaves/${l.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    })
+    const send = (removeShifts: boolean) =>
+      fetch(`/api/personel/leaves/${l.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, removeShifts }),
+      })
+
+    let res = await send(false)
+    if (res.status === 409) {
+      const data = await res.clone().json().catch(() => ({}))
+      if (data.code === "SHIFTS") {
+        const parts = [
+          data.planned > 0 ? `${data.planned} planlı vardiya silinecek` : null,
+          data.stamped > 0 ? `${data.stamped} damgalı vardiya korunacak` : null,
+        ].filter(Boolean)
+        const ok = await confirm({
+          title: data.error || "İzin günlerinde vardiya var",
+          description: `${parts.join(", ")}. İzin onaylansın mı?`,
+          confirmLabel: "Onayla",
+        })
+        if (!ok) return
+        res = await send(true)
+      }
+    }
     if (res.ok) {
       toast({ title: status === "APPROVED" ? "İzin onaylandı" : "İzin reddedildi" })
       fetchLeaves()
       fetchBalances()
     } else {
-      toast({ title: "Hata", description: "Güncellenemedi", variant: "destructive" })
+      const data = await res.json().catch(() => ({}))
+      toast({ title: "Hata", description: data?.error || "Güncellenemedi", variant: "destructive" })
     }
   }
 

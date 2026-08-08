@@ -6,12 +6,7 @@
 // böylece menü gizleme / route guard / server context hiç değişmeden çalışır. Bkz. [[lib/modules.ts]].
 
 import { prisma } from "@/lib/db/prisma"
-import {
-  DEFAULT_TRIAL_MODULE_KEYS,
-  MODULE_KEYS,
-  sanitizeDisabledModules,
-  withModuleDependencies,
-} from "@/lib/modules"
+import { MODULE_KEYS, sanitizeDisabledModules, withModuleDependencies } from "@/lib/modules"
 import type { BillingCycle } from "@/lib/billing/constants"
 
 /**
@@ -63,16 +58,14 @@ export function isPaidActive(sub: SubStatusView | null | undefined, now = new Da
 
 /**
  * Aboneliğe göre efektif AÇIK modül anahtarları:
- * - Deneme aktifse → opt-in OLMAYAN tüm modüller. Sektörel modüller (ör. Restoran
- *   & Kafe) denemeye dahil DEĞİLDİR; aksi halde alakasız sektörlerdeki her deneme
- *   hesabına o menü çıkardı. Bkz. lib/modules.ts ModuleDef.optIn
- * - Ücretli aktifse → satın alınan modüller.
- * - Aksi halde (yok/expired/cancelled) → hiçbiri.
+ * - Ücretli aktifse → satın alınan modüller (bağımlılıklarıyla, ör. restaurant → stock).
+ * - Aksi halde (deneme/yok/expired/cancelled) → hiçbiri.
  *
- * Her iki durumda da modül bağımlılıkları tamamlanır (ör. restaurant → stock).
+ * Modül YALNIZCA satın almayla açılır — deneme modül vermez. Deneme kavramı
+ * ölmedi, kapsamı daraldı: `isTrialActive` hâlâ şube kotası için okunur
+ * (bkz. app/api/companies/route.ts), ama modül yetkisi üretmez.
  */
 export function resolveGrantedModules(sub: SubStatusView | null | undefined, now = new Date()): string[] {
-  if (isTrialActive(sub, now)) return [...DEFAULT_TRIAL_MODULE_KEYS]
   if (isPaidActive(sub, now)) {
     return withModuleDependencies(sanitizeDisabledModules(sub!.purchasedModules))
   }

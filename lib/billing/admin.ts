@@ -109,7 +109,9 @@ export async function resetAccountBilling(companyId: string, mode: ResetMode) {
         periodEnd: trialEndsAt,
       },
     })
-    await applyEntitlements(rootId, [...MODULE_KEYS]) // deneme = tüm modüller açık
+    // Süper-admin override: modülleri elle açar. Deneme durumu KENDİLİĞİNDEN modül
+    // vermez (bkz. resolveGrantedModules) — bu satır bilinçli bir demo/destek açmasıdır.
+    await applyEntitlements(rootId, [...MODULE_KEYS])
   } else {
     // locked: mevcut abonelikleri EXPIRED'a çek (tarihleri geçmişe), modülleri kilitle.
     const past = new Date(now.getTime() - 24 * 60 * 60 * 1000)

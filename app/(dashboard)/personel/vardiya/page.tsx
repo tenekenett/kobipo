@@ -8,7 +8,7 @@
  * barın imleçten geri sıçraması jesti kullanılamaz hale getiriyordu. İstek
  * başarısızsa önceki liste geri yüklenir ve sebep toast ile söylenir.
  *
- * Gün ve hafta AYNI veriyi çeker (hafta görünümünde aralık yedi güne açılır),
+ * Gün ve hafta AYNI veriyi çeker (her iki görünümde de haftanın tamamı),
  * böylece görünüm değiştirmek yeniden yükleme beklemeden çalışır.
  */
 
@@ -22,30 +22,44 @@ import { cn } from "@/lib/utils"
 import {
   AlertTriangle,
   CalendarClock,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CopyPlus,
+  Eraser,
   LayoutGrid,
   Loader2,
   PartyPopper,
+  Send,
+  Undo2,
   Users,
   Wand2,
 } from "lucide-react"
-import { VardiyaTimeline, type TimelineLeave } from "@/components/personel/vardiya-timeline"
+import { CompanyLink } from "@/components/dashboard/company-link"
+import { ExportButton } from "@/components/export/export-button"
+import {
+  TIMELINE_NAME_WIDTH,
+  VardiyaTimeline,
+  type TimelineLeave,
+} from "@/components/personel/vardiya-timeline"
+import { VardiyaKapsama, type DemandHour } from "@/components/personel/vardiya-kapsama"
+import { VardiyaMobil } from "@/components/personel/vardiya-mobil"
 import { VardiyaHafta, type WeekShift } from "@/components/personel/vardiya-hafta"
 import { VardiyaDialog, type ShiftDraft } from "@/components/personel/vardiya-dialog"
 import { AcilisSaatiDialog } from "@/components/personel/acilis-saati-dialog"
 import { SablonDialog, type ShiftTemplate } from "@/components/personel/sablon-dialog"
 import { TopluDoldurDialog } from "@/components/personel/toplu-doldur-dialog"
 import { TatilDialog } from "@/components/personel/tatil-dialog"
+import { YayinlaDialog } from "@/components/personel/yayinla-dialog"
 import {
-  actualNetMinutes,
   durationLabel,
   dayTitle,
+  minuteToHHMM,
   netMinutes,
   shiftDayIso,
   todayIso,
   weekDaysIso,
+  weekRangeLabel,
   weekStartIso,
   weekdayOf,
 } from "@/lib/personel/vardiya"
@@ -53,6 +67,11 @@ import { gridWindow, openingOfDay, type OpeningHours } from "@/lib/personel/open
 import { holidayMap, holidayOn, type Holiday } from "@/lib/personel/tatil"
 import { laborWarnings, type LaborWarning } from "@/lib/personel/is-kanunu"
 import { HOURLY_BASIS_LABEL, laborCost } from "@/lib/personel/maliyet"
+import {
+  useCompanyHolidays,
+  useOpeningHours,
+  useShiftTemplates,
+} from "@/lib/swr/use-company-data"
 import { money } from "@/lib/format"
 
 type Employee = {
@@ -62,15 +81,47 @@ type Employee = {
   department?: string | null
   position?: string | null
   status: string
+  /** Yayın penceresi "kime ulaşılamayacak"ı buradan sayar. */
+  email?: string | null
   /** Prisma Decimal JSON'da string gelir; maliyet hesabından önce sayıya çevrilir. */
   grossSalary?: number | string | null
 }
 
+/** Haftanın yayın kaydı; hiç yayınlanmadıysa null. */
+type Publication = { publishedAt: string; notifiedCount: number; shiftCount: number }
+
+/**
+ * Geri alınabilir bir işlem.
+ *
+ * `move` barın eski konumunu taşır; `create` geri alınırken kayıt silinir;
+ * `delete` geri alınırken YENİDEN OLUŞTURULUR — id değişir, çünkü silinen satır
+ * gerçekten gitmiştir. Kullanıcı açısından fark yok: aynı personelin aynı
+ * saatteki vardiyası geri gelir.
+ */
+type UndoEntry =
+  | { kind: "move"; id: string; employeeId: string; start: number; end: number; label: string }
+  | { kind: "create"; id: string; label: string }
+  | {
+      kind: "delete"
+      shift: {
+        employeeId: string
+        workDate: string
+        plannedStart: number
+        plannedEnd: number
+        breakMinutes: number
+        note: string | null
+      }
+      label: string
+    }
+
+/** Yığın derinliği. Yirmi adım, bir planlama oturumunun tamamını kapsar. */
+const UNDO_LIMIT = 20
+
 type Shift = WeekShift & {
   note?: string | null
-  actualStart?: number | null
-  actualEnd?: number | null
   status?: string
+  updatedAt?: string | null
+  updatedByName?: string | null
 }
 
 type Leave = {
@@ -99,24 +150,51 @@ export default function VardiyaPage() {
   const [view, setView] = useState<View>("gun")
   const [day, setDay] = useState(todayIso())
   const [employees, setEmployees] = useState<Employee[]>([])
-  const [shifts, setShifts] = useState<Shift[]>([])
+  // Çekilen aralık haftadan bir gün geniş (aşağıya bkz.); ekrana çizilen liste
+  // `shifts`, komşu günler yalnız dinlenme denetiminde kullanılıyor.
+  const [allShifts, setAllShifts] = useState<Shift[]>([])
   const [leaves, setLeaves] = useState<Leave[]>([])
-  const [opening, setOpening] = useState<OpeningHours | null>(null)
-  const [templates, setTemplates] = useState<ShiftTemplate[]>([])
-  const [holidays, setHolidays] = useState<Holiday[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  /**
+   * Referans veriler SWR'den: şablon/tatil/açılış saati haftalarca değişmez ama
+   * takvim her hafta değişiminde üçünü de yeniden çekiyordu. `mutate` yazma
+   * işlemlerinden sonra önbelleği tazeler.
+   */
+  const { openingHours: opening, isLoading: openingLoading, mutate: mutateOpening } =
+    useOpeningHours(companyId)
+  const { templates, isLoading: templatesLoading, mutate: mutateTemplates } =
+    useShiftTemplates(companyId)
+  const { holidays, isLoading: holidaysLoading, mutate: mutateHolidays } =
+    useCompanyHolidays(companyId)
+  const [isLoadingData, setIsLoadingData] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [draft, setDraft] = useState<ShiftDraft | null>(null)
   const [openingOpen, setOpeningOpen] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [fillOpen, setFillOpen] = useState(false)
   const [tatilOpen, setTatilOpen] = useState(false)
+  const [publishOpen, setPublishOpen] = useState(false)
+  const [publication, setPublication] = useState<Publication | null>(null)
+  const [demand, setDemand] = useState<{ hours: DemandHour[]; sampleDays: number } | null>(null)
+  /**
+   * Geri alma yığını — TERS İŞLEMLER olarak tutulur, durum anlık görüntüsü olarak değil.
+   *
+   * Anlık görüntü geri yüklemek yerel ekranı düzeltir ama SUNUCUYU düzeltmez:
+   * kullanıcı Ctrl+Z'den sonra sayfayı yenilediğinde geri aldığı değişiklik geri
+   * gelirdi. Ters işlem ise aynı uçlardan geçtiği için kalıcı — ve tek tek
+   * uygulandığı için çakışma/izin denetimleri de aynı şekilde çalışır.
+   */
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([])
 
   const weekStart = useMemo(() => weekStartIso(day), [day])
   const weekDays = useMemo(() => weekDaysIso(weekStart), [weekStart])
   // Hafta görünümünde tüm hafta çekilir; gün görünümünde de aynı aralık kullanılır
   // ki görünüm değiştirince veri hazır olsun (yedi günlük sorgu zaten ucuz).
-  const range = { from: weekDays[0], to: weekDays[6] }
+  //
+  // Aralık haftanın BİR GÜN ÖNCESİNDEN BİR GÜN SONRASINA kadar: iki vardiya arası
+  // 11 saat dinlenme kuralı hafta sınırını aşıyor (Pazar 22:00–02:00'den sonra
+  // Pazartesi 08:00 vardiyası bir sonraki haftadadır). Komşu günler ekrana
+  // ÇİZİLMEZ, yalnız uyarı hesabına girer.
+  const range = { from: shiftDayIso(weekDays[0], -1), to: shiftDayIso(weekDays[6], 1) }
 
   const fail = useCallback(
     async (res: Response, fallback: string) => {
@@ -164,35 +242,73 @@ export default function VardiyaPage() {
     const res = await fetch(
       `/api/personel/shifts?companyId=${companyId}&from=${range.from}&to=${range.to}`,
     )
-    if (res.ok) setShifts(await res.json())
+    if (res.ok) setAllShifts(await res.json())
   }, [companyId, range.from, range.to])
 
   const load = useCallback(async () => {
     if (!companyId) return
-    setIsLoading(true)
+    setIsLoadingData(true)
     try {
-      const [empRes, shiftRes, leaveRes, openRes, tplRes, holRes] = await Promise.all([
+      // Referans veriler (şablon/tatil/açılış) burada YOK — onlar SWR'de ve
+      // hafta değişiminde yeniden çekilmiyor. Burada kalanlar aralığa bağlı.
+      const [empRes, shiftRes, leaveRes, pubRes] = await Promise.all([
         fetch(`/api/personel/employees?companyId=${companyId}&status=ACTIVE`),
         fetch(`/api/personel/shifts?companyId=${companyId}&from=${range.from}&to=${range.to}`),
-        fetch(`/api/personel/leaves?companyId=${companyId}&status=APPROVED`),
-        fetch(`/api/personel/opening-hours?companyId=${companyId}`),
-        fetch(`/api/personel/shift-templates?companyId=${companyId}`),
-        fetch(`/api/personel/holidays?companyId=${companyId}`),
+        // İzinler de yalnız görünen aralıktan: süzgeçsiz istek firmanın bütün
+        // geçmiş izinlerini getiriyordu ve takvim yıllar içinde ağırlaşıyordu.
+        fetch(
+          `/api/personel/leaves?companyId=${companyId}&status=APPROVED&from=${range.from}&to=${range.to}`,
+        ),
+        fetch(`/api/personel/shifts/publish?companyId=${companyId}&weekStart=${weekStart}`),
       ])
       if (empRes.ok) setEmployees(await empRes.json())
-      if (shiftRes.ok) setShifts(await shiftRes.json())
+      if (shiftRes.ok) setAllShifts(await shiftRes.json())
       if (leaveRes.ok) setLeaves(await leaveRes.json())
-      if (openRes.ok) setOpening((await openRes.json()).openingHours)
-      if (tplRes.ok) setTemplates(await tplRes.json())
-      if (holRes.ok) setHolidays(await holRes.json())
+      if (pubRes.ok) setPublication(await pubRes.json())
     } finally {
-      setIsLoading(false)
+      setIsLoadingData(false)
     }
-  }, [companyId, range.from, range.to])
+  }, [companyId, range.from, range.to, weekStart])
 
   useEffect(() => {
     load()
   }, [load])
+
+  /**
+   * Talep profili GÜNE bağlı (her hafta gününün kendi yoğunluk eğrisi var), o
+   * yüzden ana yüklemeden ayrı: gün değiştikçe yalnız bu istek tekrarlanır.
+   * Restoran modülü kapalıysa uç boş döner ve şerit sessizce çizilmez.
+   */
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+    fetch(`/api/personel/shifts/talep?companyId=${companyId}&weekday=${weekdayOf(day)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.enabled) return setDemand(null)
+        setDemand({ hours: data.hours ?? [], sampleDays: data.sampleDays ?? 0 })
+      })
+      .catch(() => setDemand(null))
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, day])
+
+  /**
+   * Ekranın gördüğü liste: yalnız haftanın kendi günleri.
+   *
+   * Toplamlar, maliyet ve hafta ızgarası bundan beslenir — komşu günler karışsaydı
+   * "haftalık plan" bir gün fazlasını sayardı.
+   */
+  const shifts = useMemo(
+    () => allShifts.filter((s) => s.workDate >= weekDays[0] && s.workDate <= weekDays[6]),
+    [allShifts, weekDays],
+  )
+  /** Hafta dışındaki komşu günler — sadece dinlenme süresi denetimi için. */
+  const adjacentShifts = useMemo(
+    () => allShifts.filter((s) => s.workDate < weekDays[0] || s.workDate > weekDays[6]),
+    [allShifts, weekDays],
+  )
 
   const dayShifts = useMemo(() => shifts.filter((s) => s.workDate === day), [shifts, day])
   const openingToday = useMemo(() => openingOfDay(opening, weekdayOf(day)), [opening, day])
@@ -246,11 +362,12 @@ export default function VardiyaPage() {
       const list = laborWarnings(
         shifts.filter((s) => s.employeeId === r.id),
         weekDays,
+        adjacentShifts.filter((s) => s.employeeId === r.id),
       )
       if (list.length > 0) map.set(r.id, list)
     }
     return map
-  }, [rows, shifts, weekDays])
+  }, [rows, shifts, adjacentShifts, weekDays])
 
   const warnedCount = warningsByEmployee.size
 
@@ -260,11 +377,29 @@ export default function VardiyaPage() {
     0,
   )
 
-  // Fiilî toplam yalnız iki ucu da damgalanmış vardiyalardan gelir; yarım damgayı
-  // saymak "eksik çalıştı" izlenimi verirdi.
-  const actualMinutes = visible.reduce((sum, s) => sum + (actualNetMinutes(s) ?? 0), 0)
-  const stampedCount = visible.filter((s) => actualNetMinutes(s) != null).length
   const absentCount = visible.filter((s) => s.status === "ABSENT").length
+
+
+  /**
+   * Yayından SONRA plan değişti mi?
+   *
+   * İki ölçü birlikte gerekiyor: değişen/eklenen vardiya `updatedAt` ile,
+   * SİLİNEN vardiya ise sayı farkıyla yakalanır — silinen kayıt arkasında hiçbir
+   * zaman damgası bırakmaz ve yalnız `updatedAt`e bakan bir denetim haftayı
+   * "yayınlandığı gibi duruyor" sanırdı.
+   */
+  const changedAfterPublish = useMemo(() => {
+    if (!publication) return false
+    if (publication.shiftCount !== shifts.length) return true
+    const published = new Date(publication.publishedAt).getTime()
+    return shifts.some((s) => s.updatedAt && new Date(s.updatedAt).getTime() > published)
+  }, [publication, shifts])
+
+  /** Yayın penceresi: bu hafta vardiyası olup e-posta adresi olmayan personel. */
+  const employeesWithoutEmail = useMemo(() => {
+    const withShift = new Set(shifts.map((s) => s.employeeId))
+    return employees.filter((e) => withShift.has(e.id) && !e.email).length
+  }, [employees, shifts])
 
   const grossById = useMemo(
     () => new Map(employees.map((e) => [e.id, e.grossSalary == null ? null : Number(e.grossSalary)])),
@@ -288,6 +423,78 @@ export default function VardiyaPage() {
     }
     return { cost, missing: missing.size }
   }, [visible, grossById])
+
+  // ---- Geri alma ------------------------------------------------------------
+
+  const pushUndo = useCallback((entry: UndoEntry) => {
+    setUndoStack((prev) => [...prev.slice(-(UNDO_LIMIT - 1)), entry])
+  }, [])
+
+  /**
+   * Son işlemi geri alır. Ters istek `force: true` ile gider: geri alınan şey
+   * kullanıcının zaten onayladığı bir durumdur, izin/tatil sorusunu ikinci kez
+   * sormak Ctrl+Z'yi kullanılamaz hale getirirdi.
+   */
+  const undo = useCallback(async () => {
+    if (!companyId) return
+    const entry = undoStack[undoStack.length - 1]
+    if (!entry) return
+    setUndoStack((prev) => prev.slice(0, -1))
+    setIsSaving(true)
+    try {
+      if (entry.kind === "move") {
+        const res = await fetch(`/api/personel/shifts/${entry.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId,
+            employeeId: entry.employeeId,
+            plannedStart: entry.start,
+            plannedEnd: entry.end,
+            force: true,
+          }),
+        })
+        if (!res.ok) return await fail(res, "Geri alınamadı")
+        const saved = await res.json()
+        setAllShifts((prev) => prev.map((s) => (s.id === entry.id ? saved : s)))
+      } else if (entry.kind === "create") {
+        const res = await fetch(`/api/personel/shifts/${entry.id}?companyId=${companyId}`, {
+          method: "DELETE",
+        })
+        if (!res.ok) return await fail(res, "Geri alınamadı")
+        setAllShifts((prev) => prev.filter((s) => s.id !== entry.id))
+      } else {
+        const res = await fetch("/api/personel/shifts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, ...entry.shift, force: true }),
+        })
+        if (!res.ok) return await fail(res, "Geri alınamadı")
+        const restored = await res.json()
+        setAllShifts((prev) => [...prev, restored])
+      }
+      toast({ title: "Geri alındı", description: entry.label })
+    } finally {
+      setIsSaving(false)
+    }
+  }, [companyId, undoStack, fail, toast])
+
+  /**
+   * Ctrl/Cmd+Z. Yazı alanındayken devreye GİRMEZ: pencerede not yazan kullanıcının
+   * Ctrl+Z'si metnini geri almalı, takvimdeki barı değil.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z") return
+      const el = e.target as HTMLElement | null
+      const tag = el?.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return
+      e.preventDefault()
+      undo()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [undo])
 
   // ---- Yazma ----------------------------------------------------------------
 
@@ -318,15 +525,20 @@ export default function VardiyaPage() {
     )
     if (!res) return false
     const created = await res.json()
-    setShifts((prev) => [...prev, created])
+    setAllShifts((prev) => [...prev, created])
+    pushUndo({ kind: "create", id: created.id, label: "Yeni vardiya kaldırıldı" })
     return true
   }
 
   /** Sürükleme sonucu: önce yerel, sonra sunucu; hata olursa geri al. */
   async function moveShift(id: string, next: { employeeId: string; start: number; end: number }) {
     if (!companyId) return
-    const before = shifts
-    setShifts((prev) =>
+    // Geri alma yedeği TAM listeden alınır (`shifts` haftaya kırpılmış türev):
+    // kırpılmışı geri yazmak komşu gün vardiyalarını düşürür ve dinlenme uyarısı
+    // sessizce kaybolurdu.
+    const before = allShifts
+    const previous = before.find((s) => s.id === id)
+    setAllShifts((prev) =>
       prev.map((s) =>
         s.id === id
           ? { ...s, employeeId: next.employeeId, plannedStart: next.start, plannedEnd: next.end }
@@ -349,11 +561,21 @@ export default function VardiyaPage() {
       "Vardiya güncellenemedi",
     )
     if (!res) {
-      setShifts(before)
+      setAllShifts(before)
       return
     }
     const saved = await res.json()
-    setShifts((prev) => prev.map((s) => (s.id === id ? saved : s)))
+    setAllShifts((prev) => prev.map((s) => (s.id === id ? saved : s)))
+    if (previous) {
+      pushUndo({
+        kind: "move",
+        id,
+        employeeId: previous.employeeId,
+        start: previous.plannedStart,
+        end: previous.plannedEnd,
+        label: `${minuteToHHMM(previous.plannedStart)}–${minuteToHHMM(previous.plannedEnd)} konumuna döndü`,
+      })
+    }
   }
 
   async function saveDraft(next: ShiftDraft) {
@@ -379,8 +601,6 @@ export default function VardiyaPage() {
               companyId,
               plannedStart: next.start,
               plannedEnd: next.end,
-              actualStart: next.actualStart ?? null,
-              actualEnd: next.actualEnd ?? null,
               absent: next.absent === true,
               breakMinutes: next.breakMinutes,
               note: next.note,
@@ -391,42 +611,13 @@ export default function VardiyaPage() {
       )
       if (!res) return
       const saved = await res.json()
-      setShifts((prev) => prev.map((s) => (s.id === next.id ? saved : s)))
+      setAllShifts((prev) => prev.map((s) => (s.id === next.id ? saved : s)))
       setDraft(null)
     } finally {
       setIsSaving(false)
     }
   }
 
-  /**
-   * Anlık damga. Dakika İSTEMCİDEN gider: sunucu üretimde UTC'de çalışıyor,
-   * "şimdi"yi orada okumak damgayı üç saat geri kaydırırdı.
-   */
-  async function clockShift(id: string, action: "in" | "out", minute: number) {
-    if (!companyId) return
-    setIsSaving(true)
-    try {
-      const res = await fetch(`/api/personel/shifts/${id}/clock`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, action, minute }),
-      })
-      if (!res.ok) {
-        await fail(res, "Damga kaydedilemedi")
-        return
-      }
-      const saved: Shift = await res.json()
-      setShifts((prev) => prev.map((x) => (x.id === id ? saved : x)))
-      // Açık pencere de damgayı görsün; aksi halde Kaydet eski değeri geri yazar.
-      setDraft((prev) =>
-        prev && prev.id === id
-          ? { ...prev, actualStart: saved.actualStart ?? null, actualEnd: saved.actualEnd ?? null }
-          : prev,
-      )
-    } finally {
-      setIsSaving(false)
-    }
-  }
 
   async function removeShift(id: string) {
     if (!companyId) return
@@ -440,13 +631,28 @@ export default function VardiyaPage() {
       return
     setIsSaving(true)
     try {
+      const removed = allShifts.find((s) => s.id === id)
       const res = await fetch(`/api/personel/shifts/${id}?companyId=${companyId}`, { method: "DELETE" })
       if (!res.ok) {
         await fail(res, "Vardiya silinemedi")
         return
       }
-      setShifts((prev) => prev.filter((s) => s.id !== id))
+      setAllShifts((prev) => prev.filter((s) => s.id !== id))
       setDraft(null)
+      if (removed) {
+        pushUndo({
+          kind: "delete",
+          shift: {
+            employeeId: removed.employeeId,
+            workDate: removed.workDate,
+            plannedStart: removed.plannedStart,
+            plannedEnd: removed.plannedEnd,
+            breakMinutes: removed.breakMinutes,
+            note: removed.note ?? null,
+          },
+          label: "Silinen vardiya geri geldi",
+        })
+      }
     } finally {
       setIsSaving(false)
     }
@@ -465,7 +671,7 @@ export default function VardiyaPage() {
         await fail(res, "Açılış saati kaydedilemedi")
         return
       }
-      setOpening((await res.json()).openingHours)
+      await mutateOpening()
       setOpeningOpen(false)
     } finally {
       setIsSaving(false)
@@ -491,10 +697,31 @@ export default function VardiyaPage() {
         await fail(res, "Şablon eklenemedi")
         return
       }
-      const created = await res.json()
-      setTemplates((prev) =>
-        [...prev, created].sort((a, b) => a.startMinute - b.startMinute),
-      )
+      await mutateTemplates()
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  /** Şablon güncelleme. Barlar kendi saatlerini taşır; burada ad/renk/kalıp değişir. */
+  async function updateTemplate(
+    id: string,
+    t: { name: string; startMinute: number; endMinute: number; breakMinutes: number; color: string },
+  ) {
+    if (!companyId) return
+    setIsSaving(true)
+    try {
+      const res = await fetch(`/api/personel/shift-templates/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...t, companyId }),
+      })
+      if (!res.ok) {
+        await fail(res, "Şablon güncellenemedi")
+        return
+      }
+      // Şablonun adı/rengi barlarda görünür: takvimi tazelemezsek eski ad kalır.
+      await Promise.all([mutateTemplates(), loadShifts()])
     } finally {
       setIsSaving(false)
     }
@@ -511,7 +738,7 @@ export default function VardiyaPage() {
         await fail(res, "Şablon kaldırılamadı")
         return
       }
-      setTemplates((prev) => prev.filter((t) => t.id !== id))
+      await mutateTemplates()
     } finally {
       setIsSaving(false)
     }
@@ -550,6 +777,88 @@ export default function VardiyaPage() {
     }
   }
 
+  /**
+   * Haftayı yayınla. E-posta gönderimi yayını BLOKLAMAZ; sonuç kaç kişiye
+   * ulaşıldığını ve kaçının adresi olmadığını ayrı ayrı söyler, çünkü "yayınlandı"
+   * ile "personel haberdar oldu" aynı şey değil.
+   */
+  async function publish(notify: boolean) {
+    if (!companyId) return
+    setIsSaving(true)
+    try {
+      const res = await fetch("/api/personel/shifts/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, weekStart, notify }),
+      })
+      if (!res.ok) {
+        await fail(res, "Plan yayınlanamadı")
+        return
+      }
+      const result = await res.json()
+      setPublication({
+        publishedAt: result.publishedAt,
+        notifiedCount: result.notified,
+        shiftCount: result.shiftCount,
+      })
+      const parts = [
+        notify ? `${result.notified} personele gönderildi` : null,
+        result.missingEmail > 0 ? `${result.missingEmail} kişinin e-postası yok` : null,
+        result.failed > 0 ? `${result.failed} gönderim başarısız` : null,
+      ].filter(Boolean)
+      toast({
+        title: "Plan yayınlandı",
+        description: parts.length > 0 ? parts.join(" · ") : undefined,
+      })
+      setPublishOpen(false)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  /**
+   * Haftayı temizle. Damgalı vardiyalar KORUNUR (sunucu da öyle davranıyor):
+   * plan yeniden çizilebilir, fiilen çalışılmış saat geri gelmez.
+   */
+  async function clearWeek() {
+    if (!companyId) return
+    const stamped = shifts.filter(
+      (s) => s.status !== "PLANNED",
+    ).length
+    const removable = shifts.length - stamped
+    if (
+      !(await confirm({
+        title: `${removable} vardiya silinecek`,
+        description:
+          stamped > 0
+            ? `${weekRangeLabel(weekStart)} haftasındaki planlı vardiyalar kaldırılacak. Damgalı ${stamped} vardiya korunur.`
+            : `${weekRangeLabel(weekStart)} haftasındaki tüm vardiyalar kaldırılacak.`,
+        confirmLabel: "Temizle",
+        variant: "destructive",
+      }))
+    )
+      return
+    setIsSaving(true)
+    try {
+      const res = await fetch(
+        `/api/personel/shifts/bulk?companyId=${companyId}&from=${weekDays[0]}&to=${weekDays[6]}`,
+        { method: "DELETE" },
+      )
+      if (!res.ok) {
+        await fail(res, "Hafta temizlenemedi")
+        return
+      }
+      const { deleted, kept } = await res.json()
+      await loadShifts()
+      toast({
+        title: `${deleted} vardiya silindi`,
+        description: kept > 0 ? `${kept} damgalı vardiya korundu.` : undefined,
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   async function createHoliday(h: {
     name: string
     date: string
@@ -568,8 +877,7 @@ export default function VardiyaPage() {
         await fail(res, "Tatil eklenemedi")
         return
       }
-      const created = await res.json()
-      setHolidays((prev) => [...prev, created])
+      await mutateHolidays()
     } finally {
       setIsSaving(false)
     }
@@ -586,7 +894,7 @@ export default function VardiyaPage() {
         await fail(res, "Tatil kaldırılamadı")
         return
       }
-      setHolidays((prev) => prev.filter((h) => h.id !== id))
+      await mutateHolidays()
     } finally {
       setIsSaving(false)
     }
@@ -607,8 +915,7 @@ export default function VardiyaPage() {
         return
       }
       const { created, message } = await res.json()
-      const list = await fetch(`/api/personel/holidays?companyId=${companyId}`)
-      if (list.ok) setHolidays(await list.json())
+      await mutateHolidays()
       toast({ title: created > 0 ? `${created} tatil eklendi` : message || "Değişiklik yok" })
     } finally {
       setIsSaving(false)
@@ -670,6 +977,15 @@ export default function VardiyaPage() {
           <Button variant="outline" onClick={() => setDay(todayIso())}>
             Bugün
           </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={undo}
+            disabled={undoStack.length === 0 || isSaving}
+            title="Son değişikliği geri al (Ctrl+Z)"
+          >
+            <Undo2 className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
@@ -679,7 +995,6 @@ export default function VardiyaPage() {
         </span>
         <span className="text-sm text-muted-foreground">
           {visible.length} vardiya · plan {durationLabel(totalMinutes)}
-          {stampedCount > 0 && <> · fiilî {durationLabel(actualMinutes)}</>}
         </span>
         {plannedCost.cost > 0 && (
           <span
@@ -717,7 +1032,42 @@ export default function VardiyaPage() {
             Bu gün için açılış saati tanımlı değil
           </span>
         )}
+        {/* Yayın durumu: hafta personele gitti mi, gittiyse o günden sonra
+            değişti mi. "Yayınlandı" tek başına yeterli değil — sonradan oynanan
+            bir plan personelin elindekiyle uyuşmuyor demektir. */}
+        {publication ? (
+          changedAfterPublish ? (
+            <span
+              className="flex items-center gap-1 text-sm text-amber-600 dark:text-amber-400"
+              title={`${new Date(publication.publishedAt).toLocaleString("tr-TR")} tarihinde yayınlandı; o tarihten sonra plan değişti.`}
+            >
+              <AlertTriangle className="h-4 w-4" />
+              Yayından sonra değişti
+            </span>
+          ) : (
+            <span
+              className="flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400"
+              title={`${new Date(publication.publishedAt).toLocaleString("tr-TR")} · ${publication.notifiedCount} personele gönderildi`}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              Yayında
+            </span>
+          )
+        ) : (
+          <span className="text-sm text-muted-foreground">Yayınlanmadı</span>
+        )}
         <div className="ml-auto flex flex-wrap gap-2">
+          <Button
+            variant={publication && !changedAfterPublish ? "outline" : "default"}
+            size="sm"
+            onClick={() => setPublishOpen(true)}
+            // Yayın HAFTAYA aittir: gün görünümündeyken bile ölçü haftanın
+            // tamamıdır, o günün boş olması yayını engellemez.
+            disabled={shifts.length === 0}
+          >
+            <Send className="mr-1 h-4 w-4" />
+            {publication ? "Yeniden yayınla" : "Yayınla"}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setFillOpen(true)}>
             <Wand2 className="mr-1 h-4 w-4" /> Şablondan doldur
           </Button>
@@ -739,16 +1089,35 @@ export default function VardiyaPage() {
           >
             <CopyPlus className="mr-1 h-4 w-4" /> Geçen haftayı kopyala
           </Button>
+          {/* Çizelge çıktısı: mutfak duvarına asılan kâğıt. Dataset puantajla
+              aynı katmandan geçer (lib/export), formatları oradan gelir. */}
+          <ExportButton
+            dataset="personel-vardiya"
+            companyId={companyId}
+            params={{ weekStart }}
+            disabled={shifts.length === 0}
+          />
           <Button variant="outline" size="sm" onClick={() => setTemplatesOpen(true)}>
             <LayoutGrid className="mr-1 h-4 w-4" /> Şablonlar
           </Button>
           <Button variant="outline" size="sm" onClick={() => setTatilOpen(true)}>
             <PartyPopper className="mr-1 h-4 w-4" /> Tatiller
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={clearWeek}
+            disabled={isSaving || shifts.length === 0}
+            className="text-red-600 hover:text-red-700 dark:text-red-400"
+          >
+            <Eraser className="mr-1 h-4 w-4" /> Haftayı temizle
+          </Button>
         </div>
       </div>
 
-      {isLoading ? (
+      {/* Referans veriler de beklenir: açılış saati gelmeden ızgara varsayılan
+          8–20 penceresiyle çizilip sonra sıçrıyordu. */}
+      {isLoadingData || openingLoading || templatesLoading || holidaysLoading ? (
         <div className="flex items-center justify-center p-12 text-muted-foreground">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" />
           Takvim yükleniyor...
@@ -758,54 +1127,74 @@ export default function VardiyaPage() {
           <Users className="h-8 w-8" />
           <p>Aktif personel yok. Önce Personeller ekranından personel ekleyin.</p>
         </div>
-      ) : view === "gun" ? (
-        <VardiyaTimeline
-          employees={rows}
-          shifts={dayShifts}
-          leaves={dayLeaves}
-          opening={openingToday}
-          holiday={holidayToday}
-          window={win}
-          onCreate={(d) => createShift(d)}
-          onUpdate={moveShift}
-          onOpenShift={(s) => openEditor(s.id)}
-          onOpenOpening={() => setOpeningOpen(true)}
-        />
       ) : (
-        <VardiyaHafta
-          days={weekDays}
-          employees={rows}
-          shifts={shifts}
-          leaveDays={leaveMap}
-          holidays={weekHolidays}
-          warningsByEmployee={warningsByEmployee}
-          today={todayIso()}
-          onOpenShift={(s) => openEditor(s.id)}
-          onAddShift={(employeeId, d) => {
-            const emp = rows.find((r) => r.id === employeeId)
-            const t = templates[0]
-            const open = openingOfDay(opening, weekdayOf(d))
-            setDraft({
-              employeeId,
-              employeeName: emp?.name || "",
-              workDate: d,
-              // Varsayılan saat: ilk şablon → o günün açılış saati → 09:00-17:00.
-              start: t?.startMinute ?? open?.start ?? 9 * 60,
-              end: t?.endMinute ?? open?.end ?? 17 * 60,
-              breakMinutes: t?.breakMinutes ?? 0,
-              note: "",
-            })
-          }}
-        />
+        <>
+          {/* Mobil liste ve ızgara AYNI ANDA render edilir, CSS ile ayrışır.
+              Ekran genişliğini JS'te ölçüp birini seçmek, ilk çizimde yanlış
+              görünümü gösterip sonra atlıyordu (hydration uyuşmazlığı). */}
+          <div className="lg:hidden">
+            <VardiyaMobil
+              days={view === "gun" ? [day] : weekDays}
+              employees={rows}
+              shifts={view === "gun" ? dayShifts : shifts}
+              leaveDays={leaveMap}
+              holidays={weekHolidays}
+              today={todayIso()}
+              onOpenShift={(s) => openEditor(s.id)}
+              onAddShift={openDraftFor}
+            />
+          </div>
+          <div className="hidden lg:block lg:space-y-4">
+            {view === "gun" ? (
+              <>
+                <VardiyaTimeline
+                  employees={rows}
+                  shifts={dayShifts}
+                  leaves={dayLeaves}
+                  opening={openingToday}
+                  holiday={holidayToday}
+                  window={win}
+                  onCreate={(d) => createShift(d)}
+                  onUpdate={moveShift}
+                  onOpenShift={(s) => openEditor(s.id)}
+                  onOpenOpening={() => setOpeningOpen(true)}
+                />
+                {/* Kapsama şeridi ızgaranın hemen ALTINDA ve aynı eksende: ayrı
+                    bir sekmeye konsaydı planlama sırasında kimse bakmazdı. */}
+                {dayShifts.length > 0 && (
+                  <VardiyaKapsama
+                    shifts={dayShifts}
+                    window={win}
+                    demand={demand?.hours}
+                    sampleDays={demand?.sampleDays}
+                    nameWidth={TIMELINE_NAME_WIDTH}
+                  />
+                )}
+              </>
+            ) : (
+              <VardiyaHafta
+                days={weekDays}
+                employees={rows}
+                shifts={shifts}
+                leaveDays={leaveMap}
+                holidays={weekHolidays}
+                warningsByEmployee={warningsByEmployee}
+                today={todayIso()}
+                onOpenShift={(s) => openEditor(s.id)}
+                onAddShift={openDraftFor}
+              />
+            )}
+          </div>
+        </>
       )}
 
       <VardiyaDialog
         draft={draft}
+        employees={rows.map((r) => ({ id: r.id, name: r.name }))}
         isSaving={isSaving}
         onClose={() => setDraft(null)}
         onSave={saveDraft}
         onDelete={removeShift}
-        onClock={clockShift}
       />
       <AcilisSaatiDialog
         open={openingOpen}
@@ -820,6 +1209,7 @@ export default function VardiyaPage() {
         isSaving={isSaving}
         onClose={() => setTemplatesOpen(false)}
         onCreate={createTemplate}
+        onUpdate={updateTemplate}
         onDelete={removeTemplate}
       />
       <TatilDialog
@@ -831,6 +1221,16 @@ export default function VardiyaPage() {
         onDelete={removeHoliday}
         onSeed={seedHolidays}
       />
+      <YayinlaDialog
+        open={publishOpen}
+        weekLabel={weekRangeLabel(weekStart)}
+        shiftCount={shifts.length}
+        employeesWithoutEmail={employeesWithoutEmail}
+        isPublished={publication != null}
+        isSaving={isSaving}
+        onClose={() => setPublishOpen(false)}
+        onPublish={publish}
+      />
       <TopluDoldurDialog
         open={fillOpen}
         templates={templates}
@@ -838,8 +1238,13 @@ export default function VardiyaPage() {
         days={view === "gun" ? [day] : weekDays}
         isSaving={isSaving}
         onClose={() => setFillOpen(false)}
-        onApply={({ templateId, employeeIds, days }) =>
-          runBulk({ mode: "template", templateId, employeeIds, days }, "Tüm günlerde zaten vardiya var")
+        onApply={({ mode, templateId, employeeIds, days, cycle, stagger }) =>
+          runBulk(
+            mode === "rotation"
+              ? { mode, employeeIds, days, cycle, stagger }
+              : { mode: "template", templateId, employeeIds, days },
+            "Tüm günlerde zaten vardiya var",
+          )
         }
         onManageTemplates={() => {
           setFillOpen(false)
@@ -848,6 +1253,29 @@ export default function VardiyaPage() {
       />
     </div>
   )
+
+  /**
+   * Boş bir hücreden yeni vardiya taslağı açar.
+   *
+   * Hafta ızgarası ve mobil liste AYNI varsayılanı kullanmalı: saatler iki yerde
+   * ayrı hesaplansaydı aynı boş güne masaüstünden ve telefondan eklenen vardiya
+   * farklı saatte başlardı.
+   */
+  function openDraftFor(employeeId: string, d: string) {
+    const emp = rows.find((r) => r.id === employeeId)
+    const t = templates[0]
+    const open = openingOfDay(opening, weekdayOf(d))
+    setDraft({
+      employeeId,
+      employeeName: emp?.name || "",
+      workDate: d,
+      // Varsayılan saat: ilk şablon → o günün açılış saati → 09:00-17:00.
+      start: t?.startMinute ?? open?.start ?? 9 * 60,
+      end: t?.endMinute ?? open?.end ?? 17 * 60,
+      breakMinutes: t?.breakMinutes ?? 0,
+      note: "",
+    })
+  }
 
   /** İki görünüm de aynı düzenleyiciyi açar; kayıt listeden id ile bulunur. */
   function openEditor(id: string) {
@@ -861,11 +1289,11 @@ export default function VardiyaPage() {
       workDate: s.workDate,
       start: s.plannedStart,
       end: s.plannedEnd,
-      actualStart: s.actualStart ?? null,
-      actualEnd: s.actualEnd ?? null,
       absent: s.status === "ABSENT",
       breakMinutes: s.breakMinutes,
       note: s.note || "",
+      updatedAt: s.updatedAt ?? null,
+      updatedByName: s.updatedByName ?? null,
     })
   }
 }

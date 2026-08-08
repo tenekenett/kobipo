@@ -6,6 +6,11 @@
  * Liste + satır içi ekleme tek pencerede: şablon tanımlamak toplu doldurmanın
  * ön adımı, iki ayrı ekrana bölünürse kullanıcı doldurma penceresini kapatıp
  * geri gelmek zorunda kalıyor.
+ *
+ * DÜZENLEME de aynı formda: şablon düzeltmenin tek yolu sil-yeniden oluştur
+ * olduğu sürece, silme pasife aldığı için (`isActive:false`) o şablondan üretilmiş
+ * geçmiş vardiyalar barlarının adını ve rengini koruyordu ama saat düzeltmek her
+ * seferinde yeni bir şablon bırakıyordu. Aynı kaydı güncellemek geçmişi de düzeltir.
  */
 
 import { useState } from "react"
@@ -13,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Loader2, Plus, Trash2 } from "lucide-react"
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { DAY_MINUTES, durationLabel, hhmmToMinute, minuteToHHMM, netMinutes } from "@/lib/personel/vardiya"
 import {
@@ -31,19 +36,29 @@ export type ShiftTemplate = {
   color: string | null
 }
 
+type TemplateInput = {
+  name: string
+  startMinute: number
+  endMinute: number
+  breakMinutes: number
+  color: ShiftColor
+}
+
 export function SablonDialog({
   open,
   templates,
   isSaving,
   onClose,
   onCreate,
+  onUpdate,
   onDelete,
 }: {
   open: boolean
   templates: ShiftTemplate[]
   isSaving: boolean
   onClose: () => void
-  onCreate: (t: { name: string; startMinute: number; endMinute: number; breakMinutes: number; color: ShiftColor }) => void
+  onCreate: (t: TemplateInput) => void
+  onUpdate: (id: string, t: TemplateInput) => void
   onDelete: (id: string) => void
 }) {
   const [name, setName] = useState("")
@@ -53,10 +68,36 @@ export function SablonDialog({
   const [brk, setBrk] = useState("60")
   const [color, setColor] = useState<ShiftColor>("blue")
   const [error, setError] = useState<string | null>(null)
+  /** Düzenlenen şablonun id'si; null ise form yeni kayıt açar. */
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   if (!open) return null
 
-  function add() {
+  function reset() {
+    setEditingId(null)
+    setName("")
+    setStart("09:00")
+    setEnd("17:00")
+    setNextDay(false)
+    setBrk("60")
+    setColor("blue")
+    setError(null)
+  }
+
+  function startEdit(t: ShiftTemplate) {
+    setEditingId(t.id)
+    setName(t.name)
+    setStart(minuteToHHMM(t.startMinute))
+    // Gece şablonunda bitiş 1440'ı aşar; `type="time"` bunu gösteremediği için
+    // gün bilgisi ayrı anahtarda tutulur (vardiya penceresiyle aynı desen).
+    setEnd(minuteToHHMM(t.endMinute))
+    setNextDay(t.endMinute > DAY_MINUTES)
+    setBrk(String(t.breakMinutes))
+    setColor(((t.color as ShiftColor) ?? "blue") || "blue")
+    setError(null)
+  }
+
+  function submit() {
     const s = hhmmToMinute(start)
     const rawEnd = hhmmToMinute(end)
     const e = rawEnd == null ? null : rawEnd + (nextDay ? DAY_MINUTES : 0)
@@ -68,15 +109,17 @@ export function SablonDialog({
       setError("Bitiş başlangıçtan sonra olmalı — gece vardiyasında 'ertesi gün' işaretleyin")
       return
     }
-    setError(null)
-    onCreate({
+    const input: TemplateInput = {
       name: name.trim(),
       startMinute: s,
       endMinute: e,
       breakMinutes: Math.max(0, Math.round(Number(brk) || 0)),
       color,
-    })
-    setName("")
+    }
+    setError(null)
+    if (editingId) onUpdate(editingId, input)
+    else onCreate(input)
+    reset()
   }
 
   return (
@@ -95,7 +138,12 @@ export function SablonDialog({
             templates.map((t) => (
               <div
                 key={t.id}
-                className="flex items-center gap-3 rounded-lg border border-border/70 px-3 py-2"
+                className={cn(
+                  "flex items-center gap-3 rounded-lg border px-3 py-2",
+                  editingId === t.id
+                    ? "border-kobipo-blue bg-kobipo-blue/5 dark:border-primary dark:bg-primary/10"
+                    : "border-border/70",
+                )}
               >
                 <span
                   className={cn(
@@ -113,7 +161,20 @@ export function SablonDialog({
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => onDelete(t.id)}
+                  onClick={() => startEdit(t)}
+                  disabled={isSaving}
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  title="Şablonu düzenle"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    if (editingId === t.id) reset()
+                    onDelete(t.id)
+                  }}
                   disabled={isSaving}
                   className="h-8 w-8 text-muted-foreground hover:text-red-600"
                   title="Şablonu kaldır"
@@ -126,7 +187,9 @@ export function SablonDialog({
         </div>
 
         <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-3">
-          <p className="text-sm font-semibold">Yeni şablon</p>
+          <p className="text-sm font-semibold">
+            {editingId ? "Şablonu düzenle" : "Yeni şablon"}
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="sablon-ad">Ad</Label>
@@ -197,10 +260,32 @@ export function SablonDialog({
 
           {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-          <Button onClick={add} disabled={isSaving} size="sm">
-            {isSaving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plus className="mr-1 h-4 w-4" />}
-            Şablon ekle
-          </Button>
+          {/* Düzenlemede saat değişikliği GEÇMİŞ vardiyaları oynatmaz: bar kendi
+              kaydettiği saati taşır, şablon yalnız ad ve renk için bağlıdır. */}
+          {editingId && (
+            <p className="text-xs text-muted-foreground">
+              Değişiklik yalnız bundan sonra açılacak vardiyaları etkiler; mevcut barların
+              saati değişmez, adı ve rengi güncellenir.
+            </p>
+          )}
+
+          <div className="flex gap-2">
+            <Button onClick={submit} disabled={isSaving} size="sm">
+              {isSaving ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : editingId ? (
+                <Pencil className="mr-1 h-4 w-4" />
+              ) : (
+                <Plus className="mr-1 h-4 w-4" />
+              )}
+              {editingId ? "Kaydet" : "Şablon ekle"}
+            </Button>
+            {editingId && (
+              <Button variant="ghost" size="sm" onClick={reset} disabled={isSaving}>
+                Vazgeç
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="flex justify-end pt-2">

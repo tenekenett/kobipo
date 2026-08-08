@@ -300,6 +300,7 @@ model Company {
   productOptionGroups     ProductOptionGroup[]
   workShifts              WorkShift[]
   shiftTemplates          ShiftTemplate[]
+  shiftPublications       ShiftPublication[]
   holidays                CompanyHoliday[]
 
   @@index([parentCompanyId])
@@ -2085,6 +2086,11 @@ model WorkShift {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   createdBy    String?
+  // Kaydı en son değiştiren. `updatedAt` "ne zaman"ı söylüyordu ama "kim"i değil;
+  // bordro itirazında ("bu vardiyayı ben böyle yazmadım") cevap verilemiyordu.
+  // Kiosktan atılan damgada da bu alan yazılır: değeri "kiosk:<employeeId>" olur,
+  // çünkü damgayı atan bir Kobipo kullanıcısı değildir.
+  updatedBy    String?
 
   company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   employee Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
@@ -2121,6 +2127,36 @@ model CompanyHoliday {
 
   @@index([companyId, date])
   @@map("company_holidays")
+}
+
+// Bir haftalık vardiya planının YAYINLANMASI.
+//
+// NEDEN VARDİYADA DEĞİL DE AYRI TABLODA: yayın haftanın tamamına ait bir olaydır
+// ("bu hafta kesinleşti, personele gitti"), tek tek vardiyaların değil. Her
+// vardiyaya `publishedAt` konsaydı yayından sonra eklenen bir bar sessizce
+// "yayınlanmamış" kalır ve haftanın durumu belirsizleşirdi. Burada hafta ya
+// yayındadır ya değildir; yayından sonraki değişiklikler vardiyanın `updatedAt`
+// alanıyla karşılaştırılıp "yayından sonra değişti" olarak gösterilir.
+//
+// `weekStart` her zaman PAZARTESİ'dir (lib/personel/vardiya.ts `weekStartIso`).
+model ShiftPublication {
+  id          String   @id @default(cuid())
+  companyId   String
+  weekStart   DateTime @db.Date
+  publishedAt DateTime @default(now())
+  publishedBy String?
+  // Kaç personele e-posta gitti — "yayınlandı ama kimseye ulaşmadı" ayırt edilsin.
+  notifiedCount Int    @default(0)
+  // Yayın anındaki vardiya sayısı. "Yayından sonra değişti mi" sorusu tek başına
+  // `updatedAt` ile cevaplanamıyor: SİLİNEN bir vardiya hiçbir zaman damgası
+  // bırakmaz ve hafta sessizce yayınlanandan farklı hale gelirdi.
+  shiftCount    Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, weekStart])
+  @@index([companyId, weekStart])
+  @@map("shift_publications")
 }
 
 // Tekrar eden vardiya kalıbı ("Sabah 09:00–17:00") — takvimi tek tıkla doldurmak için.

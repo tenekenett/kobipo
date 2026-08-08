@@ -10,6 +10,7 @@ import {
   isPaidActive,
   isTrialActive,
 } from "@/lib/billing/entitlements"
+import { MODULE_KEYS } from "@/lib/modules"
 import { Prisma } from "@prisma/client"
 
 export const dynamic = 'force-dynamic'
@@ -136,6 +137,7 @@ export async function POST(request: Request) {
       CompanyRow,
       | "taxNumber"
       | "taxOffice"
+      | "disabledModules"
       | "isEDonusumEnabled"
       | "eDonusumIntegrator"
       | "eDonusumProvider"
@@ -272,6 +274,11 @@ export async function POST(request: Request) {
           parentCompanyId: inherited ? normalizedParentId : null,
           taxNumber: inherited ? inherited.taxNumber : normalizedTaxNumber,
           taxOffice: inherited ? inherited.taxOffice : normalizedTaxOffice,
+          // Modül yetkisi YALNIZCA satın almayla açılır: yeni hesap tüm modüller kapalı
+          // doğar, ödeme callback'i `applyEntitlements` ile açar. Şube kendi yetkisini
+          // taşımaz — abonelik hesap düzeyindedir, o yüzden ana firmanınkini devralır
+          // (aksi halde kilitli bir hesabın şubesi boş listeyle tamamen açık doğardı).
+          disabledModules: inherited ? inherited.disabledModules : [...MODULE_KEYS],
           isEDonusumEnabled: inherited ? inherited.isEDonusumEnabled : Boolean(isEDonusumEnabled),
           ...(inherited
             ? {
@@ -318,45 +325,9 @@ export async function POST(request: Request) {
         },
       })
 
-      if (userCompanyCount === 0) {
-        const now = new Date()
-        const trialEndsAt = new Date(now)
-        trialEndsAt.setFullYear(trialEndsAt.getFullYear() + 1)
-
-        const freePlan = await tx.plan.upsert({
-          where: { code: "FREE_1Y" },
-          update: {
-            name: "Ucretsiz (1 Yil)",
-            monthlyPrice: 0,
-            maxCompanies: 1,
-            maxUsers: 1,
-            maxInvoicesPerMonth: 100,
-            isActive: true,
-          },
-          create: {
-            code: "FREE_1Y",
-            name: "Ucretsiz (1 Yil)",
-            monthlyPrice: 0,
-            maxCompanies: 1,
-            maxUsers: 1,
-            maxInvoicesPerMonth: 100,
-            isActive: true,
-          },
-        })
-
-        await tx.subscription.create({
-          data: {
-            userId: user.id,
-            companyId: createdCompany.id,
-            planId: freePlan.id,
-            provider: "NONE",
-            status: "TRIAL",
-            trialEndsAt,
-            periodStart: now,
-            periodEnd: trialEndsAt,
-          },
-        })
-      }
+      // İlk firmaya 1 yıllık FREE_1Y denemesi AÇILMAZ. Modül yetkisi yalnızca satın
+      // almayla gelir; abonelik satırı ilk ödemede (PayTR callback) oluşur. Abonelik
+      // yokken `currentMaxCompanies` zaten 1 — ikinci bağımsız firma limiti değişmedi.
 
       return createdCompany
     })

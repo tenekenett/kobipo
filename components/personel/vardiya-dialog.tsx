@@ -6,6 +6,13 @@
  * Sürükleme kaba ayar (15 dk ızgara), bu pencere ince ayar: dakikası dakikasına
  * saat, mola ve not. İkisi aynı veriye yazar; bu yüzden saat alanları da dakika
  * cinsine çevrilir (lib/personel/vardiya.ts).
+ *
+ * FİİLÎ GİRİŞ/ÇIKIŞ YOK. Takvim bir PLANDIR: personelin planına uyduğu varsayılır,
+ * yalnız GELMEDİĞİ ayrıca işaretlenir. Damga alanları (giriş/çıkış saati, "Şimdi"
+ * düğmesi, gecikme/mesai sapması) bilinçli olarak kaldırıldı — işletme fiilî
+ * saat takibi yapmıyor ve doldurulmayan alanlar puantajı "eksik" gösteriyordu.
+ * Veritabanındaki `actualStart/actualEnd` alanları duruyor; ileride istenirse
+ * özellik yalnız arayüz tarafında geri açılır.
  */
 
 import { useEffect, useState } from "react"
@@ -18,8 +25,6 @@ import { Loader2, Trash2 } from "lucide-react"
 import {
   DAY_MINUTES,
   MIN_SHIFT_MINUTES,
-  actualNetMinutes,
-  deviationLabel,
   durationLabel,
   hhmmToMinute,
   minuteToHHMM,
@@ -34,32 +39,38 @@ export type ShiftDraft = {
   workDate?: string
   start: number
   end: number
-  /** Fiilî giriş/çıkış — boş bırakılabilir (henüz damgalanmadı). */
-  actualStart?: number | null
-  actualEnd?: number | null
+  /** Personel bu vardiyaya gelmedi mi — planın tek istisnası. */
   absent?: boolean
   breakMinutes: number
   note: string
+  /** Denetim izi — pencerenin altında "kim, ne zaman" satırı olarak görünür. */
+  updatedAt?: string | null
+  updatedByName?: string | null
 }
 
 export function VardiyaDialog({
   draft,
+  employees,
   isSaving,
   onClose,
   onSave,
   onDelete,
-  onClock,
 }: {
   draft: ShiftDraft | null
+  /**
+   * Personel seçimi YALNIZ yeni vardiyada gösterilir.
+   *
+   * Izgarada bar zaten bir satıra (kişiye) çizilir, orada seçim gereksiz. Ama
+   * mobil listede satır kavramı yok: "Vardiya ekle" düğmesi kimin adına
+   * eklendiğini soramadığı sürece hep ilk personele yazıyordu ve düzeltmenin
+   * yolu da yoktu. Mevcut bir vardiyanın personelini değiştirmek ise taşımadır
+   * ve ızgarada sürükleyerek yapılır.
+   */
+  employees: { id: string; name: string }[]
   isSaving: boolean
   onClose: () => void
   onSave: (next: ShiftDraft) => void
   onDelete: (id: string) => void
-  /**
-   * "Şimdi" damgası — Kaydet'i BEKLEMEDEN yazar. Damga anlık bir olaydır: forma
-   * yazıp kaydetmeyi unutmak, geçmişe dönük düzeltilmesi gereken bir kayıt bırakır.
-   */
-  onClock: (id: string, action: "in" | "out", minute: number) => void
 }) {
   const [start, setStart] = useState("09:00")
   const [end, setEnd] = useState("17:00")
@@ -69,23 +80,18 @@ export function VardiyaDialog({
   const [nextDay, setNextDay] = useState(false)
   const [breakMinutes, setBreakMinutes] = useState("0")
   const [note, setNote] = useState("")
-  // Fiilî damgalar boş string ile "damgalanmadı"yı taşır: type="time" null tutamıyor.
-  const [actualIn, setActualIn] = useState("")
-  const [actualOut, setActualOut] = useState("")
-  const [outNextDay, setOutNextDay] = useState(false)
   const [absent, setAbsent] = useState(false)
+  const [employeeId, setEmployeeId] = useState("")
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!draft) return
+    setEmployeeId(draft.employeeId)
     setStart(minuteToHHMM(draft.start))
     setEnd(minuteToHHMM(draft.end))
     setNextDay(draft.end > DAY_MINUTES)
     setBreakMinutes(String(draft.breakMinutes))
     setNote(draft.note || "")
-    setActualIn(draft.actualStart != null ? minuteToHHMM(draft.actualStart) : "")
-    setActualOut(draft.actualEnd != null ? minuteToHHMM(draft.actualEnd) : "")
-    setOutNextDay((draft.actualEnd ?? 0) > DAY_MINUTES)
     setAbsent(draft.absent === true)
     setError(null)
   }, [draft])
@@ -99,24 +105,6 @@ export function VardiyaDialog({
   const e = rawEnd == null ? null : rawEnd + (nextDay ? DAY_MINUTES : 0)
   const brk = Math.max(0, Math.round(Number(breakMinutes) || 0))
   const valid = s != null && e != null && e - s >= MIN_SHIFT_MINUTES
-
-  const aIn = actualIn ? hhmmToMinute(actualIn) : null
-  const rawOut = actualOut ? hhmmToMinute(actualOut) : null
-  const aOut = rawOut == null ? null : rawOut + (outNextDay ? DAY_MINUTES : 0)
-  // Sapma planla karşılaştırılır; plan alanları hâlâ düzenleniyor olabilir, o yüzden
-  // ekrandaki (kaydedilmemiş) değerler kullanılır — pencere kendi içinde tutarlı kalsın.
-  const times =
-    s != null && e != null
-      ? { plannedStart: s, plannedEnd: e, actualStart: aIn, actualEnd: aOut, breakMinutes: brk }
-      : null
-  const deviation = times ? deviationLabel(times) : null
-  const actualNet = times ? actualNetMinutes(times) : null
-
-  /** "Şimdi" damgası: saat İSTEMCİDEN okunur — sunucu üretimde UTC'de çalışıyor. */
-  const nowHHMM = () => {
-    const d = new Date()
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
-  }
 
   function submit() {
     if (s == null || e == null) {
@@ -135,24 +123,16 @@ export function VardiyaDialog({
       setError("Mola vardiya süresinden uzun olamaz")
       return
     }
-    if ((actualIn && aIn == null) || (actualOut && aOut == null)) {
-      setError("Fiilî saatler SS:DD biçiminde olmalı")
-      return
-    }
-    if (aIn != null && aOut != null && aOut < aIn) {
-      setError("Fiilî çıkış girişten önce olamaz — gece vardiyasında 'ertesi gün'ü işaretleyin")
-      return
-    }
     onSave({
       ...current,
+      // Personel yalnız yeni kayıtta değişebilir; düzenlemede taslaktaki kalır.
+      employeeId: current.id ? current.employeeId : employeeId || current.employeeId,
+      employeeName:
+        employees.find((emp) => emp.id === employeeId)?.name ?? current.employeeName,
       start: s,
       end: e,
       breakMinutes: brk,
       note: note.trim(),
-      // Devamsızlıkta damgalar sunucuda da temizlenir; burada da göndermiyoruz ki
-      // ekranda "gelmedi" yazarken saat kalmasın.
-      actualStart: absent ? null : aIn,
-      actualEnd: absent ? null : aOut,
       absent,
     })
   }
@@ -167,6 +147,24 @@ export function VardiyaDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {!draft.id && employees.length > 1 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="vardiya-personel">Personel</Label>
+              <select
+                id="vardiya-personel"
+                value={employeeId}
+                onChange={(ev) => setEmployeeId(ev.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="vardiya-basla">Başlangıç</Label>
@@ -216,107 +214,24 @@ export function VardiyaDialog({
             </div>
           </div>
 
-          {/* Fiilî giriş/çıkış — plan yukarıda, gerçekleşen burada. Yalnız kayıtlı
-              vardiyada anlamlı: henüz açılmamış vardiyanın damgası olmaz. */}
+          {/* Devamsızlık — planın TEK istisnası.
+              Personelin planına uyduğu varsayılır; bu kutu yalnız gelmediğinde
+              işaretlenir ve vardiya takvimde üzeri çizili görünür. */}
           {draft.id && (
-            <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold">Fiilî giriş / çıkış</p>
-                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    className="h-3.5 w-3.5 accent-kobipo-blue"
-                    checked={absent}
-                    onChange={(ev) => setAbsent(ev.target.checked)}
-                  />
-                  Gelmedi
-                </label>
-              </div>
-
-              {absent ? (
-                <p className="text-xs text-muted-foreground">
-                  Devamsızlık işaretlendi; girilen fiilî saatler silinecek.
-                </p>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="vardiya-fiili-giris">Giriş</Label>
-                      <div className="flex gap-1">
-                        <Input
-                          id="vardiya-fiili-giris"
-                          type="time"
-                          value={actualIn}
-                          onChange={(ev) => setActualIn(ev.target.value)}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="shrink-0"
-                          disabled={isSaving}
-                          onClick={() => {
-                            const now = nowHHMM()
-                            setActualIn(now)
-                            onClock(current.id!, "in", hhmmToMinute(now)!)
-                          }}
-                        >
-                          Şimdi
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="vardiya-fiili-cikis">Çıkış</Label>
-                      <div className="flex gap-1">
-                        <Input
-                          id="vardiya-fiili-cikis"
-                          type="time"
-                          value={actualOut}
-                          onChange={(ev) => setActualOut(ev.target.value)}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="shrink-0"
-                          disabled={isSaving}
-                          onClick={() => {
-                            const now = nowHHMM()
-                            setActualOut(now)
-                            setOutNextDay(false)
-                            onClock(current.id!, "out", hhmmToMinute(now)!)
-                          }}
-                        >
-                          Şimdi
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        className="h-3.5 w-3.5 accent-kobipo-blue"
-                        checked={outNextDay}
-                        onChange={(ev) => setOutNextDay(ev.target.checked)}
-                      />
-                      Çıkış ertesi gün
-                    </label>
-                    <div className="text-xs">
-                      {actualNet != null && (
-                        <span className="font-semibold tabular-nums">
-                          Fiilî {durationLabel(actualNet)}
-                        </span>
-                      )}
-                      {deviation && (
-                        <span className="ml-2 text-amber-600 dark:text-amber-400">{deviation}</span>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border/70 bg-muted/20 p-3">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-kobipo-blue"
+                checked={absent}
+                onChange={(ev) => setAbsent(ev.target.checked)}
+              />
+              <span>
+                <span className="block text-sm font-medium">Gelmedi</span>
+                <span className="block text-xs text-muted-foreground">
+                  Bu vardiya çalışılmadı olarak işaretlenir; puantajda devamsızlık sayılır.
+                </span>
+              </span>
+            </label>
           )}
 
           <div className="space-y-1.5">
@@ -330,6 +245,20 @@ export function VardiyaDialog({
           </div>
 
           {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+          {/* Denetim izi. Bordro itirazında ("bu vardiyayı ben böyle yazmadım")
+              cevap verilebilsin diye; kiosktan atılan damga da burada ayrışır. */}
+          {draft.id && draft.updatedAt && (
+            <p className="text-[11px] text-muted-foreground">
+              Son değişiklik: {draft.updatedByName || "bilinmiyor"} ·{" "}
+              {new Date(draft.updatedAt).toLocaleString("tr-TR", {
+                day: "numeric",
+                month: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center justify-between gap-2 pt-2">

@@ -129,6 +129,65 @@ export function branchManagerAssignedEmail(params: {
   }
 }
 
+/**
+ * Personele haftalık vardiya planı.
+ *
+ * PLAN E-POSTANIN İÇİNDE, bir bağlantının arkasında değil: personelin Kobipo
+ * hesabı yok (`Employee` ile `User` arasında bağ yok), dolayısıyla tıklayacağı
+ * bir panel de yok. Herkese hesap açmak yerine planı doğrudan göndermek, bu
+ * fazın çözmesi gereken sorunu — "personel planı hiç görmüyor" — tek adımda
+ * çözüyor; telefonda açılan e-posta mutfak duvarındaki çizelgenin yerini tutar.
+ *
+ * Satırlar ÇAĞIRAN tarafından hazırlanır (gün etiketi + saat metni), çünkü gün
+ * ve süre biçimleri lib/personel/vardiya.ts'te tanımlı ve e-posta katmanının
+ * bunları yeniden türetmesi iki ayrı biçim doğururdu.
+ */
+export function shiftScheduleEmail(params: {
+  employeeName: string
+  companyName: string
+  weekLabel: string
+  rows: { day: string; text: string; muted?: boolean }[]
+  totalLabel: string
+}): { subject: string; html: string } {
+  const { employeeName, companyName, weekLabel, rows, totalLabel } = params
+
+  const tableRows = rows
+    .map(
+      (r) => `<tr>
+        <td style="padding:8px 10px;border-bottom:1px solid ${BORDER};font-size:13px;color:${TEXT};white-space:nowrap;">${escapeHtml(
+          r.day,
+        )}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid ${BORDER};font-size:13px;text-align:right;color:${
+          r.muted ? GRAY : TEXT
+        };font-weight:${r.muted ? "400" : "600"};">${escapeHtml(r.text)}</td>
+      </tr>`,
+    )
+    .join("")
+
+  const bodyHtml = `
+    ${heading("Vardiya Planınız")}
+    ${paragraph(`Merhaba ${escapeHtml(employeeName)},`)}
+    ${paragraph(
+      `<strong>${escapeHtml(companyName)}</strong> · <strong>${escapeHtml(
+        weekLabel,
+      )}</strong> haftası için vardiya planınız aşağıdadır.`,
+    )}
+    <table style="width:100%;border-collapse:collapse;margin:18px 0;border:1px solid ${BORDER};border-radius:12px;overflow:hidden;">
+      ${tableRows}
+    </table>
+    ${paragraph(`<span style="color:${GRAY};font-size:13px;">Haftalık toplam: <strong style="color:${TEXT};">${escapeHtml(
+      totalLabel,
+    )}</strong></span>`)}
+    ${paragraph(
+      `<span style="color:${GRAY};font-size:13px;">Planla ilgili bir sorunuz varsa yöneticinize iletin. Plan değişirse size güncel hali yeniden gönderilir.</span>`,
+    )}
+  `
+  return {
+    subject: `Kobipo — ${weekLabel} vardiya planınız`,
+    html: layout({ title: "Vardiya Planı", bodyHtml }),
+  }
+}
+
 /** Şifre sıfırlama bağlantısı e-postası (1 saat geçerli). */
 export function passwordResetEmail(params: {
   resetUrl: string

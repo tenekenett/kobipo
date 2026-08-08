@@ -9,6 +9,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import {
+  DAY_MINUTES,
   MAX_MINUTE,
   MIN_SHIFT_MINUTES,
   dayToUtcDate,
@@ -40,6 +41,8 @@ type ShiftRow = {
   status: string
   note: string | null
   templateId: string | null
+  updatedAt?: Date
+  updatedBy?: string | null
   employee?: {
     id: string
     firstName: string
@@ -74,6 +77,11 @@ export const toShiftDto = (s: ShiftRow) => ({
   templateId: s.templateId,
   templateName: s.template?.name ?? null,
   color: s.template?.color ?? null,
+  // Denetim izi: "kim, ne zaman değiştirdi". Ad çözümü ayrı (`attachActorNames`),
+  // çünkü tek tek satır başına kullanıcı sorgusu atmak listeyi N+1'e çevirirdi.
+  updatedAt: s.updatedAt ? s.updatedAt.toISOString() : null,
+  updatedBy: s.updatedBy ?? null,
+  updatedByName: null as string | null,
   employee: s.employee
     ? {
         id: s.employee.id,
@@ -85,6 +93,34 @@ export const toShiftDto = (s: ShiftRow) => ({
 })
 
 export type ShiftDto = ReturnType<typeof toShiftDto>
+
+/**
+ * `updatedBy` id'lerini okunabilir ada çevirir — listenin TAMAMI için tek sorguda.
+ *
+ * Satır başına ayrı sorgu listeyi N+1'e çevirirdi; bu yüzden id'ler toplanıp tek
+ * seferde çözülüyor. Aktör her zaman bir Kobipo kullanıcısıdır: planı yalnız
+ * panele girebilen biri değiştirebilir.
+ */
+export async function attachActorNames<T extends { updatedBy: string | null; updatedByName: string | null }>(
+  rows: T[],
+): Promise<T[]> {
+  const userIds = new Set<string>()
+  for (const r of rows) {
+    if (r.updatedBy) userIds.add(r.updatedBy)
+  }
+  if (userIds.size === 0) return rows
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: [...userIds] } },
+    select: { id: true, name: true, email: true },
+  })
+  const userName = new Map(users.map((u) => [u.id, u.name || u.email]))
+
+  for (const r of rows) {
+    if (r.updatedBy) r.updatedByName = userName.get(r.updatedBy) ?? null
+  }
+  return rows
+}
 
 /**
  * Saat aralığı doğrulaması. Hata varsa mesaj (string), geçerliyse aralık döner.

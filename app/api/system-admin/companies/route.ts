@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
+import { MODULE_KEYS } from "@/lib/modules"
 
 export const dynamic = "force-dynamic"
 
@@ -56,6 +57,9 @@ export async function POST(request: NextRequest) {
         phone: clean(body.phone),
         email: clean(body.email),
         address: clean(body.address),
+        // Müşteri akışıyla aynı kural: firma kilitli doğar. Süper-admin modülleri
+        // firma detayındaki "Modüller" kartından açar (CompanyModulesCard).
+        disabledModules: [...MODULE_KEYS],
       },
     })
 

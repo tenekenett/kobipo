@@ -3,7 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
-import { dayToUtcDate, overlaps, shiftDayIso, utcDateToDay } from "@/lib/personel/vardiya"
+import { dayDiff, dayToUtcDate, overlaps, shiftDayIso, utcDateToDay } from "@/lib/personel/vardiya"
 import { holidayOn, toHolidayDto } from "@/lib/personel/tatil"
 import { DAY_RE, validateRange } from "@/lib/personel/shift-api"
 
@@ -50,8 +50,14 @@ export async function POST(request: Request) {
 
   await ensureCompanyWrite(companyId)
 
-  const mode = body.mode === "copy" ? "copy" : "template"
-  const planned = mode === "copy" ? await planCopy(companyId, body) : await planTemplate(companyId, body)
+  const mode =
+    body.mode === "copy" ? "copy" : body.mode === "rotation" ? "rotation" : "template"
+  const planned =
+    mode === "copy"
+      ? await planCopy(companyId, body)
+      : mode === "rotation"
+        ? await planRotation(companyId, body)
+        : await planTemplate(companyId, body)
   if (typeof planned === "string") return NextResponse.json({ error: planned }, { status: 400 })
   if (planned.length === 0) {
     return NextResponse.json({ created: 0, skipped: 0, message: "Uygulanacak vardiya bulunamadı" })
@@ -160,6 +166,56 @@ export async function POST(request: Request) {
   return NextResponse.json({ created: accepted.length, skipped, skippedLeave, skippedHoliday })
 }
 
+/**
+ * Bir aralıktaki vardiyaları toplu siler — "haftayı temizle".
+ *
+ * DAMGALI VARDİYA SİLİNMEZ. Yanlış doldurulmuş bir haftayı tek tek temizlemek
+ * işkenceydi, ama aynı düğmenin fiilen çalışılmış saatleri de silmesi çok daha
+ * pahalı bir hata olurdu: plan yeniden çizilebilir, damga geri gelmez. Bu yüzden
+ * yalnız `PLANNED` ve damgasız kayıtlar gider; korunanların sayısı yanıtta döner
+ * ki kullanıcı "hepsi silinmedi"yi sessizce yaşamasın.
+ */
+export async function DELETE(request: Request) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { searchParams } = new URL(request.url)
+  const companyId = await resolveCompanyId(searchParams.get("companyId"))
+  if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
+
+  const from = searchParams.get("from")
+  const to = searchParams.get("to") || from
+  if (!from || !DAY_RE.test(from) || !to || !DAY_RE.test(to)) {
+    return NextResponse.json({ error: "from/to YYYY-MM-DD olmalı" }, { status: 400 })
+  }
+
+  await ensureCompanyWrite(companyId)
+
+  const employeeId = searchParams.get("employeeId")
+  const where = {
+    companyId,
+    ...(employeeId ? { employeeId } : {}),
+    workDate: { gte: dayToUtcDate(from), lte: dayToUtcDate(to) },
+  }
+
+  const all = await prisma.workShift.findMany({
+    where,
+    select: { id: true, status: true, actualStart: true, actualEnd: true },
+  })
+  const removable = all.filter(
+    (s) => s.status === "PLANNED" && s.actualStart == null && s.actualEnd == null,
+  )
+
+  if (removable.length > 0) {
+    await prisma.workShift.deleteMany({ where: { id: { in: removable.map((s) => s.id) } } })
+  }
+
+  return NextResponse.json({
+    deleted: removable.length,
+    kept: all.length - removable.length,
+  })
+}
+
 /** `template` kipi: personel × gün kartezyeni. */
 async function planTemplate(companyId: string, body: any): Promise<Planned[] | string> {
   const employeeIds: string[] = Array.isArray(body.employeeIds) ? body.employeeIds : []
@@ -199,6 +255,64 @@ async function planTemplate(companyId: string, body: any): Promise<Planned[] | s
   )
 }
 
+/**
+ * `rotation` kipi: döngüsel vardiya deseni ("2 gün sabah, 2 gün akşam, 1 gün off").
+ *
+ * NEDEN AYRI BİR KİP: `template` kipi seçilen herkese AYNI saati yazar; rotasyon
+ * ise ekibin saatleri BİRBİRİNE GÖRE kaydırmasıdır ve elle kurulduğunda tek tek
+ * yüzlerce hücre demektir. Vardiya planlamasında en çok emek kurtaran özellik bu.
+ *
+ * `cycle` gün gün desen: her eleman bir şablon id'si ya da null (izin günü).
+ * `stagger` açıkken personel i, döngüye i adım ileriden başlar — asıl rotasyonu
+ * yapan şey budur. Kapalıyken herkes aynı deseni aynı gün yaşar (tek ekipli
+ * işletmede istenen davranış: "hafta içi sabah, hafta sonu kapalı").
+ */
+async function planRotation(companyId: string, body: any): Promise<Planned[] | string> {
+  const employeeIds: string[] = Array.isArray(body.employeeIds) ? body.employeeIds : []
+  const days: string[] = Array.isArray(body.days) ? body.days : []
+  const cycle: (string | null)[] = Array.isArray(body.cycle) ? body.cycle : []
+  if (employeeIds.length === 0) return "En az bir personel seçin"
+  if (days.length === 0 || !days.every((d) => DAY_RE.test(d))) return "Geçerli gün seçilmedi"
+  if (cycle.length === 0) return "Desen boş — en az bir gün tanımlayın"
+
+  // Desendeki şablonlar TEK sorguda çekilir ve saatler ONLARDAN okunur: istemcinin
+  // gönderdiği saate güvenilseydi bar "Sabah" adını taşıyıp başka saatte durabilirdi.
+  const templateIds = [...new Set(cycle.filter((c): c is string => Boolean(c)))]
+  const templates = await prisma.shiftTemplate.findMany({
+    where: { companyId, id: { in: templateIds } },
+    select: { id: true, startMinute: true, endMinute: true, breakMinutes: true },
+  })
+  if (templates.length !== templateIds.length) return "Desendeki şablonlardan biri bulunamadı"
+  const byId = new Map(templates.map((t) => [t.id, t]))
+
+  const valid = await validEmployeeIds(companyId, employeeIds)
+  if (valid.length === 0) return "Personel bulunamadı"
+  // Sıra İSTEMCİDEKİ sıradır: kullanıcı ekibi hangi düzende dizdiyse rotasyon o
+  // düzende kayar. `validEmployeeIds` veritabanı sırasını döndürdüğü için
+  // kesişim orijinal sıraya göre yeniden kuruluyor.
+  const ordered = employeeIds.filter((id) => valid.includes(id))
+
+  const planned: Planned[] = []
+  ordered.forEach((employeeId, personIndex) => {
+    days.forEach((day, dayIndex) => {
+      const offset = body.stagger === false ? 0 : personIndex
+      const entry = cycle[(dayIndex + offset) % cycle.length]
+      if (!entry) return // izin günü: vardiya yazılmaz
+      const t = byId.get(entry)
+      if (!t) return
+      planned.push({
+        employeeId,
+        day,
+        start: t.startMinute,
+        end: t.endMinute,
+        breakMinutes: t.breakMinutes,
+        templateId: t.id,
+      })
+    })
+  })
+  return planned
+}
+
 /** `copy` kipi: kaynak gün(ler)deki vardiyaları hedefe aynı saatlerle taşır. */
 async function planCopy(companyId: string, body: any): Promise<Planned[] | string> {
   const fromDay: string = body.fromDay
@@ -229,7 +343,7 @@ async function planCopy(companyId: string, body: any): Promise<Planned[] | strin
   // Kaynaktaki gün farkı hedefte birebir korunur: haftanın 3. günündeki vardiya
   // hedef haftanın da 3. gününe düşsün.
   return source.map((s) => {
-    const offset = daysBetween(fromDay, utcDateToDay(s.workDate))
+    const offset = dayDiff(fromDay, utcDateToDay(s.workDate))
     return {
       employeeId: s.employeeId,
       day: shiftDayIso(toDay, offset),
@@ -240,10 +354,6 @@ async function planCopy(companyId: string, body: any): Promise<Planned[] | strin
     }
   })
 }
-
-const DAY_MS = 24 * 60 * 60 * 1000
-const daysBetween = (a: string, b: string) =>
-  Math.round((dayToUtcDate(b).getTime() - dayToUtcDate(a).getTime()) / DAY_MS)
 
 /** İstemciden gelen personel id'lerinin bu firmaya ait olanları. */
 async function validEmployeeIds(companyId: string, ids: string[]) {

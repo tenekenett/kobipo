@@ -15,7 +15,9 @@ import { buildBalanceSheetDataset, buildCashFlowDataset } from "./reports-finans
 import { buildSalesPurchaseDataset } from "./reports-satis-alis"
 import { buildHrReportDataset } from "./reports-personel"
 import { buildPuantajDataset } from "./personel-puantaj"
+import { buildVardiyaPlanDataset } from "./personel-vardiya"
 import { buildTaxReportDataset } from "./reports-vergi"
+import { todayIso, weekStartIso } from "@/lib/personel/vardiya"
 
 /** `year`/`month` gibi sayısal paramlar için ortak çözücü. */
 function num(params: URLSearchParams, key: string, fallback: number): number {
@@ -117,6 +119,14 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       companyId,
       year: num(params, "year", new Date().getFullYear()),
       month: num(params, "month", new Date().getMonth() + 1),
+    }),
+
+  "personel-vardiya": (companyId, params) =>
+    buildVardiyaPlanDataset({
+      companyId,
+      // Hafta başı normalize edilir: istemci haftanın ortasından bir gün
+      // gönderirse çizelge yanlış pazartesiden başlardı.
+      weekStart: weekStartIso(params.get("weekStart") || todayIso()),
     }),
 
   "rapor-vergiler": (companyId, params) =>

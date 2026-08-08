@@ -2,7 +2,12 @@
 // bir nav grubunu (navGroups title) kontrol eder. Kapalı modüller menüde gizlenir.
 //
 // Saklama: company.disabledModules (String[]) — kapalı modül anahtarlarını tutar.
-// Boş dizi = tüm modüller açık (varsayılan, mevcut firmalar etkilenmez).
+// Boş dizi = tüm modüller açık.
+//
+// DİKKAT — bu bir RED listesidir: burada olmayan her anahtar AÇIK sayılır. Bu yüzden
+// yeni firma `disabledModules = MODULE_KEYS` ile (kilitli) yaratılır ve listeye YENİ bir
+// modül eklendiğinde mevcut kayıtlarda o anahtar bulunmadığı için herkese açık düşer.
+// Yeni modül eklerken mevcut satırları da kapatan bir migration yazın.
 
 export interface ModuleDef {
   /** DB'de saklanan kararlı anahtar */
@@ -17,12 +22,6 @@ export interface ModuleDef {
    * anlamsız; ayrıca reçete sayfası "Stok" nav grubunda yaşıyor.
    */
   requires?: string[]
-  /**
-   * Sektörel/opt-in modül: deneme hesaplarının "her şey açık" erişimine DAHİL
-   * DEĞİLDİR. Bu olmadan her deneme hesabına (nalbura, tekstilciye) alakasız
-   * dikey modüller görünürdü. Bkz. lib/billing/entitlements.ts resolveGrantedModules.
-   */
-  optIn?: boolean
 }
 
 export const MANAGEABLE_MODULES: ModuleDef[] = [
@@ -68,16 +67,10 @@ export const MANAGEABLE_MODULES: ModuleDef[] = [
     label: "Restoran & Kafe",
     description: "Menü, reçeteli stok düşümü, kahveci satış ekranı, günlük karlılık",
     requires: ["stock"],
-    optIn: true,
   },
 ]
 
 export const MODULE_KEYS = MANAGEABLE_MODULES.map((m) => m.key)
-
-/** Deneme hesaplarına toplu açılan modüller (opt-in sektörel modüller hariç). */
-export const DEFAULT_TRIAL_MODULE_KEYS = MANAGEABLE_MODULES.filter((m) => !m.optIn).map(
-  (m) => m.key
-)
 
 const MODULE_BY_KEY = new Map(MANAGEABLE_MODULES.map((m) => [m.key, m]))
 

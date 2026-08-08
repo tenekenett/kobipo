@@ -4,9 +4,12 @@
  * Personel kartının VARDİYA sekmesi — bu kişinin bir aylık çalışma kaydı.
  *
  * Takvim (`/personel/vardiya`) işletmenin tamamına, puantaj (`/personel/puantaj`)
- * aylık toplamlara bakar; burası tek kişinin GÜN GÜN dökümü: hangi gün ne
- * planlandı, kaçta gelip kaçta çıktı, sapma ne. "Bu adam bu ay ne yaptı"
- * sorusunun cevabı İK kartından çıkmıyordu.
+ * aylık toplamlara bakar; burası tek kişinin GÜN GÜN dökümü: hangi gün hangi
+ * saatte planlandı, geldi mi. "Bu adam bu ay ne yaptı" sorusunun cevabı İK
+ * kartından çıkmıyordu.
+ *
+ * Fiilî giriş/çıkış YOK: personelin planına uyduğu varsayılır, yalnız gelmediği
+ * ayrıca işaretlenir.
  *
  * Veriyi kendi çeker (ay gezinmesi kendi içinde), böylece kart açılırken ağır
  * bir istek eklemez — sekmeye girilmedikçe hiçbir şey yüklenmez.
@@ -24,22 +27,13 @@ import {
 } from "@/components/ui/styled-table"
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import {
-  actualNetMinutes,
-  dayTitle,
-  deviationLabel,
-  durationLabel,
-  minuteToHHMM,
-  netMinutes,
-} from "@/lib/personel/vardiya"
+import { dayTitle, durationLabel, minuteToHHMM, netMinutes } from "@/lib/personel/vardiya"
 
 type Shift = {
   id: string
   workDate: string
   plannedStart: number
   plannedEnd: number
-  actualStart: number | null
-  actualEnd: number | null
   breakMinutes: number
   status: string
   templateName: string | null
@@ -90,23 +84,21 @@ export function EmployeeVardiyaTab({
     setMonth(d.getMonth() + 1)
   }
 
+  /**
+   * Aylık toplamlar PLANDAN türer.
+   *
+   * Fiilî giriş/çıkış takibi yapılmıyor: personelin planına uyduğu varsayılır ve
+   * yalnız GELMEDİĞİ ayrıca işaretlenir. Bu yüzden "çalışılan" süre, devamsız
+   * günler düşülmüş plandır — damgasız kaldığı için eksik görünen bir "fiilî"
+   * sütunu, olmayan bir veriyi eksik gibi gösteriyordu.
+   */
   const totals = useMemo(() => {
-    const acc = { planned: 0, actual: 0, late: 0, overtime: 0, absent: 0, stamped: 0 }
+    const acc = { planned: 0, worked: 0, absent: 0 }
     for (const s of shifts) {
-      acc.planned += netMinutes(s.plannedStart, s.plannedEnd, s.breakMinutes)
-      if (s.status === "ABSENT") {
-        acc.absent++
-        continue
-      }
-      const worked = actualNetMinutes(s)
-      if (worked != null) {
-        acc.actual += worked
-        acc.stamped++
-      }
-      const diff = s.actualStart != null ? s.actualStart - s.plannedStart : 0
-      if (diff > 0) acc.late += diff
-      const over = s.actualEnd != null ? s.actualEnd - s.plannedEnd : 0
-      if (over > 0) acc.overtime += over
+      const minutes = netMinutes(s.plannedStart, s.plannedEnd, s.breakMinutes)
+      acc.planned += minutes
+      if (s.status === "ABSENT") acc.absent++
+      else acc.worked += minutes
     }
     return acc
   }, [shifts])
@@ -125,32 +117,20 @@ export function EmployeeVardiyaTab({
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground">
-          {shifts.length} vardiya
-          {shifts.length > totals.stamped && shifts.length > 0 && (
-            <span className="ml-1 text-amber-600 dark:text-amber-400">
-              ({shifts.length - totals.stamped} damgasız)
-            </span>
-          )}
-        </p>
+        <p className="text-sm text-muted-foreground">{shifts.length} vardiya</p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Tile label="Planlanan" value={durationLabel(totals.planned)} />
-        <Tile label="Fiilî" value={totals.stamped > 0 ? durationLabel(totals.actual) : "—"} />
         <Tile
-          label="Fazla mesai"
-          value={totals.overtime > 0 ? durationLabel(totals.overtime) : "—"}
-          tone={totals.overtime > 0 ? "good" : undefined}
+          label="Çalışılan"
+          value={durationLabel(totals.worked)}
+          hint={totals.absent > 0 ? "devamsız günler düşülmüş" : undefined}
         />
         <Tile
-          label="Gecikme / devamsızlık"
-          value={
-            totals.late > 0 || totals.absent > 0
-              ? `${durationLabel(totals.late)} · ${totals.absent} gün`
-              : "—"
-          }
-          tone={totals.late > 0 || totals.absent > 0 ? "warn" : undefined}
+          label="Devamsızlık"
+          value={totals.absent > 0 ? `${totals.absent} gün` : "—"}
+          tone={totals.absent > 0 ? "warn" : undefined}
         />
       </div>
 
@@ -170,8 +150,7 @@ export function EmployeeVardiyaTab({
               <StyledTableHeaderRow>
                 <StyledTableHead>Gün</StyledTableHead>
                 <StyledTableHead>Vardiya</StyledTableHead>
-                <StyledTableHead>Plan</StyledTableHead>
-                <StyledTableHead>Fiilî</StyledTableHead>
+                <StyledTableHead>Saat</StyledTableHead>
                 <StyledTableHead className="text-right">Net</StyledTableHead>
                 <StyledTableHead>Durum</StyledTableHead>
               </StyledTableHeaderRow>
@@ -179,38 +158,29 @@ export function EmployeeVardiyaTab({
             <TableBody>
               {shifts.map((s) => {
                 const absent = s.status === "ABSENT"
-                const worked = actualNetMinutes(s)
-                const deviation = deviationLabel(s)
+                const minutes = netMinutes(s.plannedStart, s.plannedEnd, s.breakMinutes)
                 return (
                   <StyledTableRow key={s.id}>
                     <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                       {dayTitle(s.workDate)}
                     </TableCell>
                     <TableCell className="text-xs">{s.templateName || "—"}</TableCell>
-                    <TableCell className="whitespace-nowrap text-xs tabular-nums">
+                    <TableCell
+                      className={cn(
+                        "whitespace-nowrap text-xs tabular-nums",
+                        absent && "line-through opacity-60",
+                      )}
+                    >
                       {minuteToHHMM(s.plannedStart)}–{minuteToHHMM(s.plannedEnd)}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-xs tabular-nums">
-                      {absent
-                        ? "—"
-                        : s.actualStart == null && s.actualEnd == null
-                          ? "—"
-                          : `${s.actualStart != null ? minuteToHHMM(s.actualStart) : "?"}–${
-                              s.actualEnd != null ? minuteToHHMM(s.actualEnd) : "?"
-                            }`}
-                    </TableCell>
                     <TableCell className="text-right text-xs font-semibold tabular-nums">
-                      {worked != null ? durationLabel(worked) : "—"}
+                      {absent ? "—" : durationLabel(minutes)}
                     </TableCell>
                     <TableCell className="text-xs">
                       {absent ? (
                         <span className="text-red-600 dark:text-red-400">Gelmedi</span>
-                      ) : deviation ? (
-                        <span className="text-amber-600 dark:text-amber-400">{deviation}</span>
-                      ) : worked != null ? (
-                        <span className="text-emerald-600 dark:text-emerald-400">Planına uygun</span>
                       ) : (
-                        <span className="text-muted-foreground">Damgasız</span>
+                        <span className="text-muted-foreground">Planlandı</span>
                       )}
                     </TableCell>
                   </StyledTableRow>
@@ -227,10 +197,12 @@ export function EmployeeVardiyaTab({
 function Tile({
   label,
   value,
+  hint,
   tone,
 }: {
   label: string
   value: string
+  hint?: string
   tone?: "good" | "warn"
 }) {
   return (
@@ -246,6 +218,7 @@ function Tile({
         >
           {value}
         </p>
+        {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
       </CardContent>
     </Card>
   )

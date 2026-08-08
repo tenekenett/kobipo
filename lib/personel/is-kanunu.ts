@@ -14,6 +14,7 @@
 
 import {
   DAY_MINUTES,
+  dayDiff,
   durationLabel,
   minuteToHHMM,
   netMinutes,
@@ -50,11 +51,26 @@ export type LaborShift = {
  * bitişini (22:00–02:00 → 1320–1560) doğal olarak ertesi güne taşır; bu yüzden
  * dinlenme süresi tarih aritmetiği olmadan çıkar.
  *
- * Hafta dışındaki vardiyalar yok sayılır — çağıran ekran zaten o haftayı çizer.
+ * `adjacent` haftanın hemen DIŞINDAKİ (önceki/sonraki gün) vardiyalardır ve
+ * YALNIZ dinlenme denetiminde kullanılır. Olmadan hafta sınırı kör kalıyordu:
+ * Pazar 22:00–02:00 vardiyasından sonra Pazartesi 08:00'e yazılan vardiya bir
+ * sonraki haftaya düştüğü için 11 saatlik ihlal hiç görünmüyordu. Haftalık 45
+ * saat ve günlük 11 saat toplamlarına GİRMEZ — onlar haftanın kendi ölçüsüdür.
  */
-export function laborWarnings(shifts: LaborShift[], weekDays: string[]): LaborWarning[] {
-  const dayIndex = new Map(weekDays.map((d, i) => [d, i]))
-  const own = shifts.filter((s) => dayIndex.has(s.workDate))
+export function laborWarnings(
+  shifts: LaborShift[],
+  weekDays: string[],
+  adjacent: LaborShift[] = [],
+): LaborWarning[] {
+  // Eksen gün indeksi: hafta içi 0..6, önceki gün -1, sonraki gün 7. Map yerine
+  // tarih farkı, çünkü komşu günler `weekDays` listesinde yok.
+  const indexOf = (day: string) => dayDiff(weekDays[0], day)
+  const inWeek = (day: string) => {
+    const i = indexOf(day)
+    return i >= 0 && i < weekDays.length
+  }
+  const own = shifts.filter((s) => inWeek(s.workDate))
+  const near = adjacent.filter((s) => !inWeek(s.workDate))
   if (own.length === 0) return []
 
   const warnings: LaborWarning[] = []
@@ -82,11 +98,11 @@ export function laborWarnings(shifts: LaborShift[], weekDays: string[]): LaborWa
     }
   }
 
-  const ordered = own
+  const ordered = [...own, ...near]
     .map((s) => ({
       day: s.workDate,
-      startAbs: (dayIndex.get(s.workDate) ?? 0) * DAY_MINUTES + s.plannedStart,
-      endAbs: (dayIndex.get(s.workDate) ?? 0) * DAY_MINUTES + s.plannedEnd,
+      startAbs: indexOf(s.workDate) * DAY_MINUTES + s.plannedStart,
+      endAbs: indexOf(s.workDate) * DAY_MINUTES + s.plannedEnd,
       end: s.plannedEnd,
       start: s.plannedStart,
     }))
@@ -95,6 +111,9 @@ export function laborWarnings(shifts: LaborShift[], weekDays: string[]): LaborWa
   for (let i = 1; i < ordered.length; i++) {
     const prev = ordered[i - 1]
     const cur = ordered[i]
+    // İkisi de hafta dışındaysa bu uyarı bu haftanın derdi değil: komşu günler
+    // yalnız haftanın ilk/son vardiyasına komşuluk etsin diye çekiliyor.
+    if (!inWeek(prev.day) && !inWeek(cur.day)) continue
     // AYNI GÜNE yazılmış iki vardiya arasındaki boşluk dinlenme süresi değil ara
     // dinlenmedir (m.68) ve 11 saat şartına tabi değildir: kafede öğlen + akşam
     // servisi diye bölünmüş vardiya olağandır. O günün yükü zaten günlük 11 saat

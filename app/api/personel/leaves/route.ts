@@ -3,6 +3,8 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
+import { dayToUtcDate } from "@/lib/personel/vardiya"
+import { DAY_RE } from "@/lib/personel/shift-api"
 
 export const dynamic = "force-dynamic"
 
@@ -14,6 +16,14 @@ function inclusiveDays(start: Date, end: Date): number {
   return d > 0 ? d : 1
 }
 
+/**
+ * İzin listesi.
+ *
+ * `from`/`to` ARALIĞA DEĞEN izinleri süzer (aralıktan önce başlayıp içine
+ * sarkanlar dahil): vardiya takvimi yalnız çizdiği haftayı ister, oysa süzgeç
+ * yokken firmanın bütün geçmiş izinleri her takvim açılışında geliyordu — birkaç
+ * yıl sonra yüzlerce kayıt. İzin ekranı aralık vermez, tamamını almaya devam eder.
+ */
 export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -24,11 +34,21 @@ export async function GET(request: Request) {
   const employeeId = searchParams.get("employeeId")
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
 
+  const from = searchParams.get("from")
+  const to = searchParams.get("to")
+  if ((from && !DAY_RE.test(from)) || (to && !DAY_RE.test(to))) {
+    return NextResponse.json({ error: "from/to YYYY-MM-DD olmalı" }, { status: 400 })
+  }
+
   await ensureCompanyAccess(companyId)
 
   const where: any = { companyId }
   if (status) where.status = status
   if (employeeId) where.employeeId = employeeId
+  // Kesişim koşulu: izin aralığın bitişinden önce başlamış VE başlangıcından
+  // sonra bitmiş olmalı. İki uç ayrı ayrı verilebilir.
+  if (to) where.startDate = { lte: dayToUtcDate(to) }
+  if (from) where.endDate = { gte: dayToUtcDate(from) }
 
   const leaves = await prisma.leaveRecord.findMany({
     where,

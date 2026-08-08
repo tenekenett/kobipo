@@ -30,6 +30,52 @@ export type SendEmailResult = {
   error?: string
 }
 
+/**
+ * Çok alıcıya AYRI AYRI e-posta — tek HTTP çağrısında.
+ *
+ * `sendEmail`i döngüde çağırmak alıcı başına bir istek demek: otuz kişilik bir
+ * ekibe vardiya planı gönderirken bu, sağlayıcı hız sınırına takılan ve sunucu
+ * zaman aşımına düşebilen bir döngü üretiyordu. Resend'in toplu ucu yüz mesajı
+ * tek çağrıda alır.
+ *
+ * Her mesaj KENDİ gövdesini taşır (herkes yalnız kendi planını görmeli), yani bu
+ * "aynı e-postayı çok kişiye" değil "çok e-postayı tek çağrıda" göndermektir.
+ * Yüzden fazlası varsa istek yüzerlik parçalara bölünür.
+ */
+export async function sendEmailBatch(
+  messages: SendEmailParams[],
+): Promise<{ sent: number; failed: number; skipped?: boolean }> {
+  if (messages.length === 0) return { sent: 0, failed: 0 }
+  if (!resend) {
+    console.warn("[email] RESEND_API_KEY tanımlı değil — toplu gönderim atlandı.", {
+      count: messages.length,
+    })
+    return { sent: 0, failed: 0, skipped: true }
+  }
+
+  const CHUNK = 100
+  let sent = 0
+  let failed = 0
+  for (let i = 0; i < messages.length; i += CHUNK) {
+    const chunk = messages.slice(i, i + CHUNK)
+    try {
+      const { error } = await resend.batch.send(
+        chunk.map((m) => ({ from: EMAIL_FROM, to: m.to, subject: m.subject, html: m.html })),
+      )
+      if (error) {
+        console.error("[email] Resend toplu gönderim hatası:", error)
+        failed += chunk.length
+      } else {
+        sent += chunk.length
+      }
+    } catch (err: any) {
+      console.error("[email] Beklenmeyen toplu gönderim hatası:", err)
+      failed += chunk.length
+    }
+  }
+  return { sent, failed }
+}
+
 export async function sendEmail({
   to,
   subject,

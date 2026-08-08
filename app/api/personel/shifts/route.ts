@@ -7,6 +7,7 @@ import { dayToUtcDate } from "@/lib/personel/vardiya"
 import {
   DAY_RE,
   SHIFT_INCLUDE,
+  attachActorNames,
   findShiftBlock,
   toShiftDto,
   validateRange,
@@ -51,7 +52,7 @@ export async function GET(request: Request) {
     orderBy: [{ workDate: "asc" }, { plannedStart: "asc" }],
   })
 
-  return NextResponse.json(shifts.map(toShiftDto))
+  return NextResponse.json(await attachActorNames(shifts.map(toShiftDto)))
 }
 
 export async function POST(request: Request) {

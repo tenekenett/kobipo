@@ -6,6 +6,7 @@ import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { utcDateToDay } from "@/lib/personel/vardiya"
 import {
   SHIFT_INCLUDE,
+  attachActorNames,
   findShiftBlock,
   statusFor,
   toShiftDto,
@@ -80,6 +81,7 @@ export async function PATCH(
       actualStart: actual.start,
       actualEnd: actual.end,
       status: statusFor(actual.start, actual.end, absent),
+      updatedBy: user.id,
       ...(body.breakMinutes != null
         ? { breakMinutes: Math.max(0, Math.round(Number(body.breakMinutes) || 0)) }
         : {}),
@@ -88,7 +90,10 @@ export async function PATCH(
     include: SHIFT_INCLUDE,
   })
 
-  return NextResponse.json(toShiftDto(updated))
+  // Tekil yanıt da ad çözer: takvim güncellenen kaydı listeden gelen kayıtla
+  // DEĞİŞTİRİYOR, çözülmemiş dönerse o satırın "kim değiştirdi"si boşalırdı.
+  const [dto] = await attachActorNames([toShiftDto(updated)])
+  return NextResponse.json(dto)
 }
 
 export async function DELETE(

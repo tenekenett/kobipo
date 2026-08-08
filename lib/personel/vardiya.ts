@@ -128,6 +128,26 @@ export const actualNetMinutes = (s: ShiftTimes): number | null => {
   return netMinutes(s.actualStart, s.actualEnd, s.breakMinutes ?? 0)
 }
 
+/**
+ * Gün içi bir damga dakikasını vardiyanın eksenine oturtur.
+ *
+ * Gece vardiyasında (22:00–02:00 → 1320–1560) saat 01:00'de basılan damga ham
+ * haliyle 60'tır ve vardiyanın yirmi saat ÖNCESİNE düşer. İki aday (m ve m+1440)
+ * arasından plana en yakın olanı seçilir.
+ *
+ * Yönetici damgası ile kiosk damgası AYNI kuralı kullanmak zorunda: ayrı
+ * hesaplansalardı gece vardiyasında personelin bastığı damga ile yöneticinin
+ * bastığı damga farklı güne düşerdi. Bu yüzden saf modülde duruyor — iki uç da
+ * buradan okur ve testi de burada.
+ */
+export function resolveStampMinute(raw: number, plannedStart: number, plannedEnd: number): number {
+  const distance = (m: number) =>
+    m < plannedStart ? plannedStart - m : m > plannedEnd ? m - plannedEnd : 0
+  const next = raw + DAY_MINUTES
+  if (next > MAX_MINUTE) return raw
+  return distance(next) < distance(raw) ? next : raw
+}
+
 /** Ekranda barın altında/üstünde görünecek kısa sapma etiketi; sapma yoksa null. */
 export const deviationLabel = (s: ShiftTimes): string | null => {
   const late = lateMinutes(s)
@@ -157,6 +177,15 @@ export const shiftDayIso = (day: string, delta: number) => {
   const [y, m, d] = day.split("-").map(Number)
   return isoDay(new Date(y, (m ?? 1) - 1, (d ?? 1) + delta))
 }
+
+/**
+ * İki gün arasındaki fark (b - a, gün). `shiftDayIso`'nun tersi.
+ *
+ * Hesap UTC üzerinden: yerel `Date` farkı yaz saati geçişlerinde 23 ya da 25
+ * saat çıkar ve bölme yanlış güne yuvarlar.
+ */
+export const dayDiff = (a: string, b: string) =>
+  Math.round((dayToUtcDate(b).getTime() - dayToUtcDate(a).getTime()) / 86_400_000)
 
 /**
  * "YYYY-MM-DD" → UTC gece yarısı Date. `@db.Date` kolonuna yazılacak/karşılaştırılacak
@@ -214,3 +243,23 @@ export const weekdayShortLabel = (weekday: number) => GUNLER_KISA[weekday] ?? ""
 /** "2026-08-03" → "Pzt 3" — hafta başlığı ve uyarı metinlerinin ortak biçimi. */
 export const shortDayLabel = (day: string) =>
   `${weekdayShortLabel(weekdayOf(day))} ${Number(day.slice(8))}`
+
+/**
+ * "2026-08-10" → "10–16 Ağustos 2026".
+ *
+ * Hem yayın penceresinde (istemci) hem e-posta konusunda (sunucu) aynı metin
+ * geçiyor; iki yerde ayrı yazılsaydı personelin gördüğü hafta adı yöneticinin
+ * gördüğünden farklı olabilirdi. Bu yüzden saf modülde — e-posta katmanı Prisma
+ * içerdiği için istemci oradan bir şey içe aktaramaz.
+ */
+export const weekRangeLabel = (weekStart: string): string => {
+  const days = weekDaysIso(weekStart)
+  const [fy, fm, fd] = days[0].split("-").map(Number)
+  const [ly, lm, ld] = days[6].split("-").map(Number)
+  const first = new Date(fy, fm - 1, fd)
+  const last = new Date(ly, lm - 1, ld)
+  const long = (d: Date) =>
+    d.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" })
+  // Aynı ay içindeyse ay adı bir kez yazılır.
+  return fm === lm && fy === ly ? `${fd}–${long(last)}` : `${long(first)} – ${long(last)}`
+}

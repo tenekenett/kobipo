@@ -1,6 +1,13 @@
+import { headers } from "next/headers"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { getUserContext, type UserCompanyContext } from "@/lib/auth/user-context"
+import {
+  MODULE_GATE_METHOD_HEADER,
+  MODULE_GATE_PATH_HEADER,
+  isApiPathAllowed,
+  requiredModulesForApiPath,
+} from "@/lib/module-access"
 import { cache } from "react"
 
 export async function getCurrentCompany(companyId: string) {
@@ -80,6 +87,43 @@ export async function getUserCompanies() {
   return userCompanies.map((uc) => uc.company)
 }
 
+/**
+ * Sunucu tarafı MODÜL kapısı. Modül yalnızca satın almayla açıldığı için (bkz.
+ * lib/billing/entitlements.ts) kapalı bir modülün ucu elle çağrıldığında da reddedilmeli
+ * — menü gizleme ve ModuleGuard istemci tarafındadır, ücretli özelliği korumaz.
+ *
+ * Yalnız `/api/*` için çalışır: yolu root middleware.ts header'a yazar, kural haritası
+ * lib/module-access.ts'tedir. Sayfa render'ında header yoktur → kapı uygulanmaz, orada
+ * ModuleGuard "Bu modül kapalı" ekranını gösterir.
+ *
+ * Süper-admin muaftır (destek/yönetim erişimi).
+ */
+async function assertModuleAccess(
+  company: UserCompanyContext,
+  isSuperAdmin: boolean
+): Promise<void> {
+  if (isSuperAdmin) return
+
+  let pathname: string | null = null
+  let method = "GET"
+  try {
+    const requestHeaders = await headers()
+    pathname = requestHeaders.get(MODULE_GATE_PATH_HEADER)
+    method = requestHeaders.get(MODULE_GATE_METHOD_HEADER) ?? "GET"
+  } catch {
+    // İstek kapsamı dışında (build, script, cron) çağrıldı — kapı uygulanmaz.
+    return
+  }
+
+  if (!pathname) return
+  if (isApiPathAllowed(pathname, method, company.disabledModules)) return
+
+  const required = requiredModulesForApiPath(pathname, method)
+  // "Access denied" ifadesi mevcut route catch'lerinde 403'e maplenir; catch'i olmayan
+  // uçlarda istek yine (fail-closed) reddedilir.
+  throw new Error(`Access denied: module locked (${required.join("|")})`)
+}
+
 export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
   companyId: string
 ): Promise<UserCompanyContext> {
@@ -95,6 +139,7 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
     if (!match.isActive && !context.isSuperAdmin) {
       throw new Error("Access denied: company is inactive")
     }
+    await assertModuleAccess(match, context.isSuperAdmin)
     return match
   }
 
