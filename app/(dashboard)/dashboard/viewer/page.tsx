@@ -13,6 +13,8 @@ import {
   StatsSkeleton,
 } from "@/components/dashboard/admin/skeletons"
 import { getAdminStats } from "@/lib/dashboard/admin-queries"
+import { LockedAccount } from "@/components/dashboard/locked-account"
+import { isAccountLocked } from "@/lib/modules"
 
 export const dynamic = "force-dynamic"
 
@@ -75,6 +77,18 @@ export default async function ViewerDashboard({
   const sp = await searchParams
   const requested = typeof sp.company === "string" ? sp.company : undefined
   const activeCompany = resolveActiveCompany(authContext, requested) ?? authContext.activeCompany
+  // Hiç modülü açık olmayan hesap: rakam yerine satın alma ekranı. Giriş sonrası
+  // kullanıcı rolüne göre bu sayfalardan birine düşüyor, o yüzden kontrol her rol
+  // panelinde ayrı ayrı durmalı — yalnız /dashboard'da olması yetmiyor.
+  if (isAccountLocked(activeCompany.disabledModules)) {
+    return (
+      <LockedAccount
+        companyId={activeCompany.companySlug ?? activeCompany.companyId}
+        canPurchase={activeCompany.role === "ADMIN"}
+      />
+    )
+  }
+
   const companyId = activeCompany.companyId
   const href = (path: string) => withCompanyHref(path, activeCompany.companySlug)
 

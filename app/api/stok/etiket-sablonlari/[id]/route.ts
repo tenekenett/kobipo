@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { MAX_DESIGN_JSON_BYTES, normalizeLabelDesign } from "@/lib/labels/types"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -39,7 +40,7 @@ export async function GET(
     return NextResponse.json(template)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching label template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -120,7 +121,7 @@ export async function PUT(
     return NextResponse.json(updated)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error updating label template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -159,7 +160,7 @@ export async function DELETE(
     return NextResponse.json({ success: true })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error deleting label template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

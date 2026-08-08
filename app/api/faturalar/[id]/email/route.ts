@@ -4,6 +4,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -50,7 +51,7 @@ export async function POST(
     })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }

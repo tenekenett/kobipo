@@ -117,6 +117,20 @@ export function isModuleEnabled(disabledModules: string[] | undefined | null, ke
 }
 
 /**
+ * Hesabın hiçbir modülü açık değil mi? Yeni firma bu hâlde doğar (modül = satın alınan
+ * şey) ve abonelik süresi dolunca buraya geri döner.
+ *
+ * Rakam basan her panelin ilk kontrolü budur: kilitli hesapta widget yerine
+ * `LockedAccount` gösterilir. Giriş sonrası kullanıcı rolüne göre `/dashboard/admin`,
+ * `/dashboard/sales`... sayfalarından BİRİNE düşüyor — kontrol yalnız `/dashboard`'da
+ * olursa satın alma ekranını hiç kimse görmez.
+ */
+export function isAccountLocked(disabledModules: string[] | undefined | null): boolean {
+  const disabled = new Set(disabledModules ?? [])
+  return MODULE_KEYS.every((key) => disabled.has(key))
+}
+
+/**
  * Kapalı modül listesini bağımlılıklarla tutarlı hale getirir: açık bir modülün
  * gerektirdiği modül kapalı bırakılamaz (ör. Restoran & Kafe açıkken Stok).
  * Elle modül yönetimi yapan uçlarda (sistem-admin) sanitize'ın hemen ardından

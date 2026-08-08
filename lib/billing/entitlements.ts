@@ -7,7 +7,8 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { MODULE_KEYS, sanitizeDisabledModules, withModuleDependencies } from "@/lib/modules"
-import type { BillingCycle } from "@/lib/billing/constants"
+import { GRACE_PERIOD_DAYS, type BillingCycle } from "@/lib/billing/constants"
+import { DAY_MS } from "@/lib/billing/notice"
 
 /**
  * Bir firmanın hesap kökünü (ana firma) döndürür. Şube ise parentCompanyId'ye çıkar;
@@ -57,16 +58,29 @@ export function isPaidActive(sub: SubStatusView | null | undefined, now = new Da
 }
 
 /**
+ * Ödeme alınamadı ama hoşgörü süresi dolmadı → erişim SÜRÜYOR.
+ *
+ * `PAST_DUE`'yu ayrı bir "yarı açık" durum olarak görmek şart: aksi halde yetkiler her
+ * yeniden hesaplandığında (reconcile, recurring, admin) hoşgörü süresindeki müşteri
+ * anında kilitlenirdi. Bkz. [[lib/billing/constants.ts]] → GRACE_PERIOD_DAYS.
+ */
+export function isInGracePeriod(sub: SubStatusView | null | undefined, now = new Date()): boolean {
+  if (!sub || sub.status !== "PAST_DUE" || !sub.periodEnd) return false
+  return sub.periodEnd.getTime() + GRACE_PERIOD_DAYS * DAY_MS > now.getTime()
+}
+
+/**
  * Aboneliğe göre efektif AÇIK modül anahtarları:
- * - Ücretli aktifse → satın alınan modüller (bağımlılıklarıyla, ör. restaurant → stock).
- * - Aksi halde (deneme/yok/expired/cancelled) → hiçbiri.
+ * - Ücretli aktifse VEYA hoşgörü süresindeyse → satın alınan modüller (bağımlılıklarıyla,
+ *   ör. restaurant → stock).
+ * - Aksi halde (deneme/yok/expired/cancelled/hoşgörüsü dolmuş) → hiçbiri.
  *
  * Modül YALNIZCA satın almayla açılır — deneme modül vermez. Deneme kavramı
  * ölmedi, kapsamı daraldı: `isTrialActive` hâlâ şube kotası için okunur
  * (bkz. app/api/companies/route.ts), ama modül yetkisi üretmez.
  */
 export function resolveGrantedModules(sub: SubStatusView | null | undefined, now = new Date()): string[] {
-  if (isPaidActive(sub, now)) {
+  if (isPaidActive(sub, now) || isInGracePeriod(sub, now)) {
     return withModuleDependencies(sanitizeDisabledModules(sub!.purchasedModules))
   }
   return []

@@ -7,6 +7,7 @@ import { isBillingCycle } from "@/lib/billing/constants"
 import { computeOrder, type PlanPricing } from "@/lib/billing/pricing"
 import { toPricingMap, TRIAL_PLAN_CODE } from "@/lib/billing/catalog"
 import { resolveAccountRootId } from "@/lib/billing/entitlements"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -125,7 +126,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("billing orders POST error:", error)
     return NextResponse.json({ error: message || "Sipariş oluşturulamadı" }, { status: 500 })

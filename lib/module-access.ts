@@ -8,9 +8,9 @@
 // Orası nav gruplarından türer; API yolları nav'a benzemediği için harita burada AÇIK yazılır.
 
 /**
- * Root middleware.ts bu header'lara isteğin yolunu/metodunu yazar; route handler'lar
- * çalıştıkları yolu başka türlü göremiyor. Adlar burada durur ki hem middleware (edge)
- * hem sunucu kapısı (node) aynı kaynaktan okusun.
+ * Kökteki proxy.ts (eski adıyla middleware) bu header'lara isteğin yolunu/metodunu yazar;
+ * route handler'lar çalıştıkları yolu başka türlü göremiyor. Adlar burada durur ki hem
+ * proxy hem sunucu kapısı aynı kaynaktan okusun.
  */
 export const MODULE_GATE_PATH_HEADER = "x-kobipo-path"
 export const MODULE_GATE_METHOD_HEADER = "x-kobipo-method"
@@ -132,4 +132,42 @@ export function requiredModulesForApiPath(pathname: string, method: string): str
   const rule = moduleRuleForApiPath(pathname)
   if (!rule) return []
   return isWriteMethod(method) ? rule.write ?? rule.read : rule.read
+}
+
+/** 403 gövdesindeki makine-okunur kod; arayüz "satın al" akışını buna göre açar. */
+export const MODULE_LOCKED_CODE = "MODULE_LOCKED"
+
+const MODULE_LOCKED_MESSAGE_RE = /Access denied: module locked \(([^)]*)\)/
+
+/**
+ * Modül kapısının fırlattığı hata (bkz. lib/middleware/company.ts → assertModuleAccess).
+ *
+ * Mesaj bilerek `"Access denied"` ile BAŞLAR: route'ların çoğu 403'e maplemeyi bu ifadeye
+ * bakarak yapıyor, dolayısıyla helper'a geçmemiş bir uçta da istek reddedilmeye devam eder.
+ * `modules` alanı ise `lib/api/errors.ts` üzerinden gövdeye taşınır.
+ */
+export class ModuleLockedError extends Error {
+  readonly code = MODULE_LOCKED_CODE
+  readonly modules: string[]
+
+  constructor(modules: string[]) {
+    super(`Access denied: module locked (${modules.join("|")})`)
+    this.name = "ModuleLockedError"
+    this.modules = modules
+  }
+}
+
+/**
+ * Yakalanan hatayı modül kilidi olarak tanır. `instanceof` yetmez: hata bir `cause`
+ * zincirinin içinden ya da (Next'in ayrı derlediği katmanlar yüzünden) başka bir sınıf
+ * örneği olarak gelebilir; o yüzden mesaj biçimi de ikinci kanal olarak kabul edilir.
+ */
+export function moduleLockedFrom(error: unknown): ModuleLockedError | null {
+  if (error instanceof ModuleLockedError) return error
+
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : ""
+  const match = MODULE_LOCKED_MESSAGE_RE.exec(message)
+  if (!match) return null
+
+  return new ModuleLockedError(match[1] ? match[1].split("|").filter(Boolean) : [])
 }

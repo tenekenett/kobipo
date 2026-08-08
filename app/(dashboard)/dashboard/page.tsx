@@ -21,7 +21,7 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { LockedAccount } from "@/components/dashboard/locked-account"
-import { MODULE_KEYS } from "@/lib/modules"
+import { isAccountLocked } from "@/lib/modules"
 import { cn } from "@/lib/utils"
 import { DashboardCashflowChart, type CashflowPoint } from "@/components/dashboard/dashboard-cashflow-chart"
 
@@ -178,7 +178,7 @@ export default async function DashboardIndexPage({
 
   // Hiç modülü olmayan hesap: rakam yerine satın alma ekranı. Sorgular da atlanır —
   // kilitli hesapta hepsi sıfır döner, çalıştırmanın anlamı yok.
-  if (MODULE_KEYS.every((key) => selectedCompany.disabledModules.includes(key))) {
+  if (isAccountLocked(selectedCompany.disabledModules)) {
     return (
       <LockedAccount companyId={companyId} canPurchase={selectedCompany.role === "ADMIN"} />
     )

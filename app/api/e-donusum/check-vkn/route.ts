@@ -7,6 +7,7 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
 import { createPartnerProvider } from "@/lib/integrations/e-invoice/partner"
 import { decryptSecret } from "@/lib/crypto/secrets"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -146,7 +147,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("check-vkn route error:", error)
     return NextResponse.json(

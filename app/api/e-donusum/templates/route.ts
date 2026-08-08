@@ -8,6 +8,7 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 import { decryptSecret } from "@/lib/crypto/secrets"
 import { readSampleTemplate } from "@/lib/integrations/e-invoice/sample-templates"
 import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -104,7 +105,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("templates GET error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
@@ -202,7 +203,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("templates POST error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })

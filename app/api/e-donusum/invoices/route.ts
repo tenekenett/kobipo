@@ -16,6 +16,7 @@ import {
   hasActiveRecipe,
   parseRecipeEffects,
 } from "@/lib/stock/recipe-expand"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 
 export const dynamic = 'force-dynamic'
@@ -111,7 +112,7 @@ const company = await prisma.company.findUnique({
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching invoices:", error)
     return NextResponse.json(
@@ -956,7 +957,7 @@ const invoiceData = {
     return NextResponse.json(invoice, { status: 201 })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     // Aynı firmada aynı Fatura No: @@unique([companyId, invoiceNo]) ihlali. Kullanıcı
     // alış faturasında tedarikçi numarasını elle girdiğinde (aynı numarayı iki kez)

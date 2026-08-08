@@ -12,6 +12,7 @@ import {
   TICKET_DISCOUNT_TYPES,
 } from "@/lib/restoran/tickets"
 import { buildTicketDetail } from "@/lib/restoran/ticket-detail"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -48,7 +49,7 @@ export async function GET(request: Request, { params }: Params) {
     return NextResponse.json(base)
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error fetching ticket:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -213,7 +214,7 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json(serializeTicket(ticket))
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error updating ticket:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -287,7 +288,7 @@ export async function DELETE(request: Request, { params }: Params) {
     return NextResponse.json({ success: true, deleted: false, reasonCode })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error cancelling ticket:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

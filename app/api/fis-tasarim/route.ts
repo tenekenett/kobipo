@@ -8,6 +8,7 @@ import {
   normalizeReceiptTemplate,
   type ReceiptTemplate,
 } from "@/lib/fis/receipt-template"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -60,7 +61,7 @@ export async function GET(request: Request) {
     })
   } catch (error: any) {
     if (error?.message?.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching receipt template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -90,7 +91,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ template })
   } catch (error: any) {
     if (error?.message?.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error saving receipt template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

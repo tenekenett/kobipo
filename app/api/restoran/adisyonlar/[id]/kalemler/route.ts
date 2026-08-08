@@ -11,6 +11,7 @@ import {
   ticketInclude,
   type TicketItemOption,
 } from "@/lib/restoran/tickets"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -211,7 +212,7 @@ export async function POST(request: Request, { params }: Params) {
     )
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error adding ticket item:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

@@ -7,6 +7,7 @@ import { customerHasBusinessReferences } from "@/lib/cari/dual-role"
 import { getSupplierDeletability } from "@/lib/cari/archive-guard"
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 import { resolveCariId } from "@/lib/cari/resolve-cari"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 
 export const dynamic = 'force-dynamic'
@@ -302,7 +303,7 @@ export async function GET(
     })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching supplier:", error)
     return NextResponse.json(
@@ -598,7 +599,7 @@ export async function PUT(
     return NextResponse.json(updated)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error updating supplier:", error)
     return NextResponse.json(
@@ -650,7 +651,7 @@ export async function DELETE(
     return NextResponse.json({ message: "Supplier deleted" })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error deleting supplier:", error)
     return NextResponse.json(
@@ -711,7 +712,7 @@ export async function PATCH(
     })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error archiving supplier:", error)
     return NextResponse.json(

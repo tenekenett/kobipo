@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { MAX_DESIGN_JSON_BYTES, normalizeLabelDesign } from "@/lib/labels/types"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
     return NextResponse.json(templates)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching label templates:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -105,7 +106,7 @@ export async function POST(request: Request) {
     return NextResponse.json(created, { status: 201 })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error creating label template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

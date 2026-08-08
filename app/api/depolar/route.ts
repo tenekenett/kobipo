@@ -3,6 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = 'force-dynamic'
 
@@ -55,7 +56,7 @@ export async function GET(request: Request) {
     return NextResponse.json(warehouses)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching warehouses:", error)
     return NextResponse.json(
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
     return NextResponse.json(warehouse, { status: 201 })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error creating warehouse:", error)
     return NextResponse.json(

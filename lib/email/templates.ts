@@ -210,3 +210,70 @@ export function passwordResetEmail(params: {
     html: layout({ title: "Şifre Sıfırlama", bodyHtml }),
   }
 }
+
+/**
+ * Abonelik bitişi uyarısı — hem "yaklaşıyor" hem "bitti" hâlini tek şablon karşılar,
+ * çünkü ikisinin de tek çağrısı var: yenile.
+ *
+ * Metin bilinçli olarak "otomatik yenilenecek" DEMEZ: bugün yinelenen çekim iskele
+ * hâlinde ([[app/api/billing/recurring/run/route.ts]]), yenilemeyi kullanıcı başlatıyor.
+ * Recurring canlıya alındığında bu dil güncellenmeli.
+ */
+export function subscriptionNoticeEmail(params: {
+  kind: "expiring" | "expired"
+  daysLeft: number
+  endsAt: Date
+  /** Modüllerin gerçekten kapanacağı an — hoşgörü süresi yüzünden `endsAt`'ten sonra olabilir. */
+  locksAt: Date
+  companyName: string
+  renewUrl: string
+  userName?: string | null
+}): { subject: string; html: string } {
+  const { kind, daysLeft, endsAt, locksAt, companyName, renewUrl, userName } = params
+  const expired = kind === "expired"
+  const trDate = (d: Date) =>
+    d.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" })
+  const dateLabel = trDate(endsAt)
+  const lockLabel = trDate(locksAt)
+  // Hoşgörü süresi varsa kapanış dönem bitişinden SONRA; metin bunu söylemeli.
+  const hasGrace = locksAt.getTime() > endsAt.getTime()
+
+  const title = expired ? "Aboneliğiniz sona erdi" : "Aboneliğiniz sona eriyor"
+  const when = expired
+    ? `<strong>${escapeHtml(dateLabel)}</strong> tarihinde sona erdi`
+    : daysLeft === 1
+      ? `<strong>yarın</strong> (${escapeHtml(dateLabel)}) sona eriyor`
+      : `<strong>${daysLeft} gün sonra</strong> (${escapeHtml(dateLabel)}) sona eriyor`
+
+  const bodyHtml = `
+    ${heading(title)}
+    ${paragraph(userName ? `Merhaba ${escapeHtml(userName)},` : "Merhaba,")}
+    ${paragraph(
+      `<strong>${escapeHtml(companyName)}</strong> hesabınızın Kobipo aboneliği ${when}.`
+    )}
+    ${paragraph(
+      expired
+        ? hasGrace
+          ? `Modülleriniz şu an hâlâ açık: <strong>${escapeHtml(
+              lockLabel
+            )}</strong> tarihine kadar ek süreniz var. Bu tarihe kadar yenilemezseniz modüller kapanır ve panelde yalnız ayarlar ile e-Dönüşüm kalır. Verileriniz silinmez; yenilediğinizde kaldığınız yerden devam edersiniz.`
+          : "Satın aldığınız modüller kapandı; panelde yalnız ayarlar ile e-Dönüşüm kalır. Verileriniz silinmez; aboneliği yenilediğinizde kaldığınız yerden devam edersiniz."
+        : hasGrace
+          ? `Yenilemezseniz modülleriniz <strong>${escapeHtml(
+              lockLabel
+            )}</strong> tarihinde kapanır (dönem bitiminden sonra kısa bir ek süre tanınır). Otomatik yenileme henüz devrede değil, yenilemeyi sizin başlatmanız gerekiyor.`
+          : `Yenilemezseniz modülleriniz <strong>${escapeHtml(
+              lockLabel
+            )}</strong> tarihinde kapanır.`
+    )}
+    <div style="margin:24px 0;">${button(renewUrl, "Aboneliği Yenile")}</div>
+    ${fallbackLink(renewUrl)}
+  `
+
+  return {
+    subject: expired
+      ? `Kobipo — ${companyName} aboneliği sona erdi`
+      : `Kobipo — ${companyName} aboneliği ${daysLeft === 1 ? "yarın" : `${daysLeft} gün sonra`} sona eriyor`,
+    html: layout({ title, bodyHtml }),
+  }
+}

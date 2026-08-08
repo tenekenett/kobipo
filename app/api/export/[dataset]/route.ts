@@ -5,6 +5,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { DATASETS, isKnownDataset, listDatasets } from "@/lib/export/datasets"
 import { exportResponse } from "@/lib/export/response"
 import { isExportFormat } from "@/lib/export/types"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 // Büyük listelerde XLSX/PDF üretimi varsayılan 10 sn'yi aşabiliyor.
@@ -79,7 +80,7 @@ export async function GET(
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     if (message.toLowerCase().includes("unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

@@ -42,3 +42,17 @@ export function defaultPricingItems(): Array<{ key: string; label: string; sortO
 
 /** Yönetilebilir tüm modül anahtarları (satılabilir modül evreni). */
 export const ALL_MODULE_KEYS = MODULE_KEYS
+
+/**
+ * Ödeme alınamadıktan sonra erişimin açık kaldığı hoşgörü süresi (gün).
+ *
+ * Neden var: dönem bitiminde anında kilitlemek, kartı bir gün geç yenileyen ya da
+ * bankası çekimi reddeden müşteriyi kapının dışında bırakır. Bu sürede abonelik
+ * `PAST_DUE` durumunda bekler, modüller AÇIK kalır ([[lib/billing/entitlements.ts]] →
+ * `isInGracePeriod`), uyarı e-postası ve panel şeridi devrededir. Süre dolunca
+ * `reconcile` `EXPIRED` yazar ve modüller kapanır.
+ *
+ * İSTİSNA: kullanıcı dönem sonunda iptali kendisi istediyse (`cancelAtPeriodEnd`)
+ * hoşgörü uygulanmaz — kapanacağını zaten biliyor.
+ */
+export const GRACE_PERIOD_DAYS = 7

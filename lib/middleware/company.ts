@@ -5,6 +5,7 @@ import { getUserContext, type UserCompanyContext } from "@/lib/auth/user-context
 import {
   MODULE_GATE_METHOD_HEADER,
   MODULE_GATE_PATH_HEADER,
+  ModuleLockedError,
   isApiPathAllowed,
   requiredModulesForApiPath,
 } from "@/lib/module-access"
@@ -92,7 +93,7 @@ export async function getUserCompanies() {
  * lib/billing/entitlements.ts) kapalı bir modülün ucu elle çağrıldığında da reddedilmeli
  * — menü gizleme ve ModuleGuard istemci tarafındadır, ücretli özelliği korumaz.
  *
- * Yalnız `/api/*` için çalışır: yolu root middleware.ts header'a yazar, kural haritası
+ * Yalnız `/api/*` için çalışır: yolu kökteki proxy.ts header'a yazar, kural haritası
  * lib/module-access.ts'tedir. Sayfa render'ında header yoktur → kapı uygulanmaz, orada
  * ModuleGuard "Bu modül kapalı" ekranını gösterir.
  *
@@ -118,10 +119,28 @@ async function assertModuleAccess(
   if (!pathname) return
   if (isApiPathAllowed(pathname, method, company.disabledModules)) return
 
-  const required = requiredModulesForApiPath(pathname, method)
-  // "Access denied" ifadesi mevcut route catch'lerinde 403'e maplenir; catch'i olmayan
-  // uçlarda istek yine (fail-closed) reddedilir.
-  throw new Error(`Access denied: module locked (${required.join("|")})`)
+  // Mesajı "Access denied" ile başlar (route catch'leri 403'e onunla mapler); gövdeye
+  // `code: "MODULE_LOCKED"` taşımak `lib/api/errors.ts → accessDeniedResponse`'un işi.
+  throw new ModuleLockedError(requiredModulesForApiPath(pathname, method))
+}
+
+/**
+ * Modül kapısını, isteğin KENDİ yolu yerine açıkça verilen bir yol için uygular.
+ *
+ * Kapı normalde `x-kobipo-path`'i okur; ama bazı uçlar hangi veriyi verecekleri bilgisini
+ * yolda değil query'de taşır — ör. `/api/export?module=products`, `/api/export/products`
+ * ile aynı veriyi döndürür ama o yolun kuralına takılmaz. Böyle bir uç karşılık gelen
+ * "gerçek" yolu buraya sorar; kural tablosu (lib/module-access.ts) tek kaynak kalır.
+ */
+export async function assertModulePath(
+  company: UserCompanyContext,
+  pathname: string,
+  method = "GET"
+): Promise<void> {
+  const context = await getUserContext()
+  if (context?.isSuperAdmin) return
+  if (isApiPathAllowed(pathname, method, company.disabledModules)) return
+  throw new ModuleLockedError(requiredModulesForApiPath(pathname, method))
 }
 
 export const ensureCompanyAccess = cache(async function ensureCompanyAccess(

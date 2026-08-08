@@ -9,6 +9,7 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -107,7 +108,7 @@ export async function GET(
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching GIB PDF:", error)
     return NextResponse.json(

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { encryptSecret } from "@/lib/crypto/secrets"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 
 export const dynamic = 'force-dynamic'
@@ -85,7 +86,7 @@ export async function GET(
     })
   } catch (error: any) {
     if (error.message === "Unauthorized" || error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching company:", error)
     return NextResponse.json(
@@ -243,7 +244,7 @@ export async function PUT(
     return NextResponse.json(company)
   } catch (error: any) {
     if (error.message === "Unauthorized" || error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error updating company:", error)
     return NextResponse.json(

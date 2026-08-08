@@ -6,6 +6,7 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
 import { assertNoRecipeCycle, RecipeCycleError } from "@/lib/stock/recipe"
 import { canConvert, normalizeUnitCode } from "@/lib/data/units"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -92,7 +93,7 @@ export async function GET(request: Request) {
     return NextResponse.json(recipes.map(serialize))
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching recipes:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -227,7 +228,7 @@ export async function POST(request: Request) {
       )
     }
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error saving recipe:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

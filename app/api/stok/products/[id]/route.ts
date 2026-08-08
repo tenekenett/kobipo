@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 
 export const dynamic = 'force-dynamic'
@@ -89,7 +90,7 @@ export async function GET(
     })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching product:", error)
     return NextResponse.json(
@@ -188,7 +189,7 @@ export async function PUT(
     return NextResponse.json(updated)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error updating product:", error)
     return NextResponse.json(
@@ -256,7 +257,7 @@ export async function PATCH(
     return NextResponse.json(updated)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error patching product:", error)
     return NextResponse.json(
@@ -295,7 +296,7 @@ export async function DELETE(
     return NextResponse.json({ message: "Product deleted" })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error deleting product:", error)
     return NextResponse.json(

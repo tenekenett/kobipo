@@ -7,6 +7,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { registerTurkishFont, TURKISH_PDF_FONT } from "@/lib/pdf/unicode-font"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -360,7 +361,7 @@ export async function GET(
     })
   } catch (error: any) {
     if (error?.message?.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error generating quote PDF:", error)
     return NextResponse.json(

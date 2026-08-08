@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -51,7 +52,7 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json(item)
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error updating plan item:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -78,7 +79,7 @@ export async function DELETE(request: Request, { params }: Params) {
     return NextResponse.json({ success: true })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error deleting plan item:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

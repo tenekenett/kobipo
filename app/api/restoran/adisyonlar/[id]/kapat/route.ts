@@ -11,6 +11,7 @@ import {
   ticketInclude,
 } from "@/lib/restoran/tickets"
 import { writeCompWasteStock } from "@/lib/restoran/comp-waste-stock"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -149,7 +150,7 @@ export async function GET(request: Request, { params }: Params) {
     })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error preparing ticket close:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -253,7 +254,7 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json(serializeTicket(fresh!))
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     if (error?.code === "P2002") {
       return NextResponse.json({ error: "Bu fiş başka bir adisyona bağlı" }, { status: 409 })

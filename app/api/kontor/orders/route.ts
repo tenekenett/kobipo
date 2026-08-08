@@ -5,6 +5,7 @@ import { requireSuperAdmin } from "@/lib/auth/require-super-admin"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isPaytrEnabled, PAYTR_NOT_CONFIGURED_ERROR } from "@/lib/integrations/paytr/client"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -96,7 +97,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("kontor orders POST error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })

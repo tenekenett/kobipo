@@ -6,6 +6,7 @@ import { SidebarProvider } from "@/components/dashboard/sidebar-provider"
 import { MainArea } from "@/components/dashboard/main-area"
 import { CompanySelector } from "@/components/dashboard/company-selector"
 import { BranchContextBanner } from "@/components/dashboard/branch-context-banner"
+import { SubscriptionNoticeBanner } from "@/components/dashboard/subscription-notice-banner"
 import { DashboardCompanyProvider } from "@/components/dashboard/dashboard-company-provider"
 import { SWRProvider } from "@/components/providers/swr-provider"
 import { ModuleGuard } from "@/components/dashboard/module-guard"
@@ -87,6 +88,7 @@ export default async function DashboardLayout({
           <MainArea>
             <DashboardHeader />
             <div className="w-full min-w-0 overflow-x-clip p-4 sm:p-6">
+              <SubscriptionNoticeBanner />
               <BranchContextBanner />
               <CompanySelector />
               <div className="mt-4 w-full min-w-0">

@@ -3,6 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { computeVatDeclaration, type VatPeriod } from "@/lib/raporlar/vergiler"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = 'force-dynamic'
 
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
     return NextResponse.json(await computeVatDeclaration({ companyId, period, year, month }))
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error generating VAT declaration:", error)
     return NextResponse.json(

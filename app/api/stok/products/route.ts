@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 import { resolveAllUnitCosts } from "@/lib/stock/cost"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = 'force-dynamic'
 
@@ -87,7 +88,7 @@ export async function GET(request: Request) {
     return NextResponse.json(result)
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching products:", error)
     return NextResponse.json(
@@ -237,7 +238,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ...product, stockQuantity: initialQty }, { status: 201 })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error creating product:", error)
     return NextResponse.json(

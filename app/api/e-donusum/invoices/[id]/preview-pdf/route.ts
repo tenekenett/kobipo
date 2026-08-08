@@ -9,6 +9,7 @@ import {
   type GibInvoiceLine,
   type GibDocKind,
 } from "@/lib/pdf/gib-invoice-pdf"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -168,7 +169,7 @@ export async function GET(
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error generating saved-invoice preview PDF:", error)
     return NextResponse.json({ error: message || "Önizleme PDF üretilemedi" }, { status: 500 })

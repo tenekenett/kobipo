@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { Prisma } from "@prisma/client"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { normalizeDesignOptions } from "@/lib/integrations/e-invoice/template-designer"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -73,7 +74,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("templates designs GET error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("templates designs POST error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

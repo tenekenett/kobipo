@@ -11,6 +11,7 @@ import {
   TICKET_ITEM_STATUSES,
   type TicketItemStatus,
 } from "@/lib/restoran/tickets"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -126,7 +127,7 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json(serializeTicket(fresh!))
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error updating ticket item:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -183,7 +184,7 @@ export async function DELETE(request: Request, { params }: Params) {
     return NextResponse.json(serializeTicket(fresh!))
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error deleting ticket item:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

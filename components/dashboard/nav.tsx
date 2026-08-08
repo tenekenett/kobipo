@@ -8,7 +8,7 @@ import { KobipoLogoMark } from "@/components/ui/kobipo-logo-mark"
 import { cn } from "@/lib/utils"
 import { LogOut, Menu, X, ChevronDown, Loader2 } from "lucide-react"
 import { allNavItems, navGroups, navItemActive, standaloneNavHrefs, type NavItemDef } from "@/components/dashboard/nav-config"
-import { MODULE_GROUP_TO_KEY } from "@/lib/modules"
+import { MODULE_GROUP_TO_KEY, MODULE_KEYS } from "@/lib/modules"
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { withCompanyHref } from "@/lib/company/href"
@@ -47,10 +47,16 @@ export function DashboardNav() {
     [selectedCompany?.isEDonusumEnabled, userRole]
   )
 
-  // Firma için kapalı modüllerin nav gruplarını gizle
+  // Firma için kapalı modüllerin nav gruplarını gizle.
+  //
+  // `disabledModules` bir RED listesi olduğu için "bilgi yok" hâli tehlikeli: boş küme
+  // "hepsi açık" demektir. Seçili firma YOKKEN (henüz firma açmamış kullanıcı, ya da
+  // seçim çözülmeden önceki ilk render) bu, satın alınmamış modüllerin menüde
+  // görünmesine yol açıyordu — hiç firması olmayan kullanıcı VIEWER'a düşüp yalnız
+  // "Raporlar" grubunu görüyordu. Bilgi yoksa HİÇBİR modül açık sayılmaz (fail closed).
   const disabledModules = useMemo(
-    () => new Set(selectedCompany?.disabledModules ?? []),
-    [selectedCompany?.disabledModules]
+    () => new Set(selectedCompany ? selectedCompany.disabledModules ?? [] : MODULE_KEYS),
+    [selectedCompany]
   )
 
   const groupedItems = useMemo(

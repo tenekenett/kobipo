@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -43,7 +44,7 @@ export async function GET(request: Request, { params }: Params) {
     return NextResponse.json(recipe)
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching recipe:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -80,7 +81,7 @@ export async function DELETE(request: Request, { params }: Params) {
     return NextResponse.json({ success: true })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error deleting recipe:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

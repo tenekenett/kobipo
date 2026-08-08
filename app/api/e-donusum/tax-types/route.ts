@@ -12,6 +12,7 @@ import {
   GIB_OTHER_TAX_TYPES,
   type GibTaxType,
 } from "@/lib/integrations/e-invoice/gib-tax-types"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -123,7 +124,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("tax-types GET error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })

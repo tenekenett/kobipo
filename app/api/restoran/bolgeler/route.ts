@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
 import { normalizeCols } from "@/lib/restoran/floor-plan"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
     return NextResponse.json(areas)
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error fetching restaurant areas:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
     return NextResponse.json(area, { status: 201 })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error creating restaurant area:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

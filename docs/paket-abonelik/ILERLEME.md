@@ -27,8 +27,11 @@ Kodlama tarafı bitti — **kalan tek iş DAĞITIM** (DB migration + env + cron 
 - [x] DB migration (bu ortamın DB'sinde uygulandı — prod DB ayrıysa orada tekrar uygula).
 - [x] `.env.local`: PayTR anahtarları + `BILLING_CRON_SECRET` mevcut (cron secret bu oturumda eklendi).
 - [ ] PayTR panelinde bildirim URL'si: `https://<alan>/api/billing/paytr/callback`.
-- [ ] Cron: **ÖNCE** `POST /api/billing/recurring/run`, **SONRA** `POST /api/billing/reconcile`
-  (ör. günlük). Header `Authorization: Bearer $BILLING_CRON_SECRET`.
+- [ ] Cron — **bilinçli olarak ERTELENDİ (2026-08-08).** Abonelik bitişi şimdilik zorlanmıyor;
+  satın alan kullanmaya devam ediyor. Kod hazır ve uykuda: tek uç `GET|POST /api/billing/cron/daily`
+  içeride sırayla notify → recurring → reconcile çalıştırıyor (sıra kodda, [[lib/billing/jobs.ts]]),
+  hoşgörü süresi + testler yerinde. Açmak için gereken üç adım ve sıralama (önce gerçek
+  yinelenen çekim, sonra cron): `docs/paket-abonelik/MODUL-KILIDI.md` → "Şu an ne çalışıyor".
 - [ ] (Opsiyonel, otomatik yenileme için) PayTR recurring ürününü aç + `chargeRecurringPayment`
   stub'ını canlı API'ye bağla ([[lib/integrations/paytr/client.ts]]). İlk dönem ödemesi + iptal +
   tüm enforcement bu olmadan zaten çalışır.

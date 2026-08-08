@@ -12,6 +12,7 @@ import {
   reservationInclude,
   serializeReservation,
 } from "@/lib/restoran/reservations"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -48,7 +49,7 @@ export async function GET(request: Request) {
     return NextResponse.json(reservations.map(serializeReservation))
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error fetching reservations:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -115,7 +116,7 @@ export async function POST(request: Request) {
     return NextResponse.json(serializeReservation(reservation), { status: 201 })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error creating reservation:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

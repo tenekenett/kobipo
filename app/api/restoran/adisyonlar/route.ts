@@ -10,6 +10,7 @@ import {
   ticketInclude,
   TICKET_STATUSES,
 } from "@/lib/restoran/tickets"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -71,7 +72,7 @@ export async function GET(request: Request) {
     return NextResponse.json(tickets.map(serializeTicket))
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error fetching tickets:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -172,7 +173,7 @@ export async function POST(request: Request) {
     return NextResponse.json(serializeTicket(ticket), { status: 201 })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     // Eşzamanlı iki "adisyon aç" isteği aynı numarayı üretirse benzersizlik
     // kısıtı devreye girer; kullanıcı tekrar denesin diye açık mesaj dönüyoruz.

@@ -6,6 +6,7 @@ import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule, TICKET_ITEM_REASONS } from "@/lib/restoran/tickets"
 import { writeCompWasteStock, type CompWasteLine } from "@/lib/restoran/comp-waste-stock"
 import { parseRecipeEffects } from "@/lib/stock/recipe-expand"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -141,7 +142,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, reference, written: result.written })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error writing comp/waste:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

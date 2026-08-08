@@ -10,9 +10,10 @@ import { MODULE_GATE_METHOD_HEADER, MODULE_GATE_PATH_HEADER } from "@/lib/module
  * Alternatifi her API dosyasına elle modül kontrolü eklemekti (200+ dosya, biri atlanınca
  * sessiz açık). Burada tek satır header ile `ensureCompanyAccess` tüm uçları kapatıyor.
  *
- * Edge runtime'da çalışır: DB/oturum işi YAPMAZ, yalnızca header yazar.
+ * Dosya adı `proxy.ts`: Next 16'da `middleware.ts` deprecate edildi, dışa aktarılan
+ * fonksiyonun adı da `proxy` olmak zorunda. DB/oturum işi YAPMAZ, yalnızca header yazar.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const headers = new Headers(request.headers)
   headers.set(MODULE_GATE_PATH_HEADER, request.nextUrl.pathname)
   headers.set(MODULE_GATE_METHOD_HEADER, request.method)

@@ -19,6 +19,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { discountReasonLabel, ticketDiscountOf, ticketTotals } from "@/lib/restoran/tickets"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -127,7 +128,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     })
   } catch (error: any) {
     if (String(error?.message).includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("[Personel] Restoran aktivitesi hatası:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

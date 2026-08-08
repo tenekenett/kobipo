@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { DEFAULT_RECEIPT_TEMPLATE, normalizeReceiptTemplate } from "@/lib/fis/receipt-template"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -132,7 +133,7 @@ export async function GET(
     })
   } catch (error: any) {
     if (error?.message?.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching receipt:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

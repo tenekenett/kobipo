@@ -10,6 +10,7 @@ import {
   ticketDiscountOf,
   ticketTotals,
 } from "@/lib/restoran/tickets"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -117,7 +118,7 @@ export async function GET(request: Request) {
     )
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error fetching restaurant tables:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -180,7 +181,7 @@ export async function POST(request: Request) {
     return NextResponse.json(table, { status: 201 })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return accessDeniedResponse(error, error.message)
     }
     console.error("Error creating restaurant table:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -93,7 +94,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ warehouses: warehousesWithSummary, stocks })
   } catch (error: any) {
     if (error.message?.includes("Access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching warehouse stock:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

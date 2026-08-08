@@ -2,10 +2,11 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { assertModulePath, ensureCompanyAccess } from "@/lib/middleware/company"
 import { XMLBuilder } from "fast-xml-parser"
 import { DATASETS } from "@/lib/export/datasets"
 import { exportResponse } from "@/lib/export/response"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -92,12 +93,17 @@ export async function GET(request: Request) {
     if (!companyId || !moduleName) {
       return NextResponse.json({ error: "companyId and module are required" }, { status: 400 })
     }
-    await ensureCompanyAccess(companyId)
+    const context = await ensureCompanyAccess(companyId)
 
     const mapping = MODULE_TO_DATASET[moduleName]
     if (!mapping) {
       return NextResponse.json({ error: "Unsupported module" }, { status: 400 })
     }
+
+    // Modül kapısı YOLU okur, bu uç ise veri kümesini `?module=` ile alır: `/api/export/products`
+    // kilitliyken aynı ürün listesi buradan sızabiliyordu. Kararı karşılık gelen dataset
+    // yoluna sorarak veriyoruz — kural tablosu tek kaynak kalsın.
+    await assertModulePath(context, `/api/export/${mapping.dataset}`)
 
     if (format === "xml") {
       if (moduleName !== "invoices") {
@@ -119,7 +125,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("export route error:", error)
     return NextResponse.json({ error: message || "Dışa aktarma hatası" }, { status: 500 })

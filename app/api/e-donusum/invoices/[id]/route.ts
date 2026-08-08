@@ -8,6 +8,7 @@ import { revertInvoiceStock } from "@/lib/stock/warehouse"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { Decimal } from "@prisma/client/runtime/library"
 import { normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
+import { accessDeniedResponse } from "@/lib/api/errors"
 
 
 export const dynamic = 'force-dynamic'
@@ -184,7 +185,7 @@ export async function GET(
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error fetching invoice:", error)
     return NextResponse.json(
@@ -439,7 +440,7 @@ export async function PUT(
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     // Fatura No çakışması (@@unique([companyId, invoiceNo])) → net mesaj.
     if (error?.code === "P2002") {
@@ -520,7 +521,7 @@ export async function POST(
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      return accessDeniedResponse(error)
     }
     console.error("Error resending invoice:", error)
     return NextResponse.json(
