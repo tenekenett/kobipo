@@ -37,7 +37,12 @@ import {
 import { SearchSelect } from "@/components/ui/search-select"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
-import { convertibleUnits, defaultRecipeUnit, normalizeUnitCode } from "@/lib/data/units"
+import {
+  defaultRecipeUnit,
+  normalizeUnitCode,
+  recipeUnitOptions,
+  unitShortLabel,
+} from "@/lib/data/units"
 import type { OptionGroupView } from "@/lib/restoran/product-options"
 import { cn } from "@/lib/utils"
 
@@ -485,7 +490,7 @@ function EffectEditor({
   onChange: (patch: Partial<DraftOption>) => void
 }) {
   const addProduct = option.toProductId ? productById.get(option.toProductId) : undefined
-  const unitOptions = addProduct ? convertibleUnits(addProduct.unit) : []
+  const unitOptions = addProduct ? recipeUnitOptions(addProduct.unit, option.effectUnit) : []
 
   const modes: Array<{ value: DraftOption["effectMode"]; label: string }> = [
     { value: "", label: "Yok" },
@@ -558,12 +563,14 @@ function EffectEditor({
               const picked = productById.get(id)
               onChange({
                 toProductId: id,
-                // Birim ürünün stok biriminden türetilir: kullanıcı "1 ADET
-                // espresso" derken birimi ayrıca düşünmek zorunda kalmasın.
+                // Birim DAİMA seçilen üründen yeniden türetilir. Eskiden mevcut
+                // değer korunuyordu (`option.effectUnit || …`) ve ürün süt→kahve
+                // olarak değiştirildiğinde birim ML olarak kalıyordu: liste artık
+                // ML içermediği için Select boş görünüyor ama kayıt ML gidiyor,
+                // satışta ML→KG çevrilemediği için ekstra malzeme SESSİZCE
+                // düşmüyordu.
                 effectUnit:
-                  option.effectUnit ||
-                  defaultRecipeUnit(picked?.unit) ||
-                  normalizeUnitCode(picked?.unit),
+                  defaultRecipeUnit(picked?.unit) || normalizeUnitCode(picked?.unit),
               })
             }}
             placeholder="Eklenecek ürün"
@@ -587,7 +594,7 @@ function EffectEditor({
             <SelectContent>
               {unitOptions.map((u) => (
                 <SelectItem key={u} value={u}>
-                  {u}
+                  {unitShortLabel(u)}
                 </SelectItem>
               ))}
             </SelectContent>

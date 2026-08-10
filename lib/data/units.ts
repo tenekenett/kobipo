@@ -229,6 +229,47 @@ export function convertibleUnits(unit?: string | null): string[] {
 }
 
 /**
+ * Reçete/etki satırındaki birim açılır listesinde GÖSTERİLECEK seçenekler.
+ *
+ * `convertibleUnits` fiziksel gerçeği söyler ve öyle kalmalı (doğrulama onu
+ * kullanır); bu ise ekran listesidir. Tek farkı TON: kütle ailesinde geçerli bir
+ * dönüşüm ama hiçbir reçete kaleminde kullanılmaz ve GR/KG'nin yanında gürültü
+ * yapar. Stok birimi TON ise ya da satır zaten TON kaydedilmişse listede kalır —
+ * aksi halde Select kendi değerini bulamaz, boş görünür ve kullanıcı farkında
+ * olmadan başka bir birime geçerdi.
+ */
+export function recipeUnitOptions(stockUnit?: string | null, currentUnit?: string | null): string[] {
+  const units = convertibleUnits(stockUnit)
+  const pinned = new Set([normalizeUnitCode(stockUnit), normalizeUnitCode(currentUnit)])
+  return units.filter((u) => u !== "TON" || pinned.has("TON"))
+}
+
+/**
+ * Birimin dar alanlarda (reçete satırı, birim seçici) okunur kısa yazımı:
+ * "GR" → "g", "LT" → "lt". Ölçü birimleri paket etiketlerindeki gibi küçük
+ * harfle okunur; ADET/PAKET gibi aile dışı birimlerde UNIT_OPTIONS'taki ad
+ * kullanılır. Tanınmayan birim olduğu gibi geri döner (bilgi kaybolmaz).
+ */
+const UNIT_SHORT_LABEL: Record<string, string> = {
+  GR: "g",
+  KG: "kg",
+  TON: "ton",
+  ML: "ml",
+  LT: "lt",
+  CM: "cm",
+  MT: "m",
+}
+
+export function unitShortLabel(unit?: string | null): string {
+  const u = normalizeUnitCode(unit)
+  if (!u) return ""
+  if (UNIT_SHORT_LABEL[u]) return UNIT_SHORT_LABEL[u]
+  const option = UNIT_OPTIONS.find((o) => o.value === u)
+  // "Metrekare (m²)" → "Metrekare"; parantezli kısaltma dar alanda gereksiz.
+  return option ? option.label.replace(/\s*\(.*\)$/, "") : u
+}
+
+/**
  * Bir bileşenin REÇETEDE varsayılan olarak yazılacağı birim.
  *
  * Stok birimini varsayılan yapmak tehlikeliydi: süt LT stoklanıyor, kullanıcı

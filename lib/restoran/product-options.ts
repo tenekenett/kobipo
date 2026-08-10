@@ -9,7 +9,7 @@
 // çarpanı). Etkinin stoğa nasıl uygulandığı: lib/stock/recipe-expand.ts.
 
 import { Prisma } from "@prisma/client"
-import { normalizeUnitCode } from "@/lib/data/units"
+import { canConvert, normalizeUnitCode } from "@/lib/data/units"
 import type { prisma } from "@/lib/db/prisma"
 
 export { assertRestaurantModule } from "@/lib/restoran/tickets"
@@ -162,11 +162,16 @@ export function optionEffectProductIds(options: NormalizedOption[]): string[] {
 }
 
 /**
- * Etkide geçen ürünler bu firmaya mı ait?
+ * Reçete etkisinin kaydedilebilir olup olmadığını doğrular. İki ayrı soru:
  *
- * Yalnız "var mı" değil "BU firmanın mı" diye sorar: aksi halde bir kullanıcı
- * başka firmanın ürün id'sini yazıp o kartın adını/varlığını sızdırabilirdi.
- * Uymayan id varsa kullanıcıya gösterilecek hata metni döner, yoksa null.
+ * 1. Ürünler BU firmaya mı ait? Yalnız "var mı" değil — aksi halde bir kullanıcı
+ *    başka firmanın ürün id'sini yazıp o kartın adını/varlığını sızdırabilirdi.
+ * 2. "Ekleme" etkisinin birimi, eklenen ürünün stok birimine çevrilebiliyor mu?
+ *    Reçete ucu bunu `canConvert` ile kayıt anında doğruluyor (recipes/route.ts);
+ *    burada karşılığı YOKTU ve ML cinsinden kaydedilmiş bir KG ürünü satışta
+ *    UNIT_MISMATCH'e düşüp SESSİZCE hiç düşmüyordu.
+ *
+ * Sorun varsa kullanıcıya gösterilecek hata metni döner, yoksa null.
  */
 export async function checkOptionEffectProducts(
   db: Pick<typeof prisma, "product">,
@@ -178,8 +183,22 @@ export async function checkOptionEffectProducts(
 
   const found = await db.product.findMany({
     where: { id: { in: ids }, companyId },
-    select: { id: true },
+    select: { id: true, name: true, unit: true },
   })
-  if (found.length === ids.length) return null
-  return "Reçete etkisinde geçersiz ürün var"
+  if (found.length !== ids.length) return "Reçete etkisinde geçersiz ürün var"
+
+  const byId = new Map(found.map((p) => [p.id, p]))
+  for (const option of options) {
+    if (option.effectMode !== "ADD" || !option.toProductId || !option.effectUnit) continue
+    const product = byId.get(option.toProductId)
+    if (!product) continue
+    if (!canConvert(option.effectUnit, product.unit)) {
+      return (
+        `"${option.name}" seçeneğinde "${product.name}" için ${option.effectUnit} → ` +
+        `${product.unit} dönüşümü yapılamıyor. Ekleme birimi, ürünün stok birimiyle ` +
+        `aynı ölçü ailesinden olmalı (ör. KG↔GR, LT↔ML).`
+      )
+    }
+  }
+  return null
 }

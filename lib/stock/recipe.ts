@@ -2,10 +2,12 @@
 // Saf genişletme mantığı ayrı dosyada: lib/stock/recipe-expand.ts
 
 import { prisma } from "@/lib/db/prisma"
+import { canConvert } from "@/lib/data/units"
 import { findRecipePath, type RecipeMap } from "@/lib/stock/recipe-expand"
 
 // PrismaClient veya $transaction içindeki client — ikisi de model metodlarını taşır.
 type Db = Pick<typeof prisma, "productRecipe" | "product">
+type ItemDb = Pick<typeof prisma, "productRecipeItem">
 
 export type RecipeContext = {
   recipes: RecipeMap
@@ -74,6 +76,42 @@ export async function loadRecipeContext(db: Db, companyId: string): Promise<Reci
 // "purchasePrice → son alış" önceliğini uygularken reçete ekranı tam TERSİNİ
 // (AVCO → purchasePrice) kullanıyordu; ekrandaki marj ile rapordaki marj bu
 // yüzden ayrışıyordu. Bkz. docs/restoran/SADELESTIRME.md "İş 2".
+
+/**
+ * Ürünün stok birimi `nextUnit` yapılırsa, onu BİLEŞEN olarak kullanan reçetelerde
+ * hangi kalemler çevrilemez hale gelir?
+ *
+ * Neden gerekli: birim uyumu reçete KAYDEDİLİRKEN doğrulanıyor (canConvert), ama
+ * hammaddenin kartı sonradan Stok ekranından düzenlenebiliyor. Kahve KG'den ADET'e
+ * çevrildiğinde GR cinsinden yazılmış tüm reçeteler geçersizleşiyor ve bu ancak
+ * SATIŞ anında ortaya çıkıyor: expandRecipeLines UNIT_MISMATCH döndürüp bileşeni
+ * atlıyor, hata yalnızca log'a yazılıyor — yani satış geçiyor, hammadde hiç
+ * düşmüyor. Sessiz stok kaybının tek kapatılabileceği yer burası: değişikliği
+ * yapan istek.
+ *
+ * Boş dizi = değişiklik güvenli.
+ */
+export async function findRecipeUnitConflicts(
+  db: ItemDb,
+  companyId: string,
+  componentProductId: string,
+  nextUnit: string
+): Promise<Array<{ recipeProductName: string; itemUnit: string }>> {
+  const items = await db.productRecipeItem.findMany({
+    where: { componentProductId, recipe: { companyId } },
+    select: {
+      unit: true,
+      recipe: { select: { product: { select: { name: true } } } },
+    },
+  })
+
+  return items
+    .filter((item) => !canConvert(item.unit, nextUnit))
+    .map((item) => ({
+      recipeProductName: item.recipe.product.name,
+      itemUnit: item.unit,
+    }))
+}
 
 export class RecipeCycleError extends Error {
   constructor(public chain: string[]) {

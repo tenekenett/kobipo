@@ -25,6 +25,7 @@ import {
   Inbox,
   LayoutDashboard,
   LayoutGrid,
+  LayoutList,
   LayoutTemplate,
   LifeBuoy,
   ListChecks,
@@ -111,6 +112,10 @@ export const allNavItems: NavItemDef[] = [
   // için iki grup arasında gidip geliyordu. Reçete MANTIĞI hâlâ lib/stock'ta —
   // taşınan yalnızca ekranın adresi (bkz. docs/restoran/SADELESTIRME.md "İş 3").
   { href: "/restoran/masalar", label: "Masalar", icon: LayoutGrid, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
+  // Aynı masaların LİSTE hâli: kroki masanın yerini anlatır, servis sırasında
+  // yalnız adı lazım. Dokunmatik kasada hedefler büyük ve sabit kalsın diye ayrı
+  // ekran — davranış krokiyle ortak (lib/restoran/use-table-opener.ts).
+  { href: "/restoran/masa-listesi", label: "Masa Listesi", icon: LayoutList, roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   // Salon planı masaya bakar; bu liste hesaba. Masasız (paket/gel-al) adisyonun
   // açılabildiği ve görülebildiği tek yer burası — ayrıca kapanmış adisyonun
   // gün bazında görülebildiği tek yer (gün sonu raporu fişleri sayar).
@@ -221,6 +226,7 @@ export const navGroups: Array<{ title: string; hrefs: string[] }> = [
     // adres çubuğuna elle yazılan adisyon linki de `restaurant` kapalıyken kilitlensin.
     hrefs: [
       "/restoran/masalar",
+      "/restoran/masa-listesi",
       "/restoran/adisyonlar",
       "/restoran/adisyon",
       "/restoran/satis",

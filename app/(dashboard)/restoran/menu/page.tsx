@@ -30,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { SearchSelect } from "@/components/ui/search-select"
+import { TextCombobox } from "@/components/ui/text-combobox"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHeader } from "@/components/ui/table"
 import {
@@ -61,6 +62,8 @@ import {
   convertibleUnits,
   defaultRecipeUnit,
   normalizeUnitCode,
+  recipeUnitOptions,
+  unitShortLabel,
 } from "@/lib/data/units"
 import { quickCreateProduct, type CreatedProduct } from "@/lib/stock/quick-create-product"
 import { RawMaterialDialog } from "@/components/restoran/raw-material-dialog"
@@ -68,6 +71,7 @@ import { ProductOptionsDialog } from "@/components/restoran/product-options-dial
 import { cn } from "@/lib/utils"
 import {
   buildRecipeMap,
+  describeExpandError,
   expandRecipeLines,
   findRecipePath,
   type RecipeMap,
@@ -75,6 +79,7 @@ import {
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { useProductOptions } from "@/lib/swr/use-restoran"
 import {
+  useProductCategories,
   useProducts,
   useRecipes,
   type RefProduct,
@@ -248,24 +253,6 @@ export default function ReceptelerPage() {
    */
   const nameOf = (productId: string) => productById.get(productId)?.name ?? productId
 
-  /**
-   * expandRecipeLines hatalarını okunur Türkçeye çevirir. `detail` alanı ham
-   * productId zinciri taşıyor (saf fonksiyon ürün adlarını bilmez) — kullanıcıya
-   * cuid göstermemek için burada adlara çevrilir.
-   */
-  function describeError(e: { productId: string; reason: string; detail?: string }): string {
-    switch (e.reason) {
-      case "CYCLE":
-        return `Reçete döngüsü: ${(e.detail ?? e.productId).split(" → ").map(nameOf).join(" → ")}`
-      case "DEPTH":
-        return `Reçete ${e.detail} kattan derin — "${nameOf(e.productId)}" açılamadı`
-      case "UNIT_MISMATCH":
-        return `"${nameOf(e.productId)}" için ${e.detail} dönüşümü yapılamıyor`
-      default:
-        return `"${nameOf(e.productId)}": ${e.reason}`
-    }
-  }
-
   function costOf(productId: string, map: RecipeMap): CostResult {
     const { components, errors } = expandRecipeLines({
       lines: [{ productId, quantity: 1 }],
@@ -285,7 +272,7 @@ export default function ReceptelerPage() {
     return {
       total,
       priceless,
-      errors: errors.map(describeError),
+      errors: errors.map((e) => describeExpandError(e, nameOf)),
       hasRecipe: map.has(productId),
     }
   }
@@ -398,12 +385,21 @@ export default function ReceptelerPage() {
     return safeVat > 0 ? raw / (1 + safeVat / 100) : raw
   }, [draft.mode, draft.newProduct, draftProduct])
 
-  /** Var olan kategoriler — yeni ürün formunda öneri listesi olarak sunulur. */
+  /**
+   * Yeni ürün formundaki kategori önerileri.
+   *
+   * İKİ kaynak birleşir: Stok ekranından yönetilen kategori tanımları
+   * (CompanyDefinition) ve ürünlerde fiilen kullanılan etiketler. Eskiden yalnız
+   * ikincisi vardı — Stok'ta tanımlanmış ama henüz hiçbir ürüne verilmemiş bir
+   * kategori burada hiç görünmüyordu, kullanıcı da onu elle yeniden yazıyordu.
+   */
+  const { categories: definedCategories } = useProductCategories(companyId)
   const menuCategories = useMemo(() => {
     const set = new Set<string>()
+    for (const c of definedCategories) if (c.trim()) set.add(c.trim())
     for (const p of products) if (p.category?.trim()) set.add(p.category.trim())
     return Array.from(set).sort((a, b) => a.localeCompare(b, "tr-TR"))
-  }, [products])
+  }, [definedCategories, products])
 
   /** Reçetesi olan ürün bileşen olarak seçilebilir (yarı mamül); yalnızca kendisi hariç. */
   const componentOptions = useMemo(
@@ -448,10 +444,23 @@ export default function ReceptelerPage() {
     // Birim, ailenin KÜÇÜK biriminde başlar (süt LT stoklansa da reçetede ML).
     // Eskiden stok birimiyle başlıyordu ve "200" yazan kullanıcı 200 ml yerine
     // 200 LİTRE giriyordu — bkz. defaultRecipeUnit().
-    patchItem(key, {
-      componentProductId: componentId,
-      unit: defaultRecipeUnit(component?.unit),
-    })
+    const nextUnit = defaultRecipeUnit(component?.unit)
+    setDraft((d) => ({
+      ...d,
+      items: d.items.map((it) => {
+        if (it.key !== key) return it
+        // Birim değiştiyse eldeki miktar artık BAŞKA bir şey ifade eder: "200 ml
+        // süt" satırı kahveye çevrildiğinde sessizce "200 g kahve" olarak
+        // kalıyordu. Miktar temizlenip yeniden sorulur.
+        const unitChanged = normalizeUnitCode(it.unit) !== normalizeUnitCode(nextUnit)
+        return {
+          ...it,
+          componentProductId: componentId,
+          unit: nextUnit,
+          quantity: unitChanged ? "" : it.quantity,
+        }
+      }),
+    }))
   }
 
   function addItem() {
@@ -479,9 +488,12 @@ export default function ReceptelerPage() {
     // sonra satıra yazmak anlamlı (SearchSelect adı listeden okuyor).
     await refresh()
     if (rawTargetKey) {
+      // Birim `selectComponent` ile AYNI kuraldan gelir: ailenin küçük birimi.
+      // Burada stok birimini yazmak (eskiden öyleydi) "200 LT süt" hatasını
+      // ikinci bir kapıdan geri getirirdi — bkz. defaultRecipeUnit().
       patchItem(rawTargetKey, {
         componentProductId: created.id,
-        unit: created.unit ? normalizeUnitCode(created.unit) : "",
+        unit: defaultRecipeUnit(created.unit),
       })
       setRawTargetKey(null)
     }
@@ -892,25 +904,23 @@ export default function ReceptelerPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="np-category">Kategori</Label>
-                    <Input
+                    {/* Var olan kategoriler öneri olarak sunulur; kategori yine
+                        serbest metin (PLAN.md "Adım 2": FK bağı yok). Native
+                        <datalist> idi — listeyi ancak yazınca açtığı için
+                        kullanıcı mevcut kategorileri hiç göremiyordu. */}
+                    <TextCombobox
                       id="np-category"
                       value={draft.newProduct.category}
-                      onChange={(e) =>
+                      onChange={(v) =>
                         setDraft((d) => ({
                           ...d,
-                          newProduct: { ...d.newProduct, category: e.target.value },
+                          newProduct: { ...d.newProduct, category: v },
                         }))
                       }
-                      list="menu-categories"
+                      options={menuCategories}
                       placeholder="Sıcak İçecek, Tatlı…"
+                      emptyText="Kayıtlı kategori yok — yazdığınız yeni kategori olur"
                     />
-                    {/* Var olan kategoriler öneri olarak sunulur — kategori
-                        serbest metin (PLAN.md "Adım 2": FK bağı yok). */}
-                    <datalist id="menu-categories">
-                      {menuCategories.map((c) => (
-                        <option key={c} value={c} />
-                      ))}
-                    </datalist>
                   </div>
                 </div>
 
@@ -991,8 +1001,8 @@ export default function ReceptelerPage() {
                 </div>
               </div>
             ) : (
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2 md:col-span-2">
+              <div className="grid gap-4">
+                <div className="space-y-2">
                   <Label>Ürün</Label>
                   {editingRecipeId ? (
                     <Input value={draftProduct?.name ?? ""} disabled />
@@ -1005,21 +1015,6 @@ export default function ReceptelerPage() {
                       emptyText="Ürün bulunamadı"
                     />
                   )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="yieldQuantity">
-                    Üretim Miktarı{draftUnit ? ` (${draftUnit})` : ""}
-                  </Label>
-                  <Input
-                    id="yieldQuantity"
-                    value={draft.yieldQuantity}
-                    onChange={(e) => setDraft((d) => ({ ...d, yieldQuantity: e.target.value }))}
-                    inputMode="decimal"
-                    placeholder="1"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Aşağıdaki bileşenler kaç adet mamül üretir.
-                  </p>
                 </div>
               </div>
             )}
@@ -1039,43 +1034,37 @@ export default function ReceptelerPage() {
             {recipeRequired && (
             <>
             <div className="space-y-2">
-              {draft.mode === "new" && (
-                <div className="w-full sm:w-56">
-                  <Label htmlFor="yieldQuantityNew">
-                    Üretim Miktarı{draftUnit ? ` (${draftUnit})` : ""}
-                  </Label>
-                  <Input
-                    id="yieldQuantityNew"
-                    className="mt-1.5"
-                    value={draft.yieldQuantity}
-                    onChange={(e) => setDraft((d) => ({ ...d, yieldQuantity: e.target.value }))}
-                    inputMode="decimal"
-                    placeholder="1"
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Aşağıdaki bileşenler kaç adet ürün üretir.
-                  </p>
-                </div>
-              )}
+              {/* Üretim miktarı TEK yerde: reçetenin hemen üstünde. Eskiden mod'a
+                  göre iki ayrı alan render ediliyordu ("kaç adet mamül" / "kaç
+                  adet ürün") — aynı alanın iki kopyası, iki farklı metinle.
+                  Reçetesi olmayan üründe zaten anlamsız, o yüzden burada. */}
+              <div className="w-full sm:w-64">
+                <Label htmlFor="yieldQuantity">
+                  Üretim Miktarı{draftUnit ? ` (${unitShortLabel(draftUnit)})` : ""}
+                </Label>
+                <Input
+                  id="yieldQuantity"
+                  className="mt-1.5"
+                  value={draft.yieldQuantity}
+                  onChange={(e) => setDraft((d) => ({ ...d, yieldQuantity: e.target.value }))}
+                  inputMode="decimal"
+                  placeholder="1"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Aşağıdaki bileşenler bu kadar ürün üretir. Porsiyon başına düşen
+                  miktar her satırda ayrıca yazıyor.
+                </p>
+              </div>
               <div className="flex items-center justify-between">
                 <Label>Bileşenler</Label>
-                <div className="flex items-center gap-1.5">
-                  {/* Aradığı hammadde henüz yoksa reçeteyi bölmeden buradan
-                      oluşturabilsin — Stok ekranına gidip geri dönmek gerekmiyor. */}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => openRawDialogFor(null)}
-                  >
-                    <Plus className="mr-1.5 h-3.5 w-3.5" />
-                    Yeni Hammadde
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={addItem}>
-                    <Plus className="mr-1.5 h-3.5 w-3.5" />
-                    Bileşen Ekle
-                  </Button>
-                </div>
+                {/* "Yeni Hammadde" artık her bileşen satırının kendi + düğmesinde:
+                    oradan açılınca oluşan kart satıra yazılıyor, buradan açılınca
+                    yazılmıyordu — aynı işi yapan iki düğmeden yalnız biri işe
+                    yarıyordu. Bağlamsız oluşturma sayfa başlığında duruyor. */}
+                <Button type="button" variant="outline" size="sm" onClick={addItem}>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  Bileşen Ekle
+                </Button>
               </div>
 
               <div className="space-y-2">
@@ -1083,7 +1072,7 @@ export default function ReceptelerPage() {
                   const component = item.componentProductId
                     ? productById.get(item.componentProductId)
                     : undefined
-                  const unitOptions = component ? convertibleUnits(component.unit) : []
+                  const unitOptions = component ? recipeUnitOptions(component.unit, item.unit) : []
                   const isSemiFinished = component ? recipeByProduct.has(component.id) : false
                   // Yarı mamülde alış fiyatı değil, kendi reçetesinin maliyeti geçerli.
                   const unitCost = component ? resolvedUnitCost(component.id, recipeMap) : null
@@ -1100,9 +1089,20 @@ export default function ReceptelerPage() {
                           component.unit
                         )
                       : null
-                  const lineCost =
-                    unitCost != null && convertedQty != null ? convertedQty * unitCost : null
                   const yieldForPreview = num(draft.yieldQuantity) > 0 ? num(draft.yieldQuantity) : 1
+                  /**
+                   * Kalem miktarı PARTİ içindir (reçete `yieldQuantity` adet
+                   * üretir); tek porsiyona düşen pay buna bölünerek bulunur —
+                   * genişletmedeki `item.quantity / yieldQty` ile aynı hesap.
+                   */
+                  const perPortionQty =
+                    convertedQty != null ? convertedQty / yieldForPreview : null
+                  // Satır maliyeti de PORSİYON başınadır: yanındaki "stoktan
+                  // düşecek" rakamıyla ve sağdaki özetin "birim maliyet"iyle aynı
+                  // tabanda olmalı. Parti düzeyinde bırakılınca 10 porsiyonluk
+                  // reçetede satırlar toplamı özetin 10 katını gösteriyordu.
+                  const lineCost =
+                    unitCost != null && perPortionQty != null ? perPortionQty * unitCost : null
                   /**
                    * Birim hatası alarmı: TEK porsiyon eldeki stoğun tamamını
                    * aşıyorsa büyük ihtimalle birim yanlış seçilmiş (200 ML yerine
@@ -1110,8 +1110,8 @@ export default function ReceptelerPage() {
                    */
                   const overStock =
                     !isSemiFinished &&
-                    convertedQty != null &&
-                    convertedQty / yieldForPreview > Number(component?.stockQuantity ?? 0)
+                    perPortionQty != null &&
+                    perPortionQty > Number(component?.stockQuantity ?? 0)
 
                   return (
                     <div
@@ -1120,13 +1120,34 @@ export default function ReceptelerPage() {
                     >
                       <div className="space-y-1.5 sm:col-span-5">
                         <Label className="text-xs text-muted-foreground">Bileşen</Label>
-                        <SearchSelect
-                          options={componentOptions}
-                          value={item.componentProductId}
-                          onChange={(id) => selectComponent(item.key, id)}
-                          placeholder="Ürün seçin"
-                          emptyText="Ürün bulunamadı"
-                        />
+                        <div className="flex gap-1.5">
+                          <div className="min-w-0 flex-1">
+                            <SearchSelect
+                              options={componentOptions}
+                              value={item.componentProductId}
+                              onChange={(id) => selectComponent(item.key, id)}
+                              placeholder="Ürün seçin"
+                              emptyText="Ürün bulunamadı"
+                            />
+                          </div>
+                          {/* Aradığı hammadde henüz yoksa reçeteyi bölmeden BU
+                              satırdan oluşturabilsin; oluşan kart doğrudan satıra
+                              yazılır (handleRawCreated). Eskiden diyalog yalnızca
+                              başlıktan açılıyordu ve hedef satır hiç verilmediği
+                              için kullanıcı hammaddeyi listeden tekrar aramak
+                              zorunda kalıyordu. */}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="shrink-0"
+                            onClick={() => openRawDialogFor(item.key)}
+                            title="Yeni hammadde oluştur ve bu satıra yaz"
+                            aria-label="Yeni hammadde oluştur"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                       <div className="space-y-1.5 sm:col-span-2">
                         <Label className="text-xs text-muted-foreground">Miktar</Label>
@@ -1150,7 +1171,7 @@ export default function ReceptelerPage() {
                           <SelectContent>
                             {unitOptions.map((u) => (
                               <SelectItem key={u} value={u}>
-                                {u}
+                                {unitShortLabel(u)}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1183,7 +1204,7 @@ export default function ReceptelerPage() {
                               hata buradan görülür: "200 LT → 200 LT düşer" ile
                               "200 ML → 0,2 LT düşer" arasındaki fark gözle
                               yakalanabilir olmalı. */}
-                          {convertedQty != null && (
+                          {perPortionQty != null && (
                             <p className="text-xs font-medium">
                               <span className="text-muted-foreground">Stoktan düşecek: </span>
                               <span
@@ -1192,13 +1213,22 @@ export default function ReceptelerPage() {
                                   overStock ? "text-red-600 dark:text-red-400" : "text-foreground"
                                 )}
                               >
-                                {qty(convertedQty)} {component.unit}
+                                {qty(perPortionQty)} {unitShortLabel(component.unit)}
                               </span>
-                              <span className="text-muted-foreground">
-                                {" "}
-                                / porsiyon
-                                {yieldForPreview > 1 ? ` (${yieldForPreview} porsiyonluk reçete)` : ""}
-                              </span>
+                              <span className="text-muted-foreground"> / porsiyon</span>
+                              {/* Parti miktarı ayrı yazılır. Eskiden buraya parti
+                                  toplamı basılıp "/ porsiyon" deniyordu: 10
+                                  porsiyonluk reçetede kullanıcı 10 katını görüp
+                                  birimi yanlış girdiğini sanıyordu. */}
+                              {yieldForPreview > 1 && convertedQty != null && (
+                                <span className="text-muted-foreground">
+                                  {" · "}
+                                  <span className="tabular-nums">
+                                    {qty(convertedQty)} {unitShortLabel(component.unit)}
+                                  </span>{" "}
+                                  toplam ({qty(yieldForPreview)} porsiyonluk reçete)
+                                </span>
+                              )}
                             </p>
                           )}
                           {/* Birim hatasının en tipik belirtisi: tek porsiyon
@@ -1209,8 +1239,8 @@ export default function ReceptelerPage() {
                               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                               <span>
                                 Tek porsiyon için eldeki stoktan ({qty(component.stockQuantity ?? 0)}{" "}
-                                {component.unit}) fazlası gerekiyor. Birimi kontrol edin — {item.unit}{" "}
-                                yerine{" "}
+                                {unitShortLabel(component.unit)}) fazlası gerekiyor. Birimi kontrol
+                                edin — {unitShortLabel(item.unit)} yerine{" "}
                                 <button
                                   type="button"
                                   className="font-semibold underline underline-offset-2"
@@ -1218,19 +1248,19 @@ export default function ReceptelerPage() {
                                     patchItem(item.key, { unit: defaultRecipeUnit(component.unit) })
                                   }
                                 >
-                                  {defaultRecipeUnit(component.unit)}
+                                  {unitShortLabel(defaultRecipeUnit(component.unit))}
                                 </button>{" "}
                                 mi olmalıydı?
                               </span>
                             </p>
                           )}
                           <p className="text-xs text-muted-foreground">
-                            Stok birimi <strong>{component.unit}</strong>
+                            Stok birimi <strong>{unitShortLabel(component.unit)}</strong>
                             {!isSemiFinished && ` · Stok ${qty(component.stockQuantity ?? 0)}`}
                             {unitCost != null
-                              ? ` · Birim maliyet ${money(unitCost)}/${component.unit}`
+                              ? ` · Birim maliyet ${money(unitCost)}/${unitShortLabel(component.unit)}`
                               : " · Alış fiyatı girilmemiş"}
-                            {lineCost != null ? ` · Satır maliyeti ${money(lineCost)}` : ""}
+                            {lineCost != null ? ` · Porsiyon maliyeti ${money(lineCost)}` : ""}
                             {isSemiFinished ? " · Yarı mamül (hammaddeye kadar açılacak)" : ""}
                           </p>
                         </div>
@@ -1406,7 +1436,11 @@ function CostSummary({
 
   return (
     <div className="space-y-2 rounded-lg border border-kobipo-border bg-kobipo-offwhite/50 p-4 text-sm dark:bg-white/5">
-      <Row label={`Birim maliyet${unit ? ` (1 ${unit})` : ""}`} value={money(cost)} strong />
+      <Row
+        label={`Birim maliyet${unit ? ` (1 ${unitShortLabel(unit)})` : ""}`}
+        value={money(cost)}
+        strong
+      />
       {yieldQuantity !== 1 && (
         <Row label={`Parti maliyeti (${qty(yieldQuantity)} birim)`} value={money(cost * yieldQuantity)} />
       )}

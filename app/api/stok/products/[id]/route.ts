@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { accessDeniedResponse } from "@/lib/api/errors"
+import { normalizeUnitCode } from "@/lib/data/units"
+import { findRecipeUnitConflicts } from "@/lib/stock/recipe"
 
 
 export const dynamic = 'force-dynamic'
@@ -142,6 +144,38 @@ export async function PUT(
       isIngredient,
     } = body
 
+    // Stok birimi değişiyorsa: bu ürünü bileşen olarak kullanan reçetelerde
+    // miktarlar çevrilemez hale gelebilir. Bunu burada kesmezsek hata satışa
+    // kadar taşınır ve orada SESSİZ kalır (bileşen atlanır, stok düşmez).
+    // Bkz. lib/stock/recipe.ts findRecipeUnitConflicts.
+    if (unit !== undefined) {
+      const nextUnit = normalizeUnitCode(unit)
+      if (nextUnit && nextUnit !== normalizeUnitCode(product.unit)) {
+        const conflicts = await findRecipeUnitConflicts(
+          prisma,
+          product.companyId,
+          product.id,
+          nextUnit
+        )
+        if (conflicts.length > 0) {
+          const detail = conflicts
+            .slice(0, 5)
+            .map((c) => `${c.recipeProductName} (${c.itemUnit})`)
+            .join(", ")
+          return NextResponse.json(
+            {
+              error:
+                `Birim ${product.unit} → ${nextUnit} olarak değiştirilemez: bu ürün ` +
+                `${conflicts.length} reçete kaleminde çevrilemeyecek bir birimle geçiyor — ` +
+                `${detail}${conflicts.length > 5 ? "…" : ""}. Önce o reçetelerdeki birimi ` +
+                `güncelleyin (yeni birimle aynı ölçü ailesinden olmalı: KG↔GR, LT↔ML).`,
+            },
+            { status: 400 }
+          )
+        }
+      }
+    }
+
     // KDV dahil girilen fiyatları net'e çevir (DB net saklar).
     const vatForCalc = vatRate ? parseFloat(vatRate) : Number(product.vatRate)
     const toNetPrice = (raw: unknown, included: boolean): number | null => {
@@ -161,7 +195,9 @@ export async function PUT(
           category !== undefined
             ? (String(category).trim() ? String(category).trim() : null)
             : product.category,
-        unit,
+        // Yukarıdaki reçete kontrolü normalize edilmiş birimle yapıldı; kayıt da
+        // aynı değeri yazmalı, aksi halde doğrulanan ile saklanan ayrışır.
+        unit: unit !== undefined ? normalizeUnitCode(unit) || product.unit : product.unit,
         vatRate: vatForCalc,
         purchasePrice: toNetPrice(purchasePrice, Boolean(purchasePriceVatIncluded)),
         salePrice: toNetPrice(salePrice, Boolean(salePriceVatIncluded)),

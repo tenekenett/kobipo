@@ -13,7 +13,7 @@
 
 import { useMemo, useState } from "react"
 import { CompanyLink } from "@/components/dashboard/company-link"
-import { ChefHat, CupSoda, Search } from "lucide-react"
+import { ChefHat, CupSoda, MousePointerClick, Search } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { FetchErrorText } from "@/components/ui/fetch-error"
 import { Input } from "@/components/ui/input"
@@ -37,20 +37,35 @@ type MenuGridProps = {
   products: RefProduct[]
   /** Reçetesi olan ürünlerde kaşık ikonu gösterilir. */
   recipeMap?: Map<string, unknown>
+  /**
+   * Ürünün HAZIRLIK NOTU (reçetenin `note` alanı). Reçete ekranında yazılıyor
+   * ("çift shot", "60 ml demleme") ama satış ekranlarında hiç gösterilmiyordu —
+   * yani barista notu yalnızca reçeteyi düzenlerken görebiliyordu. Kartın
+   * üzerinde duruyor: ürün tam da hazırlanmak üzere seçilirken.
+   */
+  noteOf?: (productId: string) => string | null | undefined
   isLoading?: boolean
   error?: unknown
   /** Kartın sağ üstündeki adet rozeti; null/0 ise rozet çizilmez. */
   badgeOf?: (productId: string) => number | null | undefined
   onPick: (product: RefProduct) => void
+  /**
+   * SAĞ TIK — karttan bir adet düşürür. Kasiyer yanlış basınca sepete/adisyona
+   * bakıp doğru satırı bulmak zorunda kalmasın: eklediği yerden geri alır.
+   * Verilmezse tarayıcının kendi menüsü açılır (davranış değişmez).
+   */
+  onUnpick?: (product: RefProduct) => void
 }
 
 export function MenuGrid({
   products,
   recipeMap,
+  noteOf,
   isLoading,
   error,
   badgeOf,
   onPick,
+  onUnpick,
 }: MenuGridProps) {
   const [search, setSearch] = useState("")
   const [activeCat, setActiveCat] = useState<string>(ALL_CATEGORIES)
@@ -96,14 +111,25 @@ export function MenuGrid({
               ({menuProducts.length} ürün · fiyatlar KDV dahil)
             </span>
           </div>
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Ürün ara…"
-              className="h-10 pl-9"
-            />
+          <div className="flex items-center gap-2">
+            {/* Sağ tık keşfedilebilir DEĞİL: parantez içindeki bir cümle
+                kaybolduğu için ipucu ayrı bir rozete alındı. Başlıkta duruyor
+                çünkü kasiyer yanlış basınca ilk oraya bakıyor. */}
+            {onUnpick && (
+              <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:inline-flex">
+                <MousePointerClick className="h-3.5 w-3.5" />
+                Karta sağ tık: 1 azalt
+              </span>
+            )}
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Ürün ara…"
+                className="h-10 pl-9"
+              />
+            </div>
           </div>
         </div>
 
@@ -160,11 +186,23 @@ export function MenuGrid({
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             {visibleProducts.map((p) => {
               const badge = badgeOf?.(p.id) ?? null
+              const prepNote = noteOf?.(p.id)?.trim() || null
               return (
                 <button
                   key={p.id}
                   type="button"
                   onClick={() => onPick(p)}
+                  onContextMenu={
+                    onUnpick
+                      ? (e) => {
+                          // Tarayıcı menüsü açılmasın: kartın sağ tıkı artık
+                          // "bir azalt" demek.
+                          e.preventDefault()
+                          onUnpick(p)
+                        }
+                      : undefined
+                  }
+                  title={onUnpick ? `${p.name} — sağ tık: 1 azalt` : undefined}
                   className={cn(
                     "relative flex min-h-[86px] flex-col justify-between gap-2 rounded-xl border-2 p-3 text-left transition-colors",
                     badge
@@ -177,7 +215,19 @@ export function MenuGrid({
                       {qty(badge)}
                     </span>
                   )}
-                  <span className="line-clamp-2 pr-7 text-sm font-semibold">{p.name}</span>
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="line-clamp-2 pr-7 text-sm font-semibold">{p.name}</span>
+                    {prepNote && (
+                      // Uzun not kartı büyütmesin: iki satırda kesilir, tamamı
+                      // title'da durur (dokunmatikte uzun basınca da görünür).
+                      <span
+                        className="line-clamp-2 text-[11px] leading-snug text-muted-foreground"
+                        title={prepNote}
+                      >
+                        {prepNote}
+                      </span>
+                    )}
+                  </span>
                   <span className="flex items-center gap-1.5">
                     <span className="text-sm font-bold text-kobipo-blue dark:text-primary">
                       {p.salePrice != null ? currency(grossPrice(p)) : "—"}

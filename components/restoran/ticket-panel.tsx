@@ -7,13 +7,18 @@
 // ekranda da lazım. İki kopya olsaydı biri "ikram stoktan düşer" kuralını
 // unuttuğu an iki ekran farklı davranırdı.
 //
-// Görünür kontrol BÜTÇESİ (İş 9 yöntemi): kalem satırında TEK kontrol vardır —
-// "⋮". Adet, not, ikram, zayi, iptal hepsi onun içinde. Eskiden satırda dört
-// kontrol (− sayı + çöp) duruyordu ve altı yeni yetenek eklenince satır
-// okunamaz hale gelirdi.
+// Görünür kontrol BÜTÇESİ (İş 9 yöntemi): kalem satırında düğme YOKTUR; işlemler
+// listenin altındaki tek blokta toplanır ve seçili kalem(ler)e uygulanır. Eskiden
+// satırda dört kontrol (− sayı + çöp) duruyordu ve yeni yetenekler eklendikçe
+// satır okunamaz hale gelmişti. Satırdaki tek kalıntı "⋮" ve o da yalnızca seyrek
+// işleri (not, satır silme) taşıyor.
+//
+// Seçim ÇOKLUDUR: üç kalemi birden iptal/ikram etmek servisin sıradan işi ve tek
+// tek yapıldığında sebep diyaloğu üç kez açılıyordu. Sebep bir kez sorulur,
+// hepsine uygulanır.
 
 import { useEffect, useState } from "react"
-import { MoreVertical, Receipt } from "lucide-react"
+import { Check, MoreVertical, Receipt } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -129,6 +134,10 @@ export function TicketPanel({
   employees?: RefEmployee[]
   footer?: React.ReactNode
   onQuantity: (id: string, quantity: number) => void
+  /**
+   * Promise döndürebilir: çoklu seçimde panel kalemleri SIRAYLA uygular ve her
+   * birini bekler (adisyon ucu her yanıtta adisyonun tamamını döndürüyor).
+   */
   onSetStatus?: (
     id: string,
     status: TicketItemStatus,
@@ -136,17 +145,20 @@ export function TicketPanel({
     reason: string | null,
     /** Yalnız COMP'ta dolu — ikramı veren personelin İK kartı. */
     employeeId?: string | null,
-  ) => void
+  ) => void | Promise<void>
   onEditNote?: (id: string) => void
   className?: string
 }) {
+  /** Sebep diyaloğu ÇOK kaleme birden uygulanabilir (`items`). */
   const [reasonFor, setReasonFor] = useState<{
-    item: PanelItem
+    items: PanelItem[]
     status: Exclude<TicketItemStatus, "NORMAL">
     code: string
     note: string
     employeeId: string | null
   } | null>(null)
+  /** Sıralı uygulama sürerken "Uygula" kilitli — çift gönderim adisyonu bozar. */
+  const [applying, setApplying] = useState(false)
 
   // Personel YALNIZ ikramda sorulur. Zayi bir kayıp kaydıdır (döküldü/bozuldu),
   // iptal ise yanlış girişin izi — ikisinde de "kim verdi" diye bir muhatap yok.
@@ -158,18 +170,47 @@ export function TicketPanel({
    * kullanılan işler iki dokunuş arkasında duruyordu — İşlemler tepsisinde
    * 2026-08-06'da verilen kararın kalem tarafındaki eşi (SATIS-EKRANI.md K1 notu).
    *
-   * Kontrol bütçesi (§4.8) yine korunuyor: satırda hâlâ TEK kontrol var (⋮), çünkü
-   * düğmeler satıra değil panele kondu ve aynı anda YALNIZ bir kalem için çiziliyor.
-   * Bedeli bir dokunuş: önce kalem seçilir, sonra işlem.
+   * Seçim ÇOKLU: masadan üç kalem birden iptal etmek ya da ikram etmek servisin
+   * sıradan işi ve tek tek yapıldığında sebep diyaloğu üç kez açılıyordu. Satıra
+   * bir onay kutusu eklendi — satırın tamamı hâlâ tıklanabilir (dokunmatikte
+   * hedef büyük kalsın), kutu yalnızca durumu görünür kılıyor.
    */
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const selected = items.find((i) => i.id === selectedId) ?? null
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const selectedItems = items.filter((i) => selectedIds.includes(i.id))
+  /** Tek seçimde adet düzenlenebilir; çoklu seçimde adet kalem başınadır. */
+  const single = selectedItems.length === 1 ? selectedItems[0] : null
 
   // Seçili kalem listeden düşerse (silindi, adisyon kapandı) seçim de düşmeli;
   // aksi halde blok olmayan bir kalemi göstermeye devam ederdi.
   useEffect(() => {
-    if (selectedId && !items.some((i) => i.id === selectedId)) setSelectedId(null)
-  }, [items, selectedId])
+    setSelectedIds((prev) => {
+      const next = prev.filter((id) => items.some((i) => i.id === id))
+      return next.length === prev.length ? prev : next
+    })
+  }, [items])
+
+  const toggleSelected = (id: string) =>
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+
+  /** Seçimde durum değiştirilebilecek kalemler — zaten iptal/ikram olanlar hariç. */
+  const normalSelected = selectedItems.filter((i) => (i.status ?? "NORMAL") === "NORMAL")
+  const markedSelected = selectedItems.filter((i) => (i.status ?? "NORMAL") !== "NORMAL")
+
+  /**
+   * Sebep diyaloğunu seçili kalemler için açar. Sebep TEK kez sorulur ve hepsine
+   * aynı sebeple uygulanır — zaten "üç kalem de yanlış girildi" gibi durumlar
+   * için var; kalem kalem farklı sebep isteyen tek tek seçer.
+   */
+  const askReason = (status: Exclude<TicketItemStatus, "NORMAL">) => {
+    if (normalSelected.length === 0) return
+    setReasonFor({
+      items: normalSelected,
+      status,
+      code: "",
+      note: "",
+      employeeId: status === "COMP" && employees.length === 1 ? employees[0].id : null,
+    })
+  }
 
   const billableCount = items
     .filter((i) => (i.status ?? "NORMAL") === "NORMAL")
@@ -188,6 +229,30 @@ export function TicketPanel({
           <span className="text-xs text-muted-foreground">{qty(billableCount)} adet</span>
         </div>
 
+        {/* Toplu seçim kısayolu — birkaç kalemden fazlası olduğunda tek tek
+            tıklamak yerine hepsini işaretleyip tek işlem yapılabilsin. */}
+        {!readOnly && items.length > 1 && (
+          <div className="flex items-center justify-end gap-3 text-xs">
+            <button
+              type="button"
+              onClick={() => setSelectedIds(items.map((i) => i.id))}
+              disabled={selectedIds.length === items.length}
+              className="font-medium text-kobipo-blue hover:underline disabled:text-muted-foreground disabled:no-underline dark:text-primary"
+            >
+              Tümünü seç
+            </button>
+            {selectedIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedIds([])}
+                className="font-medium text-muted-foreground hover:underline"
+              >
+                Seçimi bırak
+              </button>
+            )}
+          </div>
+        )}
+
         {items.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">{emptyText}</p>
         ) : (
@@ -197,8 +262,8 @@ export function TicketPanel({
               const badge = status === "NORMAL" ? null : STATUS_BADGE[status]
               const lineTotal = item.quantity * grossOf(item)
               const optionText = (item.options ?? []).map((o) => o.optionName).join(" · ")
-              const isSelected = item.id === selectedId
-              const select = () => setSelectedId(isSelected ? null : item.id)
+              const isSelected = selectedIds.includes(item.id)
+              const select = () => toggleSelected(item.id)
               return (
                 <div
                   key={item.id}
@@ -226,6 +291,24 @@ export function TicketPanel({
                     status === "WASTE" && "opacity-70",
                   )}
                 >
+                  {/* Seçim durumunu görünür kılan kutu. Tıklama hedefi satırın
+                      tamamı — kutu küçük olduğu için dokunmatikte tek başına
+                      hedef olamaz; burada yalnızca "seçilebilir ve seçili"
+                      bilgisini taşıyor. */}
+                  {!readOnly && (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                        isSelected
+                          ? "border-kobipo-blue bg-kobipo-blue text-white dark:border-primary dark:bg-primary dark:text-primary-foreground"
+                          : "border-input",
+                      )}
+                    >
+                      {isSelected && <Check className="h-3 w-3" strokeWidth={3} />}
+                    </span>
+                  )}
+
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-1.5 text-sm font-medium">
                       <span className="tabular-nums text-muted-foreground">
@@ -308,89 +391,124 @@ export function TicketPanel({
             üstünde olmayan bir düğme "neye uygulanıyor" sorusunu doğururdu. */}
         {!readOnly && items.length > 0 && (
           <div className="space-y-2 rounded-lg border border-dashed p-2">
-            {selected ? (
+            {selectedItems.length > 0 ? (
               <>
                 <p className="truncate text-xs text-muted-foreground">
-                  Seçili:{" "}
-                  <span className="font-medium text-foreground">{selected.description}</span>
-                </p>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">Adet</span>
-                  <QuantityStepper
-                    value={selected.quantity}
-                    onChange={(v) => onQuantity(selected.id, v)}
-                    min={allowDelete ? 0 : 1}
-                  />
-                </div>
-                {allowStatus &&
-                  onSetStatus &&
-                  ((selected.status ?? "NORMAL") !== "NORMAL" ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => onSetStatus(selected.id, "NORMAL", null, null)}
-                    >
-                      Geri al (hesaba dön)
-                    </Button>
+                  {single ? (
+                    <>
+                      Seçili:{" "}
+                      <span className="font-medium text-foreground">{single.description}</span>
+                    </>
                   ) : (
-                    // Kısa etiketler: hangi işlemin ne demek olduğunu sebep
-                    // diyaloğunun açıklaması zaten söylüyor.
-                    <div className="grid grid-cols-3 gap-1.5">
+                    <span className="font-medium text-foreground">
+                      {selectedItems.length} kalem seçili
+                    </span>
+                  )}
+                </p>
+
+                {/* Adet KALEM BAŞINA bir sayıdır; çoklu seçimde hepsini aynı
+                    adede çekmek beklenmeyen bir toplu değişiklik olurdu. */}
+                {single ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground">Adet</span>
+                    <QuantityStepper
+                      value={single.quantity}
+                      onChange={(v) => onQuantity(single.id, v)}
+                      min={allowDelete ? 0 : 1}
+                    />
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Adet değiştirmek için tek kalem seçin.
+                  </p>
+                )}
+
+                {allowStatus && onSetStatus && (
+                  <div className="space-y-1.5">
+                    {/* İki düğme grubu BİRLİKTE görünebilir: seçimde hem normal
+                        hem işaretli kalemler varsa ikisi de anlamlı ve her biri
+                        yalnız kendi payına uygulanır — sayı düğmede yazıyor. */}
+                    {normalSelected.length > 0 && (
+                      // Kısa etiketler: hangi işlemin ne demek olduğunu sebep
+                      // diyaloğunun açıklaması zaten söylüyor.
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          title="Hazırlanmadı — hesapta görünmez, stok etkilenmez"
+                          onClick={() => askReason("VOID")}
+                        >
+                          İptal
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          title="Para alınmaz — hesapta 0,00 görünür, malzemesi stoktan düşer"
+                          onClick={() => askReason("COMP")}
+                        >
+                          İkram
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          title="Döküldü / bozuldu — hesapta görünmez, malzemesi stoktan düşer"
+                          onClick={() => askReason("WASTE")}
+                        >
+                          Zayi
+                        </Button>
+                      </div>
+                    )}
+                    {markedSelected.length > 0 && (
                       <Button
                         variant="outline"
                         size="sm"
-                        title="Hazırlanmadı — hesapta görünmez, stok etkilenmez"
-                        onClick={() =>
-                          setReasonFor({
-                            item: selected,
-                            status: "VOID",
-                            code: "",
-                            note: "",
-                            employeeId: null,
-                          })
-                        }
+                        className="w-full"
+                        disabled={applying}
+                        onClick={async () => {
+                          setApplying(true)
+                          try {
+                            // SIRAYLA: adisyon ucu her yanıtta adisyonun tamamını
+                            // döndürüp ekrana basıyor; paralel gönderimde geç
+                            // dönen eski anlık görüntü yenisini eziyordu.
+                            for (const item of markedSelected) {
+                              await onSetStatus(item.id, "NORMAL", null, null)
+                            }
+                            setSelectedIds([])
+                          } finally {
+                            setApplying(false)
+                          }
+                        }}
                       >
-                        İptal
+                        Geri al (hesaba dön)
+                        {markedSelected.length > 1 ? ` — ${markedSelected.length} kalem` : ""}
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        title="Para alınmaz — hesapta 0,00 görünür, malzemesi stoktan düşer"
-                        onClick={() =>
-                          setReasonFor({
-                            item: selected,
-                            status: "COMP",
-                            code: "",
-                            note: "",
-                            employeeId: employees.length === 1 ? employees[0].id : null,
-                          })
-                        }
-                      >
-                        İkram
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        title="Döküldü / bozuldu — hesapta görünmez, malzemesi stoktan düşer"
-                        onClick={() =>
-                          setReasonFor({
-                            item: selected,
-                            status: "WASTE",
-                            code: "",
-                            note: "",
-                            employeeId: null,
-                          })
-                        }
-                      >
-                        Zayi
-                      </Button>
-                    </div>
-                  ))}
+                    )}
+                  </div>
+                )}
+
+                {/* Sepette toplu silme: kahveci sepeti yalnız tarayıcıda yaşadığı
+                    için iz kaybı yok (adisyonda `allowDelete` kapalı, orada iptal
+                    sebebiyle kaydediliyor — SATIS-EKRANI.md K2). */}
+                {allowDelete && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-destructive hover:text-destructive"
+                    disabled={applying}
+                    onClick={() => {
+                      for (const item of selectedItems) onQuantity(item.id, 0)
+                      setSelectedIds([])
+                    }}
+                  >
+                    {selectedItems.length > 1
+                      ? `Seçili ${selectedItems.length} satırı sil`
+                      : "Satırı sil"}
+                  </Button>
+                )}
               </>
             ) : (
               <p className="py-1 text-center text-xs text-muted-foreground">
-                Adet, ikram, zayi ve iptal için bir kalem seçin
+                Adet, ikram, zayi ve iptal için kalem seçin — birden fazla seçebilirsiniz
               </p>
             )}
           </div>
@@ -428,7 +546,10 @@ export function TicketPanel({
                     : reasonFor.status === "WASTE"
                       ? "Zayi"
                       : "Kalemi iptal et"}{" "}
-                  — {reasonFor.item.description}
+                  —{" "}
+                  {reasonFor.items.length === 1
+                    ? reasonFor.items[0].description
+                    : `${reasonFor.items.length} kalem`}
                 </DialogTitle>
                 <DialogDescription>
                   {reasonFor.status === "COMP"
@@ -436,9 +557,22 @@ export function TicketPanel({
                     : reasonFor.status === "WASTE"
                       ? "Hesapta görünmez; malzemesi stoktan düşer."
                       : "Hesapta görünmez; stok etkilenmez (ürün hazırlanmadı)."}
+                  {reasonFor.items.length > 1 &&
+                    " Seçilen kalemlerin hepsine aynı sebeple uygulanır."}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
+                {/* Çoklu uygulamada hangi kalemlerin etkileneceği açıkça yazılır:
+                    "3 kalem" başlığı tek başına hangi üçü olduğunu söylemiyor. */}
+                {reasonFor.items.length > 1 && (
+                  <ul className="max-h-24 space-y-0.5 overflow-y-auto rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
+                    {reasonFor.items.map((i) => (
+                      <li key={i.id} className="truncate">
+                        {qty(i.quantity)} × {i.description}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <div className="grid gap-1.5">
                   {TICKET_ITEM_REASONS[reasonFor.status].map((r) => (
                     <button
@@ -492,19 +626,29 @@ export function TicketPanel({
                   Vazgeç
                 </Button>
                 <Button
-                  disabled={!canApply}
-                  onClick={() => {
-                    onSetStatus?.(
-                      reasonFor.item.id,
-                      reasonFor.status,
-                      reasonFor.code,
-                      reasonFor.note.trim() || null,
-                      reasonFor.status === "COMP" ? reasonFor.employeeId : null,
-                    )
-                    setReasonFor(null)
+                  disabled={!canApply || applying}
+                  onClick={async () => {
+                    setApplying(true)
+                    try {
+                      // SIRAYLA — paralel gönderimde adisyon ucunun her yanıtta
+                      // döndürdüğü tam anlık görüntüler birbirini eziyor.
+                      for (const item of reasonFor.items) {
+                        await onSetStatus?.(
+                          item.id,
+                          reasonFor.status,
+                          reasonFor.code,
+                          reasonFor.note.trim() || null,
+                          reasonFor.status === "COMP" ? reasonFor.employeeId : null,
+                        )
+                      }
+                      setReasonFor(null)
+                      setSelectedIds([])
+                    } finally {
+                      setApplying(false)
+                    }
                   }}
                 >
-                  Uygula
+                  {applying ? "Uygulanıyor…" : "Uygula"}
                 </Button>
               </DialogFooter>
             </>

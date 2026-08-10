@@ -162,6 +162,30 @@ function roundQty(n: number): number {
 }
 
 /**
+ * Genişletme hatasını kullanıcıya gösterilebilir Türkçe cümleye çevirir.
+ *
+ * `detail` ham productId zinciri taşır (saf fonksiyon ürün adlarını bilmez), o
+ * yüzden çağıran `nameOf` verir. Metin TEK yerde durur: aynı hata reçete
+ * ekranında, hızlı satışta ve adisyonda aynı cümleyle görünsün — bunlar
+ * kullanıcının aynı bozukluğu farklı ekranlarda tanıyabilmesi gereken hatalar.
+ */
+export function describeExpandError(
+  error: ExpandError,
+  nameOf: (productId: string) => string
+): string {
+  switch (error.reason) {
+    case "CYCLE":
+      return `Reçete döngüsü: ${(error.detail ?? error.productId).split(" → ").map(nameOf).join(" → ")}`
+    case "DEPTH":
+      return `"${nameOf(error.productId)}" reçetesi ${error.detail} kattan derin — açılamadı`
+    case "UNIT_MISMATCH":
+      return `"${nameOf(error.productId)}" için ${error.detail} dönüşümü yapılamıyor — bu bileşen stoktan DÜŞMEZ`
+    default:
+      return `"${nameOf(error.productId)}": ${error.reason}`
+  }
+}
+
+/**
  * Satılan kalemleri hammaddeye kadar açar.
  *
  * @param unitOf Bir ürünün STOK birimini döndürür (ör. süt → "LT"). Bilinmiyorsa

@@ -238,7 +238,22 @@ export function useRecipes(companyId: string | null) {
     [data]
   )
   const recipeMap = useMemo(() => buildRecipeMap(recipes), [recipes])
-  return { recipes, recipeMap, isLoading, error, mutate }
+  /**
+   * productId -> hazırlık notu. Satış ekranları reçetenin kendisiyle değil
+   * yalnız notuyla ilgileniyor; her ekranın `recipes` dizisini tekrar taraması
+   * yerine tek yerde kuruluyor (yalnızca AKTİF reçete — pasif reçetenin notu
+   * satışta uygulanmayan bir hazırlığı anlatır).
+   */
+  const recipeNoteOf = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const r of recipes) {
+      if (!r.isActive) continue
+      const note = (r.note ?? "").trim()
+      if (note) map.set(r.productId, note)
+    }
+    return (productId: string) => map.get(productId) ?? null
+  }, [recipes])
+  return { recipes, recipeMap, recipeNoteOf, isLoading, error, mutate }
 }
 
 /**

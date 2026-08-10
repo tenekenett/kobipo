@@ -32,7 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { UNIT_OPTIONS } from "@/lib/data/units"
+import { UNIT_OPTIONS, defaultRecipeUnit, unitFamily, unitShortLabel } from "@/lib/data/units"
 import { quickCreateProduct, type CreatedProduct } from "@/lib/stock/quick-create-product"
 
 type RawDraft = {
@@ -76,6 +76,8 @@ export function RawMaterialDialog({
   }, [open])
 
   const canSave = Boolean(companyId) && draft.name.trim().length > 0 && !saving
+  /** Sayı alanlarının etiketlerinde geçen birim ("lt", "kg", "Adet"). */
+  const unitLabel = unitShortLabel(draft.unit)
 
   async function handleSave() {
     if (!companyId || !canSave) return
@@ -106,12 +108,15 @@ export function RawMaterialDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      {/* max-w-xl: üç sayı alanının altındaki açıklamalar lg genişlikte
+          sütun başına 6 satıra sarıyordu. */}
+      <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Yeni Hammadde</DialogTitle>
+          {/* Alanların ne işe yaradığı artık kendi altlarında yazıyor; burada
+              tekrar etmek başlığı uzatıp asıl ayrımı (menüde görünmez) gölgeliyordu. */}
           <DialogDescription>
-            Menüde görünmez; reçetelerde bileşen olarak kullanılır. Alış fiyatı maliyet ve kâr
-            hesabında, kritik seviye ise satış ekranındaki uyarı panelinde kullanılır.
+            Menüde ve satış ızgarasında görünmez; yalnızca reçetelerde bileşen olarak kullanılır.
           </DialogDescription>
         </DialogHeader>
 
@@ -148,15 +153,32 @@ export function RawMaterialDialog({
           </div>
 
           {/* Stok birimi ile reçete birimi farklı olabilir (süt LT stoklanır,
-              reçetede 200 ML geçer) — dönüşüm aynı ölçü ailesi içinde yapılır. */}
-          <p className="rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground">
-            Stok birimini <strong>aldığınız birimde</strong> seçin (süt için LT, kahve için KG).
-            Reçetede gramaj/mililitre yazabilirsiniz — aynı ölçü ailesi içinde otomatik çevrilir.
-          </p>
+              reçetede 200 ml geçer) — dönüşüm aynı ölçü ailesi içinde yapılır.
+              Aile DIŞI birimlerde (ADET/PAKET/KUTU…) böyle bir dönüşüm yok ve bu,
+              kullanıcının ancak reçeteyi yazarken fark ettiği bir kısıttı: birim
+              listesi tek seçenekle açılıyor, nedeni hiçbir yerde yazmıyordu. */}
+          {unitFamily(draft.unit) ? (
+            <p className="rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground">
+              Stok birimini <strong>aldığınız birimde</strong> seçin (süt için litre, kahve için
+              kilogram). Reçetede{" "}
+              <strong>{unitShortLabel(defaultRecipeUnit(draft.unit))}</strong> cinsinden
+              yazabilirsiniz — aynı ölçü ailesi içinde otomatik çevrilir.
+            </p>
+          ) : (
+            <p className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+              <strong>{unitShortLabel(draft.unit)}</strong> birimi ölçü ailesine girmez: reçetede de
+              yalnızca {unitShortLabel(draft.unit)} (gerekirse ondalık, ör. 0,5) yazabilirsiniz.
+              Gramaj/mililitre ile çalışacaksanız stok birimini kilogram veya litre seçin.
+            </p>
+          )}
 
+          {/* Üç sayı alanı da SEÇİLİ BİRİM cinsindendir; birimi etikete yazmak
+              tek başına yetmiyordu — "kritik seviye" ve "açılış stoğu" ilk kez
+              hammadde tanımlayan için terim. Her birinin ne işe yaradığı altında
+              tek cümleyle duruyor. */}
           <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="raw-purchase">Alış Fiyatı ({draft.unit} başına)</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="raw-purchase">Alış Fiyatı ({unitLabel} başına)</Label>
               <Input
                 id="raw-purchase"
                 value={draft.purchasePrice}
@@ -164,9 +186,12 @@ export function RawMaterialDialog({
                 inputMode="decimal"
                 placeholder="0,00"
               />
+              <p className="text-xs leading-snug text-muted-foreground">
+                1 {unitLabel} için ödediğiniz tutar. Reçete maliyeti ve kâr marjı bundan hesaplanır.
+              </p>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="raw-min">Kritik Seviye</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="raw-min">Kritik Seviye ({unitLabel})</Label>
               <Input
                 id="raw-min"
                 value={draft.minStockLevel}
@@ -174,9 +199,13 @@ export function RawMaterialDialog({
                 inputMode="decimal"
                 placeholder="opsiyonel"
               />
+              <p className="text-xs leading-snug text-muted-foreground">
+                &quot;Bu kadar kalınca haber ver&quot; sınırı. Altına düşünce satış ekranında uyarı
+                çıkar, satış engellenmez. Boş bırakabilirsiniz.
+              </p>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="raw-stock">Açılış Stoğu</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="raw-stock">Açılış Stoğu ({unitLabel})</Label>
               <Input
                 id="raw-stock"
                 value={draft.stockQuantity}
@@ -184,6 +213,10 @@ export function RawMaterialDialog({
                 inputMode="decimal"
                 placeholder="0"
               />
+              <p className="text-xs leading-snug text-muted-foreground">
+                Şu anda elinizde olan miktar (sayım sonucu). Sonrası alış ve satışlarla
+                kendiliğinden işler.
+              </p>
             </div>
           </div>
 

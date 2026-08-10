@@ -84,6 +84,8 @@ import {
 import { currency } from "@/lib/fis/receipt-html"
 import { cn } from "@/lib/utils"
 import { FloorPlanCanvas, elapsedLabel, type PlanSelection } from "./floor-plan-canvas"
+import { TableActionDialog } from "@/components/restoran/table-action-dialog"
+import { tableTapIntent, useTableOpener } from "@/lib/restoran/use-table-opener"
 import { ChecklistBanner } from "./checklist-banner"
 import { ReservationDialog } from "./reservation-dialog"
 import {
@@ -159,7 +161,6 @@ export function FloorPlanScreen() {
   const [query, setQuery] = useState("")
   const [tool, setTool] = useState<string | null>(null)
   const [selection, setSelection] = useState<PlanSelection | null>(null)
-  const [busyTableId, setBusyTableId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const [tableDialog, setTableDialog] = useState<TableForm | null>(null)
@@ -168,6 +169,11 @@ export function FloorPlanScreen() {
   const [reservationsOpen, setReservationsOpen] = useState(false)
   const [tableAction, setTableAction] = useState<PlanTable | null>(null)
   const [drop, setDrop] = useState<{ source: PlanTable; target: PlanTable } | null>(null)
+
+  const { busyTableId, openTicketFor, goToTicket, markCleaned, markNoShow } = useTableOpener(
+    companyId,
+    mutate,
+  )
 
   // Süre etiketleri dakikada bir tazelenir; saniyede bir render etmenin anlamı yok.
   const [now, setNow] = useState(() => Date.now())
@@ -466,92 +472,28 @@ export function FloorPlanScreen() {
   }, [companyId, mutate, mutateItems, selected, toast])
 
   // ---- Kullanım kipi ------------------------------------------------------
-
-  const openTicketFor = useCallback(
-    async (table: PlanTable, reservationId?: string) => {
-      setBusyTableId(table.id)
-      try {
-        const res = await fetch("/api/restoran/adisyonlar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ companyId, tableId: table.id, reservationId }),
-        })
-        const body = await res.json().catch(() => ({}))
-        // 409 = bu masaya başka biri adisyon açmış; sunucu mevcut adisyonu
-        // döndürüyor, kullanıcıyı hata ekranına düşürmeden oraya götürüyoruz.
-        if (res.status === 409 && body?.ticket?.id) {
-          void mutate()
-          router.push(withCompanyHref(`/restoran/adisyon/${body.ticket.id}`, companyId))
-          return
-        }
-        if (!res.ok) throw new Error(body?.error || "Adisyon açılamadı")
-        void mutate()
-        router.push(withCompanyHref(`/restoran/adisyon/${body.id}`, companyId))
-      } catch (e: any) {
-        toast({ title: "Adisyon açılamadı", description: e.message, variant: "destructive" })
-      } finally {
-        setBusyTableId(null)
-      }
-    },
-    [companyId, mutate, router, toast],
-  )
+  //
+  // Adisyon açma / toplandı / gelmedi ORTAK koddan gelir: aynı işi Masa Listesi
+  // ekranı da yapıyor ve iki kopya olsaydı biri 409 çakışmasını ya da rezerve
+  // masa kuralını unuttuğu an garson hangi ekranı kullandığına göre farklı
+  // sonuç alırdı. Bkz. lib/restoran/use-table-opener.ts
 
   const onOpenTable = useCallback(
     (table: PlanTable) => {
       if (editMode) return
-      if (table.openTicket) {
-        router.push(withCompanyHref(`/restoran/adisyon/${table.openTicket.id}`, companyId))
+      const intent = tableTapIntent(table)
+      if (intent === "ticket") {
+        goToTicket(table.openTicket!.id)
         return
       }
-      // Boş masa doğrudan açılır (garsonun en sık yaptığı iş bir dokunuşta
-      // kalmalı). Belirsiz durumlar — toplanacak, rezerve — önce ne yapılacağını
-      // sorar: rezerve masaya gelen geçen müşteriyi oturtmak rezervasyonu yakardı.
-      if (table.cleaningSince || table.reservation) {
+      if (intent === "ask") {
         setTableAction(table)
         return
       }
       void openTicketFor(table)
     },
-    [companyId, editMode, openTicketFor, router],
+    [editMode, goToTicket, openTicketFor],
   )
-
-  const markCleaned = async (table: PlanTable) => {
-    setTableAction(null)
-    await mutate(
-      (prev) => (prev ?? []).map((t) => (t.id === table.id ? { ...t, cleaningSince: null } : t)),
-      { revalidate: false },
-    )
-    try {
-      const res = await fetch(`/api/restoran/masalar/${table.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, cleaned: true }),
-      })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Güncellenemedi")
-    } catch (e: any) {
-      toast({ title: "Güncellenemedi", description: e.message, variant: "destructive" })
-    } finally {
-      void mutate()
-    }
-  }
-
-  const markNoShow = async (table: PlanTable) => {
-    if (!table.reservation) return
-    setTableAction(null)
-    try {
-      const res = await fetch(`/api/restoran/rezervasyonlar/${table.reservation.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, status: "NOSHOW" }),
-      })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Güncellenemedi")
-      toast({ title: "Rezervasyon 'gelmedi' işaretlendi" })
-    } catch (e: any) {
-      toast({ title: "Güncellenemedi", description: e.message, variant: "destructive" })
-    } finally {
-      void mutate()
-    }
-  }
 
   const confirmDrop = async () => {
     const source = drop?.source
@@ -1413,75 +1355,15 @@ export function FloorPlanScreen() {
       </Dialog>
 
       {/* Kullanım kipi — belirsiz durumdaki masaya dokunuldu */}
-      <Dialog open={tableAction !== null} onOpenChange={(o) => !o && setTableAction(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{tableAction?.name}</DialogTitle>
-            <DialogDescription>
-              {tableAction?.reservation
-                ? `${tableAction.reservation.guestName} adına ${new Date(
-                    tableAction.reservation.reservedAt,
-                  ).toLocaleTimeString("tr-TR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })} rezervasyonu var${
-                    tableAction.reservation.guestCount
-                      ? ` (${tableAction.reservation.guestCount} kişi)`
-                      : ""
-                  }.`
-                : tableAction?.cleaningSince
-                  ? `Hesap ${elapsedLabel(tableAction.cleaningSince, now)} önce kapandı, masa henüz toplanmadı.`
-                  : ""}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            {tableAction?.reservation && (
-              <Button
-                className="w-full justify-start"
-                onClick={() => {
-                  const t = tableAction
-                  setTableAction(null)
-                  void openTicketFor(t, t.reservation!.id)
-                }}
-              >
-                <Users className="mr-2 h-4 w-4" />
-                Rezervasyonu oturt ve adisyon aç
-              </Button>
-            )}
-            {tableAction?.cleaningSince && (
-              <Button
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => void markCleaned(tableAction)}
-              >
-                <Sparkles className="mr-2 h-4 w-4" />
-                Masa toplandı
-              </Button>
-            )}
-            <Button
-              variant={tableAction?.reservation ? "outline" : "default"}
-              className="w-full justify-start"
-              onClick={() => {
-                const t = tableAction
-                setTableAction(null)
-                if (t) void openTicketFor(t)
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              {tableAction?.reservation ? "Rezervasyonsuz adisyon aç" : "Yeni adisyon aç"}
-            </Button>
-            {tableAction?.reservation && (
-              <Button
-                variant="ghost"
-                className="w-full justify-start text-muted-foreground"
-                onClick={() => void markNoShow(tableAction)}
-              >
-                Misafir gelmedi
-              </Button>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Belirsiz masa (toplanacak / rezerve) — Masa Listesi ile ORTAK diyalog. */}
+      <TableActionDialog
+        table={tableAction}
+        now={now}
+        onClose={() => setTableAction(null)}
+        onOpenTicket={(t, reservationId) => void openTicketFor(t, reservationId)}
+        onMarkCleaned={(t) => void markCleaned(t)}
+        onMarkNoShow={(t) => void markNoShow(t)}
+      />
 
       {/* Taşı / birleştir onayı */}
       <Dialog open={drop !== null} onOpenChange={(o) => !o && setDrop(null)}>

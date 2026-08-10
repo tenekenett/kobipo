@@ -99,7 +99,7 @@ import {
   type PaymentState,
 } from "@/lib/satis/payment"
 import { submitReceiptSale } from "@/lib/satis/submit-receipt-sale"
-import { expandRecipeLines } from "@/lib/stock/recipe-expand"
+import { describeExpandError, expandRecipeLines } from "@/lib/stock/recipe-expand"
 
 type Shortage = { productId: string; name: string; unit: string; need: number; stock: number; after: number }
 
@@ -125,7 +125,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   const { products, isLoading: productsLoading, error: productsError } = useProducts(companyId, {
     isService: false,
   })
-  const { recipeMap } = useRecipes(companyId)
+  const { recipeMap, recipeNoteOf } = useRecipes(companyId)
   const { accounts } = useAccounts(companyId)
   const { warehouses } = useWarehouses(companyId)
   const { employees } = useEmployees(companyId)
@@ -293,6 +293,39 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
       )
     },
     [callTicketApi, companyId, ticketId],
+  )
+
+  /**
+   * Menü kartına SAĞ TIK — bir adet düşürür. Son eklenen NORMAL kalemden düşer
+   * ("en son yaptığımı geri al").
+   *
+   * SON ADET DÜŞÜRÜLMEZ: adisyon kalemi sunucuda kayıtlıdır ve 0'a inmesi onu
+   * sebepsiz VOID etmek demek — panelin adet çubuğunun alt sınırının 1 olma
+   * gerekçesiyle aynısı (SATIS-EKRANI.md K2). Yanlış giren kalem sebebiyle
+   * kaydedilmeli, sağ tık buna sessiz bir kaçış yolu açmamalı.
+   */
+  const unpickProduct = useCallback(
+    async (product: RefProduct) => {
+      if (!isOpen) return
+      const items = ticket?.items ?? []
+      let target: (typeof items)[number] | null = null
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].productId === product.id && items[i].status === "NORMAL") {
+          target = items[i]
+          break
+        }
+      }
+      if (!target) return
+      if (target.quantity <= 1) {
+        toast({
+          title: `"${product.name}" tek adet kaldı`,
+          description: 'Kaldırmak için kalemi hesap panelinden seçip "İptal" ile sebebiyle kaydedin.',
+        })
+        return
+      }
+      await setItemQty(target.id, target.quantity - 1)
+    },
+    [isOpen, setItemQty, ticket?.items, toast],
   )
 
   /**
@@ -504,6 +537,19 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     for (const d of expansion.direct) push(d.productId, d.quantity)
     return rows.sort((a, b) => a.after - b.after)
   }, [expansion, productById])
+
+  /**
+   * Genişletme hataları (birim uyuşmazlığı, döngü). Yetersiz stoktan AYRI bir
+   * şey: orada malzeme biter, burada reçete bozuktur ve bileşen hiç düşmez —
+   * hızlı satış ekranı bunu zaten gösteriyordu, adisyon göstermiyordu.
+   */
+  const expandErrors = useMemo(
+    () =>
+      expansion.errors.map((e) =>
+        describeExpandError(e, (id) => productById.get(id)?.name ?? id),
+      ),
+    [expansion.errors, productById],
+  )
 
   // ---- Hesap fişi (ödeme öncesi döküm) ------------------------------------
 
@@ -840,6 +886,8 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
             <MenuGrid
               products={products}
               recipeMap={recipeMap}
+              noteOf={recipeNoteOf}
+              onUnpick={(p) => void unpickProduct(p)}
               isLoading={productsLoading || pendingProductId !== null}
               error={productsError}
               badgeOf={(productId) =>
@@ -855,6 +903,22 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
                 Bu adisyon kapandı. Yeni sipariş için masadan yeni adisyon açın.
               </CardContent>
             </Card>
+          )}
+
+          {/* Bozuk reçete: yetersiz stoktan farklı ve daha ciddi — katlanmıyor,
+              çünkü kullanıcının görmediği sürece düzeltmesi mümkün değil. */}
+          {expandErrors.length > 0 && (
+            <div className="space-y-1 rounded-lg border border-red-300 bg-red-50/60 px-3 py-2 text-xs text-red-700 dark:border-red-700/60 dark:bg-red-950/20 dark:text-red-300">
+              <div className="flex items-center gap-2 font-semibold">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                Reçete hatası — bu bileşenler stoktan düşmeyecek
+              </div>
+              {expandErrors.map((e) => (
+                <p key={e} className="pl-5">
+                  {e}
+                </p>
+              ))}
+            </div>
           )}
 
           {shortages.length > 0 && (
@@ -896,8 +960,10 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
           readOnly={!isOpen}
           employees={employees}
           onQuantity={(id, q) => void setItemQty(id, q)}
+          // Promise DÖNDÜRÜLÜR (void'lenmez): panel çoklu seçimde kalemleri
+          // sırayla uygulayıp her birini bekliyor.
           onSetStatus={(id, status, code, reason, employeeId) =>
-            void setItemStatus(id, status, code, reason, employeeId)
+            setItemStatus(id, status, code, reason, employeeId)
           }
           onEditNote={(id) => {
             const item = ticket.items.find((i) => i.id === id)

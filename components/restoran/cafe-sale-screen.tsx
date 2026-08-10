@@ -73,7 +73,7 @@ import { OptionDialog } from "@/components/restoran/option-dialog"
 import { DiscountDialog, type DiscountValue } from "@/components/restoran/discount-dialog"
 import { useProductOptions } from "@/lib/swr/use-restoran"
 import { submitReceiptSale } from "@/lib/satis/submit-receipt-sale"
-import { expandRecipeLines } from "@/lib/stock/recipe-expand"
+import { describeExpandError, expandRecipeLines } from "@/lib/stock/recipe-expand"
 import {
   optionEffect,
   optionRecipeEffects,
@@ -167,7 +167,7 @@ export function CafeSaleScreen() {
   const { products, isLoading: productsLoading, error: productsError } = useProducts(companyId, {
     isService: false,
   })
-  const { recipes, recipeMap } = useRecipes(companyId)
+  const { recipes, recipeMap, recipeNoteOf } = useRecipes(companyId)
   const { accounts } = useAccounts(companyId)
   const { warehouses } = useWarehouses(companyId)
   const { employees } = useEmployees(companyId)
@@ -295,6 +295,32 @@ export function CafeSaleScreen() {
     },
     [addLine, groupsOf],
   )
+
+  /**
+   * Menü kartına SAĞ TIK — bir adet düşürür.
+   *
+   * Aynı üründen birden çok satır olabilir (farklı seçenek/not), o yüzden SON
+   * eklenen faturalanabilir satırdan düşer: sağ tık "en son yaptığımı geri al"
+   * demek. Sepet yalnız tarayıcıda yaşadığı için son adet satırı tümden siler —
+   * iz kaybı yok (adisyonda tersi geçerli, bkz. ticket-screen).
+   */
+  const removeProduct = useCallback((product: RefProduct) => {
+    setCart((prev) => {
+      let idx = -1
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].productId === product.id && isBillableLine(prev[i])) {
+          idx = i
+          break
+        }
+      }
+      if (idx < 0) return prev
+      const line = prev[idx]
+      if (line.quantity <= 1) return prev.filter((_, i) => i !== idx)
+      const next = [...prev]
+      next[idx] = { ...line, quantity: round2(line.quantity - 1) }
+      return next
+    })
+  }, [])
 
   const setLineQty = useCallback((key: string, quantity: number) => {
     setCart((prev) =>
@@ -429,19 +455,7 @@ export function CafeSaleScreen() {
 
   /** Genişletme hataları (birim uyuşmazlığı, döngü) — bunlar stoğu SESSİZCE eksik düşürür. */
   const expandErrors = useMemo(
-    () =>
-      expansion.errors.map((e) => {
-        switch (e.reason) {
-          case "CYCLE":
-            return `Reçete döngüsü: ${(e.detail ?? e.productId).split(" → ").map(nameOf).join(" → ")}`
-          case "DEPTH":
-            return `"${nameOf(e.productId)}" reçetesi ${e.detail} kattan derin — açılamadı`
-          case "UNIT_MISMATCH":
-            return `"${nameOf(e.productId)}" için ${e.detail} dönüşümü yapılamıyor`
-          default:
-            return `"${nameOf(e.productId)}": ${e.reason}`
-        }
-      }),
+    () => expansion.errors.map((e) => describeExpandError(e, nameOf)),
     [expansion.errors, nameOf]
   )
 
@@ -676,8 +690,23 @@ export function CafeSaleScreen() {
     toast,
   ])
 
-  /** Sepette ödenecek satır var mı — yoksa düğme "İkramı Kaydet" olur. */
+  /** Sepette ödenecek satır var mı — yoksa fiş yalnız stok düşümü için kesilir. */
   const hasBillable = cart.some(isBillableLine)
+
+  /**
+   * Kapatma düğmesinin etiketi.
+   *
+   * BOŞ sepette "İkramı Kaydet" yazıyordu: ortada ne satış ne ikram var. Düğme
+   * zaten pasif ama etiket kasiyere yanlış bilgi veriyordu — boş sepetin
+   * varsayılanı normal satıştır. Ayrıca yalnız ZAYİ kalan sepette de "ikram"
+   * deniyordu; ikisi ayrı kayıt.
+   */
+  const submitLabel =
+    cart.length === 0 || hasBillable
+      ? "Satışı Tamamla"
+      : cart.some((l) => (l.status ?? "NORMAL") === "COMP")
+        ? "İkramı Kaydet"
+        : "Zayi Kaydet"
 
   // F2 → satışı tamamla (POS benzeri hızlı kapatma).
   //
@@ -760,6 +789,8 @@ export function CafeSaleScreen() {
           <MenuGrid
             products={products}
             recipeMap={recipeMap}
+            noteOf={recipeNoteOf}
+            onUnpick={removeProduct}
             isLoading={productsLoading}
             error={productsError}
             badgeOf={(productId) => cart.find((l) => l.productId === productId)?.quantity ?? null}
@@ -977,7 +1008,7 @@ export function CafeSaleScreen() {
                 ) : (
                   <span className="flex items-center justify-center gap-2">
                     <CheckCircle2 className="h-5 w-5" />
-                    {hasBillable ? "Satışı Tamamla" : "İkramı Kaydet"}
+                    {submitLabel}
                     {totals.total > 0 && (
                       <span className="ml-1 rounded-md bg-white/20 px-2 py-0.5 text-sm font-bold tabular-nums">
                         {currency(totals.total)}
