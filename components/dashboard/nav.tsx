@@ -10,16 +10,20 @@ import { LogOut, Menu, X, ChevronDown, Loader2 } from "lucide-react"
 import { allNavItems, navGroups, navItemActive, standaloneNavHrefs, type NavItemDef } from "@/components/dashboard/nav-config"
 import { MODULE_GROUP_TO_KEY, MODULE_KEYS } from "@/lib/modules"
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { useDashboardCompany, useVisiblePages } from "@/components/dashboard/dashboard-company-provider"
 import { withCompanyHref } from "@/lib/company/href"
 import { useSidebar } from "@/components/dashboard/sidebar-provider"
-import { roleToDashboardPath } from "@/lib/auth/role-paths"
+import { landingPathFor } from "@/lib/page-access"
 export function DashboardNav() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [pendingHref, setPendingHref] = useState<string | null>(null)
-  const { userRole, selectedCompany } = useDashboardCompany()
+  const { selectedCompany, pagePermissions } = useDashboardCompany()
+  const visibleHrefs = useVisiblePages()
+  // Logo tıklaması kısıtlı çalışanı rol panosuna değil, yetkili olduğu ilk sayfaya
+  // götürür — pano ciro/kâr rakamı basıyor.
+  const landingPath = useMemo(() => landingPathFor(pagePermissions), [pagePermissions])
   const { collapsed } = useSidebar()
 
   // Aktif firma seçimi URL'de ?company=<slug> ile taşınır. Nav linkleri bunu KORUMALIDIR;
@@ -35,17 +39,18 @@ export function DashboardNav() {
     Object.fromEntries(navGroups.map((g) => [g.title, true]))
   )
 
-  // Role göre filtrelenmiş menü öğeleri
-  const navItems = useMemo(
-    () =>
-      allNavItems.filter((item) => {
-        if (item.href === "/e-donusum" && !selectedCompany?.isEDonusumEnabled) {
-          return false
-        }
-        return item.roles.includes(userRole)
-      }),
-    [selectedCompany?.isEDonusumEnabled, userRole]
-  )
+  // Role VE kısıtlı çalışan iznine göre filtrelenmiş menü öğeleri.
+  // `visibleHrefs` zaten rol matrisinin izin listesiyle kesişimi (lib/page-access.ts),
+  // yani rol kontrolü burada ikinci kez yapılmaz.
+  const navItems = useMemo(() => {
+    const visible = new Set(visibleHrefs)
+    return allNavItems.filter((item) => {
+      if (item.href === "/e-donusum" && !selectedCompany?.isEDonusumEnabled) {
+        return false
+      }
+      return visible.has(item.href)
+    })
+  }, [selectedCompany?.isEDonusumEnabled, visibleHrefs])
 
   // Firma için kapalı modüllerin nav gruplarını gizle.
   //
@@ -146,7 +151,7 @@ export function DashboardNav() {
         )}
       >
         <div className="flex h-14 shrink-0 items-center border-b border-white/10 px-4">
-          <Link href={withCompany(roleToDashboardPath(userRole))} className="inline-flex shrink-0 items-center">
+          <Link href={withCompany(landingPath)} className="inline-flex shrink-0 items-center">
             <KobipoLogoMark className="h-12 w-auto" />
           </Link>
         </div>
@@ -234,7 +239,7 @@ export function DashboardNav() {
 
       <nav className="fixed left-0 right-0 top-0 z-40 h-14 border-b border-white/10 bg-kobipo-navy dark:border-border dark:bg-card lg:hidden">
         <div className="flex h-14 items-center justify-between px-4">
-          <Link href={withCompany(roleToDashboardPath(userRole))} className="inline-flex shrink-0 items-center">
+          <Link href={withCompany(landingPath)} className="inline-flex shrink-0 items-center">
             <KobipoLogoMark className="h-11 w-auto" />
           </Link>
           <Button

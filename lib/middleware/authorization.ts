@@ -49,6 +49,12 @@ export interface UserRole {
   isActive: boolean
   /** Kapalı modül anahtarları — sunucu sayfaları kilitli hesabı bununla tanır. */
   disabledModules: string[]
+  /** Kısıtlı çalışan izinleri; boş = kısıt yok. Bkz. lib/page-access.ts. */
+  allowedPaths: string[]
+  writablePaths: string[]
+  /** Firmanın tanımladığı özel rol (varsa) — yetki tavanını değiştirir. */
+  customRoleId: string | null
+  customRoleName: string | null
 }
 
 export interface AuthContext {
@@ -74,6 +80,10 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     role: company.role,
     isActive: company.isActive,
     disabledModules: company.disabledModules,
+    allowedPaths: company.allowedPaths,
+    writablePaths: company.writablePaths,
+    customRoleId: company.customRoleId,
+    customRoleName: company.customRoleName,
   }))
 
   // Aktif firma varsayılanı. Öncelik: (1) URL `?company=` — resolveActiveCompany'de ele alınır;
@@ -173,6 +183,7 @@ export const roleLabels: Record<Role, string> = {
   STOCK: "Stokçu",
   SALES: "Satış",
   VIEWER: "Görüntüleyici",
+  CUSTOM: "Özel rol",
 }
 
 // Rol renkleri
@@ -183,6 +194,7 @@ export const roleColors: Record<Role, string> = {
   STOCK: "bg-orange-500/20 text-orange-400 border-orange-500/30",
   SALES: "bg-green-500/20 text-green-400 border-green-500/30",
   VIEWER: "bg-slate-500/20 text-slate-400 border-slate-500/30",
+  CUSTOM: "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
 }
 
 // Dashboard yönlendirmesi

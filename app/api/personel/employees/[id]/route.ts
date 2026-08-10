@@ -36,6 +36,8 @@ export async function GET(
       leaves: { orderBy: { startDate: "desc" }, take: 20 },
       assets: { orderBy: { assignedDate: "desc" } },
       documents: { orderBy: { createdAt: "desc" } },
+      // Bağlı Kobipo hesabı (varsa). Şifre/2FA alanları ASLA seçilmez.
+      user: { select: { id: true, name: true, email: true } },
     },
   })
   if (!employee) return NextResponse.json({ error: "Employee not found" }, { status: 404 })
@@ -73,6 +75,27 @@ export async function PUT(
   if (body.terminationDate !== undefined) data.terminationDate = dateOrNull(body.terminationDate)
   if (body.grossSalary !== undefined) data.grossSalary = numOrNull(body.grossSalary)
   if (body.annualLeaveDays !== undefined) data.annualLeaveDays = numOrNull(body.annualLeaveDays) ?? existing.annualLeaveDays
+  // Kobipo hesabı bağı. Yalnız BU firmanın ekip üyesi bağlanabilir — aksi halde
+  // yabancı bir kullanıcı id'si personel kartına iliştirilebilir ve vardiya/ikram
+  // kayıtları var olmayan bir üyeliğe işaret ederdi. null = bağı kaldır.
+  if (body.userId !== undefined) {
+    if (body.userId === null || body.userId === "") {
+      data.userId = null
+    } else {
+      const member = await prisma.userCompany.findFirst({
+        where: { userId: String(body.userId), companyId: existing.companyId },
+        select: { id: true },
+      })
+      if (!member) {
+        return NextResponse.json(
+          { error: "Bu kullanıcı firmanın ekibinde değil. Önce Ekip Yönetimi'nden ekleyin." },
+          { status: 400 }
+        )
+      }
+      data.userId = String(body.userId)
+    }
+  }
+
   if (body.status !== undefined && ["ACTIVE", "ON_LEAVE", "TERMINATED"].includes(body.status)) {
     data.status = body.status
     // İşten çıkış işaretlenince çıkış tarihini otomatik doldur (yoksa).
@@ -81,8 +104,25 @@ export async function PUT(
     }
   }
 
-  const employee = await prisma.employee.update({ where: { id }, data })
-  return NextResponse.json(employee)
+  try {
+    const employee = await prisma.employee.update({ where: { id }, data })
+    return NextResponse.json(employee)
+  } catch (error) {
+    // (companyId, userId) benzersiz: bir hesap aynı firmada iki personel kartına
+    // bağlanamaz. Prisma'nın P2002'si kullanıcıya "bilinmeyen hata" olarak düşmesin.
+    if (
+      error &&
+      typeof error === "object" &&
+      (error as { code?: string }).code === "P2002" &&
+      data.userId
+    ) {
+      return NextResponse.json(
+        { error: "Bu Kobipo hesabı zaten başka bir personel kartına bağlı." },
+        { status: 409 }
+      )
+    }
+    throw error
+  }
 }
 
 export async function DELETE(

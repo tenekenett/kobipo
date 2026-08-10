@@ -7,14 +7,35 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { roleLabels } from "@/lib/auth/role-labels"
+import { roleLabel } from "@/lib/auth/role-labels"
+import { pagesForRole } from "@/lib/nav/pages"
+import { MemberPermissionsDialog } from "@/components/dashboard/member-permissions-dialog"
+import { RoleEditorDialog } from "@/components/dashboard/role-editor-dialog"
+import { Plus } from "lucide-react"
 
-const roleLabel = (role: string) => (roleLabels as Record<string, string>)[role] || role
+// BRANCH_MANAGER bilerek yok: şube müdürü ataması ayrı bir ekrandan yapılır
+// (/ayarlar/sube-mudurleri), çünkü rol şubeye bağlanır.
+const INVITABLE_ROLES = ["ADMIN", "ACCOUNTANT", "STOCK", "SALES", "VIEWER"] as const
+
+type Member = {
+  id: string
+  role: string
+  allowedPaths?: string[]
+  writablePaths?: string[]
+  customRoleId?: string | null
+  customRole?: { id: string; name: string; allowedPaths: string[] } | null
+  user?: { name?: string; email: string }
+}
+
+type CompanyRole = { id: string; name: string; allowedPaths: string[]; writablePaths: string[] }
 
 export default function EkipPage() {
   const { toast } = useToast()
   const companyId = useSearchParams().get("company")
-  const [members, setMembers] = useState<Array<{ id: string; role: string; user?: { name?: string; email: string } }>>([])
+  const [editing, setEditing] = useState<Member | null>(null)
+  const [members, setMembers] = useState<Member[]>([])
+  const [companyRoles, setCompanyRoles] = useState<CompanyRole[]>([])
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false)
   const [invitations, setInvitations] = useState<Array<{ id: string; email: string; role: string; createdAt: string }>>([])
   const [email, setEmail] = useState("")
   const [role, setRole] = useState("VIEWER")
@@ -26,6 +47,35 @@ export default function EkipPage() {
     if (response.ok) setMembers(await response.json())
   }
   useEffect(() => { fetchMembers() }, [companyId])
+  const fetchCompanyRoles = async () => {
+    if (!companyId) return
+    const response = await fetch(`/api/company/roles?companyId=${companyId}`)
+    if (response.ok) setCompanyRoles(await response.json())
+  }
+  useEffect(() => { fetchCompanyRoles() }, [companyId])
+
+  // Üyenin rolünü değiştirir. Değer "custom:<id>" ise özel rol, aksi halde enum rol.
+  const changeRole = async (member: Member, value: string) => {
+    const body: Record<string, unknown> = { companyId }
+    if (value.startsWith("custom:")) body.customRoleId = value.slice(7)
+    else {
+      body.role = value
+      body.customRoleId = null
+    }
+    const response = await fetch(`/api/company/users/${member.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      toast({ title: "Rol değiştirilemedi", description: data.error, variant: "destructive" })
+      return
+    }
+    toast({ title: "Rol güncellendi" })
+    fetchMembers()
+  }
+
   const fetchInvitations = async () => {
     if (!companyId) return
     const response = await fetch(`/api/company/invitations?companyId=${companyId}`)
@@ -35,10 +85,14 @@ export default function EkipPage() {
 
   const invite = async () => {
     if (!companyId) return
+    // "custom:<id>" → özel rol, aksi halde hazır enum rol.
+    const payload = role.startsWith("custom:")
+      ? { companyId, email, customRoleId: role.slice(7) }
+      : { companyId, email, role }
     const response = await fetch("/api/company/invitations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ companyId, email, role }),
+      body: JSON.stringify(payload),
     })
     if (response.ok) {
       const result = await response.json()
@@ -82,15 +136,59 @@ export default function EkipPage() {
             <TabsTrigger value="invites">Davetler</TabsTrigger>
           </TabsList>
           <TabsContent value="members" className="space-y-2 pt-3">
-            {members.map((member) => (
-              <div key={member.id} className="flex items-center justify-between rounded border p-2">
-                <div>
-                  <div>{member.user?.name || member.user?.email}</div>
-                  <div className="text-xs text-muted-foreground">{member.user?.email}</div>
+            {members.map((member) => {
+              const restricted = (member.allowedPaths?.length ?? 0) > 0
+              // Rolün TOPLAM sayfa sayısı. "Tam yetki" tek başına yanıltıcıydı: kısıtsız
+              // bir Görüntüleyici de "tam yetkili" görünüyordu, oysa panelin çok küçük
+              // bir kısmını görüyor. Kısıt yokluğu ≠ her şeye erişim; tavanı rol koyar.
+              const roleTotal = pagesForRole(member.role).length
+              return (
+                <div key={member.id} className="flex items-center justify-between gap-3 rounded border p-2">
+                  <div className="min-w-0">
+                    <div className="truncate">{member.user?.name || member.user?.email}</div>
+                    <div className="truncate text-xs text-muted-foreground">{member.user?.email}</div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <div className="text-right">
+                      <select
+                        className="rounded border px-2 py-1 text-sm"
+                        value={member.customRoleId ? `custom:${member.customRoleId}` : member.role}
+                        onChange={(e) => changeRole(member, e.target.value)}
+                      >
+                        <optgroup label="Hazır roller">
+                          {INVITABLE_ROLES.map((value) => (
+                            <option key={value} value={value}>
+                              {roleLabel(value)}
+                            </option>
+                          ))}
+                        </optgroup>
+                        {companyRoles.length > 0 && (
+                          <optgroup label="Firmanızın rolleri">
+                            {companyRoles.map((r) => (
+                              <option key={r.id} value={`custom:${r.id}`}>
+                                {r.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                      {/* Payda her zaman yetkinin TAVANI: özel rolde rolün kendi sayfa
+                          sayısı, hazır rolde o rolün matrisi. */}
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {member.customRoleId
+                          ? `${member.customRole?.allowedPaths?.length ?? 0} sayfa (özel rol)`
+                          : restricted
+                            ? `${member.allowedPaths?.length}/${roleTotal} sayfa`
+                            : `Rolünün tümü (${roleTotal} sayfa)`}
+                      </div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setEditing(member)}>
+                      Yetkiler
+                    </Button>
+                  </div>
                 </div>
-                <div className="text-sm text-muted-foreground">{roleLabel(member.role)}</div>
-              </div>
-            ))}
+              )
+            })}
             {members.length === 0 && (
               <p className="text-sm text-muted-foreground">Henüz ekip üyesi yok.</p>
             )}
@@ -99,13 +197,32 @@ export default function EkipPage() {
             <div className="flex flex-wrap gap-2">
               <Input placeholder="Kullanıcı e-postası" value={email} onChange={(e) => setEmail(e.target.value)} />
               <select className="rounded border px-2 py-2 text-sm" value={role} onChange={(e) => setRole(e.target.value)}>
-                <option value="ADMIN">ADMIN</option>
-                <option value="ACCOUNTANT">ACCOUNTANT</option>
-                <option value="STOCK">STOCK</option>
-                <option value="SALES">SALES</option>
-                <option value="VIEWER">VIEWER</option>
+                <optgroup label="Hazır roller">
+                  {INVITABLE_ROLES.map((value) => (
+                    <option key={value} value={value}>
+                      {roleLabel(value)}
+                    </option>
+                  ))}
+                </optgroup>
+                {companyRoles.length > 0 && (
+                  <optgroup label="Firmanızın rolleri">
+                    {companyRoles.map((r) => (
+                      <option key={r.id} value={`custom:${r.id}`}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               <Button onClick={invite}>Davet Oluştur</Button>
+            </div>
+            {/* Rol tanımlamak için sayfa değiştirmek gerekmesin: çalışan eklerken
+                aklına gelen rolü burada açıp aynı akışta seçebilmeli. */}
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>İstediğiniz yetki kümesi listede yok mu?</span>
+              <Button variant="outline" size="sm" onClick={() => setRoleDialogOpen(true)}>
+                <Plus className="mr-1 h-3.5 w-3.5" /> Yeni rol tanımla
+              </Button>
             </div>
             {latestInviteUrl && (
               <div className="rounded border p-3">
@@ -135,6 +252,25 @@ export default function EkipPage() {
           </TabsContent>
         </Tabs>
       </CardContent>
+
+      <MemberPermissionsDialog
+        member={editing}
+        companyId={companyId}
+        onClose={() => setEditing(null)}
+        onSaved={fetchMembers}
+      />
+
+      {/* Yeni rol aynı akışta tanımlanır ve kaydedilir kaydedilmez davet formunda
+          seçili hale gelir — kullanıcı iki ekran arasında gidip gelmesin. */}
+      <RoleEditorDialog
+        open={roleDialogOpen}
+        companyId={companyId}
+        onClose={() => setRoleDialogOpen(false)}
+        onSaved={(created) => {
+          fetchCompanyRoles()
+          if (created?.id) setRole(`custom:${created.id}`)
+        }}
+      />
     </Card>
   )
 }

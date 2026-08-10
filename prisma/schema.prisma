@@ -14,6 +14,15 @@ datasource db {
 }
 
 // Kullanıcı rolleri
+//
+// Bu enum HAZIR kalıplardır ve iki iş birden yapar: (a) sayfa matrisinin tavanı
+// (lib/nav/pages.ts `roles`), (b) hesap yönetimi ekseni — Ekip/Şube/Abonelik
+// ekranları enum ADMIN'e bağlıdır ve özel rollerle DEVREDİLEMEZ (devredilseydi bir
+// özel rol sahibi kendi rolünü düzenleyip yetkisini sınırsıza çıkarabilirdi).
+//
+// Hazır kalıplar operasyona yetmediğinde firma kendi rolünü tanımlar: `CompanyRole`.
+// O üyelikler `CUSTOM` taşır ve sayfa yetkileri enum matrisinden DEĞİL, özel rolden
+// gelir (bkz. lib/page-access.ts).
 enum Role {
   ADMIN // Firma yöneticisi - tam yetki
   BRANCH_MANAGER // Şube müdürü - şubede tam operasyonel yetki, hesap yönetimi (ekip/şube/abonelik) hariç
@@ -21,6 +30,7 @@ enum Role {
   STOCK // Stokçu
   SALES // Satış
   VIEWER // Görüntüleyici - sadece okuma
+  CUSTOM // Yetkileri firmanın tanımladığı özel rolden gelir (UserCompany.customRoleId)
 }
 
 enum BlogPostStatus {
@@ -85,6 +95,8 @@ model User {
   authorizedCustomers Customer[]           @relation("AuthorizedCustomerUser")
   authorizedSuppliers Supplier[]           @relation("AuthorizedSupplierUser")
   passwordResetTokens PasswordResetToken[]
+  // Bu hesabın bağlı olduğu personel kartları (firma başına en fazla bir tane).
+  employeeRecords     Employee[]
 
   @@map("users")
 }
@@ -258,6 +270,8 @@ model Company {
   branches      Company[] @relation("CompanyBranches")
 
   users                   UserCompany[]
+  /// Firmanın kendi tanımladığı roller (hazır enum rollerin yetmediği durumlar).
+  companyRoles            CompanyRole[]
   customers               Customer[]
   suppliers               Supplier[]
   products                Product[]
@@ -364,11 +378,73 @@ model UserCompany {
   invitedAt DateTime?
   createdAt DateTime  @default(now())
 
+  // Kısıtlı çalışan izinleri — rolü DARALTIR, asla genişletmez.
+  //
+  // Efektif izin = rol matrisi (nav-config.tsx `roles`) ∩ allowedPaths. Yani bir
+  // sayfayı buraya yazmak, rolün zaten göremediği bir ekranı AÇMAZ; yalnızca rolün
+  // gördüklerinden hangilerinin kalacağını söyler. Tek yetki kaynağı rol olarak
+  // kalsın diye böyle: aksi halde "rol ne diyor, liste ne diyor" çatışması her
+  // kontrol noktasında yeniden çözülmek zorunda kalırdı.
+  //
+  // BOŞ = KISIT YOK (rolün tüm sayfaları). Bu, `disabledModules`un tersi bir
+  // varsayılan ve bilinçli: modülde red listesi doğruydu (yeni modül satılmamış
+  // sayılmalı), burada izin listesi doğru olur — aksi halde panele eklenen her yeni
+  // sayfa TÜM mevcut kullanıcılardan sessizce kaybolurdu. Bugünkü hiçbir üyelik
+  // etkilenmez; yalnızca bilerek kısıtlanmış çalışanlar bu listeyi taşır.
+  //
+  // "Sıfır sayfa" hâli bilerek ifade edilemez (boş = kısıtsız): erişimi tamamen
+  // kesmenin doğru aracı üyeliği kaldırmaktır, arayüz de en az bir sayfa seçtirir.
+  allowedPaths String[] @default([])
+  // allowedPaths ⊆ değil, ALT KÜMESİ: burada olmayan izinli sayfa salt-okunurdur.
+  // Kısıt yokken (allowedPaths boş) bu alan hiç okunmaz — yazmayı rol belirler.
+  writablePaths String[] @default([])
+
+  // Firmanın kendi tanımladığı rol. Doluysa `role` = CUSTOM olur ve sayfa yetkileri
+  // buradan gelir; yukarıdaki iki liste o durumda KULLANILMAZ (özel rol zaten
+  // paylaşılan bir izin kümesidir — kişiye özel ince ayar istenirse rolün kopyası
+  // çıkarılır, yoksa "aynı rol iki kişide farklı davranıyor" durumu doğardı).
+  customRoleId String?
+  customRole   CompanyRole? @relation(fields: [customRoleId], references: [id], onDelete: SetNull)
+
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([userId, companyId])
+  @@index([customRoleId])
   @@map("user_companies")
+}
+
+/// Firmanın kendi tanımladığı rol: serbest isim + serbest sayfa kümesi.
+///
+/// NEDEN: hazır 6 rol her işletmeye uymuyor. "Garson", "Kasiyer", "Depo sorumlusu"
+/// gibi roller işletmeden işletmeye farklı sayfa kümesi ister; sabit enum ile bunu
+/// ifade etmenin tek yolu kişiyi olduğundan geniş bir role koyup üstünden kısmaktı.
+///
+/// SINIR: hesap yönetimi sayfaları (Ekip, Şube, Abonelik, Şube Müdürleri) buraya
+/// YAZILAMAZ — sunucuda `assignablePages` ile eleniyor. Aksi halde özel rol sahibi
+/// kendi rolünü düzenleyerek yetkisini sınırsıza çıkarabilirdi.
+model CompanyRole {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  description String?
+  /// Bu rolün görebildiği menü sayfaları (nav href'leri).
+  allowedPaths  String[] @default([])
+  /// Yazabildikleri; allowedPaths'in alt kümesidir. Burada olmayan sayfa salt-okunur.
+  writablePaths String[] @default([])
+  /// Hangi hazır kalıptan üretildiği (yalnız bilgi amaçlı; kalıp sonradan değişse de
+  /// rol değişmez — kopyalanır, bağlanmaz).
+  templateKey String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  members  UserCompany[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("company_roles")
 }
 
 model CompanyInvitation {
@@ -376,6 +452,10 @@ model CompanyInvitation {
   companyId  String
   email      String
   role       Role
+  // Davet edilen kişiye ATANACAK özel rol. Davetin rolü taşıması şart: aksi halde
+  // çalışan hazır bir rolle giriyor, yönetici sonradan tekrar bulup değiştiriyordu —
+  // arada kalan sürede kişi kendisine hiç verilmemiş yetkilerle dolaşıyordu.
+  customRoleId String?
   token      String    @unique
   invitedBy  String
   expiresAt  DateTime
@@ -2084,6 +2164,14 @@ model IncomingInvoice {
 model Employee {
   id               String    @id @default(cuid())
   companyId        String
+  // Bu personelin Kobipo hesabı (varsa). Personel kartı ile giriş yapan kullanıcı
+  // AYRI şeylerdir ve öyle kalmalı: personel kartı olmayan ortak/muhasebeci hesap
+  // alabilir, hesabı olmayan personel de bordroda durur. Bu alan yalnızca ikisini
+  // EŞLEŞTİRİR — yetkinin kendisi UserCompany'de yaşar (allowedPaths).
+  //
+  // Kartın kullanışlı yanı: "bu çalışana hesap aç" kısayolu ve vardiya/ikram
+  // tarafında kimin ne yaptığının hesapla birleşmesi.
+  userId           String?
   firstName        String
   lastName         String
   slug             String    @default("")
@@ -2107,6 +2195,8 @@ model Employee {
   createdBy        String?
 
   company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // SET NULL: hesap silinse de personel kartı (bordro, izin, zimmet) ayakta kalır.
+  user      User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   payrolls  PayrollRecord[]
   leaves    LeaveRecord[]
   assets    AssetAssignment[]
@@ -2125,9 +2215,13 @@ model Employee {
   // için "bu maddeyi o yaptı" kanıtı değil, yalnız beyandır.
   checklistEntries ChecklistEntry[]
 
+  // Bir hesap aynı firmada iki personel kartına bağlanamaz (kimin vardiyası, kimin
+  // bordrosu sorusu belirsizleşirdi). Farklı firmalarda aynı hesap serbesttir.
+  @@unique([companyId, userId])
   @@unique([companyId, slug])
   @@index([companyId])
   @@index([companyId, status])
+  @@index([userId])
   @@map("employees")
 }
 

@@ -52,9 +52,9 @@ export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { companyId: __cidRaw, email, role } = await request.json()
+  const { companyId: __cidRaw, email, role, customRoleId } = await request.json()
   const companyId = await resolveCompanyId(__cidRaw)
-  if (!companyId || !email || !role) {
+  if (!companyId || !email || (!role && !customRoleId)) {
     return NextResponse.json({ error: "companyId, email and role are required" }, { status: 400 })
   }
 
@@ -63,13 +63,41 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Only admin can invite users" }, { status: 403 })
   }
 
+  // Özel rol seçildiyse enum CUSTOM'a düşer; rolün bu firmaya ait olduğu doğrulanır
+  // (aksi halde başka firmanın rol id'si verilerek yabancı bir izin kümesi bağlanabilirdi).
+  let resolvedCustomRoleId: string | null = null
+  let effectiveRole = role
+  if (customRoleId) {
+    const target = await prisma.companyRole.findFirst({
+      where: { id: String(customRoleId), companyId },
+      select: { id: true },
+    })
+    if (!target) return NextResponse.json({ error: "Rol bu firmaya ait değil" }, { status: 400 })
+    resolvedCustomRoleId = target.id
+    effectiveRole = "CUSTOM"
+  }
+
   const normalizedEmail = String(email).trim().toLowerCase()
   const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } })
   if (existingUser) {
     await prisma.userCompany.upsert({
       where: { userId_companyId: { userId: existingUser.id, companyId } },
-      update: { role, invitedBy: user.id, invitedAt: new Date() },
-      create: { userId: existingUser.id, companyId, role, invitedBy: user.id, invitedAt: new Date() },
+      update: {
+        role: effectiveRole,
+        customRoleId: resolvedCustomRoleId,
+        // Özel rolde yetki rolde durur; eski kişisel kısıt hayalet gibi kalmasın.
+        ...(resolvedCustomRoleId ? { allowedPaths: [], writablePaths: [] } : {}),
+        invitedBy: user.id,
+        invitedAt: new Date(),
+      },
+      create: {
+        userId: existingUser.id,
+        companyId,
+        role: effectiveRole,
+        customRoleId: resolvedCustomRoleId,
+        invitedBy: user.id,
+        invitedAt: new Date(),
+      },
     })
     return NextResponse.json({ status: "added", message: "Kullanıcı firmaya eklendi" }, { status: 201 })
   }
@@ -80,7 +108,8 @@ export async function POST(request: Request) {
     data: {
       companyId,
       email: normalizedEmail,
-      role,
+      role: effectiveRole,
+      customRoleId: resolvedCustomRoleId,
       token,
       invitedBy: user.id,
       expiresAt,

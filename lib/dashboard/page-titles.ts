@@ -139,6 +139,7 @@ const STATIC_TITLES: Record<string, string> = {
   "/ayarlar/destek": "Destek",
   "/ayarlar/e-donusum": "E-Dönüşüm Ayarları",
   "/ayarlar/ekip": "Ekip Yönetimi",
+  "/ayarlar/roller": "Rol Yetkileri",
   "/ayarlar/firma": "Firma Bilgileri",
   "/ayarlar/fis-tasarim": "Fiş Tasarımı",
   "/ayarlar/profil": "Profil ve Güvenlik",

@@ -9,6 +9,13 @@ import {
   isApiPathAllowed,
   requiredModulesForApiPath,
 } from "@/lib/module-access"
+import {
+  PageForbiddenError,
+  isApiPathAllowedForUser,
+  isRestrictedMembership,
+  requiredPagesForApiPath,
+  type PagePermissions,
+} from "@/lib/page-access"
 import { cache } from "react"
 
 export async function getCurrentCompany(companyId: string) {
@@ -105,23 +112,65 @@ async function assertModuleAccess(
 ): Promise<void> {
   if (isSuperAdmin) return
 
-  let pathname: string | null = null
-  let method = "GET"
-  try {
-    const requestHeaders = await headers()
-    pathname = requestHeaders.get(MODULE_GATE_PATH_HEADER)
-    method = requestHeaders.get(MODULE_GATE_METHOD_HEADER) ?? "GET"
-  } catch {
-    // İstek kapsamı dışında (build, script, cron) çağrıldı — kapı uygulanmaz.
-    return
-  }
+  const request = await currentApiRequest()
+  if (!request) return
+  const { pathname, method } = request
 
-  if (!pathname) return
   if (isApiPathAllowed(pathname, method, company.disabledModules)) return
 
   // Mesajı "Access denied" ile başlar (route catch'leri 403'e onunla mapler); gövdeye
   // `code: "MODULE_LOCKED"` taşımak `lib/api/errors.ts → accessDeniedResponse`'un işi.
   throw new ModuleLockedError(requiredModulesForApiPath(pathname, method))
+}
+
+/**
+ * Sunucu tarafı SAYFA kapısı — kısıtlı çalışan izinleri (bkz. lib/page-access.ts).
+ *
+ * Modül kapısının hemen ardından çalışır ve sırası önemlidir: "modül satın alınmamış"
+ * ile "senin yetkin yok" farklı ekranlar açar (satın alma daveti vs. yöneticine
+ * başvur). Süper-admin ve kısıtsız üyelikler etkilenmez.
+ */
+async function assertPageAccess(
+  company: UserCompanyContext,
+  isSuperAdmin: boolean
+): Promise<void> {
+  if (isSuperAdmin) return
+  if (!isRestrictedMembership(pagePermissionsOf(company))) return
+
+  const request = await currentApiRequest()
+  if (!request) return
+  const { pathname, method } = request
+
+  if (isApiPathAllowedForUser(pathname, method, pagePermissionsOf(company))) return
+
+  throw new PageForbiddenError(requiredPagesForApiPath(pathname, method))
+}
+
+/** Üyelik bağlamından sayfa-izni görünümü. */
+export function pagePermissionsOf(company: UserCompanyContext): PagePermissions {
+  return {
+    role: company.role,
+    allowedPaths: company.allowedPaths ?? [],
+    writablePaths: company.writablePaths ?? [],
+    // Özel rol tavanı değiştirir: hazır matris yerine yönetim-dışı tüm sayfalar.
+    custom: Boolean(company.customRoleId),
+  }
+}
+
+/**
+ * İşlenmekte olan `/api/*` isteğinin yolu ve metodu — kökteki proxy.ts header'a yazar.
+ * İstek kapsamı dışında (build, script, cron) çağrıldığında null döner ve kapılar
+ * uygulanmaz.
+ */
+async function currentApiRequest(): Promise<{ pathname: string; method: string } | null> {
+  try {
+    const requestHeaders = await headers()
+    const pathname = requestHeaders.get(MODULE_GATE_PATH_HEADER)
+    if (!pathname) return null
+    return { pathname, method: requestHeaders.get(MODULE_GATE_METHOD_HEADER) ?? "GET" }
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -143,6 +192,25 @@ export async function assertModulePath(
   throw new ModuleLockedError(requiredModulesForApiPath(pathname, method))
 }
 
+/**
+ * `assertModulePath`in sayfa-izni karşılığı. Aynı gerekçe: hedefini query'de taşıyan
+ * uç (`/api/export?module=products`) kendi yolundan değil, karşılık gelen "gerçek"
+ * yoldan denetlenmeli — aksi halde kısıtlı çalışan, izinsiz sayfanın verisini
+ * export üzerinden çekebilirdi.
+ */
+export async function assertPagePath(
+  company: UserCompanyContext,
+  pathname: string,
+  method = "GET"
+): Promise<void> {
+  const context = await getUserContext()
+  if (context?.isSuperAdmin) return
+  const permissions = pagePermissionsOf(company)
+  if (!isRestrictedMembership(permissions)) return
+  if (isApiPathAllowedForUser(pathname, method, permissions)) return
+  throw new PageForbiddenError(requiredPagesForApiPath(pathname, method))
+}
+
 export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
   companyId: string
 ): Promise<UserCompanyContext> {
@@ -159,6 +227,7 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
       throw new Error("Access denied: company is inactive")
     }
     await assertModuleAccess(match, context.isSuperAdmin)
+    await assertPageAccess(match, context.isSuperAdmin)
     return match
   }
 
@@ -187,6 +256,8 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
     throw new Error("Access denied to this company")
   }
 
+  // Buraya yalnız süper-admin düşer (yukarıdaki fallback); sayfa kapısı ona
+  // uygulanmadığı için izin alanları okunmadan kısıtsız geçilir.
   return {
     companyId: userCompany.companyId,
     companySlug: userCompany.company.slug,
@@ -196,6 +267,10 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
     isActive: userCompany.company.isActive,
     isEDonusumEnabled: userCompany.company.isEDonusumEnabled,
     disabledModules: userCompany.company.disabledModules ?? [],
+    allowedPaths: [],
+    writablePaths: [],
+    customRoleId: null,
+    customRoleName: null,
     createdAt: userCompany.createdAt,
   }
 })
@@ -204,8 +279,14 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
  * Yazma (mutasyon) uçları için erişim + rol kontrolü. Salt-okuma rolü VIEWER reddedilir —
  * nav-config'te VIEWER yalnızca raporları görür, hiçbir yazma ekranında yer almaz; bu yüzden
  * veri-yazan uçlar VIEWER'a kapalıdır. "Access denied" ifadesi mevcut route catch'lerinde
- * 403'e maplenir; catch'i olmayan uçlarda istek yine (fail-closed) reddedilir. Modül-bazlı
- * ince kısıt (ör. SALES ↛ stok yazma) bu sürümde uygulanmaz, ayrıca ele alınır.
+ * 403'e maplenir; catch'i olmayan uçlarda istek yine (fail-closed) reddedilir.
+ *
+ * Sayfa bazlı yazma kısıtı (kısıtlı çalışanın "görsün ama değiştirmesin" izni) burada
+ * DEĞİL, `ensureCompanyAccess` içindeki sayfa kapısında uygulanır: orası isteğin
+ * metodunu da gördüğü için tek noktada hem okuma hem yazma kararını verir.
+ *
+ * Rol bazlı çapraz-modül yazma kısıtı (ör. SALES ↛ stok) hâlâ uygulanmıyor; bkz.
+ * lib/page-access.ts → ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED.
  */
 export async function ensureCompanyWrite(
   companyId: string,

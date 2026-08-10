@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
-import { assertModulePath, ensureCompanyAccess } from "@/lib/middleware/company"
+import { assertModulePath, assertPagePath, ensureCompanyAccess } from "@/lib/middleware/company"
 import { XMLBuilder } from "fast-xml-parser"
 import { DATASETS } from "@/lib/export/datasets"
 import { exportResponse } from "@/lib/export/response"
@@ -104,6 +104,8 @@ export async function GET(request: Request) {
     // kilitliyken aynı ürün listesi buradan sızabiliyordu. Kararı karşılık gelen dataset
     // yoluna sorarak veriyoruz — kural tablosu tek kaynak kalsın.
     await assertModulePath(context, `/api/export/${mapping.dataset}`)
+    // Aynı gerekçe kısıtlı çalışan izinleri için de geçerli (bkz. lib/page-access.ts).
+    await assertPagePath(context, `/api/export/${mapping.dataset}`)
 
     if (format === "xml") {
       if (moduleName !== "invoices") {

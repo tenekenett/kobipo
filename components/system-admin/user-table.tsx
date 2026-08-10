@@ -70,6 +70,7 @@ const roleColors: Record<Role, string> = {
   STOCK: "bg-orange-500/20 text-orange-400",
   SALES: "bg-green-500/20 text-green-400",
   VIEWER: "bg-slate-500/20 text-slate-400",
+  CUSTOM: "bg-indigo-500/20 text-indigo-400",
 }
 
 export function UserTable({ users, companies }: UserTableProps) {

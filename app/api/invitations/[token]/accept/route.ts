@@ -78,13 +78,21 @@ export async function POST(
     }
   }
 
+  // Davet özel rol taşıyorsa üyelik ONUNLA açılır. Rol davet beklerken silinmişse
+  // (FK SET NULL) enum rolüne düşülür — davet geçersiz olmaz, yetki daralır.
   await prisma.userCompany.upsert({
     where: { userId_companyId: { userId, companyId: invitation.companyId } },
-    update: { role: invitation.role, invitedBy: invitation.invitedBy, invitedAt: invitation.createdAt },
+    update: {
+      role: invitation.role,
+      customRoleId: invitation.customRoleId,
+      invitedBy: invitation.invitedBy,
+      invitedAt: invitation.createdAt,
+    },
     create: {
       userId,
       companyId: invitation.companyId,
       role: invitation.role,
+      customRoleId: invitation.customRoleId,
       invitedBy: invitation.invitedBy,
       invitedAt: invitation.createdAt,
     },

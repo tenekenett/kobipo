@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { looksLikeCuid } from "@/lib/slug"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmployeeAccountCard } from "@/components/personel/employee-account-card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -48,6 +49,9 @@ type Employee = {
   annualLeaveDays?: number | null
   status: string
   notes?: string | null
+  /** Bağlı Kobipo hesabı; yetkiler burada DEĞİL, Ekip Yönetimi'nde yaşar. */
+  userId?: string | null
+  user?: { id: string; name?: string | null; email: string } | null
   payrolls: Array<{ id: string; periodYear: number; periodMonth: number; grossSalary: number; netSalary: number; status: string; paymentDate?: string | null }>
   leaves: Array<{ id: string; type: string; startDate: string; endDate: string; days: number; status: string }>
   assets: Array<{ id: string; assetName: string; category?: string | null; serialNo?: string | null; quantity: number; assignedDate: string; status: string }>
@@ -397,7 +401,8 @@ export default function PersonelDetayPage() {
           </div>
 
           <div className="grid gap-6 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
+            <div className="space-y-6 lg:col-span-2">
+            <Card>
               <CardHeader><CardTitle className="text-base">Kişisel & İş Bilgileri</CardTitle></CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-3">
                 <Field label="T.C. Kimlik No" value={emp.nationalId} />
@@ -420,6 +425,14 @@ export default function PersonelDetayPage() {
                 </CardContent>
               )}
             </Card>
+
+            <EmployeeAccountCard
+              employeeId={emp.slug || emp.id}
+              companyId={companyId}
+              linkedUser={emp.user}
+              onChanged={fetchEmp}
+            />
+            </div>
 
             <div className="space-y-6">
               {/* Maaş özeti */}

@@ -8,6 +8,7 @@ import {
   getFirstAccessibleCompanyId,
   withCompanyQuery,
 } from "@/lib/company/client-selection"
+import { canEditPage, canViewPage, visiblePages, type PagePermissions } from "@/lib/page-access"
 
 export type DashboardCompany = {
   id: string
@@ -20,6 +21,12 @@ export type DashboardCompany = {
   role?: string
   isEDonusumEnabled?: boolean
   disabledModules?: string[]
+  /** Kısıtlı çalışan izinleri; boş = kısıt yok. Bkz. lib/page-access.ts. */
+  allowedPaths?: string[]
+  writablePaths?: string[]
+  /** Firma tanımlı özel rol. Yetki TAVANINI değiştirir — düşürülürse menü boşalır. */
+  customRoleId?: string | null
+  customRoleName?: string | null
   // Üyelik değil; parent-admin erişimiyle gelen alt şube. Üst seçicide gizlenir.
   isBranch?: boolean
   parentCompanyId?: string | null
@@ -31,6 +38,8 @@ type DashboardCompanyContextValue = {
   selectedCompanyId: string | null
   selectedCompany: DashboardCompany | null
   userRole: string
+  /** Seçili firmadaki efektif sayfa izinleri (rol + kısıt listesi). */
+  pagePermissions: PagePermissions
   isLoading: boolean
   fetchCompanies: () => Promise<void>
   handleCompanyChange: (companyId: string) => void
@@ -178,17 +187,43 @@ export function DashboardCompanyProvider({
   // Seçim çözülene kadar ilk firmanın rolüne düşülür.
   const userRole = selectedCompany?.role ?? fallbackRole
 
+  // İzinler de role gibi SEÇİLİ firmadan gelir: aynı kullanıcı bir şubede kısıtlı,
+  // diğerinde kısıtsız olabilir. Seçim çözülmeden önce kısıt uygulanmaz — menüyü
+  // yanlışlıkla boşaltmamak için; gerçek koruma zaten sunucu kapısında.
+  const pagePermissions = useMemo<PagePermissions>(
+    () => ({
+      role: userRole,
+      allowedPaths: selectedCompany?.allowedPaths ?? [],
+      writablePaths: selectedCompany?.writablePaths ?? [],
+      // Bayrak DÜŞÜRÜLMEMELİ: özel rolde tavan `assignablePages()`, aksi halde
+      // `pagesForRole("CUSTOM")` hesaplanır ve o boş kümedir → kullanıcı her sayfada
+      // "yetkiniz yok" görür. (page-access ayrıca enum'a da bakarak bunu yakalar.)
+      custom: Boolean(selectedCompany?.customRoleId) || userRole === "CUSTOM",
+    }),
+    [userRole, selectedCompany]
+  )
+
   const value = useMemo(
     () => ({
       companies,
       selectedCompanyId,
       selectedCompany,
       userRole,
+      pagePermissions,
       isLoading,
       fetchCompanies,
       handleCompanyChange,
     }),
-    [companies, selectedCompanyId, selectedCompany, userRole, isLoading, fetchCompanies, handleCompanyChange]
+    [
+      companies,
+      selectedCompanyId,
+      selectedCompany,
+      userRole,
+      pagePermissions,
+      isLoading,
+      fetchCompanies,
+      handleCompanyChange,
+    ]
   )
 
   return <DashboardCompanyContext.Provider value={value}>{children}</DashboardCompanyContext.Provider>
@@ -200,4 +235,31 @@ export function useDashboardCompany() {
     throw new Error("useDashboardCompany must be used within DashboardCompanyProvider")
   }
   return ctx
+}
+
+/**
+ * Kullanıcının görebildiği menü sayfaları (rol ∩ izin listesi).
+ * Menü, arama kutusu ve sayfa guard'ı AYNI listeden beslenmeli — ayrı hesaplayan
+ * bir tüketici, kapalı sayfaya giden bir link bırakır.
+ */
+export function useVisiblePages(): string[] {
+  const { pagePermissions } = useDashboardCompany()
+  return useMemo(() => visiblePages(pagePermissions), [pagePermissions])
+}
+
+/** Belirli bir menü sayfası görünür mü? */
+export function useCanView(href: string): boolean {
+  const { pagePermissions } = useDashboardCompany()
+  return useMemo(() => canViewPage(pagePermissions, href), [pagePermissions, href])
+}
+
+/**
+ * Bu sayfada yazma (ekle/düzenle/sil) yetkisi var mı?
+ *
+ * Yalnızca ARAYÜZ içindir — düğmeyi gizler. Gerçek kısıt sunucu kapısındadır
+ * (lib/page-access.ts); burada true dönmesi ucun geçeceği anlamına gelmez.
+ */
+export function useCanEdit(href: string): boolean {
+  const { pagePermissions } = useDashboardCompany()
+  return useMemo(() => canEditPage(pagePermissions, href), [pagePermissions, href])
 }

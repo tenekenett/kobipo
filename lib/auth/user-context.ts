@@ -15,6 +15,15 @@ export interface UserCompanyContext {
   isActive: boolean
   isEDonusumEnabled: boolean
   disabledModules: string[]
+  /**
+   * Kısıtlı çalışan izinleri. BOŞ = kısıt yok (rolün tüm sayfaları) — bkz.
+   * lib/page-access.ts. Firma bazındadır: aynı kullanıcı başka şubede kısıtsız olabilir.
+   */
+  allowedPaths: string[]
+  writablePaths: string[]
+  /** Firmanın tanımladığı özel rol (varsa). Doluysa yetki tavanı değişir. */
+  customRoleId: string | null
+  customRoleName: string | null
   createdAt: Date
   // Üyelik DEĞİL; ana firmasının ADMIN'i olduğu için erişilen alt şube.
   isBranch?: boolean
@@ -47,6 +56,10 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
     isBlogEditor: boolean
     companies: Array<{
       role: Role
+      allowedPaths: string[]
+      writablePaths: string[]
+      customRoleId: string | null
+      customRole: { id: string; name: string; allowedPaths: string[]; writablePaths: string[] } | null
       createdAt: Date
       company: {
         id: string
@@ -73,6 +86,12 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
           orderBy: { createdAt: "asc" },
           select: {
             role: true,
+            allowedPaths: true,
+            writablePaths: true,
+            customRoleId: true,
+            customRole: {
+              select: { id: true, name: true, allowedPaths: true, writablePaths: true },
+            },
             createdAt: true,
             company: {
               select: {
@@ -107,6 +126,13 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
     isActive: entry.company.isActive,
     isEDonusumEnabled: entry.company.isEDonusumEnabled,
     disabledModules: entry.company.disabledModules ?? [],
+    // Özel rol varsa yetki ONDAN gelir; üyelikteki listeler o durumda okunmaz.
+    // Rol silinmişse (customRoleId null'a düşer) üyelik enum rolüne geri döner —
+    // yani yetkisiz kalmaz ama özel yetkilerini kaybeder, bilinçli davranış.
+    allowedPaths: entry.customRole?.allowedPaths ?? entry.allowedPaths ?? [],
+    writablePaths: entry.customRole?.writablePaths ?? entry.writablePaths ?? [],
+    customRoleId: entry.customRole?.id ?? null,
+    customRoleName: entry.customRole?.name ?? null,
     createdAt: entry.createdAt,
   }))
 
@@ -125,6 +151,12 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
       isActive: true,
       isEDonusumEnabled: b.isEDonusumEnabled,
       disabledModules: b.disabledModules,
+      // Şube erişimi ana firmanın ADMIN'liğinden doğar, üyelik satırı yoktur —
+      // dolayısıyla tutunacak bir izin kaydı da yok: bu bağlam her zaman kısıtsız.
+      allowedPaths: [],
+      writablePaths: [],
+      customRoleId: null,
+      customRoleName: null,
       createdAt: new Date(0),
       isBranch: true,
       parentCompanyId: b.parentCompanyId,

@@ -13,6 +13,10 @@ export function roleToDashboardPath(role: Role | string | null | undefined): str
       return "/dashboard/sales"
     case "VIEWER":
       return "/dashboard/viewer"
+    // Özel rol (firma tanımlı): rol panolarının hiçbiri ona göre değil — hepsi belirli
+    // bir enum rolün widget'larını basıyor. Kök pano yetkiye göre kendini daraltır.
+    case "CUSTOM":
+      return "/dashboard"
     default:
       return "/dashboard/viewer"
   }

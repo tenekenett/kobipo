@@ -10,6 +10,7 @@ import { SubscriptionNoticeBanner } from "@/components/dashboard/subscription-no
 import { DashboardCompanyProvider } from "@/components/dashboard/dashboard-company-provider"
 import { SWRProvider } from "@/components/providers/swr-provider"
 import { ModuleGuard } from "@/components/dashboard/module-guard"
+import { PermissionGuard } from "@/components/dashboard/permission-guard"
 import { SuspendedLogoutButton } from "@/components/dashboard/suspended-logout-button"
 import { DashboardTitle } from "@/components/dashboard/dashboard-title"
 
@@ -70,6 +71,11 @@ export default async function DashboardLayout({
     role: entry.role,
     isEDonusumEnabled: entry.isEDonusumEnabled,
     disabledModules: entry.disabledModules,
+    // Kısıtlı çalışan izinleri de firma bazında (boş = kısıt yok).
+    allowedPaths: entry.allowedPaths,
+    writablePaths: entry.writablePaths,
+    customRoleId: entry.customRoleId,
+    customRoleName: entry.customRoleName,
     isBranch: Boolean(entry.isBranch),
     parentCompanyId: entry.parentCompanyId ?? null,
     parentName: entry.parentName ?? null,
@@ -92,7 +98,10 @@ export default async function DashboardLayout({
               <BranchContextBanner />
               <CompanySelector />
               <div className="mt-4 w-full min-w-0">
-                <ModuleGuard>{children}</ModuleGuard>
+                {/* Sıra önemli: önce "modül satın alınmamış", sonra "senin yetkin yok". */}
+                <ModuleGuard>
+                  <PermissionGuard>{children}</PermissionGuard>
+                </ModuleGuard>
               </div>
             </div>
           </MainArea>

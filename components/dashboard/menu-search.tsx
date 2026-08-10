@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Search } from "lucide-react"
-import { allNavItems, navGroups } from "@/components/dashboard/nav-config"
+import { allNavItems, moduleKeyForPath, navGroups } from "@/components/dashboard/nav-config"
+import { useDashboardCompany, useVisiblePages } from "@/components/dashboard/dashboard-company-provider"
+import { MODULE_KEYS } from "@/lib/modules"
 
 // href -> menü grubu başlığı (sonuçlarda grup etiketi + grup adıyla arama için).
 const GROUP_BY_HREF: Record<string, string> = (() => {
@@ -15,8 +17,15 @@ const GROUP_BY_HREF: Record<string, string> = (() => {
 
 const lc = (s: string) => s.toLocaleLowerCase("tr")
 
-export function MenuSearch({ userRole }: { userRole: string }) {
+/**
+ * `userRole` artık yalnızca geriye dönük uyumluluk için duruyor: erişilebilir sayfa
+ * listesi kenar çubuğuyla AYNI kaynaktan (useVisiblePages) geliyor. Ayrı hesaplayan
+ * bir arama kutusu, menüde gizlenmiş sayfaya giden bir link bırakırdı.
+ */
+export function MenuSearch({ userRole: _userRole }: { userRole: string }) {
   const router = useRouter()
+  const visibleHrefs = useVisiblePages()
+  const { selectedCompany } = useDashboardCompany()
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
@@ -24,15 +33,23 @@ export function MenuSearch({ userRole }: { userRole: string }) {
   const [highlighted, setHighlighted] = useState(0)
 
   const results = useMemo(() => {
-    // Kullanıcının erişebildiği TÜM menü öğeleri.
-    const items = allNavItems.filter((i) => i.roles.includes(userRole))
+    // Kullanıcının erişebildiği TÜM menü öğeleri: izin (rol ∩ kısıt listesi) VE modül.
+    // Modül filtresi eskiden burada yoktu — kapalı modülün sayfası kenar çubuğunda
+    // gizliyken arama kutusunda çıkıyordu.
+    const visible = new Set(visibleHrefs)
+    const disabled = new Set(selectedCompany ? selectedCompany.disabledModules ?? [] : MODULE_KEYS)
+    const items = allNavItems.filter((i) => {
+      if (!visible.has(i.href)) return false
+      const moduleKey = i.module ?? moduleKeyForPath(i.href)
+      return !(moduleKey && disabled.has(moduleKey))
+    })
     const q = lc(query.trim())
     if (!q) return items
     // Etikete VEYA ait olduğu grup başlığına göre eşleşir (ör. "finans" → tüm grup).
     return items.filter(
       (i) => lc(i.label).includes(q) || lc(GROUP_BY_HREF[i.href] ?? "").includes(q)
     )
-  }, [query, userRole])
+  }, [query, visibleHrefs, selectedCompany])
 
   useEffect(() => {
     setHighlighted(0)

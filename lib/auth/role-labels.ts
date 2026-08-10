@@ -12,6 +12,9 @@ export const roleLabels: Record<Role, string> = {
   STOCK: "Stokçu",
   SALES: "Satış",
   VIEWER: "Görüntüleyici",
+  // Gerçek ad firmanın tanımladığı rolde (CompanyRole.name). Bu etiket yalnız özel
+  // rol çözülemediğinde (ör. rol silinmiş) görünür.
+  CUSTOM: "Özel rol",
 }
 
 /** Rolü (enum veya string) Türkçe etikete çevirir; bilinmeyen değer olduğu gibi döner. */

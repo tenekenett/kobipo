@@ -25,6 +25,7 @@ import {
 } from "@/lib/dashboard/role-queries"
 import { LockedAccount } from "@/components/dashboard/locked-account"
 import { isAccountLocked } from "@/lib/modules"
+import { assertRouteAccessOrRedirect } from "@/lib/middleware/page-guard"
 
 export const dynamic = "force-dynamic"
 
@@ -245,6 +246,10 @@ export default async function StockDashboard({
     // `/` panel değil pazarlama sayfasıdır (app/page.tsx); rolün kendi paneline gönder.
     redirect(withCompanyHref(roleToDashboardPath(activeCompany.role), activeCompany.companySlug))
   }
+  // Kısıtlı çalışan panoyu göremez: pano ciro/kâr basıyor ve veriyi server
+  // component çektiği için istemci guard'ı geç kalır (bkz. lib/middleware/page-guard.ts).
+  assertRouteAccessOrRedirect(activeCompany, "/dashboard/stock", requested)
+
   // Hiç modülü açık olmayan hesap: rakam yerine satın alma ekranı. Giriş sonrası
   // kullanıcı rolüne göre bu sayfalardan birine düşüyor, o yüzden kontrol her rol
   // panelinde ayrı ayrı durmalı — yalnız /dashboard'da olması yetmiyor.

@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { LockedAccount } from "@/components/dashboard/locked-account"
 import { isAccountLocked } from "@/lib/modules"
+import { assertRouteAccessOrRedirect } from "@/lib/middleware/page-guard"
 import { cn } from "@/lib/utils"
 import { DashboardCashflowChart, type CashflowPoint } from "@/components/dashboard/dashboard-cashflow-chart"
 
@@ -175,6 +176,10 @@ export default async function DashboardIndexPage({
 
   const companyId = selectedCompany.companyId
   const companyQuery = `?company=${companyId}`
+
+  // Kısıtlı çalışan panoyu göremez: pano ciro/kâr basıyor ve veriyi server component
+  // çektiği için istemci guard'ı geç kalır (bkz. lib/middleware/page-guard.ts).
+  assertRouteAccessOrRedirect(selectedCompany, "/dashboard", requestedCompanyId)
 
   // Hiç modülü olmayan hesap: rakam yerine satın alma ekranı. Sorgular da atlanır —
   // kilitli hesapta hepsi sıfır döner, çalıştırmanın anlamı yok.

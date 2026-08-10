@@ -48,6 +48,15 @@ export async function GET() {
         role: c.role,
         isEDonusumEnabled: c.isEDonusumEnabled,
         disabledModules: c.disabledModules,
+        // Kısıtlı çalışan izinleri de firma bazında; menü bunlara göre daraltılır.
+        // Boş dizi = kısıt yok. Listeden DÜŞÜRÜLEMEZ: istemci bu alanı görmezse
+        // kısıtlı kullanıcıya tam menü çizilir (kapı yine tutar ama ekran yanıltır).
+        allowedPaths: c.allowedPaths,
+        writablePaths: c.writablePaths,
+        // Özel rol bilgisi menüyü çizen tarafa da geçmeli: yetki tavanı buna göre
+        // değişiyor ve düşürülürse istemci kullanıcıyı yetkisiz sanır.
+        customRoleId: c.customRoleId,
+        customRoleName: c.customRoleName,
         isBranch: Boolean(c.isBranch),
         parentCompanyId: c.parentCompanyId ?? null,
         parentName: c.parentName ?? null,

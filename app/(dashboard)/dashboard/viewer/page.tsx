@@ -15,6 +15,7 @@ import {
 import { getAdminStats } from "@/lib/dashboard/admin-queries"
 import { LockedAccount } from "@/components/dashboard/locked-account"
 import { isAccountLocked } from "@/lib/modules"
+import { assertRouteAccessOrRedirect } from "@/lib/middleware/page-guard"
 
 export const dynamic = "force-dynamic"
 
@@ -77,6 +78,10 @@ export default async function ViewerDashboard({
   const sp = await searchParams
   const requested = typeof sp.company === "string" ? sp.company : undefined
   const activeCompany = resolveActiveCompany(authContext, requested) ?? authContext.activeCompany
+  // Kısıtlı çalışan panoyu göremez: pano ciro/kâr basıyor ve veriyi server
+  // component çektiği için istemci guard'ı geç kalır (bkz. lib/middleware/page-guard.ts).
+  assertRouteAccessOrRedirect(activeCompany, "/dashboard/viewer", requested)
+
   // Hiç modülü açık olmayan hesap: rakam yerine satın alma ekranı. Giriş sonrası
   // kullanıcı rolüne göre bu sayfalardan birine düşüyor, o yüzden kontrol her rol
   // panelinde ayrı ayrı durmalı — yalnız /dashboard'da olması yetmiyor.
