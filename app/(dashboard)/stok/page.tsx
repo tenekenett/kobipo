@@ -36,7 +36,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, ChefHat, Sticker, Tags } from "lucide-react"
+import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, ChefHat, Sticker, Tags, X } from "lucide-react"
 import { useRecipes } from "@/lib/swr/use-company-data"
 import { useModuleEnabled } from "@/lib/swr/use-module"
 import {
@@ -99,6 +99,58 @@ function stockState(p: Product): "out" | "low" | "ok" {
   return "ok"
 }
 
+/**
+ * Süzgeç rozeti — açılır kutu yerine tek tıkla açılıp kapanan seçim.
+ * Yanındaki sayı "bunu seçersem kaç kayıt kalır"ı gösterir, böylece kullanıcı
+ * boş listeye tıklamak zorunda kalmaz.
+ */
+function FilterChip({
+  active,
+  count,
+  onClick,
+  tone = "brand",
+  title,
+  children,
+}: {
+  active: boolean
+  count?: number
+  onClick: () => void
+  tone?: "brand" | "warn"
+  title?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+        active
+          ? tone === "warn"
+            ? "border-amber-400 bg-amber-100 text-amber-900 dark:border-amber-500/50 dark:bg-amber-500/20 dark:text-amber-200"
+            : "border-kobipo-blue bg-kobipo-blue text-white dark:border-primary dark:bg-primary dark:text-primary-foreground"
+          : tone === "warn"
+            ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+            : "border-border bg-background text-muted-foreground hover:border-kobipo-blue/50 hover:text-foreground"
+      )}
+    >
+      {children}
+      {count != null && (
+        <span
+          className={cn(
+            "rounded-full px-1.5 text-[11px] font-semibold tabular-nums",
+            active ? "bg-white/25 dark:bg-black/20" : "bg-muted text-muted-foreground"
+          )}
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  )
+}
+
 const emptyProductForm = {
   code: "",
   name: "",
@@ -139,9 +191,8 @@ export default function StokPage() {
   const [search, setSearch] = useState("")
   /**
    * Restoran & Kafe açıkken tür isimleri menü diline geçer (Menü ürünü /
-   * Hammadde / Her ikisi / Hizmet) ve liste varsayılan olarak hammaddeleri
-   * gösterir — menü ürünleri Menü & Reçeteler'den yönetiliyor. Kapalıyken
-   * aynı bayraklar "Ürün / Ürün (satışta gizli) / Hizmet" olur.
+   * Hammadde / Her ikisi / Hizmet). Kapalıyken aynı bayraklar
+   * "Ürün / Ürün (satışta gizli) / Hizmet" olur.
    */
   const isRestaurant = useModuleEnabled("restaurant")
   const kindOptions = useMemo(() => productKindOptions(isRestaurant), [isRestaurant])
@@ -150,21 +201,13 @@ export default function StokPage() {
    * "Tümü/Ürünler/Hizmetler" ve "Hammaddeler/Menüde görünenler/Tümü" — ve
    * "hizmet" ikisinde birden geçiyordu; hangi kombinasyonun ne gösterdiği
    * belirsizdi. İkisi burada birleşti, isimler ürün formuyla AYNI.
+   *
+   * VARSAYILAN "tümü" — restoran modülü açıkken bir süre "Hammadde" seçili
+   * açılıyordu; ekranı ilk açan kullanıcı ürünlerinin yarısını göremiyor,
+   * filtre seçili olduğunu da fark etmiyordu. Ekran genel stok ekranıdır,
+   * hiçbir modül onu kendi alt kümesine daraltmaz.
    */
   const [kindFilter, setKindFilter] = useState<ProductKind | null>(null)
-  /** Kullanıcı filtreye dokunduysa varsayılan bir daha uygulanmaz. */
-  const [kindFilterTouched, setKindFilterTouched] = useState(false)
-
-  useEffect(() => {
-    // Restoran açıkken bu ekran hammadde deposu gibi davranır; varsayılanı
-    // modül bilgisi firma çözülünce bir kez kur.
-    if (isRestaurant && !kindFilterTouched) setKindFilter("ingredient")
-  }, [isRestaurant, kindFilterTouched])
-
-  const chooseKindFilter = (value: ProductKind | null) => {
-    setKindFilterTouched(true)
-    setKindFilter(value)
-  }
   const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState("ALL")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -508,17 +551,40 @@ export default function StokPage() {
   const isLowStock = (p: Product) => !recipeMap.has(p.id) && stockState(p) !== "ok"
 
   const lowStockCount = products.filter(isLowStock).length
-  let visibleProducts = products
+
+  // Tür DIŞINDAKİ süzgeçler önce uygulanır; tür rozetlerinin yanındaki sayılar
+  // bu küme üzerinden hesaplanır ("bu türe basarsam kaç kayıt kalır").
+  let baseProducts = products
   if (warehouseFilter !== "ALL") {
-    visibleProducts = visibleProducts.filter((p) => inSelectedWh.has(p.id))
+    baseProducts = baseProducts.filter((p) => inSelectedWh.has(p.id))
   }
   if (categoryFilter !== "ALL") {
-    visibleProducts = visibleProducts.filter((p) => (p.category || "") === categoryFilter)
+    baseProducts = baseProducts.filter((p) => (p.category || "") === categoryFilter)
   }
-  if (kindFilter) {
-    visibleProducts = visibleProducts.filter((p) => matchesKindFilter(p, kindFilter))
+  if (onlyLowStock) baseProducts = baseProducts.filter(isLowStock)
+
+  const kindCounts = new Map<ProductKind, number>(
+    kindOptions.map((o) => [o.value, baseProducts.filter((p) => matchesKindFilter(p, o.value)).length])
+  )
+
+  const visibleProducts = kindFilter
+    ? baseProducts.filter((p) => matchesKindFilter(p, kindFilter))
+    : baseProducts
+
+  const activeFilterCount =
+    (search ? 1 : 0) +
+    (kindFilter ? 1 : 0) +
+    (categoryFilter !== "ALL" ? 1 : 0) +
+    (warehouseFilter !== "ALL" ? 1 : 0) +
+    (onlyLowStock ? 1 : 0)
+
+  const clearFilters = () => {
+    setSearch("")
+    setKindFilter(null)
+    setCategoryFilter("ALL")
+    setWarehouseFilter("ALL")
+    setOnlyLowStock(false)
   }
-  if (onlyLowStock) visibleProducts = visibleProducts.filter(isLowStock)
 
   // Depo sütunu/filtresi yalnızca birden çok depo varsa anlamlı.
   const showWhCol = warehouses.length > 1
@@ -999,89 +1065,113 @@ export default function StokPage() {
         </div>
       </div>
 
-      {lowStockCount > 0 && (
-        <div className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-900/20 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-300">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span>
-              <strong>{lowStockCount}</strong> üründe stok minimum seviyede veya altında.
-            </span>
-          </div>
-          <Button
-            variant={onlyLowStock ? "default" : "outline"}
-            size="sm"
-            onClick={() => setOnlyLowStock((v) => !v)}
-          >
-            {onlyLowStock ? "Tümünü göster" : "Yalnızca düşük stok"}
-          </Button>
-        </div>
-      )}
-
       <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle>Ürünler ve Hizmetler</CardTitle>
-              <CardDescription>
-                Toplam {products.length} kayıt
-                {visibleProducts.length !== products.length
-                  ? ` · ${visibleProducts.length} gösteriliyor`
-                  : ""}
-                {categoryOptions.length > 0 ? ` · ${categoryOptions.length} kategori` : ""}
-              </CardDescription>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:space-x-2">
-              <div className="relative">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+        <CardHeader className="space-y-4">
+          <div>
+            <CardTitle>Ürünler ve Hizmetler</CardTitle>
+            <CardDescription>
+              {activeFilterCount > 0
+                ? `${products.length} kayıttan ${visibleProducts.length} tanesi gösteriliyor`
+                : `Toplam ${products.length} kayıt`}
+            </CardDescription>
+          </div>
+
+          {/* Süzgeç çubuğu: üstte arama + açılır kutular, altta tür rozetleri.
+              Hepsi tek bir yerde toplandı — düşük stok uyarısı da dahil. */}
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full sm:w-72">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Ara..."
+                  placeholder="Ad, kod veya barkod ara..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-8 w-full sm:w-64"
+                  className="h-9 pl-8 pr-8"
                 />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    title="Aramayı temizle"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
-              {/* TEK tür filtresi — seçenek isimleri ürün formundakilerle aynı,
-                  böylece "kaydederken ne dediysem burada onu arıyorum". */}
-              <select
-                value={kindFilter ?? "ALL"}
-                onChange={(e) =>
-                  chooseKindFilter(
-                    e.target.value === "ALL" ? null : (e.target.value as ProductKind)
-                  )
-                }
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="ALL">Tüm türler</option>
-                {kindOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+
               {categoryOptions.length > 0 && (
-                <select
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="ALL">Tüm Kategoriler</option>
-                  {categoryOptions.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="h-9 w-auto min-w-[150px] gap-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Tüm kategoriler</SelectItem>
+                    {categoryOptions.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
+
               {showWhCol && (
-                <select
-                  value={warehouseFilter}
-                  onChange={(e) => setWarehouseFilter(e.target.value)}
-                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="ALL">Tüm Depolar</option>
-                  {warehouses.map((w) => (
-                    <option key={w.id} value={w.id}>{w.name}</option>
-                  ))}
-                </select>
+                <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
+                  <SelectTrigger className="h-9 w-auto min-w-[140px] gap-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Tüm depolar</SelectItem>
+                    {warehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
+
+              {/* Düşük stok: eskiden tablonun üstünde ayrı bir uyarı kutusuydu.
+                  Sayı rozetin içinde durduğu için uyarı da burada görünür. */}
+              {lowStockCount > 0 && (
+                <FilterChip
+                  active={onlyLowStock}
+                  count={lowStockCount}
+                  tone="warn"
+                  onClick={() => setOnlyLowStock((v) => !v)}
+                  title="Stoğu minimum seviyede veya altında olan ürünler"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Düşük stok
+                </FilterChip>
+              )}
+
+              {activeFilterCount > 0 && (
+                <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 text-muted-foreground">
+                  <X className="mr-1 h-4 w-4" />
+                  Temizle
+                </Button>
+              )}
+            </div>
+
+            {/* TEK tür filtresi — seçenek isimleri ürün formundakilerle aynı,
+                böylece "kaydederken ne dediysem burada onu arıyorum". */}
+            <div className="flex flex-wrap gap-1.5">
+              <FilterChip active={kindFilter === null} count={baseProducts.length} onClick={() => setKindFilter(null)}>
+                Tümü
+              </FilterChip>
+              {kindOptions.map((o) => (
+                <FilterChip
+                  key={o.value}
+                  active={kindFilter === o.value}
+                  count={kindCounts.get(o.value) ?? 0}
+                  title={o.hint}
+                  onClick={() => setKindFilter(kindFilter === o.value ? null : o.value)}
+                >
+                  {o.label}
+                </FilterChip>
+              ))}
             </div>
           </div>
         </CardHeader>
@@ -1107,8 +1197,18 @@ export default function StokPage() {
             <TableBody>
               {visibleProducts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={showWhCol ? 12 : 11} className="text-center">
-                    {onlyLowStock ? "Düşük stoklu ürün yok" : warehouseFilter !== "ALL" ? "Bu depoda ürün yok" : "Kayıt bulunamadı"}
+                  <TableCell colSpan={showWhCol ? 12 : 11} className="py-10 text-center">
+                    {activeFilterCount > 0 ? (
+                      <div className="flex flex-col items-center gap-3">
+                        <p className="text-sm text-muted-foreground">Süzgeçlere uyan kayıt yok.</p>
+                        <Button variant="outline" size="sm" onClick={clearFilters}>
+                          <X className="mr-1 h-4 w-4" />
+                          Süzgeçleri temizle
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Henüz ürün veya hizmet eklenmemiş.</p>
+                    )}
                   </TableCell>
                 </TableRow>
               ) : (
