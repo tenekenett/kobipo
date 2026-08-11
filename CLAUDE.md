@@ -30,3 +30,24 @@ seçili firmadan türer — ilk firmanın rolü varsayılmaz.
 
 > 2026-07 tarihinde ~55 link/redirect bu kuralı ihlal ettiği için "her menüde seçili şubenin
 > dışına çıkma" hatası yaşandı. Geçmişi: `docs/` yerine git log — `withCompanyHref` commit'i.
+
+## Yeni tablo → RLS açılacak
+
+`public` şemadaki her tablo RLS **açık ve policy'siz** (default deny) tutulur; veriye
+erişimin tek yolu uygulamanın `postgres` bağlantısıdır (sahip + `rolbypassrls`, RLS'i
+atlar). Bu, Supabase Data API'si kazara açılırsa devreye giren ikinci duvardır — tek
+başına grant katmanına güvenilmez.
+
+Yeni tablo ekleyen her migrasyonun sonuna:
+
+```sql
+ALTER TABLE public.<tablo> ENABLE ROW LEVEL SECURITY;
+```
+
+Policy **yazma**: policy eklemek default-deny'ı deler. Sapmayı yakalamak için:
+
+```bash
+npm run check:rls   # RLS'siz tablo, anon'a verilmiş yetki, beklenmedik bucket
+```
+
+Duruşu kuran migrasyon: `supabase/migrations/20260811000003_rls_lockdown.sql`.

@@ -26,7 +26,7 @@ touch .env
 
 ```env
 # Supabase Database Connection
-DATABASE_URL="postgresql://postgres:YOUR_ACTUAL_PASSWORD@db.swjalhvznztdmdyaspgz.supabase.co:5432/postgres"
+DATABASE_URL="postgresql://postgres:YOUR_ACTUAL_PASSWORD@db.<proje-ref>.supabase.co:5432/postgres"
 
 # NextAuth Configuration
 NEXTAUTH_URL="http://localhost:3000"
@@ -35,9 +35,10 @@ NEXTAUTH_SECRET="your-secret-key-here-change-this"
 # E-Fatura Integration (opsiyonel)
 E_INVOICE_PROVIDER="mock"
 
-# Supabase Public Keys (gelecekte kullanılabilir)
-NEXT_PUBLIC_SUPABASE_URL="https://swjalhvznztdmdyaspgz.supabase.co"
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_-zRpTHkZ-lqrKHCYJVojbw_Wiol5d2N"
+# Supabase Public Keys — değerleri Supabase panelinden (Settings → API) alın.
+# Bu depo herkese AÇIK: buraya gerçek anahtar yazmayın, `.env` gitignore'ludur.
+NEXT_PUBLIC_SUPABASE_URL="https://<proje-ref>.supabase.co"
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
 ```
 
 **ÖNEMLİ:**

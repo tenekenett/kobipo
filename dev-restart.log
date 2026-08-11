@@ -251,3 +251,14 @@ Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
  GET /dashboard?tab=customers&company=reypo 200 in 1467ms (compile: 224ms, render: 1243ms)
  GET /api/auth/session 200 in 30ms (compile: 8ms, proxy.ts: 2ms, render: 20ms)
  GET /api/auth/session 200 in 21ms (compile: 8ms, proxy.ts: 2ms, render: 11ms)
+prisma:error Error in PostgreSQL connection: Error { kind: Io, cause: Some(Os { code: 10054, kind: ConnectionReset, message: "Varolan bir bağlantı uzaktaki bir ana bilgisayar tarafından zorla kapatıldı." }) }
+prisma:error Error in PostgreSQL connection: Error { kind: Io, cause: Some(Os { code: 10054, kind: ConnectionReset, message: "Varolan bir bağlantı uzaktaki bir ana bilgisayar tarafından zorla kapatıldı." }) }
+prisma:error Error in PostgreSQL connection: Error { kind: Io, cause: Some(Os { code: 10054, kind: ConnectionReset, message: "Varolan bir bağlantı uzaktaki bir ana bilgisayar tarafından zorla kapatıldı." }) }
+prisma:error Error in PostgreSQL connection: Error { kind: Io, cause: Some(Os { code: 10054, kind: ConnectionReset, message: "Varolan bir bağlantı uzaktaki bir ana bilgisayar tarafından zorla kapatıldı." }) }
+prisma:error Error in PostgreSQL connection: Error { kind: Io, cause: Some(Os { code: 10054, kind: ConnectionReset, message: "Varolan bir bağlantı uzaktaki bir ana bilgisayar tarafından zorla kapatıldı." }) }
+prisma:error Error in PostgreSQL connection: Error { kind: Io, cause: Some(Os { code: 10054, kind: ConnectionReset, message: "Varolan bir bağlantı uzaktaki bir ana bilgisayar tarafından zorla kapatıldı." }) }
+prisma:error Error in PostgreSQL connection: Error { kind: Io, cause: Some(Os { code: 10054, kind: ConnectionReset, message: "Varolan bir bağlantı uzaktaki bir ana bilgisayar tarafından zorla kapatıldı." }) }
+prisma:error Error in PostgreSQL connection: Error { kind: Io, cause: Some(Os { code: 10054, kind: ConnectionReset, message: "Varolan bir bağlantı uzaktaki bir ana bilgisayar tarafından zorla kapatıldı." }) }
+Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme

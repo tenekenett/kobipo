@@ -25,6 +25,7 @@
     "supabase:gen:types": "supabase gen types typescript --linked > types/supabase.ts",
     "supabase:gen:types:local": "supabase gen types typescript --local > types/supabase.ts",
     "sync:prisma-to-supabase": "node scripts/sync-prisma-to-supabase.js",
+    "check:rls": "node scripts/check-rls.js",
     "demo:user": "node scripts/create-demo-user.js",
     "admin:create": "node scripts/create-admin.js",
     "paytr:simulate": "node scripts/paytr-simulate-callback.js",
