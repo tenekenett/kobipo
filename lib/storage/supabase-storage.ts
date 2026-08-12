@@ -109,9 +109,27 @@ export const PERSONNEL_DOCS_BUCKET = "personnel-docs"
 // Blog kapak/içerik görselleri — public bucket (blog herkese açık olduğu için imzasız URL).
 export const BLOG_MEDIA_BUCKET = "blog-media"
 
+// NOT: Ürün fotoğrafları bu dosyadan DEĞİL, lib/storage/object-store.ts
+// üzerinden yazılır — sağlayıcı (Supabase/R2/Blob) değişebilsin diye. Bucket
+// adı da orada durur; buraya bir sabit koymak ikinci bir kaynak olurdu.
+
 /** Public bucket'taki nesnenin kalıcı public URL'ini üretir. */
 export function getPublicUrl(bucket: string, path: string): string {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   if (!url) throw new Error("NEXT_PUBLIC_SUPABASE_URL tanımlı değil")
   return `${url.replace(/\/$/, "")}/storage/v1/object/public/${bucket}/${path}`
+}
+
+/**
+ * getPublicUrl() ile üretilmiş bir URL'den bucket içindeki yolu geri çıkarır.
+ * Eski nesneyi silmek ve "bu URL gerçekten bizim mi" sorusunu yanıtlamak için.
+ * Biçimi tanınmayan/başka bir adrese ait URL'de null döner — yabancı bir sunucuya
+ * silme isteği göndermeyelim, keza istemciden gelen serbest URL'i kabul etmeyelim.
+ */
+export function publicObjectPath(bucket: string, url: string): string | null {
+  const marker = `/storage/v1/object/public/${bucket}/`
+  const i = url.indexOf(marker)
+  if (i === -1) return null
+  const path = url.slice(i + marker.length).split("?")[0]
+  return path ? decodeURIComponent(path) : null
 }

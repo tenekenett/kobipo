@@ -28,6 +28,8 @@ export type RefProduct = {
   vatRate: number
   unit?: string | null
   category?: string | null
+  /** Ürün fotoğrafı (public URL) — kafe/restoran menü kartlarında gösterilir. */
+  imageUrl?: string | null
   currency?: string | null
   stockQuantity?: number
   minStockLevel?: number | null
@@ -70,6 +72,7 @@ export function useProducts(companyId: string | null, opts?: { isService?: boole
         vatRate: Number(p.vatRate) || 20,
         unit: p.unit ?? null,
         category: p.category ?? null,
+        imageUrl: p.imageUrl ?? null,
         currency: p.currency ?? null,
         stockQuantity: p.stockQuantity != null ? Number(p.stockQuantity) : undefined,
         minStockLevel: p.minStockLevel != null ? Number(p.minStockLevel) : null,

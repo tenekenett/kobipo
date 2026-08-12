@@ -7,6 +7,7 @@ import { resolveSlugId } from "@/lib/slug-resolve"
 import { accessDeniedResponse } from "@/lib/api/errors"
 import { normalizeUnitCode } from "@/lib/data/units"
 import { findRecipeUnitConflicts } from "@/lib/stock/recipe"
+import { deleteProductImage, readImageUrlField } from "@/lib/stock/product-image"
 
 
 export const dynamic = 'force-dynamic'
@@ -176,6 +177,14 @@ export async function PUT(
       }
     }
 
+    // Fotoğraf. Gövdede `imageUrl` YOKSA alana dokunulmaz: bu ucu çağıran eski
+    // formlar (Stok ürün düzenleme) fotoğrafı hiç bilmiyor, göndermedikleri için
+    // menüdeki fotoğrafın silinmesi kabul edilemez.
+    const image = readImageUrlField(body)
+    if (image.changed && "error" in image) {
+      return NextResponse.json({ error: image.error }, { status: 400 })
+    }
+
     // KDV dahil girilen fiyatları net'e çevir (DB net saklar).
     const vatForCalc = vatRate ? parseFloat(vatRate) : Number(product.vatRate)
     const toNetPrice = (raw: unknown, included: boolean): number | null => {
@@ -195,6 +204,7 @@ export async function PUT(
           category !== undefined
             ? (String(category).trim() ? String(category).trim() : null)
             : product.category,
+        imageUrl: image.changed && "url" in image ? image.url : product.imageUrl,
         // Yukarıdaki reçete kontrolü normalize edilmiş birimle yapıldı; kayıt da
         // aynı değeri yazmalı, aksi halde doğrulanan ile saklanan ayrışır.
         unit: unit !== undefined ? normalizeUnitCode(unit) || product.unit : product.unit,
@@ -221,6 +231,13 @@ export async function PUT(
           isIngredient !== undefined ? Boolean(isIngredient) : product.isIngredient,
       },
     })
+
+    // Eski fotoğrafın nesnesi depoda yetim kalmasın. Kayıt BAŞARILI olduktan
+    // sonra silinir: önce silseydik update patladığında ürün hâlâ artık var
+    // olmayan bir görseli gösteriyor olurdu.
+    if (image.changed && "url" in image && product.imageUrl !== image.url) {
+      await deleteProductImage(product.imageUrl)
+    }
 
     return NextResponse.json(updated)
   } catch (error: any) {
@@ -281,6 +298,17 @@ export async function PATCH(
       if (field in body) data[field] = Boolean(body[field])
     }
 
+    // Fotoğraf — Menü & Reçeteler ekranındaki fotoğraf diyaloğu buradan yazar.
+    // PUT değil PATCH kullanılmasının sebebi: PUT gövdesinde gelmeyen fiyat/stok
+    // alanlarını sıfırlar, fotoğraf değiştirmek fiyat silmemeli.
+    const image = readImageUrlField(body)
+    if (image.changed) {
+      if ("error" in image) {
+        return NextResponse.json({ error: image.error }, { status: 400 })
+      }
+      data.imageUrl = image.url
+    }
+
     if (Object.keys(data).length === 0) {
       return NextResponse.json({ error: "No updatable fields provided" }, { status: 400 })
     }
@@ -289,6 +317,11 @@ export async function PATCH(
       where: { id: resolvedParams.id },
       data,
     })
+
+    // Eski fotoğraf kayıt BAŞARILI olduktan sonra silinir — bkz. PUT'taki not.
+    if (image.changed && "url" in image && product.imageUrl !== image.url) {
+      await deleteProductImage(product.imageUrl)
+    }
 
     return NextResponse.json(updated)
   } catch (error: any) {
@@ -328,6 +361,10 @@ export async function DELETE(
     await prisma.product.delete({
       where: { id: resolvedParams.id },
     })
+
+    // Ürünle birlikte fotoğrafı da gitsin — kayıt silindikten sonra ona hiçbir
+    // yerden ulaşılamaz, depoda tutmanın anlamı yok.
+    await deleteProductImage(product.imageUrl)
 
     return NextResponse.json({ message: "Product deleted" })
   } catch (error: any) {

@@ -22,6 +22,7 @@ export type CreatedProduct = {
   isSellable?: boolean
   isIngredient?: boolean
   category?: string | null
+  imageUrl?: string | null
 }
 
 export async function quickCreateProduct(input: {
@@ -39,6 +40,11 @@ export async function quickCreateProduct(input: {
   isIngredient?: boolean
   /** Menü sekmesi kategorisi (serbest metin). */
   category?: string | null
+  /**
+   * Ürün fotoğrafı — ÖNCE /api/stok/products/image ucuna yüklenip dönen URL.
+   * Sunucu yalnızca kendi bucket'ımızdaki adresi kabul eder.
+   */
+  imageUrl?: string | null
   /** Kritik stok seviyesi — hammaddelerde uyarı paneli bunu kullanır. */
   minStockLevel?: string | number | null
   /** Açılış stoğu; sunucu depo bazlı hareketle işler. */
@@ -65,6 +71,7 @@ export async function quickCreateProduct(input: {
       isSellable: input.isSellable ?? undefined,
       isIngredient: input.isIngredient ?? undefined,
       category: input.category ?? undefined,
+      imageUrl: input.imageUrl ?? undefined,
       minStockLevel: input.minStockLevel ?? undefined,
       stockQuantity: input.stockQuantity ?? undefined,
       salePriceVatIncluded: input.salePriceVatIncluded ?? undefined,

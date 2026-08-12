@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 import { resolveAllUnitCosts } from "@/lib/stock/cost"
+import { readImageUrlField } from "@/lib/stock/product-image"
 import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = 'force-dynamic'
@@ -137,6 +138,12 @@ export async function POST(request: Request) {
 
     await ensureCompanyWrite(companyId)
 
+    // Fotoğraf: yalnızca kendi bucket'ımızdaki bir nesnenin URL'i kabul edilir.
+    const image = readImageUrlField(body)
+    if (image.changed && "error" in image) {
+      return NextResponse.json({ error: image.error }, { status: 400 })
+    }
+
     // KDV dahil girilen fiyatları net'e çevir (DB net saklar). Bayrak yalnızca
     // kullanıcı tercihini hatırlamak içindir.
     const vatForCalc = vatRate ? parseFloat(vatRate) : 20
@@ -193,6 +200,7 @@ export async function POST(request: Request) {
         name,
         barcode,
         category: category && String(category).trim() ? String(category).trim() : null,
+        imageUrl: image.changed && "url" in image ? image.url : null,
         unit: unit || "ADET",
         vatRate: vatForCalc,
         purchasePrice: netPurchasePrice,

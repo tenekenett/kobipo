@@ -108,7 +108,13 @@ async function main() {
       "SELECT id, public FROM storage.buckets ORDER BY id",
     )
     const acik = buckets.filter((b) => b.public).map((b) => b.id)
-    const beklenenAcik = ["blog-media"] // blog görselleri bilerek public
+    const beklenenAcik = [
+      "blog-media", // blog görselleri bilerek public
+      // Ürün fotoğrafları: menü ızgarasındaki her kart için imzalı URL üretmek
+      // satış ekranını sunucuya bağımlı kılardı. İçerik gizli değil (menü
+      // fotoğrafı) ama yol firma id'siyle başlar — bkz. lib/storage/object-store.ts
+      "product-images",
+    ]
     const beklenmeyen = acik.filter((b) => !beklenenAcik.includes(b))
     if (beklenmeyen.length)
       sorunlar.push(`Beklenmeyen public bucket: ${beklenmeyen.join(", ")} (içeriği herkese açık)`)

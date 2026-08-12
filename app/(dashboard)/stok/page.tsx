@@ -37,6 +37,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, ChefHat, Sticker, Tags, X } from "lucide-react"
+import { CategoryManagerDialog } from "@/components/stok/category-manager-dialog"
 import { useRecipes } from "@/lib/swr/use-company-data"
 import { useModuleEnabled } from "@/lib/swr/use-module"
 import {
@@ -282,7 +283,6 @@ export default function StokPage() {
   // Yönetilen kategori listesi (CompanyDefinition type=PRODUCT_CATEGORY)
   const [categories, setCategories] = useState<{ id: string; label: string }[]>([])
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false)
-  const [newCategoryLabel, setNewCategoryLabel] = useState("")
   const [categorySaving, setCategorySaving] = useState(false)
   // Ürün formu içinde anında yeni kategori ekleme
   const [addingFormCategory, setAddingFormCategory] = useState(false)
@@ -312,6 +312,11 @@ export default function StokPage() {
       .catch(() => {})
   }, [companyId])
 
+  /**
+   * Ürün formundaki kategori seçici için öneri listesi. Kategori PENCERESİ
+   * kendi verisini kendi çeker (components/stok/category-manager-dialog);
+   * burada sayıma da gerek yok.
+   */
   const fetchCategories = async () => {
     if (!companyId) return
     try {
@@ -357,25 +362,6 @@ export default function StokPage() {
     }
   }
 
-  const deleteCategory = async (id: string, label: string) => {
-    const used = products.some((p) => (p.category || "") === label)
-    const msg = used
-      ? `"${label}" kategorisi bazı ürünlerde kullanılıyor. Listeden kaldırılsın mı? (Ürünlerdeki etiket korunur.)`
-      : `"${label}" kategorisini silmek istediğinize emin misiniz?`
-    if (!(await confirm({ title: "Kategoriyi sil", description: msg, confirmLabel: "Sil", variant: "destructive" }))) return
-    try {
-      const res = await fetch(`/api/company/definitions/${id}`, { method: "DELETE" })
-      if (!res.ok) throw new Error("Silinemedi")
-      await fetchCategories()
-      toast({ title: "Kategori silindi", description: label })
-    } catch (e) {
-      toast({
-        title: "Hata",
-        description: e instanceof Error ? e.message : "Kategori silinemedi",
-        variant: "destructive",
-      })
-    }
-  }
 
   // Ürün formu içinden yeni kategori ekleyip forma seçtirir.
   const handleAddFormCategory = async () => {
@@ -990,78 +976,17 @@ export default function StokPage() {
         </Dialog>
 
         {/* Kategori Yönetimi */}
-        <Dialog open={isCategoryDialogOpen} onOpenChange={setIsCategoryDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Kategoriler</DialogTitle>
-              <DialogDescription>
-                Ürün kategorilerini tanımlayın. Ürün eklerken bu listeden seçilir.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex gap-2">
-              <Input
-                value={newCategoryLabel}
-                onChange={(e) => setNewCategoryLabel(e.target.value)}
-                placeholder="Yeni kategori adı"
-                disabled={categorySaving}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault()
-                    void (async () => {
-                      const created = await createCategory(newCategoryLabel)
-                      if (created) setNewCategoryLabel("")
-                    })()
-                  }
-                }}
-              />
-              <Button
-                type="button"
-                onClick={async () => {
-                  const created = await createCategory(newCategoryLabel)
-                  if (created) setNewCategoryLabel("")
-                }}
-                disabled={categorySaving || !newCategoryLabel.trim()}
-                className="shrink-0"
-              >
-                <Plus className="mr-1 h-4 w-4" />
-                Ekle
-              </Button>
-            </div>
-            <div className="max-h-72 space-y-1 overflow-y-auto">
-              {categories.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  Henüz kategori yok
-                </p>
-              ) : (
-                categories.map((c) => {
-                  const count = products.filter((p) => (p.category || "") === c.label).length
-                  return (
-                    <div
-                      key={c.id}
-                      className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
-                    >
-                      <span className="min-w-0 truncate">
-                        {c.label}
-                        {count > 0 && (
-                          <span className="ml-2 text-xs text-muted-foreground">({count})</span>
-                        )}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteCategory(c.id, c.label)}
-                        title="Kategoriyi sil"
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  )
-                })
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+        <CategoryManagerDialog
+          open={isCategoryDialogOpen}
+          onOpenChange={setIsCategoryDialogOpen}
+          companyId={companyId}
+          // Kategori değişince ürün listesi de tazelenmeli: silme/birleştirme
+          // ürünlerin category alanını değiştiriyor.
+          onChanged={() => {
+            void fetchCategories()
+            void fetchProducts()
+          }}
+        />
         </div>
       </div>
 

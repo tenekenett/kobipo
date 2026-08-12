@@ -632,6 +632,15 @@ model Product {
   barcode                  String?
   slug                     String   @default("")
   category                 String? // Ürün kategorisi/grubu (serbest metin; varyant ileride)
+  // Ürün fotoğrafı — public Supabase Storage nesnesinin tam URL'i (bucket:
+  // product-images). Kafe/restoran Satış ve Adisyon ekranlarındaki menü
+  // kartlarında gösterilir: çalışan ürünü adından değil görüntüsünden tanır.
+  //
+  // Yol değil URL saklanır: bucket public olduğu için kart doğrudan basar.
+  // Private bucket + imzalı URL seçilseydi menü ızgarasındaki HER kart için
+  // sunucuya uğramak, üstelik imza süresi dolunca yeniden uğramak gerekirdi.
+  // NULL = fotoğraf yok; kart eski (yalnız metin) görünümüne düşer.
+  imageUrl                 String?
   unit                     String   @default("ADET")
   vatRate                  Decimal  @default(20) @db.Decimal(5, 2)
   purchasePrice            Decimal? @db.Decimal(15, 6) // 6 ondalık: e-Fatura birim fiyat hassasiyeti

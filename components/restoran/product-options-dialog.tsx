@@ -44,6 +44,7 @@ import {
   unitShortLabel,
 } from "@/lib/data/units"
 import type { OptionGroupView } from "@/lib/restoran/product-options"
+import { money } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /** Reçete etkisinde seçilebilecek ürün (menü ekranından gelir). */
@@ -125,7 +126,12 @@ export function ProductOptionsDialog({
 }: {
   open: boolean
   companyId: string
-  product: { id: string; name: string } | null
+  /**
+   * `basePrice`: ürünün KDV DAHİL satış fiyatı. Fiyat farkı tek başına
+   * anlaşılmıyordu ("+20" neyin üstüne?); önizlemede şıkkın satıştaki NİHAİ
+   * fiyatı gösteriliyor. null ise önizleme fiyatsız çizilir.
+   */
+  product: { id: string; name: string; basePrice?: number | null } | null
   groups: OptionGroupView[]
   /** Reçete etkisinde seçilebilecek ürünler (hammadde dahil tüm stok kartları). */
   products: EffectProduct[]
@@ -265,21 +271,24 @@ export function ProductOptionsDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
-      <DialogContent className="sm:max-w-xl">
+      {/* max-w-xl (576px) idi: şık satırında beş sütun var (ad, fiyat, varsayılan,
+          reçete, sil) ve başlıklar o genişlikte iki satıra kırılıyordu. */}
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Seçenekler — {product?.name}</DialogTitle>
+          {/* Açıklama KISA tutuldu: eskiden burada dört cümlelik bir duvar vardı
+              ve hiçbiri ilgili alanın yanında değildi. Detaylar artık ait
+              oldukları yerde (grup anahtarlarının altında, şık başlıklarında,
+              reçete etkisi editöründe). */}
           <DialogDescription>
-            &quot;Boy&quot;, &quot;Süt&quot;, &quot;Ekstra&quot; gibi gruplar. Fiyat farkı KDV
-            DAHİL girilir. Seçeneği olmayan ürün satış ekranında tek dokunuşta sepete girer.
-            Şıkkın yanındaki <FlaskConical className="inline h-3.5 w-3.5 align-text-bottom" />{" "}
-            ile reçete etkisi tanımlanır: soya sütü seçilince stoktan inek sütü değil soya sütü
-            düşer.
+            Satışta sorulacak seçimler: &quot;Boy&quot;, &quot;Süt&quot;, &quot;Ekstra&quot;.
+            Her grup bir soru, içindeki şıklar cevaplardır.
           </DialogDescription>
         </DialogHeader>
 
         {draft ? (
           <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+            <div className="space-y-3">
               <div>
                 <Label className="text-xs text-muted-foreground">Grup adı</Label>
                 <Input
@@ -288,48 +297,96 @@ export function ProductOptionsDialog({
                   placeholder="Boy"
                   className="mt-1.5"
                 />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Kasiyere sorulacak soru. Örnek: Boy, Süt tercihi, Ekstralar
+                </p>
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <Switch
-                  checked={draft.isRequired}
-                  onCheckedChange={(v) => setDraft({ ...draft, isRequired: v })}
-                />
-                Zorunlu
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Switch
-                  checked={draft.isMulti}
-                  onCheckedChange={(v) => setDraft({ ...draft, isMulti: v })}
-                />
-                Çoklu
-              </label>
+              {/* İki anahtar da tek kelimeyle duruyordu ("Zorunlu", "Çoklu") ve
+                  ne yaptıkları ancak satışta deneyerek anlaşılıyordu. */}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5">
+                  <Switch
+                    className="mt-0.5"
+                    checked={draft.isRequired}
+                    onCheckedChange={(v) => setDraft({ ...draft, isRequired: v })}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">Zorunlu</span>
+                    <span className="block text-[11px] leading-snug text-muted-foreground">
+                      {draft.isRequired
+                        ? "Kasiyer seçim yapmadan ürünü ekleyemez"
+                        : "Kasiyer atlayabilir; varsayılan şık kullanılır"}
+                    </span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5">
+                  <Switch
+                    className="mt-0.5"
+                    checked={draft.isMulti}
+                    onCheckedChange={(v) => setDraft({ ...draft, isMulti: v })}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">Çoklu seçim</span>
+                    <span className="block text-[11px] leading-snug text-muted-foreground">
+                      {draft.isMulti
+                        ? "Birden çok şık seçilebilir — ekstralar gibi"
+                        : "Tek şık seçilir — boy gibi"}
+                    </span>
+                  </span>
+                </label>
+              </div>
             </div>
 
             <div className="space-y-2">
+              {/* SÜTUN BAŞLIKLARI: üç girdi etiketsiz yan yana duruyordu; dar
+                  sayı kutusunun fiyat farkı olduğu yalnızca tooltip'te yazıyordu.
+                  Satırla aynı grid kullanılıyor ki hizalama kaymasın. */}
+              <div className="grid grid-cols-[minmax(0,1fr)_8.5rem_5rem_2.5rem_2.5rem] items-end gap-2 px-2 text-[11px] font-medium text-muted-foreground">
+                <span>Şık adı</span>
+                <span className="text-right">Fiyat farkı</span>
+                <span className="text-center">Varsayılan</span>
+                <span className="text-center" title="Reçete etkisi">
+                  Reçete
+                </span>
+                <span />
+              </div>
               {draft.options.map((option, index) => (
-                <div key={index} className="space-y-2">
-                  <div className="flex items-center gap-2">
+                // Şıklar eskiden dipdibe akıyordu; reçete etkisi açılınca hangi
+                // satıra ait olduğu da karışıyordu. Her şık kendi kutusunda.
+                <div
+                  key={index}
+                  className={cn(
+                    "space-y-2 rounded-lg border p-2",
+                    effectRow === index && "border-kobipo-blue/50 dark:border-primary/50"
+                  )}
+                >
+                  <div className="grid grid-cols-[minmax(0,1fr)_8.5rem_5rem_2.5rem_2.5rem] items-center gap-2">
                     <Input
                       value={option.name}
                       onChange={(e) => patchOption(index, { name: e.target.value })}
                       placeholder="Küçük"
-                      className="flex-1"
                     />
-                    <Input
-                      value={option.priceDelta}
-                      onChange={(e) => patchOption(index, { priceDelta: e.target.value })}
-                      inputMode="decimal"
-                      placeholder="0"
-                      className="w-24 text-right tabular-nums"
-                      title="Fiyat farkı (KDV dahil)"
-                    />
-                    <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                    <div className="relative">
+                      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                        ₺
+                      </span>
+                      <Input
+                        value={option.priceDelta}
+                        onChange={(e) => patchOption(index, { priceDelta: e.target.value })}
+                        inputMode="decimal"
+                        placeholder="0"
+                        className="pl-6 text-right tabular-nums"
+                        title="Ürün fiyatına eklenecek fark (KDV dahil). Eksi yazılabilir: -10"
+                      />
+                    </div>
+                    <label className="flex cursor-pointer items-center justify-center">
                       <input
                         type="checkbox"
+                        className="h-4 w-4 cursor-pointer"
                         checked={option.isDefault}
                         onChange={(e) => patchOption(index, { isDefault: e.target.checked })}
+                        title="Satış ekranı açıldığında bu şık seçili gelir"
                       />
-                      varsayılan
                     </label>
                     {/* Reçete etkisi ayrı bir düğmenin ARKASINDA: seçeneklerin
                         çoğu yalnız fiyat farkıdır, dört alanı hepsinde açık
@@ -382,6 +439,17 @@ export function ProductOptionsDialog({
                 <Plus className="mr-1.5 h-4 w-4" />
                 Seçenek ekle
               </Button>
+
+              {/* ÖNİZLEME: fiyat farkı tek başına soyut ("+20" neyin üstüne?).
+                  Burada ürünün KDV dahil fiyatıyla toplanıp satıştaki NİHAİ
+                  fiyat gösteriliyor — kullanıcı ne kurduğunu kaydetmeden görür. */}
+              <OptionsPreview
+                groupName={draft.name}
+                options={draft.options}
+                basePrice={product?.basePrice ?? null}
+                isRequired={draft.isRequired}
+                isMulti={draft.isMulti}
+              />
             </div>
 
             <DialogFooter>
@@ -427,9 +495,18 @@ export function ProductOptionsDialog({
                           </span>
                         )}
                       </p>
+                      {/* Özette de NİHAİ fiyat: ham fark ("+20") neyin üstüne
+                          eklendiğini söylemiyordu, üstelik eksi farkta bile
+                          "+" yazıyordu. Fiyat bilinmiyorsa işaretli farka düşer. */}
                       <p className="truncate text-xs text-muted-foreground">
                         {group.options
-                          .map((o) => (o.priceDelta ? `${o.name} (+${o.priceDelta})` : o.name))
+                          .map((o) => {
+                            const delta = Number(o.priceDelta) || 0
+                            if (product?.basePrice != null)
+                              return `${o.name} ${money(product.basePrice + delta)}`
+                            if (!delta) return o.name
+                            return `${o.name} (${delta > 0 ? "+" : ""}${money(delta)})`
+                          })
                           .join(" · ")}
                       </p>
                     </div>
@@ -467,6 +544,73 @@ export function ProductOptionsDialog({
 }
 
 /**
+ * "Satışta böyle görünecek" önizlemesi.
+ *
+ * Fiyat farkı alanı tek başına soyut: kullanıcı "+20" yazıyor ama neyin üstüne
+ * eklendiğini görmüyor ve KDV dahil mi hariç mi diye tereddüt ediyordu. Burada
+ * ürünün KDV dahil fiyatıyla toplanıp şıkkın satıştaki NİHAİ fiyatı yazılıyor.
+ *
+ * Ürünün fiyatı yoksa (basePrice null) yalnızca farklar gösterilir — uydurma bir
+ * taban fiyat üzerinden yanlış rakam göstermektense eksik göstermek yeğdir.
+ */
+function OptionsPreview({
+  groupName,
+  options,
+  basePrice,
+  isRequired,
+  isMulti,
+}: {
+  groupName: string
+  options: DraftOption[]
+  basePrice: number | null
+  isRequired: boolean
+  isMulti: boolean
+}) {
+  const named = options.filter((o) => o.name.trim())
+  if (named.length === 0) return null
+
+  const priceOf = (o: DraftOption) => {
+    const delta = Number(String(o.priceDelta).replace(",", ".")) || 0
+    if (basePrice == null) return delta === 0 ? "" : `${delta > 0 ? "+" : ""}${money(delta)}`
+    return money(basePrice + delta)
+  }
+
+  return (
+    <div className="rounded-lg border border-dashed bg-muted/30 p-3">
+      <p className="text-[11px] font-medium text-muted-foreground">Satışta böyle görünecek</p>
+      <p className="mt-1.5 text-sm font-semibold">
+        {groupName.trim() || "Grup adı"}
+        <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+          {isRequired ? "seçim zorunlu" : "atlanabilir"} ·{" "}
+          {isMulti ? "birden çok seçilebilir" : "tek seçim"}
+        </span>
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {named.map((o, i) => (
+          <span
+            key={i}
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-xs",
+              o.isDefault
+                ? "border-kobipo-blue bg-kobipo-blue/10 font-medium text-kobipo-blue dark:border-primary dark:bg-primary/15 dark:text-primary"
+                : "bg-background"
+            )}
+          >
+            {o.name.trim()}
+            {priceOf(o) && <span className="ml-1.5 tabular-nums">{priceOf(o)}</span>}
+          </span>
+        ))}
+      </div>
+      {basePrice == null && (
+        <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
+          Ürüne satış fiyatı girilmediği için yalnızca farklar gösteriliyor.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
  * Bir şıkkın reçete etkisi. Üç iş de burada tanımlanır:
  *   Değişim → reçetedeki bileşenin yerine başkası düşer (hedefsiz = çıkar)
  *   Ekleme  → reçeteye ek malzeme düşer
@@ -492,11 +636,26 @@ function EffectEditor({
   const addProduct = option.toProductId ? productById.get(option.toProductId) : undefined
   const unitOptions = addProduct ? recipeUnitOptions(addProduct.unit, option.effectUnit) : []
 
-  const modes: Array<{ value: DraftOption["effectMode"]; label: string }> = [
-    { value: "", label: "Yok" },
-    { value: "SWAP", label: "Değişim" },
-    { value: "ADD", label: "Ekleme" },
+  // Üç mod da yalnızca tek kelimeyle duruyordu; "Değişim" ile "Ekleme"nin stoğa
+  // ne yaptığı ancak deneyerek anlaşılıyordu. Açıklama seçili moda göre altta.
+  const modes: Array<{ value: DraftOption["effectMode"]; label: string; hint: string }> = [
+    {
+      value: "",
+      label: "Yok",
+      hint: "Bu şık yalnızca fiyatı değiştirir; stoktan reçetedeki malzemeler düşer.",
+    },
+    {
+      value: "SWAP",
+      label: "Değişim",
+      hint: "Reçetedeki bir malzemenin yerine başkası düşer — inek sütü yerine soya sütü. Miktar reçeteden gelir, ayrıca sorulmaz.",
+    },
+    {
+      value: "ADD",
+      label: "Ekleme",
+      hint: "Reçeteye ek malzeme düşer — ekstra shot, ekstra sos.",
+    },
   ]
+  const activeHint = modes.find((m) => m.value === option.effectMode)?.hint
 
   return (
     <div className="space-y-2.5 rounded-lg border border-dashed bg-muted/30 p-2.5">
@@ -531,6 +690,9 @@ function EffectEditor({
           ))}
         </div>
       </div>
+      {activeHint && (
+        <p className="text-[11px] leading-snug text-muted-foreground">{activeHint}</p>
+      )}
 
       {option.effectMode === "SWAP" && (
         <div className="grid items-center gap-2 sm:grid-cols-[1fr_auto_1fr]">

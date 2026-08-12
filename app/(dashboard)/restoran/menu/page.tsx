@@ -20,8 +20,12 @@ import {
   Search,
   AlertTriangle,
   X,
+  EyeOff,
+  ImagePlus,
   Layers,
   PackageSearch,
+  ShoppingCart,
+  Tags,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -68,6 +72,9 @@ import {
 import { quickCreateProduct, type CreatedProduct } from "@/lib/stock/quick-create-product"
 import { RawMaterialDialog } from "@/components/restoran/raw-material-dialog"
 import { ProductOptionsDialog } from "@/components/restoran/product-options-dialog"
+import { grossPrice } from "@/components/restoran/menu-grid"
+import { ProductImageField } from "@/components/stok/product-image-field"
+import { CategoryManagerDialog } from "@/components/stok/category-manager-dialog"
 import { cn } from "@/lib/utils"
 import {
   buildRecipeMap,
@@ -88,6 +95,7 @@ import {
 import { money, parseNum, qty } from "@/lib/format"
 import {
   flagsForKind,
+  productKindLabel,
   productKindOf,
   productKindOptions,
   type ProductKind,
@@ -115,6 +123,13 @@ type NewProductDraft = {
   salePrice: string
   vatRate: string
   unit: string
+  /**
+   * Yüklenmiş fotoğrafın URL'i (henüz hiçbir ürüne bağlı değil). Ürün kaydı
+   * açılırken birlikte yazılır — diyalog kapatılırsa depoda yetim bir nesne
+   * kalır, bu kabul edildi: alternatifi kaydetmeden önce yükleme yapmamak,
+   * yani kullanıcıya fotoğrafı önizletmemekti.
+   */
+  imageUrl: string | null
 }
 
 type Draft = {
@@ -139,6 +154,10 @@ type Draft = {
   items: DraftItem[]
 }
 
+/** Kategori süzgecinin özel değerleri — Select boş string kabul etmiyor. */
+const ALL_CATEGORIES = "__ALL__"
+const NO_CATEGORY = "__NONE__"
+
 /** Dialog girdilerinde "12,5" ve "12.5" ikisi de kabul edilir. */
 const num = parseNum
 
@@ -157,6 +176,7 @@ const emptyNewProduct = (): NewProductDraft => ({
   salePrice: "",
   vatRate: "20",
   unit: "ADET",
+  imageUrl: null,
 })
 
 const blankItem = (): DraftItem => ({
@@ -188,6 +208,8 @@ export default function ReceptelerPage() {
 
   const [tab, setTab] = useState<"menu" | "raw">("menu")
   const [search, setSearch] = useState("")
+  const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES)
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [draft, setDraft] = useState<Draft>(emptyDraft())
@@ -215,7 +237,13 @@ export default function ReceptelerPage() {
   const { products, isLoading: productsLoading, mutate: mutateProducts } = useProducts(companyId)
   // Seçenek (porsiyon/modifier) tanımları — satır bazında düzenlenir.
   const { groupsOf, mutate: mutateOptions } = useProductOptions(companyId)
-  const [optionsFor, setOptionsFor] = useState<{ id: string; name: string } | null>(null)
+  const [optionsFor, setOptionsFor] = useState<{
+    id: string
+    name: string
+    basePrice: number | null
+  } | null>(null)
+  /** Fotoğrafı düzenlenen ürün — satırdaki küçük görselden açılır. */
+  const [imageFor, setImageFor] = useState<{ id: string; name: string } | null>(null)
   const { recipes, isLoading: recipesLoading, mutate: mutateRecipes } = useRecipes(companyId)
   const loading = productsLoading || recipesLoading
 
@@ -293,17 +321,40 @@ export default function ReceptelerPage() {
 
   // ---- Liste ----
 
+  /**
+   * Süzgeçteki kategoriler AKTİF SEKMENİN ürünlerinden üretilir: menü sekmesinde
+   * hammadde kategorilerini, hammadde sekmesinde menü kategorilerini listelemek
+   * kullanıcıya boş sonuç verdiren seçenekler sunardı.
+   */
+  const filterCategories = useMemo(() => {
+    const set = new Set<string>()
+    for (const p of products) {
+      if (!p.isActive || p.isService) continue
+      if (tab === "menu" ? !p.isSellable : !p.isIngredient) continue
+      const c = p.category?.trim()
+      if (c) set.add(c)
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "tr-TR"))
+  }, [products, tab])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLocaleLowerCase("tr-TR")
     return products
       .filter((p) => p.isActive && !p.isService)
+      .filter(
+        (p) =>
+          categoryFilter === ALL_CATEGORIES ||
+          (categoryFilter === NO_CATEGORY
+            ? !p.category?.trim()
+            : p.category?.trim() === categoryFilter)
+      )
       // Sekmeler AYRI bayraklara bakar ve birbirini dışlamaz: hem menüde satılan
       // hem reçetede kullanılan bir ürün (paket kahve çekirdeği) İKİ sekmede de
       // görünür. Eskiden "Hammaddeler" = !isSellable idi ve o ürün kayboluyordu.
       .filter((p) => (tab === "menu" ? p.isSellable : p.isIngredient))
       .filter((p) => !q || p.name.toLocaleLowerCase("tr-TR").includes(q) || (p.code ?? "").toLocaleLowerCase("tr-TR").includes(q))
       .sort((a, b) => a.name.localeCompare(b.name, "tr-TR"))
-  }, [products, tab, search])
+  }, [products, tab, search, categoryFilter])
 
   const menuCount = products.filter((p) => p.isActive && !p.isService && p.isSellable).length
   const rawCount = products.filter((p) => p.isActive && !p.isService && p.isIngredient).length
@@ -393,7 +444,8 @@ export default function ReceptelerPage() {
    * ikincisi vardı — Stok'ta tanımlanmış ama henüz hiçbir ürüne verilmemiş bir
    * kategori burada hiç görünmüyordu, kullanıcı da onu elle yeniden yazıyordu.
    */
-  const { categories: definedCategories } = useProductCategories(companyId)
+  const { categories: definedCategories, mutate: mutateCategories } =
+    useProductCategories(companyId)
   const menuCategories = useMemo(() => {
     const set = new Set<string>()
     for (const c of definedCategories) if (c.trim()) set.add(c.trim())
@@ -617,6 +669,7 @@ export default function ReceptelerPage() {
           salePriceVatIncluded: true,
           // Menü ürünü: kahveci ızgarasında ve hızlı satışta listelenir.
           isSellable: true,
+          imageUrl: draft.newProduct.imageUrl,
         })
         productId = created.id
       }
@@ -734,6 +787,40 @@ export default function ReceptelerPage() {
     }
   }
 
+  /**
+   * Fotoğrafı ürüne yazar. PUT değil PATCH: PUT gövdesinde gelmeyen fiyat/stok
+   * alanlarını sıfırlar, fotoğraf değiştirmek fiyat silmemeli.
+   *
+   * İyimser güncelleme — changeKind ile aynı desen: liste anında tepki verir,
+   * hata olursa geri alınır. Diyalogdaki önizleme de bu önbellekten besleniyor.
+   */
+  async function saveProductImage(productId: string, imageUrl: string | null) {
+    if (!companyId) return
+    const before = productById.get(productId)?.imageUrl ?? null
+    const patch = (list: any[] | undefined, url: string | null) =>
+      (list ?? []).map((p: any) => (p.id === productId ? { ...p, imageUrl: url } : p))
+
+    await mutateProducts((list) => patch(list, imageUrl), { revalidate: false })
+    try {
+      const res = await fetch(`/api/stok/products/${productId}?companyId=${companyId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}) as any)
+        throw new Error(data?.error || "Fotoğraf kaydedilemedi")
+      }
+      await mutateProducts()
+    } catch (e: any) {
+      await mutateProducts((list) => patch(list, before), { revalidate: false })
+      // Hata ProductImageField'a geri fırlatılır: kullanıcı sebebini alanın
+      // altında görsün, toast'la beraber kaybolmasın.
+      toast({ title: e?.message || "Fotoğraf kaydedilemedi", variant: "destructive" })
+      throw e
+    }
+  }
+
   if (!companyId) {
     return (
       <div className="flex h-[60vh] items-center justify-center">
@@ -760,6 +847,13 @@ export default function ReceptelerPage() {
               <PackageSearch className="mr-2 h-4 w-4" />
               Stok
             </Link>
+          </Button>
+          {/* Kategori yönetimi Stok ekranıyla ORTAK bileşen: menüyü kuran kişi
+              kategoriyi de burada düzenleyebilsin diye ikinci bir giriş noktası
+              (components/stok/category-manager-dialog). */}
+          <Button variant="outline" onClick={() => setCategoryDialogOpen(true)}>
+            <Tags className="mr-2 h-4 w-4" />
+            Kategoriler
           </Button>
           {tab === "menu" ? (
             <>
@@ -806,14 +900,32 @@ export default function ReceptelerPage() {
             Hammaddeler ({rawCount})
           </button>
         </div>
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Ürün adı veya kodu"
-            className="pl-9"
-          />
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          {/* Kategori süzgeci — satış ekranındaki kategori sekmelerinin
+              menü kurulum tarafındaki karşılığı. */}
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="w-full sm:w-52">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_CATEGORIES}>Tüm kategoriler</SelectItem>
+              {filterCategories.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+              <SelectItem value={NO_CATEGORY}>Kategorisiz</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Ürün adı veya kodu"
+              className="pl-9"
+            />
+          </div>
         </div>
       </div>
 
@@ -842,7 +954,12 @@ export default function ReceptelerPage() {
           costOf={(id) => costOf(id, recipeMap)}
           optionCountOf={(id) => groupsOf(id).length}
           onEdit={openForProduct}
-          onOptions={(p) => setOptionsFor({ id: p.id, name: p.name })}
+          onImage={(p) => setImageFor({ id: p.id, name: p.name })}
+          // basePrice KDV DAHİL: seçenek fiyat farkları da öyle giriliyor,
+          // diyalog ikisini toplayıp satıştaki nihai fiyatı gösteriyor.
+          onOptions={(p) =>
+            setOptionsFor({ id: p.id, name: p.name, basePrice: grossPrice(p) })
+          }
           onDelete={handleDelete}
           onChangeKind={changeKind}
         />
@@ -974,6 +1091,19 @@ export default function ReceptelerPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+
+                {/* Fotoğraf ürün kartıyla BİRLİKTE doğar: satış ekranını
+                    fotoğraflı kurmak için sonradan ikinci bir tura gerek yok. */}
+                <div className="space-y-2 border-t border-border pt-3">
+                  <Label>Fotoğraf</Label>
+                  <ProductImageField
+                    companyId={companyId}
+                    value={draft.newProduct.imageUrl}
+                    onChange={(url) =>
+                      setDraft((d) => ({ ...d, newProduct: { ...d.newProduct, imageUrl: url } }))
+                    }
+                  />
                 </div>
 
                 {/* NOT: Eskiden burada "Girilen fiyat KDV dahil" anahtarı vardı.
@@ -1362,6 +1492,46 @@ export default function ReceptelerPage() {
         onClose={() => setOptionsFor(null)}
         onSaved={() => void mutateOptions()}
       />
+
+      <CategoryManagerDialog
+        open={categoryDialogOpen}
+        onOpenChange={setCategoryDialogOpen}
+        companyId={companyId}
+        onChanged={() => {
+          // Silme/birleştirme ürünlerin `category` alanını değiştiriyor; hem ürün
+          // listesi hem öneri listesi tazelenmeli. Süzgeçte artık var olmayan bir
+          // kategori seçiliyse "tümü"ne düşülür, yoksa liste boş görünürdü.
+          void refresh()
+          void mutateCategories()
+          setCategoryFilter(ALL_CATEGORIES)
+        }}
+      />
+
+      {/* Fotoğraf — satırdaki küçük görselden açılır. Ayrı diyalog olmasının
+          sebebi: reçete diyaloğu mevcut üründe yalnızca REÇETEYİ düzenliyor,
+          oraya bir ürün alanı koymak o diyaloğun tek işi olma kuralını bozardı. */}
+      <Dialog open={!!imageFor} onOpenChange={(open) => !open && setImageFor(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Ürün Fotoğrafı{imageFor ? ` — ${imageFor.name}` : ""}</DialogTitle>
+            <DialogDescription>
+              Menü kartında görünecek fotoğrafı seçin.
+            </DialogDescription>
+          </DialogHeader>
+          {imageFor && (
+            <ProductImageField
+              companyId={companyId}
+              value={productById.get(imageFor.id)?.imageUrl ?? null}
+              onChange={(url) => saveProductImage(imageFor.id, url)}
+            />
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImageFor(null)}>
+              Kapat
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -1381,13 +1551,24 @@ function KindSelect({
   const kind = productKindOf(product)
   return (
     <Select value={kind} onValueChange={(v) => onChange(product, v as ProductKind)}>
-      <SelectTrigger className="h-8 w-[150px] text-xs">
-        <SelectValue />
+      {/* SelectValue'ya AÇIKÇA etiket veriliyor: Radix varsayılan olarak seçili
+          SelectItem'ın tüm içeriğini tetikleyicide de basıyor. Şıklara açıklama
+          eklenince her satırdaki kutu iki satıra çıkıp tabloyu sıkıştırdı.
+          Açıklama yalnız açılır listede görünmeli. */}
+      <SelectTrigger className="h-8 w-[130px] text-xs">
+        <SelectValue>{productKindLabel(kind, true)}</SelectValue>
       </SelectTrigger>
-      <SelectContent>
+      {/* Açıklamalar seçenek TANIMINDA zaten vardı (productKindOptions.hint) ama
+          burada basılmıyordu; "Hammadde" ile "Her ikisi" arasındaki fark yalnız
+          etiketten anlaşılmıyordu. Tetikleyicide yine sadece etiket var — tablo
+          hücresi dar. */}
+      <SelectContent className="max-w-[280px]">
         {MENU_KIND_OPTIONS.map((o) => (
           <SelectItem key={o.value} value={o.value} className="text-xs">
-            {o.label}
+            <span className="flex flex-col gap-0.5 py-0.5">
+              <span className="font-medium">{o.label}</span>
+              <span className="text-[11px] leading-snug text-muted-foreground">{o.hint}</span>
+            </span>
           </SelectItem>
         ))}
       </SelectContent>
@@ -1507,6 +1688,7 @@ function MenuTable({
   costOf,
   optionCountOf,
   onEdit,
+  onImage,
   onOptions,
   onDelete,
   onChangeKind,
@@ -1516,6 +1698,7 @@ function MenuTable({
   costOf: (productId: string) => { total: number; priceless: string[]; hasRecipe: boolean }
   optionCountOf: (productId: string) => number
   onEdit: (p: Product) => void
+  onImage: (p: Product) => void
   onOptions: (p: Product) => void
   onDelete: (r: Recipe) => void
   onChangeKind: (p: Product, kind: ProductKind) => void
@@ -1525,11 +1708,20 @@ function MenuTable({
       <Table>
         <TableHeader>
           <StyledTableHeaderRow>
+            {/* Fotoğraf sütunu başlıksız: 40px'lik hücreye "Fotoğraf" yazısı
+                sığmıyor, küçük görselin kendisi zaten ne olduğunu söylüyor. */}
+            <StyledTableHead className="w-[52px]" />
             <StyledTableHead>Ürün</StyledTableHead>
             <StyledTableHead>Reçete</StyledTableHead>
-            <StyledTableHead className="text-right">Maliyet</StyledTableHead>
+            {/* Maliyet ve Marj dar ekranda gizlenir: yedi sütun 1280px altında
+                sıkışıyor. Satış fiyatı kalır — kasada asıl bakılan o; maliyet/marj
+                menü kurgulanırken bakılan, geniş ekranda çalışılan bilgi. */}
+            <StyledTableHead className="hidden text-right xl:table-cell">Maliyet</StyledTableHead>
             <StyledTableHead className="text-right">Satış</StyledTableHead>
-            <StyledTableHead className="text-right">Marj</StyledTableHead>
+            <StyledTableHead className="hidden text-right xl:table-cell">Marj</StyledTableHead>
+            {/* Tür KENDİ sütununda: "İşlem" içindeki başlıksız açılır menü
+                bulunamıyordu — ürünü satış ekranından gizlemenin yolu bu. */}
+            <StyledTableHead>Tür</StyledTableHead>
             <StyledTableHead className="text-right">İşlem</StyledTableHead>
           </StyledTableHeaderRow>
         </TableHeader>
@@ -1542,6 +1734,28 @@ function MenuTable({
               c && sale != null && sale > 0 ? ((sale - c.total) / sale) * 100 : null
             return (
               <StyledTableRow key={p.id}>
+                <TableCell>
+                  {/* Fotoğrafsız ürün kesikli çerçeve + kamera ikonuyla durur:
+                      tıklanabilir olduğu, boş bir hücreden anlaşılmazdı. */}
+                  <button
+                    type="button"
+                    onClick={() => onImage(p)}
+                    title={p.imageUrl ? `${p.name} — fotoğrafı değiştir` : `${p.name} — fotoğraf ekle`}
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border transition-colors",
+                      p.imageUrl
+                        ? "border-border hover:border-kobipo-blue dark:hover:border-primary"
+                        : "border-dashed border-border text-muted-foreground hover:border-kobipo-blue hover:text-kobipo-blue dark:hover:border-primary dark:hover:text-primary"
+                    )}
+                  >
+                    {p.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- depo URL'i
+                      <img src={p.imageUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+                    ) : (
+                      <ImagePlus className="h-4 w-4" />
+                    )}
+                  </button>
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold">{p.name}</span>
@@ -1571,7 +1785,7 @@ function MenuTable({
                     <span className="text-xs text-muted-foreground">Reçete yok</span>
                   )}
                 </TableCell>
-                <TableCell className="text-right tabular-nums">
+                <TableCell className="hidden text-right tabular-nums xl:table-cell">
                   {c ? (
                     <span className={c.priceless.length > 0 ? "text-amber-600 dark:text-amber-400" : ""}>
                       {money(c.total)}
@@ -1584,7 +1798,7 @@ function MenuTable({
                 <TableCell className="text-right tabular-nums">
                   {sale != null ? money(sale) : <span className="text-muted-foreground">—</span>}
                 </TableCell>
-                <TableCell className="text-right tabular-nums">
+                <TableCell className="hidden text-right tabular-nums xl:table-cell">
                   {margin != null ? (
                     <span
                       className={
@@ -1602,10 +1816,20 @@ function MenuTable({
                   )}
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center justify-end gap-1">
+                  {/* Tür değişimi TEK seçim — iki ayrı anahtar 4 kombinasyon
+                      üretiyordu ve ikisi de kapalıyken ürün hiçbir sekmede
+                      görünmüyordu. Bkz. lib/stock/product-kind.ts */}
+                  <KindSelect product={p} onChange={onChangeKind} />
+                </TableCell>
+                <TableCell>
+                  {/* whitespace-nowrap: yedi sütunlu tabloda eylemler alt alta
+                      sarıp satırı iki katına çıkarıyordu. Düğme yükseklikleri de
+                      eşitlendi (h-8) — karışık boylar sıkışık gösteriyordu. */}
+                  <div className="flex items-center justify-end gap-1 whitespace-nowrap">
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="h-8 px-2"
                       onClick={() => onEdit(p)}
                       title={recipe ? "Reçeteyi düzenle" : "Reçete ekle"}
                     >
@@ -1621,7 +1845,8 @@ function MenuTable({
                     {recipe && (
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="sm"
+                        className="h-8 w-8 p-0"
                         onClick={() => onDelete(recipe)}
                         title="Reçeteyi sil"
                       >
@@ -1632,18 +1857,17 @@ function MenuTable({
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="h-8 px-2 text-xs"
                       onClick={() => onOptions(p)}
                       title="Porsiyon / seçenek tanımla"
                     >
-                      <span className="text-xs">
-                        Seçenek
-                        {optionCountOf(p.id) > 0 ? ` (${optionCountOf(p.id)})` : ""}
-                      </span>
+                      Seçenek
+                      {optionCountOf(p.id) > 0 && (
+                        <span className="ml-1 rounded-full bg-kobipo-blue px-1.5 text-[10px] font-bold text-white dark:bg-primary dark:text-primary-foreground">
+                          {optionCountOf(p.id)}
+                        </span>
+                      )}
                     </Button>
-                    {/* Tür değişimi TEK seçim — iki ayrı anahtar 4 kombinasyon
-                        üretiyordu ve ikisi de kapalıyken ürün hiçbir sekmede
-                        görünmüyordu. Bkz. lib/stock/product-kind.ts */}
-                    <KindSelect product={p} onChange={onChangeKind} />
                   </div>
                 </TableCell>
               </StyledTableRow>
@@ -1692,12 +1916,27 @@ function RawTable({
             return (
               <StyledTableRow key={p.id}>
                 <TableCell>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <span className="font-semibold">{p.name}</span>
                     {isSemiFinished && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-kobipo-pale px-2 py-0.5 text-[11px] font-semibold text-kobipo-blue">
                         <Layers className="h-3 w-3" />
                         Yarı mamül
+                      </span>
+                    )}
+                    {/* Hammadde sekmesinde "Her ikisi" olan ürünler de listeleniyor
+                        (paket kahve hem satılır hem reçetede geçer). Hangisinin
+                        satış/adisyon ızgarasına DÜŞMEDİĞİ ancak sağdaki tür
+                        seçicisine bakınca anlaşılıyordu. */}
+                    {!p.isSellable ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        <EyeOff className="h-3 w-3" />
+                        Menüde görünmez
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                        <ShoppingCart className="h-3 w-3" />
+                        Menüde satılıyor
                       </span>
                     )}
                   </div>
