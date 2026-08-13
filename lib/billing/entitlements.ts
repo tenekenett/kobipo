@@ -108,6 +108,52 @@ export async function applyEntitlements(rootCompanyId: string, grantedModules: s
   ])
 }
 
+/** Hesabın şube kotası durumu — hem arayüz hem denetim bunu okur. */
+export type BranchQuotaStatus = {
+  /** Hesap kökü (ana firma) id'si — kota bu düzeyde tutulur. */
+  rootCompanyId: string
+  /** İzin verilen ek şube sayısı (ana firma hariç). Aktif abonelik yoksa 0. */
+  quota: number
+  /** Hesapta AÇIK olan şube sayısı. */
+  used: number
+  /** Daha açılabilecek şube sayısı (negatife düşmez). */
+  remaining: number
+  /** Yeni şube eklenebilir mi? */
+  canAddBranch: boolean
+  /** Aktif (ücretli veya deneme) abonelik var mı? Yoksa kota tanım gereği 0'dır. */
+  hasActiveSubscription: boolean
+}
+
+/**
+ * Hesabın şube kotası durumunu çözer.
+ *
+ * TEK KURAL olması şart: bu fonksiyon hem "kaç şube daha açabilirim" göstergesini
+ * (`/api/companies/branch-quota`) hem de şube açma denetimini (`app/api/companies/route.ts`
+ * POST) besler. Ayrı ayrı hesaplanırsa ekran "1 hakkınız var" derken API 402 döndürebilir.
+ *
+ * Aktif abonelik yoksa kota 0'dır — fail closed. Deneme de kota üretir (modül üretmez,
+ * bkz. `resolveGrantedModules`).
+ */
+export async function getBranchQuotaStatus(companyId: string): Promise<BranchQuotaStatus> {
+  const rootCompanyId = await resolveAccountRootId(companyId)
+  const sub = await prisma.subscription.findFirst({
+    where: { companyId: rootCompanyId },
+    orderBy: { createdAt: "desc" },
+  })
+  const hasActiveSubscription = !!sub && (isPaidActive(sub) || isTrialActive(sub))
+  const quota = hasActiveSubscription ? sub!.branchQuota : 0
+  const used = await countAccountBranches(rootCompanyId)
+  const remaining = Math.max(0, quota - used)
+  return {
+    rootCompanyId,
+    quota,
+    used,
+    remaining,
+    canAddBranch: used < quota,
+    hasActiveSubscription,
+  }
+}
+
 /** Periyoda göre dönem bitiş tarihi (başlangıçtan +1 ay / +1 yıl). */
 export function periodEndFor(cycle: BillingCycle, start = new Date()): Date {
   const end = new Date(start)

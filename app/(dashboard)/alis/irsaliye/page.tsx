@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
 import { SearchSelect } from "@/components/ui/search-select"
+import { QuickCariDialog } from "@/components/e-donusum/quick-cari-dialog"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -74,6 +75,8 @@ export default function AlisIrsaliyePage() {
   const [products, setProducts] = useState<Array<{ id: string; name: string; unit?: string | null }>>([])
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  // Tedarikçi listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
+  const [quickCari, setQuickCari] = useState({ open: false, name: "" })
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("ALL")
   const [form, setForm] = useState({
@@ -314,6 +317,8 @@ export default function AlisIrsaliyePage() {
                           value={form.supplierId}
                           onChange={(value) => setForm((prev) => ({ ...prev, supplierId: value }))}
                           placeholder="Tedarikçi seçin veya arayın…"
+                          onCreate={(name) => setQuickCari({ open: true, name })}
+                          createLabel="Yeni tedarikçi ekle"
                         />
                       </div>
                       <div className="grid grid-cols-2 gap-2">
@@ -458,6 +463,33 @@ export default function AlisIrsaliyePage() {
                     <Button className="w-full" onClick={createWaybill} disabled={isSaving}>
                       {isSaving ? "Kaydediliyor…" : "Kaydet"}
                     </Button>
+                    {/* İç içe dialog: irsaliye formu açıkken tedarikçi eklenir, kayıt
+                        sonrası seçiciye düşer (form kaybolmadan). */}
+                    {companyId && (
+                      <QuickCariDialog
+                        open={quickCari.open}
+                        onOpenChange={(open) => setQuickCari((prev) => ({ ...prev, open }))}
+                        companyId={companyId}
+                        defaultKind="supplier"
+                        initialName={quickCari.name}
+                        requireTaxFields={false}
+                        onCreated={(created, kind) => {
+                          if (kind !== "supplier") {
+                            toast({
+                              title: "Müşteri olarak kaydedildi",
+                              description: "Tedarikçi listesine eklenmedi, seçim yapılmadı.",
+                            })
+                            return
+                          }
+                          setSuppliers((prev) =>
+                            prev.some((s) => s.id === created.id)
+                              ? prev
+                              : [...prev, { id: created.id, name: created.name }]
+                          )
+                          setForm((prev) => ({ ...prev, supplierId: created.id }))
+                        }}
+                      />
+                    )}
                   </div>
                 </DialogContent>
               </Dialog>

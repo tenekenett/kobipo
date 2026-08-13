@@ -4,12 +4,7 @@ import { getUserContext } from "@/lib/auth/user-context"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
-import {
-  getAccountSubscription,
-  countAccountBranches,
-  isPaidActive,
-  isTrialActive,
-} from "@/lib/billing/entitlements"
+import { getBranchQuotaStatus } from "@/lib/billing/entitlements"
 import { MODULE_KEYS } from "@/lib/modules"
 import { Prisma } from "@prisma/client"
 
@@ -190,19 +185,16 @@ export async function POST(request: Request) {
       // aktif aboneliğindeki `branchQuota` kadar ek şube açılabilir. Aktif abonelik yoksa
       // (deneme/ücretli değil) kota 0'dır → şube açılamaz (fail closed). Modül gating
       // callback'te disabledModules ile yazılır; burada yalnızca ADET sınırı uygulanır.
-      const accountSub = await getAccountSubscription(normalizedParentId)
-      const branchesAllowed =
-        accountSub && (isPaidActive(accountSub) || isTrialActive(accountSub))
-          ? accountSub.branchQuota
-          : 0
-      const existingBranches = await countAccountBranches(normalizedParentId)
-      if (existingBranches >= branchesAllowed) {
+      // Kural tek yerde: aynı fonksiyon "kaç şube daha açabilirim" göstergesini de besler
+      // ([[lib/billing/entitlements.ts]] → getBranchQuotaStatus).
+      const quotaStatus = await getBranchQuotaStatus(normalizedParentId)
+      if (!quotaStatus.canAddBranch) {
         return NextResponse.json(
           {
             error: "Şube kotanız dolu. Yeni şube eklemek için aboneliğinizi yükseltin.",
             code: "PLAN_LIMIT_EXCEEDED",
-            branchQuota: branchesAllowed,
-            currentBranches: existingBranches,
+            branchQuota: quotaStatus.quota,
+            currentBranches: quotaStatus.used,
           },
           { status: 402 }
         )

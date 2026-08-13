@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
 import { SearchSelect } from "@/components/ui/search-select"
+import { QuickCariDialog } from "@/components/e-donusum/quick-cari-dialog"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -115,6 +116,8 @@ export default function SatisSiparisPage() {
   const [products, setProducts] = useState<Array<{ id: string; name: string; salePrice?: number | null }>>([])
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  // Müşteri listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
+  const [quickCari, setQuickCari] = useState({ open: false, name: "" })
   const [form, setForm] = useState({
     customerId: "",
     currency: "TRY",
@@ -385,6 +388,8 @@ export default function SatisSiparisPage() {
                           value={form.customerId}
                           onChange={(value) => setForm((prev) => ({ ...prev, customerId: value }))}
                           placeholder="Müşteri seçin veya arayın…"
+                          onCreate={(name) => setQuickCari({ open: true, name })}
+                          createLabel="Yeni müşteri ekle"
                         />
                       </div>
                       <div>
@@ -532,6 +537,33 @@ export default function SatisSiparisPage() {
                     <Button className="w-full" onClick={createOrder} disabled={isSaving}>
                       {isSaving ? "Kaydediliyor…" : "Kaydet"}
                     </Button>
+                    {/* İç içe dialog: sipariş formu açıkken müşteri eklenir, kayıt
+                        sonrası seçiciye düşer (form kaybolmadan). */}
+                    {companyId && (
+                      <QuickCariDialog
+                        open={quickCari.open}
+                        onOpenChange={(open) => setQuickCari((prev) => ({ ...prev, open }))}
+                        companyId={companyId}
+                        defaultKind="customer"
+                        initialName={quickCari.name}
+                        requireTaxFields={false}
+                        onCreated={(created, kind) => {
+                          if (kind !== "customer") {
+                            toast({
+                              title: "Tedarikçi olarak kaydedildi",
+                              description: "Müşteri listesine eklenmedi, seçim yapılmadı.",
+                            })
+                            return
+                          }
+                          setCustomers((prev) =>
+                            prev.some((c) => c.id === created.id)
+                              ? prev
+                              : [...prev, { id: created.id, name: created.name }]
+                          )
+                          setForm((prev) => ({ ...prev, customerId: created.id }))
+                        }}
+                      />
+                    )}
                   </div>
                 </DialogContent>
               </Dialog>

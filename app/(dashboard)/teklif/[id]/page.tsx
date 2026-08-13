@@ -19,6 +19,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
 import { SearchSelect } from "@/components/ui/search-select"
+import { QuickCariDialog } from "@/components/e-donusum/quick-cari-dialog"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
@@ -133,6 +134,8 @@ export default function TeklifDetailPage() {
   const [converting, setConverting] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([])
+  // Müşteri listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
+  const [quickCari, setQuickCari] = useState({ open: false, name: "" })
   const [products, setProducts] = useState<Array<{ id: string; name: string; salePrice?: number | null }>>([])
   const [company, setCompany] = useState<CompanyInfo | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
@@ -514,7 +517,34 @@ export default function TeklifDetailPage() {
                 placeholder="Müşteri seçin veya arayın…"
                 disabled={!editable}
                 allowClear
+                onCreate={editable ? (name) => setQuickCari({ open: true, name }) : undefined}
+                createLabel="Yeni müşteri ekle"
               />
+              {companyId && (
+                <QuickCariDialog
+                  open={quickCari.open}
+                  onOpenChange={(open) => setQuickCari((prev) => ({ ...prev, open }))}
+                  companyId={companyId}
+                  defaultKind="customer"
+                  initialName={quickCari.name}
+                  requireTaxFields={false}
+                  onCreated={(created, kind) => {
+                    if (kind !== "customer") {
+                      toast({
+                        title: "Tedarikçi olarak kaydedildi",
+                        description: "Müşteri listesine eklenmedi, seçim yapılmadı.",
+                      })
+                      return
+                    }
+                    setCustomers((prev) =>
+                      prev.some((c) => c.id === created.id)
+                        ? prev
+                        : [...prev, { id: created.id, name: created.name }]
+                    )
+                    setCustomerId(created.id)
+                  }}
+                />
+              )}
             </div>
             <div>
               <Label>Para birimi</Label>

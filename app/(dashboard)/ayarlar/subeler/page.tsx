@@ -21,6 +21,15 @@ interface Company {
   parentName?: string | null
 }
 
+/** `/api/companies/branch-quota` yanıtı — şube açma denetimiyle aynı kaynaktan gelir. */
+interface BranchQuota {
+  quota: number
+  used: number
+  remaining: number
+  canAddBranch: boolean
+  hasActiveSubscription: boolean
+}
+
 export default function SubelerPage() {
   const searchParams = useSearchParams()
   const activeCompanyId = searchParams.get("company")
@@ -30,9 +39,12 @@ export default function SubelerPage() {
     : "/companies/new?mode=branch"
   const [companies, setCompanies] = useState<Company[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [quota, setQuota] = useState<BranchQuota | null>(null)
   // `?company=` SEF sonrası slug taşır; kartlardaki "Aktif" rozeti cuid ile karşılaştırıldığı
   // için hiç görünmüyordu. Param'ı önce gerçek id'ye çöz.
   const activeId = findCompanyByParam(companies, activeCompanyId)?.id ?? activeCompanyId
+  const activeCompanyName = companies.find((c) => c.id === activeId)?.name ?? null
+  const quotaFull = !!quota && !quota.canAddBranch
 
   useEffect(() => {
     let cancelled = false
@@ -50,6 +62,29 @@ export default function SubelerPage() {
     }
   }, [])
 
+  // Kota AKTİF HESABINDIR (şubeden bakılsa da ana firmanın kotası döner), bu yüzden
+  // `?company=` değişince yeniden okunur.
+  useEffect(() => {
+    if (!activeCompanyId) {
+      setQuota(null)
+      return
+    }
+    let cancelled = false
+    fetch(`/api/companies/branch-quota?companyId=${encodeURIComponent(activeCompanyId)}`, {
+      cache: "no-store",
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: BranchQuota | null) => {
+        if (!cancelled) setQuota(data && typeof data.quota === "number" ? data : null)
+      })
+      .catch(() => {
+        if (!cancelled) setQuota(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeCompanyId])
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -66,8 +101,11 @@ export default function SubelerPage() {
               Yeni Firma
             </Button>
           </Link>
-          <Link href={branchHref}>
-            <Button disabled={!activeCompanyId}>
+          <Link href={branchHref} aria-disabled={quotaFull} tabIndex={quotaFull ? -1 : undefined}>
+            <Button
+              disabled={!activeCompanyId || quotaFull}
+              title={quotaFull ? "Şube kotanız dolu — aboneliğinizi yükseltin" : undefined}
+            >
               <Plus className="mr-2 h-4 w-4" />
               Yeni Şube
             </Button>
@@ -75,11 +113,66 @@ export default function SubelerPage() {
         </div>
       </div>
 
+      {/* Şube kotası — şube açma denetimiyle aynı kaynaktan (getBranchQuotaStatus). */}
+      {quota && (
+        <Card>
+          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 space-y-1.5">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="text-sm font-medium">Şube kotası</span>
+                <span className="text-lg font-bold tabular-nums">
+                  {quota.used}/{quota.quota}
+                </span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {activeCompanyName ? `· ${activeCompanyName}` : ""}
+                </span>
+              </div>
+              <div
+                className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-valuenow={quota.used}
+                aria-valuemin={0}
+                aria-valuemax={quota.quota}
+              >
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    quotaFull ? "bg-amber-500" : "bg-primary"
+                  }`}
+                  style={{
+                    width: `${quota.quota > 0 ? Math.min(100, (quota.used / quota.quota) * 100) : 100}%`,
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {!quota.hasActiveSubscription
+                  ? "Aktif aboneliğiniz yok — şube açmak için abonelik gerekir."
+                  : quota.remaining > 0
+                    ? `${quota.remaining} şube daha açabilirsiniz.`
+                    : "Kotanız dolu. Yeni şube için kotanızı yükseltin."}
+              </p>
+            </div>
+            {(quotaFull || !quota.hasActiveSubscription) && (
+              <Link href={withCompanyHref("/ayarlar/abonelik", activeCompanyId)}>
+                <Button variant="outline" size="sm" className="shrink-0">
+                  Kotayı yükselt
+                </Button>
+              </Link>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>Şubeler</CardTitle>
+          <CardTitle>Firmalar ve şubeler</CardTitle>
+          {/* "Toplam N şube" YANILTICIYDI: bu liste kullanıcının üye olduğu HER firmayı
+              (başka hesaplar dahil) ve onların şubelerini gösterir; kota ise yalnız AKTİF
+              hesabın şubelerini sayar. İki sayı farklı kümeler — ayrımı açıkça yazıyoruz. */}
           <CardDescription>
-            {isLoading ? "Yükleniyor…" : `Toplam ${companies.length} şube`}
+            {isLoading
+              ? "Yükleniyor…"
+              : `Erişiminiz olan ${companies.length} firma/şube` +
+                (quota ? ` · aktif hesabınızın ${quota.used} şubesi var` : "")}
           </CardDescription>
         </CardHeader>
         <CardContent>

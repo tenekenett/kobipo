@@ -36,6 +36,12 @@ type QuickCariDialogProps = {
   defaultKind?: CariKind
   /** Cari isim kutusuna açılışta yazılacak metin (combobox'ta aranan). */
   initialName?: string
+  /**
+   * VKN/vergi dairesi/adres zorunlu mu? Fatura akışında UBL bu alanları istediği için
+   * zorunlu (varsayılan). İrsaliye/sipariş/teklif gibi belgelerde cari elde olmayabilir;
+   * oralarda `false` verilir — API zaten yalnız ad ister, eksikler cari kartından tamamlanır.
+   */
+  requireTaxFields?: boolean
   /** Kayıt başarılıysa oluşan cari + tipiyle çağrılır. */
   onCreated: (created: CreatedCari, kind: CariKind) => void
 }
@@ -46,6 +52,7 @@ export function QuickCariDialog({
   companyId,
   defaultKind = "customer",
   initialName = "",
+  requireTaxFields = true,
   onCreated,
 }: QuickCariDialogProps) {
   const { toast } = useToast()
@@ -91,19 +98,20 @@ export function QuickCariDialog({
       return
     }
     const vkn = form.taxNumber.replace(/\D/g, "")
-    if (!vkn) {
+    if (requireTaxFields && !vkn) {
       toast({ title: "VKN/TCKN gerekli", description: "VKN 10, TCKN 11 haneli olmalı", variant: "destructive" })
       return
     }
-    if (!/^\d{10,11}$/.test(vkn)) {
+    // Girildiyse format her koşulda denetlenir — yarım VKN kaydetmek fatura anında patlar.
+    if (vkn && !/^\d{10,11}$/.test(vkn)) {
       toast({ title: "VKN/TCKN 10 veya 11 haneli olmalı", variant: "destructive" })
       return
     }
-    if (!form.taxOffice.trim()) {
+    if (requireTaxFields && !form.taxOffice.trim()) {
       toast({ title: "Vergi dairesi gerekli", variant: "destructive" })
       return
     }
-    if (!form.address.trim()) {
+    if (requireTaxFields && !form.address.trim()) {
       toast({ title: "Adres gerekli", variant: "destructive" })
       return
     }
@@ -161,7 +169,8 @@ export function QuickCariDialog({
             Yeni Cari Ekle
           </DialogTitle>
           <DialogDescription>
-            Faturaya eklemek için hızlıca yeni bir cari oluşturun. Kayıt sonrası otomatik seçilir.
+            Belgeye eklemek için hızlıca yeni bir cari oluşturun. Kayıt sonrası otomatik seçilir.
+            {!requireTaxFields && " Vergi bilgilerini sonra cari kartından tamamlayabilirsiniz."}
           </DialogDescription>
         </DialogHeader>
 
@@ -236,7 +245,7 @@ export function QuickCariDialog({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="qc-vkn">
-                VKN / TCKN <span className="text-red-500">*</span>
+                VKN / TCKN {requireTaxFields && <span className="text-red-500">*</span>}
               </Label>
               <Input
                 id="qc-vkn"
@@ -249,7 +258,7 @@ export function QuickCariDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="qc-vd">
-                Vergi Dairesi <span className="text-red-500">*</span>
+                Vergi Dairesi {requireTaxFields && <span className="text-red-500">*</span>}
               </Label>
               <Input id="qc-vd" value={form.taxOffice} onChange={(e) => set("taxOffice", e.target.value)} />
             </div>
@@ -268,7 +277,7 @@ export function QuickCariDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="qc-address">
-              Adres <span className="text-red-500">*</span>
+              Adres {requireTaxFields && <span className="text-red-500">*</span>}
             </Label>
             <Input id="qc-address" value={form.address} onChange={(e) => set("address", e.target.value)} />
           </div>

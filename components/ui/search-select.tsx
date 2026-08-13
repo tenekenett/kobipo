@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Check, ChevronsUpDown } from "lucide-react"
+import { Check, ChevronsUpDown, Plus } from "lucide-react"
 import { Input } from "@/components/ui/input"
 
 export type SearchOption = { id: string; name: string }
@@ -18,6 +18,14 @@ type SearchSelectProps = {
   /** Üstte "—" (seçimi temizle) satırı göster. */
   allowClear?: boolean
   clearLabel?: string
+  /**
+   * Verilirse listenin altına "yeni ekle" satırı çıkar; yazılan metinle çağrılır
+   * (kayıt formunu ismi doldurulmuş açmak için). Kayıt listede yoksa kullanıcı
+   * bu seçicide çıkmaza düşmesin diye var.
+   */
+  onCreate?: (query: string) => void
+  /** Yazı yokken gösterilecek ekleme satırı metni. */
+  createLabel?: string
 }
 
 function norm(s: string): string {
@@ -47,6 +55,8 @@ export function SearchSelect({
   disabled,
   allowClear,
   clearLabel,
+  onCreate,
+  createLabel,
 }: SearchSelectProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -80,11 +90,20 @@ export function SearchSelect({
     return options.filter((o) => norm(o.name).includes(q))
   }, [query, options, selectedName])
 
+  // Seçili adı değil, KULLANICININ yazdığını taşı: yeni kayıt formuna ad olarak gider.
+  const typedQuery = query === selectedName ? "" : query.trim()
+
   function select(opt: SearchOption) {
     onChange(opt.id)
     setQuery(opt.name)
     setOpen(false)
     setHighlight(-1)
+  }
+
+  function startCreate() {
+    setOpen(false)
+    setHighlight(-1)
+    onCreate?.(typedQuery)
   }
 
   function clear() {
@@ -127,6 +146,10 @@ export function SearchSelect({
             } else if (e.key === "Enter" && highlight >= 0) {
               e.preventDefault()
               select(matches[highlight])
+            } else if (e.key === "Enter" && onCreate && matches.length === 0) {
+              // Eşleşme yokken Enter = yazılan adla yeni kayıt aç.
+              e.preventDefault()
+              startCreate()
             } else if (e.key === "Escape") {
               setOpen(false)
             }
@@ -175,6 +198,23 @@ export function SearchSelect({
                 </button>
               </li>
             ))
+          )}
+          {onCreate && (
+            <li className={matches.length > 0 ? "mt-1 border-t pt-1" : ""}>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  startCreate()
+                }}
+                className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-left text-sm font-medium text-kobipo-blue transition-colors hover:bg-accent dark:text-primary"
+              >
+                <Plus className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">
+                  {typedQuery ? `“${typedQuery}” adıyla ekle` : createLabel || "Yeni kayıt ekle"}
+                </span>
+              </button>
+            </li>
           )}
         </ul>
       )}
