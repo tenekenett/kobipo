@@ -7,10 +7,16 @@ import {
   assertRestaurantModule,
   serializeTicket,
   ticketInclude,
+  ticketTotals,
   TICKET_CANCEL_REASONS,
   TICKET_DISCOUNT_REASONS,
   TICKET_DISCOUNT_TYPES,
 } from "@/lib/restoran/tickets"
+import {
+  discountExceedsLimit,
+  discountLimitError,
+  normalizeDiscountLimit,
+} from "@/lib/restoran/discount-limit"
 import { buildTicketDetail } from "@/lib/restoran/ticket-detail"
 import { accessDeniedResponse } from "@/lib/api/errors"
 
@@ -153,6 +159,29 @@ export async function PATCH(request: Request, { params }: Params) {
         }
         if (type === "PERCENT" && value > 100) {
           return NextResponse.json({ error: "Yüzde 100'den büyük olamaz" }, { status: 400 })
+        }
+
+        // İŞLETME TAVANI. Diyalog "Uygula"yı zaten kilitliyor; buradaki kontrol
+        // ucun doğrudan çağrıldığı hâl için — tavan istemcide kalsaydı hiç
+        // olmazdı. Kalemler tutar iskontosu YÜZÜNDEN okunuyor: "50 lira indirim"
+        // ancak hesabın toplamıyla oranlanınca bir yüzdeye karşılık gelir.
+        const limit = normalizeDiscountLimit(
+          (
+            await prisma.company.findUnique({
+              where: { id: companyId },
+              select: { restaurantMaxDiscountPercent: true },
+            })
+          )?.restaurantMaxDiscountPercent,
+        )
+        if (limit !== null) {
+          const items = await prisma.restaurantTicketItem.findMany({
+            where: { ticketId: id },
+            select: { quantity: true, unitPrice: true, vatRate: true, status: true },
+          })
+          const { gross } = ticketTotals(items)
+          if (discountExceedsLimit({ type: type as "PERCENT" | "AMOUNT", value }, gross, limit)) {
+            return NextResponse.json({ error: discountLimitError(limit, gross) }, { status: 400 })
+          }
         }
 
         const reasonCode = body.discountReasonCode

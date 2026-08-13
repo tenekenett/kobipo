@@ -235,6 +235,10 @@ hareketi, maliyetin donması, fiş iptalinde geri alınması), **8d** (yarıda k
   (servis edilmiş kalem iptal edilemez, ancak zayi/ikram olur).
 - **Yetki kademesi** — iskonto, ikram, adisyon iptali bugün write yetkisi olan herkeste.
   Denetim raporu artık "kim yaptı"yı gösteriyor; sıradaki adım "kim yapabilir".
+  **Kısmen kapandı (2026-08-13):** iskontonun *büyüklüğü* artık işletme tavanıyla sınırlı
+  (`Company.restaurantMaxDiscountPercent`, ayarı bu raporun başında — SATIS-EKRANI.md K3.3).
+  Tavan herkesi bağlar, tavanı yalnız ADMIN değiştirir. Açık kalan: **ikram** ve **adisyon
+  iptali** için sınır/onay yok, iskontoyu *kimin* verebileceği hâlâ role bağlı değil.
 - **Vardiya / kasa devri** — gün sonu takvim gününe bakıyor; iki vardiyalı işletmede
   mutabakat yok.
 

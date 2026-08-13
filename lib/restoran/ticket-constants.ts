@@ -322,6 +322,21 @@ export function ticketDiscountOf(ticket: {
 const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100
 
 /**
+ * İskontonun KDV DAHİL tutar karşılığı. Yüzde hesabın oranı, tutar ise doğrudan
+ * kendisidir; ikisi de hesabı AŞAMAZ (kırpılır).
+ *
+ * Ayrı fonksiyon çünkü iki soruyu aynı kural cevaplamalı: "hesap kaça iniyor"
+ * (ticketTotals) ve "bu iskonto tavanı aşıyor mu" (lib/restoran/discount-limit).
+ * İkisi ayrı yazılsaydı tavan, ekranda görünenden başka bir rakamı ölçerdi.
+ */
+export function grossDiscountOf(discount: TicketDiscount, gross: number): number {
+  if (!discount || !(gross > 0)) return 0
+  return discount.type === "PERCENT"
+    ? gross * (Math.min(100, Math.max(0, discount.value)) / 100)
+    : Math.min(discount.value, gross)
+}
+
+/**
  * Adisyon toplamı. Kalem `unitPrice`'ı NET olduğu için KDV burada eklenir —
  * ekranda gösterilen tutar brüttür (kahveci ekranındaki `grossPrice` ile aynı
  * kural). Fişin kesin toplamı yine SUNUCUDA fatura ucunda hesaplanır; bu değer
@@ -349,13 +364,7 @@ export function ticketTotals(
   }
   const gross = net + vat
 
-  let discountGross = 0
-  if (discount && gross > 0) {
-    discountGross =
-      discount.type === "PERCENT"
-        ? gross * (Math.min(100, Math.max(0, discount.value)) / 100)
-        : Math.min(discount.value, gross)
-  }
+  const discountGross = grossDiscountOf(discount, gross)
   const netDiscount = gross > 0 ? discountGross * (net / gross) : 0
 
   return {

@@ -11,6 +11,11 @@ import {
   ticketInclude,
 } from "@/lib/restoran/tickets"
 import { writeCompWasteStock } from "@/lib/restoran/comp-waste-stock"
+import {
+  amountExceedsLimit,
+  discountLimitError,
+  normalizeDiscountLimit,
+} from "@/lib/restoran/discount-limit"
 import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -65,6 +70,25 @@ export async function GET(request: Request, { params }: Params) {
     if (billable.length === 0) {
       return NextResponse.json(
         { error: "Hesapta ödenecek kalem yok (tümü ikram/zayi/iptal)" },
+        { status: 400 },
+      )
+    }
+
+    // İSKONTO TAVANI kapanışta TEKRAR ölçülür. İskonto girildiği anda kurala
+    // uyuyordu ama hesap o gün değişmeye devam etti: kalem silindiyse (ya da
+    // patron tavanı sonradan indirdiyse) aynı tutar artık daha büyük bir yüzdeye
+    // denk gelir. Yalnız giriş anında bakmak, tavanı "girişte" değil "hiç"
+    // uygulamak olurdu — fişe giden rakam buradan geçiyor.
+    const limitCompany = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { restaurantMaxDiscountPercent: true },
+    })
+    const limit = normalizeDiscountLimit(limitCompany?.restaurantMaxDiscountPercent)
+    if (limit !== null && amountExceedsLimit(view.totals.discount, view.totals.gross, limit)) {
+      return NextResponse.json(
+        {
+          error: `${discountLimitError(limit, view.totals.gross)} Hesap değiştiği için iskonto tavanı aşıyor; iskontoyu güncelleyip tekrar deneyin.`,
+        },
         { status: 400 },
       )
     }

@@ -71,7 +71,7 @@ import {
 import { TicketPanel } from "@/components/restoran/ticket-panel"
 import { OptionDialog } from "@/components/restoran/option-dialog"
 import { DiscountDialog, type DiscountValue } from "@/components/restoran/discount-dialog"
-import { useProductOptions } from "@/lib/swr/use-restoran"
+import { useDiscountLimit, useProductOptions } from "@/lib/swr/use-restoran"
 import { submitReceiptSale } from "@/lib/satis/submit-receipt-sale"
 import { describeExpandError, expandRecipeLines } from "@/lib/stock/recipe-expand"
 import {
@@ -174,6 +174,10 @@ export function CafeSaleScreen() {
   const { customers } = useCustomers(companyId)
   const { template: receiptTemplate, company: receiptCompany } = useReceiptTemplate(companyId)
   const { groupsOf } = useProductOptions(companyId)
+  // İşletmenin iskonto tavanı — adisyon ekranındaki kuralın aynısı. Tezgâhta
+  // iskonto hiçbir yerde saklanmadan fişe gittiği için sunucu kapısı fiş
+  // ucundadır (app/api/e-donusum/invoices).
+  const { maxDiscountPercent } = useDiscountLimit(companyId)
 
   const [cart, setCart] = useState<CafeLine[]>([])
   const [optionFor, setOptionFor] = useState<RefProduct | null>(null)
@@ -1122,6 +1126,7 @@ export function CafeSaleScreen() {
         open={discountOpen}
         gross={totals.gross}
         employees={employees}
+        maxPercent={maxDiscountPercent}
         current={discount}
         onClose={() => setDiscountOpen(false)}
         onApply={(v) => {

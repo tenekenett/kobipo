@@ -398,6 +398,34 @@ export function useChecklistItems(companyId: string | null, opts?: { all?: boole
   return { items: Array.isArray(data) ? data : [], error, isLoading, mutate }
 }
 
+/**
+ * İşletmenin iskonto tavanı. Üç ekran okur: iki iskonto diyaloğu (sınırı göster,
+ * "Uygula"yı kilitle) ve denetim raporu (patron burada değiştirir).
+ *
+ * `revalidateOnFocus` KAPALI: ayar günde bir kez bile değişmez, satış ekranı ise
+ * saatlerce açık durur. Patron tavanı değiştirdiğinde rapor ekranı `mutate`
+ * çağırıyor; kasadaki sekme bir sonraki yüklemede öğrenir — arada sunucu kapısı
+ * zaten yerinde olduğu için eski değeri gösteren ekran yanlış iskonto GEÇİREMEZ.
+ */
+export function useDiscountLimit(companyId: string | null) {
+  const { data, error, isLoading, mutate } = useSWR<{
+    maxDiscountPercent: number | null
+    canEdit: boolean
+  }>(
+    companyId ? `/api/restoran/iskonto-limiti?companyId=${companyId}` : null,
+    jsonFetcher,
+    { revalidateOnFocus: false },
+  )
+  return {
+    /** null = sınır yok · 0 = iskonto kapalı (ikisi FARKLI). */
+    maxDiscountPercent: data ? data.maxDiscountPercent : null,
+    canEdit: data?.canEdit === true,
+    error,
+    isLoading,
+    mutate,
+  }
+}
+
 export type ChecklistItemRow = {
   id: string
   type: "OPENING" | "CLOSING"

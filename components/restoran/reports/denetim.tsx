@@ -16,6 +16,7 @@ import {
   StyledTableRow,
 } from "@/components/ui/styled-table"
 import { CompanyLink } from "@/components/dashboard/company-link"
+import { DiscountLimitCard } from "@/components/restoran/discount-limit-card"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import {
   ReportState,
@@ -215,6 +216,11 @@ export function DenetimReport({ range }: ReportProps) {
           hint={`${money(s?.voidValue ?? 0)} · hazırlanmadan iptal`}
         />
       </div>
+
+      {/* Ölçüm ile KURAL yan yana: patron verilen iskontoyu görüp sınırı aynı
+          ekrandan çekebilsin. Rapor aralığından bağımsız (tavan bir ayardır),
+          o yüzden `range` almıyor. */}
+      <DiscountLimitCard />
 
       <ReportState
         isLoading={isLoading}

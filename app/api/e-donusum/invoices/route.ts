@@ -16,6 +16,11 @@ import {
   hasActiveRecipe,
   parseRecipeEffects,
 } from "@/lib/stock/recipe-expand"
+import {
+  amountExceedsLimit,
+  discountLimitError,
+  normalizeDiscountLimit,
+} from "@/lib/restoran/discount-limit"
 import { accessDeniedResponse } from "@/lib/api/errors"
 
 
@@ -223,6 +228,8 @@ const company = await prisma.company.findUnique({
     taxOffice: true,
     address: true,
     city: true,
+    // Kafe/restoran iskonto tavanı — fiş (isReceipt) satışında uygulanır, bkz. aşağısı.
+    restaurantMaxDiscountPercent: true,
     parentCompany: { select: { taxNumber: true } },
   },
 })
@@ -372,6 +379,29 @@ const company = await prisma.company.findUnique({
     // Elektrik/telekom faturasındaki ETV, Enerji Fonu gibi KDV matrahına dahil
     // kalemler için (bkz. Invoice.globalChargeAmount yorumu).
     const appliedGlobalCharge = Math.max(0, parseFloat(globalChargeAmount) || 0)
+
+    // KAFE/RESTORAN İSKONTO TAVANI — fiş yolunun kapısı.
+    //
+    // Adisyon iskontosu kendi ucunda ölçülüyor; tezgâh (Kahveci Satış) iskontosu
+    // ise HİÇBİR YERDE saklanmadan doğrudan buraya geliyor (fatura altı genel
+    // iskonto olarak). Kural yalnız adisyonda uygulansaydı aynı indirim tezgâhtan
+    // sınırsız verilmeye devam ederdi.
+    //
+    // Yalnız FİŞ satışında: tavan kafe hesabı için konuldu, kurumsal bir satış
+    // faturasındaki pazarlık iskontosunu bağlaması istenmez.
+    if (isReceipt && type === "SALES" && appliedGlobalDiscount > 0) {
+      const limit = normalizeDiscountLimit(company.restaurantMaxDiscountPercent)
+      // Ölçü KDV DAHİL tabana çevrilir: oran ikisinde de aynı çıkar ama hata
+      // metnindeki tutar, kasiyerin ekranda gördüğü rakamla aynı olmalı.
+      const grossBase = netAmount + vatAmount
+      const grossDiscount = netAmount > 0 ? appliedGlobalDiscount * (grossBase / netAmount) : 0
+      if (amountExceedsLimit(grossDiscount, grossBase, limit)) {
+        return NextResponse.json(
+          { error: discountLimitError(limit, grossBase) },
+          { status: 400 }
+        )
+      }
+    }
 
     if (netAmount > 0 && (appliedGlobalDiscount > 0 || appliedGlobalCharge > 0)) {
       const adjustedNet = netAmount - appliedGlobalDiscount + appliedGlobalCharge

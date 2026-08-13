@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -33,6 +33,7 @@ type CatalogPricingItem = {
 
 type CatalogSubscription = {
   status: string
+  planId: string | null
   planName: string | null
   billingCycle: string | null
   purchasedModules: string[]
@@ -116,6 +117,30 @@ export default function AbonelikPage() {
     loadCatalog()
   }, [loadCatalog])
 
+  // Ekran, MEVCUT aboneliğin üstüne yazar — boş sayfadan başlamaz.
+  //
+  // Neden şart: sipariş, aboneliğin YENİ HÂLİNİN tam anlık görüntüsüdür (callback
+  // `purchasedModules`/`branchQuota`'yı bu snapshot'la değiştirir). Seçim sıfırdan
+  // başlarsa "bir şube daha alayım" diyen müşteri farkında olmadan modüllerini
+  // sıfırlayan ve kotasını düşüren bir sipariş oluşturur. Bir kez tohumlanır
+  // (`seededRef`); kullanıcının sonraki seçimleri katalog yenilense de korunur.
+  const seededRef = useRef(false)
+  useEffect(() => {
+    if (!catalog || seededRef.current) return
+    seededRef.current = true
+    const s = catalog.subscription
+    if (!s) return
+
+    if (s.billingCycle === "MONTHLY" || s.billingCycle === "YEARLY") setCycle(s.billingCycle)
+    const plan = s.planId ? catalog.plans.find((p) => p.id === s.planId) ?? null : null
+    if (plan) setSelectedPlanId(plan.id)
+
+    const included = new Set(plan?.includedModules ?? [])
+    setExtras(new Set(s.purchasedModules.filter((m) => !included.has(m))))
+    setBranchQuota(Math.max(s.branchQuota, catalog.currentBranches, plan?.includedBranches ?? 0))
+    setAutoRenew(s.autoRenew)
+  }, [catalog])
+
   async function handleCancel() {
     if (!companySlug || cancelling) return
     if (!window.confirm("Abonelik dönem sonunda iptal edilsin mi? Süre bitene kadar modülleriniz açık kalır.")) {
@@ -158,6 +183,9 @@ export default function AbonelikPage() {
     [selectedPlan],
   )
   const minBranches = selectedPlan?.includedBranches ?? 0
+  // Kota, AÇIK olan şube sayısının altına inemez: sipariş kotayı değiştirdiği için daha
+  // düşük bir değer, zaten var olan şubeleri kotasız bırakırdı.
+  const minQuota = Math.max(minBranches, catalog?.currentBranches ?? 0)
 
   // Paket değişince: dahil modülleri "ekstra" setinden çıkar, kotayı en az paket dahiline çek.
   function selectPlan(planId: string) {
@@ -198,12 +226,19 @@ export default function AbonelikPage() {
       computeOrder({
         plan: selectedPlan ? toPlanPricing(selectedPlan) : null,
         chosenModules: Array.from(extras),
-        branchQuota: Math.max(branchQuota, minBranches),
+        branchQuota: Math.max(branchQuota, minQuota),
         billingCycle: cycle,
         pricing: pricingMap,
       }),
-    [selectedPlan, extras, branchQuota, minBranches, cycle, pricingMap],
+    [selectedPlan, extras, branchQuota, minQuota, cycle, pricingMap],
   )
+
+  // Aboneliğin ŞU AN sahip olduğu ama yeni seçimde bulunmayan modüller. Sipariş
+  // aboneliğin yeni hâlini yazdığı için bunlar ödeme sonrası KAPANIR — sessiz kalmaz, uyarırız.
+  const droppedModules = useMemo(() => {
+    const current = catalog?.subscription?.purchasedModules ?? []
+    return current.filter((m) => !computed.resolvedModules.includes(m))
+  }, [catalog, computed.resolvedModules])
 
   const cyclePrice = (key: string) => {
     const item = pricingMap[key]
@@ -232,7 +267,7 @@ export default function AbonelikPage() {
           companyId: companySlug,
           planId: selectedPlan?.id ?? null,
           chosenModules: Array.from(extras),
-          branchQuota: Math.max(branchQuota, minBranches),
+          branchQuota: Math.max(branchQuota, minQuota),
           billingCycle: cycle,
           autoRenew,
         }),
@@ -466,15 +501,17 @@ export default function AbonelikPage() {
           <div>
             <p className="font-medium">Ek şube kotası</p>
             <p className="text-xs text-muted-foreground">
-              Ana firma hariç açabileceğiniz şube sayısı. Şu an {catalog.currentBranches} şubeniz var.
+              Ana firma hariç açabileceğiniz TOPLAM şube sayısı — mevcut kotanızın üstüne
+              eklenmez, bu değer geçerli olur. Şu an {catalog.currentBranches} şubeniz var
+              {sub ? `, kotanız ${sub.branchQuota}` : ""}.
               {minBranches > 0 && ` Paket ${minBranches} şube içeriyor.`}
               {computed.extraBranches > 0 && ` ${computed.extraBranches} ek şube ücretlendirilir.`}
             </p>
           </div>
           <QuantityStepper
-            value={Math.max(branchQuota, minBranches)}
-            onChange={(v) => setBranchQuota(Math.max(minBranches, Math.floor(v)))}
-            min={minBranches}
+            value={Math.max(branchQuota, minQuota)}
+            onChange={(v) => setBranchQuota(Math.max(minQuota, Math.floor(v)))}
+            min={minQuota}
             step={1}
           />
         </CardContent>
@@ -512,6 +549,20 @@ export default function AbonelikPage() {
             <span>Dönem sonunda otomatik yenile</span>
           </label>
 
+          {droppedModules.length > 0 && (
+            <p className="flex items-start gap-2 rounded-md bg-amber-50 p-2.5 text-xs text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+              <AlertTriangle className="mt-px h-4 w-4 shrink-0" />
+              <span>
+                Bu sipariş aboneliğinizin yeni hâli olacak; şu an açık olan{" "}
+                <strong>
+                  {droppedModules
+                    .map((k) => MANAGEABLE_MODULES.find((m) => m.key === k)?.label || k)
+                    .join(", ")}
+                </strong>{" "}
+                kapanır. Kalsın istiyorsanız yukarıdan tekrar seçin.
+              </span>
+            </p>
+          )}
           {!catalog.paytrEnabled && (
             <p className="flex items-center gap-2 rounded-md bg-amber-50 p-2.5 text-xs text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
               <AlertTriangle className="h-4 w-4 shrink-0" />

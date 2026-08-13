@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Loader2, RefreshCw, Search, RotateCcw, Lock, Unlock, XCircle, Building2, Check, AlertTriangle } from "lucide-react"
+import { Loader2, RefreshCw, Search, RotateCcw, Lock, Unlock, XCircle, CheckCircle2, Building2, Check, AlertTriangle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { MAX_BRANCH_QUOTA } from "@/lib/billing/constants"
@@ -178,6 +178,36 @@ export function SubscriptionAdmin() {
     }
   }
 
+  // Ödemesi PayTR panelinden teyit edilmiş ama bildirimi ulaşmamış siparişi kurtarır.
+  // (Bildirim URL'si tek olduğu için paket ödemeleri uzun süre kontör ucuna düşüp
+  // sessizce yutuldu — o dönemin siparişleri bu yolla açılır.)
+  const activateOrder = async (acc: Account, order: Order) => {
+    const ok = await confirm({
+      title: "Siparişi elle aktifleştir",
+      description:
+        `${order.planName || "Özel paket"} · ${tl.format(Number(order.amount))} — ödeme ALINDIĞI ` +
+        `PayTR panelinden teyit edildiyse devam edin. Sipariş ACTIVE yapılıp abonelik uygulanacak; ` +
+        `bu uç PayTR'a sormaz.`,
+    })
+    if (!ok) return
+    setBusyId(acc.id)
+    try {
+      const res = await fetch(`/api/billing/admin/orders/${order.id}/activate`, { method: "POST" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Aktifleştirme başarısız")
+      toast({ title: "Sipariş aktifleştirildi", description: `${acc.name} — abonelik uygulandı.` })
+      await load()
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Hata",
+        description: e instanceof Error ? e.message : "Aktifleştirme başarısız",
+      })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const cancelOrder = async (acc: Account, order: Order) => {
     const ok = await confirm({
       title: "Siparişi iptal et",
@@ -238,6 +268,7 @@ export function SubscriptionAdmin() {
               busy={busyId === acc.id}
               onReset={resetAccount}
               onCancelOrder={cancelOrder}
+              onActivateOrder={activateOrder}
               onSaveBranchQuota={saveBranchQuota}
             />
           ))}
@@ -252,12 +283,14 @@ function AccountCard({
   busy,
   onReset,
   onCancelOrder,
+  onActivateOrder,
   onSaveBranchQuota,
 }: {
   acc: Account
   busy: boolean
   onReset: (acc: Account, mode: "trial" | "locked") => void
   onCancelOrder: (acc: Account, order: Order) => void
+  onActivateOrder: (acc: Account, order: Order) => void
   onSaveBranchQuota: (acc: Account, quota: number) => void
 }) {
   const sub = acc.subscriptions[0] ?? null
@@ -354,13 +387,23 @@ function AccountCard({
                     <td className="py-1.5 pr-3 text-slate-500">{fmtDate(o.createdAt)}</td>
                     <td className="py-1.5 text-right">
                       {(o.status === "PENDING_PAYMENT" || o.status === "FAILED") && (
-                        <button
-                          onClick={() => onCancelOrder(acc, o)}
-                          disabled={busy}
-                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-red-300 hover:bg-red-500/15 disabled:opacity-50"
-                        >
-                          <XCircle className="h-3.5 w-3.5" /> İptal
-                        </button>
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            onClick={() => onActivateOrder(acc, o)}
+                            disabled={busy}
+                            title="Ödeme PayTR panelinden teyit edildiyse siparişi elle aç"
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-emerald-300 hover:bg-emerald-500/15 disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Aktifleştir
+                          </button>
+                          <button
+                            onClick={() => onCancelOrder(acc, o)}
+                            disabled={busy}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-red-300 hover:bg-red-500/15 disabled:opacity-50"
+                          >
+                            <XCircle className="h-3.5 w-3.5" /> İptal
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>

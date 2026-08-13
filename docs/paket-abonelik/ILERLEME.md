@@ -235,3 +235,60 @@ Satın alma akışı dışında destek/demo amaçlı kota verebilmek için siste
 - **"Taze trial" artık kotayı korur** — sıfırlama aboneliği silip yeniden kurduğu için elle
   verilen kota kayboluyordu; `resetAccountBilling` önceki `branchQuota`'yı yeni satıra taşır.
 - `tsc --noEmit` 0 hata (yalnızca `.next/types` kaynaklı eski uyarı), eslint temiz.
+
+---
+
+## Ek — canlı ödeme hiç aktifleşmiyordu: tek bildirim URL'si (2026-08-13)
+
+**Belirti.** Abonelik ekranından ek şube alınıyor, PayTR ödemeyi alıyor, kullanıcı
+`?odeme=ok` ile geri dönüyor ve ödeme sayfası **"Ödemeniz doğrulanıyor…"** ekranında
+sonsuza dek kalıyordu. Canlıda `package_orders` içinde bugüne dek ACTIVE olmuş **tek bir
+sipariş yoktu** (5 sipariş PENDING_PAYMENT, `paidAt` boş); buna karşılık kontör kart
+siparişleri sorunsuz `LOADED` oluyordu.
+
+**Kök neden.** PayTR'ın bildirim (callback) URL'si **mağaza hesabı başına TEKTİR** —
+ödeme başına ayarlanamaz (`get-token`'daki `merchant_ok_url`/`merchant_fail_url` yalnız
+tarayıcı yönlendirmesidir). Kobipo'nun iki ödeme akışı aynı PayTR mağazasını kullanıyordu
+ama **iki ayrı uç** tutuyordu. Panelde kontör adresi yazılıydı; paket ödemesinin bildirimi
+oraya düşüyor, `kontorOrder.findUnique({ id: merchant_oid })` bulamıyor ve **"OK"**
+dönüyordu → PayTR bildirimi teslim edilmiş sayıp bir daha denemiyordu. Para çekiliyor,
+sipariş sonsuza dek PENDING kalıyordu. (Ters kurulumda kontör ödemeleri aynı şekilde
+yutulurdu — iki akış aynı anda asla çalışamazdı.)
+
+**Çözüm — tek yönlendirici.** `lib/integrations/paytr/notification.ts` →
+`handlePaytrNotification`: hash'i bir kez doğrular, `merchant_oid`'i önce
+`packageOrder` (taban id `merchantOidBase` ile), sonra `kontorOrder` olarak arar ve doğru
+akışa yönlendirir. İş kuralları domainlerinde kaldı: `lib/billing/paytr-payment.ts` ve
+`lib/kontor/paytr-payment.ts`. Üç uç da (`/api/paytr/callback` — **kanonik**,
+`/api/kontor/paytr/callback`, `/api/billing/paytr/callback`) aynı fonksiyonu çağırır, yani
+**PayTR panelindeki adres değişmeden** iki akış da çalışır. Eşleşmeyen `merchant_oid` hâlâ
+OK döner (sonsuz tekrar olmasın) ama artık **yüksek sesle loglanır** — sessiz para kaybı yok.
+
+**Yanında çıkan ikinci hata — kota alımı modülleri siliyordu.** Modülsüz sipariş
+(yalnız şube kotası) `purchasedModules = []` yazıp `applyEntitlements(root, [])`
+çağırıyordu: ana firma **ve tüm şubelerde** her modül kapanırdı. Bildirim hiç ulaşmadığı
+için canlıda patlamamıştı — düzeltme olmasa ilk başarılı ödemede patlardı. Karar artık saf
+ve testli: `planSubscriptionWrite` (`lib/billing/paytr-payment.ts`,
+`paytr-payment.test.ts`):
+- **kota-only sipariş** → yalnız `branchQuota` yazılır; durum/dönem/modüller ve
+  `applyEntitlements` ELLENMEZ (deneme süresi de kısalmaz). Sistem-admin elle kota verme
+  kuralıyla aynı: "kota vermek modül açmak değildir".
+- **modül/paket alımı** → ACTIVE yazılır, yetkiler uygulanır, `periodEnd` **asla geriye
+  çekilmez** (dönem ortası yükseltmede kalan ödenmiş süre korunur).
+
+**Arayüz.** `ayarlar/abonelik` artık mevcut aboneliği **ön-seçer** (paket, modüller, kota,
+periyot, otomatik yenileme). Sipariş aboneliğin yeni hâlinin tam anlık görüntüsü olduğu
+için boş sayfadan başlamak, "bir şube daha alayım" diyen müşteriye modüllerini sıfırlayan
+bir sipariş kurdurtuyordu. Kota alanı artık açık şube sayısının altına inemez ve seçim
+mevcut bir modülü düşürüyorsa özet kartında **uyarı** çıkar. Ödeme sayfası 90 saniye sonra
+sonsuz spinner yerine sipariş no'su + "tekrar kontrol et" + destek yönlendirmesi gösterir.
+
+**Kurtarma.** `POST /api/billing/admin/orders/<id>/activate` (süper-admin) — ödemesi PayTR
+panelinden teyit edilmiş ama bildirimi ulaşmamış siparişi elle açar; sistem-admin abonelik
+kartında sipariş satırındaki **"Aktifleştir"** butonu. PayTR'a sormaz, teyit insana aittir.
+
+**Kalan iş (opsiyonel).** PayTR "ödeme durum sorgu" API'siyle otomatik doğrulama: uygulama
+bildirimi beklemek yerine PayTR'a sorar. Denemeye özel `merchant_oid` saklanmadığı için
+`package_orders`'a bir kolon (+migrasyon) ister.
+
+- `tsc --noEmit` 0 hata, eslint temiz, `vitest run` 221 test geçti.

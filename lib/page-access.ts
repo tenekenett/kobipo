@@ -370,6 +370,14 @@ export const PAGE_API_RULES: PageApiRule[] = [
     writePages: ["/restoran/menu"],
   },
   { prefix: "/api/restoran/ikram", pages: ["/restoran/satis", ...TICKET_PAGES] },
+  {
+    // Tavanı iskonto diyaloğu da OKUR (kasiyer sınırı görsün, "Uygula" boşuna
+    // hata almasın); YAZMA ayarın yaşadığı rapor ekranına bağlıdır. Ucun kendi
+    // içinde ayrıca ADMIN şartı var — bu kural sayfa kapısının payına düşen.
+    prefix: "/api/restoran/iskonto-limiti",
+    pages: ["/restoran/raporlar", "/restoran/satis", ...TICKET_PAGES],
+    writePages: ["/restoran/raporlar"],
+  },
   { prefix: "/api/restoran", pages: RESTAURANT_PAGES },
 
   // ---- E-Dönüşüm ---------------------------------------------------------

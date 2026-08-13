@@ -179,8 +179,9 @@ kartında (`/personel/[id]` → Restoran sekmesi) o personelin verdiği iskontol
 **Kapsam dışı (bilinçli):** *(a)* Tezgâh (Kahveci Satış) iskontosu hâlâ kaydedilmiyor —
 sepetin adisyonu yok ve `Invoice`'ta sebep alanı yok (`globalDiscountAmount` yalnız tutar);
 personel/sebep orada sadece ekranda ve yazdırılan fişte yaşar. *(b)* ~~İkramda personel
-sorulmuyor~~ → **K3.2'de kapatıldı.** *(c)* Yetki kademesi: bu iş kimin yaptığını
-**kaydeder**, kimin yapabileceğini **kısıtlamaz** (bkz. DENETIM-VE-TEMIZLIK.md Faz 5).
+sorulmuyor~~ → **K3.2'de kapatıldı.** *(c)* ~~Yetki kademesi: bu iş kimin yaptığını
+**kaydeder**, kimin yapabileceğini **kısıtlamaz**~~ → iskontonun **büyüklüğü** K3.3'te
+sınırlandı; *kimin* verebileceği hâlâ açık (bkz. DENETIM-VE-TEMIZLIK.md Faz 5).
 
 #### K3.2 — İkramı veren personel de sorulur (2026-08-06)
 
@@ -214,6 +215,49 @@ seçici oraya kondu. Tek personel varsa otomatik seçilir.
 **Kapsam dışı:** denetim raporu ikramı henüz personele göre GRUPLAMIYOR — veri artık var,
 rapor sorgusu (`raporlar/denetim/route.ts`, stok hareketlerini `description LIKE` ile
 ayırıyor) eski. İskontodaki "İskonto veren personel" kutusunun ikram karşılığı ayrı iş.
+
+#### K3.3 — İskonto TAVANI: işletme en fazla ne kadar indirime izin veriyor (2026-08-13)
+
+K3.1 "kim verdi"yi kaydetti ama **ne kadar verilebileceğini** kimse söylemiyordu: write
+yetkisi olan herkes %90 indirim yazabiliyordu ve bunu ancak gün sonunda denetim raporu
+gösteriyordu. Rapor kaçağı **görünür** kılar; tavan **oluşmasını** engeller.
+
+Tek alan: `Company.restaurantMaxDiscountPercent` (`numeric(5,2)`).
+`NULL` = sınır yok (bugüne kadarki davranış, mevcut firmalar etkilenmez) ·
+`0` = iskonto tamamen kapalı. İkisi **farklı** durumlardır; `0 || null` kısayolu tavanı
+sessizce kaldırırdı, kolon bu yüzden nullable.
+
+**Tavan yüzdedir ama tutar iskontosunu da bağlar.** 600 ₺'lik hesaba 500 ₺ indirim %83'tür;
+ölçü her iki türde de iskontonun hesaba oranıdır. Yalnız "yüzde" düğmesini bağlasaydı tavan,
+"tutar" düğmesine basan kasiyer için hiç yoktu.
+
+**Herkesi bağlar — patron dahil.** Muafiyet listesi yok: tavanı, bağladığı kişinin kendisi
+aşabilseydi kural olmazdı. Daha yüksek bir indirim gerekiyorsa ADMIN önce tavanı değiştirir
+(o değişiklik bir karardır ve ayar ekranından görünür), sonra iskontoyu verir.
+
+**Kural DÖRT yerde, çünkü iskonto dört kapıdan geçiyor:**
+
+| Yer | Ne yakalar |
+|---|---|
+| `discount-dialog.tsx` (iki ekran ortak) | "Uygula" kilidi + hesaba düşen tutar; sınır girişin üstünde yazar, hızlı yüzdeler tavana göre kırpılır |
+| `adisyonlar/[id]` PATCH | Uç doğrudan çağrılırsa; tutar iskontosu için kalemler okunup oran hesaplanır |
+| `adisyonlar/[id]/kapat` GET | **Kapanışta yeniden** ölçülür: iskonto girildikten sonra kalem silindiyse (ya da tavan indirildiyse) aynı tutar artık daha büyük bir yüzdeye denk gelir |
+| `e-donusum/invoices` POST (`isReceipt`) | Tezgâh (Kahveci Satış) iskontosu hiçbir yerde saklanmadan doğrudan fişe gider — kural yalnız adisyonda olsaydı tezgâhtan sınırsız indirim verilirdi |
+
+Fiş ucundaki ölçüm **matrah** üzerindendir (`globalDiscountAmount` net bekler); iskonto brüte
+de matraha da aynı oranda düştüğü için sonuç KDV dahil bakışla aynıdır — testi
+`lib/restoran/discount-limit.test.ts` içinde.
+
+**Ayar nerede:** Raporlar → **İkram & Denetim**, "Verilen iskonto" kutusunun hemen altında.
+Ayrı bir "Restoran Ayarları" sayfası açılmadı: tavanın tek anlamı bu raporda görülen
+rakamlardır (açılış saatinin vardiya takviminde durmasıyla aynı gerekçe). Yazma **yalnız
+ADMIN**'de ve bunu `canEdit` ile **sunucu** söyler; şubelerde ana firmanın sahibi zaten
+sanal ADMIN'dir. Okuma herkese açık — kasiyer sınırı diyalogda görebilmeli.
+
+**Kapsam dışı (bilinçli):** ikram (`COMP`) tavana **girmiyor**. Kalemleri ikram işaretleyerek
+tavanı dolaylı aşmak hâlâ mümkün; ikramın kendi sınırı ayrı bir iştir (denetim raporu onu
+ölçmeye devam ediyor). Rol bazlı iki ayrı tavan (personel %20 / müdür %50) da yok — tek
+sayı, tek kural.
 
 ### K4 — Hesap fişi = fiş şablonunun mali olmayan kopyası
 

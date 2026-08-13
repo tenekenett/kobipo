@@ -32,6 +32,12 @@ import {
 } from "@/components/ui/select"
 import { currency } from "@/lib/fis/receipt-html"
 import { TICKET_DISCOUNT_REASONS } from "@/lib/restoran/ticket-constants"
+import {
+  discountExceedsLimit,
+  formatPercent,
+  maxDiscountFor,
+  type DiscountLimit,
+} from "@/lib/restoran/discount-limit"
 import type { RefEmployee } from "@/lib/swr/use-company-data"
 import { cn } from "@/lib/utils"
 
@@ -54,6 +60,7 @@ export function DiscountDialog({
   gross,
   current,
   employees,
+  maxPercent = null,
   onClose,
   onApply,
 }: {
@@ -66,6 +73,13 @@ export function DiscountDialog({
    * (ya da `hr` modülünü kullanmayan) işletmede iskonto kilitlenmemeli.
    */
   employees: RefEmployee[]
+  /**
+   * İşletmenin izin verdiği en yüksek iskonto (Raporlar → İkram & Denetim).
+   * null = sınır yok · 0 = iskonto kapalı. TUTAR iskontosunu da bağlar; burada
+   * kilitlemek kasiyeri sunucudan hata almaktan kurtarır, kuralın kendisi
+   * sunucudadır (app/api/restoran/adisyonlar/[id] · .../kapat · fiş ucu).
+   */
+  maxPercent?: DiscountLimit
   onClose: () => void
   onApply: (value: DiscountValue) => void
 }) {
@@ -83,6 +97,23 @@ export function DiscountDialog({
   // "Uygula"ya basıp hata mesajıyla karşılaşmasın.
   const needsEmployee = employees.length > 0
 
+  // ---- İşletme tavanı ----
+  /** İskonto tamamen kapalı: alanları çizmenin anlamı yok, sebebi yazılır. */
+  const discountsOff = maxPercent === 0
+  const maxAmount = maxDiscountFor(gross, maxPercent)
+  const overLimit = discountExceedsLimit({ type, value: parsed }, gross, maxPercent)
+  /**
+   * Hızlı yüzdeler tavana göre kırpılır ve tavanın KENDİSİ listeye eklenir:
+   * %50 tavanlı işletmede kasiyerin en çok istediği düğme %50'dir, onu elle
+   * yazdırmak tavanı ceza gibi gösterirdi.
+   */
+  const quickPercents = useMemo(() => {
+    if (maxPercent === null) return QUICK_PERCENTS
+    const allowed = QUICK_PERCENTS.filter((p) => p <= maxPercent)
+    if (maxPercent > 0 && !allowed.includes(maxPercent)) allowed.push(maxPercent)
+    return allowed
+  }, [maxPercent])
+
   /**
    * Açıklama ZORUNLU (2026-08-07). Sebep kodu "ne tür bir indirim" sorusunu
    * cevaplıyor ama "%20 · Sadık müşteri" denetimde tek başına bir şey anlatmıyor:
@@ -91,7 +122,12 @@ export function DiscountDialog({
    * biri diğerinin yerine geçmiyor.
    */
   const trimmedReason = reason.trim()
-  const canApply = parsed > 0 && (!needsEmployee || !!employeeId) && trimmedReason.length > 0
+  const canApply =
+    parsed > 0 &&
+    (!needsEmployee || !!employeeId) &&
+    trimmedReason.length > 0 &&
+    !overLimit &&
+    !discountsOff
 
   const employeeLabel = useMemo(
     () => employees.find((e) => e.id === employeeId)?.name ?? null,
@@ -109,6 +145,20 @@ export function DiscountDialog({
         </DialogHeader>
 
         <div className="space-y-3">
+          {/* Tavan, girişin ÜSTÜNDE duruyor: kasiyer sınırı rakamı yazdıktan
+              sonra değil, yazmadan önce görsün. */}
+          {discountsOff ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+              Bu işletmede iskonto verilmiyor. Tavanı firma yöneticisi Raporlar → İkram &amp;
+              Denetim ekranından değiştirebilir.
+            </p>
+          ) : maxPercent !== null ? (
+            <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+              İşletme tavanı: en fazla <strong>%{formatPercent(maxPercent)}</strong>
+              {maxAmount !== null && gross > 0 ? ` — bu hesapta ${currency(maxAmount)}` : ""}
+            </p>
+          ) : null}
+
           <div className="grid grid-cols-2 gap-2">
             {(["PERCENT", "AMOUNT"] as const).map((t) => (
               <button
@@ -127,9 +177,9 @@ export function DiscountDialog({
             ))}
           </div>
 
-          {type === "PERCENT" && (
+          {type === "PERCENT" && quickPercents.length > 0 && (
             <div className="flex gap-2">
-              {QUICK_PERCENTS.map((p) => (
+              {quickPercents.map((p) => (
                 <button
                   key={p}
                   type="button"
@@ -151,8 +201,23 @@ export function DiscountDialog({
               onChange={(e) => setValue(e.target.value)}
               inputMode="decimal"
               placeholder="0"
-              className="mt-1.5 h-11 text-right text-lg font-bold tabular-nums"
+              disabled={discountsOff}
+              className={cn(
+                "mt-1.5 h-11 text-right text-lg font-bold tabular-nums",
+                overLimit && "border-destructive focus-visible:ring-destructive",
+              )}
             />
+            {/* Aşım UYARISI alanın hemen altında: "Uygula" pasifken sebebinin
+                dipnotta kalması, düğmeye basıp bekleyen kasiyeri açıklamasız
+                bırakırdı. */}
+            {overLimit && maxPercent !== null && (
+              <p className="mt-1.5 text-xs font-medium text-destructive">
+                İskonto tavanı %{formatPercent(maxPercent)}
+                {maxAmount !== null && gross > 0
+                  ? ` — bu hesapta en fazla ${currency(maxAmount)} indirilebilir.`
+                  : "."}
+              </p>
+            )}
           </div>
 
           {needsEmployee && (

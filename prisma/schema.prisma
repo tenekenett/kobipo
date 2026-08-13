@@ -260,6 +260,12 @@ model Company {
   // "işletme açık ama kimse yok" boşluğu ancak bu bantla görünür hale geliyor.
   // Şekil: lib/personel/opening-hours.ts (OpeningHours). NULL = tanımsız (bant çizilmez).
   openingHours              Json?
+  // Restoran & Kafe iskonto TAVANI: bir hesaba verilebilecek en yüksek indirim,
+  // yüzde olarak. Tutar iskontosunu da bağlar (600 ₺ hesaba 500 ₺ indirim %83'tür);
+  // ölçü her iki türde de iskontonun hesaba oranıdır — bkz. lib/restoran/discount-limit.ts.
+  // NULL = sınır yok (bugüne kadarki davranış). 0 = iskonto tamamen kapalı; ikisi
+  // FARKLI durumlardır, "0 ise tanımsız say" kısayolu tavanı sessizce kaldırırdı.
+  restaurantMaxDiscountPercent Decimal? @db.Decimal(5, 2)
   // Şube ise ana firmaya işaret eder; ana (merkez) firmada null'dır. Şube,
   // ana firmayla aynı VKN/vergi dairesi/e-Dönüşüm kimliğini paylaşır (mağaza gibi).
   parentCompanyId           String?

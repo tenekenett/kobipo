@@ -102,6 +102,16 @@ export default function AbonelikOdemePage() {
     }
   }, [isActive, isFailed, pollOrder])
 
+  // Bildirim (callback) gelmezse spinner sonsuza dek dönerdi ve müşteri parası çekilmiş
+  // hâlde ekranda kalırdı. Belirli bir süre sonra durumu açıkça söyleyip elle kontrol
+  // ve destek yolu sunarız — yoklama arka planda sürer.
+  const [waitedTooLong, setWaitedTooLong] = useState(false)
+  useEffect(() => {
+    if (!returnedFromPaytr || isActive || isFailed) return
+    const t = setTimeout(() => setWaitedTooLong(true), 90_000)
+    return () => clearTimeout(t)
+  }, [returnedFromPaytr, isActive, isFailed])
+
   // Abonelik aktifleşince server bileşenlerini (dashboard layout → nav'ın okuduğu entitlement'lar)
   // bir kez tazele; aksi halde açılan modüller ancak tam sayfa yenilemede navbar'a düşer.
   const refreshedRef = useRef(false)
@@ -172,12 +182,34 @@ export default function AbonelikOdemePage() {
               </Button>
             </div>
           ) : returnedFromPaytr && !iframeUrl ? (
-            <div className="flex flex-col items-center gap-3 py-16 text-center">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                Ödemeniz doğrulanıyor… Bu sayfa otomatik güncellenecek.
-              </p>
-            </div>
+            waitedTooLong ? (
+              <div className="flex flex-col items-center gap-3 py-12 text-center">
+                <AlertTriangle className="h-10 w-10 text-amber-500" />
+                <p className="text-lg font-semibold">Ödeme onayı henüz ulaşmadı</p>
+                <p className="max-w-md text-sm text-muted-foreground">
+                  Bankanızdan tahsilat yapıldıysa aboneliğiniz kısa süre içinde açılır — bu
+                  sayfayı kapatabilirsiniz. Açılmazsa aşağıdaki sipariş numarasıyla bize
+                  ulaşın; ödemeniz kaybolmaz.
+                </p>
+                <code className="rounded bg-muted px-2 py-1 text-xs">{orderId}</code>
+                <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+                  <Button onClick={pollOrder} variant="outline" size="sm">
+                    <RefreshCcw className="mr-1.5 h-4 w-4" />
+                    Tekrar kontrol et
+                  </Button>
+                  <Button asChild size="sm">
+                    <Link href={backHref}>Aboneliğe dön</Link>
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3 py-16 text-center">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  Ödemeniz doğrulanıyor… Bu sayfa otomatik güncellenecek.
+                </p>
+              </div>
+            )
           ) : loadingToken || !iframeUrl ? (
             <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />

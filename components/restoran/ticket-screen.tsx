@@ -79,7 +79,13 @@ import {
   useWarehouses,
   type RefProduct,
 } from "@/lib/swr/use-company-data"
-import { useProductOptions, useTables, useTicket, type Ticket } from "@/lib/swr/use-restoran"
+import {
+  useDiscountLimit,
+  useProductOptions,
+  useTables,
+  useTicket,
+  type Ticket,
+} from "@/lib/swr/use-restoran"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 import { cn } from "@/lib/utils"
 import { currency, type ReceiptData } from "@/lib/fis/receipt-html"
@@ -131,6 +137,8 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   const { employees } = useEmployees(companyId)
   const { template: receiptTemplate, company: receiptCompany } = useReceiptTemplate(companyId)
   const { groupsOf } = useProductOptions(companyId)
+  // İşletmenin iskonto tavanı — diyalog sınırı gösterip "Uygula"yı kilitler.
+  const { maxDiscountPercent } = useDiscountLimit(companyId)
   // Masa listesi yalnız "masayı değiştir" için; salon planındaki 20 sn'lik
   // tazeleme burada gereksiz — hesap ekranında masa dizilimi izlenmiyor.
   const { tables, mutate: mutateTables } = useTables(companyId, { refreshInterval: 0 })
@@ -1155,6 +1163,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
         open={discountOpen}
         gross={totals.gross}
         employees={employees}
+        maxPercent={maxDiscountPercent}
         current={
           ticket.discountType
             ? {
