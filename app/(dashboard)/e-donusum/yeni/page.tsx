@@ -19,6 +19,8 @@ export default function EDonusumYeniFaturaPage() {
       : undefined
   const defaultCustomerId = searchParams.get("customerId") || undefined
   const defaultSupplierId = searchParams.get("supplierId") || undefined
+  // İrsaliye listesinden "Faturaya dönüştür" ile gelinir; irsaliye baştan işaretlenir.
+  const defaultWaybillId = searchParams.get("waybill") || undefined
   const duplicateFromId = searchParams.get("duplicate") || undefined
 
   if (!companyId) {
@@ -59,6 +61,7 @@ export default function EDonusumYeniFaturaPage() {
         defaultType={defaultType}
         defaultCustomerId={defaultCustomerId}
         defaultSupplierId={defaultSupplierId}
+        defaultWaybillId={defaultWaybillId}
         duplicateFromId={duplicateFromId}
         backHref={backHref}
         fromIncomingUuid={fromIncoming}

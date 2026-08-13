@@ -197,12 +197,14 @@ export type InvoiceEditorProps = {
   defaultType?: "SALES" | "PURCHASE" | "RETURN"
   defaultCustomerId?: string
   defaultSupplierId?: string
+  /** İrsaliye listesinden "Faturaya dönüştür": bu irsaliye baştan işaretli gelir. */
+  defaultWaybillId?: string
   duplicateFromId?: string
   backHref?: string
   fromIncomingUuid?: string
 }
 
-export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defaultType, defaultCustomerId, defaultSupplierId, duplicateFromId, backHref, fromIncomingUuid }: InvoiceEditorProps) {
+export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defaultType, defaultCustomerId, defaultSupplierId, defaultWaybillId, duplicateFromId, backHref, fromIncomingUuid }: InvoiceEditorProps) {
   const router = useRouter()
   const { toast } = useToast()
 
@@ -223,6 +225,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   // stoğa-işlenmiş irsaliye için fatura stoğu tekrar işlemez (çift stok önleme).
   const [availableWaybills, setAvailableWaybills] = useState<LinkableWaybill[]>([])
   const [selectedWaybillIds, setSelectedWaybillIds] = useState<string[]>([])
+  // "Faturaya dönüştür" ön-seçimi yalnız bir kez uygulanır.
+  const waybillPreselectedRef = useRef(false)
   const [bootstrappingEdit, setBootstrappingEdit] = useState(mode === "edit")
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
@@ -580,6 +584,19 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, formData.type, formData.supplierId, companyId])
+
+  // İrsaliye listesinden "Faturaya dönüştür" ile gelindiğinde o irsaliyeyi baştan
+  // işaretle: kalemleri faturaya dolar, kayıtta bağ kurulur. Bir kez çalışır ki
+  // kullanıcı işareti kaldırırsa geri gelmesin.
+  useEffect(() => {
+    if (!defaultWaybillId || waybillPreselectedRef.current) return
+    if (mode !== "create" || formData.type !== "PURCHASE") return
+    const target = availableWaybills.find((w) => w.id === defaultWaybillId)
+    if (!target) return
+    waybillPreselectedRef.current = true
+    toggleWaybill(target, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableWaybills, defaultWaybillId, mode, formData.type])
 
   useEffect(() => {
     if (defaultManual) setFormData((prev) => ({ ...prev, invoiceType: "MANUAL" }))

@@ -10,7 +10,7 @@ import { ProductCombobox } from "@/components/ui/product-combobox"
 import { SearchSelect } from "@/components/ui/search-select"
 import { QuickCariDialog } from "@/components/e-donusum/quick-cari-dialog"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import {
   Table,
@@ -27,7 +27,21 @@ import {
 } from "@/components/ui/styled-table"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { Plus, RefreshCcw, Trash2, Minus, Search, Truck, PackageCheck, Clock } from "lucide-react"
+import {
+  Plus,
+  RefreshCcw,
+  Trash2,
+  Minus,
+  Search,
+  Truck,
+  PackageCheck,
+  Clock,
+  Pencil,
+  FileText,
+  Link2,
+  Unlink,
+} from "lucide-react"
+import Link from "next/link"
 
 type Waybill = {
   id: string
@@ -37,8 +51,22 @@ type Waybill = {
   deliveryDate?: string | null
   carrier?: string | null
   vehicleNo?: string | null
+  supplierId?: string | null
   supplier?: { name: string } | null
+  /** Kalemler stoğa işlendi mi (Teslim alındı) — faturaya bağlamanın ön koşulu. */
+  stockProcessed?: boolean
+  invoice?: { id: string; invoiceNo: string } | null
   _count?: { items: number }
+}
+
+/** Eşleştirme listesindeki alış faturası. */
+type PurchaseInvoice = {
+  id: string
+  invoiceNo: string
+  date: string
+  status?: string
+  supplierId?: string | null
+  totalAmount?: number | string | null
 }
 
 type ItemLine = {
@@ -55,6 +83,20 @@ const emptyLine = (): ItemLine => ({
   quantity: "1",
   unit: "ADET",
   weight: "",
+})
+
+const emptyForm = () => ({
+  // Alışta irsaliye no TEDARİKÇİNİN belgesindeki numaradır; boş bırakılırsa
+  // sunucu AIR-YYYY-###### üretir.
+  waybillNo: "",
+  supplierId: "",
+  date: new Date().toISOString().split("T")[0],
+  deliveryDate: "",
+  carrier: "",
+  vehicleNo: "",
+  driverName: "",
+  deliveryAddress: "",
+  notes: "",
 })
 
 const STATUS_LABELS: Record<string, string> = {
@@ -79,17 +121,15 @@ export default function AlisIrsaliyePage() {
   const [quickCari, setQuickCari] = useState({ open: false, name: "" })
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("ALL")
-  const [form, setForm] = useState({
-    supplierId: "",
-    date: new Date().toISOString().split("T")[0],
-    deliveryDate: "",
-    carrier: "",
-    vehicleNo: "",
-    driverName: "",
-    deliveryAddress: "",
-    notes: "",
-  })
+  // Dolu ise dialog düzenleme modundadır (PUT), boşsa yeni kayıt (POST).
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [form, setForm] = useState(emptyForm())
   const [lines, setLines] = useState<ItemLine[]>([emptyLine()])
+  // Fatura eşleştirme dialogu: hedef irsaliye + tedarikçinin alış faturaları.
+  const [matchTarget, setMatchTarget] = useState<Waybill | null>(null)
+  const [matchInvoices, setMatchInvoices] = useState<PurchaseInvoice[]>([])
+  const [matchInvoiceId, setMatchInvoiceId] = useState("")
+  const [isMatching, setIsMatching] = useState(false)
 
   async function fetchWaybills() {
     if (!companyId) return
@@ -132,7 +172,56 @@ export default function AlisIrsaliyePage() {
     })
   }
 
-  async function createWaybill() {
+  function openCreate() {
+    setEditingId(null)
+    setForm(emptyForm())
+    setLines([emptyLine()])
+    setIsCreateOpen(true)
+  }
+
+  // Düzenleme: kalemler listede yok (yalnız sayısı var), kaydın tamamı çekilir.
+  async function openEdit(w: Waybill) {
+    if (w.invoice) {
+      toast({
+        title: "Faturaya bağlı",
+        description: `${w.invoice.invoiceNo} ile eşleşmiş. Düzenlemek için önce eşleştirmeyi kaldırın.`,
+        variant: "destructive",
+      })
+      return
+    }
+    const res = await fetch(`/api/irsaliye/${w.id}`)
+    if (!res.ok) {
+      toast({ title: "Hata", description: "İrsaliye yüklenemedi", variant: "destructive" })
+      return
+    }
+    const full = await res.json()
+    setEditingId(w.id)
+    setForm({
+      waybillNo: full.waybillNo || "",
+      supplierId: full.supplierId || "",
+      date: full.date ? String(full.date).split("T")[0] : new Date().toISOString().split("T")[0],
+      deliveryDate: full.deliveryDate ? String(full.deliveryDate).split("T")[0] : "",
+      carrier: full.carrier || "",
+      vehicleNo: full.vehicleNo || "",
+      driverName: full.driverName || "",
+      deliveryAddress: full.deliveryAddress || "",
+      notes: full.notes || "",
+    })
+    setLines(
+      Array.isArray(full.items) && full.items.length > 0
+        ? full.items.map((it: any) => ({
+            productId: it.productId || "",
+            description: it.description || "",
+            quantity: String(it.quantity ?? "1"),
+            unit: it.unit || "ADET",
+            weight: it.weight != null ? String(it.weight) : "",
+          }))
+        : [emptyLine()],
+    )
+    setIsCreateOpen(true)
+  }
+
+  async function saveWaybill() {
     if (!companyId) return
     if (!form.supplierId) {
       toast({ title: "Eksik bilgi", description: "Tedarikçi seçin.", variant: "destructive" })
@@ -155,12 +244,14 @@ export default function AlisIrsaliyePage() {
 
     setIsSaving(true)
     try {
-      const res = await fetch("/api/irsaliye", {
-        method: "POST",
+      const res = await fetch(editingId ? `/api/irsaliye/${editingId}` : "/api/irsaliye", {
+        method: editingId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           companyId,
           type: "PURCHASE",
+          // Boş bırakılırsa sunucu otomatik numara üretir (yalnız yeni kayıtta).
+          ...(form.waybillNo.trim() || editingId ? { waybillNo: form.waybillNo.trim() } : {}),
           supplierId: form.supplierId,
           date: form.date,
           deliveryDate: form.deliveryDate || null,
@@ -173,17 +264,9 @@ export default function AlisIrsaliyePage() {
         }),
       })
       if (res.ok) {
-        toast({ title: "İrsaliye oluşturuldu" })
-        setForm({
-          supplierId: "",
-          date: new Date().toISOString().split("T")[0],
-          deliveryDate: "",
-          carrier: "",
-          vehicleNo: "",
-          driverName: "",
-          deliveryAddress: "",
-          notes: "",
-        })
+        toast({ title: editingId ? "İrsaliye güncellendi" : "İrsaliye oluşturuldu" })
+        setEditingId(null)
+        setForm(emptyForm())
         setLines([emptyLine()])
         setIsCreateOpen(false)
         fetchWaybills()
@@ -213,6 +296,77 @@ export default function AlisIrsaliyePage() {
       fetchWaybills()
     } else {
       toast({ title: "Hata", description: "Durum güncellenemedi", variant: "destructive" })
+    }
+  }
+
+  // Fatura eşleştirme: irsaliyeyi ÖNCEDEN kesilmiş bir alış faturasına bağlar.
+  // Aynı tedarikçinin iptal/dönüştürülmüş olmayan alış faturaları listelenir.
+  async function openMatch(w: Waybill) {
+    setMatchTarget(w)
+    setMatchInvoiceId("")
+    setMatchInvoices([])
+    if (!companyId) return
+    const res = await fetch(`/api/e-donusum/invoices?companyId=${companyId}&type=PURCHASE`)
+    if (!res.ok) {
+      toast({ title: "Hata", description: "Faturalar yüklenemedi", variant: "destructive" })
+      return
+    }
+    const list = await res.json()
+    setMatchInvoices(
+      (Array.isArray(list) ? list : []).filter(
+        (inv: PurchaseInvoice) =>
+          inv.supplierId === w.supplierId && inv.status !== "CANCELLED" && inv.status !== "CONVERTED",
+      ),
+    )
+  }
+
+  async function linkInvoice() {
+    if (!matchTarget || !matchInvoiceId) return
+    setIsMatching(true)
+    try {
+      const res = await fetch(`/api/irsaliye/${matchTarget.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoiceId: matchInvoiceId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({ title: "Hata", description: data?.error || "Eşleştirilemedi", variant: "destructive" })
+        return
+      }
+      toast({
+        title: "Fatura eşleştirildi",
+        // Mal irsaliyeyle girdiği için faturanın stok girişi varsa geri alınır.
+        description: data?.invoiceStockReverted
+          ? "Faturanın stok girişi geri alındı — mal irsaliyeyle girmişti (çift sayım önlendi)."
+          : undefined,
+      })
+      setMatchTarget(null)
+      fetchWaybills()
+    } finally {
+      setIsMatching(false)
+    }
+  }
+
+  async function unlinkInvoice(w: Waybill) {
+    if (
+      !(await confirm({
+        title: "Fatura eşleştirmesini kaldır",
+        description: `${w.invoice?.invoiceNo} ile bağ kaldırılacak. Stok irsaliyede kalır, faturanın stok girişi geri gelmez.`,
+        confirmLabel: "Kaldır",
+      }))
+    )
+      return
+    const res = await fetch(`/api/irsaliye/${w.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invoiceId: null }),
+    })
+    if (res.ok) {
+      toast({ title: "Eşleştirme kaldırıldı" })
+      fetchWaybills()
+    } else {
+      toast({ title: "Hata", description: "Kaldırılamadı", variant: "destructive" })
     }
   }
 
@@ -297,16 +451,22 @@ export default function AlisIrsaliyePage() {
                 <RefreshCcw className="mr-1 h-4 w-4" />
                 Yenile
               </Button>
-              <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <Plus className="mr-1 h-4 w-4" />
-                    Yeni İrsaliye
-                  </Button>
-                </DialogTrigger>
+              <Button size="sm" onClick={openCreate}>
+                <Plus className="mr-1 h-4 w-4" />
+                Yeni İrsaliye
+              </Button>
+              <Dialog
+                open={isCreateOpen}
+                onOpenChange={(open) => {
+                  setIsCreateOpen(open)
+                  if (!open) setEditingId(null)
+                }}
+              >
                 <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
                   <DialogHeader>
-                    <DialogTitle>Yeni Alış İrsaliyesi</DialogTitle>
+                    <DialogTitle>
+                      {editingId ? "Alış İrsaliyesini Düzenle" : "Yeni Alış İrsaliyesi"}
+                    </DialogTitle>
                   </DialogHeader>
                   <div className="space-y-4">
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -321,7 +481,20 @@ export default function AlisIrsaliyePage() {
                           createLabel="Yeni tedarikçi ekle"
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label>İrsaliye No</Label>
+                        <Input
+                          value={form.waybillNo}
+                          onChange={(e) => setForm((prev) => ({ ...prev, waybillNo: e.target.value }))}
+                          placeholder="Tedarikçinin irsaliye numarası"
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {editingId
+                            ? "Belgedeki numara ile aynı olmalı."
+                            : "Boş bırakılırsa otomatik (AIR-YYYY-000001) üretilir."}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:col-span-2">
                         <div>
                           <Label>İrsaliye Tarihi</Label>
                           <Input
@@ -460,8 +633,8 @@ export default function AlisIrsaliyePage() {
                         onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
                       />
                     </div>
-                    <Button className="w-full" onClick={createWaybill} disabled={isSaving}>
-                      {isSaving ? "Kaydediliyor…" : "Kaydet"}
+                    <Button className="w-full" onClick={saveWaybill} disabled={isSaving}>
+                      {isSaving ? "Kaydediliyor…" : editingId ? "Güncelle" : "Kaydet"}
                     </Button>
                     {/* İç içe dialog: irsaliye formu açıkken tedarikçi eklenir, kayıt
                         sonrası seçiciye düşer (form kaybolmadan). */}
@@ -537,8 +710,9 @@ export default function AlisIrsaliyePage() {
                     <StyledTableHead>Tedarikçi</StyledTableHead>
                     <StyledTableHead className="text-center">Kalem</StyledTableHead>
                     <StyledTableHead>Taşıyıcı / Araç</StyledTableHead>
+                    <StyledTableHead>Fatura</StyledTableHead>
                     <StyledTableHead className="w-[150px]">Durum</StyledTableHead>
-                    <StyledTableHead className="w-[60px] text-right">İşlem</StyledTableHead>
+                    <StyledTableHead className="w-[170px] text-right">İşlem</StyledTableHead>
                   </StyledTableHeaderRow>
                 </TableHeader>
                 <TableBody>
@@ -558,6 +732,18 @@ export default function AlisIrsaliyePage() {
                         {w.carrier || "—"}
                         {w.vehicleNo ? ` · ${w.vehicleNo}` : ""}
                       </TableCell>
+                      <TableCell className="whitespace-nowrap font-mono text-xs">
+                        {w.invoice ? (
+                          <Link
+                            href={`/faturalar/${w.invoice.id}/onizleme?company=${encodeURIComponent(companyId)}`}
+                            className="text-kobipo-blue hover:underline dark:text-primary"
+                          >
+                            {w.invoice.invoiceNo}
+                          </Link>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Select value={w.status} onValueChange={(v) => updateStatus(w.id, v)}>
                           <SelectTrigger className="h-8">
@@ -573,7 +759,66 @@ export default function AlisIrsaliyePage() {
                         </Select>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center justify-end">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openEdit(w)}
+                            disabled={!!w.invoice}
+                            title={w.invoice ? "Faturaya bağlı — önce eşleştirmeyi kaldırın" : "Düzenle"}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          {w.invoice ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => unlinkInvoice(w)}
+                              title="Fatura eşleştirmesini kaldır"
+                            >
+                              <Unlink className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            <>
+                              {/* Faturaya dönüştür: fatura editörü irsaliye işaretli açılır,
+                                  kalemler dolar. Stoğa işlenmemiş irsaliye bağlanamaz. */}
+                              {w.stockProcessed ? (
+                                <Button size="sm" variant="ghost" asChild title="Faturaya dönüştür">
+                                  <Link
+                                    href={`/e-donusum/yeni?company=${encodeURIComponent(companyId)}&type=PURCHASE&supplierId=${encodeURIComponent(
+                                      w.supplierId || "",
+                                    )}&waybill=${encodeURIComponent(w.id)}&from=${encodeURIComponent("/alis/irsaliye")}`}
+                                  >
+                                    <FileText className="h-4 w-4" />
+                                  </Link>
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled
+                                  // "Teslim alındı" göründüğü halde stoğa işlenmemiş kayıtlar var
+                                  // (stok girişinden önce oluşmuş/başarısız olmuş). Kullanıcıya
+                                  // hangi durumda olduğunu ve çıkış yolunu ayrı ayrı söyle.
+                                  title={
+                                    w.status === "DELIVERED"
+                                      ? "Stok girişi işlenmemiş — durumu 'Taslak' yapıp tekrar 'Teslim alındı' seçin"
+                                      : "Faturaya dönüştürmek için durumu 'Teslim alındı' yapın"
+                                  }
+                                >
+                                  <FileText className="h-4 w-4" />
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openMatch(w)}
+                                title="Kesilmiş bir faturayla eşleştir"
+                              >
+                                <Link2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
                           <Button size="sm" variant="ghost" onClick={() => removeWaybill(w.id)} title="Sil">
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -587,6 +832,57 @@ export default function AlisIrsaliyePage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Kesilmiş faturayla eşleştirme. "Faturaya dönüştür"ün tersi: fatura önce
+          kesilmişse irsaliye sonradan ona bağlanır. */}
+      <Dialog
+        open={!!matchTarget}
+        onOpenChange={(open) => {
+          if (!open) setMatchTarget(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Fatura ile eşleştir</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-mono">{matchTarget?.waybillNo}</span> irsaliyesi
+              {matchTarget?.supplier?.name ? ` (${matchTarget.supplier.name})` : ""} kesilmiş bir alış
+              faturasına bağlanır.
+            </p>
+            <div>
+              <Label>Alış faturası</Label>
+              <SearchSelect
+                options={matchInvoices.map((inv) => ({
+                  id: inv.id,
+                  name: `${inv.invoiceNo} · ${new Date(inv.date).toLocaleDateString("tr-TR")} · ${Number(
+                    inv.totalAmount || 0,
+                  ).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺`,
+                }))}
+                value={matchInvoiceId}
+                onChange={setMatchInvoiceId}
+                placeholder="Fatura seçin veya arayın…"
+                emptyText="Bu tedarikçinin uygun alış faturası yok"
+              />
+            </div>
+            {matchTarget?.stockProcessed && (
+              <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                Mal bu irsaliyeyle stoğa girmişti. Seçilen fatura kendi stok girişini yaptıysa çift
+                sayımı önlemek için o giriş geri alınır.
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setMatchTarget(null)}>
+                Vazgeç
+              </Button>
+              <Button onClick={linkInvoice} disabled={!matchInvoiceId || isMatching}>
+                {isMatching ? "Eşleştiriliyor…" : "Eşleştir"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

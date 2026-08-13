@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Building2, Plus } from "lucide-react"
 import {
@@ -20,6 +21,13 @@ export function CompanySelector() {
   const router = useRouter()
   const { companies, selectedCompanyId, selectedCompany, isLoading, handleCompanyChange } =
     useDashboardCompany()
+  // Seçim URL/localStorage'dan türer; sağlayıcı `useSearchParams` kullandığı için
+  // React ağacı sunucu ile istemcide birebir aynı sarılmıyor ve Radix'in ürettiği
+  // id (`aria-controls`) kayarak hydration uyarısı düşürüyordu. Çözüm: SSR ile ilk
+  // istemci render'ında AYNI iskeleti bas, gerçek seçiciyi bağlandıktan sonra çiz —
+  // böylece karşılaştırılacak bir Select hiç olmuyor.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
   if (isLoading) {
     return (
@@ -36,6 +44,15 @@ export function CompanySelector() {
   const mainCompanies = companies.filter((c) => !c.isBranch)
   if (mainCompanies.length <= 1) {
     return null
+  }
+
+  // Buraya kadarki kararlar iki tarafta da AYNI veriden (SSR'den gelen firma listesi)
+  // çıkar; tek fark Select'in çizilme anı. Tek firmalı kullanıcıda iskelet hiç görünmez,
+  // çok firmalıda aynı ölçüde bir kutu olduğu için yer değiştirme (layout shift) olmaz.
+  if (!mounted) {
+    return (
+      <div className="mb-4 h-[52px] w-56 animate-pulse rounded-xl border border-kobipo-border bg-muted/40 dark:border-border" />
+    )
   }
 
   const value = mainCompanies.some((c) => c.id === selectedCompanyId)

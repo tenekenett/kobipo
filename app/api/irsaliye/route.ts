@@ -129,34 +129,45 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "En az bir geçerli kalem gerekli" }, { status: 400 })
   }
 
-  const finalWaybillNo = waybillNo || (await generateWaybillNumber(companyId, waybillType))
+  // Elle girilen no (alışta tedarikçinin kendi irsaliye numarası) öncelikli; boşsa üret.
+  const manualWaybillNo = typeof waybillNo === "string" ? waybillNo.trim() : ""
+  const finalWaybillNo = manualWaybillNo || (await generateWaybillNumber(companyId, waybillType))
 
-  const waybill = await prisma.waybill.create({
-    data: {
-      companyId,
-      waybillNo: finalWaybillNo,
-      type: waybillType,
-      status: "DRAFT",
-      customerId: waybillType === "SALES" ? customerId : null,
-      supplierId: waybillType === "PURCHASE" ? supplierId : null,
-      invoiceId: invoiceId || null,
-      date: date ? new Date(date) : new Date(),
-      deliveryDate: deliveryDate ? new Date(deliveryDate) : null,
-      carrier: carrier || null,
-      vehicleNo: vehicleNo || null,
-      driverName: driverName || null,
-      departureAddress: departureAddress || null,
-      deliveryAddress: deliveryAddress || null,
-      notes: notes || null,
-      createdBy: user.id,
-      items: { create: normalizedItems },
-    },
-    include: {
-      customer: { select: { id: true, name: true } },
-      supplier: { select: { id: true, name: true } },
-      _count: { select: { items: true } },
-    },
-  })
+  try {
+    const waybill = await prisma.waybill.create({
+      data: {
+        companyId,
+        waybillNo: finalWaybillNo,
+        type: waybillType,
+        status: "DRAFT",
+        customerId: waybillType === "SALES" ? customerId : null,
+        supplierId: waybillType === "PURCHASE" ? supplierId : null,
+        invoiceId: invoiceId || null,
+        date: date ? new Date(date) : new Date(),
+        deliveryDate: deliveryDate ? new Date(deliveryDate) : null,
+        carrier: carrier || null,
+        vehicleNo: vehicleNo || null,
+        driverName: driverName || null,
+        departureAddress: departureAddress || null,
+        deliveryAddress: deliveryAddress || null,
+        notes: notes || null,
+        createdBy: user.id,
+        items: { create: normalizedItems },
+      },
+      include: {
+        customer: { select: { id: true, name: true } },
+        supplier: { select: { id: true, name: true } },
+        _count: { select: { items: true } },
+      },
+    })
 
-  return NextResponse.json(waybill, { status: 201 })
+    return NextResponse.json(waybill, { status: 201 })
+  } catch (error: any) {
+    // Aynı firmada aynı irsaliye no (@@unique([companyId, waybillNo])) — elle giriş
+    // açıldığı için artık kullanıcı hatası olarak dönebilir.
+    if (error?.code === "P2002") {
+      return NextResponse.json({ error: "Bu irsaliye no zaten kayıtlı" }, { status: 409 })
+    }
+    throw error
+  }
 }
