@@ -14,15 +14,19 @@ export default async function UsersPage() {
         companies: {
           include: {
             company: {
-              select: { id: true, name: true, isActive: true }
+              // branchName ŞART: `name` resmi ünvandır ve aynı tüzel kişinin tüm
+              // şubelerinde aynıdır — onsuz listede şubeler ayırt edilemiyor.
+              // Gösterim: lib/company/display-name.ts
+              select: { id: true, name: true, branchName: true, isActive: true }
             }
           }
         }
       }
     }),
     prisma.company.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, isActive: true },
+      // Aynı ünvanın şubeleri alt alta ve kendi içinde şube adına göre sıralı gelsin.
+      orderBy: [{ name: "asc" }, { branchName: "asc" }],
+      select: { id: true, name: true, branchName: true, isActive: true },
     }),
   ])
 

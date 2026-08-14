@@ -70,6 +70,9 @@ export async function PUT(
     const data: Prisma.CompanyUpdateInput = {}
 
     if (body.name !== undefined) data.name = String(body.name).trim()
+    // Ünvandan (name) ayrı kısa şube adı — aynı ünvanlı şubeleri listelerde ayıran alan.
+    // Boş gönderilirse null'a çekilir (clean). [[lib/company/display-name.ts]]
+    if (body.branchName !== undefined) data.branchName = clean(body.branchName)
     if (taxNumber !== undefined) data.taxNumber = taxNumber
     if (body.taxOffice !== undefined) data.taxOffice = clean(body.taxOffice)
     if (body.city !== undefined) data.city = clean(body.city)

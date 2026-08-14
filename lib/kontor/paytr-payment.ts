@@ -18,7 +18,20 @@ export async function handleKontorNotification(
   order: KontorOrder,
 ): Promise<NotificationResult> {
   // Idempotency: zaten yüklenmiş ya da ödeme işlenmiş → tekrar işlem yapma.
-  if (order.status === "LOADED" || order.paidAt) return "ok"
+  if (order.status === "LOADED" || order.paidAt) {
+    // Ama SESSİZ geçme: merchant_oid artık deneme başına benzersiz üretildiği için
+    // ([[lib/integrations/paytr/client.ts]] newMerchantOid) PayTR aynı siparişin İKİNCİ
+    // bir ödeme oturumunu da kabul edebilir (ör. iki sekmede açık kalan ödeme ekranı).
+    // Kontör tek kez yüklenir — fazladan çekim varsa iade gerekir, o yüzden log'a düşür.
+    if (p.status === "success") {
+      console.warn(
+        `[paytr-callback] kontör siparişi ${order.id} zaten ödenmiş/yüklenmişken yeni ` +
+          `BAŞARILI bildirim geldi (merchant_oid=${p.merchantOid}) — mükerrer çekim ` +
+          `olabilir, PayTR panelinden kontrol edin.`,
+      )
+    }
+    return "ok"
+  }
 
   if (p.status !== "success") {
     await prisma.kontorOrder.update({

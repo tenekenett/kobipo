@@ -2029,7 +2029,15 @@ model KontorOrder {
   targetVkn        String // kontörün yükleneceği mükellef VKN/TCKN
   status           KontorOrderStatus @default(PENDING_PAYMENT)
   paymentMethod    String            @default("HAVALE") // HAVALE | CARD
-  receiptUrl       String? // dekont görseli/PDF
+  receiptUrl       String? // dekont harici bağlantı (dosya yüklenmediyse)
+  // Havale akışı: müşteriye kod verilir → açıklamaya yazıp parayı gönderir →
+  // dekontu yükler → sistem-admin panelinde görür ve onaylar.
+  paymentCode      String?           @unique // havale açıklamasına yazılacak kod (KBP-XXXXXX)
+  paymentNote      String?           @db.Text // müşterinin beyanı (gönderen ad, tarih…)
+  receiptFileName  String?
+  receiptMimeType  String?
+  receiptFileSize  Int? // bayt
+  receiptUploadedAt DateTime?
   // Sanal POS (PayTR) ödeme alanları. merchant_oid = order.id (ayrı alan yok).
   paymentProvider  String? // "PAYTR" (kart ödemesinde)
   paidAt           DateTime? // ödeme onay bildirimi (callback) anı
@@ -2045,12 +2053,28 @@ model KontorOrder {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
-  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  package KontorPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  package KontorPackage?      @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  receipt KontorOrderReceipt?
 
   @@index([companyId, status])
   @@index([status])
   @@map("kontor_orders")
+}
+
+/// Dekont dosyasının baytları. Ayrı tabloda çünkü sipariş listeleri (müşteri kartı,
+/// sistem-admin tablosu) her satırda MB'lık blob taşımamalı — personel belgeleri
+/// deseninin aynısı ([[EmployeeDocumentBlob]]). Dekont özel veridir; public bucket'a
+/// değil DB'ye yazılır, indirme ucu yetki kontrolüyle servis eder.
+model KontorOrderReceipt {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  order KontorOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("kontor_order_receipts")
 }
 
 model Notification {

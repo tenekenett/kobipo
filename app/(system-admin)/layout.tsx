@@ -32,6 +32,9 @@ export default async function SystemAdminLayout({
     redirect("/") // Yetkisiz kullanıcıları ana sayfaya yönlendir
   }
 
+  // NOT: koyu tema kararı `html` seviyesinde veriliyor — dialog/dropdown/toast
+  // portal ile body'ye çıktığı için buraya sınıf eklemek onları kapsamazdı.
+  // Bkz. lib/theme/dark-routes.ts → FORCED_DARK_ROUTE_PREFIXES.
   return (
     <div className="min-h-screen bg-slate-950">
       <SystemAdminNav user={{ name: user.name, email: user.email }} />

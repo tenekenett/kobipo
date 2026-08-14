@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react"
 import { usePathname } from "next/navigation"
-import { isDarkRoute } from "@/lib/theme/dark-routes"
+import { isDarkRoute, isForcedDarkRoute } from "@/lib/theme/dark-routes"
 
 type Theme = "light" | "dark" | "system"
 type ResolvedTheme = "light" | "dark"
@@ -24,7 +24,12 @@ function getSystemTheme(): ResolvedTheme {
 
 function applyTheme(resolved: ResolvedTheme, pathname: string | null) {
   const root = document.documentElement
-  const effective: ResolvedTheme = isDarkRoute(pathname) ? resolved : "light"
+  // Öncelik: daima-koyu bölüm (sistem paneli) > koyuya izin veren rota > açık.
+  const effective: ResolvedTheme = isForcedDarkRoute(pathname)
+    ? "dark"
+    : isDarkRoute(pathname)
+      ? resolved
+      : "light"
   root.classList.toggle("dark", effective === "dark")
   root.style.colorScheme = effective
 }

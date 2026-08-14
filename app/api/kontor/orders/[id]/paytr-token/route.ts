@@ -6,6 +6,7 @@ import { resolveBaseUrl } from "@/lib/utils/base-url"
 import {
   createPaymentToken,
   isPaytrEnabled,
+  newMerchantOid,
   PAYTR_IFRAME_BASE,
   PAYTR_NOT_CONFIGURED_ERROR,
 } from "@/lib/integrations/paytr/client"
@@ -15,8 +16,13 @@ export const dynamic = "force-dynamic"
 
 /**
  * Bir kart (CARD) kontör siparişi için PayTR ödeme token'ı üretir. İstemci dönen
- * token ile iframe'i gömer. Yeniden denemede aynı merchant_oid (order.id) kullanılır;
- * PayTR başarısız ödemede aynı oid'i tekrar kabul eder.
+ * token ile iframe'i gömer.
+ *
+ * merchant_oid HER denemede yeniden üretilir ([[newMerchantOid]]): sayfa yenileme,
+ * "Ödemeye devam et", "Tekrar dene" ve dev'deki çift-mount hep bu ucu tekrar çağırır;
+ * aynı oid ikinci kez gidince PayTR "merchant_oid daha önce kullanılmış" der ve ödeme
+ * ekranı hiç açılmaz. Callback `merchantOidBase()` ile sipariş id'sine geri çözer
+ * ([[lib/integrations/paytr/notification.ts]]).
  */
 export async function POST(
   request: Request,
@@ -32,7 +38,9 @@ export async function POST(
     const { id } = await params
     const order = await prisma.kontorOrder.findUnique({
       where: { id },
-      include: { company: { select: { name: true, phone: true, address: true, email: true } } },
+      include: {
+        company: { select: { name: true, slug: true, phone: true, address: true, email: true } },
+      },
     })
     if (!order) return NextResponse.json({ error: "Sipariş bulunamadı" }, { status: 404 })
 
@@ -56,8 +64,12 @@ export async function POST(
       return NextResponse.json({ error: "Geçersiz tutar" }, { status: 400 })
     }
 
+    // company param'ı taşı → PayTR dönüşünde firma bağlamı korunur (aksi halde kontör
+    // sayfası "Firma seçiniz" ile açılır ya da başka firmaya düşer). [[CLAUDE.md]]
+    const companyParam = encodeURIComponent(order.company?.slug || order.companyId)
+
     const { token } = await createPaymentToken({
-      merchantOid: order.id,
+      merchantOid: newMerchantOid(order.id),
       email,
       paymentAmount: amount,
       userIp,
@@ -65,8 +77,8 @@ export async function POST(
       userName: order.company?.name || "Kobipo Müşteri",
       userAddress: order.company?.address || "-",
       userPhone: order.company?.phone || "-",
-      okUrl: `${base}/e-donusum/kontor?odeme=ok&order=${order.id}`,
-      failUrl: `${base}/e-donusum/kontor?odeme=fail&order=${order.id}`,
+      okUrl: `${base}/e-donusum/kontor?odeme=ok&order=${order.id}&company=${companyParam}`,
+      failUrl: `${base}/e-donusum/kontor?odeme=fail&order=${order.id}&company=${companyParam}`,
       noInstallment: 0,
     })
 

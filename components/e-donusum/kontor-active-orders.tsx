@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { Check, XCircle, Clock, Copy, CreditCard } from "lucide-react"
+import { Check, XCircle, Clock, Copy, CreditCard, FileUp, Loader2, Paperclip } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 
@@ -19,6 +19,11 @@ interface KontorOrder {
   currency: string
   status: string
   paymentMethod?: string
+  /** Havale açıklamasına yazılacak referans kodu (havale siparişlerinde dolu). */
+  paymentCode?: string | null
+  paymentNote?: string | null
+  receiptFileName?: string | null
+  receiptUploadedAt?: string | null
 }
 
 const HAVALE_STEPS = ["Sipariş", "Havale", "Onay", "Yüklendi"]
@@ -104,9 +109,143 @@ export function OrderStepper({
 }
 
 /**
+ * Havale siparişinin ödeme kutusu: IBAN + açıklamaya yazılacak KOD + dekont yükleme.
+ *
+ * Kod neden önemli: hesap hareketini siparişle eşleştiren tek alan bu. Dekont
+ * yüklenince sipariş PAYMENT_REVIEW'a geçer ve sistem-admin onay kuyruğuna düşer
+ * ([[app/api/kontor/orders/[id]/receipt]]).
+ */
+function HavalePaymentBox({
+  order,
+  onUploaded,
+}: {
+  order: KontorOrder
+  onUploaded: () => void
+}) {
+  const { toast } = useToast()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [file, setFile] = useState<File | null>(null)
+  const [note, setNote] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  const copy = (text: string, title: string) => {
+    navigator.clipboard?.writeText(text)
+    toast({ title })
+  }
+
+  const upload = async () => {
+    if (!file) return
+    setBusy(true)
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      if (note.trim()) fd.append("note", note.trim())
+      const res = await fetch(`/api/kontor/orders/${order.id}/receipt`, {
+        method: "POST",
+        body: fd,
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Dekont yüklenemedi")
+      toast({
+        title: "Dekont alındı",
+        description: "Ödemeniz kontrol edilip onaylanınca kontör otomatik yüklenecek.",
+      })
+      setFile(null)
+      setNote("")
+      if (fileRef.current) fileRef.current.value = ""
+      onUploaded()
+    } catch (e) {
+      toast({
+        title: "Hata",
+        description: e instanceof Error ? e.message : "Dekont yüklenemedi",
+        variant: "destructive",
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/40 dark:bg-amber-950/30">
+      <p className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-200">
+        <Clock className="h-4 w-4" /> Havale / EFT yapın
+      </p>
+
+      <div className="space-y-1">
+        <p className="text-amber-900/90 dark:text-amber-200/90">{HAVALE_INFO.unvan}</p>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-amber-900 dark:text-amber-200">{HAVALE_INFO.iban}</span>
+          <button
+            type="button"
+            onClick={() => copy(HAVALE_INFO.iban.replace(/\s/g, ""), "IBAN kopyalandı")}
+            className="text-amber-700 hover:text-amber-900 dark:text-amber-300"
+            aria-label="IBAN'ı kopyala"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Açıklama kodu — eşleştirmenin anahtarı, bu yüzden vurgulu. */}
+      <div className="rounded-md border border-amber-300 bg-white/70 p-2.5 dark:border-amber-800 dark:bg-amber-900/20">
+        <p className="text-xs text-amber-900/80 dark:text-amber-200/80">
+          Havale <span className="font-semibold">açıklamasına</span> bu kodu yazın:
+        </p>
+        <div className="mt-1 flex items-center gap-2">
+          <span className="font-mono text-lg font-bold tracking-wider text-amber-900 dark:text-amber-100">
+            {order.paymentCode || order.id}
+          </span>
+          <button
+            type="button"
+            onClick={() => copy(order.paymentCode || order.id, "Kod kopyalandı")}
+            className="text-amber-700 hover:text-amber-900 dark:text-amber-300"
+            aria-label="Kodu kopyala"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Dekont yükleme */}
+      <div className="space-y-2 border-t border-amber-200 pt-3 dark:border-amber-900/40">
+        <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+          Parayı gönderdiyseniz dekontu yükleyin
+        </p>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,.png,.jpg,.jpeg,.webp"
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          className="block w-full text-xs text-amber-900 file:mr-2 file:rounded-md file:border-0 file:bg-amber-200 file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-amber-900 hover:file:bg-amber-300 dark:text-amber-200 dark:file:bg-amber-900/50 dark:file:text-amber-100"
+        />
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value.slice(0, 500))}
+          placeholder="Not (isteğe bağlı): gönderen ad, tarih…"
+          className="w-full rounded-md border border-amber-200 bg-white/70 px-2.5 py-1.5 text-xs text-amber-900 placeholder:text-amber-700/50 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100 dark:placeholder:text-amber-200/40"
+        />
+        <Button type="button" size="sm" onClick={upload} disabled={!file || busy}>
+          {busy ? (
+            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+          ) : (
+            <FileUp className="mr-1.5 h-4 w-4" />
+          )}
+          Dekontu gönder
+        </Button>
+        <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
+          PDF veya görsel, en fazla 10 MB.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/**
  * Firmanın devam eden (ödeme/onay bekleyen) kontör siparişlerini adım çubuğu ile gösterir.
- * Kart siparişlerinde "Ödemeye devam et" linki, havale siparişlerinde IBAN bilgisi çıkar.
- * Aktif sipariş yoksa hiçbir şey render etmez. `refreshKey` değişince yeniden çeker.
+ * Kart siparişlerinde "Ödemeye devam et" linki, havale siparişlerinde IBAN + açıklama kodu
+ * ve dekont yükleme çıkar. Aktif sipariş yoksa hiçbir şey render etmez. `refreshKey`
+ * değişince yeniden çeker.
  */
 export function KontorActiveOrders({
   companyId,
@@ -115,12 +254,15 @@ export function KontorActiveOrders({
   companyId: string
   refreshKey?: number
 }) {
-  const { toast } = useToast()
   const [orders, setOrders] = useState<KontorOrder[]>([])
+  // Dekont yüklendikten sonra listeyi tazelemek için (durum PAYMENT_REVIEW'a geçer).
+  const [localRefresh, setLocalRefresh] = useState(0)
+
+  const reload = useCallback(() => setLocalRefresh((n) => n + 1), [])
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/kontor/orders?companyId=${companyId}`)
+    fetch(`/api/kontor/orders?companyId=${companyId}`, { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json().catch(() => ({}))
         if (!cancelled && r.ok && Array.isArray(d?.data)) setOrders(d.data)
@@ -129,17 +271,12 @@ export function KontorActiveOrders({
     return () => {
       cancelled = true
     }
-  }, [companyId, refreshKey])
+  }, [companyId, refreshKey, localRefresh])
 
   const active = orders.filter(
     (o) => o.status === "PENDING_PAYMENT" || o.status === "PAYMENT_REVIEW",
   )
   if (active.length === 0) return null
-
-  const copyIban = () => {
-    navigator.clipboard?.writeText(HAVALE_INFO.iban.replace(/\s/g, ""))
-    toast({ title: "IBAN kopyalandı" })
-  }
 
   return (
     <div className="space-y-3">
@@ -175,29 +312,36 @@ export function KontorActiveOrders({
               </div>
             )}
 
-            {/* Havale siparişi → IBAN bilgisi */}
+            {/* Havale siparişi → IBAN + açıklama kodu + dekont yükleme */}
             {o.status === "PENDING_PAYMENT" && !isCard && (
-              <div className="mt-4 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/40 dark:bg-amber-950/30">
-                <p className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-200">
-                  <Clock className="h-4 w-4" /> Havale / EFT yapın
-                </p>
-                <p className="text-amber-900/90 dark:text-amber-200/90">{HAVALE_INFO.unvan}</p>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-amber-900 dark:text-amber-200">{HAVALE_INFO.iban}</span>
-                  <button onClick={copyIban} className="text-amber-700 hover:text-amber-900 dark:text-amber-300">
-                    <Copy className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                <p className="text-xs text-amber-800/80 dark:text-amber-300/80">
-                  Açıklamaya sipariş no yazın: <span className="font-mono">{o.id}</span>
-                </p>
-              </div>
+              <HavalePaymentBox order={o} onUploaded={reload} />
             )}
 
+            {/* Dekont yüklendi → onay kuyruğunda. Yanlış dosya yüklendiyse değiştirilebilir. */}
             {o.status === "PAYMENT_REVIEW" && (
-              <p className="mt-3 text-xs text-muted-foreground">
-                Ödemeniz alındı, onay bekleniyor. Onaylanınca kontör otomatik yüklenecek.
-              </p>
+              <div className="mt-4 space-y-2 rounded-lg border bg-background p-3 text-sm">
+                <p className="font-semibold">Dekontunuz alındı, onay bekleniyor</p>
+                <p className="text-xs text-muted-foreground">
+                  Ödeme kontrol edilip onaylanınca kontör hesabınıza otomatik yüklenecek.
+                </p>
+                {o.receiptFileName && (
+                  <a
+                    href={`/api/kontor/orders/${o.id}/receipt`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-kobipo-blue underline underline-offset-2 dark:text-primary"
+                  >
+                    <Paperclip className="h-3.5 w-3.5" />
+                    {o.receiptFileName}
+                  </a>
+                )}
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                    Yanlış dekont mu yüklediniz? Değiştirin
+                  </summary>
+                  <HavalePaymentBox order={o} onUploaded={reload} />
+                </details>
+              </div>
             )}
           </div>
         )

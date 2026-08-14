@@ -32,10 +32,13 @@ import { Search, MoreVertical, Users, FileText, Eye, Ban, Trash2, Edit, Loader2 
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useRouter } from "next/navigation"
+import { companyDisplayName } from "@/lib/company/display-name"
 
 interface Company {
   id: string
   name: string
+  /** Ünvandan ayrı kısa şube adı; aynı ünvanlı şubeleri ayıran tek alan. */
+  branchName: string | null
   taxNumber: string | null
   taxOffice?: string | null
   city: string | null
@@ -65,6 +68,7 @@ interface CompanyTableProps {
 
 const emptyForm = {
   name: "",
+  branchName: "",
   taxNumber: "",
   taxOffice: "",
   city: "",
@@ -87,6 +91,7 @@ export function CompanyTable({ companies }: CompanyTableProps) {
     setEditingId(company.id)
     setForm({
       name: company.name ?? "",
+      branchName: company.branchName ?? "",
       taxNumber: company.taxNumber ?? "",
       taxOffice: company.taxOffice ?? "",
       city: company.city ?? "",
@@ -130,6 +135,8 @@ export function CompanyTable({ companies }: CompanyTableProps) {
 
   const filteredCompanies = companies.filter(company =>
     company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    // Şube adıyla da aranabilsin: aynı ünvanlı 5 şube arasında aranan "Kadıköy"dür.
+    company.branchName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     company.taxNumber?.includes(searchTerm) ||
     company.city?.toLowerCase().includes(searchTerm.toLowerCase())
   )
@@ -230,7 +237,14 @@ export function CompanyTable({ companies }: CompanyTableProps) {
                 <TableRow key={company.id} className="border-slate-800 hover:bg-slate-800/50">
                   <TableCell>
                     <div>
-                      <p className="font-medium text-white">{company.name}</p>
+                      <p className="font-medium text-white">
+                        {company.name}
+                        {company.branchName && (
+                          <span className="ml-1.5 rounded bg-slate-700/60 px-1.5 py-0.5 text-xs font-normal text-slate-300">
+                            {company.branchName}
+                          </span>
+                        )}
+                      </p>
                       <p className="text-xs text-slate-500">
                         {new Date(company.createdAt).toLocaleDateString("tr-TR")}
                       </p>
@@ -297,7 +311,7 @@ export function CompanyTable({ companies }: CompanyTableProps) {
                         <DropdownMenuSeparator className="bg-slate-800" />
                         <DropdownMenuItem
                           className="text-red-400 focus:bg-red-500/20 focus:text-red-400"
-                          onClick={() => handleDelete(company.id, company.name)}
+                          onClick={() => handleDelete(company.id, companyDisplayName(company))}
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
                           Sil
@@ -334,6 +348,19 @@ export function CompanyTable({ companies }: CompanyTableProps) {
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className="bg-slate-800/50 border-slate-700 text-white"
               />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-slate-300">Şube Adı</Label>
+              <Input
+                value={form.branchName}
+                onChange={(e) => setForm((f) => ({ ...f, branchName: e.target.value }))}
+                placeholder="Kadıköy, Merkez, Madeni Yağ…"
+                className="bg-slate-800/50 border-slate-700 text-white"
+              />
+              <p className="text-xs text-slate-500">
+                Ünvan tüm şubelerde aynı olduğu için listelerde ayırt edici olan alan budur;
+                faturada/e-belgede basılmaz, yalnız arayüzde ünvanın yanında görünür.
+              </p>
             </div>
             <div className="space-y-1">
               <Label className="text-slate-300">Vergi No</Label>

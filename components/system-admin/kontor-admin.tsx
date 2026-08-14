@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Loader2, RefreshCw, Plus, Trash2, CheckCircle2, XCircle } from "lucide-react"
+import { Loader2, RefreshCw, Plus, Trash2, CheckCircle2, XCircle, Paperclip } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 
@@ -39,6 +39,12 @@ interface KontorOrder {
   loadError: string | null
   mysoftCreditId: string | null
   createdAt: string
+  // Havale akışı: müşteri kodu açıklamaya yazar, dekontu yükler, burada onaylanır.
+  paymentMethod?: string
+  paymentCode?: string | null
+  paymentNote?: string | null
+  receiptFileName?: string | null
+  receiptUploadedAt?: string | null
 }
 
 const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
@@ -173,6 +179,12 @@ export function KontorAdmin() {
       loadAll()
     }
   }
+
+  // Dekontu yüklenmiş siparişler admin'in iş kuyruğudur → en üstte ve sayaçta.
+  // Sıralama stabil olduğu için grup içinde API'nin createdAt DESC düzeni korunur.
+  const pendingReviewCount = orders.filter((o) => o.status === "PAYMENT_REVIEW").length
+  const statusRank = (s: string) => (s === "PAYMENT_REVIEW" ? 0 : s === "PENDING_PAYMENT" ? 1 : 2)
+  const sortedOrders = [...orders].sort((a, b) => statusRank(a.status) - statusRank(b.status))
 
   const formValid =
     form.name.trim() &&
@@ -368,9 +380,18 @@ export function KontorAdmin() {
 
       {/* Siparişler */}
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-        <h2 className="text-lg font-semibold text-white">Kontör Siparişleri</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-white">Kontör Siparişleri</h2>
+          {pendingReviewCount > 0 && (
+            <span className="rounded-full bg-blue-500/15 px-2.5 py-0.5 text-xs font-medium text-blue-300">
+              {pendingReviewCount} dekont onay bekliyor
+            </span>
+          )}
+        </div>
         <p className="text-sm text-slate-500">
-          Havale onaylandığında "Onayla & Yükle" ile kontör müşterinin Mysoft hesabına yüklenir.
+          Müşteri havaleyi yapıp dekontu yükleyince sipariş "Onay bekliyor"a düşer. Dekontu ve
+          açıklama kodunu hesap hareketiyle karşılaştırın; uygunsa "Onayla & Yükle" kontörü
+          müşterinin Mysoft hesabına yükler.
         </p>
         <div className="mt-4">
           {orders.length === 0 ? (
@@ -383,13 +404,14 @@ export function KontorAdmin() {
                     <th className="py-2 pr-4">Firma</th>
                     <th className="py-2 pr-4">Paket</th>
                     <th className="py-2 pr-4">Tutar</th>
+                    <th className="py-2 pr-4">Ödeme</th>
                     <th className="py-2 pr-4">Hedef VKN</th>
                     <th className="py-2 pr-4">Durum</th>
                     <th className="py-2 pr-4">İşlem</th>
                   </tr>
                 </thead>
                 <tbody className="text-slate-200">
-                  {orders.map((o) => {
+                  {sortedOrders.map((o) => {
                     const st = STATUS_LABEL[o.status] || { text: o.status, cls: "bg-slate-600/30 text-slate-300" }
                     const canAct = o.status !== "LOADED" && o.status !== "REJECTED"
                     const busy = busyOrderId === o.id
@@ -404,6 +426,37 @@ export function KontorAdmin() {
                         </td>
                         <td className="py-2 pr-4">
                           {Number(o.totalPrice).toLocaleString("tr-TR")} {o.currency}
+                        </td>
+                        {/* Ödeme: havalede açıklama kodu + dekont — eşleştirme bu ikisiyle yapılır. */}
+                        <td className="py-2 pr-4">
+                          <span className="text-xs text-slate-400">
+                            {o.paymentMethod === "CARD" ? "Kart (PayTR)" : "Havale/EFT"}
+                          </span>
+                          {o.paymentCode && (
+                            <span className="block font-mono text-xs text-orange-300">
+                              {o.paymentCode}
+                            </span>
+                          )}
+                          {o.receiptFileName ? (
+                            <a
+                              href={`/api/kontor/orders/${o.id}/receipt`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-0.5 inline-flex items-center gap-1 text-xs text-blue-300 underline underline-offset-2 hover:text-blue-200"
+                            >
+                              <Paperclip className="h-3 w-3" />
+                              Dekont
+                            </a>
+                          ) : (
+                            o.paymentMethod !== "CARD" && (
+                              <span className="block text-xs text-slate-600">dekont yok</span>
+                            )
+                          )}
+                          {o.paymentNote && (
+                            <span className="mt-0.5 block max-w-[200px] text-xs text-slate-400">
+                              “{o.paymentNote}”
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 pr-4 font-mono">{o.targetVkn}</td>
                         <td className="py-2 pr-4">

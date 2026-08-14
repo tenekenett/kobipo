@@ -103,7 +103,9 @@ export function KontorPurchaseDialog({
 
       toast({
         title: "Sipariş oluşturuldu",
-        description: "Havale bilgileri Kontör kartındaki 'Devam eden siparişiniz' bölümünde.",
+        description:
+          "IBAN, açıklamaya yazacağınız kod ve dekont yükleme, Kontör kartındaki " +
+          "'Devam eden siparişiniz' bölümünde.",
       })
       await load()
       onPurchased?.()
@@ -126,8 +128,8 @@ export function KontorPurchaseDialog({
           <DialogTitle>Kontör Satın Al</DialogTitle>
           <DialogDescription>
             {paytrEnabled
-              ? "Paket seçin → kart ile anında ödeyin (veya havale) → kontör hesabınıza yüklenir."
-              : "Paket seçin → havale ile ödeyin → onaylanınca kontör hesabınıza otomatik yüklenir."}
+              ? "Paket seçin → kart ile anında ödeyin (veya havale + dekont) → kontör hesabınıza yüklenir."
+              : "Paket seçin → kodu açıklamaya yazıp havale edin → dekontu yükleyin → onaylanınca kontör otomatik yüklenir."}
           </DialogDescription>
         </DialogHeader>
 

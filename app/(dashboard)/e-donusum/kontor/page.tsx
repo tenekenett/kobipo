@@ -314,13 +314,24 @@ export default function KontorPage() {
                 </div>
               )}
 
-              {/* Devam eden siparişler — süreç burada görünür (kullanılanın altında) */}
+            </>
+          )}
+
+          {/*
+            Devam eden siparişler + satın alma, bakiye sorgusunun DIŞINDA durur: Mysoft
+            geçici hata verdiğinde ya da firmanın kendi e-Dönüşüm kimliği henüz tanımlı
+            değilken de sipariş açılabilmeli (sipariş için firmanın VKN'si yeterli).
+            Tek istisna VKN'nin hiç olmaması (412) — o durumda kullanıcı zaten Firma
+            Ayarları'na yönlendiriliyor, sipariş ucu da 412 dönerdi.
+          */}
+          {!creditLoading && !needsVerification && (
+            <>
               <KontorActiveOrders companyId={companyId} refreshKey={orderRefreshKey} />
 
               {/* Satın al CTA */}
               <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
                 <p className="text-xs text-muted-foreground">
-                  Havale onayından sonra hesabınıza otomatik yüklenir.
+                  Havale/EFT'de dekontunuzu yükleyin; onaydan sonra kontör otomatik yüklenir.
                 </p>
                 <KontorPurchaseDialog
                   companyId={companyId}

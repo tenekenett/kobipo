@@ -26,19 +26,30 @@ export async function loadKontorOrderCredit(
   if (!order) return { ok: false, error: "Sipariş bulunamadı", status: 404 }
   if (order.status === "LOADED") return { ok: true, order, alreadyLoaded: true }
 
+  /**
+   * Siparişi FAILED'a çeker. Buraya YALNIZ ödemesi alınmış (callback) ya da admin'in
+   * onayladığı sipariş gelir; bu yüzden yükleme neden başarısız olursa olsun durum
+   * DEĞİŞMEDEN bırakılmaz: PENDING_PAYMENT'ta kalan bir sipariş müşteriye "ödeme
+   * bekleniyor" gösterilir (üstelik callback idempotency'si tekrar denemez) → parası
+   * alınmış sipariş ödenmemiş görünür. FAILED ise hem müşteri hem sistem-admin görür,
+   * admin "Onayla" ile tekrar yükleyebilir.
+   */
+  const markFailed = async (reason: string, status: number): Promise<LoadCreditResult> => {
+    const failed = await prisma.kontorOrder.update({
+      where: { id: orderId },
+      data: { status: "FAILED", loadError: reason, confirmedById, confirmedAt: new Date() },
+    })
+    return { ok: false, error: reason, status, order: failed }
+  }
+
   let provider
   try {
     assertEInvoiceRuntimeReady()
     provider = createPartnerProvider()
   } catch (e: any) {
-    return {
-      ok: false,
-      error: e?.message || "E-Dönüşüm çalışma zamanı hazır değil",
-      status: 503,
-      order,
-    }
+    return markFailed(e?.message || "E-Dönüşüm çalışma zamanı hazır değil", 503)
   }
-  if (!provider) return { ok: false, error: PARTNER_NOT_CONFIGURED_ERROR, status: 400, order }
+  if (!provider) return markFailed(PARTNER_NOT_CONFIGURED_ERROR, 400)
 
   let result: { success: boolean; creditId?: number; error?: string }
   try {
@@ -53,21 +64,7 @@ export async function loadKontorOrderCredit(
   }
 
   if (!result.success) {
-    const failed = await prisma.kontorOrder.update({
-      where: { id: orderId },
-      data: {
-        status: "FAILED",
-        loadError: result.error || "Mysoft yüklemesi başarısız",
-        confirmedById,
-        confirmedAt: new Date(),
-      },
-    })
-    return {
-      ok: false,
-      error: result.error || "Mysoft yüklemesi başarısız",
-      status: 502,
-      order: failed,
-    }
+    return markFailed(result.error || "Mysoft yüklemesi başarısız", 502)
   }
 
   const loaded = await prisma.kontorOrder.update({

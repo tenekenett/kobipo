@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { companyDisplayName } from "@/lib/company/display-name"
 import { Switch } from "@/components/ui/switch"
 import { Search, MoreVertical, Shield, Key, Edit, Trash2, Building2, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
@@ -47,6 +48,8 @@ interface User {
     company: {
       id: string
       name: string
+      /** Ünvandan ayrı kısa şube adı — listelerde ayırt edici olan bu. */
+      branchName: string | null
       isActive: boolean
     }
   }[]
@@ -55,6 +58,7 @@ interface User {
 interface CompanyOption {
   id: string
   name: string
+  branchName: string | null
   isActive: boolean
 }
 
@@ -371,8 +375,13 @@ export function UserTable({ users, companies }: UserTableProps) {
                       <div className="space-y-1">
                         {user.companies.slice(0, 2).map((uc) => (
                           <div key={uc.company.id} className="flex items-center gap-2">
-                            <Building2 className="h-3 w-3 text-slate-500" />
+                            <Building2 className="h-3 w-3 shrink-0 text-slate-500" />
                             <span className="text-sm text-slate-300">{uc.company.name}</span>
+                            {uc.company.branchName && (
+                              <span className="shrink-0 rounded bg-slate-700/60 px-1.5 py-0.5 text-xs text-slate-300">
+                                {uc.company.branchName}
+                              </span>
+                            )}
                             <span className={`text-xs px-1.5 py-0.5 rounded ${roleColors[uc.role]}`}>
                               {roleLabels[uc.role]}
                             </span>
@@ -532,7 +541,8 @@ export function UserTable({ users, companies }: UserTableProps) {
 
       {/* Firma üyeliği yönetim dialog'u */}
       <Dialog open={managing !== null} onOpenChange={(open) => !open && setManagingUser(null)}>
-        <DialogContent className="sm:max-w-lg bg-slate-900 border-slate-800 text-slate-100">
+        {/* Ünvanlar uzun (şube adıyla birlikte 100+ karakter) → max-w-lg dar kalıyordu. */}
+        <DialogContent className="sm:max-w-2xl bg-slate-900 border-slate-800 text-slate-100">
           <DialogHeader>
             <DialogTitle className="text-white">Firma Bağlantıları</DialogTitle>
             <DialogDescription className="text-slate-500">
@@ -552,9 +562,18 @@ export function UserTable({ users, companies }: UserTableProps) {
                     className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-800/40 p-2.5"
                   >
                     <Building2 className="h-4 w-4 shrink-0 text-slate-500" />
-                    <span className="flex-1 min-w-0 truncate text-sm text-slate-200">
-                      {uc.company.name}
-                      {!uc.company.isActive && <span className="text-slate-500"> (pasif)</span>}
+                    {/* Şube adı AYRI rozette: ünvanın sonuna eklenseydi dar alanda ilk
+                        kırpılan o olurdu — yani ayırt edici bilgi kaybolurdu. */}
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-slate-200">
+                      <span className="min-w-0 truncate">{uc.company.name}</span>
+                      {uc.company.branchName && (
+                        <span className="shrink-0 rounded bg-slate-700/60 px-1.5 py-0.5 text-xs text-slate-300">
+                          {uc.company.branchName}
+                        </span>
+                      )}
+                      {!uc.company.isActive && (
+                        <span className="shrink-0 text-slate-500">(pasif)</span>
+                      )}
                     </span>
                     <select
                       value={uc.role}
@@ -574,7 +593,9 @@ export function UserTable({ users, companies }: UserTableProps) {
                       variant="ghost"
                       size="icon"
                       disabled={membershipBusy}
-                      onClick={() => handleRemoveCompany(managing.id, uc.company.id, uc.company.name)}
+                      onClick={() =>
+                        handleRemoveCompany(managing.id, uc.company.id, companyDisplayName(uc.company))
+                      }
                       className="h-8 w-8 shrink-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -591,16 +612,19 @@ export function UserTable({ users, companies }: UserTableProps) {
                 <p className="text-xs text-slate-500">Eklenebilecek başka firma yok.</p>
               ) : (
                 <div className="flex flex-col sm:flex-row gap-2">
+                  {/* min-w-0 ŞART: native <select>'in min-content genişliği en uzun
+                      option'a eşittir; flex item'da min-width:auto ile birleşince
+                      seçici diyaloğun dışına taşıyordu (ünvanlar 100+ karakter). */}
                   <select
                     value={addCompanyId}
                     disabled={membershipBusy}
                     onChange={(e) => setAddCompanyId(e.target.value)}
-                    className="flex-1 h-9 rounded-md bg-slate-800 border border-slate-700 text-white text-sm px-2"
+                    className="w-full min-w-0 flex-1 h-9 rounded-md bg-slate-800 border border-slate-700 text-white text-sm px-2"
                   >
                     <option value="">Firma seç…</option>
                     {availableCompanies.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name}{c.isActive ? "" : " (pasif)"}
+                        {companyDisplayName(c)}{c.isActive ? "" : " (pasif)"}
                       </option>
                     ))}
                   </select>
@@ -608,7 +632,7 @@ export function UserTable({ users, companies }: UserTableProps) {
                     value={addRole}
                     disabled={membershipBusy}
                     onChange={(e) => setAddRole(e.target.value as Role)}
-                    className="h-9 rounded-md bg-slate-800 border border-slate-700 text-white text-sm px-2"
+                    className="h-9 shrink-0 rounded-md bg-slate-800 border border-slate-700 text-white text-sm px-2"
                   >
                     {Object.values(Role).map((r) => (
                       <option key={r} value={r}>

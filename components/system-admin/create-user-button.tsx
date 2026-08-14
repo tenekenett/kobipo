@@ -19,8 +19,10 @@ import { useToast } from "@/components/ui/use-toast"
 import { Plus, Loader2 } from "lucide-react"
 import { Role } from "@prisma/client"
 import { roleLabels } from "@/lib/auth/role-labels"
+import { companyDisplayName } from "@/lib/company/display-name"
 
-type CompanyOption = { id: string; name: string; isActive: boolean }
+// branchName ŞART: `name` resmi ünvandır, aynı tüzel kişinin şubelerinde aynıdır.
+type CompanyOption = { id: string; name: string; branchName: string | null; isActive: boolean }
 
 const emptyForm: { name: string; email: string; password: string; isSuperAdmin: boolean; companyId: string; role: Role } = {
   name: "",
@@ -125,17 +127,19 @@ export function CreateUserButton({ companies }: { companies: CompanyOption[] }) 
               className="bg-slate-800/50 border-slate-700 text-white"
             />
           </div>
-          <div className="space-y-1">
+          {/* min-w-0: uzun ünvanlı option'lar grid/flex içinde select'i şişirip
+              diyaloğu taşırıyor (bkz. user-table.tsx firma seçici). */}
+          <div className="space-y-1 min-w-0">
             <Label className="text-slate-300">Firma (opsiyonel)</Label>
             <select
               value={form.companyId}
               onChange={(e) => setForm((f) => ({ ...f, companyId: e.target.value }))}
-              className="w-full h-10 rounded-md bg-slate-800/50 border border-slate-700 text-white text-sm px-3"
+              className="w-full min-w-0 h-10 rounded-md bg-slate-800/50 border border-slate-700 text-white text-sm px-3"
             >
               <option value="">Bağlama (sonra atanabilir)</option>
               {companies.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}{c.isActive ? "" : " (pasif)"}
+                  {companyDisplayName(c)}{c.isActive ? "" : " (pasif)"}
                 </option>
               ))}
             </select>

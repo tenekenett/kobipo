@@ -85,8 +85,11 @@ yönetim paneli eklendi. (Aşama 4'ün "✅ uçtan uca çalışır" notu bu düz
 (localhost'a PayTR ulaşamadığı için sipariş PENDING kalıyordu). Kullanım:
 `node scripts/paytr-simulate-callback.js <orderId> [success|failed]` veya `npm run paytr:simulate -- <orderId>`.
 
-**Not (kontör):** Kontör akışında da aynı `merchant_oid` deseni var ama dönüş URL'i farklı sayfaya
-gittiğinden aktif bug tetiklenmiyor (latent) — bilinçli dokunulmadı.
+**Not (kontör):** ~~Kontör akışında da aynı `merchant_oid` deseni var ama dönüş URL'i farklı sayfaya
+gittiğinden aktif bug tetiklenmiyor (latent) — bilinçli dokunulmadı.~~
+**2026-08-14 güncellemesi:** latent değilmiş — "Ödemeye devam et" / sayfa yenileme / "Tekrar dene"
+aynı oid'i tekrar isteyip ödeme ekranını hiç açtırmıyordu. Kontör de aynı desene geçirildi
+(`newMerchantOid` + callback'te `merchantOidBase`), dönüş URL'lerine `company` param'ı eklendi.
 
 ---
 

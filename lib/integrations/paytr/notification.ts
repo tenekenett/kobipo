@@ -49,11 +49,11 @@ function retryLater() {
 /**
  * Bildirimi doğrular ve ilgili akışa yönlendirir.
  *
- * Eşleştirme sırası merchant_oid biçimine dayanır:
- *  - paket/abonelik: `<packageOrderId>X<deneme-eki>` → `merchantOidBase` ile taban id çözülür
- *  - kontör: `<kontorOrderId>` (ek yok)
- * cuid'ler yalnız küçük harf/rakam içerdiğinden büyük 'X' ayracı çakışmaz; yine de iki
- * tabloya da bakılır, karar tablodaki KAYDA göre verilir.
+ * Her iki akış da merchant_oid'i `<orderId>X<deneme-eki>` biçiminde üretir; taban id
+ * `merchantOidBase` ile çözülür. Ek taşımayan ESKİ kontör oid'leri (yalın id) de aynı
+ * fonksiyondan olduğu gibi geçer — ayraç yoksa string değişmez. cuid'ler yalnız küçük
+ * harf/rakam içerdiğinden büyük 'X' ayracı çakışmaz; yine de iki tabloya da bakılır,
+ * karar tablodaki KAYDA göre verilir.
  */
 export async function handlePaytrNotification(request: Request): Promise<Response> {
   let form: FormData
@@ -93,7 +93,7 @@ export async function handlePaytrNotification(request: Request): Promise<Respons
     }
 
     const kontorOrder = await prisma.kontorOrder.findUnique({
-      where: { id: notification.merchantOid },
+      where: { id: merchantOidBase(notification.merchantOid) },
     })
     if (kontorOrder) {
       return (await handleKontorNotification(notification, kontorOrder)) === "ok" ? ok() : retryLater()

@@ -5,6 +5,7 @@ import { requireSuperAdmin } from "@/lib/auth/require-super-admin"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isPaytrEnabled, PAYTR_NOT_CONFIGURED_ERROR } from "@/lib/integrations/paytr/client"
+import { generateUniquePaymentCode } from "@/lib/kontor/payment-code"
 import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -17,28 +18,39 @@ const ERR_NO_VERIFIED_VKN =
  * POST — Yeni sipariş oluştur (firma kullanıcısı). Paket seçer; kontör firmanın doğrulanmış VKN'sine yüklenecek.
  */
 export async function GET(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try {
+    const user = await getCurrentUser()
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { searchParams } = new URL(request.url)
-  if (searchParams.get("all") === "1") {
-    const auth = await requireSuperAdmin()
-    if ("error" in auth) return auth.error
+    const { searchParams } = new URL(request.url)
+    if (searchParams.get("all") === "1") {
+      const auth = await requireSuperAdmin()
+      if ("error" in auth) return auth.error
+      const orders = await prisma.kontorOrder.findMany({
+        orderBy: { createdAt: "desc" },
+        include: { company: { select: { id: true, name: true } } },
+      })
+      return NextResponse.json({ data: orders })
+    }
+
+    const companyId = await resolveCompanyId(searchParams.get("companyId"))
+    if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
+    // Başka firmanın id'siyle çağrıldığında fırlatır; POST'taki gibi 403'e çevrilir
+    // (yakalanmazsa 500 dönüyordu — erişim yine engelliydi ama istemci hatayı okuyamıyordu).
+    await ensureCompanyAccess(companyId)
     const orders = await prisma.kontorOrder.findMany({
+      where: { companyId },
       orderBy: { createdAt: "desc" },
-      include: { company: { select: { id: true, name: true } } },
     })
     return NextResponse.json({ data: orders })
+  } catch (error: any) {
+    const message: string = typeof error?.message === "string" ? error.message : ""
+    if (message.toLowerCase().includes("access denied")) {
+      return accessDeniedResponse(error)
+    }
+    console.error("kontor orders GET error:", error)
+    return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-
-  const companyId = await resolveCompanyId(searchParams.get("companyId"))
-  if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
-  await ensureCompanyAccess(companyId)
-  const orders = await prisma.kontorOrder.findMany({
-    where: { companyId },
-    orderBy: { createdAt: "desc" },
-  })
-  return NextResponse.json({ data: orders })
 }
 
 export async function POST(request: Request) {
@@ -76,9 +88,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: ERR_NO_VERIFIED_VKN }, { status: 412 })
     }
 
+    // Havale siparişine referans kodu: müşteri bunu banka açıklamasına yazar, admin
+    // dekontla hesap hareketini bununla eşleştirir ([[lib/kontor/payment-code.ts]]).
+    const paymentCode = paymentMethod === "HAVALE" ? await generateUniquePaymentCode() : null
+
     const order = await prisma.kontorOrder.create({
       data: {
         companyId,
+        paymentCode,
         packageId: pkg.id,
         packageName: pkg.name,
         creditQty: pkg.creditQty,

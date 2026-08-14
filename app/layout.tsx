@@ -6,7 +6,7 @@ import { ConfirmDialogProvider } from '@/components/ui/confirm-dialog-provider'
 import { SessionProvider } from '@/components/providers/session-provider'
 import { ThemeProvider } from '@/components/providers/theme-provider'
 import { RouteProgress } from '@/components/ui/route-progress'
-import { DARK_ROUTE_PREFIXES } from '@/lib/theme/dark-routes'
+import { DARK_ROUTE_PREFIXES, FORCED_DARK_ROUTE_PREFIXES } from '@/lib/theme/dark-routes'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { Analytics } from '@vercel/analytics/next'
 
@@ -52,10 +52,19 @@ const themeInitScript = `
 (function() {
   try {
     var darkRoutes = ${JSON.stringify(DARK_ROUTE_PREFIXES)};
+    var forcedDarkRoutes = ${JSON.stringify(FORCED_DARK_ROUTE_PREFIXES)};
     var path = window.location.pathname || '';
-    var isDarkRoute = darkRoutes.some(function(p) {
-      return path === p || path.indexOf(p + '/') === 0;
-    });
+    var matches = function(list) {
+      return list.some(function(p) { return path === p || path.indexOf(p + '/') === 0; });
+    };
+    // Daima koyu bölüm (sistem paneli): tercihe bakma, ilk boyamada koyu başla —
+    // aksi halde sayfa açılırken beyaz flaş oluyor.
+    if (matches(forcedDarkRoutes)) {
+      document.documentElement.classList.add('dark');
+      document.documentElement.style.colorScheme = 'dark';
+      return;
+    }
+    var isDarkRoute = matches(darkRoutes);
     if (!isDarkRoute) {
       document.documentElement.classList.remove('dark');
       document.documentElement.style.colorScheme = 'light';
