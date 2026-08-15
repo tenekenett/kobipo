@@ -269,11 +269,26 @@ model Company {
   // Şube ise ana firmaya işaret eder; ana (merkez) firmada null'dır. Şube,
   // ana firmayla aynı VKN/vergi dairesi/e-Dönüşüm kimliğini paylaşır (mağaza gibi).
   parentCompanyId           String?
+  // HESAP (faturalama) kökü. Abonelik, modül yetkisi ve kotalar bu firmada tutulur.
+  // Kök firmanın kendisinde null'dır; hesaba ait DİĞER tüm firmalarda kökün id'sini
+  // taşır. Şube hiyerarşisinden AYRI bir eksendir — ikisini karıştırmayın:
+  //   şube     → parentCompanyId dolu  (aynı tüzel kişi: VKN/vergi dairesi/e-Dönüşüm devralınır)
+  //   ek firma → parentCompanyId null + accountRootId dolu (AYRI tüzel kişi: kendi
+  //              VKN'si, adresi ve e-Dönüşüm kimliği; yalnızca abonelik/modüller ortak)
+  // Ek firma satın alınarak açılır (Subscription.companyQuota) ve zincir kurulmaz:
+  // ek firmanın şubesi de doğrudan kökü gösterir, böylece hesap tek sorguda çözülür
+  // (bkz. lib/billing/entitlements.ts → resolveAccountRootId).
+  accountRootId             String?
   createdAt                 DateTime           @default(now())
   updatedAt                 DateTime           @updatedAt
 
   parentCompany Company?  @relation("CompanyBranches", fields: [parentCompanyId], references: [id], onDelete: Cascade)
   branches      Company[] @relation("CompanyBranches")
+  // Kök silinirse ek firma SİLİNMEZ, kendi kökü olur (SetNull): ayrı tüzel kişinin
+  // faturaları/carisi başka bir firmanın silinmesiyle yok olmamalı. Şubede durum
+  // farklıdır — o aynı tüzel kişidir ve parentCompanyId üzerinden cascade silinir.
+  accountRoot    Company?  @relation("AccountCompanies", fields: [accountRootId], references: [id], onDelete: SetNull)
+  accountMembers Company[] @relation("AccountCompanies")
 
   users                   UserCompany[]
   /// Firmanın kendi tanımladığı roller (hazır enum rollerin yetmediği durumlar).
@@ -326,6 +341,7 @@ model Company {
   holidays                CompanyHoliday[]
 
   @@index([parentCompanyId])
+  @@index([accountRootId])
   @@map("companies")
 }
 
@@ -1880,7 +1896,9 @@ model Plan {
   includedModules     String[] @default([])
   // Pakete dahil ek şube sayısı (ana firma hariç). Ek şubeler bunun üstünde PricingItem[branch] ile.
   includedBranches    Int      @default(0)
-  maxCompanies        Int      @default(1)
+  // Pakete dahil ek FİRMA sayısı (hesabın kök firması hariç). Ek firma = ayrı VKN'li
+  // tüzel kişi, aynı abonelik. Şube kotasından bağımsızdır; üstü PricingItem[company].
+  includedCompanies   Int      @default(0)
   maxUsers            Int      @default(1)
   maxInvoicesPerMonth Int      @default(100)
   highlighted         Boolean  @default(false) // Müşteri ekranında "Önerilen" rozeti
@@ -1923,7 +1941,8 @@ model Subscription {
   billingCycle           String? // MONTHLY | YEARLY
   // Efektif açık modül anahtarları (snapshot). TRIAL'da boş bırakılır (hepsi açık kabul edilir).
   purchasedModules       String[]  @default([])
-  branchQuota            Int       @default(0) // ana firma hariç izin verilen ek şube sayısı
+  branchQuota            Int       @default(0) // hesap genelinde izin verilen ek şube sayısı
+  companyQuota           Int       @default(0) // kök firma hariç izin verilen ek firma (ayrı VKN) sayısı
   amount                 Decimal?  @db.Decimal(10, 2) // dönem tutarı (snapshot)
   autoRenew              Boolean   @default(false)
   cancelAtPeriodEnd      Boolean   @default(false)
@@ -1953,6 +1972,7 @@ model PackageOrder {
   selectedModules String[]           @default([]) // bundle dışı ekstra seçilen modüller
   resolvedModules String[]           @default([]) // nihai açılacak modül seti (snapshot)
   branchQuota     Int                @default(0) // satın alınan ek şube kotası
+  companyQuota    Int                @default(0) // satın alınan ek firma kotası
   billingCycle    String // MONTHLY | YEARLY
   amount          Decimal            @db.Decimal(10, 2)
   currency        String             @default("TRY")

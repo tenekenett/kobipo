@@ -39,7 +39,7 @@ async function main() {
     console.log(
       `  ${o.createdAt.toISOString().slice(0, 16)}  ${o.id}\n` +
         `    ${o.company?.name} (/${o.company?.slug})\n` +
-        `    tutar=${o.amount} TL  kota=${o.branchQuota}  ` +
+        `    tutar=${o.amount} TL  şube=${o.branchQuota} firma=${o.companyQuota}  ` +
         `modüller=[${o.resolvedModules.join(",") || "—"}]  paidAt=${o.paidAt ?? "—"}\n`,
     )
   }

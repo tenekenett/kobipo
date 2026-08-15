@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { getUserContext } from "@/lib/auth/user-context"
-import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
-import { getBranchQuotaStatus } from "@/lib/billing/entitlements"
-import { MODULE_KEYS } from "@/lib/modules"
+import {
+  CompanyCreationError,
+  createCompany,
+  type CompanyPlacement,
+} from "@/lib/company/create-company"
 import { Prisma } from "@prisma/client"
 
 export const dynamic = 'force-dynamic'
@@ -55,6 +56,9 @@ export async function GET() {
         isBranch: Boolean(c.isBranch),
         parentCompanyId: c.parentCompanyId ?? null,
         parentName: c.parentName ?? null,
+        // Şube DEĞİL ama dolu ise: hesaba bağlı ek firma (ayrı VKN, ortak abonelik).
+        // Arayüz rozeti bu ikiliden çizer; düşerse ek firma sıradan bir firma görünür.
+        accountRootId: c.accountRootId ?? null,
       }))
 
     return NextResponse.json(companies)
@@ -93,113 +97,26 @@ export async function POST(request: Request) {
       usesEDonusumBefore,
       onboardingCompletedAt,
       parentCompanyId,
+      accountCompanyId,
     } = body
 
-    // Şube modu: parentCompanyId verilirse, oluşturulan kayıt ana firmaya bağlı bir
-    // şubedir. VKN/vergi dairesi/e-Dönüşüm kimliği ana firmadan DEVRALINIR (aynı tüzel
-    // kişi) — istemciden gelen taxNumber/taxOffice/e-Dönüşüm alanları yok sayılır.
+    // Yerleşimi (şube / ek firma / yeni hesap) gövde belirler; ERİŞİM, ROL ve KOTA
+    // denetimi bu uçta DEĞİL, tek ortak yerde yapılır: [[lib/company/create-company.ts]].
+    // Bu uç yalnızca gövdeyi normalize eder — kuralın kopyası burada tutulmaz, yoksa
+    // firma oluşturan ikinci bir kapı açıldığında kural onunla birlikte çoğalır.
     //
-    // SEF sonrası dashboard URL'leri `?company=<slug>` taşır ve "Yeni Şube" bağlantısı bu
-    // değeri `parent=` olarak aktarır → buraya cuid yerine SLUG gelebilir. resolveCompanyId
-    // ile cuid'e çevrilmezse ensureCompanyAccess eşleşme bulamaz ve kullanıcı kendi ana
-    // firmasındayken "Ana firmaya erişiminiz yok" hatası alır.
+    // SEF sonrası dashboard URL'leri `?company=<slug>` taşır ve bağlantılar bu değeri
+    // `parent=`/`account=` olarak aktarır → buraya cuid yerine SLUG gelebilir.
+    // resolveCompanyId ile cuid'e çevrilmezse erişim kontrolü eşleşme bulamaz ve
+    // kullanıcı kendi firmasındayken "erişiminiz yok" hatası alır.
     const normalizedParentId = await resolveCompanyId(normalizeOptionalString(parentCompanyId))
+    const normalizedAccountId = await resolveCompanyId(normalizeOptionalString(accountCompanyId))
 
-    const trimmedName = String(name || "").trim()
-    const normalizedBranchName = normalizeOptionalString(branchName)
-    const normalizedTaxNumber = normalizeOptionalString(taxNumber)
-    const normalizedTaxOffice = normalizeOptionalString(taxOffice)
-    const normalizedAddress = normalizeOptionalString(address)
-    const normalizedCity = normalizeOptionalString(city)
-    const normalizedPhone = normalizeOptionalString(phone)
-    const normalizedEmail = normalizeOptionalString(email)
-    const normalizedSector = normalizeOptionalString(sector)
-    const normalizedBusinessModel = normalizeOptionalString(businessModel)
-    const normalizedEmployeeRange = normalizeOptionalString(employeeRange)
-    const normalizedMonthlyInvoiceVolume = normalizeOptionalString(monthlyInvoiceVolume)
-    const normalizedPrimaryBusinessNeed = normalizeOptionalString(primaryBusinessNeed)
-
-    if (!trimmedName) {
-      return NextResponse.json(
-        { error: "Firma adı zorunludur" },
-        { status: 400 }
-      )
-    }
-
-    // Şubede ünvan ana firmadan devralınır; şube ismi olmazsa şube, listelerde ve
-    // seçicide ana firmayla birebir aynı görünür (ayırt edilemez). Bu yüzden zorunlu.
-    if (normalizedParentId && !normalizedBranchName) {
-      return NextResponse.json(
-        { error: "Şube ismi zorunludur", code: "BRANCH_NAME_REQUIRED" },
-        { status: 400 }
-      )
-    }
-
-    // Şube ise ana firmanın kimlik/e-Dönüşüm bilgilerini yükle ve devral.
-    type CompanyRow = NonNullable<Awaited<ReturnType<typeof prisma.company.findUnique>>>
-    type InheritedFields = Pick<
-      CompanyRow,
-      | "taxNumber"
-      | "taxOffice"
-      | "disabledModules"
-      | "isEDonusumEnabled"
-      | "eDonusumIntegrator"
-      | "eDonusumProvider"
-      | "eDonusumApiUsername"
-      | "eDonusumApiPassword"
-      | "eDonusumAlias"
-      | "eDonusumApiUrl"
-      | "eDonusumTenantVkn"
-      | "eDonusumConnectorGuid"
-      | "eDonusumPkAlias"
-      | "eDonusumGbAlias"
-    >
-    let inherited: InheritedFields | null = null
-    if (normalizedParentId) {
-      let parentCompany: CompanyRow | null = null
-      try {
-        await ensureCompanyAccess(normalizedParentId)
-      } catch {
-        return NextResponse.json(
-          { error: "Ana firmaya erişiminiz yok", code: "PARENT_ACCESS_DENIED" },
-          { status: 403 }
-        )
-      }
-      parentCompany = await prisma.company.findUnique({ where: { id: normalizedParentId } })
-      if (!parentCompany) {
-        return NextResponse.json(
-          { error: "Ana firma bulunamadı", code: "PARENT_NOT_FOUND" },
-          { status: 404 }
-        )
-      }
-      // Şube zinciri kurmaya izin verme: bir şubenin altına şube eklenemez.
-      if (parentCompany.parentCompanyId) {
-        return NextResponse.json(
-          { error: "Bir şubenin altına şube eklenemez. Lütfen ana firmayı seçin.", code: "NESTED_BRANCH" },
-          { status: 400 }
-        )
-      }
-      inherited = parentCompany
-
-      // Şube kotası enforcement (Aşama 5): hesabın (kök firma = ana firma, şube zinciri yasak)
-      // aktif aboneliğindeki `branchQuota` kadar ek şube açılabilir. Aktif abonelik yoksa
-      // (deneme/ücretli değil) kota 0'dır → şube açılamaz (fail closed). Modül gating
-      // callback'te disabledModules ile yazılır; burada yalnızca ADET sınırı uygulanır.
-      // Kural tek yerde: aynı fonksiyon "kaç şube daha açabilirim" göstergesini de besler
-      // ([[lib/billing/entitlements.ts]] → getBranchQuotaStatus).
-      const quotaStatus = await getBranchQuotaStatus(normalizedParentId)
-      if (!quotaStatus.canAddBranch) {
-        return NextResponse.json(
-          {
-            error: "Şube kotanız dolu. Yeni şube eklemek için aboneliğinizi yükseltin.",
-            code: "PLAN_LIMIT_EXCEEDED",
-            branchQuota: quotaStatus.quota,
-            currentBranches: quotaStatus.used,
-          },
-          { status: 402 }
-        )
-      }
-    }
+    const placement: CompanyPlacement = normalizedParentId
+      ? { kind: "branch", parentCompanyId: normalizedParentId }
+      : normalizedAccountId
+        ? { kind: "account-company", accountCompanyId: normalizedAccountId }
+        : { kind: "new-account" }
 
     let parsedOnboardingCompletedAt: Date | null = null
     if (onboardingCompletedAt != null) {
@@ -219,122 +136,42 @@ export async function POST(request: Request) {
       }
     }
 
-    const userCompanyCount = await prisma.userCompany.count({
-      where: { userId: user.id },
-    })
-
-    let currentMaxCompanies = 1
-    try {
-      const currentSubscription = await prisma.subscription.findFirst({
-        where: {
-          userId: user.id,
-          status: { in: ["TRIAL", "ACTIVE"] },
-        },
-        include: { plan: true },
-        orderBy: { createdAt: "desc" },
-      })
-      currentMaxCompanies = currentSubscription?.plan?.maxCompanies ?? 1
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        isMissingSchemaError(error) &&
-        userCompanyCount === 0
-      ) {
-        console.warn("Subscription schema missing, allowing first company creation", {
-          userId: user.id,
-          code: error.code,
-        })
-      } else {
-        throw error
-      }
-    }
-
-    // Şube oluşturma (parentCompanyId set) yukarıda branchQuota ile sınırlanır; bu
-    // per-kullanıcı maxCompanies limiti YALNIZCA yeni bağımsız firma açarken uygulanır.
-    if (!normalizedParentId && userCompanyCount >= currentMaxCompanies) {
-      return NextResponse.json(
-        {
-          error: "Yeni sube eklemek icin abonelik yukseltilmelidir",
-          code: "PLAN_LIMIT_EXCEEDED",
-          maxCompanies: currentMaxCompanies,
-        },
-        { status: 402 }
-      )
-    }
-
-    const company = await prisma.$transaction(async (tx) => {
-      const createdCompany = await tx.company.create({
-        data: {
-          name: trimmedName,
-          branchName: normalizedBranchName,
-          address: normalizedAddress,
-          city: normalizedCity,
-          phone: normalizedPhone,
-          email: normalizedEmail,
-          // Adres dışı kimlik bilgileri: şubede ana firmadan devralınır, aksi halde formdan.
-          parentCompanyId: inherited ? normalizedParentId : null,
-          taxNumber: inherited ? inherited.taxNumber : normalizedTaxNumber,
-          taxOffice: inherited ? inherited.taxOffice : normalizedTaxOffice,
-          // Modül yetkisi YALNIZCA satın almayla açılır: yeni hesap tüm modüller kapalı
-          // doğar, ödeme callback'i `applyEntitlements` ile açar. Şube kendi yetkisini
-          // taşımaz — abonelik hesap düzeyindedir, o yüzden ana firmanınkini devralır
-          // (aksi halde kilitli bir hesabın şubesi boş listeyle tamamen açık doğardı).
-          disabledModules: inherited ? inherited.disabledModules : [...MODULE_KEYS],
-          isEDonusumEnabled: inherited ? inherited.isEDonusumEnabled : Boolean(isEDonusumEnabled),
-          ...(inherited
-            ? {
-                eDonusumIntegrator: inherited.eDonusumIntegrator,
-                eDonusumProvider: inherited.eDonusumProvider,
-                eDonusumApiUsername: inherited.eDonusumApiUsername,
-                eDonusumApiPassword: inherited.eDonusumApiPassword,
-                eDonusumAlias: inherited.eDonusumAlias,
-                eDonusumApiUrl: inherited.eDonusumApiUrl,
-                eDonusumTenantVkn: inherited.eDonusumTenantVkn,
-                eDonusumConnectorGuid: inherited.eDonusumConnectorGuid,
-                eDonusumPkAlias: inherited.eDonusumPkAlias,
-                eDonusumGbAlias: inherited.eDonusumGbAlias,
-                // Şube oluşturulurken profil/onboarding sihirbazı çalışmaz.
-                onboardingCompletedAt: new Date(),
-              }
-            : {
-                sector: normalizedSector,
-                businessModel: normalizedBusinessModel,
-                employeeRange: normalizedEmployeeRange,
-                monthlyInvoiceVolume: normalizedMonthlyInvoiceVolume,
-                primaryBusinessNeed: normalizedPrimaryBusinessNeed,
-                usesEDonusumBefore:
-                  typeof usesEDonusumBefore === "boolean" ? usesEDonusumBefore : null,
-                onboardingCompletedAt: parsedOnboardingCompletedAt,
-              }),
-        },
-      })
-
-      await tx.userCompany.create({
-        data: {
-          userId: user.id,
-          companyId: createdCompany.id,
-          role: "ADMIN",
-        },
-      })
-
-      await tx.warehouse.create({
-        data: {
-          companyId: createdCompany.id,
-          code: "ANA",
-          name: "Ana Depo",
-          isDefault: true,
-        },
-      })
-
-      // İlk firmaya 1 yıllık FREE_1Y denemesi AÇILMAZ. Modül yetkisi yalnızca satın
-      // almayla gelir; abonelik satırı ilk ödemede (PayTR callback) oluşur. Abonelik
-      // yokken `currentMaxCompanies` zaten 1 — ikinci bağımsız firma limiti değişmedi.
-
-      return createdCompany
+    // Erişim, rol, kota ve kayıt: hepsi tek yerde. Yeni hesaba 1 yıllık deneme AÇILMAZ —
+    // modül yetkisi yalnız satın almayla gelir, abonelik satırı ilk ödemede oluşur.
+    const company = await createCompany({
+      actorUserId: user.id,
+      placement,
+      grantMembership: true,
+      input: {
+        name: String(name ?? ""),
+        branchName: normalizeOptionalString(branchName),
+        taxNumber: normalizeOptionalString(taxNumber),
+        taxOffice: normalizeOptionalString(taxOffice),
+        address: normalizeOptionalString(address),
+        city: normalizeOptionalString(city),
+        phone: normalizeOptionalString(phone),
+        email: normalizeOptionalString(email),
+        isEDonusumEnabled: Boolean(isEDonusumEnabled),
+        sector: normalizeOptionalString(sector),
+        businessModel: normalizeOptionalString(businessModel),
+        employeeRange: normalizeOptionalString(employeeRange),
+        monthlyInvoiceVolume: normalizeOptionalString(monthlyInvoiceVolume),
+        primaryBusinessNeed: normalizeOptionalString(primaryBusinessNeed),
+        usesEDonusumBefore: typeof usesEDonusumBefore === "boolean" ? usesEDonusumBefore : null,
+        onboardingCompletedAt: parsedOnboardingCompletedAt,
+      },
     })
 
     return NextResponse.json(company, { status: 201 })
   } catch (error) {
+    // Kota/erişim/doğrulama hataları: kod ve durum ortak modülden gelir, uç yalnız iletir.
+    if (error instanceof CompanyCreationError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code, ...error.details },
+        { status: error.status },
+      )
+    }
+
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === "P2002") {
         return NextResponse.json(

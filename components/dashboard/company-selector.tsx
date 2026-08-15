@@ -72,7 +72,14 @@ export function CompanySelector() {
           value={value}
           onValueChange={(val) => {
             if (val === NEW_COMPANY) {
-              router.push("/companies/new")
+              // Yeni firma AYRI VKN'li bir ek firmadır ve aktif firmanın HESABINA
+              // bağlanır (kotayı o hesap öder, modülleri o verir) — hesap taşınmazsa
+              // sunucu "zaten bir hesabınız var" der ve ekleme yapılamaz.
+              router.push(
+                selectedCompanyId
+                  ? `/companies/new?account=${encodeURIComponent(selectedCompanyId)}`
+                  : "/companies/new",
+              )
               return
             }
             handleCompanyChange(val)

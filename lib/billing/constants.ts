@@ -13,8 +13,20 @@ export function isBillingCycle(v: unknown): v is BillingCycle {
 /** À la carte ek şube kotası fiyat öğesinin anahtarı (PricingItem.key). */
 export const BRANCH_ITEM_KEY = "branch"
 
+/**
+ * À la carte ek FİRMA kotası fiyat öğesinin anahtarı (PricingItem.key).
+ *
+ * Şubeden ayrı bir üründür ve ayrı bir sayaçtır: şube aynı tüzel kişinin ikinci
+ * adresidir (VKN ortak), ek firma ayrı VKN'li bir tüzel kişidir — yalnızca abonelik
+ * ve modüller hesap kökünden akar. Bkz. prisma → Company.accountRootId.
+ */
+export const COMPANY_ITEM_KEY = "company"
+
 /** Elle verilebilen şube kotası üst sınırı (sistem-admin) — yanlış girişe karşı emniyet. */
 export const MAX_BRANCH_QUOTA = 999
+
+/** Elle verilebilen firma kotası üst sınırı (sistem-admin). */
+export const MAX_COMPANY_QUOTA = 999
 
 /** Bir modül anahtarını PricingItem anahtarına çevirir (ör. "sales" → "module:sales"). */
 export function modulePriceKey(moduleKey: string): string {
@@ -28,7 +40,7 @@ export function moduleKeyFromPriceKey(itemKey: string): string | null {
 
 /**
  * Admin panelinde her zaman görünmesi gereken varsayılan à la carte fiyat öğeleri:
- * her yönetilebilir modül + ek şube. Fiyatlar 0 başlar, admin belirler.
+ * her yönetilebilir modül + ek şube + ek firma. Fiyatlar 0 başlar, admin belirler.
  */
 export function defaultPricingItems(): Array<{ key: string; label: string; sortOrder: number }> {
   const items = MANAGEABLE_MODULES.map((m, i) => ({
@@ -37,6 +49,7 @@ export function defaultPricingItems(): Array<{ key: string; label: string; sortO
     sortOrder: i,
   }))
   items.push({ key: BRANCH_ITEM_KEY, label: "Ek Şube", sortOrder: items.length })
+  items.push({ key: COMPANY_ITEM_KEY, label: "Ek Firma", sortOrder: items.length })
   return items
 }
 

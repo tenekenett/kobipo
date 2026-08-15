@@ -295,3 +295,127 @@ bildirimi beklemek yerine PayTR'a sorar. Denemeye özel `merchant_oid` saklanmad
 `package_orders`'a bir kolon (+migrasyon) ister.
 
 - `tsc --noEmit` 0 hata, eslint temiz, `vitest run` 221 test geçti.
+
+## 2026-08-15 — "Şube" ile "firma" ayrıldı; ek firma satılabilir hâle geldi ✅
+
+**Sorun.** İki farklı kavram tek sayaca biniyordu. Yeni bağımsız firma açma hakkı
+`Plan.maxCompanies` ile ölçülüyor, o değer de paket oluşturulurken **şube adedinden**
+türetiliyordu (`maxCompanies = includedBranches + 1`). Sonuçları:
+- Şube açmak firma hakkını yiyordu (sayaç kullanıcının TÜM üyeliklerini sayıyordu —
+  başkasının firmasındaki üyelik dahil).
+- Paketsiz (à la carte) alımda `planId` null olduğu için hak 1'e düşüyor, müşteri
+  yalnız şube açabiliyordu.
+- Satılabilir bir "ek firma" ürünü yoktu: hata mesajı "paketinizi yükseltin" diyordu ama
+  abonelik ekranında yükseltecek bir kalem bulunmuyordu.
+- Kotalar hesap kökünden (`companyId`), firma hakkı ise kullanıcıdan (`userId`)
+  okunuyordu; paketi satın almayan ikinci ADMIN için hak her zaman 1 görünüyordu.
+
+**Model.** Artık şube hiyerarşisi ile hesap (faturalama) üyeliği ayrı eksenler:
+
+| | şube | ek firma |
+|---|---|---|
+| alan | `parentCompanyId` dolu | `parentCompanyId` null, `accountRootId` dolu |
+| tüzel kişi | ana firmayla AYNI (VKN/vergi dairesi/e-Dönüşüm devralınır) | AYRI (kendi VKN'si, adresi, e-Dönüşüm hesabı) |
+| abonelik | hesap kökünden | hesap kökünden |
+| modüller | kökten akar | kökten akar |
+| kota | `Subscription.branchQuota` | `Subscription.companyQuota` |
+| fiyat kalemi | `PricingItem["branch"]` | `PricingItem["company"]` |
+| pakete dahil | `Plan.includedBranches` | `Plan.includedCompanies` |
+
+`Company.accountRootId` hesabın TÜM üyelerinde (şubeler + ek firmalar) kökün id'sini
+taşır → hesap tek sorguda çözülür, zincir yürünmez. Ek firmanın şubesi de doğrudan kökü
+gösterir. FK `ON DELETE SET NULL`: kök silinirse ek firma silinmez, kendi kökü olur
+(ayrı tüzel kişinin verisi başkasının silinmesiyle yok olmamalı).
+
+**Firma oluşturmanın üç modu** (`POST /api/companies`):
+- `parentCompanyId` → şube; `branchQuota` denetlenir (`BRANCH_QUOTA_EXCEEDED`, 402).
+- `accountCompanyId` → ek firma; hesabın **ADMIN**'i olmak şart (`ADMIN_REQUIRED`, 403) ve
+  `companyQuota` denetlenir (`COMPANY_QUOTA_EXCEEDED`, 402). Kimlik devralınmaz, yalnız
+  kökün `disabledModules`'ü devralınır.
+- ikisi de yok → ilk firma; **yalnızca** kullanıcının kendi hesabı yoksa serbest
+  (`ACCOUNT_REQUIRED`, 400). Ölçü "kaç firmaya üyeyim" değil "ADMIN'i olduğum kök firma
+  var mı" — başkasının firmasında çalışan biri kendi ilk firmasını hâlâ açabilir.
+
+**Dokunulan yerler.** `Plan.maxCompanies` DB'den düşürüldü (migrasyon
+`20260815000001_account_company_quota.sql`). `getBranchQuotaStatus` → `getAccountQuotas`
+(iki kotayı birlikte döner, tek kural); `countAccountBranches` artık ek firmaların
+şubelerini de sayar; `applyEntitlements` hesabın tüm üyelerine yazar.
+`/api/companies/branch-quota` → `/api/companies/quota`,
+`/api/billing/admin/branch-quota` → `/api/billing/admin/quota` (iki kota, verilmeyen alana
+dokunmaz). Abonelik ekranında "Ek firma kotası" adımlayıcısı, Firma ve Şube Yönetimi'nde
+iki kota kartı + "Yeni Firma" butonunun kotaya bağlanması. Ölü `new-branch-dialog.tsx`
+silindi: "Yeni Şube" diyordu ama `parentCompanyId` göndermediği için aslında bağımsız
+firma açıyordu.
+
+- `tsc --noEmit` 0 hata, `vitest run` geçti.
+
+### Ek: ek firma, hesabın diğer ADMIN'lerine de görünür ✅
+
+İlk turda ek firmaya erişim yalnız açık üyelikle veriliyordu (oluşturan ADMIN). Şubelerdeki
+"üst firmanın admini otomatik erişir" davranışı ek firmaya da yayıldı:
+`lib/auth/branch-access.ts` artık iki daldan bakıyor —
+`parentCompanyId IN adminIds` (ADMIN olunan firmanın şubeleri; ek firmanın kendi admini
+onun şubelerini bu daldan görür) **veya** `accountRootId IN adminIds` (ADMIN olunan hesabın
+üyeleri: ek firmalar + onların şubeleri). `canManageCompany` de aynı iki yolu kabul ediyor.
+
+`getManagedBranches` → `getManagedCompanies` (dönen kayıt artık `isBranch` ve
+`accountRootId` taşıyor). Ek firma `isBranch: false` gelir: firma seçicide normal firma
+gibi görünür, şube bağlam şeridi çizilmez. Firma ve Şube Yönetimi listesinde **"Ek firma ·
+&lt;hesap&gt;"** rozeti çıkar. Şube müdürü uçları (`/api/company/branch-managers`) da aynı
+kapsamı listeler — liste ile yetkinin ayrışmaması için.
+
+### Ek: firma oluşturma tek kapıya indirildi ✅
+
+Kota denetimi `POST /api/companies` içine yazılmıştı; ama firma oluşturan İKİNCİ bir uç
+daha vardı — `POST /api/system-admin/companies` (sistem yönetimi > Firma Yönetimi >
+"Yeni Firma"). O uç kendi `prisma.company.create`'ini çağırıyor, dolayısıyla kotayı,
+`accountRootId`'yi ve varsayılan "Ana Depo"yu hiç bilmiyordu.
+
+Kural artık tek modülde: **`lib/company/create-company.ts`**.
+- `resolveCompanyPlacement()` — erişim + rol + kota; başarısızsa `CompanyCreationError`
+  (kod + HTTP durumu taşır, uçlar yalnız iletir).
+- `createCompany()` — kayıt + (istenirse) ADMIN üyeliği + varsayılan depo, tek transaction.
+
+Üç yerleşim: `branch` (branchQuota), `account-company` (companyQuota + ADMIN şartı),
+`new-account` (kota yok, bu yüzden kapı dar: kendi hesabı olmayan kullanıcı ya da
+açıkça `allowAdditionalAccount` veren süper-admin).
+
+Süper-admin ucu daima `new-account` kullanır: müşteri için YENİ HESAP açar, var olan bir
+hesaba ek firma/şube ekleyemez (gövdeden parentCompanyId/accountCompanyId okunmaz), yani
+o kapıdan kota atlanamaz. Yan fayda: o uçtan açılan firmalar artık varsayılan depoyla
+doğuyor (eskiden deposuz doğup ilk stok işleminde patlıyordu).
+
+Yeni kapıların sessizce açılmaması için mekanik kontrol — `check:rls` ile aynı desen:
+
+```bash
+npm run check:company-create   # ortak modül dışında company.create çağrısı → exit 1
+```
+
+Kontrolün gerçekten yakaladığı, geçici bir ihlal dosyasıyla doğrulandı.
+
+### Ek: denetim turu — kota yarışı ve "kalıcı olmayan modül grantı" kapatıldı ✅
+
+Canlı veri üzerinde 12 yapısal değişmez tarandı (accountRootId zinciri, kökü ana
+firmasından farklı şube, kök olmayan firmaya bağlı abonelik/sipariş, deposuz firma,
+kotasının üstünde şube/firma, modülleri kökten sapmış üye…). Tümü temiz; tek bulgu
+arayüz etiketiydi: **doğrudan üyeliği olan şube** (canlıda 3 üyeli bir örnek var)
+`accountRootId` dolu + `isBranch` boş olduğu için "Ek firma" rozeti alıyordu. Rozet artık
+ham `parentCompanyId`den çözülüyor; `isBranch` bilinçli olarak değiştirilmedi — o bayrak
+"üyeliksiz, parent-admin erişimiyle görülen şube" demek ve firma seçici ile şube bağlam
+şeridi ona bakıyor.
+
+**1. Kota yarışı.** Kota kontrolü ile INSERT arasındaki pencerede eşzamanlı iki istek
+ikisi de geçip kotanın bir fazlasını açabiliyordu. `createCompany` artık transaction
+içinde hesabın abonelik satırını `FOR UPDATE` ile kilitleyip sayımı tekrarlıyor
+(`assertQuotaUnderLock`): ikinci istek birincinin COMMIT'ini bekler ve onun firmasını da
+sayar (READ COMMITTED'da kilit serbest kalınca ifade güncel veriyle yeniden okunur).
+Aktiflik ölçüsü `getAccountQuotas` ile aynı tutuldu ki kapı ile gösterge ayrışmasın.
+
+**2. Elle açılan modüller kalıcı değildi.** Süper-admin modül kartı yalnızca
+`company.disabledModules` yazıyordu; yetkinin gerçek kaynağı `purchasedModules` olduğu
+için grant, ilk yeniden hesaplamada (reconcile, yinelenen ödeme `jobs.ts`, kilitle/sıfırla,
+yeni sipariş) siliniyordu — 15 Ağustos'taki modül kaybının ikizi hâlâ kuruluydu. Artık
+`setAccountModules()` var: aboneliğin `purchasedModules`'una yazar **ve** hesabın tümüne
+uygular. Uç, yazacak ücretli-aktif abonelik yoksa `warning` döndürüyor, modül kartı da
+bunu kırmızı bildirimle gösteriyor (sessizce "başarılı" demek yanıltıcıydı).
+`resetAccountBilling("trial")` de açtığı modülleri artık aboneliğe yazıyor.

@@ -3,14 +3,14 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { requireSuperAdmin } from "@/lib/auth/require-super-admin"
 import { prisma } from "@/lib/db/prisma"
 import { ensureDefaultPricingItems } from "@/lib/billing/catalog"
-import { BRANCH_ITEM_KEY, moduleKeyFromPriceKey } from "@/lib/billing/constants"
+import { BRANCH_ITEM_KEY, COMPANY_ITEM_KEY, moduleKeyFromPriceKey } from "@/lib/billing/constants"
 import { MODULE_KEYS } from "@/lib/modules"
 
 export const dynamic = "force-dynamic"
 
-/** Bir fiyat öğesi anahtarı geçerli mi? (module:<bilinenModül> veya "branch") */
+/** Bir fiyat öğesi anahtarı geçerli mi? (module:<bilinenModül>, "branch" veya "company") */
 function isValidItemKey(key: string): boolean {
-  if (key === BRANCH_ITEM_KEY) return true
+  if (key === BRANCH_ITEM_KEY || key === COMPANY_ITEM_KEY) return true
   const mk = moduleKeyFromPriceKey(key)
   return !!mk && (MODULE_KEYS as string[]).includes(mk)
 }

@@ -110,6 +110,10 @@ async function main() {
       isActive: true,
       disabledModules: [], // tüm modüller açık
       parentCompanyId: def.parent ? idByKey[def.parent] : null,
+      // Hesap (faturalama) kökü — şube zinciri yasak olduğu için ana firmanın kendisi.
+      // Kota sayımı ve modül uygulaması bu alanı okur (lib/billing/entitlements.ts);
+      // yazılmazsa şubeler kotada görünmez ve satın alınan modüller onlara işlenmez.
+      accountRootId: def.parent ? idByKey[def.parent] : null,
     }
     const company = existing
       ? await p.company.update({ where: { id: existing.id }, data })
@@ -117,7 +121,7 @@ async function main() {
     idByKey[def.key] = company.id
 
     // Üyelik YALNIZ ana firmalara verilir. Şubeye doğrudan üyelik verilirse
-    // getManagedBranches onu "yönetilen şube" saymaz (üye olunanları eler) ve şube,
+    // getManagedCompanies onu "yönetilen firma" saymaz (üye olunanları eler) ve şube,
     // üst firma seçicisinde normal firma gibi görünür — test etmek istediğimiz
     // parent-admin şube bağlamı hiç kurulmaz.
     const uyeler = def.parent ? [] : [owner.id, ...ekUyeIds]
@@ -151,6 +155,8 @@ async function main() {
       periodStart: new Date(),
       periodEnd: trialEndsAt,
       branchQuota: 5,
+      // Ek firma (ayrı VKN, aynı abonelik) akışını da denemek için kota verilir.
+      companyQuota: 2,
     }
     if (sub) await p.subscription.update({ where: { id: sub.id }, data: subData })
     else await p.subscription.create({ data: subData })

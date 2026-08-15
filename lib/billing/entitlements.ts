@@ -1,9 +1,15 @@
 // Abonelik → yetki (entitlement) çözümü ve uygulanışı.
 //
-// Model: abonelik HESAP düzeyindedir (kök/ana firma). Seçilen modüller ana firma VE tüm
-// şubeleri için geçerlidir. Uygulama mevcut modül gating'ini yeniden kullanır: satın alınan
-// modüller `company.disabledModules`'a türetilmiş yazılır (disabled = TÜM − satın alınan),
-// böylece menü gizleme / route guard / server context hiç değişmeden çalışır. Bkz. [[lib/modules.ts]].
+// Model: abonelik HESAP düzeyindedir (kök firma). Seçilen modüller kök firma VE hesabın
+// tüm üyeleri (şubeler + satın alınmış ek firmalar) için geçerlidir. Uygulama mevcut modül
+// gating'ini yeniden kullanır: satın alınan modüller `company.disabledModules`'a türetilmiş
+// yazılır (disabled = TÜM − satın alınan), böylece menü gizleme / route guard / server
+// context hiç değişmeden çalışır. Bkz. [[lib/modules.ts]].
+//
+// Hesap üyeliği ile şube hiyerarşisi AYRI eksenlerdir (bkz. prisma → Company.accountRootId):
+//   şube     → parentCompanyId dolu  (aynı tüzel kişi, VKN devralınır)
+//   ek firma → accountRootId dolu    (ayrı tüzel kişi, yalnız abonelik ortak)
+// İkisi de `accountRootId` taşır, bu yüzden hesap tek sorguda çözülür.
 
 import { prisma } from "@/lib/db/prisma"
 import { MODULE_KEYS, sanitizeDisabledModules, withModuleDependencies } from "@/lib/modules"
@@ -11,16 +17,29 @@ import { GRACE_PERIOD_DAYS, type BillingCycle } from "@/lib/billing/constants"
 import { DAY_MS } from "@/lib/billing/notice"
 
 /**
- * Bir firmanın hesap kökünü (ana firma) döndürür. Şube ise parentCompanyId'ye çıkar;
- * ana firma ise kendisidir. (Şema tek seviye şube garantisi verir — zincir kurulamaz.)
+ * Bir firmanın hesap kökünü döndürür: `accountRootId` doluysa o, değilse firmanın
+ * kendisi köktür. Tek hop — ek firmanın şubesi de doğrudan kökü işaret ettiği için
+ * zincir yürünmez (kayıt oluşturulurken kök yazılır, bkz. app/api/companies/route.ts).
  */
 export async function resolveAccountRootId(companyId: string): Promise<string> {
   const company = await prisma.company.findUnique({
     where: { id: companyId },
-    select: { id: true, parentCompanyId: true },
+    select: { id: true, accountRootId: true },
   })
   if (!company) return companyId
-  return company.parentCompanyId ?? company.id
+  return company.accountRootId ?? company.id
+}
+
+/**
+ * Hesaba ait TÜM firma id'leri: kök + üyeleri (şubeler ve ek firmalar).
+ * Yetki uygulama ve hesap kapsamlı temizlik bunu okur.
+ */
+export async function getAccountCompanyIds(rootCompanyId: string): Promise<string[]> {
+  const members = await prisma.company.findMany({
+    where: { accountRootId: rootCompanyId },
+    select: { id: true },
+  })
+  return [rootCompanyId, ...members.map((m) => m.id)]
 }
 
 /** Hesabın (kök firma) en güncel aboneliğini döndürür. */
@@ -33,9 +52,21 @@ export async function getAccountSubscription(companyId: string) {
   })
 }
 
-/** Hesaptaki mevcut şube (alt firma) sayısı. */
+/**
+ * Hesaptaki mevcut şube sayısı — kök firmanın şubeleri VE ek firmaların şubeleri dahil.
+ * Şube kotası hesap geneli tek havuzdur; "hangi tüzel kişiye bağlı" ayrımı yapmaz.
+ */
 export async function countAccountBranches(rootCompanyId: string): Promise<number> {
-  return prisma.company.count({ where: { parentCompanyId: rootCompanyId } })
+  return prisma.company.count({
+    where: { accountRootId: rootCompanyId, parentCompanyId: { not: null } },
+  })
+}
+
+/** Hesaptaki ek firma (kök hariç, ayrı VKN'li tüzel kişi) sayısı — şubeler sayılmaz. */
+export async function countAccountCompanies(rootCompanyId: string): Promise<number> {
+  return prisma.company.count({
+    where: { accountRootId: rootCompanyId, parentCompanyId: null },
+  })
 }
 
 type SubStatusView = {
@@ -87,8 +118,11 @@ export function resolveGrantedModules(sub: SubStatusView | null | undefined, now
 }
 
 /**
- * Verilen açık modül setini hesabın ana firmasına VE tüm şubelerine uygular.
- * `company.disabledModules = TÜM − granted` yazar. Tek transaction.
+ * Verilen açık modül setini hesabın kök firmasına VE tüm üyelerine (şubeler + ek
+ * firmalar) uygular. `company.disabledModules = TÜM − granted` yazar. Tek transaction.
+ *
+ * Ek firma da bu kümededir: ayrı tüzel kişi olsa da aboneliği kökten akar, yoksa
+ * müşteri ödediği modülleri ikinci firmasında göremezdi.
  */
 export async function applyEntitlements(rootCompanyId: string, grantedModules: string[]): Promise<void> {
   // Bağımlılıklar burada da tamamlanır: arayüz atlanıp bu fonksiyon doğrudan
@@ -102,55 +136,109 @@ export async function applyEntitlements(rootCompanyId: string, grantedModules: s
       data: { disabledModules: disabled },
     }),
     prisma.company.updateMany({
-      where: { parentCompanyId: rootCompanyId },
+      where: { accountRootId: rootCompanyId },
       data: { disabledModules: disabled },
     }),
   ])
 }
 
-/** Hesabın şube kotası durumu — hem arayüz hem denetim bunu okur. */
-export type BranchQuotaStatus = {
-  /** Hesap kökü (ana firma) id'si — kota bu düzeyde tutulur. */
-  rootCompanyId: string
-  /** İzin verilen ek şube sayısı (ana firma hariç). Aktif abonelik yoksa 0. */
-  quota: number
-  /** Hesapta AÇIK olan şube sayısı. */
-  used: number
-  /** Daha açılabilecek şube sayısı (negatife düşmez). */
-  remaining: number
-  /** Yeni şube eklenebilir mi? */
-  canAddBranch: boolean
-  /** Aktif (ücretli veya deneme) abonelik var mı? Yoksa kota tanım gereği 0'dır. */
-  hasActiveSubscription: boolean
-}
-
 /**
- * Hesabın şube kotası durumunu çözer.
+ * Elle verilen modül setini hesap için KALICI yapar: `Subscription.purchasedModules`'a
+ * yazar ve hesabın tümüne uygular.
  *
- * TEK KURAL olması şart: bu fonksiyon hem "kaç şube daha açabilirim" göstergesini
- * (`/api/companies/branch-quota`) hem de şube açma denetimini (`app/api/companies/route.ts`
- * POST) besler. Ayrı ayrı hesaplanırsa ekran "1 hakkınız var" derken API 402 döndürebilir.
+ * Neden aboneliğe de yazılır: yetki her yeniden hesaplandığında kaynak
+ * `purchasedModules`tır (`resolveGrantedModules`) — reconcile, yinelenen ödeme
+ * (`lib/billing/jobs.ts`), "kilitle/sıfırla" ve her yeni sipariş bu alandan üretir.
+ * Yalnız `company.disabledModules` değiştirilirse verilen yetki İLK yeniden hesaplamada
+ * sessizce silinir; canlıda tam olarak bu yaşandı (2026-08-15, bkz.
+ * docs/paket-abonelik/ILERLEME.md).
  *
- * Aktif abonelik yoksa kota 0'dır — fail closed. Deneme de kota üretir (modül üretmez,
- * bkz. `resolveGrantedModules`).
+ * `durable=false` dönerse yazacak abonelik yok ya da abonelik ücretli-aktif değil:
+ * yetki şimdilik açık ama ilk yeniden hesaplamada kapanır — çağıran bunu KULLANICIYA
+ * söylemeli (deneme durumu tanım gereği modül üretmez).
  */
-export async function getBranchQuotaStatus(companyId: string): Promise<BranchQuotaStatus> {
+export async function setAccountModules(
+  companyId: string,
+  grantedModules: string[],
+): Promise<{ rootCompanyId: string; granted: string[]; durable: boolean }> {
   const rootCompanyId = await resolveAccountRootId(companyId)
+  const granted = withModuleDependencies(sanitizeDisabledModules(grantedModules))
+
   const sub = await prisma.subscription.findFirst({
     where: { companyId: rootCompanyId },
     orderBy: { createdAt: "desc" },
   })
+  if (sub) {
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { purchasedModules: granted },
+    })
+  }
+  await applyEntitlements(rootCompanyId, granted)
+
+  return { rootCompanyId, granted, durable: !!sub && (isPaidActive(sub) || isInGracePeriod(sub)) }
+}
+
+/** Bir hesap kotasının (şube ya da firma) durumu — hem arayüz hem denetim bunu okur. */
+export type QuotaStatus = {
+  /** Hesap kökü id'si — kota bu düzeyde tutulur. */
+  rootCompanyId: string
+  /** İzin verilen adet (kök firma hariç). Aktif abonelik yoksa 0. */
+  quota: number
+  /** Hesapta hâlihazırda AÇIK olan adet. */
+  used: number
+  /** Daha açılabilecek adet (negatife düşmez). */
+  remaining: number
+  /** Yenisi eklenebilir mi? */
+  canAdd: boolean
+  /** Aktif (ücretli veya deneme) abonelik var mı? Yoksa kota tanım gereği 0'dır. */
+  hasActiveSubscription: boolean
+}
+
+/** Hesabın her iki kotası tek sorgu turunda — kota kartları ve denetimler bunu okur. */
+export type AccountQuotas = {
+  rootCompanyId: string
+  branch: QuotaStatus
+  company: QuotaStatus
+}
+
+/**
+ * Hesabın şube VE firma kotalarını birlikte çözer.
+ *
+ * TEK KURAL olması şart: bu fonksiyon hem "kaç tane daha açabilirim" göstergesini
+ * (`/api/companies/quota`) hem de açma denetimini (`app/api/companies/route.ts` POST)
+ * besler. Ayrı ayrı hesaplanırsa ekran "1 hakkınız var" derken API 402 döndürebilir.
+ *
+ * Aktif abonelik yoksa kotalar 0'dır — fail closed. Deneme de kota üretir (modül
+ * üretmez, bkz. `resolveGrantedModules`).
+ *
+ * İki kota AYRI havuzdur: şube açmak firma hakkını, firma açmak şube hakkını yemez.
+ */
+export async function getAccountQuotas(companyId: string): Promise<AccountQuotas> {
+  const rootCompanyId = await resolveAccountRootId(companyId)
+  const [sub, usedBranches, usedCompanies] = await Promise.all([
+    prisma.subscription.findFirst({
+      where: { companyId: rootCompanyId },
+      orderBy: { createdAt: "desc" },
+    }),
+    countAccountBranches(rootCompanyId),
+    countAccountCompanies(rootCompanyId),
+  ])
+
   const hasActiveSubscription = !!sub && (isPaidActive(sub) || isTrialActive(sub))
-  const quota = hasActiveSubscription ? sub!.branchQuota : 0
-  const used = await countAccountBranches(rootCompanyId)
-  const remaining = Math.max(0, quota - used)
-  return {
+  const status = (quota: number, used: number): QuotaStatus => ({
     rootCompanyId,
     quota,
     used,
-    remaining,
-    canAddBranch: used < quota,
+    remaining: Math.max(0, quota - used),
+    canAdd: used < quota,
     hasActiveSubscription,
+  })
+
+  return {
+    rootCompanyId,
+    branch: status(hasActiveSubscription ? sub!.branchQuota : 0, usedBranches),
+    company: status(hasActiveSubscription ? sub!.companyQuota : 0, usedCompanies),
   }
 }
 

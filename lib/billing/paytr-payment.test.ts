@@ -2,9 +2,10 @@
  * Ödeme sonrası abonelik yazımı kararının testleri.
  *
  * Buradaki bir hata doğrudan müşterinin parasına ve erişimine dokunuyor: canlıda
- * modülsüz (yalnız şube kotası) bir sipariş `applyEntitlements(root, [])` çağırıp
- * ana firma ile TÜM şubelerin her modülünü kapatıyordu. Testler o senaryoyu ve
- * "ödenmiş süre kısalmasın" kuralını kilitliyor.
+ * modülsüz (yalnız kota) bir sipariş `applyEntitlements(root, [])` çağırıp kök firma
+ * ile hesabın TÜM üyelerinin her modülünü kapatıyordu. Testler o senaryoyu, iki
+ * kotanın (şube/firma) birbirini ezmemesini ve "ödenmiş süre kısalmasın" kuralını
+ * kilitliyor.
  */
 
 import { describe, expect, it } from "vitest"
@@ -15,18 +16,39 @@ const NOW = new Date("2026-08-13T12:00:00.000Z")
 const order = (over: Partial<Parameters<typeof planSubscriptionWrite>[0]> = {}) => ({
   resolvedModules: ["sales", "stock"],
   branchQuota: 0,
+  companyQuota: 0,
   billingCycle: "MONTHLY",
   ...over,
 })
 
-describe("planSubscriptionWrite — yalnız şube kotası satın alma", () => {
+describe("planSubscriptionWrite — yalnız kota satın alma", () => {
   it("mevcut abonelikte modüllere ve döneme DOKUNMAZ, sadece kotayı yazar", () => {
     const write = planSubscriptionWrite(
       order({ resolvedModules: [], branchQuota: 3 }),
       { purchasedModules: ["sales", "stock"], periodEnd: new Date("2026-12-01T00:00:00.000Z") },
       NOW,
     )
-    expect(write).toEqual({ kind: "quota-top-up", branchQuota: 3 })
+    expect(write).toEqual({ kind: "quota-top-up", branchQuota: 3, companyQuota: 0 })
+  })
+
+  // Firma kotası şubeden AYRI bir üründür: modülsüz "bir firma daha" siparişi de
+  // kota takviyesi sayılmalı, yoksa aboneliği ACTIVE'e alıp modülleri sıfırlardı.
+  it("yalnız FİRMA kotası alındığında da kota takviyesi yapar", () => {
+    const write = planSubscriptionWrite(
+      order({ resolvedModules: [], companyQuota: 2 }),
+      { purchasedModules: ["sales"], periodEnd: new Date("2026-12-01T00:00:00.000Z") },
+      NOW,
+    )
+    expect(write).toEqual({ kind: "quota-top-up", branchQuota: 0, companyQuota: 2 })
+  })
+
+  it("iki kotayı birlikte yazar — biri diğerini sıfırlamaz", () => {
+    const write = planSubscriptionWrite(
+      order({ resolvedModules: [], branchQuota: 4, companyQuota: 1 }),
+      { purchasedModules: [], periodEnd: null },
+      NOW,
+    )
+    expect(write).toEqual({ kind: "quota-top-up", branchQuota: 4, companyQuota: 1 })
   })
 
   it("deneme aboneliğinin süresini kısaltmaz (kota takviyesi dönemi hiç yazmaz)", () => {
@@ -39,23 +61,44 @@ describe("planSubscriptionWrite — yalnız şube kotası satın alma", () => {
   })
 
   it("aboneliği olmayan hesapta satır açar ama MODÜL YETKİSİ UYGULAMAZ", () => {
-    const write = planSubscriptionWrite(order({ resolvedModules: [], branchQuota: 2 }), null, NOW)
+    const write = planSubscriptionWrite(
+      order({ resolvedModules: [], branchQuota: 2, companyQuota: 1 }),
+      null,
+      NOW,
+    )
     expect(write).toMatchObject({
       kind: "activate",
       purchasedModules: [],
       branchQuota: 2,
+      companyQuota: 1,
       applyEntitlements: false,
     })
   })
 })
 
+describe("planSubscriptionWrite — modülsüz sipariş yetki YAZAMAZ", () => {
+  // Canlıda yaşandı: `companyQuota`yı bilmeyen bir sürüm, yalnız firma kotası içeren
+  // siparişi "modül alımı" sanıp `applyEntitlements(root, [])` çağırdı ve hesabın tüm
+  // modüllerini kapattı. Kota koşulu ileride yine eksik kalabilir; bu test, modülsüz
+  // hiçbir siparişin yetkiye dokunamayacağını kilitler.
+  it("hiçbir kota koşuluna uymasa bile applyEntitlements=false kalır", () => {
+    const write = planSubscriptionWrite(
+      order({ resolvedModules: [], branchQuota: 0, companyQuota: 0 }),
+      { purchasedModules: ["sales", "stock"], periodEnd: null },
+      NOW,
+    )
+    expect(write).toMatchObject({ kind: "activate", applyEntitlements: false })
+  })
+})
+
 describe("planSubscriptionWrite — modül/paket satın alma", () => {
   it("modülleri yazar ve yetkileri uygular", () => {
-    const write = planSubscriptionWrite(order({ branchQuota: 1 }), null, NOW)
+    const write = planSubscriptionWrite(order({ branchQuota: 1, companyQuota: 2 }), null, NOW)
     expect(write).toMatchObject({
       kind: "activate",
       purchasedModules: ["sales", "stock"],
       branchQuota: 1,
+      companyQuota: 2,
       applyEntitlements: true,
     })
   })

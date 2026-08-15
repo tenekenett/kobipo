@@ -1,35 +1,53 @@
 import { prisma } from "@/lib/db/prisma"
 
 /**
- * Parent-admin şube erişimi için paylaşımlı yardımcılar.
+ * Üyelik olmadan gelen "yönetici erişimi" için paylaşımlı yardımcılar.
  *
- * Model: bir kullanıcı, ADMIN olduğu bir firmanın alt şubelerini (parentCompanyId)
- * de yönetebilir/erişebilir — o şubeye doğrudan üye olmasa bile. Şube müdürü ataması,
- * şube context erişimi ve şube detayları bu yetkiye dayanır.
+ * Model: bir kullanıcı, ADMIN olduğu firmanın kendisine doğrudan üye OLMADIĞI hâlde
+ * erişebildiği iki firma kümesi vardır (bkz. CLAUDE.md → "Şube ≠ firma"):
+ *
+ *   1. ŞUBELERİ — `parentCompanyId` ile bağlı, aynı tüzel kişi (mağaza gibi).
+ *   2. HESABININ ÜYELERİ — `accountRootId` ile bağlı; satın alınmış EK FİRMALAR
+ *      (ayrı VKN) ve onların şubeleri. Abonelik hesap kökünde durduğu için hesabın
+ *      yöneticisi, hesaba ait her firmayı da yönetebilmeli.
+ *
+ * İki koşul birlikte gerekli: ek firmanın kendi ADMIN'i (kök admini olmayabilir) o
+ * firmanın şubelerini 1. kuraldan görür; kök admini ise ek firmayı ve şubelerini 2.
+ * kuraldan görür.
  */
 
 export type ManageableCompany = {
   id: string
   name: string
+  /** Şube ise ana firma; değilse null. */
   parentCompanyId: string | null
+  /** Hesabın (faturalama) kökü; kök firmanın kendisinde null. */
+  accountRootId: string | null
 }
 
-export type ManagedBranch = {
+export type ManagedCompany = {
   id: string
   slug: string
   name: string
   /** Ünvandan ayrı kısa şube ismi (arayüzde parantez içinde gösterilir). */
   branchName: string | null
-  parentCompanyId: string
+  /** Şube ise ana firma; hesaba bağlı ek firmada null. */
+  parentCompanyId: string | null
+  /** Şube mi (aynı VKN) yoksa hesaba bağlı ayrı firma mı (ek firma)? */
+  isBranch: boolean
+  /** Bağlı olunan firmanın adı: şubede ana firma, ek firmada hesap kökü. */
   parentName: string | null
+  /** Hesabın kök firması (ek firma rozetini ve kota bağlamını çizmek için). */
+  accountRootId: string | null
   isEDonusumEnabled: boolean
   disabledModules: string[]
 }
 
 /**
- * Kullanıcının yönetebildiği firma/şubeyi döner (yoksa null):
+ * Kullanıcının yönetebildiği firmayı döner (yoksa null):
  * - firmanın DOĞRUDAN ADMIN'i ise, ya da
- * - (şube ise) ana firmasının ADMIN'i ise.
+ * - (şube ise) ana firmasının ADMIN'i ise, ya da
+ * - (hesaba bağlıysa) hesap kökünün ADMIN'i ise.
  */
 export async function canManageCompany(
   userId: string,
@@ -37,7 +55,7 @@ export async function canManageCompany(
 ): Promise<ManageableCompany | null> {
   const company = await prisma.company.findUnique({
     where: { id: companyId },
-    select: { id: true, name: true, parentCompanyId: true },
+    select: { id: true, name: true, parentCompanyId: true, accountRootId: true },
   })
   if (!company) return null
 
@@ -47,22 +65,27 @@ export async function canManageCompany(
   })
   if (direct?.role === "ADMIN") return company
 
-  if (company.parentCompanyId) {
-    const parent = await prisma.userCompany.findUnique({
-      where: { userId_companyId: { userId, companyId: company.parentCompanyId } },
-      select: { role: true },
+  // Ana firma VE hesap kökü ayrı olabilir (ek firmanın şubesinde ikisi de dolu ve
+  // farklıdır); ikisinden birinin ADMIN'i olmak yeter.
+  const viaCompanyIds = [company.parentCompanyId, company.accountRootId].filter(
+    (id): id is string => !!id
+  )
+  if (viaCompanyIds.length > 0) {
+    const viaAdmin = await prisma.userCompany.findFirst({
+      where: { userId, companyId: { in: viaCompanyIds }, role: "ADMIN" },
+      select: { companyId: true },
     })
-    if (parent?.role === "ADMIN") return company
+    if (viaAdmin) return company
   }
 
   return null
 }
 
 /**
- * Kullanıcının ADMIN olduğu firmaların AKTİF alt şubeleri — kullanıcının halihazırda
- * doğrudan üye OLMADIĞI olanlar (üye olduğu şubeler zaten context'te yer alır).
+ * Kullanıcının ADMIN'liğinden doğan AKTİF firmalar — doğrudan üye OLMADIKLARI
+ * (üye olunanlar zaten context'te yer alır). Hem şubeler hem hesabın ek firmaları.
  */
-export async function getManagedBranches(userId: string): Promise<ManagedBranch[]> {
+export async function getManagedCompanies(userId: string): Promise<ManagedCompany[]> {
   const memberships = await prisma.userCompany.findMany({
     where: { userId },
     select: { companyId: true, role: true },
@@ -74,39 +97,60 @@ export async function getManagedBranches(userId: string): Promise<ManagedBranch[
 
   if (adminCompanyIds.length === 0) return []
 
-  const adminNameById = new Map(
-    (
-      await prisma.company.findMany({
-        where: { id: { in: adminCompanyIds } },
-        select: { id: true, name: true },
-      })
-    ).map((c) => [c.id, c.name])
-  )
-
-  const branches = await prisma.company.findMany({
-    where: { parentCompanyId: { in: adminCompanyIds }, isActive: true },
+  const managed = await prisma.company.findMany({
+    where: {
+      isActive: true,
+      OR: [
+        // ADMIN olduğum firmanın şubeleri. Ek firmanın kendi ADMIN'i, kök admini
+        // olmasa da o firmanın şubelerini bu daldan görür.
+        { parentCompanyId: { in: adminCompanyIds } },
+        // ADMIN olduğum hesabın üyeleri: ek firmalar + onların şubeleri.
+        { accountRootId: { in: adminCompanyIds } },
+      ],
+    },
     select: {
       id: true,
       slug: true,
       name: true,
       branchName: true,
       parentCompanyId: true,
+      accountRootId: true,
       isEDonusumEnabled: true,
       disabledModules: true,
     },
     orderBy: { name: "asc" },
   })
 
-  return branches
-    .filter((b) => !memberCompanyIds.has(b.id))
-    .map((b) => ({
-      id: b.id,
-      slug: b.slug,
-      name: b.name,
-      branchName: b.branchName ?? null,
-      parentCompanyId: b.parentCompanyId as string,
-      parentName: adminNameById.get(b.parentCompanyId ?? "") ?? null,
-      isEDonusumEnabled: b.isEDonusumEnabled,
-      disabledModules: b.disabledModules ?? [],
-    }))
+  const visible = managed.filter((c) => !memberCompanyIds.has(c.id))
+  if (visible.length === 0) return []
+
+  // Bağlı olunan firmanın adı: şubede ana firma, ek firmada hesap kökü. Ana firma
+  // ADMIN listesinde olmayabilir (ek firmanın şubesine kök admini olarak erişildiğinde
+  // ana firma o ek firmadır), bu yüzden adlar ayrıca çözülür.
+  const relatedIds = new Set<string>()
+  for (const c of visible) {
+    const relatedId = c.parentCompanyId ?? c.accountRootId
+    if (relatedId) relatedIds.add(relatedId)
+  }
+  const nameById = new Map(
+    (
+      await prisma.company.findMany({
+        where: { id: { in: [...relatedIds] } },
+        select: { id: true, name: true },
+      })
+    ).map((c) => [c.id, c.name])
+  )
+
+  return visible.map((c) => ({
+    id: c.id,
+    slug: c.slug,
+    name: c.name,
+    branchName: c.branchName ?? null,
+    parentCompanyId: c.parentCompanyId,
+    isBranch: c.parentCompanyId != null,
+    parentName: nameById.get(c.parentCompanyId ?? c.accountRootId ?? "") ?? null,
+    accountRootId: c.accountRootId,
+    isEDonusumEnabled: c.isEDonusumEnabled,
+    disabledModules: c.disabledModules ?? [],
+  }))
 }

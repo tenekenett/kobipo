@@ -1,336 +1,82 @@
-"use client"
+import { redirect } from "next/navigation"
+import { prisma } from "@/lib/db/prisma"
+import { getCurrentUser } from "@/lib/auth/session"
+import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { resolveCompanyId } from "@/lib/company/resolve-company"
+import { getAccountQuotas } from "@/lib/billing/entitlements"
+import { NewCompanyForm } from "@/components/dashboard/new-company-form"
 
-import { useEffect, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { CityCombobox } from "@/components/ui/city-combobox"
-import { useToast } from "@/components/ui/use-toast"
-import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
-import { Info } from "lucide-react"
+export const dynamic = "force-dynamic"
 
-interface ParentCompany {
-  id: string
-  name: string
-  taxNumber?: string | null
-  taxOffice?: string | null
-  isEDonusumEnabled?: boolean
-}
+/**
+ * Firma/şube oluşturma ekranının KAPISI.
+ *
+ * Kota denetimi sunucuda, form çizilmeden önce yapılır. Butonu gizlemek yetmiyor:
+ * bu sayfaya firma seçicideki "Yeni firma ekle", Firma ve Şube Yönetimi'ndeki butonlar,
+ * yer imi ya da elle yazılan URL ile de gelinebiliyor. Kota yoksa kullanıcı boş bir form
+ * doldurup en sonda 402 yemek yerine, durumu gördüğü sayfaya yönlendirilir.
+ *
+ * Kotanın kendisini bu sayfa korumaz — son söz `POST /api/companies`'dedir
+ * ([[lib/company/create-company.ts]]). Buradaki kontrol yalnız kullanıcıyı çıkmaz
+ * sokağa sokmamak içindir, bu yüzden aynı fonksiyonu okur: `getAccountQuotas`.
+ */
+export default async function NewCompanyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mode?: string; parent?: string; company?: string; account?: string }>
+}) {
+  const params = await searchParams
+  const user = await getCurrentUser()
+  if (!user) redirect("/signin")
 
-export default function NewCompanyPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  // Şube Yönetimi'nden "Yeni Şube" ile gelindiğinde mode=branch olur. Bu durumda
-  // bu, kullanıcının ilk firması değil ana firmaya bağlı bir şubedir (mağaza gibi):
-  // VKN/vergi dairesi/e-Dönüşüm ana firmadan devralınır, profil sihirbazı atlanır.
-  const isBranch = searchParams.get("mode") === "branch"
-  // Şubenin bağlanacağı ana firma: ?parent= (yoksa aktif firma ?company=).
-  const parentCompanyId = searchParams.get("parent") || searchParams.get("company")
-  const { toast } = useToast()
-  const { companies, isLoading: isLoadingCompanies } = useDashboardCompany()
-  const [parent, setParent] = useState<ParentCompany | null>(null)
-  const [formData, setFormData] = useState({
-    name: "",
-    branchName: "",
-    taxNumber: "",
-    taxOffice: "",
-    address: "",
-    city: "",
-    phone: "",
-  })
-  const [isLoading, setIsLoading] = useState(false)
+  const isBranch = params.mode === "branch"
+  // Şube: ?parent= (yoksa aktif firma ?company=). Ek firma: ?account=.
+  const contextParam = isBranch ? params.parent || params.company : params.account
+  const contextCompanyId = await resolveCompanyId(contextParam ?? null)
 
-  // Şube modunda ana firmanın kimlik bilgilerini çek (VKN/vergi dairesi salt-okunur gösterilir).
-  useEffect(() => {
-    if (!isBranch || !parentCompanyId) return
-    let cancelled = false
-    fetch(`/api/companies/${parentCompanyId}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: ParentCompany | null) => {
-        if (cancelled || !data) return
-        setParent(data)
-        setFormData((prev) => ({
-          ...prev,
-          // Şube ana firmayla aynı tüzel kişidir → ünvan da devralınır (elle değiştirilebilir).
-          // Şubeyi ayıran ad ayrı "Şube İsmi" alanında tutulur.
-          name: prev.name || data.name || "",
-          taxNumber: data.taxNumber || "",
-          taxOffice: data.taxOffice || "",
-        }))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isBranch, parentCompanyId])
-
-  // YALNIZCA İLK firmada: kayıt formunda girilen ünvan ve şube ismi burada ön
-  // doldurulur — kullanıcı aynı bilgiyi ikinci kez yazmasın. Kullanıcı üzerine
-  // yazabilir; alan doluysa (kullanıcı yazmaya başladıysa) dokunulmaz.
-  //
-  // Firma sayısı kontrolü ŞART: bu ekran seçicideki "Yeni firma ekle" ve Şube
-  // Yönetimi'ndeki "Yeni Firma" ile de açılır. Kapsam daraltılmazsa ikinci/üçüncü
-  // firmayı açan kullanıcının formu, kayıt sırasında yazdığı BAŞKA firmanın ünvanıyla
-  // dolar ve fark edilmeden kaydedilebilir.
-  useEffect(() => {
-    if (isBranch || isLoadingCompanies || companies.length > 0) return
-    let cancelled = false
-    fetch("/api/auth/profile", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((profile: { companyDisplayName?: string | null; companyBranchName?: string | null } | null) => {
-        if (cancelled || !profile) return
-        setFormData((prev) => ({
-          ...prev,
-          name: prev.name || profile.companyDisplayName || "",
-          branchName: prev.branchName || profile.companyBranchName || "",
-        }))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [isBranch, isLoadingCompanies, companies.length])
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-
-    if (isBranch && !parentCompanyId) {
-      toast({
-        title: "Ana firma seçili değil",
-        description: "Şube eklemek için önce bir firma seçin.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    // İlk firma kaydında VKN/TCKN zorunlu — e-Dönüşüm ve GİB posta kutusu sorguları
-    // bu numaraya dayanır. Şubede VKN ana firmadan devralındığı için kontrol yapılmaz.
-    if (!isBranch) {
-      const vkn = formData.taxNumber.replace(/\D/g, "")
-      if (vkn.length !== 10 && vkn.length !== 11) {
-        toast({
-          title: "Vergi No zorunlu",
-          description: "Firma oluşturmak için 10 haneli VKN veya 11 haneli TCKN girin.",
-          variant: "destructive",
-        })
-        return
-      }
-    }
-
-    setIsLoading(true)
-
+  if (contextCompanyId) {
+    // Erişimi olmayan bir firmanın kotasını okumasın; hakkı yoksa kendi bağlamına döner.
     try {
-      // Şubede VKN/vergi dairesi/e-Dönüşüm sunucu tarafında ana firmadan devralınır;
-      // yalnızca ad/adres/iletişim + parentCompanyId gönderilir.
-      const payload = isBranch
-        ? {
-            name: formData.name,
-            branchName: formData.branchName,
-            address: formData.address,
-            city: formData.city,
-            phone: formData.phone,
-            parentCompanyId,
-          }
-        : formData
+      await ensureCompanyAccess(contextCompanyId)
+    } catch {
+      redirect("/ayarlar/subeler")
+    }
 
-      const response = await fetch("/api/companies", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      })
-
-      let data: {
-        id?: string
-        error?: string
-        code?: string
-        branchQuota?: number
-        currentBranches?: number
-      } = {}
-      try {
-        data = await response.json()
-      } catch {
-        data = {}
-      }
-
-      if (!response.ok) {
-        if (data.code === "PLAN_LIMIT_EXCEEDED") {
-          // Şube kotası ile firma (maxCompanies) limiti ayrı sınırlar — mesajı karıştırma.
-          if (isBranch) {
-            const quota = data.branchQuota ?? 0
-            throw new Error(
-              `Şube kotanız dolu (${data.currentBranches ?? 0}/${quota}). ` +
-                "Yeni şube eklemek için aboneliğinizden ek şube satın alın."
-            )
-          }
-          throw new Error("Bu paketle yeni şirket ekleyemezsiniz. Lütfen paketinizi yükseltin.")
-        }
-        if (data.code === "COMPANY_TAX_NUMBER_CONFLICT") {
-          throw new Error("Bu vergi numarası ile kayıtlı bir firma zaten var.")
-        }
-        if (data.code === "DB_SCHEMA_MISMATCH") {
-          throw new Error("Sistem güncellemesi gerekiyor. Lütfen biraz sonra tekrar deneyin.")
-        }
-        throw new Error(data.error || "Firma oluşturulamadı")
-      }
-
-      toast({
-        title: isBranch ? "Şube eklendi" : "Başarılı",
-        description: isBranch ? "Yeni şube başarıyla eklendi" : "Firma başarıyla oluşturuldu",
-      })
-
-      // Şube: onboarding sihirbazını atla, yeni şube aktif olacak şekilde Şube
-      // Yönetimi'ne dön. Yeni firma (ilk kurulum): profil sihirbazına git.
-      if (isBranch) {
-        router.push(`/ayarlar/subeler?company=${data.id}`)
-      } else {
-        router.push(`/companies/onboarding?company=${data.id}`)
-      }
-    } catch (error: any) {
-      toast({
-        title: "Hata",
-        description: error.message || "Bir hata oluştu",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
+    const quotas = await getAccountQuotas(contextCompanyId)
+    const status = isBranch ? quotas.branch : quotas.company
+    if (!status.canAdd) {
+      // `quota` param'ı hedef sayfada nedeni açıkça yazan şeridi çizer. "Aboneliği yok"
+      // ile "kotası dolu" AYRI mesajlardır: ikisini birleştirmek, hiç abonelik almamış
+      // kullanıcıya "kotanız dolu" demek olurdu — yanlış bilgi, yanlış çözüm.
+      const reason = !status.hasActiveSubscription
+        ? "subscription"
+        : isBranch
+          ? "branch"
+          : "company"
+      redirect(
+        `/ayarlar/subeler?company=${encodeURIComponent(contextParam ?? "")}&quota=${reason}`,
+      )
+    }
+  } else if (!isBranch) {
+    // Bağlamsız açılış = "ilk firma" akışı. Kendi hesabı olan kullanıcı buraya
+    // düşmemeli: ikinci firmasını ek firma olarak (hesaba bağlı, kotadan) açar.
+    // Sunucu bunu zaten ACCOUNT_REQUIRED ile reddediyor; kullanıcıyı formu doldurup
+    // hata almadan önce doğru yere gönderiyoruz.
+    const ownedRoot = await prisma.userCompany.findFirst({
+      where: {
+        userId: user.id,
+        role: "ADMIN",
+        company: { parentCompanyId: null, accountRootId: null },
+      },
+      orderBy: { createdAt: "asc" },
+      select: { company: { select: { slug: true } } },
+    })
+    if (ownedRoot) {
+      redirect(
+        `/ayarlar/subeler?company=${encodeURIComponent(ownedRoot.company.slug)}&quota=account`,
+      )
     }
   }
 
-  return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-2xl">
-        <CardHeader>
-          <CardTitle>{isBranch ? "Yeni Şube Ekle" : "Yeni Firma Oluştur"}</CardTitle>
-          <CardDescription>
-            {isBranch
-              ? "Yeni şubenin bilgilerini doldurun. Şube, erişiminizdeki firma/şube listesine eklenir."
-              : "İlk firmanızı oluşturmak için bilgileri doldurun"}
-          </CardDescription>
-        </CardHeader>
-        <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4">
-            {isBranch && (
-              <div className="flex items-start gap-2 rounded-md border border-kobipo-blue/30 bg-kobipo-blue/5 p-3 text-xs text-kobipo-navy dark:border-primary/30 dark:bg-primary/10 dark:text-foreground">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-kobipo-blue dark:text-primary" />
-                <p>
-                  Bu şube{" "}
-                  <span className="font-semibold">{parent?.name || "ana firmaya"}</span>{" "}
-                  bağlı olarak eklenir. <span className="font-semibold">Ünvan, VKN, vergi dairesi ve
-                  e-Dönüşüm ayarları</span> ana firmadan devralınır — şubeyi ayırt etmek için{" "}
-                  <span className="font-semibold">Şube İsmi</span> ve adres bilgilerini girin.
-                </p>
-              </div>
-            )}
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="name">{isBranch ? "Ünvan *" : "Firma Ünvanı *"}</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Örn. ABC Gıda San. ve Tic. Ltd. Şti."
-                  required
-                  disabled={isLoading}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Faturada ve e-belgelerde basılan resmi ünvan.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="branchName">{isBranch ? "Şube İsmi *" : "Şube İsmi"}</Label>
-                <Input
-                  id="branchName"
-                  value={formData.branchName}
-                  onChange={(e) => setFormData({ ...formData, branchName: e.target.value })}
-                  placeholder="Örn. Kadıköy"
-                  // Şubede ZORUNLU: ünvan ana firmadan devralındığı için, şube ismi
-                  // olmadan şube listede/seçicide ana firmayla birebir aynı görünür.
-                  required={isBranch}
-                  disabled={isLoading}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {isBranch
-                    ? "Ünvan ana firmayla aynı olduğu için şubeyi ayıran ad budur; listede ünvanın yanında parantez içinde görünür. Belgelere yazılmaz."
-                    : "Ünvanlar aynı olabildiği için firma seçicide ünvanın yanında parantez içinde gösterilir. Belgelere yazılmaz."}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="taxNumber">
-                  {isBranch ? "Vergi No (ana firmadan)" : "Vergi No *"}
-                </Label>
-                <Input
-                  id="taxNumber"
-                  value={formData.taxNumber}
-                  onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
-                  placeholder={isBranch ? undefined : "10 haneli VKN veya 11 haneli TCKN"}
-                  required={!isBranch}
-                  disabled={isLoading || isBranch}
-                  readOnly={isBranch}
-                />
-                {!isBranch && (
-                  <p className="text-xs text-muted-foreground">
-                    E-Dönüşüm ve GİB posta kutusu bilgileri bu numaraya göre getirilir.
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="taxOffice">Vergi Dairesi{isBranch && " (ana firmadan)"}</Label>
-                <Input
-                  id="taxOffice"
-                  value={formData.taxOffice}
-                  onChange={(e) => setFormData({ ...formData, taxOffice: e.target.value })}
-                  disabled={isLoading || isBranch}
-                  readOnly={isBranch}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="city">Şehir</Label>
-                <CityCombobox
-                  id="city"
-                  value={formData.city}
-                  onChange={(v) => setFormData({ ...formData, city: v })}
-                  disabled={isLoading}
-                  placeholder="Şehir yazın, listeden seçin…"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Telefon</Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  disabled={isLoading}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="address">Adres</Label>
-              <Input
-                id="address"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                disabled={isLoading}
-              />
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button type="submit" variant="success" className="w-full" disabled={isLoading}>
-              {isBranch
-                ? isLoading
-                  ? "Ekleniyor..."
-                  : "Şube Ekle"
-                : isLoading
-                  ? "Oluşturuluyor..."
-                  : "Firma Oluştur"}
-            </Button>
-          </CardFooter>
-        </form>
-      </Card>
-    </div>
-  )
+  return <NewCompanyForm />
 }
-

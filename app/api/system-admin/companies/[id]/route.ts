@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
 import { encryptSecret } from "@/lib/crypto/secrets"
 import { EDonusumIntegrator, Prisma } from "@prisma/client"
-import { reconcileDisabledModules } from "@/lib/modules"
+import { MODULE_KEYS, reconcileDisabledModules } from "@/lib/modules"
+import { setAccountModules } from "@/lib/billing/entitlements"
 
 export const dynamic = "force-dynamic"
 
@@ -119,16 +120,35 @@ export async function PUT(
     if (body.invoiceSeriesPrefix !== undefined) {
       data.invoiceSeriesPrefix = clean(body.invoiceSeriesPrefix)
     }
-    if (body.disabledModules !== undefined) {
-      // reconcile: açık bir modülün gerektirdiği modül kapalı kalamaz
-      // (ör. Restoran & Kafe açıkken Stok da açılır).
-      data.disabledModules = reconcileDisabledModules(body.disabledModules)
-    }
+    // Modül seti `data` ile TEK FİRMAYA yazılmaz. Yetki HESAP düzeyindedir: buradan
+    // yalnız bu firmaya yazmak (a) hesabın diğer üyeleriyle sapma yaratır, (b) yetkiyi
+    // aboneliğe işlemediği için ilk yeniden hesaplamada silinir. İkisini de
+    // `setAccountModules` çözüyor; company.update'ten SONRA çağrılır ki firma adı vb.
+    // aynı istekte kaydedilebilsin.
+    const disabledModules =
+      body.disabledModules === undefined
+        ? null
+        : // Açık bir modülün gerektirdiği modül kapalı kalamaz
+          // (ör. Restoran & Kafe açıkken Stok da açılır).
+          reconcileDisabledModules(body.disabledModules)
 
     const company = await prisma.company.update({
       where: { id: resolvedParams.id },
       data,
     })
+
+    let moduleWarning: string | null = null
+    if (disabledModules) {
+      const granted = MODULE_KEYS.filter((key) => !disabledModules.includes(key))
+      const result = await setAccountModules(company.id, granted)
+      if (!result.durable) {
+        // Yetki şu an açık ama abonelik ücretli-aktif değil: reconcile / dönem sonu
+        // gibi ilk yeniden hesaplamada kapanır. Sessiz kalmak yanıltıcı olur.
+        moduleWarning =
+          "Modüller açıldı ancak hesabın ücretli-aktif aboneliği yok — abonelik yeniden " +
+          "hesaplandığında (dönem sonu, reconcile) kapanacaktır."
+      }
+    }
 
     await prisma.systemLog.create({
       data: {
@@ -141,7 +161,7 @@ export async function PUT(
       }
     })
 
-    return NextResponse.json({ success: true, company })
+    return NextResponse.json({ success: true, company, warning: moduleWarning })
   } catch (error) {
     console.error("Update company error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

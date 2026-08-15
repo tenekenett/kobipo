@@ -7,11 +7,29 @@ import { CreateCompanyButton } from "@/components/system-admin/create-company-bu
 export const dynamic = "force-dynamic"
 
 export default async function CompaniesPage() {
+  // Alanlar TEK TEK seçilir; `include` ile tüm satırı geçmek iki ayrı soruna yol açıyordu:
+  //  1) Serileştirme: Company'de Decimal alan var (restaurantMaxDiscountPercent) ve Decimal
+  //     bir client component'e geçirilemez — sayfa "Only plain objects can be passed" ile
+  //     patlıyordu. Şemaya eklenecek her yeni Decimal aynı hatayı geri getirirdi.
+  //  2) Sızıntı: satırda eDonusumApiPassword dahil tüm entegrasyon kimlikleri var; tümü
+  //     RSC payload'ıyla tarayıcıya iniyordu. Tablo bunların hiçbirini kullanmıyor.
+  // Liste yalnız aşağıdakileri çiziyor (bkz. components/system-admin/company-table.tsx).
   const companies = await prisma.company.findMany({
     orderBy: { createdAt: "desc" },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      branchName: true,
+      taxNumber: true,
+      taxOffice: true,
+      city: true,
+      phone: true,
+      email: true,
+      address: true,
+      isActive: true,
+      createdAt: true,
       users: {
-        include: {
+        select: {
           user: {
             select: { id: true, name: true, email: true }
           }

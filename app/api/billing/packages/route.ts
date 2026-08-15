@@ -65,6 +65,9 @@ export async function POST(request: Request) {
 
     const includedModules = sanitizeDisabledModules(body?.includedModules)
     const includedBranches = Math.max(0, Math.floor(Number(body?.includedBranches) || 0))
+    // Ek firma pakete AYRI girer; şube adedinden türetilmez. (Eskiden maxCompanies =
+    // includedBranches + 1 yazılıyor ve iki kavram tek sayaca biniyordu.)
+    const includedCompanies = Math.max(0, Math.floor(Number(body?.includedCompanies) || 0))
     const maxUsers = Math.max(1, Math.floor(Number(body?.maxUsers) || 1))
 
     const created = await prisma.plan.create({
@@ -76,8 +79,8 @@ export async function POST(request: Request) {
         yearlyPrice,
         includedModules,
         includedBranches,
+        includedCompanies,
         maxUsers,
-        maxCompanies: includedBranches + 1,
         highlighted: Boolean(body?.highlighted),
         sortOrder: Number.isFinite(Number(body?.sortOrder)) ? Number(body.sortOrder) : 0,
         isActive: body?.isActive == null ? true : Boolean(body.isActive),

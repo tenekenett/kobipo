@@ -5,7 +5,7 @@ import { Loader2, Plus, Trash2, Save, RefreshCw, Star } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { MANAGEABLE_MODULES } from "@/lib/modules"
-import { BRANCH_ITEM_KEY } from "@/lib/billing/constants"
+import { BRANCH_ITEM_KEY, COMPANY_ITEM_KEY } from "@/lib/billing/constants"
 
 interface Plan {
   id: string
@@ -16,6 +16,7 @@ interface Plan {
   yearlyPrice: string | number | null
   includedModules: string[]
   includedBranches: number
+  includedCompanies: number
   maxUsers: number
   highlighted: boolean
   sortOrder: number
@@ -97,7 +98,8 @@ function BundlesSection({ plans, onChanged }: { plans: Plan[]; onChanged: () => 
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
       <h2 className="text-lg font-semibold text-white">Hazır Paketler</h2>
       <p className="text-sm text-slate-500">
-        Müşteriye gösterilen paketler. Her paket bir modül setini ve dahil ek şube sayısını içerir.
+        Müşteriye gösterilen paketler. Her paket bir modül setini, dahil ek şube (aynı VKN) ve
+        dahil ek firma (ayrı VKN) sayısını içerir — ikisi ayrı haklardır.
       </p>
 
       <PlanForm mode="create" onSaved={onChanged} />
@@ -132,6 +134,7 @@ function PlanForm({
   )
   const [modules, setModules] = useState<Set<string>>(new Set(plan?.includedModules ?? []))
   const [includedBranches, setIncludedBranches] = useState(String(plan?.includedBranches ?? 0))
+  const [includedCompanies, setIncludedCompanies] = useState(String(plan?.includedCompanies ?? 0))
   const [highlighted, setHighlighted] = useState(Boolean(plan?.highlighted))
   const [isActive, setIsActive] = useState(plan?.isActive ?? true)
   const [saving, setSaving] = useState(false)
@@ -159,6 +162,7 @@ function PlanForm({
         yearlyPrice: yearlyPrice === "" ? null : Number(yearlyPrice),
         includedModules: Array.from(modules),
         includedBranches: Number(includedBranches) || 0,
+        includedCompanies: Number(includedCompanies) || 0,
         highlighted,
         isActive,
       }
@@ -175,7 +179,8 @@ function PlanForm({
       toast({ title: mode === "create" ? "Paket eklendi" : "Paket güncellendi", description: name })
       if (mode === "create") {
         setName(""); setDescription(""); setMonthlyPrice(""); setYearlyPrice("")
-        setModules(new Set()); setIncludedBranches("0"); setHighlighted(false); setIsActive(true)
+        setModules(new Set()); setIncludedBranches("0"); setIncludedCompanies("0")
+        setHighlighted(false); setIsActive(true)
       }
       onSaved()
     } catch (e) {
@@ -233,13 +238,25 @@ function PlanForm({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-4">
-        <label className="flex items-center gap-2 text-sm text-slate-300">
+        <label className="flex items-center gap-2 text-sm text-slate-300" title="Aynı VKN, farklı adres">
           Dahil ek şube
           <input
             className={`${inputCls} w-20`}
             inputMode="numeric"
             value={includedBranches}
             onChange={(e) => setIncludedBranches(e.target.value.replace(/\D/g, ""))}
+          />
+        </label>
+        <label
+          className="flex items-center gap-2 text-sm text-slate-300"
+          title="Ayrı VKN'li firma, aynı abonelik"
+        >
+          Dahil ek firma
+          <input
+            className={`${inputCls} w-20`}
+            inputMode="numeric"
+            value={includedCompanies}
+            onChange={(e) => setIncludedCompanies(e.target.value.replace(/\D/g, ""))}
           />
         </label>
         <label className="flex items-center gap-2 text-sm text-slate-300">
@@ -346,7 +363,8 @@ function PricingSection({ items, onChanged }: { items: PricingItem[]; onChanged:
               <tr key={r.key} className="border-t border-slate-800">
                 <td className="py-2 pr-4">
                   {r.label}
-                  {r.key === BRANCH_ITEM_KEY && <span className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">şube/adet</span>}
+                  {r.key === BRANCH_ITEM_KEY && <span className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">şube/adet · aynı VKN</span>}
+                  {r.key === COMPANY_ITEM_KEY && <span className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">firma/adet · ayrı VKN</span>}
                 </td>
                 <td className="py-2 pr-4">
                   <input className={`${inputCls} w-28`} inputMode="decimal" value={String(r.monthlyPrice)} onChange={(e) => update(r.key, { monthlyPrice: e.target.value })} />

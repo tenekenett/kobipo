@@ -42,9 +42,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       data.includedModules = sanitizeDisabledModules(body.includedModules)
     }
     if (body?.includedBranches != null) {
-      const b = Math.max(0, Math.floor(Number(body.includedBranches) || 0))
-      data.includedBranches = b
-      data.maxCompanies = b + 1
+      data.includedBranches = Math.max(0, Math.floor(Number(body.includedBranches) || 0))
+    }
+    // Ek firma ayrı bir haktır — şube adedinden türetilmez.
+    if (body?.includedCompanies != null) {
+      data.includedCompanies = Math.max(0, Math.floor(Number(body.includedCompanies) || 0))
     }
     if (body?.maxUsers != null) {
       data.maxUsers = Math.max(1, Math.floor(Number(body.maxUsers) || 1))

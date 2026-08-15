@@ -9,6 +9,7 @@ import {
   getAccountSubscription,
   resolveAccountRootId,
   countAccountBranches,
+  countAccountCompanies,
   isTrialActive,
   isPaidActive,
 } from "@/lib/billing/entitlements"
@@ -30,11 +31,12 @@ export async function GET(request: Request) {
   const rootId = await resolveAccountRootId(companyId)
 
   await ensureDefaultPricingItems()
-  const [plans, pricing, sub, currentBranches] = await Promise.all([
+  const [plans, pricing, sub, currentBranches, currentCompanies] = await Promise.all([
     getSellablePlans(false),
     prisma.pricingItem.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
     getAccountSubscription(rootId),
     countAccountBranches(rootId),
+    countAccountCompanies(rootId),
   ])
 
   const subscription = sub
@@ -45,6 +47,7 @@ export async function GET(request: Request) {
         billingCycle: sub.billingCycle,
         purchasedModules: sub.purchasedModules,
         branchQuota: sub.branchQuota,
+        companyQuota: sub.companyQuota,
         amount: sub.amount != null ? Number(sub.amount) : null,
         autoRenew: sub.autoRenew,
         cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
@@ -62,5 +65,6 @@ export async function GET(request: Request) {
     pricing,
     subscription,
     currentBranches,
+    currentCompanies,
   })
 }

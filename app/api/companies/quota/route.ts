@@ -2,17 +2,18 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { getBranchQuotaStatus } from "@/lib/billing/entitlements"
+import { getAccountQuotas } from "@/lib/billing/entitlements"
 import { accessDeniedResponse } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 /**
- * Aktif hesabın şube kotası durumu — "kaç şube daha açabilirim" göstergesi için.
+ * Aktif hesabın ŞUBE ve FİRMA kotası durumu — "kaç tane daha açabilirim" göstergesi.
  *
- * Şube açma denetimiyle AYNI fonksiyonu okur ([[lib/billing/entitlements.ts]] →
- * `getBranchQuotaStatus`), böylece ekranın söylediğiyle API'nin izin verdiği ayrışmaz.
- * Kota hesap (kök firma) düzeyindedir: şubeden bakılsa da ana firmanın kotası döner.
+ * Açma denetimiyle AYNI fonksiyonu okur ([[lib/billing/entitlements.ts]] →
+ * `getAccountQuotas`), böylece ekranın söylediğiyle API'nin izin verdiği ayrışmaz.
+ * Kotalar hesap (kök firma) düzeyindedir: şubeden ya da ek firmadan bakılsa da hesabın
+ * kotası döner. İki kota ayrı havuzdur; şube açmak firma hakkını yemez.
  */
 export async function GET(request: Request) {
   const user = await getCurrentUser()
@@ -23,11 +24,11 @@ export async function GET(request: Request) {
 
   try {
     await ensureCompanyAccess(companyId)
-    return NextResponse.json(await getBranchQuotaStatus(companyId))
+    return NextResponse.json(await getAccountQuotas(companyId))
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) return accessDeniedResponse(error)
-    console.error("branch-quota GET error:", error)
-    return NextResponse.json({ error: "Şube kotası okunamadı" }, { status: 500 })
+    console.error("companies quota GET error:", error)
+    return NextResponse.json({ error: "Kota okunamadı" }, { status: 500 })
   }
 }

@@ -20,7 +20,8 @@ export const dynamic = "force-dynamic"
  * alt şubeleri. Her birime BRANCH_MANAGER rolünde bir kullanıcı atanabilir/kaldırılabilir.
  *
  * Yetki: bir firmaya/şubeye müdür atayabilmek için kullanıcı ya o firmanın DOĞRUDAN
- * ADMIN'i, ya da (şube ise) ana firmasının ADMIN'i olmalıdır (bkz. canManageCompany).
+ * ADMIN'i, ya (şube ise) ana firmasının, ya da (hesaba bağlı ek firmaysa) hesap kökünün
+ * ADMIN'i olmalıdır (bkz. canManageCompany).
  */
 
 export async function GET() {
@@ -34,15 +35,24 @@ export async function GET() {
   })
   const adminCompanyIds = adminMemberships.map((m) => m.companyId)
 
-  // Yönetilebilir birimler: bu firmalar + onların alt şubeleri.
+  // Yönetilebilir birimler: bu firmalar + alt şubeleri + ADMIN olunan hesabın üyeleri
+  // (ek firmalar ve onların şubeleri). Kapsam canManageCompany ile aynı olmalı, aksi
+  // halde listede görünmeyen ama atama yapılabilen (ya da tersi) birim oluşur.
   const units = await prisma.company.findMany({
     where: {
       OR: [
         { id: { in: adminCompanyIds } },
         { parentCompanyId: { in: adminCompanyIds } },
+        { accountRootId: { in: adminCompanyIds } },
       ],
     },
-    select: { id: true, name: true, branchName: true, parentCompanyId: true },
+    select: {
+      id: true,
+      name: true,
+      branchName: true,
+      parentCompanyId: true,
+      accountRootId: true,
+    },
     orderBy: { name: "asc" },
   })
   const unitIds = units.map((u) => u.id)

@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 
 /**
  * POST — paket/abonelik siparişi oluştur. Tutar SUNUCUDA hesaplanır.
- * Body: { companyId, planId?, chosenModules[], branchQuota, billingCycle, autoRenew? }
+ * Body: { companyId, planId?, chosenModules[], branchQuota, companyQuota, billingCycle, autoRenew? }
  */
 export async function POST(request: Request) {
   const user = await getCurrentUser()
@@ -72,6 +72,7 @@ export async function POST(request: Request) {
         yearlyPrice: plan.yearlyPrice != null ? Number(plan.yearlyPrice) : null,
         includedModules: plan.includedModules,
         includedBranches: plan.includedBranches,
+        includedCompanies: plan.includedCompanies,
       }
     }
 
@@ -80,11 +81,13 @@ export async function POST(request: Request) {
 
     const chosenModules = Array.isArray(body?.chosenModules) ? body.chosenModules.map(String) : []
     const branchQuota = Math.max(0, Math.floor(Number(body?.branchQuota) || 0))
+    const companyQuota = Math.max(0, Math.floor(Number(body?.companyQuota) || 0))
 
     const computed = computeOrder({
       plan: planPricing,
       chosenModules,
       branchQuota,
+      companyQuota,
       billingCycle,
       pricing: pricingMap,
     })
@@ -95,7 +98,11 @@ export async function POST(request: Request) {
         { status: 400 },
       )
     }
-    if (computed.resolvedModules.length === 0 && computed.branchQuota === 0) {
+    if (
+      computed.resolvedModules.length === 0 &&
+      computed.branchQuota === 0 &&
+      computed.companyQuota === 0
+    ) {
       return NextResponse.json({ error: "Lütfen en az bir modül seçin." }, { status: 400 })
     }
 
@@ -107,6 +114,7 @@ export async function POST(request: Request) {
         selectedModules: computed.extraModules,
         resolvedModules: computed.resolvedModules,
         branchQuota: computed.branchQuota,
+        companyQuota: computed.companyQuota,
         billingCycle,
         amount: computed.amount,
         currency: "TRY",
@@ -121,6 +129,7 @@ export async function POST(request: Request) {
       amount: computed.amount,
       resolvedModules: computed.resolvedModules,
       branchQuota: computed.branchQuota,
+      companyQuota: computed.companyQuota,
       lines: computed.lines,
     })
   } catch (error: any) {

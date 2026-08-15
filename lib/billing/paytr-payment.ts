@@ -14,6 +14,7 @@ import type { NotificationResult, PaytrNotification } from "@/lib/integrations/p
 export type OrderSnapshot = {
   resolvedModules: string[]
   branchQuota: number
+  companyQuota: number
   billingCycle: string
 }
 
@@ -25,15 +26,16 @@ export type ExistingSubscription = {
 
 /**
  * Ödeme sonrası aboneliğe ne yazılacağının kararı.
- *  - `quota-top-up`: yalnız kota güncellenir; durum/dönem/modüller ve yetkiler korunur.
+ *  - `quota-top-up`: yalnız kotalar güncellenir; durum/dönem/modüller ve yetkiler korunur.
  *  - `activate`: abonelik ACTIVE yazılır; `applyEntitlements` yalnız modül satın alındığında true.
  */
 export type SubscriptionWrite =
-  | { kind: "quota-top-up"; branchQuota: number }
+  | { kind: "quota-top-up"; branchQuota: number; companyQuota: number }
   | {
       kind: "activate"
       purchasedModules: string[]
       branchQuota: number
+      companyQuota: number
       periodEnd: Date
       applyEntitlements: boolean
       /** Aboneliğin sahip olduğu ama siparişte olmayan modüller (uyarı/log için). */
@@ -45,10 +47,10 @@ export type SubscriptionWrite =
  * ([[lib/billing/paytr-payment.test.ts]]).
  *
  * En kritik kural: **kota satın almak modül satın almak değildir.** Modülsüz bir sipariş
- * (yalnız şube kotası) için `purchasedModules = []` yazılıp `applyEntitlements(root, [])`
+ * (yalnız şube/firma kotası) için `purchasedModules = []` yazılıp `applyEntitlements(root, [])`
  * çağrılıyordu; bu da "bir şube daha alayım" diyen müşterinin ana firmasında VE tüm
  * şubelerinde her modülü kapatıyordu. Aynı kural sistem-admin elle kota verme ucunda da
- * geçerli ([[lib/billing/admin.ts]] → `setAccountBranchQuota`).
+ * geçerli ([[lib/billing/admin.ts]] → `setAccountQuotas`).
  *
  * İkinci kural: `periodEnd` asla geriye çekilmez — dönem ortasında yükseltme yapan
  * müşteri kalan ödenmiş süresini kaybetmez.
@@ -60,16 +62,25 @@ export function planSubscriptionWrite(
 ): SubscriptionWrite {
   const cycle: BillingCycle = isBillingCycle(order.billingCycle) ? order.billingCycle : "MONTHLY"
   const freshPeriodEnd = periodEndFor(cycle, now)
-  const quotaOnly = order.resolvedModules.length === 0 && order.branchQuota > 0
+  // Şube VE firma kotası aynı kapıdan geçer: ikisi de modülsüz alınabilir.
+  const quotaOnly =
+    order.resolvedModules.length === 0 && (order.branchQuota > 0 || order.companyQuota > 0)
 
   if (quotaOnly) {
-    // Mevcut abonelik varsa yalnız kotaya dokun. Yoksa satır aç ama MODÜL VERME
-    // (şube ekleme aktif abonelik ister — app/api/companies/route.ts, fail-closed).
-    if (existing) return { kind: "quota-top-up", branchQuota: order.branchQuota }
+    // Mevcut abonelik varsa yalnız kotalara dokun. Yoksa satır aç ama MODÜL VERME
+    // (şube/firma ekleme aktif abonelik ister — app/api/companies/route.ts, fail-closed).
+    if (existing) {
+      return {
+        kind: "quota-top-up",
+        branchQuota: order.branchQuota,
+        companyQuota: order.companyQuota,
+      }
+    }
     return {
       kind: "activate",
       purchasedModules: [],
       branchQuota: order.branchQuota,
+      companyQuota: order.companyQuota,
       periodEnd: freshPeriodEnd,
       applyEntitlements: false,
       droppedModules: [],
@@ -81,9 +92,19 @@ export function planSubscriptionWrite(
     kind: "activate",
     purchasedModules: order.resolvedModules,
     branchQuota: order.branchQuota,
+    companyQuota: order.companyQuota,
     periodEnd:
       existingEnd && existingEnd.getTime() > freshPeriodEnd.getTime() ? existingEnd : freshPeriodEnd,
-    applyEntitlements: true,
+    // EMNİYET SÜBABI: modülsüz bir sipariş ASLA yetki yazmaz.
+    //
+    // Yukarıdaki `quotaOnly` dalı bunu zaten yakalar; bu satır o dal bir gün eksik
+    // kalırsa (yeni bir kota türü eklenip koşula yazılmazsa — canlıda tam olarak bu
+    // oldu: `companyQuota` bilmeyen bir sürüm siparişi "modül alımı" sanıp
+    // `applyEntitlements(root, [])` çağırdı ve hesabın TÜM modüllerini kapattı)
+    // hasarı keser. "Hiçbir şey satın alındı" hiçbir zaman "her şeyi kapat" demek
+    // değildir; modül kapatmanın meşru yolu, modül İÇEREN bir siparişle küçülmektir
+    // (o durum `droppedModules` ile uyarılır).
+    applyEntitlements: order.resolvedModules.length > 0,
     droppedModules: (existing?.purchasedModules ?? []).filter(
       (m) => !order.resolvedModules.includes(m),
     ),
@@ -93,12 +114,13 @@ export function planSubscriptionWrite(
 /**
  * Başarılı bir paket siparişini aktif aboneliğe dönüştürür: hesabın (kök firma) en
  * güncel Subscription'ı varsa günceller, yoksa oluşturur; ardından satın alınan
- * modülleri ana firma + tüm şubelere uygular ([[lib/billing/entitlements.ts]]).
+ * modülleri kök firma + hesabın tüm üyelerine (şubeler ve ek firmalar) uygular
+ * ([[lib/billing/entitlements.ts]]).
  *
  * İki mod var:
- *  - **Kota-only** (modülsüz sipariş): yalnız `branchQuota` güncellenir. Durum, dönem,
- *    modüller ve tutar snapshot'ına DOKUNULMAZ; `applyEntitlements` çağrılmaz. Böylece
- *    deneme süresi kısalmaz ve açık modüller kapanmaz.
+ *  - **Kota-only** (modülsüz sipariş): yalnız `branchQuota`/`companyQuota` güncellenir.
+ *    Durum, dönem, modüller ve tutar snapshot'ına DOKUNULMAZ; `applyEntitlements`
+ *    çağrılmaz. Böylece deneme süresi kısalmaz ve açık modüller kapanmaz.
  *  - **Paket/modül alımı**: abonelik ACTIVE'e alınır, modüller yazılır ve uygulanır.
  *    `periodEnd` asla geriye çekilmez (dönem ortasında yükseltme yapan müşteri kalan
  *    ödenmiş süresini kaybetmez).
@@ -118,11 +140,16 @@ async function activateSubscription(order: PackageOrder): Promise<void> {
     // Kota takviyesi — abonelik satırının geri kalanı olduğu gibi kalır.
     await prisma.subscription.update({
       where: { id: existing!.id },
-      data: { branchQuota: write.branchQuota, provider: "PAYTR", paymentRef: order.paymentRef },
+      data: {
+        branchQuota: write.branchQuota,
+        companyQuota: write.companyQuota,
+        provider: "PAYTR",
+        paymentRef: order.paymentRef,
+      },
     })
     console.log(
-      `[billing-callback] order ${order.id}: kota takviyesi — branchQuota=${write.branchQuota} ` +
-        `(modüller/dönem korundu, status=${existing!.status})`,
+      `[billing-callback] order ${order.id}: kota takviyesi — branchQuota=${write.branchQuota}, ` +
+        `companyQuota=${write.companyQuota} (modüller/dönem korundu, status=${existing!.status})`,
     )
     return
   }
@@ -158,6 +185,7 @@ async function activateSubscription(order: PackageOrder): Promise<void> {
     billingCycle: cycle,
     purchasedModules: write.purchasedModules,
     branchQuota: write.branchQuota,
+    companyQuota: write.companyQuota,
     amount: order.amount,
     autoRenew: order.autoRenew,
     cancelAtPeriodEnd: false,

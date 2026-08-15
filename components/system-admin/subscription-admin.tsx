@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react"
 import { Loader2, RefreshCw, Search, RotateCcw, Lock, Unlock, XCircle, CheckCircle2, Building2, Check, AlertTriangle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { MAX_BRANCH_QUOTA } from "@/lib/billing/constants"
+import { MAX_BRANCH_QUOTA, MAX_COMPANY_QUOTA } from "@/lib/billing/constants"
+
+/** Hesabın iki ayrı kotası — arayüzde aynı düzenleyiciyle çizilir. */
+type QuotaKind = "branch" | "company"
 
 type Subscription = {
   id: string
@@ -12,6 +15,7 @@ type Subscription = {
   provider: string
   purchasedModules: string[]
   branchQuota: number
+  companyQuota: number
   amount: string | number | null
   autoRenew: boolean
   cancelAtPeriodEnd: boolean
@@ -29,6 +33,7 @@ type Order = {
   billingCycle: string
   resolvedModules: string[]
   branchQuota: number
+  companyQuota: number
   autoRenew: boolean
   paidAt: string | null
   paymentError: string | null
@@ -49,7 +54,10 @@ type Account = {
   name: string
   slug: string
   disabledModules: string[]
-  _count: { branches: number }
+  /** Hesaptaki şube sayısı (aynı VKN'li ikinci adresler). */
+  branchCount: number
+  /** Hesaptaki ek firma sayısı (ayrı VKN'li tüzel kişiler, kök hariç). */
+  companyCount: number
   subscriptions: Subscription[]
   packageOrders: Order[]
   usageLimits: Usage[]
@@ -141,16 +149,28 @@ export function SubscriptionAdmin() {
   }
 
   /**
-   * Şube kotasını elle ayarlar. Aboneliği olmayan hesapta uç 409/NO_SUBSCRIPTION döner;
-   * kota tek başına etkisiz olacağından onay alıp 1 yıllık deneme satırıyla tekrar dener.
+   * Şube ya da firma kotasını elle ayarlar. İki kota ayrı havuz olduğu için tek alan
+   * gönderilir; diğerine dokunulmaz. Aboneliği olmayan hesapta uç 409/NO_SUBSCRIPTION
+   * döner; kota tek başına etkisiz olacağından onay alıp 1 yıllık deneme satırıyla
+   * tekrar dener.
    */
-  const saveBranchQuota = async (acc: Account, quota: number, createTrial = false): Promise<void> => {
+  const saveQuota = async (
+    acc: Account,
+    kind: QuotaKind,
+    quota: number,
+    createTrial = false,
+  ): Promise<void> => {
+    const label = kind === "branch" ? "Şube" : "Firma"
     setBusyId(acc.id)
     try {
-      const res = await fetch("/api/billing/admin/branch-quota", {
+      const res = await fetch("/api/billing/admin/quota", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId: acc.id, branchQuota: quota, createTrialIfMissing: createTrial }),
+        body: JSON.stringify({
+          companyId: acc.id,
+          ...(kind === "branch" ? { branchQuota: quota } : { companyQuota: quota }),
+          createTrialIfMissing: createTrial,
+        }),
       })
       const data = await res.json().catch(() => ({}))
 
@@ -159,16 +179,18 @@ export function SubscriptionAdmin() {
         const ok = await confirm({
           title: `${acc.name} — aboneliği yok`,
           description:
-            "Şube kotası abonelik satırında tutulur ve şube ekleme aktif abonelik ister. Devam edilirse 1 yıllık deneme aboneliği oluşturulup kota buna yazılacak. Modül yetkileri DEĞİŞMEZ.",
+            `${label} kotası abonelik satırında tutulur ve ekleme aktif abonelik ister. Devam edilirse 1 yıllık deneme aboneliği oluşturulup kota buna yazılacak. Modül yetkileri DEĞİŞMEZ.`,
         })
         if (!ok) return
-        return saveBranchQuota(acc, quota, true)
+        return saveQuota(acc, kind, quota, true)
       }
 
       if (!res.ok) throw new Error(data?.error || "Kota güncellenemedi")
       toast({
-        title: "Şube kotası güncellendi",
-        description: `${acc.name} → ${data.branchQuota} şube${data.createdSubscription ? " (deneme aboneliği oluşturuldu)" : ""}`,
+        title: `${label} kotası güncellendi`,
+        description: `${acc.name} → ${kind === "branch" ? data.branchQuota : data.companyQuota} ${
+          kind === "branch" ? "şube" : "firma"
+        }${data.createdSubscription ? " (deneme aboneliği oluşturuldu)" : ""}`,
       })
       await load()
     } catch (e) {
@@ -269,7 +291,7 @@ export function SubscriptionAdmin() {
               onReset={resetAccount}
               onCancelOrder={cancelOrder}
               onActivateOrder={activateOrder}
-              onSaveBranchQuota={saveBranchQuota}
+              onSaveQuota={saveQuota}
             />
           ))}
         </div>
@@ -284,14 +306,14 @@ function AccountCard({
   onReset,
   onCancelOrder,
   onActivateOrder,
-  onSaveBranchQuota,
+  onSaveQuota,
 }: {
   acc: Account
   busy: boolean
   onReset: (acc: Account, mode: "trial" | "locked") => void
   onCancelOrder: (acc: Account, order: Order) => void
   onActivateOrder: (acc: Account, order: Order) => void
-  onSaveBranchQuota: (acc: Account, quota: number) => void
+  onSaveQuota: (acc: Account, kind: QuotaKind, quota: number) => void
 }) {
   const sub = acc.subscriptions[0] ?? null
   const openModules = acc.disabledModules.length === 0
@@ -307,8 +329,11 @@ function AccountCard({
             <Building2 className="h-4 w-4 shrink-0 text-slate-500" />
             <span className="font-semibold text-white">{acc.name}</span>
             <span className="text-xs text-slate-500">/{acc.slug}</span>
-            {acc._count.branches > 0 && (
-              <span className="text-xs text-slate-500">· {acc._count.branches} şube</span>
+            {acc.branchCount > 0 && (
+              <span className="text-xs text-slate-500">· {acc.branchCount} şube</span>
+            )}
+            {acc.companyCount > 0 && (
+              <span className="text-xs text-slate-500">· {acc.companyCount} ek firma</span>
             )}
           </div>
           <div className="mt-1 flex items-center gap-2 text-xs text-slate-400">
@@ -352,7 +377,8 @@ function AccountCard({
             {sub.billingCycle && <span className="text-slate-400">{sub.billingCycle === "YEARLY" ? "Yıllık" : "Aylık"}</span>}
             {sub.amount != null && <span className="text-slate-400">{tl.format(Number(sub.amount))}</span>}
             <span className="text-slate-400">modüller: {sub.purchasedModules.length ? sub.purchasedModules.join(", ") : "—"}</span>
-            <BranchQuotaEditor acc={acc} sub={sub} busy={busy} onSave={onSaveBranchQuota} />
+            <QuotaEditor acc={acc} sub={sub} kind="branch" busy={busy} onSave={onSaveQuota} />
+            <QuotaEditor acc={acc} sub={sub} kind="company" busy={busy} onSave={onSaveQuota} />
             <span className="text-slate-500">otoyenile: {sub.autoRenew ? "açık" : "kapalı"}{sub.cancelAtPeriodEnd ? " (iptal edilecek)" : ""}</span>
             <span className="text-slate-500">
               {sub.status === "TRIAL" ? `deneme bitiş: ${fmtDate(sub.trialEndsAt)}` : `dönem sonu: ${fmtDate(sub.periodEnd)}`}
@@ -361,7 +387,8 @@ function AccountCard({
         ) : (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-300">
             <span className="text-slate-500">Abonelik yok</span>
-            <BranchQuotaEditor acc={acc} sub={null} busy={busy} onSave={onSaveBranchQuota} />
+            <QuotaEditor acc={acc} sub={null} kind="branch" busy={busy} onSave={onSaveQuota} />
+            <QuotaEditor acc={acc} sub={null} kind="company" busy={busy} onSave={onSaveQuota} />
           </div>
         )}
       </div>
@@ -432,55 +459,61 @@ function AccountCard({
 }
 
 /**
- * Şube kotası (subscription.branchQuota) düzenleyici. Kota HESAP düzeyindedir; şube ekleme
- * kontrolü en güncel abonelik satırını okur ve abonelik aktif değilse kotayı 0 sayar
- * (fail-closed) — bu yüzden pasif abonelikte uyarı gösterilir. Bkz. app/api/companies/route.ts
+ * Hesap kotası düzenleyici — şube (subscription.branchQuota) ve firma (companyQuota) için
+ * ORTAK. Kotalar HESAP düzeyindedir; ekleme kontrolü en güncel abonelik satırını okur ve
+ * abonelik aktif değilse kotayı 0 sayar (fail-closed) — bu yüzden pasif abonelikte uyarı
+ * gösterilir. İki kota ayrı havuzdur. Bkz. app/api/companies/route.ts
  */
-function BranchQuotaEditor({
+function QuotaEditor({
   acc,
   sub,
+  kind,
   busy,
   onSave,
 }: {
   acc: Account
   sub: Subscription | null
+  kind: QuotaKind
   busy: boolean
-  onSave: (acc: Account, quota: number) => void
+  onSave: (acc: Account, kind: QuotaKind, quota: number) => void
 }) {
-  const current = sub?.branchQuota ?? 0
+  const isBranch = kind === "branch"
+  const label = isBranch ? "şube" : "firma"
+  const max = isBranch ? MAX_BRANCH_QUOTA : MAX_COMPANY_QUOTA
+  const current = (isBranch ? sub?.branchQuota : sub?.companyQuota) ?? 0
   const [value, setValue] = useState(String(current))
 
   // Kaydetme sonrası liste yeniden yüklendiğinde alan sunucudaki değere dönsün.
   useEffect(() => setValue(String(current)), [current])
 
   const parsed = Number.parseInt(value, 10)
-  const valid = Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_BRANCH_QUOTA
+  const valid = Number.isInteger(parsed) && parsed >= 0 && parsed <= max
   const dirty = valid && parsed !== current
-  const used = acc._count.branches
+  const used = isBranch ? acc.branchCount : acc.companyCount
   const effective = isSubscriptionEffective(sub)
   const warning = !effective
     ? sub
       ? "abonelik aktif değil — kota etkisiz"
       : "abonelik yok — kaydederken deneme oluşturulur"
     : valid && parsed < used
-      ? `mevcut ${used} şubenin altında — yeni şube eklenemez`
+      ? `mevcut ${used} ${label} altında — yeni ${label} eklenemez`
       : null
 
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="text-slate-400">şube kotası:</span>
+      <span className="text-slate-400">{label} kotası:</span>
       <input
         type="number"
         min={0}
-        max={MAX_BRANCH_QUOTA}
+        max={max}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && dirty && !busy) onSave(acc, parsed)
+          if (e.key === "Enter" && dirty && !busy) onSave(acc, kind, parsed)
           if (e.key === "Escape") setValue(String(current))
         }}
         disabled={busy}
-        aria-label={`${acc.name} şube kotası`}
+        aria-label={`${acc.name} ${label} kotası`}
         className={`w-16 rounded-md border bg-slate-800 px-2 py-0.5 text-sm text-white focus:outline-none disabled:opacity-50 ${
           valid ? "border-slate-700 focus:border-indigo-500" : "border-red-500/60"
         }`}
@@ -488,7 +521,7 @@ function BranchQuotaEditor({
       <span className="text-xs text-slate-500">kullanılan: {used}</span>
       {dirty && (
         <button
-          onClick={() => onSave(acc, parsed)}
+          onClick={() => onSave(acc, kind, parsed)}
           disabled={busy}
           className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
         >

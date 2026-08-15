@@ -79,6 +79,9 @@ export default async function DashboardLayout({
     isBranch: Boolean(entry.isBranch),
     parentCompanyId: entry.parentCompanyId ?? null,
     parentName: entry.parentName ?? null,
+    // Hesap kökü: şube DEĞİLKEN doluysa "ek firma" (ayrı VKN, ortak abonelik).
+    // İstemci listesi ile /api/companies yanıtı aynı alanları taşısın.
+    accountRootId: entry.accountRootId ?? null,
   }))
   // Varsayılan rol: ilk ÜYE firma (şubeler listenin sonunda, sanal ADMIN).
   const initialRole =

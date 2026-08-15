@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch"
 import { QuantityStepper } from "@/components/ui/quantity-stepper"
 import { MANAGEABLE_MODULES, modulesRequiring, withModuleDependencies } from "@/lib/modules"
 import { computeOrder, type PricingMap, type PlanPricing } from "@/lib/billing/pricing"
-import { modulePriceKey, BRANCH_ITEM_KEY, type BillingCycle } from "@/lib/billing/constants"
+import { modulePriceKey, type BillingCycle } from "@/lib/billing/constants"
 import { Check, Loader2, AlertTriangle, Sparkles, CheckCircle2 } from "lucide-react"
 
 type CatalogPlan = {
@@ -20,6 +20,7 @@ type CatalogPlan = {
   yearlyPrice: string | number | null
   includedModules: string[]
   includedBranches: number
+  includedCompanies: number
   highlighted: boolean
 }
 
@@ -38,6 +39,7 @@ type CatalogSubscription = {
   billingCycle: string | null
   purchasedModules: string[]
   branchQuota: number
+  companyQuota: number
   periodEnd: string | null
   autoRenew: boolean
   cancelAtPeriodEnd: boolean
@@ -52,6 +54,7 @@ type Catalog = {
   pricing: CatalogPricingItem[]
   subscription: CatalogSubscription
   currentBranches: number
+  currentCompanies: number
 }
 
 const CUSTOM = "__custom__" // "paketsiz" seçimi
@@ -70,6 +73,7 @@ function toPlanPricing(p: CatalogPlan): PlanPricing {
     yearlyPrice: p.yearlyPrice != null ? Number(p.yearlyPrice) || 0 : null,
     includedModules: p.includedModules,
     includedBranches: p.includedBranches,
+    includedCompanies: p.includedCompanies,
   }
 }
 
@@ -85,6 +89,7 @@ export default function AbonelikPage() {
   const [selectedPlanId, setSelectedPlanId] = useState<string>(CUSTOM)
   const [extras, setExtras] = useState<Set<string>>(new Set())
   const [branchQuota, setBranchQuota] = useState(0)
+  const [companyQuota, setCompanyQuota] = useState(0)
   const [autoRenew, setAutoRenew] = useState(true)
 
   const [submitting, setSubmitting] = useState(false)
@@ -138,6 +143,9 @@ export default function AbonelikPage() {
     const included = new Set(plan?.includedModules ?? [])
     setExtras(new Set(s.purchasedModules.filter((m) => !included.has(m))))
     setBranchQuota(Math.max(s.branchQuota, catalog.currentBranches, plan?.includedBranches ?? 0))
+    setCompanyQuota(
+      Math.max(s.companyQuota, catalog.currentCompanies, plan?.includedCompanies ?? 0),
+    )
     setAutoRenew(s.autoRenew)
   }, [catalog])
 
@@ -183,11 +191,13 @@ export default function AbonelikPage() {
     [selectedPlan],
   )
   const minBranches = selectedPlan?.includedBranches ?? 0
-  // Kota, AÇIK olan şube sayısının altına inemez: sipariş kotayı değiştirdiği için daha
-  // düşük bir değer, zaten var olan şubeleri kotasız bırakırdı.
+  const minCompanies = selectedPlan?.includedCompanies ?? 0
+  // Kota, AÇIK olan şube/firma sayısının altına inemez: sipariş kotayı değiştirdiği için
+  // daha düşük bir değer, zaten var olanları kotasız bırakırdı.
   const minQuota = Math.max(minBranches, catalog?.currentBranches ?? 0)
+  const minCompanyQuota = Math.max(minCompanies, catalog?.currentCompanies ?? 0)
 
-  // Paket değişince: dahil modülleri "ekstra" setinden çıkar, kotayı en az paket dahiline çek.
+  // Paket değişince: dahil modülleri "ekstra" setinden çıkar, kotaları en az paket dahiline çek.
   function selectPlan(planId: string) {
     setSelectedPlanId(planId)
     const plan = planId === CUSTOM ? null : catalog?.plans.find((p) => p.id === planId) ?? null
@@ -198,6 +208,7 @@ export default function AbonelikPage() {
         return next
       })
       setBranchQuota((q) => Math.max(q, plan.includedBranches))
+      setCompanyQuota((q) => Math.max(q, plan.includedCompanies))
     }
   }
 
@@ -227,10 +238,11 @@ export default function AbonelikPage() {
         plan: selectedPlan ? toPlanPricing(selectedPlan) : null,
         chosenModules: Array.from(extras),
         branchQuota: Math.max(branchQuota, minQuota),
+        companyQuota: Math.max(companyQuota, minCompanyQuota),
         billingCycle: cycle,
         pricing: pricingMap,
       }),
-    [selectedPlan, extras, branchQuota, minQuota, cycle, pricingMap],
+    [selectedPlan, extras, branchQuota, minQuota, companyQuota, minCompanyQuota, cycle, pricingMap],
   )
 
   // Aboneliğin ŞU AN sahip olduğu ama yeni seçimde bulunmayan modüller. Sipariş
@@ -253,7 +265,9 @@ export default function AbonelikPage() {
   const canPay =
     !!catalog?.paytrEnabled &&
     computed.amount > 0 &&
-    (computed.resolvedModules.length > 0 || computed.branchQuota > 0)
+    (computed.resolvedModules.length > 0 ||
+      computed.branchQuota > 0 ||
+      computed.companyQuota > 0)
 
   async function handlePay() {
     if (!companySlug || submitting) return
@@ -268,6 +282,7 @@ export default function AbonelikPage() {
           planId: selectedPlan?.id ?? null,
           chosenModules: Array.from(extras),
           branchQuota: Math.max(branchQuota, minQuota),
+          companyQuota: Math.max(companyQuota, minCompanyQuota),
           billingCycle: cycle,
           autoRenew,
         }),
@@ -308,8 +323,8 @@ export default function AbonelikPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Abonelik</h1>
         <p className="text-sm text-muted-foreground">
-          Paket seçin veya modülleri tek tek satın alın. Seçtiğiniz modüller ana firma ve tüm
-          şubeleriniz için açılır.
+          Paket seçin veya modülleri tek tek satın alın. Seçtiğiniz modüller ana firma, tüm
+          şubeleriniz ve hesabınıza bağlı ek firmalar için açılır.
         </p>
       </div>
 
@@ -416,6 +431,11 @@ export default function AbonelikPage() {
                   </li>
                 )}
                 <li>{p.includedBranches > 0 ? `${p.includedBranches} şube dahil` : "Ek şube dahil değil"}</li>
+                <li>
+                  {p.includedCompanies > 0
+                    ? `${p.includedCompanies} ek firma dahil`
+                    : "Ek firma dahil değil"}
+                </li>
               </ul>
             </button>
           )
@@ -434,7 +454,7 @@ export default function AbonelikPage() {
             {selectedPlanId === CUSTOM && <Check className="h-4 w-4 text-primary" />}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Paket almadan yalnızca ihtiyacınız olan modülleri ve şube adedini seçin.
+            Paket almadan yalnızca ihtiyacınız olan modülleri, şube ve firma adedini seçin.
           </p>
         </button>
       </div>
@@ -495,25 +515,49 @@ export default function AbonelikPage() {
         </CardContent>
       </Card>
 
-      {/* Şube kotası + otomatik yenile */}
+      {/* Kotalar — şube ve firma AYRI havuzlardır, biri diğerinin yerine geçmez. */}
       <Card>
-        <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-medium">Ek şube kotası</p>
-            <p className="text-xs text-muted-foreground">
-              Ana firma hariç açabileceğiniz TOPLAM şube sayısı — mevcut kotanızın üstüne
-              eklenmez, bu değer geçerli olur. Şu an {catalog.currentBranches} şubeniz var
-              {sub ? `, kotanız ${sub.branchQuota}` : ""}.
-              {minBranches > 0 && ` Paket ${minBranches} şube içeriyor.`}
-              {computed.extraBranches > 0 && ` ${computed.extraBranches} ek şube ücretlendirilir.`}
-            </p>
+        <CardContent className="divide-y py-0">
+          <div className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-medium">Ek şube kotası</p>
+              <p className="text-xs text-muted-foreground">
+                Aynı firmanın <strong>ikinci adresi</strong> (aynı VKN). Açabileceğiniz TOPLAM
+                şube sayısı — mevcut kotanızın üstüne eklenmez, bu değer geçerli olur. Şu an{" "}
+                {catalog.currentBranches} şubeniz var
+                {sub ? `, kotanız ${sub.branchQuota}` : ""}.
+                {minBranches > 0 && ` Paket ${minBranches} şube içeriyor.`}
+                {computed.extraBranches > 0 && ` ${computed.extraBranches} ek şube ücretlendirilir.`}
+              </p>
+            </div>
+            <QuantityStepper
+              value={Math.max(branchQuota, minQuota)}
+              onChange={(v) => setBranchQuota(Math.max(minQuota, Math.floor(v)))}
+              min={minQuota}
+              step={1}
+            />
           </div>
-          <QuantityStepper
-            value={Math.max(branchQuota, minQuota)}
-            onChange={(v) => setBranchQuota(Math.max(minQuota, Math.floor(v)))}
-            min={minQuota}
-            step={1}
-          />
+
+          <div className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-medium">Ek firma kotası</p>
+              <p className="text-xs text-muted-foreground">
+                <strong>Ayrı VKN&apos;li</strong> ikinci bir firma — kendi ünvanı, adresi ve
+                e-Dönüşüm hesabı olur; modülleriniz ve aboneliğiniz ortak kalır, tek ödeme
+                yaparsınız. Şu an {catalog.currentCompanies} ek firmanız var
+                {sub ? `, kotanız ${sub.companyQuota}` : ""}.
+                {minCompanies > 0 && ` Paket ${minCompanies} ek firma içeriyor.`}
+                {computed.extraCompanies > 0 &&
+                  ` ${computed.extraCompanies} ek firma ücretlendirilir.`}
+              </p>
+            </div>
+            <QuantityStepper
+              value={Math.max(companyQuota, minCompanyQuota)}
+              onChange={(v) => setCompanyQuota(Math.max(minCompanyQuota, Math.floor(v)))}
+              min={minCompanyQuota}
+              step={1}
+            />
+          </div>
         </CardContent>
       </Card>
 

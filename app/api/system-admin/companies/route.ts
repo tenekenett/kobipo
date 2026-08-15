@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
-import { MODULE_KEYS } from "@/lib/modules"
+import { CompanyCreationError, createCompany } from "@/lib/company/create-company"
 
 export const dynamic = "force-dynamic"
 
@@ -48,8 +48,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const company = await prisma.company.create({
-      data: {
+    // Firma YALNIZCA ortak modülden yazılır ([[lib/company/create-company.ts]]) — burada
+    // ikinci bir `company.create` tutmak, kotayı bilmeyen bir kapı açar.
+    //
+    // Yerleşim daima `new-account`: süper-admin MÜŞTERİ İÇİN YENİ HESAP açar, var olan bir
+    // hesaba ek firma/şube EKLEYEMEZ. Bu bilinçli bir sınır — gövdeden parentCompanyId /
+    // accountCompanyId okunmadığı için bu uçtan kota atlanamaz; ek firma ve şube yalnız
+    // müşteri ucundan (kotayla) açılır. `allowAdditionalAccount`, "zaten hesabın var"
+    // kuralını atlar: süper-admin başkası adına açtığı için o kural onu bağlamaz.
+    // Müşteri akışıyla aynı: firma modülleri KİLİTLİ doğar; süper-admin firma
+    // detayındaki "Modüller" kartından açar (CompanyModulesCard).
+    const company = await createCompany({
+      actorUserId: currentUser.id,
+      placement: { kind: "new-account" },
+      allowAdditionalAccount: true,
+      // Süper-admin müşteri adına kabuk açar; kendini üye YAPMAZ.
+      grantMembership: false,
+      input: {
         name,
         taxNumber,
         taxOffice: clean(body.taxOffice),
@@ -57,9 +72,6 @@ export async function POST(request: NextRequest) {
         phone: clean(body.phone),
         email: clean(body.email),
         address: clean(body.address),
-        // Müşteri akışıyla aynı kural: firma kilitli doğar. Süper-admin modülleri
-        // firma detayındaki "Modüller" kartından açar (CompanyModulesCard).
-        disabledModules: [...MODULE_KEYS],
       },
     })
 
@@ -76,6 +88,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, company }, { status: 201 })
   } catch (error) {
+    if (error instanceof CompanyCreationError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status })
+    }
     console.error("Create company error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }

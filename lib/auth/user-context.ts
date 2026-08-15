@@ -2,7 +2,7 @@ import { cache } from "react"
 import { Role } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { getSession } from "@/lib/auth/session"
-import { getManagedBranches } from "@/lib/auth/branch-access"
+import { getManagedCompanies } from "@/lib/auth/branch-access"
 
 export interface UserCompanyContext {
   companyId: string
@@ -25,10 +25,14 @@ export interface UserCompanyContext {
   customRoleId: string | null
   customRoleName: string | null
   createdAt: Date
-  // Üyelik DEĞİL; ana firmasının ADMIN'i olduğu için erişilen alt şube.
+  /** Alt şube mi (aynı VKN, `parentCompanyId` dolu)? Ek firmada FALSE'tur. */
   isBranch?: boolean
   parentCompanyId?: string | null
+  /** Bağlı olunan firmanın adı: şubede ana firma, ek firmada hesap kökü. */
   parentName?: string | null
+  /** Hesap (faturalama) kökü — dolu ve şube değilse bu bir EK FİRMA'dır. */
+  accountRootId?: string | null
+  /** Üyelik DEĞİL; ana firmanın/hesap kökünün ADMIN'i olunduğu için erişilen firma. */
   viaParent?: boolean
 }
 
@@ -69,6 +73,8 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
         isActive: boolean
         isEDonusumEnabled: boolean
         disabledModules: string[]
+        accountRootId: string | null
+        parentCompanyId: string | null
       }
     }>
   } | null = null
@@ -102,6 +108,8 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
                 isActive: true,
                 isEDonusumEnabled: true,
                 disabledModules: true,
+                accountRootId: true,
+                parentCompanyId: true,
               },
             },
           },
@@ -134,37 +142,58 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
     customRoleId: entry.customRole?.id ?? null,
     customRoleName: entry.customRole?.name ?? null,
     createdAt: entry.createdAt,
+    // Ek firmayı (hesaba bağlı ayrı tüzel kişi) üyelik üzerinden görenler de rozeti
+    // görsün — yönetici erişimiyle gelen kayıtla aynı bilgi.
+    accountRootId: entry.company.accountRootId,
+    // Ham gerçek: şube mi? `isBranch` BİLİNÇLİ olarak set edilmez — o bayrak "üyeliksiz,
+    // parent-admin erişimiyle görülen şube" anlamı taşıyor ve firma seçici ile şube
+    // bağlam şeridi ona bakıyor; doğrudan üye olunan şubenin bugünkü davranışı
+    // değişmemeli. Etiketleme (Şube/Ek firma rozeti) bu alandan çözülür.
+    parentCompanyId: entry.company.parentCompanyId,
   }))
 
-  // Parent-admin erişimi: ADMIN olunan firmaların alt şubelerini SANAL ADMIN (üyelik
-  // değil) olarak listenin SONUNA ekle — üyelikler önce kaldığı için varsayılan firma
-  // seçimi bozulmaz. Hata olsa da çekirdek üyelik bağlamı korunur.
-  let branchCompanies: UserCompanyContext[] = []
+  // Rozetteki hesap kökü adı: kullanıcının KENDİ listesinden çözülebiliyorsa doldurulur.
+  // Ek sorgu yok; ek firmayı hesabın yöneticisi açtığı için kök pratikte listededir,
+  // çözülemezse rozet adsız çizilir (bilgi eksikliği hataya dönüşmez).
+  const nameByCompanyId = new Map(user.companies.map((e) => [e.company.id, e.company.name]))
+  for (const company of membershipCompanies) {
+    if (company.accountRootId && !company.parentName) {
+      company.parentName = nameByCompanyId.get(company.accountRootId) ?? null
+    }
+  }
+
+  // Yönetici erişimi: ADMIN olunan firmaların alt şubelerini VE hesaba bağlı ek
+  // firmaları SANAL ADMIN (üyelik değil) olarak listenin SONUNA ekle — üyelikler önce
+  // kaldığı için varsayılan firma seçimi bozulmaz. Hata olsa da çekirdek üyelik bağlamı
+  // korunur. Ek firma `isBranch: false` gelir: ayrı bir tüzel kişidir, firma seçicide
+  // normal firma gibi görünür ve şube bağlam şeridi çizilmez.
+  let managedCompanies: UserCompanyContext[] = []
   try {
-    const branches = await getManagedBranches(user.id)
-    branchCompanies = branches.map((b) => ({
-      companyId: b.id,
-      companySlug: b.slug,
-      companyName: b.name,
-      companyBranchName: b.branchName,
+    const managed = await getManagedCompanies(user.id)
+    managedCompanies = managed.map((c) => ({
+      companyId: c.id,
+      companySlug: c.slug,
+      companyName: c.name,
+      companyBranchName: c.branchName,
       role: Role.ADMIN,
       isActive: true,
-      isEDonusumEnabled: b.isEDonusumEnabled,
-      disabledModules: b.disabledModules,
-      // Şube erişimi ana firmanın ADMIN'liğinden doğar, üyelik satırı yoktur —
+      isEDonusumEnabled: c.isEDonusumEnabled,
+      disabledModules: c.disabledModules,
+      // Erişim ana firmanın/hesap kökünün ADMIN'liğinden doğar, üyelik satırı yoktur —
       // dolayısıyla tutunacak bir izin kaydı da yok: bu bağlam her zaman kısıtsız.
       allowedPaths: [],
       writablePaths: [],
       customRoleId: null,
       customRoleName: null,
       createdAt: new Date(0),
-      isBranch: true,
-      parentCompanyId: b.parentCompanyId,
-      parentName: b.parentName,
+      isBranch: c.isBranch,
+      parentCompanyId: c.parentCompanyId,
+      parentName: c.parentName,
+      accountRootId: c.accountRootId,
       viaParent: true,
     }))
   } catch (error) {
-    console.error("getUserContext managed branches error:", error)
+    console.error("getUserContext managed companies error:", error)
   }
 
   return {
@@ -173,6 +202,6 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
     name: user.name,
     isSuperAdmin: user.isSuperAdmin,
     isBlogEditor: user.isBlogEditor,
-    companies: [...membershipCompanies, ...branchCompanies],
+    companies: [...membershipCompanies, ...managedCompanies],
   }
 })

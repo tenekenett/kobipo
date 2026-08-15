@@ -1,10 +1,11 @@
 // Sunucu tarafı fiyat hesabı. ÖNEMLİ: Toplam tutar DAİMA burada (sunucuda) hesaplanır;
 // istemciden gelen tutara ASLA güvenilmez. İstemci yalnızca seçimi (paket + ekstra modül +
-// şube adedi + periyot) gönderir, tutarı sunucu belirler.
+// şube adedi + firma adedi + periyot) gönderir, tutarı sunucu belirler.
 
 import { sanitizeDisabledModules, withModuleDependencies } from "@/lib/modules"
 import {
   BRANCH_ITEM_KEY,
+  COMPANY_ITEM_KEY,
   modulePriceKey,
   type BillingCycle,
 } from "@/lib/billing/constants"
@@ -17,6 +18,8 @@ export interface PlanPricing {
   yearlyPrice: number | null
   includedModules: string[]
   includedBranches: number
+  /** Pakete dahil ek firma (ayrı VKN) sayısı — şube kotasından bağımsız. */
+  includedCompanies: number
 }
 
 /** À la carte fiyat haritası: PricingItem.key → { aylık, yıllık }. */
@@ -29,6 +32,8 @@ export interface ComputeOrderInput {
   chosenModules: string[]
   /** Kullanıcının istediği TOPLAM ek şube sayısı (ana firma hariç). */
   branchQuota: number
+  /** Kullanıcının istediği TOPLAM ek firma sayısı (hesabın kök firması hariç). */
+  companyQuota: number
   billingCycle: BillingCycle
   pricing: PricingMap
 }
@@ -51,6 +56,10 @@ export interface ComputedOrder {
   branchQuota: number
   /** Ücretlendirilen ek şube sayısı (kota − paket dahili). */
   extraBranches: number
+  /** Normalize edilmiş toplam ek firma kotası (>= paket dahili). */
+  companyQuota: number
+  /** Ücretlendirilen ek firma sayısı (kota − paket dahili). */
+  extraCompanies: number
   lines: OrderLine[]
 }
 
@@ -94,6 +103,12 @@ export function computeOrder(input: ComputeOrderInput): ComputedOrder {
   const branchQuota = Math.max(requestedQuota, includedBranches)
   const extraBranches = Math.max(0, branchQuota - includedBranches)
 
+  // Ek firma: şubeyle AYNI kalıp, AYRI havuz. Biri diğerinin yerine geçmez.
+  const includedCompanies = plan ? Math.max(0, Math.floor(plan.includedCompanies || 0)) : 0
+  const requestedCompanies = Math.max(0, Math.floor(input.companyQuota || 0))
+  const companyQuota = Math.max(requestedCompanies, includedCompanies)
+  const extraCompanies = Math.max(0, companyQuota - includedCompanies)
+
   const lines: OrderLine[] = []
 
   if (plan) {
@@ -122,7 +137,27 @@ export function computeOrder(input: ComputeOrderInput): ComputedOrder {
     })
   }
 
+  if (extraCompanies > 0) {
+    const unit = cyclePrice(pricing[COMPANY_ITEM_KEY], billingCycle)
+    lines.push({
+      key: COMPANY_ITEM_KEY,
+      label: "Ek Firma",
+      qty: extraCompanies,
+      unitPrice: unit,
+      total: unit * extraCompanies,
+    })
+  }
+
   const amount = Number(lines.reduce((sum, l) => sum + l.total, 0).toFixed(2))
 
-  return { amount, resolvedModules, extraModules, branchQuota, extraBranches, lines }
+  return {
+    amount,
+    resolvedModules,
+    extraModules,
+    branchQuota,
+    extraBranches,
+    companyQuota,
+    extraCompanies,
+    lines,
+  }
 }

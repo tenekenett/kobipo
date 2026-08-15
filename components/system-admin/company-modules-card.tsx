@@ -48,7 +48,16 @@ export function CompanyModulesCard({
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "Kaydetme başarısız")
-      toast({ title: "Başarılı", description: "Modül ayarları güncellendi" })
+      // Yetki artık aboneliğe de yazılıyor; yazacak aktif abonelik yoksa uç uyarı
+      // döner (yeniden hesaplamada kapanır) — sessizce "başarılı" demek yanıltırdı.
+      toast(
+        json.warning
+          ? { title: "Kaydedildi — dikkat", description: json.warning, variant: "destructive" }
+          : {
+              title: "Başarılı",
+              description: "Modül ayarları hesabın tümüne uygulandı (şubeler ve ek firmalar dahil)",
+            },
+      )
       router.refresh()
     } catch (e) {
       toast({

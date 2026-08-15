@@ -31,6 +31,8 @@ export type DashboardCompany = {
   isBranch?: boolean
   parentCompanyId?: string | null
   parentName?: string | null
+  /** Şube değilken doluysa: hesaba bağlı ek firma (ayrı VKN, ortak abonelik). */
+  accountRootId?: string | null
 }
 
 type DashboardCompanyContextValue = {
