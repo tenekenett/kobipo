@@ -164,7 +164,11 @@ export default async function DashboardIndexPage({
   }
 
   if (authContext.companies.length === 0) {
-    redirect("/companies/new")
+    // Firması olmayan SÜPER-ADMİN, firma kurulum formuna değil kendi paneline gider.
+    // Platform yöneticisi hesabının firma üyeliği yoktur; onu "ilk firmanı oluştur"
+    // ekranına düşürmek, üstelik VIEWER rolüyle, paneli erişilemez gösteriyordu
+    // (o ekrandan sistem yönetimine bağlantı yok).
+    redirect(authContext.isSuperAdmin ? "/system-admin" : "/companies/new")
   }
 
   const query = (await searchParams) || {}

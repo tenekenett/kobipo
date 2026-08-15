@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { Building2, Check, ChevronDown, Laptop, LogOut, Moon, PanelLeftClose, PanelLeftOpen, Settings, Sun, User } from "lucide-react"
+import { Building2, Check, ChevronDown, Laptop, LogOut, Moon, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Sun, User } from "lucide-react"
 import { NotificationBell } from "@/components/dashboard/notification-bell"
 import { MenuSearch } from "@/components/dashboard/menu-search"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
@@ -185,6 +185,17 @@ export function DashboardHeader() {
                 </>
               )}
               <DropdownMenuSeparator />
+              {/* Süper-admin'in firma üyeliği olmayabilir; panele dönüş yolu yoksa
+                  firma ekranlarında sıkışıp kalıyor (bkz. dashboard/page.tsx'teki
+                  firmasız yönlendirme). Bu bağlantı her yerden çıkış kapısıdır. */}
+              {session?.user?.isSuperAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href="/system-admin" className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4" />
+                    Sistem Yönetimi
+                  </Link>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem asChild>
                 <CompanyLink href="/ayarlar/profil" className="flex items-center gap-2">
                   <User className="h-4 w-4" />

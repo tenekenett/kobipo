@@ -20,6 +20,8 @@ import {
 } from "lucide-react"
 import { CompanyEInvoiceCard } from "@/components/system-admin/company-einvoice-card"
 import { CompanyModulesCard } from "@/components/system-admin/company-modules-card"
+import { CompanyQuotaCard } from "@/components/system-admin/company-quota-card"
+import { getAccountQuotas } from "@/lib/billing/entitlements"
 import { CompanyUsersCard } from "@/components/system-admin/company-users-card"
 
 export const dynamic = "force-dynamic"
@@ -92,6 +94,19 @@ export default async function CompanyDetailPage({
         select: { id: true, name: true, email: true },
       }),
     ])
+
+  // Kotalar hesap (kök firma) düzeyindedir; şube/ek firma detayında da hesabın değerleri
+  // gösterilir. Kart hangi hesaba yazacağını söyleyebilsin diye kökün adı da çözülür.
+  const quotas = await getAccountQuotas(company.id)
+  const accountRootName =
+    quotas.rootCompanyId === company.id
+      ? company.name
+      : (
+          await prisma.company.findUnique({
+            where: { id: quotas.rootCompanyId },
+            select: { name: true },
+          })
+        )?.name ?? "ana hesap"
 
   const typeCount = (t: string) => byType.find((r) => r.invoiceType === t)?._count._all ?? 0
   const statusCount = (s: string) => byStatus.find((r) => r.status === s)?._count._all ?? 0
@@ -298,8 +313,19 @@ export default async function CompanyDetailPage({
           </CardContent>
         </Card>
 
-        {/* Modül yönetimi (firma bazında aç/kapa) */}
+        {/* Modül yönetimi (hesap düzeyinde uygulanır) */}
         <CompanyModulesCard companyId={company.id} initialDisabled={company.disabledModules ?? []} />
+
+        {/* Şube + ek firma kotası. Kotalar hesap kökünde tutulur; bu firma bir şube ya da
+            ek firma ise değişiklik köke yazılır (kart bunu açıkça söylüyor). */}
+        <CompanyQuotaCard
+          companyId={company.id}
+          accountRootName={accountRootName}
+          isAccountRoot={quotas.rootCompanyId === company.id}
+          branch={{ quota: quotas.branch.quota, used: quotas.branch.used }}
+          company={{ quota: quotas.company.quota, used: quotas.company.used }}
+          hasActiveSubscription={quotas.branch.hasActiveSubscription}
+        />
 
         {/* E-Dönüşüm / E-Fatura yapılandırması (görüntüle + düzenle) */}
         <CompanyEInvoiceCard
