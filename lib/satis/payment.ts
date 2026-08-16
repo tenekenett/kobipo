@@ -94,9 +94,63 @@ export const emptyPaymentState = (accountId = ""): PaymentState => ({
 
 export const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 
-/** "12,50" ve "12.50" ikisini de kabul eder; geçersizse 0. */
-export const parseAmount = (v: string | number | null | undefined): number =>
-  parseFloat(String(v ?? "").replace(",", ".")) || 0
+/**
+ * Kasiyerin yazdığı tutarı sayıya çevirir — BİNLİK AYRACI dahil.
+ *
+ * Eskiden yalnız ilk virgülü noktaya çeviriyordu (`replace(",", ".")`) ve
+ * binlik ayracı yazan herkes sessizce yanlış tutar giriyordu:
+ *
+ *   "1.500"    → 1,5        "1.500,50" → 1,5
+ *   "1 500"    → 1          "1,500,000" → 1
+ *
+ * Sonuç iki yerde birden görünüyordu: para üstü hep ₺0,00 çıkıyordu ("ne
+ * girersem gireyim" şikâyeti) ve — daha kötüsü — PARÇALI ödemede 1.500 TL'lik
+ * satır faturaya 1,50 TL olarak yazılıyordu.
+ *
+ * Kural (tr öncelikli):
+ *  - İki ayraç da varsa SONUNCUSU ondalıktır: "1.500,50" da "1,500.50" da 1500,5.
+ *  - Yalnız virgül varsa ondalıktır ("12,50"); birden çok virgül gruplamadır
+ *    ("1,000,000" → 1000000).
+ *  - Yalnız nokta varsa üçlü gruplanmışsa binliktir ("1.500" → 1500), değilse
+ *    ondalık ("12.50" → 12,5). Baştaki grup 0 ise ondalık sayılır ("0.500" →
+ *    0,5): "yarım lira" yazan kasiyer 500 TL girmiş olmamalı.
+ *  - Boşluk/₺ gibi karakterler atılır. Negatif ve geçersiz değer 0'dır — ödeme
+ *    kutusunda eksi tutarın anlamı yok.
+ */
+const THOUSANDS_DOT = /^[1-9]\d{0,2}(\.\d{3})+$/
+
+export const parseAmount = (v: string | number | null | undefined): number => {
+  if (typeof v === "number") return Number.isFinite(v) && v > 0 ? v : 0
+
+  const text = String(v ?? "").trim()
+  // Eksi işareti: ödeme kutusunda anlamı yok. Atıp pozitife çevirmek "-5"i 5 TL
+  // tahsilat yapardı; okunamayan giriş 0 sayılır.
+  if (text.startsWith("-")) return 0
+
+  const raw = text.replace(/[^\d.,]/g, "")
+  if (!raw) return 0
+
+  const dots = raw.split(".").length - 1
+  const commas = raw.split(",").length - 1
+
+  let normalized: string
+  if (dots > 0 && commas > 0) {
+    const decimal = raw.lastIndexOf(".") > raw.lastIndexOf(",") ? "." : ","
+    const thousands = decimal === "." ? "," : "."
+    normalized = raw.split(thousands).join("")
+    normalized =
+      decimal === ","
+        ? normalized.replace(/,([^,]*)$/, ".$1")
+        : normalized
+  } else if (commas > 0) {
+    normalized = commas > 1 ? raw.split(",").join("") : raw.replace(",", ".")
+  } else {
+    normalized = THOUSANDS_DOT.test(raw) ? raw.split(".").join("") : raw
+  }
+
+  const n = parseFloat(normalized)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
 
 export const portionsTotal = (portions: PaymentPortion[]): number =>
   round2(portions.reduce((sum, p) => sum + parseAmount(p.amount), 0))

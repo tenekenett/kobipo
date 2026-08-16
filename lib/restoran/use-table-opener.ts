@@ -21,7 +21,7 @@ import type { PlanTable } from "@/lib/swr/use-restoran"
  * Masaya dokunulduğunda ne olmalı?
  *
  *  "ticket" → açık adisyon var, oraya git.
- *  "ask"    → belirsiz durum (toplanacak / rezerve): önce ne yapılacağı sorulur.
+ *  "ask"    → belirsiz durum (temizlenecek / rezerve): önce ne yapılacağı sorulur.
  *             Rezerve masaya gelen geçen müşteriyi oturtmak rezervasyonu yakardı.
  *  "open"   → boş masa, doğrudan adisyon açılır (garsonun en sık yaptığı iş tek
  *             dokunuşta kalmalı).
@@ -74,7 +74,7 @@ export function useTableOpener(companyId: string | null, mutate: KeyedMutator<Pl
 
   const markCleaned = useCallback(
     async (table: PlanTable) => {
-      // İyimser güncelleme: "toplandı" tek dokunuşluk bir işaret, uç yanıtını
+      // İyimser güncelleme: "temizlendi" tek dokunuşluk bir işaret, uç yanıtını
       // beklerken masanın kesikli çerçevede kalması gecikme gibi görünüyordu.
       await mutate(
         (prev) => (prev ?? []).map((t) => (t.id === table.id ? { ...t, cleaningSince: null } : t)),

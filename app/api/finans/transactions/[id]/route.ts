@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { accessDeniedResponse } from "@/lib/api/errors"
+import { revalidateDashboard } from "@/lib/dashboard/cache"
 
 export const dynamic = "force-dynamic"
 
@@ -135,6 +136,8 @@ export async function DELETE(
       // Bağlı InvoicePayment'lar Cascade ile silinir (fatura açık tutarı geri açılır).
       await db.transaction.delete({ where: { id: transaction.id } })
     })
+
+    revalidateDashboard(transaction.companyId)
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

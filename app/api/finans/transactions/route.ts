@@ -6,6 +6,7 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { accountPaymentMethod } from "@/lib/finans/account-types"
 import { accessDeniedResponse } from "@/lib/api/errors"
+import { revalidateDashboard } from "@/lib/dashboard/cache"
 
 export const dynamic = 'force-dynamic'
 
@@ -287,6 +288,8 @@ export async function POST(request: Request) {
 
       return created
     })
+
+    revalidateDashboard(companyId)
 
     return NextResponse.json(transaction, { status: 201 })
   } catch (error: any) {

@@ -131,13 +131,86 @@ Bugün üçü de "çöp kutusu" ve üçünde de stok düşmüyor. **İkram/zayi 
 maliyet raporları yalan söylüyor** — kafede ikram günlük bir olaydır.
 
 Uygulama: `RestaurantTicketItem`'a `status` (`NORMAL|COMP|WASTE|VOID`) + `reasonCode` +
-`reason`. Kapanışta fişe **yalnız `NORMAL`** kalemler girer (fatura temiz kalır); `COMP` ve
+`reason` (ikisi de ZORUNLU — K2.1). Kapanışta fişe **yalnız `NORMAL`** kalemler girer (fatura temiz kalır); `COMP` ve
 `WASTE` kalemleri için reçetesi genişletilmiş ayrı bir `ADJUSTMENT` stok hareketi yazılır,
 referansı adisyon kodudur. Böylece fiş/KDV tarafı hiç değişmez, stok doğrulanır.
 
 Sebep listesi sabit ve kısa (Square deseni; panelden düzenlenebilir hale getirmek ayrı iş):
 *Müşteri şikâyeti · Personel/aile · Tanıtım-ikram · Yanlış hazırlandı · Döküldü/bozuldu ·
 Yanlış girildi.*
+
+#### K2.1 — İşaretlenen kalemde serbest AÇIKLAMA da zorunlu (2026-08-16)
+
+Sebep kodu işlemin **türünü** söyler, **hikâyesini** söylemez: dört seçenekten biridir ve
+pratikte herkes aynısını seçer ("Personel / aile", "Döküldü / kırıldı"). Kime/niçin
+verildiği, ne olduğu yazılmadığında denetim raporunda ikramı kaçaktan, zayiyi
+savurganlıktan, iptali yanlış girişten ayıran bir şey kalmıyordu. Kod **gruplama
+ekseni**, açıklama **tek tek kayda bakanın** okuyacağı yer — iskonto açıklamasının
+2026-08-07'de zorunlu olma gerekçesinin aynısı (K3.1).
+
+**Üçünde de** (`COMP` · `WASTE` · `VOID`) ve **koşulsuz**: personel seçiminin aksine
+açıklama yazmak için bir kart ya da modül gerekmiyor.
+
+**Aynı kural ADİSYON iptalinde de** (`adisyonlar/[id]` DELETE, `?reason=`): dolu bir hesabı
+tek tıkla silmek kaçağın en klasik yolu ve "Müşteri vazgeçti" kodu tek başına hiçbir şey
+anlatmıyor. Boş adisyon istisna — yanlış açılmış boş kayıt sorusuz silinir.
+
+**Tek istisna `kalemler/[itemId]` DELETE** — adet 0'a inen kalem "yanlış girildi" sayılır,
+açıklama sorulmaz. O yol arayüzde kapalı (adisyon panelinde adet alt sınırı 1); zorunluluk
+oraya da konsaydı sıfıra inen adet kalemi hiç işaretleyemez, silinemeyen bir satır
+bırakırdı — K2'nin kapattığı deliğin tam tersi.
+
+Kural tek yerden okunur (`requiresReasonNote`, `ticket-constants.ts`) ve üç yerde
+uygulanır: istemci (`ticket-panel.tsx`, "Uygula" kilidi — iki ekran ortak),
+`kalemler/[itemId]` PATCH ve `api/restoran/ikram` POST. Kutunun ipucu duruma göre bir
+SORUdur ("Kime / niçin ikram edildi?"): "Kısa not" yazınca kasiyer sebep kodunu tekrar
+yazıyor.
+
+**Tezgâhta nereye yazılır:** sepetin adisyonu yok, bu yüzden açıklama ikram/zayinin tek
+kalıcı izine — `StockMovement.description`'a — sebebin yanına yazılır
+(`İkram: Latte (Personel / aile – mutfak ekibine)`). Adisyon yolunda kalemde durur ve
+kapanışta harekete taşınır (K3.2'deki personel deseninin aynısı). Kullanıcı metni harekete
+girmeden önce iki nokta üst üste/satır sonu temizlenir: denetim raporu ikramı zayiden
+`description LIKE '%- İkram:%'` ile ayırıyor ve serbest metin o işareti taklit
+edebilmemeli.
+
+**Sepette iptal = silme:** Kahveci Satış'ta "İptal" satırı sepetten çıkarır (sunucuda kayıt
+yok), açıklama yine de sorulur — panel ortak ve iki ekranın kuralı ayrışsaydı aynı düğme
+iki yerde farklı davranırdı. Sorusuz çıkarmak isteyen ⋮ → **Satırı sil**'i kullanır; o yol
+zaten yalnız tarayıcıda yaşayan sepette açık.
+
+#### K2.2 — Hesabın tamamı ikram/zayi ise FİŞSİZ kapanır (2026-08-16)
+
+Masadaki her şeyin ikram edilmesi kafede olağan bir gündür. Kapanış ucu buna "Hesapta
+ödenecek kalem yok" diye **400** dönüyordu: masa kapanmıyor, salon planında dolu kalıyordu.
+Kasiyerin tek çıkışı **adisyonu iptal etmek**ti — ve iptal stok yazmadığı için ikram
+malzemesi stokta kalıyordu. Yani ekranın zorladığı çözüm, K2'nin kapattığı deliği geri
+açıyordu: ikram ölçülemez, maliyet raporu yalan söyler.
+
+Doğrusu: **ortada satış yok, dolayısıyla fiş de yok.** Tezgâhtaki "sepetin tamamı ikram ise
+fiş kesilmez" dalının masa karşılığı.
+
+| | ne olur |
+|---|---|
+| Adisyon | `CLOSED`, `invoiceId` **null** (iptal DEĞİL: ürünler servis edildi) |
+| Fiş / ciro / KDV | yok — tahsil edilen bir şey olmadı |
+| İkram/zayi malzemesi | **düşer**; hareketin referansı ADİSYONun id'si (geri alınacak belge yok, tezgâhtaki `IKR-…` referansının eşi) |
+| Masa | "temizlenecek" damgası — normal kapanışla aynı |
+
+**Kapı sunucuda:** `kapat` POST `invoiceId`siz çağrılırsa kalemleri kendisi sayar; ödenecek
+kalem varsa 400 döner. İstemcinin sözüne bakılsaydı ücretli bir hesap fişsiz kapatılabilir
+ve ciro sessizce kaybolurdu. `GET kapat` bu durumda 400 yerine `invoicePayload: null`
+döndürür (sahipsiz fiş kontrolü yine yapılır — hesap ikram edilmeden önce yarıda kalmış bir
+kapanış varsa o fiş bağlanmalı, yoksa stok iki kez düşer).
+
+**Ekranda:** ödenecek kalem kalmayınca "ÖDEME" yerine **"HESABI KAPAT"** çizilir ve ne
+olacağını yazan bir onay penceresi açılır. Ölü (disabled) bir ÖDEME düğmesi kullanıcıya
+çıkışı göstermiyordu.
+
+**Masa raporu:** fişsiz kapanan adisyon `raporlar/masalar`da fişe `INNER JOIN`lendiği için
+tümden düşüyordu — masa kırk dakika doluydu ama doluluk/devir/boş bekleme hesabında hiç
+görünmüyordu. Join `LEFT` yapıldı: cirosu 0, ama masa kullanılmış sayılıyor. İptal edilmiş
+FİŞ hâlâ dışarıda (o bir hata kaydı), fişsizlik değil.
 
 ### K3 — İskonto adisyon seviyesinde, sebepli; kalem iskontosu yok
 
@@ -373,7 +446,8 @@ ortaklaştırma çizgisinin devamı.
   ♥  İkram   (para alınmaz, stok düşer)
   ✖  Zayi    (döküldü, stok düşer)
 ```
-İkram/zayi/iptal seçilince: sebep listesi (6 kısa seçenek) + isteğe bağlı not. Tek adım.
+İkram/zayi/iptal seçilince: sebep listesi (6 kısa seçenek) + açıklama — ikisi de ZORUNLU
+(K2.1). Tek adım.
 
 ### 4.3 Hesap işlemleri (2026-08-06'ya kadar "İşlemler tepsisi")
 
@@ -532,7 +606,7 @@ discountValue/discountReason`, yeni `ProductOptionGroup` + `ProductOption`.
 |---|---|
 | Saf sabitler/hesaplar istemciye açıldı | **yeni** `lib/restoran/ticket-constants.ts` — `tickets.ts` prisma import ettiği için oradan içe aktarım Prisma'yı tarayıcı paketine sokardı; sunucu hepsini `tickets.ts` üzerinden görmeye devam ediyor |
 | `ticketTotals` yeniden yazıldı | Yalnız `NORMAL` kalem sayılır; iskonto KDV dahil uygulanır, `netDiscount` ile matrah karşılığı verilir |
-| İkram/zayi/iptal | `kalemler/[itemId]` PATCH — sebep ZORUNLU, liste sabit |
+| İkram/zayi/iptal | `kalemler/[itemId]` PATCH — sebep KODU (liste sabit) ve serbest AÇIKLAMA ZORUNLU (K2.1) |
 | İskonto | `adisyonlar/[id]` PATCH (`discountType/Value/Reason`) |
 | Kapanış | `kapat` GET yalnız `NORMAL` kalemleri fişe koyar + `globalDiscountAmount` geçer; seçenek/not kalem adına yazılır |
 | **İkram/zayi stok düzeltmesi** | **yeni** `lib/restoran/comp-waste-stock.ts` — reçete genişletilir, `ADJUSTMENT` hareketi yazılır, referans **fişin id'si** (fiş iptalinde `revertStockByReference` kendiliğinden geri alır) |

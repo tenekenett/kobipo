@@ -72,6 +72,7 @@ try {
     consumesStock,
     parseItemOptions,
     reasonLabel,
+    requiresReasonNote,
     optionEffect,
     optionRecipeEffects,
   } = await import(pathToFileURL(modPath).href)
@@ -101,6 +102,13 @@ try {
   eq("iptal stok düşürmez", consumesStock("VOID"), false)
   eq("sebep etiketi", reasonLabel("COMP", "COMPLAINT"), "Müşteri şikâyeti")
   eq("bilinmeyen sebep null", reasonLabel("COMP", "YOK"), null)
+  // İşaretlenen HER kalemde serbest açıklama zorunlu: sebep kodu gruplama
+  // ekseni, açıklama tek tek kayda bakanın okuyacağı yer (K2.1).
+  eq("ikramda açıklama zorunlu", requiresReasonNote("COMP"), true)
+  eq("zayide açıklama zorunlu", requiresReasonNote("WASTE"), true)
+  eq("iptalde açıklama zorunlu", requiresReasonNote("VOID"), true)
+  eq("normal kalemde açıklama istenmez", requiresReasonNote("NORMAL"), false)
+  eq("durumsuz kalemde açıklama istenmez", requiresReasonNote(undefined), false)
 
   console.log("\n== Toplam ==")
   eq("iki kalem", ticketTotals([line(), line({ quantity: 2 })]), {

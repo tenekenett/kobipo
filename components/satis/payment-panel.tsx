@@ -46,7 +46,21 @@ const METHOD_ICONS: Record<PaymentMethod, typeof Banknote> = {
   BANK_TRANSFER: Landmark,
 }
 
-/** Kasadaki nakit tuşları — kahvecide en sık verilen banknotlar. */
+/**
+ * Kutuya YAZILAN metin: ondalık virgülle, kullanıcının yazdığı gibi. Düğmeler
+ * `String(1250.5)` yazınca alan "1250.5" gösteriyordu — ipucu "0,00" derken.
+ * Çözümleyici ikisini de okuyor, mesele tutarlı görünmek.
+ */
+const trAmount = (n: number) => String(round2(n)).replace(".", ",")
+
+/**
+ * Kasadaki nakit tuşları — kahvecide en sık verilen banknotlar.
+ *
+ * EKLERLER, değiştirmezler: müşteri 200 + 50 uzattığında iki tuşa basmak 250
+ * yazmalı. Eskiden son basılan tuş öncekini eziyordu (Hızlı Satış ekranı ise
+ * baştan beri ekliyordu — aynı iş, iki farklı davranış). Etiketteki "+" bunu
+ * görünür kılıyor; tam tutara dönmek için altındaki "Tam" düğmesi var.
+ */
 const QUICK_CASH = [50, 100, 200, 500]
 
 export function PaymentPanel({
@@ -65,6 +79,8 @@ export function PaymentPanel({
   const summary = paymentSummary(state, total)
   const entered = portionsTotal(state.portions)
   const splitRemaining = round2(total - entered)
+  /** Kasiyerin yazdığı nakit — hızlı tuşlar bunun ÜSTÜNE ekler. */
+  const handedCash = parseAmount(state.tendered)
 
   const patchPortion = (id: string, patch: Partial<PaymentPortion>) =>
     onChange({ portions: state.portions.map((p) => (p.id === id ? { ...p, ...patch } : p)) })
@@ -79,7 +95,7 @@ export function PaymentPanel({
   const fillRemainder = (id: string) => {
     if (splitRemaining <= 0) return
     const current = state.portions.find((p) => p.id === id)
-    patchPortion(id, { amount: String(round2(parseAmount(current?.amount) + splitRemaining)) })
+    patchPortion(id, { amount: trAmount(parseAmount(current?.amount) + splitRemaining) })
   }
 
   /** Hesabı N eşit parçaya böler — "ayrı ayrı ödeyeceğiz" akışının kısayolu. */
@@ -87,7 +103,11 @@ export function PaymentPanel({
     const amounts = splitEqually(total, count)
     onChange({
       splitMode: true,
-      portions: amounts.map((amount) => ({ ...newPortion("CREDIT_CARD"), amount })),
+      // `splitEqually` nokta ile üretiyor (toFixed); kutuda virgülle görünsün.
+      portions: amounts.map((amount) => ({
+        ...newPortion("CREDIT_CARD"),
+        amount: amount.replace(".", ","),
+      })),
     })
   }
 
@@ -225,7 +245,18 @@ export function PaymentPanel({
           {state.method === "CASH" && (
             <>
               <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">Ödenen (nakit)</Label>
+                <Label className="text-xs text-muted-foreground">
+                  Ödenen (nakit)
+                  {handedCash > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onChange({ tendered: "" })}
+                      className="ml-2 rounded px-1 font-semibold text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      sıfırla
+                    </button>
+                  )}
+                </Label>
                 <span className="text-xs text-muted-foreground">
                   Para Üstü:{" "}
                   <span className="font-bold text-kobipo-green">{currency(summary.change)}</span>
@@ -238,21 +269,31 @@ export function PaymentPanel({
                 placeholder="0,00"
                 className="h-12 text-right text-lg font-bold tabular-nums"
               />
+              {/* Girilen tutar hesabın ALTINDAysa para üstü 0 çıkar ve ekran
+                  sessiz kalıyordu — kasiyer "para üstü çalışmıyor" diye okuyor.
+                  Eksik tutar yazılıyor; tahsilat yine tamamı sayılır (bu kutu
+                  yalnız para üstü hesabı içindir, bkz. PaymentState.tendered). */}
+              {handedCash > 0 && handedCash < round2(total) && (
+                <p className="px-1 text-xs text-amber-600 dark:text-amber-400">
+                  Girilen tutar hesabın {currency(round2(total) - handedCash)} altında — para
+                  üstü çıkmaz.
+                </p>
+              )}
               <div className="grid grid-cols-4 gap-2">
                 {QUICK_CASH.map((n) => (
                   <button
                     key={n}
                     type="button"
-                    onClick={() => onChange({ tendered: String(n) })}
+                    onClick={() => onChange({ tendered: trAmount(handedCash + n) })}
                     className="rounded-lg border border-border py-2.5 text-sm font-semibold transition-colors hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary dark:hover:bg-primary/10"
                   >
-                    {n}
+                    +{n}
                   </button>
                 ))}
               </div>
               <button
                 type="button"
-                onClick={() => onChange({ tendered: String(round2(total)) })}
+                onClick={() => onChange({ tendered: trAmount(total) })}
                 className="w-full rounded-lg border border-kobipo-green/40 bg-kobipo-green/10 py-2.5 text-sm font-semibold text-kobipo-green transition-colors hover:bg-kobipo-green/20"
               >
                 Tam — {currency(total)}

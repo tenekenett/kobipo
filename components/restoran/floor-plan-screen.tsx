@@ -473,7 +473,7 @@ export function FloorPlanScreen() {
 
   // ---- Kullanım kipi ------------------------------------------------------
   //
-  // Adisyon açma / toplandı / gelmedi ORTAK koddan gelir: aynı işi Masa Listesi
+  // Adisyon açma / temizlendi / gelmedi ORTAK koddan gelir: aynı işi Masa Listesi
   // ekranı da yapıyor ve iki kopya olsaydı biri 409 çakışmasını ya da rezerve
   // masa kuralını unuttuğu an garson hangi ekranı kullandığına göre farklı
   // sonuç alırdı. Bkz. lib/restoran/use-table-opener.ts
@@ -1355,7 +1355,7 @@ export function FloorPlanScreen() {
       </Dialog>
 
       {/* Kullanım kipi — belirsiz durumdaki masaya dokunuldu */}
-      {/* Belirsiz masa (toplanacak / rezerve) — Masa Listesi ile ORTAK diyalog. */}
+      {/* Belirsiz masa (temizlenecek / rezerve) — Masa Listesi ile ORTAK diyalog. */}
       <TableActionDialog
         table={tableAction}
         now={now}

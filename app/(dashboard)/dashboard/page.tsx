@@ -25,6 +25,7 @@ import { isAccountLocked } from "@/lib/modules"
 import { assertRouteAccessOrRedirect } from "@/lib/middleware/page-guard"
 import { cn } from "@/lib/utils"
 import { DashboardCashflowChart, type CashflowPoint } from "@/components/dashboard/dashboard-cashflow-chart"
+import { dashboardTag } from "@/lib/dashboard/cache"
 
 export const dynamic = "force-dynamic"
 
@@ -76,7 +77,20 @@ function buildCashflowSeries(
   return out
 }
 
-const getDashboardDataCached = unstable_cache(
+/**
+ * Pano verisi — 20 sn önbellekli AMA firma bazlı ETİKETLİ.
+ *
+ * Etiket şart: satış/tahsilat yapıldığı anda panonun güncellenmesi isteniyor ve
+ * 20 sn beklemek kabul edilemez. Para yazan uçlar `revalidateDashboard()` ile bu
+ * etiketi düşürüyor (lib/dashboard/cache.ts). Önbellek yine de duruyor; koruduğu
+ * şey art arda yenilenen panonun aynı toplamları tekrar tekrar hesaplaması.
+ *
+ * Neden fabrika: `tags` seçeneği `unstable_cache` KURULURKEN sabitlenir, çağrı
+ * anında değil. Firma id'si etikete ancak her firma için ayrı bir örnek üreterek
+ * girebiliyor. Önbellek anahtarı yine argümanlardan türüyor (firma id'si ilk
+ * argüman), o yüzden firmalar birbirinin kutusunu görmez.
+ */
+const getDashboardDataCached = (tagCompanyId: string) => unstable_cache(
   async (companyId: string, chartStartIso: string) => {
     const chartStart = new Date(chartStartIso)
     const [statsRows, recentInvoices, cashflowRows] = await Promise.all([
@@ -149,7 +163,7 @@ const getDashboardDataCached = unstable_cache(
     return { statsRows, recentInvoices, cashflowRows }
   },
   ["dashboard-data-v2"],
-  { revalidate: 20 }
+  { revalidate: 20, tags: [dashboardTag(tagCompanyId)] }
 )
 
 export default async function DashboardIndexPage({
@@ -197,7 +211,7 @@ export default async function DashboardIndexPage({
   chartStart.setHours(0, 0, 0, 0)
   chartStart.setDate(chartStart.getDate() - DAYS_CHART)
 
-  const { statsRows, recentInvoices, cashflowRows } = await getDashboardDataCached(
+  const { statsRows, recentInvoices, cashflowRows } = await getDashboardDataCached(companyId)(
     companyId,
     chartStart.toISOString()
   )

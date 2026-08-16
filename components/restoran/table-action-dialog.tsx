@@ -3,7 +3,7 @@
 // Belirsiz durumdaki masaya dokunulunca çıkan seçim diyaloğu — salon planı ve
 // masa listesi ORTAK kullanır (bkz. lib/restoran/use-table-opener.ts).
 //
-// "Belirsiz" iki durumdur: masa toplanmadı ya da yaklaşan rezervasyonu var.
+// "Belirsiz" iki durumdur: masa temizlenmedi ya da yaklaşan rezervasyonu var.
 // İkisi de adisyon açmayı ENGELLEMEZ, yalnız hangisinin kastedildiğini sorar —
 // rezerve masaya gelen geçen müşteriyi sessizce oturtmak rezervasyonu yakardı.
 
@@ -52,7 +52,7 @@ export function TableActionDialog({
                   table.reservation.guestCount ? ` (${table.reservation.guestCount} kişi)` : ""
                 }.`
               : table?.cleaningSince
-                ? `Hesap ${elapsedLabel(table.cleaningSince, now)} önce kapandı, masa henüz toplanmadı.`
+                ? `Hesap ${elapsedLabel(table.cleaningSince, now)} önce kapandı, masa henüz temizlenmedi.`
                 : ""}
           </DialogDescription>
         </DialogHeader>
@@ -79,7 +79,7 @@ export function TableActionDialog({
               }}
             >
               <Sparkles className="mr-2 h-4 w-4" />
-              Masa toplandı
+              Masa temizlendi
             </Button>
           )}
           <Button

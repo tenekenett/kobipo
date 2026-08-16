@@ -82,6 +82,22 @@ try {
   eq("noktalı giriş", parseAmount("12.50"), 12.5)
   eq("boş giriş", parseAmount(""), 0)
   eq("çöp giriş", parseAmount("abc"), 0)
+
+  // BİNLİK AYRACI — eskiden hepsi yanlıştı ("1.500" → 1,5) ve para üstü hep 0
+  // çıkıyordu; parçalı ödemede de 1.500 TL'lik satır 1,50 TL kaydediliyordu.
+  eq("tr binlik", parseAmount("1.500"), 1500)
+  eq("tr binlik + kuruş", parseAmount("1.500,50"), 1500.5)
+  eq("tr binlik (bin tam)", parseAmount("1.000"), 1000)
+  eq("çok basamaklı binlik", parseAmount("1.234.567"), 1234567)
+  eq("en binlik + kuruş", parseAmount("1,500.50"), 1500.5)
+  eq("en binlik", parseAmount("1,000,000"), 1000000)
+  eq("boşluklu giriş", parseAmount("1 500"), 1500)
+  eq("simgeli giriş", parseAmount("₺1.250,75"), 1250.75)
+  // Ondalık okunması gerekenler binliğe kaymamalı:
+  eq("iki haneli ondalık nokta", parseAmount("12.50"), 12.5)
+  eq("sıfırla başlayan ondalık", parseAmount("0.500"), 0.5)
+  eq("tek virgüllü üç hane ondalıktır", parseAmount("2,000"), 2)
+  eq("eksi tutar geçersiz", parseAmount("-5"), 0)
   eq(
     "portionsTotal",
     portionsTotal([
@@ -101,6 +117,18 @@ try {
   eq("verilen 100", cashSum.tendered, 100)
   eq("para üstü 15", cashSum.change, 15)
   eq("açık kalmadı", cashSum.remaining, 0)
+
+  // Binlik ayraçlı giriş para üstünü doğru vermeli (asıl şikâyet buydu).
+  eq(
+    "1.500 verildi, hesap 1.250,75",
+    paymentSummary(state({ method: "CASH", tendered: "1.500" }), 1250.75).change,
+    249.25,
+  )
+  eq(
+    "hesabın altında giriş → para üstü yok",
+    paymentSummary(state({ method: "CASH", tendered: "50" }), 85).change,
+    0,
+  )
 
   console.log("\n== Tek yöntem: kart (para üstü yok) ==")
   const card = state({ method: "CREDIT_CARD" })

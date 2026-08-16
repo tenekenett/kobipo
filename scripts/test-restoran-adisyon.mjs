@@ -293,6 +293,13 @@ async function main() {
       `/api/restoran/adisyonlar/${doomed.body.id}?companyId=${company.id}&reasonCode=UYDURMA`,
     )
     check("listede olmayan sebep reddedildi", badReason.status === 400)
+    // Sebep KODU yetmiyor: dolu bir hesabın niçin silindiği serbest açıklamada
+    // yazılı kalmalı (K2.1'in adisyon karşılığı).
+    const noNote = await api(
+      "DELETE",
+      `/api/restoran/adisyonlar/${doomed.body.id}?companyId=${company.id}&reasonCode=CUSTOMER_LEFT`,
+    )
+    check("açıklamasız iptal reddedildi", noNote.status === 400, noNote.body?.error)
     const cancelled = await api(
       "DELETE",
       `/api/restoran/adisyonlar/${doomed.body.id}?companyId=${company.id}&reasonCode=CUSTOMER_LEFT&reason=TEST`,
@@ -560,6 +567,20 @@ async function main() {
     })
     check("sebepsiz ikram reddedildi", noReasonComp.status === 400, noReasonComp.body?.error)
 
+    // Sebep KODU yetmiyor: işaretlenen kalemde serbest açıklama da zorunlu
+    // (K2.1). Kod dört seçenekten biri, ayrıntı ancak burada yazılır.
+    const noNoteComp = await api("POST", "/api/restoran/ikram", {
+      companyId: company.id,
+      lines: [{ productId: latte.id, quantity: 1, status: "COMP", reasonCode: "STAFF" }],
+    })
+    check("açıklamasız ikram reddedildi", noNoteComp.status === 400, noNoteComp.body?.error)
+
+    const noNoteWaste = await api("POST", "/api/restoran/ikram", {
+      companyId: company.id,
+      lines: [{ productId: latte.id, quantity: 1, status: "WASTE", reasonCode: "SPILLED" }],
+    })
+    check("açıklamasız zayi reddedildi", noNoteWaste.status === 400, noNoteWaste.body?.error)
+
     const badStatus = await api("POST", "/api/restoran/ikram", {
       companyId: company.id,
       lines: [{ productId: latte.id, quantity: 1, status: "NORMAL", reasonCode: "STAFF" }],
@@ -569,7 +590,13 @@ async function main() {
     const foreignProduct = await api("POST", "/api/restoran/ikram", {
       companyId: company.id,
       lines: [
-        { productId: "baska-firmanin-urunu", quantity: 1, status: "COMP", reasonCode: "STAFF" },
+        {
+          productId: "baska-firmanin-urunu",
+          quantity: 1,
+          status: "COMP",
+          reasonCode: "STAFF",
+          reason: "test",
+        },
       ],
     })
     check("başka firmanın ürünü ikram edilemez", foreignProduct.status === 404)
@@ -607,6 +634,7 @@ async function main() {
           quantity: 1,
           status: "COMP",
           reasonCode: "STAFF",
+          reason: "Mutfak ekibine",
           description: "Latte (personel)",
         },
       ],
@@ -627,6 +655,12 @@ async function main() {
       "hareket ADJUSTMENT ve sebebiyle yazıldı",
       (compMovement?.description ?? "").includes("İkram") &&
         (compMovement?.description ?? "").includes("Personel"),
+      compMovement?.description,
+    )
+    // Tezgâhta adisyon yok: zorunlu açıklamanın tek kalıcı yeri bu hareket.
+    check(
+      "ikram açıklaması harekete yazıldı",
+      (compMovement?.description ?? "").includes("Mutfak ekibine"),
       compMovement?.description,
     )
     check("ikram maliyeti donduruldu (AVCO)", Number(compMovement?.unitPrice ?? 0) > 0)
@@ -705,7 +739,111 @@ async function main() {
     check("başka adisyon bağlı fişi devralmıyor", otherPrep.body?.existingInvoice === null)
     await api(
       "DELETE",
-      `/api/restoran/adisyonlar/${otherTicket.body.id}?companyId=${company.id}&reasonCode=TEST`,
+      `/api/restoran/adisyonlar/${otherTicket.body.id}?companyId=${company.id}&reasonCode=TEST&reason=temizlik`,
+    )
+
+    // ── 8e. Tümü ikram olan hesap FİŞSİZ kapanır ────────────────────────────
+    // Masanın tamamı ikram edilebilir (kafede olağan). Eskiden kapanış "ödenecek
+    // kalem yok" diye 400 dönüyordu: masa kapanmıyor, kasiyerin tek çıkışı
+    // adisyonu İPTAL etmek oluyordu — o yol stok yazmadığı için ikram malzemesi
+    // stokta kalıyordu (K2.2).
+    console.log("\n8e) Tümü ikram olan hesap — fişsiz kapanış")
+    const allComp = await api("POST", "/api/restoran/adisyonlar", {
+      companyId: company.id,
+      note: `TEST tümü ikram ${stamp}`,
+    })
+    created.ticketIds.push(allComp.body?.id)
+    const compAdded = await api("POST", `/api/restoran/adisyonlar/${allComp.body.id}/kalemler`, {
+      companyId: company.id,
+      productId: latte.id,
+      quantity: 1,
+    })
+    const compItem = compAdded.body?.items?.[0]
+
+    // Ödenecek kalem VARKEN fişsiz kapanış reddedilmeli: kapı sunucuda.
+    const earlyFree = await api("POST", `/api/restoran/adisyonlar/${allComp.body.id}/kapat`, {
+      companyId: company.id,
+    })
+    check("ödenecek kalem varken fişsiz kapanmıyor", earlyFree.status === 400, earlyFree.body?.error)
+
+    await api(
+      "PATCH",
+      `/api/restoran/adisyonlar/${allComp.body.id}/kalemler/${compItem.id}`,
+      {
+        companyId: company.id,
+        status: "COMP",
+        reasonCode: "PROMO",
+        reason: "Açılışa özel",
+      },
+    )
+    const freePrep = await api(
+      "GET",
+      `/api/restoran/adisyonlar/${allComp.body.id}/kapat?companyId=${company.id}`,
+    )
+    check(
+      "tümü ikram olunca fiş gövdesi YOK (400 değil)",
+      freePrep.status === 200 && freePrep.body?.invoicePayload === null,
+      `HTTP ${freePrep.status}`,
+    )
+
+    const milkBeforeFree = await milkNow()
+    const freeClosed = await api("POST", `/api/restoran/adisyonlar/${allComp.body.id}/kapat`, {
+      companyId: company.id,
+    })
+    check(
+      "fişsiz kapandı",
+      freeClosed.status === 200 && freeClosed.body?.status === "CLOSED",
+      `${freeClosed.body?.status} · fiş: ${freeClosed.body?.invoiceId ?? "yok"}`,
+    )
+    check("kapanan adisyona fiş bağlanmadı", freeClosed.body?.invoiceId == null)
+    check(
+      "ikram malzemesi yine de stoktan düştü",
+      Math.abs(milkBeforeFree - (await milkNow()) - plainSale.drop) < 0.0001,
+      `${milkBeforeFree} → ${await milkNow()}`,
+    )
+    const freeMovement = await prisma.stockMovement.findFirst({
+      where: { companyId: company.id, reference: allComp.body.id, type: "ADJUSTMENT" },
+      select: { description: true },
+    })
+    check(
+      "hareketin referansı ADİSYON (geri alınacak belge yok)",
+      (freeMovement?.description ?? "").includes("İkram"),
+      freeMovement?.description,
+    )
+
+    // Bu düşümü geri alacak bir BELGE yok (fiş kesilmedi), o yüzden testin
+    // kendisi topluyor — script tekrar çalıştırılabilir kalmalı. Desen
+    // scripts/test-comp-waste-stock.ts'teki toparlamanın aynısı.
+    const freeMoves = await prisma.stockMovement.groupBy({
+      by: ["productId"],
+      where: { companyId: company.id, reference: allComp.body.id },
+      _sum: { quantity: true },
+    })
+    for (const row of freeMoves) {
+      if (!row.productId) continue
+      const delta = Number(row._sum.quantity ?? 0)
+      await prisma.product.update({
+        where: { id: row.productId },
+        data: { stockQuantity: { decrement: delta } },
+      })
+      const ws = await prisma.warehouseStock.findFirst({
+        where: { productId: row.productId },
+        orderBy: { updatedAt: "desc" },
+      })
+      if (ws) {
+        await prisma.warehouseStock.update({
+          where: { id: ws.id },
+          data: { quantity: { decrement: delta } },
+        })
+      }
+    }
+    await prisma.stockMovement.deleteMany({
+      where: { companyId: company.id, reference: allComp.body.id },
+    })
+    check(
+      "fişsiz ikramın stoğu test sonrası geri alındı",
+      Math.abs((await milkNow()) - milkBeforeFree) < 0.0001,
+      `${await milkNow()}`,
     )
 
     // ── 9. Faz D: masa raporu + gün sonu açık adisyonlar ────────────────────
@@ -927,13 +1065,13 @@ async function main() {
     )
 
     // ── 10c. Masa durumları ─────────────────────────────────────────────────
-    console.log("\n10c) Masa durumları (hesap istendi / toplanacak)")
+    console.log("\n10c) Masa durumları (hesap istendi / temizlenecek)")
     // 8. adımda kapanan adisyon bu masadaydı: kapanış masayı damgalamış olmalı.
     const afterClose = await prisma.restaurantTable.findUnique({
       where: { id: created.tableIds[1] },
       select: { cleaningSince: true },
     })
-    check("adisyon kapanınca masa kendiliğinden 'toplanacak' oldu", !!afterClose?.cleaningSince)
+    check("adisyon kapanınca masa kendiliğinden 'temizlenecek' oldu", !!afterClose?.cleaningSince)
 
     const stateTicket = await api("POST", "/api/restoran/adisyonlar", {
       companyId: company.id,
@@ -973,13 +1111,13 @@ async function main() {
       companyId: company.id,
       cleaned: false,
     })
-    check("masa 'toplanacak' işaretlendi", !!dirty.body?.cleaningSince)
+    check("masa 'temizlenecek' işaretlendi", !!dirty.body?.cleaningSince)
 
     const cleaned = await api("PATCH", `/api/restoran/masalar/${created.tableIds[1]}`, {
       companyId: company.id,
       cleaned: true,
     })
-    check("masa toplandı", cleaned.body?.cleaningSince === null)
+    check("masa temizlendi", cleaned.body?.cleaningSince === null)
 
     // ── 10d. Rezervasyon ────────────────────────────────────────────────────
     console.log("\n10d) Rezervasyon")
@@ -1166,8 +1304,22 @@ async function main() {
       companyId: company.id,
       invoiceId: auditInvoice.body.id,
       lines: [
-        { productId: latte.id, quantity: 1, status: "COMP", reasonCode: "STAFF", description: "Latte" },
-        { productId: latte.id, quantity: 1, status: "WASTE", reasonCode: "SPILLED", description: "Latte" },
+        {
+          productId: latte.id,
+          quantity: 1,
+          status: "COMP",
+          reasonCode: "STAFF",
+          reason: "Mutfak ekibine",
+          description: "Latte",
+        },
+        {
+          productId: latte.id,
+          quantity: 1,
+          status: "WASTE",
+          reasonCode: "SPILLED",
+          reason: "Tepsiden düştü",
+          description: "Latte",
+        },
       ],
     })
 

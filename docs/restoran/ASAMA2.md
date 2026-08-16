@@ -382,7 +382,7 @@ ve sayfa render'ı yukarıdaki testlerle doğrulandı.
 
 Salon planı bu belgeden sonra bir tur daha gördü — kare/ölçekli tuval, tutamaçtan
 boyutlandırma, kalem modu, çoklu plan yönetimi, masa durumları (hesap istendi /
-toplanacak / rezerve), rezervasyon tablosu ve adisyon birleştirme:
+temizlenecek / rezerve), rezervasyon tablosu ve adisyon birleştirme:
 **[KROKI-EDITORU.md](./KROKI-EDITORU.md)**.
 
 Aşağıdaki "kapsam dışı" listesinden **hesap bölme** ve **masa taşıma** o turdan önce,

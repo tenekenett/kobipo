@@ -158,7 +158,7 @@ export const TABLE_STATE_STYLE: Record<TableState, { className: string; label: s
   CLEANING: {
     className:
       "border-slate-400 border-dashed bg-slate-200/70 text-slate-700 dark:border-slate-500 dark:bg-slate-700/40 dark:text-slate-200",
-    label: "Toplanacak",
+    label: "Temizlenecek",
   },
   RESERVED: {
     className:

@@ -46,8 +46,8 @@ export const consumesStock = (status: string | null | undefined) =>
 
 /**
  * Sebep listeleri sabit ve kısa: serbest metin olsaydı rapor gruplanamazdı
- * ("ikram", "İKRAM", "ikram ettik" üç ayrı satır olurdu). Açıklama isteyen
- * kullanıcı `reason` alanına yazar.
+ * ("ikram", "İKRAM", "ikram ettik" üç ayrı satır olurdu). Ayrıntı serbest
+ * `reason` alanına yazılır ve o da ZORUNLUdur (bkz. `requiresReasonNote`).
  */
 export const TICKET_ITEM_REASONS: Record<
   Exclude<TicketItemStatus, "NORMAL">,
@@ -71,6 +71,30 @@ export const TICKET_ITEM_REASONS: Record<
     { code: "OTHER", label: "Diğer" },
   ],
 }
+
+/**
+ * İŞARETLENEN HER kalemde serbest açıklama da ZORUNLUdur (2026-08-16).
+ *
+ * Sebep kodu işlemin türünü söyler ("Personel / aile", "Döküldü / kırıldı"),
+ * hikâyesini söylemez: dört seçenekten biridir ve pratikte herkes aynısını
+ * seçer. Kime/niçin verildiği, ne olduğu yazılmadığında denetim raporu ikramı
+ * kaçaktan, zayiyi savurganlıktan, iptali yanlış girişten ayıramaz — kod
+ * gruplama ekseni, açıklama tek tek kayda bakanın okuyacağı yer. İskonto
+ * açıklamasının 2026-08-07'de zorunlu olma gerekçesiyle aynı (K3.1).
+ *
+ * `NORMAL` dışındaki üç durumu da kapsar ve KOŞULSUZdur (personel seçiminin
+ * aksine bir kart/modül gerektirmez). Tek istisna `kalemler/[itemId]` DELETE:
+ * adet 0'a inen kalem "yanlış girildi" sayılır, açıklama sorulmaz — o yol
+ * arayüzde kapalı bir emniyet supabıdır (bkz. route yorumu).
+ *
+ * Kural üç yerde bu fonksiyondan okunur: istemci (`ticket-panel.tsx`, "Uygula"
+ * kilidi), `kalemler/[itemId]` PATCH ve `api/restoran/ikram` POST.
+ */
+export const requiresReasonNote = (status: string | null | undefined) =>
+  status === "COMP" || status === "WASTE" || status === "VOID"
+
+/** Serbest açıklamanın sunucuda kırpıldığı sınır — istemci de aynı sınırı gösterir. */
+export const TICKET_REASON_NOTE_MAX = 255
 
 /**
  * ADİSYON iptal sebepleri (kalem sebeplerinden ayrı liste).

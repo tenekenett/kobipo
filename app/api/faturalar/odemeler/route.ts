@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { Decimal } from "@prisma/client/runtime/library"
 import { accessDeniedResponse } from "@/lib/api/errors"
+import { revalidateDashboard } from "@/lib/dashboard/cache"
 
 export const dynamic = 'force-dynamic'
 
@@ -145,54 +146,103 @@ export async function POST(request: Request) {
       )
     }
 
-    // Ödeme kaydı oluştur
-    const payment = await prisma.invoicePayment.create({
-      data: {
-        invoiceId,
-        companyId,
-        amount: new Decimal(amount),
-        paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
-        paymentMethod,
-        accountId: accountId || null,
-        reference: reference || null,
-        notes: notes || null,
-        createdBy: user.id,
-      },
-      include: {
-        invoice: {
-          select: {
-            id: true,
-            invoiceNo: true,
-            totalAmount: true,
+    // Kanal (kasa/banka) verildiyse firmaya ait olmalı. Eskiden doğrulanmıyordu:
+    // başka firmanın hesap id'si ödemeye YAZILIYOR, bakiye ise sessizce
+    // güncellenmiyordu — ortada sahibi belirsiz bir tahsilat kalıyordu.
+    const account = accountId
+      ? await prisma.financialAccount.findFirst({
+          where: { id: accountId, companyId },
+          select: { id: true },
+        })
+      : null
+    if (accountId && !account) {
+      return NextResponse.json({ error: "Hesap bulunamadı" }, { status: 404 })
+    }
+
+    const isSales = invoice.type === "SALES"
+    const paidAt = paymentDate ? new Date(paymentDate) : new Date()
+    const paidAmount = new Decimal(amount)
+
+    /**
+     * Tahsilat + KASA HAREKETİ tek gidişte.
+     *
+     * Eskiden burada yalnız `InvoicePayment` yazılıp hesabın bakiyesi elle
+     * artırılıyordu; `Transaction` (kasa hareketi) YAZILMIYORDU. Oysa panonun
+     * gelir/gider/net bakiye rakamları ve nakit akışı grafiği yalnızca
+     * `transactions`ı okur — POS/fiş ve adisyon tahsilatları panoya, Finans >
+     * Hareketler listesine ve cari ekstreye hiç ulaşmıyordu (canlı veride tek
+     * bir firmada 562 bin TL'lik tahsilat bu yüzden kasada görünmüyordu).
+     *
+     * Cari ekranından girilen tahsilat baştan beri ikisini birden yazıyor ve
+     * `transactionId` ile bağlıyordu; okuma katmanının tamamı (cari bakiye,
+     * cari liste, gelir-gider raporu) zaten "bağlı ödemeyi iki kez sayma"
+     * kuralına göre yazılmış. Eksik olan tek şey bu yazma yoluydu.
+     */
+    const payment = await prisma.$transaction(async (db) => {
+      let transactionId: string | null = null
+
+      if (account) {
+        const trx = await db.transaction.create({
+          data: {
+            companyId,
+            accountId: account.id,
+            type: isSales ? "INCOME" : "EXPENSE",
+            amount: paidAmount,
+            currency: invoice.currency || "TRY",
+            description: `${isSales ? "Tahsilat" : "Ödeme"} — ${invoice.invoiceNo}`,
+            date: paidAt,
+            // Cari ekstrede faturanın borcunu KAPATAN satır budur; taraf
+            // yazılmazsa fiş "ödenmemiş borç" gibi asılı kalır.
+            customerId: invoice.customerId,
+            supplierId: invoice.supplierId,
+            reference: reference || null,
+            createdBy: user.id,
           },
-        },
-        account: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-          },
-        },
-      },
-    })
+        })
+        transactionId = trx.id
 
-    // Eğer hesap seçildiyse, hesap bakiyesini güncelle
-    if (accountId) {
-      const account = await prisma.financialAccount.findUnique({
-        where: { id: accountId },
-      })
-
-      if (account && account.companyId === companyId) {
-        const newBalance =
-          Number(account.balance) +
-          (invoice.type === "SALES" ? Number(amount) : -Number(amount))
-
-        await prisma.financialAccount.update({
-          where: { id: accountId },
-          data: { balance: new Decimal(newBalance) },
+        // `increment`: oku-topla-yaz eski hâli, aynı kasaya aynı anda iki
+        // tahsilat girilirse birini kaybediyordu.
+        await db.financialAccount.update({
+          where: { id: account.id },
+          data: { balance: { increment: isSales ? paidAmount : paidAmount.negated() } },
         })
       }
-    }
+
+      return db.invoicePayment.create({
+        data: {
+          invoiceId,
+          companyId,
+          amount: paidAmount,
+          paymentDate: paidAt,
+          paymentMethod,
+          accountId: account?.id ?? null,
+          transactionId,
+          reference: reference || null,
+          notes: notes || null,
+          createdBy: user.id,
+        },
+        include: {
+          invoice: {
+            select: {
+              id: true,
+              invoiceNo: true,
+              totalAmount: true,
+            },
+          },
+          account: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+            },
+          },
+        },
+      })
+    })
+
+    // Pano "satış yapıldığı anda" güncellensin: 20 sn'lik önbellek düşürülür.
+    revalidateDashboard(companyId)
 
     return NextResponse.json(payment, { status: 201 })
   } catch (error: any) {

@@ -103,7 +103,7 @@ Plan artık beş durum gösteriyor (`components/restoran/plan-kinds.ts` → `tab
 | Boş | — | Dokun → adisyon açılır (tek dokunuş, hızlı yol korunuyor) |
 | Dolu | açık adisyon | Dokun → adisyona git |
 | **Hesap istendi** | `RestaurantTicket.billRequestedAt` | Adisyon AÇIK kalır; yalnız planda öne çıkar |
-| **Toplanacak** | `RestaurantTable.cleaningSince` | Kapanışta damgalanır; masayı **kilitlemez** |
+| **Temizlenecek** | `RestaurantTable.cleaningSince` | Kapanışta damgalanır; masayı **kilitlemez** |
 | **Rezerve** | yaklaşan `RestaurantReservation` | Dokun → ne yapılacağı sorulur |
 
 Sıra önemli: hesap istendi doluluğun önüne geçer (garson önce oraya gitmeli); temizlik ve
@@ -111,7 +111,7 @@ rezervasyon ancak masa boşken anlamlıdır.
 
 **Temizlik için ayar yok, bilinçli.** Damga masayı kilitleseydi bu akışı kullanmayan bir
 işletmede her masa iki dokunuş isterdi. Yeni adisyon damgayı kendiliğinden temizler; ayrıca
-"Masa toplandı" ile elle de temizlenir. Yani kullanmayan hiçbir bedel ödemez.
+"Masa temizlendi" ile elle de temizlenir. Yani kullanmayan hiçbir bedel ödemez.
 
 Renk tek başına bırakılmadı: hesap istendi masada ayrıca **ikon** taşır (renk körlüğü).
 
@@ -193,7 +193,7 @@ ortalaması.
 | Tablo | Alan | Ne için |
 |---|---|---|
 | `restaurant_areas` | `gridSize` | Kare krokinin kenar uzunluğu |
-| `restaurant_tables` | `cleaningSince` | "Toplanacak" damgası |
+| `restaurant_tables` | `cleaningSince` | "Temizlenecek" damgası |
 | `restaurant_tickets` | `billRequestedAt` / `billRequestedBy` | "Hesap istendi" |
 | `restaurant_tickets` | `mergedIntoId` | Birleştirme izi (iptalden ayrı) |
 | `restaurant_reservations` | *(yeni tablo)* | Rezervasyon |
@@ -222,7 +222,7 @@ Betiğe beş bölüm eklendi. Öne çıkanlar:
 | İçeriği kesecek küçültme reddedildi | ✅ 409 "en fazla 14 hücreye kadar" |
 | Uçuk ızgara üst sınıra oturdu | ✅ `40` |
 | Kalemle çizilen öğe verilen ölçüde doğdu | ✅ `SOFA 5×2 @(3,9)` |
-| Adisyon kapanınca masa kendiliğinden "toplanacak" oldu | ✅ |
+| Adisyon kapanınca masa kendiliğinden "temizlenecek" oldu | ✅ |
 | Yeni adisyon damgayı temizledi (masa kilitlenmiyor) | ✅ |
 | Hesap istendi işaretlendi ve plana yansıdı | ✅ |
 | Çakışan rezervasyon reddedildi | ✅ 409 "09:46 TEST Misafir" |

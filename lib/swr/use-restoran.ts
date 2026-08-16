@@ -24,7 +24,7 @@ export type PlanTable = {
   width: number
   height: number
   isActive: boolean
-  /** Hesap kapandı, masa toplanmadı. Masayı kilitlemez; yeni adisyon temizler. */
+  /** Hesap kapandı, masa temizlenmedi. Masayı kilitlemez; yeni adisyon temizler. */
   cleaningSince: string | null
   openTicketCount: number
   openTicket: {

@@ -17,11 +17,31 @@ import { loadRecipeContext } from "@/lib/stock/recipe"
 import { adjustWarehouseStock } from "@/lib/stock/warehouse"
 import { reasonLabel } from "@/lib/restoran/tickets"
 
+/**
+ * Kullanıcı metnini hareket açıklamasına koymadan önce zararsızlaştırır.
+ *
+ * Denetim raporu ikramı zayiden `description LIKE '%- İkram:%'` ile ayırıyor
+ * (raporlar/denetim/route.ts). Kalem adı ve serbest açıklama kullanıcının
+ * yazdığı metindir; iki nokta üst üste ve satır sonu atılınca hiçbir metin o
+ * işaretin şeklini alamaz — zayi satırı ikram diye sayılmaz.
+ */
+const safeText = (value: string | null | undefined) =>
+  (value ?? "")
+    .replace(/[\r\n:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+
 export type CompWasteLine = {
   productId: string | null
   quantity: number
   status: string
   reasonCode: string | null
+  /**
+   * Serbest açıklama — işaretlenen kalemde ZORUNLU (uçlarda denetlenir, K2.1).
+   * Hareketin açıklamasına yazılır: tezgâh ikramının/zayisinin adisyonu yok,
+   * "kime, niçin, ne oldu" yalnız burada yaşayabilir.
+   */
+  reason?: string | null
   description: string
   /** Kalemin seçeneklerinden kopyalanan reçete sapmaları (soya sütü, ekstra shot). */
   effects?: RecipeEffect[]
@@ -132,11 +152,15 @@ export async function writeCompWasteStock(args: {
       )
 
       // Açıklama tek satırda "ne, neden": hareket listesinde ikram ile zayi
-      // birbirinden ve normal satıştan ayırt edilebilsin.
+      // birbirinden ve normal satıştan ayırt edilebilsin. Sebep KODUNUN etiketi
+      // ile serbest açıklama birlikte yazılır — zorunlu olan ayrıntı (kime/niçin,
+      // ne oldu) tezgâhta yalnız burada yaşıyor (K2.1).
       const note = `${group.label}: ${group.lines
         .map((l) => {
-          const why = reasonLabel(l.status, l.reasonCode)
-          return why ? `${l.description} (${why})` : l.description
+          const why = [reasonLabel(l.status, l.reasonCode), safeText(l.reason)]
+            .filter(Boolean)
+            .join(" – ")
+          return why ? `${safeText(l.description)} (${why})` : safeText(l.description)
         })
         .join(", ")}`
 

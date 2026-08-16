@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { Decimal } from "@prisma/client/runtime/library"
 import { accessDeniedResponse } from "@/lib/api/errors"
+import { revalidateDashboard } from "@/lib/dashboard/cache"
 
 export const dynamic = 'force-dynamic'
 
@@ -110,6 +111,7 @@ export async function DELETE(
           await db.invoicePayment.delete({ where: { id: resolvedParams.id } })
         }
       })
+      revalidateDashboard(payment.companyId)
       return NextResponse.json({ success: true })
     }
 
@@ -133,6 +135,8 @@ export async function DELETE(
     await prisma.invoicePayment.delete({
       where: { id: resolvedParams.id },
     })
+
+    revalidateDashboard(payment.companyId)
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

@@ -8,6 +8,7 @@ import { getActiveXsltName } from "@/lib/integrations/e-invoice/active-template"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { generateInvoiceNumber, normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
+import { revalidateDashboard } from "@/lib/dashboard/cache"
 import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 import { loadRecipeContext } from "@/lib/stock/recipe"
 import { resolveUnitCosts } from "@/lib/stock/cost"
@@ -983,6 +984,10 @@ const invoiceData = {
         // Continue with invoice creation even if sending fails
       }
     }
+
+    // Pano "Son faturalar" tablosu ve fatura sayaçları anında tazelensin: fiş
+    // kesildiği anda panoya bakan kasiyer 20 sn eski liste görmemeli.
+    revalidateDashboard(companyId)
 
     return NextResponse.json(invoice, { status: 201 })
   } catch (error: any) {

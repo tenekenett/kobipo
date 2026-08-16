@@ -3,7 +3,12 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
-import { assertRestaurantModule, TICKET_ITEM_REASONS } from "@/lib/restoran/tickets"
+import {
+  assertRestaurantModule,
+  requiresReasonNote,
+  TICKET_ITEM_REASONS,
+  TICKET_REASON_NOTE_MAX,
+} from "@/lib/restoran/tickets"
 import { writeCompWasteStock, type CompWasteLine } from "@/lib/restoran/comp-waste-stock"
 import { parseRecipeEffects } from "@/lib/stock/recipe-expand"
 import { accessDeniedResponse } from "@/lib/api/errors"
@@ -57,11 +62,19 @@ export async function POST(request: Request) {
       if (!TICKET_ITEM_REASONS[status].some((r) => r.code === reasonCode)) {
         return NextResponse.json({ error: "Sebep seçilmeli" }, { status: 400 })
       }
+      // Serbest açıklama ikramda da zayide de zorunlu — kalem PATCH'indeki
+      // kuralın aynısı (SATIS-EKRANI.md K2.1). Tezgâhta bunun tek kalıcı yeri
+      // stok hareketinin açıklamasıdır: sepetin adisyonu yok.
+      const reason = String(raw?.reason || "").trim().slice(0, TICKET_REASON_NOTE_MAX)
+      if (requiresReasonNote(status) && !reason) {
+        return NextResponse.json({ error: "Açıklama yazılmalı" }, { status: 400 })
+      }
       lines.push({
         productId,
         quantity,
         status,
         reasonCode,
+        reason: reason || null,
         // İkramı veren personel — yalnız COMP'ta anlamlı. Kimliği aşağıda toplu
         // doğrulanır (tek tek sorgu satır başına bir gidiş-dönüş olurdu).
         employeeId: status === "COMP" && raw?.employeeId ? String(raw.employeeId) : null,

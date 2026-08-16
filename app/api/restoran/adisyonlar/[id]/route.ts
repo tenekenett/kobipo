@@ -9,6 +9,7 @@ import {
   ticketInclude,
   ticketTotals,
   TICKET_CANCEL_REASONS,
+  TICKET_REASON_NOTE_MAX,
   TICKET_DISCOUNT_REASONS,
   TICKET_DISCOUNT_TYPES,
 } from "@/lib/restoran/tickets"
@@ -258,10 +259,13 @@ export async function PATCH(request: Request, { params }: Params) {
  * `CANCELLED` olarak kalır — "masa 3'te 4 kalem girildi, sonra iptal edildi"
  * bilgisi kaybolmasın.
  *
- * **Kalemi varsa SEBEP ZORUNLU** (`?reasonCode=`). Kalem iptalinde sebep baştan
- * zorunluydu ama dolu bir hesabı tek tıkla iptal etmek sebepsizdi — kaçak tek
- * kalemde değil, hesabın tamamında yapılır. Boş adisyonda sorulmuyor: yanlış
- * açılmış boş kayıt için sebep sormak gürültüdür.
+ * **Kalemi varsa SEBEP KODU ve AÇIKLAMA ZORUNLU** (`?reasonCode=` + `?reason=`).
+ * Kalem iptalinde sebep baştan zorunluydu ama dolu bir hesabı tek tıkla iptal
+ * etmek sebepsizdi — kaçak tek kalemde değil, hesabın tamamında yapılır. Serbest
+ * açıklama 2026-08-16'da eklendi: kod dört seçenekten biri, hangi hesabın niçin
+ * silindiği ancak açıklamada yazılı kalıyor (K2.1'in adisyon karşılığı).
+ * Boş adisyonda ikisi de sorulmuyor: yanlış açılmış boş kayıt için sebep sormak
+ * gürültüdür.
  */
 export async function DELETE(request: Request, { params }: Params) {
   try {
@@ -302,7 +306,17 @@ export async function DELETE(request: Request, { params }: Params) {
         { status: 400 },
       )
     }
-    const reason = String(searchParams.get("reason") || "").trim().slice(0, 255) || null
+    // Serbest açıklama da ZORUNLU — kalem işaretlemesindeki kuralın aynısı
+    // (SATIS-EKRANI.md K2.1). Kod ("Müşteri vazgeçti") dört seçenekten biri;
+    // dolu bir HESABIN niçin silindiği ancak burada yazılı kalır ve kaçak tek
+    // kalemde değil, hesabın tamamında yapılır. Boş adisyon bu noktaya hiç
+    // gelmez: yukarıda sorusuz siliniyor.
+    const reason = String(searchParams.get("reason") || "")
+      .trim()
+      .slice(0, TICKET_REASON_NOTE_MAX)
+    if (!reason) {
+      return NextResponse.json({ error: "Açıklama yazılmalı" }, { status: 400 })
+    }
 
     await prisma.restaurantTicket.update({
       where: { id },

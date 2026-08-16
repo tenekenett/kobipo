@@ -5,10 +5,12 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import {
   assertRestaurantModule,
+  requiresReasonNote,
   serializeTicket,
   ticketInclude,
   TICKET_ITEM_REASONS,
   TICKET_ITEM_STATUSES,
+  TICKET_REASON_NOTE_MAX,
   type TicketItemStatus,
 } from "@/lib/restoran/tickets"
 import { accessDeniedResponse } from "@/lib/api/errors"
@@ -82,9 +84,17 @@ export async function PATCH(request: Request, { params }: Params) {
         if (!allowed.some((r) => r.code === code)) {
           return NextResponse.json({ error: "Sebep seçilmeli" }, { status: 400 })
         }
+        // Serbest açıklama: sebep KODUNUN yanında durur, yerine geçmez ve üç
+        // durumda da ZORUNLUdur — kod ("Personel / aile", "Döküldü / kırıldı")
+        // işlemin türünü söyler, hikâyesini söylemez; o ayrıntı olmadan denetim
+        // ikramı kaçaktan, zayiyi savurganlıktan ayıramaz (SATIS-EKRANI.md K2.1).
+        const note = String(body.reason || "").trim().slice(0, TICKET_REASON_NOTE_MAX)
+        if (requiresReasonNote(status) && !note) {
+          return NextResponse.json({ error: "Açıklama yazılmalı" }, { status: 400 })
+        }
         data.status = status
         data.reasonCode = code
-        data.reason = body.reason ? String(body.reason).trim().slice(0, 255) || null : null
+        data.reason = note || null
 
         // İkramı VEREN personel. Zorunluluk KOŞULLU: firmada aktif personel kartı
         // varsa seçim şart, yoksa akış eskisi gibi sürer — `hr` modülünü
@@ -144,7 +154,13 @@ export async function PATCH(request: Request, { params }: Params) {
  *
  * Sebep verilmezse `MISENTRY` ("yanlış girildi") sayılır: bu ucu çağıran istemci
  * zaten "bu satır burada olmamalıydı" diyor. Sebebi seçtirmek isteyen ekran
- * PATCH'i kullanır (orada sebep ZORUNLUdur).
+ * PATCH'i kullanır (orada sebep kodu da serbest AÇIKLAMA da ZORUNLUdur).
+ *
+ * Açıklama zorunluluğunun (K2.1) TEK istisnası burasıdır ve bilinçlidir: bu yol
+ * arayüzde kapalı (adisyon panelinde adet alt sınırı 1, "satırı sil" yalnız
+ * tarayıcıda yaşayan tezgâh sepetinde var), geriye dönük bir emniyet supabı.
+ * Buraya da zorunluluk konsaydı sıfıra inen adet kalemi hiç işaretleyemez,
+ * silinemeyen bir satır bırakırdı — K2'nin kapattığı deliğin tam tersi.
  *
  * `VOID` kalem hesaba, fişe ve stoğa girmez (ticketTotals + kapat + comp-waste);
  * yani kullanıcı açısından davranış aynı, tek fark artık kaydın durması.

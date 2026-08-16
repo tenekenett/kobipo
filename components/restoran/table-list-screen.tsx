@@ -9,7 +9,7 @@
 //
 // Davranış krokiyle AYNI ve tek yerden geliyor (lib/restoran/use-table-opener.ts):
 // açık adisyonu olan masa adisyona götürür, boş masa tek dokunuşta adisyon açar,
-// belirsiz durum (toplanacak / rezerve) önce sorar. İki ekranın bu noktada
+// belirsiz durum (temizlenecek / rezerve) önce sorar. İki ekranın bu noktada
 // ayrışmaması şart — garson hangisini kullandığına göre farklı sonuç almamalı.
 //
 // Masasız (paket/gel-al) adisyon da buradan açılabilir: kasadaki kişi paket
@@ -243,7 +243,7 @@ export function TableListScreen() {
                         rezerve
                       </span>
                     ) : table.cleaningSince ? (
-                      <span className="text-xs text-muted-foreground">Toplanacak</span>
+                      <span className="text-xs text-muted-foreground">Temizlenecek</span>
                     ) : (
                       <span className="text-xs text-muted-foreground">Boş</span>
                     )}

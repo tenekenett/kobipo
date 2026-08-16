@@ -134,14 +134,20 @@ export async function GET(request: Request) {
                i."netAmount"                                                 AS net,
                i."totalAmount"                                               AS gross
         FROM restaurant_tickets t
-        JOIN invoices i ON i.id = t."invoiceId"
+        -- LEFT: hesabın tamamı ikram/zayi olan adisyon FİŞSİZ kapanır (K2.2) ve
+        -- INNER join onu tümden düşürüyordu — masa kırk dakika doluydu ama
+        -- doluluk, devir ve boş bekleme hesabında hiç görünmüyordu. Cirosu
+        -- doğru biçimde 0'dır; sıfır ciro ile "hiç olmamış" aynı şey değil.
+        LEFT JOIN invoices i ON i.id = t."invoiceId"
         LEFT JOIN restaurant_tables tb ON tb.id = t."tableId"
         LEFT JOIN restaurant_areas ar ON ar.id = tb."areaId"
         WHERE t."companyId" = ${companyId}
           AND t.status = 'CLOSED'
           AND t."closedAt" >= ${start}
           AND t."closedAt" <= ${end}
-          AND i.status NOT IN ('CANCELLED', 'CONVERTED')
+          -- İptal edilmiş/faturaya dönüşmüş FİŞ hâlâ dışarıda; fişsizlik (i.id
+          -- null) ise bir hata değil, ödenecek tutarın olmamasıdır.
+          AND (i.id IS NULL OR i.status NOT IN ('CANCELLED', 'CONVERTED'))
         ORDER BY t."closedAt"
       `,
       // Devir hızının paydası: salonda KAÇ masa var. Pasif masalar sayılmaz —

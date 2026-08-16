@@ -156,7 +156,7 @@ export async function POST(request: Request) {
     })
 
     if (tableId) {
-      // Masaya yeni müşteri oturdu → "toplanacak" damgası anlamını yitirdi.
+      // Masaya yeni müşteri oturdu → "temizlenecek" damgası anlamını yitirdi.
       await prisma.restaurantTable.updateMany({
         where: { id: tableId, companyId, cleaningSince: { not: null } },
         data: { cleaningSince: null },

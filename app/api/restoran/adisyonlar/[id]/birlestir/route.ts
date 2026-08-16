@@ -102,7 +102,7 @@ export async function POST(request: Request, { params }: Params) {
           billRequestedBy: null,
         },
       }),
-      // Kaynak masa boşaldı ama müşteri kalkmadı — hesabı taşındı. "Toplanacak"
+      // Kaynak masa boşaldı ama müşteri kalkmadı — hesabı taşındı. "Temizlenecek"
       // damgası basılmaz; masa doğrudan boşa döner.
       ...(source.tableId
         ? [

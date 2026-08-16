@@ -94,6 +94,7 @@ import {
   optionRecipeEffects,
   ticketDiscountLabel,
   TICKET_CANCEL_REASONS,
+  TICKET_REASON_NOTE_MAX,
   type TicketItemStatus,
 } from "@/lib/restoran/ticket-constants"
 import {
@@ -177,6 +178,13 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     total: number
   } | null>(null)
   const forceNewReceipt = useRef(false)
+
+  /**
+   * FİŞSİZ kapanış onayı: hesabın tamamı ikram/zayi/iptal olduğunda ödenecek
+   * tutar yoktur ve fiş kesilmez. Onay isteniyor çünkü işlem geri alınamaz ve
+   * "ÖDEME" düğmesinin verdiği doğal duraktan yoksun (SATIS-EKRANI.md K2.2).
+   */
+  const [freeCloseOpen, setFreeCloseOpen] = useState(false)
 
   /** Eksik tahsilat onayı — bir kez onaylanınca aynı satışta tekrar sorulmaz. */
   const [shortPayWarn, setShortPayWarn] = useState<number | null>(null)
@@ -486,13 +494,14 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   )
 
   const cancelTicket = useCallback(async () => {
-    if (!cancelOpen?.code) return
+    // Sebep kodu ve açıklama birlikte zorunlu; uç da ikisini birden arıyor.
+    if (!cancelOpen?.code || !cancelOpen.note.trim()) return
     try {
       const params = new URLSearchParams({
         companyId: companyId ?? "",
         reasonCode: cancelOpen.code,
+        reason: cancelOpen.note.trim(),
       })
-      if (cancelOpen.note.trim()) params.set("reason", cancelOpen.note.trim())
       const res = await fetch(`/api/restoran/adisyonlar/${ticketId}?${params.toString()}`, {
         method: "DELETE",
       })
@@ -643,6 +652,13 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
         return
       }
 
+      // Son ödenecek kalem de bu arada ikram edilmişse fiş kesilecek bir şey
+      // kalmaz (uç `invoicePayload: null` döndürür). Ekranda bu durumda "ÖDEME"
+      // yerine "HESABI KAPAT" duruyor; buraya ancak yarışta düşülür.
+      if (!prep.invoicePayload) {
+        throw new Error("Hesapta ödenecek kalem kalmadı — hesabı fişsiz kapatın")
+      }
+
       // 2) Fiş + tahsilat (Kahveci Satış ile ortak akış).
       const result = await submitReceiptSale({
         companyId,
@@ -771,6 +787,58 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     toast,
     warehouseId,
   ])
+
+  /**
+   * FİŞSİZ kapanış — hesabın tamamı ikram/zayi/iptal (SATIS-EKRANI.md K2.2).
+   *
+   * Ortada satış yok: fiş kesilmez, tahsilat sorulmaz. Yapılan tek iş adisyonu
+   * kapatmak ve ikram/zayi malzemesini stoktan düşürmek — o düşüm sunucuda,
+   * kapanışın kendisiyle aynı yerde (`kapat` POST → `writeCompWasteStock`).
+   *
+   * Sahipsiz fiş kontrolü ödeme yolundaki ile AYNI: hesap ikram edilmeden önce
+   * yarıda kalmış bir kapanış varsa o fişi sahipsiz bırakmak stoğu iki kez
+   * düşürürdü.
+   */
+  const closeWithoutInvoice = useCallback(async () => {
+    if (!companyId || !ticket || !isOpen || submitLock.current) return
+    submitLock.current = true
+    setIsSubmitting(true)
+    try {
+      const prepRes = await fetch(
+        `/api/restoran/adisyonlar/${ticketId}/kapat?companyId=${companyId}`,
+      )
+      const prep = await prepRes.json().catch(() => ({}))
+      if (!prepRes.ok) throw new Error(prep?.error || "Kapanış hazırlanamadı")
+      if (prep.existingInvoice) {
+        setFreeCloseOpen(false)
+        setOrphanInvoice(prep.existingInvoice)
+        return
+      }
+
+      const res = await fetch(`/api/restoran/adisyonlar/${ticketId}/kapat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // `invoiceId` YOK: uç bunu "fişsiz kapanış" olarak okur ve hesapta
+        // ödenecek kalem kalmadığını kendisi doğrular.
+        body: JSON.stringify({ companyId, warehouseId }),
+      })
+      const closed = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(closed?.error || "Hesap kapatılamadı")
+
+      applyTicket(closed as Ticket)
+      setFreeCloseOpen(false)
+      toast({
+        title: "Hesap kapatıldı",
+        description: "Ödenecek tutar yoktu; fiş kesilmedi, malzeme stoktan düşüldü",
+      })
+      leaveAfterClose()
+    } catch (e: any) {
+      toast({ title: "Hesap kapatılamadı", description: e.message, variant: "destructive" })
+    } finally {
+      submitLock.current = false
+      setIsSubmitting(false)
+    }
+  }, [applyTicket, companyId, isOpen, leaveAfterClose, ticket, ticketId, toast, warehouseId])
 
   /**
    * Sahipsiz fişe bağlanarak kapat: yeni fiş KESİLMEZ, tahsilat da denenmez
@@ -1024,13 +1092,23 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
                     <Printer className="mr-1.5 h-4 w-4" />
                     Hesap Fişi
                   </Button>
-                  <Button
-                    className="h-12 text-base"
-                    disabled={!hasBillable}
-                    onClick={() => setPayOpen(true)}
-                  >
-                    ÖDEME
-                  </Button>
+                  {/* Hesabın tamamı ikram/zayi/iptal ise ödenecek bir şey yok
+                      ve "ÖDEME" ölü bir düğmeydi: masa kapanamıyor, kasiyerin
+                      tek çıkışı adisyonu İPTAL etmek oluyordu — o yol ise ikram
+                      malzemesini stokta bırakır (K2.2). */}
+                  {hasBillable ? (
+                    <Button className="h-12 text-base" onClick={() => setPayOpen(true)}>
+                      ÖDEME
+                    </Button>
+                  ) : (
+                    <Button
+                      className="h-12 text-base"
+                      disabled={ticket.items.length === 0}
+                      onClick={() => setFreeCloseOpen(true)}
+                    >
+                      HESABI KAPAT
+                    </Button>
+                  )}
                 </div>
 
                 {/* İptal en altta ve ÖDEME'nin ötesinde — yıkıcı olan tek işlem,
@@ -1264,6 +1342,33 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
         </DialogContent>
       </Dialog>
 
+      {/* Fişsiz kapanış: ödenecek tutar yok (tümü ikram/zayi/iptal). */}
+      <Dialog open={freeCloseOpen} onOpenChange={(open) => !isSubmitting && setFreeCloseOpen(open)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Ödenecek tutar yok</DialogTitle>
+            <DialogDescription>
+              {ticket.tableName ? `Masa ${ticket.tableName}` : "Paket / Gel-al"} hesabındaki
+              kalemlerin tamamı ikram, zayi ya da iptal. Fiş KESİLMEZ; ikram ve zayi malzemesi
+              stoktan düşülür ve masa kapanır.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setFreeCloseOpen(false)}
+              disabled={isSubmitting}
+            >
+              Vazgeç
+            </Button>
+            <Button onClick={() => void closeWithoutInvoice()} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Hesabı Kapat
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Yarıda kalmış kapanış: fiş var, adisyon açık kalmış. */}
       <Dialog open={!!orphanInvoice} onOpenChange={(open) => !open && setOrphanInvoice(null)}>
         <DialogContent className="sm:max-w-md">
@@ -1276,17 +1381,21 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:justify-between">
-            <Button
-              variant="ghost"
-              disabled={isSubmitting}
-              onClick={() => {
-                forceNewReceipt.current = true
-                setOrphanInvoice(null)
-                void handleClose()
-              }}
-            >
-              Yine de yeni fiş kes
-            </Button>
+            {/* Ödenecek kalem kalmamışsa kesilecek yeni bir fiş de yok: seçenek
+                hiç çizilmez, tek doğru yol mevcut fişe bağlamaktır. */}
+            {hasBillable && (
+              <Button
+                variant="ghost"
+                disabled={isSubmitting}
+                onClick={() => {
+                  forceNewReceipt.current = true
+                  setOrphanInvoice(null)
+                  void handleClose()
+                }}
+              >
+                Yine de yeni fiş kes
+              </Button>
+            )}
             <Button disabled={isSubmitting} onClick={() => void attachExistingInvoice()}>
               Mevcut fişe bağla ve kapat
             </Button>
@@ -1350,11 +1459,15 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
               ))}
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">Açıklama (isteğe bağlı)</Label>
+              <Label className="text-xs text-muted-foreground">Açıklama (zorunlu)</Label>
               <Input
                 value={cancelOpen?.note ?? ""}
                 onChange={(e) => setCancelOpen((c) => (c ? { ...c, note: e.target.value } : c))}
-                placeholder="Kısa not"
+                // Soru soruluyor: "Kısa not" yazınca kasiyer sebep kodunu tekrar
+                // yazıyor ("vazgeçti"), oysa istenen dolu bir hesabın niye
+                // silindiği (kalem açıklamasındaki kuralın aynısı, K2.1).
+                placeholder="Hesap niçin iptal ediliyor?"
+                maxLength={TICKET_REASON_NOTE_MAX}
                 className="mt-1.5"
               />
             </div>
@@ -1365,7 +1478,10 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
             </Button>
             <Button
               variant="destructive"
-              disabled={!cancelOpen?.code}
+              // Sebep KODU ve AÇIKLAMA birlikte zorunlu: dolu bir hesabı tek
+              // tıkla silmek kaçağın en klasik yolu ve kod tek başına
+              // ("Müşteri vazgeçti") denetimde hiçbir şey anlatmıyor.
+              disabled={!cancelOpen?.code || !cancelOpen?.note.trim()}
               onClick={() => void cancelTicket()}
             >
               Adisyonu iptal et

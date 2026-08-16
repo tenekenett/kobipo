@@ -43,6 +43,7 @@ import {
   useReceiptTemplate,
 } from "@/lib/swr/use-company-data"
 import { cn } from "@/lib/utils"
+import { parseAmount } from "@/lib/satis/payment"
 import {
   Banknote,
   Check,
@@ -271,7 +272,7 @@ export function QuickPurchaseScreen() {
   )
 
   const addMisc = useCallback(() => {
-    const amt = parseFloat(miscAmount.replace(",", ".")) || 0
+    const amt = parseAmount(miscAmount)
     if (amt <= 0) return
     patchCart((cart) => [
       ...cart,
@@ -303,11 +304,11 @@ export function QuickPurchaseScreen() {
   )
 
   const totals = useMemo(() => cartTotals(active.cart), [active.cart])
-  const tenderedNum = useMemo(() => parseFloat(active.tendered.replace(",", ".")) || 0, [active.tendered])
+  const tenderedNum = useMemo(() => parseAmount(active.tendered), [active.tendered])
   const change = tenderedNum > 0 ? Math.max(0, round2(tenderedNum - totals.total)) : 0
 
-  // Parçalı ödeme türetilmişleri.
-  const parseAmount = (v: string) => parseFloat((v || "").replace(",", ".")) || 0
+  // Parçalı ödeme türetilmişleri. Tutar çözümleyici ORTAK (lib/satis/payment):
+  // yerel kopyası binlik ayracını yanlış okuyordu — "1.500" → 1,5.
   const splitPaid = useMemo(
     () => round2(parseAmount(split.CASH) + parseAmount(split.CREDIT_CARD) + parseAmount(split.BANK_TRANSFER)),
     [split]
@@ -513,7 +514,7 @@ export function QuickPurchaseScreen() {
         tenderVal = splitPaid
         changeVal = Math.max(0, round2(enteredCash - recordedCash))
       } else {
-        tenderVal = parseFloat(tk.tendered.replace(",", ".")) || 0
+        tenderVal = parseAmount(tk.tendered)
         changeVal = tenderVal > 0 ? Math.max(0, round2(tenderVal - invoiceTotal)) : 0
         receiptParts = undefined
       }

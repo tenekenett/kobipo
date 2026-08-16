@@ -7,6 +7,7 @@ import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { revertInvoiceStock } from "@/lib/stock/warehouse"
 import { accessDeniedResponse } from "@/lib/api/errors"
+import { revalidateDashboard } from "@/lib/dashboard/cache"
 
 export const dynamic = "force-dynamic"
 
@@ -69,18 +70,50 @@ export async function POST(
       )
     }
 
-    // Cari ekranından girilen tahsilat/ödeme (transactionId dolu) kasaya Transaction
-    // üzerinden yansır. Burada silersek Transaction ortada kalır ve kasa iki kez
-    // düzeltilir; bu yüzden kullanıcıyı önce o kaydı kaldırmaya yönlendiriyoruz.
-    const linked = receipt.payments.filter((p) => p.transactionId)
-    if (linked.length > 0) {
-      return NextResponse.json(
-        {
-          error:
-            "Bu fişe cari ekranından bağlanmış tahsilat/ödeme var. Önce Finans > Hareketler'den o kaydı silin, sonra fişi iptal edin.",
+    // Tahsilatın kasa hareketi (`Transaction`) İKİ farklı yoldan doğabilir ve
+    // ikisi aynı şey DEĞİLDİR:
+    //
+    //  a) Fişin kendi tahsilatı (odemeler POST) — hareket bu fiş için yazıldı,
+    //     tutarının tamamı bu fişe ait. Fişle birlikte silinir.
+    //  b) Cari ekranından girilen tahsilat — tek hareket birden çok faturaya
+    //     dağıtılmış ya da fazlası avans olarak işlemde kalmış olabilir. Onu
+    //     buradan silmek fişle ilgisi olmayan parayı da yok ederdi; kullanıcı
+    //     Finans > Hareketler'e yönlendirilir (eski davranış).
+    //
+    // Ayrım tutardan okunur: hareketin TÜM dağıtımı bu fişteyse ve toplamı
+    // hareketin tutarına eşitse, o hareket bu fişin kendi hareketidir.
+    const linkedIds = [
+      ...new Set(receipt.payments.map((p) => p.transactionId).filter(Boolean) as string[]),
+    ]
+    const ownTransactionIds: string[] = []
+    if (linkedIds.length > 0) {
+      const linkedTx = await prisma.transaction.findMany({
+        where: { id: { in: linkedIds }, companyId },
+        select: {
+          id: true,
+          amount: true,
+          invoicePayments: { select: { amount: true, invoiceId: true } },
         },
-        { status: 400 },
-      )
+      })
+      for (const tx of linkedTx) {
+        const allocated = tx.invoicePayments.reduce(
+          (sum, p) => sum.plus(p.amount),
+          new Prisma.Decimal(0),
+        )
+        const onlyThisReceipt = tx.invoicePayments.every((p) => p.invoiceId === receipt.id)
+        if (onlyThisReceipt && allocated.equals(new Prisma.Decimal(tx.amount))) {
+          ownTransactionIds.push(tx.id)
+        }
+      }
+      if (ownTransactionIds.length < linkedIds.length) {
+        return NextResponse.json(
+          {
+            error:
+              "Bu fişe cari ekranından bağlanmış tahsilat/ödeme var. Önce Finans > Hareketler'den o kaydı silin, sonra fişi iptal edin.",
+          },
+          { status: 400 },
+        )
+      }
     }
 
     await prisma.$transaction(async (tx) => {
@@ -92,6 +125,8 @@ export async function POST(
       })
 
       // Kasa etkisini geri al: ödeme anında satışta +tutar, alışta -tutar yazılmıştı.
+      // Bakiye BİR KEZ düzeltilir — ödemeyle hareketi aynı anda yazan uç da tek
+      // kez artırmıştı, hareketin silinmesi ayrıca bakiye düşürmez.
       for (const p of receipt.payments) {
         if (!p.accountId) continue
         const delta = receipt.type === "SALES" ? -Number(p.amount) : Number(p.amount)
@@ -99,6 +134,12 @@ export async function POST(
           where: { id: p.accountId },
           data: { balance: { increment: new Prisma.Decimal(delta) } },
         })
+      }
+
+      // Fişin kendi kasa hareketleri de gider; bağlı ödemeler CASCADE ile
+      // birlikte silinir (aşağıdaki deleteMany kalanları temizler).
+      if (ownTransactionIds.length > 0) {
+        await tx.transaction.deleteMany({ where: { id: { in: ownTransactionIds } } })
       }
 
       if (receipt.payments.length > 0) {
@@ -110,6 +151,8 @@ export async function POST(
         data: { status: "CANCELLED" },
       })
     })
+
+    revalidateDashboard(companyId)
 
     return NextResponse.json({
       success: true,

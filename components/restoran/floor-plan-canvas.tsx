@@ -637,7 +637,7 @@ export function FloorPlanCanvas({
                       {StateIcon && (
                         <StateIcon style={{ width: font(0.26), height: font(0.26) }} />
                       )}
-                      {!dense && "Toplanacak"}
+                      {!dense && "Temizlenecek"}
                     </span>
                   ) : (
                     <span

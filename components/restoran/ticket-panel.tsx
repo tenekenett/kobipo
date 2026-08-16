@@ -49,7 +49,12 @@ import { QuantityStepper } from "@/components/ui/quantity-stepper"
 import { currency } from "@/lib/fis/receipt-html"
 import { qty } from "@/lib/format"
 // Saf sabit modülü: tickets.ts prisma import ediyor, istemciye giremez.
-import { TICKET_ITEM_REASONS, type TicketItemStatus } from "@/lib/restoran/ticket-constants"
+import {
+  TICKET_ITEM_REASONS,
+  TICKET_REASON_NOTE_MAX,
+  requiresReasonNote,
+  type TicketItemStatus,
+} from "@/lib/restoran/ticket-constants"
 import type { RefEmployee } from "@/lib/swr/use-company-data"
 import { cn } from "@/lib/utils"
 
@@ -87,6 +92,17 @@ const STATUS_BADGE: Record<Exclude<TicketItemStatus, "NORMAL">, { label: string;
     label: "İPTAL",
     cls: "bg-muted text-muted-foreground border-border",
   },
+}
+
+/**
+ * Açıklama kutusunun ipucu — durum başına AYRI, çünkü zorunlu bir alanın
+ * yanında "Kısa not" yazması kasiyeri sebep kodunu tekrar yazmaya itiyor
+ * ("personel", "döküldü"). Soru sorulunca cevap ayrıntı oluyor.
+ */
+const NOTE_PLACEHOLDER: Record<Exclude<TicketItemStatus, "NORMAL">, string> = {
+  COMP: "Kime / niçin ikram edildi?",
+  WASTE: "Ne oldu, nasıl bozuldu?",
+  VOID: "Niçin iptal edildi?",
 }
 
 export function TicketPanel({
@@ -163,7 +179,13 @@ export function TicketPanel({
   // Personel YALNIZ ikramda sorulur. Zayi bir kayıp kaydıdır (döküldü/bozuldu),
   // iptal ise yanlış girişin izi — ikisinde de "kim verdi" diye bir muhatap yok.
   const needsEmployee = reasonFor?.status === "COMP" && employees.length > 0
-  const canApply = !!reasonFor?.code && (!needsEmployee || !!reasonFor?.employeeId)
+  // Açıklama ÜÇ durumda da zorunlu (ticket-constants `requiresReasonNote`) —
+  // koşulsuz: personelin aksine bunun için bir kart/modül gerekmiyor.
+  const needsNote = requiresReasonNote(reasonFor?.status)
+  const canApply =
+    !!reasonFor?.code &&
+    (!needsEmployee || !!reasonFor?.employeeId) &&
+    (!needsNote || !!reasonFor?.note.trim())
 
   /**
    * Adet ve ikram/zayi/iptal ⋮ menüsünden ÇIKARILDI (2026-08-07): serviste sık
@@ -533,8 +555,9 @@ export function TicketPanel({
         {footer}
       </CardContent>
 
-      {/* Sebep zorunlu: serbest metin olsaydı rapor gruplanamazdı. Açıklama
-          isteyen kullanıcı alttaki nota yazar. */}
+      {/* Sebep KODU zorunlu: serbest metin olsaydı rapor gruplanamazdı. Serbest
+          açıklama kodun yanında durur ve O DA zorunludur — kod işlemin türünü
+          söyler, hikâyesini söylemez (K2.1). */}
       <Dialog open={!!reasonFor} onOpenChange={(open) => !open && setReasonFor(null)}>
         <DialogContent className="sm:max-w-md">
           {reasonFor && (
@@ -612,11 +635,14 @@ export function TicketPanel({
                   </div>
                 )}
                 <div>
-                  <Label className="text-xs text-muted-foreground">Açıklama (isteğe bağlı)</Label>
+                  <Label className="text-xs text-muted-foreground">Açıklama (zorunlu)</Label>
                   <Input
                     value={reasonFor.note}
                     onChange={(e) => setReasonFor({ ...reasonFor, note: e.target.value })}
-                    placeholder="Kısa not"
+                    // Soru duruma göre değişiyor: "Kısa not" denince kasiyer sebep
+                    // kodunu tekrar yazıyor ("personel"), oysa istenen ayrıntı.
+                    placeholder={NOTE_PLACEHOLDER[reasonFor.status]}
+                    maxLength={TICKET_REASON_NOTE_MAX}
                     className="mt-1.5"
                   />
                 </div>

@@ -63,8 +63,8 @@ export async function PATCH(request: Request, { params }: Params) {
     if (body.width !== undefined) data.width = clampSize(body.width, existing.width)
     if (body.height !== undefined) data.height = clampSize(body.height, existing.height)
 
-    // Temizlik damgası. `cleaned: true` → masa toplandı (damga silinir),
-    // `false` → elle "toplanacak" işaretlenir (müşteri kalkmış ama hesap başka
+    // Temizlik damgası. `cleaned: true` → masa temizlendi (damga silinir),
+    // `false` → elle "temizlenecek" işaretlenir (müşteri kalkmış ama hesap başka
     // masadan kapanmışsa garson kendi işaretler).
     if (body.cleaned !== undefined) {
       data.cleaningSince = body.cleaned ? null : (existing.cleaningSince ?? new Date())
