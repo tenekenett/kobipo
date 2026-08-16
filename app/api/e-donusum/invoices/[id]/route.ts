@@ -4,10 +4,18 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { createGibDraft } from "@/lib/integrations/e-invoice/send-invoice-helper"
-import { revertInvoiceStock } from "@/lib/stock/warehouse"
+import { revertInvoiceStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
+import {
+  prepareInvoiceStockOps,
+  resolveInvoiceWarehouseId,
+  revertInvoiceStockForEdit,
+  sameStockLines,
+  writeInvoiceStockOps,
+} from "@/lib/stock/invoice-stock"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { Decimal } from "@prisma/client/runtime/library"
 import { normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
+import { revalidateDashboard } from "@/lib/dashboard/cache"
 import { accessDeniedResponse } from "@/lib/api/errors"
 
 
@@ -209,6 +217,15 @@ export async function PUT(
     resolvedParams.id = await resolveSlugId("invoice", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const invoice = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id },
+      // Kalemler stok mutabakatı için gerekli (düzenleme öncesi/sonrası kıyaslanır),
+      // ödemeler ise tutarın tahsilatın altına düşürülmesini engellemek için.
+      include: {
+        items: {
+          select: { productId: true, quantity: true, unitPrice: true },
+          orderBy: { order: "asc" },
+        },
+        payments: { select: { amount: true } },
+      },
     })
 
     if (!invoice) {
@@ -217,15 +234,29 @@ export async function PUT(
 
     await ensureCompanyWrite(invoice.companyId)
 
-    if (invoice.status !== "DRAFT") {
+    // ALIŞ FATURASI ALINAN bir belgedir: bizim kestiğimiz bir e-belge değil, karşı
+    // tarafın gönderdiği belgenin bizdeki kaydı. Gelen e-faturadan dönüştürülenler
+    // onay adımı olmasın diye doğrudan SENT kaydedilir (bkz. POST /invoices) — bu
+    // "GİB'e gönderildi" demek DEĞİL. O yüzden alışta SENT de düzenlenebilir;
+    // Mysoft'un boş bıraktığı birim fiyat/kalem ancak böyle düzeltilebiliyor.
+    // Satışta kural değişmez: GİB'e giden belge düzenlenemez.
+    // İptal edilmiş (reddedilen dahil) fatura hiçbir tipte düzenlenmez.
+    const isPurchase = invoice.type === "PURCHASE"
+    const isEditable =
+      invoice.status === "DRAFT" || (isPurchase && invoice.status === "SENT")
+    if (!isEditable) {
       return NextResponse.json(
-        { error: "Only draft invoices can be updated" },
+        {
+          error: isPurchase
+            ? "Bu alış faturası iptal edilmiş; düzenlenemez."
+            : "Yalnızca taslak faturalar düzenlenebilir. Gönderilmiş faturayı düzeltmek için iptal edip yeniden kesin.",
+        },
         { status: 400 }
       )
     }
 
     const body = await request.json()
-    const { customerId, supplierId, date, dueDate, items, notes, globalDiscountAmount, globalChargeAmount, payableRoundingAmount, invoiceNo, category, tags, deliveryAddress, deliveryDistrict, deliveryCity, deliveryCountry } = body
+    const { customerId, supplierId, date, dueDate, items, notes, globalDiscountAmount, globalChargeAmount, payableRoundingAmount, invoiceNo, category, tags, deliveryAddress, deliveryDistrict, deliveryCity, deliveryCountry, currency, exchangeRate, exchangeRateDate } = body
 
     const manualNo = normalizeManualInvoiceNo(invoiceNo)
     if (!manualNo.ok) {
@@ -312,115 +343,214 @@ export async function PUT(
     const appliedRounding = new Decimal(parseFloat(payableRoundingAmount) || 0)
     totalAmount = totalAmount.plus(appliedRounding)
 
-    const updated = await prisma.invoice.update({
-      where: { id: resolvedParams.id },
-      data: {
-        // Fatura No düzenlemesi (özellikle alışta tedarikçi belge no'su). Yalnız
-        // dolu gelirse güncelle; boş bırakılırsa mevcut numarayı koru.
-        // Doğrulama POST ile ORTAK (normalizeManualInvoiceNo) — burada yalnız trim
-        // yapılıyordu, uzunluk/karakter sınırı yoktu.
-        ...(normalizedInvoiceNo ? { invoiceNo: normalizedInvoiceNo } : {}),
-        customerId: customerId !== undefined ? (customerId || null) : invoice.customerId,
-        supplierId: supplierId !== undefined ? (supplierId || null) : invoice.supplierId,
-        date: date ? new Date(date) : invoice.date,
-        dueDate: dueDate !== undefined ? (dueDate ? new Date(dueDate) : null) : invoice.dueDate,
-        totalAmount: totalAmount,
-        vatAmount: vatAmount,
-        netAmount: netAmount,
-        globalDiscountAmount: appliedGlobalDiscount.gt(0) ? appliedGlobalDiscount : null,
-        globalChargeAmount: appliedGlobalCharge.gt(0) ? appliedGlobalCharge : null,
-        payableRoundingAmount: appliedRounding.isZero() ? null : appliedRounding,
-        notes: notes !== undefined ? notes : invoice.notes,
-        // Sevk adresi — gönderilmediyse mevcut değere dokunma, boş gönderildiyse temizle.
-        ...(deliveryAddress !== undefined
-          ? { deliveryAddress: typeof deliveryAddress === "string" && deliveryAddress.trim() ? deliveryAddress.trim() : null }
-          : {}),
-        ...(deliveryDistrict !== undefined
-          ? { deliveryDistrict: typeof deliveryDistrict === "string" && deliveryDistrict.trim() ? deliveryDistrict.trim() : null }
-          : {}),
-        ...(deliveryCity !== undefined
-          ? { deliveryCity: typeof deliveryCity === "string" && deliveryCity.trim() ? deliveryCity.trim() : null }
-          : {}),
-        ...(deliveryCountry !== undefined
-          ? { deliveryCountry: typeof deliveryCountry === "string" && deliveryCountry.trim() ? deliveryCountry.trim() : null }
-          : {}),
-        // Sınıflandırma — gönderilmediyse mevcut değer korunur (create ile aynı temizlik).
-        ...(category !== undefined
-          ? { category: typeof category === "string" && category.trim() ? category.trim() : null }
-          : {}),
-        ...(tags !== undefined
-          ? {
-              tags: Array.isArray(tags)
-                ? Array.from(
-                    new Set(
-                      tags
-                        .map((t: unknown) => (typeof t === "string" ? t.trim() : ""))
-                        .filter((t: string) => t.length > 0),
-                    ),
-                  )
-                : [],
-            }
-          : {}),
-      },
-    })
-
-    // Update items if provided
-    if (normalizedItems && normalizedItems.length > 0) {
-      // Delete existing items
-      await prisma.invoiceItem.deleteMany({
-        where: { invoiceId: resolvedParams.id },
-      })
-
-      // Create new items
-      await prisma.invoiceItem.createMany({
-        data: normalizedItems.map((item, index: number) => {
-          const gross = new Decimal(item.quantity).times(item.unitPrice)
-          const disc = itemDiscountDec(item)
-          const net = gross.minus(disc)
-          return {
-            invoiceId: resolvedParams.id,
-            productId: item.productId || null,
-            description: item.description,
-            unit: item.unit,
-            quantity: new Decimal(item.quantity),
-            unitPrice: new Decimal(item.unitPrice),
-            discountRate: item.discountMode === "AMOUNT" ? null : new Decimal(item.discountRate),
-            discountAmount: disc,
-            vatRate: new Decimal(item.vatRate),
-            vatAmount: net.times(new Decimal(item.vatRate).div(100)),
-            withholdingCode: item.withholdingCode,
-            withholdingName: item.withholdingName,
-            withholdingRate: new Decimal(item.withholdingRate),
-            // Tevkifat KDV üzerinden: net × vatRate/100 × withholdingRate/100
-            withholdingAmount: net
-              .times(new Decimal(item.vatRate).div(100))
-              .times(new Decimal(item.withholdingRate || 0).div(100)),
-            exciseRate: new Decimal(item.exciseRate),
-            exciseCode: item.exciseCode || null,
-            exciseAmount: net.times(new Decimal(item.exciseRate || 0).div(100)),
-            otherTaxRate: item.otherTaxRate ? new Decimal(item.otherTaxRate) : null,
-            otherTaxAmount: net.times(new Decimal(item.otherTaxRate || 0).div(100)),
-            otherTaxName: item.otherTaxName,
-            otherTaxCode: item.otherTaxCode || null,
-            totalAmount: net
-              .times(
-                new Decimal(1)
-                  .plus(new Decimal(item.vatRate).div(100))
-                  .plus(new Decimal(item.exciseRate || 0).div(100))
-                  .plus(new Decimal(item.otherTaxRate || 0).div(100)),
-              )
-              .minus(
-                net
-                  .times(new Decimal(item.vatRate).div(100))
-                  .times(new Decimal(item.withholdingRate || 0).div(100)),
-              ),
-            taxExemptionReasonCode: item.taxExemptionReasonCode,
-            taxExemptionReason: item.taxExemptionReason,
-            order: index,
-          }
-        }),
-      })
+    // Tahsilat sınırı: ödeme ucu "kalan tutarı aşamaz" kuralını uyguluyor
+    // (bkz. /api/faturalar/odemeler). Düzenleme toplamı tahsilatın ALTINA çekerse
+    // aynı değişmez arkadan delinir ve fatura eksi kalanla kalırdı.
+    const paidTotal = invoice.payments.reduce(
+      (acc, payment) => acc.plus(new Decimal(payment.amount.toString())),
+      new Decimal(0),
+    )
+    if (paidTotal.gt(0) && totalAmount.lt(paidTotal)) {
+      return NextResponse.json(
+        {
+          error: `Fatura toplamı (${totalAmount.toFixed(2)}) bu faturaya işlenmiş tahsilatın (${paidTotal.toFixed(
+            2,
+          )}) altına indirilemez. Önce ödeme kaydını düzeltin.`,
+        },
+        { status: 400 },
+      )
     }
+
+    // ── STOK MUTABAKATI (hazırlık) ──────────────────────────────────────────
+    // Fatura oluşturulurken stok ANINDA işlenir (bkz. POST /api/e-donusum/invoices).
+    // Düzenleme aynı defteri güncellemek ZORUNDA: "10 kg aldım" faturasını 5 kg'a
+    // çekince depoda 10 kg görünmeye devam ederse fatura ile stok sessizce ayrışır.
+    //
+    // Stoğa işlenmiş bir irsaliye bu faturaya bağlıysa mal depoya ZATEN irsaliyeyle
+    // girmiştir; fatura stoğu hiç sahiplenmemiştir → düzenlemede de dokunulmaz
+    // (çift stok önleme; POST'taki skipInvoiceStock ile aynı kural).
+    const waybillOwnsStock =
+      (await prisma.waybill.count({
+        where: { invoiceId: resolvedParams.id, stockProcessed: true },
+      })) > 0
+
+    // Ürün/miktar/birim fiyat üçlüsü birebir aynıysa deftere DOKUNMA: her kaydetmede
+    // geri alma + yeniden yazma çifti üretmek hareket listesini şişirir ve AVCO
+    // ortalamasını eski fiyatla harmanlar (bkz. lib/stock/cost.ts AVG_COST_SELECT).
+    const needsStockReconcile =
+      normalizedItems !== null &&
+      normalizedItems.length > 0 &&
+      !waybillOwnsStock &&
+      !sameStockLines(invoice.items, normalizedItems)
+
+    // Reçete/maliyet okumaları transaction DIŞINDA: kilit süresi kısa kalsın.
+    const newStockOps = needsStockReconcile
+      ? await prepareInvoiceStockOps(prisma, {
+          companyId: invoice.companyId,
+          type: invoice.type,
+          invoiceNo: normalizedInvoiceNo || invoice.invoiceNo,
+          lines: (normalizedItems || []).map((item, index) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            order: index,
+          })),
+        })
+      : []
+    // Stok, oluşturmanın düştüğü depoya geri yazılır; faturada depo alanı yok.
+    const stockWarehouseId = needsStockReconcile
+      ? (await resolveInvoiceWarehouseId(prisma, {
+          companyId: invoice.companyId,
+          invoiceId: resolvedParams.id,
+        })) || (await ensureDefaultWarehouseId(prisma, invoice.companyId))
+      : null
+
+    // Başlık + kalemler + stok TEK transaction: yarıda kalan bir düzenleme
+    // (tutarlar yeni, stok eski) sessiz bir tutarsızlık bırakırdı.
+    await prisma.$transaction(async (tx) => {
+      await tx.invoice.update({
+        where: { id: resolvedParams.id },
+        data: {
+          // Fatura No düzenlemesi (özellikle alışta tedarikçi belge no'su). Yalnız
+          // dolu gelirse güncelle; boş bırakılırsa mevcut numarayı koru.
+          // Doğrulama POST ile ORTAK (normalizeManualInvoiceNo) — burada yalnız trim
+          // yapılıyordu, uzunluk/karakter sınırı yoktu.
+          ...(normalizedInvoiceNo ? { invoiceNo: normalizedInvoiceNo } : {}),
+          customerId: customerId !== undefined ? (customerId || null) : invoice.customerId,
+          supplierId: supplierId !== undefined ? (supplierId || null) : invoice.supplierId,
+          date: date ? new Date(date) : invoice.date,
+          dueDate: dueDate !== undefined ? (dueDate ? new Date(dueDate) : null) : invoice.dueDate,
+          totalAmount: totalAmount,
+          vatAmount: vatAmount,
+          netAmount: netAmount,
+          globalDiscountAmount: appliedGlobalDiscount.gt(0) ? appliedGlobalDiscount : null,
+          globalChargeAmount: appliedGlobalCharge.gt(0) ? appliedGlobalCharge : null,
+          payableRoundingAmount: appliedRounding.isZero() ? null : appliedRounding,
+          notes: notes !== undefined ? notes : invoice.notes,
+          // Döviz: gönderilmediyse mevcut değer korunur. Alış faturasında karşı taraf
+          // dövizli kesmiş olabilir; düzenlemede kur düzeltilebilmeli.
+          ...(currency !== undefined ? { currency: currency || "TRY" } : {}),
+          ...(exchangeRate !== undefined
+            ? { exchangeRate: exchangeRate ? Number(exchangeRate) : null }
+            : {}),
+          ...(exchangeRateDate !== undefined
+            ? { exchangeRateDate: exchangeRateDate ? new Date(exchangeRateDate) : null }
+            : {}),
+          // Sevk adresi — gönderilmediyse mevcut değere dokunma, boş gönderildiyse temizle.
+          ...(deliveryAddress !== undefined
+            ? { deliveryAddress: typeof deliveryAddress === "string" && deliveryAddress.trim() ? deliveryAddress.trim() : null }
+            : {}),
+          ...(deliveryDistrict !== undefined
+            ? { deliveryDistrict: typeof deliveryDistrict === "string" && deliveryDistrict.trim() ? deliveryDistrict.trim() : null }
+            : {}),
+          ...(deliveryCity !== undefined
+            ? { deliveryCity: typeof deliveryCity === "string" && deliveryCity.trim() ? deliveryCity.trim() : null }
+            : {}),
+          ...(deliveryCountry !== undefined
+            ? { deliveryCountry: typeof deliveryCountry === "string" && deliveryCountry.trim() ? deliveryCountry.trim() : null }
+            : {}),
+          // Sınıflandırma — gönderilmediyse mevcut değer korunur (create ile aynı temizlik).
+          ...(category !== undefined
+            ? { category: typeof category === "string" && category.trim() ? category.trim() : null }
+            : {}),
+          ...(tags !== undefined
+            ? {
+                tags: Array.isArray(tags)
+                  ? Array.from(
+                      new Set(
+                        tags
+                          .map((t: unknown) => (typeof t === "string" ? t.trim() : ""))
+                          .filter((t: string) => t.length > 0),
+                      ),
+                    )
+                  : [],
+              }
+            : {}),
+        },
+      })
+
+      // Update items if provided
+      if (normalizedItems && normalizedItems.length > 0) {
+        // Delete existing items
+        await tx.invoiceItem.deleteMany({
+          where: { invoiceId: resolvedParams.id },
+        })
+
+        // Create new items
+        await tx.invoiceItem.createMany({
+          data: normalizedItems.map((item, index: number) => {
+            const gross = new Decimal(item.quantity).times(item.unitPrice)
+            const disc = itemDiscountDec(item)
+            const net = gross.minus(disc)
+            return {
+              invoiceId: resolvedParams.id,
+              productId: item.productId || null,
+              description: item.description,
+              unit: item.unit,
+              quantity: new Decimal(item.quantity),
+              unitPrice: new Decimal(item.unitPrice),
+              discountRate: item.discountMode === "AMOUNT" ? null : new Decimal(item.discountRate),
+              discountAmount: disc,
+              vatRate: new Decimal(item.vatRate),
+              vatAmount: net.times(new Decimal(item.vatRate).div(100)),
+              withholdingCode: item.withholdingCode,
+              withholdingName: item.withholdingName,
+              withholdingRate: new Decimal(item.withholdingRate),
+              // Tevkifat KDV üzerinden: net × vatRate/100 × withholdingRate/100
+              withholdingAmount: net
+                .times(new Decimal(item.vatRate).div(100))
+                .times(new Decimal(item.withholdingRate || 0).div(100)),
+              exciseRate: new Decimal(item.exciseRate),
+              exciseCode: item.exciseCode || null,
+              exciseAmount: net.times(new Decimal(item.exciseRate || 0).div(100)),
+              otherTaxRate: item.otherTaxRate ? new Decimal(item.otherTaxRate) : null,
+              otherTaxAmount: net.times(new Decimal(item.otherTaxRate || 0).div(100)),
+              otherTaxName: item.otherTaxName,
+              otherTaxCode: item.otherTaxCode || null,
+              totalAmount: net
+                .times(
+                  new Decimal(1)
+                    .plus(new Decimal(item.vatRate).div(100))
+                    .plus(new Decimal(item.exciseRate || 0).div(100))
+                    .plus(new Decimal(item.otherTaxRate || 0).div(100)),
+                )
+                .minus(
+                  net
+                    .times(new Decimal(item.vatRate).div(100))
+                    .times(new Decimal(item.withholdingRate || 0).div(100)),
+                ),
+              taxExemptionReasonCode: item.taxExemptionReasonCode,
+              taxExemptionReason: item.taxExemptionReason,
+              order: index,
+            }
+          }),
+        })
+      }
+
+      // Eski stok etkisini geri al, yenisini yaz. Sıra önemli: geri alma
+      // reference bazlı NET'e bakar, yeni hareketler yazıldıktan sonra çağrılırsa
+      // onları da götürürdü.
+      if (needsStockReconcile && stockWarehouseId) {
+        await revertInvoiceStockForEdit(tx, {
+          companyId: invoice.companyId,
+          invoiceId: resolvedParams.id,
+          invoiceNo: normalizedInvoiceNo || invoice.invoiceNo,
+          createdBy: user.id,
+        })
+        await writeInvoiceStockOps(tx, {
+          companyId: invoice.companyId,
+          invoiceId: resolvedParams.id,
+          invoiceNo: normalizedInvoiceNo || invoice.invoiceNo,
+          type: invoice.type,
+          warehouseId: stockWarehouseId,
+          ops: newStockOps,
+          createdBy: user.id,
+        })
+      }
+    }, { timeout: 20000 })
+
+    // Pano "Son faturalar" ve sayaçları düzenlenmiş tutarla tazelensin (POST ile aynı).
+    revalidateDashboard(invoice.companyId)
 
     const invoiceWithItems = await prisma.invoice.findUnique({
       where: { id: resolvedParams.id },

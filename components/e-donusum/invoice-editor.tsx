@@ -1066,7 +1066,18 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       const res = await fetch(`/api/e-donusum/invoices/${id}?companyId=${companyId || ""}`)
       if (!res.ok) throw new Error("Fatura bilgisi alınamadı")
       const data = await res.json()
-      if (data.status !== "DRAFT") throw new Error("Sadece taslak faturalar düzenlenebilir")
+      // Alış faturası ALINAN bir belgedir; gelen e-faturadan dönüştürülenler onay
+      // adımı olmasın diye SENT kaydedilir ("GİB'e gönderildi" demek değil) →
+      // alışta SENT de düzenlenebilir. Satışta kural aynı: yalnız taslak.
+      // (Sunucu tarafı ikizi: PUT /api/e-donusum/invoices/[id])
+      const purchaseEditable = data.type === "PURCHASE" && data.status === "SENT"
+      if (data.status !== "DRAFT" && !purchaseEditable) {
+        throw new Error(
+          data.type === "PURCHASE"
+            ? "Bu alış faturası iptal edilmiş; düzenlenemez."
+            : "Sadece taslak faturalar düzenlenebilir",
+        )
+      }
 
       setEditingInvoiceId(id)
       setFormData({
@@ -2294,7 +2305,15 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Fatura Tipi</Label>
-                <Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}>
+                {/* Düzenlemede tip KİLİTLİ: tip stok yönünü (giriş/çıkış), numara
+                    dizisini ve cari tarafını belirler — sonradan çevirmek mevcut
+                    kaydın stok/cari etkisini ters yüz eder. Tip değiştirmek için
+                    fatura silinip yenisi kesilir. */}
+                <Select
+                  value={formData.type}
+                  onValueChange={(value) => setFormData({ ...formData, type: value })}
+                  disabled={Boolean(isEditMode)}
+                >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="SALES">Satış Faturası</SelectItem>
@@ -2302,6 +2321,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                     <SelectItem value="RETURN">İade Faturası</SelectItem>
                   </SelectContent>
                 </Select>
+                {isEditMode && (
+                  <p className="text-xs text-muted-foreground">
+                    Fatura tipi düzenlenemez. Tipi değiştirmek için bu faturayı silip yeniden kesin.
+                  </p>
+                )}
               </div>
               
               <div className="space-y-2">
@@ -2603,6 +2627,17 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Düzenlemede stok sessizce değişir; kullanıcı kalem/miktar/fiyat
+              dokunuşunun deposunu da etkilediğini kaydetmeden ÖNCE bilmeli. */}
+          {isEditMode && (
+            <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-100">
+              Kalem, miktar veya birim fiyat değiştirirseniz kaydettiğinizde{" "}
+              <span className="font-medium">stok hareketleri de güncellenir</span>: eski etki
+              geri alınıp yenisi işlenir. Cari bakiye fatura tutarından türediği için kendiliğinden
+              düzelir.
             </div>
           )}
 

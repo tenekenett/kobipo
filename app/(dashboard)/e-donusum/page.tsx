@@ -622,7 +622,11 @@ export default function EDönüşümPage() {
                             Önizle
                           </Button>
                         </Link>
-                        {invoice.status === "DRAFT" && (
+                        {/* Alışta SENT de düzenlenebilir: gelen e-faturadan dönüştürülen
+                            kayıt onay adımı olmasın diye SENT tutulur, GİB'e gönderilmiş
+                            bir belge değildir (bkz. PUT /api/e-donusum/invoices/[id]). */}
+                        {(invoice.status === "DRAFT" ||
+                          (invoice.type === "PURCHASE" && invoice.status === "SENT")) && (
                           <Button
                             variant="outline"
                             size="sm"

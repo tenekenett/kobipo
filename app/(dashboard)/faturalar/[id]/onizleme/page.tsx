@@ -782,7 +782,10 @@ export default function FaturaOnizlemePage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {invoice.status === "DRAFT" && (
+          {/* Alışta SENT de düzenlenebilir: gelen e-faturadan dönüştürülen kayıt onay
+              adımı olmasın diye SENT tutulur, GİB'e gönderilmiş bir belge değildir.
+              Mysoft'un boş bıraktığı birim fiyat/kalem ancak buradan düzeltilebiliyor. */}
+          {(invoice.status === "DRAFT" || (isPurchase && invoice.status === "SENT")) && (
             <Link
               href={`/e-donusum/${invoiceId}/duzenle?company=${encodeURIComponent(companyId || "")}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`}
             >

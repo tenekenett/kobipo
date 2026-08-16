@@ -776,7 +776,14 @@ export default function FaturalarListing({
                   // GİB taslağında uuid dolu olsa da belge henüz GİB'de değil.
                   const canCheckGib = Boolean(isInvoiceRow && row.status === "SENT" && isEDoc)
                   const canDownloadGibPdf = canCheckGib
-                  const editable = isInvoiceRow && row.status === "DRAFT"
+                  // Alış faturası ALINAN bir belgedir: gelen e-faturadan dönüştürülen
+                  // kayıtlar onay adımı olmasın diye SENT tutulur ("GİB'e gönderildi"
+                  // demek DEĞİL) → alışta SENT de düzenlenebilir. Satışta yalnız taslak.
+                  const isPurchaseRow =
+                    row.source === "manual_purchase" || row.source === "converted_inbox"
+                  const editable =
+                    isInvoiceRow &&
+                    (row.status === "DRAFT" || (isPurchaseRow && row.status === "SENT"))
 
                   // Satırın hedefi: fatura önizleme. Hem satır gezinmesi hem de
                   // "Fatura No" hücresindeki gerçek bağlantı aynı adresi kullanır.
