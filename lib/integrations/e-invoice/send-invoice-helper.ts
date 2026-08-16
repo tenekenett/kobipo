@@ -310,6 +310,8 @@ async function resolveSendContext(
       // Provider bunları iskonto sonrası matrah üzerinden tax[]'e yazar.
       exciseRate: Number(item.exciseRate || 0),
       exciseCode: item.exciseCode || undefined,
+      // GEKAP maktu birim tutarı — provider miktarla çarpıp satır masrafı yazar.
+      gekapUnitAmount: Number(item.gekapUnitAmount || 0),
       otherTaxRate: Number(item.otherTaxRate || 0),
       otherTaxName: item.otherTaxName || undefined,
       otherTaxCode: item.otherTaxCode || undefined,

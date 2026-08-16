@@ -55,16 +55,25 @@ export interface GibInvoiceTotals {
   globalCharge?: number
   /** Dip toplam yuvarlaması — KDV'ye girmez, ödenecek tutara eklenir. */
   rounding?: number
-  /** KDV Matrahı */
+  /** Mal/hizmet net tutarı (iskontolar düşülmüş, ÖTV/GEKAP hariç) */
   netAmount: number
+  /**
+   * KDV'nin fiilen hesaplandığı matrah: net + ÖTV + GEKAP. Verilmezse netAmount
+   * varsayılır (ÖTV/GEKAP'sız faturada ikisi zaten aynıdır).
+   */
+  vatBaseAmount?: number
   /** Hesaplanan KDV */
   vatAmount: number
   /** KDV Tevkifatı (varsa) */
   withholdingAmount: number
-  /** ÖTV (varsa) */
+  /** ÖTV (varsa) — matraha eklenir */
   exciseAmount: number
   /** Diğer vergiler — ör. Konaklama Vergisi (varsa) */
   otherTaxAmount: number
+  /** Diğer verginin matraha GİREN kısmı (oransal GEKAP); otherTaxAmount'ın alt kümesi. */
+  otherTaxInBaseAmount?: number
+  /** Maktu GEKAP (₺/birim × miktar) — matraha eklenir, iskontodan etkilenmez. */
+  gekapAmount?: number
   otherTaxLabel?: string | null
   /** Ödenecek Tutar (vergiler dahil, tevkifat düşülmüş) */
   totalAmount: number
@@ -410,11 +419,21 @@ export async function generateGibInvoicePdfBuffer(data: GibInvoiceData): Promise
   if (discountTotal > 0) totalsRows.push(["Toplam İskonto", `${fmt(discountTotal)} TL`, false])
   if ((t.globalCharge || 0) > 0)
     totalsRows.push(["Fatura Altı İlave", `${fmt(t.globalCharge || 0)} TL`, false])
-  totalsRows.push(["KDV Matrahı", `${fmt(t.netAmount)} TL`, false])
-  totalsRows.push(["Hesaplanan KDV", `${fmt(t.vatAmount)} TL`, false])
+  // ÖTV ve matraha giren pay (GEKAP) mal/hizmet bedeline eklenir, KDV bu toplam
+  // üzerinden hesaplanır → ikisi de "KDV Matrahı" satırından ÖNCE listelenir.
+  // Matrahın ÜSTÜNE eklenen diğer vergiler (Konaklama, ÖİV) KDV'den sonra gelir.
+  const otherTaxInBase = t.otherTaxInBaseAmount || 0
+  const otherTaxOnTop = (t.otherTaxAmount || 0) - otherTaxInBase
+  const gekap = t.gekapAmount || 0
+  const vatBase = t.vatBaseAmount ?? t.netAmount
   if ((t.exciseAmount || 0) > 0) totalsRows.push(["ÖTV", `${fmt(t.exciseAmount)} TL`, false])
-  if ((t.otherTaxAmount || 0) > 0) totalsRows.push([t.otherTaxLabel || "Diğer Vergiler", `${fmt(t.otherTaxAmount)} TL`, false])
-  const vergilerDahil = t.netAmount + t.vatAmount + (t.exciseAmount || 0) + (t.otherTaxAmount || 0)
+  if (gekap > 0) totalsRows.push(["GEKAP", `${fmt(gekap)} TL`, false])
+  if (otherTaxInBase > 0) totalsRows.push([t.otherTaxLabel || "GEKAP", `${fmt(otherTaxInBase)} TL`, false])
+  totalsRows.push(["KDV Matrahı", `${fmt(vatBase)} TL`, false])
+  totalsRows.push(["Hesaplanan KDV", `${fmt(t.vatAmount)} TL`, false])
+  if (otherTaxOnTop > 0) totalsRows.push([t.otherTaxLabel || "Diğer Vergiler", `${fmt(otherTaxOnTop)} TL`, false])
+  const vergilerDahil =
+    t.netAmount + t.vatAmount + (t.exciseAmount || 0) + (t.otherTaxAmount || 0) + gekap
   totalsRows.push(["Vergiler Dahil Toplam Tutar", `${fmt(vergilerDahil)} TL`, false])
   if ((t.withholdingAmount || 0) > 0) {
     const wRate = t.vatAmount > 0 ? Math.round((t.withholdingAmount / t.vatAmount) * 100) : 0

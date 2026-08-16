@@ -49,17 +49,33 @@ import {
   GIB_EXCISE_TAX_TYPES,
   GIB_OTHER_TAX_TYPES,
   DEFAULT_EXCISE_CODE,
+  GEKAP_TAX_CODE,
+  isOtherTaxInVatBase,
   type GibTaxType,
 } from "@/lib/integrations/e-invoice/gib-tax-types"
+import {
+  addLineTax,
+  applyGlobalAdjustment,
+  computeLineTax,
+  emptyLineTaxSums,
+  solveNetFromTotal,
+} from "@/lib/invoice/line-tax"
 
 
-type LineExtraKey = "description" | "discountRate" | "withholdingRate" | "exciseRate" | "otherTaxRate"
+type LineExtraKey =
+  | "description"
+  | "discountRate"
+  | "withholdingRate"
+  | "exciseRate"
+  | "gekapUnitAmount"
+  | "otherTaxRate"
 
 const LINE_EXTRA_LABEL: Record<LineExtraKey, string> = {
   description: "Satır açıklaması",
   discountRate: "İskonto",
   withholdingRate: "Tevkifat (%)",
   exciseRate: "ÖTV (%)",
+  gekapUnitAmount: "GEKAP (₺/birim)",
   otherTaxRate: "Diğer Vergi",
 }
 
@@ -70,6 +86,7 @@ const LINE_EXTRA_ORDER: LineExtraKey[] = [
   "discountRate",
   "withholdingRate",
   "exciseRate",
+  "gekapUnitAmount",
   "otherTaxRate",
 ]
 
@@ -103,7 +120,7 @@ interface LinkableWaybillItem {
   product?: { id: string; name?: string | null; unit?: string | null; vatRate?: number | string | null; purchasePrice?: number | string | null; salePrice?: number | string | null } | null
 }
 interface LinkableWaybill { id: string; waybillNo: string; date: string; supplierId?: string | null; stockProcessed?: boolean; invoiceId?: string | null; _count?: { items: number }; items?: LinkableWaybillItem[] }
-export interface InvoiceItem { productId?: string; code?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; exciseCode?: string; otherTaxRate?: number; otherTaxName?: string; otherTaxCode?: string; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number; sourceWaybillId?: string }
+export interface InvoiceItem { productId?: string; code?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; exciseCode?: string; gekapUnitAmount?: number; otherTaxRate?: number; otherTaxName?: string; otherTaxCode?: string; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number; sourceWaybillId?: string }
 interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean; eFaturaBackdatePrefix?: string | null; eArchiveBackdatePrefix?: string | null }
 
 // Kayıtlı olmayan (ürün kartı bağlı olmayan) anlamlı kalemleri "ürün/hizmet olarak
@@ -748,8 +765,14 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   withholdingCode: incomingWithholdingCode,
                   withholdingName: (ln.withholdingName as string) || undefined,
                   exciseRate: 0,
+                  // Gelen faturadaki satır MASRAFI GEKAP olarak tanındıysa maktu alana
+                  // düşer: provider tutarı miktara bölüp birim karşılığını verir.
+                  gekapUnitAmount: Number(ln.gekapUnitAmount) || 0,
                   otherTaxRate: Number.isFinite(otherTaxRate) && otherTaxRate > 0 ? otherTaxRate : 0,
                   otherTaxName: (ln.otherTaxName as string) || undefined,
+                  // Kod olmadan "diğer vergi"nin KDV matrahına girip girmediği
+                  // bilinemez; gelen faturadaki GİB kodunu koru.
+                  otherTaxCode: (ln.otherTaxCode as string) || undefined,
                   // Satış Fiyatı sütunu salt-okunur; eşleşen ürünün kayıtlı satış
                   // fiyatını referans olarak göster (yeni oluşturulacaklarda boş kalır).
                   salePrice: matchedProduct?.salePrice != null ? Number(matchedProduct.salePrice) : undefined,
@@ -801,6 +824,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             if (it.description) extras.push("description")
             if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
             if ((it.withholdingRate || 0) > 0) extras.push("withholdingRate")
+            if ((it.gekapUnitAmount || 0) > 0) extras.push("gekapUnitAmount")
             if ((it.otherTaxRate || 0) > 0) extras.push("otherTaxRate")
             return extras
           }),
@@ -1142,6 +1166,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               withholdingName: item.withholdingName || undefined,
               exciseRate: Number(item.exciseRate) || 0,
               exciseCode: item.exciseCode || undefined,
+              gekapUnitAmount: Number(item.gekapUnitAmount) || 0,
               otherTaxRate: Number(item.otherTaxRate) || 0,
               otherTaxName: item.otherTaxName || undefined,
               otherTaxCode: item.otherTaxCode || undefined,
@@ -1158,6 +1183,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
         if ((it.withholdingRate || 0) > 0 || it.withholdingCode) extras.push("withholdingRate")
         if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
+        if ((it.gekapUnitAmount || 0) > 0) extras.push("gekapUnitAmount")
         if ((it.otherTaxRate || 0) > 0) extras.push("otherTaxRate")
         return extras
       }))
@@ -1220,6 +1246,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               withholdingName: item.withholdingName || undefined,
               exciseRate: Number(item.exciseRate) || 0,
               exciseCode: item.exciseCode || undefined,
+              gekapUnitAmount: Number(item.gekapUnitAmount) || 0,
               otherTaxRate: Number(item.otherTaxRate) || 0,
               otherTaxName: item.otherTaxName || undefined,
               otherTaxCode: item.otherTaxCode || undefined,
@@ -1240,6 +1267,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
         if ((it.withholdingRate || 0) > 0 || it.withholdingCode) extras.push("withholdingRate")
         if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
+        if ((it.gekapUnitAmount || 0) > 0) extras.push("gekapUnitAmount")
         if ((it.otherTaxRate || 0) > 0) extras.push("otherTaxRate")
         return extras
       }))
@@ -1425,10 +1453,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       )
     }
     if (key === "exciseRate") updateItem(index, "exciseRate", 0)
+    if (key === "gekapUnitAmount") updateItem(index, "gekapUnitAmount", 0)
     if (key === "otherTaxRate") {
       setItems((prev) =>
         prev.map((it, i) =>
-          i === index ? { ...it, otherTaxRate: 0, otherTaxName: undefined } : it,
+          // Kod da temizlenir: satırda kalan bir kod (ör. GEKAP) verginin KDV
+          // matrahına girip girmediğini belirlediğinden geride bırakılmamalı.
+          i === index ? { ...it, otherTaxRate: 0, otherTaxName: undefined, otherTaxCode: undefined } : it,
         ),
       )
     }
@@ -1650,11 +1681,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const computeItemTotal = (item: InvoiceItem) => {
     const gross = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)
     const net = gross - computeItemDiscount(item, gross)
-    const vat = net * (Number(item.vatRate) || 0) / 100
-    const excise = net * (Number(item.exciseRate) || 0) / 100
-    const otherTax = net * (Number(item.otherTaxRate) || 0) / 100
-    const withholding = vat * (Number(item.withholdingRate) || 0) / 100
-    return net + vat + excise + otherTax - withholding
+    return computeLineTax(net, item).total
   }
 
   // Kullanıcı "Tutar" (KDV dahil) alanına doğrudan değer yazınca, o toplamı miktara
@@ -1666,14 +1693,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     const desiredTotal = parseFloat(String(rawValue).replace(",", "."))
     if (quantity <= 0 || !Number.isFinite(desiredTotal) || desiredTotal < 0) return
 
-    const vatRate = Number(item.vatRate) || 0
-    const exciseRate = Number(item.exciseRate) || 0
-    const otherTaxRate = Number(item.otherTaxRate) || 0
-    const withholdingRate = Number(item.withholdingRate) || 0
-    // total = net * (1 + kdv + ötv + diğer vergi - kdv*tevkifat)
-    const factor = 1 + vatRate / 100 + exciseRate / 100 + otherTaxRate / 100 - (vatRate / 100) * (withholdingRate / 100)
-    if (factor <= 0) return
-    const net = desiredTotal / factor
+    // ÖTV/GEKAP matrahın İÇİNDE, maktu GEKAP ise net'ten bağımsız sabit bir yük —
+    // ters çözümün tek kaynağı lib/invoice/line-tax.ts.
+    const net = solveNetFromTotal(desiredTotal, item)
+    if (net == null) return
 
     // net = gross - iskonto  → gross'u (dolayısıyla birim fiyatı) geri çöz.
     const mode: DiscountMode =
@@ -1694,18 +1717,19 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   }
 
   const calculateTotals = () => {
-    let grossAmount = 0, netAmount = 0, discountAmount = 0, vatAmount = 0, withholdingAmount = 0, exciseAmount = 0, otherTaxAmount = 0
+    let grossAmount = 0, discountAmount = 0
+    // ÖTV/GEKAP KDV matrahına girer, tevkifat KDV üzerinden hesaplanır —
+    // formülün tamamı lib/invoice/line-tax.ts'te.
+    const sums = emptyLineTaxSums()
     items.forEach((item) => {
       const itemGross = item.quantity * item.unitPrice
       const itemDiscount = computeItemDiscount(item, itemGross)
+      grossAmount += itemGross
+      discountAmount += itemDiscount
       const itemNet = itemGross - itemDiscount
-      const itemVat = itemNet * (item.vatRate / 100)
-      // KDV tevkifatı: tevkif edilen tutar KDV üzerinden hesaplanır (matrah değil).
-      const itemWithholding = itemVat * ((item.withholdingRate || 0) / 100)
-      const itemExcise = itemNet * ((item.exciseRate || 0) / 100)
-      const itemOtherTax = itemNet * ((item.otherTaxRate || 0) / 100)
-      grossAmount += itemGross; netAmount += itemNet; discountAmount += itemDiscount; vatAmount += itemVat; withholdingAmount += itemWithholding; exciseAmount += itemExcise; otherTaxAmount += itemOtherTax
+      addLineTax(sums, itemNet, computeLineTax(itemNet, item))
     })
+    const netAmount = sums.net
 
     // Fatura altı iskonto: kullanıcının girdiği değeri tutara çevir, KDV matrahını
     // oransal olarak düşür, vat/withholding/excise/diğer vergi'yi yeniden hesapla.
@@ -1721,33 +1745,35 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     const rawCharge = parseFloat(globalChargeInput) || 0
     const globalCharge = !globalChargeEnabled || rawCharge <= 0 ? 0 : rawCharge
 
-    // Matrah hem iskonto hem ilave ile değişir; vergiler aynı ORANDA ölçeklenir
-    // (satır bazında yeniden dağıtmak yerine tek katsayı — iskontodaki mevcut mantık).
-    const adjNet = netAmount - globalDiscount + globalCharge
-    const factor = netAmount > 0 ? adjNet / netAmount : 0
-    const adjVat = vatAmount * factor
-    const adjWithholding = withholdingAmount * factor
-    const adjExcise = exciseAmount * factor
-    const adjOtherTax = otherTaxAmount * factor
+    // Matrah hem iskonto hem ilave ile değişir; oransal vergiler aynı katsayıyla
+    // ölçeklenir, maktu GEKAP korunur — ayrımın tek kaynağı applyGlobalAdjustment.
+    const adj = applyGlobalAdjustment(sums, netAmount - globalDiscount + globalCharge)
 
     // Dip toplam yuvarlaması: KDV'ye GİRMEZ, yalnız ödenecek tutara eklenir.
     // Negatif olabilir (aşağı yuvarlama).
     const rounding = parseFloat(payableRoundingInput) || 0
-    const totalAmount = adjNet + adjVat + adjExcise + adjOtherTax - adjWithholding + rounding
 
     return {
-      netAmount: adjNet,
+      netAmount: adj.net,
       grossAmount, // satır iskontoları öncesi brüt ara toplam (Ara Toplam gösterimi)
       grossNetAmount: netAmount, // global iskonto/ilave öncesi (satır iskontosu sonrası) ara toplam
       discountAmount,
       globalDiscount,
       globalCharge,
       rounding,
-      vatAmount: adjVat,
-      withholdingAmount: adjWithholding,
-      exciseAmount: adjExcise,
-      otherTaxAmount: adjOtherTax,
-      totalAmount,
+      vatAmount: adj.vat,
+      // KDV'nin fiilen hesaplandığı matrah: net + ÖTV + GEKAP. ÖTV/GEKAP yoksa
+      // netAmount ile aynıdır (o durumda ekranda ayrı satır gösterilmez).
+      vatBaseAmount: adj.vatBase,
+      withholdingAmount: adj.withholding,
+      exciseAmount: adj.excise,
+      otherTaxAmount: adj.otherTax,
+      // Diğer verginin matraha GİREN kısmı (oransal GEKAP). Kalanı (Konaklama,
+      // ÖİV…) matrahın üstünde durur; özet tablosu ikisini ayrı satırda gösterir.
+      otherTaxInBaseAmount: adj.otherTaxInBase,
+      // Maktu GEKAP — global iskonto/ilaveden etkilenmez.
+      gekapAmount: adj.gekap,
+      totalAmount: adj.total + rounding,
     }
   }
 
@@ -3095,6 +3121,63 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                 </div>
                               )
                             }
+                            if (key === "gekapUnitAmount") {
+                              // GEKAP MAKTU'dur: birim başına sabit ₺ (ör. ambalaj kg, lastik adet).
+                              // Oran alanı YOK — mevzuattaki tutar doğrudan yazılır.
+                              const qty = Number(item.quantity) || 0
+                              const unitAmt = Number(item.gekapUnitAmount) || 0
+                              const gekapTotal = qty * unitAmt
+                              // Çakışma UYARISI yalnız oransal GEKAP'ın fiilen bir tutar
+                              // ürettiği hâlde verilir. Yalnız kod seçilip oran boş
+                              // bırakılmışsa ortada yok sayılan bir şey yok.
+                              const clashesWithPercent =
+                                gekapTotal > 0 &&
+                                item.otherTaxCode === GEKAP_TAX_CODE &&
+                                (Number(item.otherTaxRate) || 0) > 0
+                              return (
+                                <div key={key} className="col-span-2 md:col-span-2 space-y-1.5">
+                                  <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">GEKAP</Label>{removable}</div>
+                                  <div className="relative">
+                                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">₺</span>
+                                    <Input
+                                      type="number"
+                                      className="h-9 pl-5 font-medium"
+                                      min="0"
+                                      step="0.000001"
+                                      placeholder="Birim başına tutar"
+                                      title="Geri Kazanım Katılım Payı — birim başına maktu tutar (₺). Miktarla çarpılır."
+                                      value={item.gekapUnitAmount || ""}
+                                      onChange={(e) =>
+                                        updateItem(
+                                          index,
+                                          "gekapUnitAmount",
+                                          e.target.value === "" ? 0 : parseFloat(e.target.value) || 0,
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  {clashesWithPercent ? (
+                                    <p className="text-[10px] text-amber-600">
+                                      Bu satırda GEKAP hem burada hem <span className="font-semibold">Diğer Vergi</span> alanında
+                                      girili. Maktu tutar esas alınır, oransal olan <span className="font-semibold">yok sayılır</span> —
+                                      birini kaldırın.
+                                    </p>
+                                  ) : gekapTotal > 0 ? (
+                                    <p className="text-[10px] text-kobipo-blue">
+                                      {qty.toLocaleString("tr-TR")} × ₺{unitAmt.toLocaleString("tr-TR", { maximumFractionDigits: 6 })} =
+                                      ₺{gekapTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} mal/hizmet bedeline eklenir;{" "}
+                                      <span className="font-semibold">KDV bu toplam üzerinden</span> hesaplanır. Maktudur — iskonto
+                                      küçültmez. GİB&apos;e satır masrafı olarak gider (UBL vergi kodu yoktur).
+                                    </p>
+                                  ) : (
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Birim başına maktu tutar. Mevzuattaki ölçü farklıysa (ör. ₺/kg) satır biriminin
+                                      karşılığını girin.
+                                    </p>
+                                  )}
+                                </div>
+                              )
+                            }
                             if (key === "otherTaxRate") {
                               // Tevkifat gibi: aranabilir GİB vergi türü + oran. Tür seçilince kod,
                               // ad ve (standart oranı varsa) oran otomatik dolar. Kod ZORUNLU —
@@ -3146,10 +3229,26 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                     const globalFactor =
                                       totals.grossNetAmount > 0 ? totals.netAmount / totals.grossNetAmount : 1
                                     const amt = (net * (Number(item.otherTaxRate) || 0) / 100) * globalFactor
-                                    // Kod yoksa GİB reddeder → kullanıcıyı uyar.
-                                    return item.otherTaxCode ? (
+                                    // GEKAP gibi matraha giren kalemler KDV'yi de büyütür;
+                                    // ayrıca UBL vergi kodu olmadığı için satır masrafı olarak
+                                    // gider. Kod yoksa GİB reddeder → kullanıcıyı uyar.
+                                    // Maktu GEKAP da girilmişse oransal olan yok sayılır.
+                                    const maktuGekap =
+                                      (Number(item.quantity) || 0) * (Number(item.gekapUnitAmount) || 0)
+                                    return isOtherTaxInVatBase(item.otherTaxCode) ? (
+                                      maktuGekap > 0 ? (
+                                        <p className="text-[10px] text-amber-600">
+                                          Bu satırda maktu <span className="font-semibold">GEKAP (₺/birim)</span> girili — buradaki
+                                          oransal GEKAP <span className="font-semibold">yok sayılıyor</span>. Birini kaldırın.
+                                        </p>
+                                      ) : (
+                                        <p className="text-[10px] text-kobipo-blue">
+                                          <span className="font-semibold">{item.otherTaxName || "GEKAP"}</span> · %{item.otherTaxRate} = ₺{amt.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} mal/hizmet bedeline eklenir{globalFactor < 1 ? " (fatura iskontosu sonrası)" : ""}; <span className="font-semibold">KDV bu toplam üzerinden</span> hesaplanır. GİB'e satır masrafı olarak gider (UBL vergi kodu yoktur). GEKAP maktu olduğundan asıl doğru yol <span className="font-semibold">GEKAP (₺/birim)</span> alanıdır.
+                                        </p>
+                                      )
+                                    ) : item.otherTaxCode ? (
                                       <p className="text-[10px] text-kobipo-blue">
-                                        <span className="font-semibold">{item.otherTaxName || "Diğer Vergi"}</span> · %{item.otherTaxRate} = ₺{amt.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} matraha eklenir{globalFactor < 1 ? " (fatura iskontosu sonrası)" : ""}. GİB'e <span className="font-semibold">{item.otherTaxCode}</span> koduyla gider.
+                                        <span className="font-semibold">{item.otherTaxName || "Diğer Vergi"}</span> · %{item.otherTaxRate} = ₺{amt.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} matrahın üstüne eklenir (KDV'ye girmez){globalFactor < 1 ? ", fatura iskontosu sonrası" : ""}. GİB'e <span className="font-semibold">{item.otherTaxCode}</span> koduyla gider.
                                       </p>
                                     ) : (
                                       <p className="text-[10px] text-amber-600">
@@ -3218,7 +3317,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                   const amt = (net * (Number(item.exciseRate) || 0) / 100) * globalFactor
                                   return (
                                     <p className="text-[10px] text-kobipo-blue">
-                                      ÖTV · %{item.exciseRate} = ₺{amt.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} matraha eklenir{globalFactor < 1 ? " (fatura iskontosu sonrası)" : ""}. GİB'e <span className="font-semibold">{item.exciseCode || DEFAULT_EXCISE_CODE}</span> koduyla gider.
+                                      ÖTV · %{item.exciseRate} = ₺{amt.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} mal/hizmet bedeline eklenir{globalFactor < 1 ? " (fatura iskontosu sonrası)" : ""}; <span className="font-semibold">KDV bu toplam üzerinden</span> hesaplanır. GİB'e <span className="font-semibold">{item.exciseCode || DEFAULT_EXCISE_CODE}</span> koduyla gider.
                                     </p>
                                   )
                                 })()}
@@ -3549,10 +3648,16 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   altı iskonto ya da ilave olarak uygulanır.
                 </p>
               </div>
+              {/* ÖTV ve matraha giren pay (GEKAP) KDV'DEN ÖNCE gelir: ikisi de mal/hizmet
+                  bedeline eklenir ve KDV toplam üzerinden hesaplanır. Matrahın ÜSTÜNE
+                  eklenen diğer vergiler (Konaklama, ÖİV) KDV'den sonra listelenir. */}
+              {totals.exciseAmount > 0 && <div className="flex justify-between text-sm text-blue-600"><span>ÖTV:</span><span>+ ₺{totals.exciseAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
+              {(totals.gekapAmount ?? 0) > 0 && <div className="flex justify-between text-sm text-blue-600"><span>GEKAP:</span><span>+ ₺{(totals.gekapAmount ?? 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
+              {(totals.otherTaxInBaseAmount ?? 0) > 0 && <div className="flex justify-between text-sm text-blue-600"><span>{items.find((it) => (it.otherTaxRate || 0) > 0 && isOtherTaxInVatBase(it.otherTaxCode))?.otherTaxName || "GEKAP"}:</span><span>+ ₺{(totals.otherTaxInBaseAmount ?? 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
+              {totals.vatBaseAmount - totals.netAmount > 0.004 && <div className="flex justify-between text-sm"><span className="text-muted-foreground">KDV Matrahı:</span><span className="font-medium">₺{totals.vatBaseAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
               <div className="flex justify-between text-sm"><span className="text-muted-foreground">KDV Toplam:</span><span className="font-medium">₺{totals.vatAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
               {totals.withholdingAmount > 0 && <div className="flex justify-between text-sm text-red-600"><span>Tevkifat:</span><span>- ₺{totals.withholdingAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
-              {totals.exciseAmount > 0 && <div className="flex justify-between text-sm text-blue-600"><span>ÖTV:</span><span>+ ₺{totals.exciseAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
-              {(totals.otherTaxAmount ?? 0) > 0 && <div className="flex justify-between text-sm text-blue-600"><span>{items.find((it) => (it.otherTaxRate || 0) > 0)?.otherTaxName || "Diğer Vergi"}:</span><span>+ ₺{(totals.otherTaxAmount ?? 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
+              {(totals.otherTaxAmount ?? 0) - (totals.otherTaxInBaseAmount ?? 0) > 0.004 && <div className="flex justify-between text-sm text-blue-600"><span>{items.find((it) => (it.otherTaxRate || 0) > 0 && !isOtherTaxInVatBase(it.otherTaxCode))?.otherTaxName || "Diğer Vergi"}:</span><span>+ ₺{((totals.otherTaxAmount ?? 0) - (totals.otherTaxInBaseAmount ?? 0)).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
               {/* Dip toplam yuvarlaması — KDV'ye girmez, ödenecek tutara eklenir.
                   Negatif değer aşağı yuvarlamadır (ör. -0,45). */}
               <div className="flex items-center justify-between gap-2 text-sm">

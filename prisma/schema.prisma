@@ -1631,6 +1631,14 @@ model InvoiceItem {
   otherTaxCode           String?  @db.VarChar(10)
   otherTaxRate           Decimal? @db.Decimal(5, 2)
   otherTaxAmount         Decimal? @db.Decimal(10, 2)
+  // GEKAP (Geri Kazanım Katılım Payı) — MAKTU'dur: birim başına sabit tutar,
+  // oran DEĞİL. gekapAmount = quantity * gekapUnitAmount; satır iskontosundan da
+  // fatura altı iskontodan da ETKİLENMEZ (miktara bağlı sabit çevre payı).
+  // KDV matrahına dahildir (KDVK 24/b) — bkz. lib/invoice/line-tax.ts.
+  // UBL-TR vergi kodları listesinde karşılığı YOK → GİB'e satır masrafı
+  // (cac:AllowanceCharge, chargeIndicator=true) olarak gider.
+  gekapUnitAmount        Decimal? @db.Decimal(15, 6)
+  gekapAmount            Decimal? @db.Decimal(10, 2)
   totalAmount            Decimal  @db.Decimal(10, 2)
   taxExemptionReasonCode String?  @db.VarChar(10)
   taxExemptionReason     String?  @db.VarChar(255)

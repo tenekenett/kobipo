@@ -40,6 +40,16 @@ const GIB_RATE_BY_CODE = new Map(
   [...GIB_EXCISE_TAX_TYPES, ...GIB_OTHER_TAX_TYPES].map((t) => [t.code, t.rate] as const),
 )
 
+// UBL vergi kodu OLMAYAN, yalnız Kobipo'nun tanıdığı kalemler (GEKAP). Mysoft'un
+// canlı vergi türü listesi bunları içeremez; seçiciden düşmesinler diye başa eklenir.
+const LOCAL_ONLY_OTHER_TYPES = GIB_OTHER_TAX_TYPES.filter((t) => t.charge || t.vatBase)
+
+const mergeLocalOnlyTypes = (list: GibTaxType[]): GibTaxType[] => {
+  const codes = new Set(list.map((t) => t.code))
+  const missing = LOCAL_ONLY_OTHER_TYPES.filter((t) => !codes.has(t.code))
+  return missing.length > 0 ? [...missing, ...list] : list
+}
+
 const GIB_FALLBACK: TaxTypesPayload = {
   excise: GIB_EXCISE_TAX_TYPES,
   other: GIB_OTHER_TAX_TYPES,
@@ -113,7 +123,10 @@ export async function GET(request: Request) {
         // Mysoft kovalardan birini boş bırakırsa o kova gömülü listeden tamamlanır —
         // seçiciler hiçbir durumda boş kalmamalı (kod GİB gönderiminde zorunlu).
         excise: excise.length > 0 ? excise : GIB_EXCISE_TAX_TYPES,
-        other: other.length > 0 ? other : GIB_OTHER_TAX_TYPES,
+        // GEKAP'ın UBL vergi kodu yok → Mysoft'un vergi türü listesinde de yer almaz.
+        // Gömülü kalemlerden matraha giren/masraf olarak gidenleri her durumda başa
+        // ekleriz, yoksa Mysoft listesi geldiğinde seçenek kaybolur.
+        other: mergeLocalOnlyTypes(other.length > 0 ? other : GIB_OTHER_TAX_TYPES),
         source: "mysoft",
       }
     }

@@ -124,6 +124,8 @@ export async function POST(request: Request) {
         exciseRate: it.exciseRate,
         exciseCode: it.exciseCode,
         exciseAmount: it.exciseAmount,
+        gekapUnitAmount: it.gekapUnitAmount,
+        gekapAmount: it.gekapAmount,
         otherTaxName: it.otherTaxName,
         otherTaxCode: it.otherTaxCode,
         otherTaxRate: it.otherTaxRate,

@@ -9,6 +9,12 @@ import {
   type GibDocKind,
 } from "@/lib/pdf/gib-invoice-pdf"
 import { accessDeniedResponse } from "@/lib/api/errors"
+import {
+  addLineTax,
+  applyGlobalAdjustment,
+  computeLineTax,
+  emptyLineTaxSums,
+} from "@/lib/invoice/line-tax"
 
 export const dynamic = "force-dynamic"
 
@@ -125,9 +131,14 @@ export async function POST(request: Request) {
         vatRate: parseFloat(item.vatRate) || 0,
         withholdingRate: parseFloat(item.withholdingRate) || 0,
         exciseRate: parseFloat(item.exciseRate) || 0,
+        // GEKAP maktu (₺/birim) — miktarla çarpılır, iskontodan etkilenmez.
+        gekapUnitAmount: Math.max(0, parseFloat(item.gekapUnitAmount) || 0),
         otherTaxRate: parseFloat(item.otherTaxRate) || 0,
         otherTaxName:
           typeof item.otherTaxName === "string" && item.otherTaxName.trim() ? item.otherTaxName.trim() : null,
+        // Kod olmadan diğer verginin KDV matrahına girip girmediği bilinemez.
+        otherTaxCode:
+          typeof item.otherTaxCode === "string" && item.otherTaxCode.trim() ? item.otherTaxCode.trim() : null,
       }
     })
 
@@ -139,30 +150,20 @@ export async function POST(request: Request) {
 
     let grossTotal = 0
     let lineDiscountTotal = 0
-    let netAmount = 0
-    let vatAmount = 0
-    let withholdingAmount = 0
-    let exciseAmount = 0
-    let otherTaxAmount = 0
     let otherTaxLabel: string | null = null
+    const sums = emptyLineTaxSums()
 
     const lines: GibInvoiceLine[] = norm.map((it) => {
       const gross = it.quantity * it.unitPrice
       const disc = lineDiscountOf(it)
       const net = gross - disc
-      const vat = net * (it.vatRate / 100)
-      const withholding = vat * (it.withholdingRate / 100)
-      const excise = net * (it.exciseRate / 100)
-      const otherTax = net * (it.otherTaxRate / 100)
+      // ÖTV/GEKAP KDV matrahına girer — tek kaynak lib/invoice/line-tax.ts.
+      const tax = computeLineTax(net, it)
 
       grossTotal += gross
       lineDiscountTotal += disc
-      netAmount += net
-      vatAmount += vat
-      withholdingAmount += withholding
-      exciseAmount += excise
-      otherTaxAmount += otherTax
-      if (otherTax > 0 && it.otherTaxName && !otherTaxLabel) otherTaxLabel = it.otherTaxName
+      addLineTax(sums, net, tax)
+      if (tax.otherTax > 0 && it.otherTaxName && !otherTaxLabel) otherTaxLabel = it.otherTaxName
 
       return {
         description: it.description,
@@ -172,26 +173,26 @@ export async function POST(request: Request) {
         discountAmount: disc,
         discountRate: it.discountRate,
         vatRate: it.vatRate,
-        vatAmount: vat,
+        vatAmount: tax.vat,
         withholdingRate: it.withholdingRate,
         lineNet: net,
       }
     })
 
-    let totalAmount = netAmount + vatAmount + exciseAmount + otherTaxAmount - withholdingAmount
-
-    // Fatura altı (genel) iskonto — matrahtan oransal düşülür.
+    // Fatura altı (genel) iskonto — oransal vergiler ölçeklenir, maktu GEKAP korunur.
     const rawGlobal = Math.max(0, parseFloat(body.globalDiscountAmount) || 0)
-    const appliedGlobalDiscount = netAmount > 0 ? Math.min(rawGlobal, netAmount) : 0
-    if (appliedGlobalDiscount > 0 && netAmount > 0) {
-      const adjustment = 1 - appliedGlobalDiscount / netAmount
-      netAmount -= appliedGlobalDiscount
-      vatAmount *= adjustment
-      withholdingAmount *= adjustment
-      exciseAmount *= adjustment
-      otherTaxAmount *= adjustment
-      totalAmount *= adjustment
-    }
+    const appliedGlobalDiscount = sums.net > 0 ? Math.min(rawGlobal, sums.net) : 0
+    const {
+      net: netAmount,
+      vat: vatAmount,
+      vatBase: vatBaseAmount,
+      withholding: withholdingAmount,
+      excise: exciseAmount,
+      otherTax: otherTaxAmount,
+      otherTaxInBase: otherTaxInBaseAmount,
+      gekap: gekapAmount,
+      total: totalAmount,
+    } = applyGlobalAdjustment(sums, sums.net - appliedGlobalDiscount)
 
     const pdfBuffer = await generateGibInvoicePdfBuffer({
       invoiceNo: typeof body.invoiceNo === "string" ? body.invoiceNo.trim() : "",
@@ -218,10 +219,13 @@ export async function POST(request: Request) {
         lineDiscountTotal,
         globalDiscount: appliedGlobalDiscount,
         netAmount,
+        vatBaseAmount,
         vatAmount,
         withholdingAmount,
         exciseAmount,
         otherTaxAmount,
+        otherTaxInBaseAmount,
+        gekapAmount,
         otherTaxLabel,
         totalAmount,
       },

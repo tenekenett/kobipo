@@ -10,6 +10,7 @@ import {
   type GibDocKind,
 } from "@/lib/pdf/gib-invoice-pdf"
 import { accessDeniedResponse } from "@/lib/api/errors"
+import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
 
 export const dynamic = "force-dynamic"
 
@@ -116,6 +117,18 @@ export async function GET(
     const withholdingAmount = invoice.items.reduce((s, it) => s + n(it.withholdingAmount), 0) * globalFactor
     const exciseAmount = invoice.items.reduce((s, it) => s + n(it.exciseAmount), 0) * globalFactor
     const otherTaxAmount = invoice.items.reduce((s, it) => s + n(it.otherTaxAmount), 0) * globalFactor
+    // Diğer verginin KDV matrahına GİREN kısmı (GEKAP) — matrahın üstüne eklenen
+    // türlerden (Konaklama, ÖİV) ayrı gösterilir.
+    const otherTaxInBaseAmount =
+      invoice.items.reduce(
+        (s, it) => s + (isOtherTaxInVatBase(it.otherTaxCode) ? n(it.otherTaxAmount) : 0),
+        0,
+      ) * globalFactor
+    // Maktu GEKAP fatura altı iskontodan ETKİLENMEZ → globalFactor uygulanmaz.
+    const gekapAmount = invoice.items.reduce((s, it) => s + n(it.gekapAmount), 0)
+    // KDV matrahı = net + ÖTV + GEKAP (bkz. lib/invoice/line-tax.ts).
+    const vatBaseAmount =
+      n(invoice.netAmount) + exciseAmount + otherTaxInBaseAmount + gekapAmount
     const otherTaxLabel =
       invoice.items.find((it) => n(it.otherTaxAmount) > 0 && it.otherTaxName)?.otherTaxName || null
 
@@ -146,10 +159,13 @@ export async function GET(
         lineDiscountTotal,
         globalDiscount: n(invoice.globalDiscountAmount),
         netAmount: n(invoice.netAmount),
+        vatBaseAmount,
         vatAmount: n(invoice.vatAmount),
         withholdingAmount,
         exciseAmount,
         otherTaxAmount,
+        otherTaxInBaseAmount,
+        gekapAmount,
         otherTaxLabel,
         totalAmount: n(invoice.totalAmount),
       },

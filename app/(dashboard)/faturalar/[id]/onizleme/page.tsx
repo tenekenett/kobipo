@@ -32,6 +32,7 @@ import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
 import { looksLikeCuid } from "@/lib/slug"
 import { buildInvoiceLabelItems } from "@/lib/labels/invoice-label-items"
+import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
 
 const PROFILE_LABELS: Record<string, string> = {
   TICARIFATURA: "Ticari",
@@ -1392,16 +1393,39 @@ export default function FaturaOnizlemePage() {
                 (sum, it) => sum + Number((it as any).exciseAmount || 0),
                 0,
               ) * globalFactor
-            // KDV dışı "Diğer Vergiler" (ör. Konaklama Vergisi) — matrahın üzerine eklenir.
-            const otherTaxTotal =
+            // "Diğer Vergiler" iki gruba ayrılır: GEKAP gibi matraha GİRENLER KDV'yi
+            // büyütür (KDV'den önce listelenir), Konaklama/ÖİV gibi türler matrahın
+            // ÜSTÜNE eklenir. Ayrım gib-tax-types'taki vatBase bayrağından gelir.
+            const otherTaxInBaseTotal =
               invoice.items.reduce(
-                (sum, it) => sum + Number((it as any).otherTaxAmount || 0),
+                (sum, it) =>
+                  sum +
+                  (isOtherTaxInVatBase((it as any).otherTaxCode)
+                    ? Number((it as any).otherTaxAmount || 0)
+                    : 0),
+                0,
+              ) * globalFactor
+            const otherTaxOnTopTotal =
+              invoice.items.reduce(
+                (sum, it) =>
+                  sum +
+                  (isOtherTaxInVatBase((it as any).otherTaxCode)
+                    ? 0
+                    : Number((it as any).otherTaxAmount || 0)),
                 0,
               ) * globalFactor
             const otherTaxLabel =
               (invoice.items.find(
                 (it) => Number((it as any).otherTaxAmount || 0) > 0 && (it as any).otherTaxName,
               ) as any)?.otherTaxName || "Diğer Vergi"
+            // Maktu GEKAP fatura altı iskontodan ETKİLENMEZ → globalFactor uygulanmaz.
+            const gekapTotal = invoice.items.reduce(
+              (sum, it) => sum + Number((it as any).gekapAmount || 0),
+              0,
+            )
+            // KDV matrahı = net + ÖTV + GEKAP (bkz. lib/invoice/line-tax.ts).
+            const vatBaseTotal =
+              Number(invoice.netAmount || 0) + exciseTotal + otherTaxInBaseTotal + gekapTotal
             return (
               <div className="flex justify-end mt-6">
                 <div className="w-80 space-y-2 rounded-lg border bg-muted/30 p-4 tabular-nums">
@@ -1422,12 +1446,8 @@ export default function FaturaOnizlemePage() {
                     </div>
                   )}
                   <div className="flex justify-between border-t pt-2 text-sm">
-                    <span className="text-muted-foreground">Matrah</span>
+                    <span className="text-muted-foreground">Mal/Hizmet Tutarı</span>
                     <span>{formatCurrency(invoice.netAmount)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">KDV Toplam</span>
-                    <span>{formatCurrency(invoice.vatAmount)}</span>
                   </div>
                   {exciseTotal > 0 && (
                     <div className="flex justify-between text-sm text-blue-600 dark:text-blue-400">
@@ -1435,16 +1455,38 @@ export default function FaturaOnizlemePage() {
                       <span>+ {formatCurrency(exciseTotal)}</span>
                     </div>
                   )}
+                  {gekapTotal > 0 && (
+                    <div className="flex justify-between text-sm text-blue-600 dark:text-blue-400">
+                      <span>GEKAP</span>
+                      <span>+ {formatCurrency(gekapTotal)}</span>
+                    </div>
+                  )}
+                  {otherTaxInBaseTotal > 0 && (
+                    <div className="flex justify-between text-sm text-blue-600 dark:text-blue-400">
+                      <span>{otherTaxLabel}</span>
+                      <span>+ {formatCurrency(otherTaxInBaseTotal)}</span>
+                    </div>
+                  )}
+                  {vatBaseTotal - Number(invoice.netAmount || 0) > 0.004 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">KDV Matrahı</span>
+                      <span>{formatCurrency(vatBaseTotal)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">KDV Toplam</span>
+                    <span>{formatCurrency(invoice.vatAmount)}</span>
+                  </div>
                   {withholdingTotal > 0 && (
                     <div className="flex justify-between text-sm text-red-600 dark:text-red-400">
                       <span>Tevkifat (KDV)</span>
                       <span>- {formatCurrency(withholdingTotal)}</span>
                     </div>
                   )}
-                  {otherTaxTotal > 0 && (
+                  {otherTaxOnTopTotal > 0 && (
                     <div className="flex justify-between text-sm text-blue-600 dark:text-blue-400">
                       <span>{otherTaxLabel}</span>
-                      <span>+ {formatCurrency(otherTaxTotal)}</span>
+                      <span>+ {formatCurrency(otherTaxOnTopTotal)}</span>
                     </div>
                   )}
                   <div className="flex justify-between border-t pt-2 text-lg font-bold">

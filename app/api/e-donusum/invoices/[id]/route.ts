@@ -17,6 +17,13 @@ import { Decimal } from "@prisma/client/runtime/library"
 import { normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
 import { accessDeniedResponse } from "@/lib/api/errors"
+import {
+  addLineTax,
+  applyGlobalAdjustment,
+  computeLineTax,
+  emptyLineTaxSums,
+  type LineTaxSums,
+} from "@/lib/invoice/line-tax"
 
 
 export const dynamic = 'force-dynamic'
@@ -56,6 +63,9 @@ function normalizeInvoiceItem(item: any) {
       typeof item.withholdingName === "string" && item.withholdingName.trim()
         ? item.withholdingName.trim()
         : null,
+    // GEKAP maktu: birim başına ₺ (oran değil), miktarla çarpılır, iskontodan
+    // etkilenmez — bkz. lib/invoice/line-tax.ts.
+    gekapUnitAmount: Math.max(0, parseFloat(item.gekapUnitAmount) || 0),
     exciseRate: parseFloat(item.exciseRate) || 0,
     // ÖTV GİB liste kodu (0071/0073/0074...). GİB payload'ında tax[].taxCode.
     exciseCode:
@@ -294,26 +304,22 @@ export async function PUT(
       return gross.times(new Decimal(item.discountRate || 0).div(100))
     }
 
+    // Kalem gönderildiyse toplamlar ORTAK modülden kurulur (ÖTV/GEKAP matraha
+    // girer). Matrah Decimal ile hesaplanır, vergi kırılımı number üzerinden —
+    // POST/editör/GİB ile kuruşu kuruşuna aynı sonucu vermesi için tek formül şart.
+    // Kalem gelmediyse `sums` null kalır ve saklı toplamlar üzerinden eski oransal
+    // ölçekleme sürer (davranış değişmesin).
+    let sums: LineTaxSums | null = null
     if (normalizedItems && normalizedItems.length > 0) {
-      netAmount = new Decimal(0)
-      vatAmount = new Decimal(0)
-      totalAmount = new Decimal(0)
-
+      sums = emptyLineTaxSums()
       normalizedItems.forEach((item) => {
         const itemGross = new Decimal(item.quantity).times(item.unitPrice)
-        const itemDiscount = itemDiscountDec(item)
-        const itemNet = itemGross.minus(itemDiscount)
-        const itemVat = itemNet.times(new Decimal(item.vatRate).div(100))
-        // KDV tevkifatı: tevkif edilen tutar KDV üzerinden hesaplanır (matrah değil).
-        const itemWithholding = itemVat.times(new Decimal(item.withholdingRate || 0).div(100))
-        const itemExcise = itemNet.times(new Decimal(item.exciseRate || 0).div(100))
-        const itemOtherTax = itemNet.times(new Decimal(item.otherTaxRate || 0).div(100))
-        const itemTotal = itemNet.plus(itemVat).plus(itemExcise).plus(itemOtherTax).minus(itemWithholding)
-
-        netAmount = netAmount.plus(itemNet)
-        vatAmount = vatAmount.plus(itemVat)
-        totalAmount = totalAmount.plus(itemTotal)
+        const itemNet = itemGross.minus(itemDiscountDec(item)).toNumber()
+        addLineTax(sums!, itemNet, computeLineTax(itemNet, item))
       })
+      netAmount = new Decimal(sums.net)
+      vatAmount = new Decimal(sums.vat)
+      totalAmount = new Decimal(sums.total)
     }
 
     // Fatura altı (genel) iskonto: matrahtan oransal düşülür → KDV/total da aynı
@@ -333,10 +339,19 @@ export async function PUT(
     )
     if (netAmount.gt(0) && (appliedGlobalDiscount.gt(0) || appliedGlobalCharge.gt(0))) {
       const adjustedNet = netAmount.minus(appliedGlobalDiscount).plus(appliedGlobalCharge)
-      const adjustment = adjustedNet.div(netAmount)
-      netAmount = adjustedNet
-      vatAmount = vatAmount.times(adjustment)
-      totalAmount = totalAmount.times(adjustment)
+      if (sums) {
+        // Oransal vergiler ölçeklenir, maktu GEKAP korunur.
+        const adj = applyGlobalAdjustment(sums, adjustedNet.toNumber())
+        netAmount = new Decimal(adj.net)
+        vatAmount = new Decimal(adj.vat)
+        totalAmount = new Decimal(adj.total)
+      } else {
+        // Kalem gelmedi: saklı toplamlar zaten kırılımsız, tek katsayı uygulanır.
+        const adjustment = adjustedNet.div(netAmount)
+        netAmount = adjustedNet
+        vatAmount = vatAmount.times(adjustment)
+        totalAmount = totalAmount.times(adjustment)
+      }
     }
 
     // Dip toplam yuvarlaması: KDV'ye GİRMEZ, yalnız ödenecek tutara eklenir.
@@ -482,6 +497,7 @@ export async function PUT(
             const gross = new Decimal(item.quantity).times(item.unitPrice)
             const disc = itemDiscountDec(item)
             const net = gross.minus(disc)
+            const tax = computeLineTax(net.toNumber(), item)
             return {
               invoiceId: resolvedParams.id,
               productId: item.productId || null,
@@ -492,33 +508,22 @@ export async function PUT(
               discountRate: item.discountMode === "AMOUNT" ? null : new Decimal(item.discountRate),
               discountAmount: disc,
               vatRate: new Decimal(item.vatRate),
-              vatAmount: net.times(new Decimal(item.vatRate).div(100)),
+              // KDV matrahı net DEĞİL, net + ÖTV + GEKAP'tır (bkz. computeLineTax).
+              vatAmount: tax.vat,
               withholdingCode: item.withholdingCode,
               withholdingName: item.withholdingName,
               withholdingRate: new Decimal(item.withholdingRate),
-              // Tevkifat KDV üzerinden: net × vatRate/100 × withholdingRate/100
-              withholdingAmount: net
-                .times(new Decimal(item.vatRate).div(100))
-                .times(new Decimal(item.withholdingRate || 0).div(100)),
+              withholdingAmount: tax.withholding,
               exciseRate: new Decimal(item.exciseRate),
               exciseCode: item.exciseCode || null,
-              exciseAmount: net.times(new Decimal(item.exciseRate || 0).div(100)),
+              exciseAmount: tax.excise,
+              gekapUnitAmount: item.gekapUnitAmount || null,
+              gekapAmount: tax.gekap || null,
               otherTaxRate: item.otherTaxRate ? new Decimal(item.otherTaxRate) : null,
-              otherTaxAmount: net.times(new Decimal(item.otherTaxRate || 0).div(100)),
+              otherTaxAmount: tax.otherTax,
               otherTaxName: item.otherTaxName,
               otherTaxCode: item.otherTaxCode || null,
-              totalAmount: net
-                .times(
-                  new Decimal(1)
-                    .plus(new Decimal(item.vatRate).div(100))
-                    .plus(new Decimal(item.exciseRate || 0).div(100))
-                    .plus(new Decimal(item.otherTaxRate || 0).div(100)),
-                )
-                .minus(
-                  net
-                    .times(new Decimal(item.vatRate).div(100))
-                    .times(new Decimal(item.withholdingRate || 0).div(100)),
-                ),
+              totalAmount: tax.total,
               taxExemptionReasonCode: item.taxExemptionReasonCode,
               taxExemptionReason: item.taxExemptionReason,
               order: index,

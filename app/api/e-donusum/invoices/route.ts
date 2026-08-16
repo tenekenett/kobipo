@@ -13,6 +13,12 @@ import { ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 import { prepareInvoiceStockOps, writeInvoiceStockOps } from "@/lib/stock/invoice-stock"
 import { parseRecipeEffects } from "@/lib/stock/recipe-expand"
 import {
+  addLineTax,
+  applyGlobalAdjustment,
+  computeLineTax,
+  emptyLineTaxSums,
+} from "@/lib/invoice/line-tax"
+import {
   amountExceedsLimit,
   discountLimitError,
   normalizeDiscountLimit,
@@ -293,6 +299,9 @@ const company = await prisma.company.findUnique({
           typeof item.withholdingName === "string" && item.withholdingName.trim()
             ? item.withholdingName.trim()
             : null,
+        // GEKAP maktu: birim başına ₺. Oran DEĞİL — miktarla çarpılır ve
+        // iskontodan etkilenmez (bkz. lib/invoice/line-tax.ts).
+        gekapUnitAmount: Math.max(0, parseFloat(item.gekapUnitAmount) || 0),
         exciseRate: parseFloat(item.exciseRate) || 0,
         // ÖTV GİB liste kodu (0071/0073/0074...). GİB payload'ında tax[].taxCode.
         exciseCode:
@@ -344,26 +353,17 @@ const company = await prisma.company.findUnique({
       return gross * (item.discountRate / 100)
     }
 
-    // Calculate totals
-    let netAmount = 0
-    let vatAmount = 0
-    let totalAmount = 0
-
+    // Calculate totals — ÖTV/GEKAP matraha girer, tevkifat KDV üzerinden kesilir.
+    // Tek kaynak lib/invoice/line-tax.ts (editör ve GİB payload'ı da aynısını kullanır).
+    const sums = emptyLineTaxSums()
     normalizedItems.forEach((item) => {
       const itemGross = item.quantity * item.unitPrice
-      const itemDiscount = itemDiscountAmount(item)
-      const itemNet = itemGross - itemDiscount
-      const itemVat = itemNet * (item.vatRate / 100)
-      // KDV tevkifatı: tevkif edilen tutar KDV üzerinden hesaplanır (matrah değil).
-      const itemWithholding = itemVat * (item.withholdingRate / 100)
-      const itemExcise = itemNet * (item.exciseRate / 100)
-      const itemOtherTax = itemNet * (item.otherTaxRate / 100)
-      const itemTotal = itemNet + itemVat + itemExcise + itemOtherTax - itemWithholding
-
-      netAmount += itemNet
-      vatAmount += itemVat
-      totalAmount += itemTotal
+      const itemNet = itemGross - itemDiscountAmount(item)
+      addLineTax(sums, itemNet, computeLineTax(itemNet, item))
     })
+    let netAmount = sums.net
+    let vatAmount = sums.vat
+    let totalAmount = sums.total
 
     // Fatura altı (genel) iskonto: matrahtan oransal düşülür, KDV/tevkifat/ÖTV
     // de aynı oranda azalır → totalAmount da aynı oranda düşer. Negatif veya
@@ -400,11 +400,11 @@ const company = await prisma.company.findUnique({
     }
 
     if (netAmount > 0 && (appliedGlobalDiscount > 0 || appliedGlobalCharge > 0)) {
-      const adjustedNet = netAmount - appliedGlobalDiscount + appliedGlobalCharge
-      const adjustment = adjustedNet / netAmount
-      netAmount = adjustedNet
-      vatAmount *= adjustment
-      totalAmount *= adjustment
+      // Oransal vergiler ölçeklenir, maktu GEKAP korunur.
+      const adj = applyGlobalAdjustment(sums, netAmount - appliedGlobalDiscount + appliedGlobalCharge)
+      netAmount = adj.net
+      vatAmount = adj.vat
+      totalAmount = adj.total
     }
 
     // Dip toplam yuvarlaması: KDV'ye GİRMEZ, yalnız ödenecek tutara eklenir.
@@ -467,6 +467,7 @@ const company = await prisma.company.findUnique({
             const gross = item.quantity * item.unitPrice
             const disc = itemDiscountAmount(item)
             const net = gross - disc
+            const tax = computeLineTax(net, item)
             return {
               ...(item.productId ? { product: { connect: { id: item.productId } } } : {}),
               description: item.description,
@@ -476,22 +477,22 @@ const company = await prisma.company.findUnique({
               discountRate: item.discountMode === "AMOUNT" ? null : item.discountRate || null,
               discountAmount: disc,
               vatRate: item.vatRate,
-              vatAmount: net * (item.vatRate / 100),
+              // KDV matrahı net DEĞİL, net + ÖTV + GEKAP'tır (bkz. computeLineTax).
+              vatAmount: tax.vat,
               withholdingCode: item.withholdingCode,
               withholdingName: item.withholdingName,
               withholdingRate: item.withholdingRate || null,
-              // Tevkifat KDV üzerinden: (net * vatRate/100) * withholdingRate/100
-              withholdingAmount: net * (item.vatRate / 100) * (item.withholdingRate / 100),
+              withholdingAmount: tax.withholding,
               exciseRate: item.exciseRate || null,
               exciseCode: item.exciseCode || null,
-              exciseAmount: net * (item.exciseRate / 100),
+              exciseAmount: tax.excise,
+              gekapUnitAmount: item.gekapUnitAmount || null,
+              gekapAmount: tax.gekap || null,
               otherTaxRate: item.otherTaxRate || null,
-              otherTaxAmount: net * (item.otherTaxRate / 100),
+              otherTaxAmount: tax.otherTax,
               otherTaxName: item.otherTaxName,
               otherTaxCode: item.otherTaxCode || null,
-              totalAmount:
-                net * (1 + item.vatRate / 100 + item.exciseRate / 100 + item.otherTaxRate / 100) -
-                net * (item.vatRate / 100) * (item.withholdingRate / 100),
+              totalAmount: tax.total,
               taxExemptionReasonCode: item.taxExemptionReasonCode,
               taxExemptionReason: item.taxExemptionReason,
               order: index,
@@ -751,6 +752,8 @@ const invoiceData = {
     // sonrası matrah üzerinden tax[]'e yazar; aksi halde GİB'e hiç gitmezdi.
     exciseRate: Number(item.exciseRate || 0),
     exciseCode: item.exciseCode || undefined,
+    // GEKAP maktu birim tutarı — provider miktarla çarpıp satır masrafı yazar.
+    gekapUnitAmount: Number(item.gekapUnitAmount || 0),
     otherTaxRate: Number(item.otherTaxRate || 0),
     otherTaxName: item.otherTaxName || undefined,
     otherTaxCode: item.otherTaxCode || undefined,

@@ -1,6 +1,7 @@
 import { EInvoiceProvider } from "./types"
 import { resolveMysoftBaseUrl } from "./constants"
 import { normalizeUnitCode } from "@/lib/data/units"
+import { isOtherTaxCharge, isOtherTaxInVatBase } from "./gib-tax-types"
 
 // GİB "Diğer Vergiler" (KDV/ÖTV dışı) vergi türü kodları → okunur ad. Gelen faturada
 // alt-toplamın taxName'i boş gelirse bu tablodan ada çevrilir; kod da tanınmıyorsa
@@ -27,6 +28,15 @@ function resolveOtherTaxCode(name: string | null | undefined): string | null {
   if (n.includes("özel iletişim") || n.includes("ozel iletisim") || n === "öiv" || n === "oiv")
     return "4080"
   return null
+}
+
+// GELEN fatura: satır ARTIRIMININ (chargeIndicator=true) GEKAP olup olmadığını
+// nedeninden anlar. GEKAP'ın UBL-TR vergi kodu YOKTUR (kod listesi v1.42'de yok),
+// bu yüzden gönderen taraf onu ancak serbest metinli bir masraf olarak yazabilir.
+function looksLikeGekap(reason: string | null | undefined): boolean {
+  const n = (reason ?? "").trim().toLocaleLowerCase("tr")
+  if (!n) return false
+  return n.includes("gekap") || n.includes("geri kazanım") || n.includes("geri kazanim")
 }
 
 // ÖTV vergi türü kodu belirsizse (kullanıcı liste seçmediyse / eski kayıt) son çare.
@@ -824,8 +834,8 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // pratiği); 26 × 15384,615385 = 400.000 gibi tam toplama ulaşabilmek için.
       const round6 = (n: number) => Math.round(n * 1000000) / 1000000;
 
-      // 0 tutarlı kalemleri Mysoft'a göndermiyoruz. Satır iskontosu varsa KDV
-      // matrahı (taxableAmtTra) = brüt - iskonto; KDV bu net üzerinden hesaplanır.
+      // 0 tutarlı kalemleri Mysoft'a göndermiyoruz. KDV matrahı (taxableAmtTra)
+      // = brüt − iskonto + ÖTV + GEKAP; KDV bu tutar üzerinden hesaplanır.
       const lineData = (invoiceData.items as any[])
         .map((item: any) => {
           const qty = Number(item.quantity) || 0;
@@ -866,8 +876,16 @@ async sendInvoice(invoiceData: any): Promise<any> {
           const otherTaxCode = typeof item.otherTaxCode === "string" && item.otherTaxCode.trim()
             ? item.otherTaxCode.trim()
             : null;
+          // Diğer verginin KDV matrahına girip girmediği ve GİB'e vergi mi masraf
+          // mı olarak gideceği koda bağlıdır (GEKAP: matraha girer + masraf).
+          const otherTaxInVatBase = isOtherTaxInVatBase(otherTaxCode);
+          const otherTaxIsCharge = isOtherTaxCharge(otherTaxCode);
+          // MAKTU GEKAP: miktar × birim tutar. Net'ten türetilmediği için iskonto
+          // (satır ya da fatura altı) onu KÜÇÜLTMEZ — pro-rata dağıtımın dışında.
+          const gekapUnitAmount = Math.max(0, Number(item.gekapUnitAmount) || 0);
+          const gekap = round2(qty * gekapUnitAmount);
           // Pro-rata global discount payı sonradan eklenecek.
-          return { item, qty, unitPrice, vatRate, rowTotal, lineDiscount, discountRate, exemptionCode, exemptionReason, withholdingCode, withholdingName, withholdingRate, exciseRate, exciseCode, otherTaxRate, otherTaxName, otherTaxCode, globalShare: 0, taxable: rowTotal - lineDiscount, rowVat: 0, excise: 0, otherTax: 0 };
+          return { item, qty, unitPrice, vatRate, rowTotal, lineDiscount, discountRate, exemptionCode, exemptionReason, withholdingCode, withholdingName, withholdingRate, exciseRate, exciseCode, otherTaxRate, otherTaxName, otherTaxCode, otherTaxInVatBase, otherTaxIsCharge, gekap, globalShare: 0, taxable: rowTotal - lineDiscount, vatBase: 0, rowVat: 0, excise: 0, otherTax: 0 };
         })
         .filter((l: any) => l.rowTotal > 0);
 
@@ -926,11 +944,17 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // (ör. 26 × 15384,615385 = 400.000,00 tam tutar elde etmek için gerekli).
       lineData.forEach((l: any) => {
         l.taxable = round2(l.rowTotal - l.lineDiscount - l.globalShare);
-        l.rowVat = round2((l.taxable * l.vatRate) / 100);
-        // ÖTV ve Diğer Vergi de iskonto sonrası matrah (l.taxable) üzerinden — KDV ile
-        // aynı taban. Böylece GİB'e giden ek vergiler editör/önizleme özetiyle tutar.
+        // ÖTV ve Diğer Vergi iskonto sonrası mal/hizmet matrahı (l.taxable) üzerinden.
         l.excise = l.exciseRate > 0 ? round2((l.taxable * l.exciseRate) / 100) : 0;
+        // Maktu GEKAP girildiyse oransal GEKAP susar (line-tax.ts ile aynı kural).
+        if (l.gekap > 0 && l.otherTaxIsCharge) l.otherTaxRate = 0;
         l.otherTax = l.otherTaxRate > 0 ? round2((l.taxable * l.otherTaxRate) / 100) : 0;
+        // KDV MATRAHI mal/hizmet bedelinin kendisi değildir: ÖTV ve GEKAP bedele
+        // eklenir, KDV bu toplam üzerinden hesaplanır (bkz. lib/invoice/line-tax.ts).
+        l.vatBase = round2(
+          l.taxable + l.excise + (l.otherTaxInVatBase ? l.otherTax : 0) + l.gekap,
+        );
+        l.rowVat = round2((l.vatBase * l.vatRate) / 100);
         l.lineDiscount = round2(l.lineDiscount);
         l.rowTotal = round2(l.rowTotal);
         // l.unitPrice: round'lamadan orijinal hassasiyetle gönderilir.
@@ -946,6 +970,8 @@ async sendInvoice(invoiceData: any): Promise<any> {
           lineDiscount: l.lineDiscount,
           globalShare: l.globalShare,
           taxable: l.taxable,
+          gekap: l.gekap,
+          vatBase: l.vatBase,
           rowVat: l.rowVat,
         })),
       });
@@ -965,9 +991,22 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // kullanılır"). Eşitlikler kurgu gereği tutarlı: allowanceTotal brüt−matrah
       // olarak TÜRETİLİR ki kuruş yuvarlama kaymasında bile denklem bozulmasın.
       const totalGross = round2(lineData.reduce((s: number, l: any) => s + l.rowTotal, 0))
-      const totalTaxable = round2(lineData.reduce((s: number, l: any) => s + l.taxable, 0))
+      // GEKAP UBL'de VERGİ DEĞİL masraftır (vergi kodu yok): "vergiler hariç
+      // tutar"ın İÇİNDE durur ve chargeTotalAmount'a yazılır. ÖTV/ÖİV/konaklama
+      // ise vergidir → taxExclusive'in dışında, totalExtraTax'ın içinde.
+      const totalLineCharge = round2(
+        lineData.reduce(
+          (s: number, l: any) => s + l.gekap + (l.otherTaxIsCharge ? l.otherTax : 0),
+          0,
+        ),
+      )
+      const totalTaxable = round2(
+        lineData.reduce((s: number, l: any) => s + l.taxable, 0) + totalLineCharge,
+      )
       const totalVat = round2(lineData.reduce((s: number, l: any) => s + l.rowVat, 0))
-      const totalExtraTax = round2(lineData.reduce((s: number, l: any) => s + l.excise + l.otherTax, 0))
+      const totalExtraTax = round2(
+        lineData.reduce((s: number, l: any) => s + l.excise + (l.otherTaxIsCharge ? 0 : l.otherTax), 0),
+      )
       // Satırlara yazılan tevkifat tutarlarının birebir toplamı (aynı koşul + aynı
       // yuvarlama — detail.withholdingTaxAmount ile kuruşu kuruşuna aynı olmalı).
       const totalWithholding = round2(
@@ -983,14 +1022,17 @@ async sendInvoice(invoiceData: any): Promise<any> {
       const taxInclusiveTotal = round2(totalTaxable + totalVat + totalExtraTax)
       const invoiceCalculation = {
         lineExtensionAmount: totalGross,          // Σ miktar × birim fiyat (brüt)
-        taxExclusiveAmount: totalTaxable,         // iskontolar düşülmüş net matrah
+        taxExclusiveAmount: totalTaxable,         // iskontolar düşülmüş net matrah + GEKAP
         taxInclusiveAmount: taxInclusiveTotal,    // matrah + KDV + ek vergiler (ÖTV/ÖİV/diğer)
         // İskonto ve İLAVE ayrı raporlanır. İlave satırlara pro-rata yayıldığı için
         // totalTaxable'ın İÇİNDE; allowanceTotal'ı brüt farkından türetirken ilaveyi
         // geri eklemezsek iskonto olduğundan AZ görünür (ör. ilave 21,31 varken
-        // allowance 21,31 eksik çıkar) ve GİB dip toplam kontrolü tutmaz.
-        allowanceTotalAmount: round2(totalGross - totalTaxable + appliedGlobalChargeTotal),
-        chargeTotalAmount: appliedGlobalChargeTotal,
+        // allowance 21,31 eksik çıkar) ve GİB dip toplam kontrolü tutmaz. Satır
+        // masrafı (GEKAP) da aynı sebeple geri eklenir — o da totalTaxable'ın içinde.
+        allowanceTotalAmount: round2(
+          totalGross - totalTaxable + appliedGlobalChargeTotal + totalLineCharge,
+        ),
+        chargeTotalAmount: round2(appliedGlobalChargeTotal + totalLineCharge),
         // Dip toplam yuvarlaması: KDV'ye girmez, yalnız ödenecek tutara eklenir.
         // Önceden sabit 0 gönderiliyordu; yuvarlamalı fatura kesilirse GİB'e giden
         // belge, uygulamada gördüğümüz tutardan farklı oluyordu.
@@ -1286,9 +1328,11 @@ async sendInvoice(invoiceData: any): Promise<any> {
                 qty: l.qty,
                 unitPriceTra: round6(l.unitPrice), // 6 ondalık (UBL standardı)
                 amtTra: l.rowTotal,        // brüt (qty * unitPrice), 2 ondalık
-                taxableAmtTra: l.taxable,  // matrah (brüt - satır iskonto - global pay), 2 ondalık
+                // Swagger: "KDV hesaplanacak matrah". Mal/hizmet net tutarı DEĞİL —
+                // ÖTV ve GEKAP bedele eklendikten SONRAKİ tutar (bkz. lib/invoice/line-tax.ts).
+                taxableAmtTra: l.vatBase,
                 vatRate: l.vatRate,
-                amtVatTra: l.rowVat,       // matrah * vatRate / 100, 2 ondalık
+                amtVatTra: l.rowVat,       // KDV matrahı * vatRate / 100, 2 ondalık
             };
             // İskonto satırları (UBL cac:AllowanceCharge, chargeIndicator=false).
             // Satır iskontosu + (varsa) fatura altı iskontodan o satıra düşen pay
@@ -1312,6 +1356,31 @@ async sendInvoice(invoiceData: any): Promise<any> {
                 amount: l.globalShare,
                 baseAmount: baseForGlobal,
                 allowanceChargeReason: "Fatura İskontosu",
+              });
+            }
+            // GEKAP: UBL-TR vergi kodları listesinde karşılığı olmadığı için tax[]'e
+            // yazılamaz; ARTIRIM (chargeIndicator=true) olarak gider. Böylece hem
+            // belgede adıyla görünür hem de KDV matrahının içinde kalır.
+            // Maktu (₺/birim × miktar) hâli — asıl yol budur.
+            if (l.gekap > 0) {
+              allowanceEntries.push({
+                chargeIndicator: true,
+                // Maktu tutarda "oran" yoktur; XSLT'ler alanı basabilsin diye
+                // tutarın matraha oranını veriyoruz (bilgi amaçlı).
+                multiplierFactorNumeric: l.taxable > 0 ? l.gekap / l.taxable : 0,
+                amount: l.gekap,
+                baseAmount: l.taxable,
+                allowanceChargeReason: "Geri Kazanım Katılım Payı",
+              });
+            }
+            // Oransal GEKAP (yalnız tutarın bilindiği hâller / gelen faturadan türetme).
+            if (l.otherTaxIsCharge && l.otherTax > 0) {
+              allowanceEntries.push({
+                chargeIndicator: true,
+                multiplierFactorNumeric: l.otherTaxRate / 100,
+                amount: l.otherTax,
+                baseAmount: l.taxable,
+                allowanceChargeReason: l.otherTaxName || "Geri Kazanım Katılım Payı",
               });
             }
             if (allowanceEntries.length > 0) {
@@ -1348,7 +1417,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
                     taxableAmount: l.taxable,
                 });
             }
-            if (l.otherTaxRate > 0 && l.otherTax > 0) {
+            if (l.otherTaxRate > 0 && l.otherTax > 0 && !l.otherTaxIsCharge) {
                 // Diğer Vergi: önce kullanıcının seçtiği GİB kodu (otherTaxCode), yoksa
                 // addan türet (Konaklama 0059 / Elektrik 4071 / ÖİV 4080). GİB şematronu
                 // BOŞ TaxTypeCode'u reddettiğinden, kod hiç çözülemezse bu ek vergiyi
@@ -2141,6 +2210,11 @@ async sendInvoice(invoiceData: any): Promise<any> {
             otherTaxRate: number | null
             otherTaxAmount: number | null
             otherTaxName: string | null
+            otherTaxCode: string | null
+            /** GEKAP satır masrafı — gelen belgedeki toplam tutar. */
+            gekapAmount: number | null
+            /** Aynı GEKAP'ın birim karşılığı (tutar / miktar) — editör bunu bekler. */
+            gekapUnitAmount: number | null
             withholdingRate: number | null
             withholdingCode: string | null
             withholdingName: string | null
@@ -2296,8 +2370,12 @@ async sendInvoice(invoiceData: any): Promise<any> {
         const allowances: any[] = Array.isArray(ln.allowanceChargeList)
           ? ln.allowanceChargeList
           : []
-        const discount =
-          allowances.find((a) => a?.chargeIndicator === false) || allowances[0] || null
+        // chargeIndicator === true ARTIRIM'dır (masraf), iskonto değil. Eskiden
+        // `|| allowances[0]` fallback'i vardı; satırdaki tek girdi bir MASRAF ise
+        // (ör. GEKAP) onu iskonto sanıp tutarı DÜŞÜYORDU. Artırımlar aşağıda ayrı
+        // ele alınır; iskonto yoksa iskonto yoktur.
+        const discount = allowances.find((a) => a?.chargeIndicator === false) || null
+        const charges = allowances.filter((a) => a?.chargeIndicator === true)
         let discountRate =
           discount && discount.multiplierFactorNumeric != null
             ? (num(discount.multiplierFactorNumeric) ?? 0) * 100
@@ -2305,6 +2383,14 @@ async sendInvoice(invoiceData: any): Promise<any> {
         let discountAmount = discount
           ? num(discount.amount)
           : num(pick(ln, "discountAmount", "allowanceChargeAmount", "allowanceTotalAmount"))
+
+        // ARTIRIM (masraf) satırları. GEKAP'ın UBL vergi kodu olmadığı için gönderen
+        // taraf onu ancak böyle yazabilir; nedeninden tanıyıp maktu GEKAP alanına
+        // aktarıyoruz. GEKAP olmayan masraflar burada TOPLANMAZ — başlık toplamı
+        // reconciliation'ı onları zaten "Diğer Vergiler" payı olarak kapatıyor.
+        const gekapChargeAmount = charges
+          .filter((c) => looksLikeGekap(pick(c, "allowanceChargeReason", "allowanceNote") as string))
+          .reduce((sum, c) => sum + (num(c.amount) ?? 0), 0)
 
         // KDV: taxTotal.taxSubtotalList[].percent (resmî şema, object). Flat varyantlar
         // için doğrudan ln üzerindeki alanlara düşeriz.
@@ -2413,6 +2499,14 @@ async sendInvoice(invoiceData: any): Promise<any> {
           otherTaxRate,
           otherTaxAmount,
           otherTaxName,
+          otherTaxCode,
+          // GEKAP maktu: gelen belgede yalnız TUTAR var, birim karşılığı yok →
+          // miktara bölüp editörün beklediği ₺/birim biçimine çeviriyoruz.
+          gekapAmount: gekapChargeAmount > 0 ? gekapChargeAmount : null,
+          gekapUnitAmount:
+            gekapChargeAmount > 0 && quantity != null && quantity > 0
+              ? gekapChargeAmount / quantity
+              : null,
           // KDV tevkifatı (varsa detailList'ten; yoksa aşağıda başlık invoiceType=TEVKIFAT
           // reconciliation'ında hesaplanır). withholdingRate = tevkif edilen KDV yüzdesi.
           withholdingRate: num(pick(ln, "withholdingTaxPercentage", "withholdingRate")),
@@ -2491,6 +2585,9 @@ async sendInvoice(invoiceData: any): Promise<any> {
               otherTaxRate: null,
               otherTaxAmount: null,
               otherTaxName: null,
+              otherTaxCode: null,
+              gekapAmount: null,
+              gekapUnitAmount: null,
               withholdingRate: null,
               withholdingCode: null,
               withholdingName: null,
@@ -2580,6 +2677,9 @@ async sendInvoice(invoiceData: any): Promise<any> {
             otherTaxRate: null,
             otherTaxAmount: null,
             otherTaxName: null,
+            otherTaxCode: null,
+            gekapAmount: null,
+            gekapUnitAmount: null,
             withholdingRate: null,
             withholdingCode: null,
             withholdingName: null,

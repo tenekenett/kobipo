@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { XMLParser } from "fast-xml-parser"
 import * as XLSX from "xlsx"
+import { computeLineTax } from "@/lib/invoice/line-tax"
 
 export const dynamic = "force-dynamic"
 
@@ -505,9 +506,13 @@ export async function POST(request: Request) {
         const lineNet =
           item.lineNetAmount > 0 ? item.lineNetAmount : safeQuantity * safeUnitPrice
         const vatRate = Number(item.vatRate) || 0
-        const lineVat = lineNet * (vatRate / 100)
         const exciseRate = Number(item.exciseRate) || 0
         const withholdingRate = Number(item.withholdingRate) || 0
+        // ÖTV mal/hizmet bedeline eklenir, KDV toplam üzerinden hesaplanır — giden
+        // faturayla aynı formül (lib/invoice/line-tax.ts). Böylece yeniden kurulan
+        // toplam, satıcının belgesindeki toplama daha yakın çıkar ve residual küçülür.
+        const tax = computeLineTax(lineNet, { vatRate, exciseRate, withholdingRate })
+        const lineVat = tax.vat
         return {
           description: item.description,
           quantity: safeQuantity,
@@ -517,9 +522,9 @@ export async function POST(request: Request) {
           lineNet,
           lineVat,
           exciseRate,
-          exciseAmount: lineNet * (exciseRate / 100),
+          exciseAmount: tax.excise,
           withholdingRate,
-          withholdingAmount: lineVat * (withholdingRate / 100),
+          withholdingAmount: tax.withholding,
           otherTaxRate: 0,
           otherTaxAmount: 0,
           otherTaxName: null as string | null,
