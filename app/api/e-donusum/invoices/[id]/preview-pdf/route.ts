@@ -94,6 +94,7 @@ export async function GET(
       const disc = n(it.discountAmount)
       return {
         description: it.description,
+        note: it.note,
         quantity: n(it.quantity),
         unit: it.unit,
         unitPrice: n(it.unitPrice),

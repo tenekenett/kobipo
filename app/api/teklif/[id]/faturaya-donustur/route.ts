@@ -65,6 +65,9 @@ export async function POST(
             create: quote.items.map((item, index) => ({
               ...(item.productId ? { product: { connect: { id: item.productId } } } : {}),
               description: item.description,
+              // Satır açıklaması faturaya AYNI alanda taşınır (description'a
+              // eklenmez): GİB belgesinde ürün adı temiz kalsın.
+              note: item.note,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               discountRate: item.discountRate,

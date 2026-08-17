@@ -30,9 +30,12 @@ function calculateTotals(items: any[]) {
       vatAmount += vat
       totalAmount += total
 
+      const note = item.note != null ? String(item.note).trim() : ""
+
       return {
         productId: item.productId || null,
         description: String(item.description).trim(),
+        note: note || null,
         quantity,
         unitPrice,
         discountRate,

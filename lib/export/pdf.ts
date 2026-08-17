@@ -155,7 +155,12 @@ const META_FONT_SIZE = 8
 const META_LINE_HEIGHT = 4
 
 type HeaderLayout = {
-  identity: string | null
+  /** Sağ üstteki başlık — SARILMIŞ satırlar (uzun başlık sayfadan taşmasın). */
+  titleLines: string[]
+  titleWidth: number
+  /** Sol üstteki firma unvanı — sarılmış, KIRPILMAMIŞ satırlar. */
+  companyLines: string[]
+  identityLines: string[]
   identityY: number
   filterLines: string[]
   filterY: number
@@ -175,6 +180,24 @@ type HeaderLayout = {
  */
 function computeHeaderLayout(doc: jsPDF, dataset: ExportDataset): HeaderLayout {
   const pageWidth = doc.internal.pageSize.getWidth()
+  const contentWidth = pageWidth - MARGIN * 2
+
+  // Başlık ve unvan İKİ SÜTUN gibi davranır: her biri kendi payında sarılır.
+  // Eskiden başlık tek satır sağa hizalı çiziliyordu — uzun bir rapor adı
+  // sayfanın SOLUNA taşıyordu (ölçüldü: x = -24mm) — ve unvan `slice(0,1)` ile
+  // tek satıra kırpılıp bilgi sessizce kayboluyordu.
+  const titleMaxWidth = contentWidth * 0.5
+  doc.setFont(TURKISH_PDF_FONT, "bold")
+  doc.setFontSize(14)
+  const titleLines = doc.splitTextToSize(dataset.title || "", titleMaxWidth) as string[]
+  const titleWidth = titleLines.reduce((max, line) => Math.max(max, doc.getTextWidth(line)), 0)
+
+  doc.setFontSize(12)
+  const companyMaxWidth = Math.max(40, contentWidth - titleWidth - 8)
+  const companyLines = doc.splitTextToSize(
+    dataset.company.name || "",
+    companyMaxWidth,
+  ) as string[]
 
   const identity =
     [
@@ -187,42 +210,62 @@ function computeHeaderLayout(doc: jsPDF, dataset: ExportDataset): HeaderLayout {
 
   doc.setFont(TURKISH_PDF_FONT, "normal")
   doc.setFontSize(META_FONT_SIZE)
+  const identityLines = identity ? (doc.splitTextToSize(identity, contentWidth) as string[]) : []
   const filters = dataset.filters?.filter(Boolean) ?? []
   const filterLines =
     filters.length > 0
-      ? (doc.splitTextToSize(filters.join("  ·  "), pageWidth - MARGIN * 2) as string[])
+      ? (doc.splitTextToSize(filters.join("  ·  "), contentWidth) as string[])
       : []
 
-  // Unvan/başlık satırının taban çizgisi.
-  let y = MARGIN + 4
+  // Dikey akış: iki sütunun DAHA UZUN olanı belirler.
+  const firstBaseline = MARGIN + 4
+  const leftBottom = firstBaseline + (companyLines.length - 1) * 5.5
+  const rightBottom = firstBaseline + (titleLines.length - 1) * 6
+  let y = Math.max(leftBottom, rightBottom)
+
   const identityY = y + 6
-  if (identity) y = identityY
-  const filterY = y + (identity ? 5 : 6)
+  if (identityLines.length > 0) y = identityY + (identityLines.length - 1) * META_LINE_HEIGHT
+
+  const filterY = y + (identityLines.length > 0 ? 5 : 6)
   if (filterLines.length > 0) y = filterY + (filterLines.length - 1) * META_LINE_HEIGHT
 
   const separatorY = y + 4
-  return { identity, identityY, filterLines, filterY, separatorY, contentTop: separatorY + 6 }
+  return {
+    titleLines,
+    titleWidth,
+    companyLines,
+    identityLines,
+    identityY,
+    filterLines,
+    filterY,
+    separatorY,
+    contentTop: separatorY + 6,
+  }
 }
 
 function drawHeader(doc: jsPDF, dataset: ExportDataset, layout: HeaderLayout) {
   const right = doc.internal.pageSize.getWidth() - MARGIN
 
+  // Başlık: sarılmış satırlar sağa hizalı basılır (her satır kendi genişliğinde).
   doc.setFontSize(14)
   doc.setFont(TURKISH_PDF_FONT, "bold")
-  const titleWidth = doc.getTextWidth(dataset.title)
-  doc.text(dataset.title, right, MARGIN + 4, { align: "right" })
+  layout.titleLines.forEach((line, i) => {
+    doc.text(line, right, MARGIN + 4 + i * 6, { align: "right" })
+  })
 
-  // Unvanı başlığın soluna kadar sar — uzun ticari unvanlar başlığa binmesin.
+  // Unvan: kalan payda, kaç satır sürerse o kadar (kırpma yok).
   doc.setFontSize(12)
-  const companyMaxWidth = Math.max(50, right - titleWidth - MARGIN - 8)
-  const companyLines = (doc.splitTextToSize(dataset.company.name || "", companyMaxWidth) as string[]).slice(0, 1)
-  doc.text(companyLines, MARGIN, MARGIN + 4)
+  layout.companyLines.forEach((line, i) => {
+    doc.text(line, MARGIN, MARGIN + 4 + i * 5.5)
+  })
 
   doc.setFont(TURKISH_PDF_FONT, "normal")
   doc.setFontSize(META_FONT_SIZE)
   doc.setTextColor(90)
 
-  if (layout.identity) doc.text(layout.identity, MARGIN, layout.identityY)
+  layout.identityLines.forEach((line, i) => {
+    doc.text(line, MARGIN, layout.identityY + i * META_LINE_HEIGHT)
+  })
   if (layout.filterLines.length > 0) {
     doc.text(layout.filterLines, MARGIN, layout.filterY, { lineHeightFactor: 1.35 })
   }

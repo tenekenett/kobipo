@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { generateMakbuzPDF } from "@/lib/pdf/makbuz-pdf"
 import { accountPaymentMethodLabel } from "@/lib/finans/account-types"
 
 interface TransactionDetail {
@@ -126,27 +125,23 @@ export default function FinansHareketDetayPage() {
 
   const handleMakbuz = async () => {
     if (!tx) return
+    // Makbuz SUNUCUDA üretilir (`/api/finans/transactions/[id]/makbuz`); istemcide
+    // ikinci bir PDF düzeni tutmuyoruz.
     try {
-      await generateMakbuzPDF({
-        kind,
-        makbuzNo: (tx.reference?.trim() || tx.id.slice(-8)).toUpperCase(),
-        date: tx.date,
-        amount: Number(tx.amount),
-        currency: tx.currency || "TRY",
-        description: tx.description,
-        reference: tx.reference,
-        paymentMethod: accountPaymentMethodLabel(tx.account.type),
-        account: { name: tx.account.name, bankName: tx.account.bankName },
-        company: tx.company || {},
-        cari: tx.customer
-          ? { label: "MÜŞTERİ", name: tx.customer.name, taxNumber: tx.customer.taxNumber }
-          : tx.supplier
-            ? { label: "TEDARİKÇİ", name: tx.supplier.name, taxNumber: tx.supplier.taxNumber }
-            : null,
-        invoices: tx.invoicePayments
-          .filter((p) => p.invoice)
-          .map((p) => ({ invoiceNo: p.invoice!.invoiceNo, amount: Number(p.amount) })),
-      })
+      const res = await fetch(`/api/finans/transactions/${tx.id}/makbuz`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || "Makbuz üretilemedi")
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${kind}-Makbuzu-${(tx.reference?.trim() || tx.id.slice(-8)).toUpperCase()}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
     } catch (e: any) {
       toast({ title: "Makbuz oluşturulamadı", description: e?.message || undefined, variant: "destructive" })
     }

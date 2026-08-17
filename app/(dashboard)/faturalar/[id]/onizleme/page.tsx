@@ -1308,7 +1308,9 @@ export default function FaturaOnizlemePage() {
                           )}
                           {showDescription && (
                             <div className="mt-0.5 text-xs text-muted-foreground">
-                              <span className="font-medium">Açıklama:</span> {description}
+                              {/* Ürün kartının adından FARKLI yazılmış kalem adı (faturada
+                                  basılan ad). Satır açıklaması ayrı alanda — item.note. */}
+                              <span className="font-medium">Kalem adı:</span> {description}
                             </div>
                           )}
                         </>
@@ -1319,6 +1321,13 @@ export default function FaturaOnizlemePage() {
                         <div className="font-medium text-foreground">{description}</div>
                       ) : (
                         <span className="text-muted-foreground">—</span>
+                      )}
+                      {/* Satır açıklaması: kalem adının altına basılan serbest metin
+                          (tekliften taşınır, e-belgede invoiceDetail.note olarak gider). */}
+                      {item.note && (
+                        <div className="mt-0.5 whitespace-pre-line text-xs text-muted-foreground">
+                          <span className="font-medium">Açıklama:</span> {item.note}
+                        </div>
                       )}
                       {(item.withholdingCode || Number(item.withholdingRate) > 0) && (
                         <div className="mt-1 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">

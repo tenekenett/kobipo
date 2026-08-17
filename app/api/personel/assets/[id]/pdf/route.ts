@@ -41,7 +41,7 @@ export async function GET(
   })
 
   const fileName = `Zimmet_${rec.employee.firstName}_${rec.employee.lastName}.pdf`
-  return new NextResponse(pdf, {
+  return new NextResponse(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="${encodeURIComponent(fileName)}"`,

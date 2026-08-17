@@ -30,11 +30,23 @@ type QuoteItem = {
   id?: string
   productId?: string | null
   description: string
+  note?: string | null
   quantity: number
   unitPrice: number
   vatRate: number
   discountRate?: number | null
   product?: { id: string; name: string } | null
+}
+
+type QuoteParty = {
+  id: string
+  name: string
+  taxNumber?: string | null
+  taxOffice?: string | null
+  address?: string | null
+  city?: string | null
+  phone?: string | null
+  email?: string | null
 }
 
 type QuoteDetail = {
@@ -48,20 +60,13 @@ type QuoteDetail = {
   currency: string
   notes?: string | null
   customerId?: string | null
+  supplierId?: string | null
   netAmount: number
   vatAmount: number
   totalAmount: number
   convertedInvoiceId?: string | null
-  customer?: {
-    id: string
-    name: string
-    taxNumber?: string | null
-    taxOffice?: string | null
-    address?: string | null
-    city?: string | null
-    phone?: string | null
-    email?: string | null
-  } | null
+  customer?: QuoteParty | null
+  supplier?: QuoteParty | null
   items: QuoteItem[]
 }
 
@@ -92,6 +97,7 @@ type BankAccount = {
 type ItemLine = {
   productId: string
   description: string
+  note: string // satır açıklaması — ürün adının altına basılır (PDF dahil), opsiyonel
   quantity: string
   unitPrice: string
   vatRate: string
@@ -101,6 +107,7 @@ type ItemLine = {
 const emptyLine = (): ItemLine => ({
   productId: "",
   description: "",
+  note: "",
   quantity: "1",
   unitPrice: "0",
   vatRate: "20",
@@ -133,14 +140,18 @@ export default function TeklifDetailPage() {
   const [saving, setSaving] = useState(false)
   const [converting, setConverting] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
-  const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([])
+  // Teklif SATIŞ (müşterili) ya da SATIN ALMA (tedarikçili) olabilir; ekran aynı
+  // sayfadır, yalnız taraf ekseni değişir. Hangi eksende olduğumuzu kaydın
+  // kendisi söyler (supplierId doluysa satın alma).
+  const [isPurchase, setIsPurchase] = useState(false)
+  const [parties, setParties] = useState<Array<{ id: string; name: string }>>([])
   // Müşteri listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
   const [quickCari, setQuickCari] = useState({ open: false, name: "" })
   const [products, setProducts] = useState<Array<{ id: string; name: string; salePrice?: number | null }>>([])
   const [company, setCompany] = useState<CompanyInfo | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
 
-  const [customerId, setCustomerId] = useState("")
+  const [partyId, setPartyId] = useState("")
   const [currency, setCurrency] = useState("TRY")
   const [date, setDate] = useState("")
   const [validUntil, setValidUntil] = useState("")
@@ -163,7 +174,8 @@ export default function TeklifDetailPage() {
       if (data?.slug && looksLikeCuid(String(id))) {
         router.replace(`/teklif/${data.slug}?company=${companyId}`)
       }
-      setCustomerId(data.customerId || "")
+      setIsPurchase(Boolean(data.supplierId))
+      setPartyId(data.supplierId || data.customerId || "")
       setCurrency(data.currency || "TRY")
       setDate(data.date ? new Date(data.date).toISOString().split("T")[0] : "")
       setValidUntil(data.validUntil ? new Date(data.validUntil).toISOString().split("T")[0] : "")
@@ -173,6 +185,7 @@ export default function TeklifDetailPage() {
           data.items.map((it) => ({
             productId: it.productId || it.product?.id || "",
             description: it.description || "",
+            note: it.note || "",
             quantity: String(Number(it.quantity) || 0),
             unitPrice: String(Number(it.unitPrice) || 0),
             vatRate: String(Number(it.vatRate) ?? 20),
@@ -193,8 +206,9 @@ export default function TeklifDetailPage() {
 
   useEffect(() => {
     if (!companyId) return
-    fetch(`/api/cari/customers?companyId=${companyId}`).then(async (res) => {
-      if (res.ok) setCustomers(await res.json())
+    const endpoint = isPurchase ? "suppliers" : "customers"
+    fetch(`/api/cari/${endpoint}?companyId=${companyId}`).then(async (res) => {
+      if (res.ok) setParties(await res.json())
     })
     fetch(`/api/stok/products?companyId=${companyId}`).then(async (res) => {
       if (res.ok) setProducts(await res.json())
@@ -205,7 +219,7 @@ export default function TeklifDetailPage() {
     fetch(`/api/finans/accounts?companyId=${companyId}&type=BANK`).then(async (res) => {
       if (res.ok) setBankAccounts(await res.json())
     })
-  }, [companyId])
+  }, [companyId, isPurchase])
 
   const editable = quote && quote.status !== "CONVERTED"
 
@@ -228,6 +242,7 @@ export default function TeklifDetailPage() {
       .map((row) => ({
         productId: row.productId || null,
         description: row.description.trim() || "Kalem",
+        note: row.note.trim() || null,
         quantity: Number(row.quantity || 0),
         unitPrice: Number(row.unitPrice || 0),
         vatRate: Number(row.vatRate || 0),
@@ -246,7 +261,9 @@ export default function TeklifDetailPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerId: customerId || null,
+          ...(isPurchase
+            ? { supplierId: partyId || null }
+            : { customerId: partyId || null }),
           currency,
           date,
           validUntil: validUntil || null,
@@ -337,7 +354,7 @@ export default function TeklifDetailPage() {
     return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
   }
 
-  const backHref = `/teklif?company=${encodeURIComponent(companyId)}`
+  const backHref = `${isPurchase ? "/alis/teklif" : "/teklif"}?company=${encodeURIComponent(companyId)}`
   const companyQs = `?company=${encodeURIComponent(companyId)}`
 
   if (loading) {
@@ -509,39 +526,40 @@ export default function TeklifDetailPage() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <Label>Müşteri</Label>
+              <Label>{isPurchase ? "Tedarikçi" : "Müşteri"}</Label>
               <SearchSelect
-                options={customers}
-                value={customerId}
-                onChange={(v) => setCustomerId(v)}
-                placeholder="Müşteri seçin veya arayın…"
+                options={parties}
+                value={partyId}
+                onChange={(v) => setPartyId(v)}
+                placeholder={isPurchase ? "Tedarikçi seçin veya arayın…" : "Müşteri seçin veya arayın…"}
                 disabled={!editable}
                 allowClear
                 onCreate={editable ? (name) => setQuickCari({ open: true, name }) : undefined}
-                createLabel="Yeni müşteri ekle"
+                createLabel={isPurchase ? "Yeni tedarikçi ekle" : "Yeni müşteri ekle"}
               />
               {companyId && (
                 <QuickCariDialog
                   open={quickCari.open}
                   onOpenChange={(open) => setQuickCari((prev) => ({ ...prev, open }))}
                   companyId={companyId}
-                  defaultKind="customer"
+                  defaultKind={isPurchase ? "supplier" : "customer"}
                   initialName={quickCari.name}
                   requireTaxFields={false}
                   onCreated={(created, kind) => {
-                    if (kind !== "customer") {
+                    const expected = isPurchase ? "supplier" : "customer"
+                    if (kind !== expected) {
                       toast({
-                        title: "Tedarikçi olarak kaydedildi",
-                        description: "Müşteri listesine eklenmedi, seçim yapılmadı.",
+                        title: isPurchase ? "Müşteri olarak kaydedildi" : "Tedarikçi olarak kaydedildi",
+                        description: `${isPurchase ? "Tedarikçi" : "Müşteri"} listesine eklenmedi, seçim yapılmadı.`,
                       })
                       return
                     }
-                    setCustomers((prev) =>
+                    setParties((prev) =>
                       prev.some((c) => c.id === created.id)
                         ? prev
                         : [...prev, { id: created.id, name: created.name }]
                     )
-                    setCustomerId(created.id)
+                    setPartyId(created.id)
                   }}
                 />
               )}
@@ -596,7 +614,7 @@ export default function TeklifDetailPage() {
               </div>
               {lines.map((row, index) => (
                 <div key={index} className="grid gap-2 border-b pb-3 last:border-0 sm:grid-cols-12">
-                  <div className="sm:col-span-7">
+                  <div className="space-y-1 sm:col-span-7">
                     <Label className="text-xs text-muted-foreground">Ürün / Açıklama</Label>
                     <ProductCombobox
                       products={products}
@@ -619,6 +637,14 @@ export default function TeklifDetailPage() {
                           return false
                         }
                       }}
+                    />
+                    {/* Satır açıklaması — ürün adını kirletmeden teklif/PDF'te
+                        kalemin altına basılan serbest metin. */}
+                    <Input
+                      value={row.note}
+                      onChange={(e) => updateLine(index, { note: e.target.value })}
+                      placeholder="Satır açıklaması (opsiyonel)"
+                      className="h-8 text-xs"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:col-span-5 sm:grid-cols-4">
@@ -665,7 +691,12 @@ export default function TeklifDetailPage() {
               <TableBody>
                 {quote.items.map((it) => (
                   <TableRow key={it.id || it.description}>
-                    <TableCell>{it.description}</TableCell>
+                    <TableCell>
+                      <div>{it.description}</div>
+                      {it.note && (
+                        <div className="whitespace-pre-line text-xs text-muted-foreground">{it.note}</div>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">{Number(it.quantity).toFixed(2)}</TableCell>
                     <TableCell className="text-right">{Number(it.unitPrice).toFixed(2)}</TableCell>
                     <TableCell className="text-right">{Number(it.vatRate).toFixed(0)}</TableCell>

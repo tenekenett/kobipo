@@ -1525,6 +1525,10 @@ model QuoteItem {
   quoteId        String
   productId      String?
   description    String
+  // Satır açıklaması: ürün adının ALTINA basılan serbest metin (ölçü, teslim
+  // koşulu, marka/model detayı). description ürünle eşleşen addır ve faturaya
+  // taşınan alan odur — açıklamayı oraya yazmak ürün adını kirletir.
+  note           String?  @db.Text
   quantity       Decimal  @db.Decimal(10, 2)
   unitPrice      Decimal  @db.Decimal(15, 6) // 6 ondalık: UBL e-Fatura birim fiyat hassasiyeti
   discountRate   Decimal? @db.Decimal(5, 2)
@@ -1603,6 +1607,11 @@ model InvoiceItem {
   invoiceId              String
   productId              String?
   description            String
+  // Satır açıklaması: mal/hizmet ADININ (description) altına basılan serbest
+  // metin. Mysoft'a invoiceDetail.note olarak gider (UBL kalem notu) — açıklamayı
+  // description'a yazmak GİB belgesinde ürün adını kirletir. Tekliften faturaya
+  // dönüşümde QuoteItem.note buraya taşınır.
+  note                   String?  @db.Text
   unit                   String   @default("ADET")
   quantity               Decimal  @db.Decimal(10, 2)
   unitPrice              Decimal  @db.Decimal(15, 6) // 6 ondalık: UBL e-Fatura birim fiyat hassasiyeti

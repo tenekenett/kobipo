@@ -17,13 +17,14 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { ArrowLeft, Download, Send, Printer, ShieldCheck, Loader2, CheckCircle2, XCircle, Clock, Ban, FileDown } from "lucide-react"
 import Link from "next/link"
-import { generateInvoicePDF } from "@/lib/pdf/invoice-pdf"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
 
 interface InvoiceItem {
   id: string
   description: string
+  /** Satır açıklaması — kalem adının altına basılır (e-belgede kalem notu). */
+  note?: string | null
   quantity: number
   unitPrice: number
   vatRate: number
@@ -279,34 +280,35 @@ export default function InvoiceDetailPage() {
   const handleDownloadPDF = async () => {
     if (!invoice) return
 
-    const pdfData = {
-      invoiceNo: invoice.invoiceNo,
-      date: invoice.date,
-      dueDate: invoice.dueDate,
-      type: invoice.type,
-      invoiceType: invoice.invoiceType,
-      customer: invoice.customer,
-      supplier: invoice.supplier,
-      company: invoice.company,
-      items: invoice.items.map((item) => ({
-        description: item.description,
-        quantity: Number(item.quantity),
-        unitPrice: Number(item.unitPrice),
-        vatRate: Number(item.vatRate),
-        total: Number(item.totalAmount),
-      })),
-      netAmount: Number(invoice.netAmount),
-      vatAmount: Number(invoice.vatAmount),
-      totalAmount: Number(invoice.totalAmount),
-      notes: invoice.notes,
+    // PDF SUNUCUDA üretilir (`/api/faturalar/[id]/pdf`). Eskiden istemcide ayrı
+    // bir jsPDF üreticisi (lib/pdf/invoice-pdf.ts) vardı: aynı belgenin iki farklı
+    // düzeni, iki ayrı font yükleme yolu ve iki ayrı kayma kaynağı demekti.
+    // Tek kaynak → ekrandan indirilen PDF ile e-postayla giden PDF birebir aynı.
+    try {
+      const res = await fetch(
+        `/api/faturalar/${invoice.id}/pdf${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""}`,
+      )
+      if (!res.ok) throw new Error("PDF üretilemedi")
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `Fatura_${invoice.invoiceNo}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast({
+        title: "PDF İndirildi",
+        description: `Fatura_${invoice.invoiceNo}.pdf dosyası indirildi`,
+      })
+    } catch (e: any) {
+      toast({
+        title: "Hata",
+        description: e?.message || "PDF indirilemedi",
+        variant: "destructive",
+      })
     }
-
-    await generateInvoicePDF(pdfData)
-    
-    toast({
-      title: "PDF İndirildi",
-      description: `Fatura_${invoice.invoiceNo}.pdf dosyası indirildi`,
-    })
   }
 
   const handlePrint = () => {
@@ -558,7 +560,14 @@ export default function InvoiceDetailPage() {
               {(invoice.items || []).map((item, index) => (
                 <TableRow key={item.id}>
                   <TableCell>{index + 1}</TableCell>
-                  <TableCell className="font-medium">{item.description}</TableCell>
+                  <TableCell className="font-medium">
+                    <div>{item.description}</div>
+                    {item.note && (
+                      <div className="mt-0.5 whitespace-pre-line text-xs font-normal text-muted-foreground">
+                        {item.note}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right">
                     {Number(item.quantity).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
                   </TableCell>

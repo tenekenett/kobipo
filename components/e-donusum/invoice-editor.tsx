@@ -62,8 +62,12 @@ import {
 } from "@/lib/invoice/line-tax"
 
 
+// description = kalemin ADI (faturada mal/hizmet adı olarak basılır, ürün seçilmediyse
+// elle yazılır). note = o adın ALTINA basılan serbest açıklama. İkisi AYRI alandır:
+// açıklamayı description'a yazmak GİB belgesinde ürün adını kirletir.
 type LineExtraKey =
   | "description"
+  | "note"
   | "discountRate"
   | "withholdingRate"
   | "exciseRate"
@@ -71,7 +75,8 @@ type LineExtraKey =
   | "otherTaxRate"
 
 const LINE_EXTRA_LABEL: Record<LineExtraKey, string> = {
-  description: "Satır açıklaması",
+  description: "Kalem adı",
+  note: "Satır açıklaması",
   discountRate: "İskonto",
   withholdingRate: "Tevkifat (%)",
   exciseRate: "ÖTV (%)",
@@ -83,6 +88,7 @@ type DiscountMode = "PERCENT" | "AMOUNT"
 
 const LINE_EXTRA_ORDER: LineExtraKey[] = [
   "description",
+  "note",
   "discountRate",
   "withholdingRate",
   "exciseRate",
@@ -120,7 +126,7 @@ interface LinkableWaybillItem {
   product?: { id: string; name?: string | null; unit?: string | null; vatRate?: number | string | null; purchasePrice?: number | string | null; salePrice?: number | string | null } | null
 }
 interface LinkableWaybill { id: string; waybillNo: string; date: string; supplierId?: string | null; stockProcessed?: boolean; invoiceId?: string | null; _count?: { items: number }; items?: LinkableWaybillItem[] }
-export interface InvoiceItem { productId?: string; code?: string; description: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; exciseCode?: string; gekapUnitAmount?: number; otherTaxRate?: number; otherTaxName?: string; otherTaxCode?: string; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number; sourceWaybillId?: string }
+export interface InvoiceItem { productId?: string; code?: string; description: string; note?: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; exciseCode?: string; gekapUnitAmount?: number; otherTaxRate?: number; otherTaxName?: string; otherTaxCode?: string; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number; sourceWaybillId?: string }
 interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean; eFaturaBackdatePrefix?: string | null; eArchiveBackdatePrefix?: string | null }
 
 // Kayıtlı olmayan (ürün kartı bağlı olmayan) anlamlı kalemleri "ürün/hizmet olarak
@@ -1154,6 +1160,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             return {
               productId: item.productId || undefined,
               description: item.description || "",
+              note: item.note || undefined,
               unit: (item.unit as string) || item.product?.unit || "ADET",
               quantity: Number(item.quantity) || 1,
               unitPrice: Number(item.unitPrice) || 0,
@@ -1180,6 +1187,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       setLineExtras(finalItems.map((it) => {
         const extras: LineExtraKey[] = []
         if (it.description) extras.push("description")
+        if (it.note) extras.push("note")
         if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
         if ((it.withholdingRate || 0) > 0 || it.withholdingCode) extras.push("withholdingRate")
         if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
@@ -1234,6 +1242,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             return {
               productId: item.productId || undefined,
               description: item.description || "",
+              note: item.note || undefined,
               unit: (item.unit as string) || item.product?.unit || "ADET",
               quantity: Number(item.quantity) || 1,
               unitPrice: Number(item.unitPrice) || 0,
@@ -1264,6 +1273,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       setLineExtras(finalItems.map((it) => {
         const extras: LineExtraKey[] = []
         if (it.description) extras.push("description")
+        if (it.note) extras.push("note")
         if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
         if ((it.withholdingRate || 0) > 0 || it.withholdingCode) extras.push("withholdingRate")
         if ((it.exciseRate || 0) > 0) extras.push("exciseRate")
@@ -1426,6 +1436,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const removeLineExtra = (index: number, key: LineExtraKey) => {
     setLineExtras((prev) => prev.map((arr, i) => (i === index ? arr.filter((k) => k !== key) : arr)))
     if (key === "description") updateItem(index, "description", "")
+    if (key === "note") updateItem(index, "note", undefined)
     if (key === "discountRate") {
       // Başlık altı toplu İskonto aktifse, satırın kendi (override) iskontosunu kaldırınca
       // 0'a değil TOPLU değere geri dön — "tümüne uygula" bu satır için de geçerli kalsın.
@@ -3002,8 +3013,16 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                             if (key === "description") {
                               return (
                                 <div key={key} className="col-span-2 md:col-span-4 space-y-1.5">
+                                  <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Kalem Adı</Label>{removable}</div>
+                                  <Input className="h-9 text-sm" value={item.description} onChange={(e) => updateItem(index, "description", e.target.value)} placeholder="Faturada mal/hizmet adı olarak basılır (ürün seçmeden serbest kalem)..." />
+                                </div>
+                              )
+                            }
+                            if (key === "note") {
+                              return (
+                                <div key={key} className="col-span-2 md:col-span-4 space-y-1.5">
                                   <div className="flex items-center"><Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Satır Açıklaması</Label>{removable}</div>
-                                  <Input className="h-9 text-sm" value={item.description} onChange={(e) => updateItem(index, "description", e.target.value)} placeholder="Müşterinin faturada göreceği satır notu..." />
+                                  <Input className="h-9 text-sm" value={item.note || ""} onChange={(e) => updateItem(index, "note", e.target.value)} placeholder="Kalem adının altına basılır — ölçü, teslim koşulu, model detayı..." />
                                 </div>
                               )
                             }

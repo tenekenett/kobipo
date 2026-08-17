@@ -1,6 +1,6 @@
 // Etiket Tasarımcısı — barkod/QR üretimi (yalnızca client; canvas kullanır).
 // jsbarcode/qrcode dinamik import edilir ki ortak bundle'a girmesin
-// (lib/pdf/invoice-pdf.ts'teki dinamik import konvansiyonu).
+// (lib/pdf/doc/page-frame.ts'teki dinamik import konvansiyonu).
 // Dönen PNG data-URL'ler hem DOM editöründe <img> hem jsPDF addImage'da
 // kullanılır; ASLA persist edilmez (her render'da türetilir).
 

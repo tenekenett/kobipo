@@ -275,6 +275,10 @@ const company = await prisma.company.findUnique({
       .map((item) => ({
         productId: item.productId || null,
         description: typeof item.description === "string" ? String(item.description).trim() : "",
+        // Satır açıklaması: mal/hizmet adının altına basılan serbest metin
+        // (Mysoft invoiceDetail.note). description'dan AYRI tutulur.
+        note:
+          typeof item.note === "string" && item.note.trim() ? String(item.note).trim() : null,
         unit: typeof item.unit === "string" && item.unit.trim() ? String(item.unit).trim().toUpperCase() : "ADET",
         quantity: parseFloat(item.quantity) || 0,
         unitPrice: parseFloat(item.unitPrice) || 0,
@@ -471,6 +475,7 @@ const company = await prisma.company.findUnique({
             return {
               ...(item.productId ? { product: { connect: { id: item.productId } } } : {}),
               description: item.description,
+              note: item.note,
               unit: item.unit,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
@@ -740,6 +745,8 @@ const invoiceData = {
   // FATURA KALEMLERİ (Ürünler) — iskonto bilgisi de Mysoft AllowanceCharge'a yansır.
   items: invoice.items.map((item) => ({
     description: item.description,
+    // Satır açıklaması → Mysoft invoiceDetail.note (kalem adının altına basılır).
+    note: item.note || undefined,
     quantity: Number(item.quantity),
     unitPrice: Number(item.unitPrice),
     vatRate: Number(item.vatRate),

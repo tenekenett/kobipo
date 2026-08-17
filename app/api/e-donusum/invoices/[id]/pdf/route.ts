@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic"
 
 /**
  * GİB onaylı resmî PDF'i Mysoft'tan indirir.
- * Bu, lib/pdf/invoice-pdf.ts'in ürettiği iç görünümden farklıdır —
+ * Bu, lib/pdf/documents/fatura-document.ts'in ürettiği iç görünümden farklıdır —
  * yasal geçerliliği olan ve GİB UBL'sinden üretilmiş resmî dökümandır.
  */
 export async function GET(

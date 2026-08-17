@@ -297,6 +297,9 @@ async function resolveSendContext(
       : {}),
     items: invoice.items.map((item) => ({
       description: item.description?.trim() || item.product?.name || "",
+      // Satır açıklaması → Mysoft invoiceDetail.note. Kalem ADINA eklenmez;
+      // GİB belgesinde adın altında ayrı not olarak basılır.
+      note: item.note?.trim() || undefined,
       quantity: Number(item.quantity),
       unitPrice: Number(item.unitPrice),
       vatRate: Number(item.vatRate),

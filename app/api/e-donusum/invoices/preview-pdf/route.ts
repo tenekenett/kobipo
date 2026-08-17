@@ -122,6 +122,8 @@ export async function POST(request: Request) {
           : "PERCENT"
       return {
         description: typeof item.description === "string" ? item.description.trim() : "",
+        // Satır açıklaması (kaydedilmemiş editör önizlemesinde de görünmeli).
+        note: typeof item.note === "string" && item.note.trim() ? item.note.trim() : null,
         unit: typeof item.unit === "string" && item.unit.trim() ? item.unit.trim().toUpperCase() : "ADET",
         quantity: parseFloat(item.quantity) || 0,
         unitPrice: parseFloat(item.unitPrice) || 0,
@@ -167,6 +169,7 @@ export async function POST(request: Request) {
 
       return {
         description: it.description,
+        note: it.note,
         quantity: it.quantity,
         unit: it.unit,
         unitPrice: it.unitPrice,

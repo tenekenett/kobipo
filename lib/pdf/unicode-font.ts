@@ -18,15 +18,23 @@ let boldCache: string | null = null
 async function loadAsBase64(filename: string): Promise<string> {
   const fs = await import("node:fs/promises")
   const path = await import("node:path")
-  const filePath = path.join(
-    process.cwd(),
-    "node_modules",
-    "dejavu-fonts-ttf",
-    "ttf",
-    filename,
-  )
-  const buf = await fs.readFile(filePath)
-  return buf.toString("base64")
+  // İKİ kaynak denenir: paket (dejavu-fonts-ttf) ve public/fonts. Tek kaynağa
+  // bağlıyken font paketten dışlanan bir ortamda PDF üretimi komple ENOENT ile
+  // düşüyordu; ikisi de next.config.js > outputFileTracingIncludes ile pakete
+  // dahil ediliyor.
+  const candidates = [
+    path.join(process.cwd(), "node_modules", "dejavu-fonts-ttf", "ttf", filename),
+    path.join(process.cwd(), "public", "fonts", filename),
+  ]
+  for (const filePath of candidates) {
+    try {
+      const buf = await fs.readFile(filePath)
+      return buf.toString("base64")
+    } catch {
+      /* sıradaki kaynağı dene */
+    }
+  }
+  throw new Error(`PDF fontu bulunamadı: ${filename}`)
 }
 
 export async function registerTurkishFont(doc: jsPDF) {

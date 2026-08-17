@@ -1,8 +1,34 @@
-import jsPDF from "jspdf"
-import autoTable from "jspdf-autotable"
-import { registerTurkishFont, TURKISH_PDF_FONT } from "@/lib/pdf/unicode-font"
+import type { Content } from "pdfmake/interfaces"
+import { docTable } from "@/lib/pdf/doc/items-table"
+import { buildDocDefinition, renderPdf, section, CONTENT_WIDTH } from "@/lib/pdf/doc/page-frame"
+import { partyHeader, type PartyLike } from "@/lib/pdf/doc/party-box"
+import { softBreak } from "@/lib/pdf/doc/safe-text"
+import { COLORS, FS, mm } from "@/lib/pdf/doc/theme"
 
-const MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+/**
+ * Personel belgeleri: maaş pusulası, izin talep formu, zimmet teslim/iade formu.
+ *
+ * Dışa açık API korunur (`buildPayslipPdf`, `buildLeaveFormPdf`,
+ * `buildAssetFormPdf`) — yalnız çizim motoru akış tabanlı kite geçti. Eski jsPDF
+ * sürümünde firma unvanı başlık genişliği ölçülerek TEK SATIRA kırpılıyor
+ * (`slice(0,1)`), adres 80 karakterde kesiliyordu (`slice(0, 80)`); bordroda iki
+ * tablo sabit `margin`/`tableWidth` ile yan yana konumlandırılıyordu.
+ */
+
+const MONTHS = [
+  "Ocak",
+  "Şubat",
+  "Mart",
+  "Nisan",
+  "Mayıs",
+  "Haziran",
+  "Temmuz",
+  "Ağustos",
+  "Eylül",
+  "Ekim",
+  "Kasım",
+  "Aralık",
+]
 
 export type PdfCompany = {
   name: string
@@ -21,64 +47,103 @@ export type PdfEmployee = {
   iban?: string | null
 }
 
-const money = (n: number) => `${Number(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`
+const money = (n: number) =>
+  `${Number(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`
+
 const date = (d?: string | Date | null) => (d ? new Date(d).toLocaleDateString("tr-TR") : "-")
 
-async function startDoc(company: PdfCompany, title: string): Promise<jsPDF> {
-  const doc = new jsPDF()
-  await registerTurkishFont(doc)
-
-  // Başlık genişliğini önce ölç ki uzun unvan sağdaki başlığa binmesin.
-  doc.setFontSize(16)
-  doc.setFont(TURKISH_PDF_FONT, "bold")
-  const titleLeftX = 196 - doc.getTextWidth(title)
-
-  doc.setFontSize(15)
-  doc.setFont(TURKISH_PDF_FONT, "bold")
-  // Unvanı başlığın sol kenarından 8mm önce bitecek şekilde sar (min 70mm); tek satır.
-  const companyMaxW = Math.max(70, titleLeftX - 14 - 8)
-  const companyNameLines = (doc.splitTextToSize(company.name || "", companyMaxW) as string[]).slice(0, 1)
-  doc.text(companyNameLines, 14, 18)
-
-  doc.setFontSize(9)
-  doc.setFont(TURKISH_PDF_FONT, "normal")
-  let y = 24
-  if (company.taxNumber) { doc.text(`VKN: ${company.taxNumber}`, 14, y); y += 5 }
-  if (company.address) { doc.text(String(company.address).slice(0, 80), 14, y); y += 5 }
-  if (company.city) { doc.text(company.city, 14, y); y += 5 }
-
-  doc.setFontSize(16)
-  doc.setFont(TURKISH_PDF_FONT, "bold")
-  doc.text(title, 196, 18, { align: "right" })
-
-  doc.setDrawColor(200)
-  doc.line(14, 40, 196, 40)
-  return doc
+/** Belge başlığı: solda firma künyesi, sağda belge adı. */
+function header(company: PdfCompany, title: string): Content {
+  const party: PartyLike = {
+    name: company.name,
+    taxNumber: company.taxNumber,
+    address: company.address,
+    city: company.city,
+    phone: company.phone,
+  }
+  return {
+    columns: [
+      { width: "*", ...(partyHeader(party) as any) },
+      { width: mm(62), text: title, style: "docTitle", alignment: "right" },
+    ],
+    columnGap: mm(6),
+  }
 }
 
-function employeeBlock(doc: jsPDF, emp: PdfEmployee, y: number): number {
-  doc.setFontSize(10)
-  doc.setFont(TURKISH_PDF_FONT, "bold")
-  doc.text("PERSONEL", 14, y)
-  doc.setFont(TURKISH_PDF_FONT, "normal")
-  doc.text(`${emp.firstName} ${emp.lastName}`, 50, y)
-  let yy = y + 6
-  if (emp.nationalId) { doc.text(`T.C.: ${emp.nationalId}`, 50, yy); yy += 6 }
+/** Personel künyesi — etiket/değer iki sütun. */
+function employeeBlock(emp: PdfEmployee): Content {
+  const lines: string[] = []
+  if (emp.nationalId) lines.push(`T.C.: ${emp.nationalId}`)
   const role = [emp.position, emp.department].filter(Boolean).join(" / ")
-  if (role) { doc.text(role, 50, yy); yy += 6 }
-  return yy
+  if (role) lines.push(role)
+  if (emp.iban) lines.push(`IBAN: ${emp.iban}`)
+
+  return {
+    columns: [
+      { width: mm(28), text: "PERSONEL", bold: true, fontSize: FS.body },
+      {
+        width: "*",
+        stack: [
+          { text: softBreak(`${emp.firstName} ${emp.lastName}`), fontSize: FS.h2 },
+          ...lines.map((l) => ({ text: softBreak(l), style: "muted" as const })),
+        ],
+      },
+    ],
+    columnGap: mm(4),
+    margin: [0, mm(6), 0, 0],
+  }
 }
 
-function footer(doc: jsPDF) {
-  doc.setFontSize(8)
-  doc.setTextColor(128)
-  doc.text(`Oluşturma: ${new Date().toLocaleString("tr-TR")}`, 14, 285)
-  doc.setTextColor(0)
+/** Etiket/değer tablosu (form satırları). */
+function fieldTable(rows: Array<[string, string]>): Content {
+  return docTable<{ label: string; value: string }>({
+    columns: [
+      { header: "Alan", width: 30, cell: (r) => r.label },
+      { header: "Bilgi", width: 70, cell: (r) => r.value },
+    ],
+    rows: rows.map(([label, value]) => ({ label, value })),
+  })
 }
 
-function toBytes(doc: jsPDF) {
-  return Buffer.from(doc.output("arraybuffer"))
+/** İmza alanları — çizgi tablo kenarlığından gelir, mutlak koordinat yok. */
+function signatures(left: string, right: string): Content {
+  const cell = (label: string) => ({
+    table: {
+      widths: ["*"],
+      body: [
+        [{ text: " ", margin: [0, mm(10), 0, 0] }],
+        [
+          {
+            text: label,
+            alignment: "center" as const,
+            fontSize: FS.small,
+            margin: [0, mm(1.5), 0, 0],
+          },
+        ],
+      ],
+    },
+    layout: {
+      hLineWidth: (i: number) => (i === 1 ? 0.5 : 0),
+      vLineWidth: () => 0,
+      hLineColor: () => COLORS.line,
+      paddingLeft: () => 0,
+      paddingRight: () => 0,
+      paddingTop: () => 0,
+      paddingBottom: () => 0,
+    },
+  })
+
+  return {
+    columns: [
+      { width: "*", ...cell(left) },
+      { width: "*", ...cell(right) },
+    ],
+    columnGap: mm(14),
+    margin: [0, mm(18), 0, 0],
+  } as unknown as Content
 }
+
+const footerNote = () => `Oluşturma: ${new Date().toLocaleString("tr-TR")}`
 
 // --------------------------- BORDRO / MAAŞ PUSULASI ---------------------------
 export async function buildPayslipPdf(args: {
@@ -95,71 +160,122 @@ export async function buildPayslipPdf(args: {
   netSalary: number
   status: string
   paymentDate?: string | null
-}) {
-  const doc = await startDoc(args.company, "MAAŞ PUSULASI")
-  let y = employeeBlock(doc, args.employee, 50)
-  doc.setFont(TURKISH_PDF_FONT, "normal")
-  doc.setFontSize(10)
-  doc.text(`Dönem: ${MONTHS[args.periodMonth - 1]} ${args.periodYear}`, 14, y + 2)
-  if (args.employee.iban) doc.text(`IBAN: ${args.employee.iban}`, 90, y + 2)
-  y += 8
-
-  autoTable(doc, {
-    startY: y,
-    head: [["Kazançlar", "Tutar"]],
-    body: [
-      ["Brüt Maaş", money(args.grossSalary)],
-      ["Ek Ödeme / Prim", money(args.bonus)],
-      [{ content: "Toplam Kazanç", styles: { fontStyle: "bold" } }, { content: money(args.grossSalary + args.bonus), styles: { fontStyle: "bold" } }],
+}): Promise<Buffer> {
+  const earnings: Array<[string, string]> = [
+    ["Brüt Maaş", money(args.grossSalary)],
+    ["Ek Ödeme / Prim", money(args.bonus)],
+    ["Toplam Kazanç", money(args.grossSalary + args.bonus)],
+  ]
+  const deductions: Array<[string, string]> = [
+    ["Avans", money(args.advance)],
+    ["SGK Kesintisi", money(args.sgkDeduction)],
+    ["Gelir Vergisi", money(args.taxDeduction)],
+    ["Diğer", money(args.otherDeduction)],
+    [
+      "Toplam Kesinti",
+      money(args.advance + args.sgkDeduction + args.taxDeduction + args.otherDeduction),
     ],
-    styles: { font: TURKISH_PDF_FONT, fontSize: 10, cellPadding: 3 },
-    headStyles: { font: TURKISH_PDF_FONT, fillColor: [59, 130, 246], textColor: 255 },
-    columnStyles: { 1: { halign: "right" } },
-    margin: { left: 14, right: 105 },
-    tableWidth: 87,
-  })
+  ]
 
-  autoTable(doc, {
-    startY: y,
-    head: [["Kesintiler", "Tutar"]],
-    body: [
-      ["Avans", money(args.advance)],
-      ["SGK Kesintisi", money(args.sgkDeduction)],
-      ["Gelir Vergisi", money(args.taxDeduction)],
-      ["Diğer", money(args.otherDeduction)],
-      [{ content: "Toplam Kesinti", styles: { fontStyle: "bold" } }, { content: money(args.advance + args.sgkDeduction + args.taxDeduction + args.otherDeduction), styles: { fontStyle: "bold" } }],
-    ],
-    styles: { font: TURKISH_PDF_FONT, fontSize: 10, cellPadding: 3 },
-    headStyles: { font: TURKISH_PDF_FONT, fillColor: [185, 28, 28], textColor: 255 },
-    columnStyles: { 1: { halign: "right" } },
-    margin: { left: 109, right: 14 },
-    tableWidth: 87,
-  })
+  // Yan yana iki tablo: her biri kolon genişliğine göre ölçeklenir (aradaki
+  // boşluk düşülür), yoksa ikinci tablo sayfadan taşar.
+  const halfWidth = (CONTENT_WIDTH - mm(4)) / 2
+  const twoColumnTable = (title: string, rows: Array<[string, string]>, headColor: string) =>
+    ({
+      width: "*",
+      stack: [
+        {
+          ...(docTable<{ label: string; value: string }>({
+            columns: [
+              { header: title, width: 60, cell: (r) => r.label },
+              { header: "Tutar", width: 40, align: "right", cell: (r) => r.value },
+            ],
+            rows: rows.map(([label, value]) => ({ label, value })),
+            headColor,
+            containerWidth: halfWidth,
+          }) as any),
+        },
+      ],
+    }) as any
 
-  const finalY = (doc as any).lastAutoTable.finalY + 12
-  doc.setFillColor(240, 253, 244)
-  doc.rect(14, finalY - 6, 182, 14, "F")
-  doc.setFont(TURKISH_PDF_FONT, "bold")
-  doc.setFontSize(13)
-  doc.text("NET ÖDENEN", 18, finalY + 3)
-  doc.setTextColor(22, 101, 52)
-  doc.text(money(args.netSalary), 192, finalY + 3, { align: "right" })
-  doc.setTextColor(0)
+  const content: Content[] = [
+    header(args.company, "MAAŞ PUSULASI"),
+    employeeBlock(args.employee),
+    {
+      text: `Dönem: ${MONTHS[args.periodMonth - 1]} ${args.periodYear}`,
+      margin: [0, mm(4), 0, 0],
+    },
+    {
+      // İki tablo yan yana: genişlikleri motor paylaştırır (eski sürümde sabit
+      // `tableWidth: 87` + `margin` ile elle konumlandırılıyordu).
+      columns: [
+        twoColumnTable("Kazançlar", earnings, COLORS.headBg),
+        twoColumnTable("Kesintiler", deductions, "#b91c1c"),
+      ],
+      columnGap: mm(4),
+      margin: [0, mm(4), 0, 0],
+    } as unknown as Content,
+    {
+      table: {
+        widths: ["*", "auto"],
+        body: [
+          [
+            {
+              text: "NET ÖDENEN",
+              bold: true,
+              fontSize: FS.h1,
+              fillColor: "#f0fdf4",
+              margin: [mm(2), mm(2), mm(2), mm(2)],
+            },
+            {
+              text: softBreak(money(args.netSalary)),
+              bold: true,
+              fontSize: FS.h1,
+              alignment: "right",
+              color: "#166534",
+              fillColor: "#f0fdf4",
+              margin: [mm(2), mm(2), mm(2), mm(2)],
+            },
+          ],
+        ],
+      },
+      layout: {
+        hLineWidth: () => 0,
+        vLineWidth: () => 0,
+        paddingLeft: () => 0,
+        paddingRight: () => 0,
+        paddingTop: () => 0,
+        paddingBottom: () => 0,
+      },
+      margin: [0, mm(6), 0, 0],
+    },
+    {
+      text: [
+        `Durum: ${args.status === "PAID" ? "Ödendi" : "Bekliyor"}`,
+        args.paymentDate ? `   ·   Ödeme Tarihi: ${date(args.paymentDate)}` : "",
+      ].join(""),
+      fontSize: FS.small,
+      margin: [0, mm(3), 0, 0],
+    },
+    signatures("Personel İmza", "İşveren İmza"),
+  ]
 
-  doc.setFont(TURKISH_PDF_FONT, "normal")
-  doc.setFontSize(9)
-  doc.text(`Durum: ${args.status === "PAID" ? "Ödendi" : "Bekliyor"}`, 14, finalY + 16)
-  if (args.paymentDate) doc.text(`Ödeme Tarihi: ${date(args.paymentDate)}`, 70, finalY + 16)
-
-  doc.text("Personel İmza: ____________________", 14, finalY + 40)
-  doc.text("İşveren İmza: ____________________", 120, finalY + 40)
-
-  footer(doc)
-  return toBytes(doc)
+  return renderPdf(
+    buildDocDefinition({
+      title: `Maaş Pusulası ${args.employee.firstName} ${args.employee.lastName}`,
+      footerNote: footerNote(),
+      content,
+    }),
+  )
 }
 
 // --------------------------- İZİN FORMU ---------------------------
-const LEAVE_TYPES: Record<string, string> = { ANNUAL: "Yıllık İzin", EXCUSE: "Mazeret İzni", SICK: "Hastalık İzni", UNPAID: "Ücretsiz İzin" }
+const LEAVE_TYPES: Record<string, string> = {
+  ANNUAL: "Yıllık İzin",
+  EXCUSE: "Mazeret İzni",
+  SICK: "Hastalık İzni",
+  UNPAID: "Ücretsiz İzin",
+}
 
 export async function buildLeaveFormPdf(args: {
   company: PdfCompany
@@ -170,34 +286,39 @@ export async function buildLeaveFormPdf(args: {
   days: number
   reason?: string | null
   status: string
-}) {
-  const doc = await startDoc(args.company, "İZİN TALEP FORMU")
-  let y = employeeBlock(doc, args.employee, 50) + 6
+}): Promise<Buffer> {
+  const content: Content[] = [
+    header(args.company, "İZİN TALEP FORMU"),
+    employeeBlock(args.employee),
+    section(
+      null,
+      fieldTable([
+        ["İzin Türü", LEAVE_TYPES[args.type] || args.type],
+        ["Başlangıç Tarihi", date(args.startDate)],
+        ["Bitiş Tarihi", date(args.endDate)],
+        ["Toplam Gün", `${args.days} gün`],
+        ["Açıklama", args.reason || "-"],
+        [
+          "Durum",
+          args.status === "APPROVED"
+            ? "Onaylandı"
+            : args.status === "REJECTED"
+              ? "Reddedildi"
+              : "Bekliyor",
+        ],
+      ]),
+      mm(5),
+    ),
+    signatures("Talep Eden (Personel)", "Onaylayan (Yönetici)"),
+  ]
 
-  autoTable(doc, {
-    startY: y,
-    body: [
-      ["İzin Türü", LEAVE_TYPES[args.type] || args.type],
-      ["Başlangıç Tarihi", date(args.startDate)],
-      ["Bitiş Tarihi", date(args.endDate)],
-      ["Toplam Gün", `${args.days} gün`],
-      ["Açıklama", args.reason || "-"],
-      ["Durum", args.status === "APPROVED" ? "Onaylandı" : args.status === "REJECTED" ? "Reddedildi" : "Bekliyor"],
-    ],
-    styles: { font: TURKISH_PDF_FONT, fontSize: 11, cellPadding: 4 },
-    columnStyles: { 0: { fontStyle: "bold", cellWidth: 50, fillColor: [243, 244, 246] }, 1: { cellWidth: "auto" } },
-    margin: { left: 14, right: 14 },
-  })
-
-  const finalY = (doc as any).lastAutoTable.finalY + 30
-  doc.setFontSize(10)
-  doc.text("Talep Eden (Personel)", 30, finalY, { align: "center" })
-  doc.text("Onaylayan (Yönetici)", 165, finalY, { align: "center" })
-  doc.line(14, finalY - 4, 76, finalY - 4)
-  doc.line(134, finalY - 4, 196, finalY - 4)
-
-  footer(doc)
-  return toBytes(doc)
+  return renderPdf(
+    buildDocDefinition({
+      title: `İzin Formu ${args.employee.firstName} ${args.employee.lastName}`,
+      footerNote: footerNote(),
+      content,
+    }),
+  )
 }
 
 // --------------------------- ZİMMET TESLİM/İADE FORMU ---------------------------
@@ -212,42 +333,37 @@ export async function buildAssetFormPdf(args: {
   returnDate?: string | Date | null
   status: string
   notes?: string | null
-}) {
+}): Promise<Buffer> {
   const isReturned = args.status === "RETURNED"
-  const doc = await startDoc(args.company, isReturned ? "ZİMMET İADE FORMU" : "ZİMMET TESLİM FORMU")
-  let y = employeeBlock(doc, args.employee, 50) + 6
-
-  autoTable(doc, {
-    startY: y,
-    body: [
-      ["Demirbaş / Ekipman", args.assetName],
-      ["Kategori", args.category || "-"],
-      ["Seri No", args.serialNo || "-"],
-      ["Adet", String(args.quantity)],
-      ["Zimmet Tarihi", date(args.assignedDate)],
-      ["İade Tarihi", isReturned ? date(args.returnDate) : "-"],
-      ["Açıklama", args.notes || "-"],
-    ],
-    styles: { font: TURKISH_PDF_FONT, fontSize: 11, cellPadding: 4 },
-    columnStyles: { 0: { fontStyle: "bold", cellWidth: 50, fillColor: [243, 244, 246] }, 1: { cellWidth: "auto" } },
-    margin: { left: 14, right: 14 },
-  })
-
-  const finalY = (doc as any).lastAutoTable.finalY + 16
-  doc.setFontSize(9)
-  doc.setFont(TURKISH_PDF_FONT, "normal")
   const statement = isReturned
     ? "Yukarıda belirtilen demirbaş(lar) eksiksiz ve sağlam olarak teslim alınmıştır."
     : "Yukarıda belirtilen demirbaş(lar) tarafıma zimmetlenmiş olup, korunmasından sorumlu olduğumu kabul ederim."
-  doc.text(doc.splitTextToSize(statement, 182), 14, finalY)
 
-  const signY = finalY + 30
-  doc.setFontSize(10)
-  doc.text("Teslim Eden", 30, signY, { align: "center" })
-  doc.text("Teslim Alan (Personel)", 165, signY, { align: "center" })
-  doc.line(14, signY - 4, 76, signY - 4)
-  doc.line(134, signY - 4, 196, signY - 4)
+  const content: Content[] = [
+    header(args.company, isReturned ? "ZİMMET İADE FORMU" : "ZİMMET TESLİM FORMU"),
+    employeeBlock(args.employee),
+    section(
+      null,
+      fieldTable([
+        ["Demirbaş / Ekipman", args.assetName],
+        ["Kategori", args.category || "-"],
+        ["Seri No", args.serialNo || "-"],
+        ["Adet", String(args.quantity)],
+        ["Zimmet Tarihi", date(args.assignedDate)],
+        ["İade Tarihi", isReturned ? date(args.returnDate) : "-"],
+        ["Açıklama", args.notes || "-"],
+      ]),
+      mm(5),
+    ),
+    { text: softBreak(statement), fontSize: FS.small, margin: [0, mm(6), 0, 0] },
+    signatures("Teslim Eden", "Teslim Alan (Personel)"),
+  ]
 
-  footer(doc)
-  return toBytes(doc)
+  return renderPdf(
+    buildDocDefinition({
+      title: `${isReturned ? "Zimmet İade" : "Zimmet Teslim"} ${args.assetName}`,
+      footerNote: footerNote(),
+      content,
+    }),
+  )
 }

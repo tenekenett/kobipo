@@ -76,6 +76,30 @@ function pdfAngle(rotation: LabelRotation): number {
   return (360 - rotation) % 360
 }
 
+/**
+ * Metni kutu genişliğine göre kısaltır (gerekiyorsa sonuna "…" koyar).
+ *
+ * Etiket sabit boyutludur; taşan metin komşu çıkartmanın üstüne biner. İkili
+ * arama ile sığan en uzun ön ek bulunur — karakter karakter denemek 5.000
+ * etiketlik sayfada pahalı olur.
+ */
+function clipToWidth(doc: jsPDF, str: string, maxW: number): string {
+  if (!str) return str
+  if (doc.getTextWidth(str) <= maxW) return str
+
+  const ell = "…"
+  if (doc.getTextWidth(ell) > maxW) return ""
+
+  let lo = 0
+  let hi = str.length
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (doc.getTextWidth(str.slice(0, mid) + ell) <= maxW) lo = mid
+    else hi = mid - 1
+  }
+  return str.slice(0, lo).trimEnd() + ell
+}
+
 function drawTextBlock(
   doc: jsPDF,
   fontName: string,
@@ -104,7 +128,15 @@ function drawTextBlock(
   const lines: string[] =
     fit === "wrap" ? (doc.splitTextToSize(str, el.w) as string[]) : [str]
   const maxLines = Math.max(1, Math.floor(el.h / lineH + 0.01))
-  const drawn = lines.slice(0, maxLines)
+  // ETİKET BÜYÜYEMEZ: belgelerde metni sarıp bloğu uzatırız, çıkartmada bu
+  // mümkün değil — sığmayan metin komşu etikete taşar. Bu yüzden kutuya
+  // sığmayan satır üç noktayla KISALTILIR (küçültme 4pt tabanına dayandığında
+  // ya da sarma dışı modda tek satır uzun kaldığında devreye girer).
+  const drawn = lines.slice(0, maxLines).map((line, i) => {
+    const isLastDrawn = i === Math.min(lines.length, maxLines) - 1
+    const overflowing = lines.length > maxLines && isLastDrawn
+    return clipToWidth(doc, overflowing ? `${line} …` : line, el.w)
+  })
   const ascentMm = sizePt * PT_TO_MM * ASCENT
 
   const cx = ox + el.x + el.w / 2

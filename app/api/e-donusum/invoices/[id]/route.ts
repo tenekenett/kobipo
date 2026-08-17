@@ -41,6 +41,9 @@ function normalizeInvoiceItem(item: any) {
   return {
     productId: item.productId || null,
     description: typeof item.description === "string" ? String(item.description).trim() : "",
+    // Satır açıklaması: mal/hizmet adının altına basılan serbest metin
+    // (Mysoft invoiceDetail.note). description'dan AYRI tutulur.
+    note: typeof item.note === "string" && item.note.trim() ? String(item.note).trim() : null,
     unit:
       typeof item.unit === "string" && item.unit.trim()
         ? String(item.unit).trim().toUpperCase()
@@ -502,6 +505,7 @@ export async function PUT(
               invoiceId: resolvedParams.id,
               productId: item.productId || null,
               description: item.description,
+              note: item.note,
               unit: item.unit,
               quantity: new Decimal(item.quantity),
               unitPrice: new Decimal(item.unitPrice),

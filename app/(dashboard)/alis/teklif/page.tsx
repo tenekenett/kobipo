@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ProductCombobox } from "@/components/ui/product-combobox"
 import { SearchSelect } from "@/components/ui/search-select"
 import { QuickCariDialog } from "@/components/e-donusum/quick-cari-dialog"
-import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -26,12 +25,21 @@ import {
   StyledTableRow,
   EntityCell,
 } from "@/components/ui/styled-table"
+import {
+  QuoteLinesEditor,
+  QuoteTotalsSummary,
+  emptyQuoteLine,
+  round6,
+  type QuoteLine,
+  type QuoteProduct,
+} from "@/components/teklif/quote-lines"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { Plus, RefreshCcw, Trash2, FileText, Minus, Search, ScrollText, Hourglass, CheckCircle2 } from "lucide-react"
+import { Plus, RefreshCcw, Trash2, FileText, Search, ScrollText, Hourglass, CheckCircle2, Eye } from "lucide-react"
 
 type Quote = {
   id: string
+  slug?: string
   quoteNo: string
   status: string
   date: string
@@ -41,24 +49,6 @@ type Quote = {
   supplier?: { name: string } | null
   _count?: { items: number }
 }
-
-type ItemLine = {
-  productId: string
-  description: string
-  quantity: string
-  unitPrice: string
-  vatRate: string
-  discountRate: string
-}
-
-const emptyLine = (): ItemLine => ({
-  productId: "",
-  description: "",
-  quantity: "1",
-  unitPrice: "0",
-  vatRate: "20",
-  discountRate: "0",
-})
 
 // İptal/CONVERTED hariç, kullanıcı elle değiştirebilen RFQ durumları.
 const EDITABLE_STATUSES: Record<string, string> = {
@@ -73,18 +63,6 @@ function fmt(n: number) {
   return Number(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function computeLineTotals(lines: { quantity: string; unitPrice: string; discountRate: string; vatRate: string }[]) {
-  let net = 0
-  let vat = 0
-  for (const row of lines) {
-    const gross = Number(row.quantity || 0) * Number(row.unitPrice || 0)
-    const lineNet = gross - gross * (Number(row.discountRate || 0) / 100)
-    net += lineNet
-    vat += lineNet * (Number(row.vatRate || 0) / 100)
-  }
-  return { net, vat, total: net + vat }
-}
-
 export default function SatinAlmaTeklifiPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -94,7 +72,10 @@ export default function SatinAlmaTeklifiPage() {
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([])
-  const [products, setProducts] = useState<Array<{ id: string; name: string; purchasePrice?: number | null }>>([])
+  const [products, setProducts] = useState<QuoteProduct[]>([])
+  // Güncel TCMB kurları (USD/EUR → TRY). Modal açılınca çekilir; ürünün para
+  // birimi belge para biriminden farklıysa fiyat bununla çevrilir.
+  const [rates, setRates] = useState<{ USD: number; EUR: number; date: string } | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   // Tedarikçi listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
@@ -108,7 +89,7 @@ export default function SatinAlmaTeklifiPage() {
     validUntil: "",
     notes: "",
   })
-  const [lines, setLines] = useState<ItemLine[]>([emptyLine()])
+  const [lines, setLines] = useState<QuoteLine[]>([emptyQuoteLine()])
 
   async function fetchQuotes() {
     if (!companyId) return
@@ -133,22 +114,64 @@ export default function SatinAlmaTeklifiPage() {
     if (res.ok) setProducts(await res.json())
   }
 
+  async function fetchRates() {
+    try {
+      const res = await fetch("/api/kur")
+      const data = await res.json()
+      if (data?.success) {
+        setRates({ USD: Number(data.USD), EUR: Number(data.EUR), date: String(data.date || "") })
+      }
+    } catch {
+      /* kur alınamadıysa sessiz geç; çeviri denenince kullanıcı uyarılır */
+    }
+  }
+
   useEffect(() => {
-    if (isCreateOpen && companyId) fetchProducts()
+    if (isCreateOpen && companyId) {
+      fetchProducts()
+      fetchRates()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCreateOpen, companyId])
 
-  function updateLine(index: number, patch: Partial<ItemLine>) {
-    setLines((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  // Kur yardımcıları: X → TRY oranı ve iki para birimi arası çeviri (kur yoksa null).
+  const rateOf = (cur: string): number =>
+    (({ TRY: 1, USD: rates?.USD || 0, EUR: rates?.EUR || 0 }) as Record<string, number>)[cur] ?? 0
+  const convert = (value: number, from: string, to: string): number | null => {
+    if (from === to) return value
+    const rf = rateOf(from)
+    const rt = rateOf(to)
+    if (!rf || !rt) return null
+    return value * (rf / rt)
   }
 
-  function applyProductToLine(index: number, productId: string) {
-    const p = products.find((x) => x.id === productId)
-    updateLine(index, {
-      productId,
-      description: p?.name || "",
-      unitPrice: p?.purchasePrice != null ? String(Number(p.purchasePrice)) : lines[index]?.unitPrice || "0",
-    })
+  // Belge para birimi değişince mevcut satırların birim fiyat + referans fiyatını
+  // eski→yeni para birimine güncel kurla çevir (satış teklifiyle aynı davranış).
+  function changeCurrency(next: string) {
+    const oldCur = (form.currency || "TRY").toUpperCase()
+    const newCur = next.toUpperCase()
+    if (newCur === oldCur) return
+    const factor = convert(1, oldCur, newCur)
+    if (factor == null) {
+      toast({
+        title: "Kur alınamadı",
+        description: "Güncel kur olmadan tutarlar çevrilemedi; para birimi değişti, değerler aynı kaldı.",
+        variant: "destructive",
+      })
+    } else if (factor !== 1) {
+      setLines((prev) =>
+        prev.map((row) => {
+          const patch: Partial<QuoteLine> = {
+            unitPrice: String(round6((Number(row.unitPrice) || 0) * factor)),
+          }
+          if (row.refPrice && row.refPrice.trim() !== "") {
+            patch.refPrice = String(round6((Number(row.refPrice) || 0) * factor))
+          }
+          return { ...row, ...patch }
+        }),
+      )
+    }
+    setForm((prev) => ({ ...prev, currency: newCur }))
   }
 
   async function createQuote() {
@@ -161,6 +184,7 @@ export default function SatinAlmaTeklifiPage() {
       .map((row) => ({
         productId: row.productId || null,
         description: row.description.trim() || "Kalem",
+        note: row.note.trim() || null,
         quantity: Number(row.quantity || 0),
         unitPrice: Number(row.unitPrice || 0),
         vatRate: Number(row.vatRate || 0),
@@ -197,7 +221,7 @@ export default function SatinAlmaTeklifiPage() {
           validUntil: "",
           notes: "",
         })
-        setLines([emptyLine()])
+        setLines([emptyQuoteLine()])
         setIsCreateOpen(false)
         fetchQuotes()
       } else {
@@ -274,6 +298,10 @@ export default function SatinAlmaTeklifiPage() {
     return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
   }
 
+  // Panel içi her gezinme seçili firmayı TAŞIMAK zorunda (bkz. CLAUDE.md):
+  // param'sız bir link bağlamı düşürür ve kullanıcı başka firmanın verisine geçer.
+  const companyQs = `?company=${encodeURIComponent(companyId)}`
+
   const term = search.trim().toLocaleLowerCase("tr-TR")
   const filtered = quotes.filter((q) => {
     if (statusFilter !== "ALL" && q.status !== statusFilter) return false
@@ -291,7 +319,6 @@ export default function SatinAlmaTeklifiPage() {
     .filter((q) => q.status === "CONVERTED")
     .reduce((s, q) => s + Number(q.totalAmount), 0)
 
-  const liveTotals = computeLineTotals(lines)
 
   return (
     <div className="space-y-6">
@@ -347,7 +374,7 @@ export default function SatinAlmaTeklifiPage() {
                     Yeni Teklif
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
                   <DialogHeader>
                     <DialogTitle>Yeni Satın Alma Teklifi</DialogTitle>
                   </DialogHeader>
@@ -366,10 +393,7 @@ export default function SatinAlmaTeklifiPage() {
                       </div>
                       <div>
                         <Label>Para birimi</Label>
-                        <Select
-                          value={form.currency}
-                          onValueChange={(value) => setForm((prev) => ({ ...prev, currency: value }))}
-                        >
+                        <Select value={form.currency} onValueChange={changeCurrency}>
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
@@ -379,6 +403,12 @@ export default function SatinAlmaTeklifiPage() {
                             <SelectItem value="EUR">EUR</SelectItem>
                           </SelectContent>
                         </Select>
+                        {rates && (
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            TCMB{rates.date ? ` ${rates.date}` : ""}: 1 USD = {rates.USD.toLocaleString("tr-TR")} ₺ · 1 EUR ={" "}
+                            {rates.EUR.toLocaleString("tr-TR")} ₺
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -399,91 +429,16 @@ export default function SatinAlmaTeklifiPage() {
                         />
                       </div>
                     </div>
-                    <div>
-                      <div className="mb-2 flex items-center justify-between">
-                        <Label>Kalemler</Label>
-                        <Button type="button" size="sm" variant="outline" onClick={() => setLines((l) => [...l, emptyLine()])}>
-                          <Plus className="mr-1 h-3 w-3" />
-                          Satır
-                        </Button>
-                      </div>
-                      <div className="space-y-3 rounded-md border p-3">
-                        {lines.map((row, index) => (
-                          <div key={index} className="grid gap-2 border-b pb-3 last:border-0 last:pb-0 sm:grid-cols-12">
-                            <div className="sm:col-span-7">
-                              <Label className="text-xs text-muted-foreground">Ürün / Açıklama</Label>
-                              <ProductCombobox
-                                products={products}
-                                value={row.description}
-                                onTextChange={(text) => updateLine(index, { description: text, productId: "" })}
-                                onSelectProduct={(p) => applyProductToLine(index, p.id)}
-                                onCreateProduct={async (name) => {
-                                  if (!companyId) return false
-                                  try {
-                                    const created = await quickCreateProduct({ companyId, name, purchasePrice: row.unitPrice, vatRate: row.vatRate })
-                                    setProducts((prev) => [...prev, created])
-                                    updateLine(index, {
-                                      productId: created.id,
-                                      description: created.name,
-                                      unitPrice: created.purchasePrice != null ? String(created.purchasePrice) : row.unitPrice,
-                                    })
-                                    return true
-                                  } catch (e) {
-                                    toast({ title: "Hata", description: e instanceof Error ? e.message : "Ürün eklenemedi", variant: "destructive" })
-                                    return false
-                                  }
-                                }}
-                              />
-                            </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:col-span-5">
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Miktar</Label>
-                                <Input
-                                  type="number"
-                                  value={row.quantity}
-                                  onChange={(e) => updateLine(index, { quantity: e.target.value })}
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Birim fiyat</Label>
-                                <Input
-                                  type="number"
-                                  value={row.unitPrice}
-                                  onChange={(e) => updateLine(index, { unitPrice: e.target.value })}
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-xs text-muted-foreground">İsk. %</Label>
-                                <Input
-                                  type="number"
-                                  value={row.discountRate}
-                                  onChange={(e) => updateLine(index, { discountRate: e.target.value })}
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-xs text-muted-foreground">KDV %</Label>
-                                <Input
-                                  type="number"
-                                  value={row.vatRate}
-                                  onChange={(e) => updateLine(index, { vatRate: e.target.value })}
-                                />
-                              </div>
-                            </div>
-                            <div className="flex justify-end sm:col-span-12">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                disabled={lines.length <= 1}
-                                onClick={() => setLines((l) => l.filter((_, i) => i !== index))}
-                              >
-                                <Minus className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    <QuoteLinesEditor
+                      lines={lines}
+                      onChange={setLines}
+                      products={products}
+                      onProductsChange={(updater) => setProducts(updater)}
+                      companyId={companyId}
+                      currency={form.currency}
+                      priceMode="purchase"
+                      convert={convert}
+                    />
                     <div>
                       <Label>Not</Label>
                       <Input
@@ -492,20 +447,7 @@ export default function SatinAlmaTeklifiPage() {
                         onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
                       />
                     </div>
-                    <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-sm">
-                      <div className="flex justify-between text-muted-foreground">
-                        <span>Ara Toplam</span>
-                        <span>{fmt(liveTotals.net)} {form.currency}</span>
-                      </div>
-                      <div className="flex justify-between text-muted-foreground">
-                        <span>KDV</span>
-                        <span>{fmt(liveTotals.vat)} {form.currency}</span>
-                      </div>
-                      <div className="flex justify-between font-semibold text-foreground">
-                        <span>Genel Toplam</span>
-                        <span>{fmt(liveTotals.total)} {form.currency}</span>
-                      </div>
-                    </div>
+                    <QuoteTotalsSummary lines={lines} currency={form.currency} />
                     <Button className="w-full" onClick={createQuote} disabled={isSaving}>
                       {isSaving ? "Kaydediliyor…" : "Kaydet"}
                     </Button>
@@ -587,13 +529,26 @@ export default function SatinAlmaTeklifiPage() {
                     <StyledTableHead className="text-center">Kalem</StyledTableHead>
                     <StyledTableHead className="w-[150px]">Durum</StyledTableHead>
                     <StyledTableHead className="text-right">Toplam</StyledTableHead>
-                    <StyledTableHead className="w-[100px] text-right">İşlem</StyledTableHead>
+                    <StyledTableHead className="w-[130px] text-right">İşlem</StyledTableHead>
                   </StyledTableHeaderRow>
                 </TableHeader>
                 <TableBody>
                   {filtered.map((quote, idx) => (
-                    <StyledTableRow key={quote.id} index={idx}>
-                      <TableCell className="font-mono text-xs font-medium">{quote.quoteNo}</TableCell>
+                    <StyledTableRow
+                      key={quote.id}
+                      index={idx}
+                      className="cursor-pointer"
+                      onClick={() => router.push(`/teklif/${quote.slug || quote.id}${companyQs}`)}
+                    >
+                      <TableCell className="font-medium">
+                        <Link
+                          href={`/teklif/${quote.slug || quote.id}${companyQs}`}
+                          className="font-mono text-xs text-kobipo-blue hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {quote.quoteNo}
+                        </Link>
+                      </TableCell>
                       <TableCell className="whitespace-nowrap text-xs">
                         {new Date(quote.date).toLocaleDateString("tr-TR")}
                       </TableCell>
@@ -606,7 +561,7 @@ export default function SatinAlmaTeklifiPage() {
                       <TableCell className="text-center text-xs text-muted-foreground">
                         {quote._count?.items ?? 0}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         {quote.status === "CONVERTED" ? (
                           <Badge variant="outline">Faturalandı</Badge>
                         ) : (
@@ -627,8 +582,13 @@ export default function SatinAlmaTeklifiPage() {
                       <TableCell className="text-right font-semibold whitespace-nowrap">
                         {Number(quote.totalAmount).toFixed(2)} {quote.currency || "TRY"}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
+                          <Button size="sm" variant="ghost" asChild title="Detayı aç">
+                            <Link href={`/teklif/${quote.slug || quote.id}${companyQs}`}>
+                              <Eye className="h-4 w-4" />
+                            </Link>
+                          </Button>
                           <Button
                             size="sm"
                             variant="ghost"

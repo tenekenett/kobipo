@@ -46,7 +46,7 @@ export async function GET(
   })
 
   const fileName = `Bordro_${rec.employee.firstName}_${rec.employee.lastName}_${rec.periodMonth}-${rec.periodYear}.pdf`
-  return new NextResponse(pdf, {
+  return new NextResponse(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="${encodeURIComponent(fileName)}"`,

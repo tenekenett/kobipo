@@ -65,6 +65,8 @@ export interface InvoiceData {
 
 export interface InvoiceItemData {
   description: string
+  /** Satır açıklaması — kalem adının altına basılır (Mysoft invoiceDetail.note). */
+  note?: string
   quantity: number
   unitPrice: number
   vatRate: number

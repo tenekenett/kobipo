@@ -1,19 +1,18 @@
-import jsPDF from "jspdf"
-import autoTable from "jspdf-autotable"
-import { registerTurkishFont, TURKISH_PDF_FONT } from "@/lib/pdf/unicode-font"
+import type { Content, TDocumentDefinitions } from "pdfmake/interfaces"
+import { docTable, type Column } from "@/lib/pdf/doc/items-table"
+import { buildDocDefinition, renderPdf, CONTENT_WIDTH } from "@/lib/pdf/doc/page-frame"
+import { softBreak } from "@/lib/pdf/doc/safe-text"
+import { COLORS, FS, mm } from "@/lib/pdf/doc/theme"
 
 /**
- * GİB e-Arşiv / e-Fatura görünümünü TAKLİT eden taslak PDF üreteci.
+ * GİB düzeninde (taslak) fatura PDF'i.
  *
- * ÖNEMLİ: Bu YASAL bir belge DEĞİLDİR. Resmî GİB PDF'i yalnızca Mysoft, fatura
- * gönderildikten (ETTN/uuid alındıktan) sonra üretir — bkz.
- * `app/api/e-donusum/invoices/[id]/pdf/route.ts`. Buradaki çıktı, kullanıcı
- * faturayı resmileştirmeden önce GİB düzeninde bir ÖN İZLEME görebilsin diye
- * üretilir ve üzerinde belirgin "TASLAK" filigranı taşır.
- *
- * Etiketler ve kolon düzeni, gönderimde kullanılan örnek XSLT'lerle (e-arsiv.xslt,
- * e-fatura.xslt) aynı GİB terminolojisini kullanır: "Mal Hizmet Toplam Tutarı",
- * "Vergiler Dahil Toplam Tutar", "Ödenecek Tutar", "Senaryo", "ETTN" vb.
+ * Dışa açık API korunur — `generateGibInvoicePdfBuffer(data)` — yalnız çizim
+ * motoru değişti: jsPDF + mutlak mm koordinatları yerine akış tabanlı pdfmake.
+ * Eski sürümde her blok kendi y imlecini elle taşıyordu (`partyY = max(leftY,
+ * infoY) + 4`, `notesY = max(ty, ...) + 8`); uzun bir unvan ya da adres bu
+ * hesapları kaydırıp blokları üst üste bindiriyordu. Yerleşim regresyonu:
+ * `lib/pdf/doc/gib-invoice-fuzz.test.ts`.
  */
 
 export type GibDocKind = "E_INVOICE" | "E_ARCHIVE" | "MANUAL"
@@ -31,6 +30,8 @@ export interface GibInvoiceParty {
 
 export interface GibInvoiceLine {
   description: string
+  /** Satır açıklaması — mal/hizmet adının altına ikinci satır olarak basılır. */
+  note?: string | null
   quantity: number
   unit?: string | null
   unitPrice: number
@@ -84,7 +85,8 @@ export interface GibInvoiceData {
   ettn?: string | null
   date: string
   dueDate?: string | null
-  type: "SALES" | "PURCHASE" | "RETURN"
+  /** SALES | PURCHASE | RETURN */
+  type: string
   invoiceType: GibDocKind
   currency?: string
   company: GibInvoiceParty
@@ -96,11 +98,11 @@ export interface GibInvoiceData {
   isDraft?: boolean
 }
 
-const BRAND: [number, number, number] = [20, 61, 107] // #143d6b
-const MUTED: [number, number, number] = [110, 110, 110]
-const LINE: [number, number, number] = [210, 214, 220]
+const BRAND = "#143d6b"
+const MUTED = "#6e6e6e"
+const LINE = "#d2d6dc"
 
-function fmt(n: number): string {
+function fmt(n: unknown): string {
   return (Number(n) || 0).toLocaleString("tr-TR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -163,7 +165,7 @@ function integerToTurkishWords(value: number): string {
   return words.join(" ").replace(/\s+/g, " ").trim()
 }
 
-function amountInWords(amount: number, currency = "TRY"): string {
+export function amountInWords(amount: number, currency = "TRY"): string {
   const safe = Number(amount) || 0
   const lira = Math.floor(safe)
   const kurus = Math.round((safe - lira) * 100)
@@ -175,332 +177,362 @@ function amountInWords(amount: number, currency = "TRY"): string {
   return `Yalnız: ${liraWords} ${curLabel}`
 }
 
-function drawWatermark(doc: jsPDF, pageW: number, pageH: number) {
-  const g = (doc as any).GState
-  if (typeof g === "function") {
-    ;(doc as any).setGState(new g({ opacity: 0.08 }))
+/** Taraf künyesi satırları (GİB düzeninde VD ve VKN aynı satırda). */
+function partyLines(p: GibInvoiceParty): string[] {
+  const lines: string[] = []
+  if (p.taxOffice || p.taxNumber) {
+    lines.push(`${p.taxOffice ? `${p.taxOffice} VD - ` : ""}VKN/TCKN: ${p.taxNumber || "-"}`)
   }
-  doc.setTextColor(20, 61, 107)
-  doc.setFont(TURKISH_PDF_FONT, "bold")
-  doc.setFontSize(90)
-  doc.text("TASLAK", pageW / 2, pageH / 2, { align: "center", angle: 40 })
-  if (typeof g === "function") {
-    ;(doc as any).setGState(new g({ opacity: 1 }))
-  }
-  doc.setTextColor(0, 0, 0)
+  if (p.address) lines.push(p.address)
+  const loc = [p.district, p.city].filter(Boolean).join(" / ")
+  if (loc) lines.push(loc)
+  if (p.phone) lines.push(`Tel: ${p.phone}`)
+  if (p.email) lines.push(`E-Posta: ${p.email}`)
+  return lines
 }
 
-/**
- * GİB düzeninde taslak fatura PDF'i üretir ve Buffer döndürür (server-side).
- */
-export async function generateGibInvoicePdfBuffer(data: GibInvoiceData): Promise<Buffer> {
-  const isDraft = data.isDraft !== false
-  const doc = new jsPDF({ unit: "mm", format: "a4" })
-  await registerTurkishFont(doc)
-  const FONT = TURKISH_PDF_FONT
-  const pageW = doc.internal.pageSize.getWidth()
-  const pageH = doc.internal.pageSize.getHeight()
-  const marginX = 14
-  const rightX = pageW - marginX
+/** Sağ üstteki belge bilgi kutusu (başlık şeridi + etiket/değer satırları). */
+function infoBox(data: GibInvoiceData, isDraft: boolean, width: number): Content {
+  const rows: Array<[string, string]> = [
+    ["Senaryo", scenarioLabel(data.invoiceType)],
+    ["Fatura Tipi", data.type === "RETURN" ? "IADE" : "SATIS"],
+    ["Fatura No", data.invoiceNo || "(otomatik atanacak)"],
+    ["Fatura Tarihi", fmtDate(data.date)],
+  ]
+  if (data.dueDate) rows.push(["Vade Tarihi", fmtDate(data.dueDate)])
+  rows.push(["ETTN", data.ettn || (isDraft ? "(taslak — henüz yok)" : "-")])
 
-  if (isDraft) drawWatermark(doc, pageW, pageH)
+  return {
+    table: {
+      widths: ["auto", "*"],
+      body: [
+        [
+          {
+            text: docTitle(data.invoiceType),
+            colSpan: 2,
+            alignment: "center",
+            bold: true,
+            fontSize: FS.h1,
+            color: "#ffffff",
+            fillColor: BRAND,
+            margin: [mm(1), mm(1.4), mm(1), mm(1.4)],
+          },
+          {},
+        ],
+        ...rows.map(([label, value], i) => [
+          {
+            text: label,
+            bold: true,
+            fontSize: FS.tiny,
+            color: MUTED,
+            fillColor: i % 2 === 1 ? "#f4f6f9" : undefined,
+            margin: [mm(1.2), mm(1), mm(1), mm(1)] as [number, number, number, number],
+          },
+          {
+            text: softBreak(value),
+            alignment: "right" as const,
+            fontSize: FS.tiny,
+            fillColor: i % 2 === 1 ? "#f4f6f9" : undefined,
+            margin: [mm(1), mm(1), mm(1.2), mm(1)] as [number, number, number, number],
+          },
+        ]),
+      ],
+    },
+    layout: {
+      hLineWidth: () => 0.3,
+      vLineWidth: () => 0.3,
+      hLineColor: () => LINE,
+      vLineColor: () => LINE,
+      paddingLeft: () => 0,
+      paddingRight: () => 0,
+      paddingTop: () => 0,
+      paddingBottom: () => 0,
+    },
+    width,
+  } as Content
+}
 
-  // --- Üst uyarı bandı (taslak) ---
-  let topY = 12
-  if (isDraft) {
-    doc.setFillColor(255, 247, 237)
-    doc.setDrawColor(245, 158, 11)
-    doc.setLineWidth(0.3)
-    doc.roundedRect(marginX, topY, pageW - marginX * 2, 8, 1, 1, "FD")
-    doc.setFont(FONT, "bold")
-    doc.setFontSize(8.5)
-    doc.setTextColor(146, 64, 14)
-    doc.text(
-      "TASLAK — Bu bir ön izlemedir, mali/yasal değeri yoktur. Resmî belge, fatura resmileştirildikten sonra GİB tarafından üretilir.",
-      pageW / 2,
-      topY + 5.2,
-      { align: "center" },
-    )
-    doc.setTextColor(0, 0, 0)
-    topY += 12
-  } else {
-    topY = 16
+/** Sağdaki dip toplam kutusu (son satır vurgulu). */
+function totalsBox(data: GibInvoiceData): Content {
+  const t = data.totals
+  const curLabel = data.currency === "TRY" || !data.currency ? "TL" : data.currency
+  const rows: Array<[string, string, boolean]> = [
+    ["Mal Hizmet Toplam Tutarı", `${fmt(t.grossTotal)} ${curLabel}`, false],
+  ]
+  const discountTotal = (t.lineDiscountTotal || 0) + (t.globalDiscount || 0)
+  if (discountTotal > 0) rows.push(["Toplam İskonto", `${fmt(discountTotal)} ${curLabel}`, false])
+  if ((t.globalCharge || 0) > 0)
+    rows.push(["Fatura Altı İlave", `${fmt(t.globalCharge || 0)} ${curLabel}`, false])
+
+  // ÖTV ve matraha giren pay (GEKAP) mal/hizmet bedeline eklenir, KDV bu toplam
+  // üzerinden hesaplanır → ikisi de "KDV Matrahı" satırından ÖNCE listelenir.
+  const otherTaxInBase = t.otherTaxInBaseAmount || 0
+  const otherTaxOnTop = (t.otherTaxAmount || 0) - otherTaxInBase
+  const gekap = t.gekapAmount || 0
+  const vatBase = t.vatBaseAmount ?? t.netAmount
+  if ((t.exciseAmount || 0) > 0) rows.push(["ÖTV", `${fmt(t.exciseAmount)} ${curLabel}`, false])
+  if (gekap > 0) rows.push(["GEKAP", `${fmt(gekap)} ${curLabel}`, false])
+  if (otherTaxInBase > 0)
+    rows.push([t.otherTaxLabel || "GEKAP", `${fmt(otherTaxInBase)} ${curLabel}`, false])
+  rows.push(["KDV Matrahı", `${fmt(vatBase)} ${curLabel}`, false])
+  rows.push(["Hesaplanan KDV", `${fmt(t.vatAmount)} ${curLabel}`, false])
+  if (otherTaxOnTop > 0)
+    rows.push([t.otherTaxLabel || "Diğer Vergiler", `${fmt(otherTaxOnTop)} ${curLabel}`, false])
+
+  const vergilerDahil =
+    t.netAmount + t.vatAmount + (t.exciseAmount || 0) + (t.otherTaxAmount || 0) + gekap
+  rows.push(["Vergiler Dahil Toplam Tutar", `${fmt(vergilerDahil)} ${curLabel}`, false])
+
+  if ((t.withholdingAmount || 0) > 0) {
+    const wRate = t.vatAmount > 0 ? Math.round((t.withholdingAmount / t.vatAmount) * 100) : 0
+    rows.push([
+      `KDV Tevkifatı${wRate ? ` (%${wRate})` : ""}`,
+      `- ${fmt(t.withholdingAmount)} ${curLabel}`,
+      false,
+    ])
   }
+  if ((t.rounding || 0) !== 0) {
+    rows.push([
+      "Yuvarlama",
+      `${(t.rounding || 0) > 0 ? "" : "- "}${fmt(Math.abs(t.rounding || 0))} ${curLabel}`,
+      false,
+    ])
+  }
+  rows.push(["Ödenecek Tutar", `${fmt(t.totalAmount)} ${curLabel}`, true])
 
+  return {
+    table: {
+      widths: ["*", "auto"],
+      body: rows.map(([label, value, emphasize]) => [
+        {
+          text: label,
+          fontSize: emphasize ? FS.body : FS.small,
+          bold: emphasize,
+          color: emphasize ? "#ffffff" : MUTED,
+          fillColor: emphasize ? BRAND : undefined,
+          margin: [mm(1.5), mm(1), mm(1), mm(1)] as [number, number, number, number],
+        },
+        {
+          text: softBreak(value),
+          alignment: "right" as const,
+          fontSize: emphasize ? FS.body : FS.small,
+          bold: true,
+          color: emphasize ? "#ffffff" : "#000000",
+          fillColor: emphasize ? BRAND : undefined,
+          margin: [mm(1), mm(1), mm(1.5), mm(1)] as [number, number, number, number],
+        },
+      ]),
+    },
+    layout: {
+      hLineWidth: () => 0.3,
+      vLineWidth: () => 0.3,
+      hLineColor: () => LINE,
+      vLineColor: () => LINE,
+      paddingLeft: () => 0,
+      paddingRight: () => 0,
+      paddingTop: () => 0,
+      paddingBottom: () => 0,
+    },
+  }
+}
+
+function buildContent(data: GibInvoiceData, isDraft: boolean): Content[] {
   // GİB düzeninde sol üst blok belgeyi DÜZENLEYEN (satıcı), "SAYIN" kutusu ise
   // belgenin muhatabı (alıcı) taraftır. Alış faturasını tedarikçi düzenler,
   // firmamız alıcıdır — bu yüzden taraflar fatura tipine göre yer değiştirir.
-  // (Aksi hâlde alış faturası, kendimizi satıcı gösteren yanlış bir belge olurdu.)
   const isPurchase = data.type === "PURCHASE"
   const issuer: GibInvoiceParty = isPurchase
     ? data.counterparty || { name: "(tedarikçi seçilmedi)" }
     : data.company
   const recipient: GibInvoiceParty | null = isPurchase ? data.company : data.counterparty || null
 
-  // --- Düzenleyen (satıcı) — sol üst ---
-  doc.setFont(FONT, "bold")
-  doc.setFontSize(14)
-  doc.setTextColor(...BRAND)
-  const companyNameLines = doc.splitTextToSize(issuer.name || "-", 105) as string[]
-  doc.text(companyNameLines, marginX, topY + 4)
-  doc.setTextColor(0, 0, 0)
+  const content: Content[] = []
 
-  let leftY = topY + 4 + companyNameLines.length * 5.5 + 1
-  doc.setFont(FONT, "normal")
-  doc.setFontSize(8.5)
-  doc.setTextColor(...MUTED)
-  const companyLines: string[] = []
-  if (issuer.taxOffice || issuer.taxNumber) {
-    companyLines.push(
-      `${issuer.taxOffice ? issuer.taxOffice + " VD - " : ""}VKN/TCKN: ${issuer.taxNumber || "-"}`,
-    )
+  if (isDraft) {
+    content.push({
+      table: {
+        widths: ["*"],
+        body: [
+          [
+            {
+              text:
+                "TASLAK — Bu bir ön izlemedir, mali/yasal değeri yoktur. Resmî belge, fatura " +
+                "resmileştirildikten sonra GİB tarafından üretilir.",
+              alignment: "center",
+              bold: true,
+              fontSize: FS.tiny,
+              color: "#92400e",
+              fillColor: "#fff7ed",
+              margin: [mm(2), mm(1.6), mm(2), mm(1.6)],
+            },
+          ],
+        ],
+      },
+      layout: {
+        hLineWidth: () => 0.3,
+        vLineWidth: () => 0.3,
+        hLineColor: () => "#f59e0b",
+        vLineColor: () => "#f59e0b",
+        paddingLeft: () => 0,
+        paddingRight: () => 0,
+        paddingTop: () => 0,
+        paddingBottom: () => 0,
+      },
+      margin: [0, 0, 0, mm(4)],
+    })
   }
-  if (issuer.address) companyLines.push(issuer.address)
-  const companyLoc = [issuer.district, issuer.city].filter(Boolean).join(" / ")
-  if (companyLoc) companyLines.push(companyLoc)
-  if (issuer.phone) companyLines.push(`Tel: ${issuer.phone}`)
-  if (issuer.email) companyLines.push(`E-Posta: ${issuer.email}`)
-  companyLines.forEach((ln) => {
-    const wrapped = doc.splitTextToSize(ln, 105) as string[]
-    doc.text(wrapped, marginX, leftY)
-    leftY += wrapped.length * 4.2
+
+  // Üst blok: solda düzenleyen künyesi, sağda belge bilgi kutusu.
+  content.push({
+    columns: [
+      {
+        width: "*",
+        stack: [
+          { text: softBreak(issuer.name || "-"), bold: true, fontSize: FS.h1, color: BRAND },
+          ...partyLines(issuer).map((l) => ({
+            text: softBreak(l),
+            fontSize: FS.small,
+            color: MUTED,
+          })),
+        ],
+      },
+      infoBox(data, isDraft, mm(66)),
+    ],
+    columnGap: mm(5),
   })
-  doc.setTextColor(0, 0, 0)
 
-  // --- Belge bilgi kutusu — sağ üst ---
-  const boxW = 66
-  const boxX = rightX - boxW
-  const boxY = topY
-  doc.setDrawColor(...LINE)
-  doc.setLineWidth(0.3)
-  doc.setFillColor(...BRAND)
-  doc.rect(boxX, boxY, boxW, 9, "F")
-  doc.setFont(FONT, "bold")
-  doc.setFontSize(12)
-  doc.setTextColor(255, 255, 255)
-  doc.text(docTitle(data.invoiceType), boxX + boxW / 2, boxY + 6, { align: "center" })
-  doc.setTextColor(0, 0, 0)
+  // SAYIN (ALICI) kutusu — tam genişlik.
+  content.push({
+    table: {
+      widths: ["*"],
+      body: [
+        [
+          {
+            stack: [
+              { text: "SAYIN (ALICI)", bold: true, fontSize: FS.tiny, color: MUTED },
+              {
+                text: softBreak(recipient?.name || "(cari seçilmedi)"),
+                fontSize: FS.h2,
+                margin: [0, mm(1), 0, mm(1)],
+              },
+              ...(recipient
+                ? partyLines(recipient).map((l) => ({
+                    text: softBreak(l),
+                    fontSize: FS.small,
+                    color: MUTED,
+                  }))
+                : []),
+            ],
+            fillColor: "#f8f9fb",
+            margin: [mm(3), mm(2), mm(3), mm(2)],
+          },
+        ],
+      ],
+    },
+    layout: {
+      hLineWidth: () => 0.3,
+      vLineWidth: () => 0.3,
+      hLineColor: () => LINE,
+      vLineColor: () => LINE,
+      paddingLeft: () => 0,
+      paddingRight: () => 0,
+      paddingTop: () => 0,
+      paddingBottom: () => 0,
+    },
+    margin: [0, mm(4), 0, 0],
+  })
 
-  const infoRows: Array<[string, string]> = [
-    ["Senaryo", scenarioLabel(data.invoiceType)],
-    ["Fatura Tipi", data.type === "RETURN" ? "IADE" : "SATIS"],
-    ["Fatura No", data.invoiceNo || "(otomatik atanacak)"],
-    ["Fatura Tarihi", fmtDate(data.date)],
+  // Kalem tablosu (GİB kolonları).
+  const columns: Column<GibInvoiceLine>[] = [
+    { header: "Sıra", width: 6, align: "center", cell: (_r, i) => String(i + 1) },
+    {
+      header: "Mal / Hizmet",
+      width: 32,
+      cell: (r) => r.description || "-",
+      sub: (r) => (r.note && r.note.trim() ? r.note.trim() : null),
+    },
+    {
+      header: "Miktar",
+      width: 12,
+      align: "right",
+      cell: (r) => `${fmt(r.quantity)} ${(r.unit || "").toString()}`.trim(),
+    },
+    { header: "Birim Fiyat", width: 13, align: "right", cell: (r) => fmt(r.unitPrice) },
+    {
+      header: "İskonto",
+      width: 11,
+      align: "right",
+      cell: (r) => (r.discountAmount > 0 ? fmt(r.discountAmount) : "-"),
+    },
+    {
+      header: "KDV",
+      width: 8,
+      align: "center",
+      cell: (r) => `%${Number(r.vatRate) || 0}`,
+      // Tevkifat varsa oranın altına ikinci satır olarak düşer.
+      sub: (r) =>
+        (Number(r.withholdingRate) || 0) > 0 ? `Tevk.%${Number(r.withholdingRate)}` : null,
+    },
+    { header: "KDV Tutarı", width: 12, align: "right", cell: (r) => fmt(r.vatAmount) },
+    { header: "Mal Hizmet Tutarı", width: 15, align: "right", cell: (r) => fmt(r.lineNet) },
   ]
-  if (data.dueDate) infoRows.push(["Vade Tarihi", fmtDate(data.dueDate)])
-  infoRows.push(["ETTN", data.ettn || (isDraft ? "(taslak — henüz yok)" : "-")])
 
-  let infoY = boxY + 9
-  const rowH = 6.4
-  doc.setFontSize(8)
-  infoRows.forEach(([label, value], i) => {
-    if (i % 2 === 1) {
-      doc.setFillColor(244, 246, 249)
-      doc.rect(boxX, infoY, boxW, rowH, "F")
-    }
-    doc.setDrawColor(...LINE)
-    doc.rect(boxX, infoY, boxW, rowH)
-    doc.setFont(FONT, "bold")
-    doc.setTextColor(...MUTED)
-    doc.text(label, boxX + 1.6, infoY + 4.3)
-    doc.setFont(FONT, "normal")
-    doc.setTextColor(0, 0, 0)
-    const val = doc.splitTextToSize(value, boxW - 24)[0] as string
-    doc.text(val, boxX + boxW - 1.6, infoY + 4.3, { align: "right" })
-    infoY += rowH
+  content.push({
+    ...(docTable({ columns, rows: data.items, headColor: BRAND }) as any),
+    margin: [0, mm(4), 0, 0],
   })
 
-  // --- Muhatap (SAYIN) kutusu — her zaman alıcı taraf ---
-  const partyY = Math.max(leftY, infoY) + 4
-  const partyLabel = "SAYIN (ALICI)"
-  const cp = recipient
-  const partyLines: string[] = []
-  if (cp) {
-    if (cp.taxOffice || cp.taxNumber) {
-      partyLines.push(
-        `${cp.taxOffice ? cp.taxOffice + " VD - " : ""}VKN/TCKN: ${cp.taxNumber || "-"}`,
-      )
-    }
-    if (cp.address) partyLines.push(cp.address)
-    const loc = [cp.district, cp.city].filter(Boolean).join(" / ")
-    if (loc) partyLines.push(loc)
-    if (cp.phone) partyLines.push(`Tel: ${cp.phone}`)
-    if (cp.email) partyLines.push(`E-Posta: ${cp.email}`)
-  }
-  const partyBoxH = 8 + Math.max(partyLines.length, 1) * 4.4 + 4
-  doc.setDrawColor(...LINE)
-  doc.setFillColor(248, 249, 251)
-  doc.roundedRect(marginX, partyY, pageW - marginX * 2, partyBoxH, 1, 1, "FD")
-  doc.setFont(FONT, "bold")
-  doc.setFontSize(8)
-  doc.setTextColor(...MUTED)
-  doc.text(partyLabel, marginX + 3, partyY + 5)
-  doc.setFontSize(10.5)
-  doc.setTextColor(0, 0, 0)
-  doc.text(cp?.name || "(cari seçilmedi)", marginX + 3, partyY + 10)
-  doc.setFont(FONT, "normal")
-  doc.setFontSize(8.5)
-  doc.setTextColor(...MUTED)
-  let py = partyY + 14.5
-  partyLines.forEach((ln) => {
-    const wrapped = doc.splitTextToSize(ln, pageW - marginX * 2 - 6) as string[]
-    doc.text(wrapped, marginX + 3, py)
-    py += wrapped.length * 4.2
-  })
-  doc.setTextColor(0, 0, 0)
-
-  // --- Kalem tablosu (GİB kolonları) ---
-  const tableStartY = partyY + partyBoxH + 5
-  const body = data.items.map((it, i) => [
-    String(i + 1),
-    it.description || "-",
-    `${fmt(it.quantity)} ${(it.unit || "").toString()}`.trim(),
-    fmt(it.unitPrice),
-    it.discountAmount > 0 ? fmt(it.discountAmount) : "-",
-    // KDV oranı; tevkifat varsa altına "Tevk.%X" satırı eklenir.
-    (Number(it.withholdingRate) || 0) > 0
-      ? `%${Number(it.vatRate) || 0}\nTevk.%${Number(it.withholdingRate)}`
-      : `%${Number(it.vatRate) || 0}`,
-    fmt(it.vatAmount),
-    fmt(it.lineNet),
-  ])
-
-  autoTable(doc, {
-    startY: tableStartY,
-    head: [[
-      "Sıra",
-      "Mal / Hizmet",
-      "Miktar",
-      "Birim Fiyat",
-      "İskonto",
-      "KDV",
-      "KDV Tutarı",
-      "Mal Hizmet Tutarı",
-    ]],
-    body,
-    theme: "grid",
-    styles: {
-      font: FONT,
-      fontSize: 8,
-      cellPadding: 2,
-      lineColor: LINE,
-      lineWidth: 0.2,
-      textColor: [30, 30, 30],
-    },
-    headStyles: {
-      font: FONT,
-      fillColor: BRAND,
-      textColor: 255,
-      fontStyle: "bold",
-      fontSize: 8,
-      halign: "center",
-    },
-    columnStyles: {
-      0: { cellWidth: 10, halign: "center" },
-      1: { cellWidth: "auto" },
-      2: { cellWidth: 22, halign: "right" },
-      3: { cellWidth: 24, halign: "right" },
-      4: { cellWidth: 20, halign: "right" },
-      5: { cellWidth: 14, halign: "center" },
-      6: { cellWidth: 22, halign: "right" },
-      7: { cellWidth: 28, halign: "right" },
-    },
-    alternateRowStyles: { fillColor: [249, 250, 251] },
-    margin: { left: marginX, right: marginX },
+  // Yalnız (yazıyla) — solda; dip toplam kutusu sağda.
+  content.push({
+    columns: [
+      {
+        width: "*",
+        text: softBreak(amountInWords(data.totals.totalAmount, data.currency)),
+        bold: true,
+        fontSize: FS.small,
+        margin: [0, mm(1), 0, 0],
+      },
+      { width: mm(92), ...(totalsBox(data) as any) },
+    ],
+    columnGap: mm(4),
+    margin: [0, mm(4), 0, 0],
   })
 
-  // --- Toplamlar bloğu (sağ) ---
-  const t = data.totals
-  const afterTableY = (doc as any).lastAutoTable.finalY + 6
-  const totalsRows: Array<[string, string, boolean]> = [
-    ["Mal Hizmet Toplam Tutarı", `${fmt(t.grossTotal)} ${data.currency === "TRY" ? "TL" : data.currency || "TL"}`, false],
-  ]
-  const discountTotal = (t.lineDiscountTotal || 0) + (t.globalDiscount || 0)
-  if (discountTotal > 0) totalsRows.push(["Toplam İskonto", `${fmt(discountTotal)} TL`, false])
-  if ((t.globalCharge || 0) > 0)
-    totalsRows.push(["Fatura Altı İlave", `${fmt(t.globalCharge || 0)} TL`, false])
-  // ÖTV ve matraha giren pay (GEKAP) mal/hizmet bedeline eklenir, KDV bu toplam
-  // üzerinden hesaplanır → ikisi de "KDV Matrahı" satırından ÖNCE listelenir.
-  // Matrahın ÜSTÜNE eklenen diğer vergiler (Konaklama, ÖİV) KDV'den sonra gelir.
-  const otherTaxInBase = t.otherTaxInBaseAmount || 0
-  const otherTaxOnTop = (t.otherTaxAmount || 0) - otherTaxInBase
-  const gekap = t.gekapAmount || 0
-  const vatBase = t.vatBaseAmount ?? t.netAmount
-  if ((t.exciseAmount || 0) > 0) totalsRows.push(["ÖTV", `${fmt(t.exciseAmount)} TL`, false])
-  if (gekap > 0) totalsRows.push(["GEKAP", `${fmt(gekap)} TL`, false])
-  if (otherTaxInBase > 0) totalsRows.push([t.otherTaxLabel || "GEKAP", `${fmt(otherTaxInBase)} TL`, false])
-  totalsRows.push(["KDV Matrahı", `${fmt(vatBase)} TL`, false])
-  totalsRows.push(["Hesaplanan KDV", `${fmt(t.vatAmount)} TL`, false])
-  if (otherTaxOnTop > 0) totalsRows.push([t.otherTaxLabel || "Diğer Vergiler", `${fmt(otherTaxOnTop)} TL`, false])
-  const vergilerDahil =
-    t.netAmount + t.vatAmount + (t.exciseAmount || 0) + (t.otherTaxAmount || 0) + gekap
-  totalsRows.push(["Vergiler Dahil Toplam Tutar", `${fmt(vergilerDahil)} TL`, false])
-  if ((t.withholdingAmount || 0) > 0) {
-    const wRate = t.vatAmount > 0 ? Math.round((t.withholdingAmount / t.vatAmount) * 100) : 0
-    totalsRows.push([`KDV Tevkifatı${wRate ? ` (%${wRate})` : ""}`, `- ${fmt(t.withholdingAmount)} TL`, false])
-  }
-  if ((t.rounding || 0) !== 0)
-    totalsRows.push(["Yuvarlama", `${(t.rounding || 0) > 0 ? "" : "- "}${fmt(Math.abs(t.rounding || 0))} TL`, false])
-  totalsRows.push(["Ödenecek Tutar", `${fmt(t.totalAmount)} TL`, true])
-
-  const totalsW = 92
-  const totalsX = rightX - totalsW
-  let ty = afterTableY
-  doc.setFontSize(9)
-  totalsRows.forEach(([label, value, emphasize]) => {
-    const h = emphasize ? 8 : 6
-    if (emphasize) {
-      doc.setFillColor(...BRAND)
-      doc.rect(totalsX, ty, totalsW, h, "F")
-      doc.setTextColor(255, 255, 255)
-      doc.setFont(FONT, "bold")
-      doc.setFontSize(10)
-    } else {
-      doc.setDrawColor(...LINE)
-      doc.rect(totalsX, ty, totalsW, h)
-      doc.setTextColor(...MUTED)
-      doc.setFont(FONT, "normal")
-      doc.setFontSize(9)
-    }
-    doc.text(label, totalsX + 2, ty + (emphasize ? 5.4 : 4.2))
-    doc.setTextColor(emphasize ? 255 : 0, emphasize ? 255 : 0, emphasize ? 255 : 0)
-    if (!emphasize) doc.setFont(FONT, "bold")
-    doc.text(value, totalsX + totalsW - 2, ty + (emphasize ? 5.4 : 4.2), { align: "right" })
-    ty += h
-  })
-  doc.setTextColor(0, 0, 0)
-
-  // --- Yalnız (yazıyla) ---
-  doc.setFont(FONT, "bold")
-  doc.setFontSize(9)
-  const words = amountInWords(t.totalAmount, data.currency)
-  const wordsLines = doc.splitTextToSize(words, totalsX - marginX - 4) as string[]
-  doc.text(wordsLines, marginX, afterTableY + 4)
-
-  // --- Notlar ---
-  let notesY = Math.max(ty, afterTableY + 4 + wordsLines.length * 4.5) + 8
   if (data.notes && data.notes.trim()) {
-    doc.setFont(FONT, "bold")
-    doc.setFontSize(8.5)
-    doc.setTextColor(...MUTED)
-    doc.text("Notlar", marginX, notesY)
-    doc.setFont(FONT, "normal")
-    doc.setTextColor(30, 30, 30)
-    const noteLines = doc.splitTextToSize(data.notes.trim(), pageW - marginX * 2) as string[]
-    doc.text(noteLines, marginX, notesY + 4.5)
-    notesY += 4.5 + noteLines.length * 4.2
+    content.push({
+      stack: [
+        { text: "Notlar", bold: true, fontSize: FS.small, color: MUTED },
+        { text: softBreak(data.notes.trim()), fontSize: FS.small, color: "#1e1e1e" },
+      ],
+      margin: [0, mm(6), 0, 0],
+    })
   }
-  doc.setTextColor(0, 0, 0)
 
-  // --- Alt bilgi ---
-  doc.setFont(FONT, "normal")
-  doc.setFontSize(7.5)
-  doc.setTextColor(...MUTED)
-  const footer = isDraft
-    ? `TASLAK — ${new Date().toLocaleString("tr-TR")} · Kobipo Ön Muhasebe`
-    : `${new Date().toLocaleString("tr-TR")} · Kobipo Ön Muhasebe`
-  doc.text(footer, marginX, pageH - 8)
-  doc.setTextColor(0, 0, 0)
-
-  return Buffer.from(doc.output("arraybuffer"))
+  return content
 }
+
+/**
+ * GİB düzeninde fatura PDF'i üretir ve Buffer döndürür (server-side).
+ */
+export async function generateGibInvoicePdfBuffer(data: GibInvoiceData): Promise<Buffer> {
+  const isDraft = data.isDraft !== false
+
+  const dd: TDocumentDefinitions = buildDocDefinition({
+    title: `${docTitle(data.invoiceType)} ${data.invoiceNo || ""}`.trim(),
+    footerNote: isDraft
+      ? `TASLAK — ${new Date().toLocaleString("tr-TR")} · Kobipo Ön Muhasebe`
+      : `${new Date().toLocaleString("tr-TR")} · Kobipo Ön Muhasebe`,
+    content: buildContent(data, isDraft),
+  })
+
+  if (isDraft) {
+    // Filigran: motorun kendi katmanı — metin akışını etkilemez.
+    dd.watermark = { text: "TASLAK", color: BRAND, opacity: 0.08, bold: true, angle: -40 }
+  }
+
+  return renderPdf(dd)
+}
+
+/** İçerik genişliği (mm) — testlerin kolon hesabı için. */
+export const GIB_CONTENT_WIDTH = CONTENT_WIDTH
+export { COLORS as GIB_COLORS }

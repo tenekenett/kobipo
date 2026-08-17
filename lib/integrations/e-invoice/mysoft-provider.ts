@@ -1334,6 +1334,12 @@ async sendInvoice(invoiceData: any): Promise<any> {
                 vatRate: l.vatRate,
                 amtVatTra: l.rowVat,       // KDV matrahı * vatRate / 100, 2 ondalık
             };
+            // Satır açıklaması (InvoiceItem.note) → Swagger InvoiceOutboxDetailModel.note:
+            // "Fatura kalemi için girmek istediğiniz not bilgisidir. Tek satır açıklama
+            // girilecek ise bu alan kullanılabilir." productName'e EKLENMEZ; boşsa alan
+            // hiç gönderilmez (nullable).
+            const lineNote = typeof l.item.note === "string" ? l.item.note.trim() : "";
+            if (lineNote) detail.note = lineNote;
             // İskonto satırları (UBL cac:AllowanceCharge, chargeIndicator=false).
             // Satır iskontosu + (varsa) fatura altı iskontodan o satıra düşen pay
             // ayrı entry'ler olarak gönderilir; tüm UBL XSLT'leri bunları render eder.
