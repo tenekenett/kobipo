@@ -105,9 +105,7 @@ export default function FaturaSablonuPage() {
   const [listError, setListError] = useState<string | null>(null)
 
   // Kobipo tasarımları (xsltName → önizlenebilir mi) ve aktif şablon seçimi.
-  const [designMap, setDesignMap] = useState<
-    Record<string, { hasOptions: boolean; stale: boolean; refreshedAt: string | null }>
-  >({})
+  const [designMap, setDesignMap] = useState<Record<string, { hasOptions: boolean }>>({})
   const [activeXsltName, setActiveXsltName] = useState<string | null>(null)
   // "Silinen" = gizlenen şablon adları (Mysoft'ta kalır ama listede gösterilmez).
   const [hiddenNames, setHiddenNames] = useState<string[]>([])
@@ -212,15 +210,9 @@ export default function FaturaSablonuPage() {
       )
       const data = await res.json().catch(() => ({}))
       if (!res.ok) return
-      const map: Record<string, { hasOptions: boolean; stale: boolean; refreshedAt: string | null }> = {}
+      const map: Record<string, { hasOptions: boolean }> = {}
       for (const d of Array.isArray(data?.data) ? data.data : []) {
-        if (typeof d?.xsltName === "string") {
-          map[d.xsltName] = {
-            hasOptions: Boolean(d.hasOptions),
-            stale: Boolean(d.stale),
-            refreshedAt: typeof d.refreshedAt === "string" ? d.refreshedAt : null,
-          }
-        }
+        if (typeof d?.xsltName === "string") map[d.xsltName] = { hasOptions: Boolean(d.hasOptions) }
       }
       setDesignMap(map)
       setActiveXsltName(typeof data?.activeXsltName === "string" ? data.activeXsltName : null)
@@ -258,8 +250,8 @@ export default function FaturaSablonuPage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || "Şablon yenilenemedi")
       toast({
-        title: "Şablon yenilendi",
-        description: `“${name}” güncel tasarımla Mysoft'a yüklendi. Görsel aynı, yenilikler eklendi.`,
+        title: "Şablon güncellendi",
+        description: `“${name}” güncel tasarımla yüklendi. Görsel aynı; bu adım normalde ilk gönderimde kendiliğinden yapılır.`,
       })
       fetchDesigns()
     } catch (error) {
@@ -788,7 +780,6 @@ export default function FaturaSablonuPage() {
                   const canEdit = !!name && designMap[name]?.hasOptions
                   const isKobipo = !!name && !!designMap[name]
                   const canRefresh = !!name && designMap[name]?.hasOptions
-                  const isStale = !!name && designMap[name]?.stale
                   const refreshing = rowBusy?.name === name && rowBusy.action === "refresh"
                   const activating = rowBusy?.name === name && rowBusy.action === "activate"
                   const previewing = rowBusy?.name === name && rowBusy.action === "preview"
@@ -839,14 +830,7 @@ export default function FaturaSablonuPage() {
                             >
                               {isKobipo ? "Kobipo tasarımı" : "Kobipo dışı"}
                             </span>
-                            {isStale && (
-                              <span
-                                className="inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-                                title="Taban tasarım güncellendi; bu şablon Mysoft'ta eski haliyle duruyor. Yenile'ye basın."
-                              >
-                                Güncelleme var
-                              </span>
-                            )}
+
                           </div>
                         </div>
                       </div>
@@ -854,15 +838,11 @@ export default function FaturaSablonuPage() {
                       <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
                         {canRefresh && (
                           <Button
-                            variant={isStale ? "default" : "outline"}
+                            variant="outline"
                             size="sm"
                             onClick={() => refreshDesign(name)}
                             disabled={!!rowBusy}
-                            title={
-                              isStale
-                                ? "Taban tasarım güncellendi — şablonu yenile (görsel aynı kalır)"
-                                : "Şablonu güncel tasarımla yeniden yükle"
-                            }
+                            title="Şablonu güncel tasarımla yeniden yükle — görsel aynı kalır. (Normalde ilk gönderimde kendiliğinden yapılır.)"
                           >
                             {refreshing ? (
                               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />

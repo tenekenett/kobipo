@@ -7,6 +7,7 @@ import {
 } from "@/lib/integrations/e-invoice/active-template"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider"
+import { ensureTemplateFreshQuietly } from "@/lib/integrations/e-invoice/template-refresh"
 
 export type SendInvoiceResult =
   | { ok: true; uuid: string; providerName: string }
@@ -374,7 +375,20 @@ async function resolveSendContext(
       }
     }
     const xsltName = await getXsltNameForSeries(invoice.companyId, eDocumentType, prefixForTemplate)
-    if (xsltName) invoiceData.xsltName = xsltName
+    if (xsltName) {
+      invoiceData.xsltName = xsltName
+      // Belge dizaynı Mysoft'ta KAYITLI kopyadan basılır; taban tasarım
+      // iyileştirildiğinde o kopya eski kalır. Senkronu kullanıcıya yaptırmak
+      // yerine burada, gönderimden hemen önce sessizce yapıyoruz: bayatsa
+      // yeniden üretilip aynı adla yüklenir. Hata olursa fatura ESKİ tasarımla
+      // yine gider — tazeleme hiçbir koşulda gönderimi engellemez.
+      await ensureTemplateFreshQuietly({
+        companyId: invoice.companyId,
+        eDocumentType,
+        xsltName,
+        provider,
+      })
+    }
   }
 
   return {

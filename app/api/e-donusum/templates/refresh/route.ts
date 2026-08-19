@@ -7,15 +7,7 @@ import { accessDeniedResponse } from "@/lib/api/errors"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider"
 import { COMPANY_PROVIDER_SELECT } from "@/lib/integrations/e-invoice/company-provider"
-import {
-  readSampleTemplate,
-  sampleVersionForDocType,
-} from "@/lib/integrations/e-invoice/sample-templates"
-import {
-  applyThemeToXslt,
-  normalizeDesignOptions,
-  sampleKeyForDocType,
-} from "@/lib/integrations/e-invoice/template-designer"
+import { ensureTemplateFresh } from "@/lib/integrations/e-invoice/template-refresh"
 
 export const dynamic = "force-dynamic"
 
@@ -52,32 +44,6 @@ export async function POST(request: Request) {
     await ensureCompanyWrite(companyId)
     assertEInvoiceRuntimeReady()
 
-    const row = await prisma.eInvoiceTemplate.findUnique({
-      where: { companyId_eDocumentType_xsltName: { companyId, eDocumentType, xsltName } },
-      select: { options: true, baseVersion: true },
-    })
-    if (!row) return NextResponse.json({ error: "Şablon bulunamadı." }, { status: 404 })
-    if (row.options == null) {
-      return NextResponse.json(
-        {
-          error:
-            "Bu şablon dışarıdan yüklenmiş; içeriği Kobipo'da saklanmıyor, yenilenemez. Mysoft portalinden güncelleyin.",
-        },
-        { status: 409 },
-      )
-    }
-
-    const sampleKey = sampleKeyForDocType(eDocumentType)
-    if (!sampleKey) {
-      return NextResponse.json({ error: "Geçerli belge tipi gerekli." }, { status: 400 })
-    }
-    const sample = await readSampleTemplate(sampleKey)
-    if (!sample.available || !sample.content) {
-      return NextResponse.json({ error: "Taban şablon bulunamadı." }, { status: 409 })
-    }
-
-    const content = applyThemeToXslt(sample.content, normalizeDesignOptions(row.options))
-
     const company = await prisma.company.findUnique({
       where: { id: companyId },
       select: COMPANY_PROVIDER_SELECT,
@@ -87,25 +53,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status })
     }
 
-    const result = await resolved.provider.addTenantXslt({
-      xsltName,
+    // Ortak katman: gönderim yolundaki otomatik tazeleme ile AYNI kod.
+    // Düğme `force` ile çağırır — bayat olmasa da yeniden yükler.
+    const result = await ensureTemplateFresh({
+      companyId,
       eDocumentType,
-      content,
-      fileName: `${xsltName}.xslt`,
+      xsltName,
+      provider: resolved.provider,
+      force: true,
     })
-    if (!result.success) {
+
+    if (result.reason === "not-found") {
+      return NextResponse.json({ error: "Şablon bulunamadı." }, { status: 404 })
+    }
+    if (result.reason === "external") {
       return NextResponse.json(
-        { error: result.error || "Şablon Mysoft'a yüklenemedi." },
-        { status: 502 },
+        {
+          error:
+            "Bu şablon dışarıdan yüklenmiş; içeriği Kobipo'da saklanmıyor, yenilenemez. Mysoft portalinden güncelleyin.",
+        },
+        { status: 409 },
       )
     }
-
-    // Yenileme kaydı: bir dahaki taban değişikliğinde kimin bayat olduğu buradan bilinir.
-    const baseVersion = await sampleVersionForDocType(eDocumentType)
-    await prisma.eInvoiceTemplate.update({
-      where: { companyId_eDocumentType_xsltName: { companyId, eDocumentType, xsltName } },
-      data: { baseVersion, refreshedAt: new Date(), hidden: false },
-    })
+    if (!result.refreshed) {
+      return NextResponse.json(
+        { error: result.error || "Şablon yenilenemedi." },
+        { status: result.reason === "upload-failed" ? 502 : 409 },
+      )
+    }
+    const baseVersion = result.baseVersion ?? null
 
     return NextResponse.json({ success: true, xsltName, baseVersion })
   } catch (error: any) {
