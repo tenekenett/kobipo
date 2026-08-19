@@ -357,6 +357,12 @@ model EInvoiceTemplate {
   eDocumentType Int // 1=E-Fatura, 2=E-Arşiv
   xsltName      String // Mysoft'a verilen şablon adı (eşleşme anahtarı)
   options       Json? // Tasarımcı seçenekleri; yoksa dışarıdan/portal şablonu (önizlenemez)
+  // Şablon, TABAN XSLT'nin hangi sürümünden üretildi (içerik özeti) ve en son ne
+  // zaman yenilendi. Taban şablon değişince (ör. kalem notu satırı eklenince)
+  // Mysoft'taki KAYITLI tasarım eski kalır; bu iki alan "hangi firma bayat"
+  // sorusunu kod okumadan yanıtlar. null = bilinmiyor → bayat sayılır.
+  baseVersion   String?
+  refreshedAt   DateTime?
   isActive      Boolean  @default(false)
   // Mysoft XSLT silmeyi desteklemediğinden "silme" = Kobipo tarafında listeden gizleme.
   // hidden=true ise şablon listede gösterilmez (Mysoft hesabında fiziksel olarak kalır).

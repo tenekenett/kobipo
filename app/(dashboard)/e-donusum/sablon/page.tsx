@@ -105,11 +105,13 @@ export default function FaturaSablonuPage() {
   const [listError, setListError] = useState<string | null>(null)
 
   // Kobipo tasarımları (xsltName → önizlenebilir mi) ve aktif şablon seçimi.
-  const [designMap, setDesignMap] = useState<Record<string, { hasOptions: boolean }>>({})
+  const [designMap, setDesignMap] = useState<
+    Record<string, { hasOptions: boolean; stale: boolean; refreshedAt: string | null }>
+  >({})
   const [activeXsltName, setActiveXsltName] = useState<string | null>(null)
   // "Silinen" = gizlenen şablon adları (Mysoft'ta kalır ama listede gösterilmez).
   const [hiddenNames, setHiddenNames] = useState<string[]>([])
-  const [rowBusy, setRowBusy] = useState<{ name: string; action: "activate" | "preview" | "edit" | "delete" | "restore" } | null>(null)
+  const [rowBusy, setRowBusy] = useState<{ name: string; action: "activate" | "preview" | "edit" | "delete" | "restore" | "refresh" } | null>(null)
 
   // Düzenleme: tasarımcıyı kayıtlı tasarım seçenekleriyle açmak için hedef.
   const [editTarget, setEditTarget] = useState<{ xsltName: string; options: TemplateDesignOptions } | null>(null)
@@ -210,9 +212,15 @@ export default function FaturaSablonuPage() {
       )
       const data = await res.json().catch(() => ({}))
       if (!res.ok) return
-      const map: Record<string, { hasOptions: boolean }> = {}
+      const map: Record<string, { hasOptions: boolean; stale: boolean; refreshedAt: string | null }> = {}
       for (const d of Array.isArray(data?.data) ? data.data : []) {
-        if (typeof d?.xsltName === "string") map[d.xsltName] = { hasOptions: Boolean(d.hasOptions) }
+        if (typeof d?.xsltName === "string") {
+          map[d.xsltName] = {
+            hasOptions: Boolean(d.hasOptions),
+            stale: Boolean(d.stale),
+            refreshedAt: typeof d.refreshedAt === "string" ? d.refreshedAt : null,
+          }
+        }
       }
       setDesignMap(map)
       setActiveXsltName(typeof data?.activeXsltName === "string" ? data.activeXsltName : null)
@@ -229,6 +237,41 @@ export default function FaturaSablonuPage() {
     fetchSeriesAssignments()
     fetchNumerators()
   }, [fetchTemplates, fetchDesigns, fetchCompany, fetchSeriesAssignments, fetchNumerators])
+
+  /**
+   * Şablonu güncel taban tasarımdan YENİDEN ÜRETİP Mysoft'a aynı adla yükler.
+   *
+   * Kobipo tasarımları taban XSLT'nin üzerine tema uygulanarak üretilir; taban
+   * iyileştirildiğinde (ör. kaleme açıklama satırı eklendiğinde) Mysoft'taki
+   * kayıtlı kopya eski kalır. Aynı ad kullanıldığı için aktif seçim ve seri
+   * eşlemeleri bozulmaz, görsel aynı kalır — tek fark tabana eklenenlerdir.
+   */
+  const refreshDesign = async (name: string) => {
+    if (!companyId) return
+    setRowBusy({ name, action: "refresh" })
+    try {
+      const res = await fetch("/api/e-donusum/templates/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, eDocumentType: docType, xsltName: name }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Şablon yenilenemedi")
+      toast({
+        title: "Şablon yenilendi",
+        description: `“${name}” güncel tasarımla Mysoft'a yüklendi. Görsel aynı, yenilikler eklendi.`,
+      })
+      fetchDesigns()
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Hata",
+        variant: "destructive",
+      })
+    } finally {
+      setRowBusy(null)
+    }
+  }
 
   const activateTemplate = async (name: string) => {
     if (!companyId) return
@@ -744,6 +787,9 @@ export default function FaturaSablonuPage() {
                   const canPreview = !!name && designMap[name]?.hasOptions
                   const canEdit = !!name && designMap[name]?.hasOptions
                   const isKobipo = !!name && !!designMap[name]
+                  const canRefresh = !!name && designMap[name]?.hasOptions
+                  const isStale = !!name && designMap[name]?.stale
+                  const refreshing = rowBusy?.name === name && rowBusy.action === "refresh"
                   const activating = rowBusy?.name === name && rowBusy.action === "activate"
                   const previewing = rowBusy?.name === name && rowBusy.action === "preview"
                   const editing = rowBusy?.name === name && rowBusy.action === "edit"
@@ -793,11 +839,39 @@ export default function FaturaSablonuPage() {
                             >
                               {isKobipo ? "Kobipo tasarımı" : "Kobipo dışı"}
                             </span>
+                            {isStale && (
+                              <span
+                                className="inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                                title="Taban tasarım güncellendi; bu şablon Mysoft'ta eski haliyle duruyor. Yenile'ye basın."
+                              >
+                                Güncelleme var
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
 
                       <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                        {canRefresh && (
+                          <Button
+                            variant={isStale ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => refreshDesign(name)}
+                            disabled={!!rowBusy}
+                            title={
+                              isStale
+                                ? "Taban tasarım güncellendi — şablonu yenile (görsel aynı kalır)"
+                                : "Şablonu güncel tasarımla yeniden yükle"
+                            }
+                          >
+                            {refreshing ? (
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <RefreshCcw className="mr-1.5 h-3.5 w-3.5" />
+                            )}
+                            Yenile
+                          </Button>
+                        )}
                         {canPreview && (
                           <Button
                             variant="outline"

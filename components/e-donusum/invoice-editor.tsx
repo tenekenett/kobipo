@@ -759,6 +759,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   // Kayıtlı olmayan kalemi ürün olarak kaydederken kullanılır.
                   code: code || matchedProduct?.code || undefined,
                   description: desc || (matchedProduct?.name ?? ""),
+                  // Göndericinin kalem notu / "Stok Açıklaması" — ad olarak seçilmeyen
+                  // metin eskiden ATILIYORDU, artık satır açıklamasına düşer.
+                  note: (ln.note as string) || undefined,
                   // Gelen faturanın birim kodunu (C62/MTR…) uygulama birimine çevir.
                   unit: normalizeUnitCode(ln.unit as string) || matchedProduct?.unit || "ADET",
                   quantity: qty > 0 ? qty : 1,
@@ -828,6 +831,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           newItems.map((it) => {
             const extras: LineExtraKey[] = []
             if (it.description) extras.push("description")
+            if (it.note) extras.push("note")
             if ((it.discountRate || 0) > 0 || (it.discountAmount || 0) > 0) extras.push("discountRate")
             if ((it.withholdingRate || 0) > 0) extras.push("withholdingRate")
             if ((it.gekapUnitAmount || 0) > 0) extras.push("gekapUnitAmount")

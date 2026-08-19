@@ -2205,6 +2205,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
           vatAmount: number | null
           lines: Array<{
             description: string | null
+            note: string | null
             productCode: string | null
             unit: string | null
             quantity: number | null
@@ -2371,6 +2372,29 @@ async sendInvoice(invoiceData: any): Promise<any> {
           ? itemDesc || productName || null
           : productName || itemDesc || null
 
+        // SATIR NOTU. İki kaynak var, sırayla denenir:
+        //  1) Belgedeki kalem notu (UBL cac:InvoiceLine/cbc:Note → Mysoft note/noteList).
+        //  2) Ad olarak SEÇİLMEYEN "Stok Açıklaması". Eskiden ad ile açıklamadan biri
+        //     seçilip diğeri ATILIYORDU; göndericinin yazdığı ölçü/teslim bilgisi
+        //     sessizce kayboluyordu. Artık kalem adını kirletmeden not alanında durur.
+        // Kod ile aynı olan artık (nameIsJustCode durumunda productName = kod) not
+        // sayılmaz: kod zaten kendi kolonunda gösteriliyor.
+        const rawNote =
+          (pick(item, "note", "lineNote") as string | null) ||
+          (pick(ln, "note", "lineNote") as string | null) ||
+          [...(Array.isArray((item as any).noteList) ? (item as any).noteList : []),
+           ...(Array.isArray((ln as any).noteList) ? (ln as any).noteList : [])]
+            .filter((n: unknown) => typeof n === "string" && n.trim())
+            .join(" · ") ||
+          null
+        const leftoverDesc =
+          !nameIsJustCode &&
+          itemDesc &&
+          normalizeText(itemDesc) !== normalizeText(lineDescription)
+            ? itemDesc
+            : null
+        const lineNote = (rawNote && rawNote.trim()) || leftoverDesc || null
+
         // İskonto: allowanceChargeList[].chargeIndicator === false (iskonto).
         // multiplierFactorNumeric oran olarak 0..1 gelir → %'ye çeviriyoruz.
         const allowances: any[] = Array.isArray(ln.allowanceChargeList)
@@ -2491,6 +2515,8 @@ async sendInvoice(invoiceData: any): Promise<any> {
 
         return {
           description: lineDescription,
+          /** Kalem notu — ad kirletilmeden taşınır (InvoiceItem.note'a düşer). */
+          note: lineNote,
           productCode,
           // UBL/GİB birim kodunu (ör. C62→ADET, MTR→MT) uygulama birimine çevir.
           unit:
@@ -2580,6 +2606,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
                 .join(" + ") || "Matraha Dahil Diğer Vergiler"
             lines.push({
               description: extraName,
+              note: null,
               productCode: null,
               unit: null,
               quantity: 1,
@@ -2672,6 +2699,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
         if (lines.length === 0 && hNet != null && hNet > 0) {
           lines.push({
             description: "Mal/Hizmet",
+            note: null,
             productCode: null,
             unit: null,
             quantity: 1,

@@ -6,6 +6,10 @@ import { Prisma } from "@prisma/client"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { normalizeDesignOptions } from "@/lib/integrations/e-invoice/template-designer"
 import { accessDeniedResponse } from "@/lib/api/errors"
+import {
+  isTemplateStale,
+  sampleVersionForDocType,
+} from "@/lib/integrations/e-invoice/sample-templates"
 
 export const dynamic = "force-dynamic"
 
@@ -55,17 +59,37 @@ export async function GET(request: Request) {
 
     const rows = await prisma.eInvoiceTemplate.findMany({
       where: { companyId, ...(eDocumentType ? { eDocumentType } : {}) },
-      select: { xsltName: true, eDocumentType: true, isActive: true, options: true, hidden: true, updatedAt: true },
+      select: {
+        xsltName: true,
+        eDocumentType: true,
+        isActive: true,
+        options: true,
+        hidden: true,
+        updatedAt: true,
+        baseVersion: true,
+        refreshedAt: true,
+      },
       orderBy: { updatedAt: "desc" },
     })
 
     // Gizlenenler listeden/aktiften düşülür; ayrı bir alanda geri-getirme için döner.
     const visible = rows.filter((r) => !r.hidden)
+    // Taban şablon değiştiyse (ör. kalem notu satırı eklendi) kayıtlı tasarım
+    // BAYATTIR: Mysoft'taki kopya eski görselle basmaya devam eder. Arayüz bunu
+    // rozetle gösterip "Yenile" düğmesini öne çıkarır.
+    // Liste iki belge tipini birden taşıyabilir; sürüm satırın kendi tipinden okunur.
+    const [efaturaVersion, earsivVersion] = await Promise.all([
+      sampleVersionForDocType(1),
+      sampleVersionForDocType(2),
+    ])
+    const versionOf = (t: number) => (t === 1 ? efaturaVersion : t === 2 ? earsivVersion : null)
     const data = visible.map((r) => ({
       xsltName: r.xsltName,
       eDocumentType: r.eDocumentType,
       isActive: r.isActive,
       hasOptions: r.options != null,
+      stale: isTemplateStale(r, versionOf(r.eDocumentType)),
+      refreshedAt: r.refreshedAt,
     }))
     const active = visible.find((r) => r.isActive)
     const hiddenXsltNames = rows.filter((r) => r.hidden).map((r) => r.xsltName)
@@ -104,11 +128,13 @@ export async function POST(request: Request) {
     const normalized = normalizeDesignOptions(options) as unknown as Prisma.InputJsonValue
     const name = xsltName.trim()
 
+    // Tasarım hangi taban sürümünden üretildi — bayatlık bunun üzerinden ölçülür.
+    const baseVersion = await sampleVersionForDocType(eDocumentType)
     await prisma.eInvoiceTemplate.upsert({
       where: { companyId_eDocumentType_xsltName: { companyId, eDocumentType, xsltName: name } },
-      create: { companyId, eDocumentType, xsltName: name, options: normalized },
+      create: { companyId, eDocumentType, xsltName: name, options: normalized, baseVersion },
       // Yeniden kaydedilen tasarım daha önce gizlenmişse görünür hale gelir.
-      update: { options: normalized, hidden: false },
+      update: { options: normalized, hidden: false, baseVersion },
     })
 
     return NextResponse.json({ success: true })

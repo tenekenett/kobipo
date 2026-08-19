@@ -1,3 +1,4 @@
+import { createHash } from "crypto"
 import { readFile } from "fs/promises"
 import path from "path"
 
@@ -70,4 +71,37 @@ export async function listSampleTemplates(): Promise<
       return { ...meta, available }
     }),
   )
+}
+
+/**
+ * Taban şablonun SÜRÜM İMZASI — içerik özetinin ilk 12 hanesi.
+ *
+ * Tasarımcıyla üretilmiş her XSLT bu tabandan doğar. Kayıtlı tasarımın imzası
+ * güncel imzadan farklıysa o tasarım BAYATTIR: Mysoft'taki kopya, tabana sonradan
+ * eklenen iyileştirmeleri (ör. kalem notu satırı) taşımıyor demektir.
+ */
+export async function sampleTemplateVersion(key: string): Promise<string | null> {
+  const { available, content } = await readSampleTemplate(key)
+  if (!available || !content) return null
+  return createHash("sha256").update(content).digest("hex").slice(0, 12)
+}
+
+/** Belge tipinin (1=E-Fatura, 2=E-Arşiv) güncel taban sürümü. */
+export async function sampleVersionForDocType(eDocumentType: number): Promise<string | null> {
+  const key = eDocumentType === 1 ? "e-fatura" : eDocumentType === 2 ? "e-arsiv" : null
+  return key ? sampleTemplateVersion(key) : null
+}
+
+/**
+ * Kayıtlı tasarım bayat mı? Yalnız tasarımcıyla üretilmiş (options'lı) şablonlar
+ * için anlamlıdır; dışarıdan yüklenen şablonun içeriği bizde olmadığı için
+ * yenilenemez, dolayısıyla bayatlık da sorulmaz.
+ */
+export function isTemplateStale(
+  row: { options: unknown; baseVersion: string | null },
+  currentVersion: string | null,
+): boolean {
+  if (row.options == null) return false
+  if (!currentVersion) return false
+  return row.baseVersion !== currentVersion
 }
