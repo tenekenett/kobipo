@@ -29,7 +29,10 @@ export function PermissionGuard({ children }: { children: React.ReactNode }) {
 
   const owners = navHrefsForPath(pathname, searchParams)
   const label = owners.map((href) => navPage(href)?.label).find(Boolean)
-  const landing = landingPathFor(pagePermissions)
+  const landing = landingPathFor(pagePermissions, {
+    disabledModules: selectedCompany?.disabledModules ?? [],
+    isEDonusumEnabled: selectedCompany?.isEDonusumEnabled !== false,
+  })
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center p-6">

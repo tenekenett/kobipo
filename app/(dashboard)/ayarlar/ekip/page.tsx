@@ -11,7 +11,7 @@ import { roleLabel } from "@/lib/auth/role-labels"
 import { pagesForRole } from "@/lib/nav/pages"
 import { MemberPermissionsDialog } from "@/components/dashboard/member-permissions-dialog"
 import { RoleEditorDialog } from "@/components/dashboard/role-editor-dialog"
-import { Plus } from "lucide-react"
+import { Pencil, Plus } from "lucide-react"
 
 // BRANCH_MANAGER bilerek yok: şube müdürü ataması ayrı bir ekrandan yapılır
 // (/ayarlar/sube-mudurleri), çünkü rol şubeye bağlanır.
@@ -27,7 +27,14 @@ type Member = {
   user?: { name?: string; email: string }
 }
 
-type CompanyRole = { id: string; name: string; allowedPaths: string[]; writablePaths: string[] }
+type CompanyRole = {
+  id: string
+  name: string
+  description?: string | null
+  templateKey?: string | null
+  allowedPaths: string[]
+  writablePaths: string[]
+}
 
 export default function EkipPage() {
   const { toast } = useToast()
@@ -36,6 +43,10 @@ export default function EkipPage() {
   const [members, setMembers] = useState<Member[]>([])
   const [companyRoles, setCompanyRoles] = useState<CompanyRole[]>([])
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
+  // Diyalog hem "yeni rol" hem "seçili rolü düzenle" için açılıyor; hangisi olduğunu
+  // bu belirler. null bırakılırsa diyalog POST atar — düzenleme sanılan akışın 409
+  // vermesinin ikinci kaynağı buydu.
+  const [editingRole, setEditingRole] = useState<CompanyRole | null>(null)
   const [invitations, setInvitations] = useState<Array<{ id: string; email: string; role: string; createdAt: string }>>([])
   const [email, setEmail] = useState("")
   const [role, setRole] = useState("VIEWER")
@@ -53,6 +64,11 @@ export default function EkipPage() {
     if (response.ok) setCompanyRoles(await response.json())
   }
   useEffect(() => { fetchCompanyRoles() }, [companyId])
+
+  // Davet formunda seçili olan özel rol (varsa) — düzenleme düğmesi buna bağlanır.
+  const selectedCustomRole = role.startsWith("custom:")
+    ? companyRoles.find((r) => r.id === role.slice(7)) ?? null
+    : null
 
   // Üyenin rolünü değiştirir. Değer "custom:<id>" ise özel rol, aksi halde enum rol.
   const changeRole = async (member: Member, value: string) => {
@@ -220,9 +236,28 @@ export default function EkipPage() {
                 aklına gelen rolü burada açıp aynı akışta seçebilmeli. */}
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span>İstediğiniz yetki kümesi listede yok mu?</span>
-              <Button variant="outline" size="sm" onClick={() => setRoleDialogOpen(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEditingRole(null)
+                  setRoleDialogOpen(true)
+                }}
+              >
                 <Plus className="mr-1 h-3.5 w-3.5" /> Yeni rol tanımla
               </Button>
+              {selectedCustomRole && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEditingRole(selectedCustomRole)
+                    setRoleDialogOpen(true)
+                  }}
+                >
+                  <Pencil className="mr-1 h-3.5 w-3.5" /> “{selectedCustomRole.name}” rolünü düzenle
+                </Button>
+              )}
             </div>
             {latestInviteUrl && (
               <div className="rounded border p-3">
@@ -264,8 +299,13 @@ export default function EkipPage() {
           seçili hale gelir — kullanıcı iki ekran arasında gidip gelmesin. */}
       <RoleEditorDialog
         open={roleDialogOpen}
+        role={editingRole}
         companyId={companyId}
-        onClose={() => setRoleDialogOpen(false)}
+        existingRoles={companyRoles}
+        onClose={() => {
+          setRoleDialogOpen(false)
+          setEditingRole(null)
+        }}
         onSaved={(created) => {
           fetchCompanyRoles()
           if (created?.id) setRole(`custom:${created.id}`)

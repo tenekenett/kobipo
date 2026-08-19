@@ -34,6 +34,7 @@ import { NewTicketDialog } from "@/components/restoran/new-ticket-dialog"
 import { useDayTickets, useOpenTickets, useTables, type Ticket } from "@/lib/swr/use-restoran"
 import { currency } from "@/lib/fis/receipt-html"
 import { cn } from "@/lib/utils"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 type SortKey = "time" | "amount"
 type StatusFilter = "ALL" | "OPEN" | "CLOSED" | "CANCELLED"
@@ -182,10 +183,12 @@ export function TicketsScreen() {
             <RefreshCw className="mr-1.5 h-4 w-4" />
             Yenile
           </Button>
-          <Button onClick={() => setNewOpen(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            Yeni adisyon
-          </Button>
+          <WriteAction>
+            <Button onClick={() => setNewOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Yeni adisyon
+            </Button>
+          </WriteAction>
         </div>
       </div>
 

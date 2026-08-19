@@ -13,10 +13,16 @@ import { describe, expect, it } from "vitest"
 import {
   ACCOUNT_ADMIN_PAGES,
   ALWAYS_AVAILABLE_PAGES,
+  E_DONUSUM_PAGES,
   NAV_PAGES,
   assignablePages,
+  filterAvailablePages,
+  isPageAvailable,
+  missingModuleLabels,
+  moduleKeyForPath,
   pagesForRole,
 } from "./nav/pages"
+import { ROLE_TEMPLATES } from "./nav/role-templates"
 import {
   ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED,
   PAGE_API_RULES,
@@ -26,6 +32,8 @@ import {
   canViewPage,
   editablePages,
   isApiPathAllowedForUser,
+  isReadOnlyMembership,
+  isReadOnlyRole,
   isRestrictedMembership,
   landingPathFor,
   navHrefsForPath,
@@ -109,6 +117,153 @@ describe("efektif izin = rol ∩ allowedPaths", () => {
 
   it("kısıt yokken rolün tüm sayfaları görünür", () => {
     expect(visiblePages(unrestricted("SALES"))).toEqual(pagesForRole("SALES"))
+  })
+})
+
+describe("modül süzgeci — kapalı modülün sayfası teklif edilmez", () => {
+  // GERÇEK ŞİKÂYET: "Harici olarak modüller gizlense de gözüküyor."
+  // Sebep: `assignablePages`/`pagesForRole` `disabledModules`'ü hiç okumuyordu, yani
+  // izin seçicileri satın alınmamış modüllerin sayfalarını da listeliyordu.
+  const closed = { disabledModules: ["restaurant", "hr"] }
+
+  it("kapalı modülün sayfaları atanabilir listesinden düşer", () => {
+    const all = assignablePages()
+    const filtered = assignablePages(closed)
+    expect(all).toContain("/restoran/masalar")
+    expect(filtered).not.toContain("/restoran/masalar")
+    expect(filtered).not.toContain("/personel/maas")
+    // Açık modüller ve modülsüz sayfalar dokunulmadan kalır.
+    expect(filtered).toContain("/cari/musteri")
+    expect(filtered).toContain("/ayarlar/profil")
+  })
+
+  it("rol matrisi de aynı süzgeçten geçer", () => {
+    expect(pagesForRole("ADMIN")).toContain("/personel")
+    expect(pagesForRole("ADMIN", closed)).not.toContain("/personel")
+  })
+
+  it("süzgeç verilmezse hiçbir şey elenmez", () => {
+    expect(assignablePages(undefined)).toEqual(assignablePages())
+  })
+
+  it("e-Dönüşüm ayrı eksendir: modül değil firma bayrağı", () => {
+    // Bu sayfaların modül anahtarı YOK; eskiden hiçbir süzgeçten geçmedikleri için
+    // e-Dönüşüm kapalıyken de menüde/seçicide duruyorlardı.
+    for (const href of E_DONUSUM_PAGES) {
+      expect(moduleKeyForPath(href)).toBeNull()
+      expect(isPageAvailable(href, { isEDonusumEnabled: false })).toBe(false)
+      expect(isPageAvailable(href, { isEDonusumEnabled: true })).toBe(true)
+    }
+    // Kontör düz link (STANDALONE); grup süzgecinden geçmediği için ayrıca sayılı.
+    expect(E_DONUSUM_PAGES).toContain("/e-donusum/kontor")
+  })
+
+  it("kalıbın kapalı modülleri isimleriyle bildirilir", () => {
+    // Kart yalnız "4 yerine 0 sayfa" derse kullanıcı neyi satın alacağını bilemez;
+    // etiket satın alma ekranındakiyle aynı olmalı.
+    const kasiyer = ROLE_TEMPLATES.find((t) => t.key === "kasiyer")!
+    expect(filterAvailablePages(kasiyer.allowedPaths, closed)).toEqual([])
+    expect(missingModuleLabels(kasiyer.allowedPaths, closed)).toEqual(["Restoran & Kafe"])
+  })
+
+  it("kısmen kapalı kalıpta yalnız eksik modül raporlanır", () => {
+    // Vardiya Sorumlusu restoran sayfaları + tek bir personel (izin) sayfası taşır;
+    // yalnız Personel kapalıyken kalıp kullanılabilir kalır ama daralır.
+    const sef = ROLE_TEMPLATES.find((t) => t.key === "kasiyer-sef")!
+    const onlyHrClosed = { disabledModules: ["hr"] }
+    const usable = filterAvailablePages(sef.allowedPaths, onlyHrClosed)
+    expect(usable.length).toBe(sef.allowedPaths.length - 1)
+    expect(missingModuleLabels(sef.allowedPaths, onlyHrClosed)).toEqual(["Personel"])
+    // Restoran da kapanınca hiç sayfa kalmaz: kart kilitlenmeli.
+    expect(filterAvailablePages(sef.allowedPaths, closed)).toEqual([])
+    expect(missingModuleLabels(sef.allowedPaths, closed)).toEqual(["Restoran & Kafe", "Personel"])
+  })
+
+  it("süzgeç yokken kalıp eksiksiz ve şikâyetsizdir", () => {
+    for (const t of ROLE_TEMPLATES) {
+      expect(filterAvailablePages(t.allowedPaths, undefined)).toEqual(t.allowedPaths)
+      expect(missingModuleLabels(t.allowedPaths, undefined)).toEqual([])
+    }
+  })
+
+  it("landingPathFor kapalı modülün sayfasına düşürmez", () => {
+    // Kısıtlı çalışanın tek izinli sayfası kapalı bir modüldeyse açılışta kilit
+    // ekranına atılır ve gidecek yeri kalmaz.
+    const perms = restricted("ADMIN", ["/restoran/masalar"], ["/restoran/masalar"])
+    expect(landingPathFor(perms)).toBe("/restoran/masalar")
+    expect(landingPathFor(perms, closed)).toBe("/ayarlar/profil")
+  })
+})
+
+describe("salt-okunurluk — VIEWER ve tümü-okunur özel rol", () => {
+  // GERÇEK ŞİKÂYET: "Görüntüleyici olması işlem yapmasını engellemiyor."
+  // Sebep: VIEWER kısıtsız sayılıyordu, `editablePages` de kısıtsıza "hepsi yazılabilir"
+  // diyordu. Arayüz bu yüzden ona da Kaydet/Sil çiziyordu.
+  it("VIEWER kısıtsız olsa bile hiçbir sayfada yazamaz", () => {
+    const perms = unrestricted("VIEWER")
+    expect(isRestrictedMembership(perms)).toBe(false)
+    expect(visiblePages(perms).length).toBeGreaterThan(0)
+    expect(editablePages(perms)).toEqual([])
+    expect(isReadOnlyRole(perms)).toBe(true)
+    expect(isReadOnlyMembership(perms)).toBe(true)
+  })
+
+  it("VIEWER gördüğü sayfada bile düzenleyemez", () => {
+    const perms = unrestricted("VIEWER")
+    const seen = visiblePages(perms)[0]
+    expect(canViewPage(perms, seen)).toBe(true)
+    expect(canEditPage(perms, seen)).toBe(false)
+  })
+
+  it("kısıtlı VIEWER'a writablePaths verilse de yazamaz", () => {
+    // Yetki dağıtan ekranın yanlışlıkla yazma işaretlemesi VIEWER'ı yazar hâle
+    // getirmemeli: enum rol tavandır, liste yalnız daraltır.
+    const perms = restricted("VIEWER", ["/raporlar/satis"], ["/raporlar/satis"])
+    expect(editablePages(perms)).toEqual([])
+    expect(isApiPathAllowedForUser("/api/raporlar/satis", "POST", perms)).toBe(false)
+  })
+
+  it("yazma izni olmayan özel rol salt-okunur üyeliktir", () => {
+    // Enum'u CUSTOM olduğu için `ensureCompanyWrite`'ın VIEWER kontrolüne takılmıyordu;
+    // `isReadOnlyMembership` ikisini tek cevapta topluyor.
+    const gozlemci: PagePermissions = {
+      role: "CUSTOM",
+      allowedPaths: ["/cari/musteri", "/stok/urunler"],
+      writablePaths: [],
+      custom: true,
+    }
+    expect(isReadOnlyRole(gozlemci)).toBe(false)
+    expect(isReadOnlyMembership(gozlemci)).toBe(true)
+    expect(canViewPage(gozlemci, "/cari/musteri")).toBe(true)
+    expect(canEditPage(gozlemci, "/cari/musteri")).toBe(false)
+  })
+
+  it("tek sayfada yazabilen özel rol salt-okunur DEĞİLDİR", () => {
+    const perms: PagePermissions = {
+      role: "CUSTOM",
+      allowedPaths: ["/cari/musteri", "/stok/urunler"],
+      writablePaths: ["/stok/urunler"],
+      custom: true,
+    }
+    expect(isReadOnlyMembership(perms)).toBe(false)
+  })
+
+  it("VIEWER kendi profilini ve destek sayfasını düzenleyebilir", () => {
+    // Aksi halde salt-okunur uyarısı kişisel sayfalarda da çıkar ve kullanıcı kendi
+    // şifresini değiştiremeyeceğini sanır.
+    const perms = unrestricted("VIEWER")
+    for (const href of ALWAYS_AVAILABLE_PAGES) {
+      expect(canEditPage(perms, href)).toBe(true)
+    }
+    // Kişisel istisna "iş" kümesini kirletmemeli:
+    expect(isReadOnlyMembership(perms)).toBe(true)
+  })
+
+  it("yazabilen enum roller salt-okunur sayılmaz", () => {
+    // Regresyon bekçisi: kapıyı VIEWER'a daraltırken normal rollerin yazması kapanmasın.
+    for (const role of ["ADMIN", "BRANCH_MANAGER", "ACCOUNTANT", "STOCK", "SALES"]) {
+      expect(isReadOnlyMembership(unrestricted(role))).toBe(false)
+    }
   })
 })
 
@@ -211,20 +366,110 @@ describe("kısıtlı çalışan senaryoları", () => {
     expect(isApiPathAllowedForUser("/api/raporlar/kar-zarar", "GET", mali)).toBe(true)
   })
 
-  it("kuralsız uçlar kısıtlı kullanıcıya da açıktır", () => {
-    // Profil, destek, abonelik, oturum: panelde hangi ekranın açık olduğundan bağımsız.
+  it("kuralsız uçta OKUMA serbest kalır", () => {
+    // Oturum, kur, katalog: panelde hangi ekranın açık olduğundan bağımsız okunur.
     const perms = restricted("SALES", ["/cari/musteri"])
-    for (const path of [
-      "/api/auth/session",
-      "/api/auth/profile",
-      "/api/support/tickets",
-      "/api/billing/catalog",
-      "/api/notifications",
-      "/api/kur",
-    ]) {
+    for (const path of ["/api/auth/session", "/api/billing/catalog", "/api/kur"]) {
       expect(pageRuleForApiPath(path)).toBeNull()
-      expect(isApiPathAllowedForUser(path, "POST", perms)).toBe(true)
+      expect(isApiPathAllowedForUser(path, "GET", perms)).toBe(true)
     }
+  })
+
+  it("kuralsız uçta YAZMA reddedilir", () => {
+    // En büyük delik buydu: haritada karşılığı olmayan her uç kısıtlı çalışana sonuna
+    // kadar açıktı. Asimetri bilinçli — unutulmuş bir okuma kuralı ekranı kırar,
+    // unutulmuş bir yazma kuralı kısıtın kendisini anlamsız kılar.
+    const perms = restricted("SALES", ["/cari/musteri"], ["/cari/musteri"])
+    for (const path of ["/api/muhasebe/fisler", "/api/muhasebe/hesap-plani", "/api/kur"]) {
+      expect(pageRuleForApiPath(path)).toBeNull()
+      expect(isApiPathAllowedForUser(path, "GET", perms)).toBe(true)
+      expect(isApiPathAllowedForUser(path, "POST", perms)).toBe(false)
+      expect(isApiPathAllowedForUser(path, "DELETE", perms)).toBe(false)
+    }
+  })
+
+  it("kişisel uçlar (bildirim, destek) kısıt ne olursa olsun yazılabilir", () => {
+    // Bildirimi okundu işaretlemek ya da destek talebi açmak ekran yetkisi değildir;
+    // kuralsız-uç varsayılanı deny'a döndüğü için bunlar AÇIKÇA kural olmak zorunda.
+    const perms = restricted("SALES", ["/cari/musteri"], [])
+    for (const path of ["/api/notifications", "/api/support/tickets", "/api/support/tickets/42/messages"]) {
+      expect(pageRuleForApiPath(path)?.personal).toBe(true)
+      expect(isApiPathAllowedForUser(path, "POST", perms)).toBe(true)
+      expect(isApiPathAllowedForUser(path, "PATCH", perms)).toBe(true)
+    }
+    // Salt-okunur üyelikte bile: VIEWER da bildirimini okundu işaretleyebilmeli.
+    expect(isApiPathAllowedForUser("/api/notifications", "PATCH", unrestricted("VIEWER"))).toBe(true)
+  })
+})
+
+describe("yazma daraltması — gören yazamaz", () => {
+  // Bu blok Bulgu 3 / Delik C'nin karşılığı: 52 kuralda `writePages` yoktu, yani
+  // `writePages ?? pages` devreye giriyor ve ucu GÖREBİLEN herkes YAZABİLİYORDU.
+  const w = (role: string, page: string) => restricted(role, [page], [page])
+
+  it("rapor ekranı hiçbir rapor ucuna yazamaz", () => {
+    const raporcu = w("ACCOUNTANT", "/raporlar/stok")
+    expect(isApiPathAllowedForUser("/api/raporlar", "GET", raporcu)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/raporlar", "POST", raporcu)).toBe(false)
+    // Ve stok raporu artık stok HAREKETİ giremez.
+    expect(isApiPathAllowedForUser("/api/stok/movements", "GET", raporcu)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/stok/movements", "POST", raporcu)).toBe(false)
+  })
+
+  it("export salt okumadır", () => {
+    const perms = w("ACCOUNTANT", "/raporlar/satis")
+    expect(isApiPathAllowedForUser("/api/export/rapor-satis", "GET", perms)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/export/rapor-satis", "POST", perms)).toBe(false)
+  })
+
+  it("cari raporu cari kaydı silemez", () => {
+    const perms = w("ACCOUNTANT", "/raporlar/cari")
+    expect(isApiPathAllowedForUser("/api/cari/ekstre", "GET", perms)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/cari", "DELETE", perms)).toBe(false)
+  })
+
+  it("restoran raporu adisyona yazamaz ama kasiyer yazar", () => {
+    const raporcu = w("ADMIN", "/restoran/raporlar")
+    expect(isApiPathAllowedForUser("/api/restoran/adisyonlar", "GET", raporcu)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/restoran/adisyonlar", "POST", raporcu)).toBe(false)
+
+    const kasiyer = w("ADMIN", "/restoran/satis")
+    expect(isApiPathAllowedForUser("/api/restoran/adisyonlar", "POST", kasiyer)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/restoran/ikram", "POST", kasiyer)).toBe(true)
+  })
+
+  it("depo listesi transfer oluşturamaz, transfer ekranı oluşturur", () => {
+    expect(isApiPathAllowedForUser("/api/depolar/transfer", "POST", w("STOCK", "/depolar"))).toBe(false)
+    expect(isApiPathAllowedForUser("/api/depolar/transfer", "POST", w("STOCK", "/stok/transfer"))).toBe(true)
+  })
+
+  it("finans: kasa devri kanal ekranına, mutabakat eşleşmesi mutabakat ekranına ait", () => {
+    expect(isApiPathAllowedForUser("/api/kasa", "POST", w("ACCOUNTANT", "/finans/kanallar"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/kasa", "POST", w("ACCOUNTANT", "/finans/hareketler"))).toBe(false)
+    expect(isApiPathAllowedForUser("/api/banka", "POST", w("ACCOUNTANT", "/finans/mutabakat"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/banka", "POST", w("ACCOUNTANT", "/finans/kanallar"))).toBe(false)
+  })
+
+  it("puantajcı bordro yazamaz (jenerik personel ucu da dahil)", () => {
+    // Rol ADMIN: puantaj ACCOUNTANT matrisinde YOK, tavan onu zaten elerdi ve test
+    // daralttığımız şeyi değil rol matrisini ölçerdi.
+    const puantaj = w("ADMIN", "/personel/puantaj")
+    expect(isApiPathAllowedForUser("/api/personel/payroll", "GET", puantaj)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/personel/payroll", "POST", puantaj)).toBe(false)
+    expect(isApiPathAllowedForUser("/api/personel", "POST", puantaj)).toBe(false)
+  })
+
+  it("meşru yazma yolları açık kalır (regresyon bekçisi)", () => {
+    // Daraltmanın bedeli çalışan bir ekranı kırmak olmamalı.
+    expect(isApiPathAllowedForUser("/api/faturalar/odemeler", "POST", w("SALES", "/satis/fatura"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/siparis", "POST", w("SALES", "/satis/siparis"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/teklif", "PUT", w("SALES", "/teklif"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/import", "POST", w("ADMIN", "/ayarlar/veri-aktarim"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/attachments", "POST", w("SALES", "/satis/fatura"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/e-donusum/inbox", "POST", w("ACCOUNTANT", "/alis/gelen-e-faturalar"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/kontor/orders", "POST", w("ADMIN", "/e-donusum/kontor"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/personel/holidays", "POST", w("ADMIN", "/personel/vardiya"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/e-donusum/onboarding", "POST", w("ADMIN", "/ayarlar/e-donusum"))).toBe(true)
   })
 })
 
@@ -346,11 +591,23 @@ describe("kural haritasının bütünlüğü", () => {
     }
   })
 
-  it("her kural /api/ ile başlar ve boş sayfa listesi taşımaz", () => {
+  it("her kural /api/ ile başlar ve boş OKUMA listesi taşımaz", () => {
     for (const rule of PAGE_API_RULES) {
       expect(rule.prefix.startsWith("/api/")).toBe(true)
       expect(rule.pages.length, `boş kural: ${rule.prefix}`).toBeGreaterThan(0)
-      if (rule.writePages) expect(rule.writePages.length).toBeGreaterThan(0)
+    }
+    // `writePages: []` KASITLIDIR ve "bu uca kimse yazamaz" demektir (rapor/export
+    // uçları, jenerik ön ekler). Eskiden boş liste bir hata sayılıyordu; artık
+    // salt-okuma sözleşmesinin ifade biçimi.
+  })
+
+  it("her kural yazma sözleşmesini AÇIKÇA taşır", () => {
+    // `writePages ?? pages` yedeği sessiz bir genişletmeydi: kurala okuma amacıyla
+    // eklenen bir rapor ekranı o uca yazma da kazanıyordu. Yeni kural eklerken
+    // yazma sahibini düşünmek zorunlu olsun diye alan artık zorunlu sayılıyor.
+    for (const rule of PAGE_API_RULES) {
+      if (rule.personal) continue
+      expect(rule.writePages, `${rule.prefix}: writePages yazılmamış`).toBeDefined()
     }
   })
 

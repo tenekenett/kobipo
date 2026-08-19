@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { NAV_PAGES, pagesForRole } from "@/lib/nav/pages"
 import { roleLabel } from "@/lib/auth/role-labels"
 import { CompanyLink } from "@/components/dashboard/company-link"
+import { usePageAvailability } from "@/components/dashboard/write-guard"
 import {
   PagePermissionPicker,
   accessFromPaths,
@@ -51,7 +52,18 @@ export function MemberPermissionsDialog({
   const [access, setAccess] = useState<Record<string, Access>>({})
   const [saving, setSaving] = useState(false)
 
-  const rolePages = member ? pagesForRole(member.role) : []
+  const availability = usePageAvailability()
+  /**
+   * Rolün sayfaları, firmanın kapalı modülleri elenmiş hâlde + üyeye zaten verilmiş
+   * sayfalar. Birleşimin sebebi rol düzenleyicideki ile aynı: kapalı modül teklif
+   * edilmesin ama var olan izin kaydederken silinmesin.
+   */
+  const rolePages = useMemo(() => {
+    if (!member) return []
+    const available = pagesForRole(member.role, availability)
+    const owned = member.allowedPaths ?? []
+    return available.concat(owned.filter((href) => !available.includes(href)))
+  }, [member, availability])
 
   useEffect(() => {
     if (!member || member.customRoleId) return
@@ -59,11 +71,12 @@ export function MemberPermissionsDialog({
     const writable = member.writablePaths ?? []
     setAccess(
       // Kısıt yoksa üye bugün rolünün her şeyini yapabiliyor: tam yetkiyle aç.
+      // Kapalı modülün sayfası seçiciye hiç girmediği için burada da işaretlenmez.
       allowed.length === 0
-        ? Object.fromEntries(pagesForRole(member.role).map((h) => [h, "edit" as Access]))
-        : accessFromPaths(pagesForRole(member.role), allowed, writable)
+        ? Object.fromEntries(rolePages.map((h) => [h, "edit" as Access]))
+        : accessFromPaths(rolePages, allowed, writable)
     )
-  }, [member])
+  }, [member, rolePages])
 
   if (!member) return null
 

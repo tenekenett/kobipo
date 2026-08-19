@@ -12,6 +12,7 @@ import {
 import {
   PageForbiddenError,
   isApiPathAllowedForUser,
+  isReadOnlyMembership,
   isRestrictedMembership,
   requiredPagesForApiPath,
   type PagePermissions,
@@ -292,8 +293,13 @@ export async function ensureCompanyWrite(
   companyId: string,
 ): Promise<UserCompanyContext> {
   const context = await ensureCompanyAccess(companyId)
-  if (context.role === "VIEWER") {
-    throw new Error("Access denied: read-only role (VIEWER)")
+  // Enum VIEWER ve "hiçbir sayfada düzenleme yok" diye tanımlanmış özel rol aynı şeydir:
+  // salt-okunur üyelik. Eskiden yalnız enum'a bakılıyordu, oysa özel rolün enum'u
+  // CUSTOM'dur — Gözlemci kalıbından üretilmiş bir rol bu kapıdan hiç takılmadan
+  // geçiyordu. Karar `lib/page-access.ts` ile ORTAK; arayüzdeki `useCanEdit` de aynı
+  // yordamdan besleniyor, ikisi ayrışamaz.
+  if (isReadOnlyMembership(pagePermissionsOf(context))) {
+    throw new Error("Access denied: read-only role")
   }
   return context
 }

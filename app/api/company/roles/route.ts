@@ -72,7 +72,18 @@ export async function POST(request: Request) {
     return NextResponse.json(role, { status: 201 })
   } catch (error) {
     if (error && typeof error === "object" && (error as { code?: string }).code === "P2002") {
-      return NextResponse.json({ error: "Bu isimde bir rol zaten var" }, { status: 409 })
+      // Çakışan rolün id'sini de döndürüyoruz. 409'un tipik sebebi kullanıcının hata
+      // yapması değil, arayüzün "düzenle" yerine "yeni rol" akışını açmasıdır (hazır
+      // kalıp kartı, ekip ekranındaki düğme). id olmadan kullanıcı çıkmaz sokakta kalır;
+      // bununla diyalog doğrudan o rolün düzenlemesine geçebiliyor.
+      const existing = await prisma.companyRole.findFirst({
+        where: { companyId, name },
+        select: { id: true },
+      })
+      return NextResponse.json(
+        { error: "Bu isimde bir rol zaten var", existingRoleId: existing?.id ?? null },
+        { status: 409 }
+      )
     }
     throw error
   }

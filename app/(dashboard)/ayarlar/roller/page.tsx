@@ -9,9 +9,10 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { RoleEditorDialog, type CompanyRole } from "@/components/dashboard/role-editor-dialog"
-import { navPage } from "@/lib/nav/pages"
+import { filterAvailablePages, missingModuleLabels, navPage } from "@/lib/nav/pages"
+import { usePageAvailability } from "@/components/dashboard/write-guard"
 import { ROLE_TEMPLATES } from "@/lib/nav/role-templates"
-import { Pencil, Plus, ShieldCheck, Trash2, Users } from "lucide-react"
+import { Check, Lock, Pencil, Plus, ShieldCheck, Trash2, Users } from "lucide-react"
 
 /**
  * Firmanın kendi rollerini tanımladığı ekran.
@@ -20,6 +21,15 @@ import { Pencil, Plus, ShieldCheck, Trash2, Users } from "lucide-react"
  * ürünün sabit kalıpları. Burada tanımlanan roller firmaya özeldir, adı firma koyar
  * ve sayfa kümesi tamamen serbesttir — hesap yönetimi ekranları hariç.
  */
+
+/**
+ * Modül adlarını Türkçe bir listeye çevirir: "A", "A ve B", "A, B ve C".
+ * Hepsini " ve " ile bağlamak üç öğeden sonra okunmaz hâle geliyordu.
+ */
+function listTr(labels: string[]): string {
+  if (labels.length <= 1) return labels[0] ?? ""
+  return `${labels.slice(0, -1).join(", ")} ve ${labels[labels.length - 1]}`
+}
 
 export default function RollerPage() {
   const { toast } = useToast()
@@ -30,6 +40,7 @@ export default function RollerPage() {
   const [open, setOpen] = useState(false)
   const [editingRole, setEditingRole] = useState<CompanyRole | null>(null)
   const [templateKey, setTemplateKey] = useState<string | null>(null)
+  const availability = usePageAvailability()
 
   const fetchRoles = useCallback(async () => {
     if (!companyId) return
@@ -45,6 +56,17 @@ export default function RollerPage() {
   useEffect(() => {
     fetchRoles()
   }, [fetchRoles])
+
+  /**
+   * Hangi kalıptan zaten rol üretilmiş? Kart bunu göstermezse kullanıcı "rolüm burada"
+   * diye karta basıyor, diyalog YENİ rol modunda açılıyor ve Kaydet 409 döndürüyordu —
+   * kullanıcının gördüğü "bu rol zaten kayıtlı" hatasının birinci kaynağı buydu.
+   */
+  const roleByTemplate = useMemo(() => {
+    const map = new Map<string, CompanyRole>()
+    for (const role of roles) if (role.templateKey) map.set(role.templateKey, role)
+    return map
+  }, [roles])
 
   const openNew = (template?: string) => {
     setEditingRole(null)
@@ -154,20 +176,68 @@ export default function RollerPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {ROLE_TEMPLATES.map((template) => (
-            <button
-              key={template.key}
-              type="button"
-              onClick={() => openNew(template.key)}
-              className="rounded-lg border p-3 text-left transition-colors hover:border-kobipo-blue hover:bg-kobipo-pale/40 dark:hover:bg-primary/10"
-            >
-              <div className="font-medium">{template.name}</div>
-              <div className="mt-1 text-xs text-muted-foreground">{template.description}</div>
-              <div className="mt-2 text-[11px] text-muted-foreground">
-                {template.allowedPaths.length} sayfa · {template.writablePaths.length} düzenleme
-              </div>
-            </button>
-          ))}
+          {ROLE_TEMPLATES.map((template) => {
+            const created = roleByTemplate.get(template.key)
+            // Kalıbın sayfaları firmanın AÇIK modüllerine göre süzülür. Kart eskiden
+            // kalıbın statik sayısını basıyordu; diyalog ise seçiciyi süzdüğü için
+            // "4 sayfa" yazan kart "0/8 seçili" bir form açıyordu.
+            const usable = filterAvailablePages(template.allowedPaths, availability)
+            const usableWritable = filterAvailablePages(template.writablePaths, availability)
+            const missing = missingModuleLabels(template.allowedPaths, availability)
+            // Rol zaten üretilmişse kart düzenlemeye götürür — modül sonradan kapansa
+            // bile o role erişimi kesmek yanlış olur.
+            const locked = !created && usable.length === 0
+            return (
+              <button
+                key={template.key}
+                type="button"
+                disabled={locked}
+                title={locked ? `${listTr(missing)} modülü gerekli` : undefined}
+                onClick={() => (created ? openEdit(created) : openNew(template.key))}
+                className={
+                  locked
+                    ? "cursor-not-allowed rounded-lg border border-dashed p-3 text-left opacity-60"
+                    : "rounded-lg border p-3 text-left transition-colors hover:border-kobipo-blue hover:bg-kobipo-pale/40 dark:hover:bg-primary/10"
+                }
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-medium">{template.name}</div>
+                  {created ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-kobipo-pale px-2 py-0.5 text-[10px] font-medium text-kobipo-blue dark:bg-primary/15 dark:text-primary">
+                      <Check className="h-3 w-3" /> Oluşturuldu
+                    </span>
+                  ) : (
+                    locked && (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        <Lock className="h-3 w-3" /> Modül kapalı
+                      </span>
+                    )
+                  )}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">{template.description}</div>
+                <div className="mt-2 text-[11px] text-muted-foreground">
+                  {created ? (
+                    <span className="inline-flex items-center gap-1 text-kobipo-blue dark:text-primary">
+                      <Pencil className="h-3 w-3" /> “{created.name}” rolünü düzenle
+                    </span>
+                  ) : locked ? (
+                    `Bu kalıp ${listTr(missing)} ${missing.length > 1 ? "modüllerini" : "modülünü"} gerektiriyor.`
+                  ) : (
+                    <>
+                      {usable.length} sayfa · {usableWritable.length} düzenleme
+                      {/* Kısmen kapalı kalıp: sayı zaten düşük basılıyor, eksik modülü
+                          söylemezsek kullanıcı "neden 10 değil 7" diye takılır. */}
+                      {missing.length > 0 && (
+                        <span className="block text-amber-700 dark:text-amber-500">
+                          {listTr(missing)} kapalı olduğu için bazı sayfalar çıkarıldı.
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              </button>
+            )
+          })}
         </CardContent>
       </Card>
 
@@ -176,7 +246,14 @@ export default function RollerPage() {
         role={editingRole}
         templateKey={templateKey}
         companyId={companyId}
-        onClose={() => setOpen(false)}
+        existingRoles={roles}
+        onClose={() => {
+          // State'i sıfırlamazsak diyalog bir sonraki açılışında önceki rolü/kalıbı
+          // taşır ve "yeni rol" derken eskisini düzenlemiş oluruz (ya da tersi).
+          setOpen(false)
+          setEditingRole(null)
+          setTemplateKey(null)
+        }}
         onSaved={fetchRoles}
       />
     </div>

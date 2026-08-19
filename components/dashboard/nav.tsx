@@ -14,6 +14,7 @@ import { useDashboardCompany, useVisiblePages } from "@/components/dashboard/das
 import { withCompanyHref } from "@/lib/company/href"
 import { useSidebar } from "@/components/dashboard/sidebar-provider"
 import { landingPathFor } from "@/lib/page-access"
+import { E_DONUSUM_PAGES, moduleKeyForPath } from "@/lib/nav/pages"
 export function DashboardNav() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -23,7 +24,14 @@ export function DashboardNav() {
   const visibleHrefs = useVisiblePages()
   // Logo tıklaması kısıtlı çalışanı rol panosuna değil, yetkili olduğu ilk sayfaya
   // götürür — pano ciro/kâr rakamı basıyor.
-  const landingPath = useMemo(() => landingPathFor(pagePermissions), [pagePermissions])
+  const landingPath = useMemo(
+    () =>
+      landingPathFor(pagePermissions, {
+        disabledModules: selectedCompany?.disabledModules ?? [],
+        isEDonusumEnabled: selectedCompany?.isEDonusumEnabled !== false,
+      }),
+    [pagePermissions, selectedCompany]
+  )
   const { collapsed } = useSidebar()
 
   // Aktif firma seçimi URL'de ?company=<slug> ile taşınır. Nav linkleri bunu KORUMALIDIR;
@@ -42,15 +50,20 @@ export function DashboardNav() {
   // Role VE kısıtlı çalışan iznine göre filtrelenmiş menü öğeleri.
   // `visibleHrefs` zaten rol matrisinin izin listesiyle kesişimi (lib/page-access.ts),
   // yani rol kontrolü burada ikinci kez yapılmaz.
+  const eDonusumEnabled = Boolean(selectedCompany?.isEDonusumEnabled)
+
   const navItems = useMemo(() => {
     const visible = new Set(visibleHrefs)
     return allNavItems.filter((item) => {
-      if (item.href === "/e-donusum" && !selectedCompany?.isEDonusumEnabled) {
-        return false
-      }
+      // e-Dönüşüm AYRI bir eksendir: modül değil, firma bayrağı. Buradaki kontrol
+      // eskiden yalnız "/e-donusum" href'ine bakıyordu ve o href NAV_PAGES'te YOK —
+      // yani hiçbir zaman bir şey elemiyordu. Gerçek sayfalar (/ayarlar/e-donusum,
+      // /e-donusum/seri-no, /e-donusum/sablon, /e-donusum/kontor) e-Dönüşüm
+      // kapalıyken de menüde duruyordu. Liste artık tek kaynaktan geliyor.
+      if (!eDonusumEnabled && E_DONUSUM_PAGES.includes(item.href)) return false
       return visible.has(item.href)
     })
-  }, [selectedCompany?.isEDonusumEnabled, visibleHrefs])
+  }, [eDonusumEnabled, visibleHrefs])
 
   // Firma için kapalı modüllerin nav gruplarını gizle.
   //
@@ -89,8 +102,15 @@ export function DashboardNav() {
     () =>
       standaloneNavHrefs
         .map((href) => navItems.find((item) => item.href === href))
-        .filter((item): item is NavItemDef => Boolean(item)),
-    [navItems]
+        .filter((item): item is NavItemDef => Boolean(item))
+        // Düz linkler grup süzgecinden GEÇMİYOR — grupları elemek onları elemez.
+        // "Kontör" bu yüzden e-Dönüşüm kapalıyken menüde kalıyordu (o kısım artık
+        // navItems'ta çözülüyor); modül bağı olan bir öğe eklenirse de burada düşsün.
+        .filter((item) => {
+          const moduleKey = item.module ?? moduleKeyForPath(item.href)
+          return !(moduleKey && disabledModules.has(moduleKey))
+        }),
+    [navItems, disabledModules]
   )
 
   useEffect(() => {

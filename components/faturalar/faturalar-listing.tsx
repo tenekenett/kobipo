@@ -42,6 +42,7 @@ import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { ExportButton } from "@/components/export/export-button"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 interface FaturaRow {
   id: string
@@ -611,10 +612,12 @@ export default function FaturalarListing({
               includeInbox: includeInbox ? null : "false",
             }}
           />
-          <Button onClick={handleCreateInvoice}>
-            <Plus className="mr-2 h-4 w-4" />
-            Yeni Fatura
-          </Button>
+          <WriteAction>
+            <Button onClick={handleCreateInvoice}>
+              <Plus className="mr-2 h-4 w-4" />
+              Yeni Fatura
+            </Button>
+          </WriteAction>
         </div>
       </div>
 
@@ -898,17 +901,19 @@ export default function FaturalarListing({
                                 </Button>
                               </Link>
                               {editable && (
-                                <Link
-                                  href={`/e-donusum/${rawId}/duzenle?company=${encodeURIComponent(
-                                    companyId,
-                                  )}&from=${encodeURIComponent(
-                                    fixedDirection === "incoming" ? "/alis/fatura" : "/satis/fatura",
-                                  )}`}
-                                >
-                                  <Button variant="outline" size="sm" title="Düzenle">
-                                    <Pencil className="h-4 w-4" />
-                                  </Button>
-                                </Link>
+                                <WriteAction>
+                                  <Link
+                                    href={`/e-donusum/${rawId}/duzenle?company=${encodeURIComponent(
+                                      companyId,
+                                    )}&from=${encodeURIComponent(
+                                      fixedDirection === "incoming" ? "/alis/fatura" : "/satis/fatura",
+                                    )}`}
+                                  >
+                                    <Button variant="outline" size="sm" title="Düzenle">
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                  </Link>
+                                </WriteAction>
                               )}
                               {canCheckGib && (
                                 <Button
@@ -942,14 +947,16 @@ export default function FaturalarListing({
                                   )}
                                 </Button>
                               )}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                title="Sil / İptal Et"
-                                onClick={() => setDeleteTargetId(rawId)}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
+                              <WriteAction>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  title="Sil / İptal Et"
+                                  onClick={() => setDeleteTargetId(rawId)}
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </WriteAction>
                             </>
                           ) : (
                             <>

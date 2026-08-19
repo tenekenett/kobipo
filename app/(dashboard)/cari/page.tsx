@@ -30,6 +30,7 @@ import {
   type CariDeletability,
 } from "@/components/cari/cari-archive-delete-dialog"
 import { ExportButton } from "@/components/export/export-button"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 function TableSkeleton({ rows = 8 }: { rows?: number }) {
   return (
@@ -298,12 +299,14 @@ export default function CariPage() {
             params={{ tab: activeTab, search: debouncedSearch }}
             size="default"
           />
-          <Link href={`/cari/${activeTab}/new?company=${companyId}`}>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Yeni {activeTab === "customers" ? "Müşteri" : "Tedarikçi"}
-            </Button>
-          </Link>
+          <WriteAction>
+            <Link href={`/cari/${activeTab}/new?company=${companyId}`}>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Yeni {activeTab === "customers" ? "Müşteri" : "Tedarikçi"}
+              </Button>
+            </Link>
+          </WriteAction>
         </div>
       </div>
 
@@ -446,28 +449,32 @@ export default function CariPage() {
                                 <Eye className="h-4 w-4" />
                               </Button>
                             </Link>
-                            <Link
-                              href={`/cari/${activeTab}/${item.slug || item.id}/edit?company=${companyId}`}
-                              aria-label="Düzenle"
-                            >
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
-                                <Pencil className="h-4 w-4" />
+                            <WriteAction>
+                              <Link
+                                href={`/cari/${activeTab}/${item.slug || item.id}/edit?company=${companyId}`}
+                                aria-label="Düzenle"
+                              >
+                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              </Link>
+                            </WriteAction>
+                            <WriteAction>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+                                aria-label="Sil"
+                                disabled={loadingDeleteId === item.id}
+                                onClick={() => requestDelete(item)}
+                              >
+                                {loadingDeleteId === item.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
                               </Button>
-                            </Link>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
-                              aria-label="Sil"
-                              disabled={loadingDeleteId === item.id}
-                              onClick={() => requestDelete(item)}
-                            >
-                              {loadingDeleteId === item.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-4 w-4" />
-                              )}
-                            </Button>
+                            </WriteAction>
                           </div>
                         </TableCell>
                       </StyledTableRow>

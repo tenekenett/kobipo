@@ -50,6 +50,7 @@ import {
 import { cn } from "@/lib/utils"
 import { ExportButton } from "@/components/export/export-button"
 import Link from "next/link"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 interface Product {
   id: string
@@ -619,12 +620,14 @@ export default function StokPage() {
             }
           }}
         >
-          <DialogTrigger asChild>
-            <Button onClick={startCreate}>
-              <Plus className="mr-2 h-4 w-4" />
-              Yeni Ürün/Hizmet
-            </Button>
-          </DialogTrigger>
+          <WriteAction>
+            <DialogTrigger asChild>
+              <Button onClick={startCreate}>
+                <Plus className="mr-2 h-4 w-4" />
+                Yeni Ürün/Hizmet
+              </Button>
+            </DialogTrigger>
+          </WriteAction>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingId ? "Ürün Düzenle" : "Yeni Ürün/Hizmet"}</DialogTitle>
@@ -1258,14 +1261,18 @@ export default function StokPage() {
                             Detay
                           </Button>
                         </Link>
-                        <Button variant="ghost" size="sm" onClick={() => startEdit(product)}>
-                          <Pencil className="h-4 w-4 mr-1" />
-                          Düzenle
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => deleteProduct(product.id)}>
-                          <Trash2 className="h-4 w-4 mr-1 text-red-600" />
-                          Sil
-                        </Button>
+                        <WriteAction>
+                          <Button variant="ghost" size="sm" onClick={() => startEdit(product)}>
+                            <Pencil className="h-4 w-4 mr-1" />
+                            Düzenle
+                          </Button>
+                        </WriteAction>
+                        <WriteAction>
+                          <Button variant="ghost" size="sm" onClick={() => deleteProduct(product.id)}>
+                            <Trash2 className="h-4 w-4 mr-1 text-red-600" />
+                            Sil
+                          </Button>
+                        </WriteAction>
                       </div>
                     </TableCell>
                   </StyledTableRow>

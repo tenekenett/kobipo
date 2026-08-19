@@ -9,7 +9,7 @@
 // Rol listesi bu dosyada TEK kez yazılır. İkinci bir kopya, "menü ne diyor, kapı
 // ne diyor" ayrışmasına ve sessiz yetki açıklarına yol açardı.
 
-import { MODULE_GROUP_TO_KEY } from "@/lib/modules"
+import { MANAGEABLE_MODULES, MODULE_GROUP_TO_KEY } from "@/lib/modules"
 
 export type NavPageDef = {
   href: string
@@ -333,6 +333,10 @@ export function moduleKeyForPath(pathname: string): string | null {
   for (const [prefix, moduleKey] of Object.entries(PATH_MODULE_OVERRIDES)) {
     if (pathname === prefix || pathname.startsWith(prefix + "/")) return moduleKey
   }
+  // Sayfanın kendi açık bağı grubunu EZER (`NavPageDef.module`); bugün kullanan yok
+  // ama sözleşme tipte yazılı ve tek çözüm noktası burası olmalı.
+  const own = navPage(pathname)?.module
+  if (own) return own
   for (const group of NAV_GROUPS) {
     const moduleKey = MODULE_GROUP_TO_KEY[group.title]
     if (!moduleKey) continue
@@ -352,8 +356,81 @@ export function navPage(href: string): NavPageDef | undefined {
 }
 
 /** Rolün görebildiği sayfa href'leri — yetki kapısının TABANI. */
-export function pagesForRole(role: string): string[] {
-  return NAV_PAGES.filter((p) => p.roles.includes(role)).map((p) => p.href)
+/**
+ * e-Dönüşüm sayfaları. AYRI bir eksen: modül değil, firma bayrağıdır
+ * (`company.isEDonusumEnabled`) — bu yüzden `MODULE_GROUP_TO_KEY`'de karşılığı yok ve
+ * modül süzgecinden hiç geçmiyorlardı. Kontör linki gruplarda değil, düz link
+ * (`STANDALONE_NAV_HREFS`) olduğu için ayrıca yazılıyor.
+ */
+export const E_DONUSUM_PAGES: string[] = [
+  ...(NAV_GROUPS.find((g) => g.title === "E-Dönüşüm")?.hrefs ?? []),
+  "/e-donusum/kontor",
+]
+
+/** Firmanın o anki durumu: hangi modüller kapalı, e-Dönüşüm açık mı. */
+export type PageAvailability = {
+  /** RED listesi (`company.disabledModules`). */
+  disabledModules?: string[] | null
+  /** Yalnız AÇIKÇA false verilirse e-Dönüşüm sayfaları elenir; undefined = dokunma. */
+  isEDonusumEnabled?: boolean
+}
+
+/** Sayfa, firmanın bugünkü modül durumunda kullanılabilir mi? */
+export function isPageAvailable(href: string, availability?: PageAvailability): boolean {
+  if (!availability) return true
+  if (availability.isEDonusumEnabled === false && E_DONUSUM_PAGES.includes(href)) return false
+  const key = moduleKeyForPath(href)
+  return !(key && (availability.disabledModules ?? []).includes(key))
+}
+
+export function filterAvailablePages(hrefs: string[], availability?: PageAvailability): string[] {
+  if (!availability) return hrefs
+  return hrefs.filter((href) => isPageAvailable(href, availability))
+}
+
+/**
+ * Bu sayfa kümesinin ihtiyaç duyduğu ama firmada KAPALI olan modüllerin etiketleri.
+ *
+ * Sayının kendisi yetmiyor: "7 yerine 4 sayfa" demek kullanıcıya neyi satın alması
+ * gerektiğini söylemez. Etiket `lib/modules.ts`'teki tanımdan geliyor, yani satın alma
+ * ekranında gördüğü isimle birebir aynı.
+ */
+export function missingModuleLabels(
+  hrefs: string[],
+  availability?: PageAvailability
+): string[] {
+  if (!availability) return []
+  const labels: string[] = []
+  const push = (label: string) => {
+    if (!labels.includes(label)) labels.push(label)
+  }
+  for (const href of hrefs) {
+    if (isPageAvailable(href, availability)) continue
+    if (E_DONUSUM_PAGES.includes(href)) {
+      push("e-Dönüşüm")
+      continue
+    }
+    const key = moduleKeyForPath(href)
+    const def = key ? MANAGEABLE_MODULES.find((m) => m.key === key) : null
+    if (def) push(def.label)
+  }
+  return labels
+}
+
+/**
+ * Sayfa doğası gereği salt-okunur mu (yazma eylemi hiç yok)?
+ *
+ * Raporlar ve dashboard herkes için okumadır; "salt-okunur" uyarısı orada bilgi
+ * taşımaz, yalnız gürültü yapar — özellikle VIEWER'da, çünkü gördüğü sayfaların
+ * neredeyse tamamı bunlar.
+ */
+export function isReadOnlyByNature(href: string): boolean {
+  return href === "/dashboard" || href.startsWith("/raporlar/")
+}
+
+export function pagesForRole(role: string, availability?: PageAvailability): string[] {
+  const pages = NAV_PAGES.filter((p) => p.roles.includes(role)).map((p) => p.href)
+  return filterAvailablePages(pages, availability)
 }
 
 /**
@@ -389,6 +466,7 @@ export const ALWAYS_AVAILABLE_PAGES = ["/ayarlar/profil", "/ayarlar/destek"]
  * Enum rollerinin matrisiyle sınırlı DEĞİLDİR — özel rolün varlık sebebi zaten
  * o matrisin yetmemesi.
  */
-export function assignablePages(): string[] {
-  return NAV_PAGES.filter((p) => !ACCOUNT_ADMIN_PAGES.includes(p.href)).map((p) => p.href)
+export function assignablePages(availability?: PageAvailability): string[] {
+  const pages = NAV_PAGES.filter((p) => !ACCOUNT_ADMIN_PAGES.includes(p.href)).map((p) => p.href)
+  return filterAvailablePages(pages, availability)
 }

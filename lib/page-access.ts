@@ -20,7 +20,9 @@ import {
   NAV_PAGES,
   assignablePages,
   cariActiveHref,
+  filterAvailablePages,
   pagesForRole,
+  type PageAvailability,
 } from "@/lib/nav/pages"
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
 
@@ -36,6 +38,13 @@ export type PageApiRule = {
   pages: string[]
   /** Bu uca YAZAN sayfalar. Verilmezse `pages` geçerlidir. */
   writePages?: string[]
+  /**
+   * KİŞİSEL uç: üyeliğin izin listesinden bağımsız olarak herkese açıktır (okuma da
+   * yazma da). Bildirimi okundu işaretlemek ya da destek talebi açmak bir "ekran
+   * yetkisi" değildir; kısıtlı çalışanın da hakkıdır. `pages` yine yazılır — hangi
+   * ekranın kullandığını belgelemek için — ama karar `personal` ile verilir.
+   */
+  personal?: true
 }
 
 /**
@@ -147,9 +156,22 @@ export const PAGE_API_RULES: PageApiRule[] = [
   {
     prefix: "/api/cari/open-invoices",
     pages: ["/cari/musteri", "/cari/tedarikci", "/finans/hareketler", "/finans/kanallar"],
+    // Salt okuma ucu (yalnız GET var).
+    writePages: [],
   },
-  { prefix: "/api/cari/ekstre", pages: ["/cari/musteri", "/cari/tedarikci", "/raporlar/cari"] },
-  { prefix: "/api/cari", pages: ["/cari/musteri", "/cari/tedarikci", "/raporlar/cari"] },
+  {
+    prefix: "/api/cari/ekstre",
+    pages: ["/cari/musteri", "/cari/tedarikci", "/raporlar/cari"],
+    writePages: [],
+  },
+  {
+    // Jenerik ön ek: cari YAZMALARININ tamamı /customers ve /suppliers altında ve
+    // onların kendi kuralları var. Buraya düşen yol okumadır — rapor ekranı da
+    // listede olduğu için yazmayı açık bırakmak "raporu gören cariyi siler" demekti.
+    prefix: "/api/cari",
+    pages: ["/cari/musteri", "/cari/tedarikci", "/raporlar/cari"],
+    writePages: [],
+  },
 
   // ---- Satış / alış belgeleri --------------------------------------------
   // Belge uçları YÖNÜ yolda taşımaz (`?type=SALES` gibi query ile ayrışır), bu yüzden
@@ -167,6 +189,11 @@ export const PAGE_API_RULES: PageApiRule[] = [
       "/restoran/satis",
       ...TICKET_PAGES,
     ],
+    // Tahsilat/ödeme KAYDEDEN ekranlar: fatura ödeme sayfası (sahibi satış/alış
+    // faturası) ve hızlı satış/alış. Restoran adisyonu kendi ucundan kapanır
+    // (/api/restoran/adisyonlar/[id]/kapat), finans hareketleri de buraya yazmaz —
+    // ikisi de yalnız okur.
+    writePages: ["/satis/fatura", "/alis/fatura", "/satis/hizli", "/alis/hizli"],
   },
   {
     prefix: "/api/faturalar",
@@ -176,10 +203,27 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/satis/fatura", "/alis/fatura"],
     writePages: ["/satis/fatura", "/alis/fatura"],
   },
-  { prefix: "/api/irsaliye", pages: ["/satis/irsaliye", "/alis/irsaliye"] },
-  { prefix: "/api/e-irsaliye", pages: ["/satis/irsaliye", "/alis/irsaliye"] },
-  { prefix: "/api/siparis", pages: ["/satis/siparis", "/alis/siparis"] },
-  { prefix: "/api/teklif", pages: ["/teklif", "/alis/teklif"] },
+  {
+    prefix: "/api/irsaliye",
+    pages: ["/satis/irsaliye", "/alis/irsaliye"],
+    writePages: ["/satis/irsaliye", "/alis/irsaliye"],
+  },
+  {
+    // e-İrsaliye GİDEN belgedir: alış irsaliyesi ekranı listeyi okur ama göndermez.
+    prefix: "/api/e-irsaliye",
+    pages: ["/satis/irsaliye", "/alis/irsaliye"],
+    writePages: ["/satis/irsaliye"],
+  },
+  {
+    prefix: "/api/siparis",
+    pages: ["/satis/siparis", "/alis/siparis"],
+    writePages: ["/satis/siparis", "/alis/siparis"],
+  },
+  {
+    prefix: "/api/teklif",
+    pages: ["/teklif", "/alis/teklif"],
+    writePages: ["/teklif", "/alis/teklif"],
+  },
   {
     prefix: "/api/fisler",
     pages: ["/satis/fisler", "/alis/fisler", "/cari/musteri", "/cari/tedarikci"],
@@ -187,7 +231,13 @@ export const PAGE_API_RULES: PageApiRule[] = [
   },
 
   // ---- Stok / depo -------------------------------------------------------
-  { prefix: "/api/stok/movements", pages: ["/raporlar/stok", "/stok/urunler", "/satis/fatura", "/alis/fatura"] },
+  {
+    prefix: "/api/stok/movements",
+    pages: ["/raporlar/stok", "/stok/urunler", "/satis/fatura", "/alis/fatura"],
+    // Hareketi ürün ekranı (elle düzeltme) ve fatura editörü (belge kaydı) yazar.
+    // Stok RAPORU yazmaz — kural yokken "raporu gören stok hareketi girer"di.
+    writePages: ["/stok/urunler", "/satis/fatura", "/alis/fatura"],
+  },
   {
     prefix: "/api/stok/etiket-sablonlari",
     pages: ["/stok/etiket", "/satis/fatura", "/alis/fatura"],
@@ -211,7 +261,12 @@ export const PAGE_API_RULES: PageApiRule[] = [
     ],
     writePages: ["/stok/urunler", "/stok/hizmetler"],
   },
-  { prefix: "/api/depolar/transfer", pages: ["/stok/transfer", "/depolar"] },
+  {
+    prefix: "/api/depolar/transfer",
+    pages: ["/stok/transfer", "/depolar"],
+    // Transferi yalnız transfer ekranı oluşturur; depo listesi sonucu okur.
+    writePages: ["/stok/transfer"],
+  },
   {
     prefix: "/api/depolar/stok",
     pages: [
@@ -225,6 +280,8 @@ export const PAGE_API_RULES: PageApiRule[] = [
       ...TICKET_PAGES,
       "/raporlar/stok",
     ],
+    // Salt okuma: depo bazlı stok seviyesi (yalnız GET var).
+    writePages: [],
   },
   {
     prefix: "/api/depolar",
@@ -273,9 +330,25 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/finans/hareketler", "/finans/kanallar", "/cari/musteri", "/cari/tedarikci"],
     writePages: ["/finans/hareketler", "/finans/kanallar"],
   },
-  { prefix: "/api/finans", pages: ["/finans/kanallar", "/finans/hareketler", "/finans/mutabakat"] },
-  { prefix: "/api/kasa", pages: ["/finans/kanallar", "/finans/hareketler"] },
-  { prefix: "/api/banka", pages: ["/finans/mutabakat", "/finans/kanallar", "/finans/hareketler"] },
+  {
+    // Jenerik ön ek: finans yazmalarının tamamı /accounts ve /transactions altında,
+    // ikisinin de kendi kuralı var. Buraya düşen yol okumadır.
+    prefix: "/api/finans",
+    pages: ["/finans/kanallar", "/finans/hareketler", "/finans/mutabakat"],
+    writePages: [],
+  },
+  {
+    // Tek yazma yolu kasa devri (/api/kasa/devir) ve onu kanal ekranı çalıştırır.
+    prefix: "/api/kasa",
+    pages: ["/finans/kanallar", "/finans/hareketler"],
+    writePages: ["/finans/kanallar"],
+  },
+  {
+    // Banka mutabakat eşleştirmesini yalnız mutabakat ekranı yazar.
+    prefix: "/api/banka",
+    pages: ["/finans/mutabakat", "/finans/kanallar", "/finans/hareketler"],
+    writePages: ["/finans/mutabakat"],
+  },
   {
     prefix: "/api/cek-senet",
     pages: [
@@ -290,20 +363,24 @@ export const PAGE_API_RULES: PageApiRule[] = [
   },
 
   // ---- Raporlar ----------------------------------------------------------
-  { prefix: "/api/raporlar/personel", pages: ["/raporlar/personel", "/personel/puantaj"] },
-  { prefix: "/api/raporlar/nakit-akisi", pages: ["/raporlar/nakit-banka"] },
-  { prefix: "/api/raporlar/cari-yaslandirma", pages: ["/raporlar/cari"] },
-  { prefix: "/api/raporlar/ba-bs", pages: ["/raporlar/vergi"] },
-  { prefix: "/api/raporlar/kdv", pages: ["/raporlar/vergi"] },
-  { prefix: "/api/raporlar/muhtasar", pages: ["/raporlar/vergi"] },
+  // Rapor uçlarının TAMAMI salt okumadır (hiçbirinde GET dışı metot yok), bu yüzden
+  // hepsinde `writePages: []`. Kural yokken `writePages ?? pages` devreye giriyor ve
+  // "raporu görebilen rapor ucuna yazabilir" gibi anlamsız ama açık bir kapı
+  // kalıyordu; ileride bir rapor ucuna yanlışlıkla POST eklenirse de kapalı doğar.
+  { prefix: "/api/raporlar/personel", pages: ["/raporlar/personel", "/personel/puantaj"], writePages: [] },
+  { prefix: "/api/raporlar/nakit-akisi", pages: ["/raporlar/nakit-banka"], writePages: [] },
+  { prefix: "/api/raporlar/cari-yaslandirma", pages: ["/raporlar/cari"], writePages: [] },
+  { prefix: "/api/raporlar/ba-bs", pages: ["/raporlar/vergi"], writePages: [] },
+  { prefix: "/api/raporlar/kdv", pages: ["/raporlar/vergi"], writePages: [] },
+  { prefix: "/api/raporlar/muhtasar", pages: ["/raporlar/vergi"], writePages: [] },
   // Mali tablolar. Menüde kendi öğeleri yok (/raporlar/bilanco, /raporlar/kar-zarar
   // adreslerinden açılıyorlar), o yüzden genel `/api/raporlar` kuralına düşüyorlardı —
   // yani "yalnız Satış Raporları" izni olan biri kâr-zararı okuyabiliyordu. Firmanın
   // bütününü gösterdikleri için finansal rapor öğelerine bağlandılar.
-  { prefix: "/api/raporlar/kar-zarar", pages: ["/raporlar/nakit-banka", "/raporlar/vergi"] },
-  { prefix: "/api/raporlar/bilanco", pages: ["/raporlar/nakit-banka", "/raporlar/vergi"] },
-  { prefix: "/api/raporlar/gelir-gider", pages: ["/raporlar/nakit-banka", "/raporlar/vergi"] },
-  { prefix: "/api/raporlar", pages: REPORT_PAGES },
+  { prefix: "/api/raporlar/kar-zarar", pages: ["/raporlar/nakit-banka", "/raporlar/vergi"], writePages: [] },
+  { prefix: "/api/raporlar/bilanco", pages: ["/raporlar/nakit-banka", "/raporlar/vergi"], writePages: [] },
+  { prefix: "/api/raporlar/gelir-gider", pages: ["/raporlar/nakit-banka", "/raporlar/vergi"], writePages: [] },
+  { prefix: "/api/raporlar", pages: REPORT_PAGES, writePages: [] },
 
   // ---- Personel ----------------------------------------------------------
   // Bordro, izin, zimmet ve özlük dosyası aynı modülün İÇİNDE bile birbirinden
@@ -318,9 +395,9 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/personel/vardiya", "/personel/puantaj", "/personel", "/raporlar/personel"],
     writePages: ["/personel/vardiya"],
   },
-  { prefix: "/api/personel/shift-templates", pages: ["/personel/vardiya"] },
-  { prefix: "/api/personel/holidays", pages: ["/personel/vardiya"] },
-  { prefix: "/api/personel/opening-hours", pages: ["/personel/vardiya"] },
+  { prefix: "/api/personel/shift-templates", pages: ["/personel/vardiya"], writePages: ["/personel/vardiya"] },
+  { prefix: "/api/personel/holidays", pages: ["/personel/vardiya"], writePages: ["/personel/vardiya"] },
+  { prefix: "/api/personel/opening-hours", pages: ["/personel/vardiya"], writePages: ["/personel/vardiya"] },
   {
     prefix: "/api/personel/leaves",
     pages: ["/personel/izin", "/personel/vardiya", "/personel"],
@@ -342,10 +419,17 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: [...PERSONNEL_PAGES, "/restoran/satis", ...TICKET_PAGES],
     writePages: ["/personel"],
   },
-  { prefix: "/api/personel", pages: PERSONNEL_PAGES },
+  {
+    // Jenerik ön ek: personel yazmalarının tamamı (bordro, vardiya, izin, zimmet,
+    // özlük, çalışan) kendi kurallarının altında. Buraya düşen yol okumadır — aksi
+    // halde "yalnız puantaj" izni olan biri bordro dışındaki her şeyi yazabilirdi.
+    prefix: "/api/personel",
+    pages: PERSONNEL_PAGES,
+    writePages: [],
+  },
 
   // ---- Restoran & Kafe ---------------------------------------------------
-  { prefix: "/api/restoran/raporlar", pages: ["/restoran/raporlar"] },
+  { prefix: "/api/restoran/raporlar", pages: ["/restoran/raporlar"], writePages: [] },
   {
     prefix: "/api/restoran/kontrol-listesi",
     // Listeyi KURAN ekran ayrı, TİK ATAN ekran ayrı: personel maddeleri satış
@@ -354,11 +438,32 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/restoran/kontrol-listesi", "/restoran/satis", ...TICKET_PAGES, "/restoran/raporlar"],
     writePages: ["/restoran/kontrol-listesi", "/restoran/satis", ...TICKET_PAGES],
   },
-  { prefix: "/api/restoran/adisyonlar", pages: [...TICKET_PAGES, "/restoran/satis", "/restoran/raporlar"] },
-  { prefix: "/api/restoran/masalar", pages: [...TICKET_PAGES, "/restoran/satis"] },
-  { prefix: "/api/restoran/bolgeler", pages: [...TICKET_PAGES, "/restoran/menu"] },
-  { prefix: "/api/restoran/plan", pages: ["/restoran/masalar"] },
-  { prefix: "/api/restoran/rezervasyonlar", pages: ["/restoran/masalar", "/restoran/masa-listesi"] },
+  {
+    // Adisyon açma/kalem ekleme/kapatma: kroki, masa listesi, adisyon ekranı ve
+    // kahveci satış ekranı. Restoran RAPORLARI yalnız okur.
+    prefix: "/api/restoran/adisyonlar",
+    pages: [...TICKET_PAGES, "/restoran/satis", "/restoran/raporlar"],
+    writePages: [...TICKET_PAGES, "/restoran/satis"],
+  },
+  {
+    // Masa tanımı krokiden yönetilir; masa AÇMA (durum değişimi) satış ve masa
+    // listesi ekranlarından da yapılır — ikisi de yazar.
+    prefix: "/api/restoran/masalar",
+    pages: [...TICKET_PAGES, "/restoran/satis"],
+    writePages: [...TICKET_PAGES, "/restoran/satis"],
+  },
+  {
+    // Bölgeyi (salon/teras) yalnız kroki ekranı tanımlar; menü ve masa listesi okur.
+    prefix: "/api/restoran/bolgeler",
+    pages: [...TICKET_PAGES, "/restoran/menu"],
+    writePages: ["/restoran/masalar"],
+  },
+  { prefix: "/api/restoran/plan", pages: ["/restoran/masalar"], writePages: ["/restoran/masalar"] },
+  {
+    prefix: "/api/restoran/rezervasyonlar",
+    pages: ["/restoran/masalar", "/restoran/masa-listesi"],
+    writePages: ["/restoran/masalar", "/restoran/masa-listesi"],
+  },
   {
     prefix: "/api/restoran/urun-secenekleri",
     pages: ["/restoran/menu", "/restoran/satis", ...TICKET_PAGES],
@@ -369,7 +474,13 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/restoran/menu", "/restoran/satis", ...TICKET_PAGES, "/stok/urunler"],
     writePages: ["/restoran/menu"],
   },
-  { prefix: "/api/restoran/ikram", pages: ["/restoran/satis", ...TICKET_PAGES] },
+  {
+    // İkram/zayi stoktan DÜŞER, yani gerçek bir yazmadır: satış ekranı ve adisyon
+    // ekranlarının ikisi de kaydeder.
+    prefix: "/api/restoran/ikram",
+    pages: ["/restoran/satis", ...TICKET_PAGES],
+    writePages: ["/restoran/satis", ...TICKET_PAGES],
+  },
   {
     // Tavanı iskonto diyaloğu da OKUR (kasiyer sınırı görsün, "Uygula" boşuna
     // hata almasın); YAZMA ayarın yaşadığı rapor ekranına bağlıdır. Ucun kendi
@@ -378,13 +489,26 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/restoran/raporlar", "/restoran/satis", ...TICKET_PAGES],
     writePages: ["/restoran/raporlar"],
   },
-  { prefix: "/api/restoran", pages: RESTAURANT_PAGES },
+  {
+    // Jenerik ön ek: restoran yazmalarının tamamı (adisyon, masa, bölge, kroki,
+    // rezervasyon, reçete, ürün seçenekleri, ikram, kontrol listesi, iskonto limiti)
+    // kendi kurallarının altında. Buraya düşen yol okumadır.
+    prefix: "/api/restoran",
+    pages: RESTAURANT_PAGES,
+    writePages: [],
+  },
 
   // ---- E-Dönüşüm ---------------------------------------------------------
   // Yalnızca BELGE uçları kapıya tabi. VKN sorgusu, vergi/tevkifat kod listeleri ve
   // onboarding gibi yardımcı uçlar kuralsız bırakıldı: bunlar firma ayarının parçası,
   // hangi ekranın açık olduğuyla ilgisi yok.
-  { prefix: "/api/e-donusum/inbox", pages: ["/alis/gelen-e-faturalar", "/alis/fatura", "/satis/fatura"] },
+  {
+    // Gelen kutusu eylemleri (kabul/ret/faturaya dönüştür) hem gelen e-fatura
+    // ekranından hem fatura listelerinden tetikleniyor.
+    prefix: "/api/e-donusum/inbox",
+    pages: ["/alis/gelen-e-faturalar", "/alis/fatura", "/satis/fatura"],
+    writePages: ["/alis/gelen-e-faturalar", "/alis/fatura", "/satis/fatura"],
+  },
   {
     prefix: "/api/e-donusum/invoices",
     pages: [
@@ -400,22 +524,47 @@ export const PAGE_API_RULES: PageApiRule[] = [
     ],
     writePages: ["/satis/fatura", "/alis/fatura", "/satis/hizli", "/alis/hizli"],
   },
-  { prefix: "/api/e-donusum/templates", pages: ["/e-donusum/sablon", "/e-donusum/seri-no"] },
-  { prefix: "/api/e-donusum/series-templates", pages: ["/e-donusum/sablon", "/e-donusum/seri-no"] },
-  { prefix: "/api/e-donusum/numerators", pages: ["/e-donusum/sablon", "/e-donusum/seri-no"] },
+  // Şablonu tasarımcı ekranı yazar; seri numaratörlerini hem seri-no ekranı hem
+  // tasarımcı (şablona seri bağlarken) yazar.
+  { prefix: "/api/e-donusum/templates", pages: ["/e-donusum/sablon", "/e-donusum/seri-no"], writePages: ["/e-donusum/sablon"] },
+  {
+    prefix: "/api/e-donusum/series-templates",
+    pages: ["/e-donusum/sablon", "/e-donusum/seri-no"],
+    writePages: ["/e-donusum/sablon", "/e-donusum/seri-no"],
+  },
+  {
+    prefix: "/api/e-donusum/numerators",
+    pages: ["/e-donusum/sablon", "/e-donusum/seri-no"],
+    writePages: ["/e-donusum/sablon", "/e-donusum/seri-no"],
+  },
 
   // ---- Dışa/içe aktarma --------------------------------------------------
   // Kapalı sayfanın verisi export'tan sızmasın. Dataset adı yolun parçası olduğu için
   // ön ek eşleşmesi burada da çalışır (bkz. module-access.ts'teki aynı desen).
-  { prefix: "/api/export/rapor-personel", pages: ["/raporlar/personel"] },
-  { prefix: "/api/export/rapor-", pages: REPORT_PAGES },
-  { prefix: "/api/export/personel-", pages: [...PERSONNEL_PAGES, "/raporlar/personel"] },
-  { prefix: "/api/export/products", pages: ["/stok/urunler", "/stok/hizmetler", "/ayarlar/veri-aktarim"] },
-  { prefix: "/api/export/invoices", pages: ["/satis/fatura", "/alis/fatura", "/ayarlar/veri-aktarim"] },
-  { prefix: "/api/export/cari", pages: ["/cari/musteri", "/cari/tedarikci", "/ayarlar/veri-aktarim"] },
-  { prefix: "/api/export/ekstre", pages: ["/cari/musteri", "/cari/tedarikci"] },
-  { prefix: "/api/export/accountant", pages: ["/ayarlar/veri-aktarim"] },
-  { prefix: "/api/import", pages: ["/ayarlar/veri-aktarim"] },
+  // Export uçlarının tamamı salt okumadır (üçünde de yalnız GET var): dosya üretir,
+  // veri değiştirmez. `writePages: []` ile bu sözleşme kural tarafında da yazılı.
+  { prefix: "/api/export/rapor-personel", pages: ["/raporlar/personel"], writePages: [] },
+  { prefix: "/api/export/rapor-", pages: REPORT_PAGES, writePages: [] },
+  { prefix: "/api/export/personel-", pages: [...PERSONNEL_PAGES, "/raporlar/personel"], writePages: [] },
+  {
+    prefix: "/api/export/products",
+    pages: ["/stok/urunler", "/stok/hizmetler", "/ayarlar/veri-aktarim"],
+    writePages: [],
+  },
+  {
+    prefix: "/api/export/invoices",
+    pages: ["/satis/fatura", "/alis/fatura", "/ayarlar/veri-aktarim"],
+    writePages: [],
+  },
+  {
+    prefix: "/api/export/cari",
+    pages: ["/cari/musteri", "/cari/tedarikci", "/ayarlar/veri-aktarim"],
+    writePages: [],
+  },
+  { prefix: "/api/export/ekstre", pages: ["/cari/musteri", "/cari/tedarikci"], writePages: [] },
+  { prefix: "/api/export/accountant", pages: ["/ayarlar/veri-aktarim"], writePages: [] },
+  // İçe aktarma export'un tersi: veriyi GERÇEKTEN yazar, sahibi tek ekrandır.
+  { prefix: "/api/import", pages: ["/ayarlar/veri-aktarim"], writePages: ["/ayarlar/veri-aktarim"] },
 
   // ---- Firma ayarları ----------------------------------------------------
   {
@@ -440,16 +589,53 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/ayarlar/ekip", "/cari/musteri", "/cari/tedarikci"],
     writePages: ["/ayarlar/ekip"],
   },
-  { prefix: "/api/company/invitations", pages: ["/ayarlar/ekip"] },
+  { prefix: "/api/company/invitations", pages: ["/ayarlar/ekip"], writePages: ["/ayarlar/ekip"] },
   // Rol tanımlama ucu. Route zaten enum ADMIN istiyor; buradaki kural ikinci kilittir
   // ve daha güçlüdür: "/ayarlar/roller" hiçbir özel role atanamadığı için (bkz.
   // ACCOUNT_ADMIN_PAGES) bu uç özel rol taşıyan bir üyelikte ASLA açılamaz.
-  { prefix: "/api/company/roles", pages: ["/ayarlar/roller"] },
-  { prefix: "/api/company/branch-managers", pages: ["/ayarlar/sube-mudurleri"] },
+  { prefix: "/api/company/roles", pages: ["/ayarlar/roller"], writePages: ["/ayarlar/roller"] },
+  {
+    prefix: "/api/company/branch-managers",
+    pages: ["/ayarlar/sube-mudurleri"],
+    writePages: ["/ayarlar/sube-mudurleri"],
+  },
   {
     prefix: "/api/fis-tasarim",
     pages: ["/ayarlar/fis-tasarim", "/satis/hizli", "/alis/hizli", "/restoran/satis", ...TICKET_PAGES],
     writePages: ["/ayarlar/fis-tasarim"],
+  },
+
+  // ---- Kişisel uçlar -----------------------------------------------------
+  // Bunlar EKRAN yetkisine bağlanamaz: kısıtlı bir çalışan da bildirimini okundu
+  // işaretleyebilmeli ve destek talebi açabilmelidir. Kural olarak yazılmalarının
+  // sebebi, kuralsız uçların varsayılanının artık "yazma reddedilir" olması.
+  { prefix: "/api/notifications", pages: ALWAYS_AVAILABLE_PAGES, personal: true },
+  { prefix: "/api/support/tickets", pages: ["/ayarlar/destek"], personal: true },
+
+  // ---- Menüsüz ama sahibi belli uçlar ------------------------------------
+  // Fatura önizleme ekranından dosya eklenir; o ekranın sahibi satış/alış faturasıdır.
+  {
+    prefix: "/api/attachments",
+    pages: ["/satis/fatura", "/alis/fatura"],
+    writePages: ["/satis/fatura", "/alis/fatura"],
+  },
+  // e-Dönüşüm kurulum/keşif uçları: entegratör bağlantısını kuran ayar ekranına aittir.
+  // Hepsi POST'tur ama "veri yazma" değil "ayar bağlama" işidir; yine de tek sahibi var.
+  { prefix: "/api/e-donusum/onboarding", pages: ["/ayarlar/e-donusum"], writePages: ["/ayarlar/e-donusum"] },
+  { prefix: "/api/e-donusum/discover-", pages: ["/ayarlar/e-donusum"], writePages: ["/ayarlar/e-donusum"] },
+  { prefix: "/api/e-donusum/verify-tenant-vkn", pages: ["/ayarlar/e-donusum"], writePages: ["/ayarlar/e-donusum"] },
+  { prefix: "/api/test-mysoft", pages: ["/ayarlar/e-donusum"], writePages: ["/ayarlar/e-donusum"] },
+  // Kontör satın alma akışı (sipariş + PayTR token + makbuz) tek ekrandan yürür.
+  { prefix: "/api/kontor/orders", pages: ["/e-donusum/kontor"], writePages: ["/e-donusum/kontor"] },
+  // Abonelik ve firma yönetimi. Bu sayfalar ACCOUNT_ADMIN_PAGES üyesi olduğu için
+  // hiçbir ÖZEL role atanamaz — kural, enum rolü kısıtlanmış yöneticiler içindir.
+  { prefix: "/api/billing/orders", pages: ["/ayarlar/abonelik"], writePages: ["/ayarlar/abonelik"] },
+  { prefix: "/api/billing/subscription", pages: ["/ayarlar/abonelik"], writePages: ["/ayarlar/abonelik"] },
+  {
+    prefix: "/api/companies",
+    // Firma/şube kartını hem şube yönetimi hem firma bilgileri ekranı günceller.
+    pages: ["/ayarlar/subeler", "/ayarlar/firma", "/ayarlar/sube-bilgileri"],
+    writePages: ["/ayarlar/subeler", "/ayarlar/firma", "/ayarlar/sube-bilgileri"],
   },
 ]
 
@@ -516,17 +702,43 @@ export function visiblePages(permissions: PagePermissions): string[] {
 }
 
 /**
+ * Enum rolün kendisi salt-okunur mu? Bugün yalnız VIEWER.
+ *
+ * Kısıt (allowedPaths) ile İLGİSİZDİR: VIEWER kısıtsız bir üyelikte de yazamaz. Ayrı
+ * bir yordam olarak duruyor çünkü hem `editablePages` hem `ensureCompanyWrite` aynı
+ * cevabı vermek zorunda — ikisi ayrışırsa ekran "düzenleyebilirsin" derken API 403
+ * döner (ya da tersi, daha kötüsü).
+ */
+export function isReadOnlyRole(permissions: PagePermissions): boolean {
+  return permissions.role === "VIEWER"
+}
+
+/**
  * Yazılabilir sayfalar: görülebilir sayfalar ∩ writablePaths.
  *
- * Kısıt yokken yazma kararı role aittir (bugünkü davranış) — tüm görünür sayfalar
- * yazılabilir sayılır. VIEWER'ın salt-okunurluğu ayrı bir kapıdır, bkz.
- * `ensureCompanyWrite`.
+ * Kısıt yokken yazma kararı role aittir — tüm görünür sayfalar yazılabilir sayılır.
+ * TEK İSTİSNA salt-okunur roldür: VIEWER kısıtsız sayıldığı için buradan eskiden
+ * "her sayfada yazabilir" çıkıyordu ve arayüz tüm Kaydet/Sil düğmelerini ona da
+ * çiziyordu. Sunucuda tek koruma `ensureCompanyWrite` idi; onu çağırmayan uçlarda
+ * VIEWER gerçekten yazabiliyordu.
  */
 export function editablePages(permissions: PagePermissions): string[] {
+  if (isReadOnlyRole(permissions)) return []
   const visible = visiblePages(permissions)
   if (!isRestrictedMembership(permissions)) return visible
   const writable = new Set(permissions.writablePaths)
   return visible.filter((href) => writable.has(href))
+}
+
+/**
+ * Üyelik hiçbir sayfada yazamıyor mu?
+ *
+ * İki hâli birden kapsar: enum VIEWER ve "hepsi salt-okunur" tanımlanmış özel rol
+ * (ör. Gözlemci kalıbı). İkincisinin enum'u CUSTOM'dur, yani VIEWER kontrolüne HİÇ
+ * takılmaz — `ensureCompanyWrite` bu yüzden onu durduramıyordu.
+ */
+export function isReadOnlyMembership(permissions: PagePermissions): boolean {
+  return editablePages(permissions).length === 0
 }
 
 export function canViewPage(permissions: PagePermissions, href: string): boolean {
@@ -534,6 +746,11 @@ export function canViewPage(permissions: PagePermissions, href: string): boolean
 }
 
 export function canEditPage(permissions: PagePermissions, href: string): boolean {
+  // Kişisel sayfalar (profil, destek talebi) herkese yazılabilir — kimse kendi
+  // profilini düzenleyemez ya da destek isteyemez hâle gelmemeli. `editablePages`
+  // bunları KAPSAMAZ: orası "iş" sayfalarının kümesidir ve `isReadOnlyMembership`
+  // ona bakar; ikisini birleştirseydik hiçbir üyelik salt-okunur görünmezdi.
+  if (ALWAYS_AVAILABLE_PAGES.includes(href)) return true
   return editablePages(permissions).includes(href)
 }
 
@@ -552,7 +769,19 @@ export function isApiPathAllowedForUser(
   if (!isRestrictedMembership(permissions) && !ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED) return true
 
   const rule = pageRuleForApiPath(pathname)
-  if (!rule) return true
+  // Kişisel uç (bildirim, destek talebi) izin listesine bakmaz.
+  if (rule?.personal) return true
+
+  if (!rule) {
+    // KURALSIZ UÇ: okuma serbest, YAZMA reddedilir.
+    //
+    // Eskiden ikisi de serbestti ve en büyük delik buydu: haritada karşılığı olmayan
+    // her uç, kısıtlı bir çalışana sonuna kadar açıktı. Asimetri bilinçli — kuralı
+    // unutulmuş bir okuma ucu ekranı kırar ve fark edilmez; unutulmuş bir YAZMA ucu
+    // ise kısıtın kendisini anlamsız kılar. Yeni bir yazma ucu eklerken sahibini
+    // PAGE_API_RULES'a yazın; yazmazsanız kısıtlı üyeliklerde kapalı doğar.
+    return !isWriteRequest(method)
+  }
 
   const required = isWriteRequest(method) ? rule.writePages ?? rule.pages : rule.pages
   const granted = new Set(isWriteRequest(method) ? editablePages(permissions) : visiblePages(permissions))
@@ -705,9 +934,14 @@ export function sanitizePagePermissions(
  * Hiç izinli sayfası kalmamışsa (rolü daralmış ya da liste geçersiz kalmış) profil
  * sayfası son çare: her rolde açık ve rakam basmıyor.
  */
-export function landingPathFor(permissions: PagePermissions): string {
+export function landingPathFor(
+  permissions: PagePermissions,
+  availability?: PageAvailability
+): string {
   if (!isRestrictedMembership(permissions)) return roleToDashboardPath(permissions.role)
-  const visible = visiblePages(permissions)
+  // Kapalı modülün sayfası "ev" olamaz: kullanıcı açılışta doğrudan "bu modül
+  // satın alınmamış" ekranına düşer ve elinde gidecek yer kalmaz.
+  const visible = filterAvailablePages(visiblePages(permissions), availability)
   if (visible.includes("/dashboard")) return roleToDashboardPath(permissions.role)
   // Kişisel sayfalar (profil/destek) her zaman izinli olduğu için listenin başına
   // düşebilir; açılışta onları göstermek "hiç yetkin yok" izlenimi verir. Önce

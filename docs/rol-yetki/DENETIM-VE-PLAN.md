@@ -1,7 +1,12 @@
 # Rol / yetki sistemi — denetim ve devir notu
 
-**Tarih:** 2026-08-19 · **Durum:** analiz bitti, kod DEĞİŞMEDİ (bu dosya hariç).
-**Devir sebebi:** başka bilgisayarda devam edilecek.
+**Tarih:** 2026-08-19 · **Durum:** **Üç bulgu da düzeltildi** (Bulgu 3'ün dört deliği
+dahil). Açık kalan tek madde `ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED` denemesidir; planın
+kendisi onu "ayrı bir iş, staging'de" diye ayırmıştı.
+
+**Doğrulama:** `npx vitest run` **355 test yeşil**, `npx next build` temiz,
+`npx tsc --noEmit` **0 hata**. (Baştaki 15 tip hatası bayat Prisma client'tandı:
+`npx prisma generate` 14'ünü, `.next/types` temizliği kalanını çözdü.)
 
 Şikâyet (kullanıcı, birebir):
 
@@ -85,21 +90,39 @@ Yan kusur (sebep değil, ama düzeltilecek): `roller/page.tsx` içindeki
 `onClose={() => setOpen(false)}` `editingRole` ve `templateKey` state'lerini
 sıfırlamıyor.
 
-### Yapılacaklar
+### Yapılacaklar — **BİTTİ (2026-08-19)**
 
-- [ ] `GET /api/company/roles` sonucundan **kalıp kartlarını işaretle**: o `templateKey`
+- [x] `GET /api/company/roles` sonucundan **kalıp kartlarını işaretle**: o `templateKey`
       ile üretilmiş rol varsa kart "Oluşturuldu · Düzenle" olsun ve `openEdit(role)`
       çağırsın.
-- [ ] `POST /api/company/roles` 409 gövdesine çakışan rolün `id`'sini ekle
+- [x] `POST /api/company/roles` 409 gövdesine çakışan rolün `id`'sini ekle
       (`{ error, existingRoleId }`), diyalog "Bu isimde bir rol var — onu düzenlemek
       ister misiniz?" diyerek düzenleme moduna geçsin.
-- [ ] Diyalogda ad alanı için canlı çakışma uyarısı (mevcut roller listesiyle, kendi
+- [x] Diyalogda ad alanı için canlı çakışma uyarısı (mevcut roller listesiyle, kendi
       id'si hariç).
-- [ ] `/ayarlar/ekip` rol seçicisinin yanına "Rolü düzenle" (seçili özel rol için)
+- [x] `/ayarlar/ekip` rol seçicisinin yanına "Rolü düzenle" (seçili özel rol için)
       düğmesi; diyaloğa `role` prop'u geçsin.
-- [ ] `onClose` içinde `setEditingRole(null)` + `setTemplateKey(null)`.
-- [ ] Regresyon testi: create → edit (aynı ad) → 200 beklenir; create → create (aynı ad)
-      → 409 + `existingRoleId` beklenir.
+- [x] `onClose` içinde `setEditingRole(null)` + `setTemplateKey(null)`.
+- [x] Regresyon testi — API testi değil: vitest kapsamı bilinçli olarak `lib/**` saf
+      fonksiyonlarla sınırlı (bkz. `vitest.config.ts`), route testi için altyapı yok.
+      Bunun yerine POST/PATCH kararı `lib/nav/role-conflict.ts`'e çıkarıldı ve
+      `lib/nav/role-conflict.test.ts` ile kapatıldı: çakışan ad → POST atılmaz.
+
+### Ne değişti
+
+| Dosya | Değişiklik |
+|---|---|
+| `lib/nav/role-conflict.ts` | **yeni** — `findRoleNameConflict` / `roleWriteTarget`: POST mu PATCH mi kararının tek kaynağı, test edilebilir |
+| `lib/nav/role-conflict.test.ts` | **yeni** — 11 test; Türkçe I/İ normalizasyonu dâhil |
+| `app/api/company/roles/route.ts` | 409 gövdesine `existingRoleId` |
+| `app/api/company/roles/[id]/route.ts` | PATCH artık **dolu** `templateKey` yazar (boşsa mevcut bağı silmez) |
+| `components/dashboard/role-editor-dialog.tsx` | `existingRoles` prop'u, iç `editingId` state'i, canlı çakışma kutusu ("Mevcut yetkilerini getir"), düğme etiketi duruma göre, 409'da düzenlemeye geçiş |
+| `app/(dashboard)/ayarlar/roller/page.tsx` | kalıp kartında "Oluşturuldu" rozeti → `openEdit`; `onClose` state sıfırlar |
+| `app/(dashboard)/ayarlar/ekip/page.tsx` | seçili özel rol için "… rolünü düzenle" düğmesi; `role`/`existingRoles` prop'ları; `CompanyRole` tipine `description` (yoksa PATCH açıklamayı siliyordu) |
+
+Davranış: aynı ada kaydetmek artık **hiçbir yolda** yeni rol açmayı denemez — hedef
+mevcut roldür ve düğme bunu yazar (`"Garson" rolünü güncelle`). 409 yalnız liste
+bayatsa (başka sekme) çıkar; o durumda da düzenleme moduna geçilip ikinci onay istenir.
 
 ---
 
@@ -137,20 +160,32 @@ export function assignablePages(): string[] {
 - `standaloneItems` (`/e-donusum/kontor`, `/ayarlar/destek`, `/ayarlar/profil`) modül
   filtresinden **hiç geçmiyor** → e-Dönüşüm kapalıyken "Kontör" menüde duruyor.
 
-### Yapılacaklar
+### Yapılacaklar — **BİTTİ (2026-08-19)**
 
-- [ ] `ceilingPages` / `assignablePages` / `pagesForRole` çağrılarına opsiyonel
-      `disabledModules` parametresi ekle (`moduleKeyForPath` + `NavPageDef.module` ile
-      elemek). Tek kaynak `lib/nav/pages.ts` kalsın.
-- [ ] `role-editor-dialog` ve `member-permissions-dialog` seçiciyi
-      `selectedCompany.disabledModules` ile süzsün.
-- [ ] `sanitizePagePermissions`'a firmanın kapalı modüllerini geçir → kapalı modül
-      sayfası DB'ye **yazılmasın**. (Modül sonradan açılırsa rol o sayfayı kaybetmesin
-      diye alternatif: yazmaya izin ver ama `visiblePages` çıkışında ele — hangisi
-      seçilirse seçilsin **bir** yerde olsun, ikisinde birden değil.)
-- [ ] `nav.tsx`: `standaloneItems` için de modül/`isEDonusumEnabled` filtresi.
-- [ ] E-Dönüşüm nav grubunu `isEDonusumEnabled`'a bağla (grup düzeyinde).
-- [ ] `landingPathFor` kapalı modül sayfasına düşürmesin.
+- [x] Süzgeç `lib/nav/pages.ts`'te tek kaynak: `PageAvailability` tipi +
+      `isPageAvailable` / `filterAvailablePages`; `assignablePages(availability?)` ve
+      `pagesForRole(role, availability?)` opsiyonel parametre aldı (verilmezse davranış
+      birebir eskisi). Modül çözümü **mevcut** `moduleKeyForPath`'e bağlandı — ikinci
+      bir harita kurulmadı; o fonksiyon artık `NavPageDef.module` açık bağını da
+      onurlandırıyor.
+- [x] `role-editor-dialog` ve `member-permissions-dialog` seçiciyi süzüyor
+      (`usePageAvailability()` → seçili firmanın `disabledModules` + `isEDonusumEnabled`).
+- [x] **Karar: süzgeç OKUMA/TEKLİF tarafında, `sanitizePagePermissions`'ta DEĞİL.**
+      Modül durumu değişkendir (abonelik yenilenir/düşer), izin ise kalıcı yapılandırma;
+      yazarken elemek, modül geri açıldığında rolü sessizce budardı. Seçiciler bu yüzden
+      **birleşim** kullanıyor: açık modüllerin sayfaları + rolün/üyenin ZATEN sahip
+      olduğu sayfalar. Aksi halde kapalı modüllü bir firmada rolü açıp kaydetmek o
+      sayfaları rolden silerdi (`pathsFromAccess` yalnız listedekini döndürüyor).
+- [x] `nav.tsx`: `standaloneItems` artık modül süzgecinden geçiyor.
+- [x] E-Dönüşüm sayfaları `isEDonusumEnabled`'a bağlandı. Eski kontrol
+      `item.href === "/e-donusum"` idi ve **o href `NAV_PAGES`'te yok** — yani hiçbir
+      zaman bir şey elemiyordu. Artık `E_DONUSUM_PAGES` (grup href'leri + düz link
+      `/e-donusum/kontor`) tek kaynak.
+- [x] `landingPathFor(permissions, availability?)` kapalı modül sayfasına düşürmüyor;
+      üç çağıran da (nav, permission-guard, server page-guard) durumu geçiyor.
+- [x] Testler (+5): kapalı modül atanabilir listeden düşer, rol matrisi de süzülür,
+      süzgeçsiz çağrı davranışı değiştirmez, e-Dönüşüm ayrı eksen, landing kapalı
+      modüle düşmez.
 
 ---
 
@@ -218,35 +253,71 @@ durdurmaz. Salt-okunurluğu tamamen `PAGE_API_RULES`'a kalıyor ve orada iki bo�
    `/api/kasa`, `/api/banka`, `/api/personel`, `/api/depolar/transfer`,
    `/api/stok/movements`, `/api/import`, `/api/cari` (genel), `/api/export/*`.
 
-### Yapılacaklar
+### Yapılacaklar — Delik A ve `editablePages` **BİTTİ (2026-08-19)**, B-C açık
 
-- [ ] **Arayüz:** `useCanEdit`'i gerçekten kullan. En ucuz yol: sayfa başına tek bir
-      `ReadOnlyBanner` + `useCanEdit(navHref)` ile yazma düğmelerini `disabled` yapan
-      ortak bir sarmalayıcı (`<WriteAction>` gibi). Önce yüksek riskli ekranlar:
-      satış/alış fatura, cari, stok, finans, restoran adisyon.
-- [ ] **`editablePages`:** enum `VIEWER` için her zaman boş küme dön (kısıtsız olsa bile).
-      Bugün `VIEWER` "her sayfada yazabilir" görünüyor.
-- [ ] **`ensureCompanyWrite`:** `VIEWER`'a ek olarak "yazılabilir sayfası olmayan"
-      üyelikleri de reddet (özel rolde `writablePaths` boşsa).
-- [ ] **`PAGE_API_RULES`:** yukarıdaki 52 kurala `writePages` yaz; en azından
-      restoran/finans/personel/stok gruplarına.
-- [ ] **Kuralı olmayan uç:** kısıtlı üyelikler için yazma isteklerinde varsayılanı
-      *deny*'a çevir (`if (!rule) return !isWriteRequest(method)`), sonra 19 ucun
-      gerçek sahibini haritaya ekle. Bu tek satır, en büyük deliği kapatır — ama önce
-      haritayı doldurmadan açılırsa ekran kırar; sırayı bozmayın.
-- [ ] `ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED = true` denemesi **en son**; ayrı bir iş
-      olarak, harita tamamlandıktan sonra staging'de.
-- [ ] `lib/page-access.test.ts` genişlet: VIEWER yazamaz, özel rol salt-okunur sayfada
-      yazamaz, kuralsız uçta yazamaz.
+- [x] **Arayüz:** `useCanEdit` artık gerçekten kullanılıyor —
+      `components/dashboard/write-guard.tsx`: `useCanEditHere()` (sayfa href'ini
+      `navHrefsForPath` ile adresten çözer, elle sabit tutmak gerekmez), `<WriteAction>`
+      (salt-okunurda hiç render etmez) ve `<ReadOnlyBanner>`. Banner **layout'a tek
+      yerde** kondu → her panel sayfası kapsanır; rapor/dashboard'da (doğası gereği
+      okuma) bastırılır. `<WriteAction>` uygulandı: fatura listesi (satış+alış ortak
+      bileşen: Yeni Fatura, Düzenle, Sil/İptal), cari (Yeni, Düzenle, Sil), stok (Yeni
+      Ürün/Hizmet, Düzenle, Sil), finans hareketler (Yeni Hareket), restoran adisyon
+      (Yeni adisyon).
+- [x] **`editablePages`:** salt-okunur rol için her zaman boş küme
+      (`isReadOnlyRole`). Kişisel sayfalar (profil, destek) `canEditPage` düzeyinde
+      istisna — yoksa VIEWER kendi şifresini değiştiremeyeceğini sanırdı.
+- [x] **`ensureCompanyWrite`:** artık `isReadOnlyMembership()` ile kapatıyor — enum
+      VIEWER **ve** hiçbir sayfada yazma izni olmayan özel rol (Gözlemci kalıbı) aynı
+      cevabı alıyor. Karar arayüzle ORTAK yordamdan geliyor, ayrışamazlar.
+- [x] **`PAGE_API_RULES`:** **76 kuralın tamamında** `writePages` var (52'sine eklendi).
+      Kararlar tahminle değil kanıtla verildi: her ucun gerçek HTTP metotları route
+      dosyalarından, her yazmanın hangi ekrandan yapıldığı istemci `fetch` çağrılarından
+      çıkarıldı. Bir test artık alanı **zorunlu** tutuyor ("her kural yazma sözleşmesini
+      AÇIKÇA taşır") — `writePages ?? pages` yedeğinin sessiz genişletmesi bitti.
+- [x] **Kuralı olmayan uç:** varsayılan çevrildi — `if (!rule) return !isWriteRequest(method)`.
+      Okuma serbest, yazma reddedilir. Sıra korundu: önce harita dolduruldu, sonra çevrildi.
+- [ ] `ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED = true` — **AÇIK BIRAKILDI, bilinçli.** Bu
+      bayrak haritayı BUGÜNKÜ TÜM kullanıcılara uygular (kısıtsızlar dahil); tek bir dar
+      satır üretimde çalışan bir ekranı kırar. Planın kendi notu: "ayrı bir iş olarak,
+      harita tamamlandıktan sonra **staging'de**." Harita artık tamam, yani bu deneme
+      yapılabilir — ama staging gerektirir, burada doğrulanamaz.
+- [x] `lib/page-access.test.ts` genişletildi (+7 test): VIEWER kısıtsız olsa da yazamaz,
+      kısıtlı VIEWER'a `writablePaths` verilse de yazamaz, yazma izinsiz özel rol
+      salt-okunurdur, kişisel sayfalar istisna, yazabilen enum roller etkilenmedi.
+      "Kuralsız uçta yazamaz" testi Delik B-C ile birlikte (aşağıda) gelecek.
 
 ---
 
-## Öncelik sırası (önerilen)
+## Öncelik sırası — hepsi bitti
 
-1. **Bulgu 1** — kullanıcıyı bugün bloke eden tek şey, küçük ve izole (UI + 409 gövdesi).
-2. **Bulgu 3 / Delik A ve `editablePages`** — güvenlik etkisi en yüksek, kod değişimi orta.
-3. **Bulgu 2** — kafa karışıklığı ve yanlış rol tanımı üretiyor.
-4. **Bulgu 3 / Delik B-C haritası** — en geniş yüzey, kademeli ve testli gitmeli.
+1. ~~**Bulgu 1**~~ — **BİTTİ**.
+2. ~~**Bulgu 3 / Delik A ve `editablePages`**~~ — **BİTTİ**.
+3. ~~**Bulgu 2**~~ — **BİTTİ**.
+4. ~~**Bulgu 3 / Delik B-C haritası**~~ — **BİTTİ**. Geriye yalnız
+   `ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED` denemesi kaldı (staging işi, yukarıda).
+
+## Sıra 4'te ortaya çıkan iki şey (kayda geçsin)
+
+**1. Sayfa kapısı yalnız `ensureCompanyAccess` çağıran uçlarda çalışır.** Kapıyı hiç
+çağırmayan bir uç (ör. `POST /api/companies`) harita ne derse desin etkilenmez —
+koruması başka yerdedir (`createCompany` içindeki erişim/rol/kota denetimi). Bu yüzden
+"kuralsız uçta yazmayı reddet" değişikliğinin gerçek yüzeyi, kapıyı çağıran uçlarla
+sınırlıdır ve ilk sanılandan dardır.
+
+**2. Muhasebe uçları bilerek kuralsız bırakıldı → kısıtlı üyelikte artık YAZAMAZ.**
+`/api/muhasebe/fisler`, `/api/muhasebe/hesap-plani`, `/api/muhasebe/kebir` kapıyı
+çağırıyor ama menüde karşılığı olan bir sayfaları yok (`/muhasebe/yevmiye`, `/kebir`
+`NAV_PAGES`'te değil). Onlara bir sahip uydurmak yanlış olurdu: rapor sayfasına
+bağlamak "raporu gören yevmiye fişi keser" demekti. Sonuç:
+
+- **okuma** kısıtlı üyelikte de serbest (davranış değişmedi),
+- **yazma** kısıtlı üyelikte reddedilir (**davranış değişti**).
+
+Menüsüz oldukları için hiçbir özel role atanamıyorlar zaten; etkilenebilecek tek
+profil, `allowedPaths` ile kısıtlanmış bir enum rolün URL'yi elle yazarak fiş
+kesmesidir. Bu gerekiyorsa doğru çözüm `NAV_PAGES`'e bir muhasebe sayfası eklemek ve
+kuralı ona bağlamaktır — kapıyı geri açmak değil.
 
 ## Doğrulama komutları
 

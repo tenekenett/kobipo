@@ -11,6 +11,7 @@ import { DashboardCompanyProvider } from "@/components/dashboard/dashboard-compa
 import { SWRProvider } from "@/components/providers/swr-provider"
 import { ModuleGuard } from "@/components/dashboard/module-guard"
 import { PermissionGuard } from "@/components/dashboard/permission-guard"
+import { ReadOnlyBanner } from "@/components/dashboard/write-guard"
 import { SuspendedLogoutButton } from "@/components/dashboard/suspended-logout-button"
 import { DashboardTitle } from "@/components/dashboard/dashboard-title"
 
@@ -103,7 +104,13 @@ export default async function DashboardLayout({
               <div className="mt-4 w-full min-w-0">
                 {/* Sıra önemli: önce "modül satın alınmamış", sonra "senin yetkin yok". */}
                 <ModuleGuard>
-                  <PermissionGuard>{children}</PermissionGuard>
+                  <PermissionGuard>
+                    {/* "Görebilirsin ama değiştiremezsin" uyarısı tek yerde duruyor:
+                        sayfa sayfa eklenseydi eklenmeyen ekran sessizce eksik kalırdı.
+                        Yazma yetkisi varsa ya da sayfa zaten raporsa hiçbir şey basmaz. */}
+                    <ReadOnlyBanner />
+                    {children}
+                  </PermissionGuard>
                 </ModuleGuard>
               </div>
             </div>

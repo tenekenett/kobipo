@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/styled-table"
 import { Plus } from "lucide-react"
 import { TransactionDialog } from "@/components/cari/transaction-dialog"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 interface FinancialAccount {
   id: string
@@ -115,10 +116,12 @@ export default function FinansHareketlerPage() {
               <CardTitle>Finans Hareketleri</CardTitle>
               <CardDescription>Gelir ve gider işlemleri</CardDescription>
             </div>
-            <Button onClick={() => setIsDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Yeni Hareket
-            </Button>
+            <WriteAction>
+              <Button onClick={() => setIsDialogOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Yeni Hareket
+              </Button>
+            </WriteAction>
           </div>
         </CardHeader>
         <CardContent>

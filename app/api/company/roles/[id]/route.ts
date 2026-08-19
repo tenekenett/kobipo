@@ -38,6 +38,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (body.description !== undefined) {
     data.description = typeof body.description === "string" ? body.description.trim() || null : null
   }
+  // Kalıp bağı yalnız DOLU gelirse yazılır. Kullanıcı kalıp kartından girip adı çakışan
+  // mevcut rolü güncellediğinde kart bir dahakine "Oluşturuldu" diyebilsin diye; ama
+  // kalıpsız düzenleme (undefined) mevcut bağı SİLMEMELİ.
+  if (typeof body.templateKey === "string" && body.templateKey) {
+    data.templateKey = body.templateKey
+  }
   if (body.allowedPaths !== undefined || body.writablePaths !== undefined) {
     const sanitized = sanitizePagePermissions("CUSTOM", body.allowedPaths, body.writablePaths, {
       custom: true,

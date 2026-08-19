@@ -23,7 +23,11 @@ export function assertRouteAccessOrRedirect(
   const permissions = pagePermissionsOfRole(company)
   if (canAccessRoute(permissions, pathname)) return
 
-  const landing = landingPathFor(permissions)
+  // Yönlendirme hedefi kapalı bir modülün sayfası olmamalı: kullanıcı kilit ekranına
+  // atılır ve oradan gidecek yeri kalmaz. (`UserRole` e-Dönüşüm bayrağını taşımıyor;
+  // modül ekseni burada yeterli, e-Dönüşüm sayfaları zaten `ACCOUNT_ADMIN`/ayarlar
+  // tarafında ve landing adayı olarak listenin sonunda kalıyor.)
+  const landing = landingPathFor(permissions, { disabledModules: company.disabledModules ?? [] })
   // Döngü koruması: landingPathFor her zaman GÖRÜNÜR bir sayfa döndürür, ama liste
   // bozuksa (rol daralmış, izinler geçersiz kalmış) aynı yola yönlendirip sonsuz
   // döngü kurmaktansa istemci guard'ının bilgi ekranını göstermek daha iyi.
