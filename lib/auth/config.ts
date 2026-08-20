@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import bcrypt from "bcryptjs"
 import { verifyRecaptcha } from "@/lib/auth/recaptcha"
 import { getRequestIp, isLoginLocked, recordLoginFailure, clearLoginFailures } from "@/lib/auth/login-rate-limit"
+import { clientInfoFromHeaders, recordAccess, type ClientInfo } from "@/lib/audit/access-log"
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -23,7 +24,13 @@ export const authOptions: NextAuthOptions = {
         // Brute-force lockout (DB, IP bazlı). FAIL-OPEN: rate-limit katmanı hata verirse
         // giriş ENGELLENMEZ (bkz. login-rate-limit.ts). Kilitliyse şifre bile kontrol edilmez.
         const ip = getRequestIp(req?.headers)
+        // Erişim defteri: her deneme (başarılı ya da değil) IP'siyle yazılır.
+        // `authorize` bu bilgiyi gören TEK yer — `events.signIn`e request geçmiyor.
+        const client = clientInfoFromHeaders(req?.headers)
+        const email = credentials.email
+
         if (await isLoginLocked(ip)) {
+          await recordAccess({ action: "LOGIN_FAILED", info: client, email, reason: "IP kilitli" })
           // Kilitliyken şifre kontrol EDİLMEZ; generic null döneriz (kilit NextAuth yanıtında
           // kendini belli etmez). Kullanıcıya görünür "çok fazla deneme" mesajını signin ekranı
           // ayrı bir uçtan (/api/auth/lock-status) alır.
@@ -53,6 +60,7 @@ export const authOptions: NextAuthOptions = {
           const captchaOk = await verifyRecaptcha(credentials.captchaToken)
           if (!captchaOk) {
             await recordLoginFailure(ip, credentials.email)
+            await recordAccess({ action: "LOGIN_FAILED", info: client, email, reason: "Captcha doğrulanamadı" })
             return null
           }
         }
@@ -74,6 +82,8 @@ export const authOptions: NextAuthOptions = {
 
           if (!user || !user.password) {
             await recordLoginFailure(ip, credentials.email)
+            // Kullanıcı yok: userId de yok, defterde tek iz girilen e-postadır.
+            await recordAccess({ action: "LOGIN_FAILED", info: client, email, reason: "Kullanıcı bulunamadı" })
             return null
           }
 
@@ -84,11 +94,19 @@ export const authOptions: NextAuthOptions = {
 
           if (!isPasswordValid) {
             await recordLoginFailure(ip, credentials.email)
+            await recordAccess({
+              action: "LOGIN_FAILED",
+              info: client,
+              email,
+              userId: user.id,
+              reason: "Hatalı şifre",
+            })
             return null
           }
 
           // Başarılı giriş: bu IP'nin başarısız-deneme sayacını sıfırla.
           await clearLoginFailures(ip)
+          await recordAccess({ action: "LOGIN", info: client, email, userId: user.id })
 
           return {
             id: user.id,
@@ -143,6 +161,29 @@ export const authOptions: NextAuthOptions = {
         session.user.defaultRole = (token.defaultRole ?? null) as typeof token.defaultRole
       }
       return session
+    },
+  },
+  events: {
+    /**
+     * Çıkış kaydı. `events`e request GEÇMEZ; header'lar istek kapsamından
+     * (`next/headers`) okunur — NextAuth handler'ı bir route handler içinde çalıştığı
+     * için orada erişilebilir. Kapsam dışında (test, script) okuma başarısız olur ve
+     * kayıt IP'siz yazılır: "çıktı ama nereden bilinmiyor", hiç kayıt olmamasından iyidir.
+     */
+    async signOut({ token }) {
+      const { headers } = await import("next/headers")
+      let info: ClientInfo = { ip: null, port: null, forwardedFor: null, userAgent: null }
+      try {
+        info = clientInfoFromHeaders(await headers())
+      } catch {
+        // istek kapsamı yok — IP'siz kaydet
+      }
+      await recordAccess({
+        action: "LOGOUT",
+        info,
+        userId: (token?.id as string | undefined) ?? null,
+        email: (token?.email as string | undefined) ?? null,
+      })
     },
   },
   // Vercel: set NEXTAUTH_SECRET or AUTH_SECRET in Project → Settings → Environment Variables

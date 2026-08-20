@@ -3,6 +3,7 @@ import { randomBytes } from "crypto"
 import { prisma } from "@/lib/db/prisma"
 import bcrypt from "bcryptjs"
 import { verifyRecaptcha } from "@/lib/auth/recaptcha"
+import { clientInfoFromHeaders, recordAccess } from "@/lib/audit/access-log"
 
 export const dynamic = 'force-dynamic'
 
@@ -76,6 +77,14 @@ export async function POST(request: Request) {
         companyBranchName: trimmedCompanyBranchName || null,
         phone: trimmedPhone,
       },
+    })
+
+    // Erişim defteri: hesabın hangi IP'den açıldığı, giriş kayıtlarıyla aynı tabloda.
+    await recordAccess({
+      action: "SIGNUP",
+      info: clientInfoFromHeaders(request.headers),
+      userId: user.id,
+      email: normalizedEmail,
     })
 
     // Kayıt sonrası otomatik giriş için tek kullanımlık, kısa ömürlü jeton.

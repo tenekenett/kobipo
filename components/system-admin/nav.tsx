@@ -21,6 +21,7 @@ import {
   Newspaper,
   Package,
   CreditCard,
+  Fingerprint,
 } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -80,6 +81,12 @@ const navItems = [
     title: "Destek",
     href: "/system-admin/destek",
     icon: LifeBuoy,
+  },
+  {
+    // Hukuki defter — yönetici işlemlerinin karışık günlüğünden (Sistem Logları) ayrı.
+    title: "Erişim Kayıtları",
+    href: "/system-admin/erisim-kayitlari",
+    icon: Fingerprint,
   },
   {
     title: "Sistem Logları",

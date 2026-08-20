@@ -63,6 +63,8 @@ interface User {
   isBlogEditor: boolean
   createdAt: Date
   updatedAt: Date
+  /** Son giriş/kayıt olayı — erişim defterinden (bkz. lib/audit/access-log.ts). */
+  lastAccess: { action: string; ip: string | null; port: number | null; at: string } | null
   companies: {
     role: Role
     /** Üyeliğin kurulduğu an — kullanıcının kayıt tarihiyle aynı olmayabilir. */
@@ -552,6 +554,14 @@ export function UserTable({ users, companies }: UserTableProps) {
                 { label: "Yetki", value: detailUser.isSuperAdmin ? "Sistem Yöneticisi" : "Kullanıcı" },
                 { label: "Blog Editörü", value: detailUser.isBlogEditor ? "Evet" : "Hayır" },
                 { label: "Kayıt Tarihi", value: new Date(detailUser.createdAt).toLocaleString("tr-TR") },
+                {
+                  label: "Son Giriş",
+                  value: detailUser.lastAccess
+                    ? `${new Date(detailUser.lastAccess.at).toLocaleString("tr-TR")} · ${
+                        detailUser.lastAccess.ip ?? "IP yok"
+                      }${detailUser.lastAccess.port ? `:${detailUser.lastAccess.port}` : ""}`
+                    : "Kayıt yok (erişim defteri 20.08.2026'da açıldı)",
+                },
                 {
                   label: "Son Güncelleme",
                   value: new Date(detailUser.updatedAt).toLocaleString("tr-TR"),

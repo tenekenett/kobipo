@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/db/prisma"
+import { clientInfoFromHeaders, recordAccess } from "@/lib/audit/access-log"
 
 export const dynamic = "force-dynamic"
 
@@ -23,7 +24,14 @@ async function findValidToken(token: string) {
   if (!token) return null
   const record = await prisma.passwordResetToken.findUnique({
     where: { token },
-    select: { id: true, userId: true, usedAt: true, expiresAt: true },
+    // `user.email` erişim defteri için: kayıtlarda aranan anahtar e-postadır.
+    select: {
+      id: true,
+      userId: true,
+      usedAt: true,
+      expiresAt: true,
+      user: { select: { email: true } },
+    },
   })
   if (!record || record.usedAt || record.expiresAt < new Date()) return null
   return record
@@ -90,6 +98,14 @@ export async function POST(request: Request) {
       },
     })
     .catch(() => {})
+
+  // Erişim defteri: şifrenin hangi IP'den değiştirildiği, giriş kayıtlarıyla yan yana.
+  await recordAccess({
+    action: "PASSWORD_RESET",
+    info: clientInfoFromHeaders(request.headers),
+    userId: record.userId,
+    email: record.user?.email ?? null,
+  })
 
   return NextResponse.json({ ok: true, message: "Şifreniz güncellendi." })
 }

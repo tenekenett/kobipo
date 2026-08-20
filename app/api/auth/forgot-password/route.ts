@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { resolveBaseUrl } from "@/lib/utils/base-url"
 import { sendEmail } from "@/lib/email/resend"
 import { passwordResetEmail } from "@/lib/email/templates"
+import { clientInfoFromHeaders, recordAccess } from "@/lib/audit/access-log"
 
 export const dynamic = "force-dynamic"
 
@@ -49,6 +50,15 @@ export async function POST(request: Request) {
   if (!user) {
     return genericResponse
   }
+
+  // Erişim defteri: şifre sıfırlama TALEBİ de bir erişim olayıdır — hesap ele
+  // geçirme denemelerinde ilk iz genelde burada kalır.
+  await recordAccess({
+    action: "PASSWORD_RESET_REQUEST",
+    info: clientInfoFromHeaders(request.headers),
+    userId: user.id,
+    email,
+  })
 
   // Aynı kullanıcının önceki kullanılmamış token'larını geçersiz kıl.
   await prisma.passwordResetToken.deleteMany({

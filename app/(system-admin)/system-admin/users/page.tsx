@@ -53,6 +53,20 @@ export default async function UsersPage() {
     }),
   ])
 
+  // Her kullanıcının SON erişim olayı. Kullanıcı başına ayrı sorgu (26 kullanıcı = 26
+  // sorgu) yerine tek çekimden ilk-eşleşme: liste zaten tarihe göre sıralı geliyor.
+  // Not: yalnız son 2000 olay taranır — daha eskisi zaten "son giriş" değildir.
+  const recentAccess = await prisma.accessLog.findMany({
+    where: { userId: { not: null }, action: { in: ["LOGIN", "SIGNUP"] } },
+    orderBy: { createdAt: "desc" },
+    take: 2000,
+    select: { userId: true, action: true, ip: true, port: true, createdAt: true },
+  })
+  const lastAccessByUser = new Map<string, (typeof recentAccess)[number]>()
+  for (const row of recentAccess) {
+    if (row.userId && !lastAccessByUser.has(row.userId)) lastAccessByUser.set(row.userId, row)
+  }
+
   const stats = {
     total: users.length,
     superAdmins: users.filter(u => u.isSuperAdmin).length,
@@ -123,7 +137,23 @@ export default async function UsersPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <UserTable users={users} companies={companies} />
+          <UserTable
+            users={users.map((u) => {
+              const last = lastAccessByUser.get(u.id)
+              return {
+                ...u,
+                lastAccess: last
+                  ? {
+                      action: last.action,
+                      ip: last.ip,
+                      port: last.port,
+                      at: last.createdAt.toISOString(),
+                    }
+                  : null,
+              }
+            })}
+            companies={companies}
+          />
         </CardContent>
       </Card>
     </div>

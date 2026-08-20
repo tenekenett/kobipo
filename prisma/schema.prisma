@@ -90,6 +90,7 @@ model User {
   accounts            Account[]
   sessions            Session[]
   systemLogs          SystemLog[]
+  accessLogs          AccessLog[]
   subscriptions       Subscription[]
   supportTickets      SupportTicket[]      @relation("SupportTicketCreatedBy")
   authorizedCustomers Customer[]           @relation("AuthorizedCustomerUser")
@@ -1894,6 +1895,44 @@ model SystemLog {
   @@index([userId])
   @@index([action])
   @@map("system_logs")
+}
+
+/// ERİŞİM (trafik) kaydı — kim, ne zaman, hangi IP'den giriş yaptı/denedi.
+///
+/// NEDEN AYRI TABLO: `SystemLog` yönetici işlemlerinin karışık günlüğüdür (firma
+/// güncellendi, kontör yüklendi…) ve ekranda son 100 satır gösterilir. Erişim kaydı ise
+/// hukuki bir defterdir: IP + zaman ile SORGULANABİLİR olmalı, silinmemeli ve
+/// başka kayıtların gürültüsüne karışmamalı. İndeksler o sorguya göre: "şu IP'den kim
+/// girdi", "şu kullanıcı ne zaman girdi", "şu tarih aralığında ne oldu".
+///
+/// PORT: NAT arkasındaki bir istemciyi tek başına IP ayırt etmez, kaynak portu gerekir.
+/// Ama port ancak vekil sunucu iletirse elimize geçer (bkz. lib/audit/access-log.ts) —
+/// iletilmiyorsa null kalır, uydurulmaz.
+model AccessLog {
+  id     String  @id @default(cuid())
+  /// Kullanıcı silinse bile kayıt kalır (SetNull): defterin amacı geçmişi korumaktır.
+  userId String?
+  /// Denemede girilen e-posta. Kullanıcı bulunamayan başarısız girişlerde tek ipucu budur.
+  email  String?
+  /// LOGIN | LOGIN_FAILED | LOGOUT | SIGNUP | PASSWORD_RESET_REQUEST | PASSWORD_RESET
+  action String
+  /// Başarısızlık sebebi (hatalı şifre, kilitli IP, captcha…). Başarıda null.
+  reason String?
+  ip           String?
+  port         Int?
+  /// Vekil zincirinin tamamı (`x-forwarded-for`). Tek IP yanıltıcı olabilir.
+  forwardedFor String? @db.Text
+  userAgent    String? @db.Text
+  createdAt    DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([ip])
+  @@index([action])
+  @@index([email])
+  @@map("access_logs")
 }
 
 // Platform geneli ayarlar (key-value). Sistem yönetimi > Ayarlar sayfası tarafından kullanılır.
