@@ -8,11 +8,34 @@ export const dynamic = "force-dynamic"
 
 export default async function UsersPage() {
   const [users, companies] = await Promise.all([
+    // Alanlar TEK TEK seçilir. `include` (select'siz) tüm satırı döndürüyordu ve satırda
+    // `password` HASH'i ile `twoFactorSecret` var — ikisi de RSC payload'ıyla tarayıcıya
+    // iniyordu, tablo hiçbirini kullanmadığı hâlde. Firma listesinde aynı ders daha önce
+    // alınmıştı (companies/page.tsx). Buraya alan eklerken aynı soruyu sorun:
+    // ekranda gösterilecek mi?
     prisma.user.findMany({
       orderBy: { createdAt: "desc" },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        // Kayıt formunun alanları: telefon ve "hangi firma/şahıs adına kaydoldu".
+        // İkincisi Company kaydından ÖNCE alınır (bkz. User.companyDisplayName) —
+        // firma hiç açılmamışsa kullanıcının ne yazdığı yalnız burada durur.
+        phone: true,
+        companyDisplayName: true,
+        companyBranchName: true,
+        // (emailVerified ÇEKİLMİYOR: uygulamada e-posta doğrulama adımı yok, alanı
+        //  hiçbir kod yazmıyor — panelde göstermek olmayan bir eksiklik uydururdu.)
+        twoFactorEnabled: true,
+        isSuperAdmin: true,
+        isBlogEditor: true,
+        createdAt: true,
+        updatedAt: true,
         companies: {
-          include: {
+          select: {
+            role: true,
+            createdAt: true,
             company: {
               // branchName ŞART: `name` resmi ünvandır ve aynı tüzel kişinin tüm
               // şubelerinde aynıdır — onsuz listede şubeler ayırt edilemiyor.

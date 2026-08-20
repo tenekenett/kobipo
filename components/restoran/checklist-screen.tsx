@@ -15,6 +15,7 @@ import { FetchErrorText } from "@/components/ui/fetch-error"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { WriteAction, useCanEditHere } from "@/components/dashboard/write-guard"
 import { useChecklistItems, type ChecklistItemRow } from "@/lib/swr/use-restoran"
 import {
   CHECKLIST_TITLE_MAX,
@@ -116,6 +117,9 @@ function ChecklistEditor({
 }) {
   const { toast } = useToast()
   const { confirm } = useConfirm()
+  // Madde başlığına tıklamak düzenleme kipini açar — sarılacak bir <Button> yok,
+  // karar burada.
+  const canWrite = useCanEditHere()
   const [title, setTitle] = useState("")
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null)
@@ -208,6 +212,7 @@ function ChecklistEditor({
           <CardDescription>{CHECKLIST_TYPE_HINTS[type]}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <WriteAction>
           <div className="flex gap-2">
             <Input
               value={title}
@@ -226,6 +231,7 @@ function ChecklistEditor({
               <span className="ml-1 hidden sm:inline">Ekle</span>
             </Button>
           </div>
+          </WriteAction>
 
           {error ? (
             <FetchErrorText error={error} subject="kontrol listesi" />
@@ -246,7 +252,7 @@ function ChecklistEditor({
                     {index + 1}.
                   </span>
 
-                  {editing?.id === item.id ? (
+                  {canWrite && editing?.id === item.id ? (
                     <>
                       <Input
                         autoFocus
@@ -290,14 +296,19 @@ function ChecklistEditor({
                     </>
                   ) : (
                     <>
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
-                        onClick={() => setEditing({ id: item.id, title: item.title })}
-                        title="Düzenlemek için tıklayın"
-                      >
-                        {item.title}
-                      </button>
+                      {canWrite ? (
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
+                          onClick={() => setEditing({ id: item.id, title: item.title })}
+                          title="Düzenlemek için tıklayın"
+                        >
+                          {item.title}
+                        </button>
+                      ) : (
+                        <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
+                      )}
+                      <WriteAction>
                       <Button
                         size="icon"
                         variant="ghost"
@@ -328,6 +339,7 @@ function ChecklistEditor({
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      </WriteAction>
                     </>
                   )}
                 </div>
@@ -360,15 +372,17 @@ function ChecklistEditor({
                 <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
                   {item.title}
                 </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => void patch(item.id, { isActive: true }, "Madde geri açılamadı")}
-                >
-                  <RotateCcw className="mr-1 h-4 w-4" />
-                  Geri aç
-                </Button>
+                <WriteAction>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => void patch(item.id, { isActive: true }, "Madde geri açılamadı")}
+                  >
+                    <RotateCcw className="mr-1 h-4 w-4" />
+                    Geri aç
+                  </Button>
+                </WriteAction>
               </div>
             ))}
           </CardContent>

@@ -17,12 +17,14 @@ import {
   Calendar,
   Briefcase,
   Receipt,
+  Settings2,
 } from "lucide-react"
 import { CompanyEInvoiceCard } from "@/components/system-admin/company-einvoice-card"
 import { CompanyModulesCard } from "@/components/system-admin/company-modules-card"
 import { CompanyQuotaCard } from "@/components/system-admin/company-quota-card"
 import { getAccountQuotas } from "@/lib/billing/entitlements"
 import { CompanyUsersCard } from "@/components/system-admin/company-users-card"
+import { companyDisplayName } from "@/lib/company/display-name"
 
 export const dynamic = "force-dynamic"
 
@@ -53,6 +55,16 @@ export default async function CompanyDetailPage({
   })
 
   if (!company) notFound()
+
+  // Şube ise ana firması. (Hesap kökü ayrıca çözülmüyor: aşağıdaki `accountRootName`
+  // zaten `getAccountQuotas`tan geliyor — ikinci bir sorgu iki kaynak demek olurdu.)
+  // Ünvanlar birbirine benzediği için id yerine adıyla gösteriliyor.
+  const parentCompany = company.parentCompanyId
+    ? await prisma.company.findUnique({
+        where: { id: company.parentCompanyId },
+        select: { id: true, name: true, branchName: true },
+      })
+    : null
 
   // Seri bazında son kesilen belge numarası (DB) — entegratöre bağımlı değil.
   const lastByPrefix = async (prefix: string | null) => {
@@ -114,6 +126,27 @@ export default async function CompanyDetailPage({
   const fmtTRY = (n: number) =>
     new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(n)
 
+  // JSON ayarlar ham hâliyle basılmaz (fiş şablonunda logo data-URL'i var, yüzlerce
+  // KB). Destek için gereken bilgi "özelleştirilmiş mi, neresi dolu".
+  const receipt = company.receiptTemplate as Record<string, unknown> | null
+  const receiptTemplateSummary = receipt
+    ? [
+        receipt.logoDataUrl ? "logo var" : null,
+        receipt.headerText ? "üst başlık" : null,
+        receipt.footerText ? "alt not" : null,
+        receipt.widthMm ? `${receipt.widthMm}mm` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || "özelleştirilmiş"
+    : "Varsayılan"
+
+  const opening = Array.isArray(company.openingHours)
+    ? (company.openingHours as { closed?: boolean }[])
+    : null
+  const openingHoursSummary = opening
+    ? `Tanımlı · ${opening.filter((d) => !d?.closed).length}/7 gün açık`
+    : "Tanımsız"
+
   const businessRows: { label: string; value: string | null }[] = [
     { label: "Sektör", value: company.sector },
     { label: "İş Modeli", value: company.businessModel },
@@ -137,6 +170,50 @@ export default async function CompanyDetailPage({
     },
   ]
 
+  // Firmanın PANELDEN girdiği, yukarıdaki iki kartın kapsamadığı ayarlar. Destek
+  // konuşmasında en çok bunlar soruluyor ("fişte logo neden çıkmıyor", "bayi hesabı
+  // açıldı mı") ve bugüne kadar tek bakılacak yer veritabanıydı.
+  const settingRows: { label: string; value: string | null }[] = [
+    {
+      label: "Geçmiş Tarihli e-Fatura Serisi",
+      value: company.eFaturaBackdatePrefix,
+    },
+    {
+      label: "Geçmiş Tarihli e-Arşiv Serisi",
+      value: company.eArchiveBackdatePrefix,
+    },
+    {
+      label: "e-Dönüşüm Hesap Açılışı",
+      value: company.eDonusumOnboardingStatus
+        ? company.eDonusumTenantCreatedAt
+          ? `${company.eDonusumOnboardingStatus} · ${new Date(company.eDonusumTenantCreatedAt).toLocaleString("tr-TR")}`
+          : company.eDonusumOnboardingStatus
+        : null,
+    },
+    {
+      label: "Aktifleştirilen Ürünler",
+      value: company.eDonusumActivatedProducts.length
+        ? company.eDonusumActivatedProducts.join(", ")
+        : null,
+    },
+    { label: "Hesap Açılış Hatası", value: company.eDonusumActivationError },
+    {
+      label: "Fiş Tasarımı",
+      value: receiptTemplateSummary,
+    },
+    {
+      label: "Açılış Saatleri",
+      value: openingHoursSummary,
+    },
+    {
+      label: "Restoran İskonto Tavanı",
+      value:
+        company.restaurantMaxDiscountPercent === null
+          ? "Sınır yok"
+          : `%${Number(company.restaurantMaxDiscountPercent)}`,
+    },
+  ]
+
   const invoiceStatCards = [
     { label: "E-Fatura", value: typeCount("E_INVOICE"), color: "text-blue-300" },
     { label: "E-Arşiv", value: typeCount("E_ARCHIVE"), color: "text-cyan-300" },
@@ -146,6 +223,20 @@ export default async function CompanyDetailPage({
   ]
 
   const infoRows: { icon: React.ReactNode; label: string; value: string | null }[] = [
+    // Ünvan ve şube adı AYRI alanlardır: ünvan belgelere basılır, şube adı yalnız
+    // arayüzde ayırt eder. Başlıkta yalnız ünvan yazdığı için ikisi de burada.
+    { icon: <Building2 className="h-4 w-4" />, label: "Ünvan", value: company.name },
+    { icon: <Building2 className="h-4 w-4" />, label: "Şube Adı", value: company.branchName },
+    {
+      icon: <Building2 className="h-4 w-4" />,
+      label: "Bağlı Olduğu Ana Firma",
+      value: parentCompany ? companyDisplayName(parentCompany) : null,
+    },
+    {
+      icon: <Building2 className="h-4 w-4" />,
+      label: "Hesap (Faturalama) Kökü",
+      value: quotas.rootCompanyId === company.id ? "Kendisi (hesap kökü)" : accountRootName,
+    },
     { icon: <Hash className="h-4 w-4" />, label: "Vergi No", value: company.taxNumber },
     { icon: <Building2 className="h-4 w-4" />, label: "Vergi Dairesi", value: company.taxOffice },
     { icon: <Mail className="h-4 w-4" />, label: "E-posta", value: company.email },
@@ -159,9 +250,16 @@ export default async function CompanyDetailPage({
     { icon: <Globe className="h-4 w-4" />, label: "Ülke", value: company.country },
     {
       icon: <Calendar className="h-4 w-4" />,
+      label: "Kayıt Tarihi",
+      value: new Date(company.createdAt).toLocaleString("tr-TR"),
+    },
+    {
+      icon: <Calendar className="h-4 w-4" />,
       label: "Son Güncelleme",
       value: new Date(company.updatedAt).toLocaleString("tr-TR"),
     },
+    { icon: <Hash className="h-4 w-4" />, label: "Adres Anahtarı (slug)", value: company.slug },
+    { icon: <Hash className="h-4 w-4" />, label: "Firma ID", value: company.id },
   ]
 
   const statCards = [
@@ -261,6 +359,30 @@ export default async function CompanyDetailPage({
           </CardHeader>
           <CardContent className="space-y-3">
             {businessRows.map((row) => (
+              <div
+                key={row.label}
+                className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3 last:border-0 last:pb-0"
+              >
+                <p className="text-xs text-slate-500">{row.label}</p>
+                <p className="text-sm text-slate-200 text-right break-words">{row.value || "-"}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* Firma tarafından girilen diğer ayarlar */}
+        <Card className="bg-slate-900/50 border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <Settings2 className="h-5 w-5 text-sky-400" />
+              Kurulum & Tercihler
+            </CardTitle>
+            <CardDescription className="text-slate-500">
+              Panelden girilen ek seriler, e-Dönüşüm hesap açılışı ve tasarım tercihleri
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {settingRows.map((row) => (
               <div
                 key={row.label}
                 className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3 last:border-0 last:pb-0"

@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useReservations, type PlanTable, type Reservation } from "@/lib/swr/use-restoran"
 import {
   DEFAULT_DURATION_MIN,
@@ -210,7 +211,8 @@ export function ReservationDialog({
         </span>
       )}
       {r.status === "PENDING" && (
-        <div className="ml-auto flex items-center gap-1">
+        <WriteAction>
+          <div className="ml-auto flex items-center gap-1">
           <Button
             size="sm"
             variant="ghost"
@@ -246,7 +248,8 @@ export function ReservationDialog({
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
-        </div>
+          </div>
+        </WriteAction>
       )}
     </div>
   )
@@ -375,10 +378,12 @@ export function ReservationDialog({
           </div>
         ) : (
           <div className="space-y-3">
-            <Button size="sm" onClick={() => setForm(emptyForm(initialTableId))}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              Yeni rezervasyon
-            </Button>
+            <WriteAction>
+              <Button size="sm" onClick={() => setForm(emptyForm(initialTableId))}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                Yeni rezervasyon
+              </Button>
+            </WriteAction>
 
             {isLoading && reservations.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">Yükleniyor…</p>

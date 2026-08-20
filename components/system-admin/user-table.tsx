@@ -30,7 +30,17 @@ import {
 import { Label } from "@/components/ui/label"
 import { companyDisplayName } from "@/lib/company/display-name"
 import { Switch } from "@/components/ui/switch"
-import { Search, MoreVertical, Shield, Key, Edit, Trash2, Building2, Loader2 } from "lucide-react"
+import {
+  Search,
+  MoreVertical,
+  Shield,
+  Key,
+  Edit,
+  Trash2,
+  Building2,
+  Loader2,
+  ClipboardList,
+} from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useRouter } from "next/navigation"
@@ -41,10 +51,22 @@ interface User {
   id: string
   name: string | null
   email: string
+  /** Kayıt formundan: telefon. */
+  phone: string | null
+  /** Kayıt formundan: "Firma / Şahıs Ünvanı" — Company kaydından ÖNCE alınır. */
+  companyDisplayName: string | null
+  /** Kayıt formundan: opsiyonel şube adı. */
+  companyBranchName: string | null
+  twoFactorEnabled: boolean
   isSuperAdmin: boolean
+  /** Platform blog editörü — firma yetkisinden bağımsız, yalnız /blog-admin erişimi. */
+  isBlogEditor: boolean
   createdAt: Date
+  updatedAt: Date
   companies: {
     role: Role
+    /** Üyeliğin kurulduğu an — kullanıcının kayıt tarihiyle aynı olmayabilir. */
+    createdAt: Date
     company: {
       id: string
       name: string
@@ -88,6 +110,7 @@ export function UserTable({ users, companies }: UserTableProps) {
   const [saving, setSaving] = useState(false)
 
   // Firma üyeliği yönetimi
+  const [detailUser, setDetailUser] = useState<User | null>(null)
   const [managingUser, setManagingUser] = useState<User | null>(null)
   const [addCompanyId, setAddCompanyId] = useState("")
   const [addRole, setAddRole] = useState<Role>(Role.VIEWER)
@@ -217,10 +240,15 @@ export function UserTable({ users, companies }: UserTableProps) {
   const assignedIds = new Set(managing?.companies.map((uc) => uc.company.id) ?? [])
   const availableCompanies = companies.filter((c) => !assignedIds.has(c.id))
 
-  const filteredUsers = users.filter(user =>
-    user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // Arama kayıt bilgilerinin TAMAMINI tarar: destek talebi telefonla ya da firma
+  // ünvanıyla geliyor, e-postayla değil.
+  const filteredUsers = users.filter((user) => {
+    const q = searchTerm.toLocaleLowerCase("tr-TR")
+    if (!q) return true
+    return [user.name, user.email, user.phone, user.companyDisplayName, user.companyBranchName]
+      .filter(Boolean)
+      .some((field) => field!.toLocaleLowerCase("tr-TR").includes(q))
+  })
 
   const handleResetPassword = async (userId: string, userEmail: string) => {
     if (!(await confirm({ title: "Şifre sıfırla", description: `"${userEmail}" kullanıcısının şifresini sıfırlamak istiyor musunuz?`, confirmLabel: "Sıfırla" }))) {
@@ -315,7 +343,7 @@ export function UserTable({ users, companies }: UserTableProps) {
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
         <Input
-          placeholder="İsim veya email ara..."
+          placeholder="İsim, e-posta, telefon veya firma ünvanı ara..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="pl-10 bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500"
@@ -329,6 +357,8 @@ export function UserTable({ users, companies }: UserTableProps) {
             <TableRow className="border-slate-800 hover:bg-slate-800/50">
               <TableHead className="text-slate-400">Kullanıcı</TableHead>
               <TableHead className="text-slate-400">Email</TableHead>
+              <TableHead className="text-slate-400">Telefon</TableHead>
+              <TableHead className="text-slate-400">Kayıttaki Ünvan</TableHead>
               <TableHead className="text-slate-400">Firmalar</TableHead>
               <TableHead className="text-slate-400">Yetki</TableHead>
               <TableHead className="text-slate-400">Kayıt Tarihi</TableHead>
@@ -338,7 +368,7 @@ export function UserTable({ users, companies }: UserTableProps) {
           <TableBody>
             {filteredUsers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-slate-500">
+                <TableCell colSpan={8} className="text-center py-8 text-slate-500">
                   {searchTerm ? "Arama sonucu bulunamadı" : "Henüz kullanıcı kaydı yok"}
                 </TableCell>
               </TableRow>
@@ -367,6 +397,23 @@ export function UserTable({ users, companies }: UserTableProps) {
                   </TableCell>
                   <TableCell className="text-slate-300">
                     {user.email}
+                  </TableCell>
+                  <TableCell className="text-slate-300 whitespace-nowrap">
+                    {user.phone || <span className="text-slate-600">-</span>}
+                  </TableCell>
+                  <TableCell className="text-slate-300">
+                    {user.companyDisplayName ? (
+                      <span className="flex items-center gap-1.5">
+                        <span className="max-w-[220px] truncate">{user.companyDisplayName}</span>
+                        {user.companyBranchName && (
+                          <span className="shrink-0 rounded bg-slate-700/60 px-1.5 py-0.5 text-xs text-slate-300">
+                            {user.companyBranchName}
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-slate-600">-</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     {user.companies.length === 0 ? (
@@ -421,6 +468,13 @@ export function UserTable({ users, companies }: UserTableProps) {
                         <DropdownMenuSeparator className="bg-slate-800" />
                         <DropdownMenuItem
                           className="text-slate-300 focus:bg-slate-800 focus:text-white"
+                          onClick={() => setDetailUser(user)}
+                        >
+                          <ClipboardList className="h-4 w-4 mr-2" />
+                          Kayıt Bilgileri
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-slate-300 focus:bg-slate-800 focus:text-white"
                           onClick={() => openEdit(user)}
                         >
                           <Edit className="h-4 w-4 mr-2" />
@@ -473,6 +527,91 @@ export function UserTable({ users, companies }: UserTableProps) {
       <div className="text-sm text-slate-500">
         Toplam {filteredUsers.length} kullanıcı gösteriliyor
       </div>
+
+      {/* Kayıt Bilgileri — kullanıcının KAYIT ANINDA girdiği her şey.
+          Parola ve 2FA gizli anahtarı sunucuda kalır: sayfanın select'i onları hiç
+          çekmiyor (bkz. system-admin/users/page.tsx). Burada gösterilen "2FA" yalnız
+          açık/kapalı bilgisidir. */}
+      <Dialog open={detailUser !== null} onOpenChange={(open) => !open && setDetailUser(null)}>
+        <DialogContent className="sm:max-w-lg bg-slate-900 border-slate-800 text-slate-100">
+          <DialogHeader>
+            <DialogTitle className="text-white">Kayıt Bilgileri</DialogTitle>
+            <DialogDescription className="text-slate-500">
+              Kullanıcının kayıt formunda girdiği bilgiler ve hesap durumu
+            </DialogDescription>
+          </DialogHeader>
+          {detailUser && (
+            <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+              {[
+                { label: "Ad Soyad", value: detailUser.name },
+                { label: "E-posta", value: detailUser.email },
+                { label: "Telefon", value: detailUser.phone },
+                { label: "Firma / Şahıs Ünvanı (kayıt formu)", value: detailUser.companyDisplayName },
+                { label: "Şube İsmi (kayıt formu)", value: detailUser.companyBranchName },
+                { label: "İki Adımlı Doğrulama", value: detailUser.twoFactorEnabled ? "Açık" : "Kapalı" },
+                { label: "Yetki", value: detailUser.isSuperAdmin ? "Sistem Yöneticisi" : "Kullanıcı" },
+                { label: "Blog Editörü", value: detailUser.isBlogEditor ? "Evet" : "Hayır" },
+                { label: "Kayıt Tarihi", value: new Date(detailUser.createdAt).toLocaleString("tr-TR") },
+                {
+                  label: "Son Güncelleme",
+                  value: new Date(detailUser.updatedAt).toLocaleString("tr-TR"),
+                },
+                { label: "Kullanıcı ID", value: detailUser.id },
+              ].map((row) => (
+                <div
+                  key={row.label}
+                  className="flex items-start justify-between gap-4 border-b border-slate-800 pb-2 last:border-0"
+                >
+                  <p className="shrink-0 text-xs text-slate-500">{row.label}</p>
+                  <p className="break-all text-right text-sm text-slate-200">{row.value || "-"}</p>
+                </div>
+              ))}
+
+              <div>
+                <p className="mb-1.5 text-xs text-slate-500">Firma Üyelikleri</p>
+                {detailUser.companies.length === 0 ? (
+                  <p className="text-sm text-slate-400">
+                    Hiç firmaya bağlı değil — kayıt olmuş ama firmasını açmamış.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {detailUser.companies.map((uc) => (
+                      <div
+                        key={uc.company.id}
+                        className="flex items-center justify-between gap-2 rounded bg-slate-800/50 px-2.5 py-1.5"
+                      >
+                        <span className="min-w-0 truncate text-sm text-slate-200">
+                          {companyDisplayName(uc.company)}
+                          {!uc.company.isActive && (
+                            <span className="ml-1.5 text-xs text-red-400">pasif</span>
+                          )}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span className={`rounded px-1.5 py-0.5 text-xs ${roleColors[uc.role]}`}>
+                            {roleLabels[uc.role]}
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            {new Date(uc.createdAt).toLocaleDateString("tr-TR")}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDetailUser(null)}
+              className="border-slate-700 bg-slate-800/50 text-slate-200 hover:bg-slate-800"
+            >
+              Kapat
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Düzenleme Dialog'u */}
       <Dialog open={editingId !== null} onOpenChange={(open) => !open && setEditingId(null)}>

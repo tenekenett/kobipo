@@ -387,6 +387,25 @@ export const PAGE_API_RULES: PageApiRule[] = [
   { prefix: "/api/raporlar/gelir-gider", pages: ["/raporlar/nakit-banka", "/raporlar/vergi"], writePages: [] },
   { prefix: "/api/raporlar", pages: REPORT_PAGES, writePages: [] },
 
+  // Muhasebe defterleri (yevmiye, kebir, hesap planı). Ekranları menüde YOK —
+  // mali tablolardan link veriliyor — ve 2026-08-20'ye kadar hiç kuralları yoktu:
+  // "kuralsız uç" varsayılanına düşüp okumada herkese açık, yazmada herkese kapalı
+  // kalıyorlardı. Sessiz bir muafiyet yerine SÖZLEŞMEYİ AÇIK yazmak doğrusu:
+  // defteri okumak mali tabloları okumakla aynı yetkidir, YAZMA ise hiçbir sayfaya
+  // bağlı değildir (`writePages: []`) — fiş kesme arayüzden yapılmıyor.
+  //
+  // Muhasebe menüye alınırsa: `NAV_PAGES`'e sayfayı ekleyip `pages`/`writePages`'i
+  // ona bağlayın; kuralı silmeyin.
+  {
+    prefix: "/api/muhasebe",
+    // Defteri OKUMAK mali tabloları okumakla aynı yetkidir; defterin kendi katalog
+    // sayfaları da listede (menüde görünmeseler de role verilebiliyorlar).
+    pages: ["/muhasebe/yevmiye", "/muhasebe/kebir", "/raporlar/nakit-banka", "/raporlar/vergi"],
+    // YAZMA yalnız defter sayfalarına bağlı: "kâr-zararı gören yevmiye fişi keser"
+    // olmasın. Bugün arayüzden hiç POST yapılmıyor, ama sözleşme yazılı durur.
+    writePages: ["/muhasebe/yevmiye", "/muhasebe/kebir"],
+  },
+
   // ---- Personel ----------------------------------------------------------
   // Bordro, izin, zimmet ve özlük dosyası aynı modülün İÇİNDE bile birbirinden
   // ayrılır: "vardiya girsin ama maaşları görmesin" en sık istenen kısıt.
@@ -885,6 +904,12 @@ const ROUTE_OWNERS: Record<string, string[]> = {
   "/faturalar": ["/satis/fatura", "/alis/fatura"],
   "/fisler": ["/satis/fisler", "/alis/fisler"],
   "/raporlar/nakit-akisi": ["/raporlar/nakit-banka"],
+  // Mali tablo EKRANLARI. Uçları (`/api/raporlar/bilanco`, `/kar-zarar`) zaten bu iki
+  // rapor sayfasına bağlıydı; sayfanın kendisi bağlı olmadığı için izinsiz bir rol
+  // adresi elle yazınca boş ama açık bir ekran görüyordu. Kapı artık veriyle aynı yeri
+  // gösteriyor.
+  "/raporlar/bilanco": ["/raporlar/nakit-banka", "/raporlar/vergi"],
+  "/raporlar/kar-zarar": ["/raporlar/nakit-banka", "/raporlar/vergi"],
   "/raporlar/cari-yaslandirma": ["/raporlar/cari"],
   "/raporlar/vergiler": ["/raporlar/vergi"],
   "/restoran/adisyon": TICKET_PAGES,

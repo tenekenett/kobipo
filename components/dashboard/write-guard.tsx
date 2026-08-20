@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation"
 import { Eye } from "lucide-react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { canEditPage, navHrefsForPath } from "@/lib/page-access"
+import { toast } from "@/components/ui/use-toast"
 import { isReadOnlyByNature, navPage, type PageAvailability } from "@/lib/nav/pages"
 
 /**
@@ -86,6 +87,67 @@ export function ReadOnlyBanner() {
         <strong>Salt-okunur:</strong> {label ? `“${label}” sayfasını` : "bu sayfayı"} görüntüleyebilir,
         değişiklik yapamazsınız. Düzenleme yetkisi için firma yöneticinize başvurun.
       </span>
+    </div>
+  )
+}
+
+/**
+ * Düğme OLMAYAN yazma yolları için kapı: sürükle-bırak, tuval jesti, masa/satır
+ * dokunuşu. Sarılacak bir `<Button>` yok, dolayısıyla `WriteAction` iş görmez —
+ * karar koda girer.
+ *
+ * `refuse()` sessiz durmaz: dokunup hiçbir şey olmayınca kullanıcı ekranın
+ * bozulduğunu sanar. Sayfa başındaki şerit "değiştiremezsiniz" der ama jestin
+ * neden yutulduğunu ancak dokunulan anda söylemek anlaşılır olur.
+ */
+export function useWriteGuard(): { canWrite: boolean; refuse: () => void } {
+  const canWrite = useCanEditHere()
+  return useMemo(
+    () => ({
+      canWrite,
+      refuse: () =>
+        toast({
+          title: "Salt-okunur yetki",
+          description: "Bu sayfayı görüntüleyebilirsiniz, değişiklik yapamazsınız.",
+        }),
+    }),
+    [canWrite],
+  )
+}
+
+/**
+ * Yalnız YAZMAK için var olan tezgâh ekranları (hızlı satış/alış, kahveci
+ * satış). Orada tek tek düğme gizlemek yanlış olurdu: geriye ürünleri sepete
+ * atıp tamamlayamayan, kullanılamaz bir tezgâh kalır. Salt-okunur yetkide
+ * tezgâh hiç kurulmaz, yerine sebebi yazılır.
+ *
+ * `ReadOnlyBanner`ın aksine bu bir DUVAR — ama `PermissionGuard`ın duvarı
+ * değil: sayfayı görme yetkisi vardır, ekranın kendisi okunacak bir şey
+ * üretmiyordur.
+ */
+export function WriteOnlyScreen({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const canEdit = useCanEditHere()
+  if (canEdit) return <>{children}</>
+
+  const label = navHrefsForPath(pathname, searchParams)
+    .map((href) => navPage(href)?.label)
+    .find(Boolean)
+
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center p-6">
+      <div className="max-w-md space-y-2 text-center">
+        <Eye className="mx-auto h-8 w-8 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">
+          {label ? `“${label}” ekranı salt-okunur açılamaz` : "Bu ekran salt-okunur açılamaz"}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Bu ekran yalnızca kayıt oluşturmak için vardır; yetkiniz görüntülemekle sınırlı
+          olduğu için açılacak bir şey yok. Kullanmanız gerekiyorsa firma yöneticinizden
+          bu sayfa için düzenleme yetkisi isteyin.
+        </p>
+      </div>
     </div>
   )
 }

@@ -30,6 +30,7 @@ import { BordroAktarDialog } from "@/components/personel/bordro-aktar-dialog"
 // Satırın şekli sunucudaki hesapla aynı yerden gelir; ekranın kendi kopyası
 // olsaydı uca eklenen bir alan burada sessizce eksik kalırdı.
 import type { PuantajRow as Row } from "@/lib/personel/puantaj"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 const AYLAR = [
   "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
@@ -340,20 +341,23 @@ export default function PuantajPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setTransfer(r)}
-                      disabled={r.overtimeMinutes === 0 && r.absentCount === 0}
-                      title={
-                        r.overtimeMinutes === 0 && r.absentCount === 0
-                          ? "Aktarılacak fazla mesai veya devamsızlık yok"
-                          : undefined
-                      }
-                    >
-                      <Wallet className="mr-1 h-4 w-4" />
-                      {r.payroll ? "Güncelle" : "Aktar"}
-                    </Button>
+                    {/* Aktarım BORDRO YAZAR (taslak); puantajı okumak serbest. */}
+                    <WriteAction>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTransfer(r)}
+                        disabled={r.overtimeMinutes === 0 && r.absentCount === 0}
+                        title={
+                          r.overtimeMinutes === 0 && r.absentCount === 0
+                            ? "Aktarılacak fazla mesai veya devamsızlık yok"
+                            : undefined
+                        }
+                      >
+                        <Wallet className="mr-1 h-4 w-4" />
+                        {r.payroll ? "Güncelle" : "Aktar"}
+                      </Button>
+                    </WriteAction>
                   </TableCell>
                 </StyledTableRow>
               ))}

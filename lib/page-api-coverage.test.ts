@@ -24,14 +24,46 @@ const API_ROOT = path.resolve(process.cwd(), "app/api")
 /**
  * Menüde karşılığı OLMAYAN, dolayısıyla hiçbir sayfaya bağlanamayan yazma uçları.
  *
- * `/muhasebe/yevmiye` ve `/muhasebe/kebir` ekranları `NAV_PAGES`'te değil (menüde
- * yoklar, yalnız `/raporlar/finansal` içinden link veriliyor) ve bu iki uca arayüzden
- * HİÇ POST yapılmıyor — iki sayfa da yalnız GET çağırıyor. Rapor sayfasına sahip
- * yazmak "raporu gören yevmiye fişi keser" demek olurdu; bu yüzden yazma kapalı
- * bırakıldı. Muhasebe ekranı menüye alınırsa doğru çözüm buraya değil, `NAV_PAGES` +
- * `PAGE_API_RULES`'a bir satır eklemektir.
+ * **Liste 2026-08-20'de BOŞALDI.** Muhasebe defterleri (`/api/muhasebe/*`) buradaydı:
+ * kuralsız oldukları için okumada serbest, yazmada kapalı kalıyorlardı — yani doğru
+ * davranış SESSİZ bir varsayılandan geliyordu. Artık `PAGE_API_RULES`'ta açık bir
+ * kuralları var (`pages: mali tablolar, writePages: []`), dolayısıyla muafiyete gerek
+ * kalmadı.
+ *
+ * Buraya yeni bir uç eklemek son çare olmalı: "sahibi yok" demek, o ucun yazma
+ * sözleşmesini kimsenin okuyamayacağı bir yere saklamaktır. Önce `NAV_PAGES` +
+ * `PAGE_API_RULES`'a bir satır eklemeyi deneyin.
  */
-const OWNERLESS_WRITE_ENDPOINTS = ["/api/muhasebe/fisler", "/api/muhasebe/hesap-plani"]
+const OWNERLESS_WRITE_ENDPOINTS: string[] = []
+
+/**
+ * Kapıyı HİÇ çağırmayan ama firma verisiyle çalışan uçlar ve korumaları.
+ *
+ * Sayfa/modül kapısı yalnız `ensureCompanyAccess` çağıran uçlarda çalışır; çağırmayan
+ * bir uç haritadan hiç etkilenmez. Bu, tasarım gereği böyle (süper-admin uçları, token
+ * ile açılan ödeme bağlantısı, ilk firma kurulumu) — ama SESSİZ kalırsa bir gün
+ * kapısız bir uç fark edilmeden aramıza karışır. Nitekim karışmıştı: bu liste
+ * kurulurken `GET /api/e-donusum/invoices/[id]/status` yakalandı — giriş yapmış
+ * herhangi bir kullanıcı, id'sini bildiği BAŞKA firmanın faturasının GİB durumunu
+ * sorgulayabiliyor, hatta iptaline yol açabiliyordu. O uca kapı eklendi.
+ *
+ * Yeni satır eklemeden önce: gerçekten kapı gerekmiyor mu, yoksa unutuldu mu?
+ */
+const GATE_EXEMPT_ENDPOINTS: Record<string, string> = {
+  "/admin/support/[id]/messages": "requireSuperAdmin",
+  "/auth/user-role": "Kullanıcının KENDİ rolünü döndürür; başkasının verisi yok.",
+  "/billing/admin/quota": "requireSuperAdmin",
+  "/billing/admin/reset": "requireSuperAdmin",
+  "/companies":
+    "GET üyelik listesini `getUserContext`ten süzer; POST `createCompany` içindeki erişim + rol + kota denetimine tabidir (bkz. npm run check:company-create).",
+  "/company/branch-managers": "canManageCompany (üyeliksiz yönetici kapsamı dahil)",
+  "/invitations/[token]/accept":
+    "Davet TOKEN'ı ile açılır — çağıran henüz o firmanın üyesi değildir, kapı zaten reddederdi.",
+  "/pay/[token]": "Ödeme bağlantısı token ile açılır; oturum gerektirmez.",
+  "/system-admin/users": "isSuperAdmin denetimi handler içinde",
+  "/system-admin/users/[id]/companies": "isSuperAdmin denetimi handler içinde",
+  "/system-admin/users/[id]/companies/[companyId]": "requireSuperAdmin (dosya içi)",
+}
 
 type Route = { urlPath: string; file: string; methods: string[] }
 
@@ -89,6 +121,26 @@ describe("PAGE_API_RULES — kapsam nöbetçisi", () => {
       }
     }
     expect(denied, `ADMIN şu uçlarda kapıya takılıyor:\n${denied.join("\n")}`).toEqual([])
+  })
+
+  it("firma verisiyle çalışan her uç ya kapıyı çağırır ya listede anılır", () => {
+    const ungated: string[] = []
+    for (const file of walk(API_ROOT)) {
+      const src = fs.readFileSync(file, "utf8")
+      if (GATE_RE.test(src)) continue
+      // `companyId` geçmeyen uç firma verisine dokunmuyordur (kur, sağlık kontrolü,
+      // blog, cron). Kaba ama yanlış tarafa kaba: kaçırırsa listeye YAZDIRIR.
+      if (!/companyId/.test(src)) continue
+      const urlPath =
+        "/" + path.relative(API_ROOT, path.dirname(file)).split(path.sep).join("/")
+      if (urlPath in GATE_EXEMPT_ENDPOINTS) continue
+      ungated.push(`${urlPath}  (${path.relative(process.cwd(), file)})`)
+    }
+    expect(
+      ungated,
+      "Şu uçlar firma verisiyle çalışıyor ama kapıyı hiç çağırmıyor. Kapıyı ekleyin " +
+        `(ensureCompanyAccess/ensureCompanyWrite) ya da korumasını GATE_EXEMPT_ENDPOINTS'e yazın:\n${ungated.join("\n")}`,
+    ).toEqual([])
   })
 
   it("yazma kabul eden her kapılı ucun sahibi bellidir", () => {

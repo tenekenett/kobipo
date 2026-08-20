@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
+import { WriteAction } from "@/components/dashboard/write-guard"
 import type { ChecklistDay, ChecklistItemView } from "@/lib/restoran/checklist"
 
 export function ChecklistDayList({
@@ -144,6 +145,7 @@ export function ChecklistDayList({
                   </p>
                 )}
               </div>
+              <WriteAction>
               <Button
                 size="sm"
                 variant={checked ? "ghost" : "default"}
@@ -164,6 +166,7 @@ export function ChecklistDayList({
                   </>
                 )}
               </Button>
+              </WriteAction>
             </div>
           )
         })}

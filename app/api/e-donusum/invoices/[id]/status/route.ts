@@ -1,11 +1,23 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
+import { ensureCompanyWrite } from "@/lib/middleware/company";
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors";
 import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider";
 import { voidInvoice, evaluateGibVoid } from "@/lib/integrations/e-invoice/void-invoice";
 
-// BURADAKİ params KISMINI DEĞİŞTİRDİK (Promise yaptık)
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+/**
+ * GİB durumunu sorgular ve sonucu faturaya YAZAR (red/iptal → CANCELLED + stok iadesi).
+ *
+ * Kapı fatura yüklendikten SONRA çağrılır: hangi firmaya ait olduğu ancak o zaman
+ * bilinir. Kardeşi `check-status` ile aynı desen — 2026-08-20'ye kadar burada hiç kapı
+ * yoktu ve giriş yapmış herhangi bir kullanıcı, id'sini bildiği BAŞKA bir firmanın
+ * faturasının durumunu sorgulayabiliyor, hatta iptaline yol açabiliyordu.
+ */
+export const GET = withApiErrors(async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -21,6 +33,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (!invoice || !invoice.uuid) {
       return NextResponse.json({ error: "Fatura veya UUID bulunamadı" }, { status: 404 });
     }
+
+    await ensureCompanyWrite(invoice.companyId);
 
     // Provider'ı çöz: firmanın kendi kimliği (manuel) yoksa bayi + firma VKN (Faz 4).
     const resolved = resolveCompanyEInvoiceProvider(invoice.company);
@@ -64,7 +78,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
     return NextResponse.json(statusResult);
   } catch (error: any) {
+    // İçteki catch, sarmalayıcıdan ÖNCE davranır: erişim reddini burada 403'e
+    // çevirmezsek kullanıcı yine boş gövdeli 500 görür.
+    if (isAccessDeniedError(error)) return accessDeniedResponse(error);
     console.error("Status Check Error:", error);
     return NextResponse.json({ error: "Sunucu hatası" }, { status: 500 });
   }
-}
+});

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
 import { Archive, FileText, Loader2, Receipt } from "lucide-react"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 type Scope = "active" | "archived"
 
@@ -214,15 +215,17 @@ export default function FislerListing({
               {blockReason && selectedRows.length > 0 && (
                 <span className="text-xs text-amber-600">{blockReason}</span>
               )}
-              <Button onClick={convert} disabled={!!blockReason || submitting} size="sm">
-                {submitting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <FileText className="mr-2 h-4 w-4" />
-                )}
-                Toplu Faturaya Dönüştür
-                {selectedRows.length > 0 ? ` (${selectedRows.length})` : ""}
-              </Button>
+              <WriteAction>
+                <Button onClick={convert} disabled={!!blockReason || submitting} size="sm">
+                  {submitting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileText className="mr-2 h-4 w-4" />
+                  )}
+                  Toplu Faturaya Dönüştür
+                  {selectedRows.length > 0 ? ` (${selectedRows.length})` : ""}
+                </Button>
+              </WriteAction>
             </div>
           )}
         </CardHeader>

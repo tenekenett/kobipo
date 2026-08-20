@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { KontorPurchaseDialog } from "@/components/e-donusum/kontor-purchase-dialog"
 import { KontorActiveOrders } from "@/components/e-donusum/kontor-active-orders"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 interface CreditRow {
   remainingCreditQty: number
@@ -333,19 +334,22 @@ export default function KontorPage() {
                 <p className="text-xs text-muted-foreground">
                   Havale/EFT'de dekontunuzu yükleyin; onaydan sonra kontör otomatik yüklenir.
                 </p>
-                <KontorPurchaseDialog
-                  companyId={companyId}
-                  onPurchased={() => {
-                    fetchCredit()
-                    setOrderRefreshKey((k) => k + 1)
-                  }}
-                  trigger={
-                    <Button type="button">
-                      <ShoppingCart className="mr-2 h-4 w-4" />
-                      Kontör Satın Al
-                    </Button>
-                  }
-                />
+                {/* Satın alma sipariş YAZAR; bakiyeyi okumak serbest. */}
+                <WriteAction>
+                  <KontorPurchaseDialog
+                    companyId={companyId}
+                    onPurchased={() => {
+                      fetchCredit()
+                      setOrderRefreshKey((k) => k + 1)
+                    }}
+                    trigger={
+                      <Button type="button">
+                        <ShoppingCart className="mr-2 h-4 w-4" />
+                        Kontör Satın Al
+                      </Button>
+                    }
+                  />
+                </WriteAction>
               </div>
             </>
           )}

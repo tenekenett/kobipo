@@ -41,6 +41,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Trash2, Edit } from "lucide-react"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 interface Check {
   id: string
@@ -399,10 +400,12 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
               <CardTitle>{copy.title}</CardTitle>
               <CardDescription>{copy.description}</CardDescription>
             </div>
-            <Button onClick={openModal}>
-              <Plus className="mr-2 h-4 w-4" />
-              {copy.newButton}
-            </Button>
+            <WriteAction>
+              <Button onClick={openModal}>
+                <Plus className="mr-2 h-4 w-4" />
+                {copy.newButton}
+              </Button>
+            </WriteAction>
           </div>
         </CardHeader>
         <CardContent>
@@ -445,14 +448,16 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <div className="flex gap-2">
-                            <Button variant="ghost" size="sm" onClick={() => handleEdit(check)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => handleDelete(check.id)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
+                          <WriteAction>
+                            <div className="flex gap-2">
+                              <Button variant="ghost" size="sm" onClick={() => handleEdit(check)}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => handleDelete(check.id)}>
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </WriteAction>
                         </TableCell>
                       </StyledTableRow>
                     ))
@@ -497,14 +502,16 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <div className="flex gap-2">
-                            <Button variant="ghost" size="sm" onClick={() => handleEdit(note)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => handleDelete(note.id)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
+                          <WriteAction>
+                            <div className="flex gap-2">
+                              <Button variant="ghost" size="sm" onClick={() => handleEdit(note)}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => handleDelete(note.id)}>
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </WriteAction>
                         </TableCell>
                       </StyledTableRow>
                     ))

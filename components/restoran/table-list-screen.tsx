@@ -27,6 +27,7 @@ import { useDashboardCompany } from "@/components/dashboard/dashboard-company-pr
 import { NewTicketDialog } from "@/components/restoran/new-ticket-dialog"
 import { TableActionDialog } from "@/components/restoran/table-action-dialog"
 import { elapsedLabel } from "@/components/restoran/floor-plan-canvas"
+import { WriteAction, useWriteGuard } from "@/components/dashboard/write-guard"
 import { useTableOpener, tableTapIntent } from "@/lib/restoran/use-table-opener"
 import { useTables, type PlanTable } from "@/lib/swr/use-restoran"
 import { currency } from "@/lib/fis/receipt-html"
@@ -41,6 +42,9 @@ export function TableListScreen() {
     companyId,
     mutate,
   )
+  // Masaya dokunmak adisyon AÇAR: bu ekranın yazma yolu düğme değil, satırın
+  // kendisidir (bkz. write-guard.tsx → useWriteGuard).
+  const { canWrite, refuse } = useWriteGuard()
 
   const [search, setSearch] = useState("")
   const [activeArea, setActiveArea] = useState<string>(ALL_AREAS)
@@ -77,8 +81,13 @@ export function TableListScreen() {
 
   function tapTable(table: PlanTable) {
     const intent = tableTapIntent(table)
+    // Açık hesabı GÖRMEK okumadır; açmak/temizlemek yazmadır.
     if (intent === "ticket") {
       goToTicket(table.openTicket!.id)
+      return
+    }
+    if (!canWrite) {
+      refuse()
       return
     }
     if (intent === "ask") {
@@ -111,10 +120,12 @@ export function TableListScreen() {
           </p>
           {/* Paket/gel-al siparişinin masası yoktur; bu ekranda tek başına
               ulaşılabilir olmalı, yoksa kasadaki kişi Adisyonlar'a geçiyor. */}
-          <Button size="lg" onClick={() => setNewTicketOpen(true)} disabled={!companyId}>
-            <ShoppingBag className="mr-2 h-4 w-4" />
-            Masasız adisyon
-          </Button>
+          <WriteAction>
+            <Button size="lg" onClick={() => setNewTicketOpen(true)} disabled={!companyId}>
+              <ShoppingBag className="mr-2 h-4 w-4" />
+              Masasız adisyon
+            </Button>
+          </WriteAction>
         </div>
       </div>
 

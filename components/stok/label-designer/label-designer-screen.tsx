@@ -46,6 +46,7 @@ import { fitZoom } from "@/lib/labels/geometry"
 import { type RefProduct, useProducts } from "@/lib/swr/use-company-data"
 import { createDefaultDesign } from "@/lib/labels/types"
 import { SAMPLE_COMPANY, SAMPLE_PRODUCT } from "@/lib/labels/fields"
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useLabelDesignerState } from "./use-label-designer-state"
 import { DesignerToolbox } from "./designer-toolbox"
 import { DesignerCanvas } from "./designer-canvas"
@@ -329,52 +330,57 @@ export function LabelDesignerScreen() {
             maxLength={100}
             onChange={(e) => setName(e.target.value)}
           />
-          <Button type="button" size="sm" onClick={() => void saveTemplate()} disabled={saving}>
-            {saving ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="mr-1.5 h-4 w-4" />
-            )}
-            Kaydet
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="sm">
-                Diğer <ChevronDown className="ml-1 h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => void saveAs()}>Farklı kaydet...</DropdownMenuItem>
-              {api.template.id && otherCompanies.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>Şubeye kopyala</DropdownMenuLabel>
-                  {otherCompanies.map((c) => (
-                    <DropdownMenuItem key={c.id} onClick={() => void copyToBranch(c.id, c.name)}>
-                      {c.name}
+          {/* Tuvalde sürüklemek YAZMA DEĞİL: tasarım sunucuya ancak buradan
+              gider. Kapı bu yüzden kalıcılaştıran denetimlerde — salt-okunur
+              yetkili şablonu açıp yazdırabilir, kaydedemez. */}
+          <WriteAction>
+            <Button type="button" size="sm" onClick={() => void saveTemplate()} disabled={saving}>
+              {saving ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-1.5 h-4 w-4" />
+              )}
+              Kaydet
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm">
+                  Diğer <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => void saveAs()}>Farklı kaydet...</DropdownMenuItem>
+                {api.template.id && otherCompanies.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Şubeye kopyala</DropdownMenuLabel>
+                    {otherCompanies.map((c) => (
+                      <DropdownMenuItem key={c.id} onClick={() => void copyToBranch(c.id, c.name)}>
+                        {c.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
+                {api.template.id && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => void deleteTemplate()}
+                    >
+                      <Trash2 className="mr-1.5 h-4 w-4" /> Şablonu sil
                     </DropdownMenuItem>
-                  ))}
-                </>
-              )}
-              {api.template.id && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onClick={() => void deleteTemplate()}
-                  >
-                    <Trash2 className="mr-1.5 h-4 w-4" /> Şablonu sil
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {api.template.id && (
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Switch checked={api.template.isDefault} onCheckedChange={(v) => void toggleDefault(v)} />
-              <Star className="h-3.5 w-3.5" /> Varsayılan
-            </label>
-          )}
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {api.template.id && (
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Switch checked={api.template.isDefault} onCheckedChange={(v) => void toggleDefault(v)} />
+                <Star className="h-3.5 w-3.5" /> Varsayılan
+              </label>
+            )}
+          </WriteAction>
           {api.dirty && (
             <span className="text-xs font-medium text-amber-600 dark:text-amber-500">
               • Kaydedilmemiş değişiklik

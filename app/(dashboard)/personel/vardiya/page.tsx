@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
+import { WriteAction, useWriteGuard } from "@/components/dashboard/write-guard"
 import { cn } from "@/lib/utils"
 import {
   AlertTriangle,
@@ -146,6 +147,10 @@ export default function VardiyaPage() {
   const companyId = searchParams.get("company")
   const { toast } = useToast()
   const { confirm } = useConfirm()
+  // Bu ekranın yazma yolu çoğunlukla DÜĞME DEĞİL: ızgarada sürükleyerek vardiya
+  // çizmek, barı taşımak, boş hücreye tıklamak. Kapı bu yüzden jestin bittiği
+  // yerde, yazma fonksiyonlarının başında duruyor.
+  const { canWrite, refuse } = useWriteGuard()
 
   const [view, setView] = useState<View>("gun")
   const [day, setDay] = useState(todayIso())
@@ -437,6 +442,11 @@ export default function VardiyaPage() {
    */
   const undo = useCallback(async () => {
     if (!companyId) return
+    // Ctrl+Z düğmeye bağlı değil: kapı burada da lazım.
+    if (!canWrite) {
+      refuse()
+      return
+    }
     const entry = undoStack[undoStack.length - 1]
     if (!entry) return
     setUndoStack((prev) => prev.slice(0, -1))
@@ -505,6 +515,10 @@ export default function VardiyaPage() {
     note = "",
   ) {
     if (!companyId) return false
+    if (!canWrite) {
+      refuse()
+      return false
+    }
     const res = await sendWithForce(
       (force) =>
         fetch("/api/personel/shifts", {
@@ -533,6 +547,10 @@ export default function VardiyaPage() {
   /** Sürükleme sonucu: önce yerel, sonra sunucu; hata olursa geri al. */
   async function moveShift(id: string, next: { employeeId: string; start: number; end: number }) {
     if (!companyId) return
+    if (!canWrite) {
+      refuse()
+      return
+    }
     // Geri alma yedeği TAM listeden alınır (`shifts` haftaya kırpılmış türev):
     // kırpılmışı geri yazmak komşu gün vardiyalarını düşürür ve dinlenme uyarısı
     // sessizce kaybolurdu.
@@ -977,15 +995,17 @@ export default function VardiyaPage() {
           <Button variant="outline" onClick={() => setDay(todayIso())}>
             Bugün
           </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={undo}
-            disabled={undoStack.length === 0 || isSaving}
-            title="Son değişikliği geri al (Ctrl+Z)"
-          >
-            <Undo2 className="h-4 w-4" />
-          </Button>
+          <WriteAction>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={undo}
+              disabled={undoStack.length === 0 || isSaving}
+              title="Son değişikliği geri al (Ctrl+Z)"
+            >
+              <Undo2 className="h-4 w-4" />
+            </Button>
+          </WriteAction>
         </div>
       </div>
 
@@ -1057,38 +1077,40 @@ export default function VardiyaPage() {
           <span className="text-sm text-muted-foreground">Yayınlanmadı</span>
         )}
         <div className="ml-auto flex flex-wrap gap-2">
-          <Button
-            variant={publication && !changedAfterPublish ? "outline" : "default"}
-            size="sm"
-            onClick={() => setPublishOpen(true)}
-            // Yayın HAFTAYA aittir: gün görünümündeyken bile ölçü haftanın
-            // tamamıdır, o günün boş olması yayını engellemez.
-            disabled={shifts.length === 0}
-          >
-            <Send className="mr-1 h-4 w-4" />
-            {publication ? "Yeniden yayınla" : "Yayınla"}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setFillOpen(true)}>
-            <Wand2 className="mr-1 h-4 w-4" /> Şablondan doldur
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              runBulk(
-                {
-                  mode: "copy",
-                  fromDay: shiftDayIso(weekStart, -7),
-                  toDay: weekStart,
-                  dayCount: 7,
-                },
-                "Geçen hafta boştu — kopyalanacak vardiya yok",
-              )
-            }
-            disabled={isSaving}
-          >
-            <CopyPlus className="mr-1 h-4 w-4" /> Geçen haftayı kopyala
-          </Button>
+          <WriteAction>
+            <Button
+              variant={publication && !changedAfterPublish ? "outline" : "default"}
+              size="sm"
+              onClick={() => setPublishOpen(true)}
+              // Yayın HAFTAYA aittir: gün görünümündeyken bile ölçü haftanın
+              // tamamıdır, o günün boş olması yayını engellemez.
+              disabled={shifts.length === 0}
+            >
+              <Send className="mr-1 h-4 w-4" />
+              {publication ? "Yeniden yayınla" : "Yayınla"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setFillOpen(true)}>
+              <Wand2 className="mr-1 h-4 w-4" /> Şablondan doldur
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                runBulk(
+                  {
+                    mode: "copy",
+                    fromDay: shiftDayIso(weekStart, -7),
+                    toDay: weekStart,
+                    dayCount: 7,
+                  },
+                  "Geçen hafta boştu — kopyalanacak vardiya yok",
+                )
+              }
+              disabled={isSaving}
+            >
+              <CopyPlus className="mr-1 h-4 w-4" /> Geçen haftayı kopyala
+            </Button>
+          </WriteAction>
           {/* Çizelge çıktısı: mutfak duvarına asılan kâğıt. Dataset puantajla
               aynı katmandan geçer (lib/export), formatları oradan gelir. */}
           <ExportButton
@@ -1097,21 +1119,23 @@ export default function VardiyaPage() {
             params={{ weekStart }}
             disabled={shifts.length === 0}
           />
-          <Button variant="outline" size="sm" onClick={() => setTemplatesOpen(true)}>
-            <LayoutGrid className="mr-1 h-4 w-4" /> Şablonlar
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setTatilOpen(true)}>
-            <PartyPopper className="mr-1 h-4 w-4" /> Tatiller
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={clearWeek}
-            disabled={isSaving || shifts.length === 0}
-            className="text-red-600 hover:text-red-700 dark:text-red-400"
-          >
-            <Eraser className="mr-1 h-4 w-4" /> Haftayı temizle
-          </Button>
+          <WriteAction>
+            <Button variant="outline" size="sm" onClick={() => setTemplatesOpen(true)}>
+              <LayoutGrid className="mr-1 h-4 w-4" /> Şablonlar
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setTatilOpen(true)}>
+              <PartyPopper className="mr-1 h-4 w-4" /> Tatiller
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearWeek}
+              disabled={isSaving || shifts.length === 0}
+              className="text-red-600 hover:text-red-700 dark:text-red-400"
+            >
+              <Eraser className="mr-1 h-4 w-4" /> Haftayı temizle
+            </Button>
+          </WriteAction>
         </div>
       </div>
 
@@ -1157,7 +1181,7 @@ export default function VardiyaPage() {
                   onCreate={(d) => createShift(d)}
                   onUpdate={moveShift}
                   onOpenShift={(s) => openEditor(s.id)}
-                  onOpenOpening={() => setOpeningOpen(true)}
+                  onOpenOpening={() => (canWrite ? setOpeningOpen(true) : refuse())}
                 />
                 {/* Kapsama şeridi ızgaranın hemen ALTINDA ve aynı eksende: ayrı
                     bir sekmeye konsaydı planlama sırasında kimse bakmazdı. */}
@@ -1262,6 +1286,10 @@ export default function VardiyaPage() {
    * farklı saatte başlardı.
    */
   function openDraftFor(employeeId: string, d: string) {
+    if (!canWrite) {
+      refuse()
+      return
+    }
     const emp = rows.find((r) => r.id === employeeId)
     const t = templates[0]
     const open = openingOfDay(opening, weekdayOf(d))
@@ -1281,6 +1309,11 @@ export default function VardiyaPage() {
   function openEditor(id: string) {
     const s = shifts.find((x) => x.id === id)
     if (!s) return
+    // Düzenleyici SİLME de yapar; salt-okunurda açmak yerine sebebi söylenir.
+    if (!canWrite) {
+      refuse()
+      return
+    }
     const emp = rows.find((r) => r.id === s.employeeId)
     setDraft({
       id: s.id,

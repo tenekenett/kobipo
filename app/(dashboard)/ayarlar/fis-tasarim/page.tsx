@@ -16,6 +16,7 @@ import {
   type ReceiptWidth,
 } from "@/lib/fis/receipt-template"
 import { ImagePlus, Loader2, RotateCcw, Save, Trash2 } from "lucide-react"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 /** Önizleme fişi — gerçek satışa benzer örnek veri. */
 const SAMPLE: Omit<ReceiptData, "direction"> = {
@@ -153,10 +154,14 @@ export default function FisTasarimPage() {
             <RotateCcw className="mr-2 h-4 w-4" />
             Varsayılana Dön
           </Button>
-          <Button size="sm" onClick={save} disabled={loading || saving}>
-            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-            Kaydet
-          </Button>
+          {/* Düzenleme YEREL: şablon sunucuya ancak buradan gider (etiket
+              tasarımcısıyla aynı desen). */}
+          <WriteAction>
+            <Button size="sm" onClick={save} disabled={loading || saving}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Kaydet
+            </Button>
+          </WriteAction>
         </div>
       </div>
 

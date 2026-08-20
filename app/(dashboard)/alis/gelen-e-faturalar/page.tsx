@@ -42,6 +42,7 @@ import {
   Hash,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 interface IncomingRow {
   id: string
@@ -358,14 +359,18 @@ export default function GelenEFaturalarPage() {
             <option value={180}>Son 6 ay</option>
             <option value={365}>Son 1 yıl</option>
           </select>
-          <Button onClick={handleSync} disabled={isSyncing}>
-            {isSyncing ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="mr-2 h-4 w-4" />
-            )}
-            Mysoft'tan Senkronize Et
-          </Button>
+          {/* Senkronizasyon gelen kutusuna KAYIT YAZAR; kabul/red ise GİB'e cevap
+              gönderir. İkisi de salt-okunur yetkide gizlenir. */}
+          <WriteAction>
+            <Button onClick={handleSync} disabled={isSyncing}>
+              {isSyncing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Mysoft'tan Senkronize Et
+            </Button>
+          </WriteAction>
           <Button variant="outline" onClick={fetchList} disabled={isLoading}>
             {isLoading ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -624,7 +629,7 @@ export default function GelenEFaturalarPage() {
                             {row.profile === "TICARIFATURA" &&
                               (row.status || "").toUpperCase() !== "KABUL" &&
                               (row.status || "").toUpperCase() !== "RED" && (
-                                <>
+                                <WriteAction>
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -649,7 +654,7 @@ export default function GelenEFaturalarPage() {
                                   >
                                     <XCircle className="h-4 w-4" />
                                   </Button>
-                                </>
+                                </WriteAction>
                               )}
                             <Button
                               variant="ghost"

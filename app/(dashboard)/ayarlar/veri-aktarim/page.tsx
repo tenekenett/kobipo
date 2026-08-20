@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { AlertCircle } from "lucide-react"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 export default function VeriAktarimPage() {
   const searchParams = useSearchParams()
@@ -216,162 +217,167 @@ export default function VeriAktarimPage() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Toplu Veri İçe Aktarım</CardTitle>
-          <CardDescription>
-            Modüle göre desteklenen dosya formatını seçip yükleyin.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-3">
-            <Select value={module} onValueChange={setModule}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="customers">Müşteriler</SelectItem>
-                <SelectItem value="suppliers">Tedarikçiler</SelectItem>
-                <SelectItem value="products">Ürünler</SelectItem>
-                <SelectItem value="invoices">Faturalar</SelectItem>
-                <SelectItem value="invoices-ubl">Fatura (UBL/XML)</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={importFormat} onValueChange={setImportFormat}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {importFormatOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Input
-              type="file"
-              accept={importAccept}
-              onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
-            />
-          </div>
-          <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-            <p className="font-medium text-foreground">Desteklenen formatlar</p>
-            <p>
-              {module === "invoices-ubl"
-                ? "UBL Fatura içe aktarma için yalnızca XML kabul edilir. (Tek XML = tek fatura)"
-                : "Müşteri, tedarikçi, ürün ve fatura içe aktarmada CSV veya XLSX kullanın."}
-            </p>
-          </div>
-          {module !== "invoices-ubl" && (
-            <div className="flex justify-end">
-              <Button variant="outline" onClick={downloadImportTemplate}>
-                Örnek Şablon İndir (XLSX)
-              </Button>
+      {/* İçe aktarım YAZMA ekranıdır (POST /api/import): dosya seçtirip
+          "İçe Aktar"da reddetmek yerine kart hiç kurulmaz. Dışa aktarım
+          kartları okuma olduğu için duruyor. */}
+      <WriteAction>
+        <Card>
+          <CardHeader>
+            <CardTitle>Toplu Veri İçe Aktarım</CardTitle>
+            <CardDescription>
+              Modüle göre desteklenen dosya formatını seçip yükleyin.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-3">
+              <Select value={module} onValueChange={setModule}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="customers">Müşteriler</SelectItem>
+                  <SelectItem value="suppliers">Tedarikçiler</SelectItem>
+                  <SelectItem value="products">Ürünler</SelectItem>
+                  <SelectItem value="invoices">Faturalar</SelectItem>
+                  <SelectItem value="invoices-ubl">Fatura (UBL/XML)</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={importFormat} onValueChange={setImportFormat}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {importFormatOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                type="file"
+                accept={importAccept}
+                onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
+              />
             </div>
-          )}
-          {fileName && <p className="text-xs text-muted-foreground">Seçilen dosya: {fileName}</p>}
-          <Textarea
-            rows={8}
-            placeholder="Opsiyonel: CSV/XML içeriğini yapıştırın"
-            value={csv}
-            onChange={(e) => setCsv(e.target.value)}
-          />
-          <div className="flex items-center justify-between rounded-md border p-3">
-            <div>
-              <p className="text-sm font-medium">Önizleme (Dry Run)</p>
-              <p className="text-xs text-muted-foreground">
-                Açıkken kayıt atılmaz, sadece doğrulama sonucu döner.
+            <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">Desteklenen formatlar</p>
+              <p>
+                {module === "invoices-ubl"
+                  ? "UBL Fatura içe aktarma için yalnızca XML kabul edilir. (Tek XML = tek fatura)"
+                  : "Müşteri, tedarikçi, ürün ve fatura içe aktarmada CSV veya XLSX kullanın."}
               </p>
             </div>
-            <Switch checked={dryRun} onCheckedChange={setDryRun} />
-          </div>
-          <Button onClick={runImport} disabled={isImporting || !fileBase64 && !csv}>
-            {isImporting ? "İçe Aktarılıyor..." : "İçe Aktar"}
-          </Button>
-
-          {/* Progress Bar */}
-          {isImporting && (
-            <div className="w-full space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>İçe aktarım devam ediyor...</span>
-                <span>{Math.round(progress)}%</span>
+            {module !== "invoices-ubl" && (
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={downloadImportTemplate}>
+                  Örnek Şablon İndir (XLSX)
+                </Button>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-muted">
-                <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-200"
-                  style={{ width: `${progress}%` }}
-                ></div>
-              </div>
-            </div>
-          )}
-
-          {/* Sonuçlar ve Uyarılar */}
-          {importResult && (
-            <div className="space-y-3">
-              {/* Duplicate Uyarıları */}
-              {importResult.errors?.some((err: any) => err.error.includes("Çift")) && (
-                <div className="rounded-md bg-yellow-50 border border-yellow-200 p-3">
-                  <div className="flex gap-2">
-                    <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-medium text-yellow-900">Çift Kayıtlar Bulundu</p>
-                      <p className="text-sm text-yellow-800 mt-1">
-                        Aşağıdaki satırlarda zaten mevcut olan kayıtlar atlanmıştır:
-                      </p>
-                      <ul className="text-sm text-yellow-800 mt-2 space-y-1 list-disc list-inside">
-                        {importResult.errors
-                          ?.filter((err: any) => err.error.includes("Çift"))
-                          .map((err: any, idx: number) => (
-                            <li key={idx}>
-                              <strong>Satır {err.row}:</strong> {err.error}
-                            </li>
-                          ))}
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Başarılı/Başarısız Özet */}
-              <div className={`rounded-md p-3 ${
-                importResult.failed > 0
-                  ? "bg-red-50 border border-red-200"
-                  : "bg-green-50 border border-green-200"
-              }`}>
-                <p className={importResult.failed > 0 ? "text-red-900 font-medium" : "text-green-900 font-medium"}>
-                  {importResult.imported} kayıt başarıyla içe aktarıldı
-                  {importResult.failed > 0 && `, ${importResult.failed} hata`}
+            )}
+            {fileName && <p className="text-xs text-muted-foreground">Seçilen dosya: {fileName}</p>}
+            <Textarea
+              rows={8}
+              placeholder="Opsiyonel: CSV/XML içeriğini yapıştırın"
+              value={csv}
+              onChange={(e) => setCsv(e.target.value)}
+            />
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div>
+                <p className="text-sm font-medium">Önizleme (Dry Run)</p>
+                <p className="text-xs text-muted-foreground">
+                  Açıkken kayıt atılmaz, sadece doğrulama sonucu döner.
                 </p>
               </div>
-
-              {/* Diğer Hatalar */}
-              {importResult.errors?.filter((err: any) => !err.error.includes("Çift")).length > 0 && (
-                <div className="rounded-md bg-red-50 border border-red-200 p-3">
-                  <p className="text-sm font-medium text-red-900">Diğer Hatalar:</p>
-                  <pre className="text-xs text-red-800 mt-2 overflow-auto">
-                    {JSON.stringify(
-                      importResult.errors?.filter((err: any) => !err.error.includes("Çift")),
-                      null,
-                      2
-                    )}
-                  </pre>
-                </div>
-              )}
-
-              {/* Tam Detay */}
-              <details className="cursor-pointer">
-                <summary className="text-sm text-muted-foreground hover:text-foreground">
-                  Tam Sonuç Detaylarını Göster
-                </summary>
-                <pre className="rounded border p-3 text-xs overflow-auto mt-2 bg-muted/40">
-                  {JSON.stringify(importResult, null, 2)}
-                </pre>
-              </details>
+              <Switch checked={dryRun} onCheckedChange={setDryRun} />
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <Button onClick={runImport} disabled={isImporting || !fileBase64 && !csv}>
+              {isImporting ? "İçe Aktarılıyor..." : "İçe Aktar"}
+            </Button>
+
+            {/* Progress Bar */}
+            {isImporting && (
+              <div className="w-full space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>İçe aktarım devam ediyor...</span>
+                  <span>{Math.round(progress)}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-muted">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-200"
+                    style={{ width: `${progress}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
+
+            {/* Sonuçlar ve Uyarılar */}
+            {importResult && (
+              <div className="space-y-3">
+                {/* Duplicate Uyarıları */}
+                {importResult.errors?.some((err: any) => err.error.includes("Çift")) && (
+                  <div className="rounded-md bg-yellow-50 border border-yellow-200 p-3">
+                    <div className="flex gap-2">
+                      <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium text-yellow-900">Çift Kayıtlar Bulundu</p>
+                        <p className="text-sm text-yellow-800 mt-1">
+                          Aşağıdaki satırlarda zaten mevcut olan kayıtlar atlanmıştır:
+                        </p>
+                        <ul className="text-sm text-yellow-800 mt-2 space-y-1 list-disc list-inside">
+                          {importResult.errors
+                            ?.filter((err: any) => err.error.includes("Çift"))
+                            .map((err: any, idx: number) => (
+                              <li key={idx}>
+                                <strong>Satır {err.row}:</strong> {err.error}
+                              </li>
+                            ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Başarılı/Başarısız Özet */}
+                <div className={`rounded-md p-3 ${
+                  importResult.failed > 0
+                    ? "bg-red-50 border border-red-200"
+                    : "bg-green-50 border border-green-200"
+                }`}>
+                  <p className={importResult.failed > 0 ? "text-red-900 font-medium" : "text-green-900 font-medium"}>
+                    {importResult.imported} kayıt başarıyla içe aktarıldı
+                    {importResult.failed > 0 && `, ${importResult.failed} hata`}
+                  </p>
+                </div>
+
+                {/* Diğer Hatalar */}
+                {importResult.errors?.filter((err: any) => !err.error.includes("Çift")).length > 0 && (
+                  <div className="rounded-md bg-red-50 border border-red-200 p-3">
+                    <p className="text-sm font-medium text-red-900">Diğer Hatalar:</p>
+                    <pre className="text-xs text-red-800 mt-2 overflow-auto">
+                      {JSON.stringify(
+                        importResult.errors?.filter((err: any) => !err.error.includes("Çift")),
+                        null,
+                        2
+                      )}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Tam Detay */}
+                <details className="cursor-pointer">
+                  <summary className="text-sm text-muted-foreground hover:text-foreground">
+                    Tam Sonuç Detaylarını Göster
+                  </summary>
+                  <pre className="rounded border p-3 text-xs overflow-auto mt-2 bg-muted/40">
+                    {JSON.stringify(importResult, null, 2)}
+                  </pre>
+                </details>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </WriteAction>
 
       <Card>
         <CardHeader>

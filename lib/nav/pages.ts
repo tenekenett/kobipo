@@ -108,6 +108,17 @@ export const NAV_PAGES: NavPageDef[] = [
   { href: "/personel/zimmet", label: "Zimmet", roles: ["ADMIN", BM] },
   { href: "/personel/ik", label: "İnsan Kaynakları", roles: ["ADMIN", BM] },
 
+  // Muhasebe defterleri — KATALOGDA VAR, MENÜDE YOK.
+  //
+  // Ekranlar (`/muhasebe/yevmiye`, `/muhasebe/kebir`) mali tablolardan link ile
+  // açılıyor; sidebar'a öğe eklenmedi. Buraya yazılmalarının sebebi menü değil YETKİ:
+  // katalog dışında kaldıkları sürece sayfa kapısı onlara hiç uygulanmıyor,
+  // `/api/muhasebe/*` kuralı bir sahibe bağlanamıyor ve defter özel role
+  // verilemiyordu. Katalogda oldukları için rol seçicisinde "Genel" başlığı altında
+  // görünürler (bkz. page-permission-picker "loose" dalı) — /dashboard ile aynı desen.
+  { href: "/muhasebe/yevmiye", label: "Yevmiye Defteri", roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/muhasebe/kebir", label: "Kebir Defteri", roles: ["ADMIN", BM, "ACCOUNTANT"] },
+
   // E-Dönüşüm
   { href: "/ayarlar/e-donusum", label: "E-Dönüşüm Ayarları", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/e-donusum/kontor", label: "Kontör", roles: ["ADMIN", BM, "ACCOUNTANT"] },

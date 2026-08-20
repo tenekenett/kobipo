@@ -6,7 +6,17 @@
 özel rol). `ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED` açık. Bu oturumda bulunan **sekiz
 kusurun sekizi de düzeltildi**; listesi hemen aşağıda.
 
-**Doğrulama:** `npx vitest run` 364 yeşil · `npx tsc --noEmit` 0 hata · `npx next build` temiz.
+**20 Ağustos (ikinci oturum): açık madde kalmadı.** Ayrıntı en alttaki
+"[Jest kapısı](#jest-kapısı--düğme-olmayan-yazma-yolları-2026-08-20)" ve
+"[Bilinçli boşluklar](#bilinçli-boşluklar-kapatıldı-2026-08-20)" bölümlerinde:
+cari sekmesi ADMIN'de doğrulandı · düğme olmayan yazma yolları kapıya alındı · demo test
+verisi silindi · sarmanın uğramadığı 10 sayfa tamamlandı · "bilinçle açık bırakılmış" üç
+yapısal boşluğun üçü de kapandı. **Bu sırada gerçek bir güvenlik açığı bulundu ve
+düzeltildi:** `GET /api/e-donusum/invoices/[id]/status` kapısızdı (başka firmanın
+faturası).
+
+**Doğrulama:** `npx vitest run` **374 yeşil** · `npx tsc --noEmit` 0 hata ·
+`npx next build` temiz.
 
 ### Bu oturumda bulunan ve düzeltilen kusurlar
 
@@ -23,28 +33,19 @@ kusurun sekizi de düzeltildi**; listesi hemen aşağıda.
 
 ### Sırada ne var
 
-1. **ADMIN'de cari sekme geçişi** — sekme artık `router.replace` ile URL değiştiriyor.
-   Salt-okunur ve müşteri-yetkili rollerde doğrulandı; iki sekmeye de yetkili bir
-   kullanıcıda akıcılığı görülmedi. Tek tıklık kontrol.
-2. **Demo veri temizliği** — Kobipo Demo Merkez'de üç test üyeliği (`stokcu@`,
-   `satisci@`, `garson@demo.kobipo.test`) ve bir test rolü ("Kasa Sorumlusu Test")
-   duruyor. Parolalar bilerek repoya yazılmadı; gerekirse
-   `scripts/create-demo-user.js` desenine bakıp yenisi kurulabilir. Rol denemesi
-   sürecekse bırakın, sürmeyecekse silin.
-3. **WriteAction'ın kapsamadığı yazma yolları** — sarma yalnız `<Button>` öğelerini
-   kapsıyor. Yazma satır tıklamasıyla veya sürükle-bırakla yapılıyorsa (restoran kroki
-   editörü) düğme gizleme devreye girmez; sunucu kapısı yine reddeder ama arayüz
-   uyarmaz.
-4. Bu dosyanın altındaki eski bölümler bulguların tam gerekçesini taşıyor — bir şeyi
-   "neden böyle" diye sorgulamadan önce oraya bakın.
+Açık iş yok. Kalan tek gerçek sınır DOĞRULAMA tarafında: route/e2e test altyapısı yok,
+güvence statik taramalar (dört nöbetçi test) + elle tarayıcı turlarından geliyor ve demo
+test hesapları silindiği için turu tekrarlamak yeni hesap kurmayı gerektirir.
 
+Bu dosyanın altındaki eski bölümler bulguların tam gerekçesini taşıyor — bir şeyi
+"neden böyle" diye sorgulamadan önce oraya bakın.
 
 **Tarih:** 2026-08-19 · **Güncelleme:** 2026-08-20 · **Durum:** **İş bitti.** Üç bulgu
 da düzeltildi (Bulgu 3'ün dört deliği dahil) ve son madde
 `ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED` **açıldı** — planın "staging'de denenmeli" dediği
 adım, staging yerine statik ölçümle yapıldı; ayrıntısı en alttaki
 "[Bayrak açıldı](#bayrak-açıldı--enforce_role_matrix_for_unrestricted--true-2026-08-20)"
-bölümünde. Geriye yalnız canlı duman testi kaldı (aynı bölümün sonu).
+bölümünde. Canlı duman testi de aynı gün yapıldı (aynı bölümün sonu).
 
 **Doğrulama:** `npx vitest run` **363 test yeşil**, `npx next build` temiz,
 `npx tsc --noEmit` **0 hata**. (19 Ağustos'taki 15 tip hatası bayat Prisma client'tandı:
@@ -624,22 +625,173 @@ ekranını alıyor.
 Kategori yöneticisi tanım yazar; düğme fiil taşımadığı için mekanik sarma turunda
 atlanmıştı. `WriteAction` ile sarıldı.
 
-### Açık kalan
+### Açık kalan — üçü de 20 Ağustos'ta kapandı
 
-- **ADMIN'de cari sekme geçişi doğrulanmadı.** Sekme artık `router.replace` ile URL
-  değiştiriyor; iki sekmeye de yetkili bir kullanıcıda geçişin sorunsuz olduğu
-  görülmeli (salt-okunur rolde ve müşteri-yetkili rolde doğrulandı).
-- Test için açılan üç demo üyelik (`stokcu@`, `satisci@`, `garson@demo.kobipo.test` —
-  sonuncusu artık "Kasa Sorumlusu Test" rolünde) ve test rolü **Kobipo Demo Merkez**
-  firmasında duruyor; ileride rol denemesi için kullanılabilir, gerekmiyorsa silinmeli.
-- WriteAction ikinci geçişte de yalnız `<Button>` öğelerini sarıyor; bir ekranda yazma
-  işlemi düğme yerine satır tıklaması ya da sürükle-bırakla yapılıyorsa (ör. restoran
-  kroki editörü) gizlenmez. Sunucu kapısı orada da reddeder, ama arayüz uyarmaz.
+- ~~ADMIN'de cari sekme geçişi doğrulanmadı~~ → doğrulandı (aşağıda).
+- ~~Demo test verisi duruyor~~ → silindi (aşağıda).
+- ~~WriteAction yalnız `<Button>` sarıyor~~ → jest kapısı eklendi (aşağıda).
+
+## Jest kapısı — düğme olmayan yazma yolları (2026-08-20)
+
+Önceki oturum `WriteAction`'ı 24 sayfada 79 düğmeye uyguladı ve şu boşluğu kayda geçti:
+**sarma yalnız `<Button>` öğelerini kapsıyor.** Yazma bir jestle yapılıyorsa — krokide
+masayı sürüklemek, vardiya ızgarasında bar çizmek, masa satırına dokunup adisyon açmak —
+gizlenecek bir düğme yoktur; sunucu reddeder ama ekran şeritle çelişir. Bu bölüm o
+boşluğu kapatır.
+
+### İki yeni ilke (`components/dashboard/write-guard.tsx`)
+
+| Ne | Ne zaman | Davranış |
+|---|---|---|
+| `useWriteGuard()` → `{ canWrite, refuse }` | yazma bir jestle başlıyorsa | jest yutulur, `refuse()` sebebi söyleyen bir toast basar |
+| `<WriteOnlyScreen>` | ekran YALNIZ yazmak için varsa | tezgâh hiç kurulmaz, yerine açıklama çizilir |
+
+`refuse()` bilinçli olarak sessiz değil: dokunup hiçbir şey olmayınca kullanıcı ekranın
+bozulduğunu sanıyor. Sayfa başındaki şerit "değiştiremezsiniz" diyor ama jestin neden
+yutulduğunu ancak dokunulan anda söylemek anlaşılır oluyor.
+
+`<WriteOnlyScreen>` ise tek tek düğme gizlemenin yanlış olduğu yer için: hızlı satış
+ekranında düğmeleri saklamak, ürünü sepete atıp tamamlayamayan kullanılamaz bir tezgâh
+bırakırdı. `PermissionGuard`ın duvarından farkı: sayfayı GÖRME yetkisi vardır, ekranın
+kendisi okunacak bir şey üretmiyordur.
+
+### Nereye kondu
+
+| Ekran | Yazma yolu | Kapı |
+|---|---|---|
+| `/restoran/masalar` | masa/kroki sürükleme, boş masaya dokunup adisyon açma, dolu masayı taşıma | düzenleme kipi TÜRETİLDİ (`editModeOn && canWrite`), "Planı düzenle" ve "Masaları yerleştir" `WriteAction`, dokunuş ve bırakma `refuse()` |
+| `/restoran/masa-listesi` | satıra dokunmak adisyon açar | `tapTable` içinde kapı; "Masasız adisyon" `WriteAction` |
+| `/personel/vardiya` | ızgarada bar çizme/taşıma, boş hücreye tıklama, Ctrl+Z | `createShift` · `moveShift` · `openDraftFor` · `openEditor` · `undo` içinde kapı; yayınla/şablon/tatil/temizle düğmeleri `WriteAction` |
+| `/stok/etiket` | tuval sürüklemesi YEREL — sunucuya yalnız "Kaydet" gider | kalıcılaştıran denetimler (`Kaydet`, `Diğer` menüsü, `Varsayılan`) `WriteAction` |
+| `/satis/hizli` · `/alis/hizli` · `/restoran/satis` | ekranın tamamı yazma | `<WriteOnlyScreen>` |
+| rezervasyon penceresi (masalar) | düzenle/gelmedi/sil, yeni rezervasyon | `WriteAction` (liste okunabilir kalır) |
+
+**Okuma ile yazma bilerek ayrıldı:** açık adisyona GİTMEK okumadır, salt-okunur yetkili
+masaya dokunup hesabı görebilir; adisyon AÇMAK, "temizlendi/gelmedi" işaretlemek yazmadır.
+Etiket tuvalinde de sürükleme serbest — o tasarım sunucuya ancak Kaydet ile gider.
+
+### Nöbetçi: `lib/write-guard-coverage.test.ts`
+
+Dosya sistemini tarar, dört değişmezi korur: (1) sürüklenebilir her yüzey
+`GESTURE_SURFACES`'ta sınıflandırılmıştır — yenisi eklenirse test kırılır ve "sunucuya
+yazıyor mu" sorusunu sordurur, (2) kapıyı taşıması gereken dosyada kapı durur,
+(3) dokunuşla yazan ekranlarda kapı vardır, (4) tezgâh sayfaları `WriteOnlyScreen`
+sarmasını kaybetmemiştir.
+
+### Cari sekmesi — ADMIN turu
+
+Tarayıcıda (yerel sunucu, ADMIN oturumu) iki yönlü denendi: "Tedarikçiler" →
+`?company=deneme-deneme&tab=suppliers`, başlık ve "Yeni Tedarikçi" düğmesi değişti;
+"Müşteriler" → `&tab=customers`, geri döndü. `?company=` her iki geçişte de korunuyor,
+liste anında değişiyor, geçiş sırasında "Yükleniyor..." göstergesi çıkıyor. `replace`
+kullanıldığı için sekme geçişleri tarayıcı geçmişini şişirmiyor — bilinçli.
+
+### Demo veri silindi
+
+Kobipo Demo Merkez'deki test artıkları temizlendi (kullanıcı onayıyla, canlı DB):
+4 kullanıcı (`kasiyer@`, `stokcu@`, `satisci@`, `garson@demo.kobipo.test`), 4 üyelik ve
+2 özel rol ("Garson", "Kasa Sorumlusu Test"). Önce geri alınan bir transaction'da kuru
+deneme yapıldı (FK engeli yok), sonra uygulandı. Gerçek müşterilerin özel rolleri
+("argon kaynakcısı" · Reypo, "Satış Temsilcisi" · EREN VİNÇ) elbette duruyor.
+
+Rol denemesi yeniden gerekirse hesaplar `scripts/create-demo-user.js` desenine bakılarak
+yeniden kurulur; parolalar bilerek repoya yazılmadı.
+
+### Sarmanın uğramadığı 10 sayfa — tamamlandı
+
+Jest kapısını kurarken ortaya çıktı: mekanik `WriteAction` sarması 24 sayfayı kapsamış
+ama özel role ATANABİLEN 10 operasyonel sayfaya hiç uğramamıştı. Hepsi sarıldı:
+
+| Sayfa | Sarılan |
+|---|---|
+| `/satis/fisler` · `/alis/fisler` | "Toplu Faturaya Dönüştür" (ortak `fisler-listing`) |
+| `/alis/gelen-e-faturalar` | "Mysoft'tan Senkronize Et" + satır içi Kabul/Reddet (PDF ve detay okuma olarak KALDI) |
+| `/restoran/kontrol-listesi` | madde ekle/düzenle/sırala/kaldır/geri aç + "Onayla" (gün listesi); başlığa tıklayıp düzenleme kipi salt-okunurda hiç açılmaz |
+| `/cek-senet/cek` · `/cek-senet/senet` | "Yeni …" + satır Düzenle/Sil (ortak `cek-senet-manager`) |
+| `/personel/puantaj` | "Aktar / Güncelle" (bordro yazar) |
+| `/e-donusum/kontor` | "Kontör Satın Al" (bakiye okuma kaldı) |
+| `/ayarlar/fis-tasarim` | "Kaydet" (düzenleme yerel, etiket tasarımcısıyla aynı desen) |
+| `/ayarlar/veri-aktarim` | İçe aktarım kartının TAMAMI; dışa aktarım kartları okuma olduğu için duruyor |
+
+**Ölçüm artık elle değil:** `lib/write-guard-coverage.test.ts` içindeki
+"yazan her menü sayfasında kapı vardır" testi her `NAV_PAGES` sayfasının dosyasını +
+bir seviye içe aktardığı bileşenleri tarar; gövdesinde POST/PUT/PATCH/DELETE olup kapı
+geçmeyen sayfa varsa kırılır. Takma adlar (`/cari/musteri` → `/cari` gibi)
+`SCREEN_OF_PAGE`'te, kapı aranmayanlar (hesap yönetimi, kişisel sayfalar)
+`GUARD_NOT_REQUIRED`'da gerekçesiyle duruyor. Test mutasyonla doğrulandı: bir sayfadan
+sarma kaldırılınca kırılıyor.
+
+## Bilinçli boşluklar kapatıldı (2026-08-20)
+
+"Bunlar bilinçli tasarım kararı" diye kayda geçmiş üç yapısal boşluk vardı. Üçü de artık
+ya kapalı ya da SESSİZ olmaktan çıkıp bakımı yapılan bir listeye dönüştü.
+
+### 1. Kapıyı hiç çağırmayan uçlar → nöbetçi + bulunan gerçek açık
+
+Sayfa/modül kapısı yalnız `ensureCompanyAccess` çağıran uçlarda çalışıyor. Çağırmayan uç
+haritadan etkilenmiyordu ve bunu kimse ölçmüyordu. Ölçüm testi yazıldı
+(`lib/page-api-coverage.test.ts` → "firma verisiyle çalışan her uç ya kapıyı çağırır ya
+listede anılır") ve ilk çalıştırmada **12 uç** çıktı. On biri meşru
+(`requireSuperAdmin`, token ile açılan ödeme bağlantısı, `createCompany`'nin kendi
+denetimi, kullanıcının kendi rolü) ve `GATE_EXEMPT_ENDPOINTS`'e gerekçesiyle yazıldı.
+
+Biri değildi:
+
+> **`GET /api/e-donusum/invoices/[id]/status`** yalnızca "giriş yapmış mı" diye bakıyor,
+> sonra id ile HERHANGİ bir faturayı çekiyordu. Faturanın kullanıcının firmasına ait
+> olduğu hiç doğrulanmıyordu. Uç sadece okumuyor da: GİB yanıtına göre faturayı
+> `CANCELLED` yapıp stok iadesi işleyebiliyor. Yani başka bir firmanın faturasının
+> durumunu görmek — ve iptaline yol açmak — mümkündü. Arayüzden hiç çağrılmıyor
+> (kardeşi `check-status` kullanılıyor), muhtemelen artık kullanılmayan bir kopya.
+>
+> Düzeltme: fatura yüklendikten sonra `ensureCompanyWrite(invoice.companyId)` —
+> `check-status` ile aynı desen. Uç `withApiErrors` ile sarıldı ve iç `catch`ine erişim
+> dalı eklendi (yoksa 403 yerine boş 500 dönerdi). Kullanılmadığı için tümden silinmesi
+> de düşünülebilir; karar sizin.
+
+### 2. Sahibi olmayan sayfa yolları → sahiplendirildi ya da listeye alındı
+
+`navHrefsForPath` bir yola menü sahibi bulamazsa kapı uygulanmıyor. Panelde **15** böyle
+yol vardı ve liste hiçbir yerde tutulmuyordu. Şimdi:
+
+- `/muhasebe/yevmiye` ve `/muhasebe/kebir` **kataloğa alındı** (aşağıda),
+- `/raporlar/bilanco` ve `/raporlar/kar-zarar` `ROUTE_OWNERS` ile mali rapor sayfalarına
+  bağlandı — uçları zaten oraya bağlıydı, ekranın kendisi bağlı değildi,
+- kalan 11'i `lib/route-owner-coverage.test.ts` → `UNOWNED_ROUTES`'ta **gerekçesiyle**
+  duruyor (firma kurulum akışı, süper-admin günlüğü, ön ek çakışması yüzünden
+  sahiplendirilemeyen `/e-donusum` detayları, veri çekmeyen link listeleri). Yeni bir
+  panel sayfası eklendiğinde test kırılır ve sahibini sorar.
+
+Sahipsiz kalanlarda veri yine korunuyor: her satırda hangi ucun neyle koruduğu yazılı.
+
+### 3. Muhasebe defterleri → sessiz varsayılan yerine açık sözleşme
+
+`/api/muhasebe/*` uçlarının hiç kuralı yoktu; doğru davranış ("okuma serbest, yazma
+kapalı") **kuralsız uç varsayılanından** geliyordu ve `OWNERLESS_WRITE_ENDPOINTS`
+muafiyetiyle ayakta duruyordu. Ekranlar da (`/muhasebe/yevmiye`, `/muhasebe/kebir`)
+menüde olmadığı için sayfa kapısına hiç tabi değildi — yalnız cari izni olan biri adresi
+elle yazıp defteri okuyabiliyordu.
+
+Çözüm, dosyanın kendi tavsiyesiydi: **iki ekran `NAV_PAGES`'e alındı** — ama menüye
+değil. Katalogda olup grupta olmayan sayfa sidebar'da çizilmez (`/dashboard` ile aynı
+desen), buna karşılık rol seçicisinde "Genel" başlığı altında görünür ve artık özel role
+verilebilir. Uç kuralı da açık yazıldı:
+
+```ts
+{ prefix: "/api/muhasebe",
+  pages: ["/muhasebe/yevmiye", "/muhasebe/kebir", "/raporlar/nakit-banka", "/raporlar/vergi"],
+  writePages: ["/muhasebe/yevmiye", "/muhasebe/kebir"] }
+```
+
+`OWNERLESS_WRITE_ENDPOINTS` **boşaldı**. Davranış değişikliği (bilinçli): kısıtlı bir
+üyelik defteri artık ancak defter ya da mali rapor izniyle okur; eskiden herkes
+okuyabiliyordu.
 
 ## Doğrulama komutları
 
 ```bash
 npm run check:rls              # RLS duruşu
 npm run check:company-create   # firma yaratma tek kapı
-npx vitest run lib/page-access.test.ts lib/page-api-coverage.test.ts
+npx vitest run lib/page-access.test.ts lib/page-api-coverage.test.ts \
+               lib/write-guard-coverage.test.ts lib/route-owner-coverage.test.ts
 ```

@@ -62,6 +62,7 @@ import {
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { WriteAction, useWriteGuard } from "@/components/dashboard/write-guard"
 import { withCompanyHref } from "@/lib/company/href"
 import {
   useAreas,
@@ -153,7 +154,10 @@ export function FloorPlanScreen() {
   const { planItems, mutate: mutateItems } = usePlanItems(companyId)
 
   const [activeArea, setActiveArea] = useState<string>(ALL_AREAS)
-  const [editMode, setEditMode] = useState(false)
+  // Düzenleme kipi YAZMADIR: salt-okunur yetkide düğmesi gizlenir, ama kip
+  // "Masaları yerleştir" kısayolundan da açılabildiği için karar state'te değil
+  // TÜRETİMDE tutulur — tek kapı, unutulacak ikinci yol yok.
+  const [editModeOn, setEditMode] = useState(false)
   // Görüş yardımı: durum filtresi + masa arama. Yerleşim DEĞİŞMEZ, eşleşmeyen
   // masa yalnız soluklaşır — masaları listeye indirgemek salonun şeklini,
   // yani garsonun kafasındaki haritayı bozuyordu.
@@ -169,6 +173,9 @@ export function FloorPlanScreen() {
   const [reservationsOpen, setReservationsOpen] = useState(false)
   const [tableAction, setTableAction] = useState<PlanTable | null>(null)
   const [drop, setDrop] = useState<{ source: PlanTable; target: PlanTable } | null>(null)
+
+  const { canWrite, refuse } = useWriteGuard()
+  const editMode = editModeOn && canWrite
 
   const { busyTableId, openTicketFor, goToTicket, markCleaned, markNoShow } = useTableOpener(
     companyId,
@@ -482,8 +489,15 @@ export function FloorPlanScreen() {
     (table: PlanTable) => {
       if (editMode) return
       const intent = tableTapIntent(table)
+      // Açık adisyona GİTMEK okumadır: salt-okunur yetkili de masaya dokunup
+      // hesabı görebilmeli. Adisyon AÇMAK, temizlendi/gelmedi işaretlemek ise
+      // yazmadır — orada jest yutulur ve sebebi söylenir.
       if (intent === "ticket") {
         goToTicket(table.openTicket!.id)
+        return
+      }
+      if (!canWrite) {
+        refuse()
         return
       }
       if (intent === "ask") {
@@ -492,7 +506,7 @@ export function FloorPlanScreen() {
       }
       void openTicketFor(table)
     },
-    [editMode, goToTicket, openTicketFor],
+    [canWrite, editMode, goToTicket, openTicketFor, refuse],
   )
 
   const confirmDrop = async () => {
@@ -720,14 +734,16 @@ export function FloorPlanScreen() {
             <CalendarClock className="mr-1.5 h-4 w-4" />
             Rezervasyon
           </Button>
-          <Button
-            variant={editMode ? "default" : "outline"}
-            size="sm"
-            onClick={() => setEditMode((v) => !v)}
-          >
-            <Move className="mr-1.5 h-4 w-4" />
-            {editMode ? "Düzenlemeyi bitir" : "Planı düzenle"}
-          </Button>
+          <WriteAction>
+            <Button
+              variant={editMode ? "default" : "outline"}
+              size="sm"
+              onClick={() => setEditMode((v) => !v)}
+            >
+              <Move className="mr-1.5 h-4 w-4" />
+              {editMode ? "Düzenlemeyi bitir" : "Planı düzenle"}
+            </Button>
+          </WriteAction>
         </div>
       </div>
 
@@ -979,24 +995,28 @@ export function FloorPlanScreen() {
               </p>
             </div>
             {sections.length > 1 ? (
-              <div className="flex flex-wrap justify-center gap-1.5">
-                {sections.map((s) => (
-                  <Button
-                    key={s.key}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => startDrawing(s.areaId)}
-                  >
-                    <Plus className="mr-1 h-3.5 w-3.5" />
-                    {s.name}
-                  </Button>
-                ))}
-              </div>
+              <WriteAction>
+                <div className="flex flex-wrap justify-center gap-1.5">
+                  {sections.map((s) => (
+                    <Button
+                      key={s.key}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => startDrawing(s.areaId)}
+                    >
+                      <Plus className="mr-1 h-3.5 w-3.5" />
+                      {s.name}
+                    </Button>
+                  ))}
+                </div>
+              </WriteAction>
             ) : (
-              <Button onClick={() => startDrawing(sections[0]?.areaId ?? null)}>
-                <Plus className="mr-1.5 h-4 w-4" />
-                Masaları yerleştir
-              </Button>
+              <WriteAction>
+                <Button onClick={() => startDrawing(sections[0]?.areaId ?? null)}>
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Masaları yerleştir
+                </Button>
+              </WriteAction>
             )}
           </CardContent>
         </Card>
@@ -1117,6 +1137,10 @@ export function FloorPlanScreen() {
                     onOpenTable={onOpenTable}
                     onTableDrop={(source, target) => {
                       if (!source.openTicket) return
+                      if (!canWrite) {
+                        refuse()
+                        return
+                      }
                       setDrop({ source, target })
                     }}
                     onDeleteSelection={() => void deleteSelection()}
@@ -1133,22 +1157,24 @@ export function FloorPlanScreen() {
           ekranın altına itmeye değmez — ama plan var olduğu ve masa
           eklenebildiği görünmeli. */}
       {filledSections.length > 0 && emptySections.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border px-3 py-2">
-          <span className="text-xs font-medium text-muted-foreground">
-            Masası olmayan planlar:
-          </span>
-          {emptySections.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              onClick={() => startDrawing(s.areaId)}
-              className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium transition-colors hover:border-kobipo-blue hover:text-kobipo-blue dark:hover:border-primary dark:hover:text-primary"
-            >
-              <Plus className="h-3 w-3" />
-              {s.name}
-            </button>
-          ))}
-        </div>
+        <WriteAction>
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border px-3 py-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              Masası olmayan planlar:
+            </span>
+            {emptySections.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => startDrawing(s.areaId)}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium transition-colors hover:border-kobipo-blue hover:text-kobipo-blue dark:hover:border-primary dark:hover:text-primary"
+              >
+                <Plus className="h-3 w-3" />
+                {s.name}
+              </button>
+            ))}
+          </div>
+        </WriteAction>
       )}
 
       {/* Masa ayarları — ölçü BURADA YOK: tutamaçtan çekilir. Sayı girmek

@@ -426,8 +426,9 @@ describe("kısıtlı çalışan senaryoları", () => {
     // En büyük delik buydu: haritada karşılığı olmayan her uç kısıtlı çalışana sonuna
     // kadar açıktı. Asimetri bilinçli — unutulmuş bir okuma kuralı ekranı kırar,
     // unutulmuş bir yazma kuralı kısıtın kendisini anlamsız kılar.
+    // (Muhasebe defterleri bu listedeydi; 2026-08-20'de kendi kurallarını aldılar.)
     const perms = restricted("SALES", ["/cari/musteri"], ["/cari/musteri"])
-    for (const path of ["/api/muhasebe/fisler", "/api/muhasebe/hesap-plani", "/api/kur"]) {
+    for (const path of ["/api/kur"]) {
       expect(pageRuleForApiPath(path)).toBeNull()
       expect(isApiPathAllowedForUser(path, "GET", perms)).toBe(true)
       expect(isApiPathAllowedForUser(path, "POST", perms)).toBe(false)
@@ -605,9 +606,32 @@ describe("navHrefsForPath — gerçek route → menü öğesi", () => {
   })
 
   it("sahibi olmayan route kapıya tabi değildir", () => {
-    // Menüsüz muhasebe/rapor ekranları — bilinçli boşluk.
-    expect(navHrefsForPath("/muhasebe/kebir")).toEqual([])
-    expect(canAccessRoute(restricted("ADMIN", ["/cari/musteri"]), "/muhasebe/kebir")).toBe(true)
+    // Menüsüz ama SAHİPSİZ ekranlar — bilinçli boşluk. Muhasebe defterleri
+    // 2026-08-20'de bu kümeden çıktı (kataloğa alındılar, aşağıdaki teste bakın);
+    // geriye firma kurulum akışı gibi menüye hiç bağlanamayacak yollar kaldı.
+    expect(navHrefsForPath("/companies/onboarding")).toEqual([])
+    expect(canAccessRoute(restricted("ADMIN", ["/cari/musteri"]), "/companies/onboarding")).toBe(
+      true
+    )
+  })
+
+  it("muhasebe defteri menüsüz ama kapıya TABİ", () => {
+    // Katalogda olmadıkları sürece kapı onlara hiç uygulanmıyordu: yalnız cari izni
+    // olan biri /muhasebe/kebir adresini elle yazıp defteri okuyabiliyordu.
+    expect(navHrefsForPath("/muhasebe/kebir")).toEqual(["/muhasebe/kebir"])
+    expect(canAccessRoute(restricted("ADMIN", ["/cari/musteri"]), "/muhasebe/kebir")).toBe(false)
+    expect(canAccessRoute(restricted("ADMIN", ["/muhasebe/kebir"]), "/muhasebe/kebir")).toBe(true)
+    // Okuma mali tablo izniyle de gelir; yazma yalnız defter sayfasıyla.
+    const mali = restricted("ACCOUNTANT", ["/raporlar/vergi"])
+    expect(isApiPathAllowedForUser("/api/muhasebe/kebir", "GET", mali)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/muhasebe/fisler", "POST", mali)).toBe(false)
+    expect(
+      isApiPathAllowedForUser(
+        "/api/muhasebe/fisler",
+        "POST",
+        restricted("ADMIN", ["/muhasebe/yevmiye"], ["/muhasebe/yevmiye"])
+      )
+    ).toBe(true)
   })
 
   it("adisyon detayı masa/adisyon ekranlarına ait", () => {
