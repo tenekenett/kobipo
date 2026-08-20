@@ -4,13 +4,13 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 type Params = { params: Promise<{ id: string }> }
 
-export async function GET(request: Request, { params }: Params) {
+export const GET = withApiErrors(async function GET(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -49,14 +49,14 @@ export async function GET(request: Request, { params }: Params) {
     console.error("Error fetching recipe:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Reçeteyi siler. Ürün silinmez — reçetesi kalkan ürün bundan sonra normal bir
  * stok kalemi gibi davranır (satışta kendisi düşer). Kalemler onDelete: Cascade
  * ile birlikte gider.
  */
-export async function DELETE(request: Request, { params }: Params) {
+export const DELETE = withApiErrors(async function DELETE(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -86,4 +86,4 @@ export async function DELETE(request: Request, { params }: Params) {
     console.error("Error deleting recipe:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

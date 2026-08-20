@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -6,7 +7,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const searchParams = new URL(request.url).searchParams
@@ -26,10 +27,10 @@ export async function GET(request: Request) {
     take: 20,
   })
   return NextResponse.json(notifications)
-}
+})
 
 // Okundu işaretleme: { companyId, all: true } tümünü, { companyId, id } tek bildirimi.
-export async function PATCH(request: Request) {
+export const PATCH = withApiErrors(async function PATCH(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { companyId: __cidRaw, id, all } = await request.json()
@@ -54,9 +55,9 @@ export async function PATCH(request: Request) {
 
   const unreadCount = await prisma.notification.count({ where: { companyId, isRead: false } })
   return NextResponse.json({ ok: true, unreadCount })
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { companyId: __cidRaw, title, message, type, link } = await request.json()
@@ -67,4 +68,4 @@ export async function POST(request: Request) {
     data: { companyId, title, message, type: type || "INFO", link },
   })
   return NextResponse.json(created, { status: 201 })
-}
+})

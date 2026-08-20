@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useCallback, useEffect, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -228,9 +229,9 @@ export default function PersonellerPage() {
               <Button variant="outline" size="sm" onClick={fetchEmployees}>
                 <RefreshCcw className="mr-1 h-4 w-4" /> Yenile
               </Button>
-              <Button size="sm" onClick={openCreate}>
+              <WriteAction><Button size="sm" onClick={openCreate}>
                 <Plus className="mr-1 h-4 w-4" /> Yeni Personel
-              </Button>
+              </Button></WriteAction>
             </div>
           </div>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -289,9 +290,9 @@ export default function PersonellerPage() {
                       </TableCell>
                       <TableCell onClick={(ev) => ev.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => openEdit(e)} title="Düzenle">
+                          <WriteAction><Button size="sm" variant="ghost" onClick={() => openEdit(e)} title="Düzenle">
                             <Pencil className="h-4 w-4" />
-                          </Button>
+                          </Button></WriteAction>
                           {e.status === "TERMINATED" ? (
                             <Button size="sm" variant="ghost" onClick={() => setStatus(e, "ACTIVE")} title="Aktifleştir">
                               <UserCheck className="h-4 w-4 text-emerald-600" />
@@ -301,9 +302,9 @@ export default function PersonellerPage() {
                               <UserX className="h-4 w-4 text-amber-600" />
                             </Button>
                           )}
-                          <Button size="sm" variant="ghost" onClick={() => remove(e)} title="Sil">
+                          <WriteAction><Button size="sm" variant="ghost" onClick={() => remove(e)} title="Sil">
                             <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          </Button></WriteAction>
                         </div>
                       </TableCell>
                     </StyledTableRow>
@@ -345,9 +346,9 @@ export default function PersonellerPage() {
             <div className="sm:col-span-2"><Label>Adres</Label><Input value={form.address} onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))} /></div>
             <div className="sm:col-span-2"><Label>Not</Label><Input value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></div>
           </div>
-          <Button className="w-full" onClick={save} disabled={isSaving}>
+          <WriteAction><Button className="w-full" onClick={save} disabled={isSaving}>
             {isSaving ? "Kaydediliyor…" : editingId ? "Güncelle" : "Kaydet"}
-          </Button>
+          </Button></WriteAction>
         </DialogContent>
       </Dialog>
     </div>

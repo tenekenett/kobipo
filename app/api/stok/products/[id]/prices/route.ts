@@ -1,3 +1,4 @@
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -6,7 +7,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 
 export const dynamic = 'force-dynamic'
 
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -119,7 +120,9 @@ export async function GET(
     })
 
   } catch (error: any) {
+    // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+    if (isAccessDeniedError(error)) return accessDeniedResponse(error)
     console.error("Error fetching product prices:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

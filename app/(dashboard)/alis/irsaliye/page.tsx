@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -8,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
 import { SearchSelect } from "@/components/ui/search-select"
-import { QuickCariDialog } from "@/components/e-donusum/quick-cari-dialog"
+import { QuickCariDialog, useCanCreateCari } from "@/components/e-donusum/quick-cari-dialog"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -118,6 +119,9 @@ export default function AlisIrsaliyePage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   // Tedarikçi listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
+  // Cari kartı yazma yetkisi yoksa "Yeni cari ekle" seçeneği hiç çizilmez
+  // (sunucu kapısı da aynı sahipliği uygular: lib/page-access.ts → /api/cari/*).
+  const canCreateCari = useCanCreateCari().supplier
   const [quickCari, setQuickCari] = useState({ open: false, name: "" })
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("ALL")
@@ -451,10 +455,10 @@ export default function AlisIrsaliyePage() {
                 <RefreshCcw className="mr-1 h-4 w-4" />
                 Yenile
               </Button>
-              <Button size="sm" onClick={openCreate}>
+              <WriteAction><Button size="sm" onClick={openCreate}>
                 <Plus className="mr-1 h-4 w-4" />
                 Yeni İrsaliye
-              </Button>
+              </Button></WriteAction>
               <Dialog
                 open={isCreateOpen}
                 onOpenChange={(open) => {
@@ -477,7 +481,7 @@ export default function AlisIrsaliyePage() {
                           value={form.supplierId}
                           onChange={(value) => setForm((prev) => ({ ...prev, supplierId: value }))}
                           placeholder="Tedarikçi seçin veya arayın…"
-                          onCreate={(name) => setQuickCari({ open: true, name })}
+                          onCreate={canCreateCari ? (name) => setQuickCari({ open: true, name }) : undefined}
                           createLabel="Yeni tedarikçi ekle"
                         />
                       </div>
@@ -633,9 +637,9 @@ export default function AlisIrsaliyePage() {
                         onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
                       />
                     </div>
-                    <Button className="w-full" onClick={saveWaybill} disabled={isSaving}>
+                    <WriteAction><Button className="w-full" onClick={saveWaybill} disabled={isSaving}>
                       {isSaving ? "Kaydediliyor…" : editingId ? "Güncelle" : "Kaydet"}
-                    </Button>
+                    </Button></WriteAction>
                     {/* İç içe dialog: irsaliye formu açıkken tedarikçi eklenir, kayıt
                         sonrası seçiciye düşer (form kaybolmadan). */}
                     {companyId && (
@@ -760,7 +764,7 @@ export default function AlisIrsaliyePage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-0.5">
-                          <Button
+                          <WriteAction><Button
                             size="sm"
                             variant="ghost"
                             onClick={() => openEdit(w)}
@@ -768,7 +772,7 @@ export default function AlisIrsaliyePage() {
                             title={w.invoice ? "Faturaya bağlı — önce eşleştirmeyi kaldırın" : "Düzenle"}
                           >
                             <Pencil className="h-4 w-4" />
-                          </Button>
+                          </Button></WriteAction>
                           {w.invoice ? (
                             <Button
                               size="sm"
@@ -819,9 +823,9 @@ export default function AlisIrsaliyePage() {
                               </Button>
                             </>
                           )}
-                          <Button size="sm" variant="ghost" onClick={() => removeWaybill(w.id)} title="Sil">
+                          <WriteAction><Button size="sm" variant="ghost" onClick={() => removeWaybill(w.id)} title="Sil">
                             <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          </Button></WriteAction>
                         </div>
                       </TableCell>
                     </StyledTableRow>

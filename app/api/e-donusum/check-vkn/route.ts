@@ -7,7 +7,7 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
 import { createPartnerProvider } from "@/lib/integrations/e-invoice/partner"
 import { decryptSecret } from "@/lib/crypto/secrets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic"
  *  - suggestedInvoiceType: "E_INVOICE" | "E_ARCHIVE" | "MANUAL"
  *  - accountName, eInvoiceStartDate (debug için)
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -155,4 +155,4 @@ export async function GET(request: Request) {
       { status: 500 },
     )
   }
-}
+})

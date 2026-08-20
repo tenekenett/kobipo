@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -107,7 +108,7 @@ const PRODUCT_TARIFF_TEXT: Record<string, string> = {
   EProducerVoucher: "E-MM",
 }
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
@@ -600,4 +601,4 @@ export async function POST(request: Request) {
     console.error("e-donusum onboarding POST error:", error)
     return NextResponse.json({ success: false, error: message || "Onboarding sırasında hata oluştu" }, { status: 500 })
   }
-}
+})

@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
@@ -28,7 +29,7 @@ const MAX_WEEKS = 12
  * derken kastedilen TSİ 20:00'dir. Aynı dönüşüm restoran raporlarında da
  * kullanılıyor; iki ekranın aynı saati farklı kovaya atması kabul edilemez.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -96,4 +97,4 @@ export async function GET(request: Request) {
       guests: sampleDays > 0 ? r.guests / sampleDays : 0,
     })),
   })
-}
+})

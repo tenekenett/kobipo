@@ -1,3 +1,4 @@
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -7,7 +8,7 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 
 export const dynamic = "force-dynamic"
 
-export async function POST(
+export const POST = withApiErrors(async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -39,6 +40,8 @@ export async function POST(
 
     return NextResponse.json({ waybill: updated, providerStatus: result })
   } catch (error: any) {
+    // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+    if (isAccessDeniedError(error)) return accessDeniedResponse(error)
     return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 })
   }
-}
+})

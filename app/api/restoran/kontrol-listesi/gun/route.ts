@@ -14,13 +14,13 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
 import { dayToUtcDate } from "@/lib/personel/vardiya"
 import { CHECKLIST_TITLE_MAX, isChecklistType, type ChecklistDay } from "@/lib/restoran/checklist"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -109,10 +109,10 @@ export async function GET(request: Request) {
     console.error("Error fetching checklist day:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /** Onay at. Aynı madde aynı gün ikinci kez gönderilirse mevcut onay döner. */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -193,10 +193,10 @@ export async function POST(request: Request) {
     console.error("Error creating checklist entry:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /** Onayı kaldır — yanlış maddeye basıldığında geri alınabilsin. */
-export async function DELETE(request: Request) {
+export const DELETE = withApiErrors(async function DELETE(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -229,4 +229,4 @@ export async function DELETE(request: Request) {
     console.error("Error deleting checklist entry:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

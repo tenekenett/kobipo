@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -253,10 +254,10 @@ export default function FinansPage() {
                 </div>
                 <Dialog open={isAccountDialogOpen} onOpenChange={setIsAccountDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button>
+                    <WriteAction><Button>
                       <Plus className="mr-2 h-4 w-4" />
                       Yeni Hesap
-                    </Button>
+                    </Button></WriteAction>
                   </DialogTrigger>
                   <DialogContent className="max-w-2xl">
                     <DialogHeader>
@@ -367,9 +368,9 @@ export default function FinansPage() {
                         >
                           İptal
                         </Button>
-                        <Button type="submit" disabled={isLoading}>
+                        <WriteAction><Button type="submit" disabled={isLoading}>
                           {isLoading ? "Kaydediliyor..." : "Kaydet"}
-                        </Button>
+                        </Button></WriteAction>
                       </div>
                     </form>
                   </DialogContent>
@@ -434,10 +435,10 @@ export default function FinansPage() {
                 </div>
                 <Dialog open={isTransactionDialogOpen} onOpenChange={setIsTransactionDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button>
+                    <WriteAction><Button>
                       <Plus className="mr-2 h-4 w-4" />
                       Yeni İşlem
-                    </Button>
+                    </Button></WriteAction>
                   </DialogTrigger>
                   <DialogContent className="max-w-2xl">
                     <DialogHeader>
@@ -568,9 +569,9 @@ export default function FinansPage() {
                         >
                           İptal
                         </Button>
-                        <Button type="submit" disabled={isLoading}>
+                        <WriteAction><Button type="submit" disabled={isLoading}>
                           {isLoading ? "Kaydediliyor..." : "Kaydet"}
-                        </Button>
+                        </Button></WriteAction>
                       </div>
                     </form>
                   </DialogContent>

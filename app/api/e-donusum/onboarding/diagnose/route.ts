@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { requireSuperAdmin } from "@/lib/auth/require-super-admin"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
@@ -26,7 +27,7 @@ export const dynamic = "force-dynamic"
  * Kullanım: GET /api/e-donusum/onboarding/diagnose?vkn=0860998219
  * Yalnızca süper admin.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const auth = await requireSuperAdmin()
   if ("error" in auth) return auth.error
 
@@ -120,4 +121,4 @@ export async function GET(request: Request) {
     console.error("e-donusum onboarding diagnose GET error:", error)
     return NextResponse.json({ error: error?.message || "Internal server error" }, { status: 500 })
   }
-}
+})

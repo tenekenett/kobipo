@@ -10,7 +10,7 @@ import {
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
 import { voidInvoice } from "@/lib/integrations/e-invoice/void-invoice"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -30,7 +30,7 @@ export const dynamic = "force-dynamic"
  *  - rawJson hep güncellenir (Mysoft yanıtının tamamı)
  *  - isLinkedToPurchase + linkedInvoiceId Kobipo iç akışı — sync sırasında DOKUNULMAZ
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -222,4 +222,4 @@ export async function POST(request: Request) {
       { status: 500 },
     )
   }
-}
+})

@@ -5,7 +5,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { DATASETS, isKnownDataset, listDatasets } from "@/lib/export/datasets"
 import { exportResponse } from "@/lib/export/response"
 import { isExportFormat } from "@/lib/export/types"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 // Büyük listelerde XLSX/PDF üretimi varsayılan 10 sn'yi aşabiliyor.
@@ -26,7 +26,7 @@ export const maxDuration = 60
  */
 const PDF_ROW_LIMIT = 5000
 
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ dataset: string }> },
 ) {
@@ -91,4 +91,4 @@ export async function GET(
       { status: 500 },
     )
   }
-}
+})

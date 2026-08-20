@@ -16,7 +16,7 @@ import {
   discountLimitError,
   normalizeDiscountLimit,
 } from "@/lib/restoran/discount-limit"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -41,7 +41,7 @@ type Params = { params: Promise<{ id: string }> }
  * aynı anda kapatırsa ikincisi 0 satır günceller ve 409 alır. `invoiceId` tekil
  * olduğu için tek fiş iki adisyona da bağlanamaz.
  */
-export async function GET(request: Request, { params }: Params) {
+export const GET = withApiErrors(async function GET(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -190,9 +190,9 @@ export async function GET(request: Request, { params }: Params) {
     console.error("Error preparing ticket close:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: Request, { params }: Params) {
+export const POST = withApiErrors(async function POST(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -328,4 +328,4 @@ export async function POST(request: Request, { params }: Params) {
     console.error("Error closing ticket:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

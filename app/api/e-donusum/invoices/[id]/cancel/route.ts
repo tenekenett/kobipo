@@ -8,11 +8,11 @@ import {
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
 import { voidInvoice } from "@/lib/integrations/e-invoice/void-invoice"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
-export async function POST(
+export const POST = withApiErrors(async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -136,4 +136,4 @@ export async function POST(
       { status: 500 }
     )
   }
-}
+})

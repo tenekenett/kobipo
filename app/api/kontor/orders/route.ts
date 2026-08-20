@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isPaytrEnabled, PAYTR_NOT_CONFIGURED_ERROR } from "@/lib/integrations/paytr/client"
 import { generateUniquePaymentCode } from "@/lib/kontor/payment-code"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -17,7 +17,7 @@ const ERR_NO_VERIFIED_VKN =
  * GET  — Siparişleri listele. ?all=1 (sistem-admin) hepsini; aksi halde ?companyId ile firma siparişleri.
  * POST — Yeni sipariş oluştur (firma kullanıcısı). Paket seçer; kontör firmanın doğrulanmış VKN'sine yüklenecek.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -51,9 +51,9 @@ export async function GET(request: Request) {
     console.error("kontor orders GET error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -119,4 +119,4 @@ export async function POST(request: Request) {
     console.error("kontor orders POST error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-}
+})

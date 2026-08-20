@@ -3,7 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { computeBalanceSheet } from "@/lib/raporlar/bilanco"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = 'force-dynamic'
 
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
  * Bilanço. Hesabın kendisi `lib/raporlar/bilanco.ts`te — dışa aktarma ucu da
  * aynı fonksiyonu çağırır.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -43,4 +43,4 @@ export async function GET(request: Request) {
       { status: 500 }
     )
   }
-}
+})

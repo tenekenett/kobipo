@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -6,7 +7,7 @@ import { buildLeaveFormPdf } from "@/lib/pdf/personel-pdf"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(
+export const GET = withApiErrors(async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -45,4 +46,4 @@ export async function GET(
       "Content-Disposition": `inline; filename="${encodeURIComponent(fileName)}"`,
     },
   })
-}
+})

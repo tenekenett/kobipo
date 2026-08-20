@@ -1,3 +1,4 @@
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -12,7 +13,7 @@ async function loadRole(id: string, companyId: string) {
   return prisma.companyRole.findFirst({ where: { id, companyId }, select: { id: true } })
 }
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = withApiErrors(async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { id } = await params
@@ -59,14 +60,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const role = await prisma.companyRole.update({ where: { id }, data })
     return NextResponse.json(role)
   } catch (error) {
+    // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+    if (isAccessDeniedError(error)) return accessDeniedResponse(error)
     if (error && typeof error === "object" && (error as { code?: string }).code === "P2002") {
       return NextResponse.json({ error: "Bu isimde bir rol zaten var" }, { status: 409 })
     }
     throw error
   }
-}
+})
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withApiErrors(async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { id } = await params
@@ -94,4 +97,4 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
   await prisma.companyRole.delete({ where: { id } })
   return NextResponse.json({ success: true })
-}
+})

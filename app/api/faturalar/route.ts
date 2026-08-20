@@ -3,7 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { fetchInvoiceList } from "@/lib/faturalar/list-query"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic"
  *  - status      filtre (KABUL/RED/DRAFT/SENT/...)
  *  - search      fatura no / karşı taraf adı / VKN / ETTN
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -66,4 +66,4 @@ export async function GET(request: Request) {
       { status: 500 },
     )
   }
-}
+})

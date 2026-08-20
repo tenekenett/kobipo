@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -79,14 +79,29 @@ interface Customer {
 }
 
 export default function CariPage() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const tabQuery = searchParams.get("tab")
   const { toast } = useToast()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [suppliers, setSuppliers] = useState<Customer[]>([])
-  const [activeTab, setActiveTab] = useState<"customers" | "suppliers">(
-    tabQuery === "suppliers" ? "suppliers" : "customers"
+  // Sekme URL'DEN türer, yerel state'ten değil.
+  //
+  // Bu sayfanın menüde İKİ sahibi var: `/cari/musteri` ve `/cari/tedarikci`
+  // (`navHrefsForPath` ayrımı `?tab=` ile yapar). Sekme yalnız state'te tutulduğunda
+  // adres `?tab=customers`ta kalıyor, sayfa kapısı ile ekran ayrışıyordu: yalnız
+  // müşteri yetkisi olan bir rol "Tedarikçiler"e basınca tedarikçi listesini ve
+  // "Yeni Tedarikçi" düğmesini görüyordu (yazma sunucuda 403 alıyordu ama düğme
+  // duruyordu). URL'i tek kaynak yapmak ikisini de düzeltir.
+  const activeTab: "customers" | "suppliers" = tabQuery === "suppliers" ? "suppliers" : "customers"
+  const setActiveTab = useCallback(
+    (tab: "customers" | "suppliers") => {
+      const params = new URLSearchParams(searchParams.toString())
+      params.set("tab", tab)
+      router.replace(`/cari?${params.toString()}`, { scroll: false })
+    },
+    [router, searchParams]
   )
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")

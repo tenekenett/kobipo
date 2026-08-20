@@ -5,14 +5,14 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 // Şablonu başka bir şubeye (Company) kopyalar. Şablonlar şube kapsamlı
 // olduğundan "çoklu şube ataması" yerine bu kopyalama akışı kullanılır.
 // Yetki: kullanıcının HEM kaynak HEM hedef şubeye erişimi olmalı.
-export async function POST(
+export const POST = withApiErrors(async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -72,4 +72,4 @@ export async function POST(
     console.error("Error copying label template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

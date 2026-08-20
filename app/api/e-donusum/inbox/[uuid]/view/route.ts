@@ -12,7 +12,7 @@ import {
   describeMysoftError,
   isMysoftDocumentMissing,
 } from "@/lib/integrations/e-invoice/error-messages"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -29,7 +29,7 @@ export const dynamic = "force-dynamic"
  * GÜVENLİK: HTML gönderen tarafın içeriğidir (güvenilmez). `sandbox` CSP'si ve
  * nosniff ile döneriz; istemci de sandbox'lı iframe'de göstermelidir.
  */
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ uuid: string }> },
 ) {
@@ -123,4 +123,4 @@ export async function GET(
       { status: 500 },
     )
   }
-}
+})

@@ -4,14 +4,14 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 // Bir carinin açık (ödenmemiş) faturalarını döndürür. Cari ekranındaki
 // "Tahsilat/Ödeme Ekle" diyaloğunda tahsilatı bir faturaya bağlamak için kullanılır.
 // Açık tutar = faturaTutarı − tüm InvoicePayment (bağlı + bağsız).
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -89,4 +89,4 @@ export async function GET(request: Request) {
     console.error("Error fetching open invoices:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-}
+})

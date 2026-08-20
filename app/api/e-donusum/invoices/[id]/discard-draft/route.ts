@@ -5,7 +5,7 @@ import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { discardGibDraft } from "@/lib/integrations/e-invoice/send-invoice-helper"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic"
  * GİB taslağını GERİ ALIR (deleteDraftInvoiceOutbox → Mysoft'tan siler) ve faturayı
  * DRAFT'a döndürür; böylece yeniden düzenlenebilir. Yalnızca GIB_DRAFT durumunda.
  */
-export async function POST(
+export const POST = withApiErrors(async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -57,4 +57,4 @@ export async function POST(
       { status: 500 }
     )
   }
-}
+})

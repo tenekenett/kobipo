@@ -10,7 +10,7 @@ import {
   optionGroupInclude,
   serializeOptionGroup,
 } from "@/lib/restoran/product-options"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -22,7 +22,7 @@ type Params = { params: Promise<{ id: string }> }
  * şık uçları açmak üç uç daha demekti. Şıkkın id'si değiştiği için geçmiş
  * adisyonlar etkilenmez — kalem seçenekleri KOPYA olarak saklanıyor.
  */
-export async function PATCH(request: Request, { params }: Params) {
+export const PATCH = withApiErrors(async function PATCH(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -80,10 +80,10 @@ export async function PATCH(request: Request, { params }: Params) {
     console.error("Error updating product option group:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /** Grubu ve şıklarını siler (CASCADE). Geçmiş adisyon kalemleri etkilenmez. */
-export async function DELETE(request: Request, { params }: Params) {
+export const DELETE = withApiErrors(async function DELETE(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -107,4 +107,4 @@ export async function DELETE(request: Request, { params }: Params) {
     console.error("Error deleting product option group:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

@@ -8,7 +8,7 @@ import {
   type GibInvoiceLine,
   type GibDocKind,
 } from "@/lib/pdf/gib-invoice-pdf"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import {
   addLineTax,
   applyGlobalAdjustment,
@@ -36,7 +36,7 @@ function isMeaningfulItem(item: any): boolean {
   return hasProduct || quantity > 0 || unitPrice > 0 || hasDescription
 }
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -252,4 +252,4 @@ export async function POST(request: Request) {
     console.error("Error generating preview PDF:", error)
     return NextResponse.json({ error: message || "Önizleme PDF üretilemedi" }, { status: 500 })
   }
-}
+})

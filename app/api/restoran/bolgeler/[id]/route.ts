@@ -5,13 +5,13 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
 import { PLAN_COLS_MIN, normalizeCols, requiredCols } from "@/lib/restoran/floor-plan"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 type Params = { params: Promise<{ id: string }> }
 
-export async function PATCH(request: Request, { params }: Params) {
+export const PATCH = withApiErrors(async function PATCH(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -79,14 +79,14 @@ export async function PATCH(request: Request, { params }: Params) {
     console.error("Error updating restaurant area:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Bölgeyi siler. Masalar SİLİNMEZ — şemadaki `onDelete: SetNull` sayesinde
  * bölgesiz kalırlar (planda "Bölgesiz" sekmesinde görünürler). Masayı da silmek,
  * bir sekmeyi kapatırken masanın geçmiş adisyonlarını sahipsiz bırakırdı.
  */
-export async function DELETE(request: Request, { params }: Params) {
+export const DELETE = withApiErrors(async function DELETE(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -110,4 +110,4 @@ export async function DELETE(request: Request, { params }: Params) {
     console.error("Error deleting restaurant area:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -10,7 +11,7 @@ import { publishWeek } from "@/lib/personel/yayin"
 export const dynamic = "force-dynamic"
 
 /** Haftanın yayın durumu — takvim üst çubuğu bunu okur. */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
     notifiedCount: row.notifiedCount,
     shiftCount: row.shiftCount,
   })
-}
+})
 
 /**
  * Haftayı yayınlar; `notify` ile personele e-posta gönderir.
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
  * bir gün gönderirse iki farklı yayın kaydı oluşur ve hafta hem "yayında" hem
  * "yayında değil" görünürdü.
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -66,4 +67,4 @@ export async function POST(request: Request) {
     userId: user.id,
   })
   return NextResponse.json(result)
-}
+})

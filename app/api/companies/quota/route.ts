@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { getAccountQuotas } from "@/lib/billing/entitlements"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic"
  * Kotalar hesap (kök firma) düzeyindedir: şubeden ya da ek firmadan bakılsa da hesabın
  * kotası döner. İki kota ayrı havuzdur; şube açmak firma hakkını yemez.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -31,4 +31,4 @@ export async function GET(request: Request) {
     console.error("companies quota GET error:", error)
     return NextResponse.json({ error: "Kota okunamadı" }, { status: 500 })
   }
-}
+})

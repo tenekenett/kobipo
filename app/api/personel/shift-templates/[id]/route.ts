@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -7,7 +8,7 @@ import { validateRange } from "@/lib/personel/shift-api"
 
 export const dynamic = "force-dynamic"
 
-export async function PATCH(
+export const PATCH = withApiErrors(async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -43,7 +44,7 @@ export async function PATCH(
     },
   })
   return NextResponse.json(updated)
-}
+})
 
 /**
  * Şablon silme = pasife alma.
@@ -52,7 +53,7 @@ export async function PATCH(
  * düşer ve geçmiş takvimdeki barlar rengini/adını kaybederdi. Pasif şablon
  * listede çıkmaz ama eski vardiyalar bozulmadan kalır.
  */
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -71,4 +72,4 @@ export async function DELETE(
 
   await prisma.shiftTemplate.update({ where: { id }, data: { isActive: false } })
   return NextResponse.json({ ok: true })
-}
+})

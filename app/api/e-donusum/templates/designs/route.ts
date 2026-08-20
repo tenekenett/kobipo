@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { Prisma } from "@prisma/client"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { normalizeDesignOptions } from "@/lib/integrations/e-invoice/template-designer"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import {
   isTemplateStale,
   sampleVersionForDocType,
@@ -26,7 +26,7 @@ function parseDocType(value: unknown): number | null {
 }
 
 // GET ?companyId=&eDocumentType= → bu firma+tip için Kobipo tasarımları + aktif seçim
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -103,10 +103,10 @@ export async function GET(request: Request) {
     console.error("templates designs GET error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 // POST { companyId, eDocumentType, xsltName, options } → tasarım seçeneklerini sakla
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -146,4 +146,4 @@ export async function POST(request: Request) {
     console.error("templates designs POST error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

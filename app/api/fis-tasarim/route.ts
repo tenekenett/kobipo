@@ -8,7 +8,7 @@ import {
   normalizeReceiptTemplate,
   type ReceiptTemplate,
 } from "@/lib/fis/receipt-template"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic"
  * Şablon hiç kaydedilmemişse varsayılan döner (isDefault:true) ve fiş bugünkü
  * sabit görünümüyle basılır.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -66,9 +66,9 @@ export async function GET(request: Request) {
     console.error("Error fetching receipt template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
-export async function PUT(request: Request) {
+export const PUT = withApiErrors(async function PUT(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -96,4 +96,4 @@ export async function PUT(request: Request) {
     console.error("Error saving receipt template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -115,10 +116,10 @@ export default function KasaDevirPage() {
             </div>
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <WriteAction><Button>
                   <Plus className="mr-2 h-4 w-4" />
                   Yeni Sayım
-                </Button>
+                </Button></WriteAction>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader><DialogTitle>Yeni Kasa Sayımı</DialogTitle></DialogHeader>
@@ -132,7 +133,7 @@ export default function KasaDevirPage() {
                   <Input type="date" value={form.countDate} onChange={(e) => setForm((prev) => ({ ...prev, countDate: e.target.value }))} />
                   <Input type="number" placeholder="Beklenen bakiye (boşsa hesaptan gelir)" value={form.expectedBalance} onChange={(e) => setForm((prev) => ({ ...prev, expectedBalance: e.target.value }))} />
                   <Input type="number" placeholder="Sayılan bakiye" value={form.actualBalance} onChange={(e) => setForm((prev) => ({ ...prev, actualBalance: e.target.value }))} />
-                  <Button className="w-full" onClick={createCashCount}>Kaydet</Button>
+                  <WriteAction><Button className="w-full" onClick={createCashCount}>Kaydet</Button></WriteAction>
                 </div>
               </DialogContent>
             </Dialog>

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { accountPaymentMethodLabel } from "@/lib/finans/account-types"
 import { renderMakbuzPdf } from "@/lib/pdf/documents/makbuz-document"
 
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic"
  * belgenin ikinci bir düzeni, ayrı font yükleme yolu ve ayrı kayma kaynağı
  * demekti. Artık tek kaynak sunucuda; yerleşim `lib/pdf/documents/makbuz-document.ts`.
  */
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withApiErrors(async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -92,4 +92,4 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     console.error("Error generating makbuz PDF:", error)
     return NextResponse.json({ error: "Makbuz üretilemedi" }, { status: 500 })
   }
-}
+})

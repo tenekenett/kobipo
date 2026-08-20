@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -14,7 +15,7 @@ function sanitizeFileName(name: string): string {
   return base.length > 0 ? base.slice(-120) : "dosya"
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -39,9 +40,9 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "desc" },
   })
   return NextResponse.json(documents)
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -148,4 +149,4 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json(created, { status: 201 })
-}
+})

@@ -4,13 +4,13 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 // Depo bazlı stok. Filtreler: warehouseId, productId (opsiyonel).
 // Döner: { warehouses: [{...özet}], stocks: [{...satır}] }
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -99,4 +99,4 @@ export async function GET(request: Request) {
     console.error("Error fetching warehouse stock:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

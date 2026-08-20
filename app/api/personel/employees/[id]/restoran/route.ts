@@ -19,7 +19,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { discountReasonLabel, ticketDiscountOf, ticketTotals } from "@/lib/restoran/tickets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -29,7 +29,7 @@ const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100
 const DEFAULT_MONTHS = 6
 const MAX_ROWS = 100
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withApiErrors(async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -133,4 +133,4 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     console.error("[Personel] Restoran aktivitesi hatası:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

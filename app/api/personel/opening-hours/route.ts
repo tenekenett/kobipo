@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic"
  * personel altında duruyor: tek tüketicisi vardiya takvimi ve oradan yerinde
  * düzenleniyor — ayrı bir ayar ekranına gitmeden.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -30,9 +31,9 @@ export async function GET(request: Request) {
   })
 
   return NextResponse.json({ openingHours: normalizeOpeningHours(company?.openingHours) })
-}
+})
 
-export async function PUT(request: Request) {
+export const PUT = withApiErrors(async function PUT(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -49,4 +50,4 @@ export async function PUT(request: Request) {
 
   await prisma.company.update({ where: { id: companyId }, data: { openingHours: hours } })
   return NextResponse.json({ openingHours: hours })
-}
+})

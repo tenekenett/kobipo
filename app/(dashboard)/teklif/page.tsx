@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
@@ -8,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SearchSelect } from "@/components/ui/search-select"
-import { QuickCariDialog } from "@/components/e-donusum/quick-cari-dialog"
+import { QuickCariDialog, useCanCreateCari } from "@/components/e-donusum/quick-cari-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
@@ -107,6 +108,9 @@ export default function TeklifPage() {
   const [rates, setRates] = useState<{ USD: number; EUR: number; date: string } | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   // Müşteri listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
+  // Cari kartı yazma yetkisi yoksa "Yeni cari ekle" seçeneği hiç çizilmez
+  // (sunucu kapısı da aynı sahipliği uygular: lib/page-access.ts → /api/cari/*).
+  const canCreateCari = useCanCreateCari().customer
   const [quickCari, setQuickCari] = useState({ open: false, name: "" })
   const [form, setForm] = useState({
     customerId: "",
@@ -292,10 +296,10 @@ export default function TeklifPage() {
               </Button>
               <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                 <DialogTrigger asChild>
-                  <Button size="sm">
+                  <WriteAction><Button size="sm">
                     <Plus className="mr-1 h-4 w-4" />
                     Yeni Teklif
-                  </Button>
+                  </Button></WriteAction>
                 </DialogTrigger>
                 <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
                   <DialogHeader>
@@ -310,7 +314,7 @@ export default function TeklifPage() {
                           value={form.customerId}
                           onChange={(value) => setForm((prev) => ({ ...prev, customerId: value }))}
                           placeholder="Müşteri seçin veya arayın…"
-                          onCreate={(name) => setQuickCari({ open: true, name })}
+                          onCreate={canCreateCari ? (name) => setQuickCari({ open: true, name }) : undefined}
                           createLabel="Yeni müşteri ekle"
                         />
                       </div>
@@ -376,9 +380,9 @@ export default function TeklifPage() {
                         onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
                       />
                     </div>
-                    <Button className="w-full" onClick={createQuote}>
+                    <WriteAction><Button className="w-full" onClick={createQuote}>
                       Kaydet
-                    </Button>
+                    </Button></WriteAction>
                     {/* İç içe dialog: teklif formu açıkken müşteri eklenir, kayıt
                         sonrası seçiciye düşer (form kaybolmadan). */}
                     {companyId && (
@@ -468,7 +472,7 @@ export default function TeklifPage() {
                             <Eye className="h-4 w-4" />
                           </Link>
                         </Button>
-                        <Button
+                        <WriteAction><Button
                           size="sm"
                           variant="ghost"
                           disabled={quote.status === "CONVERTED"}
@@ -480,7 +484,7 @@ export default function TeklifPage() {
                           }
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        </Button></WriteAction>
                       </div>
                     </TableCell>
                   </StyledTableRow>

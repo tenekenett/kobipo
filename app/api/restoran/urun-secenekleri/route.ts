@@ -10,7 +10,7 @@ import {
   optionGroupInclude,
   serializeOptionGroup,
 } from "@/lib/restoran/product-options"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic"
 // olan ürünler azdır, her dokunuşta ağ turu atmak kasiyeri yavaşlatırdı — ve
 // seçenek diyaloğunun anında açılması bu ekranın tek performans şartı.
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -48,10 +48,10 @@ export async function GET(request: Request) {
     console.error("Error fetching product options:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /** Seçenek grubunu şıklarıyla BİRLİKTE oluşturur — şıksız grup anlamsız. */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -105,4 +105,4 @@ export async function POST(request: Request) {
     console.error("Error creating product option group:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

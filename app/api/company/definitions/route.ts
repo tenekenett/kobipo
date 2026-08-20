@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -14,7 +15,7 @@ function asDefinitionType(value: unknown): DefinitionType | null {
   return DEFINITION_TYPES.includes(normalized as DefinitionType) ? (normalized as DefinitionType) : null
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -36,9 +37,9 @@ export async function GET(request: Request) {
   })
 
   return NextResponse.json(definitions)
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -69,4 +70,4 @@ export async function POST(request: Request) {
   })
 
   return NextResponse.json(created, { status: 201 })
-}
+})

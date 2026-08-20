@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useCallback, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -149,7 +150,7 @@ export default function ZimmetPage() {
             <CardTitle>Zimmet</CardTitle>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={fetchAssets}><RefreshCcw className="mr-1 h-4 w-4" /> Yenile</Button>
-              <Button size="sm" onClick={() => { setForm(emptyForm()); setCreateOpen(true) }}><Plus className="mr-1 h-4 w-4" /> Yeni Zimmet</Button>
+              <WriteAction><Button size="sm" onClick={() => { setForm(emptyForm()); setCreateOpen(true) }}><Plus className="mr-1 h-4 w-4" /> Yeni Zimmet</Button></WriteAction>
             </div>
           </div>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -210,9 +211,9 @@ export default function ZimmetPage() {
                           <Button size="sm" variant="ghost" onClick={() => toggleReturn(a)} title={a.status === "RETURNED" ? "Zimmete geri al" : "İade al"}>
                             <Undo2 className={`h-4 w-4 ${a.status === "RETURNED" ? "text-muted-foreground" : "text-emerald-600"}`} />
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => remove(a)} title="Sil">
+                          <WriteAction><Button size="sm" variant="ghost" onClick={() => remove(a)} title="Sil">
                             <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          </Button></WriteAction>
                         </div>
                       </TableCell>
                     </StyledTableRow>
@@ -251,7 +252,7 @@ export default function ZimmetPage() {
               <div><Label>Zimmet Tarihi</Label><Input type="date" value={form.assignedDate} onChange={(e) => setForm((p) => ({ ...p, assignedDate: e.target.value }))} /></div>
             </div>
             <div><Label>Not</Label><Input value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></div>
-            <Button className="w-full" onClick={save} disabled={isSaving}>{isSaving ? "Kaydediliyor…" : "Kaydet"}</Button>
+            <WriteAction><Button className="w-full" onClick={save} disabled={isSaving}>{isSaving ? "Kaydediliyor…" : "Kaydet"}</Button></WriteAction>
           </div>
         </DialogContent>
       </Dialog>

@@ -6,7 +6,7 @@ import { assertModulePath, assertPagePath, ensureCompanyAccess } from "@/lib/mid
 import { XMLBuilder } from "fast-xml-parser"
 import { DATASETS } from "@/lib/export/datasets"
 import { exportResponse } from "@/lib/export/response"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -79,7 +79,7 @@ async function invoicesAsXml(companyId: string) {
   })
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -132,4 +132,4 @@ export async function GET(request: Request) {
     console.error("export route error:", error)
     return NextResponse.json({ error: message || "Dışa aktarma hatası" }, { status: 500 })
   }
-}
+})

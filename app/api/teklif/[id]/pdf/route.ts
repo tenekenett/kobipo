@@ -5,7 +5,7 @@ import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { renderTeklifPdf } from "@/lib/pdf/documents/teklif-document"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic"
  * satır sarma artık motorun işi; regresyon testi:
  * `lib/pdf/doc/teklif-pdf-layout.test.ts`.
  */
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withApiErrors(async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -111,4 +111,4 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     console.error("Error generating quote PDF:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

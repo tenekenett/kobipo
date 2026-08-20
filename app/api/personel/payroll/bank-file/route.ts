@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 // Banka maaş ödeme listesi (CSV). Seçili dönemdeki bordroları IBAN + net tutar
 // ile dışa aktarır; bankaların toplu ödeme şablonlarına temel oluşturur.
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -50,4 +51,4 @@ export async function GET(request: Request) {
       "Content-Disposition": `attachment; filename="banka-maas-${month}-${year}.csv"`,
     },
   })
-}
+})

@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -380,10 +381,10 @@ export default function EDonusumAyarlariPage() {
             E-Fatura ve e-Arşiv entegrasyon bilgilerini yönetin
           </p>
         </div>
-        <Button onClick={save} variant="success" disabled={isLoading || isTesting}>
+        <WriteAction><Button onClick={save} variant="success" disabled={isLoading || isTesting}>
           <Save className="mr-2 h-4 w-4" />
           {isLoading ? "Kaydediliyor…" : "Kaydet"}
-        </Button>
+        </Button></WriteAction>
       </div>
 
       {/* Provider banner */}
@@ -631,10 +632,10 @@ export default function EDonusumAyarlariPage() {
             "Test Bağlantısı"
           )}
         </Button>
-        <Button onClick={save} variant="success" disabled={isLoading || isTesting}>
+        <WriteAction><Button onClick={save} variant="success" disabled={isLoading || isTesting}>
           <Save className="mr-2 h-4 w-4" />
           {isLoading ? "Kaydediliyor…" : "Kaydet"}
-        </Button>
+        </Button></WriteAction>
       </div>
 
       {/* En altta, kapalı: Kobipo ile e-Dönüşüm başvurusu (beta — geliştiriliyor) */}
@@ -900,7 +901,7 @@ export default function EDonusumAyarlariPage() {
             )}
 
             <div className="flex flex-wrap gap-2 pt-1">
-              <Button onClick={submitOnboarding} disabled={isSubmitting || isChecking || !tenantVkn}>
+              <WriteAction><Button onClick={submitOnboarding} disabled={isSubmitting || isChecking || !tenantVkn}>
                 {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Başvuruluyor…
@@ -911,7 +912,7 @@ export default function EDonusumAyarlariPage() {
                     {hasStarted ? "Tekrar Başvur / Ürün Ekle" : "Başvur ve Aktive Et"}
                   </>
                 )}
-              </Button>
+              </Button></WriteAction>
               {hasStarted && (
                 <Button variant="outline" onClick={refreshStatus} disabled={isChecking || isSubmitting}>
                   {isChecking ? (

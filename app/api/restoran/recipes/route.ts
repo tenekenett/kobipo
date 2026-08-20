@@ -6,7 +6,7 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
 import { assertNoRecipeCycle, RecipeCycleError } from "@/lib/stock/recipe"
 import { canConvert, normalizeUnitCode } from "@/lib/data/units"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -69,7 +69,7 @@ function serialize(recipe: any) {
   }
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -98,14 +98,14 @@ export async function GET(request: Request) {
     console.error("Error fetching recipes:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Reçete oluşturur veya günceller (ürün başına tek reçete → upsert).
  * Kalemler tümüyle değiştirilir (delete + create), böylece istemci kısmi
  * senkronizasyon mantığı taşımak zorunda kalmaz.
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -233,4 +233,4 @@ export async function POST(request: Request) {
     console.error("Error saving recipe:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

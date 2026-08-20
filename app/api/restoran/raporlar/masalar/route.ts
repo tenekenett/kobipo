@@ -20,7 +20,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { Prisma } from "@prisma/client"
 import { localDay, localHour, num, parseRange } from "@/lib/restoran/reports"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -97,7 +97,7 @@ const finishBucket = (b: Bucket) => ({
   guests: b.guests,
 })
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -292,4 +292,4 @@ export async function GET(request: Request) {
     console.error("[Restoran] Masa raporu hatası:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

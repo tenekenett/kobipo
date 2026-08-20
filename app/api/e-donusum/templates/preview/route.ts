@@ -8,7 +8,7 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 import { decryptSecret } from "@/lib/crypto/secrets"
 import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
 import { readSampleTemplate } from "@/lib/integrations/e-invoice/sample-templates"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic"
  * Yüklenecek XSLT'nin PDF önizlemesini döndürür (kaydetmeden).
  * Swagger v8: POST /api/Tenant/getXsltPreviewPdf
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -116,4 +116,4 @@ export async function POST(request: Request) {
     console.error("templates preview error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-}
+})

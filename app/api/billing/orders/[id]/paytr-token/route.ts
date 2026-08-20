@@ -10,7 +10,7 @@ import {
   PAYTR_IFRAME_BASE,
   PAYTR_NOT_CONFIGURED_ERROR,
 } from "@/lib/integrations/paytr/client"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic"
  * dönemler yinelenen ödeme API'siyle çekilebilir (Aşama 6). noInstallment=1: abonelik
  * tek çekim, taksit yok.
  */
-export async function POST(
+export const POST = withApiErrors(async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -91,4 +91,4 @@ export async function POST(
     console.error("billing paytr-token error:", error)
     return NextResponse.json({ error: message || "PayTR token alınamadı" }, { status: 500 })
   }
-}
+})

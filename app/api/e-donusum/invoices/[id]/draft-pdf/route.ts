@@ -5,7 +5,7 @@ import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { getGibDraftPdf } from "@/lib/integrations/e-invoice/send-invoice-helper"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic"
  * faturalar için (kontrol getGibDraftPdf içinde); resmî PDF ayrı endpoint'tir (../pdf).
  * Tarayıcıda gömülü gösterim için "inline" döner.
  */
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -70,4 +70,4 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})

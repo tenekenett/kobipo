@@ -12,8 +12,8 @@ import {
 import {
   PageForbiddenError,
   isApiPathAllowedForUser,
+  isPageGateApplicable,
   isReadOnlyMembership,
-  isRestrictedMembership,
   requiredPagesForApiPath,
   type PagePermissions,
 } from "@/lib/page-access"
@@ -129,14 +129,19 @@ async function assertModuleAccess(
  *
  * Modül kapısının hemen ardından çalışır ve sırası önemlidir: "modül satın alınmamış"
  * ile "senin yetkin yok" farklı ekranlar açar (satın alma daveti vs. yöneticine
- * başvur). Süper-admin ve kısıtsız üyelikler etkilenmez.
+ * başvur). Süper-admin etkilenmez.
+ *
+ * KAPSAM `isPageGateApplicable`ten gelir — burada ayrıca "kısıtlı mı?" diye SORMAYIN:
+ * `ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED` açıldığında kapı kısıtsız üyelikleri de
+ * kapsar, oysa buradaki erken dönüş onları sessizce muaf tutardı ve bayrak yalnız
+ * yarım çalışırdı.
  */
 async function assertPageAccess(
   company: UserCompanyContext,
   isSuperAdmin: boolean
 ): Promise<void> {
   if (isSuperAdmin) return
-  if (!isRestrictedMembership(pagePermissionsOf(company))) return
+  if (!isPageGateApplicable(pagePermissionsOf(company))) return
 
   const request = await currentApiRequest()
   if (!request) return
@@ -207,7 +212,7 @@ export async function assertPagePath(
   const context = await getUserContext()
   if (context?.isSuperAdmin) return
   const permissions = pagePermissionsOf(company)
-  if (!isRestrictedMembership(permissions)) return
+  if (!isPageGateApplicable(permissions)) return
   if (isApiPathAllowedForUser(pathname, method, permissions)) return
   throw new PageForbiddenError(requiredPagesForApiPath(pathname, method))
 }
@@ -286,8 +291,10 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
  * DEĞİL, `ensureCompanyAccess` içindeki sayfa kapısında uygulanır: orası isteğin
  * metodunu da gördüğü için tek noktada hem okuma hem yazma kararını verir.
  *
- * Rol bazlı çapraz-modül yazma kısıtı (ör. SALES ↛ stok) hâlâ uygulanmıyor; bkz.
- * lib/page-access.ts → ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED.
+ * Rol bazlı çapraz-modül yazma kısıtı (ör. SALES ↛ stok) 2026-08-20'den beri
+ * uygulanıyor — ama burada değil, sayfa kapısında: `ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED`
+ * açık olduğu için `ensureCompanyAccess` her isteği rol matrisiyle karşılaştırır.
+ * Buradaki kontrol ondan bağımsızdır ve salt-okunur üyeliği kapsar.
  */
 export async function ensureCompanyWrite(
   companyId: string,

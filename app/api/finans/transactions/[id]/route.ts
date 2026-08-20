@@ -2,13 +2,13 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
 
 export const dynamic = "force-dynamic"
 
 /** Tek bir işlemin (tahsilat/ödeme/gelir/gider) detayını döner. */
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -59,7 +59,7 @@ export async function GET(
     console.error("Error fetching transaction:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Bir tahsilat/ödeme işlemini (Transaction) siler ve yan etkilerini geri alır:
@@ -71,7 +71,7 @@ export async function GET(
  * Virman (TRANSFER) ve virman karşı-bacağı buradan silinmez (iki hesap + ayna işlem
  * karmaşıktır ve cari ekstresinde görünmez).
  */
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -147,4 +147,4 @@ export async function DELETE(
     console.error("Error deleting transaction:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

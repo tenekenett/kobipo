@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -258,13 +259,13 @@ export default function MaasOdemelerPage() {
                 </SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={fetchRecords}><RefreshCcw className="mr-1 h-4 w-4" /> Yenile</Button>
-              <Button variant="outline" size="sm" onClick={bulkCreate}><Users className="mr-1 h-4 w-4" /> Tümüne Oluştur</Button>
+              <WriteAction><Button variant="outline" size="sm" onClick={bulkCreate}><Users className="mr-1 h-4 w-4" /> Tümüne Oluştur</Button></WriteAction>
               <Button variant="outline" size="sm" disabled={records.length === 0} asChild>
                 <a href={`/api/personel/payroll/bank-file?companyId=${companyId}&year=${year}&month=${month}`}>
                   <Download className="mr-1 h-4 w-4" /> Banka Dosyası
                 </a>
               </Button>
-              <Button size="sm" onClick={openCreate}><Plus className="mr-1 h-4 w-4" /> Yeni Bordro</Button>
+              <WriteAction><Button size="sm" onClick={openCreate}><Plus className="mr-1 h-4 w-4" /> Yeni Bordro</Button></WriteAction>
             </div>
           </div>
         </CardHeader>
@@ -309,18 +310,18 @@ export default function MaasOdemelerPage() {
                               </a>
                             </Button>
                             {r.status !== "PAID" && (
-                              <Button size="sm" variant="ghost" onClick={() => openEdit(r)} title="Düzenle">
+                              <WriteAction><Button size="sm" variant="ghost" onClick={() => openEdit(r)} title="Düzenle">
                                 <Pencil className="h-4 w-4" />
-                              </Button>
+                              </Button></WriteAction>
                             )}
                             {r.status !== "PAID" && (
                               <Button size="sm" variant="ghost" onClick={() => setPayTarget(r)} title="Öde">
                                 <Wallet className="h-4 w-4 text-emerald-600" />
                               </Button>
                             )}
-                            <Button size="sm" variant="ghost" disabled={r.status === "PAID"} onClick={() => remove(r)} title={r.status === "PAID" ? "Ödenmiş bordro silinemez" : "Sil"}>
+                            <WriteAction><Button size="sm" variant="ghost" disabled={r.status === "PAID"} onClick={() => remove(r)} title={r.status === "PAID" ? "Ödenmiş bordro silinemez" : "Sil"}>
                               <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            </Button></WriteAction>
                           </div>
                         </TableCell>
                       </StyledTableRow>
@@ -372,7 +373,7 @@ export default function MaasOdemelerPage() {
               <span className="text-sm text-muted-foreground">Net Maaş</span>
               <span className="text-lg font-bold">{fmt(liveNet)} ₺</span>
             </div>
-            <Button className="w-full" onClick={save} disabled={isSaving || (!editingId && availableEmployees.length === 0)}>{isSaving ? "Kaydediliyor…" : editingId ? "Güncelle" : "Kaydet"}</Button>
+            <WriteAction><Button className="w-full" onClick={save} disabled={isSaving || (!editingId && availableEmployees.length === 0)}>{isSaving ? "Kaydediliyor…" : editingId ? "Güncelle" : "Kaydet"}</Button></WriteAction>
           </div>
         </DialogContent>
       </Dialog>
@@ -403,7 +404,7 @@ export default function MaasOdemelerPage() {
                 )}
               </div>
               <div><Label>Ödeme Tarihi</Label><Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} /></div>
-              <Button className="w-full" onClick={confirmPay}>Ödemeyi Onayla</Button>
+              <WriteAction><Button className="w-full" onClick={confirmPay}>Ödemeyi Onayla</Button></WriteAction>
             </div>
           )}
         </DialogContent>

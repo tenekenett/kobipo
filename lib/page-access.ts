@@ -11,9 +11,10 @@
 // Listeye yazılan bir sayfa, rolün zaten göremediği bir ekranı AÇMAZ — izin listesi
 // yalnız daraltır. Böylece rol tek yetki kaynağı olarak kalır.
 //
-// KAPSAM — dikkat: bu kapı bugün YALNIZCA kısıtlı üyeliklere (allowedPaths dolu)
-// uygulanır; bkz. ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED. Kısıtsız kullanıcılar için
-// davranış bugünküyle birebir aynıdır.
+// KAPSAM: kapı TÜM üyeliklere uygulanır (2026-08-20'den beri; bkz.
+// ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED). Kısıtsız bir üyelikte kesişimin izin
+// tarafı boş olduğu için efektif izin rol matrisinin kendisidir — yani menüde
+// olmayan bir ekranın ucu artık elle de çağrılamaz.
 
 import {
   ALWAYS_AVAILABLE_PAGES,
@@ -50,19 +51,23 @@ export type PageApiRule = {
 /**
  * Rol matrisi kısıtsız kullanıcılara da uygulansın mı?
  *
- * BUGÜN false — ve bu bilinçli bir kademelendirme. Rol matrisi (nav-config'teki
- * `roles`) bugüne kadar YALNIZCA menüyü çiziyordu, hiçbir uç onu doğrulamıyordu.
- * Aşağıdaki haritayı bir anda tüm kullanıcılara uygulamak, haritadaki tek bir dar
- * satırın çalışan bir ekranı üretimde kırması demekti.
+ * ARTIK true (2026-08-20). Bu, güvenlik taramasındaki "çapraz-modül yazma matrisi"
+ * bulgusunu kapatır: rol matrisi (`lib/nav/pages.ts` → `roles`) bugüne kadar YALNIZCA
+ * menüyü çiziyordu; SALES rolü stok ekranını görmüyordu ama `/api/stok/*` ucunu elle
+ * çağırabiliyordu. Artık menü ne diyorsa uç da onu diyor.
  *
- * Kısıtlı üyelikler (allowedPaths dolu) için kapı HER HÂLÜKÂRDA çalışır: özelliğin
- * kendisi budur ve orada dar bir satırın bedeli tek çalışanın tek ekranıdır.
+ * Açmadan önce etki ÖLÇÜLDÜ (tahmin edilmedi): 194 kapılı ucun her metodu × 6 enum rol
+ * taranıp "rolün gördüğü bir ekran, kapanacak bir ucu çağırıyor mu" sorusu soruldu.
+ * Sonuç: ADMIN, BRANCH_MANAGER ve VIEWER'da sıfır; ACCOUNTANT'ta çıkan üç aday da
+ * yanlış pozitifti. Gerçek etki STOCK ve SALES'te altı çağrıydı; ikisi haritaya
+ * eklendi (aşağıda `/api/e-donusum/invoices` → `/alis/irsaliye` ve
+ * `/api/company/definitions` yazma listesi), cari kartı açma ise bilinçle dar
+ * bırakılıp arayüzde gizlendi (`useCanCreateCari`).
  *
- * Bunu true yapmak, güvenlik taramasındaki "çapraz-modül yazma matrisi" bulgusunu
- * (SALES ↛ stok yazma) kapatır — ayrı bir iş olarak, harita üretimde denendikten
- * sonra açılmalı.
+ * Kısıtlı üyelikler (allowedPaths dolu) için kapı zaten HER HÂLÜKÂRDA çalışıyordu;
+ * bayrak yalnız "kısıtsız" üyeliklerin de matrise tabi olmasını sağlar.
  */
-export const ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED = false
+export const ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED = true
 
 /** Bir üyeliğin izin durumu — `UserCompany` satırından türer. */
 export type PagePermissions = {
@@ -521,6 +526,9 @@ export const PAGE_API_RULES: PageApiRule[] = [
       "/restoran/satis",
       ...TICKET_PAGES,
       "/ayarlar/sube-bilgileri",
+      // Alış irsaliyesini bir alış faturasına BAĞLARKEN aday fatura listesini okur
+      // (`?type=PURCHASE`). Yalnız okuma: irsaliye ekranı fatura yazmaz, bağlar.
+      "/alis/irsaliye",
     ],
     writePages: ["/satis/fatura", "/alis/fatura", "/satis/hizli", "/alis/hizli"],
   },
@@ -581,7 +589,21 @@ export const PAGE_API_RULES: PageApiRule[] = [
       "/satis/hizli",
       "/alis/hizli",
     ],
-    writePages: ["/ayarlar/tanimlar"],
+    // Tanım listesi (ürün kategorisi gibi) ekranın KENDİ kavramıdır: ürün kartını
+    // açan combobox ve kategori yöneticisi onu satır içinde üretir. Yazmayı yalnız
+    // "/ayarlar/tanimlar"a bağlamak, o ekranı görmeyen bir role satır içi kategori
+    // eklemeyi 403'e çevirirdi — düğme dururken. Liste, kategoriyi GERÇEKTEN üreten
+    // ekranlardır: satır içi combobox (hızlı satış/alış + fatura düzenleyici) ve
+    // kategori yöneticisi (stok kartları, restoran menüsü).
+    writePages: [
+      "/ayarlar/tanimlar",
+      "/stok/urunler",
+      "/restoran/menu",
+      "/satis/fatura",
+      "/alis/fatura",
+      "/satis/hizli",
+      "/alis/hizli",
+    ],
   },
   {
     prefix: "/api/company/users",
@@ -668,6 +690,18 @@ export function isWriteRequest(method: string): boolean {
  */
 export function isRestrictedMembership(permissions: PagePermissions): boolean {
   return isCustomRole(permissions) || permissions.allowedPaths.length > 0
+}
+
+/**
+ * Sayfa kapısı bu üyeliğe uygulanır mı?
+ *
+ * Kapının kapsamını belirleyen TEK yordam. Sunucu kapısı (`assertPageAccess`) ile
+ * uç kararı (`isApiPathAllowedForUser`) ayrı ayrı "kısıtlı mı?" diye sorsaydı,
+ * bayrağı çevirmek ikisinden birini güncellemeyi unutmak demekti — kapı erken
+ * dönerken uç kararının true sanması sessiz bir açık bırakırdı.
+ */
+export function isPageGateApplicable(permissions: PagePermissions): boolean {
+  return ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED || isRestrictedMembership(permissions)
 }
 
 /**
@@ -766,7 +800,7 @@ export function isApiPathAllowedForUser(
   method: string,
   permissions: PagePermissions
 ): boolean {
-  if (!isRestrictedMembership(permissions) && !ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED) return true
+  if (!isPageGateApplicable(permissions)) return true
 
   const rule = pageRuleForApiPath(pathname)
   // Kişisel uç (bildirim, destek talebi) izin listesine bakmaz.

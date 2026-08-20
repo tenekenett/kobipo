@@ -18,7 +18,7 @@ import {
   pricelessCte,
   reportScope,
 } from "@/lib/restoran/reports"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -31,7 +31,7 @@ type DayRow = {
   direct_cost: unknown
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -209,4 +209,4 @@ export async function GET(request: Request) {
     console.error("[Restoran] Karlılık raporu hatası:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

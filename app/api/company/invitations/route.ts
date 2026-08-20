@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { randomBytes } from "crypto"
@@ -29,7 +30,7 @@ function resolveBaseUrl(request: Request): string {
   return env.replace(/\/+$/, "")
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -46,9 +47,9 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "desc" },
   })
   return NextResponse.json(invitations)
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -119,4 +120,4 @@ export async function POST(request: Request) {
   const inviteUrl = `${resolveBaseUrl(request)}/invite/${token}`
 
   return NextResponse.json({ status: "invited", inviteUrl, invitation }, { status: 201 })
-}
+})

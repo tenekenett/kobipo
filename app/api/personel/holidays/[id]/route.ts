@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -6,7 +7,7 @@ import { ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -27,4 +28,4 @@ export async function DELETE(
   // çalışılmış olabilir ve planı silmek veri kaybı olurdu.
   await prisma.companyHoliday.delete({ where: { id } })
   return NextResponse.json({ ok: true })
-}
+})

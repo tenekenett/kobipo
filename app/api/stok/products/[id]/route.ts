@@ -4,14 +4,14 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { normalizeUnitCode } from "@/lib/data/units"
 import { findRecipeUnitConflicts } from "@/lib/stock/recipe"
 import { deleteProductImage, readImageUrlField } from "@/lib/stock/product-image"
 
 
 export const dynamic = 'force-dynamic'
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -101,9 +101,9 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
-export async function PUT(
+export const PUT = withApiErrors(async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -250,13 +250,13 @@ export async function PUT(
       { status: 500 }
     )
   }
-}
+})
 
 // Kısmi güncelleme: yalnızca gövdede gönderilen alanları değiştirir, geri kalan
 // alanları (fiyat, stok, minStokSeviyesi vb.) OLDUĞU GİBİ korur. Fatura ekranından
 // hızlı barkod düzenlemesi için kullanılır — PUT tüm alanları beklediğinden burada
 // güvenli tekil alan güncellemesi yapılır.
-export async function PATCH(
+export const PATCH = withApiErrors(async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -334,9 +334,9 @@ export async function PATCH(
       { status: 500 }
     )
   }
-}
+})
 
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -377,5 +377,5 @@ export async function DELETE(
       { status: 500 }
     )
   }
-}
+})
 

@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -8,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
 import { SearchSelect } from "@/components/ui/search-select"
-import { QuickCariDialog } from "@/components/e-donusum/quick-cari-dialog"
+import { QuickCariDialog, useCanCreateCari } from "@/components/e-donusum/quick-cari-dialog"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -117,6 +118,9 @@ export default function SatisSiparisPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   // Müşteri listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
+  // Cari kartı yazma yetkisi yoksa "Yeni cari ekle" seçeneği hiç çizilmez
+  // (sunucu kapısı da aynı sahipliği uygular: lib/page-access.ts → /api/cari/*).
+  const canCreateCari = useCanCreateCari().customer
   const [quickCari, setQuickCari] = useState({ open: false, name: "" })
   const [form, setForm] = useState({
     customerId: "",
@@ -370,10 +374,10 @@ export default function SatisSiparisPage() {
               </Button>
               <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                 <DialogTrigger asChild>
-                  <Button size="sm">
+                  <WriteAction><Button size="sm">
                     <Plus className="mr-1 h-4 w-4" />
                     Yeni Sipariş
-                  </Button>
+                  </Button></WriteAction>
                 </DialogTrigger>
                 <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
                   <DialogHeader>
@@ -388,7 +392,7 @@ export default function SatisSiparisPage() {
                           value={form.customerId}
                           onChange={(value) => setForm((prev) => ({ ...prev, customerId: value }))}
                           placeholder="Müşteri seçin veya arayın…"
-                          onCreate={(name) => setQuickCari({ open: true, name })}
+                          onCreate={canCreateCari ? (name) => setQuickCari({ open: true, name }) : undefined}
                           createLabel="Yeni müşteri ekle"
                         />
                       </div>
@@ -534,9 +538,9 @@ export default function SatisSiparisPage() {
                         <span>{fmt(liveTotals.total)} {form.currency}</span>
                       </div>
                     </div>
-                    <Button className="w-full" onClick={createOrder} disabled={isSaving}>
+                    <WriteAction><Button className="w-full" onClick={createOrder} disabled={isSaving}>
                       {isSaving ? "Kaydediliyor…" : "Kaydet"}
-                    </Button>
+                    </Button></WriteAction>
                     {/* İç içe dialog: sipariş formu açıkken müşteri eklenir, kayıt
                         sonrası seçiciye düşer (form kaybolmadan). */}
                     {companyId && (
@@ -659,7 +663,7 @@ export default function SatisSiparisPage() {
                           >
                             <Ban className="h-4 w-4 text-amber-600" />
                           </Button>
-                          <Button
+                          <WriteAction><Button
                             size="sm"
                             variant="ghost"
                             disabled={order.status === "CONVERTED"}
@@ -667,7 +671,7 @@ export default function SatisSiparisPage() {
                             title={order.status === "CONVERTED" ? "Faturalanmış sipariş silinemez" : "Sil"}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          </Button></WriteAction>
                         </div>
                       </TableCell>
                     </StyledTableRow>

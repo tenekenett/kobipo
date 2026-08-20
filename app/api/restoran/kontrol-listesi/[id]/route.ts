@@ -7,13 +7,13 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
 import { CHECKLIST_TITLE_MAX } from "@/lib/restoran/checklist"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 type Params = { params: Promise<{ id: string }> }
 
-export async function PATCH(request: Request, { params }: Params) {
+export const PATCH = withApiErrors(async function PATCH(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -60,7 +60,7 @@ export async function PATCH(request: Request, { params }: Params) {
     console.error("Error updating checklist item:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Maddeyi kaldır. Onay GÖRMÜŞ madde silinmez, PASİFLEŞTİRİLİR: silinseydi geçmiş
@@ -68,7 +68,7 @@ export async function PATCH(request: Request, { params }: Params) {
  * onay almamış madde — yeni eklenip yanlış yazılmış olan — gerçekten silinir,
  * yoksa liste düzenleme ekranı ilk günden çöp pasif maddeyle dolar.
  */
-export async function DELETE(request: Request, { params }: Params) {
+export const DELETE = withApiErrors(async function DELETE(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -100,4 +100,4 @@ export async function DELETE(request: Request, { params }: Params) {
     console.error("Error deleting checklist item:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

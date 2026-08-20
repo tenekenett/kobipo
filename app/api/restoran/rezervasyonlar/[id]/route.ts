@@ -12,14 +12,14 @@ import {
   serializeReservation,
   type ReservationStatus,
 } from "@/lib/restoran/reservations"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 type Params = { params: Promise<{ id: string }> }
 
 /** Rezervasyonu düzenler: masa, saat, süre, kişi ve DURUM (gelmedi/iptal). */
-export async function PATCH(request: Request, { params }: Params) {
+export const PATCH = withApiErrors(async function PATCH(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -119,13 +119,13 @@ export async function PATCH(request: Request, { params }: Params) {
     console.error("Error updating reservation:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Rezervasyonu siler. Misafiri OTURMUŞ rezervasyon silinmez, iptal edilir:
  * adisyona bağlıdır ve "bu ciro rezervasyondan geldi" izini taşır.
  */
-export async function DELETE(request: Request, { params }: Params) {
+export const DELETE = withApiErrors(async function DELETE(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -157,4 +157,4 @@ export async function DELETE(request: Request, { params }: Params) {
     console.error("Error deleting reservation:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

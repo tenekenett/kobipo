@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -6,7 +7,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 export const dynamic = "force-dynamic"
 
 // Tek destek talebi + konuşma (talebin firmasına erişim gerekir).
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withApiErrors(async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -27,4 +28,4 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 
   return NextResponse.json(ticket)
-}
+})

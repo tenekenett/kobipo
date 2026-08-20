@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 // Ürünün tüm stoğunu seçilen depoya taşır/konsolide eder (toplam stok değişmez).
 // Düzenle ekranından "depo değiştir" için kullanılır.
-export async function POST(
+export const POST = withApiErrors(async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -69,4 +70,4 @@ export async function POST(
   })
 
   return NextResponse.json({ success: true })
-}
+})

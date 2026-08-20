@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -17,7 +18,7 @@ import {
 export const dynamic = "force-dynamic"
 
 /** Tekil vardiya: saat güncelleme (sürükleme buraya düşer) ve silme. */
-export async function PATCH(
+export const PATCH = withApiErrors(async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -94,9 +95,9 @@ export async function PATCH(
   // DEĞİŞTİRİYOR, çözülmemiş dönerse o satırın "kim değiştirdi"si boşalırdı.
   const [dto] = await attachActorNames([toShiftDto(updated)])
   return NextResponse.json(dto)
-}
+})
 
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -115,4 +116,4 @@ export async function DELETE(
 
   await prisma.workShift.delete({ where: { id } })
   return NextResponse.json({ ok: true })
-}
+})

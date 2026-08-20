@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule, serializeTicket, ticketInclude } from "@/lib/restoran/tickets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -21,7 +21,7 @@ type Params = { params: Promise<{ id: string }> }
  * Kalemler taşınır, KOPYALANMAZ: kopyalasaydık aynı ürün iki adisyonda görünür,
  * ikram/zayi sayımı ve stok düşümü ikiye katlanırdı.
  */
-export async function POST(request: Request, { params }: Params) {
+export const POST = withApiErrors(async function POST(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -132,4 +132,4 @@ export async function POST(request: Request, { params }: Params) {
     console.error("Error merging tickets:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

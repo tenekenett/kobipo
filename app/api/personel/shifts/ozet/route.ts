@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic"
  * Hesabın kendisi `lib/personel/puantaj.ts`te: aynı satırları dışa aktarma
  * dataset'i de üretiyor ve ekranla dosyanın rakamı ayrışmamalı.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -29,4 +30,4 @@ export async function GET(request: Request) {
   await ensureCompanyAccess(companyId)
 
   return NextResponse.json(await computePuantaj({ companyId, year, month }))
-}
+})

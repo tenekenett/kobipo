@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic"
  * Personel (İK) raporu. Hesabın kendisi `lib/raporlar/personel.ts`te — dışa
  * aktarma ucu da aynı fonksiyonu çağırır.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -22,4 +23,4 @@ export async function GET(request: Request) {
   await ensureCompanyAccess(companyId)
 
   return NextResponse.json(await computeHrReport({ companyId, year }))
-}
+})

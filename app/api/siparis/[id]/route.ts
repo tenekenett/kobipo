@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -44,7 +45,7 @@ function calculateTotals(items: any[]) {
   return { normalized, netAmount, vatAmount, totalAmount }
 }
 
-export async function GET(
+export const GET = withApiErrors(async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -64,9 +65,9 @@ export async function GET(
 
   await ensureCompanyAccess(order.companyId)
   return NextResponse.json(order)
-}
+})
 
-export async function PUT(
+export const PUT = withApiErrors(async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -123,9 +124,9 @@ export async function PUT(
   })
 
   return NextResponse.json(order)
-}
+})
 
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -146,4 +147,4 @@ export async function DELETE(
 
   await prisma.order.delete({ where: { id } })
   return NextResponse.json({ message: "Order deleted" })
-}
+})

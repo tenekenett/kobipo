@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -837,7 +838,7 @@ export default function FaturaSablonuPage() {
 
                       <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
                         {canRefresh && (
-                          <Button
+                          <WriteAction><Button
                             variant="outline"
                             size="sm"
                             onClick={() => refreshDesign(name)}
@@ -850,7 +851,7 @@ export default function FaturaSablonuPage() {
                               <RefreshCcw className="mr-1.5 h-3.5 w-3.5" />
                             )}
                             Yenile
-                          </Button>
+                          </Button></WriteAction>
                         )}
                         {canPreview && (
                           <Button
@@ -865,7 +866,7 @@ export default function FaturaSablonuPage() {
                           </Button>
                         )}
                         {canEdit && (
-                          <Button
+                          <WriteAction><Button
                             variant="outline"
                             size="sm"
                             onClick={() => editDesign(name)}
@@ -874,7 +875,7 @@ export default function FaturaSablonuPage() {
                           >
                             {editing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Pencil className="mr-1.5 h-3.5 w-3.5" />}
                             Düzenle
-                          </Button>
+                          </Button></WriteAction>
                         )}
                         {isActive ? (
                           <span className="inline-flex items-center gap-1.5 rounded-md bg-kobipo-blue px-3 py-1.5 text-xs font-semibold text-white dark:bg-primary dark:text-primary-foreground">

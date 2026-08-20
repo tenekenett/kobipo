@@ -1,3 +1,4 @@
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -35,7 +36,7 @@ async function generateWaybillNumber(companyId: string, type: "SALES" | "PURCHAS
   return candidate
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -76,9 +77,9 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "desc" },
   })
   return NextResponse.json(waybills)
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -163,6 +164,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json(waybill, { status: 201 })
   } catch (error: any) {
+    // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+    if (isAccessDeniedError(error)) return accessDeniedResponse(error)
     // Aynı firmada aynı irsaliye no (@@unique([companyId, waybillNo])) — elle giriş
     // açıldığı için artık kullanıcı hatası olarak dönebilir.
     if (error?.code === "P2002") {
@@ -170,4 +173,4 @@ export async function POST(request: Request) {
     }
     throw error
   }
-}
+})

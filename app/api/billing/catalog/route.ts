@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -20,7 +21,7 @@ export const dynamic = "force-dynamic"
  * Müşteri abonelik ekranını besleyen tek uç: satılabilir paketler + à la carte fiyatlar +
  * hesabın mevcut abonelik özeti + PayTR durumu. Hepsi hesap (kök firma) düzeyindedir.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -67,4 +68,4 @@ export async function GET(request: Request) {
     currentBranches,
     currentCompanies,
   })
-}
+})

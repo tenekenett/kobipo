@@ -7,7 +7,7 @@ import { supplierHasBusinessReferences } from "@/lib/cari/dual-role"
 import { getCustomerDeletability } from "@/lib/cari/archive-guard"
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 import { resolveCariId } from "@/lib/cari/resolve-cari"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 
 export const dynamic = 'force-dynamic'
@@ -27,7 +27,7 @@ function parseDecimalOrNull(value: unknown): number | null {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
 }
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -339,9 +339,9 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
-export async function PUT(
+export const PUT = withApiErrors(async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -639,9 +639,9 @@ export async function PUT(
       { status: 500 }
     )
   }
-}
+})
 
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -694,10 +694,10 @@ export async function DELETE(
       { status: 500 }
     )
   }
-}
+})
 
 // Arşivle / arşivden çıkar. Body: { action: "archive" | "unarchive" }
-export async function PATCH(
+export const PATCH = withApiErrors(async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -755,5 +755,5 @@ export async function PATCH(
       { status: 500 }
     )
   }
-}
+})
 

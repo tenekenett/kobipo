@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { requireSuperAdmin } from "@/lib/auth/require-super-admin"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -28,7 +28,7 @@ function sanitizeFileName(name: string): string {
   return base.length > 0 ? base.slice(-120) : "dekont"
 }
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withApiErrors(async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -119,13 +119,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     console.error("kontor receipt POST error:", error)
     return NextResponse.json({ error: message || "Dekont yüklenemedi" }, { status: 500 })
   }
-}
+})
 
 /**
  * Dekontu servis eder. Sistem-admin her siparişin dekontunu görebilir; firma
  * kullanıcısı yalnız kendi firmasınınkini.
  */
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withApiErrors(async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -171,4 +171,4 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     console.error("kontor receipt GET error:", error)
     return NextResponse.json({ error: message || "Dekont okunamadı" }, { status: 500 })
   }
-}
+})

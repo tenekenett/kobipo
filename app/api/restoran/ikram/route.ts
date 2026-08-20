@@ -11,7 +11,7 @@ import {
 } from "@/lib/restoran/tickets"
 import { writeCompWasteStock, type CompWasteLine } from "@/lib/restoran/comp-waste-stock"
 import { parseRecipeEffects } from "@/lib/stock/recipe-expand"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -30,7 +30,7 @@ export const dynamic = "force-dynamic"
  * referans kendi üretilen koddur ve geri alma yolu yoktur — zaten bir belge de
  * yoktur.
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -160,4 +160,4 @@ export async function POST(request: Request) {
     console.error("Error writing comp/waste:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -8,7 +9,7 @@ import crypto from "crypto"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -31,9 +32,9 @@ export async function GET(
     orderBy: { createdAt: "desc" },
   })
   return NextResponse.json(links)
-}
+})
 
-export async function POST(
+export const POST = withApiErrors(async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -81,4 +82,4 @@ export async function POST(
     ...paymentLink,
     paymentUrl: `/pay/${token}`,
   })
-}
+})

@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -279,10 +280,10 @@ export default function FirmaAyarlariPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             {isEditing && (
               <div className="flex justify-end">
-                <Button type="submit" variant="success" disabled={isLoading}>
+                <WriteAction><Button type="submit" variant="success" disabled={isLoading}>
                   <Save className="mr-2 h-4 w-4" />
                   {isLoading ? "Kaydediliyor..." : "Kaydet"}
-                </Button>
+                </Button></WriteAction>
               </div>
             )}
             <div className="grid gap-4 md:grid-cols-2">
@@ -621,10 +622,10 @@ export default function FirmaAyarlariPage() {
                   Vazgeç
                 </Button>
               )}
-              <Button type="submit" variant="success" disabled={isLoading || !isEditing}>
+              <WriteAction><Button type="submit" variant="success" disabled={isLoading || !isEditing}>
                 <Save className="mr-2 h-4 w-4" />
                 {isLoading ? "Kaydediliyor..." : "Kaydet"}
-              </Button>
+              </Button></WriteAction>
             </div>
           </form>
         </CardContent>

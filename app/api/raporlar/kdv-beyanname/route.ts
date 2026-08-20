@@ -3,7 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { computeVatDeclaration, type VatPeriod } from "@/lib/raporlar/vergiler"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = 'force-dynamic'
 
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
  * KDV beyanname hazırlık raporu. Hesabın kendisi `lib/raporlar/vergiler.ts`te —
  * dışa aktarma ucu da aynı fonksiyonu çağırır.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -44,4 +44,4 @@ export async function GET(request: Request) {
       { status: 500 }
     )
   }
-}
+})

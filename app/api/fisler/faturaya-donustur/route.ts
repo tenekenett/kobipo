@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic"
  *  - Fişleri status=CONVERTED + convertedInvoiceId ile işaretler (cari/raporlardan düşer).
  *  - Satış için otomatik muhasebe fişini yeni faturada oluşturur.
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -243,4 +243,4 @@ export async function POST(request: Request) {
     console.error("Error converting receipts to invoice:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

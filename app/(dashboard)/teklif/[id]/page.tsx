@@ -19,7 +19,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
 import { SearchSelect } from "@/components/ui/search-select"
-import { QuickCariDialog } from "@/components/e-donusum/quick-cari-dialog"
+import { QuickCariDialog, useCanCreateCari } from "@/components/e-donusum/quick-cari-dialog"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
@@ -146,6 +146,9 @@ export default function TeklifDetailPage() {
   const [isPurchase, setIsPurchase] = useState(false)
   const [parties, setParties] = useState<Array<{ id: string; name: string }>>([])
   // Müşteri listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
+  // Cari kartı yazma yetkisi yoksa "Yeni cari ekle" seçeneği hiç çizilmez
+  // (sunucu kapısı da aynı sahipliği uygular: lib/page-access.ts → /api/cari/*).
+  const canCreateCari = useCanCreateCari().customer
   const [quickCari, setQuickCari] = useState({ open: false, name: "" })
   const [products, setProducts] = useState<Array<{ id: string; name: string; salePrice?: number | null }>>([])
   const [company, setCompany] = useState<CompanyInfo | null>(null)
@@ -534,7 +537,7 @@ export default function TeklifDetailPage() {
                 placeholder={isPurchase ? "Tedarikçi seçin veya arayın…" : "Müşteri seçin veya arayın…"}
                 disabled={!editable}
                 allowClear
-                onCreate={editable ? (name) => setQuickCari({ open: true, name }) : undefined}
+                onCreate={editable && canCreateCari ? (name) => setQuickCari({ open: true, name }) : undefined}
                 createLabel={isPurchase ? "Yeni tedarikçi ekle" : "Yeni müşteri ekle"}
               />
               {companyId && (

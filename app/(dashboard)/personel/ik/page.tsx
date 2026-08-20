@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useCallback, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -161,7 +162,7 @@ export default function InsanKaynaklariPage() {
                 </SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={fetchDocs}><RefreshCcw className="mr-1 h-4 w-4" /> Yenile</Button>
-              <Button size="sm" onClick={() => { setForm(emptyForm()); setFiles([]); setCreateOpen(true) }}><Plus className="mr-1 h-4 w-4" /> Yeni Belge</Button>
+              <WriteAction><Button size="sm" onClick={() => { setForm(emptyForm()); setFiles([]); setCreateOpen(true) }}><Plus className="mr-1 h-4 w-4" /> Yeni Belge</Button></WriteAction>
             </div>
           </div>
         </CardHeader>
@@ -214,9 +215,9 @@ export default function InsanKaynaklariPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end">
-                          <Button size="sm" variant="ghost" onClick={() => remove(d)} title="Sil">
+                          <WriteAction><Button size="sm" variant="ghost" onClick={() => remove(d)} title="Sil">
                             <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          </Button></WriteAction>
                         </div>
                       </TableCell>
                     </StyledTableRow>
@@ -277,7 +278,7 @@ export default function InsanKaynaklariPage() {
               <Input value={form.fileUrl} onChange={(e) => setForm((p) => ({ ...p, fileUrl: e.target.value }))} placeholder="https://…" disabled={files.length > 0} />
             </div>
             <div><Label>Not</Label><Input value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></div>
-            <Button className="w-full" onClick={save} disabled={isSaving}>{isSaving ? "Kaydediliyor…" : "Kaydet"}</Button>
+            <WriteAction><Button className="w-full" onClick={save} disabled={isSaving}>{isSaving ? "Kaydediliyor…" : "Kaydet"}</Button></WriteAction>
           </div>
         </DialogContent>
       </Dialog>

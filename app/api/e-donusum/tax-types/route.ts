@@ -12,7 +12,7 @@ import {
   GIB_OTHER_TAX_TYPES,
   type GibTaxType,
 } from "@/lib/integrations/e-invoice/gib-tax-types"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -59,7 +59,7 @@ const GIB_FALLBACK: TaxTypesPayload = {
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000 // 12 saat
 const cache = new Map<string, { at: number; data: TaxTypesPayload }>()
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -142,4 +142,4 @@ export async function GET(request: Request) {
     console.error("tax-types GET error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-}
+})

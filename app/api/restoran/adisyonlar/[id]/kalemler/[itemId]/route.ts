@@ -13,14 +13,14 @@ import {
   TICKET_REASON_NOTE_MAX,
   type TicketItemStatus,
 } from "@/lib/restoran/tickets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 type Params = { params: Promise<{ id: string; itemId: string }> }
 
 /** Adisyon kaleminin adedini/notunu/fiyatını değiştirir (adisyon açıkken). */
-export async function PATCH(request: Request, { params }: Params) {
+export const PATCH = withApiErrors(async function PATCH(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -142,7 +142,7 @@ export async function PATCH(request: Request, { params }: Params) {
     console.error("Error updating ticket item:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Kalemi SİLMEZ, `VOID` işaretler — "iptal edildi, hesaba girmiyor".
@@ -165,7 +165,7 @@ export async function PATCH(request: Request, { params }: Params) {
  * `VOID` kalem hesaba, fişe ve stoğa girmez (ticketTotals + kapat + comp-waste);
  * yani kullanıcı açısından davranış aynı, tek fark artık kaydın durması.
  */
-export async function DELETE(request: Request, { params }: Params) {
+export const DELETE = withApiErrors(async function DELETE(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -205,4 +205,4 @@ export async function DELETE(request: Request, { params }: Params) {
     console.error("Error deleting ticket item:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

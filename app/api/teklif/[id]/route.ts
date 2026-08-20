@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -49,7 +50,7 @@ function calculateTotals(items: any[]) {
   return { normalized, netAmount, vatAmount, totalAmount }
 }
 
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -70,9 +71,9 @@ export async function GET(
 
   await ensureCompanyAccess(quote.companyId)
   return NextResponse.json(quote)
-}
+})
 
-export async function PUT(
+export const PUT = withApiErrors(async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -120,9 +121,9 @@ export async function PUT(
     },
   })
   return NextResponse.json(updated)
-}
+})
 
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -137,4 +138,4 @@ export async function DELETE(
   await ensureCompanyWrite(existing.companyId)
   await prisma.quote.delete({ where: { id } })
   return NextResponse.json({ success: true })
-}
+})

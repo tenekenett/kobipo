@@ -9,7 +9,7 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -46,7 +46,7 @@ async function loadProviderAndVkn(companyId: string): Promise<LoadResult> {
   return { ok: true, provider: resolved.provider, vkn: resolved.tenantVkn }
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -77,9 +77,9 @@ export async function GET(request: Request) {
     console.error("numerators GET error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -175,4 +175,4 @@ export async function POST(request: Request) {
     console.error("numerators POST error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-}
+})

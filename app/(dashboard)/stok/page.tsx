@@ -606,10 +606,15 @@ export default function StokPage() {
             Etiket Tasarımı
           </Link>
         </Button>
-        <Button variant="outline" onClick={() => setIsCategoryDialogOpen(true)}>
-          <Tags className="mr-2 h-4 w-4" />
-          Kategoriler
-        </Button>
+        {/* Kategori yöneticisi tanım YAZAR (`/api/company/definitions`); salt-okunur
+            sayfada düğmesi de durmamalı. Fiil taşımadığı için mekanik sarma turunda
+            atlanmıştı. */}
+        <WriteAction>
+          <Button variant="outline" onClick={() => setIsCategoryDialogOpen(true)}>
+            <Tags className="mr-2 h-4 w-4" />
+            Kategoriler
+          </Button>
+        </WriteAction>
         <Dialog
           open={isDialogOpen}
           onOpenChange={(open) => {

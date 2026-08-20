@@ -9,7 +9,7 @@ import {
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
 import { voidInvoice, evaluateGibVoid } from "@/lib/integrations/e-invoice/void-invoice"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic"
  *
  * Body: { companyId: string, limit?: number }
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -159,4 +159,4 @@ export async function POST(request: Request) {
       { status: 500 },
     )
   }
-}
+})

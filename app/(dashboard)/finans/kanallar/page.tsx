@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
@@ -133,10 +134,10 @@ export default function FinansKanallariPage() {
           <h1 className="text-2xl font-bold text-kobipo-navy dark:text-foreground">Finans Kanalları</h1>
           <p className="text-sm text-muted-foreground">Kasa ve banka hesaplarınızı yönetin</p>
         </div>
-        <Button onClick={() => setShowCreate(true)}>
+        <WriteAction><Button onClick={() => setShowCreate(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Yeni Kanal
-        </Button>
+        </Button></WriteAction>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -191,10 +192,10 @@ export default function FinansKanallariPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 İlk kasa veya banka hesabınızı ekleyerek nakit hareketlerini takip etmeye başlayın.
               </p>
-              <Button className="mt-4" onClick={() => setShowCreate(true)}>
+              <WriteAction><Button className="mt-4" onClick={() => setShowCreate(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Yeni Kanal
-              </Button>
+              </Button></WriteAction>
             </div>
           ) : (
             <div className="divide-y rounded-lg border">
@@ -340,9 +341,9 @@ export default function FinansKanallariPage() {
             <Button variant="outline" onClick={() => setShowCreate(false)} disabled={isSaving}>
               Vazgeç
             </Button>
-            <Button onClick={handleCreate} disabled={isSaving}>
+            <WriteAction><Button onClick={handleCreate} disabled={isSaving}>
               {isSaving ? "Kaydediliyor…" : "Kaydet"}
-            </Button>
+            </Button></WriteAction>
           </DialogFooter>
         </DialogContent>
       </Dialog>

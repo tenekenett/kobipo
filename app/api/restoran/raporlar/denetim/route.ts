@@ -43,7 +43,7 @@ import {
   ticketDiscountOf,
   ticketTotals,
 } from "@/lib/restoran/tickets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -70,7 +70,7 @@ const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100
 const lineGross = (i: { quantity: unknown; unitPrice: unknown; vatRate: unknown }) =>
   Number(i.quantity) * Number(i.unitPrice) * (1 + Number(i.vatRate) / 100)
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -487,4 +487,4 @@ export async function GET(request: Request) {
     console.error("[Restoran] Denetim raporu hatası:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

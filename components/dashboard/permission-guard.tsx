@@ -4,8 +4,9 @@ import { usePathname, useSearchParams } from "next/navigation"
 import { ShieldOff } from "lucide-react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { CompanyLink } from "@/components/dashboard/company-link"
-import { canAccessRoute, landingPathFor, navHrefsForPath } from "@/lib/page-access"
+import { canAccessRoute, isRestrictedMembership, landingPathFor, navHrefsForPath } from "@/lib/page-access"
 import { navPage } from "@/lib/nav/pages"
+import { roleLabel } from "@/lib/auth/role-labels"
 
 /**
  * Kısıtlı bir çalışan izinsiz bir sayfanın adresine gittiğinde içerik yerine bilgi
@@ -44,8 +45,14 @@ export function PermissionGuard({ children }: { children: React.ReactNode }) {
           {label ? `"${label}" sayfasına yetkiniz yok` : "Bu sayfaya yetkiniz yok"}
         </h1>
         <p className="mt-2 text-sm text-kobipo-gray dark:text-muted-foreground">
-          Hesabınız yalnızca belirli sayfalar için yetkilendirilmiş. Bu sayfaya erişmeniz
-          gerekiyorsa firma yöneticinizden yetki talep edin.
+          {/* İki ayrı sebep var, metin ikisini de doğru anlatmalı: kısıtlı üyelikte
+              yetki sayfa sayfa verilmiştir, kısıtsızda ise sınırı ROL çizer. Tek
+              cümleyle "hesabınız belirli sayfalar için yetkilendirilmiş" demek,
+              rol yüzünden engellenen kullanıcıya yanlış bir sebep gösteriyordu. */}
+          {isRestrictedMembership(pagePermissions)
+            ? "Hesabınız yalnızca belirli sayfalar için yetkilendirilmiş."
+            : `Bu sayfa ${roleLabel(pagePermissions.role)} rolünün yetki alanı dışında.`}{" "}
+          Bu sayfaya erişmeniz gerekiyorsa firma yöneticinizden yetki talep edin.
         </p>
 
         <div className="mt-6">

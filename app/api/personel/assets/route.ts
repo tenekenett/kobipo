@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -6,7 +7,7 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 
 export const dynamic = "force-dynamic"
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -28,9 +29,9 @@ export async function GET(request: Request) {
     orderBy: { assignedDate: "desc" },
   })
   return NextResponse.json(assets)
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -61,4 +62,4 @@ export async function POST(request: Request) {
     include: { employee: { select: { id: true, firstName: true, lastName: true, department: true } } },
   })
   return NextResponse.json(asset, { status: 201 })
-}
+})

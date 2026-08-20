@@ -8,7 +8,7 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic"
  *  - endDate     ISO
  *  - raw         "1" → live modda Mysoft ham JSON da döner
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -152,4 +152,4 @@ export async function GET(request: Request) {
       { status: 500 },
     )
   }
-}
+})

@@ -9,7 +9,7 @@ import {
   type GibInvoiceLine,
   type GibDocKind,
 } from "@/lib/pdf/gib-invoice-pdf"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
 
 export const dynamic = "force-dynamic"
@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic"
 
 const n = (v: unknown): number => Number(v) || 0
 
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -191,4 +191,4 @@ export async function GET(
     console.error("Error generating saved-invoice preview PDF:", error)
     return NextResponse.json({ error: message || "Önizleme PDF üretilemedi" }, { status: 500 })
   }
-}
+})

@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -5,7 +6,7 @@ import { ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -20,4 +21,4 @@ export async function DELETE(
   // Belgeyi sil — bağlı blob (dosya içeriği) FK onDelete: Cascade ile gider.
   await prisma.employeeDocument.delete({ where: { id } })
   return NextResponse.json({ message: "Belge silindi" })
-}
+})

@@ -4,7 +4,12 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Plus, X } from "lucide-react"
-import { QuickCariDialog, type CreatedCari, type CariKind } from "@/components/e-donusum/quick-cari-dialog"
+import {
+  QuickCariDialog,
+  useCanCreateCari,
+  type CreatedCari,
+  type CariKind,
+} from "@/components/e-donusum/quick-cari-dialog"
 
 export type Counterparty = {
   id: string
@@ -66,8 +71,10 @@ export function CounterpartyCombobox({
   const [query, setQuery] = useState("")
   const [highlighted, setHighlighted] = useState(-1)
 
-  // Hızlı cari ekleme dialog'u durumu.
-  const canCreate = (allowCreate ?? true) && Boolean(companyId && onCreated)
+  // Hızlı cari ekleme dialog'u durumu. Cari kartı yazma yetkisi olmayan rol (ör. STOCK)
+  // seçeneği hiç görmez — diyalog da kendi tarafında aynı kararı verir.
+  const cariRights = useCanCreateCari()
+  const canCreate = (allowCreate ?? true) && Boolean(companyId && onCreated) && cariRights.any
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState("")
 

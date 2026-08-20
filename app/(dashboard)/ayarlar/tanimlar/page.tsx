@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -112,9 +113,9 @@ export default function TanimlarPage() {
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
               />
-              <Button onClick={addDefinition} disabled={isLoading}>
+              <WriteAction><Button onClick={addDefinition} disabled={isLoading}>
                 Ekle
-              </Button>
+              </Button></WriteAction>
             </div>
             <div className="space-y-2">
               {currentList.map((item) => (
@@ -137,9 +138,9 @@ export default function TanimlarPage() {
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
               />
-              <Button onClick={addDefinition} disabled={isLoading}>
+              <WriteAction><Button onClick={addDefinition} disabled={isLoading}>
                 Ekle
-              </Button>
+              </Button></WriteAction>
             </div>
             <div className="space-y-2">
               {currentList.map((item) => (

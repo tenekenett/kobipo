@@ -1,3 +1,4 @@
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -55,7 +56,7 @@ async function applyWaybillStock(
   }
 }
 
-export async function GET(
+export const GET = withApiErrors(async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -76,9 +77,9 @@ export async function GET(
 
   await ensureCompanyAccess(waybill.companyId)
   return NextResponse.json(waybill)
-}
+})
 
-export async function PUT(
+export const PUT = withApiErrors(async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -227,6 +228,8 @@ export async function PUT(
       },
     })
   } catch (error: any) {
+    // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+    if (isAccessDeniedError(error)) return accessDeniedResponse(error)
     if (error?.code === "P2002") {
       return NextResponse.json({ error: "Bu irsaliye no zaten kayıtlı" }, { status: 409 })
     }
@@ -284,6 +287,8 @@ export async function PUT(
         ;(waybill as { stockProcessed?: boolean }).stockProcessed = false
       }
     } catch (stockErr) {
+      // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+      if (isAccessDeniedError(stockErr)) return accessDeniedResponse(stockErr)
       console.error("[İrsaliye stok işleme hatası]", stockErr)
     }
   }
@@ -310,14 +315,16 @@ export async function PUT(
         invoiceStockReverted = true
       }
     } catch (stockErr) {
+      // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+      if (isAccessDeniedError(stockErr)) return accessDeniedResponse(stockErr)
       console.error("[İrsaliye-fatura eşleştirme stok hatası]", stockErr)
     }
   }
 
   return NextResponse.json({ ...waybill, invoiceStockReverted })
-}
+})
 
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -331,4 +338,4 @@ export async function DELETE(
 
   await prisma.waybill.delete({ where: { id } })
   return NextResponse.json({ message: "Waybill deleted" })
-}
+})

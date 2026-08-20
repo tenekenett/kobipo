@@ -10,14 +10,14 @@ import {
   ticketInclude,
   TICKET_STATUSES,
 } from "@/lib/restoran/tickets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 // Adisyon = masaya bağlı, saatlerce açık kalan ÇALIŞMA kaydı. Stoğa ve cariye
 // DOKUNMAZ; muhasebe etkisi yalnız kapanışta (fiş) doğar — ASAMA2.md.
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -77,7 +77,7 @@ export async function GET(request: Request) {
     console.error("Error fetching tickets:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Adisyon açar. Masa opsiyoneldir (paket/gel-al masasız açılır).
@@ -86,7 +86,7 @@ export async function GET(request: Request) {
  * ayrı adisyon açar ve hesap ikiye bölünür. Zaten açık adisyon varsa 409 döner
  * ve mevcut adisyon yanıtta gelir — ekran onu açar, kullanıcı hata görmez.
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -183,4 +183,4 @@ export async function POST(request: Request) {
     console.error("Error creating ticket:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

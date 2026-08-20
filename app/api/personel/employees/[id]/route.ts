@@ -1,3 +1,4 @@
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -20,7 +21,7 @@ function dateOrNull(v: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -44,9 +45,9 @@ export async function GET(
 
   await ensureCompanyAccess(employee.companyId)
   return NextResponse.json(employee)
-}
+})
 
-export async function PUT(
+export const PUT = withApiErrors(async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -108,6 +109,8 @@ export async function PUT(
     const employee = await prisma.employee.update({ where: { id }, data })
     return NextResponse.json(employee)
   } catch (error) {
+    // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+    if (isAccessDeniedError(error)) return accessDeniedResponse(error)
     // (companyId, userId) benzersiz: bir hesap aynı firmada iki personel kartına
     // bağlanamaz. Prisma'nın P2002'si kullanıcıya "bilinmeyen hata" olarak düşmesin.
     if (
@@ -123,9 +126,9 @@ export async function PUT(
     }
     throw error
   }
-}
+})
 
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -151,4 +154,4 @@ export async function DELETE(
 
   await prisma.employee.delete({ where: { id } })
   return NextResponse.json({ message: "Employee deleted" })
-}
+})

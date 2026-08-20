@@ -6,7 +6,7 @@ import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-provider"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic"
  *
  * Başarılı doğrulama → `company.eDonusumTenantVkn` DB'ye yazılır.
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -106,4 +106,4 @@ export async function POST(request: Request) {
       { status: 500 },
     )
   }
-}
+})

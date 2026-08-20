@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { DEFAULT_RECEIPT_TEMPLATE, normalizeReceiptTemplate } from "@/lib/fis/receipt-template"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -26,7 +26,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
  * Listeden farklı olarak dönüştürülmüş (CONVERTED) ve iptal (CANCELLED) fişler de
  * döner — dönüşen fişin detayına faturadan geri gelinebilmeli.
  */
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -138,4 +138,4 @@ export async function GET(
     console.error("Error fetching receipt:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

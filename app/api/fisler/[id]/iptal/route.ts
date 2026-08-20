@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { revertInvoiceStock } from "@/lib/stock/warehouse"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
 
 export const dynamic = "force-dynamic"
@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic"
  *    iptal edilen fişin parası kasada kalır.
  *  - Cari bakiye: ayrıca bir şey gerekmez; sorgular CANCELLED'ı zaten hariç tutar.
  */
-export async function POST(
+export const POST = withApiErrors(async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -165,4 +165,4 @@ export async function POST(
     console.error("Error cancelling receipt:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

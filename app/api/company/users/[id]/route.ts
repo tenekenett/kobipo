@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -7,7 +8,7 @@ import { sanitizePagePermissions } from "@/lib/page-access"
 
 export const dynamic = "force-dynamic"
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = withApiErrors(async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { id } = await params
@@ -68,9 +69,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const updated = await prisma.userCompany.update({ where: { id }, data: data as never })
   return NextResponse.json(updated)
-}
+})
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withApiErrors(async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { id } = await params
@@ -83,4 +84,4 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (!membership) return NextResponse.json({ error: "Üye bulunamadı" }, { status: 404 })
   await prisma.userCompany.delete({ where: { id } })
   return NextResponse.json({ success: true })
-}
+})

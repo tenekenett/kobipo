@@ -1,3 +1,4 @@
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -67,7 +68,7 @@ async function generateQuoteNumber(companyId: string) {
   return `${prefix}${String(next).padStart(6, "0")}`
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -102,9 +103,9 @@ export async function GET(request: Request) {
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
   })
   return NextResponse.json(quotes)
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -166,6 +167,8 @@ export async function POST(request: Request) {
       })
       return NextResponse.json(quote, { status: 201 })
     } catch (error: any) {
+      // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+      if (isAccessDeniedError(error)) return accessDeniedResponse(error)
       const isDup =
         error?.code === "P2002" && attempt < maxAttempts - 1 && !quoteNo
       if (isDup) continue
@@ -181,4 +184,4 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ error: "Teklif numarası üretilemedi" }, { status: 409 })
-}
+})

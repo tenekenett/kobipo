@@ -48,6 +48,55 @@ export function accessDeniedResponse(error: unknown, fallbackMessage: unknown = 
   )
 }
 
+/**
+ * Erişim hatası mı? (`ensureCompanyAccess`/`ensureCompanyWrite` ve iki kapı hep
+ * "Access denied…" ile başlayan bir mesaj fırlatır.)
+ */
+export function isAccessDeniedError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("Access denied")
+}
+
+/**
+ * Next'in AKIŞ KONTROLÜ hataları — `redirect()` / `notFound()` bunları fırlatarak
+ * çalışır ve yakalanırlarsa yönlendirme sessizce ölür. Sarmalayıcı bu ikisini
+ * olduğu gibi yeniden fırlatmalı.
+ */
+function isControlFlowError(error: unknown): boolean {
+  const digest = (error as { digest?: unknown } | null)?.digest
+  return typeof digest === "string" && (digest.startsWith("NEXT_REDIRECT") || digest === "NEXT_NOT_FOUND")
+}
+
+/**
+ * Route handler sarmalayıcısı: erişim reddini 403'e, oturumsuzluğu 401'e çevirir.
+ *
+ * NEDEN VAR: kapılar (`ensureCompanyAccess` → modül + sayfa) hata FIRLATIR; bunu 403'e
+ * çevirmek route'un işiydi ve 194 kapılı ucun 57'sinde bu adım atlanmıştı — çoğunda
+ * hiç `catch` yoktu. Sonuç: yetkisiz istek boş gövdeli **500** alıyordu. Erişim yine
+ * engelleniyordu (veri sızmıyor) ama kullanıcı sebebini göremiyor, arayüz de
+ * "yetkiniz yok" ekranını çizemiyordu. `ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED`
+ * açılana kadar bu yolu yalnız kısıtlı çalışanlar görebiliyordu; artık her rol görebilir.
+ *
+ * Kendi `catch`i olan route'lar bunu KULLANMAZ — orada erişim dalı catch'in içine
+ * yazılır (yoksa iç catch hatayı önce yakalar ve sarmalayıcıya hiç ulaşmaz).
+ */
+export function withApiErrors<A extends unknown[], R extends Response>(
+  handler: (...args: A) => Promise<R>
+): (...args: A) => Promise<Response> {
+  return async (...args: A): Promise<Response> => {
+    try {
+      return await handler(...args)
+    } catch (error) {
+      if (isControlFlowError(error)) throw error
+      if (error instanceof Error && error.message === "Unauthorized") {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
+      if (isAccessDeniedError(error)) return accessDeniedResponse(error)
+      console.error("API error:", error)
+      return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    }
+  }
+}
+
 const MODULE_LABELS = new Map(MANAGEABLE_MODULES.map((m) => [m.key, m.label]))
 
 function pageForbiddenMessage(pages: string[]): string {

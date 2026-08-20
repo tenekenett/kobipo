@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -121,10 +122,10 @@ export default function DepoTransferPage() {
             </div>
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <WriteAction><Button>
                   <Plus className="mr-2 h-4 w-4" />
                   Yeni Transfer
-                </Button>
+                </Button></WriteAction>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader><DialogTitle>Yeni Depo Transferi</DialogTitle></DialogHeader>
@@ -149,7 +150,7 @@ export default function DepoTransferPage() {
                   </Select>
                   <Input type="number" placeholder="Miktar" value={form.quantity} onChange={(e) => setForm((prev) => ({ ...prev, quantity: e.target.value }))} />
                   <Input placeholder="Açıklama" value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
-                  <Button className="w-full" onClick={submitTransfer}>Kaydet</Button>
+                  <WriteAction><Button className="w-full" onClick={submitTransfer}>Kaydet</Button></WriteAction>
                 </div>
               </DialogContent>
             </Dialog>

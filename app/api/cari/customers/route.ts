@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { toBool } from "@/lib/cari/repair-dual-role"
 import { fetchCustomerList } from "@/lib/cari/list-query"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = 'force-dynamic'
 
@@ -26,7 +26,7 @@ function parseDecimalOrNull(value: unknown): number | null {
 }
 
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -79,9 +79,9 @@ export async function GET(request: Request) {
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -257,5 +257,5 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   }
-}
+})
 

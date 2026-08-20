@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 // Seçili dönemde bordrosu olmayan tüm AKTİF personele, kayıtlı brüt maaşları
 // üzerinden taslak (PENDING) bordro oluşturur. Var olanlara dokunmaz.
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -52,4 +53,4 @@ export async function POST(request: Request) {
   })
 
   return NextResponse.json({ created: toCreate.length })
-}
+})

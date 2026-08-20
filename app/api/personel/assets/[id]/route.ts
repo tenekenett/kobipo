@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -5,7 +6,7 @@ import { ensureCompanyWrite } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
-export async function PUT(
+export const PUT = withApiErrors(async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -44,9 +45,9 @@ export async function PUT(
     include: { employee: { select: { id: true, firstName: true, lastName: true, department: true } } },
   })
   return NextResponse.json(asset)
-}
+})
 
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -60,4 +61,4 @@ export async function DELETE(
 
   await prisma.assetAssignment.delete({ where: { id } })
   return NextResponse.json({ message: "Zimmet kaydı silindi" })
-}
+})

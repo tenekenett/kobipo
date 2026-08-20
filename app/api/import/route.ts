@@ -1,3 +1,4 @@
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -369,7 +370,7 @@ function parseUblInvoices(xml: string) {
   }
 }
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -633,6 +634,8 @@ export async function POST(request: Request) {
 
       imported = 1
     } catch (error: any) {
+      // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+      if (isAccessDeniedError(error)) return accessDeniedResponse(error)
       return NextResponse.json({ error: error.message || "UBL/XML içe aktarma hatası" }, { status: 400 })
     }
     return NextResponse.json({ success: true, module, imported, failed: 0, errors: [] })
@@ -755,6 +758,8 @@ export async function POST(request: Request) {
         })
         imported++
       } catch (error: any) {
+        // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+        if (isAccessDeniedError(error)) return accessDeniedResponse(error)
         errors.push({ row: index + 2, error: error.message || "failed" })
       }
     }
@@ -801,6 +806,8 @@ export async function POST(request: Request) {
         })
         imported++
       } catch (error: any) {
+        // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+        if (isAccessDeniedError(error)) return accessDeniedResponse(error)
         errors.push({ row: index + 2, error: error.message || "failed" })
       }
     }
@@ -838,6 +845,8 @@ export async function POST(request: Request) {
         })
         imported++
       } catch (error: any) {
+        // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+        if (isAccessDeniedError(error)) return accessDeniedResponse(error)
         errors.push({ row: index + 2, error: error.message || "failed" })
       }
     }
@@ -884,6 +893,8 @@ export async function POST(request: Request) {
         })
         imported++
       } catch (error: any) {
+        // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+        if (isAccessDeniedError(error)) return accessDeniedResponse(error)
         errors.push({ row: index + 2, error: error.message || "failed" })
       }
     }
@@ -901,4 +912,4 @@ export async function POST(request: Request) {
     failed: errors.length,
     errors,
   })
-}
+})

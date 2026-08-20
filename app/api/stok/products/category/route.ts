@@ -18,7 +18,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { prisma } from "@/lib/db/prisma"
 
 export const dynamic = "force-dynamic"
@@ -28,7 +28,7 @@ export const dynamic = "force-dynamic"
  * arama kutusuna göre filtreli geliyor, oradan saymak arama açıkken yanlış
  * ("3 üründe kullanılıyor" derken aslında 40) sayı gösterirdi.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -61,9 +61,9 @@ export async function GET(request: Request) {
     console.error("Error counting product categories:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
-export async function PATCH(request: Request) {
+export const PATCH = withApiErrors(async function PATCH(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -104,4 +104,4 @@ export async function PATCH(request: Request) {
     console.error("Error updating product category:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -6,7 +7,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const companyId = await resolveCompanyId(new URL(request.url).searchParams.get("companyId"))
@@ -28,9 +29,9 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "desc" },
   })
   return NextResponse.json(members)
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const body = await request.json()
@@ -79,4 +80,4 @@ export async function POST(request: Request) {
     },
   })
   return NextResponse.json(member, { status: 201 })
-}
+})

@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 // Aktif personel başına yıllık izin bakiyesi: hak (annualLeaveDays) − seçili yıl
 // onaylanmış YILLIK (ANNUAL) izin günleri = kalan.
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -53,4 +54,4 @@ export async function GET(request: Request) {
   })
 
   return NextResponse.json({ year, balances })
-}
+})

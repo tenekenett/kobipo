@@ -18,6 +18,7 @@ import { Building2, Check, ChevronDown, Laptop, LogOut, Moon, PanelLeftClose, Pa
 import { NotificationBell } from "@/components/dashboard/notification-bell"
 import { MenuSearch } from "@/components/dashboard/menu-search"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { roleLabel } from "@/lib/auth/role-labels"
 import { CompanyLink } from "@/components/dashboard/company-link"
 import { useSidebar } from "@/components/dashboard/sidebar-provider"
 import { roleToDashboardPath } from "@/lib/auth/role-paths"
@@ -54,12 +55,12 @@ export function DashboardHeader() {
     .map((word) => word.charAt(0).toUpperCase())
     .join("") || "K"
 
-  const roleLabel =
-    userRole === "ADMIN" ? "Yönetici" :
-    userRole === "ACCOUNTANT" ? "Muhasebeci" :
-    userRole === "STOCK" ? "Stokçu" :
-    userRole === "SALES" ? "Satış" :
-    "Görüntüleyici"
+  // Etiket ORTAK yordamdan gelir (lib/auth/role-labels.ts). Buradaki elle yazılmış
+  // zincir iki rolü tanımıyordu: BRANCH_MANAGER ve CUSTOM. İkisi de son dala düşüp
+  // "Görüntüleyici" görünüyordu — özel rollü bir kullanıcı kendini salt-okunur
+  // sanıyordu. Özel rolde firmanın verdiği AD gösterilir ("Garson"); enum karşılığı
+  // olan "Özel rol" kullanıcıya bir şey anlatmaz.
+  const displayRoleLabel = selectedCompany?.customRoleName || roleLabel(userRole)
 
   const roleBadgeClass =
     userRole === "ADMIN" ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" :
@@ -145,7 +146,7 @@ export function DashboardHeader() {
                   <span className="truncate text-xs font-semibold text-kobipo-navy dark:text-foreground">
                     {userName}
                   </span>
-                  <span className="truncate text-[10px] text-muted-foreground">{roleLabel}</span>
+                  <span className="truncate text-[10px] text-muted-foreground">{displayRoleLabel}</span>
                 </span>
                 <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
               </button>
@@ -166,7 +167,7 @@ export function DashboardHeader() {
                       roleBadgeClass
                     )}
                   >
-                    {roleLabel}
+                    {displayRoleLabel}
                   </span>
                 </div>
               </div>

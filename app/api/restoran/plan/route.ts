@@ -4,14 +4,14 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule, PLAN_ITEM_KINDS, planItemDefaults } from "@/lib/restoran/tickets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 // Dükkan krokisi öğeleri (duvar, bar, kapı, mutfak…). Masalarla aynı ızgarayı
 // paylaşırlar ama adisyon akışına GİRMEZLER — bkz. docs/restoran/ASAMA2.md.
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -35,9 +35,9 @@ export async function GET(request: Request) {
     console.error("Error fetching plan items:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     console.error("Error creating plan item:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /** Ölçüler 1–40 hücre: duvar uzun olabilir ama sınırsız da olmamalı. */
 function clampSize(value: unknown, fallback: number): number {

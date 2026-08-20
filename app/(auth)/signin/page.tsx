@@ -32,17 +32,27 @@ export default function SignInPage() {
     if (status !== "authenticated" || !session) return
     let iptal = false
 
+    /**
+     * Girişten sonra SERT yönlendirme (`router.push` DEĞİL).
+     *
+     * Yumuşak gezinme Next'in istemci route önbelleğini korur; o önbellekte ise
+     * ÖNCEKİ oturumun RSC payload'ları durur. Aynı sekmede hesap değiştirince yeni
+     * kullanıcı bir önceki kullanıcının çizimini görebiliyordu — 2026-08-20'de özel
+     * rolle test ederken birebir yaşandı: kapı `/dashboard`'ı doğru reddedip yetkili
+     * sayfaya yönlendirdiği hâlde ekranda "yetkiniz yok" duvarı kaldı, çünkü payload
+     * önceki oturumdan geliyordu. Tam sayfa yükleme önbelleği tamamen düşürür.
+     */
     const yonlendir = () => {
       if (iptal) return
 
       if (session.user?.isSuperAdmin) {
-        router.push("/system-admin")
+        window.location.assign("/system-admin")
         return
       }
 
       // Blog editörü (firmaya bağlı olmayan platform hesabı) yalnız blog panelini görür.
       if (session.user?.isBlogEditor) {
-        router.push("/blog-admin")
+        window.location.assign("/blog-admin")
         return
       }
 
@@ -51,11 +61,11 @@ export default function SignInPage() {
 
       if (defaultCompanyId && defaultRole) {
         const params = new URLSearchParams({ company: defaultCompanyId })
-        router.push(`${roleToDashboardPath(defaultRole)}?${params.toString()}`)
+        window.location.assign(`${roleToDashboardPath(defaultRole)}?${params.toString()}`)
         return
       }
 
-      router.push("/dashboard")
+      window.location.assign("/dashboard")
     }
 
     /**
@@ -144,7 +154,10 @@ export default function SignInPage() {
         })
         resetCaptcha()
       } else {
-        router.replace("/dashboard")
+        // Yukarıdaki `yonlendir` ile aynı gerekçe: sert yükleme, önceki oturumun
+        // istemci route önbelleğini düşürür. (Oturum çözülünce `yonlendir` zaten
+        // rolün kendi panosuna taşır; buradaki yalnız ilk adımdır.)
+        window.location.assign("/dashboard")
       }
     } catch (error) {
       toast({

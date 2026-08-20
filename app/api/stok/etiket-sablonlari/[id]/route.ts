@@ -6,12 +6,12 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { MAX_DESIGN_JSON_BYTES, normalizeLabelDesign } from "@/lib/labels/types"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 // Tam şablon (design dahil) — editör şablon seçince çağırır.
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -45,9 +45,9 @@ export async function GET(
     console.error("Error fetching label template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
-export async function PUT(
+export const PUT = withApiErrors(async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -126,9 +126,9 @@ export async function PUT(
     console.error("Error updating label template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
-export async function DELETE(
+export const DELETE = withApiErrors(async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -165,4 +165,4 @@ export async function DELETE(
     console.error("Error deleting label template:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

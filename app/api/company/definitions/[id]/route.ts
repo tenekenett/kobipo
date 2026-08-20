@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -5,7 +6,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = withApiErrors(async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -31,9 +32,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   })
 
   return NextResponse.json(updated)
-}
+})
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withApiErrors(async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -48,4 +49,4 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
   await prisma.companyDefinition.delete({ where: { id } })
   return NextResponse.json({ success: true })
-}
+})

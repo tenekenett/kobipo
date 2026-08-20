@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -28,7 +29,7 @@ function classify(demandStatus: string | null): ActState {
   return "pending"
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
@@ -142,4 +143,4 @@ export async function GET(request: Request) {
     console.error("e-donusum onboarding status GET error:", error)
     return NextResponse.json({ success: false, error: message || "Durum sorgulanırken hata oluştu" }, { status: 500 })
   }
-}
+})

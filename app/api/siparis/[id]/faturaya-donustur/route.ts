@@ -1,3 +1,4 @@
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -7,7 +8,7 @@ import { adjustWarehouseStock } from "@/lib/stock/warehouse"
 
 export const dynamic = "force-dynamic"
 
-export async function POST(
+export const POST = withApiErrors(async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -108,6 +109,8 @@ export async function POST(
       result = await buildInvoice(invoiceNo)
       break
     } catch (error: any) {
+      // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+      if (isAccessDeniedError(error)) return accessDeniedResponse(error)
       const isDuplicate = error?.code === "P2002"
       if (!isDuplicate || attempt === 4) {
         if (isDuplicate) {
@@ -122,4 +125,4 @@ export async function POST(
   }
 
   return NextResponse.json(result, { status: 201 })
-}
+})

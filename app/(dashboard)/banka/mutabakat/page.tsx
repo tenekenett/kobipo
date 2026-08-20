@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -136,10 +137,10 @@ export default function BankaMutabakatPage() {
             </div>
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <WriteAction><Button>
                   <Plus className="mr-2 h-4 w-4" />
                   Yeni Ekstre
-                </Button>
+                </Button></WriteAction>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader><DialogTitle>Yeni Banka Ekstresi</DialogTitle></DialogHeader>
@@ -153,7 +154,7 @@ export default function BankaMutabakatPage() {
                   <Input type="date" value={form.statementDate} onChange={(e) => setForm((prev) => ({ ...prev, statementDate: e.target.value }))} />
                   <Input type="number" placeholder="Açılış bakiyesi" value={form.openingBalance} onChange={(e) => setForm((prev) => ({ ...prev, openingBalance: e.target.value }))} />
                   <Input type="number" placeholder="Kapanış bakiyesi" value={form.closingBalance} onChange={(e) => setForm((prev) => ({ ...prev, closingBalance: e.target.value }))} />
-                  <Button className="w-full" onClick={createStatement}>Kaydet</Button>
+                  <WriteAction><Button className="w-full" onClick={createStatement}>Kaydet</Button></WriteAction>
                 </div>
               </DialogContent>
             </Dialog>

@@ -32,6 +32,7 @@ import {
   canViewPage,
   editablePages,
   isApiPathAllowedForUser,
+  isPageGateApplicable,
   isReadOnlyMembership,
   isReadOnlyRole,
   isRestrictedMembership,
@@ -60,39 +61,85 @@ const restricted = (role: string, allowed: string[], writable: string[] = []): P
   writablePaths: writable,
 })
 
-describe("kısıtsız üyelik — davranış değişmez", () => {
-  // Bu blok özelliğin en önemli güvencesi: mevcut müşterilerin hiçbiri kısıt taşımıyor
-  // ve kapı açıldığında hiçbirinin ekranı değişmemeli.
+describe("kısıtsız üyelik — rol matrisi artık uçlarda da geçerli", () => {
+  // 2026-08-20'ye kadar bu blok "davranış değişmez" diyordu: kapı yalnız kısıtlı
+  // üyeliklere uygulanıyor, kısıtsız herkes her ucu çağırabiliyordu. Bayrak açıldı;
+  // ölçüm (194 kapılı uç × 6 rol) ADMIN/BRANCH_MANAGER/VIEWER'da sıfır ekran etkisi
+  // gösterdi, STOCK ve SALES'teki altı gerçek çağrının ikisi haritaya eklendi,
+  // cari kartı açma ise arayüzde gizlendi.
   it("boş allowedPaths kısıt yok demektir", () => {
     expect(isRestrictedMembership(unrestricted("SALES"))).toBe(false)
     expect(isRestrictedMembership(restricted("SALES", ["/cari/musteri"]))).toBe(true)
   })
 
-  it("her kuraldaki her uç kısıtsız kullanıcıya okuma ve yazma için açıktır", () => {
-    for (const role of ["ADMIN", "ACCOUNTANT", "STOCK", "SALES", "VIEWER"]) {
-      for (const rule of PAGE_API_RULES) {
-        expect(
-          isApiPathAllowedForUser(rule.prefix, "GET", unrestricted(role)),
-          `${role} okuyamadı: ${rule.prefix}`
-        ).toBe(true)
-        expect(
-          isApiPathAllowedForUser(rule.prefix, "POST", unrestricted(role)),
-          `${role} yazamadı: ${rule.prefix}`
-        ).toBe(true)
-      }
+  it("kısıt yoksa da kapı UYGULANIR", () => {
+    expect(ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED).toBe(true)
+    expect(isPageGateApplicable(unrestricted("SALES"))).toBe(true)
+    expect(isPageGateApplicable(restricted("SALES", ["/cari/musteri"]))).toBe(true)
+  })
+
+  it("ADMIN her kuralın her ucunu okur ve yazar", () => {
+    // ADMIN tüm sayfaları gördüğü için haritadaki HİÇBİR satır ona kapanmamalı.
+    // Bu test haritanın "dar yazılmış satır" nöbetçisidir: bir kuralın pages/writePages
+    // listesi menüde olmayan bir href'e bağlanırsa ADMIN'de patlar.
+    for (const rule of PAGE_API_RULES) {
+      expect(
+        isApiPathAllowedForUser(rule.prefix, "GET", unrestricted("ADMIN")),
+        `ADMIN okuyamadı: ${rule.prefix}`
+      ).toBe(true)
+      // `writePages: []` "bu uçtan hiç yazılmaz" demektir (ör. /api/cari/open-invoices,
+      // /api/export/*) — orada ADMIN'in de reddedilmesi DOĞRU davranıştır.
+      if (rule.writePages?.length === 0) continue
+      expect(
+        isApiPathAllowedForUser(rule.prefix, "POST", unrestricted("ADMIN")),
+        `ADMIN yazamadı: ${rule.prefix}`
+      ).toBe(true)
     }
   })
 
-  it("kısıtsız kullanıcı her panel route'unu açabilir", () => {
-    for (const path of ["/personel/maas", "/finans/kanallar", "/restoran/satis", "/ayarlar/ekip"]) {
+  it("rolün menüsünde olmayan ekranın ucu artık elle de çağrılamaz", () => {
+    // Güvenlik taramasındaki "çapraz-modül yazma" bulgusu: SALES stok ekranını
+    // görmüyordu ama ucunu çağırabiliyordu.
+    expect(isApiPathAllowedForUser("/api/depolar", "POST", unrestricted("SALES"))).toBe(false)
+    expect(isApiPathAllowedForUser("/api/personel/employees", "POST", unrestricted("SALES"))).toBe(false)
+    expect(isApiPathAllowedForUser("/api/company/users", "POST", unrestricted("ACCOUNTANT"))).toBe(false)
+    // Şube müdürü hesap yönetimine giremez (nav matrisiyle birebir).
+    expect(isApiPathAllowedForUser("/api/company/roles", "POST", unrestricted("BRANCH_MANAGER"))).toBe(false)
+  })
+
+  it("kısıtsız kullanıcı yalnız ROLÜNÜN route'larını açabilir", () => {
+    for (const path of ["/personel/maas", "/ayarlar/ekip"]) {
+      expect(canAccessRoute(unrestricted("SALES"), path)).toBe(false)
+    }
+    for (const path of ["/restoran/satis", "/satis/fatura", "/cari/musteri"]) {
       expect(canAccessRoute(unrestricted("SALES"), path)).toBe(true)
     }
+    // ADMIN hiçbir yerde kapıya takılmaz.
+    for (const path of ["/personel/maas", "/finans/kanallar", "/restoran/satis", "/ayarlar/ekip"]) {
+      expect(canAccessRoute(unrestricted("ADMIN"), path)).toBe(true)
+    }
   })
 
-  it("rol matrisi kısıtsızlara henüz uygulanmıyor (kademelendirme bilinçli)", () => {
-    // Bu sabit true olduğunda yukarıdaki iki test kırılır — kırılması DOĞRUDUR ve
-    // "artık rol matrisi de zorlanıyor" demektir. Testleri o zaman güncelleyin.
-    expect(ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED).toBe(false)
+  it("bayrak açılırken haritaya eklenen iki satır korunur", () => {
+    // Alış irsaliyesi, faturaya bağlanırken aday fatura listesini OKUR.
+    expect(isApiPathAllowedForUser("/api/e-donusum/invoices", "GET", restricted("STOCK", ["/alis/irsaliye"]))).toBe(
+      true
+    )
+    // ...ama fatura YAZAMAZ: eklenen satır yalnız okuma tarafındadır.
+    expect(isApiPathAllowedForUser("/api/e-donusum/invoices", "POST", restricted("STOCK", ["/alis/irsaliye"], ["/alis/irsaliye"]))).toBe(
+      false
+    )
+    // Satır içi kategori: kategoriyi üreten ekranlar artık tanım yazabilir.
+    expect(
+      isApiPathAllowedForUser("/api/company/definitions", "POST", restricted("SALES", ["/satis/hizli"], ["/satis/hizli"]))
+    ).toBe(true)
+    expect(
+      isApiPathAllowedForUser("/api/company/definitions", "POST", restricted("STOCK", ["/restoran/menu"], ["/restoran/menu"]))
+    ).toBe(true)
+    // Cari kartı açmak DAR kaldı: yetki cari ekranındadır (arayüzde de gizlenir).
+    expect(
+      isApiPathAllowedForUser("/api/cari/suppliers", "POST", restricted("STOCK", ["/alis/irsaliye"], ["/alis/irsaliye"]))
+    ).toBe(false)
   })
 })
 

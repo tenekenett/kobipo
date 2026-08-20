@@ -4,7 +4,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { getAccountSubscription } from "@/lib/billing/entitlements"
 import { subscriptionNotice } from "@/lib/billing/notice"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic"
  * gerekli. Modül kapısına tabi DEĞİL (bkz. lib/module-access.ts): kilitli hesap da
  * aboneliğinin durumunu görebilmeli, zaten satın alma ekranına yönlendiriliyor.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -48,4 +48,4 @@ export async function GET(request: Request) {
     console.error("billing notice error:", error)
     return NextResponse.json({ error: "Abonelik durumu okunamadı" }, { status: 500 })
   }
-}
+})

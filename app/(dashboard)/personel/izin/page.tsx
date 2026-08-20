@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -247,7 +248,7 @@ export default function IzinDevamPage() {
               </Select>
               <Button variant={showBalance ? "default" : "outline"} size="sm" onClick={toggleBalance}><Scale className="mr-1 h-4 w-4" /> İzin Bakiyesi</Button>
               <Button variant="outline" size="sm" onClick={fetchLeaves}><RefreshCcw className="mr-1 h-4 w-4" /> Yenile</Button>
-              <Button size="sm" onClick={() => { setForm(emptyForm()); setCreateOpen(true) }}><Plus className="mr-1 h-4 w-4" /> Yeni İzin</Button>
+              <WriteAction><Button size="sm" onClick={() => { setForm(emptyForm()); setCreateOpen(true) }}><Plus className="mr-1 h-4 w-4" /> Yeni İzin</Button></WriteAction>
             </div>
           </div>
         </CardHeader>
@@ -288,23 +289,23 @@ export default function IzinDevamPage() {
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
                           {l.status !== "APPROVED" && (
-                            <Button size="sm" variant="ghost" onClick={() => setStatus(l, "APPROVED")} title="Onayla">
+                            <WriteAction><Button size="sm" variant="ghost" onClick={() => setStatus(l, "APPROVED")} title="Onayla">
                               <Check className="h-4 w-4 text-emerald-600" />
-                            </Button>
+                            </Button></WriteAction>
                           )}
                           {l.status !== "REJECTED" && (
-                            <Button size="sm" variant="ghost" onClick={() => setStatus(l, "REJECTED")} title="Reddet">
+                            <WriteAction><Button size="sm" variant="ghost" onClick={() => setStatus(l, "REJECTED")} title="Reddet">
                               <X className="h-4 w-4 text-amber-600" />
-                            </Button>
+                            </Button></WriteAction>
                           )}
                           <Button size="sm" variant="ghost" asChild title="İzin formu (PDF)">
                             <a href={`/api/personel/leaves/${l.id}/pdf`} target="_blank" rel="noopener noreferrer">
                               <FileText className="h-4 w-4 text-kobipo-blue" />
                             </a>
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => remove(l)} title="Sil">
+                          <WriteAction><Button size="sm" variant="ghost" onClick={() => remove(l)} title="Sil">
                             <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          </Button></WriteAction>
                         </div>
                       </TableCell>
                     </StyledTableRow>
@@ -371,7 +372,7 @@ export default function IzinDevamPage() {
                 </div>
               )
             })()}
-            <Button className="w-full" onClick={save} disabled={isSaving || employees.length === 0}>{isSaving ? "Kaydediliyor…" : "Kaydet"}</Button>
+            <WriteAction><Button className="w-full" onClick={save} disabled={isSaving || employees.length === 0}>{isSaving ? "Kaydediliyor…" : "Kaydet"}</Button></WriteAction>
           </div>
         </DialogContent>
       </Dialog>

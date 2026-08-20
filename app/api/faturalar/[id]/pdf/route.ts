@@ -5,7 +5,7 @@ import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { renderFaturaPdf } from "@/lib/pdf/documents/fatura-document"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic"
  * sabit yükseklikte ad 2 / adres 1 satıra kırpılıyordu. Regresyon testleri:
  * `lib/pdf/doc/fatura-pdf-fuzz.test.ts`.
  */
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withApiErrors(async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -113,4 +113,4 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     console.error("Error generating PDF:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

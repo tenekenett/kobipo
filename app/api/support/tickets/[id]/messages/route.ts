@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -6,7 +7,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 export const dynamic = "force-dynamic"
 
 // Kullanıcının destek talebine yanıt eklemesi.
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withApiErrors(async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -35,4 +36,4 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   })
 
   return NextResponse.json(message, { status: 201 })
-}
+})

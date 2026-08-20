@@ -10,7 +10,7 @@ import {
   PAYTR_IFRAME_BASE,
   PAYTR_NOT_CONFIGURED_ERROR,
 } from "@/lib/integrations/paytr/client"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic"
  * ekranı hiç açılmaz. Callback `merchantOidBase()` ile sipariş id'sine geri çözer
  * ([[lib/integrations/paytr/notification.ts]]).
  */
-export async function POST(
+export const POST = withApiErrors(async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -91,4 +91,4 @@ export async function POST(
     console.error("kontor paytr-token error:", error)
     return NextResponse.json({ error: message || "PayTR token alınamadı" }, { status: 500 })
   }
-}
+})

@@ -17,7 +17,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { productImageStore } from "@/lib/storage/object-store"
 import { sanitizeFileName } from "@/lib/storage/supabase-storage"
 
@@ -46,7 +46,7 @@ const EXT_BY_MIME: Record<string, string> = {
   "image/avif": "avif",
 }
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -104,4 +104,4 @@ export async function POST(request: Request) {
     console.error("Error uploading product image:", error)
     return NextResponse.json({ error: error?.message || "Görsel yüklenemedi" }, { status: 500 })
   }
-}
+})

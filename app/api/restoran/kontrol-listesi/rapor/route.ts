@@ -11,7 +11,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
 import { dayToUtcDate, utcDateToDay } from "@/lib/personel/vardiya"
 import { CHECKLIST_TYPES, type ChecklistType } from "@/lib/restoran/checklist"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -19,7 +19,7 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
 type DayCell = { total: number; done: number; missing: string[] }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -137,7 +137,7 @@ export async function GET(request: Request) {
     console.error("Error building checklist report:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /** from..to arası günler, dahil. İkisi de "YYYY-MM-DD". */
 function dayRange(from: string, to: string): string[] {

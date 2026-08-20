@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -196,10 +197,10 @@ export default function DepolarPage() {
               <CardTitle>Depo Yönetimi</CardTitle>
               <CardDescription>Depolarınızı yönetin</CardDescription>
             </div>
-            <Button onClick={() => setIsModalOpen(true)}>
+            <WriteAction><Button onClick={() => setIsModalOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Yeni Depo
-            </Button>
+            </Button></WriteAction>
           </div>
         </CardHeader>
         <CardContent>
@@ -349,9 +350,9 @@ export default function DepolarPage() {
               >
                 İptal
               </Button>
-              <Button type="submit" disabled={isLoading}>
+              <WriteAction><Button type="submit" disabled={isLoading}>
                 {isLoading ? "Kaydediliyor..." : editingWarehouse ? "Güncelle" : "Kaydet"}
-              </Button>
+              </Button></WriteAction>
             </DialogFooter>
           </form>
         </DialogContent>

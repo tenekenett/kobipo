@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { getAccountSubscription, isPaidActive } from "@/lib/billing/entitlements"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic"
  *
  * Body: { companyId }
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -56,4 +56,4 @@ export async function POST(request: Request) {
     console.error("billing subscription cancel error:", error)
     return NextResponse.json({ error: message || "Abonelik iptal edilemedi" }, { status: 500 })
   }
-}
+})

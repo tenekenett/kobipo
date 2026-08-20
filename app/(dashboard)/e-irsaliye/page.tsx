@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -188,10 +189,10 @@ export default function EirsaliyePage() {
             </div>
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <WriteAction><Button>
                   <Plus className="mr-2 h-4 w-4" />
                   Yeni İrsaliye
-                </Button>
+                </Button></WriteAction>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
@@ -242,7 +243,7 @@ export default function EirsaliyePage() {
                     value={form.description}
                     onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
                   />
-                  <Button className="w-full" onClick={submitWaybill}>Kaydet</Button>
+                  <WriteAction><Button className="w-full" onClick={submitWaybill}>Kaydet</Button></WriteAction>
                 </div>
               </DialogContent>
             </Dialog>
@@ -300,14 +301,14 @@ export default function EirsaliyePage() {
                     <TableCell className="text-xs">{waybill.integrationStatus || "-"}</TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                        <Button
+                        <WriteAction><Button
                           size="sm"
                           variant="outline"
                           disabled={waybill.status !== "DRAFT"}
                           onClick={() => sendWaybill(waybill.id)}
                         >
                           Gönder
-                        </Button>
+                        </Button></WriteAction>
                         <Button
                           size="sm"
                           variant="ghost"

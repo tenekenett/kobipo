@@ -1,3 +1,4 @@
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic"
  * ekranları istemci ne gönderirse göndersin listeye giremez.
  */
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const companyId = await resolveCompanyId(new URL(request.url).searchParams.get("companyId"))
@@ -29,9 +30,9 @@ export async function GET(request: Request) {
     include: { _count: { select: { members: true } } },
   })
   return NextResponse.json(roles)
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -71,6 +72,8 @@ export async function POST(request: Request) {
     })
     return NextResponse.json(role, { status: 201 })
   } catch (error) {
+    // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+    if (isAccessDeniedError(error)) return accessDeniedResponse(error)
     if (error && typeof error === "object" && (error as { code?: string }).code === "P2002") {
       // Çakışan rolün id'sini de döndürüyoruz. 409'un tipik sebebi kullanıcının hata
       // yapması değil, arayüzün "düzenle" yerine "yeni rol" akışını açmasıdır (hazır
@@ -87,4 +90,4 @@ export async function POST(request: Request) {
     }
     throw error
   }
-}
+})

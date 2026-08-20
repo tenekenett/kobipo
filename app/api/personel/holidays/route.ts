@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic"
  * (yalnız ay+gün eşleşir), yıla göre sorgulansaydı takvimde kaybolurlardı.
  * Süzgeç istemcide, `holidayOn` ile yapılır.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -31,14 +32,14 @@ export async function GET(request: Request) {
     orderBy: { date: "asc" },
   })
   return NextResponse.json(holidays.map(toHolidayDto))
-}
+})
 
 /**
  * Tatil ekler. `seedYear` verilirse o yılın SABİT TARİHLİ resmî tatilleri toplu
  * eklenir (aynı güne ikinci kayıt açılmaz). Dinî bayramlar kayan tarihli olduğu
  * için bu listede yoktur — işveren elle girer.
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -109,4 +110,4 @@ export async function POST(request: Request) {
     },
   })
   return NextResponse.json(toHolidayDto(created), { status: 201 })
-}
+})

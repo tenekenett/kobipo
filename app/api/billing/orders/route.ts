@@ -7,12 +7,12 @@ import { isBillingCycle } from "@/lib/billing/constants"
 import { computeOrder, type PlanPricing } from "@/lib/billing/pricing"
 import { toPricingMap, TRIAL_PLAN_CODE } from "@/lib/billing/catalog"
 import { resolveAccountRootId } from "@/lib/billing/entitlements"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 /** GET — hesabın paket siparişleri (ödeme sayfası poll'ü için). */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -27,13 +27,13 @@ export async function GET(request: Request) {
     take: 20,
   })
   return NextResponse.json({ data: orders })
-}
+})
 
 /**
  * POST — paket/abonelik siparişi oluştur. Tutar SUNUCUDA hesaplanır.
  * Body: { companyId, planId?, chosenModules[], branchQuota, companyQuota, billingCycle, autoRenew? }
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -140,4 +140,4 @@ export async function POST(request: Request) {
     console.error("billing orders POST error:", error)
     return NextResponse.json({ error: message || "Sipariş oluşturulamadı" }, { status: 500 })
   }
-}
+})

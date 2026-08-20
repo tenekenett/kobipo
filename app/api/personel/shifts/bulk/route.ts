@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -40,7 +41,7 @@ type Planned = {
  * vardiya yazmak ise bu ekranın düzeltmeye çalıştığı hatanın ta kendisidir.
  * İstisna gerekiyorsa o vardiya takvimden tek tek açılır.
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -164,7 +165,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ created: accepted.length, skipped, skippedLeave, skippedHoliday })
-}
+})
 
 /**
  * Bir aralıktaki vardiyaları toplu siler — "haftayı temizle".
@@ -175,7 +176,7 @@ export async function POST(request: Request) {
  * yalnız `PLANNED` ve damgasız kayıtlar gider; korunanların sayısı yanıtta döner
  * ki kullanıcı "hepsi silinmedi"yi sessizce yaşamasın.
  */
-export async function DELETE(request: Request) {
+export const DELETE = withApiErrors(async function DELETE(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -214,7 +215,7 @@ export async function DELETE(request: Request) {
     deleted: removable.length,
     kept: all.length - removable.length,
   })
-}
+})
 
 /** `template` kipi: personel × gün kartezyeni. */
 async function planTemplate(companyId: string, body: any): Promise<Planned[] | string> {

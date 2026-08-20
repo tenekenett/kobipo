@@ -8,7 +8,7 @@ import { createPartnerProvider } from "@/lib/integrations/e-invoice/partner"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
 import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -31,7 +31,7 @@ type WithholdingType = { code: string; name: string; rate: number }
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000 // 12 saat
 const cache = new Map<string, { at: number; data: WithholdingType[] }>()
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -107,4 +107,4 @@ export async function GET(request: Request) {
     console.error("withholding-types GET error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-}
+})

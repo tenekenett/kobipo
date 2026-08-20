@@ -19,13 +19,13 @@ import {
   normalizeDiscountLimit,
 } from "@/lib/restoran/discount-limit"
 import { buildTicketDetail } from "@/lib/restoran/ticket-detail"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 type Params = { params: Promise<{ id: string }> }
 
-export async function GET(request: Request, { params }: Params) {
+export const GET = withApiErrors(async function GET(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -61,7 +61,7 @@ export async function GET(request: Request, { params }: Params) {
     console.error("Error fetching ticket:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Adisyonu günceller: not, kişi sayısı, müşteri, İSKONTO ve MASA TAŞIMA.
@@ -69,7 +69,7 @@ export async function GET(request: Request, { params }: Params) {
  * Masa taşıma ayrı bir uç değil çünkü tek alan değişiyor (`tableId`); hedef
  * masada açık adisyon varsa reddedilir — iki hesap sessizce üst üste binmesin.
  */
-export async function PATCH(request: Request, { params }: Params) {
+export const PATCH = withApiErrors(async function PATCH(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -249,7 +249,7 @@ export async function PATCH(request: Request, { params }: Params) {
     console.error("Error updating ticket:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Adisyonu iptal eder. Stok ve cari ETKİLENMEZ — açık adisyon zaten hiçbirine
@@ -267,7 +267,7 @@ export async function PATCH(request: Request, { params }: Params) {
  * Boş adisyonda ikisi de sorulmuyor: yanlış açılmış boş kayıt için sebep sormak
  * gürültüdür.
  */
-export async function DELETE(request: Request, { params }: Params) {
+export const DELETE = withApiErrors(async function DELETE(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -336,4 +336,4 @@ export async function DELETE(request: Request, { params }: Params) {
     console.error("Error cancelling ticket:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

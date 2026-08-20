@@ -1,3 +1,4 @@
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -68,7 +69,7 @@ async function generateOrderNumber(companyId: string, type: "SALES" | "PURCHASE"
   return `${prefix}${String(next).padStart(6, "0")}`
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -94,9 +95,9 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "desc" },
   })
   return NextResponse.json(orders)
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -171,6 +172,8 @@ export async function POST(request: Request) {
       })
       return NextResponse.json(order, { status: 201 })
     } catch (error: any) {
+      // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
+      if (isAccessDeniedError(error)) return accessDeniedResponse(error)
       if (error?.code === "P2002" && attempt < maxAttempts - 1 && !orderNo) continue
       if (error?.code === "P2002") {
         return NextResponse.json(
@@ -184,4 +187,4 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ error: "Sipariş numarası üretilemedi" }, { status: 409 })
-}
+})

@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -22,7 +23,7 @@ export const dynamic = "force-dynamic"
  * saatsiz gündür ve UTC gece yarısı olarak yazılır — yerel çevrimle yazılsaydı
  * TSİ'de gün kayardı.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -53,9 +54,9 @@ export async function GET(request: Request) {
   })
 
   return NextResponse.json(await attachActorNames(shifts.map(toShiftDto)))
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -102,4 +103,4 @@ export async function POST(request: Request) {
   })
 
   return NextResponse.json(toShiftDto(created), { status: 201 })
-}
+})

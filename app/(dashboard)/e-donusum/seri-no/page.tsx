@@ -1,5 +1,6 @@
 "use client"
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -549,10 +550,10 @@ export default function SeriNoTanimlariPage() {
             <RefreshCcw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
             Yenile
           </Button>
-          <Button onClick={() => setAddOpen(true)}>
+          <WriteAction><Button onClick={() => setAddOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Yeni Numaratör
-          </Button>
+          </Button></WriteAction>
         </div>
       </div>
 
@@ -938,7 +939,7 @@ export default function SeriNoTanimlariPage() {
                   <Button variant="outline" onClick={() => setBackdateForm(null)} disabled={busy}>
                     Vazgeç
                   </Button>
-                  <Button onClick={submitBackdateForm} disabled={busy}>
+                  <WriteAction><Button onClick={submitBackdateForm} disabled={busy}>
                     {busy ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -947,7 +948,7 @@ export default function SeriNoTanimlariPage() {
                     ) : (
                       "Kaydet"
                     )}
-                  </Button>
+                  </Button></WriteAction>
                 </DialogFooter>
               </>
             )
@@ -1010,7 +1011,7 @@ export default function SeriNoTanimlariPage() {
             <Button variant="outline" onClick={() => setAddOpen(false)} disabled={isAdding}>
               Vazgeç
             </Button>
-            <Button onClick={addNumerator} disabled={isAdding}>
+            <WriteAction><Button onClick={addNumerator} disabled={isAdding}>
               {isAdding ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1022,7 +1023,7 @@ export default function SeriNoTanimlariPage() {
                   Mysoft'a ekle
                 </>
               )}
-            </Button>
+            </Button></WriteAction>
           </DialogFooter>
         </DialogContent>
       </Dialog>

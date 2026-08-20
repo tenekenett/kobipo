@@ -8,7 +8,7 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 import { decryptSecret } from "@/lib/crypto/secrets"
 import { readSampleTemplate } from "@/lib/integrations/e-invoice/sample-templates"
 import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -67,7 +67,7 @@ function providerFromCreds(creds: { username: string; passwordText: string; base
   })
 }
 
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -110,9 +110,9 @@ export async function GET(request: Request) {
     console.error("templates GET error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -208,5 +208,5 @@ export async function POST(request: Request) {
     console.error("templates POST error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-}
+})
 

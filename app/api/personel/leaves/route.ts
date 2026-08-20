@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -24,7 +25,7 @@ function inclusiveDays(start: Date, end: Date): number {
  * yokken firmanın bütün geçmiş izinleri her takvim açılışında geliyordu — birkaç
  * yıl sonra yüzlerce kayıt. İzin ekranı aralık vermez, tamamını almaya devam eder.
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -56,9 +57,9 @@ export async function GET(request: Request) {
     orderBy: { startDate: "desc" },
   })
   return NextResponse.json(leaves)
-}
+})
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -97,4 +98,4 @@ export async function POST(request: Request) {
     include: { employee: { select: { id: true, firstName: true, lastName: true, department: true } } },
   })
   return NextResponse.json(leave, { status: 201 })
-}
+})

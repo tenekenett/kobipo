@@ -10,6 +10,7 @@
 // hiçbir zaman çelişmez — kendi hesap mantığını burada tekrar yazmak, ikisinin
 // zamanla ayrışmasına açık kapı bırakırdı.
 
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { useCallback, useMemo, useState } from "react"
 import Link from "next/link"
 import {
@@ -857,20 +858,20 @@ export default function ReceptelerPage() {
           </Button>
           {tab === "menu" ? (
             <>
-              <Button variant="outline" onClick={() => openRawDialogFor(null)}>
+              <WriteAction><Button variant="outline" onClick={() => openRawDialogFor(null)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Yeni Hammadde
-              </Button>
-              <Button onClick={openNew}>
+              </Button></WriteAction>
+              <WriteAction><Button onClick={openNew}>
                 <Plus className="mr-2 h-4 w-4" />
                 Yeni Menü Ürünü
-              </Button>
+              </Button></WriteAction>
             </>
           ) : (
-            <Button onClick={() => openRawDialogFor(null)}>
+            <WriteAction><Button onClick={() => openRawDialogFor(null)}>
               <Plus className="mr-2 h-4 w-4" />
               Yeni Hammadde
-            </Button>
+            </Button></WriteAction>
           )}
         </div>
       </div>
@@ -1191,10 +1192,10 @@ export default function ReceptelerPage() {
                     oradan açılınca oluşan kart satıra yazılıyor, buradan açılınca
                     yazılmıyordu — aynı işi yapan iki düğmeden yalnız biri işe
                     yarıyordu. Bağlamsız oluşturma sayfa başlığında duruyor. */}
-                <Button type="button" variant="outline" size="sm" onClick={addItem}>
+                <WriteAction><Button type="button" variant="outline" size="sm" onClick={addItem}>
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   Bileşen Ekle
-                </Button>
+                </Button></WriteAction>
               </div>
 
               <div className="space-y-2">
@@ -1266,7 +1267,7 @@ export default function ReceptelerPage() {
                               başlıktan açılıyordu ve hedef satır hiç verilmediği
                               için kullanıcı hammaddeyi listeden tekrar aramak
                               zorunda kalıyordu. */}
-                          <Button
+                          <WriteAction><Button
                             type="button"
                             variant="outline"
                             size="icon"
@@ -1276,7 +1277,7 @@ export default function ReceptelerPage() {
                             aria-label="Yeni hammadde oluştur"
                           >
                             <Plus className="h-4 w-4" />
-                          </Button>
+                          </Button></WriteAction>
                         </div>
                       </div>
                       <div className="space-y-1.5 sm:col-span-2">
@@ -1455,13 +1456,13 @@ export default function ReceptelerPage() {
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
               Vazgeç
             </Button>
-            <Button onClick={handleSave} disabled={!canSave}>
+            <WriteAction><Button onClick={handleSave} disabled={!canSave}>
               {saving
                 ? "Kaydediliyor…"
                 : draft.mode === "new" && !editingRecipeId
                   ? "Menüye Ekle"
                   : "Kaydet"}
-            </Button>
+            </Button></WriteAction>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1826,7 +1827,7 @@ function MenuTable({
                       sarıp satırı iki katına çıkarıyordu. Düğme yükseklikleri de
                       eşitlendi (h-8) — karışık boylar sıkışık gösteriyordu. */}
                   <div className="flex items-center justify-end gap-1 whitespace-nowrap">
-                    <Button
+                    <WriteAction><Button
                       variant="ghost"
                       size="sm"
                       className="h-8 px-2"
@@ -1841,9 +1842,9 @@ function MenuTable({
                           <span className="text-xs">Reçete</span>
                         </>
                       )}
-                    </Button>
+                    </Button></WriteAction>
                     {recipe && (
-                      <Button
+                      <WriteAction><Button
                         variant="ghost"
                         size="sm"
                         className="h-8 w-8 p-0"
@@ -1851,7 +1852,7 @@ function MenuTable({
                         title="Reçeteyi sil"
                       >
                         <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
+                      </Button></WriteAction>
                     )}
                     {/* Seçenek (boy/süt/ekstra) — sayısı rozette, tanımı diyalogda. */}
                     <Button
@@ -1974,14 +1975,14 @@ function RawTable({
                         yalnızca diyalogdaki "Mevcut üründen seç" modundaydı;
                         o mod kalkınca eylem satıra taşındı — ürünü listede
                         görürken tıklamak, diyalog içinde aramaktan kolay. */}
-                    <Button
+                    <WriteAction><Button
                       variant="ghost"
                       size="icon"
                       onClick={() => onEdit(p)}
                       title={isSemiFinished ? "Reçeteyi düzenle" : "Reçete ekle"}
                     >
                       <Pencil className="h-4 w-4" />
-                    </Button>
+                    </Button></WriteAction>
                     <KindSelect product={p} onChange={onChangeKind} />
                   </div>
                 </TableCell>

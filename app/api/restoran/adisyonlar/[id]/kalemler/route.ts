@@ -11,7 +11,7 @@ import {
   ticketInclude,
   type TicketItemOption,
 } from "@/lib/restoran/tickets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -37,7 +37,7 @@ const round6 = (v: number) => Math.round(v * 1_000_000) / 1_000_000
  * `merge` (varsayılan açık): aynı ürün + aynı not + aynı fiyat zaten varsa yeni
  * satır açmak yerine adedi artırır. "2 çay" sonra "1 çay" → tek satır "3 çay".
  */
-export async function POST(request: Request, { params }: Params) {
+export const POST = withApiErrors(async function POST(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -217,4 +217,4 @@ export async function POST(request: Request, { params }: Params) {
     console.error("Error adding ticket item:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

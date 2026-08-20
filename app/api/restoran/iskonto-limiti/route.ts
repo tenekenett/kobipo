@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
 import { isValidLimitInput, normalizeDiscountLimit } from "@/lib/restoran/discount-limit"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic"
  * kişinin kendisi değiştirebilseydi kural olmazdı. (Şube müdürü de yazamaz;
  * şubelerde ana firmanın sahibi zaten sanal ADMIN'dir, bkz. lib/auth/user-context.)
  */
-export async function GET(request: Request) {
+export const GET = withApiErrors(async function GET(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -50,9 +50,9 @@ export async function GET(request: Request) {
     console.error("Error fetching discount limit:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
-export async function PUT(request: Request) {
+export const PUT = withApiErrors(async function PUT(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -92,4 +92,4 @@ export async function PUT(request: Request) {
     console.error("Error saving discount limit:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})

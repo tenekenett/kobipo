@@ -9,7 +9,7 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic"
  * Bu, lib/pdf/documents/fatura-document.ts'in ürettiği iç görünümden farklıdır —
  * yasal geçerliliği olan ve GİB UBL'sinden üretilmiş resmî dökümandır.
  */
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -116,4 +116,4 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})

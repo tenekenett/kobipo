@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic"
  * Stok hareketi / cari bakiye zaten POST aşamasında işleniyor — burada
  * yalnızca status alanı güncellenir.
  */
-export async function POST(
+export const POST = withApiErrors(async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -67,4 +67,4 @@ export async function POST(
       { status: 500 },
     )
   }
-}
+})

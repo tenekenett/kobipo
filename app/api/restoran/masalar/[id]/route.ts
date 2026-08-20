@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertRestaurantModule, TABLE_SHAPES } from "@/lib/restoran/tickets"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -14,7 +14,7 @@ type Params = { params: Promise<{ id: string }> }
  * Masayı günceller. Sürükle-bırak yerleşimi de buradan geçer: bırakma anında
  * tek masa için `{ x, y }` gönderilir — tüm planı yeniden yazmak gerekmez.
  */
-export async function PATCH(request: Request, { params }: Params) {
+export const PATCH = withApiErrors(async function PATCH(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -93,7 +93,7 @@ export async function PATCH(request: Request, { params }: Params) {
     console.error("Error updating restaurant table:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Masayı kaldırır. Geçmiş adisyonu olan masa SİLİNMEZ, pasifleştirilir —
@@ -101,7 +101,7 @@ export async function PATCH(request: Request, { params }: Params) {
  * hangi masaya ait oldukları kaybolurdu. Hiç adisyonu olmayan (yanlışlıkla
  * açılmış) masa gerçekten silinir.
  */
-export async function DELETE(request: Request, { params }: Params) {
+export const DELETE = withApiErrors(async function DELETE(request: Request, { params }: Params) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -139,7 +139,7 @@ export async function DELETE(request: Request, { params }: Params) {
     console.error("Error deleting restaurant table:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-}
+})
 
 /**
  * Ölçüler 1–40 hücre. Üst sınır kroki öğeleriyle AYNI: gerçek sınırı planın

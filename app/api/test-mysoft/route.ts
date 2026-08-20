@@ -1,3 +1,4 @@
+import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
@@ -6,7 +7,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company";
 import { decryptSecret } from "@/lib/crypto/secrets";
 import { resolveMysoftBaseUrl } from "@/lib/integrations/e-invoice/constants";
 
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) {
@@ -135,4 +136,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+})

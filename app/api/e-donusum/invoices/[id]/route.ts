@@ -16,7 +16,7 @@ import { resolveSlugId } from "@/lib/slug-resolve"
 import { Decimal } from "@prisma/client/runtime/library"
 import { normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import {
   addLineTax,
   applyGlobalAdjustment,
@@ -96,7 +96,7 @@ function normalizeInvoiceItem(item: any) {
         : null,
   }
 }
-export async function GET(
+export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -214,9 +214,9 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
-export async function PUT(
+export const PUT = withApiErrors(async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -594,9 +594,9 @@ export async function PUT(
       { status: 500 }
     )
   }
-}
+})
 
-export async function POST(
+export const POST = withApiErrors(async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -668,8 +668,8 @@ export async function POST(
       { status: 500 }
     )
   }
-}
-export async function DELETE(
+})
+export const DELETE = withApiErrors(async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -754,4 +754,4 @@ export async function DELETE(
       { status: 500 }
     )
   }
-}
+})

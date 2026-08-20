@@ -8,7 +8,7 @@ import {
   normalizeDesignOptions,
   sampleKeyForDocType,
 } from "@/lib/integrations/e-invoice/template-designer"
-import { accessDeniedResponse } from "@/lib/api/errors"
+import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic"
  * XSLT içeriğini döndürür. İstemci bu `content`'i mevcut `templates/preview`
  * (PDF önizleme) ve `templates` (Mysoft'a yükleme) endpoint'lerine verir.
  */
-export async function POST(request: Request) {
+export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -56,4 +56,4 @@ export async function POST(request: Request) {
     console.error("templates design error:", error)
     return NextResponse.json({ error: message || "Internal server error" }, { status: 500 })
   }
-}
+})
