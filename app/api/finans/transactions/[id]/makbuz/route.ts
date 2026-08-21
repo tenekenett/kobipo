@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { accountPaymentMethodLabel } from "@/lib/finans/account-types"
 import { renderMakbuzPdf } from "@/lib/pdf/documents/makbuz-document"
@@ -42,7 +42,7 @@ export const GET = withApiErrors(async function GET(request: Request, { params }
       return NextResponse.json({ error: "İşlem bulunamadı" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(tx.companyId)
+    await ensureCompanyExport(tx.companyId)
 
     // Tür etiketi ekrandakiyle aynı kuralla türetilir: cariye bağlıysa
     // Tahsilat/Ödeme, değilse Gelir/Gider.

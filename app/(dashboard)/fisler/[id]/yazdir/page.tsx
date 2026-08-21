@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { currency } from "@/lib/fis/receipt-html"
 import { DEFAULT_RECEIPT_TEMPLATE, type ReceiptTemplate } from "@/lib/fis/receipt-template"
 import { Loader2, Printer } from "lucide-react"
+import { ExportOnlyScreen } from "@/components/dashboard/write-guard"
 
 type FisDetail = {
   receiptNo: string
@@ -104,6 +105,7 @@ export default function FisYazdirPage() {
   const headerTitle = tpl.headerText || fis.companyName
 
   return (
+    <ExportOnlyScreen>
     <div className="mx-auto max-w-[210mm] p-4 print:p-0">
       <div className="mb-4 flex justify-end gap-2 print:hidden">
         <Button size="sm" onClick={() => window.print()}>
@@ -253,5 +255,6 @@ export default function FisYazdirPage() {
         </div>
       </div>
     </div>
+    </ExportOnlyScreen>
   )
 }

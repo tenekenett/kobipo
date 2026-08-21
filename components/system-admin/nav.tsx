@@ -22,6 +22,7 @@ import {
   Package,
   CreditCard,
   Fingerprint,
+  ShieldCheck,
 } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -66,6 +67,12 @@ const navItems = [
     title: "Paketler",
     href: "/system-admin/paketler",
     icon: Package,
+  },
+  {
+    // Firmalara sunulan hazır rol kalıpları (Rol Yetkileri ekranındaki kartlar).
+    title: "Hazır Roller",
+    href: "/system-admin/roller",
+    icon: ShieldCheck,
   },
   {
     title: "Abonelikler",

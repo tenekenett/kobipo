@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useParams, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { InvoiceEditor } from "@/components/e-donusum/invoice-editor"
+import { WriteOnlyScreen } from "@/components/dashboard/write-guard"
 import { ArrowLeft } from "lucide-react"
 
 export default function EDonusumFaturaDuzenlePage() {
@@ -45,7 +46,10 @@ export default function EDonusumFaturaDuzenlePage() {
         </Button>
         <h1 className="text-2xl font-bold">Fatura Düzenle</h1>
       </div>
-      <InvoiceEditor companyId={companyId} mode="edit" invoiceId={invoiceId} backHref={backHref} />
+      {/* Editör yalnız YAZMAK için var (bkz. /e-donusum/yeni). */}
+      <WriteOnlyScreen>
+        <InvoiceEditor companyId={companyId} mode="edit" invoiceId={invoiceId} backHref={backHref} />
+      </WriteOnlyScreen>
     </div>
   )
 }

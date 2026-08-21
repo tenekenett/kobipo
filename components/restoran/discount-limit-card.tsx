@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { useDiscountLimit } from "@/lib/swr/use-restoran"
 import { formatPercent, isValidLimitInput } from "@/lib/restoran/discount-limit"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 export function DiscountLimitCard() {
   const { selectedCompanyId: companyId } = useDashboardCompany()
@@ -104,6 +105,7 @@ export function DiscountLimitCard() {
               />
             </div>
             <div className="flex items-center gap-2">
+              <WriteAction>
               <Button onClick={() => void save()} disabled={!valid || !changed || saving}>
                 {saving ? "Kaydediliyor…" : "Kaydet"}
               </Button>
@@ -114,6 +116,7 @@ export function DiscountLimitCard() {
                   Sınırı kaldır
                 </Button>
               )}
+              </WriteAction>
             </div>
             <p className="text-xs text-muted-foreground sm:pb-3">
               {!valid

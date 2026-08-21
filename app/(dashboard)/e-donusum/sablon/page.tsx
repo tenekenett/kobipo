@@ -1,6 +1,6 @@
 "use client"
 
-import { WriteAction } from "@/components/dashboard/write-guard"
+import { WriteAction, WriteOnlyScreen } from "@/components/dashboard/write-guard"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -970,7 +970,10 @@ export default function FaturaSablonuPage() {
 
             {/* Tasarla */}
             <TabsContent value="design" className="pt-4">
+              {/* Tasarımcı bir DÜZENLEME yüzeyi: salt-okunurda tek tek düğme gizlemek
+                  kaydedilemeyen bir tasarımcı bırakırdı. */}
               <div ref={designerRef}>
+                <WriteOnlyScreen>
                 <TemplateDesigner
                   companyId={companyId}
                   docType={docType}
@@ -982,6 +985,7 @@ export default function FaturaSablonuPage() {
                   editNonce={editNonce}
                   onEditDone={() => setEditTarget(null)}
                 />
+                </WriteOnlyScreen>
               </div>
             </TabsContent>
 

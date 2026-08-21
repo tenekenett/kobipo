@@ -24,6 +24,7 @@ import {
 } from "@/lib/fis/receipt-html"
 import { DEFAULT_RECEIPT_TEMPLATE, type ReceiptTemplate } from "@/lib/fis/receipt-template"
 import { ArrowLeft, FileText, Loader2, Printer, Receipt, Wallet, XCircle } from "lucide-react"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 
 type FisDetail = {
   id: string
@@ -307,16 +308,18 @@ export default function FisDetayPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={printReceipt}>
-            <Receipt className="mr-2 h-4 w-4" />
-            Fiş Yazdır
-          </Button>
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/fisler/${fis.slug || fis.id}/yazdir?company=${companyId ?? ""}`} target="_blank">
-              <Printer className="mr-2 h-4 w-4" />
-              A4 Yazdır
-            </Link>
-          </Button>
+          <ExportAction>
+            <Button variant="outline" size="sm" onClick={printReceipt}>
+              <Receipt className="mr-2 h-4 w-4" />
+              Fiş Yazdır
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/fisler/${fis.slug || fis.id}/yazdir?company=${companyId ?? ""}`} target="_blank">
+                <Printer className="mr-2 h-4 w-4" />
+                A4 Yazdır
+              </Link>
+            </Button>
+          </ExportAction>
           <Button variant="outline" size="sm" asChild>
             {/* return: ödemeler ekranı fatura listesine değil, bu fişe geri dönsün. */}
             <Link
@@ -329,7 +332,7 @@ export default function FisDetayPage() {
             </Link>
           </Button>
           {isActive && (
-            <>
+            <WriteAction>
               <Button size="sm" onClick={convert} disabled={busy}>
                 {busy ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -342,7 +345,7 @@ export default function FisDetayPage() {
                 <XCircle className="mr-2 h-4 w-4" />
                 İptal Et
               </Button>
-            </>
+            </WriteAction>
           )}
         </div>
       </div>

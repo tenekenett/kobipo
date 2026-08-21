@@ -1,6 +1,6 @@
 "use client"
 
-import { WriteAction } from "@/components/dashboard/write-guard"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import { useCallback, useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -203,14 +203,19 @@ export default function ZimmetPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
-                          <Button size="sm" variant="ghost" asChild title={a.status === "RETURNED" ? "İade formu (PDF)" : "Teslim formu (PDF)"}>
-                            <a href={`/api/personel/assets/${a.id}/pdf`} target="_blank" rel="noopener noreferrer">
-                              <FileText className="h-4 w-4 text-kobipo-blue" />
-                            </a>
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => toggleReturn(a)} title={a.status === "RETURNED" ? "Zimmete geri al" : "İade al"}>
-                            <Undo2 className={`h-4 w-4 ${a.status === "RETURNED" ? "text-muted-foreground" : "text-emerald-600"}`} />
-                          </Button>
+                          <ExportAction>
+                            <Button size="sm" variant="ghost" asChild title={a.status === "RETURNED" ? "İade formu (PDF)" : "Teslim formu (PDF)"}>
+                              <a href={`/api/personel/assets/${a.id}/pdf`} target="_blank" rel="noopener noreferrer">
+                                <FileText className="h-4 w-4 text-kobipo-blue" />
+                              </a>
+                            </Button>
+                          </ExportAction>
+                          {/* İade almak zimmetin DURUMUNU değiştirir — yazma. */}
+                          <WriteAction>
+                            <Button size="sm" variant="ghost" onClick={() => toggleReturn(a)} title={a.status === "RETURNED" ? "Zimmete geri al" : "İade al"}>
+                              <Undo2 className={`h-4 w-4 ${a.status === "RETURNED" ? "text-muted-foreground" : "text-emerald-600"}`} />
+                            </Button>
+                          </WriteAction>
                           <WriteAction><Button size="sm" variant="ghost" onClick={() => remove(a)} title="Sil">
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button></WriteAction>

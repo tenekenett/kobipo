@@ -28,6 +28,7 @@ import { ExportButton } from "@/components/export/export-button"
 import { CariArchiveDeleteDialog } from "@/components/cari/cari-archive-delete-dialog"
 import { CariFislerSection } from "@/components/cari/cari-fisler-section"
 import { looksLikeCuid } from "@/lib/slug"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 // İsimden baş harf(ler) üret: "Acme Ltd" → "AL", "Ahmet" → "AH"
 function getInitials(name: string): string {
@@ -312,18 +313,20 @@ export default function CustomerSupplierDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link
-            href={`/e-donusum/yeni?company=${companyId}&type=${isCustomer ? "SALES" : "PURCHASE"}&${isCustomer ? "customerId" : "supplierId"}=${data.id}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`}
-          >
-            <Button variant="default" size="sm">
-              <FileText className="mr-2 h-4 w-4" />
-              Fatura Kes
+          <WriteAction>
+            <Link
+              href={`/e-donusum/yeni?company=${companyId}&type=${isCustomer ? "SALES" : "PURCHASE"}&${isCustomer ? "customerId" : "supplierId"}=${data.id}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`}
+            >
+              <Button variant="default" size="sm">
+                <FileText className="mr-2 h-4 w-4" />
+                Fatura Kes
+              </Button>
+            </Link>
+            <Button variant="outline" size="sm" onClick={() => setIsTransactionDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              {isCustomer ? "Tahsilat Ekle" : "Ödeme Ekle"}
             </Button>
-          </Link>
-          <Button variant="outline" size="sm" onClick={() => setIsTransactionDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            {isCustomer ? "Tahsilat Ekle" : "Ödeme Ekle"}
-          </Button>
+          </WriteAction>
           {/* Bu carinin ekstresi — hareketler + yaşlandırma özeti. URL'deki `id`
               slug olabildiği için çözülmüş `data.id` gönderiliyor. */}
           <ExportButton
@@ -332,6 +335,7 @@ export default function CustomerSupplierDetailPage() {
             label="Ekstre"
             params={isCustomer ? { customerId: data.id } : { supplierId: data.id }}
           />
+          <WriteAction>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon" aria-label="Daha fazla işlem">
@@ -367,6 +371,7 @@ export default function CustomerSupplierDetailPage() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          </WriteAction>
         </div>
       </div>
 

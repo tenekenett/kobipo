@@ -22,7 +22,7 @@ import {
   moduleKeyForPath,
   pagesForRole,
 } from "./nav/pages"
-import { ROLE_TEMPLATES } from "./nav/role-templates"
+import { DEFAULT_ROLE_TEMPLATES } from "./nav/role-templates"
 import {
   ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED,
   PAGE_API_RULES,
@@ -208,7 +208,7 @@ describe("modül süzgeci — kapalı modülün sayfası teklif edilmez", () => 
   it("kalıbın kapalı modülleri isimleriyle bildirilir", () => {
     // Kart yalnız "4 yerine 0 sayfa" derse kullanıcı neyi satın alacağını bilemez;
     // etiket satın alma ekranındakiyle aynı olmalı.
-    const kasiyer = ROLE_TEMPLATES.find((t) => t.key === "kasiyer")!
+    const kasiyer = DEFAULT_ROLE_TEMPLATES.find((t) => t.key === "kasiyer")!
     expect(filterAvailablePages(kasiyer.allowedPaths, closed)).toEqual([])
     expect(missingModuleLabels(kasiyer.allowedPaths, closed)).toEqual(["Restoran & Kafe"])
   })
@@ -216,7 +216,7 @@ describe("modül süzgeci — kapalı modülün sayfası teklif edilmez", () => 
   it("kısmen kapalı kalıpta yalnız eksik modül raporlanır", () => {
     // Vardiya Sorumlusu restoran sayfaları + tek bir personel (izin) sayfası taşır;
     // yalnız Personel kapalıyken kalıp kullanılabilir kalır ama daralır.
-    const sef = ROLE_TEMPLATES.find((t) => t.key === "kasiyer-sef")!
+    const sef = DEFAULT_ROLE_TEMPLATES.find((t) => t.key === "kasiyer-sef")!
     const onlyHrClosed = { disabledModules: ["hr"] }
     const usable = filterAvailablePages(sef.allowedPaths, onlyHrClosed)
     expect(usable.length).toBe(sef.allowedPaths.length - 1)
@@ -227,7 +227,7 @@ describe("modül süzgeci — kapalı modülün sayfası teklif edilmez", () => 
   })
 
   it("süzgeç yokken kalıp eksiksiz ve şikâyetsizdir", () => {
-    for (const t of ROLE_TEMPLATES) {
+    for (const t of DEFAULT_ROLE_TEMPLATES) {
       expect(filterAvailablePages(t.allowedPaths, undefined)).toEqual(t.allowedPaths)
       expect(missingModuleLabels(t.allowedPaths, undefined)).toEqual([])
     }

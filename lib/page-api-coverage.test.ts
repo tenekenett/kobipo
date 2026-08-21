@@ -57,6 +57,8 @@ const GATE_EXEMPT_ENDPOINTS: Record<string, string> = {
   "/companies":
     "GET üyelik listesini `getUserContext`ten süzer; POST `createCompany` içindeki erişim + rol + kota denetimine tabidir (bkz. npm run check:company-create).",
   "/company/branch-managers": "canManageCompany (üyeliksiz yönetici kapsamı dahil)",
+  "/company/role-templates":
+    "Hazır rol kalıbı KATALOĞU geneldir — firmaya ait veri döndürmez, yalnız oturum arar. Yazma ucu sistem-admin tarafındadır (requireSuperAdmin).",
   "/invitations/[token]/accept":
     "Davet TOKEN'ı ile açılır — çağıran henüz o firmanın üyesi değildir, kapı zaten reddederdi.",
   "/pay/[token]": "Ödeme bağlantısı token ile açılır; oturum gerektirmez.",
@@ -77,7 +79,7 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 const METHOD_RE = /export\s+(?:async\s+)?(?:function|const)\s+(GET|POST|PUT|PATCH|DELETE)\b/g
-const GATE_RE = /ensureCompanyAccess|ensureCompanyWrite|assertPagePath/
+const GATE_RE = /ensureCompanyAccess|ensureCompanyWrite|ensureCompanyExport|assertPagePath/
 
 /** Kapıyı çağıran uçlar — kapının gerçek yüzeyi budur. */
 function gatedRoutes(): Route[] {

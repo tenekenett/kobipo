@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import {
   generateGibInvoicePdfBuffer,
@@ -58,7 +58,7 @@ export const GET = withApiErrors(async function GET(
     })
     if (!invoice) return NextResponse.json({ error: "Fatura bulunamadı" }, { status: 404 })
 
-    await ensureCompanyAccess(invoice.companyId)
+    await ensureCompanyExport(invoice.companyId)
     if (queryCompanyId && queryCompanyId !== invoice.companyId) {
       return NextResponse.json(
         { error: "Bu fatura seçili firmaya ait değil.", code: "COMPANY_MISMATCH" },

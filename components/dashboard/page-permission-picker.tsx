@@ -9,7 +9,7 @@ import {
   moduleKeyForPath,
   navPage,
 } from "@/lib/nav/pages"
-import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { useOptionalDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { MANAGEABLE_MODULES } from "@/lib/modules"
 import { Eye, Lock, Pencil } from "lucide-react"
 
@@ -35,7 +35,9 @@ export function PagePermissionPicker({
   access: Record<string, Access>
   onChange: (next: Record<string, Access>) => void
 }) {
-  const { selectedCompany } = useDashboardCompany()
+  // Firma bağlamı İSTEĞE BAĞLI: aynı seçici sistem yönetim panelinde de kullanılıyor
+  // (hazır rol kalıpları), orada seçili firma yok — dolayısıyla modül rozeti de yok.
+  const selectedCompany = useOptionalDashboardCompany()?.selectedCompany ?? null
 
   // Firmanın satın almadığı modülün sayfası işaretlenebilir ama açılmaz: modül kapısı
   // izin kapısından önce gelir. Rozetle uyarmazsak "yetki verdim ama görünmüyor" olur.

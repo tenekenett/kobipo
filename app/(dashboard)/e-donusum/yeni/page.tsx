@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { InvoiceEditor } from "@/components/e-donusum/invoice-editor"
+import { WriteOnlyScreen } from "@/components/dashboard/write-guard"
 import { ArrowLeft } from "lucide-react"
 
 export default function EDonusumYeniFaturaPage() {
@@ -54,6 +55,9 @@ export default function EDonusumYeniFaturaPage() {
               : "Yeni Fatura"}
         </h1>
       </div>
+      {/* Editör yalnız YAZMAK için var: salt-okunur yetkide tek tek alan kilitlemek
+          geriye kaydedilemeyen bir form bırakırdı, duvar sebebini söylüyor. */}
+      <WriteOnlyScreen>
       <InvoiceEditor
         companyId={companyId}
         mode="create"
@@ -66,6 +70,7 @@ export default function EDonusumYeniFaturaPage() {
         backHref={backHref}
         fromIncomingUuid={fromIncoming}
       />
+      </WriteOnlyScreen>
     </div>
   )
 }

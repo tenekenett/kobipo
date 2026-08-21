@@ -23,6 +23,7 @@ import { QuickCariDialog, useCanCreateCari } from "@/components/e-donusum/quick-
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
+import { ExportAction, WriteAction, useCanEditHere } from "@/components/dashboard/write-guard"
 import { ArrowLeft, Building2, Download, FileText, Landmark, Loader2, Minus, Plus, Save } from "lucide-react"
 import { looksLikeCuid } from "@/lib/slug"
 
@@ -224,7 +225,10 @@ export default function TeklifDetailPage() {
     })
   }, [companyId, isPurchase])
 
-  const editable = quote && quote.status !== "CONVERTED"
+  // Salt-okunur yetki `editable`ı da kapatır: form alanları, satır düzenleyici ve
+  // Kaydet zaten bu bayrağa bağlı, dolayısıyla teklif okunur tabloya düşer.
+  const canEdit = useCanEditHere()
+  const editable = quote && quote.status !== "CONVERTED" && canEdit
 
   function updateLine(index: number, patch: Partial<ItemLine>) {
     setLines((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
@@ -393,6 +397,7 @@ export default function TeklifDetailPage() {
         {quote.status === "CONVERTED" ? (
           <Badge variant="secondary">{statusLabel(quote.status)}</Badge>
         ) : (
+          <WriteAction fallback={<Badge variant="secondary">{statusLabel(quote.status)}</Badge>}>
           <Select
             value={quote.status}
             disabled={updatingStatus}
@@ -409,6 +414,7 @@ export default function TeklifDetailPage() {
               <SelectItem value="EXPIRED">Süresi doldu</SelectItem>
             </SelectContent>
           </Select>
+          </WriteAction>
         )}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {quote.convertedInvoiceId ? (
@@ -419,24 +425,28 @@ export default function TeklifDetailPage() {
               </Link>
             </Button>
           ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleConvertToInvoice}
-              disabled={converting}
-            >
-              {converting ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <FileText className="mr-2 h-4 w-4" />
-              )}
-              Faturaya Dönüştür
-            </Button>
+            <WriteAction>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleConvertToInvoice}
+                disabled={converting}
+              >
+                {converting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="mr-2 h-4 w-4" />
+                )}
+                Faturaya Dönüştür
+              </Button>
+            </WriteAction>
           )}
-          <Button onClick={handleDownloadPdf} size="sm">
-            <Download className="mr-2 h-4 w-4" />
-            PDF İndir
-          </Button>
+          <ExportAction>
+            <Button onClick={handleDownloadPdf} size="sm">
+              <Download className="mr-2 h-4 w-4" />
+              PDF İndir
+            </Button>
+          </ExportAction>
         </div>
       </div>
 

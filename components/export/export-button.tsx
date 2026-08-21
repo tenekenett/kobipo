@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useToast } from "@/components/ui/use-toast"
+import { useCanExport } from "@/components/dashboard/write-guard"
 
 /**
  * Tüm ekranların ortak "Dışa Aktar" düğmesi.
@@ -75,6 +76,10 @@ export function ExportButton({
 }: ExportButtonProps) {
   const [busyFormat, setBusyFormat] = useState<ExportFormat | null>(null)
   const { toast } = useToast()
+  // Salt-okunur üyelik veriyi dışarı çıkaramaz (bkz. useCanExport). Kapıyı her ekranda
+  // ayrı ayrı kurmak yerine düğmenin KENDİSİ karar veriyor: dışa aktarma tek bileşenden
+  // geçtiği için burada unutulan bir ekran kalmaz.
+  const canExport = useCanExport()
 
   const options = formats ? FORMATS.filter((item) => formats.includes(item.format)) : FORMATS
 
@@ -130,6 +135,8 @@ export function ExportButton({
   }
 
   const isBusy = busyFormat !== null
+
+  if (!canExport) return null
 
   return (
     <DropdownMenu>

@@ -16,6 +16,7 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { FileText, Loader2, Receipt } from "lucide-react"
 import { LinkedTableRow } from "@/components/ui/styled-table"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 type ReceiptRow = {
   id: string
@@ -164,15 +165,17 @@ export function CariFislerSection({
             {selectedRows.length > 0 && ` • ${selectedRows.length} seçili (${fmt(selectedTotal)})`}
           </span>
         </CardTitle>
-        <Button onClick={convert} disabled={selectedRows.length === 0 || submitting} size="sm">
-          {submitting ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <FileText className="mr-2 h-4 w-4" />
-          )}
-          Toplu Faturaya Dönüştür
-          {selectedRows.length > 0 ? ` (${selectedRows.length})` : ""}
-        </Button>
+        <WriteAction>
+          <Button onClick={convert} disabled={selectedRows.length === 0 || submitting} size="sm">
+            {submitting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="mr-2 h-4 w-4" />
+            )}
+            Toplu Faturaya Dönüştür
+            {selectedRows.length > 0 ? ` (${selectedRows.length})` : ""}
+          </Button>
+        </WriteAction>
       </CardHeader>
       <CardContent>
         {loading ? (

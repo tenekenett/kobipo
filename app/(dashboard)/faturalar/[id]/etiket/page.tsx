@@ -11,6 +11,7 @@ import { ArrowLeft, Tag } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { InvoiceLabelPrintPanel } from "@/components/faturalar/invoice-label-print-panel"
+import { ExportOnlyScreen } from "@/components/dashboard/write-guard"
 import {
   buildInvoiceLabelItems,
   type RawInvoiceLabelItem,
@@ -73,6 +74,7 @@ export default function FaturaEtiketPage() {
   const backHref = `/faturalar/${invoiceId}/onizleme?company=${companyId || ""}`
 
   return (
+    <ExportOnlyScreen>
     <div className="space-y-4">
       <div className="flex items-center gap-4">
         <Link href={backHref}>
@@ -132,5 +134,6 @@ export default function FaturaEtiketPage() {
         </CardContent>
       </Card>
     </div>
+    </ExportOnlyScreen>
   )
 }

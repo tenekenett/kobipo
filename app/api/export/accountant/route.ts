@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -27,7 +27,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
   const endDate = searchParams.get("endDate")
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
 
-  await ensureCompanyAccess(companyId)
+  await ensureCompanyExport(companyId)
 
   const dateWhere =
     startDate || endDate

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -8,7 +8,10 @@ import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { roleLabel } from "@/lib/auth/role-labels"
-import { pagesForRole } from "@/lib/nav/pages"
+import { filterAvailablePages, pagesForRole } from "@/lib/nav/pages"
+import { usePageAvailability } from "@/components/dashboard/write-guard"
+import { useRoleTemplates } from "@/lib/swr/use-role-templates"
+import type { RoleTemplate } from "@/lib/nav/role-templates"
 import { MemberPermissionsDialog } from "@/components/dashboard/member-permissions-dialog"
 import { RoleEditorDialog } from "@/components/dashboard/role-editor-dialog"
 import { Pencil, Plus } from "lucide-react"
@@ -51,6 +54,23 @@ export default function EkipPage() {
   const [email, setEmail] = useState("")
   const [role, setRole] = useState("VIEWER")
   const [latestInviteUrl, setLatestInviteUrl] = useState("")
+  const availability = usePageAvailability()
+  const { templates } = useRoleTemplates()
+
+  /**
+   * Listede gösterilecek Kobipo kalıpları.
+   *
+   * İki eleme var: (1) bu kalıptan zaten rol üretilmişse kalıp DEĞİL o rol gösterilir
+   * — aksi halde aynı rol iki grupta iki kez çıkar ve seçildiğinde 409'a çarpardı;
+   * (2) firmanın modülleri kapalı olduğu için tek bir sayfası bile kullanılamayan
+   * kalıp hiç teklif edilmez, seçilse boş bir rol üretirdi.
+   */
+  const offeredTemplates = useMemo<RoleTemplate[]>(() => {
+    const used = new Set(companyRoles.map((r) => r.templateKey).filter(Boolean))
+    return templates.filter(
+      (t) => !used.has(t.key) && filterAvailablePages(t.allowedPaths, availability).length > 0
+    )
+  }, [templates, companyRoles, availability])
 
   const fetchMembers = async () => {
     if (!companyId) return
@@ -70,8 +90,69 @@ export default function EkipPage() {
     ? companyRoles.find((r) => r.id === role.slice(7)) ?? null
     : null
 
+  /**
+   * Kobipo kalıbından firmanın kendi rolünü ÜRETİR ve id'sini döndürür.
+   *
+   * Atama her zaman firmaya ait bir `CompanyRole` üzerinden yapılır; kalıp doğrudan
+   * atanamaz. Sebep, kalıbın kopya olması: rol bir kez üretildikten sonra firma onu
+   * serbestçe değiştirebilmeli ve Kobipo'nun katalogda yapacağı bir düzenleme o kişinin
+   * yetkisini sessizce oynatmamalı.
+   *
+   * Sayfalar firmanın AÇIK modüllerine göre süzülür — kapalı modülün sayfasını role
+   * yazmak "yetki verdim ama açılmıyor" üretirdi.
+   */
+  const createRoleFromTemplate = async (key: string): Promise<string | null> => {
+    const template = templates.find((t) => t.key === key)
+    if (!template || !companyId) return null
+    const allowedPaths = filterAvailablePages(template.allowedPaths, availability)
+    const writablePaths = filterAvailablePages(template.writablePaths, availability)
+    const response = await fetch("/api/company/roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        companyId,
+        name: template.name,
+        description: template.description,
+        templateKey: template.key,
+        allowedPaths,
+        writablePaths,
+      }),
+    })
+    const data = await response.json().catch(() => ({}))
+    // Aynı ADDA rol zaten varsa (kalıptan üretilmemiş, elle açılmış olabilir) yeni rol
+    // açmayı denemeyiz — kullanıcının kastettiği zaten o roldür, onu atarız.
+    if (response.status === 409 && typeof data.existingRoleId === "string") {
+      await fetchCompanyRoles()
+      toast({
+        title: `“${template.name}” adında bir rolünüz zaten var`,
+        description: "Mevcut rol atandı; yetkilerini Rol Yetkileri ekranından düzenleyebilirsiniz.",
+      })
+      return data.existingRoleId
+    }
+    if (!response.ok) {
+      toast({
+        title: "Rol oluşturulamadı",
+        description: data.error || "Kalıptan rol üretilemedi",
+        variant: "destructive",
+      })
+      return null
+    }
+    await fetchCompanyRoles()
+    toast({
+      title: `“${template.name}” rolü firmanıza eklendi`,
+      description: "Yetkilerini Rol Yetkileri ekranından istediğiniz gibi değiştirebilirsiniz.",
+    })
+    return data.id as string
+  }
+
   // Üyenin rolünü değiştirir. Değer "custom:<id>" ise özel rol, aksi halde enum rol.
   const changeRole = async (member: Member, value: string) => {
+    // "template:<key>" seçildiyse önce rol üretilir; atama üretilen rolün id'siyle olur.
+    if (value.startsWith("template:")) {
+      const createdId = await createRoleFromTemplate(value.slice(9))
+      if (!createdId) return
+      value = `custom:${createdId}`
+    }
     const body: Record<string, unknown> = { companyId }
     if (value.startsWith("custom:")) body.customRoleId = value.slice(7)
     else {
@@ -171,22 +252,7 @@ export default function EkipPage() {
                         value={member.customRoleId ? `custom:${member.customRoleId}` : member.role}
                         onChange={(e) => changeRole(member, e.target.value)}
                       >
-                        <optgroup label="Hazır roller">
-                          {INVITABLE_ROLES.map((value) => (
-                            <option key={value} value={value}>
-                              {roleLabel(value)}
-                            </option>
-                          ))}
-                        </optgroup>
-                        {companyRoles.length > 0 && (
-                          <optgroup label="Firmanızın rolleri">
-                            {companyRoles.map((r) => (
-                              <option key={r.id} value={`custom:${r.id}`}>
-                                {r.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
+                        <RoleOptions companyRoles={companyRoles} templates={offeredTemplates} />
                       </select>
                       {/* Payda her zaman yetkinin TAVANI: özel rolde rolün kendi sayfa
                           sayısı, hazır rolde o rolün matrisi. */}
@@ -212,23 +278,23 @@ export default function EkipPage() {
           <TabsContent value="invites" className="space-y-3 pt-3">
             <div className="flex flex-wrap gap-2">
               <Input placeholder="Kullanıcı e-postası" value={email} onChange={(e) => setEmail(e.target.value)} />
-              <select className="rounded border px-2 py-2 text-sm" value={role} onChange={(e) => setRole(e.target.value)}>
-                <optgroup label="Hazır roller">
-                  {INVITABLE_ROLES.map((value) => (
-                    <option key={value} value={value}>
-                      {roleLabel(value)}
-                    </option>
-                  ))}
-                </optgroup>
-                {companyRoles.length > 0 && (
-                  <optgroup label="Firmanızın rolleri">
-                    {companyRoles.map((r) => (
-                      <option key={r.id} value={`custom:${r.id}`}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
+              <select
+                className="rounded border px-2 py-2 text-sm"
+                value={role}
+                onChange={async (e) => {
+                  const value = e.target.value
+                  // Kalıp seçimi bir ATAMA değil, önce bir ÜRETİMDİR: rol açılır ve
+                  // davet o rolün id'siyle gider. Üretim başarısızsa seçim eskisinde
+                  // kalır (select `role`e bağlı), kullanıcı boş bir davete kalmaz.
+                  if (!value.startsWith("template:")) {
+                    setRole(value)
+                    return
+                  }
+                  const createdId = await createRoleFromTemplate(value.slice(9))
+                  if (createdId) setRole(`custom:${createdId}`)
+                }}
+              >
+                <RoleOptions companyRoles={companyRoles} templates={offeredTemplates} />
               </select>
               <Button onClick={invite}>Davet Oluştur</Button>
             </div>
@@ -312,5 +378,51 @@ export default function EkipPage() {
         }}
       />
     </Card>
+  )
+}
+
+/**
+ * Rol seçicinin seçenekleri — üye satırında ve davet formunda AYNI liste görünmeli.
+ *
+ * İki grup: HAZIR ROLLER (enum roller + Kobipo kalıpları) ve firmanın kendi rolleri.
+ * Kalıplar ayrı bir başlık altında DEĞİL, hazır rollerin devamında listelenir:
+ * kullanıcı açısından ikisi de "Kobipo'nun verdiği rol", aradaki fark (biri enum, biri
+ * seçilince firmaya kopyalanan bir kalıp) bir uygulama ayrıntısı ve seçim anında bir
+ * karar gerektirmiyor. Kopyalama seçimden SONRA bildirimle söyleniyor.
+ *
+ * Değer biçimi kalıpta "template:<key>": "custom:<id>"den ayırt edilebilmesi gerekiyor,
+ * çünkü kalıp önce firmaya kopyalanır (bkz. createRoleFromTemplate).
+ */
+function RoleOptions({
+  companyRoles,
+  templates,
+}: {
+  companyRoles: CompanyRole[]
+  templates: RoleTemplate[]
+}) {
+  return (
+    <>
+      <optgroup label="Hazır roller">
+        {INVITABLE_ROLES.map((value) => (
+          <option key={value} value={value}>
+            {roleLabel(value)}
+          </option>
+        ))}
+        {templates.map((t) => (
+          <option key={t.key} value={`template:${t.key}`}>
+            {t.name}
+          </option>
+        ))}
+      </optgroup>
+      {companyRoles.length > 0 && (
+        <optgroup label="Firmanızın rolleri">
+          {companyRoles.map((r) => (
+            <option key={r.id} value={`custom:${r.id}`}>
+              {r.name}
+            </option>
+          ))}
+        </optgroup>
+      )}
+    </>
   )
 }

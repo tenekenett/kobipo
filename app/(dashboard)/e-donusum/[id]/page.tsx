@@ -19,6 +19,7 @@ import { ArrowLeft, Download, Send, Printer, ShieldCheck, Loader2, CheckCircle2,
 import Link from "next/link"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 
 interface InvoiceItem {
   id: string
@@ -357,63 +358,73 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handlePrint}>
-            <Printer className="mr-2 h-4 w-4" />
-            Yazdır
-          </Button>
-          <Button variant="outline" onClick={handleDownloadPDF}>
-            <Download className="mr-2 h-4 w-4" />
-            PDF İndir
-          </Button>
+          <ExportAction>
+            <Button variant="outline" onClick={handlePrint}>
+              <Printer className="mr-2 h-4 w-4" />
+              Yazdır
+            </Button>
+            <Button variant="outline" onClick={handleDownloadPDF}>
+              <Download className="mr-2 h-4 w-4" />
+              PDF İndir
+            </Button>
+          </ExportAction>
           {invoice.status === "DRAFT" &&
             invoice.type === "SALES" &&
             (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
-            <Button onClick={handleSendInvoice} disabled={isSending}>
-              <Send className="mr-2 h-4 w-4" />
-              {isSending ? "Gönderiliyor..." : "Gönder"}
-            </Button>
+            <WriteAction>
+              <Button onClick={handleSendInvoice} disabled={isSending}>
+                <Send className="mr-2 h-4 w-4" />
+                {isSending ? "Gönderiliyor..." : "Gönder"}
+              </Button>
+            </WriteAction>
           )}
           {invoice.uuid && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
             <>
-              <Button
-                variant="outline"
-                onClick={handleCheckStatus}
-                disabled={isCheckingStatus}
-              >
-                {isCheckingStatus ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <ShieldCheck className="mr-2 h-4 w-4" />
-                )}
-                GİB Durumu
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleDownloadGibPdf}
-                disabled={isDownloadingGibPdf}
-                title="Mysoft / GİB tarafından üretilen yasal PDF"
-              >
-                {isDownloadingGibPdf ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <FileDown className="mr-2 h-4 w-4" />
-                )}
-                Resmî PDF (GİB)
-              </Button>
-              {invoice.invoiceType === "E_ARCHIVE" && invoice.status !== "CANCELLED" && (
+              <WriteAction>
                 <Button
                   variant="outline"
-                  onClick={handleCancelInvoice}
-                  disabled={isCancelling}
-                  className="border-red-200 bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300 hover:bg-red-100"
+                  onClick={handleCheckStatus}
+                  disabled={isCheckingStatus}
                 >
-                  {isCancelling ? (
+                  {isCheckingStatus ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
-                    <Ban className="mr-2 h-4 w-4" />
+                    <ShieldCheck className="mr-2 h-4 w-4" />
                   )}
-                  İptal Et
+                  GİB Durumu
                 </Button>
+              </WriteAction>
+              <ExportAction>
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadGibPdf}
+                  disabled={isDownloadingGibPdf}
+                  title="Mysoft / GİB tarafından üretilen yasal PDF"
+                >
+                  {isDownloadingGibPdf ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileDown className="mr-2 h-4 w-4" />
+                  )}
+                  Resmî PDF (GİB)
+                </Button>
+              </ExportAction>
+              {invoice.invoiceType === "E_ARCHIVE" && invoice.status !== "CANCELLED" && (
+                <WriteAction>
+                  <Button
+                    variant="outline"
+                    onClick={handleCancelInvoice}
+                    disabled={isCancelling}
+                    className="border-red-200 bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300 hover:bg-red-100"
+                  >
+                    {isCancelling ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Ban className="mr-2 h-4 w-4" />
+                    )}
+                    İptal Et
+                  </Button>
+                </WriteAction>
               )}
             </>
           )}

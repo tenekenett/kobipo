@@ -1,6 +1,6 @@
 "use client"
 
-import { WriteAction } from "@/components/dashboard/write-guard"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -304,11 +304,13 @@ export default function MaasOdemelerPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
+                            <ExportAction>
                             <Button size="sm" variant="ghost" asChild title="Maaş pusulası (PDF)">
                               <a href={`/api/personel/payroll/${r.id}/pdf`} target="_blank" rel="noopener noreferrer">
                                 <FileText className="h-4 w-4 text-kobipo-blue" />
                               </a>
                             </Button>
+                            </ExportAction>
                             {r.status !== "PAID" && (
                               <WriteAction><Button size="sm" variant="ghost" onClick={() => openEdit(r)} title="Düzenle">
                                 <Pencil className="h-4 w-4" />

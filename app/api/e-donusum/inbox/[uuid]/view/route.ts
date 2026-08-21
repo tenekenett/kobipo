@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import {
   resolveCompanyEInvoiceProvider,
@@ -48,7 +48,7 @@ export const GET = withApiErrors(async function GET(
       return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyExport(companyId)
     assertEInvoiceRuntimeReady()
 
     const incoming = await prisma.incomingInvoice.findUnique({

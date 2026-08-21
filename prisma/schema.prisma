@@ -476,6 +476,36 @@ model CompanyRole {
   @@map("company_roles")
 }
 
+/// Kobipo'nun sunduğu hazır rol KALIBI — firma rolü sıfırdan yazmak zorunda kalmasın diye.
+///
+/// Kalıp bir BAĞ değil KOPYADIR: firma kalıptan rol ürettiğinde sayfalar CompanyRole
+/// içine yazılır ve kalıp sonradan değişse (hatta silinse) o rol değişmez. Aksi halde
+/// katalogda yapılan bir düzeltme, müşterinin özelleştirdiği rolü sessizce
+/// genişletir/daraltırdı.
+///
+/// Katalog sistem yönetim panelinden yönetilir (/system-admin/roller). Koddaki
+/// DEFAULT_ROLE_TEMPLATES yalnız tohumlama kaynağı ve tablo yokken devreye giren
+/// yedektir — bkz. lib/nav/role-templates.ts.
+model RoleTemplate {
+  id          String  @id @default(cuid())
+  /// Kararlı anahtar; CompanyRole.templateKey bunu taşır (iz, bağ değil).
+  key         String  @unique
+  name        String
+  description String?
+  /// Kalıbın önerdiği görüntüleme yetkisi (nav href'leri).
+  allowedPaths  String[] @default([])
+  /// Bunların hangilerinde yazma da var (allowedPaths'in alt kümesi).
+  writablePaths String[] @default([])
+  sortOrder   Int      @default(0)
+  /// Pasif kalıp firma ekranında listelenmez; ondan üretilmiş roller etkilenmez.
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("role_templates")
+}
+
 model CompanyInvitation {
   id         String    @id @default(cuid())
   companyId  String

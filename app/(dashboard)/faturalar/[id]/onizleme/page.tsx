@@ -33,6 +33,7 @@ import { filenameFromContentDisposition } from "@/lib/utils"
 import { looksLikeCuid } from "@/lib/slug"
 import { buildInvoiceLabelItems } from "@/lib/labels/invoice-label-items"
 import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 
 const PROFILE_LABELS: Record<string, string> = {
   TICARIFATURA: "Ticari",
@@ -787,40 +788,46 @@ export default function FaturaOnizlemePage() {
               adımı olmasın diye SENT tutulur, GİB'e gönderilmiş bir belge değildir.
               Mysoft'un boş bıraktığı birim fiyat/kalem ancak buradan düzeltilebiliyor. */}
           {(invoice.status === "DRAFT" || (isPurchase && invoice.status === "SENT")) && (
-            <Link
-              href={`/e-donusum/${invoiceId}/duzenle?company=${encodeURIComponent(companyId || "")}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`}
-            >
-              <Button variant="outline">
-                <Pencil className="h-4 w-4 mr-2" />
-                Düzenle
-              </Button>
-            </Link>
+            <WriteAction>
+              <Link
+                href={`/e-donusum/${invoiceId}/duzenle?company=${encodeURIComponent(companyId || "")}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`}
+              >
+                <Button variant="outline">
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Düzenle
+                </Button>
+              </Link>
+            </WriteAction>
           )}
           {invoice.status === "DRAFT" && (
-            <Button variant="success" onClick={handleSaveDraftAndReturn}>
-              <CheckCircle2 className="h-4 w-4 mr-2" />
-              Faturayı Kaydet
-            </Button>
+            <WriteAction>
+              <Button variant="success" onClick={handleSaveDraftAndReturn}>
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Faturayı Kaydet
+              </Button>
+            </WriteAction>
           )}
           {invoice.status === "DRAFT" &&
             !invoice.uuid &&
             (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
-              <Button
-                onClick={onClickSend}
-                disabled={isSendingToProvider}
-                className="bg-kobipo-blue hover:bg-kobipo-blue/90 dark:bg-primary dark:hover:bg-primary/90"
-              >
-                {isSendingToProvider ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <ShieldCheck className="mr-2 h-4 w-4" />
-                )}
-                Faturayı Gönder
-              </Button>
+              <WriteAction>
+                <Button
+                  onClick={onClickSend}
+                  disabled={isSendingToProvider}
+                  className="bg-kobipo-blue hover:bg-kobipo-blue/90 dark:bg-primary dark:hover:bg-primary/90"
+                >
+                  {isSendingToProvider ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="mr-2 h-4 w-4" />
+                  )}
+                  Faturayı Gönder
+                </Button>
+              </WriteAction>
             )}
           {/* GİB taslağı: kesinleştir (GİB'e gönder) veya geri al (yeniden düzenle). */}
           {invoice.status === "GIB_DRAFT" && (
-            <>
+            <WriteAction>
               <Button
                 onClick={handleFinalize}
                 disabled={isFinalizing || isDiscarding}
@@ -841,27 +848,30 @@ export default function FaturaOnizlemePage() {
                 )}
                 Taslağı Geri Al
               </Button>
-            </>
+            </WriteAction>
           )}
           {/* "Onayla" yalnız kesilen (giden) manuel belgeler içindir. Alış faturası
               alınan bir belgedir; onaylanacak/gönderilecek bir şey yoktur → gizle. */}
           {invoice.status === "DRAFT" && invoice.invoiceType === "MANUAL" && !isPurchase && (
-            <Button
-              onClick={handleApproveManual}
-              disabled={isApproving}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              {isApproving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-              )}
-              Onayla
-            </Button>
+            <WriteAction>
+              <Button
+                onClick={handleApproveManual}
+                disabled={isApproving}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {isApproving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                )}
+                Onayla
+              </Button>
+            </WriteAction>
           )}
 
           {/* Çıktı aksiyonları: resmî GİB PDF veya yerel PDF */}
           {invoice.status === "SENT" && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
+            <ExportAction>
             <Button
               variant="outline"
               onClick={handleDownloadGibPdf}
@@ -871,10 +881,12 @@ export default function FaturaOnizlemePage() {
               {isDownloadingGibPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
               Resmî PDF (GİB)
             </Button>
+            </ExportAction>
           )}
           {/* Gelen e-faturadan dönüşen alış faturasında resmî belge göndericinindir;
               kendi şablon PDF'imizi sunmak yanıltıcı olurdu (faturayı biz kesmiş gibi). */}
           {isFromIncoming && (
+            <ExportAction>
             <Button
               onClick={handleDownloadIncomingDoc}
               disabled={isDownloadingIncomingDoc}
@@ -887,8 +899,10 @@ export default function FaturaOnizlemePage() {
               )}
               Resmî PDF (GİB)
             </Button>
+            </ExportAction>
           )}
           {!hasOfficialGibPdf && !isFromIncoming && (
+            <ExportAction>
             <Button onClick={handleDownloadPDF} disabled={isDownloadingPreviewPdf}>
               {isDownloadingPreviewPdf ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -897,28 +911,37 @@ export default function FaturaOnizlemePage() {
               )}
               PDF İndir
             </Button>
+            </ExportAction>
           )}
 
           {invoice.type === "PURCHASE" && hasLabelableItems && (
-            <Link href={`/faturalar/${invoiceId}/etiket?company=${encodeURIComponent(companyId || "")}`}>
-              <Button
-                variant="outline"
-                title="Faturadaki ürünlerin barkod/fiyat etiketini yazdır"
-              >
-                <Tag className="h-4 w-4 mr-2" />
-                Etiket Yazdır
-              </Button>
-            </Link>
+            <ExportAction>
+              <Link href={`/faturalar/${invoiceId}/etiket?company=${encodeURIComponent(companyId || "")}`}>
+                <Button
+                  variant="outline"
+                  title="Faturadaki ürünlerin barkod/fiyat etiketini yazdır"
+                >
+                  <Tag className="h-4 w-4 mr-2" />
+                  Etiket Yazdır
+                </Button>
+              </Link>
+            </ExportAction>
           )}
 
-          <Link href={duplicateHref}>
-            <Button variant="outline" title="Bu faturanın değerleriyle güncel tarihli yeni bir taslak oluştur">
-              <Copy className="h-4 w-4 mr-2" />
-              Kopya Oluştur
-            </Button>
-          </Link>
+          {/* Kopya YENİ bir taslak üretir — okuma değil, yazma. */}
+          <WriteAction>
+            <Link href={duplicateHref}>
+              <Button variant="outline" title="Bu faturanın değerleriyle güncel tarihli yeni bir taslak oluştur">
+                <Copy className="h-4 w-4 mr-2" />
+                Kopya Oluştur
+              </Button>
+            </Link>
+          </WriteAction>
 
-          {/* Diğer işlemler: e-posta, yazdır, GİB, iptal, sil */}
+          {/* Diğer işlemler: e-posta, yazdır, GİB, iptal, sil. Menünün TAMAMI dışa
+              aktarma kapısında: salt-okunur üyelikte içindeki her öğe düşer (yazdırma
+              dahil) ve geriye boş bir açılır kutu kalırdı. */}
+          <ExportAction>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon" aria-label="Diğer işlemler">
@@ -926,25 +949,30 @@ export default function FaturaOnizlemePage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
-              <div className="flex items-center gap-2 px-2 py-1.5">
-                <Input
-                  className="h-8"
-                  placeholder="E-posta (opsiyonel)"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onKeyDown={(e) => e.stopPropagation()}
-                />
-                <Button size="sm" variant="outline" onClick={handleSendEmail}>
-                  Gönder
-                </Button>
-              </div>
-              <DropdownMenuSeparator />
+              {/* Salt-okunur yetkide menüde yalnız "Yazdır" kalır: e-posta göndermek,
+                  GİB durumu çekmek (belgenin iç durumunu günceller), iptal ve sil
+                  hepsi yazma işlemidir. */}
+              <WriteAction>
+                <div className="flex items-center gap-2 px-2 py-1.5">
+                  <Input
+                    className="h-8"
+                    placeholder="E-posta (opsiyonel)"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  />
+                  <Button size="sm" variant="outline" onClick={handleSendEmail}>
+                    Gönder
+                  </Button>
+                </div>
+                <DropdownMenuSeparator />
+              </WriteAction>
               <DropdownMenuItem className="cursor-pointer" onClick={() => window.print()}>
                 <Printer className="mr-2 h-4 w-4" />
                 Yazdır
               </DropdownMenuItem>
               {invoice.status === "SENT" && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
-                <>
+                <WriteAction>
                   <DropdownMenuItem className="cursor-pointer" onClick={handleCheckStatus} disabled={isCheckingStatus}>
                     {isCheckingStatus ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
                     GİB Durumu
@@ -963,22 +991,25 @@ export default function FaturaOnizlemePage() {
                       İptal Et
                     </DropdownMenuItem>
                   )}
-                </>
+                </WriteAction>
               )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="cursor-pointer text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
-                onSelect={(e) => {
-                  e.preventDefault()
-                  setDeleteDialogOpen(true)
-                }}
-                disabled={isDeleting}
-              >
-                {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                Sil
-              </DropdownMenuItem>
+              <WriteAction>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="cursor-pointer text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                  onSelect={(e) => {
+                    e.preventDefault()
+                    setDeleteDialogOpen(true)
+                  }}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                  Sil
+                </DropdownMenuItem>
+              </WriteAction>
             </DropdownMenuContent>
           </DropdownMenu>
+          </ExportAction>
         </div>
       </div>
 
@@ -1532,10 +1563,13 @@ export default function FaturaOnizlemePage() {
       <Card>
         <CardHeader><CardTitle>Ek Belgeler</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Input placeholder="Dosya adı (simülasyon)" value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)} />
-            <Button onClick={createAttachment}>Ekle</Button>
-          </div>
+          {/* Ekli belgeler okunur kalır, ekleme kutusu salt-okunurda basılmaz. */}
+          <WriteAction>
+            <div className="flex gap-2">
+              <Input placeholder="Dosya adı (simülasyon)" value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)} />
+              <Button onClick={createAttachment}>Ekle</Button>
+            </div>
+          </WriteAction>
           {attachments.map((attachment) => (
             <div key={attachment.id} className="rounded border p-2 text-sm">
               {attachment.fileName} - <span className="text-muted-foreground">{attachment.filePath}</span>

@@ -13,7 +13,7 @@ import {
   type Access,
 } from "@/components/dashboard/page-permission-picker"
 import { ACCOUNT_ADMIN_PAGES, assignablePages, navPage } from "@/lib/nav/pages"
-import { ROLE_TEMPLATES } from "@/lib/nav/role-templates"
+import { useRoleTemplates } from "@/lib/swr/use-role-templates"
 import { findRoleNameConflict, roleWriteTarget } from "@/lib/nav/role-conflict"
 import { usePageAvailability } from "@/components/dashboard/write-guard"
 import { AlertTriangle } from "lucide-react"
@@ -59,6 +59,8 @@ export function RoleEditorDialog({
 }) {
   const { toast } = useToast()
   const availability = usePageAvailability()
+  // SWR önbelleği Rol Yetkileri ekranıyla paylaşılır; diyalog ayrı istek atmaz.
+  const { templates } = useRoleTemplates()
   /**
    * Seçilebilir sayfalar: firmanın AÇIK modüllerininkiler + rolün HÂLİHAZIRDA sahip
    * olduğu sayfalar.
@@ -86,7 +88,7 @@ export function RoleEditorDialog({
 
   useEffect(() => {
     if (!open) return
-    const template = templateKey ? ROLE_TEMPLATES.find((t) => t.key === templateKey) : null
+    const template = templateKey ? templates.find((t) => t.key === templateKey) : null
     setEditingId(role?.id ?? null)
     setName(role?.name ?? template?.name ?? "")
     setDescription(role?.description ?? template?.description ?? "")
@@ -97,7 +99,7 @@ export function RoleEditorDialog({
         role?.writablePaths ?? template?.writablePaths ?? []
       )
     )
-  }, [open, role, templateKey, selectable])
+  }, [open, role, templateKey, templates, selectable])
 
   /** Yazılan ad, düzenlenenin dışındaki bir rolle çakışıyor mu? */
   const conflict = useMemo(

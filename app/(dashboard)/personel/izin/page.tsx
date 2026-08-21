@@ -1,6 +1,6 @@
 "use client"
 
-import { WriteAction } from "@/components/dashboard/write-guard"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -298,11 +298,13 @@ export default function IzinDevamPage() {
                               <X className="h-4 w-4 text-amber-600" />
                             </Button></WriteAction>
                           )}
+                          <ExportAction>
                           <Button size="sm" variant="ghost" asChild title="İzin formu (PDF)">
                             <a href={`/api/personel/leaves/${l.id}/pdf`} target="_blank" rel="noopener noreferrer">
                               <FileText className="h-4 w-4 text-kobipo-blue" />
                             </a>
                           </Button>
+                          </ExportAction>
                           <WriteAction><Button size="sm" variant="ghost" onClick={() => remove(l)} title="Sil">
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button></WriteAction>

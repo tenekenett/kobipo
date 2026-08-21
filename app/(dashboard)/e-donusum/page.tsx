@@ -24,6 +24,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Send, FileText, Eye, Pencil, Inbox, Loader2, Download } from "lucide-react"
 import Link from "next/link"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 interface Invoice {
   id: string
@@ -252,6 +253,7 @@ export default function EDönüşümPage() {
           <p className="text-muted-foreground">E-Fatura ve E-Arşiv fatura yönetimi</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <WriteAction>
           <Button
             variant="outline"
             onClick={handleFetchInbox}
@@ -282,6 +284,7 @@ export default function EDönüşümPage() {
             <Plus className="mr-2 h-4 w-4" />
             Yeni Fatura
           </Button>
+          </WriteAction>
         </div>
       </div>
 
@@ -627,27 +630,31 @@ export default function EDönüşümPage() {
                             bir belge değildir (bkz. PUT /api/e-donusum/invoices/[id]). */}
                         {(invoice.status === "DRAFT" ||
                           (invoice.type === "PURCHASE" && invoice.status === "SENT")) && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              router.push(
-                                `/e-donusum/${invoice.id}/duzenle?company=${encodeURIComponent(companyId)}`
-                              )
-                            }
-                          >
-                            <Pencil className="mr-1 h-3 w-3" />
-                            Düzenle
-                          </Button>
+                          <WriteAction>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                router.push(
+                                  `/e-donusum/${invoice.id}/duzenle?company=${encodeURIComponent(companyId)}`
+                                )
+                              }
+                            >
+                              <Pencil className="mr-1 h-3 w-3" />
+                              Düzenle
+                            </Button>
+                          </WriteAction>
                         )}
                         {companySettings?.isEDonusumEnabled &&
                           invoice.status === "DRAFT" &&
                           invoice.type === "SALES" &&
                           (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
-                            <Button variant="outline" size="sm" onClick={() => handleSendInvoice(invoice.id)} disabled={isLoading}>
-                              <Send className="mr-1 h-3 w-3" />
-                              Gönder
-                            </Button>
+                            <WriteAction>
+                              <Button variant="outline" size="sm" onClick={() => handleSendInvoice(invoice.id)} disabled={isLoading}>
+                                <Send className="mr-1 h-3 w-3" />
+                                Gönder
+                              </Button>
+                            </WriteAction>
                           )}
                       </div>
                     </TableCell>

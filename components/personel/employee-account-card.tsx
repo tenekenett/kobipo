@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { CompanyLink } from "@/components/dashboard/company-link"
 import { roleLabel } from "@/lib/auth/role-labels"
 import { KeyRound, Link2Off, ShieldCheck } from "lucide-react"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 /**
  * Personel kartının Kobipo hesabıyla bağı.
@@ -119,10 +120,12 @@ export function EmployeeAccountCard({
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Yetkileri düzenle
               </CompanyLink>
-              <Button variant="outline" size="sm" disabled={saving} onClick={() => save(null)}>
-                <Link2Off className="mr-1.5 h-3.5 w-3.5" />
-                Bağı kaldır
-              </Button>
+              <WriteAction>
+                <Button variant="outline" size="sm" disabled={saving} onClick={() => save(null)}>
+                  <Link2Off className="mr-1.5 h-3.5 w-3.5" />
+                  Bağı kaldır
+                </Button>
+              </WriteAction>
             </div>
           </>
         ) : (
@@ -131,6 +134,7 @@ export function EmployeeAccountCard({
               Bu personelin panele giriş yapan bir hesabı yok. Ekipteki bir hesabı bağlayın;
               yetkileri Ekip Yönetimi'nden sayfa sayfa sınırlayabilirsiniz.
             </p>
+            <WriteAction>
             <div className="flex gap-2">
               <select
                 className="flex-1 rounded border px-2 py-1.5 text-sm"
@@ -150,6 +154,7 @@ export function EmployeeAccountCard({
                 Bağla
               </Button>
             </div>
+            </WriteAction>
             <CompanyLink href="/ayarlar/ekip" className="inline-block text-xs text-kobipo-blue hover:underline">
               Listede yok mu? Ekip Yönetimi'nden davet edin →
             </CompanyLink>

@@ -3,8 +3,11 @@
 import { useMemo } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { Eye } from "lucide-react"
-import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
-import { canEditPage, navHrefsForPath } from "@/lib/page-access"
+import {
+  useDashboardCompany,
+  useOptionalDashboardCompany,
+} from "@/components/dashboard/dashboard-company-provider"
+import { canEditPage, isReadOnlyMembership, navHrefsForPath } from "@/lib/page-access"
 import { toast } from "@/components/ui/use-toast"
 import { isReadOnlyByNature, navPage, type PageAvailability } from "@/lib/nav/pages"
 
@@ -56,6 +59,46 @@ export function useCanEditHere(): boolean {
   if (owners.length === 0) return true
   // Cari gibi çok sahipli yollarda BİRİ yeterlidir — `visiblePages` ile aynı mantık.
   return owners.some((href) => canEditPage(pagePermissions, href))
+}
+
+/**
+ * Veriyi ekranın DIŞINA çıkaran eylemler serbest mi: Excel/PDF/CSV dışa aktarma,
+ * PDF indirme, yazdırma, belgeyi e-postayla gönderme.
+ *
+ * Yazma yetkisinden AYRI bir soru ve o yüzden `useCanEditHere` ile karıştırılmamalı:
+ * rapor sayfaları doğası gereği salt-okunurdur (`isReadOnlyByNature`), orada "yazamıyorsa
+ * dışa aktaramaz" demek YÖNETİCİDEN de dışa aktarmayı alırdı — oysa raporun tek işlevi
+ * budur.
+ *
+ * Karar ÜYELİK düzeyinde veriliyor: hiçbir sayfada düzenleme yetkisi olmayan kullanıcı
+ * (enum VIEWER ya da tüm sayfaları salt-okunur tanımlanmış özel rol — Gözlemci kalıbı)
+ * veriyi dışarı çıkaramaz; yetkisi ekranda okumakla sınırlıdır. Yazma yetkisi OLAN ama
+ * bu sayfada olmayan bir çalışan (ör. raporu yalnız görüntüleyen Satış Temsilcisi) dışa
+ * aktarabilir — ondan alınması istenen bir şey değil, kısıt salt-okunur üyeliğe özgü.
+ *
+ * Sunucu tarafındaki karşılığı `ensureCompanyExport` — ikisi de `isReadOnlyMembership`
+ * yordamından besleniyor, ayrışamazlar.
+ */
+export function useCanExport(): boolean {
+  // Sağlayıcı dışında (panel dışı kullanım) kısıt uygulanmaz: firma bağlamı yoksa
+  // "salt-okunur mu" sorusunun cevabı da yoktur.
+  const ctx = useOptionalDashboardCompany()
+  if (!ctx?.selectedCompany) return true
+  return !isReadOnlyMembership(ctx.pagePermissions)
+}
+
+/**
+ * Dışa aktarma/yazdırma düğmelerini sarar. Salt-okunur üyelikte hiç render EDİLMEZ.
+ * `WriteAction`ın kardeşi; farkı hangi soruyu sorduğu (bkz. `useCanExport`).
+ */
+export function ExportAction({
+  children,
+  fallback = null,
+}: {
+  children: React.ReactNode
+  fallback?: React.ReactNode
+}) {
+  return useCanExport() ? <>{children}</> : <>{fallback}</>
 }
 
 /**
@@ -122,6 +165,38 @@ export function useWriteGuard(): { canWrite: boolean; refuse: () => void } {
         }),
     }),
     [canWrite],
+  )
+}
+
+/**
+ * Yalnız BASMAK için var olan ekranlar: A4 fiş dökümü, etiket yazdırma.
+ *
+ * Burada düğme gizlemek YETMEZ — sayfa belgeyi zaten çiziyor, kullanıcı tarayıcının
+ * kendi yazdır komutuyla (ya da ekran görüntüsüyle) alabilir. Salt-okunur üyelikte
+ * ekran hiç kurulmaz.
+ */
+export function ExportOnlyScreen({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  if (useCanExport()) return <>{children}</>
+
+  const label = navHrefsForPath(pathname, searchParams)
+    .map((href) => navPage(href)?.label)
+    .find(Boolean)
+
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center p-6">
+      <div className="max-w-md space-y-2 text-center">
+        <Eye className="mx-auto h-8 w-8 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">
+          {label ? `“${label}” çıktısı alınamaz` : "Bu çıktı alınamaz"}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Görüntüleme yetkiniz ekranda okumakla sınırlı; yazdırma ve dışa aktarma buna
+          dahil değil. Çıktı almanız gerekiyorsa firma yöneticinize başvurun.
+        </p>
+      </div>
+    </div>
   )
 }
 

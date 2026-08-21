@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { cekSenetStatusLabel, resolveCekSenetDirection } from "@/lib/cek-senet/labels"
 import { renderMakbuzPdf } from "@/lib/pdf/documents/makbuz-document"
@@ -57,7 +57,7 @@ export const GET = withApiErrors(async function GET(
       )
     }
 
-    await ensureCompanyAccess(record.companyId)
+    await ensureCompanyExport(record.companyId)
 
     const instrument = type === "CHECK" ? "Çek" : "Senet"
     // Alınan evrak tahsilattır, verilen evrak ödemedir. Cariden bağımsız tek eksen

@@ -1,14 +1,24 @@
-// Özel rol KALIPLARI — sıfırdan başlamak zorunda kalmamak için hazır başlangıç
-// noktaları.
+// Hazır rol KALIPLARI — firmanın sıfırdan başlamak zorunda kalmaması için hazır
+// başlangıç noktaları ("Hazır kalıplar" kartları).
 //
 // Kalıp bir BAĞ değil, bir KOPYADIR: firma kalıptan rol ürettiğinde sayfalar o rolün
-// içine yazılır ve kalıp sonradan değişse bile rol değişmez. Aksi halde bir sürüm
+// içine yazılır ve kalıp sonradan değişse bile rol değişmez. Aksi halde bir katalog
 // güncellemesi, müşterinin elleyip özelleştirdiği rolü sessizce genişletir/daraltırdı.
+//
+// KATALOĞUN KAYNAĞI ARTIK VERİTABANI (`role_templates`), sistem yönetim panelinden
+// düzenlenir: /system-admin/roller. Buradaki liste iki işe yarar:
+//   1. migrasyonun tohumladığı ilk yedi kalıbın kod içindeki karşılığı
+//      (supabase/migrations/20260821000001_role_templates.sql — aynı anahtarlar),
+//   2. tablo henüz yokken (migrasyon uygulanmadan çıkılan sürüm) devreye giren yedek.
+// Kalıp EKLEMEK/DÜZENLEMEK için burayı değil paneli kullanın; buraya yazılan bir
+// değişiklik yalnız tohumlanmamış kurulumlarda görünür.
 //
 // Buradaki hiçbir kalıp hesap yönetimi sayfası içermez (bkz. ACCOUNT_ADMIN_PAGES);
 // sunucu zaten eler, ama kalıplar da o sınırı öğretici biçimde yansıtmalı.
 
 export type RoleTemplate = {
+  /** DB satırının id'si. Koddaki yedek kalıplarda yoktur. */
+  id?: string
   key: string
   name: string
   description: string
@@ -16,11 +26,15 @@ export type RoleTemplate = {
   allowedPaths: string[]
   /** Bunların hangilerinde yazma da var (allowedPaths'in alt kümesi). */
   writablePaths: string[]
+  /** Kartların sırası; küçük olan önce. Yedek listede dizi sırası geçerlidir. */
+  sortOrder?: number
+  /** Pasif kalıp firma ekranında listelenmez (yalnız panelde görünür). */
+  isActive?: boolean
 }
 
 const TICKET_PAGES = ["/restoran/masalar", "/restoran/masa-listesi", "/restoran/adisyonlar"]
 
-export const ROLE_TEMPLATES: RoleTemplate[] = [
+export const DEFAULT_ROLE_TEMPLATES: RoleTemplate[] = [
   {
     key: "kasiyer",
     name: "Kasiyer",
@@ -124,4 +138,34 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
   },
 ]
 
-export const ROLE_TEMPLATE_BY_KEY = new Map(ROLE_TEMPLATES.map((t) => [t.key, t]))
+export const DEFAULT_ROLE_TEMPLATE_BY_KEY = new Map(
+  DEFAULT_ROLE_TEMPLATES.map((t) => [t.key, t])
+)
+
+/**
+ * API'den/DB'den gelen satırı kalıp şekline indirger.
+ *
+ * İstemci tarafı yalnız bu şekli tanır: DB satırı createdAt/updatedAt gibi alanlar da
+ * taşır ve `description` null gelebilir — kartlar boş metin bekliyor.
+ */
+export function toRoleTemplate(row: {
+  id?: string
+  key: string
+  name: string
+  description?: string | null
+  allowedPaths?: string[] | null
+  writablePaths?: string[] | null
+  sortOrder?: number | null
+  isActive?: boolean | null
+}): RoleTemplate {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    description: row.description ?? "",
+    allowedPaths: row.allowedPaths ?? [],
+    writablePaths: row.writablePaths ?? [],
+    sortOrder: row.sortOrder ?? 0,
+    isActive: row.isActive ?? true,
+  }
+}

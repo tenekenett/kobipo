@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 import { DATASETS, isKnownDataset, listDatasets } from "@/lib/export/datasets"
 import { exportResponse } from "@/lib/export/response"
 import { isExportFormat } from "@/lib/export/types"
@@ -60,7 +60,7 @@ export const GET = withApiErrors(async function GET(
       return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     }
 
-    await ensureCompanyAccess(companyId)
+    await ensureCompanyExport(companyId)
 
     const built = await DATASETS[dataset](companyId, searchParams)
 

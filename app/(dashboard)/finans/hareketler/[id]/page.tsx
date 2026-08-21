@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { accountPaymentMethodLabel } from "@/lib/finans/account-types"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 
 interface TransactionDetail {
   id: string
@@ -193,19 +194,23 @@ export default function FinansHareketDetayPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleMakbuz}>
-            <Printer className="mr-2 h-4 w-4" />
-            Makbuz (PDF)
-          </Button>
-          <Button
-            variant="outline"
-            className="text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
-            onClick={handleDelete}
-            disabled={isDeleting}
-          >
-            {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-            Sil
-          </Button>
+          <ExportAction>
+            <Button variant="outline" onClick={handleMakbuz}>
+              <Printer className="mr-2 h-4 w-4" />
+              Makbuz (PDF)
+            </Button>
+          </ExportAction>
+          <WriteAction>
+            <Button
+              variant="outline"
+              className="text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              Sil
+            </Button>
+          </WriteAction>
         </div>
       </div>
 

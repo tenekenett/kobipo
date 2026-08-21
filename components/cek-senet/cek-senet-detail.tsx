@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { WriteAction } from "@/components/dashboard/write-guard"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import { withCompanyHref } from "@/lib/company/href"
 import {
   CEK_SENET_STATUSES,
@@ -252,11 +252,13 @@ export function CekSenetDetail({ mode }: { mode: Mode }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Makbuz basmak okuma işlemi: salt-okur kullanıcı da alabilir. */}
-          <Button variant="outline" onClick={handleMakbuz}>
-            <Printer className="mr-2 h-4 w-4" />
-            Makbuz (PDF)
-          </Button>
+          {/* Makbuz belgeyi dışarı çıkarır: salt-okunur üyelikte basılmaz. */}
+          <ExportAction>
+            <Button variant="outline" onClick={handleMakbuz}>
+              <Printer className="mr-2 h-4 w-4" />
+              Makbuz (PDF)
+            </Button>
+          </ExportAction>
           <WriteAction>
             <Button
               variant="outline"

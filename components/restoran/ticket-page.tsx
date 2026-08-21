@@ -21,6 +21,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { FetchErrorText } from "@/components/ui/fetch-error"
 import { CompanyLink } from "@/components/dashboard/company-link"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { useCanEditHere } from "@/components/dashboard/write-guard"
 import { useTicket } from "@/lib/swr/use-restoran"
 import { TicketScreen } from "@/components/restoran/ticket-screen"
 import { TicketDetailScreen } from "@/components/restoran/ticket-detail-screen"
@@ -41,8 +42,13 @@ export function TicketPage({ ticketId }: { ticketId: string }) {
    * sonucu değiştirmiyor ve state olsaydı ilk çizim bir kip geriden gelirdi.
    */
   const mode = useRef<"pos" | "detail" | null>(null)
+  // Salt-okunur yetkide POS HİÇ kurulmaz: ekran baştan sona yazma yüzeyidir (ürün
+  // ekle, ikram et, iskonto, tahsil et, hesabı kapat) ve tek tek düğme gizlemek
+  // geriye kullanılamaz bir tezgâh bırakırdı. Duvar da örmüyoruz — açık adisyonu
+  // OKUMAK meşru bir ihtiyaç; denetim ekranı zaten tam olarak bunu yapıyor.
+  const canEdit = useCanEditHere()
   if (mode.current === null && ticket) {
-    mode.current = ticket.status === "OPEN" ? "pos" : "detail"
+    mode.current = ticket.status === "OPEN" && canEdit ? "pos" : "detail"
   }
 
   if (mode.current === "pos") return <TicketScreen ticketId={ticketId} />

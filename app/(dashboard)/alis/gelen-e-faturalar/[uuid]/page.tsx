@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import {
   ArrowLeft,
   FileDown,
@@ -291,7 +292,7 @@ export default function GelenEFaturaDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           {canRespond && (
-            <>
+            <WriteAction>
               <Button
                 onClick={() => handleRespond("accept")}
                 disabled={isResponding !== null}
@@ -317,16 +318,18 @@ export default function GelenEFaturaDetailPage() {
                 )}
                 Reddet
               </Button>
-            </>
+            </WriteAction>
           )}
-          <Button variant="outline" onClick={handleDownloadPdf} disabled={isDownloadingPdf}>
-            {isDownloadingPdf ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <FileDown className="mr-2 h-4 w-4" />
-            )}
-            PDF aç
-          </Button>
+          <ExportAction>
+            <Button variant="outline" onClick={handleDownloadPdf} disabled={isDownloadingPdf}>
+              {isDownloadingPdf ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileDown className="mr-2 h-4 w-4" />
+              )}
+              PDF aç
+            </Button>
+          </ExportAction>
           {record.isLinkedToPurchase && record.linkedInvoiceId ? (
             <Button asChild>
               <Link
@@ -339,15 +342,19 @@ export default function GelenEFaturaDetailPage() {
               </Link>
             </Button>
           ) : isRejected ? (
-            <Button disabled variant="outline" title="Reddedilmiş fatura alış faturasına dönüştürülemez">
-              <Repeat2 className="mr-2 h-4 w-4" />
-              Alış Faturasına Dönüştür
-            </Button>
+            <WriteAction>
+              <Button disabled variant="outline" title="Reddedilmiş fatura alış faturasına dönüştürülemez">
+                <Repeat2 className="mr-2 h-4 w-4" />
+                Alış Faturasına Dönüştür
+              </Button>
+            </WriteAction>
           ) : (
-            <Button onClick={handleConvertToPurchase}>
-              <Repeat2 className="mr-2 h-4 w-4" />
-              Alış Faturasına Dönüştür
-            </Button>
+            <WriteAction>
+              <Button onClick={handleConvertToPurchase}>
+                <Repeat2 className="mr-2 h-4 w-4" />
+                Alış Faturasına Dönüştür
+              </Button>
+            </WriteAction>
           )}
         </div>
       </div>
@@ -357,8 +364,11 @@ export default function GelenEFaturaDetailPage() {
           <CardContent className="flex items-center gap-2 pt-6 text-sm text-amber-900 dark:text-amber-200">
             <Clock className="h-4 w-4 shrink-0" />
             <span>
-              Bu <strong>ticari fatura</strong> yanıt bekliyor. Yukarıdan <strong>Kabul Et</strong> veya{" "}
-              <strong>Reddet</strong> ile GİB'e yanıt gönderin.
+              Bu <strong>ticari fatura</strong> yanıt bekliyor.
+              <WriteAction>
+                {" "}Yukarıdan <strong>Kabul Et</strong> veya <strong>Reddet</strong> ile GİB'e yanıt
+                gönderin.
+              </WriteAction>
             </span>
           </CardContent>
         </Card>

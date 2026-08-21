@@ -240,6 +240,18 @@ export function useDashboardCompany() {
 }
 
 /**
+ * Sağlayıcı YOKSA null döner — fırlatmaz.
+ *
+ * Panelin bazı parçaları (ör. sayfa yetkisi seçici) sistem yönetim panelinde de
+ * kullanılıyor; orada seçili firma kavramı yok. Bileşeni ikizlemek yerine firma
+ * bağlamını isteğe bağlı okuyoruz: iki ayrı seçici, "panelde gördüğüm liste ile
+ * kalıpta gördüğüm liste farklı" türü sessiz tutarsızlık üretirdi.
+ */
+export function useOptionalDashboardCompany() {
+  return useContext(DashboardCompanyContext)
+}
+
+/**
  * Kullanıcının görebildiği menü sayfaları (rol ∩ izin listesi).
  * Menü, arama kutusu ve sayfa guard'ı AYNI listeden beslenmeli — ayrı hesaplayan
  * bir tüketici, kapalı sayfaya giden bir link bırakır.

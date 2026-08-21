@@ -57,6 +57,7 @@ import {
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useToast } from "@/components/ui/use-toast"
 import { TransactionDialog } from "@/components/cari/transaction-dialog"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 interface AccountTransaction {
   id: string
@@ -360,28 +361,30 @@ export default function FinansKanalDetayPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" onClick={openEdit}>
-            <Edit className="mr-2 h-4 w-4" /> Düzenle
-          </Button>
-          {account.isActive ? (
-            <>
-              <Button onClick={() => setShowTransaction(true)}>
-                <Plus className="mr-2 h-4 w-4" /> Yeni Hareket
-              </Button>
-              <Button
-                variant="outline"
-                className="text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
-                onClick={handleDeactivate}
-                disabled={isSubmitting}
-              >
-                <PowerOff className="mr-2 h-4 w-4" /> Pasifleştir
-              </Button>
-            </>
-          ) : (
-            <Button onClick={handleReactivate} disabled={isSubmitting}>
-              <Power className="mr-2 h-4 w-4" /> Etkinleştir
+          <WriteAction>
+            <Button variant="outline" onClick={openEdit}>
+              <Edit className="mr-2 h-4 w-4" /> Düzenle
             </Button>
-          )}
+            {account.isActive ? (
+              <>
+                <Button onClick={() => setShowTransaction(true)}>
+                  <Plus className="mr-2 h-4 w-4" /> Yeni Hareket
+                </Button>
+                <Button
+                  variant="outline"
+                  className="text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+                  onClick={handleDeactivate}
+                  disabled={isSubmitting}
+                >
+                  <PowerOff className="mr-2 h-4 w-4" /> Pasifleştir
+                </Button>
+              </>
+            ) : (
+              <Button onClick={handleReactivate} disabled={isSubmitting}>
+                <Power className="mr-2 h-4 w-4" /> Etkinleştir
+              </Button>
+            )}
+          </WriteAction>
         </div>
       </div>
 
@@ -593,6 +596,7 @@ export default function FinansKanalDetayPage() {
                               }
                             />
                           ) : (
+                            <WriteAction>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -610,6 +614,7 @@ export default function FinansKanalDetayPage() {
                                 <Trash2 className="h-3.5 w-3.5" />
                               )}
                             </Button>
+                            </WriteAction>
                           )}
                         </TableCell>
                       </StyledTableRow>

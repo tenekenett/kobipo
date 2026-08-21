@@ -34,6 +34,7 @@ import { currency, type ReceiptData } from "@/lib/fis/receipt-html"
 import { printReceipt } from "@/lib/fis/print-receipt"
 import { ticketDiscountLabel, type TicketItemStatus } from "@/lib/restoran/ticket-constants"
 import { cn } from "@/lib/utils"
+import { ExportAction } from "@/components/dashboard/write-guard"
 
 const STATUS_BADGE: Record<Exclude<TicketItemStatus, "NORMAL">, { label: string; cls: string }> = {
   COMP: { label: "İKRAM", cls: "border-amber-400 text-amber-700 dark:text-amber-300" },
@@ -209,14 +210,18 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
 
           {inv && (
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" onClick={() => print(false)}>
-                <Receipt className="mr-1.5 h-4 w-4" />
-                Fişi göster
-              </Button>
-              <Button variant="outline" onClick={() => print(true)}>
-                <Printer className="mr-1.5 h-4 w-4" />
-                Yazdır
-              </Button>
+              {/* Fişi göstermek de yazdırmak da belgeyi ekranın dışına taşır
+                  (yeni pencere/yazıcı) — ikisi de çıktı kapısında. */}
+              <ExportAction>
+                <Button variant="outline" onClick={() => print(false)}>
+                  <Receipt className="mr-1.5 h-4 w-4" />
+                  Fişi göster
+                </Button>
+                <Button variant="outline" onClick={() => print(true)}>
+                  <Printer className="mr-1.5 h-4 w-4" />
+                  Yazdır
+                </Button>
+              </ExportAction>
               {/* Mali belgenin kendisi Fişler ekranındadır: iptal, faturaya
                   dönüştürme ve tahsilat tamamlama orada yapılır. */}
               <CompanyLink href={`/fisler/${inv.slug || inv.id}`}>
@@ -446,11 +451,16 @@ export function TicketDetailScreen({ ticketId }: { ticketId: string }) {
                   }
                 />
               )}
-              <Row
-                label={merged ? "Birleştiren" : ticket.status === "CLOSED" ? "Kapatan" : "İptal eden"}
-                value={ticket.staff.closedBy?.name ?? "—"}
-                hint={time(ticket.closedAt)}
-              />
+              {/* Ekran açık adisyonda da açılabiliyor (salt-okunur yetki, bkz.
+                  ticket-page.tsx): hesap henüz kapanmadıysa "İptal eden — —" diye
+                  yanlış bir satır basmak yerine satırı hiç basmıyoruz. */}
+              {(ticket.closedAt || ticket.staff.closedBy) && (
+                <Row
+                  label={merged ? "Birleştiren" : ticket.status === "CLOSED" ? "Kapatan" : "İptal eden"}
+                  value={ticket.staff.closedBy?.name ?? "—"}
+                  hint={time(ticket.closedAt)}
+                />
+              )}
             </CardContent>
           </Card>
 

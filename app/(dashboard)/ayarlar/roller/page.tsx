@@ -11,7 +11,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { RoleEditorDialog, type CompanyRole } from "@/components/dashboard/role-editor-dialog"
 import { filterAvailablePages, missingModuleLabels, navPage } from "@/lib/nav/pages"
 import { usePageAvailability } from "@/components/dashboard/write-guard"
-import { ROLE_TEMPLATES } from "@/lib/nav/role-templates"
+import { useRoleTemplates } from "@/lib/swr/use-role-templates"
 import { Check, Lock, Pencil, Plus, ShieldCheck, Trash2, Users } from "lucide-react"
 
 /**
@@ -41,6 +41,8 @@ export default function RollerPage() {
   const [editingRole, setEditingRole] = useState<CompanyRole | null>(null)
   const [templateKey, setTemplateKey] = useState<string | null>(null)
   const availability = usePageAvailability()
+  // Kalıplar artık koddan değil katalogdan gelir (sistem yönetim panelinden düzenlenir).
+  const { templates } = useRoleTemplates()
 
   const fetchRoles = useCallback(async () => {
     if (!companyId) return
@@ -167,6 +169,9 @@ export default function RollerPage() {
         </CardContent>
       </Card>
 
+      {/* Katalog boşsa (tüm kalıplar pasifleştirilmiş) bölümü hiç basmıyoruz: boş bir
+          ızgara "kalıp yüklenemedi" gibi okunuyor. */}
+      {templates.length > 0 && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Hazır kalıplar</CardTitle>
@@ -176,7 +181,7 @@ export default function RollerPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {ROLE_TEMPLATES.map((template) => {
+          {templates.map((template) => {
             const created = roleByTemplate.get(template.key)
             // Kalıbın sayfaları firmanın AÇIK modüllerine göre süzülür. Kart eskiden
             // kalıbın statik sayısını basıyordu; diyalog ise seçiciyi süzdüğü için
@@ -240,6 +245,7 @@ export default function RollerPage() {
           })}
         </CardContent>
       </Card>
+      )}
 
       <RoleEditorDialog
         open={open}

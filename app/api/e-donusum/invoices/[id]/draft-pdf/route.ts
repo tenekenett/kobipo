@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 import { getGibDraftPdf } from "@/lib/integrations/e-invoice/send-invoice-helper"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
@@ -41,7 +41,7 @@ export const GET = withApiErrors(async function GET(
       return NextResponse.json({ error: "Fatura bulunamadı" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(invoice.companyId)
+    await ensureCompanyExport(invoice.companyId)
 
     const result = await getGibDraftPdf(id)
     if (!result.ok) {

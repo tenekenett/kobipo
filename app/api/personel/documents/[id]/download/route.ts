@@ -2,7 +2,7 @@ import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
@@ -19,7 +19,7 @@ export const GET = withApiErrors(async function GET(
     include: { blob: true },
   })
   if (!doc) return NextResponse.json({ error: "Belge bulunamadı" }, { status: 404 })
-  await ensureCompanyAccess(doc.companyId)
+  await ensureCompanyExport(doc.companyId)
 
   // Veritabanında saklanan dosya → baytları doğrudan servis et.
   // GÜVENLİK: mimeType yükleyen tarafından kontrol edilir (upload'taki uzantı allowlist'i

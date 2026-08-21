@@ -33,6 +33,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
+import { WriteAction } from "@/components/dashboard/write-guard"
 import { Plus, Trash2, ArrowLeft } from "lucide-react"
 import Link from "next/link"
 
@@ -345,10 +346,12 @@ export default function FaturaOdemelerPage() {
                 Fatura No: {invoice.invoiceNo} - {invoice.customer?.name || invoice.supplier?.name}
               </CardDescription>
             </div>
-            <Button onClick={() => setIsModalOpen(true)} disabled={remaining <= 0}>
-              <Plus className="mr-2 h-4 w-4" />
-              Yeni Ödeme
-            </Button>
+            <WriteAction>
+              <Button onClick={() => setIsModalOpen(true)} disabled={remaining <= 0}>
+                <Plus className="mr-2 h-4 w-4" />
+                Yeni Ödeme
+              </Button>
+            </WriteAction>
           </div>
         </CardHeader>
         <CardContent>
@@ -420,13 +423,15 @@ export default function FaturaOdemelerPage() {
                     <TableCell>{payment.reference || "-"}</TableCell>
                     <TableCell>{payment.notes || "-"}</TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(payment.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <WriteAction>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(payment.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </WriteAction>
                     </TableCell>
                   </TableRow>
                 ))
@@ -444,23 +449,25 @@ export default function FaturaOdemelerPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Input
-              type="number"
-              step="0.01"
-              placeholder="Tutar (boş bırakılırsa kalan)"
-              value={linkAmount}
-              onChange={(e) => setLinkAmount(e.target.value)}
-            />
-            <Input
-              type="datetime-local"
-              value={linkExpiresAt}
-              onChange={(e) => setLinkExpiresAt(e.target.value)}
-            />
-            <Button onClick={createPaymentLink} disabled={remaining <= 0}>
-              Ödeme Linki Oluştur
-            </Button>
-          </div>
+          <WriteAction>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="Tutar (boş bırakılırsa kalan)"
+                value={linkAmount}
+                onChange={(e) => setLinkAmount(e.target.value)}
+              />
+              <Input
+                type="datetime-local"
+                value={linkExpiresAt}
+                onChange={(e) => setLinkExpiresAt(e.target.value)}
+              />
+              <Button onClick={createPaymentLink} disabled={remaining <= 0}>
+                Ödeme Linki Oluştur
+              </Button>
+            </div>
+          </WriteAction>
 
           <Table>
             <TableHeader>

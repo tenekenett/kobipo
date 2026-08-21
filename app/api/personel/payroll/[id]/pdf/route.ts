@@ -2,7 +2,7 @@ import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 import { buildPayslipPdf } from "@/lib/pdf/personel-pdf"
 
 export const dynamic = "force-dynamic"
@@ -22,7 +22,7 @@ export const GET = withApiErrors(async function GET(
     },
   })
   if (!rec) return NextResponse.json({ error: "Bordro bulunamadı" }, { status: 404 })
-  await ensureCompanyAccess(rec.companyId)
+  await ensureCompanyExport(rec.companyId)
 
   const company = await prisma.company.findUnique({
     where: { id: rec.companyId },

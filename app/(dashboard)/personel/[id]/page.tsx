@@ -28,6 +28,7 @@ import {
 } from "@/components/personel/employee-restoran-tab"
 import { EmployeeVardiyaTab } from "@/components/personel/employee-vardiya-tab"
 import { ArrowLeft, FileText, FileDown, ExternalLink, Plus, Pencil, Trash2, Wallet, CalendarCheck, BadgeCheck, FolderOpen } from "lucide-react"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 
 type Employee = {
   id: string
@@ -369,7 +370,7 @@ export default function PersonelDetayPage() {
           <Badge variant={STATUS[emp.status as keyof typeof STATUS]?.variant || "secondary"}>
             {STATUS[emp.status as keyof typeof STATUS]?.label || emp.status}
           </Badge>
-          <Button size="sm" variant="outline" onClick={openEdit}><Pencil className="mr-1 h-4 w-4" /> Düzenle</Button>
+          <WriteAction><Button size="sm" variant="outline" onClick={openEdit}><Pencil className="mr-1 h-4 w-4" /> Düzenle</Button></WriteAction>
         </div>
       </div>
 
@@ -444,11 +445,13 @@ export default function PersonelDetayPage() {
                       <div className="flex justify-between"><span className="text-muted-foreground">Son ödeme dönemi</span><span className="font-medium">{MONTHS[lastPaid.periodMonth - 1]} {lastPaid.periodYear}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">Ödeme tarihi</span><span className="font-medium">{date(lastPaid.paymentDate)}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">Net tutar</span><span className="font-semibold text-emerald-600">{money(Number(lastPaid.netSalary))}</span></div>
-                      <div className="border-t pt-2">
-                        <a href={`/api/personel/payroll/${lastPaid.id}/pdf`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-kobipo-blue hover:underline">
-                          <FileText className="h-3.5 w-3.5" /> Son maaş pusulası (PDF)
-                        </a>
-                      </div>
+                      <ExportAction>
+                        <div className="border-t pt-2">
+                          <a href={`/api/personel/payroll/${lastPaid.id}/pdf`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-kobipo-blue hover:underline">
+                            <FileText className="h-3.5 w-3.5" /> Son maaş pusulası (PDF)
+                          </a>
+                        </div>
+                      </ExportAction>
                     </>
                   ) : (
                     <p className="text-muted-foreground">Henüz ödenmiş maaş yok.{pendingPayrolls > 0 ? ` ${pendingPayrolls} bekleyen bordro var.` : ""}</p>
@@ -505,7 +508,7 @@ export default function PersonelDetayPage() {
         {/* BORDRO */}
         <TabsContent value="bordro">
           <Card>
-            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">Bordro</CardTitle><Button size="sm" onClick={openPayroll}><Plus className="mr-1 h-4 w-4" /> Bordro Ekle</Button></div></CardHeader>
+            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">Bordro</CardTitle><WriteAction><Button size="sm" onClick={openPayroll}><Plus className="mr-1 h-4 w-4" /> Bordro Ekle</Button></WriteAction></div></CardHeader>
             <CardContent>
             {emp.payrolls.length === 0 ? <div className="text-sm text-muted-foreground">Bordro kaydı yok.</div> : (
               <StyledTableContainer><Table>
@@ -524,9 +527,11 @@ export default function PersonelDetayPage() {
                       <TableCell className="text-right font-semibold">{money(Number(p.netSalary))}</TableCell>
                       <TableCell><Badge variant={p.status === "PAID" ? "default" : "secondary"}>{p.status === "PAID" ? "Ödendi" : "Bekliyor"}</Badge></TableCell>
                       <TableCell className="text-right">
+                        <ExportAction>
                         <Button size="sm" variant="ghost" asChild title="Maaş pusulası">
                           <a href={`/api/personel/payroll/${p.id}/pdf`} target="_blank" rel="noopener noreferrer"><FileText className="h-4 w-4 text-kobipo-blue" /></a>
                         </Button>
+                        </ExportAction>
                       </TableCell>
                     </StyledTableRow>
                   ))}
@@ -539,7 +544,7 @@ export default function PersonelDetayPage() {
         {/* İZİN */}
         <TabsContent value="izin">
           <Card>
-            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">İzin</CardTitle><Button size="sm" onClick={() => { setLeaveForm({ type: "ANNUAL", startDate: today, endDate: today, reason: "" }); setLeaveOpen(true) }}><Plus className="mr-1 h-4 w-4" /> İzin Ekle</Button></div></CardHeader>
+            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">İzin</CardTitle><WriteAction><Button size="sm" onClick={() => { setLeaveForm({ type: "ANNUAL", startDate: today, endDate: today, reason: "" }); setLeaveOpen(true) }}><Plus className="mr-1 h-4 w-4" /> İzin Ekle</Button></WriteAction></div></CardHeader>
             <CardContent>
             {emp.leaves.length === 0 ? <div className="text-sm text-muted-foreground">İzin kaydı yok.</div> : (
               <StyledTableContainer><Table>
@@ -558,9 +563,11 @@ export default function PersonelDetayPage() {
                       <TableCell className="text-center">{Number(l.days)}</TableCell>
                       <TableCell><Badge variant={l.status === "APPROVED" ? "default" : l.status === "REJECTED" ? "destructive" : "secondary"}>{l.status === "APPROVED" ? "Onaylı" : l.status === "REJECTED" ? "Red" : "Bekliyor"}</Badge></TableCell>
                       <TableCell className="text-right">
+                        <ExportAction>
                         <Button size="sm" variant="ghost" asChild title="İzin formu">
                           <a href={`/api/personel/leaves/${l.id}/pdf`} target="_blank" rel="noopener noreferrer"><FileText className="h-4 w-4 text-kobipo-blue" /></a>
                         </Button>
+                        </ExportAction>
                       </TableCell>
                     </StyledTableRow>
                   ))}
@@ -573,7 +580,7 @@ export default function PersonelDetayPage() {
         {/* ZİMMET */}
         <TabsContent value="zimmet">
           <Card>
-            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">Zimmet</CardTitle><Button size="sm" onClick={() => { setAssetForm({ assetName: "", category: "", serialNo: "", quantity: "1", assignedDate: today, notes: "" }); setAssetOpen(true) }}><Plus className="mr-1 h-4 w-4" /> Zimmet Ekle</Button></div></CardHeader>
+            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">Zimmet</CardTitle><WriteAction><Button size="sm" onClick={() => { setAssetForm({ assetName: "", category: "", serialNo: "", quantity: "1", assignedDate: today, notes: "" }); setAssetOpen(true) }}><Plus className="mr-1 h-4 w-4" /> Zimmet Ekle</Button></WriteAction></div></CardHeader>
             <CardContent>
             {emp.assets.length === 0 ? <div className="text-sm text-muted-foreground">Zimmet kaydı yok.</div> : (
               <StyledTableContainer><Table>
@@ -594,9 +601,11 @@ export default function PersonelDetayPage() {
                       <TableCell className="whitespace-nowrap text-xs">{date(a.assignedDate)}</TableCell>
                       <TableCell><Badge variant={a.status === "RETURNED" ? "outline" : "default"}>{a.status === "RETURNED" ? "İade" : "Zimmetli"}</Badge></TableCell>
                       <TableCell className="text-right">
+                        <ExportAction>
                         <Button size="sm" variant="ghost" asChild title="Zimmet formu">
                           <a href={`/api/personel/assets/${a.id}/pdf`} target="_blank" rel="noopener noreferrer"><FileText className="h-4 w-4 text-kobipo-blue" /></a>
                         </Button>
+                        </ExportAction>
                       </TableCell>
                     </StyledTableRow>
                   ))}
@@ -612,9 +621,11 @@ export default function PersonelDetayPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Belgeler</CardTitle>
+                <WriteAction>
                 <Button size="sm" onClick={() => { setDocForm({ title: "", category: "", notes: "" }); setDocFiles([]); setDocOpen(true) }}>
                   <Plus className="mr-1 h-4 w-4" /> Belge Ekle
                 </Button>
+                </WriteAction>
               </div>
             </CardHeader>
             <CardContent>
@@ -634,14 +645,20 @@ export default function PersonelDetayPage() {
                       <TableCell className="text-xs">{d.category || "—"}</TableCell>
                       <TableCell className="whitespace-nowrap text-xs">{date(d.createdAt)}</TableCell>
                       <TableCell className="text-center">
+                        {/* Personel belgesini indirmek de bir dışa aktarmadır (özlük
+                            dosyası); salt-okunurda satır kalır, indirme bağlantısı düşer. */}
                         {d.fileName ? (
-                          <a href={`/api/personel/documents/${d.id}/download`} target="_blank" rel="noopener noreferrer" className="inline-flex text-kobipo-blue"><FileDown className="h-4 w-4" /></a>
+                          <ExportAction fallback={<span className="text-muted-foreground">—</span>}>
+                            <a href={`/api/personel/documents/${d.id}/download`} target="_blank" rel="noopener noreferrer" className="inline-flex text-kobipo-blue"><FileDown className="h-4 w-4" /></a>
+                          </ExportAction>
                         ) : d.fileUrl ? (
-                          <a href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex text-kobipo-blue"><ExternalLink className="h-4 w-4" /></a>
+                          <ExportAction fallback={<span className="text-muted-foreground">—</span>}>
+                            <a href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex text-kobipo-blue"><ExternalLink className="h-4 w-4" /></a>
+                          </ExportAction>
                         ) : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button size="sm" variant="ghost" onClick={() => removeDoc(d.id)} title="Sil"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        <WriteAction><Button size="sm" variant="ghost" onClick={() => removeDoc(d.id)} title="Sil"><Trash2 className="h-4 w-4 text-destructive" /></Button></WriteAction>
                       </TableCell>
                     </StyledTableRow>
                   ))}

@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Check, XCircle, Clock, Copy, CreditCard, FileUp, Loader2, Paperclip } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
+import { WriteAction } from "@/components/dashboard/write-guard"
 
 // Havale/EFT ödeme bilgileri.
 export const HAVALE_INFO = {
@@ -225,14 +226,16 @@ function HavalePaymentBox({
           placeholder="Not (isteğe bağlı): gönderen ad, tarih…"
           className="w-full rounded-md border border-amber-200 bg-white/70 px-2.5 py-1.5 text-xs text-amber-900 placeholder:text-amber-700/50 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100 dark:placeholder:text-amber-200/40"
         />
-        <Button type="button" size="sm" onClick={upload} disabled={!file || busy}>
-          {busy ? (
-            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-          ) : (
-            <FileUp className="mr-1.5 h-4 w-4" />
-          )}
-          Dekontu gönder
-        </Button>
+        <WriteAction>
+          <Button type="button" size="sm" onClick={upload} disabled={!file || busy}>
+            {busy ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <FileUp className="mr-1.5 h-4 w-4" />
+            )}
+            Dekontu gönder
+          </Button>
+        </WriteAction>
         <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
           PDF veya görsel, en fazla 10 MB.
         </p>

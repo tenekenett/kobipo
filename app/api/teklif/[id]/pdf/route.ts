@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 import { renderTeklifPdf } from "@/lib/pdf/documents/teklif-document"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
@@ -62,7 +62,7 @@ export const GET = withApiErrors(async function GET(request: Request, { params }
       return NextResponse.json({ error: "Quote not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(quote.companyId)
+    await ensureCompanyExport(quote.companyId)
 
     const bankAccounts = await prisma.financialAccount.findMany({
       where: { companyId: quote.companyId, type: "BANK", isActive: true },

@@ -42,7 +42,7 @@ import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { ExportButton } from "@/components/export/export-button"
-import { WriteAction } from "@/components/dashboard/write-guard"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 
 interface FaturaRow {
   id: string
@@ -916,21 +916,24 @@ export default function FaturalarListing({
                                 </WriteAction>
                               )}
                               {canCheckGib && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  title="GİB Durum Sorgula"
-                                  onClick={() => handleCheckStatus(rawId)}
-                                  disabled={checkingStatusId === rawId}
-                                >
-                                  {checkingStatusId === rawId ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <ShieldCheck className="h-4 w-4" />
-                                  )}
-                                </Button>
+                                <WriteAction>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    title="GİB Durum Sorgula"
+                                    onClick={() => handleCheckStatus(rawId)}
+                                    disabled={checkingStatusId === rawId}
+                                  >
+                                    {checkingStatusId === rawId ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <ShieldCheck className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </WriteAction>
                               )}
                               {canDownloadGibPdf && (
+                                <ExportAction>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -946,6 +949,7 @@ export default function FaturalarListing({
                                     <FileDown className="h-4 w-4" />
                                   )}
                                 </Button>
+                                </ExportAction>
                               )}
                               <WriteAction>
                                 <Button
@@ -961,6 +965,7 @@ export default function FaturalarListing({
                           ) : (
                             <>
                               {row.uuid && (
+                                <ExportAction>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -976,6 +981,7 @@ export default function FaturalarListing({
                                     <FileDown className="h-4 w-4" />
                                   )}
                                 </Button>
+                                </ExportAction>
                               )}
                               <span
                                 className="text-[10px] text-muted-foreground"

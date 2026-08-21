@@ -41,7 +41,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Trash2, Edit, Printer } from "lucide-react"
-import { WriteAction } from "@/components/dashboard/write-guard"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import { cekSenetStatusLabel, resolveCekSenetDirection } from "@/lib/cek-senet/labels"
 import { withCompanyHref } from "@/lib/company/href"
 
@@ -483,15 +483,17 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                         </TableCell>
                         <TableCell data-row-link-skip>
                           <div className="flex gap-2">
-                            {/* Makbuz basmak okuma işlemi: WriteAction dışında. */}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              title="Makbuz (PDF)"
-                              onClick={() => handleMakbuz(check)}
-                            >
-                              <Printer className="h-4 w-4" />
-                            </Button>
+                            {/* Makbuz belgeyi dışarı çıkarır — çıktı kapısında. */}
+                            <ExportAction>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Makbuz (PDF)"
+                                onClick={() => handleMakbuz(check)}
+                              >
+                                <Printer className="h-4 w-4" />
+                              </Button>
+                            </ExportAction>
                             <WriteAction>
                               <div className="flex gap-2">
                                 <Button variant="ghost" size="sm" onClick={() => handleEdit(check)}>
@@ -554,14 +556,16 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                         </TableCell>
                         <TableCell data-row-link-skip>
                           <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              title="Makbuz (PDF)"
-                              onClick={() => handleMakbuz(note)}
-                            >
-                              <Printer className="h-4 w-4" />
-                            </Button>
+                            <ExportAction>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Makbuz (PDF)"
+                                onClick={() => handleMakbuz(note)}
+                              >
+                                <Printer className="h-4 w-4" />
+                              </Button>
+                            </ExportAction>
                             <WriteAction>
                               <div className="flex gap-2">
                                 <Button variant="ghost" size="sm" onClick={() => handleEdit(note)}>

@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 import { renderFaturaPdf } from "@/lib/pdf/documents/fatura-document"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
@@ -61,7 +61,7 @@ export const GET = withApiErrors(async function GET(request: Request, { params }
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
     }
 
-    await ensureCompanyAccess(invoice.companyId)
+    await ensureCompanyExport(invoice.companyId)
 
     const grossTotal = invoice.items.reduce(
       (sum, item) => sum + Number(item.quantity) * Number(item.unitPrice),

@@ -42,7 +42,7 @@ import {
   Hash,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
-import { WriteAction } from "@/components/dashboard/write-guard"
+import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 
 interface IncomingRow {
   id: string
@@ -656,20 +656,22 @@ export default function GelenEFaturalarPage() {
                                   </Button>
                                 </WriteAction>
                               )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDownloadPdf(row.uuid, row.invoiceNo)}
-                              disabled={downloadingPdfUuid === row.uuid}
-                              title="PDF indir / aç"
-                              className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-500/15 dark:hover:text-rose-200"
-                            >
-                              {downloadingPdfUuid === row.uuid ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <FileDown className="h-4 w-4" />
-                              )}
-                            </Button>
+                            <ExportAction>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDownloadPdf(row.uuid, row.invoiceNo)}
+                                disabled={downloadingPdfUuid === row.uuid}
+                                title="PDF indir / aç"
+                                className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-500/15 dark:hover:text-rose-200"
+                              >
+                                {downloadingPdfUuid === row.uuid ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <FileDown className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </ExportAction>
                             <Button
                               variant="ghost"
                               size="sm"

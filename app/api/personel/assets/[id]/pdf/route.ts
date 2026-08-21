@@ -2,7 +2,7 @@ import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
-import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { ensureCompanyExport } from "@/lib/middleware/company"
 import { buildAssetFormPdf } from "@/lib/pdf/personel-pdf"
 
 export const dynamic = "force-dynamic"
@@ -20,7 +20,7 @@ export const GET = withApiErrors(async function GET(
     include: { employee: { select: { firstName: true, lastName: true, nationalId: true, position: true, department: true } } },
   })
   if (!rec) return NextResponse.json({ error: "Zimmet kaydı bulunamadı" }, { status: 404 })
-  await ensureCompanyAccess(rec.companyId)
+  await ensureCompanyExport(rec.companyId)
 
   const company = await prisma.company.findUnique({
     where: { id: rec.companyId },

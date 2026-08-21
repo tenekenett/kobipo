@@ -311,3 +311,26 @@ export async function ensureCompanyWrite(
   return context
 }
 
+/**
+ * Veriyi dışarı çıkaran uçlar için kapı: Excel/PDF/CSV dışa aktarma, belge PDF'i,
+ * yazdırma dökümü, dosya indirme.
+ *
+ * Bunlar HTTP'de birer GET'tir, yani `ensureCompanyAccess`ten sorunsuz geçerler —
+ * ama "görüntüleme yetkisi" ekranda okumakla sınırlıdır: salt-okunur bir üyeliğin
+ * tüm cari listesini Excel'e ya da bordroyu PDF'e dökebilmesi, o sınırın anlamını
+ * boşaltır. Düğmeleri gizlemek yetmez (bkz. `useCanExport`); adres elle de çağrılabilir.
+ *
+ * `ensureCompanyWrite` ile AYNI yordamdan (`isReadOnlyMembership`) besleniyor ama ayrı
+ * bir kapı: yazma değil, çıktı kararıdır — rapor sayfaları hiç kimsenin yazamadığı
+ * ekranlardır, oradan dışa aktarmayı yazma kapısına bağlamak yöneticiyi de keserdi.
+ */
+export async function ensureCompanyExport(
+  companyId: string,
+): Promise<UserCompanyContext> {
+  const context = await ensureCompanyAccess(companyId)
+  if (isReadOnlyMembership(pagePermissionsOf(context))) {
+    throw new Error("Access denied: read-only role cannot export")
+  }
+  return context
+}
+
