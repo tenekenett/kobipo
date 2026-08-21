@@ -63,9 +63,19 @@ export function useCanEditHere(): boolean {
  *
  * Gizlemek, "disabled" bırakmaya yeğlendi: devre dışı bir düğme kullanıcıya neden
  * çalışmadığını söylemez, oysa sayfa başındaki `ReadOnlyBanner` bunu zaten açıklıyor.
+ *
+ * `fallback` yalnız VERİ GÖSTEREN bir düzenleyici içindir: çek detayındaki durum
+ * seçicisi gibi. Seçiciyi silmek durumu da silerdi; yerine okunur bir rozet basılır.
+ * Düğmelerde kullanılmaz — orada doğru davranış hiç basmamak.
  */
-export function WriteAction({ children }: { children: React.ReactNode }) {
-  return useCanEditHere() ? <>{children}</> : null
+export function WriteAction({
+  children,
+  fallback = null,
+}: {
+  children: React.ReactNode
+  fallback?: React.ReactNode
+}) {
+  return useCanEditHere() ? <>{children}</> : <>{fallback}</>
 }
 
 /** Sayfa başında duran açıklama. Yazma yetkisi varsa hiçbir şey basmaz. */

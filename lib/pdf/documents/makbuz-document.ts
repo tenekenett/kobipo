@@ -19,6 +19,11 @@ import { COLORS, FS, mm } from "@/lib/pdf/doc/theme"
 export type MakbuzPdfData = {
   /** "Tahsilat" | "Ödeme" | "Gelir" | "Gider" */
   kind: string
+  /**
+   * Kıymetli evrak makbuzunda başlığa giren araç: "Çek" | "Senet".
+   * Verilmezse kasa/banka makbuzu basılır ("TAHSİLAT MAKBUZU").
+   */
+  instrument?: string | null
   makbuzNo: string
   date: string | Date
   amount: number
@@ -26,11 +31,22 @@ export type MakbuzPdfData = {
   description?: string | null
   reference?: string | null
   paymentMethod: string
-  account: { name: string; bankName?: string | null }
+  /**
+   * Paranın girdiği kasa/banka kanalı. Çek/senet makbuzunda YOKTUR: evrak teslim
+   * alınmıştır ama henüz bir kanala girmemiştir; boş "Hesap" satırı basmak yerine
+   * satır tamamen düşer.
+   */
+  account?: { name: string; bankName?: string | null } | null
+  /** Araca özgü ek bilgi satırları (çek no, banka, vade, durum…). */
+  extraRows?: Array<{ label: string; value: string }>
   company: PartyLike
   cari?: { label: string; name: string; taxNumber?: string | null } | null
   invoices: Array<{ invoiceNo: string; amount: number }>
 }
+
+/** "TAHSİLAT MAKBUZU" / "ÇEK TAHSİLAT MAKBUZU" — araç varsa başa gelir. */
+const makbuzTitle = (data: Pick<MakbuzPdfData, "kind" | "instrument">) =>
+  `${[data.instrument, data.kind].filter(Boolean).join(" ")} Makbuzu`
 
 const money = (amount: number, currency = "TRY") =>
   new Intl.NumberFormat("tr-TR", { style: "currency", currency }).format(Number(amount) || 0)
@@ -41,13 +57,16 @@ export function buildMakbuzContent(data: MakbuzPdfData): Content[] {
 
   const infoRows: Array<{ label: string; value: string }> = [
     { label: "Ödeme Yöntemi", value: data.paymentMethod },
-    {
+  ]
+  if (data.account) {
+    infoRows.push({
       label: "Hesap",
       value: data.account.bankName
         ? `${data.account.name} · ${data.account.bankName}`
         : data.account.name,
-    },
-  ]
+    })
+  }
+  if (data.extraRows?.length) infoRows.push(...data.extraRows)
   if (data.reference) infoRows.push({ label: "Referans", value: data.reference })
   if (data.description?.trim()) {
     infoRows.push({ label: "Açıklama", value: data.description.trim() })
@@ -61,7 +80,7 @@ export function buildMakbuzContent(data: MakbuzPdfData): Content[] {
           width: mm(62),
           stack: [
             {
-              text: `${data.kind.toLocaleUpperCase("tr-TR")} MAKBUZU`,
+              text: makbuzTitle(data).toLocaleUpperCase("tr-TR"),
               style: "docTitle",
               alignment: "right",
             },
@@ -120,7 +139,11 @@ export function buildMakbuzContent(data: MakbuzPdfData): Content[] {
     columns: [
       {
         width: "*",
-        text: isIncome ? "Tahsil Edilen Tutar" : "Ödenen Tutar",
+        text: data.instrument
+          ? `Teslim ${isIncome ? "Alınan" : "Edilen"} ${data.instrument} Tutarı`
+          : isIncome
+            ? "Tahsil Edilen Tutar"
+            : "Ödenen Tutar",
         bold: true,
         fontSize: FS.h2,
       },
@@ -196,7 +219,7 @@ export function buildMakbuzContent(data: MakbuzPdfData): Content[] {
 export function renderMakbuzPdf(data: MakbuzPdfData): Promise<Buffer> {
   return renderPdf(
     buildDocDefinition({
-      title: `${data.kind} Makbuzu ${data.makbuzNo}`,
+      title: `${makbuzTitle(data)} ${data.makbuzNo}`,
       footerNote: `${new Date().toLocaleString("tr-TR")} · Kobipo Ön Muhasebe`,
       content: buildMakbuzContent(data),
     }),

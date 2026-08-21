@@ -70,4 +70,39 @@ describe("Makbuz PDF — kayma avı", () => {
     }
     expect(failures, `kayma eşiği bulundu:\n${failures.join("\n")}`).toHaveLength(0)
   }, 180_000)
+
+  // Çek/senet makbuzunda hesap satırı yok, yerine evrak künyesi (çek no, banka,
+  // şube, vade, durum) geliyor ve başlığa araç adı ekleniyor. Kasa/banka
+  // makbuzundan farklı bir bilgi tablosu — kendi kayma avı olmalı.
+  it("çek/senet makbuzu (hesapsız, evrak künyeli): taşma ve çakışma yok", async () => {
+    const failures: string[] = []
+    for (let seed = 101; seed <= 130; seed++) {
+      const rand = rng(seed)
+      const instrument = rand() < 0.5 ? "Çek" : "Senet"
+      const data: MakbuzPdfData = {
+        ...buildData(rand),
+        kind: rand() < 0.5 ? "Tahsilat" : "Ödeme",
+        instrument,
+        account: null,
+        extraRows: [
+          { label: `${instrument} No`, value: token(rand, 4 + Math.floor(rand() * 40)) },
+          ...(instrument === "Çek"
+            ? [
+                { label: "Banka", value: fuzzField(rand, 80) },
+                { label: "Şube", value: fuzzField(rand, 80) },
+                { label: "Hesap No", value: token(rand, 26) },
+              ]
+            : []),
+          { label: "Düzenleme Tarihi", value: "17.08.2026" },
+          { label: "Vade Tarihi", value: "17.11.2026" },
+          { label: "Durum", value: "Portföyde" },
+        ],
+      }
+      const violations = checkPdf(await renderMakbuzPdf(data))
+      if (violations.length) {
+        failures.push(`tohum ${seed}: ${violations.slice(0, 3).map((v) => v.message).join(" | ")}`)
+      }
+    }
+    expect(failures, `yerleşim ihlali:\n${failures.join("\n")}`).toHaveLength(0)
+  }, 180_000)
 })

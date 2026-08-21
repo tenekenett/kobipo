@@ -178,6 +178,10 @@ const DYNAMIC_ENTRIES: Array<[pattern: string, title: string]> = [
   ["/finans/hareketler/:id", "Hareket Detayı"],
   ["/finans/kanallar/:id", "Kanal Detayı"],
 
+  // Çek / senet
+  ["/cek-senet/cek/:id", "Çek Detayı"],
+  ["/cek-senet/senet/:id", "Senet Detayı"],
+
   // Faturalar
   ["/faturalar/:id/odemeler", "Fatura Ödemeleri"],
   ["/faturalar/:id/onizleme", "Fatura Önizleme"],

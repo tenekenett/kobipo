@@ -7,6 +7,19 @@ import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * Çekin/senedin kapattığı fatura. Şemada ilişki YOK (`invoiceId` düz string), bu
+ * yüzden `include` ile gelmez; detay ekranı faturaya link verebilsin diye ayrıca
+ * okunur.
+ */
+async function linkedInvoice(invoiceId: string | null) {
+  if (!invoiceId) return null
+  return prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    select: { id: true, invoiceNo: true, eDocumentNo: true },
+  })
+}
+
 export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -46,7 +59,7 @@ export const GET = withApiErrors(async function GET(
 
       await ensureCompanyAccess(check.companyId)
 
-      return NextResponse.json(check)
+      return NextResponse.json({ ...check, invoice: await linkedInvoice(check.invoiceId) })
     } else {
       const note = await prisma.promissoryNote.findUnique({
         where: { id: resolvedParams.id },
@@ -65,7 +78,7 @@ export const GET = withApiErrors(async function GET(
 
       await ensureCompanyAccess(note.companyId)
 
-      return NextResponse.json(note)
+      return NextResponse.json({ ...note, invoice: await linkedInvoice(note.invoiceId) })
     }
   } catch (error: any) {
     if (error.message.includes("Access denied")) {

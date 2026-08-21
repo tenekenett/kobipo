@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
-import { Wallet } from "lucide-react"
+import { ToastAction } from "@/components/ui/toast"
+import { Printer, Wallet } from "lucide-react"
 
 type FinancialAccount = {
   id: string
@@ -130,6 +131,40 @@ export function TransactionDialog({
   const set = (patch: Partial<ReturnType<typeof emptyForm>>) =>
     setFormData((prev) => ({ ...prev, ...patch }))
 
+  // Çek/senet kaydedildiği anda müşteriye verilecek makbuz. Kasa/banka tahsilatının
+  // makbuzu hareket detayından alınıyor; çek/senet Transaction yazmadığı için oraya
+  // düşmez, bu yüzden makbuz kaydın hemen ardından burada sunulur.
+  const downloadMakbuz = async (
+    id: string,
+    instrumentType: "CHECK" | "PROMISSORY_NOTE",
+    // Evrak no ÇAĞRI ANINDA yakalanır: toast diyalog kapandıktan sonra tıklanıyor,
+    // o sırada `formData` sıfırlanmış olabilir.
+    evrakNo: string,
+  ) => {
+    try {
+      const res = await fetch(`/api/cek-senet/${id}/makbuz?type=${instrumentType}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || "Makbuz üretilemedi")
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${instrumentType === "CHECK" ? "Cek" : "Senet"}-Makbuzu-${evrakNo}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      toast({
+        title: "Makbuz oluşturulamadı",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     setIsSubmitting(true)
@@ -185,7 +220,23 @@ export function TransactionDialog({
       }
 
       const instrument = method === "CHECK" ? "Çek" : method === "NOTE" ? "Senet" : transactionLabel
-      toast({ title: "Başarılı", description: `${instrument} kaydedildi` })
+      if (method === "CASH_BANK") {
+        toast({ title: "Başarılı", description: `${instrument} kaydedildi` })
+      } else {
+        const created = await response.json().catch(() => null)
+        const instrumentType = method === "CHECK" ? "CHECK" : "PROMISSORY_NOTE"
+        const evrakNo = method === "CHECK" ? formData.checkNo : formData.noteNo
+        toast({
+          title: "Başarılı",
+          description: `${instrument} kaydedildi`,
+          action: created?.id ? (
+            <ToastAction altText="Makbuz indir" onClick={() => downloadMakbuz(created.id, instrumentType, evrakNo)}>
+              <Printer className="mr-1 h-3.5 w-3.5" />
+              Makbuz
+            </ToastAction>
+          ) : undefined,
+        })
+      }
       onOpenChange(false)
       await onSuccess?.()
     } catch (error) {

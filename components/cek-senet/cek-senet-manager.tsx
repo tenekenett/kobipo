@@ -40,8 +40,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { Plus, Trash2, Edit } from "lucide-react"
+import { Plus, Trash2, Edit, Printer } from "lucide-react"
 import { WriteAction } from "@/components/dashboard/write-guard"
+import { cekSenetStatusLabel, resolveCekSenetDirection } from "@/lib/cek-senet/labels"
+import { withCompanyHref } from "@/lib/company/href"
 
 interface Check {
   id: string
@@ -363,15 +365,41 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
     return new Date(dateString).toLocaleDateString("tr-TR")
   }
 
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      PORTFÖYDE: "Portföyde",
-      CİRO_EDİLDİ: "Ciro Edildi",
-      TAHSİL_EDİLDİ: "Tahsil Edildi",
-      İADE_EDİLDİ: "İade Edildi",
-      PROTESTOLU: "Protestolu",
+  // Satırın tamamı detaya bağlanır; `?company=` taşınmalı, aksi halde detay
+  // sayfası firma bağlamını düşürür.
+  const detailHref = (itemId: string) =>
+    withCompanyHref(`/cek-senet/${mode === "CHECK" ? "cek" : "senet"}/${itemId}`, companyId)
+
+  // Makbuz SUNUCUDA üretilir (`/api/cek-senet/[id]/makbuz`); çekle/senetle yapılan
+  // tahsilat Transaction yazmadığı için kasa/banka makbuzu ucu bu kayıtlara ulaşamaz.
+  const handleMakbuz = async (item: Check | PromissoryNote) => {
+    try {
+      const res = await fetch(`/api/cek-senet/${item.id}/makbuz?type=${mode}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || "Makbuz üretilemedi")
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      const evrakNo = mode === "CHECK" ? (item as Check).checkNo : (item as PromissoryNote).noteNo
+      const kind = resolveCekSenetDirection({
+        direction: item.direction,
+        supplierId: item.supplier?.id ?? null,
+      }) === "RECEIVED" ? "Tahsilat" : "Odeme"
+      a.href = url
+      a.download = `${mode === "CHECK" ? "Cek" : "Senet"}-${kind}-Makbuzu-${evrakNo}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      toast({
+        title: "Makbuz oluşturulamadı",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      })
     }
-    return labels[status] || status
   }
 
   const getStatusVariant = (status: string): "default" | "secondary" | "destructive" => {
@@ -433,7 +461,13 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                     </TableRow>
                   ) : (
                     checks.map((check, idx) => (
-                      <StyledTableRow key={check.id} index={idx}>
+                      <StyledTableRow
+                        key={check.id}
+                        index={idx}
+                        href={detailHref(check.id)}
+                        hrefLabel={`Çek ${check.checkNo} detayı`}
+                        className="cursor-pointer"
+                      >
                         <TableCell><MonoCell value={check.checkNo} className="text-kobipo-blue font-medium" /></TableCell>
                         <TableCell className="text-xs">{check.bankName}</TableCell>
                         <TableCell>
@@ -444,20 +478,31 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                         <TableCell className="text-xs whitespace-nowrap">{formatDate(check.dueDate)}</TableCell>
                         <TableCell>
                           <Badge variant={getStatusVariant(check.status)}>
-                            {getStatusLabel(check.status)}
+                            {cekSenetStatusLabel(check.status)}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          <WriteAction>
-                            <div className="flex gap-2">
-                              <Button variant="ghost" size="sm" onClick={() => handleEdit(check)}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleDelete(check.id)}>
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </div>
-                          </WriteAction>
+                        <TableCell data-row-link-skip>
+                          <div className="flex gap-2">
+                            {/* Makbuz basmak okuma işlemi: WriteAction dışında. */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="Makbuz (PDF)"
+                              onClick={() => handleMakbuz(check)}
+                            >
+                              <Printer className="h-4 w-4" />
+                            </Button>
+                            <WriteAction>
+                              <div className="flex gap-2">
+                                <Button variant="ghost" size="sm" onClick={() => handleEdit(check)}>
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={() => handleDelete(check.id)}>
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                            </WriteAction>
+                          </div>
                         </TableCell>
                       </StyledTableRow>
                     ))
@@ -488,7 +533,13 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                     </TableRow>
                   ) : (
                     notes.map((note, idx) => (
-                      <StyledTableRow key={note.id} index={idx}>
+                      <StyledTableRow
+                        key={note.id}
+                        index={idx}
+                        href={detailHref(note.id)}
+                        hrefLabel={`Senet ${note.noteNo} detayı`}
+                        className="cursor-pointer"
+                      >
                         <TableCell><MonoCell value={note.noteNo} className="text-kobipo-blue font-medium" /></TableCell>
                         <TableCell>
                           <EntityCell name={note.customer?.name || note.supplier?.name} />
@@ -498,20 +549,30 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                         <TableCell className="text-xs whitespace-nowrap">{formatDate(note.dueDate)}</TableCell>
                         <TableCell>
                           <Badge variant={getStatusVariant(note.status)}>
-                            {getStatusLabel(note.status)}
+                            {cekSenetStatusLabel(note.status)}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          <WriteAction>
-                            <div className="flex gap-2">
-                              <Button variant="ghost" size="sm" onClick={() => handleEdit(note)}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleDelete(note.id)}>
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </div>
-                          </WriteAction>
+                        <TableCell data-row-link-skip>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="Makbuz (PDF)"
+                              onClick={() => handleMakbuz(note)}
+                            >
+                              <Printer className="h-4 w-4" />
+                            </Button>
+                            <WriteAction>
+                              <div className="flex gap-2">
+                                <Button variant="ghost" size="sm" onClick={() => handleEdit(note)}>
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={() => handleDelete(note.id)}>
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                            </WriteAction>
+                          </div>
                         </TableCell>
                       </StyledTableRow>
                     ))

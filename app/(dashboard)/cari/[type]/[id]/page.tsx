@@ -545,11 +545,17 @@ export default function CustomerSupplierDetailPage() {
                   const backTo = encodeURIComponent(`/cari/${type}/${id}`)
                   const company = encodeURIComponent(companyId || "")
                   // Fatura satırı da artık tıklanabilir (önceden yalnız belge no linkti).
+                  // Çek/senet Transaction DEĞİL, kendi kaydı — /finans/hareketler'de
+                  // yoktur; detayı çek/senet portföyünün altında yaşar.
                   const rowHref = isMovement
                     ? `/finans/hareketler/${tx.id}?company=${company}&from=${backTo}`
-                    : tx.type === "INVOICE" && !tx.converted
-                      ? `/faturalar/${tx.id}/onizleme?company=${company}&from=${backTo}`
-                      : undefined
+                    : tx.type === "CHECK"
+                      ? `/cek-senet/cek/${tx.id}?company=${company}&from=${backTo}`
+                      : tx.type === "NOTE"
+                        ? `/cek-senet/senet/${tx.id}?company=${company}&from=${backTo}`
+                        : tx.type === "INVOICE" && !tx.converted
+                          ? `/faturalar/${tx.id}/onizleme?company=${company}&from=${backTo}`
+                          : undefined
                   return (
                   <LinkedTableRow
                     key={tx.id}
