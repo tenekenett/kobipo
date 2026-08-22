@@ -1,6 +1,7 @@
 import { createHash } from "crypto"
 import { readFile } from "fs/promises"
 import path from "path"
+import { THEME_VERSION } from "@/lib/integrations/e-invoice/template-designer"
 
 /**
  * Kobipo'ya gömülü örnek belge şablonları (XSLT).
@@ -74,16 +75,23 @@ export async function listSampleTemplates(): Promise<
 }
 
 /**
- * Taban şablonun SÜRÜM İMZASI — içerik özetinin ilk 12 hanesi.
+ * Taban şablonun SÜRÜM İMZASI — içerik + tema katmanı özetinin ilk 12 hanesi.
  *
  * Tasarımcıyla üretilmiş her XSLT bu tabandan doğar. Kayıtlı tasarımın imzası
  * güncel imzadan farklıysa o tasarım BAYATTIR: Mysoft'taki kopya, tabana sonradan
  * eklenen iyileştirmeleri (ör. kalem notu satırı) taşımıyor demektir.
+ *
+ * Çıktı yalnız taban dosyadan değil, üstüne uygulanan tema katmanından da
+ * doğduğu için `THEME_VERSION` de imzaya karışır — aksi halde taban dosyaya
+ * dokunmayan bir yerleşim değişikliği kayıtlı kopyalara hiç ulaşmaz.
  */
 export async function sampleTemplateVersion(key: string): Promise<string | null> {
   const { available, content } = await readSampleTemplate(key)
   if (!available || !content) return null
-  return createHash("sha256").update(content).digest("hex").slice(0, 12)
+  return createHash("sha256")
+    .update(`${content}|theme:${THEME_VERSION}`)
+    .digest("hex")
+    .slice(0, 12)
 }
 
 /** Belge tipinin (1=E-Fatura, 2=E-Arşiv) güncel taban sürümü. */

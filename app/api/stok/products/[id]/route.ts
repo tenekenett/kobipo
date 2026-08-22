@@ -131,6 +131,7 @@ export const PUT = withApiErrors(async function PUT(
       name,
       barcode,
       category,
+      shelfCode,
       unit,
       vatRate,
       purchasePrice,
@@ -204,6 +205,11 @@ export const PUT = withApiErrors(async function PUT(
           category !== undefined
             ? (String(category).trim() ? String(category).trim() : null)
             : product.category,
+        // Gövdede yoksa dokunulmaz: bu ucu rafı hiç bilmeyen formlar da çağırıyor.
+        shelfCode:
+          shelfCode !== undefined
+            ? (String(shelfCode).trim() ? String(shelfCode).trim() : null)
+            : product.shelfCode,
         imageUrl: image.changed && "url" in image ? image.url : product.imageUrl,
         // Yukarıdaki reçete kontrolü normalize edilmiş birimle yapıldı; kayıt da
         // aynı değeri yazmalı, aksi halde doğrulanan ile saklanan ayrışır.

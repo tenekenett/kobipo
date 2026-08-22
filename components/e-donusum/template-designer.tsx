@@ -165,7 +165,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
     if (pdfUrl) URL.revokeObjectURL(pdfUrl)
   }, [pdfUrl])
 
-  // Alt bilgiye eklemek için firmanın kayıtlı banka hesapları.
+  // Açıklama notuna eklemek için firmanın kayıtlı banka hesapları.
   const [bankAccounts, setBankAccounts] = useState<
     Array<{ id: string; name: string; bankName: string | null; accountNumber: string | null; iban: string | null }>
   >([])
@@ -224,7 +224,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
     }
   }, [companyId])
 
-  // Seçilen banka hesabını alt bilgiye yeni satır olarak ekler (not metni korunur).
+  // Seçilen banka hesabını açıklama notuna yeni satır olarak ekler (mevcut metin korunur).
   const insertBankAccount = (id: string) => {
     const acc = bankAccounts.find((a) => a.id === id)
     if (!acc) return
@@ -553,7 +553,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
               <TabsTrigger value="yazi">Yazı</TabsTrigger>
               <TabsTrigger value="logo">Logo &amp; Kaşe</TabsTrigger>
               <TabsTrigger value="tablo">Tablo &amp; Düzen</TabsTrigger>
-              <TabsTrigger value="altbilgi">Alt Bilgi</TabsTrigger>
+              <TabsTrigger value="altbilgi">Açıklama &amp; Banka</TabsTrigger>
             </TabsList>
 
             {/* TEMA */}
@@ -716,7 +716,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
               </label>
             </TabsContent>
 
-            {/* ALT BİLGİ */}
+            {/* AÇIKLAMA & BANKA */}
             <TabsContent value="altbilgi" className="space-y-3 pt-2">
               {/* Kayıtlı banka hesabından hızlı ekleme */}
               <div className="space-y-1.5">
@@ -749,7 +749,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="footer-note">Fatura altı not (IBAN, banka, teşekkür…)</Label>
+                <Label htmlFor="footer-note">Açıklama kutusundaki not (IBAN, banka, teşekkür…)</Label>
                 <Textarea
                   id="footer-note"
                   value={opts.footerNote}
@@ -759,7 +759,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
                   placeholder={"ör.\nBanka: Örnek Bankası — TR12 0000 0000 0000 0000 0000 00\nBizi tercih ettiğiniz için teşekkür ederiz."}
                 />
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Yukarıdan banka hesabı seçince nota eklenir; serbestçe de yazabilirsiniz.</span>
+                  <span>Yukarıdan banka hesabı seçince nota eklenir; serbestçe de yazabilirsiniz. Metin faturanın açıklama kutusunun içinde çıkar.</span>
                   <span>{opts.footerNote.length}/{MAX_FOOTER_NOTE_LEN}</span>
                 </div>
               </div>
@@ -942,12 +942,16 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
                       YALNIZ: # OnSekizBinÜçYüz TRY #
                     </div>
 
-                    {/* alt bilgi */}
-                    {opts.footerNote.trim() && (
-                      <div className="mt-2 whitespace-pre-line pt-1.5 text-[9px]" style={{ borderTop: `${opts.lineThickness}px solid ${opts.accentColor}` }}>
-                        {opts.footerNote}
-                      </div>
-                    )}
+                    {/* açıklama kutusu — gerçek şablonda #notesTable; serbest not
+                        (banka/IBAN) sayfa sonuna değil bu kutunun İÇİNE basılır */}
+                    <div className="mt-2 px-2 py-1 text-[9px]" style={{ border: "2px inset #000" }}>
+                      <div className="opacity-60">Fatura notları / açıklamalar burada görünür.</div>
+                      {opts.footerNote.trim() && (
+                        <div className="mt-1 whitespace-pre-line pt-1" style={{ borderTop: `1px solid ${opts.accentColor}` }}>
+                          {opts.footerNote}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">

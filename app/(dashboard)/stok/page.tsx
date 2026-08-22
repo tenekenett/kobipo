@@ -59,6 +59,8 @@ interface Product {
   name: string
   barcode?: string
   category?: string | null
+  /** Depodaki fiziksel yer (raf/koridor/göz) — serbest metin. */
+  shelfCode?: string | null
   unit: string
   vatRate: number
   purchasePrice?: number
@@ -158,6 +160,7 @@ const emptyProductForm = {
   name: "",
   barcode: "",
   category: "",
+  shelfCode: "",
   unit: "ADET",
   vatRate: "20",
   purchasePrice: "",
@@ -461,6 +464,7 @@ export default function StokPage() {
       name: product.name,
       barcode: product.barcode || "",
       category: product.category || "",
+      shelfCode: product.shelfCode || "",
       unit: product.unit,
       vatRate: String(product.vatRate),
       // DB net saklar; kullanıcı KDV dahil girdiyse formda brüt göster.
@@ -661,6 +665,18 @@ export default function StokPage() {
                     onChange={(e) =>
                       setFormData({ ...formData, barcode: e.target.value })
                     }
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shelfCode">Raf No</Label>
+                  <Input
+                    id="shelfCode"
+                    value={formData.shelfCode}
+                    onChange={(e) =>
+                      setFormData({ ...formData, shelfCode: e.target.value })
+                    }
+                    placeholder="ör. A-04"
                     disabled={isLoading}
                   />
                 </div>
@@ -1117,6 +1133,7 @@ export default function StokPage() {
                 <StyledTableHead>Ad</StyledTableHead>
                 <StyledTableHead>Kategori</StyledTableHead>
                 <StyledTableHead>Barkod</StyledTableHead>
+                <StyledTableHead>Raf No</StyledTableHead>
                 <StyledTableHead>Birim</StyledTableHead>
                 <StyledTableHead>KDV %</StyledTableHead>
                 <StyledTableHead className="text-right">Ort. Alış Fiyatı</StyledTableHead>
@@ -1130,7 +1147,7 @@ export default function StokPage() {
             <TableBody>
               {visibleProducts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={showWhCol ? 12 : 11} className="py-10 text-center">
+                  <TableCell colSpan={showWhCol ? 13 : 12} className="py-10 text-center">
                     {activeFilterCount > 0 ? (
                       <div className="flex flex-col items-center gap-3">
                         <p className="text-sm text-muted-foreground">Süzgeçlere uyan kayıt yok.</p>
@@ -1179,6 +1196,7 @@ export default function StokPage() {
                       )}
                     </TableCell>
                     <TableCell><MonoCell value={product.barcode} /></TableCell>
+                    <TableCell><MonoCell value={product.shelfCode} /></TableCell>
                     <TableCell>{product.unit}</TableCell>
                     <TableCell>{product.vatRate}%</TableCell>
                     <TableCell className="text-right whitespace-nowrap">

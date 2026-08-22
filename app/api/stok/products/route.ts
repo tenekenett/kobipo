@@ -44,6 +44,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
         { name: { contains: search, mode: "insensitive" } },
         { code: { contains: search, mode: "insensitive" } },
         { barcode: { contains: search, mode: "insensitive" } },
+        // Depoda "A-04 rafında ne var" diye aranır; raf no arama dışında kalırsa
+        // alan yalnız kartta durur, işe yaramaz.
+        { shelfCode: { contains: search, mode: "insensitive" } },
       ]
     }
 
@@ -114,6 +117,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       name,
       barcode,
       category,
+      shelfCode,
       unit,
       vatRate,
       purchasePrice,
@@ -200,6 +204,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
         name,
         barcode,
         category: category && String(category).trim() ? String(category).trim() : null,
+        shelfCode: shelfCode && String(shelfCode).trim() ? String(shelfCode).trim() : null,
         imageUrl: image.changed && "url" in image ? image.url : null,
         unit: unit || "ADET",
         vatRate: vatForCalc,

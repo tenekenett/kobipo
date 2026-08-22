@@ -43,6 +43,7 @@ function baseColumns(showWarehouse: boolean): ExportColumn[] {
     { key: "code", label: "Kod", width: 22 },
     { key: "name", label: "Ürün Adı" },
     { key: "barcode", label: "Barkod", width: 26 },
+    { key: "shelfCode", label: "Raf No", width: 16 },
     { key: "category", label: "Kategori", width: 26 },
     { key: "unit", label: "Birim", width: 14, align: "center" },
     { key: "stockQuantity", label: showWarehouse ? "Depo Stoğu" : "Stok", type: "qty", width: 20 },
@@ -71,6 +72,9 @@ export async function buildProductsDataset(params: ProductExportParams): Promise
       { name: { contains: params.search, mode: "insensitive" } },
       { code: { contains: params.search, mode: "insensitive" } },
       { barcode: { contains: params.search, mode: "insensitive" } },
+      // Ekranın araması da raf no'yu kapsıyor; ikisi ayrışırsa Excel ile liste
+      // farklı sayıda satır verir.
+      { shelfCode: { contains: params.search, mode: "insensitive" } },
     ]
   }
   // Eski `/api/export` uyumu — yeni ekranlar `kind` gönderiyor.
@@ -135,6 +139,7 @@ export async function buildProductsDataset(params: ProductExportParams): Promise
       code: product.code,
       name: product.name,
       barcode: product.barcode,
+      shelfCode: product.shelfCode,
       category: product.category,
       unit: product.unit,
       stockQuantity: product.isService ? null : quantity,

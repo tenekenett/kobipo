@@ -65,12 +65,27 @@ export interface TemplateDesignOptions {
   pageBackground: string
   /** Satır yüksekliği (line-height, ×) */
   lineHeight: number
-  /** Fatura altına eklenecek serbest metin (IBAN, banka, not). Çok satır olabilir. */
+  /**
+   * Faturanın açıklama kutusuna eklenecek serbest metin (IBAN, banka, not).
+   * Çok satır olabilir. Alan adı `footerNote` tarihseldir (kayıtlı tasarımların
+   * JSON anahtarı); metin artık sayfa sonuna değil açıklama kutusuna basılır.
+   */
   footerNote: string
 }
 
-/** Alt bilgi serbest metni için üst sınır. */
+/** Açıklama kutusu serbest metni için üst sınır. */
 export const MAX_FOOTER_NOTE_LEN = 600
+
+/**
+ * Tema katmanının sürümü — taban XSLT değişmeden ÜRETİLEN çıktı değiştiğinde bumplanır.
+ *
+ * Bayatlık imzası (bkz. `sampleTemplateVersion`) taban dosyanın özetinden türer;
+ * yalnız bu modüldeki bir değişiklik (ör. notun açıklama kutusuna taşınması)
+ * imzayı kımıldatmaz ve Mysoft'taki kayıtlı kopyalar eski görselle kalırdı.
+ * Bu sabit imzaya karıştığı için bump, tüm tasarımları bayat yapar ve ilk
+ * gönderimde sessizce yeniden yüklenmelerini sağlar.
+ */
+export const THEME_VERSION = "2"
 
 /** İzinli logo data URI biçimi (png/jpeg/gif/webp, base64). */
 const DATA_URI_RE = /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/
@@ -322,26 +337,54 @@ function buildThemeCss(opts: TemplateDesignOptions): string {
 }
 
 /**
- * Alt bilgi serbest metni için, `</body>`'den hemen önce eklenecek HTML bloğu
- * üretir (ekle-yalnız, en altta). Metin XML-kaçışlanır; satır sonları <br/> olur.
- * XSLT iyi-biçimli XML gerektirdiğinden çıktı self-closing/kapalı etiketlerle yazılır.
+ * Serbest metnin (banka/IBAN/teşekkür) gövdesi: XML-kaçışlanmış satırlar,
+ * aralarında <br/>. XSLT iyi-biçimli XML gerektirdiğinden etiketler kapalı yazılır.
+ */
+function noteLinesHtml(note: string): string {
+  return note
+    .split(/\r?\n/)
+    .map((l) => escapeXml(l))
+    .join("<br/>")
+}
+
+/**
+ * Notun AÇIKLAMA kutusu (#notesTable) içine giren biçimi.
+ *
+ * Banka/hesap bilgisi sayfanın en altında başıboş durmak yerine, alıcının
+ * zaten okuduğu not kutusunun içinde çerçevelenir. Ayraç bilinçli olarak ince
+ * (1px): "vurgu çizgisi kalınlığı" sayfa geneli hr'ler içindir, kutunun
+ * içinde 6px'e çıkınca kutuyu ikiye bölmüş gibi görünür.
+ */
+function buildNoteBoxHtml(opts: TemplateDesignOptions): string {
+  const note = opts.footerNote.trim()
+  if (!note) return ""
+  const fontPx = Math.max(8, opts.baseFontSize - 1)
+  return `<div style="margin-top:4px;padding-top:4px;border-top:1px solid ${opts.accentColor};font-size:${fontPx}px;color:${opts.textColor};line-height:${opts.lineHeight};">${noteLinesHtml(note)}</div>`
+}
+
+/**
+ * Notun sayfa sonuna eklenen biçimi — yalnız taban şablonda açıklama kutusu
+ * yer tutucusu (`addedNote`) bulunamadığında kullanılır.
  */
 function buildFooterHtml(opts: TemplateDesignOptions): string {
   const note = opts.footerNote.trim()
   if (!note) return ""
-  const lines = note
-    .split(/\r?\n/)
-    .map((l) => escapeXml(l))
-    .join("<br/>")
   const fontPx = Math.max(8, opts.baseFontSize - 1)
-  return `<div style="width:800px;margin-top:14px;padding-top:6px;border-top:${opts.lineThickness}px solid ${opts.accentColor};font-size:${fontPx}px;color:${opts.textColor};line-height:${opts.lineHeight};">${lines}</div>`
+  return `<div style="width:800px;margin-top:14px;padding-top:6px;border-top:${opts.lineThickness}px solid ${opts.accentColor};font-size:${fontPx}px;color:${opts.textColor};line-height:${opts.lineHeight};">${noteLinesHtml(note)}</div>`
 }
+
+/**
+ * Taban şablondaki açıklama kutusunun boş yer tutucusu. Kutu (#notesTable)
+ * fatura notlarını basar ve HER ZAMAN çizilir; bu span da kutunun içindedir.
+ */
+const ADDED_NOTE_ANCHOR = /<span\s+id="addedNote"\s*\/>/
 
 /**
  * Taban XSLT'ye tasarımı uygular:
  *  1) Tema CSS'i, mevcut stil bloğunun KAPANIŞINDAN hemen önce enjekte edilir
  *     (cascade'de en sona düşer, kazanır).
- *  2) Alt bilgi metni (varsa) `</body>` öncesine eklenir (ekle-yalnız).
+ *  2) Serbest not metni (varsa) açıklama kutusunun içindeki `addedNote` yer
+ *     tutucusuna yazılır; yer tutucu yoksa `</body>` öncesine düşülür.
  * UBL dönüşüm mantığına dokunulmaz.
  */
 export function applyThemeToXslt(baseXslt: string, opts: TemplateDesignOptions): string {
@@ -352,11 +395,21 @@ export function applyThemeToXslt(baseXslt: string, opts: TemplateDesignOptions):
     out = out.slice(0, styleIdx) + buildThemeCss(opts) + out.slice(styleIdx)
   }
 
-  const footer = buildFooterHtml(opts)
-  if (footer) {
-    const bodyIdx = out.lastIndexOf("</body>")
-    if (bodyIdx !== -1) {
-      out = out.slice(0, bodyIdx) + footer + out.slice(bodyIdx)
+  const inBox = buildNoteBoxHtml(opts)
+  if (inBox) {
+    if (ADDED_NOTE_ANCHOR.test(out)) {
+      // Yer tutucu inline bir span; içine blok yerleştirdiğimiz için display:block.
+      // Yerine koyma FONKSİYONLA yapılır: kullanıcı notundaki `$&` gibi diziler
+      // düz metinde replace kalıbı sayılıp çıktıyı bozardı.
+      out = out.replace(
+        ADDED_NOTE_ANCHOR,
+        () => `<span id="addedNote" style="display:block;">${inBox}</span>`,
+      )
+    } else {
+      const bodyIdx = out.lastIndexOf("</body>")
+      if (bodyIdx !== -1) {
+        out = out.slice(0, bodyIdx) + buildFooterHtml(opts) + out.slice(bodyIdx)
+      }
     }
   }
 

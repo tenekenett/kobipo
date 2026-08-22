@@ -36,6 +36,8 @@ export interface EditableProduct {
   name: string
   barcode?: string | null
   category?: string | null
+  /** Depodaki fiziksel yer (raf/koridor/göz) — serbest metin. */
+  shelfCode?: string | null
   unit: string
   vatRate: number | string
   purchasePrice?: number | null
@@ -94,6 +96,7 @@ export function ProductEditDialog({
     name: "",
     barcode: "",
     category: "",
+    shelfCode: "",
     unit: "ADET",
     vatRate: "20",
     purchasePrice: "",
@@ -131,6 +134,7 @@ export function ProductEditDialog({
       name: product.name || "",
       barcode: product.barcode || "",
       category: product.category || "",
+      shelfCode: product.shelfCode || "",
       unit: product.unit || "ADET",
       vatRate: String(product.vatRate ?? "20"),
       purchasePrice: toDisplayPrice(
@@ -336,6 +340,16 @@ export function ProductEditDialog({
                 id="edit-barcode"
                 value={formData.barcode}
                 onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                disabled={isLoading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-shelf-code">Raf No</Label>
+              <Input
+                id="edit-shelf-code"
+                value={formData.shelfCode}
+                onChange={(e) => setFormData({ ...formData, shelfCode: e.target.value })}
+                placeholder="ör. A-04"
                 disabled={isLoading}
               />
             </div>

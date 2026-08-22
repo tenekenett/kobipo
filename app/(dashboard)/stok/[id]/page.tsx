@@ -38,6 +38,8 @@ interface ProductDetail {
   name: string
   barcode?: string
   category?: string | null
+  /** Depodaki fiziksel yer (raf/koridor/göz) — serbest metin. */
+  shelfCode?: string | null
   unit: string
   vatRate: number
   purchasePrice?: number
@@ -162,6 +164,7 @@ export default function ProductDetailPage() {
               {product.isService ? "Hizmet" : "Ürün"} 
               {product.code && ` | Kod: ${product.code}`}
               {product.barcode && ` | Barkod: ${product.barcode}`}
+              {product.shelfCode && ` | Raf: ${product.shelfCode}`}
             </p>
           </div>
         </div>
@@ -289,6 +292,12 @@ export default function ProductDetailPage() {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Barkod</p>
                   <p className="font-medium font-mono">{product.barcode}</p>
+                </div>
+              )}
+              {product.shelfCode && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Raf No</p>
+                  <p className="font-medium font-mono">{product.shelfCode}</p>
                 </div>
               )}
               <div>

@@ -691,6 +691,13 @@ model Product {
   barcode                  String?
   slug                     String   @default("")
   category                 String? // Ürün kategorisi/grubu (serbest metin; varyant ileride)
+  // Ürünün depodaki fiziksel yeri — raf/koridor/göz numarası ("A-04", "R12/3").
+  // Serbest metin: her firma kendi raf şemasını kullanır, doğrulanmaz.
+  //
+  // Ürün bazındadır, depo bazlı DEĞİL: kart tek bir yer gösterir. Aynı ürün iki
+  // depoda farklı raflarda duruyorsa bu alan yetmez; o gün gereken model
+  // WarehouseStock üzerinde raf tutmaktır.
+  shelfCode                String?
   // Ürün fotoğrafı — public Supabase Storage nesnesinin tam URL'i (bucket:
   // product-images). Kafe/restoran Satış ve Adisyon ekranlarındaki menü
   // kartlarında gösterilir: çalışan ürünü adından değil görüntüsünden tanır.
