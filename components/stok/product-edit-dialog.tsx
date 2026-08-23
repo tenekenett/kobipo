@@ -344,12 +344,12 @@ export function ProductEditDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-shelf-code">Raf No</Label>
+              <Label htmlFor="edit-name">Ad *</Label>
               <Input
-                id="edit-shelf-code"
-                value={formData.shelfCode}
-                onChange={(e) => setFormData({ ...formData, shelfCode: e.target.value })}
-                placeholder="ör. A-04"
+                id="edit-name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                required
                 disabled={isLoading}
               />
             </div>
@@ -424,12 +424,12 @@ export function ProductEditDialog({
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-name">Ad *</Label>
+              <Label htmlFor="edit-shelf-code">Raf No</Label>
               <Input
-                id="edit-name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                required
+                id="edit-shelf-code"
+                value={formData.shelfCode}
+                onChange={(e) => setFormData({ ...formData, shelfCode: e.target.value })}
+                placeholder="ör. A-04"
                 disabled={isLoading}
               />
             </div>
@@ -452,6 +452,26 @@ export function ProductEditDialog({
                 onChange={(e) => setFormData({ ...formData, vatRate: e.target.value })}
                 disabled={isLoading}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-currency">Para Birimi</Label>
+              <Select
+                value={formData.currency}
+                onValueChange={(v) => setFormData({ ...formData, currency: v })}
+                disabled={isLoading}
+              >
+                <SelectTrigger id="edit-currency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="TRY">₺ TRY</SelectItem>
+                  <SelectItem value="USD">$ USD</SelectItem>
+                  <SelectItem value="EUR">€ EUR</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                TRY dışıysa satış/teklifte güncel TCMB kuruyla TL'ye çevrilir
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-purchasePrice">Alış Fiyatı</Label>
@@ -494,26 +514,6 @@ export function ProductEditDialog({
                 />
                 KDV dahil
               </label>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-currency">Para Birimi</Label>
-              <Select
-                value={formData.currency}
-                onValueChange={(v) => setFormData({ ...formData, currency: v })}
-                disabled={isLoading}
-              >
-                <SelectTrigger id="edit-currency">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="TRY">₺ TRY</SelectItem>
-                  <SelectItem value="USD">$ USD</SelectItem>
-                  <SelectItem value="EUR">€ EUR</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                TRY dışıysa satış/teklifte güncel TCMB kuruyla TL'ye çevrilir
-              </p>
             </div>
             {marginInfo.netPurchase != null && (
               <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">

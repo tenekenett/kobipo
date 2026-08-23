@@ -669,14 +669,14 @@ export default function StokPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="shelfCode">Raf No</Label>
+                  <Label htmlFor="name">Ad *</Label>
                   <Input
-                    id="shelfCode"
-                    value={formData.shelfCode}
+                    id="name"
+                    value={formData.name}
                     onChange={(e) =>
-                      setFormData({ ...formData, shelfCode: e.target.value })
+                      setFormData({ ...formData, name: e.target.value })
                     }
-                    placeholder="ör. A-04"
+                    required
                     disabled={isLoading}
                   />
                 </div>
@@ -751,14 +751,14 @@ export default function StokPage() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="name">Ad *</Label>
+                  <Label htmlFor="shelfCode">Raf No</Label>
                   <Input
-                    id="name"
-                    value={formData.name}
+                    id="shelfCode"
+                    value={formData.shelfCode}
                     onChange={(e) =>
-                      setFormData({ ...formData, name: e.target.value })
+                      setFormData({ ...formData, shelfCode: e.target.value })
                     }
-                    required
+                    placeholder="ör. A-04"
                     disabled={isLoading}
                   />
                 </div>
@@ -783,6 +783,26 @@ export default function StokPage() {
                     }
                     disabled={isLoading}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="currency">Para Birimi</Label>
+                  <Select
+                    value={formData.currency}
+                    onValueChange={(v) => setFormData({ ...formData, currency: v })}
+                    disabled={isLoading}
+                  >
+                    <SelectTrigger id="currency">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="TRY">₺ TRY</SelectItem>
+                      <SelectItem value="USD">$ USD</SelectItem>
+                      <SelectItem value="EUR">€ EUR</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    TRY dışıysa satış/teklifte güncel TCMB kuruyla TL'ye çevrilir
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="purchasePrice">Alış Fiyatı</Label>
@@ -833,26 +853,6 @@ export default function StokPage() {
                     />
                     KDV dahil
                   </label>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="currency">Para Birimi</Label>
-                  <Select
-                    value={formData.currency}
-                    onValueChange={(v) => setFormData({ ...formData, currency: v })}
-                    disabled={isLoading}
-                  >
-                    <SelectTrigger id="currency">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="TRY">₺ TRY</SelectItem>
-                      <SelectItem value="USD">$ USD</SelectItem>
-                      <SelectItem value="EUR">€ EUR</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    TRY dışıysa satış/teklifte güncel TCMB kuruyla TL'ye çevrilir
-                  </p>
                 </div>
                 {marginInfo.netPurchase != null && (
                   <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
