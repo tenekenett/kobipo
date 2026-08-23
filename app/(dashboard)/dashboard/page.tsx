@@ -22,7 +22,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { LockedAccount } from "@/components/dashboard/locked-account"
 import { isAccountLocked } from "@/lib/modules"
-import { assertRouteAccessOrRedirect } from "@/lib/middleware/page-guard"
+import { assertRouteAccessOrRedirect, pagePermissionsOfRole } from "@/lib/middleware/page-guard"
+import { canAccessRoute } from "@/lib/page-access"
 import { cn } from "@/lib/utils"
 import { DashboardCashflowChart, type CashflowPoint } from "@/components/dashboard/dashboard-cashflow-chart"
 import { dashboardTag } from "@/lib/dashboard/cache"
@@ -199,6 +200,16 @@ export default async function DashboardIndexPage({
   // çektiği için istemci guard'ı geç kalır (bkz. lib/middleware/page-guard.ts).
   assertRouteAccessOrRedirect(selectedCompany, "/dashboard", requestedCompanyId)
 
+  // Panonun GÖVDESİ de kenar çubuğuyla aynı listeden süzülür. Kenar çubuğu
+  // (`useVisiblePages`) kapalı sayfaları hiç çizmiyordu ama buradaki kutucuklar ve
+  // fatura linkleri herkese aynı çiziliyordu: pano Gözlemci'nin AÇILIŞ sayfası, yani
+  // gördüğü her bağlantı onu sayfa kapısına çarpıp aynı panoya geri atıyordu.
+  const permissions = pagePermissionsOfRole(selectedCompany)
+  const canOpen = (path: string) => canAccessRoute(permissions, path)
+  // Fatura listesi ve fatura önizlemesi aynı sahibe bağlıdır (`/satis/fatura`,
+  // `/alis/fatura`); tek soru ikisini birden yanıtlar.
+  const canOpenInvoices = canOpen("/faturalar")
+
   // Hiç modülü olmayan hesap: rakam yerine satın alma ekranı. Sorgular da atlanır —
   // kilitli hesapta hepsi sıfır döner, çalıştırmanın anlamı yok.
   if (isAccountLocked(selectedCompany.disabledModules)) {
@@ -237,9 +248,10 @@ export default async function DashboardIndexPage({
   const greeting = greetingForHour(hour)
   const dateLine = format(now, "EEEE, d MMMM yyyy", { locale: tr })
 
+  // Kutucuklar da süzülür: kapalı bir sayfaya götüren kutucuk çizilmez.
   const quickTiles = [
     {
-      href: `/cari${companyQuery}`,
+      path: "/cari",
       label: "Cari hesaplar",
       sub: "Müşteri ve tedarikçi",
       icon: Users,
@@ -247,7 +259,7 @@ export default async function DashboardIndexPage({
       ring: "ring-kobipo-blue/20",
     },
     {
-      href: `/stok${companyQuery}`,
+      path: "/stok",
       label: "Stok",
       sub: "Ürün ve hareket",
       icon: Package,
@@ -255,7 +267,7 @@ export default async function DashboardIndexPage({
       ring: "ring-kobipo-green/25",
     },
     {
-      href: `/satis/fatura${companyQuery}`,
+      path: "/satis/fatura",
       label: "Faturalar",
       sub: "Liste ve düzenleme",
       icon: Receipt,
@@ -263,7 +275,7 @@ export default async function DashboardIndexPage({
       ring: "ring-amber-200/60",
     },
     {
-      href: `/finans${companyQuery}`,
+      path: "/finans",
       label: "Finans",
       sub: "Hesap ve işlemler",
       icon: Wallet,
@@ -271,7 +283,7 @@ export default async function DashboardIndexPage({
       ring: "ring-slate-200/80",
     },
     {
-      href: `/teklif${companyQuery}`,
+      path: "/teklif",
       label: "Teklifler",
       sub: "Açık teklifler",
       icon: ScrollText,
@@ -279,14 +291,14 @@ export default async function DashboardIndexPage({
       ring: "ring-violet-200/50",
     },
     {
-      href: `/raporlar${companyQuery}`,
+      path: "/raporlar",
       label: "Raporlar",
       sub: "Bilanço ve özet",
       icon: BarChart3,
       tint: "from-kobipo-light/90 to-kobipo-pale",
       ring: "ring-kobipo-mid/20",
     },
-  ]
+  ].filter((tile) => canOpen(tile.path))
 
   return (
     <div className="space-y-8 pb-8">
@@ -491,7 +503,7 @@ export default async function DashboardIndexPage({
                 <span className="font-mono text-lg font-bold text-kobipo-navy dark:text-foreground">{quoteOpenCount}</span>
               </li>
             </ul>
-            {draftCount > 0 && (
+            {draftCount > 0 && canOpenInvoices && (
               <Link
                 href={`/satis/fatura${companyQuery}`}
                 className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-kobipo-navy px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-kobipo-blue dark:bg-kobipo-blue dark:hover:bg-kobipo-mid"
@@ -531,13 +543,15 @@ export default async function DashboardIndexPage({
               <h2 className="text-lg font-bold text-kobipo-navy dark:text-foreground">Son faturalar</h2>
               <p className="text-sm text-kobipo-gray">En güncel altı kayıt</p>
             </div>
-            <Link
-              href={`/satis/fatura${companyQuery}`}
-              className="inline-flex items-center gap-1 text-sm font-semibold text-kobipo-blue hover:underline"
-            >
-              Tümü
-              <ArrowUpRight className="h-4 w-4" />
-            </Link>
+            {canOpenInvoices && (
+              <Link
+                href={`/satis/fatura${companyQuery}`}
+                className="inline-flex items-center gap-1 text-sm font-semibold text-kobipo-blue hover:underline"
+              >
+                Tümü
+                <ArrowUpRight className="h-4 w-4" />
+              </Link>
+            )}
           </div>
           <div className="divide-y divide-kobipo-border/60">
             {recentInvoices.length === 0 ? (
@@ -548,12 +562,12 @@ export default async function DashboardIndexPage({
                   inv.type === "PURCHASE"
                     ? inv.supplier?.name ?? "—"
                     : inv.customer?.name ?? "—"
-                return (
-                  <Link
-                    key={inv.id}
-                    href={`/faturalar/${inv.id}/onizleme${companyQuery}`}
-                    className="flex flex-col gap-2 px-6 py-4 transition hover:bg-kobipo-offwhite/80 dark:hover:bg-muted/40 sm:flex-row sm:items-center sm:justify-between"
-                  >
+                const rowClass = cn(
+                  "flex flex-col gap-2 px-6 py-4 sm:flex-row sm:items-center sm:justify-between",
+                  canOpenInvoices && "transition hover:bg-kobipo-offwhite/80 dark:hover:bg-muted/40",
+                )
+                const row = (
+                  <>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-sm font-bold text-kobipo-navy dark:text-foreground">{inv.invoiceNo}</span>
@@ -569,24 +583,42 @@ export default async function DashboardIndexPage({
                       <span className="font-mono text-sm font-semibold text-kobipo-navy dark:text-foreground">
                         ₺{Number(inv.totalAmount).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}
                       </span>
-                      <ArrowUpRight className="h-4 w-4 text-kobipo-gray opacity-60" aria-hidden />
+                      {canOpenInvoices ? (
+                        <ArrowUpRight className="h-4 w-4 text-kobipo-gray opacity-60" aria-hidden />
+                      ) : null}
                     </div>
+                  </>
+                )
+                // Fatura ekranını göremeyen kullanıcıda satır LİNK DEĞİL: rakamı okur,
+                // tıklayınca sayfa kapısına çarpıp panoya geri atılmaz. Liste kalır —
+                // panoyu görmeye yetkisi olan bu özeti de görür.
+                return canOpenInvoices ? (
+                  <Link
+                    key={inv.id}
+                    href={`/faturalar/${inv.id}/onizleme${companyQuery}`}
+                    className={rowClass}
+                  >
+                    {row}
                   </Link>
+                ) : (
+                  <div key={inv.id} className={rowClass}>
+                    {row}
+                  </div>
                 )
               })
             )}
           </div>
         </div>
 
-        <div className="lg:col-span-5">
+        <div className={cn("lg:col-span-5", quickTiles.length === 0 && "hidden")}>
           <h2 className="mb-3 text-lg font-bold text-kobipo-navy dark:text-foreground animate-fade-up [animation-delay:240ms]">
             Hızlı erişim
           </h2>
           <div className="grid gap-3 sm:grid-cols-2">
             {quickTiles.map((tile, i) => (
               <Link
-                key={tile.href}
-                href={tile.href}
+                key={tile.path}
+                href={`${tile.path}${companyQuery}`}
                 className={cn(
                   "group relative overflow-hidden rounded-2xl border border-kobipo-border/80 bg-card p-4 shadow-card",
                   "transition duration-200 hover:-translate-y-0.5 hover:border-kobipo-mid/30 hover:shadow-lg",

@@ -3,48 +3,19 @@
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useRouteAccess } from "@/components/dashboard/dashboard-company-provider"
+import { reportHubLinks } from "@/lib/nav/report-hubs"
 
-const detailReports = [
-  {
-    title: "Kar/Zarar Tablosu",
-    description: "Dönemsel gelir, gider ve net kar/zarar analizi.",
-    href: "/raporlar/kar-zarar",
-  },
-  {
-    title: "Bilanço",
-    description: "Varlık, yükümlülük ve özsermaye görünümü.",
-    href: "/raporlar/bilanco",
-  },
-  {
-    title: "Nakit Akış Tablosu",
-    description: "Nakit giriş-çıkış hareketlerinin dönemsel özeti.",
-    href: "/raporlar/nakit-akisi",
-  },
-  {
-    title: "Muhasebe / Yevmiye",
-    description: "Muhasebe kayıt ekranına ve yevmiye görünümüne yönlendirir.",
-    href: "/muhasebe/yevmiye",
-  },
-  {
-    title: "Cari Yaşlandırma",
-    description: "Müşteri ve tedarikçi bakiyelerini vade bazında analiz eder.",
-    href: "/raporlar/cari-yaslandirma",
-  },
-  {
-    title: "Cari Ekstre",
-    description: "Cari hareket dökümü ve güncel bakiye detayını gösterir.",
-    href: "/cari/ekstre",
-  },
-  {
-    title: "Cari Hesaplar",
-    description: "Müşteri ve tedarikçi listelerine hızlı erişim sağlar.",
-    href: "/cari",
-  },
-]
+/** Başlıklar `lib/nav/report-hubs.ts`te: üst hub da aynı listeyi süzerek çiziyor. */
+const DETAIL_REPORTS = reportHubLinks("/raporlar/finansal")
 
 export default function FinansalRaporlarPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
+  // Menüsüz kavşak sayfası: kapıya kendisi takılmaz, o yüzden linkleri burada süzülür.
+  // Süzmezsek kapalı bir rapora tıklayan kullanıcı sayfa kapısına çarpıp panoya döner.
+  const canOpen = useRouteAccess()
+  const reports = DETAIL_REPORTS.filter((report) => canOpen(report.href))
 
   if (!companyId) {
     return (
@@ -69,7 +40,12 @@ export default function FinansalRaporlarPage() {
           <CardDescription>Her başlık kendi rapor sayfasına yönlendirir.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {detailReports.map((report) => (
+          {reports.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Bu bölümde görüntüleyebileceğiniz bir rapor yok.
+            </p>
+          ) : null}
+          {reports.map((report) => (
             <Link
               key={report.href}
               href={`${report.href}?company=${encodeURIComponent(companyId)}`}

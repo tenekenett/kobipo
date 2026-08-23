@@ -3,28 +3,19 @@
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useRouteAccess } from "@/components/dashboard/dashboard-company-provider"
+import { reportHubLinks } from "@/lib/nav/report-hubs"
 
-const detailReports = [
-  {
-    title: "Vergi Beyannameleri",
-    description: "KDV, Muhtasar ve Ba-Bs hazırlık raporlarını açar.",
-    href: "/raporlar/vergiler",
-  },
-  {
-    title: "Satış Faturaları",
-    description: "Satış faturaları akışına hızlı geçiş sağlar.",
-    href: "/satis/fatura",
-  },
-  {
-    title: "Alış Faturaları",
-    description: "Alış faturaları akışına hızlı geçiş sağlar.",
-    href: "/alis/fatura",
-  },
-]
+/** Başlıklar `lib/nav/report-hubs.ts`te: üst hub da aynı listeyi süzerek çiziyor. */
+const DETAIL_REPORTS = reportHubLinks("/raporlar/satis-alis")
 
 export default function SatisAlisRaporlariPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
+  // Menüsüz kavşak sayfası: kapıya kendisi takılmaz, o yüzden linkleri burada süzülür.
+  // Süzmezsek kapalı bir rapora tıklayan kullanıcı sayfa kapısına çarpıp panoya döner.
+  const canOpen = useRouteAccess()
+  const reports = DETAIL_REPORTS.filter((report) => canOpen(report.href))
 
   if (!companyId) {
     return (
@@ -49,7 +40,12 @@ export default function SatisAlisRaporlariPage() {
           <CardDescription>İlgili başlığa tıklayıp rapor ekranına geçebilirsiniz.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {detailReports.map((report) => (
+          {reports.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Bu bölümde görüntüleyebileceğiniz bir rapor yok.
+            </p>
+          ) : null}
+          {reports.map((report) => (
             <Link
               key={report.href}
               href={`${report.href}?company=${encodeURIComponent(companyId)}`}

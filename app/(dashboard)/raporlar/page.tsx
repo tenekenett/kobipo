@@ -4,31 +4,26 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { BarChart3, Boxes, ShoppingCart } from "lucide-react"
+import { useRouteAccess } from "@/components/dashboard/dashboard-company-provider"
+import { REPORT_HUBS, type ReportHub } from "@/lib/nav/report-hubs"
 
-const reportSections = [
-  {
-    title: "Satışlar - Alışlar",
-    description: "Vergi ve satış/alış odaklı raporlara tek noktadan erişin.",
-    href: "/raporlar/satis-alis",
-    icon: ShoppingCart,
-  },
-  {
-    title: "Finansal Raporlar",
-    description: "Kar/zarar, bilanço ve nakit akış tablolarını görüntüleyin.",
-    href: "/raporlar/finansal",
-    icon: BarChart3,
-  },
-  {
-    title: "Stok Raporları",
-    description: "Stok görünümü ve stokla ilişkili detay rapor sayfalarına gidin.",
-    href: "/raporlar/stok",
-    icon: Boxes,
-  },
-]
+const ICONS: Record<ReportHub["iconKey"], typeof ShoppingCart> = {
+  sales: ShoppingCart,
+  financial: BarChart3,
+  stock: Boxes,
+}
 
 export default function RaporlarPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
+  const canOpen = useRouteAccess()
+
+  // Hub'ın KENDİSİ menüsüz olduğu için kapıya takılmaz; kararı içindeki linkler verir.
+  // İçindekilerin hepsi kapalıysa bölüm çizilmez — aksi halde kullanıcı (ör. Gözlemci)
+  // açtığı kartta boş bir liste bulur.
+  const sections = REPORT_HUBS.filter(
+    (hub) => canOpen(hub.href) && (hub.links.length === 0 || hub.links.some((l) => canOpen(l.href)))
+  )
 
   if (!companyId) {
     return (
@@ -47,30 +42,37 @@ export default function RaporlarPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {reportSections.map((section) => {
-          const Icon = section.icon
-          return (
-            <Link key={section.href} href={`${section.href}?company=${encodeURIComponent(companyId)}`}>
-              <Card className="h-full transition-colors hover:border-kobipo-blue/60">
-                <CardHeader className="flex flex-row items-start gap-3 space-y-0">
-                  <div className="rounded-md bg-kobipo-pale p-2 text-kobipo-blue">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div className="space-y-1">
-                    <CardTitle>{section.title}</CardTitle>
-                    <CardDescription>{section.description}</CardDescription>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0 text-sm font-medium text-kobipo-blue">
-                  Detay raporlara git
-                </CardContent>
-              </Card>
-            </Link>
-          )
-        })}
-      </div>
+      {sections.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            Görüntüleyebileceğiniz bir rapor bölümü yok.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {sections.map((section) => {
+            const Icon = ICONS[section.iconKey]
+            return (
+              <Link key={section.href} href={`${section.href}?company=${encodeURIComponent(companyId)}`}>
+                <Card className="h-full transition-colors hover:border-kobipo-blue/60">
+                  <CardHeader className="flex flex-row items-start gap-3 space-y-0">
+                    <div className="rounded-md bg-kobipo-pale p-2 text-kobipo-blue">
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="space-y-1">
+                      <CardTitle>{section.title}</CardTitle>
+                      <CardDescription>{section.description}</CardDescription>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0 text-sm font-medium text-kobipo-blue">
+                    Detay raporlara git
+                  </CardContent>
+                </Card>
+              </Link>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
-

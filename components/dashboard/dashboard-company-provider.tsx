@@ -8,7 +8,7 @@ import {
   getFirstAccessibleCompanyId,
   withCompanyQuery,
 } from "@/lib/company/client-selection"
-import { canEditPage, canViewPage, visiblePages, type PagePermissions } from "@/lib/page-access"
+import { canAccessRoute, canEditPage, canViewPage, visiblePages, type PagePermissions } from "@/lib/page-access"
 
 export type DashboardCompany = {
   id: string
@@ -265,6 +265,25 @@ export function useVisiblePages(): string[] {
 export function useCanView(href: string): boolean {
   const { pagePermissions } = useDashboardCompany()
   return useMemo(() => canViewPage(pagePermissions, href), [pagePermissions, href])
+}
+
+/**
+ * Rastgele bir panel YOLU açılabilir mi? Sunucudaki `assertRouteAccessOrRedirect` ile
+ * aynı yordamdan (`canAccessRoute`) besleniyor.
+ *
+ * `useCanView`den farkı: o yalnız MENÜ href'lerini tanır ve menüsüz bir sayfa için
+ * (ör. `/raporlar/vergiler`, `/cari/ekstre`, `/muhasebe/yevmiye`) YÖNETİCİDE bile
+ * false döner — link süzmek için kullanılırsa ekranı herkese boşaltır. Bu ise yolun
+ * sahibini çözer ve sahibi olmayan yolu kapıya tabi saymaz.
+ *
+ * Hook değil, YÜKLEM döndürür: liste süzerken satır başına hook çağrılamaz.
+ */
+export function useRouteAccess(): (pathname: string) => boolean {
+  const { pagePermissions } = useDashboardCompany()
+  return useCallback(
+    (pathname: string) => canAccessRoute(pagePermissions, pathname),
+    [pagePermissions]
+  )
 }
 
 /**

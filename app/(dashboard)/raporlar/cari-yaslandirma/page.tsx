@@ -20,6 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { ChevronDown, ChevronRight, User, FileText } from "lucide-react"
+import { useCanView } from "@/components/dashboard/dashboard-company-provider"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 
@@ -108,6 +109,14 @@ export default function CariYaslandirmaPage() {
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<"customers" | "suppliers">("customers")
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  // Rapor açık ama cari kartı kapalı olabilir (ör. Gözlemci): satırdaki profil ve
+  // ekstre düğmeleri `/cari/*` altına gider, orası ayrı bir sayfa iznidir. Süzmezsek
+  // düğme kullanıcıyı sayfa kapısına çarpıp panoya geri attırır.
+  const canViewCustomers = useCanView("/cari/musteri")
+  const canViewSuppliers = useCanView("/cari/tedarikci")
+  const canOpenParty = tab === "customers" ? canViewCustomers : canViewSuppliers
+  // Ekstre ekranı `/cari/ekstre`; sahibi müşteri VE tedarikçi kartıdır, biri yeterli.
+  const canOpenEkstre = canViewCustomers || canViewSuppliers
 
   useEffect(() => {
     if (!companyId) {
@@ -309,19 +318,23 @@ export default function CariYaslandirmaPage() {
                               onClick={(e) => e.stopPropagation()}
                             >
                               <div className="flex justify-end gap-0.5">
-                                <Link
-                                  href={profileHref}
-                                  aria-label={tab === "customers" ? "Müşteri profili" : "Tedarikçi profili"}
-                                >
-                                  <Button variant="ghost" size="icon" className="h-8 w-8" title="Profil">
-                                    <User className="h-4 w-4" />
-                                  </Button>
-                                </Link>
-                                <Link href={ekstreHref} aria-label="Ekstre / Excel">
-                                  <Button variant="ghost" size="icon" className="h-8 w-8" title="Ekstre & Excel">
-                                    <FileText className="h-4 w-4" />
-                                  </Button>
-                                </Link>
+                                {canOpenParty ? (
+                                  <Link
+                                    href={profileHref}
+                                    aria-label={tab === "customers" ? "Müşteri profili" : "Tedarikçi profili"}
+                                  >
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Profil">
+                                      <User className="h-4 w-4" />
+                                    </Button>
+                                  </Link>
+                                ) : null}
+                                {canOpenEkstre ? (
+                                  <Link href={ekstreHref} aria-label="Ekstre / Excel">
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Ekstre & Excel">
+                                      <FileText className="h-4 w-4" />
+                                    </Button>
+                                  </Link>
+                                ) : null}
                               </div>
                             </TableCell>
                           </TableRow>
