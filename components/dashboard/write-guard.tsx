@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo } from "react"
+import { forwardRef, isValidElement, useMemo, type HTMLAttributes, type ReactNode } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
+import { Slot } from "@radix-ui/react-slot"
 import { Eye } from "lucide-react"
 import {
   useDashboardCompany,
@@ -110,16 +111,29 @@ export function ExportAction({
  * `fallback` yalnız VERİ GÖSTEREN bir düzenleyici içindir: çek detayındaki durum
  * seçicisi gibi. Seçiciyi silmek durumu da silerdi; yerine okunur bir rozet basılır.
  * Düğmelerde kullanılmaz — orada doğru davranış hiç basmamak.
+ *
+ * ÜSTTEN GELEN PROP'LAR GEÇİRİLİR (`Slot`). `<DialogTrigger asChild>` gibi Radix
+ * sarmalayıcıları `onClick`/`ref`/`aria-*`'ı DOĞRUDAN çocuğa — yani bu bileşene —
+ * klonlar. Fragment döndüren sürüm hepsini sessizce yutuyordu: düğme çiziliyor,
+ * tıklanıyor ve HİÇBİR ŞEY olmuyordu (yetkisi tam kullanıcıda bile). Prop gelmediği
+ * sürece davranış eskisi gibi saf sarmalayıcıdır; `Slot` yalnız tek bir React
+ * elemanı sarıldığında devreye girer.
  */
-export function WriteAction({
-  children,
-  fallback = null,
-}: {
-  children: React.ReactNode
-  fallback?: React.ReactNode
-}) {
-  return useCanEditHere() ? <>{children}</> : <>{fallback}</>
-}
+export const WriteAction = forwardRef<
+  HTMLElement,
+  HTMLAttributes<HTMLElement> & { children: ReactNode; fallback?: ReactNode }
+>(function WriteAction({ children, fallback = null, ...rest }, ref) {
+  const canEdit = useCanEditHere()
+  if (!canEdit) return <>{fallback}</>
+  if ((ref || Object.keys(rest).length > 0) && isValidElement(children)) {
+    return (
+      <Slot ref={ref} {...rest}>
+        {children}
+      </Slot>
+    )
+  }
+  return <>{children}</>
+})
 
 /** Sayfa başında duran açıklama. Yazma yetkisi varsa hiçbir şey basmaz. */
 export function ReadOnlyBanner() {
