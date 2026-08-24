@@ -17,6 +17,9 @@ const STATIC_PATHS: { path: string; priority: number; changeFrequency: MetadataR
   { path: "/kurumsal/kvkk", priority: 0.3, changeFrequency: "yearly" },
   { path: "/kurumsal/cerezler", priority: 0.3, changeFrequency: "yearly" },
   { path: "/kurumsal/kullanim-kosullari", priority: 0.3, changeFrequency: "yearly" },
+  { path: "/kurumsal/mesafeli-satis-sozlesmesi", priority: 0.3, changeFrequency: "yearly" },
+  { path: "/kurumsal/teslimat", priority: 0.3, changeFrequency: "yearly" },
+  { path: "/kurumsal/iptal-iade", priority: 0.3, changeFrequency: "yearly" },
 ]
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {

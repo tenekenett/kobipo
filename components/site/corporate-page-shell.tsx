@@ -191,6 +191,9 @@ export function CorporatePageShell({ badge = "Kurumsal", title, description, bre
                 <Link href="/kurumsal/kvkk" className="block text-xs text-white/55 transition-colors hover:text-white">KVKK</Link>
                 <Link href="/kurumsal/cerezler" className="block text-xs text-white/55 transition-colors hover:text-white">Çerezler</Link>
                 <Link href="/kurumsal/kullanim-kosullari" className="block text-xs text-white/55 transition-colors hover:text-white">Kullanım Koşulları</Link>
+                <Link href="/kurumsal/mesafeli-satis-sozlesmesi" className="block text-xs text-white/55 transition-colors hover:text-white">Mesafeli Satış Sözleşmesi</Link>
+                <Link href="/kurumsal/teslimat" className="block text-xs text-white/55 transition-colors hover:text-white">Teslimat Koşulları</Link>
+                <Link href="/kurumsal/iptal-iade" className="block text-xs text-white/55 transition-colors hover:text-white">İptal ve İade</Link>
               </div>
             </div>
           </div>

@@ -62,6 +62,21 @@ export function autoInvoiceStartAt(): Date | null {
   return d
 }
 
+/**
+ * PROVA MODU: fatura kurulur, Mysoft'a TASLAK olarak yazılır ama **GİB'e GÖNDERİLMEZ**.
+ *
+ * Neden gerekli: canlıda kesilen her belge hukuken doğar ve e-Fatura ise iptal bile
+ * edilemez. Oysa akışın doğruluğunu (alıcı bilgisi, seri, KDV ayrışması, tutarlar)
+ * belge görselinde görmeden bilmek mümkün değil. Taslak, tam olarak bu boşluğu
+ * dolduruyor: Mysoft filigranlı taslak PDF'i üretir, `discardGibDraft` ile de iz
+ * bırakmadan silinir.
+ *
+ * Prova modunda tahsilat kaydı da YAZILMAZ — satış henüz kesinleşmemiştir.
+ */
+export function stopAtDraft(): boolean {
+  return env("KOBIPO_INVOICE_STOP_AT_DRAFT").toLowerCase() === "true"
+}
+
 export type InvoiceGateResult = { ok: true } | { ok: false; reason: string }
 
 /**

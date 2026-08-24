@@ -21,7 +21,7 @@ import {
 } from "@/lib/integrations/e-invoice/send-invoice-helper"
 import { buildInternetSalesInfo } from "@/lib/invoice/internet-sales"
 import { resolveVatRate, splitVatInclusive } from "@/lib/billing/vat"
-import { checkInvoiceGates, resolveSellerCompanyId } from "@/lib/invoicing/config"
+import { checkInvoiceGates, resolveSellerCompanyId, stopAtDraft } from "@/lib/invoicing/config"
 import { makeUniqueSlug, slugify } from "@/lib/slug"
 
 export type IssueKind = "KONTOR" | "PACKAGE"
@@ -454,6 +454,21 @@ export async function issueSalesInvoiceForOrder(params: {
       if (!draft.ok) {
         await noteAttempt(kind, orderId, draft.error)
         return { ok: false, skipped: false, error: draft.error }
+      }
+    }
+
+    // PROVA MODU: taslakta dur. Belge Mysoft'ta durur, GİB'e GİTMEZ — hukuken bir
+    // fatura doğmaz. Taslak PDF'i incelenip `discardGibDraft` ile silinebilir.
+    if (stopAtDraft()) {
+      console.warn(
+        `[faturalandirma] PROVA MODU (KOBIPO_INVOICE_STOP_AT_DRAFT): ${invoice.invoiceNo} ` +
+          `Mysoft taslağında bırakıldı, GİB'e GÖNDERİLMEDİ. Tahsilat da yazılmadı.`,
+      )
+      return {
+        ok: true,
+        invoiceId: invoice.id,
+        invoiceNo: invoice.invoiceNo,
+        alreadyIssued: false,
       }
     }
 

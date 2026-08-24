@@ -720,6 +720,9 @@ export default function HomeContent() {
                 { label: "KVKK", href: "/kurumsal/kvkk" },
                 { label: "Çerezler", href: "/kurumsal/cerezler" },
                 { label: "Kullanım Koşulları", href: "/kurumsal/kullanim-kosullari" },
+                { label: "Mesafeli Satış Sözleşmesi", href: "/kurumsal/mesafeli-satis-sozlesmesi" },
+                { label: "Teslimat Koşulları", href: "/kurumsal/teslimat" },
+                { label: "İptal ve İade", href: "/kurumsal/iptal-iade" },
               ].map((item) => (
                 <Link
                   key={item.label}
