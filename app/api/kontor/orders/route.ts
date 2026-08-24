@@ -6,6 +6,12 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isPaytrEnabled, PAYTR_NOT_CONFIGURED_ERROR } from "@/lib/integrations/paytr/client"
 import { generateUniquePaymentCode } from "@/lib/kontor/payment-code"
+import {
+  billingSnapshot,
+  companyFillFromBilling,
+  normalizeBillingInput,
+} from "@/lib/invoicing/billing-info"
+import { isTestPurchase } from "@/lib/invoicing/config"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -79,13 +85,49 @@ export const POST = withApiErrors(async function POST(request: Request) {
 
     const company = await prisma.company.findUnique({
       where: { id: companyId },
-      select: { eDonusumTenantVkn: true, taxNumber: true },
+      select: {
+        eDonusumTenantVkn: true,
+        name: true,
+        taxNumber: true,
+        taxOffice: true,
+        address: true,
+        city: true,
+        email: true,
+      },
     })
     // VKN doğrulama akışı kaldırıldı — eDonusumTenantVkn boşsa firmanın kendi
     // VKN/TCKN'sine fallback yap. Yalnız hiçbir yerde VKN tanımlı değilse engelle.
     const targetVkn = (company?.eDonusumTenantVkn || company?.taxNumber || "").replace(/\D/g, "")
     if (targetVkn.length !== 10 && targetVkn.length !== 11) {
       return NextResponse.json({ error: ERR_NO_VERIFIED_VKN }, { status: 412 })
+    }
+
+    // FATURA BİLGİSİ — ödeme ÖNCESİ zorunlu. Eksikse sipariş hiç açılmaz: tahsilattan
+    // sonra eksik bilgi bir hata değil, parası alınmış ama belgesi kesilemeyen bir satış
+    // olur. İstemci gövdede `billing` göndermezse firma kartındaki bilgiler denenir —
+    // kartı zaten dolu olan müşteri ek bir adımla karşılaşmaz.
+    // Doğrulama tek yerde: [[lib/invoicing/billing-info.ts]].
+    const billing = normalizeBillingInput(
+      body?.billing ?? {
+        name: company?.name,
+        taxNumber: company?.taxNumber,
+        taxOffice: company?.taxOffice,
+        address: company?.address,
+        city: company?.city,
+        email: company?.email,
+      },
+    )
+    if (!billing.ok) {
+      return NextResponse.json({ error: billing.error, fields: billing.fields }, { status: 412 })
+    }
+
+    // Firma kartında BOŞ olan alanları doldur (dolu olanı ezme — ünvan/adres panelin
+    // her yerinde kullanılır, satın alma formu onların kaynağı değildir).
+    if (company) {
+      const patch = companyFillFromBilling(company, billing.value)
+      if (Object.keys(patch).length > 0) {
+        await prisma.company.update({ where: { id: companyId }, data: patch })
+      }
     }
 
     // Havale siparişine referans kodu: müşteri bunu banka açıklamasına yazar, admin
@@ -96,6 +138,9 @@ export const POST = withApiErrors(async function POST(request: Request) {
       data: {
         companyId,
         paymentCode,
+        // Test damgası sipariş anında sabitlenir; kapı [[lib/invoicing/config.ts]].
+        isTest: isTestPurchase(paymentMethod),
+        ...billingSnapshot(billing.value),
         packageId: pkg.id,
         packageName: pkg.name,
         creditQty: pkg.creditQty,

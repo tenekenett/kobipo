@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Loader2, RefreshCw, Search, RotateCcw, Lock, Unlock, XCircle, CheckCircle2, Building2, Check, AlertTriangle } from "lucide-react"
+import { Loader2, RefreshCw, Search, RotateCcw, Lock, Unlock, XCircle, CheckCircle2, Building2, Check, AlertTriangle, Receipt } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { MAX_BRANCH_QUOTA, MAX_COMPANY_QUOTA } from "@/lib/billing/constants"
@@ -38,6 +38,10 @@ type Order = {
   paidAt: string | null
   paymentError: string | null
   createdAt: string
+  // Otomatik faturalandırma (docs/faturalandirma/PLAN.md)
+  invoiceId?: string | null
+  invoiceError?: string | null
+  isTest?: boolean
 }
 
 type Usage = {
@@ -230,6 +234,47 @@ export function SubscriptionAdmin() {
     }
   }
 
+  /**
+   * Sipariş faturasını kes / geri al. Kapılar servisin İÇİNDE olduğu için elle
+   * tetiklemek de test siparişine belge kestirmez (409 "atlandı" döner).
+   */
+  const invoiceOrder = async (acc: Account, order: Order, action: "issue" | "void") => {
+    if (action === "void") {
+      const ok = await confirm({
+        title: "Faturayı geri al",
+        description:
+          `${acc.name} — ${order.planName || "Özel paket"} siparişinin faturası iptal edilecek. ` +
+          "e-Arşiv yalnız 24 saat içinde iptal edilebilir; e-Fatura hiç iptal edilemez " +
+          "(iade faturası gerekir).",
+        variant: "destructive",
+      })
+      if (!ok) return
+    }
+    setBusyId(acc.id)
+    try {
+      const res = await fetch(`/api/billing/orders/${order.id}/invoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "İşlem başarısız")
+      toast({
+        title: action === "issue" ? "Fatura kesildi" : "Fatura geri alındı",
+        description: action === "issue" ? data?.invoiceNo || undefined : undefined,
+      })
+      await load()
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: action === "issue" ? "Fatura kesilemedi" : "Fatura geri alınamadı",
+        description: e instanceof Error ? e.message : "Bir hata oluştu",
+      })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const cancelOrder = async (acc: Account, order: Order) => {
     const ok = await confirm({
       title: "Siparişi iptal et",
@@ -291,6 +336,7 @@ export function SubscriptionAdmin() {
               onReset={resetAccount}
               onCancelOrder={cancelOrder}
               onActivateOrder={activateOrder}
+              onInvoiceOrder={invoiceOrder}
               onSaveQuota={saveQuota}
             />
           ))}
@@ -306,6 +352,7 @@ function AccountCard({
   onReset,
   onCancelOrder,
   onActivateOrder,
+  onInvoiceOrder,
   onSaveQuota,
 }: {
   acc: Account
@@ -313,6 +360,7 @@ function AccountCard({
   onReset: (acc: Account, mode: "trial" | "locked") => void
   onCancelOrder: (acc: Account, order: Order) => void
   onActivateOrder: (acc: Account, order: Order) => void
+  onInvoiceOrder: (acc: Account, order: Order, action: "issue" | "void") => void
   onSaveQuota: (acc: Account, kind: QuotaKind, quota: number) => void
 }) {
   const sub = acc.subscriptions[0] ?? null
@@ -412,7 +460,37 @@ function AccountCard({
                     <td className="py-1.5 pr-3 text-slate-500">{o.billingCycle === "YEARLY" ? "Yıllık" : "Aylık"}</td>
                     <td className="py-1.5 pr-3 text-slate-500">{o.resolvedModules.join(", ") || "—"}</td>
                     <td className="py-1.5 pr-3 text-slate-500">{fmtDate(o.createdAt)}</td>
+                    <td className="py-1.5 pr-3">
+                      {/* Fatura durumu — kontör panelindeki sütunun eşi. */}
+                      {o.isTest ? (
+                        <span className="text-xs text-slate-500">Test</span>
+                      ) : o.invoiceId ? (
+                        <span className="text-xs text-emerald-400">Fatura ✓</span>
+                      ) : o.status === "ACTIVE" ? (
+                        <span className="text-xs text-amber-400">Faturasız</span>
+                      ) : (
+                        <span className="text-xs text-slate-600">—</span>
+                      )}
+                      {o.invoiceError && (
+                        <span className="block max-w-[220px] text-xs text-red-400">{o.invoiceError}</span>
+                      )}
+                    </td>
                     <td className="py-1.5 text-right">
+                      {!o.isTest && o.status === "ACTIVE" && (
+                        <button
+                          onClick={() => onInvoiceOrder(acc, o, o.invoiceId ? "void" : "issue")}
+                          disabled={busy}
+                          title={
+                            o.invoiceId
+                              ? "Kesilmiş faturayı geri al (e-Arşiv yalnız 24 saat içinde iptal edilebilir)"
+                              : "Bu sipariş için satış faturası kes"
+                          }
+                          className="mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-orange-300 hover:bg-orange-500/15 disabled:opacity-50"
+                        >
+                          <Receipt className="h-3.5 w-3.5" />
+                          {o.invoiceId ? "Faturayı geri al" : "Faturayı kes"}
+                        </button>
+                      )}
                       {(o.status === "PENDING_PAYMENT" || o.status === "FAILED") && (
                         <div className="inline-flex items-center gap-1">
                           <button

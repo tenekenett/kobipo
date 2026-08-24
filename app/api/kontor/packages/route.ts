@@ -61,6 +61,15 @@ export async function POST(request: Request) {
         ? Number(body.validityMonths)
         : null
 
+    // KDV oranı: boş bırakılırsa NULL yazılır ve faturalandırma sistem varsayılanını
+    // (%20) kullanır — bkz. lib/billing/vat.ts. Fiyat KDV DAHİL'dir; oran yalnız
+    // matrah/KDV ayrıştırmasını değiştirir, müşterinin ödediği tutarı DEĞİL.
+    const rawVat = body?.vatRate
+    const vatRate =
+      rawVat != null && String(rawVat).trim() !== "" && Number.isFinite(Number(rawVat))
+        ? Math.min(100, Math.max(0, Number(rawVat)))
+        : null
+
     const created = await prisma.kontorPackage.create({
       data: {
         name,
@@ -70,6 +79,7 @@ export async function POST(request: Request) {
         currency: body?.currency ? String(body.currency).trim() : "TRY",
         mysoftTariffCode,
         validityMonths,
+        vatRate,
         isActive: body?.isActive == null ? true : Boolean(body.isActive),
         sortOrder: Number.isInteger(Number(body?.sortOrder)) ? Number(body.sortOrder) : 0,
       },

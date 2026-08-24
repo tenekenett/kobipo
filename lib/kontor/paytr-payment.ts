@@ -7,6 +7,7 @@
 import type { KontorOrder } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { loadKontorOrderCredit } from "@/lib/kontor/fulfill"
+import { issueInvoiceQuietly } from "@/lib/invoicing/issue-sales-invoice"
 import type { NotificationResult, PaytrNotification } from "@/lib/integrations/paytr/notification"
 
 /**
@@ -54,6 +55,25 @@ export async function handleKontorNotification(
 
   // Mysoft yüklemesi başarısız olsa bile OK döneriz (ödeme alındı; sistem-admin
   // confirm ile tekrar yükleyebilir). Helper hatayı FAILED olarak işler.
-  await loadKontorOrderCredit(order.id, { confirmedById: null })
+  const load = await loadKontorOrderCredit(order.id, { confirmedById: null })
+
+  // Satış faturası YALNIZ yükleme başarılıysa kesilir.
+  //
+  // NEDEN sırası böyle: hizmetin ifası kontörün yüklenmesidir. Yükleme başarısızken
+  // belge kesersek, iptal etmemiz gereken gerçek bir e-belge doğar — ve e-Arşiv iptali
+  // yalnız 24 saat içinde mümkündür ([[app/api/e-donusum/invoices/[id]/cancel]]),
+  // e-Fatura'da hiç mümkün değildir (iade faturası gerekir). Oysa FAILED yüklemelerin
+  // çoğu geçicidir ve sistem-admin "Onayla & Yükle" ile tekrar dener; o deneme
+  // başarılı olunca fatura oradan kesilir. Kalıcı başarısızlıkta ise sipariş
+  // faturasız kalır — sistem-admin ya tekrar yükler ya iade eder; hiçbir durumda
+  // iptal edilmesi gereken bir belge üretmiş olmayız.
+  if (load.ok) {
+    await issueInvoiceQuietly({ kind: "KONTOR", orderId: order.id })
+  } else {
+    console.warn(
+      `[faturalandirma] Kontör siparişi ${order.id} yüklenemediği için faturalanmadı — ` +
+        `ödeme ALINDI, sistem-admin panelinden tekrar yükleyin.`,
+    )
+  }
   return "ok"
 }

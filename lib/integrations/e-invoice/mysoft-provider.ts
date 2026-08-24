@@ -1257,6 +1257,19 @@ async sendInvoice(invoiceData: any): Promise<any> {
           ? { notes: [{ note: invoiceData.notes.trim() }] }
           : {}),
 
+        // İNTERNET SATIŞI (Swagger v8: isInternetSales + internetShipmentInfo).
+        // Ödeme satıcı ve alıcı fiziken karşılaşmadan alındıysa e-Arşiv faturada ödeme
+        // şekli/tarihi zorunludur; "Bu satış internet üzerinden yapılmıştır" ibaresi de
+        // buna bağlı basılır. Şekli ve doğrulaması: lib/invoice/internet-sales.ts —
+        // buraya YALNIZ doğrulanmış nesne gelir, yarım bilgi hiç gönderilmez.
+        // Kargo alanları (shipping*) mal sevkine bağlıdır; hizmet satışında yoktur.
+        ...(invoiceData.internetSalesInfo
+          ? {
+              isInternetSales: true,
+              internetShipmentInfo: invoiceData.internetSalesInfo,
+            }
+          : {}),
+
         // SEVK ADRESİ (teslim yeri). Mysoft fatura modelinde yalnız bu üç alan var;
         // açık adres (cadde/bina) faturada desteklenmiyor — o yüzden Kobipo'daki
         // serbest adres metni buraya girmez. Girilmemişse alanlar hiç gönderilmez.

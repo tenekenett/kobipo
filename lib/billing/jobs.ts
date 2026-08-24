@@ -204,6 +204,14 @@ export async function runRecurring(options: {
         })
         await applyEntitlements(sub.companyId, sub.purchasedModules)
         renewed++
+        // TODO(faturalandırma): yenileme de bir SATIŞTIR ve faturalanmalıdır
+        // (docs/faturalandirma/PLAN.md). Bugün buraya kanca takılmadı çünkü
+        // `chargeRecurringPayment` iskeledir (daima NotImplemented fırlatır) ve
+        // yenilemenin bir PackageOrder satırı üretip üretmeyeceği henüz belli değil —
+        // otomatik fatura servisi siparişe bağlanır (`PackageOrder.invoiceId`).
+        // Recurring canlıya alınırken: dönem için bir PackageOrder yazın (isTest=false,
+        // paidAt=çekim anı, fatura bilgisi snapshot'ı abonelikten kopyalanır) ve
+        // `issueInvoiceQuietly({ kind: "PACKAGE", orderId })` çağırın.
       } else {
         // Kart reddi vb. → PAST_DUE; hoşgörü süresi dolunca reconcile kilitler.
         await prisma.subscription.update({ where: { id: sub.id }, data: { status: "PAST_DUE" } })

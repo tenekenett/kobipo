@@ -197,79 +197,84 @@ model LoginAttempt {
 }
 
 model Company {
-  id                        String             @id @default(cuid())
-  slug                      String             @unique @default("")
+  id                           String             @id @default(cuid())
+  slug                         String             @unique @default("")
   // `name` resmi ÜNVAN'dır (faturada/e-belgede basılan ad). Aynı tüzel kişinin birden
   // çok şubesi aynı ünvanı taşıdığı için firma seçicide ayırt edilemiyordu; `branchName`
   // yalnızca ARAYÜZ için kısa ayırt edici addır (ör. "Kadıköy"). Seçici ve şube
   // listelerinde ünvanın yanına parantez içinde eklenir — bkz. lib/company/display-name.ts.
   // Belge/e-fatura içeriğinde KULLANILMAZ. NULL/boş = yalnızca ünvan gösterilir.
-  name                      String
-  branchName                String?
+  name                         String
+  branchName                   String?
   // Şubeler ana firmayla aynı VKN'yi paylaşabildiği için taxNumber global benzersiz
   // DEĞİLDİR. Aynı tüzel kişinin (parentCompanyId) birden fazla şubesi olabilir.
-  taxNumber                 String?
-  taxOffice                 String?
-  address                   String?            @db.Text
-  city                      String?
-  country                   String             @default("TR")
-  phone                     String?
-  email                     String?
-  website                   String?
-  isEDonusumEnabled         Boolean            @default(false)
-  eDonusumIntegrator        EDonusumIntegrator @default(GIB_PORTAL)
-  eDonusumProvider          String?
-  eDonusumApiUsername       String?
-  eDonusumApiPassword       String?            @db.Text
-  eDonusumAlias             String?
-  eDonusumApiUrl            String?
-  eDonusumLastTestedAt      DateTime?
-  eDonusumLastTestSuccess   Boolean?
-  invoiceSeriesPrefix       String?
+  taxNumber                    String?
+  taxOffice                    String?
+  address                      String?            @db.Text
+  city                         String?
+  country                      String             @default("TR")
+  phone                        String?
+  email                        String?
+  website                      String?
+  isEDonusumEnabled            Boolean            @default(false)
+  eDonusumIntegrator           EDonusumIntegrator @default(GIB_PORTAL)
+  eDonusumProvider             String?
+  eDonusumApiUsername          String?
+  eDonusumApiPassword          String?            @db.Text
+  eDonusumAlias                String?
+  eDonusumApiUrl               String?
+  eDonusumLastTestedAt         DateTime?
+  eDonusumLastTestSuccess      Boolean?
+  invoiceSeriesPrefix          String?
   // Fiş (hızlı satış/alış) tasarım şablonu: logo, üst başlık, alt not, görünürlük
   // tercihleri, kağıt genişliği. Şekil: lib/fis/receipt-template.ts (ReceiptTemplate).
   // Boşsa varsayılan (bugünkü sabit) fiş görünümü kullanılır.
-  receiptTemplate           Json?
-  eFaturaPrefix             String?
-  eArchivePrefix            String?
+  receiptTemplate              Json?
+  eFaturaPrefix                String?
+  eArchivePrefix               String?
+  // İNTERNET SATIŞI e-Arşiv serisi. GİB, internet üzerinden yapılan satışların
+  // e-Arşiv faturasını ayrı bir numaratörden bekler (Mysoft numaratöründe
+  // `isInternetSales: true`); normal e-Arşiv serisi bu satışlar için kullanılmaz.
+  // NULL = Mysoft'un isInternetSales+isDefault numaratörüne düşülür.
+  eArchiveInternetPrefix       String?
   // Geçmiş tarihli belgeler için ayrılmış (alternatif) Mysoft serileri. Bir seride
   // belge numaraları tarih sırasını bozamadığı için, ana seride daha yeni tarihli
   // belge varken geçmiş tarihli fatura reddedilir; bu seriler yalnız o durumda
   // devreye girer (send-invoice-helper.ts). NULL = tanımlı değil.
-  eFaturaBackdatePrefix     String?
-  eArchiveBackdatePrefix    String?
-  eDonusumTenantVkn         String?
-  eDonusumConnectorGuid     String?
-  eDonusumPkAlias           String?
-  eDonusumGbAlias           String?
+  eFaturaBackdatePrefix        String?
+  eArchiveBackdatePrefix       String?
+  eDonusumTenantVkn            String?
+  eDonusumConnectorGuid        String?
+  eDonusumPkAlias              String?
+  eDonusumGbAlias              String?
   // Bayi (İş Ortağı) self-servis hesap açma durum takibi. Bkz. docs/e-donusum-onboarding/PLAN.md
-  eDonusumOnboardingStatus  String? // NONE | TENANT_CREATED | ACTIVATION_PENDING | ACTIVE | FAILED
-  eDonusumTenantCreatedAt   DateTime?
-  eDonusumActivatedProducts String[]           @default([]) // ör. ["EInvoice","EArchive"]
-  eDonusumActivationError   String?            @db.Text
-  sector                    String?
-  businessModel             String?
-  employeeRange             String?
-  monthlyInvoiceVolume      String?
-  primaryBusinessNeed       String?
-  usesEDonusumBefore        Boolean?
-  onboardingCompletedAt     DateTime?
-  isActive                  Boolean            @default(true) // Firma aktif/pasif durumu
-  disabledModules           String[]           @default([]) // Kapalı modül anahtarları (boş = tüm modüller açık)
+  eDonusumOnboardingStatus     String? // NONE | TENANT_CREATED | ACTIVATION_PENDING | ACTIVE | FAILED
+  eDonusumTenantCreatedAt      DateTime?
+  eDonusumActivatedProducts    String[]           @default([]) // ör. ["EInvoice","EArchive"]
+  eDonusumActivationError      String?            @db.Text
+  sector                       String?
+  businessModel                String?
+  employeeRange                String?
+  monthlyInvoiceVolume         String?
+  primaryBusinessNeed          String?
+  usesEDonusumBefore           Boolean?
+  onboardingCompletedAt        DateTime?
+  isActive                     Boolean            @default(true) // Firma aktif/pasif durumu
+  disabledModules              String[]           @default([]) // Kapalı modül anahtarları (boş = tüm modüller açık)
   // İşletmenin haftalık açılış saati. Vardiya takviminde hem en üstteki "Açılış
   // saati" satırını hem de personel satırlarının arkasındaki gölge bandı çizer:
   // "işletme açık ama kimse yok" boşluğu ancak bu bantla görünür hale geliyor.
   // Şekil: lib/personel/opening-hours.ts (OpeningHours). NULL = tanımsız (bant çizilmez).
-  openingHours              Json?
+  openingHours                 Json?
   // Restoran & Kafe iskonto TAVANI: bir hesaba verilebilecek en yüksek indirim,
   // yüzde olarak. Tutar iskontosunu da bağlar (600 ₺ hesaba 500 ₺ indirim %83'tür);
   // ölçü her iki türde de iskontonun hesaba oranıdır — bkz. lib/restoran/discount-limit.ts.
   // NULL = sınır yok (bugüne kadarki davranış). 0 = iskonto tamamen kapalı; ikisi
   // FARKLI durumlardır, "0 ise tanımsız say" kısayolu tavanı sessizce kaldırırdı.
-  restaurantMaxDiscountPercent Decimal? @db.Decimal(5, 2)
+  restaurantMaxDiscountPercent Decimal?           @db.Decimal(5, 2)
   // Şube ise ana firmaya işaret eder; ana (merkez) firmada null'dır. Şube,
   // ana firmayla aynı VKN/vergi dairesi/e-Dönüşüm kimliğini paylaşır (mağaza gibi).
-  parentCompanyId           String?
+  parentCompanyId              String?
   // HESAP (faturalama) kökü. Abonelik, modül yetkisi ve kotalar bu firmada tutulur.
   // Kök firmanın kendisinde null'dır; hesaba ait DİĞER tüm firmalarda kökün id'sini
   // taşır. Şube hiyerarşisinden AYRI bir eksendir — ikisini karıştırmayın:
@@ -279,12 +284,12 @@ model Company {
   // Ek firma satın alınarak açılır (Subscription.companyQuota) ve zincir kurulmaz:
   // ek firmanın şubesi de doğrudan kökü gösterir, böylece hesap tek sorguda çözülür
   // (bkz. lib/billing/entitlements.ts → resolveAccountRootId).
-  accountRootId             String?
-  createdAt                 DateTime           @default(now())
-  updatedAt                 DateTime           @updatedAt
+  accountRootId                String?
+  createdAt                    DateTime           @default(now())
+  updatedAt                    DateTime           @updatedAt
 
-  parentCompany Company?  @relation("CompanyBranches", fields: [parentCompanyId], references: [id], onDelete: Cascade)
-  branches      Company[] @relation("CompanyBranches")
+  parentCompany  Company?  @relation("CompanyBranches", fields: [parentCompanyId], references: [id], onDelete: Cascade)
+  branches       Company[] @relation("CompanyBranches")
   // Kök silinirse ek firma SİLİNMEZ, kendi kökü olur (SetNull): ayrı tüzel kişinin
   // faturaları/carisi başka bir firmanın silinmesiyle yok olmamalı. Şubede durum
   // farklıdır — o aynı tüzel kişidir ve parentCompanyId üzerinden cascade silinir.
@@ -353,7 +358,7 @@ model Company {
 // (Mysoft payload'ındaki xsltName ile eşleşir). Set-default API'si olmadığından
 // "varsayılan" seçimi Kobipo tarafında tutulur.
 model EInvoiceTemplate {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   companyId     String
   eDocumentType Int // 1=E-Fatura, 2=E-Arşiv
   xsltName      String // Mysoft'a verilen şablon adı (eşleşme anahtarı)
@@ -364,12 +369,12 @@ model EInvoiceTemplate {
   // sorusunu kod okumadan yanıtlar. null = bilinmiyor → bayat sayılır.
   baseVersion   String?
   refreshedAt   DateTime?
-  isActive      Boolean  @default(false)
+  isActive      Boolean   @default(false)
   // Mysoft XSLT silmeyi desteklemediğinden "silme" = Kobipo tarafında listeden gizleme.
   // hidden=true ise şablon listede gösterilmez (Mysoft hesabında fiziksel olarak kalır).
-  hidden        Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  hidden        Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -423,7 +428,7 @@ model UserCompany {
   //
   // "Sıfır sayfa" hâli bilerek ifade edilemez (boş = kısıtsız): erişimi tamamen
   // kesmenin doğru aracı üyeliği kaldırmaktır, arayüz de en az bir sayfa seçtirir.
-  allowedPaths String[] @default([])
+  allowedPaths  String[] @default([])
   // allowedPaths ⊆ değil, ALT KÜMESİ: burada olmayan izinli sayfa salt-okunurdur.
   // Kısıt yokken (allowedPaths boş) bu alan hiç okunmaz — yazmayı rol belirler.
   writablePaths String[] @default([])
@@ -453,23 +458,23 @@ model UserCompany {
 /// YAZILAMAZ — sunucuda `assignablePages` ile eleniyor. Aksi halde özel rol sahibi
 /// kendi rolünü düzenleyerek yetkisini sınırsıza çıkarabilirdi.
 model CompanyRole {
-  id          String   @id @default(cuid())
-  companyId   String
-  name        String
-  description String?
+  id            String   @id @default(cuid())
+  companyId     String
+  name          String
+  description   String?
   /// Bu rolün görebildiği menü sayfaları (nav href'leri).
   allowedPaths  String[] @default([])
   /// Yazabildikleri; allowedPaths'in alt kümesidir. Burada olmayan sayfa salt-okunur.
   writablePaths String[] @default([])
   /// Hangi hazır kalıptan üretildiği (yalnız bilgi amaçlı; kalıp sonradan değişse de
   /// rol değişmez — kopyalanır, bağlanmaz).
-  templateKey String?
-  createdBy   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  templateKey   String?
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  members  UserCompany[]
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  members UserCompany[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -487,39 +492,39 @@ model CompanyRole {
 /// DEFAULT_ROLE_TEMPLATES yalnız tohumlama kaynağı ve tablo yokken devreye giren
 /// yedektir — bkz. lib/nav/role-templates.ts.
 model RoleTemplate {
-  id          String  @id @default(cuid())
+  id            String   @id @default(cuid())
   /// Kararlı anahtar; CompanyRole.templateKey bunu taşır (iz, bağ değil).
-  key         String  @unique
-  name        String
-  description String?
+  key           String   @unique
+  name          String
+  description   String?
   /// Kalıbın önerdiği görüntüleme yetkisi (nav href'leri).
   allowedPaths  String[] @default([])
   /// Bunların hangilerinde yazma da var (allowedPaths'in alt kümesi).
   writablePaths String[] @default([])
-  sortOrder   Int      @default(0)
+  sortOrder     Int      @default(0)
   /// Pasif kalıp firma ekranında listelenmez; ondan üretilmiş roller etkilenmez.
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([isActive, sortOrder])
   @@map("role_templates")
 }
 
 model CompanyInvitation {
-  id         String    @id @default(cuid())
-  companyId  String
-  email      String
-  role       Role
+  id           String    @id @default(cuid())
+  companyId    String
+  email        String
+  role         Role
   // Davet edilen kişiye ATANACAK özel rol. Davetin rolü taşıması şart: aksi halde
   // çalışan hazır bir rolle giriyor, yönetici sonradan tekrar bulup değiştiriyordu —
   // arada kalan sürede kişi kendisine hiç verilmemiş yetkilerle dolaşıyordu.
   customRoleId String?
-  token      String    @unique
-  invitedBy  String
-  expiresAt  DateTime
-  acceptedAt DateTime?
-  createdAt  DateTime  @default(now())
+  token        String    @unique
+  invitedBy    String
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  createdAt    DateTime  @default(now())
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -565,19 +570,19 @@ model Customer {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  company         Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  linkedSupplier  Supplier?          @relation("CustomerSupplierLink", fields: [linkedSupplierId], references: [id], onDelete: SetNull)
-  invoices        Invoice[]
-  quotes          Quote[]
-  orders          Order[]
-  transactions    Transaction[]
-  checks          Check[]
-  promissoryNotes PromissoryNote[]
-  waybills        Waybill[]
-  branches        CustomerBranch[]
-  classification1 CompanyDefinition? @relation("CustomerClassification1", fields: [classification1Id], references: [id], onDelete: SetNull)
-  classification2 CompanyDefinition? @relation("CustomerClassification2", fields: [classification2Id], references: [id], onDelete: SetNull)
-  authorizedUser  User?              @relation("AuthorizedCustomerUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  linkedSupplier    Supplier?          @relation("CustomerSupplierLink", fields: [linkedSupplierId], references: [id], onDelete: SetNull)
+  invoices          Invoice[]
+  quotes            Quote[]
+  orders            Order[]
+  transactions      Transaction[]
+  checks            Check[]
+  promissoryNotes   PromissoryNote[]
+  waybills          Waybill[]
+  branches          CustomerBranch[]
+  classification1   CompanyDefinition? @relation("CustomerClassification1", fields: [classification1Id], references: [id], onDelete: SetNull)
+  classification2   CompanyDefinition? @relation("CustomerClassification2", fields: [classification2Id], references: [id], onDelete: SetNull)
+  authorizedUser    User?              @relation("AuthorizedCustomerUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
   restaurantTickets RestaurantTicket[]
 
   @@unique([linkedSupplierId])
@@ -745,22 +750,22 @@ model Product {
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 
-  company         Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  stockMovements  StockMovement[]
-  invoiceItems    InvoiceItem[]
-  quoteItems      QuoteItem[]
-  orderItems      OrderItem[]
-  warehouseStocks WarehouseStock[]
-  waybillItems    WaybillItem[]
+  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockMovements   StockMovement[]
+  invoiceItems     InvoiceItem[]
+  quoteItems       QuoteItem[]
+  orderItems       OrderItem[]
+  warehouseStocks  WarehouseStock[]
+  waybillItems     WaybillItem[]
   // Bu ürünün reçetesi (mamül/yarı mamül ise) ve bu ürünün bileşen olarak
   // geçtiği reçete kalemleri (hammadde/yarı mamül ise).
-  recipe          ProductRecipe?      @relation("RecipeProduct")
-  usedInRecipes   ProductRecipeItem[] @relation("RecipeComponent")
-  ticketItems     RestaurantTicketItem[]
-  optionGroups    ProductOptionGroup[]
+  recipe           ProductRecipe?         @relation("RecipeProduct")
+  usedInRecipes    ProductRecipeItem[]    @relation("RecipeComponent")
+  ticketItems      RestaurantTicketItem[]
+  optionGroups     ProductOptionGroup[]
   // Bu ürünün seçenek reçete etkisinde geçtiği yerler (süt → soya sütü).
-  optionEffectFrom ProductOption[] @relation("OptionEffectFrom")
-  optionEffectTo   ProductOption[] @relation("OptionEffectTo")
+  optionEffectFrom ProductOption[]        @relation("OptionEffectFrom")
+  optionEffectTo   ProductOption[]        @relation("OptionEffectTo")
 
   @@unique([companyId, slug])
   @@index([companyId])
@@ -880,16 +885,16 @@ model RestaurantPlanItem {
 // Birim: salon planı ızgara hücresi (piksel değil) — ekran ölçeği değişince
 // yerleşim bozulmasın.
 model RestaurantTable {
-  id        String   @id @default(cuid())
-  companyId String
-  areaId    String?
-  name      String
-  capacity  Int?
-  shape     String   @default("SQUARE") // SQUARE | CIRCLE | RECT
-  x         Int      @default(0)
-  y         Int      @default(0)
-  width     Int      @default(2)
-  height    Int      @default(2)
+  id            String    @id @default(cuid())
+  companyId     String
+  areaId        String?
+  name          String
+  capacity      Int?
+  shape         String    @default("SQUARE") // SQUARE | CIRCLE | RECT
+  x             Int       @default(0)
+  y             Int       @default(0)
+  width         Int       @default(2)
+  height        Int       @default(2)
   // Hesap kapandı, masa henüz toplanmadı. Adisyon kapanışında damgalanır.
   //
   // Masayı KİLİTLEMEZ: üzerine yeni adisyon açmak damgayı temizler. Kilitleseydi
@@ -897,9 +902,9 @@ model RestaurantTable {
   // yalnız bilgi verir (garson hangi masanın toplanacağını plandan görür).
   cleaningSince DateTime?
   // Masa SİLİNMEZ, pasifleştirilir: geçmiş adisyonlar masasız kalmasın.
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   company      Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
   area         RestaurantArea?         @relation(fields: [areaId], references: [id], onDelete: SetNull)
@@ -917,25 +922,25 @@ model RestaurantTable {
 //
 // `tableId` opsiyonel: paket/gel-al adisyonu masasız açılır.
 model RestaurantTicket {
-  id         String    @id @default(cuid())
-  companyId  String
-  tableId    String?
-  code       String // ADS-2026-0001
-  status     String    @default("OPEN") // OPEN | CLOSED | CANCELLED
-  guestCount Int?
-  note       String?   @db.Text
-  customerId String?
+  id                 String    @id @default(cuid())
+  companyId          String
+  tableId            String?
+  code               String // ADS-2026-0001
+  status             String    @default("OPEN") // OPEN | CLOSED | CANCELLED
+  guestCount         Int?
+  note               String?   @db.Text
+  customerId         String?
   // Adisyon (hesap) iskontosu. PERCENT → yüzde, AMOUNT → KDV DAHİL tutar:
   // kullanıcı hesabın altındaki rakama bakarak "50 lira indirim" der. Fişe
   // giderken matrah bazına çevrilir (Invoice.globalDiscountAmount NET bekler).
   // Kalem bazlı iskonto YOK — kafede nadir, üç ekranda daha düzeltme demek.
-  discountType   String? @db.VarChar(10) // PERCENT | AMOUNT
-  discountValue  Decimal? @db.Decimal(12, 2)
+  discountType       String?   @db.VarChar(10) // PERCENT | AMOUNT
+  discountValue      Decimal?  @db.Decimal(12, 2)
   // Sebep artık İKİ alan: sabit kod (rapor gruplar) + serbest açıklama (kasiyer
   // yazar). Kalem ve iptal sebeplerindeki kuralın aynısı — serbest metin tek
   // başına kalsaydı "Personel"/"personel"/"personele" üç ayrı satır olurdu.
-  discountReasonCode String? @db.VarChar(30)
-  discountReason String?  @db.VarChar(255)
+  discountReasonCode String?   @db.VarChar(30)
+  discountReason     String?   @db.VarChar(255)
   // İskontoyu UYGULAYAN personel — İK kartı (Employee), login kullanıcısı DEĞİL.
   // Kafede kasa çoğu zaman ortak hesapla açıktır; "indirimi kim verdi" sorusunun
   // cevabı oturumu açan kişi değil, o an masaya bakan garsondur. İskonto silinince
@@ -943,41 +948,41 @@ model RestaurantTicket {
   discountEmployeeId String?
   // Oturum izi: kaydı fiilen yazan kullanıcı ve anı. `billRequestedBy` deseniyle
   // aynı — seçilen personelden AYRI tutulur, ikisi farklı soruyu cevaplar.
-  discountBy String?
-  discountAt DateTime?
-  openedAt   DateTime  @default(now())
-  openedBy   String?
+  discountBy         String?
+  discountAt         DateTime?
+  openedAt           DateTime  @default(now())
+  openedBy           String?
   // Müşteri hesap istedi — masa planda ayrı renge döner. Adisyon hâlâ AÇIKTIR
   // (kalem eklenebilir); bu yalnız "kasaya git" işaretidir. Kapanışta temizlenir
   // ki masanın sonraki müşterisi devralmasın.
-  billRequestedAt DateTime?
-  billRequestedBy String?
-  closedAt   DateTime?
-  closedBy   String?
+  billRequestedAt    DateTime?
+  billRequestedBy    String?
+  closedAt           DateTime?
+  closedBy           String?
   // Kapanışta oluşan fiş. Fatura silinirse bağ kopar (SetNull), adisyon geçmişte kalır.
-  invoiceId  String?   @unique
+  invoiceId          String?   @unique
   // Bu adisyon başka bir adisyona BİRLEŞTİRİLDİYSE hedefin id'si. Kaynak kayıt
   // `CANCELLED` olur ama iptalden ayrılmalıdır: cirosu kaybolmadı, hedefe geçti.
   // Rapor ve ekran bu alana bakıp "iptal" demez, "birleştirildi" der.
-  mergedIntoId String?
+  mergedIntoId       String?
   // İptal sebebi. Kalem iptalinde sebep ZORUNLUydu (`RestaurantTicketItem.reasonCode`)
   // ama dolu bir adisyonu tek tıkla iptal etmek sebepsizdi — ölçülemeyen kaçak,
   // olmayan kaçaktır. Kod listesi: lib/restoran/ticket-constants.ts.
   // BİRLEŞTİRMEDE doldurulmaz: orası iptal değil (bkz. `mergedIntoId`).
-  cancelReasonCode String? @db.VarChar(30)
-  cancelReason     String? @db.VarChar(255)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  cancelReasonCode   String?   @db.VarChar(30)
+  cancelReason       String?   @db.VarChar(255)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  company    Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  table      RestaurantTable?        @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  customer   Customer?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  invoice    Invoice?                @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  discountEmployee Employee?         @relation("TicketDiscountEmployee", fields: [discountEmployeeId], references: [id], onDelete: SetNull)
-  items      RestaurantTicketItem[]
-  mergedInto RestaurantTicket?       @relation("TicketMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
-  mergedFrom RestaurantTicket[]      @relation("TicketMerge")
-  reservation RestaurantReservation?
+  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  table            RestaurantTable?       @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  customer         Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  invoice          Invoice?               @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  discountEmployee Employee?              @relation("TicketDiscountEmployee", fields: [discountEmployeeId], references: [id], onDelete: SetNull)
+  items            RestaurantTicketItem[]
+  mergedInto       RestaurantTicket?      @relation("TicketMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom       RestaurantTicket[]     @relation("TicketMerge")
+  reservation      RestaurantReservation?
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -1031,24 +1036,24 @@ model RestaurantReservation {
 // `description` ürün adının KOPYASIDIR: ürün sonradan yeniden adlandırılsa
 // adisyon değişmez.
 model RestaurantTicketItem {
-  id          String   @id @default(cuid())
-  ticketId    String
-  productId   String?
-  description String
-  unit        String   @default("ADET")
-  quantity    Decimal  @db.Decimal(14, 4)
-  unitPrice   Decimal  @db.Decimal(15, 6)
-  vatRate     Decimal  @default(20) @db.Decimal(5, 2)
-  note        String? // "az şekerli"
+  id             String   @id @default(cuid())
+  ticketId       String
+  productId      String?
+  description    String
+  unit           String   @default("ADET")
+  quantity       Decimal  @db.Decimal(14, 4)
+  unitPrice      Decimal  @db.Decimal(15, 6)
+  vatRate        Decimal  @default(20) @db.Decimal(5, 2)
+  note           String? // "az şekerli"
   // Kalemin akıbeti. Üçünün stok/hesap davranışı FARKLI (docs/restoran/SATIS-EKRANI.md K2):
   //   NORMAL → hesaba girer, fişe girer, stok kapanışta düşer
   //   COMP   → ikram: hesapta 0,00 satır olarak GÖRÜNÜR, fişe girmez, stok DÜŞER
   //   WASTE  → zayi: hesapta görünmez, fişe girmez, stok DÜŞER
   //   VOID   → yanlış giriş: hiçbir yerde görünmez, stok düşmez (yalnız iz)
   // Silmek yerine işaretlemenin sebebi: ikram/zayi ölçülemezse kaçak da ölçülemez.
-  status      String   @default("NORMAL") @db.VarChar(10)
-  reasonCode  String?  @db.VarChar(30)
-  reason      String?  @db.VarChar(255)
+  status         String   @default("NORMAL") @db.VarChar(10)
+  reasonCode     String?  @db.VarChar(30)
+  reason         String?  @db.VarChar(255)
   // İkramı VEREN personel (İK kartı) — iskontodaki `discountEmployeeId` ile aynı
   // gerekçe: kasa ortak hesapla açıktır, "kim ikram etti" sorusunun cevabı oturumu
   // açan kişi değil o an masaya bakan garsondur. `createdBy` (oturum izi) ayrı durur.
@@ -1057,15 +1062,15 @@ model RestaurantTicketItem {
   // Seçilen porsiyon/seçenekler: [{ groupName, optionName, priceDelta }] — ürün
   // adı gibi KOPYALANIR, sonradan seçenek tanımı değişse adisyon değişmez.
   // priceDelta KDV DAHİL saklanır (kullanıcı brüt düşünür); unitPrice'a net olarak yansır.
-  options     Json?
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  createdBy   String?
+  options        Json?
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+  createdBy      String?
 
-  ticket  RestaurantTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticket       RestaurantTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   // SetNull: ürün kartı silinse de adisyon kalemi (adı ve fiyatı kopyalı) durur.
-  product Product?         @relation(fields: [productId], references: [id], onDelete: SetNull)
-  compEmployee Employee?   @relation("TicketItemCompEmployee", fields: [compEmployeeId], references: [id], onDelete: SetNull)
+  product      Product?         @relation(fields: [productId], references: [id], onDelete: SetNull)
+  compEmployee Employee?        @relation("TicketItemCompEmployee", fields: [compEmployeeId], references: [id], onDelete: SetNull)
 
   @@index([ticketId])
   @@index([productId])
@@ -1176,13 +1181,13 @@ model ProductOptionGroup {
 }
 
 model ProductOption {
-  id         String   @id @default(cuid())
+  id         String  @id @default(cuid())
   groupId    String
-  name       String   @db.VarChar(80) // "Küçük", "Soya sütü"
+  name       String  @db.VarChar(80) // "Küçük", "Soya sütü"
   // Fiyat farkı KDV DAHİL (menüdeki fiyat gibi); 0 olabilir, negatif de olabilir.
-  priceDelta Decimal  @default(0) @db.Decimal(12, 2)
-  isDefault  Boolean  @default(false)
-  order      Int      @default(0)
+  priceDelta Decimal @default(0) @db.Decimal(12, 2)
+  isDefault  Boolean @default(false)
+  order      Int     @default(0)
 
   // ---- Reçete etkisi (docs/restoran/SATIS-EKRANI.md K6) ----------------------
   // Seçenek yalnız FİYATI değil MALZEMEYİ de değiştirir: soya sütlü latte'de
@@ -1208,11 +1213,11 @@ model ProductOption {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  group ProductOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group       ProductOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   // SetNull: hammadde kartı silinse de seçenek (ve menü) ayakta kalır; eksik
   // taraflı etki genişletmede sessizce atlanır.
-  fromProduct Product? @relation("OptionEffectFrom", fields: [fromProductId], references: [id], onDelete: SetNull)
-  toProduct   Product? @relation("OptionEffectTo", fields: [toProductId], references: [id], onDelete: SetNull)
+  fromProduct Product?           @relation("OptionEffectFrom", fields: [fromProductId], references: [id], onDelete: SetNull)
+  toProduct   Product?           @relation("OptionEffectTo", fields: [toProductId], references: [id], onDelete: SetNull)
 
   @@index([groupId])
   @@map("product_options")
@@ -1437,54 +1442,54 @@ model Transaction {
 }
 
 model Invoice {
-  id                   String    @id @default(cuid())
-  companyId            String
-  invoiceNo            String
-  slug                 String    @default("")
-  type                 String // SALES, PURCHASE
-  invoiceType          String // E_INVOICE, E_ARCHIVE
-  status               String    @default("DRAFT") // DRAFT, GIB_DRAFT (Mysoft taslağı, GİB'e gitmedi), SENT, CANCELLED, CONVERTED (fiş → faturaya dönüştürüldü)
+  id                    String    @id @default(cuid())
+  companyId             String
+  invoiceNo             String
+  slug                  String    @default("")
+  type                  String // SALES, PURCHASE
+  invoiceType           String // E_INVOICE, E_ARCHIVE
+  status                String    @default("DRAFT") // DRAFT, GIB_DRAFT (Mysoft taslağı, GİB'e gitmedi), SENT, CANCELLED, CONVERTED (fiş → faturaya dönüştürüldü)
   // Fiş: hızlı satış/alış ile kesilen gayriresmî belge. Ekonomik etki (stok, kasa,
   // cari) fiş anında işler; GİB/e-belge ve otomatik muhasebe fişi yoktur. Birden çok
   // fiş tek resmî faturaya "toplu dönüştürme" ile birleşir (bkz. convertedInvoiceId).
-  isReceipt            Boolean   @default(false)
+  isReceipt             Boolean   @default(false)
   // Dönüştürülen fişin bağlandığı resmî fatura (self-relation). Fiş dönüşünce
   // status=CONVERTED olur ve cari ekstre/raporlardan düşer; etki faturaya taşınır.
-  convertedInvoiceId   String?
-  customerId           String?
-  supplierId           String?
-  date                 DateTime  @default(now())
-  dueDate              DateTime?
-  totalAmount          Decimal   @db.Decimal(15, 2)
-  vatAmount            Decimal   @db.Decimal(15, 2)
-  netAmount            Decimal   @db.Decimal(15, 2)
+  convertedInvoiceId    String?
+  customerId            String?
+  supplierId            String?
+  date                  DateTime  @default(now())
+  dueDate               DateTime?
+  totalAmount           Decimal   @db.Decimal(15, 2)
+  vatAmount             Decimal   @db.Decimal(15, 2)
+  netAmount             Decimal   @db.Decimal(15, 2)
   // Fatura altı (genel) iskonto. KDV matrahından oransal olarak düşülür; KDV
   // yeniden hesaplanır. Tutarı saklarız (UBL AllowanceCharge tutar olarak yazılır);
   // editör UI'da yüzde de seçilebilir ama save anında tutara çevrilir.
-  globalDiscountAmount Decimal?  @db.Decimal(15, 2)
+  globalDiscountAmount  Decimal?  @db.Decimal(15, 2)
   // Fatura altı İLAVE (masraf) — UBL cac:AllowanceCharge chargeIndicator=true.
   // İskontonun tersi: KDV MATRAHINI ARTIRIR. Gerekçesi: elektrik/telekom gibi
   // faturalarda Elektrik Tüketim Vergisi, Enerji Fonu vb. KDV dışı kalemler KDV
   // matrahının İÇİNDE yer alır (ör. Aydem: satır toplamı 794,15 iken KDV matrahı
   // 815,46). Yalnız iskonto modellendiği için bu faturaların tutarı tutturulamıyordu.
-  globalChargeAmount   Decimal?  @db.Decimal(15, 2)
+  globalChargeAmount    Decimal?  @db.Decimal(15, 2)
   // Dip toplam yuvarlaması — KDV'ye GİRMEZ, yalnız ödenecek tutara eklenir.
   // Negatif olabilir (aşağı yuvarlama). Mysoft karşılığı: payableRoundingAmount.
-  payableRoundingAmount Decimal? @db.Decimal(15, 2)
-  currency             String    @default("TRY")
-  exchangeRate         Decimal?  @db.Decimal(12, 4)
-  exchangeRateDate     DateTime?
-  uuid                 String?   @unique // E-Fatura UUID
-  eDocumentNo          String? // Mysoft/GİB resmi belge numarası (seçilen prefix ile oluşan docNo)
-  integrationId        String? // Entegratör ID
-  integrationStatus    String? // Entegratör durumu
-  notes                String?   @db.Text
+  payableRoundingAmount Decimal?  @db.Decimal(15, 2)
+  currency              String    @default("TRY")
+  exchangeRate          Decimal?  @db.Decimal(12, 4)
+  exchangeRateDate      DateTime?
+  uuid                  String?   @unique // E-Fatura UUID
+  eDocumentNo           String? // Mysoft/GİB resmi belge numarası (seçilen prefix ile oluşan docNo)
+  integrationId         String? // Entegratör ID
+  integrationStatus     String? // Entegratör durumu
+  notes                 String?   @db.Text
   // Sınıflandırma: kategori TEK değer (gider/gelir grubu — kira, akaryakıt, danışmanlık…),
   // etiket ÇOKLU serbest metin (proje, şube, kampanya…). Ürün kategorisiyle aynı desen:
   // ayrı tablo yok, serbest metin + mevcut değerlerden öneri. Filtre/rapor kırılımı için
   // (companyId, category) indexlenir.
-  category             String?
-  tags                 String[]  @default([])
+  category              String?
+  tags                  String[]  @default([])
   // SEVK ADRESİ (malın teslim edileceği yer; alıcının fatura adresinden farklı olabilir).
   // ÖNEMLİ — Mysoft'un fatura modeli (InvoiceOutboxModel) teslim tarafında YALNIZCA
   // il/ilçe/ülke kabul eder: deliveryCity, deliveryCitySubdivisionName, deliveryCountry.
@@ -1492,29 +1497,39 @@ model Invoice {
   // altında var; e-İrsaliye'deki tam adres modeli (DeliveryAddressModel) faturada yok.
   // Bu yüzden `deliveryAddress` e-belgeye GİTMEZ — Kobipo ekranlarında ve kendi
   // çıktılarımızda kullanılır. Boş bırakılırsa payload'a hiçbir delivery alanı eklenmez.
-  deliveryAddress      String?   @db.Text
-  deliveryDistrict     String?
-  deliveryCity         String?
-  deliveryCountry      String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  createdBy            String?
+  deliveryAddress       String?   @db.Text
+  deliveryDistrict      String?
+  deliveryCity          String?
+  deliveryCountry       String?
+  // İNTERNET SATIŞ BİLGİLERİ (Mysoft InvoiceDraftModel.internetShipmentInfo).
+  // Ödeme, satıcı ve alıcı fiziken karşılaşmadan alındıysa (Kobipo'nun kendi
+  // kontör/abonelik satışları) e-Arşiv faturada ödeme şekli + ödeme tarihi
+  // ZORUNLUDUR. Şekli ve doğrulaması: lib/invoice/internet-sales.ts.
+  // NULL = normal satış; payload'a hiçbir internet satış alanı eklenmez.
+  internetSalesInfo     Json?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  createdBy             String?
 
-  company             Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  customer            Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  supplier            Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  company             Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer            Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier            Supplier?         @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   items               InvoiceItem[]
   payments            InvoicePayment[]
   paymentLinks        PaymentLink[]
   convertedFromQuotes Quote[]
-  convertedFromOrders Order[]          @relation("OrderConvertedInvoice")
+  convertedFromOrders Order[]           @relation("OrderConvertedInvoice")
   waybills            Waybill[]
   // Fiş → resmî fatura self-relation. convertedInvoice = fişin dönüştürüldüğü fatura;
   // sourceReceipts = bu faturanın konsolide ettiği fişler.
-  convertedInvoice    Invoice?         @relation("ReceiptToInvoice", fields: [convertedInvoiceId], references: [id], onDelete: SetNull)
-  sourceReceipts      Invoice[]        @relation("ReceiptToInvoice")
+  convertedInvoice    Invoice?          @relation("ReceiptToInvoice", fields: [convertedInvoiceId], references: [id], onDelete: SetNull)
+  sourceReceipts      Invoice[]         @relation("ReceiptToInvoice")
   // Bu fiş bir adisyonun kapanışıysa buradan geriye bakılır (Aşama 2).
   restaurantTicket    RestaurantTicket?
+  // Kobipo'nun KENDİ satışının faturasıysa (kontör / paket-abonelik) siparişe geri bağ.
+  // Bu faturalar satıcı firmanın (REYPO) companyId'sinde durur, alıcının değil.
+  kontorOrder         KontorOrder?
+  packageOrder        PackageOrder?
 
   @@unique([companyId, invoiceNo])
   @@unique([companyId, slug])
@@ -1946,20 +1961,20 @@ model SystemLog {
 /// Ama port ancak vekil sunucu iletirse elimize geçer (bkz. lib/audit/access-log.ts) —
 /// iletilmiyorsa null kalır, uydurulmaz.
 model AccessLog {
-  id     String  @id @default(cuid())
+  id           String   @id @default(cuid())
   /// Kullanıcı silinse bile kayıt kalır (SetNull): defterin amacı geçmişi korumaktır.
-  userId String?
+  userId       String?
   /// Denemede girilen e-posta. Kullanıcı bulunamayan başarısız girişlerde tek ipucu budur.
-  email  String?
+  email        String?
   /// LOGIN | LOGIN_FAILED | LOGOUT | SIGNUP | PASSWORD_RESET_REQUEST | PASSWORD_RESET
-  action String
+  action       String
   /// Başarısızlık sebebi (hatalı şifre, kilitli IP, captcha…). Başarıda null.
-  reason String?
+  reason       String?
   ip           String?
   port         Int?
   /// Vekil zincirinin tamamı (`x-forwarded-for`). Tek IP yanıltıcı olabilir.
-  forwardedFor String? @db.Text
-  userAgent    String? @db.Text
+  forwardedFor String?  @db.Text
+  userAgent    String?  @db.Text
   createdAt    DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -1991,6 +2006,9 @@ model Plan {
   description         String?  @db.Text
   monthlyPrice        Decimal  @default(0) @db.Decimal(10, 2)
   yearlyPrice         Decimal? @db.Decimal(10, 2)
+  // Paketin KDV oranı. NULL = KOBIPO_DEFAULT_VAT_RATE (%20). Fiyatlar KDV DAHİL'dir
+  // (bkz. KontorPackage.vatRate); à la carte PricingItem'lar sabit orana tabidir.
+  vatRate             Decimal? @db.Decimal(5, 2)
   // Paketin içerdiği modül anahtarları (MANAGEABLE_MODULES.key). Boş = temel/deneme paketi.
   includedModules     String[] @default([])
   // Pakete dahil ek şube sayısı (ana firma hariç). Ek şubeler bunun üstünde PricingItem[branch] ile.
@@ -2064,31 +2082,45 @@ model Subscription {
 // alındığından seçim önce burada tutulur; başarılı callback'te Subscription'a yansır.
 // id = PayTR merchant_oid (kontör deseniyle aynı).
 model PackageOrder {
-  id              String             @id @default(cuid())
-  companyId       String
-  planId          String? // seçilen bundle (varsa)
-  planName        String? // snapshot
-  selectedModules String[]           @default([]) // bundle dışı ekstra seçilen modüller
-  resolvedModules String[]           @default([]) // nihai açılacak modül seti (snapshot)
-  branchQuota     Int                @default(0) // satın alınan ek şube kotası
-  companyQuota    Int                @default(0) // satın alınan ek firma kotası
-  billingCycle    String // MONTHLY | YEARLY
-  amount          Decimal            @db.Decimal(10, 2)
-  currency        String             @default("TRY")
-  autoRenew       Boolean            @default(true)
-  status          PackageOrderStatus @default(PENDING_PAYMENT)
+  id               String             @id @default(cuid())
+  companyId        String
+  planId           String? // seçilen bundle (varsa)
+  planName         String? // snapshot
+  selectedModules  String[]           @default([]) // bundle dışı ekstra seçilen modüller
+  resolvedModules  String[]           @default([]) // nihai açılacak modül seti (snapshot)
+  branchQuota      Int                @default(0) // satın alınan ek şube kotası
+  companyQuota     Int                @default(0) // satın alınan ek firma kotası
+  billingCycle     String // MONTHLY | YEARLY
+  amount           Decimal            @db.Decimal(10, 2)
+  currency         String             @default("TRY")
+  autoRenew        Boolean            @default(true)
+  status           PackageOrderStatus @default(PENDING_PAYMENT)
   // PayTR sanal POS alanları. merchant_oid = order.id (ayrı alan yok).
-  paymentProvider String? // "PAYTR"
-  paidAt          DateTime? // ödeme onay bildirimi (callback) anı
-  paymentRef      String? // PayTR referansı / echo
-  paymentError    String?            @db.Text // başarısız ödeme nedeni
-  recurringToken  String? // PayTR recurring (kart) token'ı, varsa
-  createdById     String?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  paymentProvider  String? // "PAYTR"
+  paidAt           DateTime? // ödeme onay bildirimi (callback) anı
+  paymentRef       String? // PayTR referansı / echo
+  paymentError     String?            @db.Text // başarısız ödeme nedeni
+  recurringToken   String? // PayTR recurring (kart) token'ı, varsa
+  // OTOMATİK FATURALANDIRMA — alanların anlamı [[KontorOrder]] ile birebir aynıdır.
+  invoiceId        String?            @unique
+  invoicedAt       DateTime?
+  invoiceError     String?            @db.Text
+  invoiceAttempts  Int                @default(0)
+  isTest           Boolean            @default(false)
+  billingName      String?
+  billingTaxNumber String?
+  billingTaxOffice String?
+  billingAddress   String?            @db.Text
+  billingCity      String?
+  billingDistrict  String?
+  billingEmail     String?
+  createdById      String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  plan    Plan?   @relation(fields: [planId], references: [id], onDelete: SetNull)
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan    Plan?    @relation(fields: [planId], references: [id], onDelete: SetNull)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
   @@index([companyId, status])
   @@index([status])
@@ -2118,8 +2150,12 @@ model KontorPackage {
   name             String // "1000 E-Belge"
   description      String?
   creditQty        Int // yüklenecek kontör adedi
-  price            Decimal  @db.Decimal(10, 2) // Kobipo müşteri fiyatı
+  price            Decimal  @db.Decimal(10, 2) // Kobipo müşteri fiyatı — KDV DAHİL
   currency         String   @default("TRY")
+  // Bu paketin KDV oranı. NULL = KOBIPO_DEFAULT_VAT_RATE (%20). Fiyat KDV DAHİL
+  // tutulur (KOBIPO_PRICES_INCLUDE_VAT): müşteri ne ödüyorsa faturanın ödenecek
+  // tutarı odur, matrah/KDV iç yüzdeyle ayrıştırılır. Bkz. lib/billing/vat.ts.
+  vatRate          Decimal? @db.Decimal(5, 2)
   mysoftTariffCode String // Mysoft İş Ortağı tarife kodu (getBusinessPartnerTariff)
   validityMonths   Int? // expiryDate hesabı; boşsa tarife default'u
   isActive         Boolean  @default(true)
@@ -2135,46 +2171,70 @@ model KontorPackage {
 // Müşterinin kontör satın alma siparişi. Havale + sistem-admin onayı ile ilerler;
 // onaylanınca bayi kimliğiyle Mysoft'a insertDocumentCredit yapılır.
 model KontorOrder {
-  id               String            @id @default(cuid())
-  companyId        String
-  packageId        String?
+  id                String            @id @default(cuid())
+  companyId         String
+  packageId         String?
   // Sipariş anı snapshot'ı (paket sonradan değişse/silinse bile sabit kalır)
-  packageName      String
-  creditQty        Int
-  unitPrice        Decimal           @db.Decimal(10, 2)
-  totalPrice       Decimal           @db.Decimal(10, 2)
-  currency         String            @default("TRY")
-  mysoftTariffCode String
-  targetVkn        String // kontörün yükleneceği mükellef VKN/TCKN
-  status           KontorOrderStatus @default(PENDING_PAYMENT)
-  paymentMethod    String            @default("HAVALE") // HAVALE | CARD
-  receiptUrl       String? // dekont harici bağlantı (dosya yüklenmediyse)
+  packageName       String
+  creditQty         Int
+  unitPrice         Decimal           @db.Decimal(10, 2)
+  totalPrice        Decimal           @db.Decimal(10, 2)
+  currency          String            @default("TRY")
+  mysoftTariffCode  String
+  targetVkn         String // kontörün yükleneceği mükellef VKN/TCKN
+  status            KontorOrderStatus @default(PENDING_PAYMENT)
+  paymentMethod     String            @default("HAVALE") // HAVALE | CARD
+  receiptUrl        String? // dekont harici bağlantı (dosya yüklenmediyse)
   // Havale akışı: müşteriye kod verilir → açıklamaya yazıp parayı gönderir →
   // dekontu yükler → sistem-admin panelinde görür ve onaylar.
-  paymentCode      String?           @unique // havale açıklamasına yazılacak kod (KBP-XXXXXX)
-  paymentNote      String?           @db.Text // müşterinin beyanı (gönderen ad, tarih…)
-  receiptFileName  String?
-  receiptMimeType  String?
-  receiptFileSize  Int? // bayt
+  paymentCode       String?           @unique // havale açıklamasına yazılacak kod (KBP-XXXXXX)
+  paymentNote       String?           @db.Text // müşterinin beyanı (gönderen ad, tarih…)
+  receiptFileName   String?
+  receiptMimeType   String?
+  receiptFileSize   Int? // bayt
   receiptUploadedAt DateTime?
   // Sanal POS (PayTR) ödeme alanları. merchant_oid = order.id (ayrı alan yok).
-  paymentProvider  String? // "PAYTR" (kart ödemesinde)
-  paidAt           DateTime? // ödeme onay bildirimi (callback) anı
-  paymentRef       String? // PayTR referansı / echo
-  paymentError     String?           @db.Text // başarısız ödeme nedeni
+  paymentProvider   String? // "PAYTR" (kart ödemesinde)
+  paidAt            DateTime? // ödeme onay bildirimi (callback) anı
+  paymentRef        String? // PayTR referansı / echo
+  paymentError      String?           @db.Text // başarısız ödeme nedeni
   // Mysoft yükleme sonucu
-  mysoftCreditId   String?
-  loadError        String?           @db.Text
+  mysoftCreditId    String?
+  loadError         String?           @db.Text
+  // OTOMATİK FATURALANDIRMA (docs/faturalandirma/PLAN.md).
+  // Fatura satıcı firmada (Kobipo'nun tüzel kişisi) açılır, alıcı firmada DEĞİL.
+  // invoiceId @unique = çift fatura kilidi: servis `invoiceId: null` koşuluyla
+  // claim eder, ikinci callback count=0 alıp çıkar.
+  invoiceId         String?           @unique
+  invoicedAt        DateTime?
+  invoiceError      String?           @db.Text
+  invoiceAttempts   Int               @default(0)
+  // Sipariş anındaki test damgası. Kart siparişinde PAYTR_TEST_MODE="1" ise true:
+  // PayTR test ödemesinde para ÇEKİLMEZ ama callback success döner, kontör gerçekten
+  // yüklenir. Karşılığı tahsil edilmemiş bir satış için GİB'e gerçek belge gitmesin
+  // diye fatura kesilmez. Env sonradan değişse geçmiş siparişler etkilenmesin diye
+  // bayrak sipariş anında SNAPSHOT'lanır.
+  isTest            Boolean           @default(false)
+  // Fatura bilgisi snapshot'ı: satın alma anında toplanır. Firma kartı sonradan
+  // değişse de belge, satışın yapıldığı andaki ünvan/VKN/adresle uyumlu kalır.
+  billingName       String?
+  billingTaxNumber  String?
+  billingTaxOffice  String?
+  billingAddress    String?           @db.Text
+  billingCity       String?
+  billingDistrict   String?
+  billingEmail      String?
   // İz kayıtları
-  createdById      String?
-  confirmedById    String?
-  confirmedAt      DateTime?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdById       String?
+  confirmedById     String?
+  confirmedAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
   package KontorPackage?      @relation(fields: [packageId], references: [id], onDelete: SetNull)
   receipt KontorOrderReceipt?
+  invoice Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
   @@index([companyId, status])
   @@index([status])
@@ -2352,23 +2412,23 @@ model Employee {
   updatedAt        DateTime  @updatedAt
   createdBy        String?
 
-  company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   // SET NULL: hesap silinse de personel kartı (bordro, izin, zimmet) ayakta kalır.
-  user      User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
-  payrolls  PayrollRecord[]
-  leaves    LeaveRecord[]
-  assets    AssetAssignment[]
-  documents EmployeeDocument[]
+  user             User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  payrolls         PayrollRecord[]
+  leaves           LeaveRecord[]
+  assets           AssetAssignment[]
+  documents        EmployeeDocument[]
   // Restoran modülünde bu personelin UYGULADIĞI hesap iskontoları. İK kartının
   // operasyona açılan ilk penceresi: bugüne kadar Employee ile satış tarafı
   // arasında hiçbir bağ yoktu (bkz. docs/restoran/PLAN.md "#7 vardiya/puantaj").
-  ticketDiscounts RestaurantTicket[] @relation("TicketDiscountEmployee")
+  ticketDiscounts  RestaurantTicket[]     @relation("TicketDiscountEmployee")
   // Bu personelin VERDİĞİ ikramlar. İki uçtan gelir ve ikisi de gerekli:
   // adisyonda kalem işaretlenirken (compItems), tezgâhta ise adisyon olmadığı
   // için doğrudan stok düzeltmesinde (compMovements).
-  compItems       RestaurantTicketItem[] @relation("TicketItemCompEmployee")
-  compMovements   StockMovement[]        @relation("StockMovementEmployee")
-  shifts          WorkShift[]
+  compItems        RestaurantTicketItem[] @relation("TicketItemCompEmployee")
+  compMovements    StockMovement[]        @relation("StockMovementEmployee")
+  shifts           WorkShift[]
   // Bu personel adına atılmış açılış/kapanış tikleri. Seçim listeden yapıldığı
   // için "bu maddeyi o yaptı" kanıtı değil, yalnız beyandır.
   checklistEntries ChecklistEntry[]
@@ -2441,16 +2501,16 @@ model WorkShift {
 // yeniden girmek gerekmesin. Kayan bayramlarda false olmalı, yoksa gelecek yıl
 // yanlış güne düşer.
 model CompanyHoliday {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  date      DateTime @db.Date
-  recurring Boolean  @default(false)
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  date        DateTime @db.Date
+  recurring   Boolean  @default(false)
   // Arife günü: yarım gün tatil. Bu dakikadan SONRASI tatildir (13:00 → 780).
   // NULL = tam gün tatil.
   halfDayFrom Int?
-  createdAt DateTime @default(now())
-  createdBy String?
+  createdAt   DateTime @default(now())
+  createdBy   String?
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -2469,17 +2529,17 @@ model CompanyHoliday {
 //
 // `weekStart` her zaman PAZARTESİ'dir (lib/personel/vardiya.ts `weekStartIso`).
 model ShiftPublication {
-  id          String   @id @default(cuid())
-  companyId   String
-  weekStart   DateTime @db.Date
-  publishedAt DateTime @default(now())
-  publishedBy String?
+  id            String   @id @default(cuid())
+  companyId     String
+  weekStart     DateTime @db.Date
+  publishedAt   DateTime @default(now())
+  publishedBy   String?
   // Kaç personele e-posta gitti — "yayınlandı ama kimseye ulaşmadı" ayırt edilsin.
-  notifiedCount Int    @default(0)
+  notifiedCount Int      @default(0)
   // Yayın anındaki vardiya sayısı. "Yayından sonra değişti mi" sorusu tek başına
   // `updatedAt` ile cevaplanamıyor: SİLİNEN bir vardiya hiçbir zaman damgası
   // bırakmaz ve hafta sessizce yayınlanandan farklı hale gelirdi.
-  shiftCount    Int    @default(0)
+  shiftCount    Int      @default(0)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 

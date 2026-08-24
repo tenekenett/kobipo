@@ -8,6 +8,12 @@ import { computeOrder, type PlanPricing } from "@/lib/billing/pricing"
 import { toPricingMap, TRIAL_PLAN_CODE } from "@/lib/billing/catalog"
 import { resolveAccountRootId } from "@/lib/billing/entitlements"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import {
+  billingSnapshot,
+  companyFillFromBilling,
+  normalizeBillingInput,
+} from "@/lib/invoicing/billing-info"
+import { isTestPurchase } from "@/lib/invoicing/config"
 
 export const dynamic = "force-dynamic"
 
@@ -106,11 +112,41 @@ export const POST = withApiErrors(async function POST(request: Request) {
       return NextResponse.json({ error: "Lütfen en az bir modül seçin." }, { status: 400 })
     }
 
+    // FATURA BİLGİSİ — ödeme öncesi zorunlu ([[lib/invoicing/billing-info.ts]]).
+    // Alıcı, siparişin sahibi olan HESAP KÖKÜ firmasıdır (`rootId`); abonelik oradan
+    // akar ve fatura da o tüzel kişiye kesilir — isteği gönderen şube değil.
+    const rootCompany = await prisma.company.findUnique({
+      where: { id: rootId },
+      select: { name: true, taxNumber: true, taxOffice: true, address: true, city: true, email: true },
+    })
+    const billing = normalizeBillingInput(
+      body?.billing ?? {
+        name: rootCompany?.name,
+        taxNumber: rootCompany?.taxNumber,
+        taxOffice: rootCompany?.taxOffice,
+        address: rootCompany?.address,
+        city: rootCompany?.city,
+        email: rootCompany?.email,
+      },
+    )
+    if (!billing.ok) {
+      return NextResponse.json({ error: billing.error, fields: billing.fields }, { status: 412 })
+    }
+    if (rootCompany) {
+      const patch = companyFillFromBilling(rootCompany, billing.value)
+      if (Object.keys(patch).length > 0) {
+        await prisma.company.update({ where: { id: rootId }, data: patch })
+      }
+    }
+
     const order = await prisma.packageOrder.create({
       data: {
         companyId: rootId,
         planId,
         planName,
+        // Paket ödemeleri daima PayTR sanal POS'undan geçer.
+        isTest: isTestPurchase("CARD"),
+        ...billingSnapshot(billing.value),
         selectedModules: computed.extraModules,
         resolvedModules: computed.resolvedModules,
         branchQuota: computed.branchQuota,

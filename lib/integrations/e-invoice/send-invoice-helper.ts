@@ -7,6 +7,7 @@ import {
 } from "@/lib/integrations/e-invoice/active-template"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider"
+import { parseInternetSalesInfo } from "@/lib/invoice/internet-sales"
 import { ensureTemplateFreshQuietly } from "@/lib/integrations/e-invoice/template-refresh"
 
 export type SendInvoiceResult =
@@ -133,6 +134,7 @@ async function resolveSendContext(
       eDonusumOnboardingStatus: true,
       eFaturaPrefix: true,
       eArchivePrefix: true,
+      eArchiveInternetPrefix: true,
       eFaturaBackdatePrefix: true,
       eArchiveBackdatePrefix: true,
       parentCompany: { select: { taxNumber: true } },
@@ -204,12 +206,23 @@ async function resolveSendContext(
     }
   }
 
+  // İnternet satışı mı? (Kobipo'nun kendi kontör/abonelik satışları daima öyledir.)
+  // Yalnız doğrulanmış nesne geçilir; yarım bilgi provider'a hiç gitmez.
+  const internetSalesInfo = parseInternetSalesInfo(invoice.internetSalesInfo)
+
   // Mysoft prefix: kullanıcı seçmediyse undefined geç (provider auto-pick eder).
   // invoiceSeriesPrefix Kobipo iç numarası içindir, Mysoft'a KARIŞMAZ.
+  //
+  // İNTERNET SATIŞI e-Arşiv'de AYRI seriden gider: GİB bu satışları ayrı numaratörde
+  // bekler (Mysoft numaratöründe isInternetSales=true) ve normal e-Arşiv serisiyle
+  // gönderilen belge reddedilebilir. Firmada tanımlı değilse undefined geçilir —
+  // provider Mysoft'un varsayılan numaratörünü seçer.
   const activePrefix: string | undefined =
     effectiveInvoiceType === "E_INVOICE"
       ? company.eFaturaPrefix || undefined
-      : company.eArchivePrefix || undefined
+      : internetSalesInfo
+        ? company.eArchiveInternetPrefix || undefined
+        : company.eArchivePrefix || undefined
 
   // Geçmiş tarihli belgeler için ayrılmış seri (Seri No Tanımları).
   const backdatePrefix: string | undefined =
@@ -253,6 +266,8 @@ async function resolveSendContext(
       effectiveInvoiceType === "E_INVOICE" ? opts.eInvoiceProfile : undefined,
     prefix: resolvedPrefix,
     tenantIdentifierNumber: tenantVkn || undefined,
+    // Doluysa provider isInternetSales:true + internetShipmentInfo yazar.
+    internetSalesInfo: internetSalesInfo || undefined,
     invoiceNo: invoice.invoiceNo,
     date: invoice.date,
     dueDate: invoice.dueDate || undefined,
@@ -585,6 +600,7 @@ async function resolveCompanyProvider(companyId: string): Promise<ProviderContex
       eDonusumOnboardingStatus: true,
       eFaturaPrefix: true,
       eArchivePrefix: true,
+      eArchiveInternetPrefix: true,
       parentCompany: { select: { taxNumber: true } },
     },
   })
@@ -615,6 +631,7 @@ export async function finalizeGibDraft(invoiceId: string): Promise<SendInvoiceRe
       uuid: true,
       invoiceType: true,
       eDocumentNo: true,
+      internetSalesInfo: true,
     },
   })
   if (!invoice) return { ok: false, status: 404, error: "Fatura bulunamadı", integrationStatus: "" }
@@ -640,7 +657,10 @@ export async function finalizeGibDraft(invoiceId: string): Promise<SendInvoiceRe
     draftPrefix ||
     (invoice.invoiceType === "E_INVOICE"
       ? ctx.company.eFaturaPrefix || undefined
-      : ctx.company.eArchivePrefix || undefined)
+      : // Taslak internet satış serisinden açıldıysa kesinleştirme de oradan gitmeli.
+        parseInternetSalesInfo(invoice.internetSalesInfo)
+        ? ctx.company.eArchiveInternetPrefix || ctx.company.eArchivePrefix || undefined
+        : ctx.company.eArchivePrefix || undefined)
 
   const response = await ctx.provider.sendDraftToGib({
     ettn: invoice.uuid,

@@ -8,6 +8,7 @@ import type { PackageOrder } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { isBillingCycle, type BillingCycle } from "@/lib/billing/constants"
 import { applyEntitlements, periodEndFor } from "@/lib/billing/entitlements"
+import { issueInvoiceQuietly } from "@/lib/invoicing/issue-sales-invoice"
 import type { NotificationResult, PaytrNotification } from "@/lib/integrations/paytr/notification"
 
 /** Karar için gereken sipariş alanları. */
@@ -248,6 +249,11 @@ export async function handlePackageNotification(
   await activateSubscription(paid)
 
   await prisma.packageOrder.update({ where: { id: order.id }, data: { status: "ACTIVE" } })
+
+  // Satış faturası ACTIVE'den SONRA: faturalandırma yan işlemdir, aktifleştirmeyi
+  // geciktirmemeli ve hatası PayTR'a "tekrar dene" dedirtmemeli (issueInvoiceQuietly
+  // fırlatmaz). Müşteri parasının karşılığını her hâlükârda almış olur.
+  await issueInvoiceQuietly({ kind: "PACKAGE", orderId: order.id })
   return "ok"
 }
 

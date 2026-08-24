@@ -60,6 +60,10 @@ export async function GET() {
           paidAt: true,
           paymentError: true,
           createdAt: true,
+          // Otomatik faturalandırma durumu (docs/faturalandirma/PLAN.md)
+          invoiceId: true,
+          invoiceError: true,
+          isTest: true,
         },
       },
       usageLimits: {

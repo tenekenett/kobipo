@@ -9,7 +9,13 @@ import { QuantityStepper } from "@/components/ui/quantity-stepper"
 import { MANAGEABLE_MODULES, modulesRequiring, withModuleDependencies } from "@/lib/modules"
 import { computeOrder, type PricingMap, type PlanPricing } from "@/lib/billing/pricing"
 import { modulePriceKey, type BillingCycle } from "@/lib/billing/constants"
-import { Check, Loader2, AlertTriangle, Sparkles, CheckCircle2 } from "lucide-react"
+import { Check, Loader2, AlertTriangle, Sparkles, CheckCircle2, Receipt } from "lucide-react"
+import {
+  BillingInfoForm,
+  EMPTY_BILLING,
+  missingBillingFields,
+  useBillingInfo,
+} from "@/components/invoicing/billing-info-form"
 
 type CatalogPlan = {
   id: string
@@ -94,6 +100,25 @@ export default function AbonelikPage() {
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // FATURA BİLGİSİ — ödeme sonrası satış faturası otomatik kesilir. Alıcı, aboneliğin
+  // sahibi olan HESAP KÖKÜ firmasıdır; bu yüzden scope="account".
+  const {
+    value: billing,
+    setValue: setBilling,
+    loading: billingLoading,
+    complete: billingComplete,
+  } = useBillingInfo(companySlug, "account")
+  const [billingOpen, setBillingOpen] = useState(false)
+  const [invalidFields, setInvalidFields] = useState<string[]>([])
+
+  // Kart eksikse formu kendiliğinden aç: kullanıcı ödemeye kadar gidip 412 yemesin.
+  useEffect(() => {
+    if (!billingLoading && !billingComplete) {
+      setBillingOpen(true)
+      setInvalidFields(missingBillingFields(billing))
+    }
+  }, [billingLoading, billingComplete, billing])
 
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
@@ -271,6 +296,19 @@ export default function AbonelikPage() {
 
   async function handlePay() {
     if (!companySlug || submitting) return
+
+    // Ödeme sonrası satış faturası otomatik kesilir; bilgi eksikse ödemeye hiç
+    // gitmeden formu aç ve eksikleri işaretle (sunucu da 412 ile aynı kapıyı tutar).
+    const missing = missingBillingFields(billing)
+    if (missing.length > 0) {
+      setInvalidFields(missing)
+      setBillingOpen(true)
+      setSubmitError(
+        "Fatura bilgileriniz eksik. Satışınız için fatura düzenlenebilmesi adına işaretli alanları doldurun.",
+      )
+      return
+    }
+
     setSubmitting(true)
     setSubmitError(null)
     try {
@@ -285,9 +323,14 @@ export default function AbonelikPage() {
           companyQuota: Math.max(companyQuota, minCompanyQuota),
           billingCycle: cycle,
           autoRenew,
+          billing,
         }),
       })
       const data = await res.json().catch(() => ({}))
+      if (res.status === 412) {
+        setInvalidFields(Array.isArray(data?.fields) ? data.fields : [])
+        setBillingOpen(true)
+      }
       if (!res.ok) throw new Error(data?.error || "Sipariş oluşturulamadı")
       router.push(`/ayarlar/abonelik/odeme/${data.id}?company=${encodeURIComponent(companySlug)}`)
     } catch (e) {
@@ -613,6 +656,39 @@ export default function AbonelikPage() {
               Online ödeme şu an yapılandırılmamış. Lütfen daha sonra tekrar deneyin veya destekle iletişime geçin.
             </p>
           )}
+          {/* Fatura bilgileri: ödeme sonrası satış faturası otomatik kesilir. Alıcı,
+              aboneliğin sahibi olan hesap kökü firmasıdır (scope="account"). */}
+          <div className="space-y-2 rounded-lg border p-3">
+            <button
+              type="button"
+              onClick={() => setBillingOpen((v) => !v)}
+              className="flex w-full items-center justify-between gap-2 text-left"
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                <Receipt className="h-4 w-4" />
+                Fatura Bilgileri
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {invalidFields.length > 0 ? "Eksik — doldurun" : billingOpen ? "Gizle" : "Düzenle"}
+              </span>
+            </button>
+            {billingOpen ? (
+              <BillingInfoForm
+                value={billing}
+                onChange={(v) => {
+                  setBilling(v)
+                  if (invalidFields.length > 0) setInvalidFields(missingBillingFields(v))
+                }}
+                invalidFields={invalidFields}
+                loading={billingLoading}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {billing.name} · {billing.taxNumber}
+              </p>
+            )}
+          </div>
+
           {submitError && (
             <p className="flex items-center gap-2 rounded-md bg-destructive/10 p-2.5 text-xs text-destructive">
               <AlertTriangle className="h-4 w-4 shrink-0" />

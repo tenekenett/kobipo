@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Loader2, RefreshCw, Plus, Trash2, CheckCircle2, XCircle, Paperclip } from "lucide-react"
+import { Loader2, RefreshCw, Plus, Trash2, CheckCircle2, XCircle, Paperclip, Receipt } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 
@@ -21,6 +21,8 @@ interface KontorPackage {
   currency: string
   mysoftTariffCode: string
   validityMonths: number | null
+  /** NULL = sistem varsayılanı (%20). Fiyat KDV DAHİL'dir. */
+  vatRate: string | number | null
   isActive: boolean
   sortOrder: number
 }
@@ -45,6 +47,11 @@ interface KontorOrder {
   paymentNote?: string | null
   receiptFileName?: string | null
   receiptUploadedAt?: string | null
+  // Otomatik faturalandırma (docs/faturalandirma/PLAN.md)
+  invoiceId?: string | null
+  invoicedAt?: string | null
+  invoiceError?: string | null
+  isTest?: boolean
 }
 
 const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
@@ -61,6 +68,7 @@ const emptyForm = {
   price: "",
   mysoftTariffCode: "",
   validityMonths: "",
+  vatRate: "",
 }
 
 export function KontorAdmin() {
@@ -117,6 +125,7 @@ export function KontorAdmin() {
           price: Number(form.price),
           mysoftTariffCode: form.mysoftTariffCode,
           validityMonths: form.validityMonths ? Number(form.validityMonths) : null,
+          vatRate: form.vatRate === "" ? null : Number(form.vatRate),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -176,6 +185,46 @@ export function KontorAdmin() {
     } finally {
       setBusyOrderId(null)
       // Başarılı/başarısız fark etmez — sipariş durumunu (LOADED/FAILED) tazele.
+      loadAll()
+    }
+  }
+
+  /**
+   * Faturayı elle kes ya da geri al. Kapılar servisin İÇİNDE olduğu için elle
+   * tetiklemek de test siparişine belge kestirmez — 409 ile "atlandı" döner.
+   */
+  const invoiceAction = async (order: KontorOrder, action: "issue" | "void") => {
+    if (action === "void" && !(await confirm({
+      title: "Faturayı geri al",
+      description:
+        `${order.company?.name || order.companyId} siparişinin faturası iptal edilecek. ` +
+        "e-Arşiv yalnız 24 saat içinde iptal edilebilir; e-Fatura hiç iptal edilemez " +
+        "(iade faturası gerekir).",
+      confirmLabel: "Geri al",
+      variant: "destructive",
+    }))) return
+
+    setBusyOrderId(order.id)
+    try {
+      const res = await fetch(`/api/kontor/orders/${order.id}/invoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "İşlem başarısız")
+      toast({
+        title: action === "issue" ? "Fatura kesildi" : "Fatura geri alındı",
+        description: action === "issue" ? data?.invoiceNo || undefined : undefined,
+      })
+    } catch (e) {
+      toast({
+        title: action === "issue" ? "Fatura kesilemedi" : "Fatura geri alınamadı",
+        description: e instanceof Error ? e.message : "Bir hata oluştu",
+        variant: "destructive",
+      })
+    } finally {
+      setBusyOrderId(null)
       loadAll()
     }
   }
@@ -308,6 +357,15 @@ export function KontorAdmin() {
             onChange={(e) => setForm({ ...form, validityMonths: e.target.value.replace(/\D/g, "") })}
             className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
           />
+          {/* Fiyat KDV DAHİL'dir; bu oran yalnız faturadaki matrah/KDV ayrışmasını
+              belirler, müşterinin ödediği tutarı değiştirmez. Boş = %20. */}
+          <input
+            placeholder="KDV % (boş=20)"
+            inputMode="numeric"
+            value={form.vatRate}
+            onChange={(e) => setForm({ ...form, vatRate: e.target.value.replace(/[^\d.]/g, "") })}
+            className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+          />
           <button
             onClick={createPackage}
             disabled={!formValid || saving}
@@ -337,6 +395,7 @@ export function KontorAdmin() {
                     <th className="py-2 pr-4">Adet</th>
                     <th className="py-2 pr-4">Fiyat</th>
                     <th className="py-2 pr-4">Tarife</th>
+                    <th className="py-2 pr-4">KDV</th>
                     <th className="py-2 pr-4">Durum</th>
                     <th className="py-2 pr-4"></th>
                   </tr>
@@ -350,6 +409,9 @@ export function KontorAdmin() {
                         {Number(p.price).toLocaleString("tr-TR")} {p.currency}
                       </td>
                       <td className="py-2 pr-4 font-mono text-orange-300">{p.mysoftTariffCode}</td>
+                      <td className="py-2 pr-4 text-slate-400">
+                        %{p.vatRate != null ? Number(p.vatRate) : 20}
+                      </td>
                       <td className="py-2 pr-4">
                         <button
                           onClick={() => togglePackage(p)}
@@ -407,6 +469,7 @@ export function KontorAdmin() {
                     <th className="py-2 pr-4">Ödeme</th>
                     <th className="py-2 pr-4">Hedef VKN</th>
                     <th className="py-2 pr-4">Durum</th>
+                    <th className="py-2 pr-4">Fatura</th>
                     <th className="py-2 pr-4">İşlem</th>
                   </tr>
                 </thead>
@@ -466,6 +529,47 @@ export function KontorAdmin() {
                           )}
                         </td>
                         <td className="py-2 pr-4">
+                          {o.isTest ? (
+                            <span className="text-xs text-slate-500">Test — kesilmez</span>
+                          ) : o.invoiceId ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Kesildi
+                            </span>
+                          ) : o.status === "LOADED" ? (
+                            <span className="text-xs text-amber-400">Yok</span>
+                          ) : (
+                            <span className="text-xs text-slate-500">—</span>
+                          )}
+                          {o.invoiceError && (
+                            <span className="block max-w-[220px] text-xs text-red-400">{o.invoiceError}</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4">
+                          {/* Fatura eylemleri: yüklenmiş siparişte kesme, kesilmişte geri alma. */}
+                          {!o.isTest && o.status === "LOADED" && (
+                            <div className="mb-1 flex gap-2">
+                              {o.invoiceId ? (
+                                <button
+                                  onClick={() => invoiceAction(o, "void")}
+                                  disabled={busy}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-slate-700 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-600 disabled:opacity-50"
+                                >
+                                  <XCircle className="h-3.5 w-3.5" />
+                                  Faturayı geri al
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => invoiceAction(o, "issue")}
+                                  disabled={busy}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-orange-700 disabled:opacity-50"
+                                >
+                                  {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Receipt className="h-3.5 w-3.5" />}
+                                  Faturayı kes
+                                </button>
+                              )}
+                            </div>
+                          )}
                           {canAct && (
                             <div className="flex gap-2">
                               <button
