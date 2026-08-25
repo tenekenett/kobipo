@@ -47,3 +47,23 @@ export const pct = (n: number | null | undefined) =>
  */
 export const parseNum = (raw: string): number =>
   parseFloat(String(raw ?? "").replace(",", "."))
+
+/**
+ * Tutarı ürünün KENDİ para birimiyle biçimler (₺/$/€). Geçersiz/eksik kodda TRY'ye düşer.
+ *
+ * `money`den farkı: para birimi çağıranın verdiği alandan gelir. Ürün kartında
+ * `currency` alanı var ve fiyat O cinsten; sabit TRY ile basmak 100 $'lık ürünü
+ * ekranda "100 ₺" gösterir — kullanıcı da ürünü o fiyata satar.
+ *
+ * `signed` kâr/fark gibi işaretin anlamlı olduğu yerlerde `+`/`−` ekler.
+ */
+export function formatMoney(amount: number, currency?: string | null, signed = false): string {
+  const cur = (currency || "TRY").toUpperCase()
+  const opts: Intl.NumberFormatOptions = {
+    style: "currency",
+    currency: ["TRY", "USD", "EUR"].includes(cur) ? cur : "TRY",
+    currencyDisplay: "narrowSymbol",
+  }
+  if (signed) opts.signDisplay = "exceptZero"
+  return new Intl.NumberFormat("tr-TR", opts).format(Number.isFinite(amount) ? amount : 0)
+}

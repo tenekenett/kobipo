@@ -1244,6 +1244,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
         basePrice={
           optionFor ? Number(optionFor.salePrice ?? 0) * (1 + Number(optionFor.vatRate ?? 20) / 100) : 0
         }
+        priceCurrency={optionFor?.currency}
         groups={optionFor ? groupsOf(optionFor.id) : []}
         onCancel={() => setOptionFor(null)}
         onConfirm={(pick) => {

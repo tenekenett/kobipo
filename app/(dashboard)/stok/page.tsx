@@ -51,6 +51,8 @@ import { cn } from "@/lib/utils"
 import { ExportButton } from "@/components/export/export-button"
 import Link from "next/link"
 import { WriteAction } from "@/components/dashboard/write-guard"
+import { formatMoney } from "@/lib/format"
+import { useTcmbRates } from "@/lib/exchange/use-rates"
 
 interface Product {
   id: string
@@ -81,18 +83,6 @@ interface Product {
 
 const fmtQty = (n: number) =>
   new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number(n || 0))
-
-// Tutarı ürünün kendi para birimiyle biçimler (₺/$/€). Geçersiz/eksik kodda TRY'ye düşer.
-function formatMoney(amount: number, currency?: string | null, signed = false): string {
-  const cur = (currency || "TRY").toUpperCase()
-  const opts: Intl.NumberFormatOptions = {
-    style: "currency",
-    currency: ["TRY", "USD", "EUR"].includes(cur) ? cur : "TRY",
-    currencyDisplay: "narrowSymbol",
-  }
-  if (signed) opts.signDisplay = "exceptZero"
-  return new Intl.NumberFormat("tr-TR", opts).format(amount)
-}
 
 /** Stok uyarı durumu — engelleme yok, yalnızca görsel uyarı. */
 function stockState(p: Product): "out" | "low" | "ok" {
@@ -222,15 +212,7 @@ export default function StokPage() {
   /** Formdaki üç bayraktan türetilen tek seçim (lib/stock/product-kind.ts). */
   const productKind = productKindOf(formData)
   // Güncel TCMB kuru — döviz üründe kârın TL karşılığını göstermek için.
-  const [rates, setRates] = useState<{ USD: number; EUR: number } | null>(null)
-  useEffect(() => {
-    fetch("/api/kur")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d?.success) setRates({ USD: Number(d.USD), EUR: Number(d.EUR) })
-      })
-      .catch(() => {})
-  }, [])
+  const { rates } = useTcmbRates()
   // Seçili para biriminin TRY karşılığı (kâr TL karşılığı için); TRY veya kur yoksa null.
   const fxRate =
     formData.currency === "USD"

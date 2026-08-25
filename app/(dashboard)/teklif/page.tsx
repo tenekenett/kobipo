@@ -40,6 +40,7 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, Eye } from "lucide-react"
+import { useTcmbRates } from "@/lib/exchange/use-rates"
 
 type Quote = {
   id: string
@@ -103,9 +104,6 @@ export default function TeklifPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([])
   const [products, setProducts] = useState<QuoteProduct[]>([])
-  // Güncel TCMB kurları (USD/EUR → TRY). Modal açılınca çekilir; ürünün para birimi
-  // belge para biriminden farklıysa fiyat bununla çevrilir.
-  const [rates, setRates] = useState<{ USD: number; EUR: number; date: string } | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   // Müşteri listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
   // Cari kartı yazma yetkisi yoksa "Yeni cari ekle" seçeneği hiç çizilmez
@@ -144,35 +142,16 @@ export default function TeklifPage() {
     if (res.ok) setProducts(await res.json())
   }
 
-  async function fetchRates() {
-    try {
-      const res = await fetch("/api/kur")
-      const data = await res.json()
-      if (data?.success) {
-        setRates({ USD: Number(data.USD), EUR: Number(data.EUR), date: String(data.date || "") })
-      }
-    } catch {
-      /* kur alınamadıysa sessiz geç; çeviri denenince kullanıcı uyarılır */
-    }
-  }
-
   useEffect(() => {
     if (isCreateOpen && companyId) {
       fetchProducts()
-      fetchRates()
     }
   }, [isCreateOpen, companyId])
 
-  // Kur yardımcıları: X → TRY oranı ve iki para birimi arası çeviri (kur yoksa null).
-  const rateOf = (cur: string): number =>
-    (({ TRY: 1, USD: rates?.USD || 0, EUR: rates?.EUR || 0 }) as Record<string, number>)[cur] ?? 0
-  const convert = (value: number, from: string, to: string): number | null => {
-    if (from === to) return value
-    const rf = rateOf(from)
-    const rt = rateOf(to)
-    if (!rf || !rt) return null
-    return value * (rf / rt)
-  }
+  // Güncel TCMB kurları + çeviri (lib/exchange/use-rates.ts). Modal açılınca
+  // çekilir; ürünün para birimi belge para biriminden farklıysa fiyat bununla
+  // çevrilir (bkz. quote-lines.tsx applyProductToLine).
+  const { rates, convert } = useTcmbRates(isCreateOpen && !!companyId)
 
   // Belge para birimi değişince mevcut satırların birim fiyat + referans fiyatını eski→yeni
   // para birimine güncel kurla çevir.

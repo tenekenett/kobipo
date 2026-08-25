@@ -16,6 +16,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { ArrowLeft, Package, TrendingUp, TrendingDown, BarChart3, Pencil } from "lucide-react"
 import Link from "next/link"
 import { looksLikeCuid } from "@/lib/slug"
+import { formatMoney } from "@/lib/format"
 import { ProductEditDialog } from "@/components/stok/product-edit-dialog"
 import { WriteAction } from "@/components/dashboard/write-guard"
 
@@ -29,6 +30,8 @@ interface StockMovement {
   description: string
   referenceNo?: string
   balanceAfter: number
+  /** Hareketin KAYNAK BELGE para birimi — ürününkinden farklı olabilir (bkz. API). */
+  currency?: string | null
 }
 
 interface ProductDetail {
@@ -134,12 +137,10 @@ export default function ProductDetailPage() {
     )
   }
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("tr-TR", {
-      style: "currency",
-      currency: "TRY",
-    }).format(amount)
-  }
+  // Kart üzerindeki tutarlar ürünün KENDİ para birimindedir: fiyat alanı $ olarak
+  // girilmişse ₺ ile basmak kullanıcıya "100 dolarlık malı 100 liraya" sattırır.
+  const formatCurrency = (amount: number, currency: string | null = product.currency ?? null) =>
+    formatMoney(amount, currency)
 
   const formatNumber = (num: number) => {
     return new Intl.NumberFormat("tr-TR", {
@@ -405,10 +406,10 @@ export default function ProductDetailPage() {
                       {formatNumber(Math.abs(movement.quantity))} {product.unit}
                     </TableCell>
                     <TableCell className="text-right">
-                      {formatCurrency(movement.unitPrice)}
+                      {formatCurrency(movement.unitPrice, movement.currency)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {formatCurrency(movement.totalAmount)}
+                      {formatCurrency(movement.totalAmount, movement.currency)}
                     </TableCell>
                     <TableCell className="text-right font-medium">
                       {formatNumber(movement.balanceAfter)} {product.unit}

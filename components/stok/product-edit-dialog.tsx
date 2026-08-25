@@ -22,6 +22,7 @@ import {
 } from "@/lib/stock/product-kind"
 import { cn } from "@/lib/utils"
 import { Plus } from "lucide-react"
+import { useTcmbRates } from "@/lib/exchange/use-rates"
 
 /**
  * Ürün detay sayfasında (ve gerekirse başka yerlerde) yeniden kullanılabilen,
@@ -122,7 +123,8 @@ export function ProductEditDialog({
   const [editWarehouseId, setEditWarehouseId] = useState("")
   const [originalWarehouseId, setOriginalWarehouseId] = useState("")
 
-  const [rates, setRates] = useState<{ USD: number; EUR: number } | null>(null)
+  // Güncel TCMB kuru (lib/exchange/use-rates.ts) — dialog açılınca çekilir.
+  const { rates } = useTcmbRates(open)
   const [marginEdit, setMarginEdit] = useState<string | null>(null)
 
   // Dialog her açıldığında formu güncel ürün verisiyle doldur.
@@ -170,13 +172,6 @@ export function ProductEditDialog({
       .then((data) =>
         setCategories(Array.isArray(data) ? data.map((d: any) => ({ id: d.id, label: d.label })) : []),
       )
-      .catch(() => {})
-
-    fetch(`/api/kur`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (d?.success) setRates({ USD: Number(d.USD), EUR: Number(d.EUR) })
-      })
       .catch(() => {})
 
     Promise.all([

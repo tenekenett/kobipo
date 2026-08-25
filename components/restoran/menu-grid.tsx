@@ -28,7 +28,7 @@ import { ChefHat, CupSoda, MousePointerClick, Search } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { FetchErrorText } from "@/components/ui/fetch-error"
 import { Input } from "@/components/ui/input"
-import { currency } from "@/lib/fis/receipt-html"
+import { formatMoney } from "@/lib/format"
 import { qty } from "@/lib/format"
 import { unitShortLabel } from "@/lib/data/units"
 import type { RecipeMap } from "@/lib/stock/recipe-expand"
@@ -409,7 +409,7 @@ export function MenuGrid({
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="text-sm font-bold text-kobipo-blue dark:text-primary">
-                        {p.salePrice != null ? currency(grossPrice(p)) : "—"}
+                        {p.salePrice != null ? formatMoney(grossPrice(p), p.currency) : "—"}
                       </span>
                       {recipeMap?.has(p.id) && (
                         <ChefHat

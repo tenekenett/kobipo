@@ -70,6 +70,24 @@ export const GET = withApiErrors(async function GET(
     const salePrice = Number(product.salePrice || 0)
     const inboundTypes = ["IN", "PURCHASE", "SALE_CANCEL", "RETURN"]
 
+    // Hareketteki fiyat KAYNAK BELGENİN para birimindedir (stock_movements'ta
+    // currency kolonu yok). Ürün kartı USD ama fiş TRY olabilir — sembolü ürünün
+    // para biriminden basarsak TRY tutarı "$" ile görünür. Bu yüzden fatura/fiş
+    // referansı olan hareketlerin para birimi belgeden okunur; referansı olmayan
+    // (elle düzeltme, açılış) veya fiyatı null olup karttan doldurulan satırlar
+    // ürünün para birimindedir.
+    const invoiceRefs = Array.from(
+      new Set(product.stockMovements.map((m) => m.reference).filter((r): r is string => !!r)),
+    )
+    const invoiceCurrency = new Map<string, string>()
+    if (invoiceRefs.length > 0) {
+      const invoices = await prisma.invoice.findMany({
+        where: { id: { in: invoiceRefs }, companyId: product.companyId },
+        select: { id: true, currency: true },
+      })
+      for (const inv of invoices) invoiceCurrency.set(inv.id, inv.currency || "TRY")
+    }
+
     // Calculate balance after each movement
     let runningBalance = Number(product.stockQuantity)
     const movements = product.stockMovements.map((movement, index) => {
@@ -81,15 +99,19 @@ export const GET = withApiErrors(async function GET(
       }
 
       const isInbound = inboundTypes.includes(movement.type) || qty > 0
-      const unitPrice =
-        movement.unitPrice != null
-          ? Number(movement.unitPrice)
-          : isInbound
-            ? purchasePrice
-            : salePrice
+      const hasOwnPrice = movement.unitPrice != null
+      const unitPrice = hasOwnPrice
+        ? Number(movement.unitPrice)
+        : isInbound
+          ? purchasePrice
+          : salePrice
 
       return {
         id: movement.id,
+        currency:
+          (hasOwnPrice && movement.reference ? invoiceCurrency.get(movement.reference) : null) ??
+          product.currency ??
+          "TRY",
         date: movement.createdAt.toISOString(),
         type: movement.type,
         quantity: Math.abs(qty),

@@ -44,6 +44,8 @@ import {
 } from "@/lib/swr/use-company-data"
 import { cn } from "@/lib/utils"
 import { parseAmount } from "@/lib/satis/payment"
+import { formatMoney } from "@/lib/format"
+import { useTryPrice } from "@/lib/exchange/use-try-price"
 import {
   Banknote,
   Check,
@@ -152,6 +154,10 @@ export function QuickPurchaseScreen() {
   const { selectedCompanyId, selectedCompany } = useDashboardCompany()
   const companyId = selectedCompanyId
   const { toast } = useToast()
+  // Ürün kartı USD/EUR fiyat tutabilir, fiş ise TRY kesilir (aşağıdaki
+  // `currency: "TRY"`); dönüşüm sepete eklerken yapılır. Kur alınamazsa fiyat 0
+  // kalır ve kullanıcı uyarılır — bkz. lib/exchange/use-try-price.ts.
+  const { toTRY } = useTryPrice()
 
   // Referans veriler SWR ile önbelleklenir: ekranlar arası paylaşılır ve her
   // mount'ta yeniden çekilmez (aynı anahtar 30 sn içinde dedupe edilir).
@@ -255,9 +261,22 @@ export function QuickPurchaseScreen() {
     [activeTicket]
   )
 
+  /**
+   * Ürün ALIŞ fiyatının TL karşılığı — `salePrice` alanı bu ekranda alış fiyatını
+   * taşır (bkz. yukarıdaki eşleme). Kural: lib/exchange/use-try-price.ts.
+   */
+  const priceInTRY = useCallback(
+    (product: ComboboxProduct): number =>
+      toTRY(product.salePrice != null ? Number(product.salePrice) : 0, product.currency, product.name),
+    [toTRY]
+  )
+
   const addProductToCart = useCallback(
     (product: ComboboxProduct) => {
       // Alış = stok girişi: depoyu değiştirme, kullanıcının seçtiği (varsayılan Ana) depo kalsın.
+      // Fiyat (ve çeviri uyarısı) yalnız satır İLK kez eklenirken hesaplanır.
+      const inCart = !!product.id && active.cart.some((l) => l.productId === product.id)
+      const unitPrice = inCart ? 0 : priceInTRY(product)
       patchCart((cart) => {
         if (product.id) {
           const idx = cart.findIndex((l) => l.productId === product.id)
@@ -275,13 +294,13 @@ export function QuickPurchaseScreen() {
             description: product.name,
             unit: product.unit || "ADET",
             quantity: 1,
-            unitPrice: product.salePrice != null ? Number(product.salePrice) : 0,
+            unitPrice,
             vatRate: Number(product.vatRate) || 0,
           },
         ]
       })
     },
-    [patchCart]
+    [active.cart, patchCart, priceInTRY]
   )
 
   const addMisc = useCallback(() => {
@@ -1025,7 +1044,7 @@ export function QuickPurchaseScreen() {
                     >
                       <span className="line-clamp-2 text-xs font-medium">{p.name}</span>
                       <span className="text-[11px] font-semibold text-kobipo-blue dark:text-primary">
-                        {p.salePrice != null ? currency(Number(p.salePrice)) : "—"}
+                        {p.salePrice != null ? formatMoney(Number(p.salePrice), p.currency) : "—"}
                       </span>
                     </button>
                   ))}

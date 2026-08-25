@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { currency } from "@/lib/fis/receipt-html"
+import { formatMoney } from "@/lib/format"
 import type { OptionGroupView } from "@/lib/restoran/product-options"
 import { cn } from "@/lib/utils"
 
@@ -31,6 +31,7 @@ export function OptionDialog({
   open,
   productName,
   basePrice,
+  priceCurrency,
   groups,
   initialNote,
   onCancel,
@@ -40,6 +41,12 @@ export function OptionDialog({
   productName: string
   /** Ürünün KDV DAHİL taban fiyatı — başlıktaki tutar bunun üstüne biner. */
   basePrice: number
+  /**
+   * Ürünün para birimi — fiyat ve seçenek farkı BU cinsten gösterilir. Ürün USD
+   * fiyatlıyken ₺ basmak "1 $ = 1 ₺" yanılgısı üretir (bkz. lib/format.ts).
+   * Tezgâhta fiş TRY kesilir; çevrim sepete/adisyona eklenirken yapılır.
+   */
+  priceCurrency?: string | null
   groups: OptionGroupView[]
   initialNote?: string | null
   onCancel: () => void
@@ -133,7 +140,7 @@ export function OptionDialog({
                       {option.priceDelta !== 0 && (
                         <span className="ml-1.5 text-xs text-muted-foreground">
                           {option.priceDelta > 0 ? "+" : "−"}
-                          {currency(Math.abs(option.priceDelta))}
+                          {formatMoney(Math.abs(option.priceDelta), priceCurrency)}
                         </span>
                       )}
                     </button>
@@ -164,7 +171,7 @@ export function OptionDialog({
           >
             {missing > 0
               ? "Zorunlu seçim bekleniyor"
-              : `Ekle — ${currency(basePrice + extraGross)}`}
+              : `Ekle — ${formatMoney(basePrice + extraGross, priceCurrency)}`}
           </Button>
         </DialogFooter>
       </DialogContent>

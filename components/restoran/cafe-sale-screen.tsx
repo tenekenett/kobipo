@@ -59,6 +59,7 @@ import {
   type RefProduct,
 } from "@/lib/swr/use-company-data"
 import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-html"
+import { useTryPrice } from "@/lib/exchange/use-try-price"
 import { qty } from "@/lib/format"
 import {
   emptyPaymentState,
@@ -163,6 +164,9 @@ type Shortage = {
 export function CafeSaleScreen() {
   const { selectedCompanyId: companyId, selectedCompany } = useDashboardCompany()
   const { toast } = useToast()
+  // Menü kalemi USD/EUR fiyatlı olabilir; fiş TRY kesilir. Çevrim sepete eklerken
+  // yapılır, kur alınamazsa fiyat 0 kalır + uyarı (lib/exchange/use-try-price.ts).
+  const { toTRY, convert } = useTryPrice()
 
   const { products, isLoading: productsLoading, error: productsError } = useProducts(companyId, {
     isService: false,
@@ -256,9 +260,15 @@ export function CafeSaleScreen() {
       },
     ) => {
       const vatRate = Number(product.vatRate) || 0
-      const grossDelta = (extra?.options ?? []).reduce((s, o) => s + o.priceDelta, 0)
-      const unitPrice =
-        (product.salePrice != null ? Number(product.salePrice) : 0) + grossDelta / (1 + vatRate / 100)
+      const cur = (product.currency || "TRY").toUpperCase()
+      // Ürün fiyatı TL'ye burada çevrilir (kur yoksa 0 + uyarı). Seçenek farkı
+      // ürünün fiyat ölçeğinde tanımlıdır — 5 ₺'lik "ekstra shot" USD fiyatlı bir
+      // kahvede 5 $ demektir — o yüzden AYNI kurla, ama sessizce çevrilir:
+      // kullanıcıya tek çeviri uyarısı gider, seçenek başına değil.
+      const basePrice = toTRY(product.salePrice != null ? Number(product.salePrice) : 0, cur, product.name)
+      const rawDelta = (extra?.options ?? []).reduce((s, o) => s + o.priceDelta, 0)
+      const grossDelta = cur === "TRY" ? rawDelta : (convert(rawDelta, cur, "TRY") ?? 0)
+      const unitPrice = basePrice + grossDelta / (1 + vatRate / 100)
       const optionKey = (extra?.options ?? []).map((o) => o.optionName).join("|")
 
       setCart((prev) => {
@@ -293,7 +303,7 @@ export function CafeSaleScreen() {
         ]
       })
     },
-    [],
+    [convert, toTRY],
   )
 
   /** Seçeneği olan ürün diyalog açar; olmayan TEK DOKUNUŞTA sepete girer. */
@@ -1114,6 +1124,7 @@ export function CafeSaleScreen() {
             ? Number(optionFor.salePrice ?? 0) * (1 + (Number(optionFor.vatRate) || 0) / 100)
             : 0
         }
+        priceCurrency={optionFor?.currency}
         groups={optionFor ? groupsOf(optionFor.id) : []}
         onCancel={() => setOptionFor(null)}
         onConfirm={(pick) => {

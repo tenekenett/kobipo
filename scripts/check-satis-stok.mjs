@@ -41,7 +41,11 @@ await client.connect()
 
 const { rows } = await client.query(
   `select i.id, i."invoiceNo", i."isReceipt", i.status, i."companyId", c.name as company,
-          to_char(i."createdAt" at time zone 'Europe/Istanbul', 'DD.MM HH24:MI') as t
+          -- İKİ AT TIME ZONE şart: kolon naive UTC. Tek çevrim, değeri İstanbul
+          -- saati SANIP tekrar çeviriyor ve 3 saat GERİ kaydırıyordu (görünen
+          -- saat = gerçek İstanbul saati − 6). Teşhis betiğinde yanlış saat,
+          -- "bu belge bugün mü kesilmiş" sorusunu yanlış cevaplatır.
+          to_char(i."createdAt" at time zone 'UTC' at time zone 'Europe/Istanbul', 'DD.MM HH24:MI') as t
      from invoices i
      join companies c on c.id = i."companyId"
     where i.type = 'SALES'

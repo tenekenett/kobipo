@@ -12,6 +12,8 @@ import {
   type TicketItemOption,
 } from "@/lib/restoran/tickets"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { convertAmount } from "@/lib/exchange/convert"
+import { getTcmbRates } from "@/lib/exchange/tcmb"
 
 export const dynamic = "force-dynamic"
 
@@ -65,6 +67,21 @@ export const POST = withApiErrors(async function POST(request: Request, { params
     const merge = body.merge !== false
     const created: string[] = []
 
+    // Kur YALNIZCA TRY dışı bir ürünle karşılaşılınca çekilir: kahvecinin tamamı
+    // TRY ise adisyona kalem eklemek TCMB'ye bağımlı olmamalı. `undefined` =
+    // henüz denenmedi, `null` = denendi ve alınamadı (tekrar denenmez).
+    let rates: { USD: number; EUR: number } | null | undefined
+    const ratesOnce = async () => {
+      if (rates === undefined) {
+        try {
+          rates = await getTcmbRates()
+        } catch {
+          rates = null
+        }
+      }
+      return rates
+    }
+
     for (const line of raw) {
       const quantity = Number(line?.quantity ?? 1)
       if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -76,17 +93,42 @@ export const POST = withApiErrors(async function POST(request: Request, { params
       let unit = String(line?.unit || "").trim() || "ADET"
       let unitPrice = Number(line?.unitPrice)
       let vatRate = Number(line?.vatRate)
+      // Fiyatın hangi para biriminde okunduğu — seçenek farkı da aynı ölçekte
+      // tanımlıdır. İstemci fiyatı kendisi verdiyse TRY sayılır (çevrilmez).
+      let priceCurrency = "TRY"
 
       if (productId) {
         const product = await prisma.product.findFirst({
           where: { id: productId, companyId },
-          select: { id: true, name: true, unit: true, salePrice: true, vatRate: true },
+          select: { id: true, name: true, unit: true, salePrice: true, vatRate: true, currency: true },
         })
         if (!product) return NextResponse.json({ error: "Ürün bulunamadı" }, { status: 404 })
         if (!description) description = product.name
         if (!line?.unit) unit = product.unit
         // `salePrice` NET tutulur (şema: "Fiyatlar DB'de DAİMA net").
-        if (!Number.isFinite(unitPrice)) unitPrice = Number(product.salePrice ?? 0)
+        if (!Number.isFinite(unitPrice)) {
+          unitPrice = Number(product.salePrice ?? 0)
+          // Ürün kartı USD/EUR fiyatlı olabilir; adisyon ve ondan kesilen fiş
+          // TRY'dir. Çevrim İSTEMCİDE YAPILAMAZ: fiyatı ekrandan almamamızın
+          // gerekçesi burada da geçerli (aşağıdaki seçenek notu). Kur alınamazsa
+          // kalem EKLENMEZ — 0 fiyatlı satır yazmak, kasiyerin fark etmediği
+          // anda masayı bedavaya kapatmak demek. (Tezgâh ekranlarında karşılığı
+          // "fiyatı boş bırak + uyar"dır; orada kasiyer fiyatı elle yazabiliyor,
+          // adisyon kaleminde yazamaz.)
+          priceCurrency = (product.currency || "TRY").toUpperCase()
+          if (priceCurrency !== "TRY" && unitPrice) {
+            const tl = convertAmount(unitPrice, priceCurrency, "TRY", await ratesOnce())
+            if (tl == null) {
+              return NextResponse.json(
+                {
+                  error: `"${product.name}" ${priceCurrency} fiyatlı ve güncel kur alınamadı; kalem eklenemedi. Kur gelene kadar ürünü TRY fiyatla tanımlayın.`,
+                },
+                { status: 503 },
+              )
+            }
+            unitPrice = tl
+          }
+        }
         if (!Number.isFinite(vatRate)) vatRate = Number(product.vatRate ?? 20)
       }
 
@@ -136,7 +178,19 @@ export const POST = withApiErrors(async function POST(request: Request, { params
           recipeFactor: o.recipeFactor != null ? Number(o.recipeFactor) : null,
         }))
         // `priceDelta` KDV DAHİL girilir (menü fiyatı gibi); kalem NET tutulur.
-        const grossDelta = options.reduce((s, o) => s + o.priceDelta, 0)
+        let grossDelta = options.reduce((s, o) => s + o.priceDelta, 0)
+        // Seçenek farkı ürünün fiyat ölçeğindedir: 5 birimlik "ekstra shot" USD
+        // fiyatlı kahvede 5 $'dır. Fiyat çevrildiyse fark da çevrilir.
+        if (priceCurrency !== "TRY" && grossDelta) {
+          const tl = convertAmount(grossDelta, priceCurrency, "TRY", await ratesOnce())
+          if (tl == null) {
+            return NextResponse.json(
+              { error: "Seçenek farkı çevrilemedi: güncel kur alınamadı." },
+              { status: 503 },
+            )
+          }
+          grossDelta = tl
+        }
         unitPrice = unitPrice + grossDelta / (1 + vatRate / 100)
         if (unitPrice < 0) unitPrice = 0
       }
