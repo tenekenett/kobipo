@@ -170,6 +170,11 @@ export function QuickPurchaseScreen() {
         id: p.id,
         name: p.name,
         code: p.code,
+        // Barkod ve para birimi TAŞINMALI: barkod aramanın girdisi (yoksa okutulan
+        // kod hiçbir ürünü bulmaz ve ekran "yeni ürün" diyaloğunu açar), para birimi
+        // de fiyatın hangi cinsten olduğunu söyler.
+        barcode: p.barcode,
+        currency: p.currency,
         salePrice: p.purchasePrice,
         vatRate: p.vatRate,
         unit: p.unit,

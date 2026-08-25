@@ -28,9 +28,17 @@ export type ComboboxProduct = {
   id: string
   name: string
   code?: string | null
+  /**
+   * Barkod. Aramaya DAHİLDİR: okuyucu barkodu yazıp Enter'a basar; alan aramada
+   * yoksa kayıtlı ürün bulunamaz ve ekran "yeni ürün ekle" diyaloğunu açar —
+   * yani her okutmada ürünün kopyası oluşur.
+   */
+  barcode?: string | null
   salePrice?: number | null
   vatRate: number
   unit?: string | null
+  /** Ürün kartındaki para birimi (TRY/USD/EUR). Fiyat bunun cinsindendir. */
+  currency?: string | null
 }
 
 type ProductComboboxProps = {
@@ -173,17 +181,34 @@ export function ProductCombobox({
 
   const closedDisplay = selected?.name ?? selectedLabel ?? ""
 
+  /**
+   * Sorgunun BARKODU birebir tutan ürünü. Okuyucu akışının çekirdeği: barkod
+   * okutulup Enter'a basıldığında bu ürün doğrudan seçilir, listede gezinmek
+   * gerekmez. Birebir eşleşme aranır (parça eşleşme değil) — kısa bir barkod
+   * başka bir ürünün barkodunun içinde geçebilir.
+   */
+  const barcodeHit = useMemo(() => {
+    const q = normalizeForSearch(query)
+    if (!q) return undefined
+    return products.find((p) => p.barcode && normalizeForSearch(String(p.barcode)) === q)
+  }, [products, query])
+
   const filtered = useMemo(() => {
     const q = normalizeForSearch(query)
     if (!q) return products.slice(0, MAX_RESULTS)
-    return products
-      .filter(
-        (p) =>
-          normalizeForSearch(p.name).includes(q) ||
-          (p.code && normalizeForSearch(String(p.code)).includes(q))
-      )
-      .slice(0, MAX_RESULTS)
-  }, [products, query])
+    const list = products.filter(
+      (p) =>
+        normalizeForSearch(p.name).includes(q) ||
+        (p.code && normalizeForSearch(String(p.code)).includes(q)) ||
+        (p.barcode && normalizeForSearch(String(p.barcode)).includes(q))
+    )
+    // Birebir barkod eşleşmesi en üste: okutan kişi listenin başındakini bekler.
+    if (barcodeHit) {
+      const rest = list.filter((p) => p.id !== barcodeHit.id)
+      return [barcodeHit, ...rest].slice(0, MAX_RESULTS)
+    }
+    return list.slice(0, MAX_RESULTS)
+  }, [products, query, barcodeHit])
 
   const exactMatch = useMemo(() => {
     const n = normalizeName(query)
@@ -191,7 +216,9 @@ export function ProductCombobox({
     return products.some((p) => normalizeName(p.name) === n)
   }, [products, query])
 
-  const canCreate = query.trim().length > 0 && !exactMatch
+  // Barkodu kayıtlı bir ürünle birebir tutuyorsa ürün ZATEN VARDIR: "yeni ürün"
+  // seçeneği gösterilmez, Enter da diyaloğu açmaz.
+  const canCreate = query.trim().length > 0 && !exactMatch && !barcodeHit
 
   const close = useCallback(() => {
     setOpen(false)
@@ -356,6 +383,12 @@ export function ProductCombobox({
     }
     if (e.key === "Enter") {
       e.preventDefault()
+      // Barkod okuyucu: kodu yazar, Enter'a basar. Birebir eşleşen ürün varsa
+      // listede gezinmeden doğrudan sepete gitsin.
+      if (barcodeHit && highlighted < 0) {
+        pick(barcodeHit)
+        return
+      }
       if (highlighted >= 0 && highlighted < filtered.length) {
         pick(filtered[highlighted])
         return
@@ -451,7 +484,13 @@ export function ProductCombobox({
               onClick={() => pick(p)}
             >
               <span className="font-medium">{p.name}</span>
-              {p.code ? <span className="text-xs text-muted-foreground">{p.code}</span> : null}
+              {/* Kod ve barkod: neden eşleştiği görünsün — aynı ada sahip iki
+                  kalemi ayıran tek ipucu çoğu zaman bunlar. */}
+              {p.code || p.barcode ? (
+                <span className="text-xs text-muted-foreground">
+                  {[p.code, p.barcode ? `⌷ ${p.barcode}` : null].filter(Boolean).join("  ")}
+                </span>
+              ) : null}
             </button>
           ))}
           {canCreate ? (
