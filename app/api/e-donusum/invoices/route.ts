@@ -166,6 +166,22 @@ export const POST = withApiErrors(async function POST(request: Request) {
       deliveryCountry,
     } = body
 
+    // İADE: yön + iade edilen asıl faturaya atıf. Yön sütunu olmadan `type=RETURN`
+    // tek anlamlıydı (stok girer, karşı taraf müşteri) ve tedarikçiye iade
+    // kesilemiyordu; atıf ise e-belgede zorunlu (bkz. billingRefInvoiceList).
+    const returnKind =
+      String(type || "").trim().toUpperCase() === "RETURN"
+        ? String(body.returnKind || "SALES").trim().toUpperCase() === "PURCHASE"
+          ? "PURCHASE"
+          : "SALES"
+        : null
+    const returnOfInvoiceId = trimOrNull(body.returnOfInvoiceId)
+    const returnRefInvoiceNo = trimOrNull(body.returnRefInvoiceNo)
+    const returnRefNote = trimOrNull(body.returnRefNote)
+    const returnRefInvoiceDate = body.returnRefInvoiceDate
+      ? new Date(body.returnRefInvoiceDate)
+      : null
+
     // Fiş: hızlı satış/alış ile kesilen gayriresmî belge. Stok + tahsilat işler ama
     // GİB/e-belge ve otomatik muhasebe fişi oluşturmaz; ayrı "FS-" numara dizisi alır.
     const isReceipt = body.isReceipt === true
@@ -465,6 +481,12 @@ const company = await prisma.company.findUnique({
           : [],
         status: "DRAFT",
         isReceipt,
+        returnKind,
+        // Atıf alanları yalnız iadede anlamlı; başka tipte gövdede gelse bile yazılmaz.
+        returnOfInvoiceId: returnKind ? returnOfInvoiceId : null,
+        returnRefInvoiceNo: returnKind ? returnRefInvoiceNo : null,
+        returnRefInvoiceDate: returnKind ? returnRefInvoiceDate : null,
+        returnRefNote: returnKind ? returnRefNote : null,
         createdBy: user.id,
         items: {
           create: normalizedItems.map((item, index: number) => {
@@ -513,13 +535,15 @@ const company = await prisma.company.findUnique({
     })
 
     // Stok hareketi: depo bazlı. warehouseId verilmezse firmanın varsayılan deposu
-    // kullanılır. Satış → çıkış (OUT, − miktar), Alış/İade → giriş (IN, + miktar).
+    // kullanılır. Satış → çıkış (OUT, − miktar), Alış → giriş (IN, + miktar).
+    // İade YÖNE bağlıdır: satış iadesi giriş, alış iadesi çıkış (isOutboundInvoice).
     // Reçete genişletme (yalnız satış) ve hizmet ürünü elemesi ORTAK katmanda:
     // lib/stock/invoice-stock.ts — aynı kural fatura düzenlemede de çalışsın diye.
     const safeType = String(type || "").trim().toUpperCase()
     const stockableItems = await prepareInvoiceStockOps(prisma, {
       companyId,
       type: safeType,
+      returnKind,
       invoiceNo: invoice.invoiceNo,
       lines: invoice.items.map((item) => {
         // Seçenek (porsiyon/ek malzeme) etkileri faturaya YAZILMAZ; kalem sırasıyla
@@ -578,6 +602,7 @@ const company = await prisma.company.findUnique({
             invoiceId: invoice.id,
             invoiceNo: invoice.invoiceNo,
             type: safeType,
+            returnKind,
             warehouseId: whId,
             ops: stockableItems,
             createdBy: user.id,

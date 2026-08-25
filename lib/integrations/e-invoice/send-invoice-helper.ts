@@ -9,6 +9,7 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider"
 import { parseInternetSalesInfo } from "@/lib/invoice/internet-sales"
 import { ensureTemplateFreshQuietly } from "@/lib/integrations/e-invoice/template-refresh"
+import { normalizeGibDocumentNo, returnRefError } from "@/lib/invoice/return-ref"
 
 export type SendInvoiceResult =
   | { ok: true; uuid: string; providerName: string }
@@ -100,11 +101,15 @@ async function resolveSendContext(
     }
   }
 
-  if (invoice.type !== "SALES") {
+  // Satış ve İADE gönderilebilir; ALIŞ gönderilemez — alış faturasını karşı taraf
+  // keser, biz yalnız kayıt tutarız. İade iki yönde de bizim kestiğimiz belgedir
+  // (tedarikçiye alış iadesi, müşteriye satış iadesi) ve GİB'e invoiceType=IADE
+  // olarak gider (bkz. mysoft-provider resolvedInvoiceType).
+  if (invoice.type !== "SALES" && invoice.type !== "RETURN") {
     return {
       ok: false,
       status: 400,
-      error: "Sadece satış faturaları e-belge olarak gönderilebilir.",
+      error: "Yalnız satış ve iade faturaları e-belge olarak gönderilebilir.",
       integrationStatus: "",
     }
   }
@@ -174,6 +179,16 @@ async function resolveSendContext(
   }
   const { provider, tenantVkn } = resolved
 
+  // BELGENİN ALICISI kim? Satışta ve satış iadesinde müşteri; ALIŞ İADESİNDE
+  // tedarikçi — malı ona geri gönderip faturayı ona kesiyoruz. Provider payload'da
+  // yalnız `customer` alanını okuduğu için (mysoft-provider: invoiceData.customer)
+  // alıcı buraya yazılır; ayrımı burada yapmazsak alış iadesi, müşterisi olmadığı
+  // için alıcısız bir belge olarak giderdi.
+  const isPurchaseReturn =
+    invoice.type === "RETURN" &&
+    String(invoice.returnKind || "").trim().toUpperCase() === "PURCHASE"
+  const receiver = isPurchaseReturn ? invoice.supplier : invoice.customer
+
   // Alıcı VKN'sini GİB'de sorgula: E-Arşiv seçildiyse ama alıcı E-Fatura
   // mükellefiyse Mysoft "EARSIVFATURA profili geçersiz" diye reddediyor.
   // Burada otomatik olarak invoiceType'ı E_INVOICE'a çeviriyoruz ve DB'yi
@@ -181,7 +196,7 @@ async function resolveSendContext(
   let effectiveInvoiceType: "E_INVOICE" | "E_ARCHIVE" = invoice.invoiceType as
     | "E_INVOICE"
     | "E_ARCHIVE"
-  const customerVkn = (invoice.customer?.taxNumber || "").replace(/\D/g, "")
+  const customerVkn = (receiver?.taxNumber || "").replace(/\D/g, "")
   if (
     effectiveInvoiceType === "E_ARCHIVE" &&
     customerVkn &&
@@ -249,7 +264,7 @@ async function resolveSendContext(
   // kutusu... birden fazla varsa tercih ettiğinizi girin; boşsa sistem ilk geçerliyi
   // otomatik atar. E-Arşiv'de boş bırakılmalı."). Müşteri kartında pinlenmiş bir kutu
   // varsa E-Fatura'da onu geçiyoruz; GİB alias'ları urn:mail: önekiyle beklenir.
-  const rawReceiverAlias = (invoice.customer?.eInvoiceAlias || "").trim()
+  const rawReceiverAlias = (receiver?.eInvoiceAlias || "").trim()
   const receiverPkAlias =
     effectiveInvoiceType === "E_INVOICE" && rawReceiverAlias
       ? /^urn:/i.test(rawReceiverAlias)
@@ -257,8 +272,33 @@ async function resolveSendContext(
         : `urn:mail:${rawReceiverAlias}`
       : undefined
 
+  // İADE BİLGİSİ: invoiceType=IADE'de GİB, hangi faturanın iadesi olduğunu belgede
+  // bekler (UBL cac:BillingReference → Mysoft billingRefInvoiceList). Atıf yoksa
+  // alan hiç gönderilmez; provider da tipi IADE'ye çevirmez (bkz. resolvedInvoiceType).
+  //
+  // Atıf, GİB BELGE NUMARASI olmalı (16 hane) — iç numara şematrondan döner.
+  // Bu yüzden gönderim ÖNCESİNDE doğrulanır: kullanıcıya "cbc:DocumentTypeCode"
+  // diye konuşan bir hata yerine ne yapması gerektiğini söyleyen mesaj gider.
+  if (invoice.type === "RETURN") {
+    const refErr = returnRefError(invoice.returnRefInvoiceNo)
+    if (refErr) {
+      return { ok: false, status: 400, error: refErr, integrationStatus: "" }
+    }
+  }
+  const returnRef =
+    invoice.type === "RETURN"
+      ? {
+          invoiceNo: normalizeGibDocumentNo(invoice.returnRefInvoiceNo),
+          date: invoice.returnRefInvoiceDate || invoice.date,
+          note: invoice.returnRefNote || undefined,
+        }
+      : undefined
+
   const invoiceData: any = {
     invoiceType: effectiveInvoiceType,
+    // Belge tipini IADE'ye çeviren bayrak + atıf bilgisi.
+    isReturn: invoice.type === "RETURN",
+    returnRef,
     // Alıcının pinlediği posta kutusu (yoksa undefined → Mysoft otomatik seçer).
     pkAlias: receiverPkAlias,
     // E-Fatura'da kullanıcının seçtiği profil (Ticari/Temel). E-Arşiv'de yok sayılır.
@@ -278,15 +318,16 @@ async function resolveSendContext(
       address: company.address,
       city: company.city,
     },
-    customer: invoice.customer
+    // `customer` = belgenin ALICISI (alış iadesinde tedarikçi — yukarıdaki `receiver`).
+    customer: receiver
       ? {
-          name: invoice.customer.name,
-          taxNumber: invoice.customer.taxNumber || undefined,
-          taxOffice: invoice.customer.taxOffice || undefined,
-          address: invoice.customer.address || undefined,
-          city: invoice.customer.city || undefined,
-          district: invoice.customer.district || undefined,
-          country: invoice.customer.country || undefined,
+          name: receiver.name,
+          taxNumber: receiver.taxNumber || undefined,
+          taxOffice: receiver.taxOffice || undefined,
+          address: receiver.address || undefined,
+          city: receiver.city || undefined,
+          district: receiver.district || undefined,
+          country: receiver.country || undefined,
         }
       : undefined,
     supplier: invoice.supplier

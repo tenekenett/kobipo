@@ -6,6 +6,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
 
 export type BalanceSheetResult = {
   asOfDate: string
@@ -23,8 +24,19 @@ export async function computeBalanceSheet(args: {
   const companyId = args.companyId
   const date = args.asOfDate ? new Date(args.asOfDate) : new Date()
 
-  const [cashAndBanks, receivables, paidAmount, inventory, payables, paidToSuppliers, profitLoss] =
-    await Promise.all([
+  const [
+    cashAndBanks,
+    receivables,
+    paidAmount,
+    inventory,
+    payables,
+    paidToSuppliers,
+    profitLoss,
+    salesReturns,
+    salesReturnRefunds,
+    purchaseReturns,
+    purchaseReturnRefunds,
+  ] = await Promise.all([
       // Aktifler (Varlıklar) — Nakit ve banka hesapları
       prisma.financialAccount.aggregate({
         where: { companyId, isActive: true },
@@ -77,10 +89,48 @@ export async function computeBalanceSheet(args: {
         where: { companyId, date: { lte: date } },
         _sum: { amount: true },
       }),
+      // İADELER: satış iadesi ALACAĞI, alış iadesi BORCU azaltır. Geri ödemeleri
+      // de düşülür — iade geri ödendiyse alacak o kadar azalmış sayılmaz.
+      prisma.invoice.aggregate({
+        where: {
+          companyId,
+          ...SALES_RETURN_WHERE(),
+          status: { notIn: ["CANCELLED", "CONVERTED"] },
+          date: { lte: date },
+        },
+        _sum: { totalAmount: true },
+      }),
+      prisma.invoicePayment.aggregate({
+        where: {
+          companyId,
+          invoice: { ...SALES_RETURN_WHERE(), date: { lte: date } },
+          paymentDate: { lte: date },
+        },
+        _sum: { amount: true },
+      }),
+      prisma.invoice.aggregate({
+        where: {
+          companyId,
+          ...PURCHASE_RETURN_WHERE(),
+          status: { notIn: ["CANCELLED", "CONVERTED"] },
+          date: { lte: date },
+        },
+        _sum: { totalAmount: true },
+      }),
+      prisma.invoicePayment.aggregate({
+        where: {
+          companyId,
+          invoice: { ...PURCHASE_RETURN_WHERE(), date: { lte: date } },
+          paymentDate: { lte: date },
+        },
+        _sum: { amount: true },
+      }),
     ])
 
   const netReceivables =
-    Number(receivables._sum.totalAmount || 0) - Number(paidAmount._sum.amount || 0)
+    Number(receivables._sum.totalAmount || 0) -
+    Number(paidAmount._sum.amount || 0) -
+    (Number(salesReturns._sum.totalAmount || 0) - Number(salesReturnRefunds._sum.amount || 0))
 
   // Satın alma fiyatı yoksa satış fiyatına düş, yine yoksa 0 kabul et.
   const inventoryValue = inventory.reduce((sum, item) => {
@@ -90,7 +140,9 @@ export async function computeBalanceSheet(args: {
   }, 0)
 
   const netPayables =
-    Number(payables._sum.totalAmount || 0) - Number(paidToSuppliers._sum.amount || 0)
+    Number(payables._sum.totalAmount || 0) -
+    Number(paidToSuppliers._sum.amount || 0) -
+    (Number(purchaseReturns._sum.totalAmount || 0) - Number(purchaseReturnRefunds._sum.amount || 0))
 
   // Başlangıç sermayesi (şimdilik 0, daha sonra Company modeline eklenebilir)
   const initialCapital = 0

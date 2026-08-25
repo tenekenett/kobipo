@@ -51,6 +51,27 @@ function normalizeType(type: string | null | undefined): InvoiceStockType | null
   return safe === "SALES" || safe === "PURCHASE" || safe === "RETURN" ? safe : null
 }
 
+/**
+ * Fatura malı depodan ÇIKARIYOR mu?
+ *
+ * `type` tek başına yetmez: iade iki yönlüdür. Müşteri malı geri verdiyse
+ * (satış iadesi) mal depoya GİRER; malı tedarikçiye geri gönderdiysek (alış
+ * iadesi) depodan ÇIKAR. Yön `Invoice.returnKind` sütununda durur.
+ *
+ * `returnKind` NULL = satış iadesi: sütun eklenmeden önce kesilmiş iadeler o gün
+ * tek yönlüydü ve stoğu artırıyordu; NULL'ı giriş saymak onların davranışını
+ * birebir korur.
+ */
+export function isOutboundInvoice(
+  type: string | null | undefined,
+  returnKind?: string | null,
+): boolean {
+  const safe = normalizeType(type)
+  if (safe === "SALES") return true
+  if (safe === "RETURN") return String(returnKind || "").trim().toUpperCase() === "PURCHASE"
+  return false
+}
+
 function stockLineKey(productId: string | null, quantity: number, unitPrice: number) {
   return `${productId || ""}|${quantity.toFixed(4)}|${unitPrice.toFixed(4)}`
 }
@@ -82,7 +103,9 @@ export function sameStockLines(
 /**
  * Faturanın kalemlerinden yazılacak stok hareketlerini üretir. SADECE OKUR.
  *
- * - Yön: Satış → çıkış (−), Alış/İade → giriş (+).
+ * - Yön: Satış → çıkış (−), Alış → giriş (+). İADE İKİ YÖNLÜDÜR: satış iadesi
+ *   giriş (müşteri geri verdi), alış iadesi çıkış (tedarikçiye geri verdik) —
+ *   bkz. `isOutboundInvoice`.
  * - REÇETE GENİŞLETME yalnız SATIŞ'ta: reçetesi olan mamül (Latte) kendi
  *   stoğundan DÜŞMEZ, bileşenlerine açılır ve bileşenin de reçetesi varsa
  *   hammaddeye kadar inilir. Alış/iade genişletilmez: mal olarak ne alındıysa o girer.
@@ -94,6 +117,8 @@ export async function prepareInvoiceStockOps(
   args: {
     companyId: string
     type: string | null | undefined
+    /** İade yönü (`Invoice.returnKind`) — yalnız type=RETURN'de anlamlı. */
+    returnKind?: string | null
     lines: InvoiceStockLine[]
     /** Hata günlüğünde faturayı tanımak için (opsiyonel). */
     invoiceNo?: string | null
@@ -107,7 +132,7 @@ export async function prepareInvoiceStockOps(
     .map((line) => {
       if (!line.productId) return null
       const quantity = Number(line.quantity) || 0
-      const delta = safeType === "SALES" ? -quantity : quantity
+      const delta = isOutboundInvoice(safeType, args.returnKind) ? -quantity : quantity
       if (delta === 0) return null
       return {
         productId: line.productId,
@@ -263,6 +288,8 @@ export async function writeInvoiceStockOps(
     invoiceId: string
     invoiceNo?: string | null
     type: string | null | undefined
+    /** İade yönü (`Invoice.returnKind`) — yalnız type=RETURN'de anlamlı. */
+    returnKind?: string | null
     warehouseId: string
     ops: InvoiceStockOp[]
     createdBy?: string | null
@@ -271,7 +298,15 @@ export async function writeInvoiceStockOps(
   const safeType = normalizeType(args.type)
   if (!safeType || args.ops.length === 0) return
 
-  const label = safeType === "SALES" ? "Satış" : safeType === "PURCHASE" ? "Satın alma" : "İade"
+  const outbound = isOutboundInvoice(safeType, args.returnKind)
+  const label =
+    safeType === "SALES"
+      ? "Satış"
+      : safeType === "PURCHASE"
+        ? "Satın alma"
+        : outbound
+          ? "Alış iadesi"
+          : "Satış iadesi"
 
   for (const op of args.ops) {
     await adjustWarehouseStock(db, {
@@ -279,7 +314,7 @@ export async function writeInvoiceStockOps(
       productId: op.productId,
       warehouseId: args.warehouseId,
       delta: op.delta,
-      type: safeType === "SALES" ? "OUT" : "IN",
+      type: outbound ? "OUT" : "IN",
       unitPrice: op.unitPrice,
       // Reçeteden türeyen hareketler "Reçete:" ile işaretlenir — karlılık ve
       // hammadde tüketim raporları bunları doğrudan satıştan böyle ayırır.

@@ -8,6 +8,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { isPurchaseReturn, payableSign, receivableSign } from "@/lib/cari/invoice-direction"
 
 export type EkstreEntryType = "INVOICE" | "TRANSACTION" | "CHECK" | "PROMISSORY_NOTE"
 
@@ -106,9 +107,15 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       id: inv.id,
       date: inv.date,
       // Ekstrede resmi GİB belge no'yu göster; yoksa iç seri numarasına düş.
-      description: `Fatura ${inv.eDocumentNo || inv.invoiceNo}`,
-      debit: inv.type === "SALES" ? Number(inv.totalAmount) : 0,
-      credit: inv.type === "PURCHASE" ? Number(inv.totalAmount) : 0,
+      description: `${
+        inv.type === "RETURN" ? (isPurchaseReturn(inv) ? "Alış iadesi" : "Satış iadesi") : "Fatura"
+      } ${inv.eDocumentNo || inv.invoiceNo}`,
+      // İADE, ait olduğu belgenin TERS TARAFINA yazılır: satış iadesi müşterinin
+      // borcunu azalttığı için ALACAK, alış iadesi bizim borcumuzu azalttığı için
+      // BORÇ olur. Önceden iade ekstreye 0/0 düşüyordu — müşteri geri verdiği malın
+      // borcunu taşımaya devam ediyordu.
+      debit: receivableSign(inv) > 0 || payableSign(inv) < 0 ? Number(inv.totalAmount) : 0,
+      credit: payableSign(inv) > 0 || receivableSign(inv) < 0 ? Number(inv.totalAmount) : 0,
       balance: 0,
       reference: inv.eDocumentNo || inv.invoiceNo,
       data: inv,

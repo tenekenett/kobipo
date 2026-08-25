@@ -269,7 +269,10 @@ export const PUT = withApiErrors(async function PUT(
     }
 
     const body = await request.json()
-    const { customerId, supplierId, date, dueDate, items, notes, globalDiscountAmount, globalChargeAmount, payableRoundingAmount, invoiceNo, category, tags, deliveryAddress, deliveryDistrict, deliveryCity, deliveryCountry, currency, exchangeRate, exchangeRateDate } = body
+    const { customerId, supplierId, date, dueDate, items, notes, globalDiscountAmount, globalChargeAmount, payableRoundingAmount, invoiceNo, category, tags, deliveryAddress, deliveryDistrict, deliveryCity, deliveryCountry, currency, exchangeRate, exchangeRateDate, returnOfInvoiceId, returnRefInvoiceNo, returnRefInvoiceDate, returnRefNote } = body
+
+    /** Boş/boşluk metni null'a çevirir — atıf alanları temizlenebilmeli. */
+    const trimOrNull = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null)
 
     const manualNo = normalizeManualInvoiceNo(invoiceNo)
     if (!manualNo.ok) {
@@ -406,6 +409,9 @@ export const PUT = withApiErrors(async function PUT(
       ? await prepareInvoiceStockOps(prisma, {
           companyId: invoice.companyId,
           type: invoice.type,
+          // Yön kayıttan okunur: tip düzenlemede kilitli (editör de kilitliyor),
+          // dolayısıyla iadenin yönü de kesildiği gibi kalır.
+          returnKind: invoice.returnKind,
           invoiceNo: normalizedInvoiceNo || invoice.invoiceNo,
           lines: (normalizedItems || []).map((item, index) => ({
             productId: item.productId,
@@ -484,6 +490,19 @@ export const PUT = withApiErrors(async function PUT(
                   : [],
               }
             : {}),
+          // İade atıfları düzenlenebilir (yön DEĞİL: yön stok yönüdür ve tiple
+          // birlikte kilitli). Asıl fatura no/tarihi belge kesildikten sonra
+          // düzeltilebilmeli — e-belge gönderilmeden önce sık düzeltilen alan.
+          ...(invoice.returnKind
+            ? {
+                ...(returnOfInvoiceId !== undefined ? { returnOfInvoiceId: trimOrNull(returnOfInvoiceId) } : {}),
+                ...(returnRefInvoiceNo !== undefined ? { returnRefInvoiceNo: trimOrNull(returnRefInvoiceNo) } : {}),
+                ...(returnRefNote !== undefined ? { returnRefNote: trimOrNull(returnRefNote) } : {}),
+                ...(returnRefInvoiceDate !== undefined
+                  ? { returnRefInvoiceDate: returnRefInvoiceDate ? new Date(returnRefInvoiceDate) : null }
+                  : {}),
+              }
+            : {}),
         },
       })
 
@@ -551,6 +570,7 @@ export const PUT = withApiErrors(async function PUT(
           invoiceId: resolvedParams.id,
           invoiceNo: normalizedInvoiceNo || invoice.invoiceNo,
           type: invoice.type,
+          returnKind: invoice.returnKind,
           warehouseId: stockWarehouseId,
           ops: newStockOps,
           createdBy: user.id,

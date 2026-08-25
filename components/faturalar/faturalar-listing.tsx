@@ -48,7 +48,7 @@ interface FaturaRow {
   id: string
   slug: string | null
   direction: "incoming" | "outgoing"
-  source: "mysoft_inbox" | "manual_purchase" | "manual_sales" | "converted_inbox"
+  source: "mysoft_inbox" | "manual_purchase" | "manual_sales" | "manual_return" | "converted_inbox"
   date: string | null
   createdAt: string | null
   invoiceNo: string | null
@@ -1109,6 +1109,15 @@ function SourceBadge({ row }: { row: FaturaRow }) {
       >
         <Inbox className="h-3 w-3" />
         Gelen Kutusu
+      </span>
+    )
+  }
+  if (row.source === "manual_return") {
+    return (
+      <span
+        className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${BADGE_TONES.amber}`}
+      >
+        İade
       </span>
     )
   }

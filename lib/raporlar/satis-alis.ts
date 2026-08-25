@@ -14,6 +14,12 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import {
+  PURCHASE_RETURN_WHERE,
+  SALES_RETURN_WHERE,
+  payableSign,
+  receivableSign,
+} from "@/lib/cari/invoice-direction"
 
 export type SalesPurchaseKind = "SALES" | "PURCHASE"
 
@@ -22,6 +28,8 @@ export type SalesPurchaseInvoice = {
   invoiceNo: string
   date: string
   status: string
+  /** İade belgesi mi — tutarları EKSİ gelir, listede öyle işaretlenmeli. */
+  isReturn: boolean
   counterpartyName: string
   netAmount: number
   vatAmount: number
@@ -58,10 +66,14 @@ export async function computeSalesPurchaseReport(args: {
         }
       : undefined
 
+  // İADELER de çekilir ve tutarları EKSİ sayılır: net ciro/net alış budur.
+  // Ayrı bir rapor yerine aynı listede negatif satır olması, "fatura toplamım
+  // neden rapordan yüksek" sorusunu satır satır cevaplar.
+  const returnWhere = isSales ? SALES_RETURN_WHERE() : PURCHASE_RETURN_WHERE()
   const invoices = await prisma.invoice.findMany({
     where: {
       companyId: args.companyId,
-      type: args.type,
+      OR: [{ type: args.type }, returnWhere],
       ...(dateFilter ? { date: dateFilter } : {}),
     },
     include: {
@@ -76,7 +88,9 @@ export async function computeSalesPurchaseReport(args: {
   let totalAmount = 0
 
   const rows: SalesPurchaseInvoice[] = invoices.map((invoice) => {
-    const amount = Number(invoice.totalAmount || 0)
+    const sign = isSales ? receivableSign(invoice) : payableSign(invoice)
+    const isReturn = sign < 0
+    const amount = sign * Number(invoice.totalAmount || 0)
     totalAmount += amount
 
     const date = new Date(invoice.date)
@@ -100,9 +114,10 @@ export async function computeSalesPurchaseReport(args: {
       invoiceNo: invoice.invoiceNo,
       date: invoice.date.toISOString(),
       status: invoice.status,
+      isReturn,
       counterpartyName: name,
-      netAmount: Number(invoice.netAmount || 0),
-      vatAmount: Number(invoice.vatAmount || 0),
+      netAmount: sign * Number(invoice.netAmount || 0),
+      vatAmount: sign * Number(invoice.vatAmount || 0),
       totalAmount: amount,
     }
   })

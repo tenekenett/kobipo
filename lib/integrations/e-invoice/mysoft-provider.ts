@@ -1071,7 +1071,21 @@ async sendInvoice(invoiceData: any): Promise<any> {
       const hasWithholding = lineData.some(
         (l: any) => l.withholdingCode && l.withholdingRate > 0 && l.rowVat > 0,
       );
-      const resolvedInvoiceType = hasWithholding ? "TEVKIFAT" : hasExemption ? "ISTISNA" : "SATIS";
+      // İADE: mal geri döndüğünde belge tipi SATIS değil IADE'dir. SATIS gönderilirse
+      // GİB tarafında iade, bağımsız YENİ BİR SATIŞ gibi durur — matrah iki kez sayılır.
+      // Tevkifatlı bir faturanın iadesi TEVKIFATIADE'dir (swagger'daki ayrı tip).
+      // Atıf (billingRefInvoiceList) olmadan IADE'ye ÇEVİRMİYORUZ: Mysoft bu alanı
+      // IADE/TEVKIFATIADE'de bekliyor, atıfsız IADE reddedilir.
+      const isReturn = invoiceData.isReturn === true && !!invoiceData.returnRef?.invoiceNo;
+      const resolvedInvoiceType = isReturn
+        ? hasWithholding
+          ? "TEVKIFATIADE"
+          : "IADE"
+        : hasWithholding
+          ? "TEVKIFAT"
+          : hasExemption
+            ? "ISTISNA"
+            : "SATIS";
 
       // Belge tipi: invoiceData.invoiceType = "E_INVOICE" → e-Fatura, "E_ARCHIVE" → e-Arşiv
       // Default e-Arşiv (gerçek kişi müşteri); açıkça E_INVOICE belirtildiyse e-Fatura.
@@ -1084,8 +1098,14 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // alırsak TEMELFATURA'ya düş ve aynı payload'ı tekrar gönder.
       // Kullanıcı önizleme ekranında Ticari/Temel seçtiyse onu baz al; aksi halde
       // TICARIFATURA ile başla (00018 fallback'i yine TEMELFATURA'ya düşürür).
+      // IADE/TEVKIFATIADE'de profil ZORUNLU olarak TEMELFATURA — swagger: "Fatura
+      // tipi 'IADE' ise, profile değeri 'TEMELFATURA' olmalıdır." Kullanıcının Ticari
+      // seçimi burada yok sayılır; 00018 fallback'ine bırakılsaydı ilk deneme
+      // gereksiz yere reddedilirdi.
       const initialProfile = isEFatura
-        ? (invoiceData.eInvoiceProfile === "TEMELFATURA" ? "TEMELFATURA" : "TICARIFATURA")
+        ? isReturn
+          ? "TEMELFATURA"
+          : (invoiceData.eInvoiceProfile === "TEMELFATURA" ? "TEMELFATURA" : "TICARIFATURA")
         : "EARSIVFATURA"
       let profile = initialProfile
 
@@ -1214,6 +1234,23 @@ async sendInvoice(invoiceData: any): Promise<any> {
         "eDocumentType": eDocumentType,
         "profile": profile,
         "invoiceType": resolvedInvoiceType,
+        // İade atfı: hangi faturanın iadesi olduğu. Mysoft tarihi
+        // "MM/dd/yyyy HH:mm:ss" örneğiyle belgeliyor ama diğer tarih alanlarında
+        // olduğu gibi ISO kabul ediyor; docDate ile AYNI biçimi kullanıyoruz ki
+        // iki tarih tek yerden anlaşılsın.
+        ...(isReturn
+          ? {
+              billingRefInvoiceList: [
+                {
+                  billingRefInvoiceNo: String(invoiceData.returnRef.invoiceNo).trim(),
+                  billingRefInvoiceDate: new Date(invoiceData.returnRef.date).toISOString(),
+                  ...(invoiceData.returnRef.note
+                    ? { billingRefNote: String(invoiceData.returnRef.note).trim() }
+                    : {}),
+                },
+              ],
+            }
+          : {}),
         "ettn": generatedEttn,
         "prefix": resolvedPrefix,
         // Boş = numarayı Mysoft numaratörden atasın (gerçek gönderim böyle çalışır).

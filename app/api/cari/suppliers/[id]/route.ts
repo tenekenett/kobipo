@@ -8,6 +8,7 @@ import { getSupplierDeletability } from "@/lib/cari/archive-guard"
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 import { resolveCariId } from "@/lib/cari/resolve-cari"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { payableSign, receivableSign } from "@/lib/cari/invoice-direction"
 
 
 export const dynamic = 'force-dynamic'
@@ -137,13 +138,20 @@ export const GET = withApiErrors(async function GET(
       // bir SATIŞ faturası onun bize borcudur ve bizim ona olan borcumuzu azaltır.
       // Önceden yalnız PURCHASE sayılıyordu; satış faturası ekstrede GÖRÜNÜP bakiyeye
       // hiç girmiyordu (müşteri tarafındaki alış faturasıyla aynı hata).
-      if (inv.type !== "PURCHASE" && inv.type !== "SALES") return
+      // İADE, ait olduğu ailenin TERS İŞARETLİSİ (lib/cari/invoice-direction.ts):
+      // alış iadesi borcumuzu azaltır, satış iadesi mahsubu geri alır. İkisi de
+      // eskiden `return` ile atlanıyordu — iade cariyi hiç hareket ettirmiyordu.
+      const payable = payableSign(inv)
+      const receivable = receivableSign(inv)
+      if (payable === 0 && receivable === 0) return
       const totalPaid = inv.payments.reduce(
         (sum, p) => sum + (p.transactionId ? 0 : Number(p.amount)),
         0,
       )
       const net = Number(inv.totalAmount) - totalPaid
-      balance += inv.type === "PURCHASE" ? net : -net
+      // Tedarikçide pozitif bakiye = ona borçluyuz. Alış ailesi borcu artırır,
+      // satış ailesi (onun bize borcu) azaltır.
+      balance += payable !== 0 ? payable * net : -receivable * net
     })
 
     // Tedarikçide ödeme (EXPENSE → kasadan çıkan) borcu AZALTIR; tahsilat

@@ -22,7 +22,7 @@ export type InvoiceListRow = {
   id: string
   slug: string | null
   direction: "incoming" | "outgoing"
-  source: "mysoft_inbox" | "manual_purchase" | "manual_sales" | "converted_inbox"
+  source: "mysoft_inbox" | "manual_purchase" | "manual_sales" | "manual_return" | "converted_inbox"
   date: string | null
   /** Aynı gün kayıtlarında deterministik (en yeni önce) sıralama için ikincil anahtar. */
   createdAt: string | null
@@ -228,12 +228,17 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
     }
   }
 
-  // 3) Giden — Invoice (type=SALES) — hem manuel hem Mysoft'a gönderilmiş
+  // 3) Giden — bizim KESTİĞİMİZ belgeler: satış + iade (iki yön de). İade artık
+  // e-Fatura olarak gönderilebiliyor; listede olmasaydı kullanıcı GİB'e yolladığı
+  // belgeyi Kobipo'da hiçbir yerde bulamazdı.
   if (direction !== "incoming") {
     const sales = await prisma.invoice.findMany({
       where: {
         companyId,
-        type: "SALES",
+        // `in` kullanılıyor, OR DEĞİL: aşağıdaki arama filtresi de `OR` anahtarı
+        // koyuyor ve aynı nesnede ikinci `OR` birinciyi EZERDİ — arama yapıldığı
+        // anda tip filtresi düşüp alış faturaları giden listesine sızardı.
+        type: { in: ["SALES", "RETURN"] },
         isReceipt: false, // fişler bu listede değil; ayrı "Satış Fişleri" listesinde
         date: { gte: start, lte: end },
         ...(status ? { status } : {}),
@@ -249,7 +254,12 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
             }
           : {}),
       },
-      include: { customer: { select: { name: true, taxNumber: true } } },
+      // Tedarikçi de gerekli: ALIŞ İADESİNİN karşı tarafı tedarikçidir, yalnız
+      // müşteriye bakan eski eşleme o satırı isimsiz gösterirdi.
+      include: {
+        customer: { select: { name: true, taxNumber: true } },
+        supplier: { select: { name: true, taxNumber: true } },
+      },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: limit,
     })
@@ -259,7 +269,7 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
         id: `invoice:${r.id}`,
         slug: r.slug,
         direction: "outgoing",
-        source: "manual_sales",
+        source: r.type === "RETURN" ? "manual_return" : "manual_sales",
         date: r.date.toISOString(),
         createdAt: r.createdAt.toISOString(),
         // GİB'e gönderim sonrası Mysoft'un atadığı resmi belge no (seçilen prefix
@@ -267,8 +277,8 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
         invoiceNo: r.eDocumentNo || r.invoiceNo,
         uuid: r.uuid,
         counterparty: {
-          name: r.customer?.name ?? null,
-          taxNumber: r.customer?.taxNumber ?? null,
+          name: r.customer?.name ?? r.supplier?.name ?? null,
+          taxNumber: r.customer?.taxNumber ?? r.supplier?.taxNumber ?? null,
         },
         currency: r.currency,
         netAmount: Number(r.netAmount),

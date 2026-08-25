@@ -112,7 +112,16 @@ export const getSalesStats = cache(async function getSalesStats(
       -- Ekonomik ciro → fişler dâhil, ama iptal ve faturaya dönüştürülmüş fişler hariç
       -- (dönüşen fişin yerine konsolide fatura sayılır; ikisi de sayılırsa ciro çift olur).
       (SELECT COUNT(*) FROM "invoices" WHERE "companyId" = ${companyId} AND "type" = 'SALES' AND "status" NOT IN ('CANCELLED', 'CONVERTED') AND "createdAt" >= ${thirty}) AS monthly_invoice_count,
-      (SELECT COALESCE(SUM("totalAmount"), 0) FROM "invoices" WHERE "companyId" = ${companyId} AND "type" = 'SALES' AND "status" NOT IN ('CANCELLED', 'CONVERTED') AND "createdAt" >= ${thirty}) AS monthly_sales_total
+      -- Ciro NET'tir: satış iadesi düşülür. Düşülmezse geri gelen mal satılmış
+      -- gibi durur ve panodaki 30 günlük ciro gerçeğin üstünde görünür.
+      -- (İade yönü NULL = satış iadesi; bkz. lib/cari/invoice-direction.ts.)
+      (SELECT COALESCE(SUM(CASE WHEN "type" = 'RETURN' THEN -"totalAmount" ELSE "totalAmount" END), 0)
+         FROM "invoices"
+        WHERE "companyId" = ${companyId}
+          AND ("type" = 'SALES'
+               OR ("type" = 'RETURN' AND COALESCE("returnKind", 'SALES') <> 'PURCHASE'))
+          AND "status" NOT IN ('CANCELLED', 'CONVERTED')
+          AND "createdAt" >= ${thirty}) AS monthly_sales_total
   `
   const r = rows[0]
   return {

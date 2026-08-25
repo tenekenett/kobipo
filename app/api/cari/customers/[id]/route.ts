@@ -8,6 +8,7 @@ import { getCustomerDeletability } from "@/lib/cari/archive-guard"
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 import { resolveCariId } from "@/lib/cari/resolve-cari"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
 
 
 export const dynamic = 'force-dynamic'
@@ -105,6 +106,10 @@ export const GET = withApiErrors(async function GET(
       purchasePaymentAggregate,
       incomeTransactionAggregate,
       expenseTransactionAggregate,
+      salesReturnAggregate,
+      salesReturnPaymentAggregate,
+      purchaseReturnAggregate,
+      purchaseReturnPaymentAggregate,
     ] = await Promise.all([
       prisma.invoice.aggregate({
         where: { customerId: customer.id, type: "SALES", status: { notIn: ["CANCELLED", "CONVERTED"] } },
@@ -142,13 +147,64 @@ export const GET = withApiErrors(async function GET(
         where: { customerId: customer.id, type: "EXPENSE" },
         _sum: { amount: true },
       }),
+      // İADE: ait olduğu ailenin TERS İŞARETLİSİ (lib/cari/invoice-direction.ts).
+      // Satış iadesi müşterinin borcunu azaltır, alış iadesi bizim ona olan
+      // borcumuzu azaltır — yani mahsubu geri alır.
+      prisma.invoice.aggregate({
+        where: {
+          customerId: customer.id,
+          ...SALES_RETURN_WHERE(),
+          status: { notIn: ["CANCELLED", "CONVERTED"] },
+        },
+        _sum: { totalAmount: true },
+      }),
+      prisma.invoicePayment.aggregate({
+        where: {
+          transactionId: null,
+          invoice: {
+            customerId: customer.id,
+            ...SALES_RETURN_WHERE(),
+            status: { notIn: ["CANCELLED", "CONVERTED"] },
+          },
+        },
+        _sum: { amount: true },
+      }),
+      prisma.invoice.aggregate({
+        where: {
+          customerId: customer.id,
+          ...PURCHASE_RETURN_WHERE(),
+          status: { notIn: ["CANCELLED", "CONVERTED"] },
+        },
+        _sum: { totalAmount: true },
+      }),
+      prisma.invoicePayment.aggregate({
+        where: {
+          transactionId: null,
+          invoice: {
+            customerId: customer.id,
+            ...PURCHASE_RETURN_WHERE(),
+            status: { notIn: ["CANCELLED", "CONVERTED"] },
+          },
+        },
+        _sum: { amount: true },
+      }),
     ])
 
     // Calculate balance: unpaid invoices + expenses - income + opening balance
     // Bu cariye kayıtlı ALIŞ faturalarının ödenmemiş kısmı borcumuzdur → alacaktan düşer.
+    // İade, ailesinden DÜŞÜLÜR: satış iadesi alacağı, alış iadesi de mahsubu azaltır.
+    // (İadeye bağlı ödeme = geri ödeme; o da ters işaretle aynı yolu izler.)
+    const receivable =
+      Number(invoiceAggregate._sum.totalAmount || 0) -
+      Number(paymentAggregate._sum.amount || 0) -
+      (Number(salesReturnAggregate._sum.totalAmount || 0) -
+        Number(salesReturnPaymentAggregate._sum.amount || 0))
     const purchaseOffset =
-      Number(purchaseAggregate._sum.totalAmount || 0) - Number(purchasePaymentAggregate._sum.amount || 0)
-    let balance = Number(invoiceAggregate._sum.totalAmount || 0) - Number(paymentAggregate._sum.amount || 0) - purchaseOffset + Number(expenseTransactionAggregate._sum.amount || 0) - Number(incomeTransactionAggregate._sum.amount || 0)
+      Number(purchaseAggregate._sum.totalAmount || 0) -
+      Number(purchasePaymentAggregate._sum.amount || 0) -
+      (Number(purchaseReturnAggregate._sum.totalAmount || 0) -
+        Number(purchaseReturnPaymentAggregate._sum.amount || 0))
+    let balance = receivable - purchaseOffset + Number(expenseTransactionAggregate._sum.amount || 0) - Number(incomeTransactionAggregate._sum.amount || 0)
     balance += customer.openingBalanceType === "CREDIT"
       ? -Number(customer.openingBalanceAmount || 0)
       : Number(customer.openingBalanceAmount || 0)

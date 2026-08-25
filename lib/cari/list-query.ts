@@ -86,19 +86,26 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
         ${paginate ? Prisma.sql`LIMIT ${safePageSize} OFFSET ${offset}` : Prisma.empty}
       ),
       invoice_totals AS (
-        SELECT i."customerId", SUM(i."totalAmount") AS total_amount_sum
+        -- İADE, ait olduğu ailenin TERS İŞARETLİSİDİR: satış iadesi müşterinin
+        -- borcunu azaltır. Ayrı bir CTE yerine aynı toplama negatif girmesi,
+        -- aşağıdaki bakiye formülünü hiç değiştirmeden doğru sonucu verir.
+        SELECT i."customerId", SUM(CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) AS total_amount_sum
         FROM invoices i
         INNER JOIN paged_customers pc ON pc.id = i."customerId"
-        WHERE i.type = 'SALES'
+        WHERE (i.type = 'SALES'
+               OR (i.type = 'RETURN' AND COALESCE(i."returnKind", 'SALES') <> 'PURCHASE'))
           AND i.status NOT IN ('CANCELLED', 'CONVERTED')
         GROUP BY i."customerId"
       ),
       payment_totals AS (
-        SELECT inv."customerId", SUM(ip.amount) AS payment_amount_sum
+        -- İade faturasına bağlı ödeme = müşteriye yapılan GERİ ÖDEME; tahsilatın
+        -- tersidir, bu yüzden negatif toplanır.
+        SELECT inv."customerId", SUM(CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) AS payment_amount_sum
         FROM invoice_payments ip
         INNER JOIN invoices inv ON inv.id = ip."invoiceId"
         INNER JOIN paged_customers pc ON pc.id = inv."customerId"
-        WHERE inv.type = 'SALES'
+        WHERE (inv.type = 'SALES'
+               OR (inv.type = 'RETURN' AND COALESCE(inv."returnKind", 'SALES') <> 'PURCHASE'))
           AND inv.status NOT IN ('CANCELLED', 'CONVERTED')
           AND ip."transactionId" IS NULL
         GROUP BY inv."customerId"
@@ -107,19 +114,21 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
       -- borcumuzdur ve alacağı azaltır (aynı cari hem müşteri hem tedarikçi olabilir).
       -- Detay endpoint'iyle (customers/[id]) birebir aynı mantık.
       purchase_totals AS (
-        SELECT i."customerId", SUM(i."totalAmount") AS total_amount_sum
+        SELECT i."customerId", SUM(CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) AS total_amount_sum
         FROM invoices i
         INNER JOIN paged_customers pc ON pc.id = i."customerId"
-        WHERE i.type = 'PURCHASE'
+        WHERE (i.type = 'PURCHASE'
+               OR (i.type = 'RETURN' AND COALESCE(i."returnKind", 'SALES') = 'PURCHASE'))
           AND i.status NOT IN ('CANCELLED', 'CONVERTED')
         GROUP BY i."customerId"
       ),
       purchase_payment_totals AS (
-        SELECT inv."customerId", SUM(ip.amount) AS payment_amount_sum
+        SELECT inv."customerId", SUM(CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) AS payment_amount_sum
         FROM invoice_payments ip
         INNER JOIN invoices inv ON inv.id = ip."invoiceId"
         INNER JOIN paged_customers pc ON pc.id = inv."customerId"
-        WHERE inv.type = 'PURCHASE'
+        WHERE (inv.type = 'PURCHASE'
+               OR (inv.type = 'RETURN' AND COALESCE(inv."returnKind", 'SALES') = 'PURCHASE'))
           AND inv.status NOT IN ('CANCELLED', 'CONVERTED')
           AND ip."transactionId" IS NULL
         GROUP BY inv."customerId"
@@ -284,19 +293,22 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
         ${paginate ? Prisma.sql`LIMIT ${safePageSize} OFFSET ${offset}` : Prisma.empty}
       ),
       invoice_totals AS (
-        SELECT i."supplierId", SUM(i."totalAmount") AS total_amount_sum
+        -- Alış iadesi bizim borcumuzu azaltır → aynı toplama negatif girer.
+        SELECT i."supplierId", SUM(CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) AS total_amount_sum
         FROM invoices i
         INNER JOIN paged_suppliers ps ON ps.id = i."supplierId"
-        WHERE i.type = 'PURCHASE'
+        WHERE (i.type = 'PURCHASE'
+               OR (i.type = 'RETURN' AND COALESCE(i."returnKind", 'SALES') = 'PURCHASE'))
           AND i.status NOT IN ('CANCELLED', 'CONVERTED')
         GROUP BY i."supplierId"
       ),
       payment_totals AS (
-        SELECT inv."supplierId", SUM(ip.amount) AS payment_amount_sum
+        SELECT inv."supplierId", SUM(CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) AS payment_amount_sum
         FROM invoice_payments ip
         INNER JOIN invoices inv ON inv.id = ip."invoiceId"
         INNER JOIN paged_suppliers ps ON ps.id = inv."supplierId"
-        WHERE inv.type = 'PURCHASE'
+        WHERE (inv.type = 'PURCHASE'
+               OR (inv.type = 'RETURN' AND COALESCE(inv."returnKind", 'SALES') = 'PURCHASE'))
           AND inv.status NOT IN ('CANCELLED', 'CONVERTED')
           AND ip."transactionId" IS NULL
         GROUP BY inv."supplierId"
@@ -304,19 +316,21 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
       -- MAHSUP: bu tedarikçiye kayıtlı SATIŞ faturalarının tahsil edilmemiş kısmı
       -- onun bize borcudur ve bizim borcumuzu azaltır (detay endpoint'iyle aynı mantık).
       sales_totals AS (
-        SELECT i."supplierId", SUM(i."totalAmount") AS total_amount_sum
+        SELECT i."supplierId", SUM(CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) AS total_amount_sum
         FROM invoices i
         INNER JOIN paged_suppliers ps ON ps.id = i."supplierId"
-        WHERE i.type = 'SALES'
+        WHERE (i.type = 'SALES'
+               OR (i.type = 'RETURN' AND COALESCE(i."returnKind", 'SALES') <> 'PURCHASE'))
           AND i.status NOT IN ('CANCELLED', 'CONVERTED')
         GROUP BY i."supplierId"
       ),
       sales_payment_totals AS (
-        SELECT inv."supplierId", SUM(ip.amount) AS payment_amount_sum
+        SELECT inv."supplierId", SUM(CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) AS payment_amount_sum
         FROM invoice_payments ip
         INNER JOIN invoices inv ON inv.id = ip."invoiceId"
         INNER JOIN paged_suppliers ps ON ps.id = inv."supplierId"
-        WHERE inv.type = 'SALES'
+        WHERE (inv.type = 'SALES'
+               OR (inv.type = 'RETURN' AND COALESCE(inv."returnKind", 'SALES') <> 'PURCHASE'))
           AND inv.status NOT IN ('CANCELLED', 'CONVERTED')
           AND ip."transactionId" IS NULL
         GROUP BY inv."supplierId"

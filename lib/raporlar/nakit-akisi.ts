@@ -6,6 +6,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
 
 export type CashFlowResult = {
   period: { startDate: string; endDate: string }
@@ -32,8 +33,16 @@ export async function computeCashFlow(args: {
   const start = args.startDate ? new Date(args.startDate) : new Date(new Date().getFullYear(), 0, 1)
   const end = args.endDate ? new Date(args.endDate) : new Date()
 
-  const [startBalance, collections, payments, otherIncome, otherExpense, endBalance] =
-    await Promise.all([
+  const [
+    startBalance,
+    collections,
+    payments,
+    otherIncome,
+    otherExpense,
+    endBalance,
+    salesReturnRefunds,
+    purchaseReturnRefunds,
+  ] = await Promise.all([
       // Başlangıç bakiyesi
       prisma.financialAccount.aggregate({
         where: { companyId, isActive: true, createdAt: { lt: start } },
@@ -81,12 +90,40 @@ export async function computeCashFlow(args: {
         where: { companyId, isActive: true },
         _sum: { balance: true },
       }),
+      // İADE GERİ ÖDEMELERİ (yine yalnız transactionId IS NULL — işleme bağlı
+      // olanlar aşağıdaki Transaction toplamlarında zaten var).
+      //  - Müşteriye yapılan iade ödemesi kasadan ÇIKAR → tahsilattan düşülür.
+      //  - Tedarikçiden alınan iade bedeli kasaya GİRER → ödemelerden düşülür.
+      prisma.invoicePayment.aggregate({
+        where: {
+          companyId,
+          transactionId: null,
+          paymentDate: { gte: start, lte: end },
+          invoice: SALES_RETURN_WHERE(),
+        },
+        _sum: { amount: true },
+      }),
+      prisma.invoicePayment.aggregate({
+        where: {
+          companyId,
+          transactionId: null,
+          paymentDate: { gte: start, lte: end },
+          invoice: PURCHASE_RETURN_WHERE(),
+        },
+        _sum: { amount: true },
+      }),
     ])
 
+  // Net nakit: iade geri ödemeleri kendi yönlerinden düşülür.
+  const netCollections =
+    Number(collections._sum.amount || 0) - Number(salesReturnRefunds._sum.amount || 0)
+  const netPayments =
+    Number(payments._sum.amount || 0) - Number(purchaseReturnRefunds._sum.amount || 0)
+
   const operatingCashFlow =
-    Number(collections._sum.amount || 0) +
+    netCollections +
     Number(otherIncome._sum.amount || 0) -
-    Number(payments._sum.amount || 0) -
+    netPayments -
     Number(otherExpense._sum.amount || 0)
 
   // Yatırım ve finansman faaliyetleri şimdilik 0 (ayrı sınıflandırma yok).
@@ -98,8 +135,8 @@ export async function computeCashFlow(args: {
     period: { startDate: start.toISOString(), endDate: end.toISOString() },
     beginningBalance: Number(startBalance._sum.balance || 0),
     operatingActivities: {
-      collections: Number(collections._sum.amount || 0),
-      payments: Number(payments._sum.amount || 0),
+      collections: netCollections,
+      payments: netPayments,
       otherIncome: Number(otherIncome._sum.amount || 0),
       otherExpense: Number(otherExpense._sum.amount || 0),
       net: operatingCashFlow,

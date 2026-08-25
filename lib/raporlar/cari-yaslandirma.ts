@@ -7,6 +7,12 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { getCheckNoteCreditMap } from "@/lib/cari/check-credit"
+import {
+  PURCHASE_RETURN_WHERE,
+  SALES_RETURN_WHERE,
+  payableSign,
+  receivableSign,
+} from "@/lib/cari/invoice-direction"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -163,6 +169,25 @@ function openingBalanceToAgingItem(
 }
 
 /**
+ * İadenin kapatabileceği NET tutar.
+ *
+ * Yalnız İŞLEME BAĞLI OLMAYAN geri ödemeler düşülür. İşleme bağlı olan (ör.
+ * kasadan yapılan iade ödemesi) havuza zaten `expenseSum`/`incomeSum` üzerinden
+ * eksi olarak giriyor; burada da düşülseydi aynı geri ödeme İKİ KEZ sayılır ve
+ * müşteri, iade ettiği malın borcunu taşımaya devam ederdi.
+ */
+function returnCreditOf(inv: {
+  totalAmount: unknown
+  payments?: Array<{ amount: unknown; transactionId?: string | null }>
+}): number {
+  const refunded = (inv.payments || []).reduce(
+    (sum, p) => sum + (p.transactionId ? 0 : Number(p.amount)),
+    0,
+  )
+  return Math.max(0, round2(Number(inv.totalAmount) - refunded))
+}
+
+/**
  * Faturaya bağlanmamış serbest tahsilat/ödeme havuzunu (ör. cari ekranındaki
  * "Tahsilat Ekle" ile girilen INCOME işlemi) açık fatura kalemlerine eskiden
  * yeniye (FIFO) uygular. Böylece hesap bakiyesi kapanmışsa yaşlandırma da açık
@@ -245,10 +270,19 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
       openingBalanceType: true,
       createdAt: true,
       invoices: {
-        where: { type: "SALES", status: { notIn: ["CANCELLED", "CONVERTED"] } },
+        // İADE de çekilir: satış iadesi alacağı azaltır. Yaşlandırma kalemi
+        // OLARAK eklenmez (negatif bir kalemi vadelendirmek anlamsız) — aşağıda
+        // serbest kredi havuzuna girip açık faturaları FIFO kapatır. Kural:
+        // lib/cari/invoice-direction.ts.
+        where: {
+          OR: [{ type: "SALES" }, SALES_RETURN_WHERE()],
+          status: { notIn: ["CANCELLED", "CONVERTED"] },
+        },
         select: {
           id: true,
           invoiceNo: true,
+          type: true,
+          returnKind: true,
           date: true,
           dueDate: true,
           totalAmount: true,
@@ -274,10 +308,16 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
       openingBalanceType: true,
       createdAt: true,
       invoices: {
-        where: { type: "PURCHASE", status: { notIn: ["CANCELLED", "CONVERTED"] } },
+        // Alış iadesi borcumuzu azaltır → kalem değil, kredi havuzu (yukarıdaki not).
+        where: {
+          OR: [{ type: "PURCHASE" }, PURCHASE_RETURN_WHERE()],
+          status: { notIn: ["CANCELLED", "CONVERTED"] },
+        },
         select: {
           id: true,
           invoiceNo: true,
+          type: true,
+          returnKind: true,
           date: true,
           dueDate: true,
           totalAmount: true,
@@ -299,7 +339,12 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
 
   const customerAccounts: AgingAccount[] = customers
     .map((c) => {
+      // İadeler kalem listesine GİRMEZ; kapattıkları tutar krediye yazılır.
+      const returnCredit = c.invoices
+        .filter((inv) => receivableSign(inv) < 0)
+        .reduce((sum, inv) => sum + returnCreditOf(inv), 0)
       const analyzed = c.invoices
+        .filter((inv) => receivableSign(inv) > 0)
         .map((inv) => bucketize(inv, c.paymentDueDays, today))
         .filter((x): x is AgingInvoice => Boolean(x))
       const openingItem = openingBalanceToAgingItem(c, today)
@@ -312,14 +357,18 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
         .filter((t) => t.type === "EXPENSE")
         .reduce((s, t) => s + Number(t.amount), 0)
       // İşleme bağlı ödemeler zaten faturadan düşüldü; havuzdan da çıkar.
-      const linkedSum = c.invoices.reduce(
-        (s, inv) =>
-          s + inv.payments.reduce((a, p) => a + (p.transactionId ? Number(p.amount) : 0), 0),
-        0,
-      )
+      // Yalnız SATIŞ faturaları: iadenin işleme bağlı geri ödemesi havuza
+      // expense/income üzerinden giriyor, burada tekrar mahsuplaşmamalı.
+      const linkedSum = c.invoices
+        .filter((inv) => receivableSign(inv) > 0)
+        .reduce(
+          (s, inv) =>
+            s + inv.payments.reduce((a, p) => a + (p.transactionId ? Number(p.amount) : 0), 0),
+          0,
+        )
       // Çek/senet (müşteriden alınan) alacağı kapatır → serbest krediye eklenir.
       const checkCredit = customerCheckCredit.get(c.id) || 0
-      applyUnallocatedCredits(analyzed, round2(incomeSum - expenseSum - linkedSum + checkCredit))
+      applyUnallocatedCredits(analyzed, round2(incomeSum - expenseSum - linkedSum + checkCredit + returnCredit))
       const invoices = analyzed.filter((inv) => inv.openAmount > 0)
       return {
         id: c.id,
@@ -335,7 +384,11 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
 
   const supplierAccounts: AgingAccount[] = suppliers
     .map((s) => {
+      const returnCredit = s.invoices
+        .filter((inv) => payableSign(inv) < 0)
+        .reduce((sum, inv) => sum + returnCreditOf(inv), 0)
       const analyzed = s.invoices
+        .filter((inv) => payableSign(inv) > 0)
         .map((inv) => bucketize(inv, s.paymentDueDays, today))
         .filter((x): x is AgingInvoice => Boolean(x))
       const openingItem = openingBalanceToAgingItem(s, today)
@@ -348,14 +401,16 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
         .filter((t) => t.type === "EXPENSE")
         .reduce((sum, t) => sum + Number(t.amount), 0)
       // İşleme bağlı ödemeler zaten faturadan düşüldü; havuzdan da çıkar.
-      const linkedSum = s.invoices.reduce(
-        (sum, inv) =>
-          sum + inv.payments.reduce((a, p) => a + (p.transactionId ? Number(p.amount) : 0), 0),
-        0,
-      )
+      const linkedSum = s.invoices
+        .filter((inv) => payableSign(inv) > 0)
+        .reduce(
+          (sum, inv) =>
+            sum + inv.payments.reduce((a, p) => a + (p.transactionId ? Number(p.amount) : 0), 0),
+          0,
+        )
       // Çek/senet (tedarikçiye verilen) borcu kapatır → serbest krediye eklenir.
       const checkCredit = supplierCheckCredit.get(s.id) || 0
-      applyUnallocatedCredits(analyzed, round2(expenseSum - incomeSum - linkedSum + checkCredit))
+      applyUnallocatedCredits(analyzed, round2(expenseSum - incomeSum - linkedSum + checkCredit + returnCredit))
       const invoices = analyzed.filter((inv) => inv.openAmount > 0)
       return {
         id: s.id,

@@ -28,6 +28,9 @@ function invoiceColumns(isSales: boolean): ExportColumn[] {
     { key: "date", label: "Tarih", type: "date", width: 22 },
     { key: "invoiceNo", label: "Fatura No", width: 30 },
     { key: "counterpartyName", label: isSales ? "Müşteri" : "Tedarikçi" },
+    // İade satırlarının tutarları EKSİ gelir; sütun olmasaydı okuyan kişi
+    // negatif rakamı hata sanardı.
+    { key: "belge", label: "Belge", width: 18 },
     { key: "status", label: "Durum", width: 22 },
     { key: "netAmount", label: "Matrah", type: "money", width: 26, total: true },
     { key: "vatAmount", label: "KDV", type: "money", width: 24, total: true },
@@ -55,6 +58,7 @@ export async function buildSalesPurchaseDataset(params: {
     filters: describeFilters([
       ["Dönem", describeDateRange(params.startDate, params.endDate) ?? "Tüm kayıtlar"],
       ["Fatura adedi", report.count],
+      ["İade adedi", report.invoices.filter((i) => i.isReturn).length],
       [isSales ? "Toplam ciro" : "Toplam alış", report.totalAmount.toLocaleString("tr-TR", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
@@ -77,7 +81,10 @@ export async function buildSalesPurchaseDataset(params: {
         title: "Faturalar",
         sheetName: "Faturalar",
         columns: invoiceColumns(isSales),
-        rows: report.invoices,
+        rows: report.invoices.map((inv) => ({
+          ...inv,
+          belge: inv.isReturn ? "İade" : isSales ? "Satış" : "Alış",
+        })),
       },
     ],
     generatedAt: new Date(),

@@ -60,6 +60,7 @@ import {
   emptyLineTaxSums,
   solveNetFromTotal,
 } from "@/lib/invoice/line-tax"
+import { returnRefError } from "@/lib/invoice/return-ref"
 
 
 // description = kalemin ADI (faturada mal/hizmet adı olarak basılır, ürün seçilmediyse
@@ -333,6 +334,14 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   const [formData, setFormData] = useState({
     type: "SALES",
+    // İADE YÖNÜ — yalnız type=RETURN'de kullanılır.
+    //   SALES    → müşteri malı geri verdi (stok GİRER, karşı taraf müşteri)
+    //   PURCHASE → malı tedarikçiye geri verdik (stok ÇIKAR, karşı taraf tedarikçi)
+    returnKind: "SALES",
+    // İade edilen ASIL fatura — e-belgede zorunlu atıf (billingRefInvoiceList).
+    returnRefInvoiceNo: "",
+    returnRefInvoiceDate: "",
+    returnRefNote: "",
     invoiceType: "E_ARCHIVE",
     invoiceNo: "", // boş bırakılırsa API otomatik üretir; gelen e-faturadan içe aktarmada doldurulur
     customerId: "",
@@ -962,14 +971,16 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       return
     }
 
-    // PURCHASE/RETURN için Mysoft gönderimi yok — kayıt amacıyla MANUAL kullanmak yeterli.
-    if (formData.type !== "SALES") {
+    // ALIŞ için Mysoft gönderimi yok: alış faturasını karşı taraf keser, biz kayıt
+    // tutarız. İADE ise BİZİM kestiğimiz belgedir (iki yönde de) ve GİB'e
+    // invoiceType=IADE olarak gider — bu yüzden satışla aynı VKN kararından geçer.
+    if (formData.type === "PURCHASE") {
       setVknCheck({
         checking: false,
         isEInvoiceTaxpayer: null,
         suggestedInvoiceType: "MANUAL",
         accountName: null,
-        reason: "alış/iade — e-belge gönderilmez",
+        reason: "alış — e-belge gönderilmez",
       })
       setFormData((prev) => (prev.invoiceType === "MANUAL" ? prev : { ...prev, invoiceType: "MANUAL" }))
       return
@@ -1116,6 +1127,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       setEditingInvoiceId(id)
       setFormData({
         type: data.type || "SALES",
+        // NULL returnKind = satış iadesi (sütun eklenmeden önce kesilmiş belgeler).
+        returnKind: data.returnKind || "SALES",
+        returnRefInvoiceNo: data.returnRefInvoiceNo || "",
+        returnRefInvoiceDate: data.returnRefInvoiceDate
+          ? new Date(data.returnRefInvoiceDate).toISOString().split("T")[0]
+          : "",
+        returnRefNote: data.returnRefNote || "",
         invoiceType: data.invoiceType || "MANUAL",
         invoiceNo: data.invoiceNo || "",
         customerId: data.customerId || "",
@@ -1221,6 +1239,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
       setFormData({
         type: data.type || "SALES",
+        returnKind: data.returnKind || "SALES",
+        // Atıf KOPYALANMAZ: kopya başka bir faturanın iadesidir, asıl belgeyi
+        // kullanıcı yeniden seçmeli — yanlış faturaya atıf yapan bir e-belge,
+        // GİB tarafında iadeyi yanlış matraha bağlar.
+        returnRefInvoiceNo: "",
+        returnRefInvoiceDate: "",
+        returnRefNote: "",
         invoiceType: data.invoiceType || "MANUAL",
         invoiceNo: "", // kopyaya yeni numara üretilsin
         customerId: data.customerId || "",
@@ -1794,7 +1819,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   const resetForm = () => {
     setEditingInvoiceId(null)
-    setFormData({ type: "SALES", invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL", invoiceNo: "", customerId: "", supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", currency: "TRY", exchangeRate: "", exchangeRateDate: "", notes: "", category: "", tags: [], deliveryAddress: "", deliveryDistrict: "", deliveryCity: "" })
+    setFormData({ type: "SALES", returnKind: "SALES", returnRefInvoiceNo: "", returnRefInvoiceDate: "", returnRefNote: "", invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL", invoiceNo: "", customerId: "", supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", currency: "TRY", exchangeRate: "", exchangeRateDate: "", notes: "", category: "", tags: [], deliveryAddress: "", deliveryDistrict: "", deliveryCity: "" })
     setTagInput("")
     setItems([{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }])
     setLineExtras([[]])
@@ -2361,7 +2386,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                     fatura silinip yenisi kesilir. */}
                 <Select
                   value={formData.type}
-                  onValueChange={(value) => setFormData({ ...formData, type: value })}
+                  onValueChange={(value) =>
+                    // Tip değişince karşı taraf TEMİZLENİR: alışın tedarikçisi satışta
+                    // geçersizdir ve seçili kalırsa belge yanlış cariye yazılır.
+                    setFormData({ ...formData, type: value, customerId: "", supplierId: "" })
+                  }
                   disabled={Boolean(isEditMode)}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -2375,6 +2404,80 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   <p className="text-xs text-muted-foreground">
                     Fatura tipi düzenlenemez. Tipi değiştirmek için bu faturayı silip yeniden kesin.
                   </p>
+                )}
+
+                {/* İADE YÖNÜ. Tip gibi stok yönünü belirlediği için düzenlemede kilitli.
+                    İki yön ayrı belgelerdir: alış iadesinde mal depodan ÇIKAR ve fatura
+                    TEDARİKÇİYE kesilir; satış iadesinde mal GİRER ve müşteriye kesilir. */}
+                {formData.type === "RETURN" && (
+                  <div className="space-y-2 pt-2">
+                    <Label>İade Yönü</Label>
+                    <Select
+                      value={formData.returnKind}
+                      onValueChange={(value) =>
+                        setFormData({ ...formData, returnKind: value, customerId: "", supplierId: "" })
+                      }
+                      disabled={Boolean(isEditMode)}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="SALES">Satış iadesi — müşteri malı geri verdi</SelectItem>
+                        <SelectItem value="PURCHASE">Alış iadesi — malı tedarikçiye geri verdik</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {formData.returnKind === "PURCHASE"
+                        ? "Stok ÇIKAR, fatura tedarikçiye kesilir."
+                        : "Stok GİRER, fatura müşteriye kesilir."}
+                    </p>
+
+                    {/* İADE EDİLEN ASIL FATURA. E-belgede zorunlu: GİB, iadenin hangi
+                        faturaya ait olduğunu belgenin içinde bekler (UBL
+                        cac:BillingReference). Boş bırakılırsa belge IADE tipiyle
+                        gönderilemez, SATIS olarak gider — yani iade, yeni bir satış
+                        gibi görünür. Serbest metin çünkü asıl fatura Kobipo'da
+                        olmayabilir (elden gelen kâğıt fatura). */}
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div className="space-y-1">
+                        <Label className="text-xs">İade Edilen Fatura No (GİB, 16 hane)</Label>
+                        <Input
+                          value={formData.returnRefInvoiceNo}
+                          onChange={(e) =>
+                            setFormData({ ...formData, returnRefInvoiceNo: e.target.value })
+                          }
+                          placeholder="Ör. ADM2026000000013"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">İade Edilen Fatura Tarihi</Label>
+                        <Input
+                          type="date"
+                          value={formData.returnRefInvoiceDate}
+                          onChange={(e) =>
+                            setFormData({ ...formData, returnRefInvoiceDate: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">İade Sebebi (opsiyonel)</Label>
+                      <Input
+                        value={formData.returnRefNote}
+                        onChange={(e) => setFormData({ ...formData, returnRefNote: e.target.value })}
+                        placeholder="Ör. Hatalı ürün gönderildi"
+                      />
+                    </div>
+                    {/* GİB, iade faturasında asıl belgenin 16 HANELİ numarasını ister
+                        (şematron kuralı). İç numara (SAT-2026-0205) reddedilir; bu yüzden
+                        uyarı gönderimden ÖNCE burada verilir — sunucu da aynı kuralı
+                        uyguluyor (lib/invoice/return-ref.ts). */}
+                    {effectiveInvoiceType !== "MANUAL" &&
+                      returnRefError(formData.returnRefInvoiceNo) && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                          {returnRefError(formData.returnRefInvoiceNo)}
+                        </p>
+                      )}
+                  </div>
                 )}
               </div>
               
@@ -2430,7 +2533,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   selectedCustomerId={formData.customerId || undefined}
                   selectedSupplierId={formData.supplierId || undefined}
                   companyId={companyId}
-                  defaultCreateKind={formData.type === "PURCHASE" ? "supplier" : "customer"}
+                  defaultCreateKind={
+                    formData.type === "PURCHASE" ||
+                    (formData.type === "RETURN" && formData.returnKind === "PURCHASE")
+                      ? "supplier"
+                      : "customer"
+                  }
                   onCreated={(created, kind) => {
                     if (kind === "customer") {
                       const c: Customer = {

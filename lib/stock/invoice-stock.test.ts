@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { prepareInvoiceStockOps, sameStockLines } from "./invoice-stock"
+import { isOutboundInvoice, prepareInvoiceStockOps, sameStockLines } from "./invoice-stock"
 
 // Alış/iade yolunda reçete genişletmesi ÇALIŞMAZ; tek DB dokunuşu hizmet ürünü
 // filtresidir (product.findMany). Bu yüzden sahte db yeterli — gerçek Prisma'ya
@@ -49,7 +49,9 @@ describe("prepareInvoiceStockOps — alış faturası", () => {
     expect(ops).toEqual([{ productId: "p1", delta: -10, unitPrice: 25, recipeNote: null }])
   })
 
-  it("iade de giriştir (alışla aynı yön)", async () => {
+  it("yönü verilmemiş iade GİRİŞTİR — returnKind sütunundan önceki belgeler", async () => {
+    // NULL returnKind'ı satış iadesi saymak, sütun eklenmeden önce kesilmiş
+    // iadelerin davranışını birebir korur. Bu test o sözleşmenin nöbetçisidir.
     const ops = await prepareInvoiceStockOps(fakeDb(), {
       companyId: "c1",
       type: "RETURN",
@@ -161,5 +163,66 @@ describe("sameStockLines", () => {
         [{ productId: null, quantity: 1, unitPrice: 500 }],
       ),
     ).toBe(true)
+  })
+})
+
+
+describe("iade yönü — isOutboundInvoice", () => {
+  it("satış çıkış, alış giriştir", () => {
+    expect(isOutboundInvoice("SALES")).toBe(true)
+    expect(isOutboundInvoice("PURCHASE")).toBe(false)
+  })
+
+  it("satış iadesi GİRİŞ, alış iadesi ÇIKIŞ", () => {
+    expect(isOutboundInvoice("RETURN", "SALES")).toBe(false)
+    expect(isOutboundInvoice("RETURN", "PURCHASE")).toBe(true)
+  })
+
+  it("yön yoksa/tanınmazsa satış iadesi sayılır (giriş)", () => {
+    expect(isOutboundInvoice("RETURN", null)).toBe(false)
+    expect(isOutboundInvoice("RETURN", "")).toBe(false)
+    expect(isOutboundInvoice("RETURN", "SAÇMA")).toBe(false)
+  })
+
+  it("yön alanı yalnız iadede dinlenir — alışta yok sayılır", () => {
+    // PURCHASE + returnKind:"PURCHASE" bir alış faturasıdır, alış İADESİ değil.
+    // Yön alanı tipten bağımsız okunsaydı normal alış stoktan düşerdi.
+    expect(isOutboundInvoice("PURCHASE", "PURCHASE")).toBe(false)
+  })
+})
+
+describe("prepareInvoiceStockOps — iki yönlü iade", () => {
+  it("alış iadesinde mal depodan ÇIKAR", async () => {
+    const ops = await prepareInvoiceStockOps(fakeDb(), {
+      companyId: "c1",
+      type: "RETURN",
+      returnKind: "PURCHASE",
+      lines: [line("p1", 4, 12, 0)],
+    })
+
+    expect(ops).toEqual([{ productId: "p1", delta: -4, unitPrice: 12, recipeNote: null }])
+  })
+
+  it("satış iadesinde mal depoya GİRER", async () => {
+    const ops = await prepareInvoiceStockOps(fakeDb(), {
+      companyId: "c1",
+      type: "RETURN",
+      returnKind: "SALES",
+      lines: [line("p1", 4, 12, 0)],
+    })
+
+    expect(ops).toEqual([{ productId: "p1", delta: 4, unitPrice: 12, recipeNote: null }])
+  })
+
+  it("iadede hizmet kalemi iki yönde de elenir", async () => {
+    for (const kind of ["SALES", "PURCHASE"]) {
+      const ops = await prepareInvoiceStockOps(fakeDb(["hizmet"]), {
+        companyId: "c1",
+        type: "RETURN",
+        returnKind: kind,
+        lines: [line("hizmet", 1, 100, 0), line("p1", 2, 5, 1)],
+      })
+      expect(ops.map((o) => o.productId)).toEqual(["p1"])
+    }
   })
 })

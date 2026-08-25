@@ -1446,8 +1446,29 @@ model Invoice {
   companyId             String
   invoiceNo             String
   slug                  String    @default("")
-  type                  String // SALES, PURCHASE
-  invoiceType           String // E_INVOICE, E_ARCHIVE
+  type                  String // SALES, PURCHASE, RETURN
+  // İADE YÖNÜ — yalnız type=RETURN'de anlamlıdır, diğerlerinde null.
+  //
+  //   SALES    → satış iadesi: müşteri malı geri verdi, stok GİRER, karşı taraf müşteri.
+  //   PURCHASE → alış iadesi:  malı tedarikçiye geri verdik, stok ÇIKAR, karşı taraf tedarikçi.
+  //
+  // NULL = satış iadesi (bu sütun eklenmeden önce kesilmiş iadeler; o gün RETURN tek
+  // yönlüydü ve stoğu artırıyordu). Yön koda gömülü kalsaydı alış iadesi hiç
+  // kesilemezdi: tek `type` iki zıt stok yönünü taşıyamaz.
+  returnKind            String?
+  // İADE EDİLEN ASIL FATURA. e-belge zorunluluğu: Mysoft `billingRefInvoiceList`
+  // (UBL cac:BillingReference) alanını invoiceType=IADE/TEVKIFATIADE'de bekler —
+  // hangi faturanın iadesi olduğu belgeye yazılmazsa GİB tarafında iade, bağımsız
+  // bir belge gibi durur.
+  //
+  // `returnOfInvoiceId` Kobipo'da duran belgeye bağlar (seçici için); no/tarih ise
+  // AYRICA saklanır çünkü asıl fatura Kobipo'da olmayabilir (elden gelen kâğıt
+  // fatura, sisteme girilmemiş eski belge) ve e-belgeye giden değer budur.
+  returnOfInvoiceId     String?
+  returnRefInvoiceNo    String?
+  returnRefInvoiceDate  DateTime?
+  returnRefNote         String?
+  invoiceType           String // E_INVOICE, E_ARCHIVE, MANUAL
   status                String    @default("DRAFT") // DRAFT, GIB_DRAFT (Mysoft taslağı, GİB'e gitmedi), SENT, CANCELLED, CONVERTED (fiş → faturaya dönüştürüldü)
   // Fiş: hızlı satış/alış ile kesilen gayriresmî belge. Ekonomik etki (stok, kasa,
   // cari) fiş anında işler; GİB/e-belge ve otomatik muhasebe fişi yoktur. Birden çok
@@ -1524,6 +1545,12 @@ model Invoice {
   // sourceReceipts = bu faturanın konsolide ettiği fişler.
   convertedInvoice    Invoice?          @relation("ReceiptToInvoice", fields: [convertedInvoiceId], references: [id], onDelete: SetNull)
   sourceReceipts      Invoice[]         @relation("ReceiptToInvoice")
+
+  // İade → asıl fatura self-relation. returnOf = bu iadenin iade ettiği fatura;
+  // returns = bu faturaya kesilmiş iadeler. Asıl belge silinirse iade kalır
+  // (SetNull): e-belge zaten gönderilmiş olabilir, no/tarih ayrı sütunlarda durur.
+  returnOf            Invoice?          @relation("InvoiceReturns", fields: [returnOfInvoiceId], references: [id], onDelete: SetNull)
+  returns             Invoice[]         @relation("InvoiceReturns")
   // Bu fiş bir adisyonun kapanışıysa buradan geriye bakılır (Aşama 2).
   restaurantTicket    RestaurantTicket?
   // Kobipo'nun KENDİ satışının faturasıysa (kontör / paket-abonelik) siparişe geri bağ.
@@ -1537,6 +1564,7 @@ model Invoice {
   @@index([companyId, status])
   @@index([companyId, isReceipt])
   @@index([convertedInvoiceId])
+  @@index([returnOfInvoiceId])
   @@index([companyId, type, customerId])
   @@index([companyId, type, supplierId])
   @@index([companyId, category])

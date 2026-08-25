@@ -8,22 +8,12 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ExportButton } from "@/components/export/export-button"
+import type { ProfitLossResult } from "@/lib/raporlar/kar-zarar"
 
-interface ProfitLossReport {
-  period: {
-    startDate: string
-    endDate: string
-  }
-  revenue: {
-    sales: number
-    other: number
-    total: number
-  }
-  costOfGoodsSold: number
-  grossProfit: number
-  operatingExpenses: number
-  netProfit: number
-}
+// Sunucu tipinin KOPYASI değil kendisi: alan eklenip burası güncellenmediğinde
+// (ör. satış iadesi satırı) rapor sessizce eksik kalıyordu.
+// `import type` derlemede silinir — prisma istemciye sızmaz.
+type ProfitLossReport = ProfitLossResult
 
 export default function KarZararPage() {
   const searchParams = useSearchParams()
@@ -143,6 +133,16 @@ export default function KarZararPage() {
                   <TableCell className="pl-8">Satış Gelirleri</TableCell>
                   <TableCell className="text-right">{formatCurrency(report.revenue.sales)}</TableCell>
                 </TableRow>
+                {/* İade satırları yalnız VARSA çizilir: iadesi olmayan firmada
+                    her rapora sıfırlı iki satır eklemek gürültüdür. */}
+                {report.revenue.returns > 0 && (
+                  <TableRow>
+                    <TableCell className="pl-8">Satış İadeleri (−)</TableCell>
+                    <TableCell className="text-right text-red-600 dark:text-red-400">
+                      −{formatCurrency(report.revenue.returns)}
+                    </TableCell>
+                  </TableRow>
+                )}
                 <TableRow>
                   <TableCell className="pl-8">Diğer Gelirler</TableCell>
                   <TableCell className="text-right">{formatCurrency(report.revenue.other)}</TableCell>
@@ -152,7 +152,10 @@ export default function KarZararPage() {
                   <TableCell className="text-right font-bold">{formatCurrency(report.revenue.total)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="font-medium">Satılan Malın Maliyeti</TableCell>
+                  <TableCell className="font-medium">
+                    Satılan Malın Maliyeti
+                    {report.purchaseReturns > 0 ? " (alış iadesi düşülmüş)" : ""}
+                  </TableCell>
                   <TableCell className="text-right">{formatCurrency(report.costOfGoodsSold)}</TableCell>
                 </TableRow>
                 <TableRow className="bg-muted/50">
