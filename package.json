@@ -31,6 +31,7 @@
     "admin:create": "node scripts/create-admin.js",
     "paytr:simulate": "node scripts/paytr-simulate-callback.js",
     "kobipo:export-png": "node scripts/export-kobipo-pngs.mjs",
+    "ai:fis-test": "node scripts/ai-fis-test.mjs",
     "vercel:dev": "vercel dev",
     "vercel:deploy": "vercel",
     "vercel:prod": "vercel --prod",

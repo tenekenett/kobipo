@@ -201,6 +201,14 @@ export function QuickSaleScreen() {
     if (def) setWarehouseId(def.id)
   }, [warehouses, warehouseId])
 
+  // FİRMA DEĞİŞİNCE depo seçimi sıfırlanır. Yukarıdaki varsayılan-seçme etkisi
+  // yalnız alan BOŞKEN çalışıyor: sıfırlamazsak panelde firma değiştirildiğinde
+  // eski firmanın depo id'si state'te kalır ve satış onun deposuna yazılırdı
+  // (sunucu da artık reddedip varsayılana düşüyor, bkz. resolveCompanyWarehouseId).
+  useEffect(() => {
+    setWarehouseId("")
+  }, [companyId])
+
   useEffect(() => {
     if (accountId || accounts.length === 0) return
     const firstCash = accounts.find((a) => a.type === "CASH") ?? accounts[0]
@@ -432,6 +440,16 @@ export function QuickSaleScreen() {
 
       const invoice = await invoiceRes.json().catch(() => ({}))
       if (!invoiceRes.ok) throw new Error(invoice?.error || "Satış fişi oluşturulamadı")
+
+      // Fiş kesildi ama stok yazılamadıysa sunucu uyarı döner (satış bloklanmaz).
+      // Söylenmezse kasiyer bunu ancak gün sonunda tutmayan stokta fark ederdi.
+      if (invoice?.stockWarning) {
+        toast({
+          title: "Stok güncellenemedi",
+          description: String(invoice.stockWarning),
+          variant: "destructive",
+        })
+      }
 
       // Ödeme tutarı, faturanın SUNUCUDA kayıtlı toplamı olmalı: frontend'in
       // yuvarlanmamış t.total'i (ör. birim fiyat geri-hesabından gelen küsurat)
@@ -676,7 +694,10 @@ export function QuickSaleScreen() {
 
       <div className="grid items-start gap-3 xl:grid-cols-[1fr_380px]">
         {/* === SOL: park sekmeleri + sepet === */}
-        <div className="space-y-3">
+        {/* min-w-0: grid item'ın varsayılan min-width'i `auto`dur — içindeki geniş
+            bir eleman (sepet tablosu, uzun ürün adı) sütunu ekran dışına taşırır ve
+            sayfa yana kayar. Sıfırlanınca taşma kendi kabında kalır. */}
+        <div className="min-w-0 space-y-3">
           {/* Park edilen müşteriler */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
             {tickets.map((t, i) => {
@@ -746,7 +767,113 @@ export function QuickSaleScreen() {
                   Sepet boş — yukarıdan barkod okutun, ürün arayın ya da hızlı ürün tuşlarını kullanın
                 </div>
               ) : (
-                <div className="overflow-auto xl:max-h-[46vh]">
+                <>
+                  {/* MOBİL (< sm): satır başına kart. Tablo 6 sütunla ~520px
+                      genişlik istiyor; telefonda miktara/fiyata ancak yatay
+                      kaydırarak ulaşılıyordu. Aynı alanlar, aynı yazıcılar. */}
+                  <div className="space-y-2 sm:hidden">
+                    {active.cart.map((line) => {
+                      const t = lineTotals(line)
+                      return (
+                        <div key={line.key} className="space-y-2 rounded-lg border p-2">
+                          <div className="flex items-start gap-1">
+                            <Input
+                              value={line.description}
+                              onChange={(e) => updateLine(line.key, { description: e.target.value })}
+                              className="h-9 min-w-0 flex-1"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-9 w-9 shrink-0"
+                              onClick={() => removeLine(line.key)}
+                              title="Satırı sil"
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <QuantityStepper
+                              value={line.quantity}
+                              onChange={(v) => updateLine(line.key, { quantity: v })}
+                              fullWidth
+                              className="flex-1"
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-9 shrink-0 gap-1 px-2 text-xs"
+                              title={line.productId ? "Geçmiş fiyatlar" : "Fiyat geçmişi için kayıtlı ürün gerekir"}
+                              disabled={!line.productId}
+                              onClick={() => openPriceHistory(line)}
+                            >
+                              <Clock className="h-3.5 w-3.5" />
+                              Geçmiş
+                            </Button>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <label className="block">
+                              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                Fiyat
+                              </span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                inputMode="decimal"
+                                value={priceEdit?.key === line.key ? priceEdit.value : numInput(round2(line.unitPrice))}
+                                placeholder="0"
+                                onChange={(e) => {
+                                  setPriceEdit({ key: line.key, value: e.target.value })
+                                  updateLine(line.key, { unitPrice: parseFloat(e.target.value) || 0 })
+                                }}
+                                onBlur={() => setPriceEdit(null)}
+                                className="h-9 w-full text-right"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                KDV%
+                              </span>
+                              <Input
+                                type="number"
+                                step="1"
+                                min="0"
+                                inputMode="decimal"
+                                value={numInput(line.vatRate)}
+                                placeholder="0"
+                                onChange={(e) => updateLine(line.key, { vatRate: parseFloat(e.target.value) || 0 })}
+                                className="h-9 w-full text-right"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                Tutar
+                              </span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                inputMode="decimal"
+                                value={totalEdit?.key === line.key ? totalEdit.value : numInput(round2(t.total))}
+                                placeholder="0"
+                                onChange={(e) => {
+                                  setTotalEdit({ key: line.key, value: e.target.value })
+                                  updateLineTotal(line.key, parseFloat(e.target.value) || 0)
+                                }}
+                                onBlur={() => setTotalEdit(null)}
+                                className="h-9 w-full text-right font-semibold tabular-nums"
+                                title="Tutarı değiştir — birim fiyat otomatik hesaplanır"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* sm ve üstü: tablo görünümü */}
+                  <div className="hidden overflow-auto sm:block xl:max-h-[46vh]">
                   <Table>
                     <TableHeader>
                       <TableRow className="sticky top-0 z-10 bg-card">
@@ -853,18 +980,25 @@ export function QuickSaleScreen() {
                       })}
                     </TableBody>
                   </Table>
-                </div>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
 
-          {/* Ürün arama — sepetin altında, hızlı ürünlerin üstünde */}
-          <Card className="overflow-hidden">
+          {/* Ürün arama — sepetin altında, hızlı ürünlerin üstünde.
+              overflow-hidden VERİLMEZ: ProductCombobox'un sonuç listesi
+              `position:absolute` ile kartın dışına taşar; kart kırparsa yazdıkça
+              hiçbir sonuç görünmez ve arama "çalışmıyor" sanılır. */}
+          <Card>
             <CardContent className="space-y-2 p-3">
-              <div className="flex items-center gap-2">
-                <Search className="h-4 w-4 text-kobipo-blue dark:text-primary" />
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <Search className="h-4 w-4 shrink-0 text-kobipo-blue dark:text-primary" />
                 <span className="text-sm font-semibold">Ürün Ara / Ekle</span>
-                <span className="text-xs text-muted-foreground">— barkod okut, ürün ara ya da yeni ekle</span>
+                {/* Uzun ipucu telefonda satırı taşırıyordu: küçük ekranda gizli. */}
+                <span className="hidden text-xs text-muted-foreground sm:inline">
+                  — barkod okut, ürün ara ya da yeni ekle
+                </span>
               </div>
               <ProductCombobox
                 companyId={companyId}
@@ -899,7 +1033,7 @@ export function QuickSaleScreen() {
                     ))}
                   </div>
                 )}
-                <div className="grid max-h-[22vh] grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
+                <div className="grid max-h-[40vh] grid-cols-2 gap-2 overflow-y-auto sm:max-h-[22vh] sm:grid-cols-3 lg:grid-cols-4">
                   {quickProducts.map((p) => (
                     <button
                       key={p.id}
@@ -925,7 +1059,7 @@ export function QuickSaleScreen() {
         </div>
 
         {/* === SAĞ: müşteri + ödeme paneli === */}
-        <div className="space-y-3 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
+        <div className="min-w-0 space-y-3 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
           <Card>
             <CardContent className="space-y-3 p-3">
               <div>
@@ -1243,7 +1377,7 @@ export function QuickSaleScreen() {
             ))}
           </div>
 
-          <div className="max-h-[50vh] overflow-y-auto">
+          <div className="max-h-[50vh] overflow-auto">
             {priceHistoryLoading ? (
               <div className="flex h-32 items-center justify-center text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1341,9 +1475,9 @@ function StatTile({ label, value, tone }: { label: string; value: string; tone: 
         ? "text-kobipo-blue dark:text-primary"
         : "text-kobipo-navy dark:text-foreground"
   return (
-    <div className="rounded-xl border bg-card p-3 shadow-sm">
+    <div className="rounded-xl border bg-card p-2.5 shadow-sm sm:p-3">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className={cn("mt-1 truncate text-lg font-extrabold tabular-nums lg:text-xl", toneClass)}>{value}</p>
+      <p className={cn("mt-1 truncate text-base font-extrabold tabular-nums sm:text-lg lg:text-xl", toneClass)}>{value}</p>
     </div>
   )
 }

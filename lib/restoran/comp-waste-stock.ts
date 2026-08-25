@@ -14,7 +14,7 @@ import { prisma } from "@/lib/db/prisma"
 import { resolveUnitCosts } from "@/lib/stock/cost"
 import { expandRecipeLines, type RecipeEffect } from "@/lib/stock/recipe-expand"
 import { loadRecipeContext } from "@/lib/stock/recipe"
-import { adjustWarehouseStock } from "@/lib/stock/warehouse"
+import { adjustWarehouseStock, resolveCompanyWarehouseId } from "@/lib/stock/warehouse"
 import { reasonLabel } from "@/lib/restoran/tickets"
 
 /**
@@ -164,12 +164,20 @@ export async function writeCompWasteStock(args: {
         })
         .join(", ")}`
 
+      // Depo id'si adisyon/ikram ekranından gövdede geliyor: firmaya ait mi diye
+      // BAKILIR, değilse varsayılana düşülür (bkz. resolveCompanyWarehouseId).
+      // Doğrulamadan yazmak malzemeyi başka firmanın deposundan düşürüyordu.
+      const { warehouseId } = await resolveCompanyWarehouseId(prisma, {
+        companyId: args.companyId,
+        requestedId: args.warehouseId,
+      })
+
       await prisma.$transaction(async (tx) => {
         for (const op of stockable) {
           await adjustWarehouseStock(tx, {
             companyId: args.companyId,
             productId: op.productId,
-            warehouseId: args.warehouseId ?? null,
+            warehouseId,
             delta: -op.quantity,
             // ADJUSTMENT: satış değil. Karlılık raporu satış hareketlerine bakar,
             // bu hareketler oraya karışmaz ama stok bakiyesi doğru kalır.

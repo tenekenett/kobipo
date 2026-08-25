@@ -8,9 +8,25 @@ import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { normalizeUnitCode } from "@/lib/data/units"
 import { findRecipeUnitConflicts } from "@/lib/stock/recipe"
 import { deleteProductImage, readImageUrlField } from "@/lib/stock/product-image"
+import { adjustWarehouseStock, closeProductStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 
 
 export const dynamic = 'force-dynamic'
+
+/**
+ * Ürünün stoğunun tutulduğu depo: en çok bakiyenin olduğu depo, hiç kaydı yoksa
+ * varsayılan. Kart üzerinden yapılan düzeltme oraya yazılmalı — varsayılana
+ * kaymasaydı bile "ürün A deposunda ama düzeltme B'ye gitti" hâli doğardı.
+ */
+async function resolveProductWarehouseId(companyId: string, productId: string): Promise<string> {
+  const row = await prisma.warehouseStock.findFirst({
+    where: { productId, warehouse: { companyId } },
+    orderBy: { quantity: "desc" },
+    select: { warehouseId: true },
+  })
+  return row?.warehouseId ?? (await ensureDefaultWarehouseId(prisma, companyId))
+}
+
 export const GET = withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -238,6 +254,49 @@ export const PUT = withApiErrors(async function PUT(
       },
     })
 
+    // STOK: karta doğrudan yazılmaz, FARKI hareket olarak işlenir. Tek kapı
+    // `adjustWarehouseStock` — kart, depo bakiyesi ve hareket defteri birlikte
+    // güncellensin (bkz. lib/stock/warehouse.ts). Doğrudan `stockQuantity` yazmak
+    // Σ(WarehouseStock) = Product.stockQuantity değişmezini bozardı.
+    //
+    // Gövdede alan YOKSA dokunulmaz: bu ucu stoğu hiç göndermeyen formlar da
+    // çağırıyor (components/stok/product-edit-dialog.tsx) — yokluğu "0 yap"
+    // sayılsaydı ürünün stoğu adı düzeltilirken sıfırlanırdı.
+    let newStock = Number(product.stockQuantity)
+    if (!updated.isService && body.stockQuantity !== undefined && body.stockQuantity !== "") {
+      const target = parseFloat(String(body.stockQuantity))
+      if (!Number.isFinite(target)) {
+        return NextResponse.json({ error: "Stok miktarı sayı olmalı" }, { status: 400 })
+      }
+      // 4 ondalık: kartın hassasiyeti (reçetede gram/mililitre düşümü için).
+      const delta = Math.round((target - newStock) * 10000) / 10000
+      if (delta !== 0) {
+        await adjustWarehouseStock(prisma, {
+          companyId: product.companyId,
+          productId: product.id,
+          warehouseId: await resolveProductWarehouseId(product.companyId, product.id),
+          delta,
+          type: "ADJUSTMENT",
+          description: "Ürün kartından stok düzeltmesi",
+          createdBy: user.id,
+        })
+        newStock = target
+      }
+    }
+
+    // ÜRÜN → HİZMET: kalan bakiye kapatılır. Hizmet kalemi bir daha stok hareketi
+    // üretmeyeceği için bakiye kartta donar ve kullanıcı bunu "stoğum düşmüyor"
+    // olarak yaşar (bkz. closeProductStock).
+    if (!product.isService && updated.isService) {
+      await closeProductStock(prisma, {
+        companyId: product.companyId,
+        productId: product.id,
+        description: "Hizmete çevrildi — stok bakiyesi kapatıldı",
+        createdBy: user.id,
+      })
+      newStock = 0
+    }
+
     // Eski fotoğrafın nesnesi depoda yetim kalmasın. Kayıt BAŞARILI olduktan
     // sonra silinir: önce silseydik update patladığında ürün hâlâ artık var
     // olmayan bir görseli gösteriyor olurdu.
@@ -245,7 +304,9 @@ export const PUT = withApiErrors(async function PUT(
       await deleteProductImage(product.imageUrl)
     }
 
-    return NextResponse.json(updated)
+    // stockQuantity'yi `updated`ten değil hesaptan basıyoruz: update kaydı stok
+    // düzeltmesinden ÖNCE okundu, eski bakiyeyi taşıyor.
+    return NextResponse.json({ ...updated, stockQuantity: newStock })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)
@@ -324,12 +385,26 @@ export const PATCH = withApiErrors(async function PATCH(
       data,
     })
 
+    // ÜRÜN → HİZMET: bakiye kapatılır. Tür seçici (Menü & Reçeteler) bu ucu
+    // kullanıyor; PUT ile aynı kural burada da geçerli, yoksa hayalet bakiye
+    // yalnızca yolu değiştirerek geri gelirdi.
+    let patchedStock = Number(product.stockQuantity)
+    if (!product.isService && updated.isService) {
+      await closeProductStock(prisma, {
+        companyId: product.companyId,
+        productId: product.id,
+        description: "Hizmete çevrildi — stok bakiyesi kapatıldı",
+        createdBy: user.id,
+      })
+      patchedStock = 0
+    }
+
     // Eski fotoğraf kayıt BAŞARILI olduktan sonra silinir — bkz. PUT'taki not.
     if (image.changed && "url" in image && product.imageUrl !== image.url) {
       await deleteProductImage(product.imageUrl)
     }
 
-    return NextResponse.json(updated)
+    return NextResponse.json({ ...updated, stockQuantity: patchedStock })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)

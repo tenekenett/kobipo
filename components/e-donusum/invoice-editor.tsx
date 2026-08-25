@@ -2054,6 +2054,15 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         // id, o yoksa state'teki editingInvoiceId, o da yoksa URL'den gelen invoiceId.
         // (Aksi halde savedId boş kalırsa listeye düşülüyordu.)
         const savedId: string | undefined = saved?.id || editingInvoiceId || (isEditing ? invoiceId : undefined)
+        // Fatura kaydedildi ama stok yazılamadıysa sunucu uyarı döner; başarı
+        // mesajının altında kalmasın diye ayrı ve kırmızı gösterilir.
+        if (saved?.stockWarning) {
+          toast({
+            title: "Stok güncellenemedi",
+            description: String(saved.stockWarning),
+            variant: "destructive",
+          })
+        }
         toast({ title: "Başarılı", description: isEditing ? "Fatura güncellendi" : "Fatura oluşturuldu" })
         resetForm()
         if (savedId) {

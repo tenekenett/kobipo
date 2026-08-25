@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 
 export const dynamic = 'force-dynamic'
 
@@ -66,9 +67,12 @@ export const POST = withApiErrors(async function POST(request: Request) {
 
     const body = await request.json()
     body.companyId = await resolveCompanyId(body.companyId)
-    const { companyId, productId, type, quantity, unitPrice, description, reference } = body
+    const { companyId, productId, type, quantity, unitPrice, description, reference, warehouseId } = body
 
-    if (!companyId || !productId || !type || !quantity) {
+    // Miktar 0 GEÇERLİDİR: ADJUSTMENT'ta "stok sıfır olsun" demenin tek yolu bu.
+    // `!quantity` ile elenirken kullanıcı stoğu sıfırlayamıyordu.
+    const quantityMissing = quantity === undefined || quantity === null || quantity === ""
+    if (!companyId || !productId || !type || quantityMissing) {
       return NextResponse.json(
         { error: "companyId, productId, type, and quantity are required" },
         { status: 400 }
@@ -88,45 +92,88 @@ export const POST = withApiErrors(async function POST(request: Request) {
       )
     }
 
-    // Calculate new stock quantity
-    let newQuantity = Number(product.stockQuantity)
-    if (type === "IN") {
-      newQuantity += parseFloat(quantity)
-    } else if (type === "OUT") {
-      newQuantity -= parseFloat(quantity)
-      if (newQuantity < 0) {
-        return NextResponse.json(
-          { error: "Yetersiz stok" },
-          { status: 400 }
-        )
-      }
-    } else if (type === "ADJUSTMENT") {
-      newQuantity = parseFloat(quantity)
+    if (product.isService) {
+      return NextResponse.json(
+        { error: "Hizmet kaleminde stok hareketi olmaz" },
+        { status: 400 }
+      )
     }
 
-    // Create movement
-    const movement = await prisma.stockMovement.create({
-      data: {
-        companyId,
-        productId,
-        type,
-        quantity: parseFloat(quantity),
-        unitPrice: unitPrice ? parseFloat(unitPrice) : null,
-        description,
-        reference,
-        createdBy: user.id,
-      },
+    const raw = parseFloat(quantity)
+    if (!Number.isFinite(raw)) {
+      return NextResponse.json({ error: "Miktar sayı olmalı" }, { status: 400 })
+    }
+
+    // Hareketin İŞARETLİ değişimi. ADJUSTMENT'ta gövdedeki miktar HEDEF bakiyedir
+    // (ekran "stok kaç olsun" diye sorar), deftere yazılan ise FARK olmalı: mutlak
+    // değeri hareket olarak yazmak defteri kartla ayrıştırıyordu — hedef 1.097 girilen
+    // bir üründe hareket toplamı milyonlara çıkıp raporları anlamsızlaştırdı.
+    const current = Number(product.stockQuantity)
+    let delta: number
+    if (type === "IN") {
+      delta = Math.abs(raw)
+    } else if (type === "OUT") {
+      delta = -Math.abs(raw)
+      if (current + delta < 0) {
+        return NextResponse.json({ error: "Yetersiz stok" }, { status: 400 })
+      }
+    } else if (type === "ADJUSTMENT") {
+      if (raw < 0) {
+        return NextResponse.json({ error: "Hedef stok negatif olamaz" }, { status: 400 })
+      }
+      delta = Math.round((raw - current) * 10000) / 10000
+    } else {
+      return NextResponse.json(
+        { error: "Geçersiz hareket tipi (IN | OUT | ADJUSTMENT)" },
+        { status: 400 }
+      )
+    }
+
+    if (delta === 0) {
+      return NextResponse.json({ ok: true, stockQuantity: current, unchanged: true })
+    }
+
+    // Depo verilmişse SAHİPLİĞİ doğrulanır: id istemciden geliyor ve firma değiştiren
+    // bir ekranda eski firmanın deposu state'te kalabiliyor — doğrulamazsak stok
+    // başka firmanın deposuna yazılır (canlıda böyle satırlar oluştu).
+    let targetWarehouseId: string
+    if (warehouseId) {
+      const wh = await prisma.warehouse.findFirst({
+        where: { id: String(warehouseId), companyId },
+        select: { id: true },
+      })
+      if (!wh) {
+        return NextResponse.json({ error: "Depo bu firmaya ait değil" }, { status: 400 })
+      }
+      targetWarehouseId = wh.id
+    } else {
+      const existing = await prisma.warehouseStock.findFirst({
+        where: { productId, warehouse: { companyId } },
+        orderBy: { quantity: "desc" },
+        select: { warehouseId: true },
+      })
+      targetWarehouseId = existing?.warehouseId ?? (await ensureDefaultWarehouseId(prisma, companyId))
+    }
+
+    // Tek kapı: kart + depo bakiyesi + hareket birlikte yazılır. Eskiden bu uç
+    // hareketi ve kartı elle yazıp WarehouseStock'a hiç dokunmuyordu; depo dökümü
+    // kartla ayrışıyordu.
+    await adjustWarehouseStock(prisma, {
+      companyId,
+      productId,
+      warehouseId: targetWarehouseId,
+      delta,
+      type,
+      unitPrice: unitPrice ? parseFloat(unitPrice) : null,
+      description,
+      reference,
+      createdBy: user.id,
     })
 
-    // Update product stock
-    await prisma.product.update({
-      where: { id: productId },
-      data: {
-        stockQuantity: newQuantity,
-      },
-    })
-
-    return NextResponse.json(movement, { status: 201 })
+    return NextResponse.json(
+      { ok: true, stockQuantity: Math.round((current + delta) * 10000) / 10000, delta },
+      { status: 201 }
+    )
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)

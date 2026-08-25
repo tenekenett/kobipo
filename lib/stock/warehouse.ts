@@ -205,3 +205,116 @@ export async function transferWarehouseStock(
     ],
   })
 }
+
+/**
+ * Ürünün stok bakiyesini SIFIRLAR — her deposu için ayrı bir ADJUSTMENT hareketi
+ * yazarak. Ürün hizmete çevrildiğinde çağrılır.
+ *
+ * Neden gerekli: hizmet kalemi hiçbir satış yolunda stok hareketi üretmez
+ * (lib/stock/invoice-stock.ts hizmetleri eler). Ürün, bakiyesi varken hizmete
+ * çevrilirse o bakiye kartta DONAR: ekranda bir sayı durur ama bir daha asla
+ * değişmez. Kullanıcı bunu "sattım, stoğum düşmüyor" diye yaşıyor — canlıda
+ * hizmete çevrilmiş kalemlerde -99'a kadar hayalet bakiye birikmişti.
+ *
+ * Neden depo depo: tek hareketle kartı sıfırlamak Σ(WarehouseStock) =
+ * Product.stockQuantity değişmezini korurdu ama depo dökümünde birbirini götüren
+ * artık satırlar bırakırdı (A: +5, B: -5). Her depoyu kendi içinde kapatıyoruz.
+ *
+ * Hareket SİLİNMEZ, ters hareket yazılır: geçmiş satışların defterdeki izi kalır.
+ */
+export async function closeProductStock(
+  db: Db,
+  args: {
+    companyId: string
+    productId: string
+    description: string
+    createdBy?: string | null
+  },
+): Promise<number> {
+  const product = await db.product.findUnique({
+    where: { id: args.productId },
+    select: { stockQuantity: true },
+  })
+  let remaining = Number(product?.stockQuantity || 0)
+
+  const rows = await db.warehouseStock.findMany({
+    where: { productId: args.productId, warehouse: { companyId: args.companyId } },
+    select: { warehouseId: true, quantity: true },
+  })
+
+  let closed = 0
+  for (const row of rows) {
+    const qty = Number(row.quantity)
+    if (qty === 0) continue
+    await adjustWarehouseStock(db, {
+      companyId: args.companyId,
+      productId: args.productId,
+      warehouseId: row.warehouseId,
+      delta: -qty,
+      type: "ADJUSTMENT",
+      description: args.description,
+      createdBy: args.createdBy ?? null,
+    })
+    remaining -= qty
+    closed += 1
+  }
+
+  // Hiç depo satırı olmayan eski kayıtlarda bakiye yalnız kartta durur; kalanı
+  // varsayılan depoda kapat (adjustWarehouseStock önce onu depoya materyalize eder).
+  remaining = Math.round(remaining * 10000) / 10000
+  if (remaining !== 0) {
+    await adjustWarehouseStock(db, {
+      companyId: args.companyId,
+      productId: args.productId,
+      delta: -remaining,
+      type: "ADJUSTMENT",
+      description: args.description,
+      createdBy: args.createdBy ?? null,
+    })
+    closed += 1
+  }
+
+  return closed
+}
+
+/**
+ * İstemciden gelen depo id'sini FİRMAYA GÖRE doğrular; geçersizse güvenli bir
+ * depoya düşer.
+ *
+ * Neden: depo id'si ekranlardan gövdede geliyor ve firma değiştiren bir panelde
+ * eski firmanın deposu bileşen state'inde kalabiliyor. Doğrulanmadığında FK
+ * geçerli olduğu için yazma sessizce BAŞARILI olur ve stok başka firmanın
+ * deposuna düşer — canlıda böyle satırlar oluştu.
+ *
+ * Neden 400 değil: bunlar tezgâh ekranları; kasada duran müşteriyi bayat bir
+ * state yüzünden bekletmek yerine varsayılan depoya yazıp çağıranın kullanıcıyı
+ * UYARMASINI sağlıyoruz (`rejected`). Sessiz düzeltme de yapmıyoruz.
+ */
+export async function resolveCompanyWarehouseId(
+  db: Db,
+  args: { companyId: string; requestedId?: string | null; productId?: string | null },
+): Promise<{ warehouseId: string; rejected: boolean }> {
+  const requested = args.requestedId ? String(args.requestedId).trim() : ""
+  if (requested) {
+    const own = await db.warehouse.findFirst({
+      where: { id: requested, companyId: args.companyId },
+      select: { id: true },
+    })
+    if (own) return { warehouseId: own.id, rejected: false }
+  }
+
+  // Ürün verildiyse onun bakiyesinin durduğu depo, yoksa firmanın varsayılanı.
+  if (args.productId) {
+    const row = await db.warehouseStock.findFirst({
+      where: { productId: args.productId, warehouse: { companyId: args.companyId } },
+      orderBy: { quantity: "desc" },
+      select: { warehouseId: true },
+    })
+    if (row) return { warehouseId: row.warehouseId, rejected: Boolean(requested) }
+  }
+
+  return {
+    warehouseId: await ensureDefaultWarehouseId(db, args.companyId),
+    rejected: Boolean(requested),
+  }
+}

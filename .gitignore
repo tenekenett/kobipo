@@ -55,3 +55,7 @@ supabase/.temp
 # Mysoft Swagger şeması (lokal referans, gerekirse tekrar indirilebilir)
 /mysoft-swagger.json
 
+
+# AI fiş OCR testi — gerçek fiş görselleri ve model çıktıları (mali veri, repoya girmez)
+fis-ornekleri/
+fis-test-sonuc/

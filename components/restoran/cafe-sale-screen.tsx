@@ -217,6 +217,14 @@ export function CafeSaleScreen() {
     if (def) setWarehouseId(def.id)
   }, [warehouses, warehouseId])
 
+  // FİRMA DEĞİŞİNCE depo seçimi sıfırlanır. Yukarıdaki varsayılan-seçme etkisi
+  // yalnız alan BOŞKEN çalışıyor: sıfırlamazsak panelde firma değiştirildiğinde
+  // eski firmanın depo id'si state'te kalır ve satış onun deposuna yazılırdı
+  // (sunucu da artık reddedip varsayılana düşüyor, bkz. resolveCompanyWarehouseId).
+  useEffect(() => {
+    setWarehouseId("")
+  }, [companyId])
+
   useEffect(() => {
     if (payment.accountId || accounts.length === 0) return
     const firstCash = accounts.find((a) => a.type === "CASH") ?? accounts[0]
@@ -621,6 +629,15 @@ export function CafeSaleScreen() {
       // Fiş kesildi: ikram/zayi malzemesi FİŞİN referansıyla düşer, böylece fiş
       // iptal edilirse `revertStockByReference` onu da geri alır.
       await writeCompWaste(result.invoice.id)
+
+      // Fiş kesildi ama stok yazılamadıysa sunucu uyarı döner (satış bloklanmaz).
+      if (result.invoice?.stockWarning) {
+        toast({
+          title: "Stok güncellenemedi",
+          description: String(result.invoice.stockWarning),
+          variant: "destructive",
+        })
+      }
 
       const { invoice, parts, paidSum, total: invoiceTotal } = result
       const done = paymentSummary(payment, invoiceTotal)

@@ -9,7 +9,7 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 import { generateInvoiceNumber, normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
-import { ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
+import { resolveCompanyWarehouseId } from "@/lib/stock/warehouse"
 import { prepareInvoiceStockOps, writeInvoiceStockOps } from "@/lib/stock/invoice-stock"
 import { parseRecipeEffects } from "@/lib/stock/recipe-expand"
 import {
@@ -558,10 +558,21 @@ const company = await prisma.company.findUnique({
       }
     }
 
+    // Stok hatası belgeyi BLOKLAMAZ (fiş kesildi, mal çıktı — geri sarmak kasada
+    // duran müşteriyi bekletirdi) ama sessiz de kalamaz: yutulan hata kullanıcıya
+    // "sattım, stok düşmedi" olarak geri dönüyordu. Uyarı yanıta konur, ekran söyler.
+    let stockWarning: string | null = null
     if (!skipInvoiceStock && stockableItems.length > 0) {
       try {
+        let wrongWarehouse = false
         await prisma.$transaction(async (tx) => {
-          const whId = warehouseId || (await ensureDefaultWarehouseId(tx, companyId))
+          // Depo id'si gövdeden geliyor: firmaya ait mi diye BAKILIR (bkz.
+          // resolveCompanyWarehouseId). Ait değilse belge kesilir, stok varsayılan
+          // depoya yazılır ve kullanıcı uyarılır — sessizce başka firmanın deposuna
+          // yazmak canlıda yaşandı.
+          const wh = await resolveCompanyWarehouseId(tx, { companyId, requestedId: warehouseId })
+          wrongWarehouse = wh.rejected
+          const whId = wh.warehouseId
           await writeInvoiceStockOps(tx, {
             companyId,
             invoiceId: invoice.id,
@@ -571,9 +582,20 @@ const company = await prisma.company.findUnique({
             ops: stockableItems,
             createdBy: user.id,
           })
-        })
+          // 20 sn: varsayılan 5 sn, çok kalemli bir sepette (kalem başına birkaç
+          // gidiş-geliş + reçete bileşenleri) uzak veritabanında yetmiyordu ve
+          // aşıldığında stok SESSİZCE yazılmıyordu. Düzenleme ucu da 20 sn kullanıyor.
+        }, { timeout: 20000 })
+        if (wrongWarehouse) {
+          stockWarning =
+            "Seçili depo bu firmaya ait değildi; stok firmanın varsayılan deposuna " +
+            "yazıldı. Depo seçimini kontrol edin."
+        }
       } catch (stockError) {
         console.error("[Stok Hata] Depo bazlı stok güncellenemedi:", stockError)
+        stockWarning =
+          `${invoice.invoiceNo} kaydedildi ancak stok hareketi yazılamadı — ` +
+          `ürün bakiyeleri güncellenmedi, Stok ekranından düzeltin.`
       }
     }
 
@@ -803,6 +825,7 @@ const invoiceData = {
             ...invoice,
             uuid: response.uuid,
             status: "SENT",
+            ...(stockWarning ? { stockWarning } : {}),
           })
         }
         if (!response.success) {
@@ -855,7 +878,10 @@ const invoiceData = {
     // kesildiği anda panoya bakan kasiyer 20 sn eski liste görmemeli.
     revalidateDashboard(companyId)
 
-    return NextResponse.json(invoice, { status: 201 })
+    return NextResponse.json(
+      stockWarning ? { ...invoice, stockWarning } : invoice,
+      { status: 201 }
+    )
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)

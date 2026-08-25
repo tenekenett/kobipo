@@ -3,7 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
-import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
+import { adjustWarehouseStock, resolveCompanyWarehouseId } from "@/lib/stock/warehouse"
 import { resolveAllUnitCosts } from "@/lib/stock/cost"
 import { readImageUrlField } from "@/lib/stock/product-image"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
@@ -228,7 +228,13 @@ export const POST = withApiErrors(async function POST(request: Request) {
     // helper ile (toplam + hareket); stok 0 olsa bile depoya 0 ile kaydedilir ki
     // depo dağılımında "—" yerine ilgili depo görünsün.
     if (!isService) {
-      const whId = warehouseId || (await ensureDefaultWarehouseId(prisma, companyId))
+      // Depo id'si gövdeden geliyor — firmaya ait değilse varsayılana düşülür
+      // (bkz. resolveCompanyWarehouseId): doğrulamadan yazmak, ürünü başka
+      // firmanın deposuna kaydediyordu.
+      const { warehouseId: whId } = await resolveCompanyWarehouseId(prisma, {
+        companyId,
+        requestedId: warehouseId,
+      })
       if (initialQty > 0) {
         await adjustWarehouseStock(prisma, {
           companyId,
