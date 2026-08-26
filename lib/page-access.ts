@@ -671,6 +671,15 @@ export const PAGE_API_RULES: PageApiRule[] = [
   // Abonelik ve firma yönetimi. Bu sayfalar ACCOUNT_ADMIN_PAGES üyesi olduğu için
   // hiçbir ÖZEL role atanamaz — kural, enum rolü kısıtlanmış yöneticiler içindir.
   { prefix: "/api/billing/orders", pages: ["/ayarlar/abonelik"], writePages: ["/ayarlar/abonelik"] },
+  // İndirim kodu ÖN İZLEMESİ. POST'tur ama hiçbir şey yazmaz: kodu doğrulayıp
+  // indirimli tutarı döner. Sahibi, kodu girebilen iki satın alma ekranıdır —
+  // kodun kendisi sistem-admin panelinden yönetilir (o uç requireSuperAdmin ile
+  // korunur, sayfa kapısına tabi değildir).
+  {
+    prefix: "/api/discount-codes",
+    pages: ["/e-donusum/kontor", "/ayarlar/abonelik"],
+    writePages: ["/e-donusum/kontor", "/ayarlar/abonelik"],
+  },
   { prefix: "/api/billing/subscription", pages: ["/ayarlar/abonelik"], writePages: ["/ayarlar/abonelik"] },
   {
     prefix: "/api/companies",

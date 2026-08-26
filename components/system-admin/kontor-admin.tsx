@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Loader2, RefreshCw, Plus, Trash2, CheckCircle2, XCircle, Paperclip, Receipt } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { Loader2, RefreshCw, Plus, Trash2, CheckCircle2, XCircle, Paperclip, Receipt, Pencil, Save, X } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 
@@ -64,11 +64,13 @@ const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
 
 const emptyForm = {
   name: "",
+  description: "",
   creditQty: "",
   price: "",
   mysoftTariffCode: "",
   validityMonths: "",
   vatRate: "",
+  sortOrder: "",
 }
 
 export function KontorAdmin() {
@@ -80,8 +82,12 @@ export function KontorAdmin() {
   const [packages, setPackages] = useState<KontorPackage[]>([])
   const [orders, setOrders] = useState<KontorOrder[]>([])
   const [form, setForm] = useState({ ...emptyForm })
+  // Dolu ise form DÜZENLEME modundadır: aynı alanlar PUT ile mevcut pakete yazılır.
+  // Ekleme ve düzenleme tek formu paylaşır — iki ayrı form iki ayrı doğrulama demekti.
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null)
+  const formRef = useRef<HTMLDivElement>(null)
 
   const loadAll = async () => {
     setLoading(true)
@@ -113,25 +119,36 @@ export function KontorAdmin() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const createPackage = async () => {
+  /** Paketi kaydeder: `editingId` doluysa PUT (güncelle), boşsa POST (yeni). */
+  const savePackage = async () => {
     setSaving(true)
     try {
-      const res = await fetch("/api/kontor/packages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name,
-          creditQty: Number(form.creditQty),
-          price: Number(form.price),
-          mysoftTariffCode: form.mysoftTariffCode,
-          validityMonths: form.validityMonths ? Number(form.validityMonths) : null,
-          vatRate: form.vatRate === "" ? null : Number(form.vatRate),
-        }),
-      })
+      const payload = {
+        name: form.name.trim(),
+        // Açıklama satın alma ekranında paket adının yanında görünür
+        // (components/e-donusum/kontor-purchase-dialog.tsx). Boş → NULL.
+        description: form.description.trim() || null,
+        creditQty: Number(form.creditQty),
+        price: Number(form.price),
+        mysoftTariffCode: form.mysoftTariffCode.trim(),
+        validityMonths: form.validityMonths ? Number(form.validityMonths) : null,
+        vatRate: form.vatRate === "" ? null : Number(form.vatRate),
+        // Müşteriye gösterilen sıra (API: sortOrder ASC, sonra fiyat).
+        sortOrder: form.sortOrder === "" ? 0 : Number(form.sortOrder),
+      }
+      const res = await fetch(
+        editingId ? `/api/kontor/packages/${editingId}` : "/api/kontor/packages",
+        {
+          method: editingId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      )
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || "Paket oluşturulamadı")
-      toast({ title: "Paket eklendi", description: form.name })
+      if (!res.ok) throw new Error(data?.error || (editingId ? "Paket güncellenemedi" : "Paket oluşturulamadı"))
+      toast({ title: editingId ? "Paket güncellendi" : "Paket eklendi", description: payload.name })
       setForm({ ...emptyForm })
+      setEditingId(null)
       loadAll()
     } catch (e) {
       toast({
@@ -142,6 +159,28 @@ export function KontorAdmin() {
     } finally {
       setSaving(false)
     }
+  }
+
+  /** Satırdaki paketi forma taşır ve düzenleme moduna geçer. */
+  const startEdit = (pkg: KontorPackage) => {
+    setEditingId(pkg.id)
+    setForm({
+      name: pkg.name,
+      description: pkg.description ?? "",
+      creditQty: String(pkg.creditQty),
+      price: String(Number(pkg.price)),
+      mysoftTariffCode: pkg.mysoftTariffCode,
+      validityMonths: pkg.validityMonths != null ? String(pkg.validityMonths) : "",
+      vatRate: pkg.vatRate != null ? String(Number(pkg.vatRate)) : "",
+      sortOrder: String(pkg.sortOrder ?? 0),
+    })
+    // Form tablonun üstünde; kullanıcı düzenlediği alanları görsün.
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setForm({ ...emptyForm })
   }
 
   const togglePackage = async (pkg: KontorPackage) => {
@@ -158,6 +197,8 @@ export function KontorAdmin() {
     const res = await fetch(`/api/kontor/packages/${pkg.id}`, { method: "DELETE" })
     if (res.ok) {
       toast({ title: "Paket silindi" })
+      // Silinen paket formda açıksa düzenlemeyi bırak: olmayan id'ye PUT 404 döner.
+      if (editingId === pkg.id) cancelEdit()
       loadAll()
     }
   }
@@ -297,83 +338,134 @@ export function KontorAdmin() {
         <h2 className="text-lg font-semibold text-white">Satılabilir Paketler</h2>
         <p className="text-sm text-slate-500">Müşteriye gösterilen Kobipo paketleri (fiyat Kobipo'ya aittir).</p>
 
-        {/* Yeni paket formu */}
-        <div className="mt-4 grid gap-2 sm:grid-cols-[1.5fr_1fr_1fr_1fr_0.8fr_auto]">
-          <input
-            placeholder="Paket adı (1000 E-Belge)"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
-          />
-          <input
-            placeholder="Adet"
-            inputMode="numeric"
-            value={form.creditQty}
-            onChange={(e) => setForm({ ...form, creditQty: e.target.value.replace(/\D/g, "") })}
-            className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
-          />
-          <input
-            placeholder="Fiyat (TL)"
-            inputMode="decimal"
-            value={form.price}
-            onChange={(e) => setForm({ ...form, price: e.target.value })}
-            className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
-          />
-          {tariffs.length === 0 ? (
-            // Mysoft'ta tarife yokken test amaçlı kod elle girilebilir.
-            <input
-              placeholder="Tarife kodu (test: TEST)"
-              value={form.mysoftTariffCode}
-              onChange={(e) => setForm({ ...form, mysoftTariffCode: e.target.value })}
-              className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 font-mono"
-            />
-          ) : (
-            <select
-              value={form.mysoftTariffCode}
-              onChange={(e) => {
-                const code = e.target.value
-                const t = tariffs.find((x) => x.tariffCode === code)
-                setForm({
-                  ...form,
-                  mysoftTariffCode: code,
-                  validityMonths: t?.validityMonth ? String(t.validityMonth) : form.validityMonths,
-                  name: form.name || t?.tariffName || "",
-                })
-              }}
-              className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white"
-            >
-              <option value="">Tarife seç…</option>
-              {tariffs.map((t, i) => (
-                <option key={i} value={t.tariffCode}>
-                  {(t.tariffName || t.tariffCode) + " · " + t.tariffCode}
-                </option>
-              ))}
-            </select>
+        {/* Paket formu — ekleme ve düzenleme aynı alanları paylaşır. */}
+        <div ref={formRef} className="mt-4 space-y-2">
+          {editingId && (
+            <p className="text-xs text-orange-300">
+              <span className="font-medium">Düzenleniyor:</span> {form.name || "(adsız paket)"} — kaydedince
+              müşteriye gösterilen paket güncellenir.
+            </p>
           )}
-          <input
-            placeholder="Ay"
-            inputMode="numeric"
-            value={form.validityMonths}
-            onChange={(e) => setForm({ ...form, validityMonths: e.target.value.replace(/\D/g, "") })}
-            className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
-          />
-          {/* Fiyat KDV DAHİL'dir; bu oran yalnız faturadaki matrah/KDV ayrışmasını
-              belirler, müşterinin ödediği tutarı değiştirmez. Boş = %20. */}
-          <input
-            placeholder="KDV % (boş=20)"
-            inputMode="numeric"
-            value={form.vatRate}
-            onChange={(e) => setForm({ ...form, vatRate: e.target.value.replace(/[^\d.]/g, "") })}
-            className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
-          />
-          <button
-            onClick={createPackage}
-            disabled={!formValid || saving}
-            className="inline-flex items-center justify-center gap-1 rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Ekle
-          </button>
+          <div className="grid gap-2 sm:grid-cols-[1.5fr_1fr_1fr_1fr_0.8fr]">
+            <input
+              placeholder="Paket adı (1000 E-Belge)"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+            />
+            <input
+              placeholder="Adet"
+              inputMode="numeric"
+              value={form.creditQty}
+              onChange={(e) => setForm({ ...form, creditQty: e.target.value.replace(/\D/g, "") })}
+              className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+            />
+            <input
+              placeholder="Fiyat (TL)"
+              inputMode="decimal"
+              value={form.price}
+              onChange={(e) => setForm({ ...form, price: e.target.value })}
+              className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+            />
+            {tariffs.length === 0 ? (
+              // Mysoft'ta tarife yokken test amaçlı kod elle girilebilir.
+              <input
+                placeholder="Tarife kodu (test: TEST)"
+                value={form.mysoftTariffCode}
+                onChange={(e) => setForm({ ...form, mysoftTariffCode: e.target.value })}
+                className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 font-mono"
+              />
+            ) : (
+              <select
+                value={form.mysoftTariffCode}
+                onChange={(e) => {
+                  const code = e.target.value
+                  const t = tariffs.find((x) => x.tariffCode === code)
+                  setForm({
+                    ...form,
+                    mysoftTariffCode: code,
+                    validityMonths: t?.validityMonth ? String(t.validityMonth) : form.validityMonths,
+                    name: form.name || t?.tariffName || "",
+                  })
+                }}
+                className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white"
+              >
+                <option value="">Tarife seç…</option>
+                {/* Düzenlenen paketin kodu bayi listesinde yoksa da görünür kalsın:
+                    boş bir kutu, kaydın taşıdığı kodu gizler. */}
+                {form.mysoftTariffCode &&
+                  !tariffs.some((t) => t.tariffCode === form.mysoftTariffCode) && (
+                    <option value={form.mysoftTariffCode}>
+                      {form.mysoftTariffCode} (listede yok)
+                    </option>
+                  )}
+                {tariffs.map((t, i) => (
+                  <option key={i} value={t.tariffCode}>
+                    {(t.tariffName || t.tariffCode) + " · " + t.tariffCode}
+                  </option>
+                ))}
+              </select>
+            )}
+            <input
+              placeholder="Ay"
+              inputMode="numeric"
+              value={form.validityMonths}
+              onChange={(e) => setForm({ ...form, validityMonths: e.target.value.replace(/\D/g, "") })}
+              className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+            />
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-[2fr_0.8fr_0.8fr_auto]">
+            {/* Açıklama satın alma ekranında paket adının yanında görünür. */}
+            <input
+              placeholder="Açıklama (opsiyonel — satın alma ekranında görünür)"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+            />
+            {/* Fiyat KDV DAHİL'dir; bu oran yalnız faturadaki matrah/KDV ayrışmasını
+                belirler, müşterinin ödediği tutarı değiştirmez. Boş = %20. */}
+            <input
+              placeholder="KDV % (boş=20)"
+              inputMode="numeric"
+              value={form.vatRate}
+              onChange={(e) => setForm({ ...form, vatRate: e.target.value.replace(/[^\d.]/g, "") })}
+              className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+            />
+            <input
+              placeholder="Sıra (0)"
+              inputMode="numeric"
+              value={form.sortOrder}
+              onChange={(e) => setForm({ ...form, sortOrder: e.target.value.replace(/\D/g, "") })}
+              className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={savePackage}
+                disabled={!formValid || saving}
+                className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : editingId ? (
+                  <Save className="h-4 w-4" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
+                {editingId ? "Kaydet" : "Ekle"}
+              </button>
+              {editingId && (
+                <button
+                  onClick={cancelEdit}
+                  disabled={saving}
+                  className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 disabled:opacity-50"
+                >
+                  <X className="h-4 w-4" />
+                  Vazgeç
+                </button>
+              )}
+            </div>
+          </div>
         </div>
         {tariffs.length === 0 && (
           <p className="mt-2 text-xs text-amber-400">
@@ -396,14 +488,25 @@ export function KontorAdmin() {
                     <th className="py-2 pr-4">Fiyat</th>
                     <th className="py-2 pr-4">Tarife</th>
                     <th className="py-2 pr-4">KDV</th>
+                    <th className="py-2 pr-4">Sıra</th>
                     <th className="py-2 pr-4">Durum</th>
                     <th className="py-2 pr-4"></th>
                   </tr>
                 </thead>
                 <tbody className="text-slate-200">
                   {packages.map((p) => (
-                    <tr key={p.id} className="border-t border-slate-800">
-                      <td className="py-2 pr-4">{p.name}</td>
+                    <tr
+                      key={p.id}
+                      className={`border-t border-slate-800 ${
+                        editingId === p.id ? "bg-orange-500/5" : ""
+                      }`}
+                    >
+                      <td className="py-2 pr-4">
+                        {p.name}
+                        {p.description && (
+                          <span className="block text-xs text-slate-500">{p.description}</span>
+                        )}
+                      </td>
                       <td className="py-2 pr-4">{p.creditQty.toLocaleString("tr-TR")}</td>
                       <td className="py-2 pr-4">
                         {Number(p.price).toLocaleString("tr-TR")} {p.currency}
@@ -412,6 +515,7 @@ export function KontorAdmin() {
                       <td className="py-2 pr-4 text-slate-400">
                         %{p.vatRate != null ? Number(p.vatRate) : 20}
                       </td>
+                      <td className="py-2 pr-4 text-slate-400">{p.sortOrder}</td>
                       <td className="py-2 pr-4">
                         <button
                           onClick={() => togglePackage(p)}
@@ -423,13 +527,22 @@ export function KontorAdmin() {
                         </button>
                       </td>
                       <td className="py-2 pr-4">
-                        <button
-                          onClick={() => deletePackage(p)}
-                          className="text-slate-500 hover:text-red-400"
-                          title="Sil"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => startEdit(p)}
+                            className="text-slate-500 hover:text-orange-300"
+                            title="Düzenle"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => deletePackage(p)}
+                            className="text-slate-500 hover:text-red-400"
+                            title="Sil"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

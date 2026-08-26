@@ -12,12 +12,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
-import { SearchSelect } from "@/components/ui/search-select"
-import { TURKISH_CITIES } from "@/lib/data/turkish-cities"
-import {
-  TURKISH_PROVINCE_DISTRICTS,
-  PROVINCE_DISTRICT_SEPARATOR as SEP,
-} from "@/lib/data/turkish-districts"
+import { CityDistrictSelect } from "@/components/address/city-district-select"
 
 type EntityType = "customers" | "suppliers"
 type OpeningBalanceType = "DEBIT" | "CREDIT"
@@ -360,23 +355,9 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
     setBranches((prev) => prev.filter((branch) => branch.id !== id))
   }
 
-  // İl/ilçe sabit listeden seçilir. İl değişince mevcut ilçe yeni ile ait değilse sıfırlanır.
-  const districtsForCity = formData.city ? TURKISH_PROVINCE_DISTRICTS[formData.city] ?? [] : []
-  const cityInList = !formData.city || TURKISH_CITIES.includes(formData.city as (typeof TURKISH_CITIES)[number])
-  const districtInList = Boolean(formData.city && districtsForCity.includes(formData.district))
-  // İlçe <select> value'su il||ilçe biçiminde kodlanır ki aynı isimli ilçeler (Merkez vb.) ilini taşısın.
-  const districtSelectValue = formData.district ? `${formData.city}${SEP}${formData.district}` : ""
-
-  // Aratılabilir seçiciler (mobilde klavye ile arama) için {id,name} listeleri.
-  const cityOptions = useMemo(() => {
-    const opts: { id: string; name: string }[] = []
-    // Listede olmayan ama kayıtlı bir il değeri varsa onu da göster.
-    if (formData.city && !cityInList) {
-      opts.push({ id: formData.city, name: `${formData.city} (kayıtlı)` })
-    }
-    for (const c of TURKISH_CITIES) opts.push({ id: c, name: c })
-    return opts
-  }, [formData.city, cityInList])
+  // İl/ilçe seçicisi ortak bileşende ([[components/address/city-district-select.tsx]]):
+  // kodlanmış `il||ilçe` değeri, "(kayıtlı)" fallback'i ve il değişince ilçeyi
+  // sıfırlama kuralı orada.
 
   // Pinlenebilecek posta kutuları: GİB sorgusundan gelenler + (varsa) kayıtlı seçim.
   const aliasOptions = useMemo(() => {
@@ -385,43 +366,6 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
     for (const a of vknInfo?.aliases ?? []) set.add(a)
     return Array.from(set)
   }, [formData.eInvoiceAlias, vknInfo])
-
-  const districtOptions = useMemo(() => {
-    const opts: { id: string; name: string }[] = []
-    if (formData.district && !districtInList) {
-      opts.push({ id: districtSelectValue, name: `${formData.district} (kayıtlı)` })
-    }
-    const dlist = formData.city ? TURKISH_PROVINCE_DISTRICTS[formData.city] ?? [] : null
-    if (dlist) {
-      for (const d of dlist) opts.push({ id: `${formData.city}${SEP}${d}`, name: d })
-    } else {
-      // İl seçilmemişse tüm ilçeleri "İlçe — İl" biçiminde göster (arama netliği için).
-      for (const [province, districts] of Object.entries(TURKISH_PROVINCE_DISTRICTS)) {
-        for (const d of districts) {
-          opts.push({ id: `${province}${SEP}${d}`, name: `${d} — ${province}` })
-        }
-      }
-    }
-    return opts
-  }, [formData.city, formData.district, districtInList, districtSelectValue])
-
-  const handleCityChange = (city: string) => {
-    setFormData((prev) => {
-      const districts = TURKISH_PROVINCE_DISTRICTS[city] ?? []
-      const keepDistrict = prev.district && districts.includes(prev.district)
-      return { ...prev, city, district: keepDistrict ? prev.district : "" }
-    })
-  }
-
-  const handleDistrictChange = (encoded: string) => {
-    if (!encoded) {
-      setFormData((prev) => ({ ...prev, district: "" }))
-      return
-    }
-    const [province, district] = encoded.split(SEP)
-    // İlçe seçilince ilini de otomatik ayarla.
-    setFormData((prev) => ({ ...prev, city: province || prev.city, district: district || "" }))
-  }
 
   if (!companyId) {
     return (
@@ -630,30 +574,14 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                       disabled={isLoading}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="city">İl</Label>
-                    <SearchSelect
-                      id="city"
-                      options={cityOptions}
-                      value={formData.city}
-                      onChange={handleCityChange}
-                      placeholder="İl seçin veya arayın…"
-                      disabled={isLoading}
-                      allowClear
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="district">İlçe</Label>
-                    <SearchSelect
-                      id="district"
-                      options={districtOptions}
-                      value={districtSelectValue}
-                      onChange={handleDistrictChange}
-                      placeholder="İlçe seçin veya arayın…"
-                      disabled={isLoading}
-                      allowClear
-                    />
-                  </div>
+                  <CityDistrictSelect
+                    idPrefix="cari"
+                    city={formData.city}
+                    district={formData.district}
+                    onChange={({ city, district }) => setFormData((prev) => ({ ...prev, city, district }))}
+                    disabled={isLoading}
+                    fieldClassName="space-y-2"
+                  />
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="address">Adres</Label>
                     <Textarea

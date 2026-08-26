@@ -1,11 +1,16 @@
 // İNTERNET SATIŞ BİLGİLERİ — Invoice.internetSalesInfo ile Mysoft
 // InvoiceDraftModel.internetShipmentInfo arasındaki ortak şekil.
 //
-// NEDEN: Ödeme, satıcı ve alıcı fiziken karşılaşmadan alındıysa (uzaktan kartlı ödeme,
-// EFT/havale) satış "internet satışı"dır ve e-Arşiv faturada ödeme şekli ile ödeme
-// tarihinin gösterilmesi zorunludur; belgede "Bu satış internet üzerinden yapılmıştır"
-// ibaresi de bu bilgiye bağlı olarak basılır. Kobipo'nun kendi kontör/abonelik
-// satışlarının tamamı bu kapsamdadır.
+// NEDEN: Uzaktan yapılan MAL satışında e-Arşiv faturada ödeme şekli/tarihi ve gönderi
+// bilgisi gösterilir; belgedeki "Bu satış internet üzerinden yapılmıştır" ibaresi de
+// buna bağlı basılır.
+//
+// KOBIPO KENDİ SATIŞLARINDA BU BİLGİYİ YAZMAZ (2026-08-26): kontör/abonelik dijital
+// HİZMETTİR. Alan dolu gönderildiğinde GİB şablonu belgenin altına mesafeli satış
+// İADE BÖLÜMÜ tablosunu ("kusurlu ürün", "beden uymaması", "kargo hasarı"…) basıyor
+// ve alıcıya var olmayan bir ürün iadesi yolu gösteriyordu. Bu yüzden
+// lib/invoicing/issue-sales-invoice.ts artık buildInternetSalesInfo() ÇAĞIRMAZ;
+// modül, ileride gerçek bir uzaktan mal satışı eklenirse diye durur.
 //
 // Kargo/taşıyıcı alanları (shippingDate, shippingAccountName, shippingAccountVknTckn)
 // MAL SEVKİNE bağlıdır; kontör ve abonelik dijital hizmettir, sevk yoktur → bu alanlar

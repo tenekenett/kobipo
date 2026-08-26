@@ -20,6 +20,11 @@ import {
   missingBillingFields,
   type BillingFormValue,
 } from "@/components/invoicing/billing-info-form"
+import {
+  DiscountCodeField,
+  packageDiscount,
+  type AppliedDiscount,
+} from "@/components/billing/discount-code-field"
 
 interface KontorPackage {
   id: string
@@ -73,6 +78,9 @@ export function KontorPurchaseDialog({
   const [billing, setBilling] = useState<BillingFormValue>(EMPTY_BILLING)
   const [billingOpen, setBillingOpen] = useState(false)
   const [invalidFields, setInvalidFields] = useState<string[]>([])
+  // İNDİRİM KODU: sunucu her paket için ayrı hesaplar, satırlar kendi indirimli
+  // fiyatını basar. Siparişe yalnız KOD gider; tutarı sunucu yeniden hesaplar.
+  const [discount, setDiscount] = useState<AppliedDiscount | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -126,12 +134,23 @@ export function KontorPurchaseDialog({
       const res = await fetch("/api/kontor/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, packageId: pkg.id, paymentMethod, billing }),
+        body: JSON.stringify({
+          companyId,
+          packageId: pkg.id,
+          paymentMethod,
+          billing,
+          discountCode: discount?.code ?? undefined,
+        }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.status === 412) {
         setInvalidFields(Array.isArray(data?.fields) ? data.fields : [])
         setBillingOpen(true)
+      }
+      // 422 + field=discountCode: kod arada geçersizleşmiş (süresi doldu, hak bitti).
+      // Kutuyu temizleriz ki kullanıcı indirim beklerken listeden ödeme yapmasın.
+      if (res.status === 422 && data?.field === "discountCode") {
+        setDiscount(null)
       }
       if (!res.ok) throw new Error(data?.error || "Sipariş oluşturulamadı")
       setInvalidFields([])
@@ -216,6 +235,17 @@ export function KontorPurchaseDialog({
               )}
             </div>
 
+            {/* İndirim kodu — varsa paket fiyatları indirimli görünür. */}
+            <DiscountCodeField
+              companyId={companyId}
+              scope="KONTOR"
+              mode="perPackage"
+              payload={{}}
+              applied={discount}
+              onApplied={setDiscount}
+              disabled={busyKey !== null}
+            />
+
             {/* Paketler */}
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -236,9 +266,26 @@ export function KontorPurchaseDialog({
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-2">
-                      <span className="font-bold text-kobipo-navy dark:text-foreground">
-                        {Number(p.price).toLocaleString("tr-TR")} {p.currency}
-                      </span>
+                      {(() => {
+                        const d = packageDiscount(discount, p.id)
+                        if (!d) {
+                          return (
+                            <span className="font-bold text-kobipo-navy dark:text-foreground">
+                              {Number(p.price).toLocaleString("tr-TR")} {p.currency}
+                            </span>
+                          )
+                        }
+                        return (
+                          <span className="text-right">
+                            <span className="block text-xs text-muted-foreground line-through">
+                              {d.listAmount.toLocaleString("tr-TR")} {p.currency}
+                            </span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                              {d.payable.toLocaleString("tr-TR")} {p.currency}
+                            </span>
+                          </span>
+                        )
+                      })()}
                       <div className="flex flex-wrap justify-end gap-2">
                         {paytrEnabled && (
                           <Button

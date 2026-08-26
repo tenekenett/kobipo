@@ -37,12 +37,7 @@ import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combob
 import { WithholdingCombobox } from "@/components/e-donusum/withholding-combobox"
 import { TaxTypeCombobox } from "@/components/e-donusum/tax-type-combobox"
 import { UnitCombobox } from "@/components/ui/unit-combobox"
-import { SearchSelect } from "@/components/ui/search-select"
-import { TURKISH_CITIES } from "@/lib/data/turkish-cities"
-import {
-  TURKISH_PROVINCE_DISTRICTS,
-  PROVINCE_DISTRICT_SEPARATOR as DISTRICT_SEP,
-} from "@/lib/data/turkish-districts"
+import { CityDistrictSelect } from "@/components/address/city-district-select"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
 import { normalizeUnitCode } from "@/lib/data/units"
 import {
@@ -372,38 +367,6 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     const r = normalizeManualInvoiceNo(formData.invoiceNo)
     return r.ok ? null : r.error
   })()
-
-  // ————— SEVK ADRESİ —————
-  // İl/ilçe listeleri cari formundaki desenin aynısı: ilçe değeri "İl||İlçe" biçiminde
-  // kodlanır ki aynı adlı ilçeler (Merkez vb.) ilini taşısın.
-  const deliveryCityOptions = useMemo(() => {
-    const opts: { id: string; name: string }[] = []
-    if (formData.deliveryCity && !TURKISH_CITIES.includes(formData.deliveryCity as (typeof TURKISH_CITIES)[number])) {
-      opts.push({ id: formData.deliveryCity, name: `${formData.deliveryCity} (kayıtlı)` })
-    }
-    for (const c of TURKISH_CITIES) opts.push({ id: c, name: c })
-    return opts
-  }, [formData.deliveryCity])
-
-  const deliveryDistrictValue = formData.deliveryDistrict
-    ? `${formData.deliveryCity}${DISTRICT_SEP}${formData.deliveryDistrict}`
-    : ""
-
-  const deliveryDistrictOptions = useMemo(() => {
-    const opts: { id: string; name: string }[] = []
-    const list = formData.deliveryCity ? TURKISH_PROVINCE_DISTRICTS[formData.deliveryCity] ?? [] : null
-    if (formData.deliveryDistrict && (!list || !list.includes(formData.deliveryDistrict))) {
-      opts.push({ id: deliveryDistrictValue, name: `${formData.deliveryDistrict} (kayıtlı)` })
-    }
-    if (list) {
-      for (const d of list) opts.push({ id: `${formData.deliveryCity}${DISTRICT_SEP}${d}`, name: d })
-    } else {
-      for (const [province, districts] of Object.entries(TURKISH_PROVINCE_DISTRICTS)) {
-        for (const d of districts) opts.push({ id: `${province}${DISTRICT_SEP}${d}`, name: `${d} — ${province}` })
-      }
-    }
-    return opts
-  }, [formData.deliveryCity, formData.deliveryDistrict, deliveryDistrictValue])
 
   // Faturanın carisi (satışta müşteri, alışta tedarikçi) — sevk adresini ondan doldurmak için.
   const selectedCari = useMemo(
@@ -902,6 +865,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         taxNumber: data.taxNumber ?? null,
         taxOffice: data.taxOffice ?? null,
         address: data.address ?? null,
+        city: data.city ?? null,
+        district: data.district ?? null,
       }
       setSuppliers((prev) =>
         prev.some((s) => s.id === newSupplier.id) ? prev : [...prev, newSupplier],
@@ -2550,6 +2515,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                         taxNumber: created.taxNumber ?? null,
                         taxOffice: created.taxOffice ?? null,
                         address: created.address ?? null,
+                        // İl/ilçe de taşınır: "Cari adresiyle aynı" listedeki kayda bakar,
+                        // eksik yazılırsa sevk il/ilçesi refetch'e kadar boş kalırdı.
+                        city: created.city ?? null,
+                        district: created.district ?? null,
                       }
                       setCustomers((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev]))
                       setFormData((prev) => ({ ...prev, customerId: created.id, supplierId: "" }))
@@ -2561,6 +2530,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                         taxNumber: created.taxNumber ?? null,
                         taxOffice: created.taxOffice ?? null,
                         address: created.address ?? null,
+                        city: created.city ?? null,
+                        district: created.district ?? null,
                       }
                       setSuppliers((prev) => (prev.some((x) => x.id === s.id) ? prev : [s, ...prev]))
                       setFormData((prev) => ({ ...prev, supplierId: created.id, customerId: "" }))
@@ -3496,43 +3467,18 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                     </Button>
                   )}
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <SearchSelect
-                    id="deliveryCity"
-                    options={deliveryCityOptions}
-                    value={formData.deliveryCity}
-                    onChange={(city) =>
-                      setFormData((prev) => {
-                        const districts = TURKISH_PROVINCE_DISTRICTS[city] ?? []
-                        // İl değişince mevcut ilçe yeni ile ait değilse sıfırlanır.
-                        const keep = prev.deliveryDistrict && districts.includes(prev.deliveryDistrict)
-                        return { ...prev, deliveryCity: city, deliveryDistrict: keep ? prev.deliveryDistrict : "" }
-                      })
-                    }
-                    placeholder="Teslim ili…"
-                    allowClear
-                  />
-                  <SearchSelect
-                    id="deliveryDistrict"
-                    options={deliveryDistrictOptions}
-                    value={deliveryDistrictValue}
-                    onChange={(encoded) => {
-                      if (!encoded) {
-                        setFormData((prev) => ({ ...prev, deliveryDistrict: "" }))
-                        return
-                      }
-                      const [province, district] = encoded.split(DISTRICT_SEP)
-                      // İlçe seçilince ilini de otomatik ayarla.
-                      setFormData((prev) => ({
-                        ...prev,
-                        deliveryCity: province || prev.deliveryCity,
-                        deliveryDistrict: district || "",
-                      }))
-                    }}
-                    placeholder="Teslim ilçesi…"
-                    allowClear
-                  />
-                </div>
+                <CityDistrictSelect
+                  idPrefix="delivery"
+                  city={formData.deliveryCity}
+                  district={formData.deliveryDistrict}
+                  onChange={({ city, district }) =>
+                    setFormData((prev) => ({ ...prev, deliveryCity: city, deliveryDistrict: district }))
+                  }
+                  withLabels={false}
+                  cityPlaceholder="Teslim ili…"
+                  districtPlaceholder="Teslim ilçesi…"
+                  containerClassName="grid gap-2 sm:grid-cols-2"
+                />
                 <Textarea
                   value={formData.deliveryAddress}
                   onChange={(e) => setFormData({ ...formData, deliveryAddress: e.target.value })}

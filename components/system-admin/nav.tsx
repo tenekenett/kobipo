@@ -23,6 +23,7 @@ import {
   CreditCard,
   Fingerprint,
   ShieldCheck,
+  Percent,
 } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -83,6 +84,12 @@ const navItems = [
     title: "Kontör",
     href: "/system-admin/kontor",
     icon: Coins,
+  },
+  {
+    // Kontör + abonelik satın alımlarında geçerli kuponlar.
+    title: "İndirim Kodları",
+    href: "/system-admin/indirim-kodlari",
+    icon: Percent,
   },
   {
     title: "Destek",

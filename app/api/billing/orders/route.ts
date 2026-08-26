@@ -4,9 +4,9 @@ import { prisma } from "@/lib/db/prisma"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isBillingCycle } from "@/lib/billing/constants"
-import { computeOrder, type PlanPricing } from "@/lib/billing/pricing"
-import { toPricingMap, TRIAL_PLAN_CODE } from "@/lib/billing/catalog"
 import { resolveAccountRootId } from "@/lib/billing/entitlements"
+import { resolvePackageOrderAmount } from "@/lib/billing/order-amount"
+import { evaluateDiscountCode } from "@/lib/billing/discount"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import {
   billingSnapshot,
@@ -60,57 +60,31 @@ export const POST = withApiErrors(async function POST(request: Request) {
 
     const rootId = await resolveAccountRootId(companyId)
 
-    // Paket (bundle) — verilmişse aktif ve satılabilir olmalı.
-    let planPricing: PlanPricing | null = null
-    let planName: string | null = null
-    let planId: string | null = null
-    if (body?.planId) {
-      const plan = await prisma.plan.findUnique({ where: { id: String(body.planId) } })
-      if (!plan || !plan.isActive || plan.code === TRIAL_PLAN_CODE) {
-        return NextResponse.json({ error: "Geçersiz paket" }, { status: 400 })
+    // Fiyat SUNUCUDA çözülür; "kodu uygula" ucu da aynı fonksiyonu çağırır ki ekranda
+    // görünen tutar ile tahsil edilen tutar ayrışmasın ([[lib/billing/order-amount.ts]]).
+    const priced = await resolvePackageOrderAmount(body)
+    if (!priced.ok) {
+      return NextResponse.json({ error: priced.error }, { status: priced.status })
+    }
+    const { computed, planId, planName } = priced
+
+    // İNDİRİM KODU — hesap KÖKÜ üzerinden değerlendirilir: abonelik hesaba yazılır,
+    // "firma başına 1 kez" hakkını şubeler paylaşır. Geçersiz kodda sipariş açılmaz.
+    let discount: { codeId: string; code: string; discountAmount: number; payable: number } | null = null
+    const rawDiscountCode = String(body?.discountCode ?? "").trim()
+    if (rawDiscountCode) {
+      const evaluated = await evaluateDiscountCode({
+        code: rawDiscountCode,
+        scope: "PACKAGE",
+        amount: computed.amount,
+        companyId: rootId,
+      })
+      if (!evaluated.ok) {
+        return NextResponse.json({ error: evaluated.error, field: "discountCode" }, { status: 422 })
       }
-      planId = plan.id
-      planName = plan.name
-      planPricing = {
-        id: plan.id,
-        name: plan.name,
-        monthlyPrice: Number(plan.monthlyPrice),
-        yearlyPrice: plan.yearlyPrice != null ? Number(plan.yearlyPrice) : null,
-        includedModules: plan.includedModules,
-        includedBranches: plan.includedBranches,
-        includedCompanies: plan.includedCompanies,
-      }
+      discount = evaluated.discount
     }
-
-    const pricingItems = await prisma.pricingItem.findMany({ where: { isActive: true } })
-    const pricingMap = toPricingMap(pricingItems)
-
-    const chosenModules = Array.isArray(body?.chosenModules) ? body.chosenModules.map(String) : []
-    const branchQuota = Math.max(0, Math.floor(Number(body?.branchQuota) || 0))
-    const companyQuota = Math.max(0, Math.floor(Number(body?.companyQuota) || 0))
-
-    const computed = computeOrder({
-      plan: planPricing,
-      chosenModules,
-      branchQuota,
-      companyQuota,
-      billingCycle,
-      pricing: pricingMap,
-    })
-
-    if (computed.amount <= 0) {
-      return NextResponse.json(
-        { error: "Seçiminiz için ödenecek tutar yok. Lütfen bir paket veya modül seçin." },
-        { status: 400 },
-      )
-    }
-    if (
-      computed.resolvedModules.length === 0 &&
-      computed.branchQuota === 0 &&
-      computed.companyQuota === 0
-    ) {
-      return NextResponse.json({ error: "Lütfen en az bir modül seçin." }, { status: 400 })
-    }
+    const payableAmount = discount ? discount.payable : computed.amount
 
     // FATURA BİLGİSİ — ödeme öncesi zorunlu ([[lib/invoicing/billing-info.ts]]).
     // Alıcı, siparişin sahibi olan HESAP KÖKÜ firmasıdır (`rootId`); abonelik oradan
@@ -152,7 +126,11 @@ export const POST = withApiErrors(async function POST(request: Request) {
         branchQuota: computed.branchQuota,
         companyQuota: computed.companyQuota,
         billingCycle,
-        amount: computed.amount,
+        // amount = TAHSİL EDİLEN tutar; liste tutarı `amount + discountAmount`.
+        amount: payableAmount,
+        discountCodeId: discount?.codeId ?? null,
+        discountCode: discount?.code ?? null,
+        discountAmount: discount?.discountAmount ?? 0,
         currency: "TRY",
         autoRenew: body?.autoRenew == null ? true : Boolean(body.autoRenew),
         status: "PENDING_PAYMENT",
@@ -162,7 +140,10 @@ export const POST = withApiErrors(async function POST(request: Request) {
 
     return NextResponse.json({
       id: order.id,
-      amount: computed.amount,
+      amount: payableAmount,
+      listAmount: computed.amount,
+      discountCode: discount?.code ?? null,
+      discountAmount: discount?.discountAmount ?? 0,
       resolvedModules: computed.resolvedModules,
       branchQuota: computed.branchQuota,
       companyQuota: computed.companyQuota,

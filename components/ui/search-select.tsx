@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Check, ChevronsUpDown, Plus } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 
 export type SearchOption = { id: string; name: string }
 
@@ -26,6 +27,8 @@ type SearchSelectProps = {
   onCreate?: (query: string) => void
   /** Yazı yokken gösterilecek ekleme satırı metni. */
   createLabel?: string
+  /** Girdi kutusuna eklenecek sınıf (ör. doğrulama hatasında kırmızı kenar). */
+  className?: string
 }
 
 function norm(s: string): string {
@@ -57,6 +60,7 @@ export function SearchSelect({
   clearLabel,
   onCreate,
   createLabel,
+  className,
 }: SearchSelectProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -124,7 +128,7 @@ export function SearchSelect({
           autoComplete="off"
           role="combobox"
           aria-expanded={open}
-          className="pr-8"
+          className={cn("pr-8", className)}
           onChange={(e) => {
             setQuery(e.target.value)
             setOpen(true)

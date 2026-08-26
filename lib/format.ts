@@ -67,3 +67,60 @@ export function formatMoney(amount: number, currency?: string | null, signed = f
   if (signed) opts.signDisplay = "exceptZero"
   return new Intl.NumberFormat("tr-TR", opts).format(Number.isFinite(amount) ? amount : 0)
 }
+
+// --- Türkçe rakam → yazı ---
+//
+// Faturanın "Yalnız: …" satırı ve otomatik kesilen belgelerin NOT satırları aynı
+// metni kullanır. Önce lib/pdf/gib-invoice-pdf.ts içindeydi; belge kesen sunucu yolu
+// yalnız bir sayı yazısı için pdfmake yüklemesin diye buraya alındı (PDF tarafı
+// `amountInWords`i buradan yeniden dışa verir).
+
+const ONES = ["", "BİR", "İKİ", "ÜÇ", "DÖRT", "BEŞ", "ALTI", "YEDİ", "SEKİZ", "DOKUZ"]
+const TENS = ["", "ON", "YİRMİ", "OTUZ", "KIRK", "ELLİ", "ALTMIŞ", "YETMİŞ", "SEKSEN", "DOKSAN"]
+const SCALES = ["", "BİN", "MİLYON", "MİLYAR", "TRİLYON"]
+
+function threeDigitsToWords(n: number): string {
+  const parts: string[] = []
+  const h = Math.floor(n / 100)
+  const t = Math.floor((n % 100) / 10)
+  const o = n % 10
+  if (h > 0) parts.push(h === 1 ? "YÜZ" : `${ONES[h]} YÜZ`)
+  if (t > 0) parts.push(TENS[t])
+  if (o > 0) parts.push(ONES[o])
+  return parts.join(" ").trim()
+}
+
+export function integerToTurkishWords(value: number): string {
+  let n = Math.floor(Math.abs(value))
+  if (n === 0) return "SIFIR"
+  const groups: number[] = []
+  while (n > 0) {
+    groups.push(n % 1000)
+    n = Math.floor(n / 1000)
+  }
+  const words: string[] = []
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const g = groups[i]
+    if (g === 0) continue
+    // "BİR BİN" yerine "BİN" yazılır (yalnız binler basamağında).
+    if (i === 1 && g === 1) {
+      words.push(SCALES[i])
+    } else {
+      words.push(`${threeDigitsToWords(g)} ${SCALES[i]}`.trim())
+    }
+  }
+  return words.join(" ").replace(/\s+/g, " ").trim()
+}
+
+/** "Yalnız: ÜÇ YÜZ ON İKİ TL ELLİ KR" — belgede ve fatura notunda aynı metin. */
+export function amountInWords(amount: number, currency = "TRY"): string {
+  const safe = Number(amount) || 0
+  const lira = Math.floor(safe)
+  const kurus = Math.round((safe - lira) * 100)
+  const curLabel = currency === "TRY" ? "TL" : currency
+  const liraWords = integerToTurkishWords(lira)
+  if (kurus > 0) {
+    return `Yalnız: ${liraWords} ${curLabel} ${integerToTurkishWords(kurus)} KR`
+  }
+  return `Yalnız: ${liraWords} ${curLabel}`
+}

@@ -3,6 +3,11 @@ import { docTable, type Column } from "@/lib/pdf/doc/items-table"
 import { buildDocDefinition, renderPdf, CONTENT_WIDTH } from "@/lib/pdf/doc/page-frame"
 import { softBreak } from "@/lib/pdf/doc/safe-text"
 import { COLORS, FS, mm } from "@/lib/pdf/doc/theme"
+// Rakam → yazı tek kaynakta: lib/format.ts (fatura NOTLARI da
+// aynı metni kullanıyor; o yol pdfmake yüklemesin diye modül dışarı alındı).
+import { amountInWords } from "@/lib/format"
+
+export { amountInWords }
 
 /**
  * GİB düzeninde (taslak) fatura PDF'i.
@@ -125,56 +130,6 @@ function docTitle(t: GibDocKind): string {
   if (t === "E_INVOICE") return "e-FATURA"
   if (t === "E_ARCHIVE") return "e-ARŞİV FATURA"
   return "FATURA"
-}
-
-// --- Türkçe rakam → yazı (Yalnız ... satırı için) ---
-const ONES = ["", "BİR", "İKİ", "ÜÇ", "DÖRT", "BEŞ", "ALTI", "YEDİ", "SEKİZ", "DOKUZ"]
-const TENS = ["", "ON", "YİRMİ", "OTUZ", "KIRK", "ELLİ", "ALTMIŞ", "YETMİŞ", "SEKSEN", "DOKSAN"]
-const SCALES = ["", "BİN", "MİLYON", "MİLYAR", "TRİLYON"]
-
-function threeDigitsToWords(n: number): string {
-  const parts: string[] = []
-  const h = Math.floor(n / 100)
-  const t = Math.floor((n % 100) / 10)
-  const o = n % 10
-  if (h > 0) parts.push(h === 1 ? "YÜZ" : `${ONES[h]} YÜZ`)
-  if (t > 0) parts.push(TENS[t])
-  if (o > 0) parts.push(ONES[o])
-  return parts.join(" ").trim()
-}
-
-function integerToTurkishWords(value: number): string {
-  let n = Math.floor(Math.abs(value))
-  if (n === 0) return "SIFIR"
-  const groups: number[] = []
-  while (n > 0) {
-    groups.push(n % 1000)
-    n = Math.floor(n / 1000)
-  }
-  const words: string[] = []
-  for (let i = groups.length - 1; i >= 0; i--) {
-    const g = groups[i]
-    if (g === 0) continue
-    // "BİR BİN" yerine "BİN" yazılır (yalnız binler basamağında).
-    if (i === 1 && g === 1) {
-      words.push(SCALES[i])
-    } else {
-      words.push(`${threeDigitsToWords(g)} ${SCALES[i]}`.trim())
-    }
-  }
-  return words.join(" ").replace(/\s+/g, " ").trim()
-}
-
-export function amountInWords(amount: number, currency = "TRY"): string {
-  const safe = Number(amount) || 0
-  const lira = Math.floor(safe)
-  const kurus = Math.round((safe - lira) * 100)
-  const curLabel = currency === "TRY" ? "TL" : currency
-  const liraWords = integerToTurkishWords(lira)
-  if (kurus > 0) {
-    return `Yalnız: ${liraWords} ${curLabel} ${integerToTurkishWords(kurus)} KR`
-  }
-  return `Yalnız: ${liraWords} ${curLabel}`
 }
 
 /** Taraf künyesi satırları (GİB düzeninde VD ve VKN aynı satırda). */

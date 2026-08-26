@@ -45,6 +45,16 @@ export async function PUT(
         body.validityMonths != null && Number.isFinite(Number(body.validityMonths))
           ? Number(body.validityMonths)
           : null
+    // KDV oranı POST'takiyle aynı kuralla yazılır: boş/geçersiz → NULL (sistem
+    // varsayılanı %20, bkz. lib/billing/vat.ts). Burada ele alınmazsa panelden
+    // değiştirilen oran sessizce yok sayılırdı.
+    if (body?.vatRate !== undefined) {
+      const rawVat = body.vatRate
+      data.vatRate =
+        rawVat != null && String(rawVat).trim() !== "" && Number.isFinite(Number(rawVat))
+          ? Math.min(100, Math.max(0, Number(rawVat)))
+          : null
+    }
     if (body?.isActive != null) data.isActive = Boolean(body.isActive)
     if (body?.sortOrder != null && Number.isInteger(Number(body.sortOrder)))
       data.sortOrder = Number(body.sortOrder)

@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { CityDistrictSelect } from "@/components/address/city-district-select"
 import { Loader2 } from "lucide-react"
 
 export type BillingFormValue = {
@@ -151,25 +152,16 @@ export function BillingInfoForm({ value, onChange, invalidFields = [], loading }
         />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="billing-city">İl *</Label>
-          <Input
-            id="billing-city"
-            value={value.city}
-            onChange={(e) => set({ city: e.target.value })}
-            className={cls("city")}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="billing-district">İlçe</Label>
-          <Input
-            id="billing-district"
-            value={value.district}
-            onChange={(e) => set({ district: e.target.value })}
-          />
-        </div>
-      </div>
+      {/* İl/ilçe sabit listeden seçilir; faturaya GİB'in tanıdığı yazımla gider. */}
+      <CityDistrictSelect
+        idPrefix="billing"
+        city={value.city}
+        district={value.district}
+        onChange={({ city, district }) => set({ city, district })}
+        cityLabel="İl *"
+        cityClassName={cls("city")}
+        containerClassName="grid gap-3 sm:grid-cols-2"
+      />
 
       <div className="space-y-1.5">
         <Label htmlFor="billing-email">Fatura e-postası *</Label>

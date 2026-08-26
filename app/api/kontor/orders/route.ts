@@ -12,6 +12,7 @@ import {
   normalizeBillingInput,
 } from "@/lib/invoicing/billing-info"
 import { isTestPurchase } from "@/lib/invoicing/config"
+import { evaluateDiscountCode } from "@/lib/billing/discount"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -130,6 +131,26 @@ export const POST = withApiErrors(async function POST(request: Request) {
       }
     }
 
+    // İNDİRİM KODU — istemcinin gönderdiği tutara bakılmaz; kod, paketin SUNUCUDAKİ
+    // fiyatı üzerinden yeniden değerlendirilir ([[lib/billing/discount.ts]]), yani
+    // "uygula" kutusundaki ön izleme ile buradaki hesap aynı fonksiyondan gelir.
+    // Geçersiz kod SESSİZCE YOK SAYILMAZ: müşteri indirim beklerken listeden tahsil
+    // edilmesin diye sipariş hiç açılmaz.
+    let discount: { codeId: string; code: string; discountAmount: number; payable: number } | null = null
+    const rawDiscountCode = String(body?.discountCode ?? "").trim()
+    if (rawDiscountCode) {
+      const evaluated = await evaluateDiscountCode({
+        code: rawDiscountCode,
+        scope: "KONTOR",
+        amount: Number(pkg.price),
+        companyId,
+      })
+      if (!evaluated.ok) {
+        return NextResponse.json({ error: evaluated.error, field: "discountCode" }, { status: 422 })
+      }
+      discount = evaluated.discount
+    }
+
     // Havale siparişine referans kodu: müşteri bunu banka açıklamasına yazar, admin
     // dekontla hesap hareketini bununla eşleştirir ([[lib/kontor/payment-code.ts]]).
     const paymentCode = paymentMethod === "HAVALE" ? await generateUniquePaymentCode() : null
@@ -144,8 +165,13 @@ export const POST = withApiErrors(async function POST(request: Request) {
         packageId: pkg.id,
         packageName: pkg.name,
         creditQty: pkg.creditQty,
+        // unitPrice LİSTE fiyatıdır; totalPrice TAHSİL EDİLEN tutar. Fatura kalemi
+        // listeden yazılıp iskonto ayrı işlendiği için ikisi de gerekli.
         unitPrice: pkg.price,
-        totalPrice: pkg.price,
+        totalPrice: discount ? discount.payable : pkg.price,
+        discountCodeId: discount?.codeId ?? null,
+        discountCode: discount?.code ?? null,
+        discountAmount: discount?.discountAmount ?? 0,
         currency: pkg.currency,
         mysoftTariffCode: pkg.mysoftTariffCode,
         targetVkn,

@@ -1,5 +1,6 @@
 import type { KontorOrder } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
+import { recordDiscountRedemption } from "@/lib/billing/discount"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import {
   createPartnerProvider,
@@ -77,6 +78,19 @@ export async function loadKontorOrderCredit(
       confirmedAt: new Date(),
     },
   })
+
+  // İNDİRİM KULLANIMI — satış BURADA kesinleşir (para alındı + kontör yüklendi).
+  // Sipariş açılırken yazmıyoruz: yarım kalan sipariş kupon hakkını yemesin.
+  // Idempotent (sipariş başına tek satır), tekrar gelen callback sayacı şişirmez.
+  if (loaded.discountCodeId) {
+    await recordDiscountRedemption({
+      codeId: loaded.discountCodeId,
+      companyId: loaded.companyId,
+      orderKind: "KONTOR",
+      orderId: loaded.id,
+      amount: Number(loaded.discountAmount),
+    })
+  }
 
   await prisma.systemLog.create({
     data: {

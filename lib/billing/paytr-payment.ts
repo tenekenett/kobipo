@@ -6,6 +6,7 @@
 
 import type { PackageOrder } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
+import { recordDiscountRedemption } from "@/lib/billing/discount"
 import { isBillingCycle, type BillingCycle } from "@/lib/billing/constants"
 import { applyEntitlements, periodEndFor } from "@/lib/billing/entitlements"
 import { issueInvoiceQuietly } from "@/lib/invoicing/issue-sales-invoice"
@@ -130,6 +131,24 @@ async function activateSubscription(order: PackageOrder): Promise<void> {
   const cycle: BillingCycle = isBillingCycle(order.billingCycle) ? order.billingCycle : "MONTHLY"
   const now = new Date()
 
+  // İNDİRİM — kullanım kaydı ödeme BAŞARILI olduğunda yazılır (sipariş açılırken
+  // değil: yarım kalan sipariş kupon hakkını yemesin). Idempotent.
+  let discountAppliesToRenewals = false
+  if (order.discountCodeId) {
+    const codeRow = await prisma.discountCode.findUnique({
+      where: { id: order.discountCodeId },
+      select: { appliesToRenewals: true },
+    })
+    discountAppliesToRenewals = Boolean(codeRow?.appliesToRenewals)
+    await recordDiscountRedemption({
+      codeId: order.discountCodeId,
+      companyId: order.companyId,
+      orderKind: "PACKAGE",
+      orderId: order.id,
+      amount: Number(order.discountAmount ?? 0),
+    })
+  }
+
   const existing = await prisma.subscription.findFirst({
     where: { companyId: order.companyId },
     orderBy: { createdAt: "desc" },
@@ -178,6 +197,13 @@ async function activateSubscription(order: PackageOrder): Promise<void> {
     )
   }
 
+  // YENİLEME TUTARI — Subscription.amount, saklı kartla çekilecek tutardır
+  // ([[lib/billing/jobs.ts]] runRecurring). İndirim yalnız ilk ödemeye aitse
+  // abonelik LİSTE tutarıyla yazılır; kod "yenilemelerde de geçerli" ise indirimli
+  // tutar kalır. Burada karar verilmezse tek seferlik kupon ömür boyu indirime döner.
+  const listAmount = Number(order.amount) + Number(order.discountAmount ?? 0)
+  const renewalAmount = discountAppliesToRenewals ? Number(order.amount) : listAmount
+
   const data = {
     userId,
     planId: order.planId,
@@ -187,7 +213,7 @@ async function activateSubscription(order: PackageOrder): Promise<void> {
     purchasedModules: write.purchasedModules,
     branchQuota: write.branchQuota,
     companyQuota: write.companyQuota,
-    amount: order.amount,
+    amount: renewalAmount,
     autoRenew: order.autoRenew,
     cancelAtPeriodEnd: false,
     paymentRef: order.paymentRef,

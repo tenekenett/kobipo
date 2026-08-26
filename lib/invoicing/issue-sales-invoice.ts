@@ -19,8 +19,9 @@ import {
   createGibDraft,
   finalizeGibDraft,
 } from "@/lib/integrations/e-invoice/send-invoice-helper"
-import { buildInternetSalesInfo } from "@/lib/invoice/internet-sales"
 import { resolveVatRate, splitVatInclusive } from "@/lib/billing/vat"
+import { amountInWords } from "@/lib/format"
+import { resolveWebSiteUrl } from "@/lib/invoice/internet-sales"
 import { checkInvoiceGates, resolveSellerCompanyId, stopAtDraft } from "@/lib/invoicing/config"
 import { makeUniqueSlug, slugify } from "@/lib/slug"
 
@@ -36,14 +37,64 @@ export type IssueResult =
 
 const skip = (reason: string): IssueResult => ({ ok: false, skipped: true, reason })
 
+/** Belgeye yazılacak gün (mükellefin takvimi; sunucu UTC'de koşsa da). */
+function dayInTurkey(date: Date): string {
+  return new Intl.DateTimeFormat("tr-TR", {
+    timeZone: "Europe/Istanbul",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date)
+}
+
+/** Ödeme yönteminin belgede görünecek adı. */
+function paymentLabel(method: string): string {
+  return String(method || "").toUpperCase() === "CARD"
+    ? "Kredi Kartı / Banka Kartı (PayTR Ödeme ve Elektronik Para Kuruluşu A.Ş.)"
+    : "Havale / EFT"
+}
+
+/**
+ * Belgenin NOT satırları. Bilgiyi yapısal "internet satışı" alanına yazmak yerine
+ * NOT olarak basıyoruz: o alan dolu gidince GİB şablonu mesafeli satış İADE BÖLÜMÜ
+ * tablosunu ekliyor ve dijital hizmet satan Kobipo'da alıcıya var olmayan bir ürün
+ * iadesi yolu gösteriyordu (bkz. aşağıdaki internetSalesInfo notu). Aynı bilgiler —
+ * satışın internetten yapıldığı, ödeme şekli/tarihi, tutarın yazıyla karşılığı —
+ * serbest metin olarak belgede kalır.
+ *
+ * Her satır ayrı bir UBL cbc:Note'a çevrilir (provider satır başına bölüyor), belgede
+ * "Not: …" satırları olarak alt alta görünür.
+ */
+export function buildInvoiceNotes(order: OrderView, gross: number): string {
+  const lines = [
+    `Kobipo sipariş no: ${order.reference}`,
+    order.description,
+    "Bu satış internet üzerinden yapılmıştır.",
+    `Ödeme: ${paymentLabel(order.paymentMethod)}${
+      order.paidAt ? ` — ${dayInTurkey(order.paidAt)}` : ""
+    }`,
+    ...(order.discount
+      ? [
+          `İndirim kodu: ${order.discount.code} (${order.discount.amount.toLocaleString("tr-TR", {
+            minimumFractionDigits: 2,
+          })} ${order.currency})`,
+        ]
+      : []),
+    amountInWords(gross, order.currency),
+    `Web: ${resolveWebSiteUrl()}`,
+  ]
+  // Aynı metin iki kez yazılmasın (ör. açıklama sipariş referansını içeriyorsa).
+  return Array.from(new Set(lines.map((l) => l.trim()).filter(Boolean))).join("\n")
+}
+
 /** Siparişin kanaldan bağımsız, faturalamaya yeten görünümü. */
-type OrderView = {
+export type OrderView = {
   id: string
   buyerCompanyId: string
   gross: number
   currency: string
   paidAt: Date | null
-  /** "CARD" | "HAVALE" — internet satış ödeme şeklini belirler. */
+  /** "CARD" | "HAVALE" — tahsilat kaydının ödeme şeklini belirler. */
   paymentMethod: string
   isTest: boolean
   invoiceId: string | null
@@ -54,6 +105,12 @@ type OrderView = {
   reference: string
   /** Satış kaleminin bağlanacağı hizmet ürününün adı. */
   productName: string
+  /**
+   * Uygulanan indirim kodu (varsa). `amount` KDV DAHİL indirim tutarıdır ve
+   * `gross` ondan ZATEN düşülmüştür: liste tutarı `gross + discount.amount`.
+   * Faturada kalem liste fiyatından yazılıp iskonto ayrı işlenir.
+   */
+  discount: { code: string; amount: number } | null
   billing: BillingInfo
 }
 
@@ -161,6 +218,10 @@ async function loadKontorOrder(orderId: string): Promise<OrderView | { error: st
     description: `${order.packageName} — ${order.creditQty} adet e-Belge kontörü`,
     reference: order.paymentCode || order.id.slice(-8).toUpperCase(),
     productName: "E-Belge Kontörü",
+    discount:
+      order.discountCode && Number(order.discountAmount) > 0
+        ? { code: order.discountCode, amount: Number(order.discountAmount) }
+        : null,
     billing: billing.billing,
   }
 }
@@ -196,6 +257,10 @@ async function loadPackageOrder(orderId: string): Promise<OrderView | { error: s
     description: `${planLabel} — ${cycle} abonelik`,
     reference: order.id.slice(-8).toUpperCase(),
     productName: "Kobipo Abonelik",
+    discount:
+      order.discountCode && Number(order.discountAmount) > 0
+        ? { code: order.discountCode, amount: Number(order.discountAmount) }
+        : null,
     billing: billing.billing,
   }
 }
@@ -356,7 +421,20 @@ export async function issueSalesInvoiceForOrder(params: {
 
     // 1) TASLAK KAYIT — yalnız daha önce açılmadıysa.
     if (!invoiceId) {
+      // TAHSİL EDİLEN tutarın KDV ayrıştırması — belgedeki ödenecek tutar budur.
       const split = splitVatInclusive(order.gross, order.vatRate)
+      // İNDİRİM VARSA kalem LİSTE fiyatından yazılır, indirim iskonto olarak işlenir:
+      // müşteri belgede hem liste fiyatını hem indirimi görür. İskonto neti, liste
+      // netinden tahsil edilen net çıkarılarak bulunur — böylece kalem toplamı ile
+      // ödenecek tutar kuruşu kuruşuna tutar (iki ayrı yuvarlama yapılmaz).
+      const listSplit = order.discount
+        ? splitVatInclusive(order.gross + order.discount.amount, order.vatRate)
+        : split
+      const discountNet = Math.round((listSplit.net - split.net) * 100) / 100
+      const discountRate =
+        order.discount && listSplit.net > 0
+          ? Math.round((discountNet / listSplit.net) * 10000) / 100
+          : null
       const customerId = await ensureCustomer(sellerCompanyId, order.billing)
       const productId = await ensureServiceProductId(
         sellerCompanyId,
@@ -384,11 +462,15 @@ export async function issueSalesInvoiceForOrder(params: {
           // tahsil edilen tutara eşitler.
           payableRoundingAmount: split.rounding !== 0 ? split.rounding : null,
           status: "DRAFT",
-          notes: `Kobipo sipariş no: ${order.reference}`,
-          internetSalesInfo: buildInternetSalesInfo({
-            paymentMethod: order.paymentMethod,
-            paidAt: order.paidAt,
-          }) as any,
+          notes: buildInvoiceNotes(order, split.gross),
+          // İNTERNET SATIŞI BİLGİSİ YAZILMAZ (bilinçli karar, 2026-08-26).
+          // Yazıldığında belgeye "Bu satış internet üzerinden yapılmıştır" bloğu ve
+          // GİB şablonunun mesafeli satış İADE BÖLÜMÜ tablosu basılıyordu (kusurlu
+          // ürün / beden uymaması / kargo hasarı gibi satırlarla). Kobipo dijital
+          // HİZMET satıyor — sevk edilen bir mal, dolayısıyla iade edilecek bir ürün
+          // yok; o tablo alıcıya yanlış bir cayma/iade yolu gösteriyordu. Alan boş
+          // kalınca belge normal e-Arşiv/e-Fatura serisinden, ek blok olmadan gider.
+          // Gerçek bir uzaktan MAL satışı eklenirse buildInternetSalesInfo() hazır.
           items: {
             create: [
               {
@@ -396,7 +478,11 @@ export async function issueSalesInvoiceForOrder(params: {
                 description: order.description,
                 unit: "ADET",
                 quantity: 1,
-                unitPrice: split.net,
+                // Birim fiyat LİSTE nettir; indirim ayrı alanlarda durur (UBL
+                // AllowanceCharge olarak gider — [[send-invoice-helper.ts]]).
+                unitPrice: listSplit.net,
+                discountAmount: order.discount ? discountNet : null,
+                discountRate: order.discount ? discountRate : null,
                 vatRate: split.vatRate,
                 vatAmount: split.vat,
                 totalAmount: split.net + split.vat,

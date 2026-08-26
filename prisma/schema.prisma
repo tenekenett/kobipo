@@ -329,6 +329,7 @@ model Company {
   employees               Employee[]
   kontorOrders            KontorOrder[]
   packageOrders           PackageOrder[]
+  discountRedemptions     DiscountCodeRedemption[]
   eInvoiceTemplates       EInvoiceTemplate[]
   eInvoiceSeriesTemplates EInvoiceSeriesTemplate[]
   labelTemplates          LabelTemplate[]
@@ -2119,7 +2120,13 @@ model PackageOrder {
   branchQuota      Int                @default(0) // satın alınan ek şube kotası
   companyQuota     Int                @default(0) // satın alınan ek firma kotası
   billingCycle     String // MONTHLY | YEARLY
+  // amount = TAHSİL EDİLEN tutar (indirim düşülmüş); liste tutarı
+  // `amount + discountAmount`tır. Yenilemede hangi tutarın çekileceğini
+  // `DiscountCode.appliesToRenewals` belirler. [[DiscountCode]]
   amount           Decimal            @db.Decimal(10, 2)
+  discountCodeId   String?
+  discountCode     String? // sipariş anı snapshot'ı
+  discountAmount   Decimal            @default(0) @db.Decimal(10, 2)
   currency         String             @default("TRY")
   autoRenew        Boolean            @default(true)
   status           PackageOrderStatus @default(PENDING_PAYMENT)
@@ -2206,7 +2213,13 @@ model KontorOrder {
   packageName       String
   creditQty         Int
   unitPrice         Decimal           @db.Decimal(10, 2)
+  // totalPrice = TAHSİL EDİLEN tutar (indirim düşülmüş). Liste tutarı
+  // `totalPrice + discountAmount`tır; fatura kalemi liste fiyatından yazılıp
+  // iskonto ayrı satır olarak işlenir. [[DiscountCode]]
   totalPrice        Decimal           @db.Decimal(10, 2)
+  discountCodeId    String?
+  discountCode      String? // sipariş anı snapshot'ı (kod sonradan silinse de kalır)
+  discountAmount    Decimal           @default(0) @db.Decimal(10, 2)
   currency          String            @default("TRY")
   mysoftTariffCode  String
   targetVkn         String // kontörün yükleneceği mükellef VKN/TCKN
@@ -2698,4 +2711,75 @@ model EmployeeDocumentBlob {
   document   EmployeeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@map("employee_document_blobs")
+}
+
+// ————— İNDİRİM KODLARI —————
+//
+// Kobipo'nun KENDİ satışları (kontör paketi + abonelik/paket siparişi) için kupon.
+// Değerlendirmenin TEK yeri lib/billing/discount.ts'tir: istemciden gelen tutara
+// güvenilmez, indirim her zaman sunucuda kodun kendisinden yeniden hesaplanır.
+//
+// Fiyatlar KDV DAHİL tutulur (KOBIPO_PRICES_INCLUDE_VAT); indirim de KDV dahil
+// tutar üzerinden hesaplanır. Faturada iskonto AYRI satır olarak işlenir: kalem
+// liste fiyatından yazılır, indirim `InvoiceItem.discountAmount`a düşer.
+model DiscountCode {
+  id          String  @id @default(cuid())
+  /// Büyük harfe normalize edilmiş kod (kullanıcı küçük harf yazsa da bulunur).
+  code        String  @unique
+  description String?
+  /// PERCENT | AMOUNT
+  type        String
+  /// PERCENT'te yüzde (1-100), AMOUNT'ta TL (KDV dahil).
+  value       Decimal @db.Decimal(10, 2)
+  /// KONTOR | PACKAGE | ALL — kodun geçerli olduğu satış türü.
+  scope       String  @default("ALL")
+  /// Yüzde indirimde tavan (TL). Boş = tavansız.
+  maxDiscount Decimal? @db.Decimal(10, 2)
+  /// Asgari sipariş tutarı (TL, KDV dahil). Boş = alt sınır yok.
+  minAmount   Decimal? @db.Decimal(10, 2)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  /// Toplam kullanım hakkı. Boş = sınırsız.
+  maxRedemptions Int?
+  /// Firma başına kullanım hakkı. Boş = sınırsız.
+  maxPerCompany  Int?     @default(1)
+   /// Abonelik YENİLEMELERİNDE de geçerli mi? False ise indirim yalnız ilk ödemeye
+   /// uygulanır ve `Subscription.amount` LİSTE tutarıyla yazılır — yenileme tam
+   /// fiyattan çekilir. True ise abonelik indirimli tutarla yenilenir.
+   /// Kontör tek seferlik olduğu için bu alandan etkilenmez.
+  appliesToRenewals Boolean @default(false)
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  redemptions DiscountCodeRedemption[]
+
+  @@index([isActive])
+  @@map("discount_codes")
+}
+
+ /// Kullanım kaydı — kod limitleri BURADAN sayılır. Satır yalnız ÖDEME BAŞARILI
+ /// olduğunda yazılır: yarım kalan sipariş kimsenin hakkını yemez.
+model DiscountCodeRedemption {
+  id             String   @id @default(cuid())
+  codeId         String
+  companyId      String
+  /// KONTOR | PACKAGE
+  orderKind      String
+  kontorOrderId  String?
+  packageOrderId String?
+  /// Uygulanan indirim (TL, KDV dahil).
+  amount         Decimal  @db.Decimal(10, 2)
+  /// Abonelik yenilemesinde mi kullanıldı?
+  isRenewal      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  code    DiscountCode @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Aynı sipariş iki kez sayılmasın (çift callback bildirimi).
+  @@unique([kontorOrderId])
+  @@unique([packageOrderId])
+  @@index([codeId, companyId])
+  @@map("discount_code_redemptions")
 }

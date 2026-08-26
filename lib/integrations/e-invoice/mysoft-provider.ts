@@ -1290,8 +1290,18 @@ async sendInvoice(invoiceData: any): Promise<any> {
           : {}),
         // Fatura not/açıklama alanı (UBL cbc:Note). Mysoft NoteModel listesi bekler;
         // boşsa hiç gönderme. Hem e-Fatura hem e-Arşiv'de belgede görünür.
+        //
+        // Her SATIR ayrı bir cbc:Note olur: GİB şablonu notları "Not: …" diye alt alta
+        // basar, tek Note'un içindeki satır sonlarını ise tek satıra ezer. Çok satırlı
+        // açıklama bu yüzden bölünerek gönderilir.
         ...(typeof invoiceData.notes === "string" && invoiceData.notes.trim()
-          ? { notes: [{ note: invoiceData.notes.trim() }] }
+          ? {
+              notes: invoiceData.notes
+                .split(/\r?\n/)
+                .map((line: string) => line.trim())
+                .filter(Boolean)
+                .map((note: string) => ({ note })),
+            }
           : {}),
 
         // İNTERNET SATIŞI (Swagger v8: isInternetSales + internetShipmentInfo).

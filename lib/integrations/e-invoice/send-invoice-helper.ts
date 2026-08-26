@@ -221,8 +221,10 @@ async function resolveSendContext(
     }
   }
 
-  // İnternet satışı mı? (Kobipo'nun kendi kontör/abonelik satışları daima öyledir.)
-  // Yalnız doğrulanmış nesne geçilir; yarım bilgi provider'a hiç gitmez.
+  // İnternet satışı mı? Yalnız doğrulanmış nesne geçilir; yarım bilgi provider'a hiç
+  // gitmez. Kobipo'nun kendi kontör/abonelik satışları bu alanı DOLDURMAZ (dijital
+  // hizmet; bkz. lib/invoice/internet-sales.ts) — bugün alan yalnız eski kayıtlarda
+  // dolu olabilir.
   const internetSalesInfo = parseInternetSalesInfo(invoice.internetSalesInfo)
 
   // Mysoft prefix: kullanıcı seçmediyse undefined geç (provider auto-pick eder).

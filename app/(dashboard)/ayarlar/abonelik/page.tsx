@@ -11,6 +11,10 @@ import { computeOrder, type PricingMap, type PlanPricing } from "@/lib/billing/p
 import { modulePriceKey, type BillingCycle } from "@/lib/billing/constants"
 import { Check, Loader2, AlertTriangle, Sparkles, CheckCircle2, Receipt } from "lucide-react"
 import {
+  DiscountCodeField,
+  type AppliedDiscount,
+} from "@/components/billing/discount-code-field"
+import {
   BillingInfoForm,
   EMPTY_BILLING,
   missingBillingFields,
@@ -294,6 +298,20 @@ export default function AbonelikPage() {
       computed.branchQuota > 0 ||
       computed.companyQuota > 0)
 
+  // İNDİRİM KODU — seçim değişince (plan/modül/kota/periyot) uygulanan kod DÜŞER:
+  // tutar değiştiği için eski ön izleme yanlış olurdu. Kullanıcı yeniden uygular.
+  const [discount, setDiscount] = useState<AppliedDiscount | null>(null)
+  const discountSelectionKey = `${selectedPlan?.id ?? ""}|${Array.from(extras)
+    .sort()
+    .join(",")}|${branchQuota}|${companyQuota}|${cycle}`
+  const lastSelectionKey = useRef(discountSelectionKey)
+  useEffect(() => {
+    if (lastSelectionKey.current !== discountSelectionKey) {
+      lastSelectionKey.current = discountSelectionKey
+      setDiscount(null)
+    }
+  }, [discountSelectionKey])
+
   async function handlePay() {
     if (!companySlug || submitting) return
 
@@ -324,6 +342,8 @@ export default function AbonelikPage() {
           billingCycle: cycle,
           autoRenew,
           billing,
+          // Yalnız KOD gider; indirimi sunucu yeniden hesaplar.
+          discountCode: discount?.code ?? undefined,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -331,6 +351,9 @@ export default function AbonelikPage() {
         setInvalidFields(Array.isArray(data?.fields) ? data.fields : [])
         setBillingOpen(true)
       }
+      // Kod arada geçersizleştiyse kutuyu temizle — kullanıcı indirim beklerken
+      // liste fiyatından ödemeye gitmesin.
+      if (res.status === 422 && data?.field === "discountCode") setDiscount(null)
       if (!res.ok) throw new Error(data?.error || "Sipariş oluşturulamadı")
       router.push(`/ayarlar/abonelik/odeme/${data.id}?company=${encodeURIComponent(companySlug)}`)
     } catch (e) {
@@ -626,10 +649,46 @@ export default function AbonelikPage() {
             </ul>
           )}
 
+          {discount?.kind === "single" && (
+            <div className="flex items-center justify-between gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+              <span>İndirim ({discount.code})</span>
+              <span>−{tl.format(discount.discountAmount)}</span>
+            </div>
+          )}
+
           <div className="flex items-center justify-between border-t pt-3 text-base font-semibold">
             <span>Toplam{cycle === "MONTHLY" ? " (aylık)" : " (yıllık)"}</span>
-            <span>{tl.format(computed.amount)}</span>
+            <span>
+              {discount?.kind === "single" ? (
+                <>
+                  <span className="mr-2 text-sm font-normal text-muted-foreground line-through">
+                    {tl.format(computed.amount)}
+                  </span>
+                  {tl.format(discount.payable)}
+                </>
+              ) : (
+                tl.format(computed.amount)
+              )}
+            </span>
           </div>
+
+          {/* İndirim kodu — tutarı sunucu hesaplar, kutu yalnız ön izleme yapar. */}
+          {companySlug && canPay && (
+            <DiscountCodeField
+              companyId={companySlug}
+              scope="PACKAGE"
+              payload={{
+                planId: selectedPlan?.id ?? null,
+                chosenModules: Array.from(extras),
+                branchQuota: Math.max(branchQuota, minQuota),
+                companyQuota: Math.max(companyQuota, minCompanyQuota),
+                billingCycle: cycle,
+              }}
+              applied={discount}
+              onApplied={setDiscount}
+              disabled={submitting}
+            />
+          )}
 
           <label className="flex items-center gap-2 pt-1 text-sm">
             <Switch checked={autoRenew} onCheckedChange={setAutoRenew} />
@@ -703,7 +762,9 @@ export default function AbonelikPage() {
                 Yönlendiriliyor…
               </>
             ) : (
-              `Öde · ${tl.format(computed.amount)}`
+              // Düğme TAHSİL EDİLECEK tutarı yazar: indirim uygulandığında liste
+              // tutarını göstermek, ekranda görünen ile ödenecek tutarı ayrıştırırdı.
+              `Öde · ${tl.format(discount?.kind === "single" ? discount.payable : computed.amount)}`
             )}
           </Button>
         </CardContent>

@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
+import { CityDistrictSelect } from "@/components/address/city-district-select"
 import { useCanEdit } from "@/components/dashboard/dashboard-company-provider"
 import { Loader2, UserPlus } from "lucide-react"
 
@@ -308,16 +309,15 @@ export function QuickCariDialog({
             <Input id="qc-address" value={form.address} onChange={(e) => set("address", e.target.value)} />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="qc-district">İlçe</Label>
-              <Input id="qc-district" value={form.district} onChange={(e) => set("district", e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="qc-city">İl</Label>
-              <Input id="qc-city" value={form.city} onChange={(e) => set("city", e.target.value)} />
-            </div>
-          </div>
+          {/* İl/ilçe sabit listeden seçilir (serbest metin yok) — cari kartındaki
+              seçicinin aynısı. İlçe seçmek ili de doldurur. */}
+          <CityDistrictSelect
+            idPrefix="qc"
+            city={form.city}
+            district={form.district}
+            onChange={({ city, district }) => setForm((prev) => ({ ...prev, city, district }))}
+            containerClassName="grid grid-cols-2 gap-3"
+          />
         </div>
 
         <DialogFooter>
