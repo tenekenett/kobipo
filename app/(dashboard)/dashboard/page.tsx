@@ -221,6 +221,7 @@ export default async function DashboardIndexPage({
         companyId={companyId}
         canPurchase={selectedCompany.role === "ADMIN"}
         freeModules={freeModules}
+        isArchived={selectedCompany.isArchived}
       />
     )
   }

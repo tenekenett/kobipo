@@ -32,6 +32,9 @@ export async function GET() {
           id: true,
           status: true,
           provider: true,
+          // Saklı kart token'ı — VARLIĞI gösterilir, değeri değil ("süre uzatmak
+          // yinelenen çekimi durdurmaz" uyarısı buna bakıyor).
+          providerSubscriptionId: true,
           purchasedModules: true,
           branchQuota: true,
           companyQuota: true,
@@ -40,6 +43,7 @@ export async function GET() {
           cancelAtPeriodEnd: true,
           billingCycle: true,
           trialEndsAt: true,
+          periodStart: true,
           periodEnd: true,
         },
       },
@@ -83,8 +87,15 @@ export async function GET() {
 
   // Üyeleri iki sayaca ayır: şube (parentCompanyId dolu) ve ek firma (dolu değil).
   // Kota düzenleyicileri "kullanılan" değerini bunlardan okur, tek "üye sayısı" yanıltırdı.
-  const data = companies.map(({ accountMembers, ...account }) => ({
+  const data = companies.map(({ accountMembers, subscriptions, ...account }) => ({
     ...account,
+    // SAKLI KART TOKEN'I TARAYICIYA GİTMEZ. Arayüzün ihtiyacı "kart var mı" sorusunun
+    // cevabı ("süre uzatmak yinelenen çekimi durdurmaz" uyarısı); token'ın kendisi
+    // çekim yetkisidir ve panelde işi yoktur.
+    subscriptions: subscriptions.map(({ providerSubscriptionId, ...sub }) => ({
+      ...sub,
+      hasStoredCard: Boolean(providerSubscriptionId),
+    })),
     branchCount: accountMembers.filter((m) => m.parentCompanyId).length,
     companyCount: accountMembers.filter((m) => !m.parentCompanyId).length,
   }))

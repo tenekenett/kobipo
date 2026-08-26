@@ -61,6 +61,7 @@ export default async function AdminDashboard({
         companyId={activeCompany.companySlug ?? activeCompany.companyId}
         canPurchase={activeCompany.role === "ADMIN"}
         freeModules={freeModules}
+        isArchived={activeCompany.isArchived}
       />
     )
   }

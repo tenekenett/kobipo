@@ -134,6 +134,27 @@ export function requiredModulesForApiPath(pathname: string, method: string): str
   return isWriteMethod(method) ? rule.write ?? rule.read : rule.read
 }
 
+/**
+ * ARŞİV İSTİSNASI — salt-okunur arşivdeki hesabın verisini indirebildiği dar kapı.
+ *
+ * Arşiv kademesinin ([[lib/billing/archive.ts]]) tüm vaadi "verileriniz duruyor ve
+ * indirilebilir"dir. Ama arşive giden hesap `EXPIRED` olduğu için ücretli modülleri
+ * kapalıdır ve dışa aktarma uçları modül kapısına tabidir — yani vaat, kapının kendisi
+ * tarafından çürütülüyordu: müşteriye "verilerinizi indirin" düğmesi gösterip 403
+ * döndürmek olurdu.
+ *
+ * İstisna bilinçli olarak DAR: yalnız `GET`, yalnız `/api/export` altı, yalnız
+ * `archivedAt` damgalı hesapta. Yazma, içe aktarma ve diğer uçlar kapalı kalır;
+ * salt-okunur rol kapısı (`ensureCompanyExport`) da ayrıca işlemeye devam eder.
+ * Genişletilen erişim, müşterinin zaten ödediği ve bizim tuttuğumuz kendi verisidir.
+ */
+export function isArchiveExportPath(pathname: string, method: string): boolean {
+  if (method.toUpperCase() !== "GET") return false
+  // Ham `startsWith` yetmez: `/api/exportish` gibi bir uç eklenirse ön ek onu da
+  // kapsar ve istisna sessizce genişler. Sınır ya tam yol ya da bir alt yoldur.
+  return pathname === "/api/export" || pathname.startsWith("/api/export/")
+}
+
 /** 403 gövdesindeki makine-okunur kod; arayüz "satın al" akışını buna göre açar. */
 export const MODULE_LOCKED_CODE = "MODULE_LOCKED"
 

@@ -378,7 +378,10 @@ function QuotaCard({
           <div className="flex flex-wrap items-baseline gap-2">
             <span className="text-sm font-medium">{title}</span>
             <span className="text-lg font-bold tabular-nums">
-              {status.used}/{status.quota}
+              {/* Aboneliksiz hesapta kota tanım gereği 0'dır (fail-closed) ama AÇIK
+                  şubeler yerinde durur. "3/0" yazmak müşteriye "şubelerim silinmiş"
+                  dedirtiyordu; hak yokken sayı yerine "—" basılır, sebebi de altta yazar. */}
+              {status.used}/{status.hasActiveSubscription ? status.quota : "—"}
             </span>
             <span className="truncate text-xs text-muted-foreground">
               {accountName ? `· ${accountName}` : ""}

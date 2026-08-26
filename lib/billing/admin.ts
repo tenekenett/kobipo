@@ -7,9 +7,21 @@ import {
   countAccountCompanies,
   getAccountCompanyIds,
   resolveAccountRootId,
+  resolveGrantedModules,
+  setAccountModules,
 } from "@/lib/billing/entitlements"
 import { TRIAL_PLAN_CODE } from "@/lib/billing/catalog"
-import { MAX_BRANCH_QUOTA, MAX_COMPANY_QUOTA } from "@/lib/billing/constants"
+import {
+  isBillingCycle,
+  MAX_BRANCH_QUOTA,
+  MAX_COMPANY_QUOTA,
+  type BillingCycle,
+} from "@/lib/billing/constants"
+import { resolveGrantWindow, type GrantMode } from "@/lib/billing/period"
+import { isAutoRenewActive } from "@/lib/billing/notice"
+import { isRecurringEnabled } from "@/lib/integrations/paytr/client"
+import { eventDate, logSubscriptionEvent } from "@/lib/billing/events"
+import { issueInvoiceQuietly } from "@/lib/invoicing/issue-sales-invoice"
 
 export type ResetMode = "trial" | "locked"
 
@@ -258,5 +270,295 @@ export async function setAccountQuotas(
     currentBranches,
     currentCompanies,
     createdSubscription: true,
+  }
+}
+
+/** Elle süre vermenin girdisi. Süre gün/ay/tarihten TAM OLARAK biriyle verilir. */
+export type GrantPeriodInput = {
+  companyId: string
+  mode: GrantMode
+  days?: number | null
+  months?: number | null
+  untilDate?: Date | string | null
+  /** Yeni dönemin periyodu — hoşgörü süresini ve yenileme adımını belirler. */
+  billingCycle?: string | null
+  /** Verilirse hesabın açık modül seti bununla DEĞİŞTİRİLİR; verilmezse dokunulmaz. */
+  modules?: string[] | null
+  /** Otomatik yenilemeyi açıkça aç/kapat (hediyede genelde kapatılır). */
+  autoRenew?: boolean | null
+  /** İşaretliyse `PackageOrder` + otomatik fatura üretilir (havale/elden tahsilat). */
+  paymentReceived?: boolean
+  /** `paymentReceived` ise zorunlu: tahsil edilen tutar. */
+  amount?: number | null
+  /** ZORUNLU. Olay günlüğüne yazılır — elle müdahalenin gerekçesiz kalması yasak. */
+  reason: string
+  actorUserId?: string | null
+}
+
+/** Elle verilebilecek en yüksek tutar — yanlış girişe karşı emniyet. */
+const MAX_GRANT_AMOUNT = 1_000_000
+
+/**
+ * Bir hesaba (kök firma) ELLE abonelik süresi verir/uzatır. Süper-admin işi.
+ *
+ * Neden ayrı bir yol: bugün süre vermenin tek yolu `resetAccountBilling("trial")`, o da
+ * hesabın siparişlerini SİLİP taze deneme kuruyor — telafi/hediye için fazla yıkıcı ve
+ * ücretli müşteride geçmişi yok ediyor. Bu fonksiyon yalnız dönemi (ve istenirse modül
+ * setini) yazar; sipariş ve fatura geçmişine dokunmaz.
+ *
+ * Yaptıkları:
+ * 1. Dönemi `resolveGrantWindow` ile hesaplar ([[lib/billing/period.ts]] — `extend`
+ *    dönem gelecekteyse ONDAN uzatır, `set` bugünden yazar).
+ * 2. Durumu `ACTIVE` yapar ve **uyarı/kilit damgalarını sıfırlar**
+ *    (`lockedAt`, `lastNoticeThreshold`, `lastNoticeSentAt`). Bu şart: yeni dönem temiz
+ *    sayfadır, aksi halde "7 gün kaldı" uyarısı "daha acilini göndermiştim" diye atlanır
+ *    ve arşiv sayacı süresi uzatılmış hesabı saymaya devam eder.
+ * 3. Yetkileri **yeniden uygular**. Yalnız tarihi ileri almak yetmez: `EXPIRED` hesapta
+ *    `disabledModules` kilitli kaldığı için müşteri "süresi var ama paneli boş" görür.
+ * 4. `paymentReceived` ise `PackageOrder` + otomatik fatura üretir.
+ * 5. Her hâlde `MANUAL_GRANT` olayı yazar — elle müdahale iz bırakmadan geçmez.
+ *
+ * **TUZAK — süre uzatmak yinelenen çekimi durdurmaz.** `provider="PAYTR"` +
+ * `autoRenew` + saklı kart üçlüsü kuruluysa `runRecurring` yeni `periodEnd`de kartı
+ * yine çeker. Yani "3 ay hediye" verilen müşteriden 3 ay sonra para çekilir. Bunu
+ * istemiyorsanız `autoRenew: false` geçin; fonksiyon durumu `warnings` ile de bildirir.
+ */
+export async function grantAccountPeriod(input: GrantPeriodInput) {
+  const reason = (input.reason ?? "").trim()
+  if (reason.length < 3) {
+    throw new BillingAdminError("Gerekçe zorunlu (en az 3 karakter)", "NO_REASON", 400)
+  }
+  if (reason.length > 500) {
+    throw new BillingAdminError("Gerekçe en fazla 500 karakter olabilir", "REASON_TOO_LONG", 400)
+  }
+
+  const cycle: BillingCycle | undefined = isBillingCycle(input.billingCycle)
+    ? input.billingCycle
+    : undefined
+  if (input.billingCycle != null && cycle === undefined) {
+    throw new BillingAdminError("Periyot MONTHLY ya da YEARLY olmalı", "INVALID_CYCLE", 400)
+  }
+
+  const paymentReceived = input.paymentReceived === true
+  const amount = input.amount == null ? null : Number(input.amount)
+  if (paymentReceived) {
+    if (amount == null || !Number.isFinite(amount) || amount <= 0 || amount > MAX_GRANT_AMOUNT) {
+      throw new BillingAdminError(
+        `Tahsil edilen tutar 0'dan büyük ve ${MAX_GRANT_AMOUNT} altında olmalı`,
+        "INVALID_AMOUNT",
+        400,
+      )
+    }
+  }
+
+  const rootId = await resolveAccountRootId(input.companyId)
+  const sub = await prisma.subscription.findFirst({
+    where: { companyId: rootId },
+    orderBy: { createdAt: "desc" },
+  })
+
+  const now = new Date()
+  // Denemede erişim `trialEndsAt` ile yürür, ücretlide `periodEnd` ile. Uzatmanın tabanı
+  // hangisi geçerliyse odur; karıştırılırsa deneme hesabı "geçmişten" uzatılır.
+  const currentEnd =
+    sub == null
+      ? null
+      : sub.status === "TRIAL"
+        ? (sub.trialEndsAt ?? sub.periodEnd)
+        : (sub.periodEnd ?? sub.trialEndsAt)
+
+  const resolved = resolveGrantWindow({
+    mode: input.mode,
+    duration: {
+      days: input.days ?? null,
+      months: input.months ?? null,
+      untilDate: input.untilDate == null ? null : new Date(input.untilDate),
+    },
+    now,
+    currentStart: sub?.periodStart ?? null,
+    currentEnd,
+  })
+  if (!resolved.ok) {
+    throw new BillingAdminError(resolved.message, resolved.code, 400)
+  }
+  const { periodStart, periodEnd, basedOn, addedDays } = resolved.window
+
+  const previousStatus = sub?.status ?? null
+  const previousEnd = currentEnd
+
+  // Yeni dönem = temiz sayfa: kilit damgası ve gönderilmiş uyarı eşiği sıfırlanır.
+  const periodData = {
+    status: "ACTIVE",
+    periodStart,
+    periodEnd,
+    lockedAt: null,
+    lastNoticeThreshold: null,
+    lastNoticeSentAt: null,
+    ...(cycle ? { billingCycle: cycle } : {}),
+    ...(input.autoRenew == null ? {} : { autoRenew: input.autoRenew }),
+  }
+
+  let subscriptionId: string
+  let createdSubscription = false
+
+  if (sub) {
+    const updated = await prisma.subscription.update({
+      where: { id: sub.id },
+      data: periodData,
+      select: { id: true },
+    })
+    subscriptionId = updated.id
+  } else {
+    const userId = await resolveAccountOwnerUserId(rootId)
+    if (!userId) {
+      throw new BillingAdminError("Firmada kullanıcı yok; abonelik oluşturulamadı", "NO_USER", 409)
+    }
+    const created = await prisma.subscription.create({
+      data: {
+        userId,
+        companyId: rootId,
+        provider: "NONE",
+        purchasedModules: [],
+        ...periodData,
+        // Yeni satırda otomatik yenileme KAPALI doğar: elle verilen sürenin arkasında
+        // saklı bir kart yok, "açık" yazmak yanıltıcı olurdu.
+        autoRenew: input.autoRenew === true,
+      },
+      select: { id: true },
+    })
+    subscriptionId = created.id
+    createdSubscription = true
+  }
+
+  // YETKİLER YENİDEN UYGULANIR. Modül seti verildiyse o yazılır (setAccountModules hem
+  // `purchasedModules` hem `disabledModules` yazar — yalnız birini yazmak yetkiyi ilk
+  // yeniden hesaplamada sildirir, bu projede iki kez oldu). Verilmediyse aboneliğin
+  // mevcut setiyle kilit AÇILIR.
+  if (input.modules != null) {
+    await setAccountModules(rootId, input.modules)
+  } else {
+    const fresh = await prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      select: {
+        status: true,
+        purchasedModules: true,
+        trialEndsAt: true,
+        periodEnd: true,
+        billingCycle: true,
+      },
+    })
+    await applyEntitlements(rootId, resolveGrantedModules(fresh))
+  }
+
+  const after = await prisma.subscription.findUnique({
+    where: { id: subscriptionId },
+    select: {
+      provider: true,
+      autoRenew: true,
+      cancelAtPeriodEnd: true,
+      providerSubscriptionId: true,
+      purchasedModules: true,
+      planId: true,
+      branchQuota: true,
+      companyQuota: true,
+      billingCycle: true,
+    },
+  })
+
+  // Tahsilat elden/havale alındıysa mali iz bırak: sipariş + otomatik satış faturası.
+  let orderId: string | null = null
+  if (paymentReceived && after) {
+    try {
+      const order = await prisma.packageOrder.create({
+        data: {
+          companyId: rootId,
+          planId: after.planId,
+          resolvedModules: after.purchasedModules,
+          branchQuota: after.branchQuota,
+          companyQuota: after.companyQuota,
+          billingCycle: after.billingCycle ?? cycle ?? "MONTHLY",
+          amount: amount as number,
+          autoRenew: false,
+          status: "ACTIVE",
+          // Kart değil: PayTR akışının dışında alınmış bir tahsilat. `isTest` FALSE —
+          // gerçek para girdi, belge de gerçek kesilmeli.
+          paymentProvider: "MANUAL",
+          paidAt: now,
+          paymentRef: `manual:${reason.slice(0, 60)}`,
+          isTest: false,
+        },
+        select: { id: true },
+      })
+      orderId = order.id
+      await issueInvoiceQuietly({ kind: "PACKAGE", orderId: order.id })
+    } catch (error) {
+      // Sipariş/fatura üretilemese bile SÜRE VERİLDİ — geri almak müşteriyi kapı
+      // dışında bırakırdı. Hata uyarı olarak yukarı taşınır, sessizce yutulmaz.
+      console.error(`[billing-grant] elle tahsilat siparişi oluşturulamadı (${rootId}):`, error)
+    }
+  }
+
+  const warnings: string[] = []
+  if (after && isAutoRenewActive(after, isRecurringEnabled())) {
+    warnings.push(
+      "Bu hesapta saklı kartla otomatik yenileme kurulu: verilen süre bittiğinde kart yeniden çekilecek. Hediye/telafi ise otomatik yenilemeyi kapatın.",
+    )
+  }
+  if (after?.cancelAtPeriodEnd) {
+    warnings.push(
+      "Abonelikte 'dönem sonunda iptal' işareti duruyor: verilen süre bitince hoşgörüsüz kapanacak.",
+    )
+  }
+  if (input.modules == null && (after?.purchasedModules.length ?? 0) === 0) {
+    warnings.push(
+      "Hesabın satın alınmış modülü yok — süre verildi ama ücretli modüller açılmadı. Modül seti seçerek tekrar verin.",
+    )
+  }
+  if (paymentReceived && !orderId) {
+    warnings.push("Tahsilat siparişi/faturası oluşturulamadı; süre yine de verildi.")
+  }
+
+  await logSubscriptionEvent({
+    type: "MANUAL_GRANT",
+    companyId: rootId,
+    subscriptionId,
+    actor: "ADMIN",
+    actorUserId: input.actorUserId ?? null,
+    summary:
+      `Elle süre verildi: dönem ${eventDate(previousEnd)} → ${eventDate(periodEnd)} ` +
+      `(${input.mode === "extend" ? "uzatma" : "yeniden başlatma"}) — ${reason}`,
+    detail: {
+      mode: input.mode,
+      basedOn,
+      addedDays,
+      previousStatus,
+      previousEnd: previousEnd?.toISOString() ?? null,
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString(),
+      billingCycle: cycle ?? null,
+      modules: input.modules ?? null,
+      autoRenew: input.autoRenew ?? null,
+      paymentReceived,
+      amount: paymentReceived ? amount : null,
+      orderId,
+      createdSubscription,
+      reason,
+      warnings,
+    },
+  })
+
+  return {
+    rootId,
+    subscriptionId,
+    createdSubscription,
+    previousStatus,
+    status: "ACTIVE" as const,
+    previousEnd,
+    periodStart,
+    periodEnd,
+    addedDays,
+    basedOn,
+    orderId,
+    warnings,
   }
 }

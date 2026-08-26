@@ -94,6 +94,7 @@ export default async function ViewerDashboard({
         companyId={activeCompany.companySlug ?? activeCompany.companyId}
         canPurchase={activeCompany.role === "ADMIN"}
         freeModules={freeModules}
+        isArchived={activeCompany.isArchived}
       />
     )
   }

@@ -14,11 +14,12 @@ import {
 } from "@/lib/modules"
 import { computeOrder, type PricingMap, type PlanPricing } from "@/lib/billing/pricing"
 import { modulePriceKey, type BillingCycle } from "@/lib/billing/constants"
-import { Check, Loader2, AlertTriangle, Sparkles, CheckCircle2, Receipt } from "lucide-react"
+import { Check, Loader2, AlertTriangle, Sparkles, Receipt } from "lucide-react"
 import {
   DiscountCodeField,
   type AppliedDiscount,
 } from "@/components/billing/discount-code-field"
+import { MySubscription } from "@/components/billing/my-subscription"
 import {
   BillingInfoForm,
   EMPTY_BILLING,
@@ -135,9 +136,6 @@ export default function AbonelikPage() {
     }
   }, [billingLoading, billingComplete, billing])
 
-  const [cancelling, setCancelling] = useState(false)
-  const [cancelError, setCancelError] = useState<string | null>(null)
-
   const loadCatalog = useCallback(async () => {
     if (!companySlug) {
       setLoading(false)
@@ -188,29 +186,6 @@ export default function AbonelikPage() {
     )
     setAutoRenew(s.autoRenew)
   }, [catalog])
-
-  async function handleCancel() {
-    if (!companySlug || cancelling) return
-    if (!window.confirm("Abonelik dönem sonunda iptal edilsin mi? Süre bitene kadar modülleriniz açık kalır.")) {
-      return
-    }
-    setCancelling(true)
-    setCancelError(null)
-    try {
-      const res = await fetch("/api/billing/subscription/cancel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId: companySlug }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || "Abonelik iptal edilemedi")
-      await loadCatalog()
-    } catch (e) {
-      setCancelError(e instanceof Error ? e.message : "Abonelik iptal edilemedi")
-    } finally {
-      setCancelling(false)
-    }
-  }
 
   const pricingMap = useMemo<PricingMap>(() => {
     const map: PricingMap = {}
@@ -436,52 +411,11 @@ export default function AbonelikPage() {
         </p>
       </div>
 
-      {sub && (
-        <Card>
-          <CardContent className="flex flex-col gap-3 py-4 text-sm sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <span className="font-medium">Mevcut durum:</span>{" "}
-                {sub.isTrialActive
-                  ? "Deneme sürümü aktif"
-                  : sub.isPaidActive
-                    ? `${sub.planName || "Aktif abonelik"}`
-                    : "Aktif abonelik yok"}
-              </div>
-              {sub.periodEnd && (sub.isPaidActive || sub.isTrialActive) && (
-                <p className="text-muted-foreground">
-                  {sub.cancelAtPeriodEnd ? "İptal edildi — modüller şu tarihe kadar açık: " : "Yenileme / bitiş: "}
-                  {new Date(sub.periodEnd).toLocaleDateString("tr-TR")}
-                  {sub.isPaidActive && !sub.cancelAtPeriodEnd && (
-                    <span> · Otomatik yenileme {sub.autoRenew ? "açık" : "kapalı"}</span>
-                  )}
-                </p>
-              )}
-              {cancelError && <p className="text-destructive">{cancelError}</p>}
-            </div>
-
-            {sub.isPaidActive && !sub.cancelAtPeriodEnd && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleCancel}
-                disabled={cancelling}
-                className="shrink-0 text-destructive hover:text-destructive"
-              >
-                {cancelling ? (
-                  <>
-                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                    İptal ediliyor…
-                  </>
-                ) : (
-                  "Aboneliği iptal et"
-                )}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {/* ABONELİĞİM — durum, dönem, kart, kota, ödeme geçmişi.
+          Satın alma formuyla aynı sayfada durur: "ne zaman bitiyor" ile "nasıl uzatırım"
+          arka arkaya gelen iki sorudur. Kendi ucundan beslenir; bir işlem sonrası
+          `loadCatalog` ile satın alma formunun taban değerleri de tazelenir. */}
+      <MySubscription companyParam={companySlug} onChanged={loadCatalog} />
 
       {/* Aylık / Yıllık */}
       <div className="flex items-center justify-center">

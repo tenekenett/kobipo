@@ -31,6 +31,11 @@ export type SubscriptionEventType =
   | "ARCHIVED"
   /** Müşteri dönem sonunda iptali seçti. Erişim `periodEnd`'e kadar sürer. */
   | "CANCELLED"
+  /**
+   * Müşteri otomatik yenilemeyi açtı/kapattı. İPTAL DEĞİL: kapatmak yalnız "kendiliğinden
+   * çekilmesin" demektir, dönem sonunda hoşgörü yine işler.
+   */
+  | "AUTO_RENEW_CHANGED"
   /** Açık modül kümesi değişti (satın alma, düşürme ya da elle müdahale). */
   | "MODULES_CHANGED"
   /** Şube ve/veya ek firma kotası değişti. */
@@ -49,6 +54,7 @@ export const EVENT_LABELS: Record<SubscriptionEventType, string> = {
   EXPIRED: "Süresi doldu",
   ARCHIVED: "Arşive alındı",
   CANCELLED: "İptal edildi",
+  AUTO_RENEW_CHANGED: "Otomatik yenileme değişti",
   MODULES_CHANGED: "Modüller değişti",
   QUOTA_CHANGED: "Kota değişti",
   MANUAL_GRANT: "Elle süre verildi",

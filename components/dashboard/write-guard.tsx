@@ -53,6 +53,11 @@ export function useCanEditHere(): boolean {
   const { selectedCompany, pagePermissions } = useDashboardCompany()
 
   if (!selectedCompany) return true
+  // ARŞİV: hesap salt-okunur — rolden bağımsız olarak hiçbir ekranda düzenleme yok.
+  // Sunucu kapısı zaten reddediyor (`ensureCompanyWrite`); buradaki kontrol arayüzün
+  // kullanıcıya yalan söylememesi için, `useCanExport` bilinçli olarak etkilenmez:
+  // veriyi indirebilmek arşivin varlık sebebidir.
+  if (selectedCompany.isArchived) return false
 
   const owners = navHrefsForPath(pathname, searchParams)
   // Menüde karşılığı olmayan yol (ör. bir alt detay ekranı) kısıtlanmaz: sahibi

@@ -130,8 +130,15 @@ describe("periodEndFor", () => {
   it("aylık ve yıllık dönem sonu", () => {
     const start = new Date("2026-01-31T00:00:00.000Z")
     expect(periodEndFor("YEARLY", start).getUTCFullYear()).toBe(2027)
-    // Ay eklemede taşma JS semantiğidir (31 Ocak + 1 ay = 3 Mart); davranış kayıt altına
-    // alınıyor ki ileride bilerek değiştirilsin.
-    expect(periodEndFor("MONTHLY", start).getUTCMonth()).toBe(2)
+  })
+
+  it("ay sonunda taşmaz, ayın son gününe kırpar", () => {
+    // BİLEREK DEĞİŞTİRİLDİ (2026-08-27): önceki ham `setMonth` davranışı 31 Ocak + 1 ay =
+    // 3 Mart üretiyordu, yani ay sonunda ödeyen müşteriye sessizce 2-3 gün fazla. Kural
+    // artık lib/billing/period.ts'te tek yerde ve elle süre verme de onu kullanıyor.
+    const jan31 = new Date(2026, 0, 31)
+    const end = periodEndFor("MONTHLY", jan31)
+    expect(end.getMonth()).toBe(1) // Şubat
+    expect(end.getDate()).toBe(28)
   })
 })

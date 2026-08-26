@@ -2159,7 +2159,7 @@ model SubscriptionEvent {
   // ne oldu" sorgusu buradan koşar, bu yüzden zorunlu ve indeksli.
   companyId      String
   // PERIOD_STARTED | RENEWED | RENEWAL_FAILED | GRACE_STARTED | EXPIRED | ARCHIVED
-  // | CANCELLED | MODULES_CHANGED | QUOTA_CHANGED | MANUAL_GRANT
+  // | CANCELLED | AUTO_RENEW_CHANGED | MODULES_CHANGED | QUOTA_CHANGED | MANUAL_GRANT
   type           String
   // İnsan okuru için tek satır özet ("Yıllık dönem 27.08.2027'ye uzatıldı").
   summary        String   @db.Text

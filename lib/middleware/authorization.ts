@@ -49,6 +49,8 @@ export interface UserRole {
   isActive: boolean
   /** Kapalı modül anahtarları — sunucu sayfaları kilitli hesabı bununla tanır. */
   disabledModules: string[]
+  /** Hesap salt-okunur arşivde mi? ([[lib/billing/archive.ts]]) */
+  isArchived: boolean
   /** Kısıtlı çalışan izinleri; boş = kısıt yok. Bkz. lib/page-access.ts. */
   allowedPaths: string[]
   writablePaths: string[]
@@ -80,6 +82,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     role: company.role,
     isActive: company.isActive,
     disabledModules: company.disabledModules,
+    isArchived: company.isArchived,
     allowedPaths: company.allowedPaths,
     writablePaths: company.writablePaths,
     customRoleId: company.customRoleId,

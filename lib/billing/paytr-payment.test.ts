@@ -103,14 +103,31 @@ describe("planSubscriptionWrite — modül/paket satın alma", () => {
     })
   })
 
-  it("periodEnd'i geriye çekmez — dönem ortasında yükseltmede kalan süre korunur", () => {
+  it("dönem GELECEKTEYSE onun üstüne ekler — erken yenileyen gün kaybetmez", () => {
+    // Eski kural `max(mevcutBitiş, bugün+periyot)` idi ve tam burada para/erişim
+    // kaybettiriyordu: 1 Ocak'a kadar süresi olan müşteri bugün aylık yenilerse
+    // 13 Eylül'e düşüyordu, yani üç buçuk ayını kaybediyordu.
     const laterEnd = new Date("2027-01-01T00:00:00.000Z")
     const write = planSubscriptionWrite(
       order(),
       { purchasedModules: ["sales"], periodEnd: laterEnd },
       NOW,
     )
-    expect(write.kind === "activate" && write.periodEnd).toEqual(laterEnd)
+    expect(write.kind === "activate" && write.periodEnd).toEqual(
+      new Date("2027-02-01T00:00:00.000Z"),
+    )
+  })
+
+  it("yıllık erken yenilemede kalan süre korunur", () => {
+    const laterEnd = new Date("2026-09-02T00:00:00.000Z") // 20 gün kaldı
+    const write = planSubscriptionWrite(
+      order({ billingCycle: "YEARLY" }),
+      { purchasedModules: ["sales"], periodEnd: laterEnd },
+      NOW,
+    )
+    expect(write.kind === "activate" && write.periodEnd).toEqual(
+      new Date("2027-09-02T00:00:00.000Z"),
+    )
   })
 
   it("mevcut dönem geçmişse yeni dönemi yazar (aylık → +1 ay)", () => {

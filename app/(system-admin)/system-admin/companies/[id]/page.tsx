@@ -22,6 +22,7 @@ import {
 import { CompanyEInvoiceCard } from "@/components/system-admin/company-einvoice-card"
 import { CompanyModulesCard } from "@/components/system-admin/company-modules-card"
 import { CompanyQuotaCard } from "@/components/system-admin/company-quota-card"
+import { GrantPeriodForm } from "@/components/system-admin/grant-period-form"
 import { getAccountQuotas } from "@/lib/billing/entitlements"
 import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { CompanyUsersCard } from "@/components/system-admin/company-users-card"
@@ -120,6 +121,23 @@ export default async function CompanyDetailPage({
             select: { name: true },
           })
         )?.name ?? "ana hesap"
+
+  // Elle süre verme kartı hesabın MEVCUT aboneliğini gösterir; kota gibi bu da hesap
+  // kökünde tutulur, şube/ek firma detayında da kökün satırı okunur.
+  const accountSubscription = await prisma.subscription.findFirst({
+    where: { companyId: quotas.rootCompanyId },
+    orderBy: { createdAt: "desc" },
+    select: {
+      status: true,
+      periodEnd: true,
+      trialEndsAt: true,
+      autoRenew: true,
+      provider: true,
+      // Token'ın KENDİSİ istemciye geçmez — yalnız varlığı (çekim yetkisidir).
+      providerSubscriptionId: true,
+      purchasedModules: true,
+    },
+  })
 
   const typeCount = (t: string) => byType.find((r) => r.invoiceType === t)?._count._all ?? 0
   const statusCount = (s: string) => byStatus.find((r) => r.status === s)?._count._all ?? 0
@@ -453,6 +471,40 @@ export default async function CompanyDetailPage({
           company={{ quota: quotas.company.quota, used: quotas.company.used }}
           hasActiveSubscription={quotas.branch.hasActiveSubscription}
         />
+
+        {/* Elle abonelik süresi verme (hediye/telafi ya da havale tahsilatı).
+            Kota gibi HESAP düzeyinde uygulanır. */}
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
+          <h2 className="text-lg font-semibold text-white">Abonelik süresi</h2>
+          <p className="mt-1 mb-4 text-sm text-slate-500">
+            {quotas.rootCompanyId === company.id ? (
+              <>Bu hesabın dönemini elle uzatır ya da bugünden yeniden başlatır.</>
+            ) : (
+              <>
+                Bu firma{" "}
+                <span className="font-medium text-slate-300">{accountRootName}</span> hesabına
+                bağlı; abonelik hesap düzeyinde tutulduğu için süre o hesaba yazılır.
+              </>
+            )}
+          </p>
+          <GrantPeriodForm
+            companyId={company.id}
+            accountName={accountRootName}
+            subscription={
+              accountSubscription
+                ? {
+                    status: accountSubscription.status,
+                    periodEnd: accountSubscription.periodEnd?.toISOString() ?? null,
+                    trialEndsAt: accountSubscription.trialEndsAt?.toISOString() ?? null,
+                    autoRenew: accountSubscription.autoRenew,
+                    provider: accountSubscription.provider,
+                    hasStoredCard: Boolean(accountSubscription.providerSubscriptionId),
+                    purchasedModules: accountSubscription.purchasedModules,
+                  }
+                : null
+            }
+          />
+        </div>
 
         {/* E-Dönüşüm / E-Fatura yapılandırması (görüntüle + düzenle) */}
         <CompanyEInvoiceCard

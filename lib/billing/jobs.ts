@@ -8,8 +8,11 @@
 //      "kapanacak" e-postasını kapanmadan önce alsın.
 //   2. runRecurring   — vadesi geleni saklı kartla çeker; başarılıysa dönemi uzatır.
 //   3. runReconcile   — yenilenmeyeni önce PAST_DUE'ya (hoşgörü), süresi dolanı
-//      EXPIRED'a çeker ve modülleri kilitler. EN SON koşar ki 2. adımda yenilenen
-//      abonelik yanlışlıkla kilitlenmesin.
+//      EXPIRED'a çeker ve modülleri kilitler. Tahsilattan SONRA koşar ki 2. adımda
+//      yenilenen abonelik yanlışlıkla kilitlenmesin.
+//   4. runArchive     — kilidin üstünden saklama süresi (30 gün) geçmiş hesapları
+//      salt-okunur arşive alır. EN SON koşar: sayacın başlangıcı 3. adımın yazdığı
+//      `lockedAt`tir, bugün kilitlenenin süresi bugün dolmaz.
 //
 // Uçlar bu fonksiyonların ince sarmalayıcısıdır; orkestratör `/api/billing/cron/daily`
 // üçünü sırayla çağırır. Böylece sıra kodda garanti olur, cron yapılandırmasında değil.
@@ -28,6 +31,7 @@ import {
   resolveGrantedModules,
 } from "@/lib/billing/entitlements"
 import { isBillingCycle, type BillingCycle } from "@/lib/billing/constants"
+import { ARCHIVE_AFTER_DAYS, shouldArchive } from "@/lib/billing/archive"
 import {
   DAY_MS,
   isAutoRenewActive,
@@ -507,4 +511,85 @@ export async function runReconcile(options: { now?: Date } = {}): Promise<Reconc
     expired: toExpire.length,
     accountsReconciled: expiredRoots.size,
   }
+}
+
+// ---------------------------------------------------------------------------
+// 4. Arşiv kademesi
+// ---------------------------------------------------------------------------
+
+export type ArchiveResult = {
+  scanned: number
+  /** Arşive alınan HESAP sayısı (kök firma). */
+  archivedAccounts: number
+  /** Damgalanan firma sayısı — kök + şubeler + ek firmalar. */
+  archivedCompanies: number
+}
+
+/**
+ * Kilitlenmesinin üstünden saklama süresi geçmiş hesapları SALT-OKUNUR arşive alır.
+ *
+ * Sayaç `lockedAt`ten işler ([[lib/billing/archive.ts]]): erişimin gerçekten kapandığı
+ * an odur, `periodEnd` değil — aradan hoşgörü geçtiği için periodEnd'den saymak o
+ * günleri iki kez saymak olurdu.
+ *
+ * Damga hesabın TÜM üyelerine yazılır (`disabledModules` deseni): kapı her istekte
+ * kullanıcı bağlamından okunuyor, üye başına ek sorgu istemesin.
+ *
+ * **Silme yok.** Arşiv, verinin saklandığı ve indirilebildiği bir hâldir; fatura ve
+ * defter kayıtları VUK gereği durmak zorunda. Reconcile'dan SONRA koşar: aynı gecede
+ * kilitlenen bir hesabın sayacı bugün başlar, bugün dolmaz.
+ *
+ * Idempotent: zaten damgalı firmalar sorguya girmez.
+ */
+export async function runArchive(options: { now?: Date } = {}): Promise<ArchiveResult> {
+  const now = options.now ?? new Date()
+  const cutoff = new Date(now)
+  cutoff.setDate(cutoff.getDate() - ARCHIVE_AFTER_DAYS)
+
+  const candidates = await prisma.subscription.findMany({
+    where: { status: "EXPIRED", lockedAt: { not: null, lte: cutoff } },
+    select: { id: true, companyId: true, lockedAt: true, status: true },
+  })
+
+  let archivedAccounts = 0
+  let archivedCompanies = 0
+  const events: SubscriptionEventInput[] = []
+
+  for (const sub of candidates) {
+    // Saf karar; sorgu zaten süzüyor ama kural TEK yerde kalsın.
+    if (!shouldArchive(sub, now)) continue
+
+    // Abonelik satırı eskimiş olabilir: hesabın EN GÜNCEL aboneliği aktifse (müşteri
+    // bu arada yeni dönem başlattı) arşivlenmemeli. Bunu sormadan damgalamak, ödeyen
+    // müşteriyi salt-okunura düşürürdü.
+    const latest = await getAccountSubscription(sub.companyId)
+    if (!latest || latest.status !== "EXPIRED") continue
+
+    const scopeIds = await getAccountCompanyIds(sub.companyId)
+    const stamped = await prisma.company.updateMany({
+      where: { id: { in: scopeIds }, archivedAt: null },
+      data: { archivedAt: now },
+    })
+    if (stamped.count === 0) continue
+
+    archivedAccounts += 1
+    archivedCompanies += stamped.count
+    events.push({
+      type: "ARCHIVED",
+      companyId: sub.companyId,
+      subscriptionId: sub.id,
+      summary:
+        `Erişim ${eventDate(sub.lockedAt)} tarihinde kapanmıştı; ${ARCHIVE_AFTER_DAYS} gün sonra ` +
+        `hesap salt-okunur arşive alındı (${stamped.count} firma). Veriler silinmedi.`,
+      detail: {
+        lockedAt: sub.lockedAt?.toISOString() ?? null,
+        archivedAt: now.toISOString(),
+        companies: stamped.count,
+      },
+    })
+  }
+
+  await logSubscriptionEvents(events)
+
+  return { scanned: candidates.length, archivedAccounts, archivedCompanies }
 }

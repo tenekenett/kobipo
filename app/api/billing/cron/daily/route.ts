@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { isCronAuthorized } from "@/lib/billing/cron-auth"
-import { clientIpFrom, notifyExpiring, runRecurring, runReconcile } from "@/lib/billing/jobs"
+import {
+  clientIpFrom,
+  notifyExpiring,
+  runArchive,
+  runRecurring,
+  runReconcile,
+} from "@/lib/billing/jobs"
 import { alertCronFailure, finishCronRun, startCronRun } from "@/lib/billing/cron-run"
 import { runInvoiceRetry } from "@/lib/invoicing/retry-job"
 import { resolveBaseUrl } from "@/lib/utils/base-url"
@@ -11,14 +17,17 @@ export const maxDuration = 60
 /**
  * Günlük abonelik bakımı — TEK zamanlanan uç.
  *
- * Dört işi **sırayla** çalıştırır (sıra kritik, bkz. [[lib/billing/jobs.ts]]):
+ * Beş işi **sırayla** çalıştırır (sıra kritik, bkz. [[lib/billing/jobs.ts]]):
  *   1. uyarı e-postaları  → kimseye dokunmaz, önce uyarır
  *   2. yinelenen ödeme    → vadesi geleni çeker, başarılıysa dönemi uzatır
- *   3. uzlaştırma         → yenilenmeyeni hoşgörüye/kilide alır
- *   4. fatura toparlama   → faturasız kalmış ödenmiş siparişleri tekrar dener
+ *   3. uzlaştırma         → yenilenmeyeni hoşgörüye/kilide alır (`lockedAt` damgası)
+ *   4. arşiv              → kilidin üstünden 30 gün geçmişi salt-okunura alır
+ *   5. fatura toparlama   → faturasız kalmış ödenmiş siparişleri tekrar dener
  *
- * 4. adım EN SONDA: kendisi kimseye dokunmaz (yalnız belge keser) ve 2. adımda yeni
- * yenilenmiş bir dönem varsa onu da aynı koşuda yakalayabilsin.
+ * 4. adım 3.ten SONRA: sayacın başlangıcı 3. adımın yazdığı `lockedAt`tir, bugün
+ * kilitlenen hesabın 30 günü bugün dolmaz. 5. adım EN SONDA: kendisi kimseye dokunmaz
+ * (yalnız belge keser) ve 2. adımda yeni yenilenmiş bir dönem varsa onu da aynı koşuda
+ * yakalayabilsin.
  *
  * Sırayı cron yapılandırmasına bırakmak yerine burada tutmanın iki sebebi var: üç ayrı
  * cron girdisi arasında sıra/gecikme garantisi yoktur (2. adım gecikirse 3. adım yenilenmiş
@@ -84,6 +93,7 @@ async function handle(request: Request) {
   await step("notify", () => notifyExpiring({ baseUrl: resolveBaseUrl(request) }))
   await step("recurring", () => runRecurring({ userIp: clientIpFrom(request) }))
   await step("reconcile", () => runReconcile())
+  await step("archive", () => runArchive())
   await step("invoiceRetry", () => runInvoiceRetry())
 
   await finishCronRun(run.id, { result: steps, failedSteps: errors, startedAtMs: startedAt })

@@ -16,6 +16,7 @@ import { MODULE_KEYS, sanitizeDisabledModules, withModuleDependencies } from "@/
 import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { graceDaysFor, type BillingCycle } from "@/lib/billing/constants"
 import { DAY_MS } from "@/lib/billing/notice"
+import { addMonths, addYears } from "@/lib/billing/period"
 
 /**
  * Bir firmanın hesap kökünü döndürür: `accountRootId` doluysa o, değilse firmanın
@@ -135,6 +136,11 @@ export function resolveGrantedModules(sub: SubStatusView | null | undefined, now
  * reconcile, yinelenen ödeme, satın alma callback'i, süper-admin "kilitle/sıfırla" ve
  * `setAccountModules` — hepsi buradan geçer, yani ücretsiz modül hiçbir yeniden
  * hesaplamada kapanmaz. Küme `PricingItem.isFree`ten okunur (lib/billing/free-modules.ts).
+ *
+ * ARŞİV: ücretli modül açıldığında hesabın `archivedAt` damgası da SİLİNİR — yeniden
+ * abone olan müşterinin yazma kapısı açılmalı. Bu fonksiyon her yeniden aktifleşme
+ * yolunun (satın alma callback'i, elle grant) geçtiği tek nokta olduğu için kural
+ * burada duruyor; ayrı bir "arşivden çıkar" çağrısı bir gün unutulurdu.
  */
 export async function applyEntitlements(rootCompanyId: string, grantedModules: string[]): Promise<void> {
   const free = await getFreeModuleKeys()
@@ -145,14 +151,26 @@ export async function applyEntitlements(rootCompanyId: string, grantedModules: s
   )
   const disabled = MODULE_KEYS.filter((k) => !granted.has(k))
 
+  // ARŞİVDEN ÇIKIŞ. Ücretli bir modül açılan hesap arşivde KALAMAZ: `archivedAt` dolu
+  // kaldığı sürece yazma kapısı kapalıdır ([[lib/billing/archive.ts]]) ve müşteri
+  // "ödedim ama hiçbir şey kaydedemiyorum" durumuna düşer — ödeme akışının en pahalı
+  // sessiz hatası bu olurdu.
+  //
+  // Ölçü ÜCRETSİZ modülleri saymaz: `granted` kümesine `free` her hâlükârda ekleniyor,
+  // dolayısıyla "granted boş değil" demek yeterli değil. Kapanan bir hesapta da bu
+  // fonksiyon ücretsizlerle çağrılır ve arşivi bozmamalıdır.
+  const freeSet = new Set(free)
+  const hasPaidModule = [...granted].some((k) => !freeSet.has(k))
+  const unarchive = hasPaidModule ? { archivedAt: null } : {}
+
   await prisma.$transaction([
     prisma.company.update({
       where: { id: rootCompanyId },
-      data: { disabledModules: disabled },
+      data: { disabledModules: disabled, ...unarchive },
     }),
     prisma.company.updateMany({
       where: { accountRootId: rootCompanyId },
-      data: { disabledModules: disabled },
+      data: { disabledModules: disabled, ...unarchive },
     }),
   ])
 }
@@ -271,10 +289,13 @@ export async function getAccountQuotas(companyId: string): Promise<AccountQuotas
   }
 }
 
-/** Periyoda göre dönem bitiş tarihi (başlangıçtan +1 ay / +1 yıl). */
+/**
+ * Periyoda göre dönem bitiş tarihi (başlangıçtan +1 ay / +1 yıl).
+ *
+ * Ay/yıl ekleme kuralı [[lib/billing/period.ts]]'te TEK yerde: taşma yerine ayın son
+ * gününe kırpılır (31 Ocak + 1 ay = 28 Şubat, 3 Mart değil). Elle süre verme de aynı
+ * fonksiyonu kullanır — aksi halde "bir ay" iki farklı tarihe düşerdi.
+ */
 export function periodEndFor(cycle: BillingCycle, start = new Date()): Date {
-  const end = new Date(start)
-  if (cycle === "YEARLY") end.setFullYear(end.getFullYear() + 1)
-  else end.setMonth(end.getMonth() + 1)
-  return end
+  return cycle === "YEARLY" ? addYears(start, 1) : addMonths(start, 1)
 }

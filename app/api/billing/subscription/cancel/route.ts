@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { getAccountSubscription, isPaidActive } from "@/lib/billing/entitlements"
+import { eventDate, logSubscriptionEvent } from "@/lib/billing/events"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -45,6 +46,18 @@ export const POST = withApiErrors(async function POST(request: Request) {
       where: { id: sub.id },
       data: { autoRenew: false, cancelAtPeriodEnd: true },
       select: { autoRenew: true, cancelAtPeriodEnd: true, periodEnd: true },
+    })
+
+    // İptal, modülleri dönem sonunda HOŞGÖRÜSÜZ kapatan tek müşteri eylemi — "modüllerim
+    // neden kapandı" sorusunun cevabı bu satır olabilir. İz bırakmadan geçmez.
+    await logSubscriptionEvent({
+      type: "CANCELLED",
+      companyId: sub.companyId,
+      subscriptionId: sub.id,
+      actor: "USER",
+      actorUserId: user.id,
+      summary: `Abonelik dönem sonunda iptal edildi — erişim ${eventDate(updated.periodEnd)} tarihinde kapanacak`,
+      detail: { periodEnd: updated.periodEnd, cancelAtPeriodEnd: true },
     })
 
     return NextResponse.json({ ok: true, ...updated })

@@ -21,6 +21,8 @@ export type DashboardCompany = {
   role?: string
   isEDonusumEnabled?: boolean
   disabledModules?: string[]
+  /** Hesap salt-okunur arşivde mi? ([[lib/billing/archive.ts]]) */
+  isArchived?: boolean
   /** Kısıtlı çalışan izinleri; boş = kısıt yok. Bkz. lib/page-access.ts. */
   allowedPaths?: string[]
   writablePaths?: string[]

@@ -2,6 +2,11 @@ import { NextResponse } from "next/server"
 import { MODULE_LOCKED_CODE, moduleLockedFrom } from "@/lib/module-access"
 import { MANAGEABLE_MODULES } from "@/lib/modules"
 import { PAGE_FORBIDDEN_CODE, pageForbiddenFrom } from "@/lib/page-access"
+import {
+  ACCOUNT_ARCHIVED_CODE,
+  ACCOUNT_ARCHIVED_MESSAGE_TR,
+  accountArchivedFrom,
+} from "@/lib/billing/archive"
 import { navPage } from "@/lib/nav/pages"
 
 /**
@@ -24,6 +29,15 @@ export function accessDeniedResponse(error: unknown, fallbackMessage: unknown = 
         modules: locked.modules,
       },
       { status: 403 }
+    )
+  }
+
+  // Arşiv kapısı: hesap salt-okunur. "Yetkiniz yok" DEĞİL — yetkisi var, hesabı
+  // kapalı; arayüz bu koda bakıp "verilerinizi indirin / abonelik başlatın" der.
+  if (accountArchivedFrom(error)) {
+    return NextResponse.json(
+      { error: ACCOUNT_ARCHIVED_MESSAGE_TR, code: ACCOUNT_ARCHIVED_CODE },
+      { status: 403 },
     )
   }
 

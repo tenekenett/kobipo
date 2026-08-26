@@ -1,6 +1,6 @@
 # Abonelik sistemini tamamlama — plan ve ilerleme
 
-**Durum:** Faz 0-3 bitti · Faz 4-8 bekliyor · 2026-08-27
+**Durum:** TÜM FAZLAR BİTTİ (0-7) · Faz 8 KONUSUZ KALDI · 2026-08-27
 **Kapsam:** otomatik yenileme, müşteri abonelik ekranı, sistem-admin süre verme, cron'un
 ayağa kaldırılması, periyoda göre hoşgörü, arşiv kademesi.
 
@@ -8,53 +8,69 @@ ayağa kaldırılması, periyoda göre hoşgörü, arşiv kademesi.
 
 ## ▶ DEVAM NOKTASI (başka makinede buradan başla)
 
-**Son durum:** 7+1 fazın 4'ü (Faz 0, 1, 2, 3) yazıldı ve doğrulandı.
-`npx tsc --noEmit` temiz · `npx vitest run` → 43 dosya / 512 test geçti.
-**Hiçbir şey canlıya uygulanmadı ve deploy edilmedi.**
+**Son durum: planın TAMAMI yazıldı (Faz 0-7).**
+`npx tsc --noEmit` temiz · `npx vitest run` → 46 dosya / 552 test geçti · `npm run build` temiz.
+Migrasyon **canlıya uygulandı**. Faz 8 (dönemleri bugünden başlatan betik) canlı veriye
+bakıldığında **gereksiz çıktı** — gerekçesi aşağıda.
 
-### 1. Önce bunu çalıştır (migrasyon canlıya UYGULANMADI)
+**Hiçbiri tarayıcıda elle denenmedi** ve iş **commit edilmedi**.
 
-```bash
-node scripts/apply-migration.js supabase/migrations/20260827000001_abonelik_olay_cron_arsiv.sql
-npx prisma generate
-```
+### 1. Migrasyon: UYGULANDI ✅
 
-Migrasyon: `subscription_events` + `cron_runs` tabloları, `companies.archivedAt`,
-`subscriptions.lockedAt / lastNoticeThreshold / lastNoticeSentAt / cardBrand / cardLast4`.
-Uygulanmadan Faz 0-3 kodu çalışmaz (Prisma alanları DB'de yok).
+`20260827000001_abonelik_olay_cron_arsiv.sql` canlıda. 2026-08-27'de doğrulandı:
+`subscription_events` + `cron_runs` tabloları ve altı yeni kolon (`companies.archivedAt`,
+`subscriptions.lockedAt / lastNoticeThreshold / lastNoticeSentAt / cardBrand / cardLast4`)
+yerinde.
 
-### 2. ⚠️ Enforcement AÇILDI — bilinçli bir karar
+> **Tuzak — üretilmiş Prisma istemcisi eskiydi.** Migrasyon uygulanmış olmasına rağmen
+> `npx tsc --noEmit` 30+ "Property 'subscriptionEvent' does not exist" hatası verdi.
+> Çözüm `npx prisma generate`; ALTER gerekmez. Başka bir makinede kod ilk kez
+> çalıştırılırken aynısı olacak.
 
-`vercel.json`'a `crons` girdisi eklendi (`/api/billing/cron/daily`, 06:00 UTC) ve
-**main'e push edildi** (2026-08-27, kullanıcı onayı). Vercel main'i otomatik deploy
-ediyorsa iş ilk 06:00 UTC'de koşar ve dönemi geçmiş hesaplar `PAST_DUE` → `EXPIRED`
-yürümeye başlar.
+### 2. Faz 8 KONUSUZ KALDI — kilitlenecek hesap yok
 
-Karar gerekçesi: kapanma **geri alınabilir** — `purchasedModules` ve tüm müşteri verisi
-korunuyor, Faz 8 betiği dönemi bugüne alıp `applyEntitlements` çağırdığında modüller
-aynen geri açılıyor (ayrıntı: Faz 8 bölümü).
+Faz 8'in tek gerekçesi "canlıda dönemi çoktan geçmiş satırlar var, cron ilk koştuğunda
+hepsi kilitlenir" idi. 2026-08-27'de canlı veriye bakıldı, **öyle bir satır yok**:
 
-Şunu unutma:
+| Durum | Adet | Periyot | En erken bitiş |
+|---|---|---|---|
+| `ACTIVE` | 4 | MONTHLY | 2026-09-13 |
+| `TRIAL` | 14 | — | `trialEndsAt` 2027-04-27 |
 
-- `BILLING_CRON_SECRET` (veya Vercel'in `CRON_SECRET`'ı) tanımlı DEĞİLSE uç 401 döner ve
-  iş hiç koşmaz — `cron_runs` tablosu boş kalır. Önce bunu doğrula.
-- **Geri alınamayan tek şey e-postadır:** kilitlenen/hoşgörüye düşen hesapların
-  ADMIN'lerine "aboneliğiniz sona erdi / ödemeniz alınamadı" e-postası gider. Modülleri
-  geri açmak gönderilmiş e-postayı geri almaz. Acele frenlemek gerekirse `crons` bloğunu
-  `vercel.json`'dan çıkarıp deploy etmek yeter.
-- Faz 8 ne kadar gecikirse o kadar çok hesap kilitlenir. **İlk iş o.**
+`runReconcile`'ın aday filtresine (`trialEndsAt <= now OR periodEnd <= now`) **bugün 0
+satır** giriyor. `cron_runs` boş — iş henüz hiç koşmadı. Yani enforcement açıldığında
+kimse kilitlenmiyor, uyarı e-postası bile gitmiyor.
 
-### 3. Sıradaki iş
+**Karar: betik yazılmadı.** İhtiyaç doğarsa (elle bir dönem geriye alınırsa, ya da
+enforcement uzun süre kapalı kalıp veri birikirse) planın Faz 8 bölümündeki alan listesi
+ve iki açık sorusu olduğu gibi duruyor — oradan yazılır.
 
-| Sıra | Faz | Not |
+**Sırada duran gerçek tarih: 2026-09-13.** O gün ilk `ACTIVE` aboneliğin dönemi bitiyor.
+`PAYTR_RECURRING_ENABLED` kapalı olduğu için otomatik çekim OLMAYACAK; müşteri elle
+ödemezse akış tasarlandığı gibi `PAST_DUE` → 7 gün hoşgörü → `EXPIRED` yürüyecek. Zincirin
+canlıdaki ilk gerçek sınavı budur; o tarihten önce `cron_runs`a bakıp işin koştuğu
+doğrulanmalı.
+
+### 3. Doğrulanacak: Vercel'de cron secret
+
+`BILLING_CRON_SECRET` yerel `.env.local`'de tanımlı — bu **Vercel'de de tanımlı olduğu
+anlamına gelmez**. Yoksa uç 401 döner, iş hiç koşmaz ve `cron_runs` boş kalır (şu anda
+boş olması normal: `vercel.json` girdisi bugün eklendi, iş ilk 06:00 UTC'de koşacak).
+İlk koşumdan sonra `cron_runs`ta bir satır GÖRÜNMELİ.
+
+### 4. Sıradaki iş
+
+Plan bitti. Kalan iş kodda değil, sahada:
+
+| Sıra | İş | Not |
 |---|---|---|
-| **1.** | **Faz 8 — dönemleri bugünden başlat** | Enforcement'ın ön şartı. Betik YAZILMADI; önce 3 sorunun cevabı lazım (Faz 8 bölümüne bkz.) |
-| 2. | Faz 4 — müşteri abonelik ekranı | Bilinmezi yok, doğrudan yazılabilir |
-| 3. | Faz 5 — sistem-admin süre verme | Bilinmezi yok. Form "ödeme alındı (havale/elden)" kutulu olacak |
-| 4. | Faz 6 — erken yenileyenin gün kaybı | Küçük ama para/hak konusu |
-| 5. | Faz 7 — arşiv (30 gün) | En son |
+| **1.** | Vercel'de `BILLING_CRON_SECRET` doğrula | Yoksa uç 401, iş hiç koşmaz |
+| 2. | İlk koşumdan sonra `cron_runs`a bak | Satır oluşmalı; `failedSteps` boş olmalı |
+| 3. | Tarayıcıda elle e2e | "Aboneliğim", "Süre ver", arşiv ekranı hiç açılmadı |
+| 4. | PayTR "Tekrarlayan Ödeme" ürününü sor | `PAYTR-RECURRING-KONTROL.md` |
+| — | Faz 8 | Konusuz kaldı (yukarı bkz.) |
 
-### 4. Bekleyen dış bağımlılık — PayTR
+### 5. Bekleyen dış bağımlılık — PayTR
 
 Otomatik yenileme kodu tam ama **`PAYTR_RECURRING_ENABLED` ile kapalı doğdu**: mağaza
 hesabında "Tekrarlayan Ödeme" ürününün açık olup olmadığı bilinmiyor. Ne sorulacağı,
@@ -62,7 +78,9 @@ açma sırası ve test adımları → `PAYTR-RECURRING-KONTROL.md`.
 
 Bayrak kapalıyken sistem tutarlı: tahsilatı müşteri başlatır, hiçbir yanlış işlem olmaz.
 
-### 5. Dokunulan dosyalar (bu turda)
+### 6. Dokunulan dosyalar
+
+**Faz 0-3 turu:**
 
 ```
 YENİ  docs/paket-abonelik/ABONELIK-TAMAMLAMA.md      (bu dosya — plan + ilerleme)
@@ -71,7 +89,7 @@ YENİ  supabase/migrations/20260827000001_abonelik_olay_cron_arsiv.sql
 YENİ  lib/billing/events.ts                          (olay günlüğü)
 YENİ  lib/billing/cron-run.ts                        (koşum kaydı + kilit)
       prisma/schema.prisma                           (2 yeni model, 6 yeni alan)
-      vercel.json                                    (crons — DEPLOY UYARISI!)
+      vercel.json                                    (crons)
       lib/billing/constants.ts                       (graceDaysFor)
       lib/billing/notice.ts                          (grace türü, eşik durumu)
       lib/billing/entitlements.ts                    (isInGracePeriod → periyoda göre)
@@ -85,6 +103,61 @@ YENİ  lib/billing/cron-run.ts                        (koşum kaydı + kilit)
       components/dashboard/subscription-notice-banner.tsx (grace şeridi)
       lib/billing/notice.test.ts                     (yeniden yazıldı)
       lib/billing/entitlements.test.ts               (periyoda göre hoşgörü testleri)
+```
+
+**Faz 7 turu:**
+
+```
+YENİ  lib/billing/archive.ts                         (arşiv kuralı + 403 hatası)
+YENİ  lib/billing/archive.test.ts                    (14 test)
+      lib/billing/jobs.ts                            (runArchive)
+      app/api/billing/cron/daily/route.ts            (5. adım: archive)
+      lib/billing/entitlements.ts                    (arşivden ÇIKIŞ)
+      lib/middleware/company.ts                      (yazma kapısı + export istisnası)
+      lib/module-access.ts                           (isArchiveExportPath)
+      lib/api/errors.ts                              (ACCOUNT_ARCHIVED kodu)
+      lib/auth/user-context.ts                       (isArchived bağlamda)
+      lib/auth/branch-access.ts                      (archivedAt seçimi)
+      lib/middleware/authorization.ts                (UserRole.isArchived)
+      components/dashboard/locked-account.tsx        (arşiv ekranı)
+      components/dashboard/write-guard.tsx           (arşivde düzenleme yok)
+      components/dashboard/dashboard-company-provider.tsx
+      app/api/companies/route.ts                     (isArchived listede)
+      app/(dashboard)/dashboard/*/page.tsx           (6 sayfa: isArchived geçişi)
+```
+
+**Faz 5-6 turu:**
+
+```
+YENİ  lib/billing/period.ts                          (dönem matematiği — tek kural)
+YENİ  lib/billing/period.test.ts                     (18 test)
+YENİ  app/api/billing/admin/period/route.ts          (POST — elle süre ver)
+YENİ  components/system-admin/grant-period-form.tsx  (ortak form)
+      lib/billing/admin.ts                           (grantAccountPeriod)
+      lib/billing/entitlements.ts                    (periodEndFor → period.ts)
+      lib/billing/paytr-payment.ts                   (erken yenileme düzeltmesi)
+      app/api/billing/admin/overview/route.ts        (kart token'ı maskelendi)
+      components/system-admin/subscription-admin.tsx ("Süre ver" + form)
+      app/(system-admin)/system-admin/companies/[id]/page.tsx (Abonelik süresi kartı)
+      app/(dashboard)/ayarlar/subeler/page.tsx       (haksız kotada "—")
+      components/billing/my-subscription.tsx         (aynı)
+      lib/page-api-coverage.test.ts                  (yeni uç muafiyeti)
+      lib/billing/paytr-payment.test.ts              (erken yenileme testleri)
+      lib/billing/entitlements.test.ts               (ay kırpma testi)
+```
+
+**Faz 4 turu:**
+
+```
+YENİ  app/api/billing/subscription/route.ts          (GET — tam abonelik görünümü)
+YENİ  app/api/billing/subscription/auto-renew/route.ts (POST — aç/kapat)
+YENİ  components/billing/my-subscription.tsx         ("Aboneliğim" bölümü)
+YENİ  lib/billing/subscription-view.ts               (rozet + kota cümlesi, saf)
+YENİ  lib/billing/subscription-view.test.ts          (8 test)
+      lib/billing/events.ts                          (AUTO_RENEW_CHANGED türü)
+      prisma/schema.prisma                           (olay türü yorumu)
+      app/api/billing/subscription/cancel/route.ts   (CANCELLED olayı yazılıyor)
+      app/(dashboard)/ayarlar/abonelik/page.tsx      (eski durum kartı → MySubscription)
 ```
 
 ---
@@ -228,9 +301,15 @@ orada yükleniyor, ikinci sayfa ikinci istek demek olurdu):
   uyarılmıyor **ve bu sessiz**.
 - `EXPIRED` hesapta kota ekranı "0 hakkınız var / 3 kullanılmış" diyor — mesaj netleşecek.
 
-### Faz 8 — Mevcut hesapların dönemi BUGÜNDEN başlasın ⚠️ YAPILMADI
+### Faz 8 — Mevcut hesapların dönemi BUGÜNDEN başlasın ⚠️ KONUSUZ KALDI (betik yazılmadı)
 
 **İstek (2026-08-27, kullanıcı):** "hesapların aboneliği bu günden başlamalı."
+
+> **2026-08-27 — GEREKÇE DÜŞTÜ.** Canlı veriye bakıldı: `runReconcile`'ın aday filtresine
+> giren **0 satır** var (4 `ACTIVE` aboneliğin en erkeni 2026-09-13'te, 14 `TRIAL`
+> satırının hepsi 2027-04'ten sonra bitiyor). Kilitlenecek hesap olmadığı için betik
+> yazılmadı. Aşağıdaki tasarım, ihtiyaç doğduğu gün olduğu gibi kullanılabilir —
+> özellikle "Betiğin yapması gerekenler" ve "kalan iki açık soru" bölümleri.
 
 **Neden gerekli.** Cron bugüne kadar hiç koşmadı; bu yüzden canlıda dönemi çoktan geçmiş,
 `periodEnd`'i boş ya da yıllar önce kalmış abonelik satırları var. Enforcement açıldığı
@@ -313,11 +392,11 @@ panelinden yeniden "taze deneme"ye alınmalı.
 - [x] **Faz 1 — cron + gözlem** (2026-08-27)
 - [x] **Faz 2 — hoşgörü + grace şeridi** (2026-08-27)
 - [x] **Faz 3 — otomatik yenileme** (2026-08-27, bayrakla kapalı)
-- [ ] **Faz 8 — mevcut dönemleri bugünden başlat** ← enforcement'ın ön şartı, SIRADAKİ
-- [ ] Faz 4 — müşteri abonelik ekranı
-- [ ] Faz 5 — sistem-admin süre verme
-- [ ] Faz 6 — düzeltmeler
-- [ ] Faz 7 — arşiv
+- [x] **Faz 4 — müşteri abonelik ekranı** (2026-08-27)
+- [x] **Faz 5 — sistem-admin süre verme** (2026-08-27)
+- [x] **Faz 6 — düzeltmeler** (2026-08-27)
+- [x] **Faz 7 — arşiv kademesi** (2026-08-27)
+- [~] **Faz 8 — mevcut dönemleri bugünden başlat** — KONUSUZ KALDI, betik yazılmadı
 
 ### Faz 0 — şema temeli ✅
 
@@ -405,3 +484,169 @@ diye atlanır ve arşiv sayacı ödemiş hesabı saymaya devam ederdi.
 **Açılış prosedürü ve PayTR'a sorulacaklar:** `PAYTR-RECURRING-KONTROL.md`.
 Teyit edilecek üç nokta (uç adresi, hash içeriği, token alan adı) kodda işaretli;
 üçüncüsü ilk gerçek ödemede log'dan **kendiliğinden ortaya çıkacak** şekilde kuruldu.
+
+### Faz 4 — müşteri abonelik ekranı ✅ (2026-08-27)
+
+`/ayarlar/abonelik` sayfasının üstündeki 20 satırlık "Mevcut durum" kartı, kendi ucundan
+beslenen bir **"Aboneliğim"** bölümüyle değiştirildi. Satın alma formu aynı sayfada kaldı.
+
+| Ne | Nerede |
+|---|---|
+| `GET /api/billing/subscription` | Ekranın TEK ucu: durum, dönem, kart, açık modüller, kota, ödeme geçmişi, olay günlüğü. Katalogdan ayrı tutuldu — katalog satın alma formunu besler, her tur sipariş geçmişi çekmesi gereksiz. |
+| `POST /api/billing/subscription/auto-renew` | Otomatik yenilemeyi aç/kapat (ADMIN). |
+| `components/billing/my-subscription.tsx` | Bölümün kendisi. SWR ile yüklenir, işlem sonrası üst sayfanın kataloğunu da tazeler. |
+| `lib/billing/subscription-view.ts` (+ test) | Rozet sırası ve kota cümlesi — saf, DB'siz. |
+
+Tasarımdaki dört ayrım:
+
+- **Otomatik yenileme kapatmak İPTAL DEĞİLDİR.** Fark hoşgörüdedir ve müşteri açısından
+  günler eder: `autoRenew=false` → dönem sonunda `PAST_DUE` + hoşgörü (7/15 gün) →
+  `EXPIRED`; `cancelAtPeriodEnd=true` → doğrudan `EXPIRED`, hoşgörü YOK. Bu yüzden iki
+  ayrı uç. Anahtarı AÇMAK ayrıca `cancelAtPeriodEnd`i kaldırır — "iptali geri al" diye
+  ikinci bir düğme aratmamak için.
+- **Rozet sırası kararın kendisi.** Hoşgörü, `isPaidActive` DEĞİL ama erişimi açık bir
+  hâl; iptal işaretli abonelik ise HÂLÂ `isPaidActive`. "Açık mı" ile "sorun var mı" ayrı
+  eksenler olduğu için önce sorunlu hâller sorulur — aksi halde ödemesi alınamamış
+  müşteri yeşil "Aktif" görür. `subscription-view.test.ts` tam bu sırayı tutuyor.
+- **"Açık" ile "gerçekten çalışacak" ayrı gösterilir.** `autoRenew` bir niyet;
+  `isAutoRenewActive` (dört şart) gerçek. Kayıtlı kart yoksa ya da PayTR ürünü kapalıysa
+  anahtar açıkken de kimse tahsilat yapmaz — ekran bunu açıkça yazar, olay günlüğü de
+  `effective` alanında saklar.
+- **Fatura indirme butonu yalnız GİB'e gönderilmiş faturada görünür.** Uç aksi hâlde 409
+  döndürüyor; tıklandığında indirmeyen bir bağlantı bırakmamak için durum uçtan geliyor
+  (`invoiceReady`).
+
+Yan kazanımlar:
+
+- Müşterinin kendi eylemleri artık **iz bırakıyor**: iptal `CANCELLED`, anahtar
+  `AUTO_RENEW_CHANGED` (yeni tür) olayı yazıyor. Faz 0'da kurulan günlüğe yazan ilk
+  `USER` aktörlü yollar bunlar — o güne kadar günlüğe yalnız cron ve callback yazıyordu.
+- **Faz 6'nın kota mesajı maddesi kapandı:** aboneliksiz hesapta "0 hakkınız var /
+  3 kullanılmış" yerine "Aboneliğiniz aktif değil — yeni açma hakkı yok, mevcutlar
+  duruyor." yazıyor (`quotaHint`). Faz 6'da erken yenileme (`planSubscriptionWrite`)
+  ve `notifyExpiring` maddeleri kaldı — ikincisi zaten Faz 2'de kapanmıştı.
+
+Doğrulama: `npx tsc --noEmit` temiz · `npx vitest run` 44 dosya / 520 test · `npm run build` temiz.
+Tarayıcıda elle e2e YAPILMADI (yerel `.env` canlı veritabanına bakıyor; anahtar yazma
+işlemi denemek için önce demo hesap gerekir).
+
+### Faz 5 — sistem-admin süre verme ✅ (2026-08-27)
+
+Bugüne kadar elle süre vermenin tek yolu `resetAccountBilling("trial")` idi: hesabın
+**siparişlerini siliyor** ve taze deneme kuruyordu. Telafi/hediye için fazla yıkıcı,
+ücretli müşteride ise geçmişi yok edici. Yeni yol yalnız dönemi yazar.
+
+| Ne | Nerede |
+|---|---|
+| `grantAccountPeriod()` | `lib/billing/admin.ts` — iş kuralının tamamı. |
+| `POST /api/billing/admin/period` | Süper-admin korumalı ince sarmalayıcı. |
+| `GrantPeriodForm` | `components/system-admin/grant-period-form.tsx` — iki ekranda ortak. |
+| Arayüz | Abonelik listesinde her hesap kartında "Süre ver"; firma detayında "Abonelik süresi" kartı. |
+
+Girdi: `mode` (uzat / bugünden başlat), `days` \| `months` \| `untilDate` (tam olarak biri),
+opsiyonel `billingCycle` / `autoRenew` / `modules`, `paymentReceived` + `amount`, **zorunlu**
+`reason`.
+
+Beş karar:
+
+- **`extend` dönem GELECEKTEYSE ondan uzatır, geçmişte kalmışsa bugünden başlar.**
+  Geçmişten uzatmak "1 ay verdim" denen hesaba fiilen birkaç gün vermek olurdu.
+  `set` ise kalan günleri siler — fark yalnız dönemi bitmemiş hesapta görünür ve form
+  bunu satır altında yazıyor.
+- **Uyarı/kilit damgaları sıfırlanır** (`lockedAt`, `lastNoticeThreshold`,
+  `lastNoticeSentAt`). Yeni dönem temiz sayfadır; aksi halde "7 gün kaldı" uyarısı
+  "daha acilini göndermiştim" diye atlanır ve arşiv sayacı süresi uzatılmış hesabı
+  saymaya devam eder.
+- **Yetkiler YENİDEN UYGULANIR.** Yalnız tarihi ileri almak yetmez: `EXPIRED` hesapta
+  `disabledModules` kilitli kaldığı için müşteri "süresi var ama paneli boş" görür.
+  Modül seti verilirse `setAccountModules` (ikisini birden yazar), verilmezse mevcut
+  setle kilit açılır.
+- **TUZAK: süre uzatmak yinelenen çekimi DURDURMAZ.** `provider=PAYTR` + `autoRenew` +
+  saklı kart üçlüsü kuruluysa yeni `periodEnd`de kart yine çekilir — "3 ay hediye"
+  verilen müşteriden 3 ay sonra para çıkar. Form bunu kırmızı uyarı olarak gösteriyor,
+  uç da `warnings` dizisinde döndürüyor; çözüm `autoRenew: false` geçmek.
+- **Ödeme alındı** işaretlenirse `PackageOrder` (`paymentProvider: "MANUAL"`, `isTest:
+  false`) + otomatik satış faturası üretilir. Sipariş/fatura üretilemese bile SÜRE
+  VERİLİR — geri almak müşteriyi kapı dışında bırakırdı; hata `warnings`e taşınır.
+
+Her çağrı `MANUAL_GRANT` olayı yazar (önceki/sonraki tarih, mod, modüller, tutar,
+gerekçe). Elle müdahale iz bırakmadan geçmez.
+
+**Yan düzeltme — saklı kart token'ı artık tarayıcıya gitmiyor.** `/api/billing/admin/overview`
+`providerSubscriptionId`i ham hâliyle döndürecekti (uyarı için lazımdı); token çekim
+yetkisi olduğu için `hasStoredCard: boolean`a indirildi.
+
+### Faz 6 — düzeltmeler ✅ (2026-08-27)
+
+Üç maddenin üçü de kapandı:
+
+1. **Erken yenileyen gün kaybediyordu.** `planSubscriptionWrite`
+   `max(mevcutBitiş, bugün+periyot)` yazıyordu: 1 Ocak'a kadar süresi olan müşteri bugün
+   yenilerse 13 Eylül'e düşüyor, yani üç buçuk ayını kaybediyordu. `runRecurring` zaten
+   doğrusunu yapıyordu (`newStart = sub.periodEnd`) — aynı soruya iki cevap vardı. Kural
+   tek: **dönem gelecekteyse ONUN üstüne bir periyot eklenir.** Sonucu, dönem ortasında
+   yükseltme yapan müşteri de kalan süresinin üstüne tam periyot alır; tam periyot bedeli
+   ödediği için doğru olan budur. İki test kilitliyor.
+2. **`notifyExpiring` kapsamı** — Faz 2'de kapanmıştı (hesabın tamamı taranıyor, ADMIN
+   yoksa sessiz geçmiyor).
+3. **Aboneliksiz hesapta kota mesajı.** "0 hakkınız var / 3 kullanılmış" cümlesi
+   "şubelerim silinmiş" paniği yaratıyordu. Artık sayı yerine `3/—` basılıyor ve altında
+   sebebi yazıyor: "Aboneliğiniz aktif değil — yeni açma hakkı yok, mevcutlar duruyor."
+   (`quotaHint`, hem "Aboneliğim" hem şubeler ekranında.)
+
+**Ayrıca ay ekleme kuralı düzeltildi (bilinçli davranış değişikliği).** Ham `setMonth`
+taşırıyordu: 31 Ocak + 1 ay = **3 Mart**. Yani ay sonunda ödeyen müşteriye sessizce 2-3
+gün fazla. Kural artık `lib/billing/period.ts`te tek yerde ve ayın son gününe kırpıyor
+(31 Ocak + 1 ay = 28/29 Şubat). `periodEndFor` (satın alma + yinelenen çekim) ve elle
+süre verme aynı fonksiyonu kullanıyor. Eski davranışı kayıt altına alan test
+"ileride bilerek değiştirilsin" notuyla duruyordu — değiştirildi.
+
+Doğrulama (Faz 5 + 6): `npx tsc --noEmit` temiz · `npx vitest run` 45 dosya / 538 test ·
+`npm run build` temiz. Tarayıcıda elle e2e YAPILMADI.
+
+### Faz 7 — arşiv kademesi ✅ (2026-08-27)
+
+`EXPIRED` → **30 gün** → salt-okunur arşiv. Silme akışı YAZILMADI ve yazılmayacak:
+fatura/e-fatura/defter kayıtları VUK gereği saklanmak zorunda, "ödemedi, sildik"
+hukuken yapılamaz. Silme yalnız kullanıcının açık talebiyle, elle.
+
+| Ne | Nerede |
+|---|---|
+| Kural (saf) | `lib/billing/archive.ts` — `shouldArchive`, `archiveDueAt`, 403 hatası |
+| İş | `lib/billing/jobs.ts` → `runArchive`, cron'un **5.** adımı |
+| Yazma kapısı | `lib/middleware/company.ts` → `ensureCompanyWrite` |
+| 403 kodu | `ACCOUNT_ARCHIVED` (`lib/api/errors.ts`) |
+| Ekran | `LockedAccount`'un arşiv varyantı — "verileriniz duruyor" + indirme yolu |
+
+Altı karar:
+
+- **Sayaç `lockedAt`ten işler, `periodEnd`den değil.** Aradan hoşgörü süresi geçtiği
+  için periodEnd'den saymak o günleri iki kez saymak olurdu.
+- **Arşiv adımı reconcile'dan SONRA koşar.** Sayacın başlangıcını 3. adım yazıyor;
+  bugün kilitlenen hesabın 30 günü bugün dolmaz. Bir test tam bunu tutuyor.
+- **Damga hesabın TÜM üyelerine yazılır** (`disabledModules` deseni) — kapı her istekte
+  kullanıcı bağlamından okunuyor, üye başına ek sorgu istemesin.
+- **Yalnız YAZMA kapanır.** Kontrol `ensureCompanyWrite`ta, `ensureCompanyAccess`te
+  DEĞİL: arşivde okuma açık kalmalı. `ensureCompanyExport`a da bilerek dokunulmadı.
+- **Dışa aktarma için DAR bir modül-kapısı istisnası gerekti.** Arşive giden hesap
+  `EXPIRED` olduğu için ücretli modülleri kapalı, `/api/export` uçları ise modül
+  kapısına tabi — yani "verilerinizi indirin" düğmesi 403 döndürecekti. İstisna
+  `isArchiveExportPath`: yalnız `GET`, yalnız `/api/export` (ya da alt yolu — ham
+  `startsWith` `/api/exportish`i de kapsardı, test bunu yakaladı), yalnız damgalı
+  hesapta. Salt-okunur rol kapısı ayrıca işlemeye devam ediyor.
+- **ARŞİVDEN ÇIKIŞ `applyEntitlements` içinde.** Kaçırılırsa en pahalı sessiz hata bu
+  olurdu: yeniden abone olan müşteri ödemesini yapar, modülleri açılır, ama `archivedAt`
+  dolu kaldığı için **hiçbir şey kaydedemez**. Kural her yeniden aktifleşme yolunun
+  (satın alma callback'i, elle grant) geçtiği tek noktada duruyor; ayrı bir "arşivden
+  çıkar" çağrısı bir gün unutulurdu. Ölçü ÜCRETSİZ modülleri saymaz — `granted` kümesine
+  ücretsizler her hâlükârda ekleniyor, "boş değil" demek yeterli olmazdı.
+
+Arayüz tarafı: arşivdeki hesap zaten `LockedAccount`a düşüyordu (ücretli modülleri
+kapalı); ekran artık satış yerine "Hesabınız arşivde — hiçbir veriniz silinmedi" diyor,
+veri aktarım ekranına yönlendiriyor ve ADMIN'e "Aboneliği yeniden başlat" sunuyor.
+`useCanEditHere` de arşivde `false` dönüyor: sunucu kapısı zaten reddediyor ama düğmeyi
+çizip 403 yedirmek arayüzün kullanıcıya yalan söylemesi olurdu.
+
+Doğrulama: `npx tsc --noEmit` temiz · `npx vitest run` 46 dosya / 552 test ·
+`npm run build` temiz. **Tarayıcıda elle e2e YAPILMADI** — arşiv ekranını görmek için
+canlıda 30 gün önce kilitlenmiş bir hesap ya da elle `archivedAt` damgası gerekir.

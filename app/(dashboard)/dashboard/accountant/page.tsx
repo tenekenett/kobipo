@@ -280,6 +280,7 @@ export default async function AccountantDashboard({
         companyId={activeCompany.companySlug ?? activeCompany.companyId}
         canPurchase={activeCompany.role === "ADMIN"}
         freeModules={freeModules}
+        isArchived={activeCompany.isArchived}
       />
     )
   }

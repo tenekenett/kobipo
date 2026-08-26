@@ -65,8 +65,15 @@ export type SubscriptionWrite =
  * şubelerinde her modülü kapatıyordu. Aynı kural sistem-admin elle kota verme ucunda da
  * geçerli ([[lib/billing/admin.ts]] → `setAccountQuotas`).
  *
- * İkinci kural: `periodEnd` asla geriye çekilmez — dönem ortasında yükseltme yapan
- * müşteri kalan ödenmiş süresini kaybetmez.
+ * İkinci kural: **dönem gelecekteyse ONUN ÜSTÜNE eklenir.** Eskiden `max(mevcutBitiş,
+ * bugün+periyot)` yazılıyordu; bu, erken yenileyen müşterinin kalan ödenmiş süresini
+ * SİLİYORDU — 20 gün kalmışken yıllık yenileyen 20 günü kaybediyor, dokuz ay kalmışken
+ * yenileyen dokuz ayı kaybediyordu. Yinelenen çekim ([[lib/billing/jobs.ts]] →
+ * `runRecurring`) zaten doğrusunu yapıyordu (`newStart = sub.periodEnd`); aynı soruya
+ * iki farklı cevap vardı, tek kurala indirildi.
+ *
+ * Sonucu: dönem ortasında YÜKSELTME yapan müşteri de kalan süresinin üstüne tam bir
+ * periyot alır. Tam periyot bedeli ödediği için doğru olan budur.
  */
 export function planSubscriptionWrite(
   order: OrderSnapshot,
@@ -101,13 +108,17 @@ export function planSubscriptionWrite(
   }
 
   const existingEnd = existing?.periodEnd ?? null
+  // Dönem HENÜZ BİTMEDİYSE yeni periyot onun üstüne eklenir; bittiyse bugünden başlar.
+  const periodEnd =
+    existingEnd && existingEnd.getTime() > now.getTime()
+      ? periodEndFor(cycle, existingEnd)
+      : freshPeriodEnd
   return {
     kind: "activate",
     purchasedModules: order.resolvedModules,
     branchQuota: order.branchQuota,
     companyQuota: order.companyQuota,
-    periodEnd:
-      existingEnd && existingEnd.getTime() > freshPeriodEnd.getTime() ? existingEnd : freshPeriodEnd,
+    periodEnd,
     // EMNİYET SÜBABI: modülsüz bir sipariş ASLA yetki yazmaz.
     //
     // Yukarıdaki `quotaOnly` dalı bunu zaten yakalar; bu satır o dal bir gün eksik

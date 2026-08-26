@@ -1,10 +1,11 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Loader2, RefreshCw, Search, RotateCcw, Lock, Unlock, XCircle, CheckCircle2, Building2, Check, AlertTriangle, Receipt } from "lucide-react"
+import { Loader2, RefreshCw, Search, RotateCcw, Lock, Unlock, XCircle, CheckCircle2, Building2, Check, AlertTriangle, Receipt, CalendarPlus } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { MAX_BRANCH_QUOTA, MAX_COMPANY_QUOTA } from "@/lib/billing/constants"
+import { GrantPeriodForm } from "@/components/system-admin/grant-period-form"
 
 /** Hesabın iki ayrı kotası — arayüzde aynı düzenleyiciyle çizilir. */
 type QuotaKind = "branch" | "company"
@@ -13,6 +14,9 @@ type Subscription = {
   id: string
   status: string
   provider: string
+  /** Saklı kart VAR MI — token'ın kendisi asla tarayıcıya gelmez. */
+  hasStoredCard?: boolean
+  periodStart?: string | null
   purchasedModules: string[]
   branchQuota: number
   companyQuota: number
@@ -333,6 +337,7 @@ export function SubscriptionAdmin() {
               key={acc.id}
               acc={acc}
               busy={busyId === acc.id}
+              onReload={load}
               onReset={resetAccount}
               onCancelOrder={cancelOrder}
               onActivateOrder={activateOrder}
@@ -349,6 +354,7 @@ export function SubscriptionAdmin() {
 function AccountCard({
   acc,
   busy,
+  onReload,
   onReset,
   onCancelOrder,
   onActivateOrder,
@@ -357,6 +363,7 @@ function AccountCard({
 }: {
   acc: Account
   busy: boolean
+  onReload: () => void
   onReset: (acc: Account, mode: "trial" | "locked") => void
   onCancelOrder: (acc: Account, order: Order) => void
   onActivateOrder: (acc: Account, order: Order) => void
@@ -367,6 +374,7 @@ function AccountCard({
   const openModules = acc.disabledModules.length === 0
   const orders = acc.packageOrders
   const pendingOrders = orders.filter((o) => o.status === "PENDING_PAYMENT")
+  const [grantOpen, setGrantOpen] = useState(false)
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
@@ -395,6 +403,15 @@ function AccountCard({
 
         {/* Aksiyonlar */}
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => setGrantOpen((v) => !v)}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/15 px-2.5 py-1.5 text-xs font-medium text-indigo-300 hover:bg-indigo-500/25 disabled:opacity-50"
+            title="Elle abonelik süresi ver / uzat (hediye, telafi ya da havale tahsilatı)"
+          >
+            <CalendarPlus className="h-3.5 w-3.5" />
+            Süre ver
+          </button>
           <button
             onClick={() => onReset(acc, "trial")}
             disabled={busy}
@@ -440,6 +457,30 @@ function AccountCard({
           </div>
         )}
       </div>
+
+      {/* Elle süre verme — kapalı gelir, "Süre ver" ile açılır. */}
+      {grantOpen && (
+        <div className="mt-3">
+          <GrantPeriodForm
+            companyId={acc.id}
+            accountName={acc.name}
+            subscription={
+              sub
+                ? {
+                    status: sub.status,
+                    periodEnd: sub.periodEnd,
+                    trialEndsAt: sub.trialEndsAt,
+                    autoRenew: sub.autoRenew,
+                    provider: sub.provider,
+                    hasStoredCard: sub.hasStoredCard ?? false,
+                    purchasedModules: sub.purchasedModules,
+                  }
+                : null
+            }
+            onDone={onReload}
+          />
+        </div>
+      )}
 
       {/* Siparişler */}
       <div className="mt-3">

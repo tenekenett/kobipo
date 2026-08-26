@@ -1,5 +1,6 @@
 import { headers } from "next/headers"
 import { prisma } from "@/lib/db/prisma"
+import { AccountArchivedError } from "@/lib/billing/archive"
 import { getCurrentUser } from "@/lib/auth/session"
 import { getUserContext, type UserCompanyContext } from "@/lib/auth/user-context"
 import {
@@ -7,6 +8,7 @@ import {
   MODULE_GATE_PATH_HEADER,
   ModuleLockedError,
   isApiPathAllowed,
+  isArchiveExportPath,
   requiredModulesForApiPath,
 } from "@/lib/module-access"
 import {
@@ -118,6 +120,11 @@ async function assertModuleAccess(
   const { pathname, method } = request
 
   if (isApiPathAllowed(pathname, method, company.disabledModules)) return
+
+  // ARŞİV İSTİSNASI: salt-okunur arşivdeki hesap kendi verisini İNDİREBİLMELİ. Modülleri
+  // kapalı olduğu için normal kural onu keserdi ve "verilerinizi indirin" ekranı 403
+  // döndüren bir düğmeden ibaret kalırdı (bkz. lib/module-access.ts → isArchiveExportPath).
+  if (company.isArchived && isArchiveExportPath(pathname, method)) return
 
   // Mesajı "Access denied" ile başlar (route catch'leri 403'e onunla mapler); gövdeye
   // `code: "MODULE_LOCKED"` taşımak `lib/api/errors.ts → accessDeniedResponse`'un işi.
@@ -253,6 +260,7 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
           isActive: true,
           isEDonusumEnabled: true,
           disabledModules: true,
+          archivedAt: true,
         },
       },
     },
@@ -273,6 +281,7 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
     isActive: userCompany.company.isActive,
     isEDonusumEnabled: userCompany.company.isEDonusumEnabled,
     disabledModules: userCompany.company.disabledModules ?? [],
+    isArchived: userCompany.company.archivedAt != null,
     allowedPaths: [],
     writablePaths: [],
     customRoleId: null,
@@ -295,11 +304,21 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
  * uygulanıyor — ama burada değil, sayfa kapısında: `ENFORCE_ROLE_MATRIX_FOR_UNRESTRICTED`
  * açık olduğu için `ensureCompanyAccess` her isteği rol matrisiyle karşılaştırır.
  * Buradaki kontrol ondan bağımsızdır ve salt-okunur üyeliği kapsar.
+ *
+ * ARŞİV: saklama süresi dolmuş hesap salt-okunurdur ([[lib/billing/archive.ts]]).
+ * Kontrol burada — `ensureCompanyAccess`te DEĞİL: arşivde okuma açık kalmalı, müşteri
+ * geçmişini görebilmeli. `ensureCompanyExport` de bilerek dokunulmadı; verisini
+ * indirebilmek arşivin varlık sebebidir.
  */
 export async function ensureCompanyWrite(
   companyId: string,
 ): Promise<UserCompanyContext> {
   const context = await ensureCompanyAccess(companyId)
+  // Rolden ÖNCE sorulur: arşivde yetkinin kimde olduğu fark etmez, hesap yazmaya
+  // kapalıdır. Sonra sorulsaydı ADMIN "yetkin var" cevabıyla geçerdi.
+  if (context.isArchived) {
+    throw new AccountArchivedError()
+  }
   // Enum VIEWER ve "hiçbir sayfada düzenleme yok" diye tanımlanmış özel rol aynı şeydir:
   // salt-okunur üyelik. Eskiden yalnız enum'a bakılıyordu, oysa özel rolün enum'u
   // CUSTOM'dur — Gözlemci kalıbından üretilmiş bir rol bu kapıdan hiç takılmadan

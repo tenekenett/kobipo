@@ -41,6 +41,8 @@ export type ManagedCompany = {
   accountRootId: string | null
   isEDonusumEnabled: boolean
   disabledModules: string[]
+  /** Hesap salt-okunur arşivde mi? (`Company.archivedAt`) */
+  archivedAt: Date | null
 }
 
 /**
@@ -117,6 +119,7 @@ export async function getManagedCompanies(userId: string): Promise<ManagedCompan
       accountRootId: true,
       isEDonusumEnabled: true,
       disabledModules: true,
+      archivedAt: true,
     },
     orderBy: { name: "asc" },
   })
@@ -152,5 +155,6 @@ export async function getManagedCompanies(userId: string): Promise<ManagedCompan
     accountRootId: c.accountRootId,
     isEDonusumEnabled: c.isEDonusumEnabled,
     disabledModules: c.disabledModules ?? [],
+    archivedAt: c.archivedAt,
   }))
 }

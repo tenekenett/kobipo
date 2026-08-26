@@ -52,6 +52,7 @@ const OWNERLESS_WRITE_ENDPOINTS: string[] = []
 const GATE_EXEMPT_ENDPOINTS: Record<string, string> = {
   "/admin/support/[id]/messages": "requireSuperAdmin",
   "/auth/user-role": "Kullanıcının KENDİ rolünü döndürür; başkasının verisi yok.",
+  "/billing/admin/period": "requireSuperAdmin",
   "/billing/admin/quota": "requireSuperAdmin",
   "/billing/admin/reset": "requireSuperAdmin",
   "/companies":

@@ -44,6 +44,9 @@ export async function GET() {
         role: c.role,
         isEDonusumEnabled: c.isEDonusumEnabled,
         disabledModules: c.disabledModules,
+        // Hesap salt-okunur arşivde mi? Düşerse arayüz düzenleme düğmelerini çizer,
+        // kullanıcı tıklar ve 403 yer — kapı tutar ama ekran yalan söyler.
+        isArchived: c.isArchived,
         // Kısıtlı çalışan izinleri de firma bazında; menü bunlara göre daraltılır.
         // Boş dizi = kısıt yok. Listeden DÜŞÜRÜLEMEZ: istemci bu alanı görmezse
         // kısıtlı kullanıcıya tam menü çizilir (kapı yine tutar ama ekran yanıltır).
