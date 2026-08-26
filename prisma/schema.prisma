@@ -261,6 +261,17 @@ model Company {
   onboardingCompletedAt        DateTime?
   isActive                     Boolean            @default(true) // Firma aktif/pasif durumu
   disabledModules              String[]           @default([]) // Kapalı modül anahtarları (boş = tüm modüller açık)
+  // ARŞİV — abonelik süresi dolduktan sonra veri salt-okunur hâle geçtiğinde yazılır.
+  // NULL = normal. Dolu = hesap arşivde: okuma ve DIŞA AKTARMA açık, yazma uçları 403.
+  //
+  // Neden Company üzerinde (Subscription'da değil): kapı istek başına çalışıyor ve firma
+  // kaydı zaten yükleniyor; arşiv bilgisini abonelikten okumak her isteğe ikinci bir sorgu
+  // eklerdi. `disabledModules` ile AYNI desendir — hesabın kök firmasına ve tüm üyelerine
+  // (şubeler + ek firmalar) birlikte yazılır, bkz. lib/billing/archive.ts.
+  //
+  // Arşiv SİLME DEĞİLDİR: fatura/e-fatura/defter kayıtları VUK gereği saklanır. Silme
+  // yalnız kullanıcının açık talebiyle, elle yapılır.
+  archivedAt                   DateTime?
   // İşletmenin haftalık açılış saati. Vardiya takviminde hem en üstteki "Açılış
   // saati" satırını hem de personel satırlarının arkasındaki gölge bandı çizer:
   // "işletme açık ama kimse yok" boşluğu ancak bu bantla görünür hale geliyor.
@@ -319,6 +330,7 @@ model Company {
   bankStatements          BankStatement[]
   cashCounts              CashCount[]
   subscriptions           Subscription[]
+  subscriptionEvents      SubscriptionEvent[]
   usageLimits             UsageLimit[]
   notifications           Notification[]
   attachments             Attachment[]
@@ -2100,15 +2112,98 @@ model Subscription {
   trialEndsAt            DateTime?
   periodStart            DateTime?
   periodEnd              DateTime?
+  // Erişimin GERÇEKTEN kapandığı an (reconcile EXPIRED yazarken damgalar). `periodEnd`
+  // ile karıştırmayın: araya hoşgörü süresi girer. Arşiv sayacı buradan işler —
+  // periodEnd'den saymak, hoşgörüde geçen günleri iki kez saymak olurdu.
+  lockedAt               DateTime?
+  // Bitiş uyarısı e-postasının en son hangi EŞİK için gönderildiği (kalan gün sayısı) ve
+  // ne zaman gönderildiği. Eşikler: lib/billing/notice.ts → EMAIL_THRESHOLD_DAYS.
+  //
+  // Neden durum tutuluyor: eşiği yalnız "bugün tam 3 gün kaldı" diye yakalamak, cron'un
+  // günde TAM BİR KEZ koştuğunu varsayar. İki kez koşarsa e-posta ikilenir, bir gün
+  // kaçarsa eşik sessizce atlanır — ikisi de gerçek senaryodur. Karar bu yüzden "bugün
+  // eşik günü mü" değil, "bu eşik için daha önce gönderdim mi" sorusuna bağlanır.
+  lastNoticeThreshold    Int?
+  lastNoticeSentAt       DateTime?
+  // Saklı kartın GÖSTERİM bilgisi (PayTR recurring). Çekimde kullanılan şey
+  // `providerSubscriptionId`deki token'dır; burada yalnız marka ve son dört hane durur.
+  // Kart numarası, son kullanma ve CVV HİÇBİR koşulda tutulmaz.
+  cardBrand              String?
+  cardLast4              String?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  plan    Plan?   @relation(fields: [planId], references: [id], onDelete: SetNull)
+  user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan    Plan?               @relation(fields: [planId], references: [id], onDelete: SetNull)
+  events  SubscriptionEvent[]
 
   @@index([companyId, status])
   @@map("subscriptions")
+}
+
+// Abonelikte OLAN BİTENİN append-only günlüğü. Güncellenmez, silinmez.
+//
+// Neden var: bu projede hesapların modülleri canlıda İKİ KEZ sessizce kapandı
+// (docs/paket-abonelik/ILERLEME.md — 2026-08-15 kota siparişi ve elle grant'ların
+// kalıcı olmaması). Her ikisinde de "ne zaman, neyin sonucu olarak kapandı" sorusunun
+// cevabı hiçbir yerde yoktu: durum alanı yalnız SON hâli tutar, geçişi tutmaz.
+//
+// Yazan yollar: reconcile (hoşgörü/kilit/arşiv), yinelenen ödeme, satın alma callback'i,
+// sistem-admin müdahalesi (süre/modül/kota), müşteri iptali.
+model SubscriptionEvent {
+  id             String   @id @default(cuid())
+  // Abonelik satırı silinebilir (hesap sıfırlama); olay yine de durur.
+  subscriptionId String?
+  // Hesabın KÖK firması. Abonelik satırı olmasa bile olay bir hesaba aittir; "bu hesapta
+  // ne oldu" sorgusu buradan koşar, bu yüzden zorunlu ve indeksli.
+  companyId      String
+  // PERIOD_STARTED | RENEWED | RENEWAL_FAILED | GRACE_STARTED | EXPIRED | ARCHIVED
+  // | CANCELLED | MODULES_CHANGED | QUOTA_CHANGED | MANUAL_GRANT
+  type           String
+  // İnsan okuru için tek satır özet ("Yıllık dönem 27.08.2027'ye uzatıldı").
+  summary        String   @db.Text
+  // Olaya özel yapılandırılmış ayrıntı: önceki/sonraki durum, tutar, modül farkı…
+  detail         Json?
+  // SYSTEM (cron) | PAYTR (callback) | ADMIN (sistem-admin) | USER (müşteri)
+  actor          String   @default("SYSTEM")
+  // Elle müdahalede kullanıcı; SYSTEM/PAYTR olaylarında null.
+  actorUserId    String?
+  createdAt      DateTime @default(now())
+
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@index([type, createdAt])
+  @@map("subscription_events")
+}
+
+// Günlük bakım işinin koşum kaydı — hem GÖZLEM hem ÇİFT KOŞUM KİLİDİ.
+//
+// Gözlem: bu iş kilitleme yapıyor. Sessizce üç gün çalışmazsa kimse fark etmez; süresi
+// dolan hesaplar açık kalır, uyarı e-postaları gitmez, yenileme çekilmez. Koşumun kendisi
+// kayda geçmedikçe "çalışıyor mu" sorusunun cevabı yok.
+//
+// Kilit: `jobKey` = "<iş>:<YYYY-MM-DD>" benzersizdir. Aynı gün ikinci koşum INSERT'te
+// çakışır ve devam etmez — cron'un iki kez tetiklenmesi (yeniden deneme, elle çağırma)
+// uyarı e-postasını ikilemesin, çekimi tekrarlamasın.
+model CronRun {
+  id          String    @id @default(cuid())
+  jobKey      String    @unique
+  job         String
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  // RUNNING | OK | FAILED
+  status      String    @default("RUNNING")
+  durationMs  Int?
+  // Adım adım sonuç gövdesi — hangi adımda ne olduğu.
+  result      Json?
+  // Başarısız adımların adları; boşsa koşum temiz.
+  failedSteps String[]  @default([])
+
+  @@index([job, startedAt])
+  @@map("cron_runs")
 }
 
 // Müşterinin paket/abonelik satın alma siparişi. Ödeme PayTR üzerinden asenkron

@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest"
-import { GRACE_PERIOD_DAYS } from "./constants"
+import { GRACE_DAYS_BY_CYCLE } from "./constants"
 import { DAY_MS } from "./notice"
 import {
   isInGracePeriod,
@@ -26,6 +26,8 @@ const sub = (over: Record<string, unknown> = {}) => ({
   purchasedModules: ["sales", "stock"],
   trialEndsAt: null,
   periodEnd: inDays(20),
+  // Hoşgörü periyoda göre değişir; testin varsayılanı aylık (7 gün).
+  billingCycle: "MONTHLY",
   ...over,
 }) as Parameters<typeof resolveGrantedModules>[0]
 
@@ -50,7 +52,7 @@ describe("isInGracePeriod", () => {
   })
 
   it("hoşgörü dolunca yanlış", () => {
-    const outside = sub({ status: "PAST_DUE", periodEnd: inDays(-GRACE_PERIOD_DAYS - 1) })
+    const outside = sub({ status: "PAST_DUE", periodEnd: inDays(-GRACE_DAYS_BY_CYCLE.MONTHLY - 1) })
     expect(isInGracePeriod(outside, NOW)).toBe(false)
   })
 
@@ -59,6 +61,24 @@ describe("isInGracePeriod", () => {
     expect(isInGracePeriod(sub({ status: "EXPIRED", periodEnd: inDays(-1) }), NOW)).toBe(false)
     expect(isInGracePeriod(sub({ status: "ACTIVE", periodEnd: inDays(-1) }), NOW)).toBe(false)
     expect(isInGracePeriod(sub({ status: "PAST_DUE", periodEnd: null }), NOW)).toBe(false)
+  })
+
+  it("YILLIK abonelikte hoşgörü daha uzun (15 gün)", () => {
+    // Bu testin asıl işi bir regresyonu tutmak: `billingCycle` select'ten düşerse ya da
+    // tip kaybolursa yıllık müşteri aylık süreyle ölçülür ve 8 gün erken kilitlenir.
+    const gunTen = { status: "PAST_DUE", periodEnd: inDays(-10) }
+    expect(isInGracePeriod(sub({ ...gunTen, billingCycle: "YEARLY" }), NOW)).toBe(true)
+    expect(isInGracePeriod(sub({ ...gunTen, billingCycle: "MONTHLY" }), NOW)).toBe(false)
+    expect(
+      isInGracePeriod(sub({ status: "PAST_DUE", periodEnd: inDays(-16), billingCycle: "YEARLY" }), NOW),
+    ).toBe(false)
+  })
+
+  it("periyodu bilinmeyen satırda UZUN süre varsayılır", () => {
+    // Erken kilitlemek, fazladan birkaç gün erişim vermekten pahalıdır: ödemiş müşteriyi
+    // kapı dışında bırakır. Bkz. constants.ts → DEFAULT_GRACE_DAYS.
+    const belirsiz = sub({ status: "PAST_DUE", periodEnd: inDays(-10), billingCycle: null })
+    expect(isInGracePeriod(belirsiz, NOW)).toBe(true)
   })
 })
 
@@ -73,7 +93,7 @@ describe("resolveGrantedModules", () => {
   })
 
   it("hoşgörü dolunca hiçbiri", () => {
-    const late = sub({ status: "PAST_DUE", periodEnd: inDays(-GRACE_PERIOD_DAYS - 1) })
+    const late = sub({ status: "PAST_DUE", periodEnd: inDays(-GRACE_DAYS_BY_CYCLE.MONTHLY - 1) })
     expect(resolveGrantedModules(late, NOW)).toEqual([])
   })
 

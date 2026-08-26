@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { isCronAuthorized } from "@/lib/billing/cron-auth"
 import { clientIpFrom, notifyExpiring, runRecurring, runReconcile } from "@/lib/billing/jobs"
+import { alertCronFailure, finishCronRun, startCronRun } from "@/lib/billing/cron-run"
 import { runInvoiceRetry } from "@/lib/invoicing/retry-job"
 import { resolveBaseUrl } from "@/lib/utils/base-url"
 
@@ -26,21 +27,52 @@ export const maxDuration = 60
  * **GET de kabul eder**: Vercel Cron zamanlanmış uçları GET ile çağırır. Her iki metotta da
  * `BILLING_CRON_SECRET` (ya da Vercel'in `CRON_SECRET`'ı) aranır — bkz. lib/billing/cron-auth.ts.
  *
+ * ZAMANLAMA: `vercel.json` → `crons`, her gün 06:00 UTC (TR ile 09:00). Bu girdi
+ * eklenene kadar (2026-08-27) uç yazılıydı ama HİÇ ÇAĞRILMIYORDU: dönemi biten
+ * abonelikler sonsuza kadar açık kalıyor, uyarı e-postaları hiç gitmiyordu.
+ *
+ * **Dağıtım uyarısı:** bu iş canlıda ilk kez koştuğunda, dönemi çoktan bitmiş hesaplar
+ * hoşgörüye (`PAST_DUE`) ve ardından kilide (`EXPIRED`) yürümeye başlar. Yani ilk
+ * dağıtım "enforcement'ı açmak"tır — öncesinde `BILLING_CRON_SECRET` tanımlı olmalı ve
+ * otomatik yenilemenin (`PAYTR_RECURRING_ENABLED`) durumu bilinçli seçilmiş olmalıdır.
+ *
+ * Her koşum `cron_runs` tablosuna yazılır (gözlem + çift koşum kilidi) ve başarısız adım
+ * süper-admin'lere e-postayla bildirilir — bkz. [[lib/billing/cron-run.ts]].
+ *
  * Bir adımın hatası diğerlerini durdurmaz: sonuç gövdesinde adım adım raporlanır, böylece
  * e-posta sağlayıcısı çöktüğünde kilitleme yine de çalışır.
  */
+export const CRON_JOB_NAME = "billing-daily"
+
 async function handle(request: Request) {
   if (!isCronAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  const now = new Date()
   const startedAt = Date.now()
+
+  // ÇİFT KOŞUM KİLİDİ — aynı gün ikinci tetikleme (zamanlayıcı yeniden denemesi, elle
+  // çağırma, iki bölge) uyarı e-postasını ikiler ve tahsilat isteğini tekrarlar.
+  // 200 dönülür: bu bir hata değil, "yapacak iş yok" durumudur; 500 dönmek zamanlayıcıyı
+  // boşuna alarma geçirirdi.
+  const run = await startCronRun(CRON_JOB_NAME, now)
+  if (!run.started) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "Bugün zaten koştu",
+      jobKey: run.jobKey,
+      previous: run.previous,
+    })
+  }
+
   const steps: Record<string, unknown> = {}
   const errors: string[] = []
 
-  const step = async (name: string, run: () => Promise<unknown>) => {
+  const step = async (name: string, task: () => Promise<unknown>) => {
     try {
-      steps[name] = await run()
+      steps[name] = await task()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.error(`billing daily cron — ${name} başarısız:`, error)
@@ -54,15 +86,29 @@ async function handle(request: Request) {
   await step("reconcile", () => runReconcile())
   await step("invoiceRetry", () => runInvoiceRetry())
 
+  await finishCronRun(run.id, { result: steps, failedSteps: errors, startedAtMs: startedAt })
+
+  // Başarısız adım = sessizce yaşanmaması gereken bir şey: bu iş erişim kesiyor ve para
+  // çekiyor. Bildirim gönderimi işin sonucunu etkilemez (fırlatmaz).
+  if (errors.length > 0) {
+    await alertCronFailure({
+      job: CRON_JOB_NAME,
+      jobKey: run.jobKey,
+      failedSteps: errors,
+      result: steps,
+    })
+  }
+
   return NextResponse.json(
     {
       ok: errors.length === 0,
+      jobKey: run.jobKey,
       failedSteps: errors.length > 0 ? errors : undefined,
       durationMs: Date.now() - startedAt,
       ...steps,
     },
     // Kısmi başarıda 500 dönmek zamanlayıcının "başarısız" işaretlemesi için doğru sinyal.
-    { status: errors.length > 0 ? 500 : 200 }
+    { status: errors.length > 0 ? 500 : 200 },
   )
 }
 

@@ -9,8 +9,19 @@ import { prisma } from "@/lib/db/prisma"
 import { recordDiscountRedemption } from "@/lib/billing/discount"
 import { isBillingCycle, type BillingCycle } from "@/lib/billing/constants"
 import { applyEntitlements, periodEndFor } from "@/lib/billing/entitlements"
+import { eventDate, logSubscriptionEvent } from "@/lib/billing/events"
 import { issueInvoiceQuietly } from "@/lib/invoicing/issue-sales-invoice"
 import type { NotificationResult, PaytrNotification } from "@/lib/integrations/paytr/notification"
+
+/**
+ * İlk ödemede PayTR'ın sakladığı kart. `token` yoksa otomatik yenileme KURULMAZ:
+ * `runRecurring` token'sız aboneliği atlar (bkz. [[lib/billing/jobs.ts]]).
+ */
+export type SavedCard = {
+  token?: string | null
+  brand?: string | null
+  last4?: string | null
+}
 
 /** Karar için gereken sipariş alanları. */
 export type OrderSnapshot = {
@@ -127,7 +138,7 @@ export function planSubscriptionWrite(
  *    `periodEnd` asla geriye çekilmez (dönem ortasında yükseltme yapan müşteri kalan
  *    ödenmiş süresini kaybetmez).
  */
-async function activateSubscription(order: PackageOrder): Promise<void> {
+async function activateSubscription(order: PackageOrder, card: SavedCard = {}): Promise<void> {
   const cycle: BillingCycle = isBillingCycle(order.billingCycle) ? order.billingCycle : "MONTHLY"
   const now = new Date()
 
@@ -171,6 +182,20 @@ async function activateSubscription(order: PackageOrder): Promise<void> {
       `[billing-callback] order ${order.id}: kota takviyesi — branchQuota=${write.branchQuota}, ` +
         `companyQuota=${write.companyQuota} (modüller/dönem korundu, status=${existing!.status})`,
     )
+    await logSubscriptionEvent({
+      type: "QUOTA_CHANGED",
+      companyId: order.companyId,
+      subscriptionId: existing!.id,
+      actor: "PAYTR",
+      summary: `Kota takviyesi — şube ${write.branchQuota}, ek firma ${write.companyQuota}`,
+      detail: {
+        orderId: order.id,
+        branchQuota: write.branchQuota,
+        companyQuota: write.companyQuota,
+        // Kota almak modül almak DEĞİLDİR; olay kaydı bunu da anlatsın.
+        modulesUntouched: true,
+      },
+    })
     return
   }
 
@@ -219,17 +244,55 @@ async function activateSubscription(order: PackageOrder): Promise<void> {
     paymentRef: order.paymentRef,
     periodStart: now,
     periodEnd: write.periodEnd,
+    // Yeni dönem = temiz sayfa. Uyarı eşiği sıfırlanmazsa bu dönemin "7 gün kaldı"
+    // e-postası "zaten daha acilini göndermiştim" diye atlanır; `lockedAt` kalırsa
+    // arşiv sayacı ödemiş hesabı saymaya devam eder.
+    lastNoticeThreshold: null,
+    lastNoticeSentAt: null,
+    lockedAt: null,
+    // SAKLI KART — yalnız geldiyse yazılır. `undefined` Prisma'da "alana dokunma"
+    // demektir: kart bilgisi taşımayan bir sipariş (ör. kota takviyesi ya da recurring
+    // kapalıyken alınan ödeme) mevcut token'ı SİLMEMELİ, yoksa çalışan bir otomatik
+    // yenileme sessizce ölürdü.
+    ...(card.token ? { providerSubscriptionId: card.token } : {}),
+    ...(card.brand ? { cardBrand: card.brand } : {}),
+    ...(card.last4 ? { cardLast4: card.last4 } : {}),
   }
 
-  if (existing) {
-    await prisma.subscription.update({ where: { id: existing.id }, data })
-  } else {
-    await prisma.subscription.create({ data: { companyId: order.companyId, ...data } })
-  }
+  const subscriptionId = existing
+    ? (await prisma.subscription.update({ where: { id: existing.id }, data, select: { id: true } })).id
+    : (
+        await prisma.subscription.create({
+          data: { companyId: order.companyId, ...data },
+          select: { id: true },
+        })
+      ).id
 
   if (write.applyEntitlements) {
     await applyEntitlements(order.companyId, write.purchasedModules)
   }
+
+  await logSubscriptionEvent({
+    type: "PERIOD_STARTED",
+    companyId: order.companyId,
+    subscriptionId,
+    actor: "PAYTR",
+    summary:
+      `${cycle === "YEARLY" ? "Yıllık" : "Aylık"} dönem başladı — ` +
+      `${eventDate(write.periodEnd)} tarihine kadar` +
+      (write.purchasedModules.length > 0 ? ` (${write.purchasedModules.length} modül)` : ""),
+    detail: {
+      orderId: order.id,
+      billingCycle: cycle,
+      amount: Number(order.amount),
+      modules: write.purchasedModules,
+      droppedModules: write.droppedModules,
+      branchQuota: write.branchQuota,
+      companyQuota: write.companyQuota,
+      autoRenew: order.autoRenew,
+      cardStored: Boolean(card.token),
+    },
+  })
 }
 
 /**
@@ -269,10 +332,17 @@ export async function handlePackageNotification(
       paymentProvider: "PAYTR",
       paymentRef: p.paymentType || null,
       paymentError: null,
+      // Saklı kart token'ı siparişte de durur: aboneliğe yazım yarıda kalırsa
+      // (PayTR tekrar dener) token kaybolmasın.
+      ...(p.cardToken ? { recurringToken: p.cardToken } : {}),
     },
   })
 
-  await activateSubscription(paid)
+  await activateSubscription(paid, {
+    token: p.cardToken,
+    brand: p.cardBrand,
+    last4: p.cardLast4,
+  })
 
   await prisma.packageOrder.update({ where: { id: order.id }, data: { status: "ACTIVE" } })
 
@@ -301,6 +371,8 @@ export async function activatePackageOrderManually(orderId: string): Promise<Pac
       paymentError: null,
     },
   })
-  await activateSubscription(paid)
+  // Siparişte saklı kart token'ı varsa (bildirim gelmiş ama aktivasyon yarıda kalmışsa)
+  // elle kurtarmada da aboneliğe taşınır; aksi halde otomatik yenileme kurulmadan kalırdı.
+  await activateSubscription(paid, { token: paid.recurringToken })
   return prisma.packageOrder.update({ where: { id: order.id }, data: { status: "ACTIVE" } })
 }

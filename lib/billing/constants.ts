@@ -57,7 +57,7 @@ export function defaultPricingItems(): Array<{ key: string; label: string; sortO
 export const ALL_MODULE_KEYS = MODULE_KEYS
 
 /**
- * Ödeme alınamadıktan sonra erişimin açık kaldığı hoşgörü süresi (gün).
+ * Ödeme alınamadıktan sonra erişimin açık kaldığı hoşgörü süresi (gün), PERİYODA GÖRE.
  *
  * Neden var: dönem bitiminde anında kilitlemek, kartı bir gün geç yenileyen ya da
  * bankası çekimi reddeden müşteriyi kapının dışında bırakır. Bu sürede abonelik
@@ -65,7 +65,30 @@ export const ALL_MODULE_KEYS = MODULE_KEYS
  * `isInGracePeriod`), uyarı e-postası ve panel şeridi devrededir. Süre dolunca
  * `reconcile` `EXPIRED` yazar ve modüller kapanır.
  *
+ * Neden periyoda göre: yıllık ödeyen müşteri yılda bir kez, çoğu zaman muhasebe/onay
+ * süreciyle öder — bir haftalık pencere kurumsal bir alıcı için gerçekçi değil. Aylık
+ * ödeyende ise uzun hoşgörü bedava bir ay demektir. Bu yüzden aylık 7, yıllık 15 gün.
+ *
  * İSTİSNA: kullanıcı dönem sonunda iptali kendisi istediyse (`cancelAtPeriodEnd`)
  * hoşgörü uygulanmaz — kapanacağını zaten biliyor.
  */
-export const GRACE_PERIOD_DAYS = 7
+export const GRACE_DAYS_BY_CYCLE: Record<BillingCycle, number> = {
+  MONTHLY: 7,
+  YEARLY: 15,
+}
+
+/**
+ * Periyodu bilinmeyen abonelikte kullanılan hoşgörü.
+ *
+ * UZUN olanı seçiyoruz (yıllık). `billingCycle` bugün her ücretli abonelikte dolu
+ * (`activateSubscription` daima yazıyor); boş olması eski ya da elle açılmış bir
+ * satır demektir. Böyle bir satırda kısa süreyi varsaymak, yıllık ödemiş bir müşteriyi
+ * 8 gün erken kapı dışında bırakma riski taşır; uzun süreyi varsaymanın maliyeti ise
+ * aylık bir müşteriye 8 gün fazladan erişimdir. İkisi arasında ikincisi tercih edilir.
+ */
+export const DEFAULT_GRACE_DAYS = GRACE_DAYS_BY_CYCLE.YEARLY
+
+/** Bir aboneliğin hoşgörü süresi (gün). Periyot bilinmiyorsa `DEFAULT_GRACE_DAYS`. */
+export function graceDaysFor(cycle: unknown): number {
+  return isBillingCycle(cycle) ? GRACE_DAYS_BY_CYCLE[cycle] : DEFAULT_GRACE_DAYS
+}

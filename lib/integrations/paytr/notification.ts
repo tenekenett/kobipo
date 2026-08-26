@@ -28,6 +28,38 @@ export type PaytrNotification = {
   totalAmount: string
   paymentType: string
   failedReasonMsg: string
+  /**
+   * KART SAKLAMA (recurring) alanları — yalnız `recurring_payment=1` ile alınan
+   * ödemelerde gelir. Abonelik akışı bunları `Subscription`a yazar; kontör akışı
+   * kullanmaz (tek seferlik ödeme).
+   *
+   * `cardToken` yoksa otomatik yenileme kurulmaz: `runRecurring` token'sız aboneliği
+   * atlar. Bu yüzden beklenip gelmediğinde SESSİZ geçilmez (aşağıya bkz.).
+   */
+  cardToken: string | null
+  cardBrand: string | null
+  cardLast4: string | null
+}
+
+/**
+ * Bildirimden kart saklama alanlarını çıkarır.
+ *
+ * ⚠️ Alan adları PayTR ile TEYİT EDİLECEK (docs/paket-abonelik/PAYTR-RECURRING-KONTROL.md).
+ * Bu yüzden isim tahmin etmek yerine ÖĞRENİLİYOR: beklenen alan gelmediğinde bildirimin
+ * TÜM anahtarları log'a yazılır, böylece ilk gerçek recurring ödemesinde doğru ad
+ * kendiliğinden ortaya çıkar ve tek satırlık bir düzeltmeyle bağlanır.
+ */
+function readCardFields(form: FormData): Pick<PaytrNotification, "cardToken" | "cardBrand" | "cardLast4"> {
+  const str = (k: string) => {
+    const v = form.get(k)
+    return typeof v === "string" && v.trim() ? v.trim() : null
+  }
+  return {
+    cardToken: str("utoken"),
+    cardBrand: str("card_brand") ?? str("card_type"),
+    // Yalnız son dört hane saklanır; tam kart numarası HİÇBİR koşulda tutulmaz.
+    cardLast4: str("card_no")?.replace(/\D/g, "").slice(-4) || str("last_four") || null,
+  }
 }
 
 /**
@@ -69,6 +101,7 @@ export async function handlePaytrNotification(request: Request): Promise<Respons
     totalAmount: String(form.get("total_amount") || ""),
     paymentType: String(form.get("payment_type") || ""),
     failedReasonMsg: String(form.get("failed_reason_msg") || ""),
+    ...readCardFields(form),
   }
   // Hash yalnız doğrulamada kullanılır; iş kuralı işleyicilerine taşınmaz.
   const hash = String(form.get("hash") || "")
@@ -89,6 +122,15 @@ export async function handlePaytrNotification(request: Request): Promise<Respons
       where: { id: merchantOidBase(notification.merchantOid) },
     })
     if (packageOrder) {
+      // Otomatik yenilemeli bir sipariş kart token'ı olmadan dönerse abonelik kurulur
+      // ama BİR DAHA HİÇ tahsilat yapılamaz — `runRecurring` token'sız aboneliği atlar.
+      // Sessiz geçilmez: alan adı yanlışsa gelen anahtarlar burada görünür (readCardFields).
+      if (packageOrder.autoRenew && notification.status === "success" && !notification.cardToken) {
+        console.warn(
+          `[paytr-callback] otomatik yenilemeli sipariş ${packageOrder.id} için KART TOKEN'I GELMEDİ — ` +
+            `bu abonelik kendiliğinden yenilenemez. Bildirimdeki alanlar: [${[...form.keys()].join(", ")}]`,
+        )
+      }
       return (await handlePackageNotification(notification, packageOrder)) === "ok" ? ok() : retryLater()
     }
 

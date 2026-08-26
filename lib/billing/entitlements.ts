@@ -14,7 +14,7 @@
 import { prisma } from "@/lib/db/prisma"
 import { MODULE_KEYS, sanitizeDisabledModules, withModuleDependencies } from "@/lib/modules"
 import { getFreeModuleKeys } from "@/lib/billing/free-modules"
-import { GRACE_PERIOD_DAYS, type BillingCycle } from "@/lib/billing/constants"
+import { graceDaysFor, type BillingCycle } from "@/lib/billing/constants"
 import { DAY_MS } from "@/lib/billing/notice"
 
 /**
@@ -75,6 +75,8 @@ type SubStatusView = {
   purchasedModules: string[]
   trialEndsAt: Date | null
   periodEnd: Date | null
+  /** Hoşgörü süresi periyoda göre değişir (aylık 7, yıllık 15). Yoksa uzun süre varsayılır. */
+  billingCycle?: string | null
 }
 
 /** Deneme aktif mi? (status TRIAL ve bitiş tarihi gelecekte / boş) */
@@ -94,11 +96,13 @@ export function isPaidActive(sub: SubStatusView | null | undefined, now = new Da
  *
  * `PAST_DUE`'yu ayrı bir "yarı açık" durum olarak görmek şart: aksi halde yetkiler her
  * yeniden hesaplandığında (reconcile, recurring, admin) hoşgörü süresindeki müşteri
- * anında kilitlenirdi. Bkz. [[lib/billing/constants.ts]] → GRACE_PERIOD_DAYS.
+ * anında kilitlenirdi. Süre periyoda göredir — bkz. [[lib/billing/constants.ts]] →
+ * `graceDaysFor`. Bu fonksiyona verilen kaydın `billingCycle` TAŞIMASI şart: eksik
+ * geçilirse yıllık müşteri sessizce 8 gün erken kilitlenir.
  */
 export function isInGracePeriod(sub: SubStatusView | null | undefined, now = new Date()): boolean {
   if (!sub || sub.status !== "PAST_DUE" || !sub.periodEnd) return false
-  return sub.periodEnd.getTime() + GRACE_PERIOD_DAYS * DAY_MS > now.getTime()
+  return sub.periodEnd.getTime() + graceDaysFor(sub.billingCycle) * DAY_MS > now.getTime()
 }
 
 /**

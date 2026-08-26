@@ -40,6 +40,21 @@ export function isPaytrEnabled(): boolean {
   return getPaytrCredentials() !== null
 }
 
+/**
+ * Yinelenen (recurring) çekim CANLI mı?
+ *
+ * Ayrı bir bayrak, çünkü PayTR mağazasında "Tekrarlayan Ödeme" ürünü ayrıca açılır ve
+ * açık olmadan yapılan çekim isteği hata döner. Bayrak kapalıyken:
+ *   - ilk ödemede karta "sakla" işareti KONMAZ (`recurring_payment` gönderilmez),
+ *   - günlük iş vadesi gelen aboneliğe DOKUNMAZ (durum değişmez, tekrar denenir).
+ * Böylece ürün açılmadan sistem yanlış bir şey yapmaz; açıldığında tek env ile devreye girer.
+ *
+ * Açıkça "1" denmedikçe kapalı — yanlış yapılandırmada para hareketi başlamasın.
+ */
+export function isRecurringEnabled(): boolean {
+  return isPaytrEnabled() && process.env.PAYTR_RECURRING_ENABLED?.trim() === "1"
+}
+
 type CreateTokenParams = {
   merchantOid: string
   email: string
@@ -135,6 +150,17 @@ export async function createPaymentToken(params: CreateTokenParams): Promise<{ t
     lang: "tr",
   })
 
+  // KART SAKLAMA — PayTR bu işareti gördüğünde ödeme başarılıysa kartı saklar ve
+  // bildirimde bir kart token'ı döndürür; sonraki dönemler `chargeRecurringPayment`
+  // ile çekilir. Hash string'ini ETKİLEMEZ (yukarıdaki hashStr'de yer almaz).
+  //
+  // `isRecurringEnabled()` şartı önemli: PayTR hesabında "Tekrarlayan Ödeme" ürünü açık
+  // değilken bu alanı göndermek ödeme isteğini reddettirir. Yani ürün açılana kadar
+  // normal ödeme akışı hiç etkilenmez.
+  if (params.recurringPayment && isRecurringEnabled()) {
+    form.set("recurring_payment", "1")
+  }
+
   const res = await fetch(PAYTR_GET_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -150,7 +176,19 @@ export async function createPaymentToken(params: CreateTokenParams): Promise<{ t
 }
 
 export const PAYTR_RECURRING_NOT_IMPLEMENTED =
-  "PayTR yinelenen (recurring) çekim henüz canlıya alınmadı. İlk dönem ödemesi ve tüm enforcement çalışır; otomatik yenileme için PayTR hesabında recurring ürünü açılıp bu istemci canlı API'ye bağlanmalıdır."
+  "PayTR yinelenen (recurring) çekim devrede değil (PAYTR_RECURRING_ENABLED=1 değil). İlk dönem ödemesi ve tüm enforcement çalışır; otomatik yenileme için PayTR hesabında 'Tekrarlayan Ödeme' ürünü açılıp bu bayrak verilmelidir."
+
+/** PayTR beklenmedik bir gövde döndürdü — çekimin olup olmadığı BİLİNMİYOR. */
+export const PAYTR_RECURRING_UNKNOWN_RESPONSE = "PayTR yinelenen çekim yanıtı tanınmadı"
+
+/**
+ * Yinelenen çekim ucu.
+ *
+ * ⚠️ **PayTR ile TEYİT EDİLECEK** — bkz. docs/paket-abonelik/PAYTR-RECURRING-KONTROL.md.
+ * Kod değişikliği gerekmeden düzeltilebilsin diye env'den geçersiz kılınabilir.
+ */
+const PAYTR_RECURRING_URL =
+  process.env.PAYTR_RECURRING_URL?.trim() || "https://www.paytr.com/odeme/api/recurring-payment"
 
 export type RecurringChargeInput = {
   /** Bu döneme özel yeni merchant_oid (idempotency + PayTR kaydı için benzersiz). */
@@ -173,23 +211,93 @@ export type RecurringChargeResult = {
 }
 
 /**
- * İSKELE (Aşama 6) — saklı kartla yinelenen (recurring) çekim.
+ * Saklı kartla yinelenen (recurring) çekim.
  *
- * Amaçlanan akış (canlıya alınırken doldurulacak):
+ * Akış:
  *  1. İlk ödeme `createPaymentToken({ recurringPayment: true })` ile alınır → PayTR kartı saklar.
- *  2. Saklanan kart token'ı `Subscription.providerSubscriptionId`'ye yazılır (callback/karttan).
- *  3. Her dönem, PayTR "Tekrarlayan Ödeme" API'sine YENİ bir `merchant_oid` ile HMAC imzalı istek
- *     atılır; sonuç senkron döner ve/veya callback gelir. `input.cardToken` bu çekimde kullanılır.
+ *  2. Saklanan kart token'ı bildirimde döner ve `Subscription.providerSubscriptionId`'ye yazılır
+ *     ([[lib/billing/paytr-payment.ts]]).
+ *  3. Her dönem buradan YENİ bir `merchant_oid` ile HMAC imzalı istek atılır.
  *
- * Bilinçli olarak CANLI çağrı YAPMAZ ve state DEĞİŞTİRMEZ — yanlış/çift çekimi önlemek için
- * `PAYTR_RECURRING_NOT_IMPLEMENTED` fırlatır. `recurring/run` bunu yakalar ve aboneliği
- * OLDUĞU GİBİ bırakır. Canlıya alırken burada gerçek PayTR isteği kurulmalı ve
- * `RecurringChargeResult` döndürülmelidir.
+ * **Üç ayrı sonuç, üçü de farklı davranır** — bu ayrım şart, çünkü "çekim başarısız" ile
+ * "çekim yapılıp yapılmadığını bilmiyoruz" aynı şey değildir:
+ *
+ *   - `success: true`      → dönem uzatılır.
+ *   - `success: false`     → PayTR açıkça REDDETTİ (kart limiti, son kullanma…). Abonelik
+ *                            `PAST_DUE`'ya alınır; hoşgörü boyunca her gün yeniden denenir.
+ *   - **fırlatır**         → ağ hatası ya da tanınmayan gövde. Abonelik DEĞİŞTİRİLMEZ;
+ *                            çağıran bunu `pending` sayar ve ertesi gün tekrar dener.
+ *                            Sonucu bilmediğimiz bir çekimi "başarısız" saymak, parası
+ *                            çekilmiş müşteriyi hoşgörüye düşürürdü.
+ *
+ * `PAYTR_RECURRING_ENABLED` kapalıyken CANLI ÇAĞRI YAPILMAZ: eski davranış korunur
+ * (fırlatır → abonelik olduğu gibi kalır). Böylece ürün açılana kadar sistem yanlış bir
+ * şey yapmaz, açıldığında tek env ile devreye girer.
+ *
+ * ⚠️ Uç adresi ve alan adları PayTR ile TEYİT EDİLMELİ —
+ * docs/paket-abonelik/PAYTR-RECURRING-KONTROL.md.
  */
 export async function chargeRecurringPayment(
-  _input: RecurringChargeInput,
+  input: RecurringChargeInput,
 ): Promise<RecurringChargeResult> {
-  throw new Error(PAYTR_RECURRING_NOT_IMPLEMENTED)
+  const creds = getPaytrCredentials()
+  if (!creds || !isRecurringEnabled()) {
+    throw new Error(PAYTR_RECURRING_NOT_IMPLEMENTED)
+  }
+
+  const { merchantId, merchantKey, merchantSalt, testMode } = creds
+  const currency = input.currency ?? "TL"
+
+  // PayTR'ın değişmeyen imza deseni: base64( HMAC_SHA256( hashStr + salt, key ) ).
+  // hashStr'in İÇERİĞİ uca göre değişir; buradaki sıra teyit edilecek alanlardan biridir.
+  const hashStr =
+    `${merchantId}${input.merchantOid}${input.paymentAmount}` +
+    `${input.cardToken}${currency}${testMode}`
+  const paytrToken = crypto
+    .createHmac("sha256", merchantKey)
+    .update(hashStr + merchantSalt)
+    .digest("base64")
+
+  const form = new URLSearchParams({
+    merchant_id: merchantId,
+    merchant_oid: input.merchantOid,
+    payment_amount: String(input.paymentAmount),
+    utoken: input.cardToken,
+    user_ip: input.userIp,
+    email: input.email,
+    currency,
+    test_mode: testMode,
+    paytr_token: paytrToken,
+  })
+
+  const res = await fetch(PAYTR_RECURRING_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+  })
+
+  const raw = await res.text()
+  let data: { status?: string; reason?: string; err_msg?: string; payment_id?: string } | null = null
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    data = null
+  }
+
+  if (!data || typeof data.status !== "string") {
+    // Gövdeyi tanımıyoruz → çekim OLMUŞ OLABİLİR. Durumu değiştirmeden fırlat.
+    console.error(
+      `[paytr-recurring] tanınmayan yanıt (HTTP ${res.status}) oid=${input.merchantOid}: ` +
+        raw.slice(0, 500),
+    )
+    throw new Error(PAYTR_RECURRING_UNKNOWN_RESPONSE)
+  }
+
+  if (data.status === "success") {
+    return { success: true, paymentRef: data.payment_id ? String(data.payment_id) : "PAYTR" }
+  }
+
+  return { success: false, failReason: data.reason || data.err_msg || "PayTR çekimi reddetti" }
 }
 
 /**
