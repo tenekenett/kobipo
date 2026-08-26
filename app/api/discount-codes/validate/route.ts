@@ -76,7 +76,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
         const usable = results.filter((r) => !("error" in r))
         if (usable.length === 0) {
           // Hiçbir pakete uymadıysa sebebi ilk hatadan verilir (ör. "süresi dolmuş",
-          // "en az 500 TL'lik alımlarda geçerli").
+          // "kullanım hakkı dolmuş").
           const firstError = results.find((r) => "error" in r) as { error: string } | undefined
           return NextResponse.json(
             { error: firstError?.error || "Bu kod kullanılamıyor." },

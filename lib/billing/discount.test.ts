@@ -3,9 +3,9 @@
  *
  * Bu hesap iki yerde birden görünür: "kodu uygula" kutusundaki ön izleme ve siparişin
  * gerçek tutarı. İkisi tek fonksiyondan geldiği için burada kilitlenen kural, ekranda
- * yazan indirim ile tahsil edilen tutarın ayrışmamasıdır. Sınırlar (tavan, sipariş
- * tutarını aşmama, kuruş yuvarlaması) sessizce kaybolursa müşteriden yanlış tutar
- * çekilir — testler o üç sınırı tutar.
+ * yazan indirim ile tahsil edilen tutarın ayrışmamasıdır. İki sınır (sabit indirimin
+ * sipariş tutarını aşamaması, kuruş yuvarlaması) sessizce kaybolursa müşteriden
+ * yanlış tutar çekilir — testler onları tutar.
  */
 
 import { describe, expect, it } from "vitest"
@@ -44,11 +44,6 @@ describe("computeDiscountAmount", () => {
 
   it("sabit tutarı olduğu gibi uygular", () => {
     expect(computeDiscountAmount({ type: "AMOUNT", value: 100 }, 375)).toBe(100)
-  })
-
-  it("yüzde indirimde tavanı aşmaz", () => {
-    // %50 → 500 TL olurdu; tavan 200 TL.
-    expect(computeDiscountAmount({ type: "PERCENT", value: 50, maxDiscount: 200 }, 1000)).toBe(200)
   })
 
   it("sabit tutar sipariş tutarını aşamaz — bedava satış yapılmaz", () => {

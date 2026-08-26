@@ -13,8 +13,6 @@ interface DiscountCode {
   type: "PERCENT" | "AMOUNT" | string
   value: string | number
   scope: "ALL" | "KONTOR" | "PACKAGE" | string
-  maxDiscount: string | number | null
-  minAmount: string | number | null
   startsAt: string | null
   endsAt: string | null
   maxRedemptions: number | null
@@ -30,8 +28,6 @@ const emptyForm = {
   type: "PERCENT",
   value: "",
   scope: "ALL",
-  maxDiscount: "",
-  minAmount: "",
   startsAt: "",
   endsAt: "",
   maxRedemptions: "",
@@ -100,8 +96,6 @@ export function DiscountCodeAdmin() {
         type: form.type,
         value: Number(form.value),
         scope: form.scope,
-        maxDiscount: form.type === "PERCENT" ? form.maxDiscount : "",
-        minAmount: form.minAmount,
         startsAt: form.startsAt || null,
         endsAt: form.endsAt || null,
         maxRedemptions: form.maxRedemptions,
@@ -142,8 +136,6 @@ export function DiscountCodeAdmin() {
       type: String(c.type),
       value: String(Number(c.value)),
       scope: String(c.scope),
-      maxDiscount: c.maxDiscount != null ? String(Number(c.maxDiscount)) : "",
-      minAmount: c.minAmount != null ? String(Number(c.minAmount)) : "",
       startsAt: toDateInput(c.startsAt),
       endsAt: toDateInput(c.endsAt),
       maxRedemptions: c.maxRedemptions != null ? String(c.maxRedemptions) : "",
@@ -169,8 +161,6 @@ export function DiscountCodeAdmin() {
         type: c.type,
         value: Number(c.value),
         scope: c.scope,
-        maxDiscount: c.maxDiscount != null ? Number(c.maxDiscount) : "",
-        minAmount: c.minAmount != null ? Number(c.minAmount) : "",
         startsAt: c.startsAt,
         endsAt: c.endsAt,
         maxRedemptions: c.maxRedemptions ?? "",
@@ -265,7 +255,7 @@ export function DiscountCodeAdmin() {
             />
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-[1.2fr_1fr_1fr_1fr_1fr]">
+          <div className="grid gap-2 sm:grid-cols-[1.2fr_1fr_1fr]">
             <select
               value={form.scope}
               onChange={(e) => setForm({ ...form, scope: e.target.value })}
@@ -275,22 +265,6 @@ export function DiscountCodeAdmin() {
               <option value="KONTOR">Yalnız kontör</option>
               <option value="PACKAGE">Yalnız abonelik</option>
             </select>
-            {/* Tavan yalnız yüzde indirimde anlamlı; sabit tutarda değerin kendisi tavandır. */}
-            <input
-              placeholder="Tavan (TL)"
-              inputMode="decimal"
-              value={form.maxDiscount}
-              onChange={(e) => setForm({ ...form, maxDiscount: e.target.value.replace(/[^\d.]/g, "") })}
-              disabled={form.type !== "PERCENT"}
-              className={`${input} disabled:opacity-40`}
-            />
-            <input
-              placeholder="Asgari tutar (TL)"
-              inputMode="decimal"
-              value={form.minAmount}
-              onChange={(e) => setForm({ ...form, minAmount: e.target.value.replace(/[^\d.]/g, "") })}
-              className={input}
-            />
             <input
               placeholder="Toplam hak"
               inputMode="numeric"
@@ -395,7 +369,7 @@ export function DiscountCodeAdmin() {
                     <th className="py-2 pr-4">Kod</th>
                     <th className="py-2 pr-4">İndirim</th>
                     <th className="py-2 pr-4">Kapsam</th>
-                    <th className="py-2 pr-4">Sınırlar</th>
+                    <th className="py-2 pr-4">Firma başına</th>
                     <th className="py-2 pr-4">Tarih</th>
                     <th className="py-2 pr-4">Kullanım</th>
                     <th className="py-2 pr-4">Durum</th>
@@ -417,14 +391,7 @@ export function DiscountCodeAdmin() {
                         )}
                       </td>
                       <td className="py-2 pr-4">
-                        {c.type === "PERCENT"
-                          ? `%${Number(c.value)}`
-                          : fmtMoney(c.value)}
-                        {c.type === "PERCENT" && c.maxDiscount != null && (
-                          <span className="block text-xs text-slate-500">
-                            en fazla {fmtMoney(c.maxDiscount)}
-                          </span>
-                        )}
+                        {c.type === "PERCENT" ? `%${Number(c.value)}` : fmtMoney(c.value)}
                       </td>
                       <td className="py-2 pr-4">
                         {SCOPE_LABEL[c.scope] || c.scope}
@@ -433,10 +400,7 @@ export function DiscountCodeAdmin() {
                         )}
                       </td>
                       <td className="py-2 pr-4 text-xs text-slate-400">
-                        {c.minAmount != null && <span className="block">min {fmtMoney(c.minAmount)}</span>}
-                        <span className="block">
-                          firma başına {c.maxPerCompany ?? "∞"}
-                        </span>
+                        {c.maxPerCompany ?? "∞"}
                       </td>
                       <td className="py-2 pr-4 text-xs text-slate-400">
                         {c.startsAt || c.endsAt ? (

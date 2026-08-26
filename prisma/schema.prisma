@@ -2733,10 +2733,6 @@ model DiscountCode {
   value       Decimal @db.Decimal(10, 2)
   /// KONTOR | PACKAGE | ALL — kodun geçerli olduğu satış türü.
   scope       String  @default("ALL")
-  /// Yüzde indirimde tavan (TL). Boş = tavansız.
-  maxDiscount Decimal? @db.Decimal(10, 2)
-  /// Asgari sipariş tutarı (TL, KDV dahil). Boş = alt sınır yok.
-  minAmount   Decimal? @db.Decimal(10, 2)
   startsAt    DateTime?
   endsAt      DateTime?
   /// Toplam kullanım hakkı. Boş = sınırsız.

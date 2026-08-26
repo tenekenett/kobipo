@@ -8,8 +8,6 @@ export type DiscountCodeData = {
   type: string
   value: number
   scope: string
-  maxDiscount: number | null
-  minAmount: number | null
   startsAt: Date | null
   endsAt: Date | null
   maxRedemptions: number | null
@@ -71,15 +69,6 @@ export function parseDiscountCodeInput(
     return { ok: false, error: "Firma başına hak pozitif tam sayı olmalı" }
   }
 
-  const maxDiscount = optionalNumber(body?.maxDiscount)
-  if (maxDiscount != null && maxDiscount <= 0) {
-    return { ok: false, error: "İndirim tavanı pozitif olmalı" }
-  }
-  const minAmount = optionalNumber(body?.minAmount)
-  if (minAmount != null && minAmount < 0) {
-    return { ok: false, error: "Asgari tutar negatif olamaz" }
-  }
-
   void opts // ileride kısmi güncelleme gerekirse ayrım burada yapılır
 
   return {
@@ -89,9 +78,6 @@ export function parseDiscountCodeInput(
       type,
       value,
       scope,
-      // Tavan yalnız yüzde indirimde anlamlı; sabit tutarda değer zaten tavandır.
-      maxDiscount: type === "PERCENT" ? maxDiscount : null,
-      minAmount,
       startsAt,
       endsAt,
       maxRedemptions,

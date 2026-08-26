@@ -46,22 +46,18 @@ function round2(n: number): number {
 /**
  * İndirim tutarının SAF hesabı (veritabanı gerektirmez, testlenebilir).
  *
- * Üç sınır burada uygulanır:
- *  - yüzde indirimde tavan (`maxDiscount`),
+ * İki sınır burada uygulanır:
  *  - sabit tutarın sipariş tutarını aşamaması (bedava satış yapılmaz),
  *  - kuruş yuvarlaması (PayTR tutarı kuruşa çevirir; yarım kuruş tahsilat olmaz).
  */
 export function computeDiscountAmount(
-  rule: { type: string; value: number; maxDiscount?: number | null },
+  rule: { type: string; value: number },
   listAmount: number,
 ): number {
   const list = round2(listAmount)
   if (!(list > 0)) return 0
   let amount =
     rule.type === "PERCENT" ? round2((list * Number(rule.value)) / 100) : round2(Number(rule.value))
-  if (rule.maxDiscount != null && amount > Number(rule.maxDiscount)) {
-    amount = round2(Number(rule.maxDiscount))
-  }
   if (amount > list) amount = list
   return amount > 0 ? amount : 0
 }
@@ -104,16 +100,6 @@ export async function evaluateDiscountCode(params: {
   if (row.startsAt && now < row.startsAt) return { ok: false, error: "Bu kod henüz başlamadı." }
   if (row.endsAt && now > row.endsAt) return { ok: false, error: "Bu kodun süresi dolmuş." }
 
-  const minAmount = row.minAmount != null ? Number(row.minAmount) : null
-  if (minAmount != null && listAmount < minAmount) {
-    return {
-      ok: false,
-      error: `Bu kod en az ${minAmount.toLocaleString("tr-TR", {
-        minimumFractionDigits: 2,
-      })} TL'lik alımlarda geçerli.`,
-    }
-  }
-
   // Limitler KULLANIM kayıtlarından sayılır; kayıt yalnız ödeme başarılı olunca yazılır.
   if (row.maxRedemptions != null) {
     const used = await prisma.discountCodeRedemption.count({ where: { codeId: row.id } })
@@ -129,11 +115,7 @@ export async function evaluateDiscountCode(params: {
   }
 
   const discountAmount = computeDiscountAmount(
-    {
-      type: row.type,
-      value: Number(row.value),
-      maxDiscount: row.maxDiscount != null ? Number(row.maxDiscount) : null,
-    },
+    { type: row.type, value: Number(row.value) },
     listAmount,
   )
   if (discountAmount <= 0) return { ok: false, error: "Bu kod bu tutarda indirim sağlamıyor." }
