@@ -17,6 +17,7 @@ import {
 } from "@/components/dashboard/admin/skeletons"
 import { LockedAccount } from "@/components/dashboard/locked-account"
 import { isAccountLocked } from "@/lib/modules"
+import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { assertRouteAccessOrRedirect } from "@/lib/middleware/page-guard"
 
 export const dynamic = "force-dynamic"
@@ -49,14 +50,17 @@ export default async function AdminDashboard({
   // component çektiği için istemci guard'ı geç kalır (bkz. lib/middleware/page-guard.ts).
   assertRouteAccessOrRedirect(activeCompany, "/dashboard/admin", requested)
 
-  // Hiç modülü açık olmayan hesap: rakam yerine satın alma ekranı. Giriş sonrası
+  // Hiçbir ÜCRETLİ modülü açık olmayan hesap: rakam yerine satın alma ekranı. Temel
+  // (ücretsiz) modüller ölçüye girmez — girseydi kilit ekranı hiç görünmezdi. Giriş sonrası
   // kullanıcı rolüne göre bu sayfalardan birine düşüyor, o yüzden kontrol her rol
   // panelinde ayrı ayrı durmalı — yalnız /dashboard'da olması yetmiyor.
-  if (isAccountLocked(activeCompany.disabledModules)) {
+  const freeModules = await getFreeModuleKeys()
+  if (isAccountLocked(activeCompany.disabledModules, freeModules)) {
     return (
       <LockedAccount
         companyId={activeCompany.companySlug ?? activeCompany.companyId}
         canPurchase={activeCompany.role === "ADMIN"}
+        freeModules={freeModules}
       />
     )
   }

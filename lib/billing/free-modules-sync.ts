@@ -1,0 +1,172 @@
+// Ücretsiz modül kümesi DEĞİŞTİĞİNDE mevcut hesapları hizalayan iş.
+//
+// Neden ayrı dosya: bu iş hem ücretsiz kümeyi (free-modules.ts) hem abonelik yetkisini
+// (entitlements.ts) okur. `entitlements.ts` de free-modules.ts'i okuduğu için ikisini tek
+// dosyada tutmak döngüsel import yaratırdı. Yön tek: entitlements → free-modules, ve bu
+// dosya ikisinin de üstünde durur.
+
+import { prisma } from "@/lib/db/prisma"
+import { MODULE_KEYS, sanitizeFreeModules, withModuleDependencies } from "@/lib/modules"
+import { resolveGrantedModules } from "@/lib/billing/entitlements"
+
+/** Hizalamada okunan firma alanları. */
+export type SyncCompanyView = {
+  id: string
+  accountRootId: string | null
+  disabledModules: string[]
+}
+
+export type FreeModuleDelta = {
+  /** Ücretsiz OLAN modüller — her firmada açılır. */
+  opened: string[]
+  /** Ücretsizliği KALKAN modüller — YÖNETİLEN firmalarda kapanır (aşağıdaki kurala bak). */
+  closed: string[]
+  /** Değişiklikten ÖNCEKİ ücretsiz küme — "yönetilen satır" ölçüsü buna göre kurulur. */
+  previousFree: string[]
+}
+
+/** Ücretsiz kümenin iki hâli arasındaki simetrik fark. */
+export function freeModuleDelta(previousFree: string[], nextFree: string[]): FreeModuleDelta {
+  const prev = sanitizeFreeModules(previousFree)
+  const prevSet = new Set(prev)
+  const next = new Set(sanitizeFreeModules(nextFree))
+  return {
+    opened: MODULE_KEYS.filter((k) => next.has(k) && !prevSet.has(k)),
+    closed: MODULE_KEYS.filter((k) => prevSet.has(k) && !next.has(k)),
+    previousFree: prev,
+  }
+}
+
+/**
+ * `applyEntitlements`in yazacağı `disabledModules` — yani satırın YÖNETİLEN hâli.
+ * `disabled = TÜM − (verilen ∪ ücretsiz)`, bağımlılıklar tamamlanmış.
+ */
+function managedDisabledShape(granted: Set<string>, free: string[]): Set<string> {
+  const open = new Set(withModuleDependencies([...granted, ...free]))
+  return new Set(MODULE_KEYS.filter((k) => !open.has(k)))
+}
+
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false
+  for (const v of a) if (!b.has(v)) return false
+  return true
+}
+
+/**
+ * Hizalamanın KARAR kısmı — saf. DB'ye yazılacak satırları üretir; değişmeyen firma
+ * listeye girmez.
+ *
+ * Yalnızca değişen anahtarlara dokunur — bütün `disabledModules` listelerini yeniden
+ * üretmez. Bu bilinçli: tam yeniden hesaplama, süper-admin'in elle açtığı demo hesapları
+ * ve deneme hesaplarını sessizce kilitlerdi (yetki `purchasedModules` + ücretli-aktiflik
+ * şartından üretilir, bkz. `resolveGrantedModules`).
+ *
+ * AÇMA herkese işler — "temel modül" tanımı bu.
+ *
+ * KAPATMA yalnız YÖNETİLEN satırlara işler: firmanın bugünkü `disabledModules`'ı, önceki
+ * ücretsiz kümeyle `applyEntitlements`in yazacağı listeyle birebir aynıysa o satırı bu
+ * sistem yazmıştır ve geri alınabilir. Değilse dokunulmaz.
+ *
+ * Bu kural olmadan felaket oluyordu: modül kilidi 2026-08'de kurulurken mevcut hesaplara
+ * bilinçli olarak DOKUNULMAMIŞTI (bkz. docs/paket-abonelik/MODUL-KILIDI.md → "Karar"), yani
+ * canlıdaki 32 firmanın 22'si `disabledModules = []` ile duruyor — her şey açık, hiçbiri
+ * satın alınmamış. "Satın almamışsan kapat" kuralı, bir modül bir kez ücretsiz yapılıp geri
+ * alındığında bu firmalarda o modülü KAPATIRDI; ölçüldü, 25 firma etkileniyordu. Oysa onlar
+ * o modülü ücretsizlikten değil, en baştan beri açık taşıyor.
+ *
+ * @param grantedByRoot hesap kökü → aboneliğin BUGÜN verdiği modüller.
+ */
+export function planFreeModuleSync(
+  companies: SyncCompanyView[],
+  grantedByRoot: Map<string, Set<string>>,
+  delta: FreeModuleDelta,
+): Array<{ id: string; disabledModules: string[] }> {
+  const updates: Array<{ id: string; disabledModules: string[] }> = []
+  if (delta.opened.length === 0 && delta.closed.length === 0) return updates
+
+  for (const company of companies) {
+    const rootId = company.accountRootId ?? company.id
+    const granted = grantedByRoot.get(rootId) ?? new Set<string>()
+    const disabled = new Set(company.disabledModules ?? [])
+    // Satırı bu sistem mi yazmış? Ölçü DEĞİŞİKLİKTEN ÖNCEKİ hâle bakılarak alınır.
+    const managed = sameSet(disabled, managedDisabledShape(granted, delta.previousFree))
+    let changed = false
+
+    for (const key of delta.opened) {
+      if (disabled.delete(key)) changed = true
+    }
+    for (const key of delta.closed) {
+      // Parası ödenmiş: ücretsizlik kalksa da kapatılmaz.
+      if (granted.has(key)) continue
+      // Yönetilmeyen satır (ör. modül kilidi öncesinden tamamen açık gelen eski hesap):
+      // o modülü ücretsizlikten almadı, geri alınacak bir şey yok.
+      if (!managed) continue
+      if (!disabled.has(key)) {
+        disabled.add(key)
+        changed = true
+      }
+    }
+    if (changed) {
+      updates.push({ id: company.id, disabledModules: MODULE_KEYS.filter((k) => disabled.has(k)) })
+    }
+  }
+  return updates
+}
+
+/**
+ * Ücretsiz küme değiştiğinde mevcut hesapları hizalar (okuma → karar → yazma).
+ *
+ * - Ücretsiz OLAN modül  → her firmada `disabledModules`tan çıkarılır (açılır).
+ * - Ücretsizliği KALKAN  → hesabın aboneliği o modülü hâlâ veriyorsa dokunulmaz;
+ *                          vermiyorsa `disabledModules`a geri eklenir (kapanır).
+ *
+ * Yeni firmalar bu yoldan geçmez; onlar zaten `createCompany` içinde doğru doğar.
+ */
+export async function syncFreeModuleGrants(
+  previousFree: string[],
+  nextFree: string[],
+): Promise<{ opened: string[]; closed: string[]; updatedCompanies: number }> {
+  const delta = freeModuleDelta(previousFree, nextFree)
+  if (delta.opened.length === 0 && delta.closed.length === 0) {
+    return { ...delta, updatedCompanies: 0 }
+  }
+
+  const [companies, subscriptions] = await Promise.all([
+    prisma.company.findMany({
+      select: { id: true, accountRootId: true, disabledModules: true },
+    }),
+    prisma.subscription.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        companyId: true,
+        status: true,
+        purchasedModules: true,
+        trialEndsAt: true,
+        periodEnd: true,
+      },
+    }),
+  ])
+
+  // Hesap kökü → aboneliğin BUGÜN verdiği modüller. Sorgu tarihe göre sıralı; ilk görülen
+  // satır en günceli olduğu için sonrakiler atlanır (`getAccountSubscription` ile aynı seçim).
+  const grantedByRoot = new Map<string, Set<string>>()
+  for (const sub of subscriptions) {
+    if (grantedByRoot.has(sub.companyId)) continue
+    grantedByRoot.set(sub.companyId, new Set(resolveGrantedModules(sub)))
+  }
+
+  const updates = planFreeModuleSync(companies, grantedByRoot, delta)
+
+  // Parçalı transaction: tek seferde binlerce update'i tek işleme sokmak bağlantıyı uzun
+  // süre kilitler. Hesap sayısı bugün küçük, yarın büyüyebilir.
+  const CHUNK = 100
+  for (let i = 0; i < updates.length; i += CHUNK) {
+    await prisma.$transaction(
+      updates.slice(i, i + CHUNK).map((u) =>
+        prisma.company.update({ where: { id: u.id }, data: { disabledModules: u.disabledModules } }),
+      ),
+    )
+  }
+
+  return { ...delta, updatedCompanies: updates.length }
+}

@@ -29,6 +29,8 @@ interface PricingItem {
   monthlyPrice: string | number
   yearlyPrice: string | number
   isActive: boolean
+  /** TEMEL modül: satın alınmadan her hesapta açık gelir, siparişte ücretlendirilmez. */
+  isFree: boolean
   sortOrder: number
 }
 
@@ -315,12 +317,19 @@ function PricingSection({ items, onChanged }: { items: PricingItem[]; onChanged:
             monthlyPrice: Number(r.monthlyPrice) || 0,
             yearlyPrice: Number(r.yearlyPrice) || 0,
             isActive: r.isActive,
+            isFree: r.isFree,
           })),
         }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || "Kaydedilemedi")
-      toast({ title: "Fiyatlar güncellendi" })
+      // Ücretsiz işareti değiştiyse sunucu MEVCUT hesapları da hizalar; kaç firmanın
+      // modül listesinin değiştiğini söylemek, sessiz bir toplu yazmadan iyidir.
+      const changed = Number(data?.sync?.updatedCompanies) || 0
+      toast({
+        title: "Fiyatlar güncellendi",
+        description: changed > 0 ? `${changed} firmanın modül erişimi yeniden uygulandı.` : undefined,
+      })
       onChanged()
     } catch (e) {
       toast({ title: "Hata", description: e instanceof Error ? e.message : "Hata", variant: "destructive" })
@@ -335,7 +344,9 @@ function PricingSection({ items, onChanged }: { items: PricingItem[]; onChanged:
         <div>
           <h2 className="text-lg font-semibold text-white">Tekil Fiyatlar</h2>
           <p className="text-sm text-slate-500">
-            Paket dışı tekil modül ekleme ve ek şube birim fiyatları.
+            Paket dışı tekil modül ekleme ve ek şube birim fiyatları. <strong className="text-slate-300">Ücretsiz</strong>{" "}
+            işaretlenen modül satın alınmadan TÜM hesaplarda açık gelir — mevcut firmalar da
+            kaydettiğinizde hemen hizalanır.
           </p>
         </div>
         <button
@@ -355,28 +366,57 @@ function PricingSection({ items, onChanged }: { items: PricingItem[]; onChanged:
               <th className="py-2 pr-4">Öğe</th>
               <th className="py-2 pr-4">Aylık (₺)</th>
               <th className="py-2 pr-4">Yıllık (₺)</th>
+              <th className="py-2 pr-4" title="Satın alınmadan herkeste açık gelir">
+                Ücretsiz
+              </th>
               <th className="py-2 pr-4">Aktif</th>
             </tr>
           </thead>
           <tbody className="text-slate-200">
-            {rows.map((r) => (
-              <tr key={r.key} className="border-t border-slate-800">
-                <td className="py-2 pr-4">
-                  {r.label}
-                  {r.key === BRANCH_ITEM_KEY && <span className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">şube/adet · aynı VKN</span>}
-                  {r.key === COMPANY_ITEM_KEY && <span className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">firma/adet · ayrı VKN</span>}
-                </td>
-                <td className="py-2 pr-4">
-                  <input className={`${inputCls} w-28`} inputMode="decimal" value={String(r.monthlyPrice)} onChange={(e) => update(r.key, { monthlyPrice: e.target.value })} />
-                </td>
-                <td className="py-2 pr-4">
-                  <input className={`${inputCls} w-28`} inputMode="decimal" value={String(r.yearlyPrice)} onChange={(e) => update(r.key, { yearlyPrice: e.target.value })} />
-                </td>
-                <td className="py-2 pr-4">
-                  <input type="checkbox" checked={r.isActive} onChange={(e) => update(r.key, { isActive: e.target.checked })} />
-                </td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              // Ücretsizlik yalnız modül kalemlerinde anlamlı: ek şube/ek firma birer
+              // KOTA sayacıdır (sunucu da bunu 400 ile reddeder).
+              const isModule = r.key.startsWith("module:")
+              return (
+                <tr key={r.key} className="border-t border-slate-800">
+                  <td className="py-2 pr-4">
+                    {r.label}
+                    {r.key === BRANCH_ITEM_KEY && <span className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">şube/adet · aynı VKN</span>}
+                    {r.key === COMPANY_ITEM_KEY && <span className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-400">firma/adet · ayrı VKN</span>}
+                    {isModule && r.isFree && <span className="ml-2 rounded bg-emerald-600/20 px-1.5 py-0.5 text-xs text-emerald-300">temel · herkese açık</span>}
+                  </td>
+                  <td className="py-2 pr-4">
+                    <input
+                      className={`${inputCls} w-28 ${isModule && r.isFree ? "opacity-50" : ""}`}
+                      inputMode="decimal"
+                      disabled={isModule && r.isFree}
+                      title={isModule && r.isFree ? "Ücretsiz modülde fiyat kullanılmaz" : undefined}
+                      value={String(r.monthlyPrice)}
+                      onChange={(e) => update(r.key, { monthlyPrice: e.target.value })}
+                    />
+                  </td>
+                  <td className="py-2 pr-4">
+                    <input
+                      className={`${inputCls} w-28 ${isModule && r.isFree ? "opacity-50" : ""}`}
+                      inputMode="decimal"
+                      disabled={isModule && r.isFree}
+                      value={String(r.yearlyPrice)}
+                      onChange={(e) => update(r.key, { yearlyPrice: e.target.value })}
+                    />
+                  </td>
+                  <td className="py-2 pr-4">
+                    {isModule ? (
+                      <input type="checkbox" checked={r.isFree} onChange={(e) => update(r.key, { isFree: e.target.checked })} />
+                    ) : (
+                      <span className="text-xs text-slate-600" title="Kota kalemi ücretsiz yapılamaz">—</span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-4">
+                    <input type="checkbox" checked={r.isActive} onChange={(e) => update(r.key, { isActive: e.target.checked })} />
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

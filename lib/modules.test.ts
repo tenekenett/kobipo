@@ -17,11 +17,13 @@ import {
   MANAGEABLE_MODULES,
   MODULE_GROUP_TO_KEY,
   MODULE_KEYS,
+  defaultDisabledModules,
   isAccountLocked,
   isModuleEnabled,
   modulesRequiring,
   reconcileDisabledModules,
   sanitizeDisabledModules,
+  sanitizeFreeModules,
   withModuleDependencies,
 } from "./modules"
 
@@ -130,9 +132,59 @@ describe("sanitizeDisabledModules", () => {
   })
 })
 
+describe("sanitizeFreeModules", () => {
+  it("bilinmeyen anahtarı eler", () => {
+    expect(sanitizeFreeModules(["sales", "yok"])).toEqual(["sales"])
+  })
+
+  it("gereksinimi ücretsiz olmayan modülü DÜŞÜRÜR", () => {
+    // Restoran & Kafe → Stok. Stok ücretli kalırken restoranı ücretsiz saymak,
+    // `withModuleDependencies` üzerinden stoğu da bedavaya açardı.
+    expect(sanitizeFreeModules(["restaurant"])).toEqual([])
+  })
+
+  it("gereksinimi de ücretsizse kalır", () => {
+    expect(sorted(sanitizeFreeModules(["restaurant", "stock"]))).toEqual(["restaurant", "stock"])
+  })
+
+  it("dizi olmayan girdide boş döner", () => {
+    expect(sanitizeFreeModules(null)).toEqual([])
+  })
+})
+
+describe("defaultDisabledModules", () => {
+  it("ücretsiz küme boşken TÜM modüller kapalı doğar", () => {
+    expect(sorted(defaultDisabledModules([]))).toEqual(sorted(MODULE_KEYS))
+  })
+
+  it("ücretsiz modüller açık doğar", () => {
+    const disabled = defaultDisabledModules(["sales", "stock"])
+    expect(disabled).not.toContain("sales")
+    expect(disabled).not.toContain("stock")
+    expect(disabled).toContain("finance")
+  })
+})
+
 describe("isAccountLocked", () => {
   it("yeni firmanın doğduğu hâl kilitlidir", () => {
     expect(isAccountLocked([...MODULE_KEYS])).toBe(true)
+  })
+
+  it("yalnız ÜCRETSİZ modülü açık olan hesap hâlâ kilitlidir", () => {
+    // Kritik: ücretsiz modül ölçüye girseydi hiçbir hesap kilitli sayılmaz, satın alma
+    // ekranı (LockedAccount) hiç görünmezdi.
+    const disabled = defaultDisabledModules(["sales"])
+    expect(isAccountLocked(disabled, ["sales"])).toBe(true)
+  })
+
+  it("ücretli bir modül açıldığında kilit kalkar", () => {
+    const disabled = defaultDisabledModules(["sales"]).filter((k) => k !== "finance")
+    expect(isAccountLocked(disabled, ["sales"])).toBe(false)
+  })
+
+  it("ücretsiz küme verilmezse ücretsizler kilidi düşürür (geriye dönük davranış)", () => {
+    const disabled = defaultDisabledModules(["sales"])
+    expect(isAccountLocked(disabled)).toBe(false)
   })
 
   it("tek modül bile açıksa kilitli sayılmaz", () => {

@@ -1,24 +1,35 @@
 import Link from "next/link"
 import { Lock, ShoppingCart } from "lucide-react"
-import { MANAGEABLE_MODULES } from "@/lib/modules"
+import { MANAGEABLE_MODULES, sanitizeFreeModules } from "@/lib/modules"
 import { withCompanyHref } from "@/lib/company/href"
 
 /**
- * Hiçbir modülü açık olmayan hesabın karşılama ekranı. Yeni firma tüm modüller kapalı
- * doğduğu için (modül = satın alınan şey) ilk giriş burasıdır: rakam basmak yerine ne
- * satın alınacağını gösterir.
+ * Hiçbir ÜCRETLİ modülü açık olmayan hesabın karşılama ekranı. Yeni firma ücretli
+ * modüller kapalı doğduğu için (modül = satın alınan şey) ilk giriş burasıdır: rakam
+ * basmak yerine ne satın alınacağını gösterir.
  *
- * Dashboard'da widget'ların yerini alır; menüde de yalnız Ayarlar/E-Dönüşüm kalır
- * (bkz. components/dashboard/nav.tsx).
+ * Dashboard'da widget'ların yerini alır; menüde de yalnız Ayarlar/E-Dönüşüm — ve varsa
+ * temel (ücretsiz) modüller — kalır (bkz. components/dashboard/nav.tsx).
  */
 export function LockedAccount({
   companyId,
   canPurchase,
+  freeModules = [],
 }: {
   companyId: string
   /** Abonelik ekranı yalnız ADMIN'e açık; diğer roller yöneticiye yönlendirilir. */
   canPurchase: boolean
+  /**
+   * Sistem yöneticisinin TEMEL yaptığı modüller — bu hesapta zaten açıklar. Listede
+   * "satın alınacaklar" arasında görünmemeli, yoksa ekran kullanıcıya kapalı olmayan
+   * bir şeyi satmaya çalışır.
+   */
+  freeModules?: string[]
 }) {
+  const free = new Set(sanitizeFreeModules(freeModules))
+  const purchasable = MANAGEABLE_MODULES.filter((m) => !free.has(m.key))
+  const openFree = MANAGEABLE_MODULES.filter((m) => free.has(m.key))
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-10">
       <div className="rounded-2xl border border-kobipo-border bg-white p-8 dark:border-border dark:bg-card">
@@ -35,8 +46,18 @@ export function LockedAccount({
             : "Firmanızda henüz açık modül yok. Modül satın alma yetkisi firma yöneticisindedir; lütfen yöneticinizle iletişime geçin."}
         </p>
 
+        {openFree.length > 0 && (
+          <p className="mt-4 rounded-lg border border-kobipo-border bg-kobipo-pale/40 px-4 py-3 text-xs text-kobipo-gray dark:border-border dark:bg-muted/30 dark:text-muted-foreground">
+            <strong className="text-kobipo-navy dark:text-foreground">
+              {openFree.map((m) => m.label).join(", ")}
+            </strong>{" "}
+            {openFree.length > 1 ? "modülleri" : "modülü"} hesabınızda ücretsiz açık —
+            menüden hemen kullanabilirsiniz.
+          </p>
+        )}
+
         <ul className="mt-6 grid gap-3 sm:grid-cols-2">
-          {MANAGEABLE_MODULES.map((module) => (
+          {purchasable.map((module) => (
             <li
               key={module.key}
               className="rounded-xl border border-kobipo-border bg-kobipo-pale/40 p-4 dark:border-border dark:bg-muted/30"

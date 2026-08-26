@@ -67,11 +67,23 @@ Kurallar:
 - Yeni firma açan her yol hesabı taşımalı: `/companies/new?account=<firma>`. Taşımazsan
   sunucu ilk-firma moduna düşer ve "zaten bir hesabınız var" (400) döner.
 - Kota vermek modül açmak DEĞİLDİR: kota-only siparişte `applyEntitlements` çağrılmaz.
-- **Modül yetkisinin kaynağı `Subscription.purchasedModules`tır.** Yalnız
+- **SATIN ALINAN modül yetkisinin kaynağı `Subscription.purchasedModules`tır.** Yalnız
   `company.disabledModules` yazmak yetkiyi KALICI yapmaz: reconcile, yinelenen ödeme,
   "kilitle/sıfırla" ve her yeni sipariş yetkiyi bu alandan yeniden üretir ve elle açılmış
   modüller sessizce kapanır. Elle açarken `setAccountModules()` kullanın (ikisini birden
   yazar, hesabın tümüne uygular).
+- **TEMEL (ücretsiz) modülün kaynağı ise `PricingItem.isFree`tir** — abonelikten
+  bağımsızdır ve `purchasedModules`a ASLA yazılmaz. Yazılırsa modül sonradan ücretliye
+  çevrildiğinde o hesapta "satın alınmış" görünüp bedava açık kalır. Küme
+  `getFreeModuleKeys()` ile okunur; `applyEntitlements` her uygulamada ekler, yani
+  ücretsiz modül hiçbir yeniden hesaplamada kapanmaz. Sonuçları:
+  - Yeni firma `defaultDisabledModules(free)` ile doğar (ücretsizler açık).
+  - `isAccountLocked(disabled, free)` yalnız ÜCRETLİ modüllere bakar — ücretsizleri
+    ölçüye katarsanız satın alma ekranı (`LockedAccount`) hiç görünmez.
+  - Gereksinimi ücretli olan modül ücretsiz YAPILAMAZ (restoran → stok); yoksa
+    bağımlılık tamamlama ücretli modülü bedavaya açar.
+  - Küme değişince mevcut hesaplar `syncFreeModuleGrants()` ile hizalanır; satın alınmış
+    modül kapatılmaz. Ayrıntı: `docs/paket-abonelik/TEMEL-MODULLER.md`.
 - **Firma YALNIZCA `lib/company/create-company.ts` içinden yazılır.** Erişim, rol ve kota
   denetimi orada; uçlar sadece gövdeyi normalize edip `createCompany(...)` çağırır. Kuralı
   uca kopyalamak, kotayı bilmeyen ikinci bir kapı açar. Sapmayı yakalamak için:

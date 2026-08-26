@@ -21,7 +21,8 @@
 
 import type { Company, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
-import { MODULE_KEYS } from "@/lib/modules"
+import { defaultDisabledModules } from "@/lib/modules"
+import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { getAccountQuotas, isPaidActive, isTrialActive } from "@/lib/billing/entitlements"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 
@@ -173,7 +174,8 @@ export async function resolveCompanyPlacement(
       )
     }
 
-    // Modüller kökten akar: ek firma, hesabın satın aldığı modüllerle doğar.
+    // Modüller kökten akar: ek firma, hesabın satın aldığı modüllerle doğar. Kök
+    // bulunamazsa temel (ücretsiz) modüller açık, kalanı kilitli doğar.
     const root = await prisma.company.findUnique({
       where: { id: rootCompanyId },
       select: { disabledModules: true },
@@ -181,7 +183,7 @@ export async function resolveCompanyPlacement(
     return {
       parentCompanyId: null,
       accountRootId: rootCompanyId,
-      disabledModules: root?.disabledModules ?? [...MODULE_KEYS],
+      disabledModules: root?.disabledModules ?? defaultDisabledModules(await getFreeModuleKeys()),
       inherited: null,
     }
   }
@@ -209,12 +211,13 @@ export async function resolveCompanyPlacement(
     }
   }
 
-  // Yeni hesap tüm modüller KAPALI doğar; yetki yalnız satın almayla açılır
-  // ([[lib/billing/entitlements.ts]] → applyEntitlements).
+  // Yeni hesap yalnız TEMEL (ücretsiz) modüller açık doğar; ücretlisi satın almayla
+  // açılır ([[lib/billing/entitlements.ts]] → applyEntitlements). Ücretsiz küme boşsa
+  // sonuç eski davranışın aynısı: tam kilit.
   return {
     parentCompanyId: null,
     accountRootId: null,
-    disabledModules: [...MODULE_KEYS],
+    disabledModules: defaultDisabledModules(await getFreeModuleKeys()),
     inherited: null,
   }
 }

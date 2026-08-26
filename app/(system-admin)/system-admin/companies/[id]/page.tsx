@@ -23,6 +23,7 @@ import { CompanyEInvoiceCard } from "@/components/system-admin/company-einvoice-
 import { CompanyModulesCard } from "@/components/system-admin/company-modules-card"
 import { CompanyQuotaCard } from "@/components/system-admin/company-quota-card"
 import { getAccountQuotas } from "@/lib/billing/entitlements"
+import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { CompanyUsersCard } from "@/components/system-admin/company-users-card"
 import { companyDisplayName } from "@/lib/company/display-name"
 
@@ -436,7 +437,11 @@ export default async function CompanyDetailPage({
         </Card>
 
         {/* Modül yönetimi (hesap düzeyinde uygulanır) */}
-        <CompanyModulesCard companyId={company.id} initialDisabled={company.disabledModules ?? []} />
+        <CompanyModulesCard
+          companyId={company.id}
+          initialDisabled={company.disabledModules ?? []}
+          freeModules={await getFreeModuleKeys()}
+        />
 
         {/* Şube + ek firma kotası. Kotalar hesap kökünde tutulur; bu firma bir şube ya da
             ek firma ise değişiklik köke yazılır (kart bunu açıkça söylüyor). */}

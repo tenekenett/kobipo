@@ -67,7 +67,10 @@ async function upsertTrialPlan() {
  * firmalar) kapsama dahildir.
  *
  * - "trial"  → taze 1 yıllık deneme (TÜM modüller açık; satın alma ekranı denenebilir).
- * - "locked" → deneme/abonelik EXPIRED, TÜM modüller kilitli (satın al → açılma akışı denenebilir).
+ * - "locked" → deneme/abonelik EXPIRED, ÜCRETLİ modüller kilitli (satın al → açılma akışı
+ *              denenebilir). Sistem yöneticisinin TEMEL yaptığı ücretsiz modüller açık
+ *              kalır — `applyEntitlements` onları her uygulamada geri koyar; bu doğru
+ *              davranıştır, ücretsizlik abonelikten bağımsızdır.
  *
  * reconcile'ın ürettiği gerçek durumla tutarlıdır ([[lib/billing/entitlements.ts]]).
  */
@@ -127,7 +130,9 @@ export async function resetAccountBilling(companyId: string, mode: ResetMode) {
       where: { companyId: rootId },
       data: { status: "EXPIRED", trialEndsAt: past, periodEnd: past },
     })
-    await applyEntitlements(rootId, []) // hiçbiri açık değil → tüm modüller kilitli
+    // Satın alınmış hiçbir modül yok → ücretli modüller kilitlenir. Ücretsiz (temel)
+    // modülleri `applyEntitlements` kendisi geri açar.
+    await applyEntitlements(rootId, [])
   }
 
   return { rootId, mode, scopeCompanies: scopeIds.length }

@@ -6,7 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { QuantityStepper } from "@/components/ui/quantity-stepper"
-import { MANAGEABLE_MODULES, modulesRequiring, withModuleDependencies } from "@/lib/modules"
+import {
+  MANAGEABLE_MODULES,
+  modulesRequiring,
+  sanitizeFreeModules,
+  withModuleDependencies,
+} from "@/lib/modules"
 import { computeOrder, type PricingMap, type PlanPricing } from "@/lib/billing/pricing"
 import { modulePriceKey, type BillingCycle } from "@/lib/billing/constants"
 import { Check, Loader2, AlertTriangle, Sparkles, CheckCircle2, Receipt } from "lucide-react"
@@ -40,6 +45,7 @@ type CatalogPricingItem = {
   monthlyPrice: string | number
   yearlyPrice: string | number
   isActive: boolean
+  isFree: boolean
 }
 
 type CatalogSubscription = {
@@ -62,6 +68,11 @@ type Catalog = {
   currency: string
   plans: CatalogPlan[]
   pricing: CatalogPricingItem[]
+  /**
+   * TEMEL modüller — sistem yöneticisi ücretsiz işaretlemiş. Hesapta zaten AÇIK gelirler;
+   * seçimden çıkarılamazlar ve tutara girmezler. Küme sunucudan gelir, istemcide türetilmez.
+   */
+  freeModules: string[]
   subscription: CatalogSubscription
   currentBranches: number
   currentCompanies: number
@@ -219,6 +230,17 @@ export default function AbonelikPage() {
     () => new Set(selectedPlan?.includedModules ?? []),
     [selectedPlan],
   )
+  // Ücretsiz modüller: hesapta zaten açıklar. Seçim mantığında "pakete dahil" ile aynı
+  // muameleyi görürler — kaldırılamaz, ekstra listesine yazılmaz, ücretlendirilmez.
+  const freeModuleSet = useMemo(
+    () => new Set(sanitizeFreeModules(catalog?.freeModules ?? [])),
+    [catalog],
+  )
+  /** Kullanıcının ödemeden sahip olduğu modüller: pakete dahil olanlar + ücretsizler. */
+  const grantedModuleSet = useMemo(
+    () => new Set([...includedModuleSet, ...freeModuleSet]),
+    [includedModuleSet, freeModuleSet],
+  )
   const minBranches = selectedPlan?.includedBranches ?? 0
   const minCompanies = selectedPlan?.includedCompanies ?? 0
   // Kota, AÇIK olan şube/firma sayısının altına inemez: sipariş kotayı değiştirdiği için
@@ -242,19 +264,21 @@ export default function AbonelikPage() {
   }
 
   function toggleExtra(key: string) {
+    // Ücretsiz modül açılıp kapanmaz: bedeli yok, hesapta zaten açık.
+    if (freeModuleSet.has(key)) return
     setExtras((prev) => {
       const next = new Set(prev)
       if (next.has(key)) {
         // Bu modülü zorunlu kılan başka bir modül seçiliyse kaldırılamaz
         // (buton zaten devre dışı; burası ikinci savunma).
-        const selected = [...next, ...includedModuleSet]
+        const selected = [...next, ...grantedModuleSet]
         if (modulesRequiring(key, selected).length > 0) return prev
         next.delete(key)
       } else {
         // Bağımlılıkları otomatik ekle (ör. Restoran & Kafe → Stok).
-        // Pakete zaten dahil olanları extra'ya yazmaya gerek yok.
+        // Pakete dahil ya da ücretsiz olanları extra'ya yazmaya gerek yok.
         for (const dep of withModuleDependencies([key])) {
-          if (!includedModuleSet.has(dep)) next.add(dep)
+          if (!grantedModuleSet.has(dep)) next.add(dep)
         }
       }
       return next
@@ -270,16 +294,34 @@ export default function AbonelikPage() {
         companyQuota: Math.max(companyQuota, minCompanyQuota),
         billingCycle: cycle,
         pricing: pricingMap,
+        // Ön izleme sunucunun hesabıyla aynı kalsın diye ücretsiz küme buraya da girer;
+        // tahsil edilen tutarı yine sunucu belirler (lib/billing/order-amount.ts).
+        freeModules: catalog?.freeModules ?? [],
       }),
-    [selectedPlan, extras, branchQuota, minQuota, companyQuota, minCompanyQuota, cycle, pricingMap],
+    [
+      selectedPlan,
+      extras,
+      branchQuota,
+      minQuota,
+      companyQuota,
+      minCompanyQuota,
+      cycle,
+      pricingMap,
+      catalog,
+    ],
   )
 
   // Aboneliğin ŞU AN sahip olduğu ama yeni seçimde bulunmayan modüller. Sipariş
   // aboneliğin yeni hâlini yazdığı için bunlar ödeme sonrası KAPANIR — sessiz kalmaz, uyarırız.
   const droppedModules = useMemo(() => {
     const current = catalog?.subscription?.purchasedModules ?? []
-    return current.filter((m) => !computed.resolvedModules.includes(m))
-  }, [catalog, computed.resolvedModules])
+    // Ücretsiz olanlar KAPANMAZ: `applyEntitlements` onları her uygulamada geri açıyor.
+    // Eskiden satın alınmış bir modül sonradan temel yapıldığında `purchasedModules`ta
+    // bir süre daha görünür — bu listeye alınırsa ekran olmayan bir kesintiyi duyurur.
+    return current.filter(
+      (m) => !computed.resolvedModules.includes(m) && !freeModuleSet.has(m),
+    )
+  }, [catalog, computed.resolvedModules, freeModuleSet])
 
   const cyclePrice = (key: string) => {
     const item = pricingMap[key]
@@ -533,23 +575,24 @@ export default function AbonelikPage() {
         <CardContent className="grid gap-2 sm:grid-cols-2">
           {MANAGEABLE_MODULES.map((m) => {
             const included = includedModuleSet.has(m.key)
-            const checked = included || extras.has(m.key)
+            const isFree = freeModuleSet.has(m.key)
+            const checked = included || isFree || extras.has(m.key)
             const price = cyclePrice(modulePriceKey(m.key))
             // Seçili başka bir modül bunu zorunlu kılıyorsa kaldırılamaz
             // (ör. Restoran & Kafe seçiliyken Stok).
             const requiredBy = checked
-              ? modulesRequiring(m.key, [...extras, ...includedModuleSet])
+              ? modulesRequiring(m.key, [...extras, ...grantedModuleSet])
               : []
             const locked = requiredBy.length > 0
             return (
               <button
                 key={m.key}
                 type="button"
-                disabled={included || locked}
+                disabled={included || isFree || locked}
                 onClick={() => toggleExtra(m.key)}
                 className={`flex items-start justify-between gap-3 rounded-lg border p-3 text-left transition-colors ${
                   checked ? "border-primary/60 bg-primary/5" : "hover:border-primary/40"
-                } ${included || locked ? "cursor-default opacity-90" : ""}`}
+                } ${included || isFree || locked ? "cursor-default opacity-90" : ""}`}
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -572,8 +615,18 @@ export default function AbonelikPage() {
                     </p>
                   )}
                 </div>
-                <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                  {included ? "Pakete dahil" : price > 0 ? `+${tl.format(price)}` : "—"}
+                <span
+                  className={`shrink-0 text-xs font-medium ${
+                    isFree ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
+                  }`}
+                >
+                  {isFree
+                    ? "Ücretsiz"
+                    : included
+                      ? "Pakete dahil"
+                      : price > 0
+                        ? `+${tl.format(price)}`
+                        : "—"}
                 </span>
               </button>
             )

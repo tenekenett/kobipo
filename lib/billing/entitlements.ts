@@ -13,6 +13,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { MODULE_KEYS, sanitizeDisabledModules, withModuleDependencies } from "@/lib/modules"
+import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { GRACE_PERIOD_DAYS, type BillingCycle } from "@/lib/billing/constants"
 import { DAY_MS } from "@/lib/billing/notice"
 
@@ -119,15 +120,25 @@ export function resolveGrantedModules(sub: SubStatusView | null | undefined, now
 
 /**
  * Verilen açık modül setini hesabın kök firmasına VE tüm üyelerine (şubeler + ek
- * firmalar) uygular. `company.disabledModules = TÜM − granted` yazar. Tek transaction.
+ * firmalar) uygular. `company.disabledModules = TÜM − (granted ∪ ücretsiz)` yazar.
+ * Tek transaction.
  *
  * Ek firma da bu kümededir: ayrı tüzel kişi olsa da aboneliği kökten akar, yoksa
  * müşteri ödediği modülleri ikinci firmasında göremezdi.
+ *
+ * TEMEL (ücretsiz) modüller BURADA eklenir — çağıranların hiçbiri onları taşımak zorunda
+ * değildir. Bu, `disabledModules` yazan TEK yol olduğu için ücretsizliğin de tek kapısıdır:
+ * reconcile, yinelenen ödeme, satın alma callback'i, süper-admin "kilitle/sıfırla" ve
+ * `setAccountModules` — hepsi buradan geçer, yani ücretsiz modül hiçbir yeniden
+ * hesaplamada kapanmaz. Küme `PricingItem.isFree`ten okunur (lib/billing/free-modules.ts).
  */
 export async function applyEntitlements(rootCompanyId: string, grantedModules: string[]): Promise<void> {
+  const free = await getFreeModuleKeys()
   // Bağımlılıklar burada da tamamlanır: arayüz atlanıp bu fonksiyon doğrudan
   // çağrılsa bile DB'ye tutarsız bir küme (ör. restaurant açık, stock kapalı) yazılmasın.
-  const granted = new Set(withModuleDependencies(sanitizeDisabledModules(grantedModules)))
+  const granted = new Set(
+    withModuleDependencies([...sanitizeDisabledModules(grantedModules), ...free]),
+  )
   const disabled = MODULE_KEYS.filter((k) => !granted.has(k))
 
   await prisma.$transaction([
@@ -164,6 +175,13 @@ export async function setAccountModules(
   const rootCompanyId = await resolveAccountRootId(companyId)
   const granted = withModuleDependencies(sanitizeDisabledModules(grantedModules))
 
+  // ÜCRETSİZ modüller `purchasedModules`a YAZILMAZ: orası satın alınanın kaydıdır ve
+  // ücretsizlik oradan değil `PricingItem.isFree`ten akar. Yazılsaydı, admin modülü
+  // ücretliye çevirdiğinde hesap onu "satın almış" görünür, bedava kullanmaya devam
+  // ederdi. `applyEntitlements` ücretsizleri zaten kendisi ekliyor.
+  const free = new Set(await getFreeModuleKeys())
+  const purchased = granted.filter((k) => !free.has(k))
+
   const sub = await prisma.subscription.findFirst({
     where: { companyId: rootCompanyId },
     orderBy: { createdAt: "desc" },
@@ -171,12 +189,19 @@ export async function setAccountModules(
   if (sub) {
     await prisma.subscription.update({
       where: { id: sub.id },
-      data: { purchasedModules: granted },
+      data: { purchasedModules: purchased },
     })
   }
   await applyEntitlements(rootCompanyId, granted)
 
-  return { rootCompanyId, granted, durable: !!sub && (isPaidActive(sub) || isInGracePeriod(sub)) }
+  // `durable` yalnız ÜCRETLİ modüller için anlamlı: ücretsiz olanlar zaten aboneliğe
+  // bağlı değil, hiçbir yeniden hesaplamada kapanmıyor.
+  const needsSubscription = purchased.length > 0
+  return {
+    rootCompanyId,
+    granted,
+    durable: !needsSubscription || (!!sub && (isPaidActive(sub) || isInGracePeriod(sub))),
+  }
 }
 
 /** Bir hesap kotasının (şube ya da firma) durumu — hem arayüz hem denetim bunu okur. */

@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { LockedAccount } from "@/components/dashboard/locked-account"
 import { isAccountLocked } from "@/lib/modules"
+import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { assertRouteAccessOrRedirect, pagePermissionsOfRole } from "@/lib/middleware/page-guard"
 import { canAccessRoute } from "@/lib/page-access"
 import { cn } from "@/lib/utils"
@@ -210,11 +211,17 @@ export default async function DashboardIndexPage({
   // `/alis/fatura`); tek soru ikisini birden yanıtlar.
   const canOpenInvoices = canOpen("/faturalar")
 
-  // Hiç modülü olmayan hesap: rakam yerine satın alma ekranı. Sorgular da atlanır —
-  // kilitli hesapta hepsi sıfır döner, çalıştırmanın anlamı yok.
-  if (isAccountLocked(selectedCompany.disabledModules)) {
+  // Hiçbir ÜCRETLİ modülü olmayan hesap: rakam yerine satın alma ekranı. Sorgular da
+  // atlanır — kilitli hesapta hepsi sıfır döner, çalıştırmanın anlamı yok. Temel
+  // (ücretsiz) modüller ölçüye girmez; girseydi kilit ekranı hiç görünmezdi.
+  const freeModules = await getFreeModuleKeys()
+  if (isAccountLocked(selectedCompany.disabledModules, freeModules)) {
     return (
-      <LockedAccount companyId={companyId} canPurchase={selectedCompany.role === "ADMIN"} />
+      <LockedAccount
+        companyId={companyId}
+        canPurchase={selectedCompany.role === "ADMIN"}
+        freeModules={freeModules}
+      />
     )
   }
 

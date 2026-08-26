@@ -2068,6 +2068,10 @@ model PricingItem {
   monthlyPrice Decimal  @default(0) @db.Decimal(10, 2)
   yearlyPrice  Decimal  @default(0) @db.Decimal(10, 2)
   isActive     Boolean  @default(true)
+  // TEMEL (ücretsiz) modül: satın alınmadan HER hesapta açık gelir ve siparişte
+  // ücretlendirilmez. Yalnız "module:*" anahtarlarında anlamlıdır (ek şube/firma
+  // kotası ücretsiz yapılamaz). Tek kaynak burasıdır — bkz. lib/billing/free-modules.ts.
+  isFree       Boolean  @default(false)
   sortOrder    Int      @default(0)
   updatedAt    DateTime @updatedAt
 

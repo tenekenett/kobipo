@@ -5,9 +5,14 @@
 // Boş dizi = tüm modüller açık.
 //
 // DİKKAT — bu bir RED listesidir: burada olmayan her anahtar AÇIK sayılır. Bu yüzden
-// yeni firma `disabledModules = MODULE_KEYS` ile (kilitli) yaratılır ve listeye YENİ bir
-// modül eklendiğinde mevcut kayıtlarda o anahtar bulunmadığı için herkese açık düşer.
-// Yeni modül eklerken mevcut satırları da kapatan bir migration yazın.
+// yeni firma `defaultDisabledModules(free)` ile (ücretsizler hariç kilitli) yaratılır ve
+// listeye YENİ bir modül eklendiğinde mevcut kayıtlarda o anahtar bulunmadığı için
+// herkese açık düşer. Yeni modül eklerken mevcut satırları da kapatan bir migration yazın.
+//
+// TEMEL (ÜCRETSİZ) MODÜL: hangi modülün ücretsiz olduğu bu dosyada SABİT DEĞİLDİR —
+// sistem yöneticisi belirler ve `PricingItem.isFree` alanında durur. Bu dosya yalnızca
+// saf kuralları verir (`sanitizeFreeModules`, `defaultDisabledModules`, `isAccountLocked`);
+// kümenin kendisini okuyan yer: lib/billing/free-modules.ts → `getFreeModuleKeys()`.
 
 export interface ModuleDef {
   /** DB'de saklanan kararlı anahtar */
@@ -117,17 +122,65 @@ export function isModuleEnabled(disabledModules: string[] | undefined | null, ke
 }
 
 /**
- * Hesabın hiçbir modülü açık değil mi? Yeni firma bu hâlde doğar (modül = satın alınan
- * şey) ve abonelik süresi dolunca buraya geri döner.
+ * TEMEL (ücretsiz) modül kümesini temizler: bilinmeyen anahtarları eler ve
+ * BAĞIMLILIĞI ÜCRETLİ OLAN modülü kümeden düşürür.
+ *
+ * Bağımlılık kuralı burada olmazsa ücretsizlik sızar: "Restoran & Kafe" ücretsiz
+ * işaretlenirse `withModuleDependencies` onunla birlikte "Stok"u da açar — yani parası
+ * alınan bir modül bedavaya verilmiş olur. Kural fixpoint'e kadar uygulanır (a → b → c).
+ *
+ * Sistem-admin ucu aynı ihlali daha erken, açık bir hata mesajıyla reddeder
+ * (app/api/billing/pricing/route.ts); burası ikinci savunmadır.
+ */
+export function sanitizeFreeModules(input: unknown): string[] {
+  const set = new Set(sanitizeDisabledModules(input))
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const key of Array.from(set)) {
+      const requires = MODULE_BY_KEY.get(key)?.requires ?? []
+      if (requires.some((dep) => !set.has(dep))) {
+        set.delete(key)
+        changed = true
+      }
+    }
+  }
+  return MODULE_KEYS.filter((k) => set.has(k))
+}
+
+/**
+ * Yeni bir hesabın/firmanın doğacağı `disabledModules` listesi: ücretsiz modüller AÇIK,
+ * kalan her şey KAPALI. Ücretsiz küme boşsa sonuç eski davranışın aynısıdır (tam kilit).
+ */
+export function defaultDisabledModules(freeModuleKeys: string[] = []): string[] {
+  const free = new Set(sanitizeFreeModules(freeModuleKeys))
+  return MODULE_KEYS.filter((k) => !free.has(k))
+}
+
+/**
+ * Hesabın ÜCRETLİ hiçbir modülü açık değil mi? Yeni firma bu hâlde doğar (modül =
+ * satın alınan şey) ve abonelik süresi dolunca buraya geri döner.
+ *
+ * Ücretsiz modüller ölçüye GİRMEZ: aksi halde temel bir modül açıldığı anda hiçbir hesap
+ * "kilitli" sayılmaz, satın alma ekranını (LockedAccount) kimse görmez — modül kilidi
+ * sessizce devre dışı kalırdı. Bu yüzden çağıran ücretsiz kümeyi vermek zorundadır
+ * (sunucuda `getFreeModuleKeys()`, bkz. lib/billing/free-modules.ts).
  *
  * Rakam basan her panelin ilk kontrolü budur: kilitli hesapta widget yerine
  * `LockedAccount` gösterilir. Giriş sonrası kullanıcı rolüne göre `/dashboard/admin`,
  * `/dashboard/sales`... sayfalarından BİRİNE düşüyor — kontrol yalnız `/dashboard`'da
  * olursa satın alma ekranını hiç kimse görmez.
  */
-export function isAccountLocked(disabledModules: string[] | undefined | null): boolean {
+export function isAccountLocked(
+  disabledModules: string[] | undefined | null,
+  freeModuleKeys: string[] = [],
+): boolean {
   const disabled = new Set(disabledModules ?? [])
-  return MODULE_KEYS.every((key) => disabled.has(key))
+  const free = new Set(sanitizeFreeModules(freeModuleKeys))
+  const paid = MODULE_KEYS.filter((k) => !free.has(k))
+  // Her modül ücretsizse "kilit" diye bir durum yok; satılacak bir şey de yok.
+  if (paid.length === 0) return false
+  return paid.every((key) => disabled.has(key))
 }
 
 /**

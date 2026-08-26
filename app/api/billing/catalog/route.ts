@@ -6,6 +6,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isPaytrEnabled } from "@/lib/integrations/paytr/client"
 import { getSellablePlans, ensureDefaultPricingItems } from "@/lib/billing/catalog"
+import { freeModulesFromPricingItems } from "@/lib/billing/free-modules"
 import {
   getAccountSubscription,
   resolveAccountRootId,
@@ -34,7 +35,10 @@ export const GET = withApiErrors(async function GET(request: Request) {
   await ensureDefaultPricingItems()
   const [plans, pricing, sub, currentBranches, currentCompanies] = await Promise.all([
     getSellablePlans(false),
-    prisma.pricingItem.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
+    // `isActive` filtresi YOK: ücretsiz bir modül satılmadığı için pasife alınmış
+    // olabilir ama ekranda "Ücretsiz" olarak görünmek zorunda. Fiyat haritasına yalnız
+    // aktifler girer (aşağıda), ücretsiz kümesi tüm satırlardan çözülür.
+    prisma.pricingItem.findMany({ orderBy: { sortOrder: "asc" } }),
     getAccountSubscription(rootId),
     countAccountBranches(rootId),
     countAccountCompanies(rootId),
@@ -63,7 +67,11 @@ export const GET = withApiErrors(async function GET(request: Request) {
     paytrEnabled: isPaytrEnabled(),
     currency: "TRY",
     plans,
-    pricing,
+    pricing: pricing.filter((p) => p.isActive || p.isFree),
+    // TEMEL modüller: satın alınmadan açık gelirler. Ekran bunları "Ücretsiz" olarak
+    // işaretler ve seçimden çıkarılamaz yapar; tutar hesabı da bunları atlar
+    // (lib/billing/pricing.ts → computeOrder). Sunucu bu kümenin tek kaynağıdır.
+    freeModules: freeModulesFromPricingItems(pricing),
     subscription,
     currentBranches,
     currentCompanies,

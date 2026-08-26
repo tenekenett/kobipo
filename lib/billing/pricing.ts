@@ -2,7 +2,7 @@
 // istemciden gelen tutara ASLA güvenilmez. İstemci yalnızca seçimi (paket + ekstra modül +
 // şube adedi + firma adedi + periyot) gönderir, tutarı sunucu belirler.
 
-import { sanitizeDisabledModules, withModuleDependencies } from "@/lib/modules"
+import { sanitizeDisabledModules, sanitizeFreeModules, withModuleDependencies } from "@/lib/modules"
 import {
   BRANCH_ITEM_KEY,
   COMPANY_ITEM_KEY,
@@ -36,6 +36,12 @@ export interface ComputeOrderInput {
   companyQuota: number
   billingCycle: BillingCycle
   pricing: PricingMap
+  /**
+   * TEMEL (ücretsiz) modüller — `PricingItem.isFree`. Hesapta zaten açık oldukları için
+   * siparişte ÜCRETLENDİRİLMEZ ve satır üretmezler; `resolvedModules`a yine girerler ki
+   * abonelik snapshot'ı gerçeği göstersin. Verilmezse hiçbiri ücretsiz sayılmaz.
+   */
+  freeModules?: string[]
 }
 
 export interface OrderLine {
@@ -48,10 +54,20 @@ export interface OrderLine {
 
 export interface ComputedOrder {
   amount: number
-  /** Nihai açılacak modül seti (paket dahilleri ∪ ekstra seçilenler). */
+  /**
+   * SATIN ALINAN modül seti (paket dahilleri ∪ ücretlendirilen ekstralar). Sipariş
+   * snapshot'ı ve ardından `Subscription.purchasedModules` bu alandan yazılır.
+   *
+   * Ücretsiz modüller BURAYA GİRMEZ — girseydi "satın alınmış" sayılır, admin o modülü
+   * sonradan ücretliye çevirdiğinde hesapta bedava açık kalırdı. Onları `applyEntitlements`
+   * her uygulamada `PricingItem.isFree`ten yeniden ekliyor. Paket İÇİNDEKİ bir modül
+   * ücretsiz olsa da burada kalır: bedeli paket fiyatına dahildir.
+   */
   resolvedModules: string[]
-  /** Ücretlendirilen ekstra (paket dışı) modüller. */
+  /** Ücretlendirilen ekstra (paket dışı, ücretsiz olmayan) modüller. */
   extraModules: string[]
+  /** Seçimde yer alan ama ücretsiz olduğu için ücretlendirilmeyen modüller (gösterim için). */
+  freeModules: string[]
   /** Normalize edilmiş toplam ek şube kotası (>= paket dahili). */
   branchQuota: number
   /** Ücretlendirilen ek şube sayısı (kota − paket dahili). */
@@ -91,11 +107,18 @@ export function computeOrder(input: ComputeOrderInput): ComputedOrder {
   const chosen = withModuleDependencies(sanitizeDisabledModules(input.chosenModules))
   const included = plan ? sanitizeDisabledModules(plan.includedModules) : []
   const includedSet = new Set(included)
+  // Ücretsiz modüller: hesapta zaten açıklar, hiçbir koşulda ücretlendirilmezler.
+  // Bağımlılığı ücretli olan anahtar `sanitizeFreeModules` tarafından elenir — aksi
+  // halde ücretsiz bir modül, gerektirdiği ücretli modülü bedavaya açardı.
+  const free = sanitizeFreeModules(input.freeModules ?? [])
+  const freeSet = new Set(free)
 
-  // Nihai açılacak modüller = paket dahilleri ∪ kullanıcı seçimi
-  const resolvedModules = Array.from(new Set([...included, ...chosen]))
-  // Ücretli ekstralar = seçilenlerden pakete dahil OLMAYANLAR
-  const extraModules = chosen.filter((m) => !includedSet.has(m))
+  // Ücretli ekstralar = seçilenlerden pakete dahil ve ücretsiz OLMAYANLAR
+  const extraModules = chosen.filter((m) => !includedSet.has(m) && !freeSet.has(m))
+  // Satın alınan küme = paket dahilleri ∪ ücretli ekstralar. Ücretsizler dışarıda
+  // (yukarıdaki `resolvedModules` açıklaması). Ücretli bir modülün ücretsiz BAĞIMLILIĞI
+  // da dışarıda kalır ama kaybolmaz: `resolveGrantedModules` bağımlılıkları yeniden açar.
+  const resolvedModules = Array.from(new Set([...included, ...extraModules]))
 
   const includedBranches = plan ? Math.max(0, Math.floor(plan.includedBranches || 0)) : 0
   const requestedQuota = Math.max(0, Math.floor(input.branchQuota || 0))
@@ -154,6 +177,7 @@ export function computeOrder(input: ComputeOrderInput): ComputedOrder {
     amount,
     resolvedModules,
     extraModules,
+    freeModules: free,
     branchQuota,
     extraBranches,
     companyQuota,

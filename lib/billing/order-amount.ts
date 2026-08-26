@@ -11,6 +11,7 @@
 import { prisma } from "@/lib/db/prisma"
 import { computeOrder, type PlanPricing, type ComputedOrder } from "@/lib/billing/pricing"
 import { toPricingMap, TRIAL_PLAN_CODE } from "@/lib/billing/catalog"
+import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { isBillingCycle } from "@/lib/billing/constants"
 
 export type PackageSelectionInput = {
@@ -55,7 +56,10 @@ export async function resolvePackageOrderAmount(
     }
   }
 
-  const pricingItems = await prisma.pricingItem.findMany({ where: { isActive: true } })
+  const [pricingItems, freeModules] = await Promise.all([
+    prisma.pricingItem.findMany({ where: { isActive: true } }),
+    getFreeModuleKeys(),
+  ])
   const computed = computeOrder({
     plan: planPricing,
     chosenModules: Array.isArray(body?.chosenModules) ? body.chosenModules.map(String) : [],
@@ -63,13 +67,20 @@ export async function resolvePackageOrderAmount(
     companyQuota: Math.max(0, Math.floor(Number(body?.companyQuota) || 0)),
     billingCycle,
     pricing: toPricingMap(pricingItems),
+    // Ücretsiz modüller ücretlendirilmez. Küme sunucudan okunur; istemcinin gönderdiği
+    // "bu bende ücretsiz" iddiasına bakılmaz.
+    freeModules,
   })
 
   if (computed.amount <= 0) {
+    // Yalnız ücretsiz modül seçilmiş olabilir: onlar zaten açık, sipariş gerekmiyor.
     return {
       ok: false,
       status: 400,
-      error: "Seçiminiz için ödenecek tutar yok. Lütfen bir paket veya modül seçin.",
+      error:
+        computed.freeModules.length > 0 && computed.resolvedModules.length === 0
+          ? "Seçtiğiniz modüller ücretsiz — hesabınızda zaten açık. Ödeme gerekmiyor."
+          : "Seçiminiz için ödenecek tutar yok. Lütfen bir paket veya modül seçin.",
     }
   }
   if (
