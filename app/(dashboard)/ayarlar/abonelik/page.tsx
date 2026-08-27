@@ -142,6 +142,12 @@ export default function AbonelikPage() {
       setLoadError("Firma seçili değil.")
       return
     }
+    // ÖNCEKİ HATAYI TEMİZLE. `useSearchParams()` ilk client render'ında boş dönebilir
+    // (Suspense sınırı olmayan App Router sayfalarında olağan); o turda yukarıdaki dal
+    // "Firma seçili değil." yazıyor. Temizlenmezse param bir sonraki render'da gelip
+    // katalog başarıyla yüklense bile ekran o ilk hataya YAPIŞIP kalıyordu — sayfa
+    // firma seçili olduğu hâlde "Firma seçili değil" gösteriyordu.
+    setLoadError(null)
     try {
       const res = await fetch(`/api/billing/catalog?companyId=${encodeURIComponent(companySlug)}`, {
         cache: "no-store",

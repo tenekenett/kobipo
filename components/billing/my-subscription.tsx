@@ -317,8 +317,14 @@ export function MySubscription({
                       Otomatik yenileme
                     </p>
                     <p className="text-xs text-muted-foreground">
+                      {/* Metin ANAHTARIN DURUMUNU tanımak zorunda: yalnız "tahsilat
+                          kapalı" demek, anahtarı açık gören müşteriye çelişkili
+                          görünüyordu (anahtar açık, yazı kapalı diyor). Anahtar niyeti,
+                          bu satır kabiliyeti anlatır; ikisi aynı cümlede buluşmalı. */}
                       {!data.recurringEnabled
-                        ? "Otomatik tahsilat şu anda kapalı — dönem sonunda yenilemeyi siz başlatırsınız."
+                        ? s.autoRenew
+                          ? "Otomatik yenileme açık, ancak otomatik tahsilat henüz devrede değil — dönem sonunda ödemeyi siz başlatırsınız."
+                          : "Otomatik tahsilat devrede değil — dönem sonunda yenilemeyi siz başlatırsınız."
                         : s.card?.last4
                           ? `Kayıtlı kart: ${s.card.brand || "Kart"} •••• ${s.card.last4}`
                           : // "Açık ama kayıtlı kart yok" en sık kaçan hâl: anahtar

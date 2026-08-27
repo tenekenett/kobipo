@@ -16,6 +16,7 @@ import {
   isTrialActive,
   periodEndFor,
   resolveGrantedModules,
+  shouldUnarchive,
 } from "./entitlements"
 
 const NOW = new Date("2026-08-08T12:00:00.000Z")
@@ -140,5 +141,41 @@ describe("periodEndFor", () => {
     const end = periodEndFor("MONTHLY", jan31)
     expect(end.getMonth()).toBe(1) // Şubat
     expect(end.getDate()).toBe(28)
+  })
+})
+
+/**
+ * ARŞİVDEN ÇIKIŞ — bozulduğunda belirtisi çok geç ve çok pahalı: ödeme yapan müşteri
+ * paneli açık görür ama HİÇBİR ŞEY KAYDEDEMEZ (`archivedAt` dolu kaldıkça yazma kapısı
+ * kapalıdır). 2026-08-27 test turunda kuralın kodda doğru ama TESTSİZ olduğu görüldü.
+ */
+describe("shouldUnarchive", () => {
+  const FREE = ["dashboard-free", "edonusum-free"]
+
+  it("ücretli modül açılıyorsa arşivden çıkarır", () => {
+    expect(shouldUnarchive(["sales"], FREE)).toBe(true)
+    expect(shouldUnarchive(["sales", ...FREE], FREE)).toBe(true)
+  })
+
+  it("YALNIZ ücretsiz modüller açılıyorsa arşive DOKUNMAZ", () => {
+    // En kritik hâl: kapanan hesapta `applyEntitlements` ücretsizlerle çağrılır.
+    // "granted boş değil" ölçüsü kullanılsaydı burada arşiv sessizce bozulurdu —
+    // süresi dolmuş hesap yeniden yazılabilir hâle gelirdi.
+    expect(shouldUnarchive(FREE, FREE)).toBe(false)
+  })
+
+  it("hiçbir modül yoksa arşive dokunmaz", () => {
+    expect(shouldUnarchive([], FREE)).toBe(false)
+    expect(shouldUnarchive([], [])).toBe(false)
+  })
+
+  it("ücretsiz küme boşsa her modül ücretli sayılır", () => {
+    // `PricingItem.isFree` hiç işaretlenmemiş kurulumda da kural çalışmalı.
+    expect(shouldUnarchive(["sales"], [])).toBe(true)
+  })
+
+  it("Set ile de çalışır (applyEntitlements Set geçiyor)", () => {
+    expect(shouldUnarchive(new Set(["stock"]), new Set(FREE))).toBe(true)
+    expect(shouldUnarchive(new Set(FREE), new Set(FREE))).toBe(false)
   })
 })

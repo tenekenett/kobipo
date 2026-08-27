@@ -72,8 +72,17 @@ export type GrantWindow = {
   periodEnd: Date
   /** Sürenin neyin üstüne eklendiği — olay özetinde açıklanır. */
   basedOn: "period" | "now" | "date"
-  /** Eklenen gün sayısı (bilgi amaçlı; `untilDate`te de hesaplanır). */
+  /**
+   * GERÇEKTEN eklenen gün sayısı: yeni bitiş eksi sürenin bindirildiği taban.
+   *
+   * Taban `basedOn`a göre değişir — "period"ta mevcut dönem sonu, aksi halde bugün.
+   * Bu ayrım şart: dönemi 2027'de biten bir aboneliği "1 ay uzat"tığınızda eklenen
+   * 30 gündür, bugünden bitişe kalan ise 275. İkisini tek alanda tutmak, yöneticiye
+   * "1 ay" yazdıktan sonra "275 gün verildi" demek anlamına geliyordu.
+   */
   addedDays: number
+  /** Bugünden yeni bitişe kalan gün — "ne kadar yolu var" göstergesi. */
+  totalDaysFromNow: number
 }
 
 export type GrantWindowResult =
@@ -160,13 +169,18 @@ export function resolveGrantWindow(input: GrantWindowInput): GrantWindowResult {
     }
   }
 
+  // Eklenen gün, sürenin bindirildiği TABANDAN sayılır (`base`), bugünden değil:
+  // gelecekte biten bir döneme 1 ay eklemek 30 gündür, 275 değil.
+  const dayCount = (from: Date, to: Date) => Math.round((to.getTime() - from.getTime()) / 86_400_000)
+
   return {
     ok: true,
     window: {
       periodStart,
       periodEnd,
       basedOn: resolvedBase,
-      addedDays: Math.round((periodEnd.getTime() - now.getTime()) / 86_400_000),
+      addedDays: dayCount(base, periodEnd),
+      totalDaysFromNow: dayCount(now, periodEnd),
     },
   }
 }

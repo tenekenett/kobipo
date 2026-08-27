@@ -73,7 +73,6 @@ export function GrantPeriodForm({
   )
   const [paymentReceived, setPaymentReceived] = useState(false)
   const [amount, setAmount] = useState("")
-  const [reason, setReason] = useState("")
   const [busy, setBusy] = useState(false)
   const [warnings, setWarnings] = useState<string[]>([])
 
@@ -103,7 +102,6 @@ export function GrantPeriodForm({
     })
 
   const canSubmit =
-    reason.trim().length >= 3 &&
     (kind === "untilDate" ? untilDate !== "" : (kind === "days" ? days : months) !== "") &&
     (!paymentReceived || Number(amount) > 0) &&
     !busy
@@ -126,7 +124,6 @@ export function GrantPeriodForm({
           modules: touchModules ? Array.from(modules) : null,
           paymentReceived,
           amount: paymentReceived ? Number(amount) : null,
-          reason: reason.trim(),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -135,9 +132,13 @@ export function GrantPeriodForm({
       setWarnings(Array.isArray(data?.warnings) ? data.warnings : [])
       toast({
         title: "Süre verildi",
-        description: `${accountName} → dönem sonu ${new Date(data.periodEnd).toLocaleDateString("tr-TR")} (${data.addedDays} gün)`,
+        // İKİ SAYI birden: yönetici "1 ay" yazdıysa "+30 gün" görmeli (girdisinin
+        // doğrulaması), "bugünden 275 gün" ise hesabın kalan yolu. Tek sayı gösterilince
+        // ikisi karışıyor ve verilen süre yanlış okunuyordu.
+        description:
+          `${accountName} → dönem sonu ${new Date(data.periodEnd).toLocaleDateString("tr-TR")}` +
+          ` · +${data.addedDays} gün (bugünden ${data.totalDaysFromNow} gün)`,
       })
-      setReason("")
       onDone?.()
       router.refresh()
     } catch (e) {
@@ -337,21 +338,10 @@ export function GrantPeriodForm({
         )}
       </div>
 
-      {/* Gerekçe — zorunlu */}
-      <div className="space-y-1">
-        <input
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Gerekçe (zorunlu) — ör. 'kesinti telafisi', 'havale ile 3 ay ödendi'"
-          maxLength={500}
-          className="w-full rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
-          aria-label="Gerekçe"
-        />
-        <p className="text-xs text-slate-600">
-          Olay günlüğüne yazılır; müşteri &quot;modüllerim neden değişti&quot; dediğinde
-          bakılacak yer burasıdır.
-        </p>
-      </div>
+      {/* GEREKÇE ALANI KALDIRILDI (2026-08-27). Serbest metin, müşterinin kendi
+          "Abonelik geçmişi" ekranında birebir görünüyordu; iç not için tasarlanmış bir
+          kutu müşteriye açılıyordu. İz zaten yapısal olarak tutuluyor: kim (actorUserId),
+          ne zaman, önceki/sonraki dönem, modül seti, tutar. */}
 
       {warnings.length > 0 && (
         <ul className="space-y-1">

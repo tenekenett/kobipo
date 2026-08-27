@@ -8,12 +8,16 @@ ayağa kaldırılması, periyoda göre hoşgörü, arşiv kademesi.
 
 ## ▶ DEVAM NOKTASI (başka makinede buradan başla)
 
-**Son durum: planın TAMAMI yazıldı (Faz 0-7).**
-`npx tsc --noEmit` temiz · `npx vitest run` → 46 dosya / 552 test geçti · `npm run build` temiz.
+**Son durum: planın TAMAMI yazıldı (Faz 0-7) ve TARAYICIDA UÇTAN UCA SINANDI.**
+`npx tsc --noEmit` temiz · `npx vitest run` → 46 dosya / **559 test** geçti.
 Migrasyon **canlıya uygulandı**. Faz 8 (dönemleri bugünden başlatan betik) canlı veriye
 bakıldığında **gereksiz çıktı** — gerekçesi aşağıda.
 
-**Hiçbiri tarayıcıda elle denenmedi** ve iş **commit edilmedi**.
+Test turu ve çıkan altı bulgu: **§2.5** ve **§2.6**. Beşi kapatıldı; açık kalan tek madde
+17 kırılgan hesap (kullanıcı kararıyla ertelendi).
+
+**Kalan tek sahada iş:** Vercel'de `BILLING_CRON_SECRET`'in tanımlı olduğunu ve ilk
+koşumdan sonra `cron_runs`ta satır oluştuğunu doğrulamak (§3).
 
 ### 1. Migrasyon: UYGULANDI ✅
 
@@ -50,6 +54,120 @@ ve iki açık sorusu olduğu gibi duruyor — oradan yazılır.
 ödemezse akış tasarlandığı gibi `PAST_DUE` → 7 gün hoşgörü → `EXPIRED` yürüyecek. Zincirin
 canlıdaki ilk gerçek sınavı budur; o tarihten önce `cron_runs`a bakıp işin koştuğu
 doğrulanmalı.
+
+### 2.5 UÇTAN UCA TEST TURU — 2026-08-27 ✅
+
+Tarayıcı + canlı DB üzerinde yapıldı. Test hedefi **Reypo Medya Ajansı** (kullanıcı
+seçimi); tüm yazmalar önce anlık görüntüye alındı, sonunda geri yüklendi.
+
+**Otomatik katman:** `prisma generate` (migrasyon uygulanmış olsa da istemci eskiydi —
+30+ tip hatası veriyordu) · `tsc --noEmit` temiz · `vitest` 46 dosya / **554 test** ·
+`check:rls` temiz (84 tablo, RLS'siz 0 — yeni iki tablo dahil) · `check:company-create` temiz.
+
+**Cron (`/api/billing/cron/daily`):**
+
+| Sınama | Sonuç |
+|---|---|
+| Header'sız / yanlış secret | 401, 401 ✅ |
+| Doğru secret | 200, beş adım da koştu (notify, recurring, reconcile, archive, invoiceRetry) ✅ |
+| `cron_runs` kaydı | status OK, 3.5 sn, `failedSteps` boş, adım gövdesi JSON'da ✅ |
+| Aynı gün ikinci çağrı | `skipped:true` + önceki koşum bilgisi ✅ (çift koşum kilidi) |
+| Yan etki | Hiçbir abonelik değişmedi, `subscription_events` 0'da kaldı ✅ |
+
+> Koşum bugün 0 satır işledi (adaylar 2027'de). Test satırı **silindi**, böylece Vercel'in
+> 06:00 UTC koşumu kilide takılmayacak.
+
+**Faz 5 — süre verme (iki yüzey de):** liste ve firma detayı. Dönem uzatıldı, olay
+günlüğüne `MANUAL_GRANT` zengin `detail` ile düştü, hesabın **üç firmasında da** modüller
+açık kaldı, "ödeme alındı" işaretlenmediği için sipariş/fatura üretilmedi ✅
+
+**Faz 4 — Aboneliğim:** durum rozeti, dönem + kalan gün, periyot/tutar, otomatik yenileme
+anahtarı, açık modüller, kota çubukları, ödeme geçmişi (7 sipariş, fatura durumu), abonelik
+geçmişi ✅ · `autoRenew` yazıldı ve `AUTO_RENEW_CHANGED` olayı **actor=USER** ile düştü ✅ ·
+uç oturumsuz 401 ✅
+
+**Faz 2 — hoşgörü (canlı yolda):**
+
+| Periyot | Dönem sonu | `locksAt` | Fark |
+|---|---|---|---|
+| MONTHLY | 25 Ağustos | 1 Eylül | **7 gün** ✅ |
+| YEARLY | 25 Ağustos | 9 Eylül | **15 gün** ✅ |
+
+Şerit `grace` hâlinde kırmızı, kapatılamaz, doğru tarihleri ve geri sayımı basıyor;
+`EXPIRED`'a geçince metin "sona erdi"ye dönüyor ✅ Bu, Faz 2'nin en kritik regresyonuydu
+(`billingCycle`'ın select'ten düşmesi) — birim testlerin yanı sıra canlı yolda da doğrulandı.
+
+**Faz 7 — arşiv:** kapılar yerinde (`ensureCompanyWrite` → `AccountArchivedError`, dışa
+aktarma muaf, `write-guard` düğmeleri kilitliyor, `LockedAccount` arşiv ekranı taşıyor).
+`archivedAt` hesabın **tüm üyelerine** yazılıyor ✅
+
+**Denenmeyenler ve sebepleri:**
+
+- **"Ödeme alındı (havale/elden)"** — `KOBIPO_AUTO_INVOICE_ENABLED=true`,
+  `START_AT=2026-08-24`, `STOP_AT_DRAFT` tanımsız: test GERÇEK e-Arşiv/e-Fatura keserdi.
+  Kullanıcı kararıyla atlandı; sahada ilk gerçek havale tahsilatında doğrulanacak.
+- **Tam cron'u arşiv senaryosuyla koşturmak** — `notify` adımı Reypo yöneticilerine
+  gerçek e-posta gönderirdi (`RESEND_API_KEY` dolu). Arşiv durumu doğrudan kurularak
+  arayüz sınandı; `runArchive` mantığı 14 birim testiyle kapsanıyor.
+- **Kilitli hesap ekranı** — modülleri kapatmak gerekirdi; test hedefi 288 faturalı
+  gerçek firma olduğu için yapılmadı.
+
+**Abonelik iptali ✅ (2026-08-27, ikinci turda):** uç sayfa bağlamından çağrılarak
+sınandı — 200, `cancelAtPeriodEnd:true`, `autoRenew:false`; `CANCELLED` olayı **actor=USER**
+ile yazıldı; rozet "Dönem sonunda iptal"e döndü, dönem kutusunda geri alma yolu anlatıldı,
+"Aboneliği iptal et" düğmesi kayboldu, modüller açık kaldı (erişim dönem sonuna kadar sürer).
+
+> **Not — `window.confirm` otomasyonu kilitliyor.** `my-subscription.tsx` iptal düğmesi
+> `window.confirm()` çağırıyor; tarayıcı uzantısı modal diyalogda yanıt veremez hâle geliyor.
+> Bu turda uç doğrudan çağrılarak aşıldı, ama iptal akışının DÜĞMEDEN sonu hiç otomatik
+> sınanamaz. Projedeki diğer onaylar `AlertDialog` kullanıyor; bir gün buraya da geçilirse
+> hem görsel tutarlılık hem sınanabilirlik kazanılır.
+
+### 2.6 Test turunda çıkan BULGULAR
+
+| # | Bulgu | Durum |
+|---|---|---|
+| 1 | **17 hesap kırılgan:** `disabledModules` boş (modüller açık) ama `purchasedModules` da boş → ilk `applyEntitlements`te ücretli modüllerin hepsi kapanır. Gerçek veri taşıyanlar: Reypo Medya (288 fatura), EREN FORKLİFT (116), EREN VİNÇ (45), REYPO BİLİŞİM (20). Kaynağı `MODUL-KILIDI.md`'nin "mevcut firmalara dokunma, backfill YOK" kararı; yeni "Süre ver" düğmesi bu mayına basmayı kolaylaştırıyor. Cron açısından acil değil (tarihler 2027), tehlike elle müdahalede. | ⏸ **AÇIK — bilinçli bırakıldı.** Kullanıcı kararı (2026-08-27): "hesapları ellemeyelim, sonra bakacağım." Reypo'nunki test sırasında kapandı (modül seti yazıldı), kalan 16'sı duruyor. Ele alınırsa: bugün açık olan modülleri `purchasedModules`a yazan tek seferlik betik (önce `--dry-run`). |
+| 2 | **`addedDays` yanlış hesaplanıyordu:** adı ve yorumu "eklenen gün" derken `periodEnd − now` hesaplıyordu. "1 ay uzat" → yönetici "275 gün" bildirimi görüyordu. Mevcut test yalnız `mode:"set"`i kapsadığı için kaçmış. | **DÜZELTİLDİ** — `addedDays` artık tabandan sayılıyor, `totalDaysFromNow` ayrı alan, bildirim ikisini de gösteriyor. 3 regresyon testi eklendi. |
+| 3 | **Abonelik sayfasında yapışkan hata:** `loadCatalog` başarılı yüklemede `loadError`'ı temizlemiyordu. `useSearchParams()` ilk client render'ında boş dönünce "Firma seçili değil." yazılıyor ve katalog sonradan yüklense bile ekranda kalıyordu. **Bu iş öncesinden var** (`af7e42f`'te de aynı). | **DÜZELTİLDİ** — başarılı denemede `setLoadError(null)`. |
+| 4 | **Arşivden çıkışın testi yok.** `applyEntitlements` ücretli modül açılınca `archivedAt`'i siliyor (doğru yazılmış, ücretsizleri ölçüye katmıyor) ama birim testi yok. Dokümanın kendisi bunu "ödeme akışının en pahalı sessiz hatası" diye niteliyor: kural bozulursa müşteri "ödedim ama hiçbir şey kaydedemiyorum" durumuna düşer. | ✅ **DÜZELTİLDİ** — kural `shouldUnarchive(granted, free)` saf fonksiyonuna çıkarıldı (DB'siz sınanabilsin diye) ve 5 test yazıldı. En kritik olanı: "yalnız ÜCRETSİZ modüller açılıyorsa arşive DOKUNMA" — kapanan hesapta `applyEntitlements` ücretsizlerle çağrılır, "granted boş değil" ölçüsü kullanılsaydı arşiv sessizce bozulurdu. |
+| 5 | **Admin gerekçesi müşteriye görünüyor.** "Süre ver" formundaki zorunlu gerekçe, müşterinin "Abonelik geçmişi" bölümünde birebir gösteriliyor. Formun yardım metni bunu bir destek/iz alanı gibi tarif ediyor; iç notlar ("şikâyet telafisi" vb.) müşteriye düşer. | ✅ **DÜZELTİLDİ** — kullanıcı kararı: gerekçe yazdırmak gereksiz, alan tamamen KALDIRILDI (form + uç + `GrantPeriodInput` + olay özeti + `detail.reason` + `paymentRef`). İz yapısal olarak duruyor: `actorUserId`, önceki/sonraki dönem, modül seti, tutar, mod. Olay özeti artık yalnız olguyu anlatıyor. |
+| 6 | Otomatik yenileme anahtarı AÇIK iken metin "Otomatik tahsilat şu anda kapalı" diyor (recurring bayrağı kapalı olduğu için doğru ama yan yana çelişkili okunuyor). | ✅ **DÜZELTİLDİ** — metin artık anahtarın durumunu tanıyor: açıkken "Otomatik yenileme açık, ancak otomatik tahsilat henüz devrede değil…", kapalıyken "Otomatik tahsilat devrede değil…". |
+
+### 2.7 ⚠️ İLK CANLI KOŞUMDAN ÖNCE — üretim env kontrolü (2026-08-27)
+
+Üretim doğrulandı: `www.kobipo.com` ayakta, **yeni kod dağıtılmış**
+(`/api/billing/subscription` → 401, olmayan uç → 404, yani 401 anlamlı),
+`/api/billing/cron/daily` → 401 (korumalı). `origin/main`'deki `vercel.json` `crons`
+girdisini taşıyor.
+
+**Canlı veriye bakılarak ilk koşumun ne yapacağı ölçüldü:**
+
+| Adım | Etkilenecek satır | Risk |
+|---|---|---|
+| notify | **0** | e-posta gitmez |
+| recurring | **0** | çekim denenmez |
+| reconcile | **0** | kimse kilitlenmez |
+| archive | **0** | kimse arşivlenmez |
+| **invoiceRetry** | **8 paket + 8 kontör siparişi** (hepsi `isTest=false`) | ⚠️ **gerçek mali belge** |
+
+İlk dört adım güvenli. Beşincisi ÜRETİMDEKİ iki değişkene bağlı:
+
+- `KOBIPO_AUTO_INVOICE_ENABLED` — `false` ise hiçbir belge kesilmez.
+- `KOBIPO_AUTO_INVOICE_START_AT` — **tanımsızsa da hiçbir belge kesilmez** (kapı fail-safe).
+  Tanımlıysa, bu tarihten SONRA ödenen faturasız siparişlere belge kesilir.
+
+Faturasız 16 siparişin en yenisi **2026-08-20** ödemeli, en eskisi 2026-06-26. Yereldeki
+`START_AT=2026-08-24` bu yüzden hepsini eliyor (yerel koşumda `invoiceRetry: scanned 0`).
+**Üretimde `START_AT` bundan erkense ya da farklıysa, ilk gece 16 kadar GERÇEK e-Arşiv/
+e-Fatura geriye dönük kesilir.** Bu tam olarak `START_AT` kapısının önlemek için yazıldığı
+senaryodur (bkz. `lib/invoicing/config.ts` — "geriye dönük süpürmeyi engelleyen kapı").
+
+**Vercel panelinde doğrulanacaklar (Settings → Environment Variables → Production):**
+
+1. `BILLING_CRON_SECRET` **veya** `CRON_SECRET` tanımlı mı? (yoksa uç 401 döner, iş hiç koşmaz)
+2. `KOBIPO_AUTO_INVOICE_ENABLED` değeri ne?
+3. `KOBIPO_AUTO_INVOICE_START_AT` değeri ne? (yereldeki: `2026-08-24T00:00:00Z`)
 
 ### 3. Doğrulanacak: Vercel'de cron secret
 

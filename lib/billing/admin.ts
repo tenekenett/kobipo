@@ -290,8 +290,6 @@ export type GrantPeriodInput = {
   paymentReceived?: boolean
   /** `paymentReceived` ise zorunlu: tahsil edilen tutar. */
   amount?: number | null
-  /** ZORUNLU. Olay günlüğüne yazılır — elle müdahalenin gerekçesiz kalması yasak. */
-  reason: string
   actorUserId?: string | null
 }
 
@@ -316,7 +314,11 @@ const MAX_GRANT_AMOUNT = 1_000_000
  * 3. Yetkileri **yeniden uygular**. Yalnız tarihi ileri almak yetmez: `EXPIRED` hesapta
  *    `disabledModules` kilitli kaldığı için müşteri "süresi var ama paneli boş" görür.
  * 4. `paymentReceived` ise `PackageOrder` + otomatik fatura üretir.
- * 5. Her hâlde `MANUAL_GRANT` olayı yazar — elle müdahale iz bırakmadan geçmez.
+ * 5. Her hâlde `MANUAL_GRANT` olayı yazar — elle müdahale iz bırakmadan geçmez. Olay
+ *    kimin, ne zaman, neyi değiştirdiğini taşır (`actorUserId`, önceki/sonraki dönem,
+ *    modül seti, tutar). SERBEST METİNLİ GEREKÇE ALINMAZ: alan 2026-08-27'de kaldırıldı,
+ *    çünkü müşterinin kendi "Abonelik geçmişi" ekranında birebir görünüyordu — iç notlar
+ *    için tasarlanmış bir kutu müşteriye açılıyordu. İzin taşıdığı bilgi zaten yapısal.
  *
  * **TUZAK — süre uzatmak yinelenen çekimi durdurmaz.** `provider="PAYTR"` +
  * `autoRenew` + saklı kart üçlüsü kuruluysa `runRecurring` yeni `periodEnd`de kartı
@@ -324,14 +326,6 @@ const MAX_GRANT_AMOUNT = 1_000_000
  * istemiyorsanız `autoRenew: false` geçin; fonksiyon durumu `warnings` ile de bildirir.
  */
 export async function grantAccountPeriod(input: GrantPeriodInput) {
-  const reason = (input.reason ?? "").trim()
-  if (reason.length < 3) {
-    throw new BillingAdminError("Gerekçe zorunlu (en az 3 karakter)", "NO_REASON", 400)
-  }
-  if (reason.length > 500) {
-    throw new BillingAdminError("Gerekçe en fazla 500 karakter olabilir", "REASON_TOO_LONG", 400)
-  }
-
   const cycle: BillingCycle | undefined = isBillingCycle(input.billingCycle)
     ? input.billingCycle
     : undefined
@@ -381,7 +375,7 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
   if (!resolved.ok) {
     throw new BillingAdminError(resolved.message, resolved.code, 400)
   }
-  const { periodStart, periodEnd, basedOn, addedDays } = resolved.window
+  const { periodStart, periodEnd, basedOn, addedDays, totalDaysFromNow } = resolved.window
 
   const previousStatus = sub?.status ?? null
   const previousEnd = currentEnd
@@ -484,7 +478,8 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
           // gerçek para girdi, belge de gerçek kesilmeli.
           paymentProvider: "MANUAL",
           paidAt: now,
-          paymentRef: `manual:${reason.slice(0, 60)}`,
+          // Kim elle girdi: destek kaydını siparişten olaya bağlayan tek ip ucu.
+          paymentRef: input.actorUserId ? `manual:${input.actorUserId}` : "manual",
           isTest: false,
         },
         select: { id: true },
@@ -524,13 +519,16 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
     subscriptionId,
     actor: "ADMIN",
     actorUserId: input.actorUserId ?? null,
+    // Özet MÜŞTERİYE de gösteriliyor ("Abonelik geçmişi", components/billing/
+    // my-subscription.tsx) — bu yüzden yalnız olguyu anlatır, iç not taşımaz.
     summary:
       `Elle süre verildi: dönem ${eventDate(previousEnd)} → ${eventDate(periodEnd)} ` +
-      `(${input.mode === "extend" ? "uzatma" : "yeniden başlatma"}) — ${reason}`,
+      `(${input.mode === "extend" ? "uzatma" : "yeniden başlatma"})`,
     detail: {
       mode: input.mode,
       basedOn,
       addedDays,
+      totalDaysFromNow,
       previousStatus,
       previousEnd: previousEnd?.toISOString() ?? null,
       periodStart: periodStart.toISOString(),
@@ -542,7 +540,6 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
       amount: paymentReceived ? amount : null,
       orderId,
       createdSubscription,
-      reason,
       warnings,
     },
   })
@@ -557,6 +554,7 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
     periodStart,
     periodEnd,
     addedDays,
+    totalDaysFromNow,
     basedOn,
     orderId,
     warnings,

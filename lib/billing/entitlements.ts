@@ -142,6 +142,25 @@ export function resolveGrantedModules(sub: SubStatusView | null | undefined, now
  * yolunun (satın alma callback'i, elle grant) geçtiği tek nokta olduğu için kural
  * burada duruyor; ayrı bir "arşivden çıkar" çağrısı bir gün unutulurdu.
  */
+/**
+ * Bu yetki uygulaması hesabı ARŞİVDEN ÇIKARMALI mı?
+ *
+ * Ücretli bir modül açılan hesap arşivde KALAMAZ: `archivedAt` dolu kaldığı sürece yazma
+ * kapısı kapalıdır ([[lib/billing/archive.ts]]) ve müşteri "ödedim ama hiçbir şey
+ * kaydedemiyorum" durumuna düşer — ödeme akışının en pahalı sessiz hatası bu olurdu.
+ *
+ * Ölçü ÜCRETSİZ modülleri SAYMAZ. `granted` kümesine ücretsizler her hâlükârda ekleniyor
+ * (`applyEntitlements`), dolayısıyla "granted boş değil" demek yeterli değil: kapanan bir
+ * hesapta bu fonksiyon yalnız ücretsizlerle çağrılır ve arşivi bozmamalıdır.
+ *
+ * `applyEntitlements`in içinden çıkarıldı çünkü kural DB'siz sınanabilmeli — bozulduğunda
+ * belirtisi "ödeyen müşteri yazamıyor" gibi geç ve pahalı bir hatadır.
+ */
+export function shouldUnarchive(granted: Iterable<string>, freeModules: Iterable<string>): boolean {
+  const freeSet = new Set(freeModules)
+  return [...granted].some((k) => !freeSet.has(k))
+}
+
 export async function applyEntitlements(rootCompanyId: string, grantedModules: string[]): Promise<void> {
   const free = await getFreeModuleKeys()
   // Bağımlılıklar burada da tamamlanır: arayüz atlanıp bu fonksiyon doğrudan
@@ -151,17 +170,7 @@ export async function applyEntitlements(rootCompanyId: string, grantedModules: s
   )
   const disabled = MODULE_KEYS.filter((k) => !granted.has(k))
 
-  // ARŞİVDEN ÇIKIŞ. Ücretli bir modül açılan hesap arşivde KALAMAZ: `archivedAt` dolu
-  // kaldığı sürece yazma kapısı kapalıdır ([[lib/billing/archive.ts]]) ve müşteri
-  // "ödedim ama hiçbir şey kaydedemiyorum" durumuna düşer — ödeme akışının en pahalı
-  // sessiz hatası bu olurdu.
-  //
-  // Ölçü ÜCRETSİZ modülleri saymaz: `granted` kümesine `free` her hâlükârda ekleniyor,
-  // dolayısıyla "granted boş değil" demek yeterli değil. Kapanan bir hesapta da bu
-  // fonksiyon ücretsizlerle çağrılır ve arşivi bozmamalıdır.
-  const freeSet = new Set(free)
-  const hasPaidModule = [...granted].some((k) => !freeSet.has(k))
-  const unarchive = hasPaidModule ? { archivedAt: null } : {}
+  const unarchive = shouldUnarchive(granted, free) ? { archivedAt: null } : {}
 
   await prisma.$transaction([
     prisma.company.update({

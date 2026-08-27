@@ -13,8 +13,11 @@ export const dynamic = "force-dynamic"
  *   days? | months? | untilDate?,          // TAM OLARAK biri
  *   billingCycle?, modules?, autoRenew?,
  *   paymentReceived?, amount?,             // havale/elden tahsilat → sipariş + fatura
- *   reason                                 // ZORUNLU
  * }
+ *
+ * Serbest metinli `reason` YOK (2026-08-27'de kaldırıldı): olay özeti müşterinin kendi
+ * "Abonelik geçmişi" ekranında görünüyor, iç not için tasarlanmış kutu müşteriye açılıyordu.
+ * İz `actorUserId` + yapısal `detail` ile tutuluyor.
  *
  * İş kuralının tamamı [[lib/billing/admin.ts]] → `grantAccountPeriod`'da; bu uç yalnız
  * gövdeyi normalize eder. Kuralı uca kopyalamak, süreyi bilmeyen ikinci bir kapı açardı.
@@ -50,7 +53,6 @@ export async function POST(request: Request) {
       autoRenew: typeof body?.autoRenew === "boolean" ? body.autoRenew : null,
       paymentReceived: body?.paymentReceived === true,
       amount: num(body?.amount),
-      reason: typeof body?.reason === "string" ? body.reason : "",
       actorUserId: auth.user?.id ?? null,
     })
     return NextResponse.json({ ok: true, ...result })

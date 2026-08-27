@@ -133,9 +133,41 @@ describe("resolveGrantWindow", () => {
     expect(resolveGrantWindow({ ...base, mode: "set", duration: { days: 1.5 } }).ok).toBe(false)
   })
 
-  it("addedDays bugünden itibaren sayılır", () => {
+  it("bugünden başlatmada eklenen gün = verilen gün", () => {
     const r = resolveGrantWindow({ ...base, mode: "set", duration: { days: 30 } })
     expect(r.ok && r.window.addedDays).toBe(30)
+    expect(r.ok && r.window.totalDaysFromNow).toBe(30)
+  })
+
+  it("UZATMADA eklenen gün TABANDAN sayılır, bugünden değil", () => {
+    // Regresyon kilidi: `addedDays` bugünden sayılıyordu. Dönemi 2027'de biten bir
+    // aboneliği "1 ay uzat" dendiğinde yönetici "275 gün verildi" bildirimi görüyordu —
+    // oysa verilen 30 gün. Canlıda 2026-08-27'de tam olarak bu yaşandı.
+    const currentEnd = at(2027, 3, 29) // 29 Nisan 2027
+    const r = resolveGrantWindow({
+      ...base,
+      mode: "extend",
+      currentEnd,
+      duration: { months: 1 },
+    })
+    expect(r.ok && r.window.basedOn).toBe("period")
+    // Nisan 29 + 1 ay = Mayıs 29 → eklenen 30 gün.
+    expect(r.ok && r.window.addedDays).toBe(30)
+    // Kalan yol ise bugünden sayılır ve çok daha büyüktür.
+    expect(r.ok && r.window.totalDaysFromNow).toBeGreaterThan(270)
+  })
+
+  it("dönemi GEÇMİŞTE bitmiş abonelikte uzatma bugünden sayılır", () => {
+    // Taban geçmişteki bitiş DEĞİL bugündür (aksi halde verilen süre geçmişte erirdi).
+    const r = resolveGrantWindow({
+      ...base,
+      mode: "extend",
+      currentEnd: at(2026, 6, 1), // 1 Temmuz 2026 — geçmiş
+      duration: { days: 30 },
+    })
+    expect(r.ok && r.window.basedOn).toBe("now")
+    expect(r.ok && r.window.addedDays).toBe(30)
+    expect(r.ok && r.window.totalDaysFromNow).toBe(30)
   })
 
   it("addDays gün ekler", () => {
