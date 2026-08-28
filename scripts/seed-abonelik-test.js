@@ -1,8 +1,84 @@
 // Abonelik e2e testi için izole veritabanını tohumlar. YALNIZ test konteynerinde koşar.
+//
+// "Koşar" burada temenni değil, KAPIDIR: betik hedefi kendisi denetler ve tek satır
+// yazmadan önce iki koşulu birden arar (bkz. assertDisposableDatabase). Başlıktaki
+// uyarıya güvenmek yetmiyordu — `.env` çoğu geliştirme kopyasında CANLI veritabanını
+// gösterir ve yanlışlıkla çalıştırılan betik üretime beş sahte firma, iki kullanıcı ve
+// bir fiyat kataloğu yazardı.
 const { PrismaClient } = require("@prisma/client")
 const bcrypt = require("bcryptjs")
 
 const prisma = new PrismaClient()
+
+/**
+ * Yerel sayılan sunucular: Supabase'in yerel yığını (127.0.0.1:54322), doğrudan
+ * postgres ve docker-compose servis adları.
+ */
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "db", "postgres", "postgres_test"])
+
+/** Bağlantı dizesinden YALNIZ host — parola loglara sızmasın. */
+function targetHost() {
+  const raw = process.env.DATABASE_URL || ""
+  if (!raw) return null
+  try {
+    return new URL(raw).hostname
+  } catch {
+    return null
+  }
+}
+
+function die(baslik, satirlar) {
+  console.error(`\n  ${baslik}\n`)
+  for (const l of satirlar) console.error(`  ${l}`)
+  console.error("")
+  process.exit(1)
+}
+
+/**
+ * Hedefin GÖZDEN ÇIKARILABİLİR olduğunu doğrular. İki katman da geçilmeden hiçbir
+ * şey yazılmaz:
+ *
+ *  1. HOST yerel olmalı. Uzak bir tek-kullanımlık test veritabanı meşrudur (CI), ama
+ *     o zaman host AÇIKÇA adlandırılmalı: `SEED_ALLOW_REMOTE=<host>`. Sadece "=1"
+ *     kabul edilseydi, kabuk profilinde unutulmuş bir değişken canlıyı da açardı.
+ *  2. VERİTABANI BOŞ olmalı. Betik planları, kullanıcıları ve firmaları sıfırdan
+ *     yaratır; dolu bir şemada zaten çalışmaz (benzersiz kısıtlar) ama o noktaya
+ *     gelene kadar yarım veri bırakır. Üstelik bu katman, birinin canlının YEREL
+ *     kopyasını tohumlamasını da engeller — 1. katman ona izin verirdi.
+ */
+async function assertDisposableDatabase() {
+  const host = targetHost()
+  if (!host) {
+    die("DATABASE_URL okunamadı.", ["Tohumlama hedefi belirsizken çalışmaz."])
+  }
+
+  const izin = (process.env.SEED_ALLOW_REMOTE || "").trim()
+  if (!LOCAL_HOSTS.has(host) && izin !== host) {
+    die(`GÜVENLİK: '${host}' yerel bir sunucu değil — tohumlama iptal edildi.`, [
+      "Bu betik izole bir test veritabanı bekler; canlıya sahte firma yazmasın diye durdu.",
+      "",
+      "Yerel yığını kullanın:  npm run supabase:start   (127.0.0.1:54322)",
+      "Uzak bir TEK KULLANIMLIK test veritabanıysa host'u açıkça adlandırın:",
+      `  SEED_ALLOW_REMOTE=${host} node scripts/seed-abonelik-test.js`,
+    ])
+  }
+
+  const [firma, kullanici, plan] = await Promise.all([
+    prisma.company.count(),
+    prisma.user.count(),
+    prisma.plan.count(),
+  ])
+  if (firma > 0 || kullanici > 0 || plan > 0) {
+    die(`GÜVENLİK: '${host}' boş değil — tohumlama iptal edildi.`, [
+      `Bulunan: ${firma} firma, ${kullanici} kullanıcı, ${plan} plan.`,
+      "Bu betik sıfırdan kurar; dolu bir şemaya yazmak mevcut veriyle karışır.",
+      "",
+      "Temiz bir veritabanıyla koşun:  npm run supabase:reset",
+    ])
+  }
+
+  console.log(`  hedef: ${host} (boş) — tohumlanıyor…\n`)
+}
 const DAY = 86_400_000
 const now = new Date()
 const at = (days) => new Date(now.getTime() + days * DAY)
@@ -12,6 +88,9 @@ const FREE = ["finance"] // TEMEL modül — bağımlılığı yok, ücretsiz ya
 const disabledFor = (open) => ALL.filter((k) => !open.includes(k) && !FREE.includes(k))
 
 async function main() {
+  // Tek satır yazmadan ÖNCE: hedef gerçekten gözden çıkarılabilir mi?
+  await assertDisposableDatabase()
+
   const pass = await bcrypt.hash("Test1234!", 10)
 
   const superAdmin = await prisma.user.create({
