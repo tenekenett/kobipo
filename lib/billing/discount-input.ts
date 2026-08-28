@@ -29,9 +29,33 @@ function optionalNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-function optionalDate(v: unknown): Date | null {
+/**
+ * Türkiye sabit UTC+03:00 — 2016'dan beri yaz saati uygulaması yok, bu yüzden
+ * sabit ofset yıl boyunca doğrudur.
+ */
+const TR_UTC_OFFSET = "+03:00"
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Kampanya penceresinin ucunu çözer.
+ *
+ * TARİH-ONLY TUZAĞI: panelin `<input type="date">` alanı "2026-08-28" verir ve
+ * `new Date("2026-08-28")` bunu **UTC** gece yarısı sayar. Türkiye'de bu 28 Ağustos
+ * 03:00 demektir; `now > endsAt` denetimi kuponu o günün sabahında öldürür ve
+ * "28 Ağustos'a kadar geçerli" denen kod o günü hiç göremez. Başlangıç da 3 saat
+ * geç açılır, aynı güne kurulan tek günlük kampanya ise sıfır uzunlukta kalır.
+ *
+ * Bu yüzden tarih-only girdi Türkiye gününün SINIRLARINA sabitlenir: başlangıç
+ * günün ilk anına, bitiş son anına (23:59:59.999). Saat içeren tam bir zaman
+ * damgası geldiyse olduğu gibi bırakılır — çağıran bilerek an vermiştir.
+ */
+function optionalDate(v: unknown, edge: "start" | "end"): Date | null {
   if (v == null || String(v).trim() === "") return null
-  const d = new Date(String(v))
+  const raw = String(v).trim()
+  const iso = DATE_ONLY.test(raw)
+    ? `${raw}T${edge === "end" ? "23:59:59.999" : "00:00:00.000"}${TR_UTC_OFFSET}`
+    : raw
+  const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? null : d
 }
 
@@ -54,8 +78,8 @@ export function parseDiscountCodeInput(
   const scope = String(body?.scope ?? "ALL").toUpperCase()
   if (!SCOPES.has(scope)) return { ok: false, error: "Kapsam ALL, KONTOR veya PACKAGE olmalı" }
 
-  const startsAt = optionalDate(body?.startsAt)
-  const endsAt = optionalDate(body?.endsAt)
+  const startsAt = optionalDate(body?.startsAt, "start")
+  const endsAt = optionalDate(body?.endsAt, "end")
   if (startsAt && endsAt && endsAt < startsAt) {
     return { ok: false, error: "Bitiş tarihi başlangıçtan önce olamaz" }
   }

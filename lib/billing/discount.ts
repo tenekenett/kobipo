@@ -47,7 +47,8 @@ function round2(n: number): number {
  * İndirim tutarının SAF hesabı (veritabanı gerektirmez, testlenebilir).
  *
  * İki sınır burada uygulanır:
- *  - sabit tutarın sipariş tutarını aşamaması (bedava satış yapılmaz),
+ *  - indirimin sipariş tutarını AŞAMAMASI (kırpılır) — negatif tahsilat olmaz. Tam
+ *    tutara eşitlenmesi serbesttir: %100 kupon meşrudur ve sipariş ücretsiz karşılanır,
  *  - kuruş yuvarlaması (PayTR tutarı kuruşa çevirir; yarım kuruş tahsilat olmaz).
  */
 export function computeDiscountAmount(
@@ -120,13 +121,12 @@ export async function evaluateDiscountCode(params: {
   )
   if (discountAmount <= 0) return { ok: false, error: "Bu kod bu tutarda indirim sağlamıyor." }
 
+  // TAM BEDAVA (payable = 0) MEŞRU BİR SONUÇTUR. Eskiden burada "ücretsiz sipariş için
+  // destekle görüşün" diye reddediliyordu; oysa panel %100 kupon oluşturmaya izin
+  // veriyor ([[lib/billing/discount-input.ts]]) ve kod listede etkin görünüyordu — admin
+  // kuponu kuruyor, kodu giren her müşteri hata alıyordu. Sipariş uçları payable = 0'ı
+  // PayTR'a hiç göndermeden karşılar ([[lib/billing/free-order.ts]]).
   const payable = round2(listAmount - discountAmount)
-  if (payable <= 0) {
-    return {
-      ok: false,
-      error: "Bu kod tutarın tamamını karşılıyor; ücretsiz sipariş için destekle görüşün.",
-    }
-  }
 
   return {
     ok: true,

@@ -149,7 +149,7 @@ export function planSubscriptionWrite(
  *    `periodEnd` asla geriye çekilmez (dönem ortasında yükseltme yapan müşteri kalan
  *    ödenmiş süresini kaybetmez).
  */
-async function activateSubscription(order: PackageOrder, card: SavedCard = {}): Promise<void> {
+export async function activateSubscription(order: PackageOrder, card: SavedCard = {}): Promise<void> {
   const cycle: BillingCycle = isBillingCycle(order.billingCycle) ? order.billingCycle : "MONTHLY"
   const now = new Date()
 

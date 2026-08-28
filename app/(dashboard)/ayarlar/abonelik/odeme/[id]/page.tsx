@@ -35,6 +35,9 @@ export default function AbonelikOdemePage() {
   const orderId = params?.id
   const companySlug = searchParams.get("company") || ""
   const returnedFromPaytr = searchParams.get("odeme") // "ok" | "fail" | null
+  // Tam indirimli sipariş: tahsilat yok, sipariş sunucuda karşılandı
+  // ([[lib/billing/free-order.ts]]). PayTR token'ı istemek 409 döndürürdü.
+  const freeOrder = searchParams.get("ucretsiz") === "1"
 
   const [iframeUrl, setIframeUrl] = useState<string | null>(null)
   const [tokenError, setTokenError] = useState<string | null>(null)
@@ -82,13 +85,13 @@ export default function AbonelikOdemePage() {
   useEffect(() => {
     // ?odeme=ok/fail ile dönüşte YENİ token isteme — callback otoritedir; ikinci token isteği
     // "merchant_oid daha önce kullanılmış" hatasına düşerdi. Yalnızca siparişin durumunu yokla.
-    if (returnedFromPaytr) {
+    if (returnedFromPaytr || freeOrder) {
       setLoadingToken(false)
     } else {
       fetchToken()
     }
     pollOrder()
-  }, [fetchToken, pollOrder, returnedFromPaytr])
+  }, [fetchToken, pollOrder, returnedFromPaytr, freeOrder])
 
   // Sipariş ACTIVE/FAILED olana kadar durumu periyodik kontrol et (callback otoritedir).
   useEffect(() => {
@@ -150,7 +153,11 @@ export default function AbonelikOdemePage() {
           {isActive ? (
             <div className="flex flex-col items-center gap-3 py-10 text-center">
               <CheckCircle2 className="h-12 w-12 text-emerald-600" />
-              <p className="text-lg font-semibold">Ödeme alındı, aboneliğiniz aktif 🎉</p>
+              <p className="text-lg font-semibold">
+                {Number(order?.amount) <= 0
+                  ? "İndirim kodunuz tutarın tamamını karşıladı, aboneliğiniz aktif 🎉"
+                  : "Ödeme alındı, aboneliğiniz aktif 🎉"}
+              </p>
               <p className="text-sm text-muted-foreground">
                 Seçtiğiniz modüller ana firma ve tüm şubeleriniz için açıldı.
               </p>

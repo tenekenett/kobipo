@@ -7,6 +7,7 @@ import { isBillingCycle } from "@/lib/billing/constants"
 import { resolveAccountRootId } from "@/lib/billing/entitlements"
 import { resolvePackageOrderAmount } from "@/lib/billing/order-amount"
 import { evaluateDiscountCode } from "@/lib/billing/discount"
+import { isFreeAmount, settleFreePackageOrder } from "@/lib/billing/free-order"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import {
   billingSnapshot,
@@ -138,8 +139,17 @@ export const POST = withApiErrors(async function POST(request: Request) {
       },
     })
 
+    // TAM İNDİRİMLİ SİPARİŞ: sanal POS 0 TL işlem kabul etmez, ödeme adımı atlanır ve
+    // sipariş burada karşılanır ([[lib/billing/free-order.ts]]). İstemci `free` bayrağını
+    // görünce PayTR iframe'ini hiç açmaz.
+    const free = isFreeAmount(payableAmount)
+    if (free) {
+      await settleFreePackageOrder(order.id)
+    }
+
     return NextResponse.json({
       id: order.id,
+      free,
       amount: payableAmount,
       listAmount: computed.amount,
       discountCode: discount?.code ?? null,

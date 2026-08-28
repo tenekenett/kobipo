@@ -13,6 +13,7 @@ import {
 } from "@/lib/invoicing/billing-info"
 import { isTestPurchase } from "@/lib/invoicing/config"
 import { evaluateDiscountCode } from "@/lib/billing/discount"
+import { isFreeAmount, settleFreeKontorOrder } from "@/lib/billing/free-order"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -181,6 +182,21 @@ export const POST = withApiErrors(async function POST(request: Request) {
         createdById: user.id,
       },
     })
+    // TAM İNDİRİMLİ SİPARİŞ: tahsil edilecek tutar yok, ödeme adımı atlanır ve kontör
+    // doğrudan yüklenir ([[lib/billing/free-order.ts]]). Havale seçilmiş olsa bile
+    // beklenecek bir ödeme kalmadığı için aynı yoldan geçer.
+    if (isFreeAmount(order.totalPrice)) {
+      const settled = await settleFreeKontorOrder(order.id)
+      const fresh = await prisma.kontorOrder.findUnique({ where: { id: order.id } })
+      return NextResponse.json({
+        ...(fresh ?? order),
+        free: true,
+        // Yükleme başarısızsa sipariş FAILED'dır; istemci hatayı gösterir, sistem-admin
+        // panelden tekrar yükleyebilir.
+        loadError: settled.ok ? null : settled.error,
+      })
+    }
+
     return NextResponse.json(order)
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""

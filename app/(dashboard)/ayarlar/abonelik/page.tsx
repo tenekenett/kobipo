@@ -321,19 +321,17 @@ export default function AbonelikPage() {
       computed.branchQuota > 0 ||
       computed.companyQuota > 0)
 
-  // İNDİRİM KODU — seçim değişince (plan/modül/kota/periyot) uygulanan kod DÜŞER:
-  // tutar değiştiği için eski ön izleme yanlış olurdu. Kullanıcı yeniden uygular.
+  // İNDİRİM KODU — seçim değişince (plan/modül/kota/periyot) kod DÜŞMEZ, kutu onu yeni
+  // tutara göre YENİDEN DOĞRULAR ([[components/billing/discount-code-field.tsx]]).
+  // Eskiden burada `setDiscount(null)` vardı: kullanıcı kuponu uyguladıktan sonra bir
+  // modülü işaretlediğinde indirim sessizce kayboluyor ve fark etmeyen kullanıcı liste
+  // fiyatından ödüyordu.
   const [discount, setDiscount] = useState<AppliedDiscount | null>(null)
+  // Kutuda uygulanmamış metin: ödemeye geçişi engeller, yoksa kod siparişe hiç gitmez.
+  const [discountDirty, setDiscountDirty] = useState(false)
   const discountSelectionKey = `${selectedPlan?.id ?? ""}|${Array.from(extras)
     .sort()
     .join(",")}|${branchQuota}|${companyQuota}|${cycle}`
-  const lastSelectionKey = useRef(discountSelectionKey)
-  useEffect(() => {
-    if (lastSelectionKey.current !== discountSelectionKey) {
-      lastSelectionKey.current = discountSelectionKey
-      setDiscount(null)
-    }
-  }, [discountSelectionKey])
 
   async function handlePay() {
     if (!companySlug || submitting) return
@@ -346,6 +344,15 @@ export default function AbonelikPage() {
       setBillingOpen(true)
       setSubmitError(
         "Fatura bilgileriniz eksik. Satışınız için fatura düzenlenebilmesi adına işaretli alanları doldurun.",
+      )
+      return
+    }
+
+    // Kutuya kod yazılmış ama "Uygula"ya basılmamış: kod siparişe GİTMEZ ve liste
+    // fiyatından tahsil edilir. Sessizce geçmek yerine kullanıcıyı durdur.
+    if (discountDirty) {
+      setSubmitError(
+        "İndirim kodunu uygulamadınız. Kutudaki koda 'Uygula' deyin ya da kutuyu boşaltın.",
       )
       return
     }
@@ -378,7 +385,12 @@ export default function AbonelikPage() {
       // liste fiyatından ödemeye gitmesin.
       if (res.status === 422 && data?.field === "discountCode") setDiscount(null)
       if (!res.ok) throw new Error(data?.error || "Sipariş oluşturulamadı")
-      router.push(`/ayarlar/abonelik/odeme/${data.id}?company=${encodeURIComponent(companySlug)}`)
+      // Tam indirimli sipariş sunucuda zaten karşılandı (PayTR'a hiç gidilmedi);
+      // ödeme ekranı token istemesin diye işaretle.
+      router.push(
+        `/ayarlar/abonelik/odeme/${data.id}?company=${encodeURIComponent(companySlug)}` +
+          (data?.free ? "&ucretsiz=1" : ""),
+      )
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Sipariş oluşturulamadı")
       setSubmitting(false)
@@ -677,8 +689,10 @@ export default function AbonelikPage() {
                 companyQuota: Math.max(companyQuota, minCompanyQuota),
                 billingCycle: cycle,
               }}
+              selectionKey={discountSelectionKey}
               applied={discount}
               onApplied={setDiscount}
+              onDirtyChange={setDiscountDirty}
               disabled={submitting}
             />
           )}

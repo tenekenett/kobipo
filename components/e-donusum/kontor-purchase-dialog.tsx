@@ -81,6 +81,9 @@ export function KontorPurchaseDialog({
   // İNDİRİM KODU: sunucu her paket için ayrı hesaplar, satırlar kendi indirimli
   // fiyatını basar. Siparişe yalnız KOD gider; tutarı sunucu yeniden hesaplar.
   const [discount, setDiscount] = useState<AppliedDiscount | null>(null)
+  // Kutuda uygulanmamış metin: satın almayı durdurur, yoksa kod siparişe hiç gitmez
+  // ve müşteri indirim beklerken liste fiyatından ödeme yapar.
+  const [discountDirty, setDiscountDirty] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -129,6 +132,15 @@ export function KontorPurchaseDialog({
       return
     }
 
+    if (discountDirty) {
+      toast({
+        title: "İndirim kodunu uygulamadınız",
+        description: "Kutudaki koda 'Uygula' deyin ya da kutuyu boşaltın.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setBusyKey(`${pkg.id}:${paymentMethod}`)
     try {
       const res = await fetch("/api/kontor/orders", {
@@ -154,6 +166,27 @@ export function KontorPurchaseDialog({
       }
       if (!res.ok) throw new Error(data?.error || "Sipariş oluşturulamadı")
       setInvalidFields([])
+
+      // TAM İNDİRİMLİ SİPARİŞ: tahsilat yok, kontör sunucuda zaten yüklendi
+      // ([[lib/billing/free-order.ts]]). Ödeme ekranına göndermek anlamsız olurdu.
+      if (data?.free) {
+        setOpen(false)
+        toast(
+          data?.loadError
+            ? {
+                title: "Sipariş oluşturuldu, yükleme bekliyor",
+                description: String(data.loadError),
+                variant: "destructive",
+              }
+            : {
+                title: "İndirim kodunuz tutarın tamamını karşıladı",
+                description: "Kontörleriniz yüklendi.",
+              },
+        )
+        await load()
+        onPurchased?.()
+        return
+      }
 
       if (paymentMethod === "CARD") {
         // Kart ödemesi → PayTR checkout sayfasına geç (company poll için gerekli).
@@ -243,6 +276,7 @@ export function KontorPurchaseDialog({
               payload={{}}
               applied={discount}
               onApplied={setDiscount}
+              onDirtyChange={setDiscountDirty}
               disabled={busyKey !== null}
             />
 

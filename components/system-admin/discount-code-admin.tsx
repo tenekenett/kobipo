@@ -42,11 +42,32 @@ const SCOPE_LABEL: Record<string, string> = {
   PACKAGE: "Yalnız abonelik",
 }
 
-/** YYYY-MM-DD (date input'u bunu bekler); boş/null güvenli. */
+/**
+ * YYYY-MM-DD (date input'u bunu bekler); boş/null güvenli.
+ *
+ * Gün TÜRKİYE saatiyle okunur. `toISOString()` ile okumak kampanya ucunu bir gün
+ * kaydırırdı: sunucu başlangıcı Türkiye gününün ilk anına yazar (26.08 00:00 TR =
+ * 25.08 21:00 UTC), UTC'den okuyan form "25.08" gösterir ve kaydedildiğinde kod
+ * bir gün daha geriye kayar — her düzenlemede biraz daha. `en-CA` yerelinin
+ * biçimi zaten YYYY-MM-DD'dir.
+ */
+const TR_DAY = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Istanbul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+})
+
+/** Listede gün: kampanya ucu Türkiye gününe göre yazılır, tarayıcının yerine göre değil. */
+function trDate(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })
+}
+
 function toDateInput(iso: string | null): string {
   if (!iso) return ""
   const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10)
+  return Number.isNaN(d.getTime()) ? "" : TR_DAY.format(d)
 }
 
 function fmtMoney(v: string | number | null): string {
@@ -405,9 +426,9 @@ export function DiscountCodeAdmin() {
                       <td className="py-2 pr-4 text-xs text-slate-400">
                         {c.startsAt || c.endsAt ? (
                           <>
-                            {c.startsAt ? new Date(c.startsAt).toLocaleDateString("tr-TR") : "—"}
+                            {c.startsAt ? trDate(c.startsAt) : "—"}
                             {" → "}
-                            {c.endsAt ? new Date(c.endsAt).toLocaleDateString("tr-TR") : "—"}
+                            {c.endsAt ? trDate(c.endsAt) : "—"}
                           </>
                         ) : (
                           "süresiz"
