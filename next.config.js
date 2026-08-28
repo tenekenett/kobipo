@@ -15,8 +15,17 @@ const nextConfig = {
   serverExternalPackages: ["@prisma/client", "prisma", "pdfmake"],
   // Bundled örnek XSLT şablonları çalışma anında fs ile okunuyor; Vercel'in
   // serverless fonksiyon paketine dahil edilmeleri için trace'e ekliyoruz.
+  //
+  // KAPSAM /api/e-donusum/** OLMALI, yalnız templates/** DEĞİL. Taban XSLT'yi okuyan
+  // tek yer şablon ekranı değil: gönderim yolu da okuyor — fatura Mysoft'a giderken
+  // kayıtlı tasarımın bayat olup olmadığına bakılıyor ve bayatsa yeniden üretilip
+  // yükleniyor ([[lib/integrations/e-invoice/template-refresh.ts]]). Dosya o
+  // fonksiyonun paketinde yoksa taban sürümü `null` çıkar, karar "unknown-base"e
+  // düşer ve tazeleme SESSİZCE hiç çalışmaz. Canlıda tam olarak bu oldu: paneldeki
+  // elle "Yenile" düğmesi (bu yolda) çalışıyor, otomatik tazeleme (invoices/** ve
+  // numerators/**, onboarding/** yolunda) hiç çalışmıyordu.
   outputFileTracingIncludes: {
-    "/api/e-donusum/templates/**": ["./lib/integrations/e-invoice/sample-templates/**"],
+    "/api/e-donusum/**": ["./lib/integrations/e-invoice/sample-templates/**"],
     // PDF fontları fs ile okunuyor (lib/pdf/doc/font.ts); Next'in izleyicisi
     // dinamik yolu göremediği için fonksiyon paketine açıkça eklenir.
     "/api/**": ["./node_modules/dejavu-fonts-ttf/ttf/**", "./public/fonts/**"],

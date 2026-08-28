@@ -136,6 +136,18 @@ export async function ensureTemplateFreshQuietly(params: {
       )
     } else if (res.reason === "upload-failed") {
       console.warn(`[şablon] "${params.xsltName}" tazelenemedi: ${res.error} — eski tasarımla devam.`)
+    } else if (res.reason === "unknown-base" || res.reason === "no-base") {
+      // BU NORMAL BİR DURUM DEĞİL, DAĞITIM HATASIDIR: taban XSLT okunamıyor demektir
+      // ve tazeleme hiç çalışmaz. Sessiz kalmak pahalıya patladı — kapsam dışı
+      // bırakılmış bir `outputFileTracingIncludes` yüzünden otomatik tazeleme
+      // canlıda haftalarca hiç koşmadı, kimse fark etmedi, firmalar eski tasarımla
+      // belge bastı. Gönderimi hâlâ engellemiyoruz ama artık görünür.
+      console.error(
+        `[şablon] TABAN XSLT OKUNAMIYOR ("${params.xsltName}", tip ${params.eDocumentType}) — ` +
+          `otomatik tazeleme çalışmıyor, belgeler ESKİ tasarımla basılıyor. ` +
+          `Örnek şablonlar bu fonksiyonun paketinde mi? (next.config.js → ` +
+          `outputFileTracingIncludes, "/api/e-donusum/**")`,
+      )
     }
   } catch (e: any) {
     console.warn(`[şablon] tazeleme atlandı: ${e?.message || e}`)
