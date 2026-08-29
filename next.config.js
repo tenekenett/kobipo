@@ -16,14 +16,18 @@ const nextConfig = {
   // Bundled örnek XSLT şablonları çalışma anında fs ile okunuyor; Vercel'in
   // serverless fonksiyon paketine dahil edilmeleri için trace'e ekliyoruz.
   //
-  // KAPSAM /api/e-donusum/** OLMALI, yalnız templates/** DEĞİL. Taban XSLT'yi okuyan
-  // tek yer şablon ekranı değil: gönderim yolu da okuyor — fatura Mysoft'a giderken
-  // kayıtlı tasarımın bayat olup olmadığına bakılıyor ve bayatsa yeniden üretilip
-  // yükleniyor ([[lib/integrations/e-invoice/template-refresh.ts]]). Dosya o
-  // fonksiyonun paketinde yoksa taban sürümü `null` çıkar, karar "unknown-base"e
-  // düşer ve tazeleme SESSİZCE hiç çalışmaz. Canlıda tam olarak bu oldu: paneldeki
-  // elle "Yenile" düğmesi (bu yolda) çalışıyor, otomatik tazeleme (invoices/** ve
-  // numerators/**, onboarding/** yolunda) hiç çalışmıyordu.
+  // Kapsam GÖNDERİM YOLUNU da içerir (invoices/**), yalnız şablon ekranını değil:
+  // taban XSLT'yi okuyan ikinci yer, fatura Mysoft'a giderken kayıtlı tasarımın
+  // bayatlığına bakan otomatik tazelemedir
+  // ([[lib/integrations/e-invoice/template-refresh.ts]]).
+  //
+  // DÜRÜST NOT: Next'in izleyicisi bu dosyaları zaten kendiliğinden buluyor —
+  // `SAMPLES_DIR` sabit parçalardan kurulduğu için statik analiz yolu görebiliyor
+  // ve .nft.json'lar dar kapsamla da iki .xslt'yi invoices/** paketine koyuyordu
+  // (ölçüldü). Yani bu satır bir hatayı DÜZELTMİYOR; izleyicinin sezgisine
+  // güvenmemek için konmuş açık bir garanti. Bedeli o alt ağaçtaki fonksiyonlara
+  // ~380 KB; karşılığı, sezgi bir gün kaybolursa ortaya çıkacak arızanın sessiz
+  // ve müşteriye görünür olması (belgeler eski tasarımla basılır).
   outputFileTracingIncludes: {
     "/api/e-donusum/**": ["./lib/integrations/e-invoice/sample-templates/**"],
     // PDF fontları fs ile okunuyor (lib/pdf/doc/font.ts); Next'in izleyicisi

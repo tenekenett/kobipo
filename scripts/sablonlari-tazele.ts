@@ -14,14 +14,18 @@
  * belgeyi Mysoft KENDİ kayıtlı kopyasıyla basar. Taban iyileştiğinde (banka/IBAN
  * notunun açıklama kutusuna alınması gibi) o kopya eski kalır.
  *
- * Normalde bunu kullanıcı DEĞİL, gönderim yolundaki otomatik tazeleme halleder
- * ([[lib/integrations/e-invoice/template-refresh.ts]]). Ama canlıda o mekanizma hiç
- * çalışmadı: taban XSLT dosyaları yalnız `/api/e-donusum/templates/**` fonksiyon
- * paketine dahil ediliyordu, gönderim yolu (`invoices/**`) onları okuyamıyor,
- * taban sürümü `null` çıkıyor ve karar sessizce "unknown-base"e düşüyordu. Kapsam
- * düzeltildi (next.config.js), ama düzeltme yalnız BUNDAN SONRAKİ gönderimlerde
- * devreye girer — bu betik geçmişte bayat kalmış kayıtları şimdi toparlar, kimseye
- * "şablonunu yenile" dedirtmeden.
+ * Bunu normalde kullanıcı DEĞİL, gönderim yolundaki otomatik tazeleme halleder
+ * ([[lib/integrations/e-invoice/template-refresh.ts]]) ve o mekanizma canlıda
+ * ÇALIŞIYOR — ölçüldü: 2026-08-22'deki taban değişikliğinden sonra e-Fatura
+ * gönderen firmaların e-Fatura şablonu gönderim gününde tazelenmiş.
+ *
+ * Ama tazeleme TEMBELDİR: yalnız o an gönderilen belge tipinin şablonuna dokunur.
+ * Firmanın e-Arşiv şablonu, ilk e-Arşiv gönderimine kadar bayat kalır; hiç fatura
+ * göndermeyen firmada ise hiçbir şey tetiklenmez. 2026-08-29 ölçümünde kullanımdaki
+ * 20 şablonun 10'u bu yüzden bayattı.
+ *
+ * Bu betik o beklemeyi ortadan kaldırır: bayat olan her şablonu şimdi tazeler,
+ * kimseye "şablonunu yenile" dedirtmeden.
  *
  * KAPSAM
  *  - Yalnız KULLANIMDAKİ şablonlar: firma geneli aktif olan ya da bir seriye

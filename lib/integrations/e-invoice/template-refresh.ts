@@ -138,10 +138,14 @@ export async function ensureTemplateFreshQuietly(params: {
       console.warn(`[şablon] "${params.xsltName}" tazelenemedi: ${res.error} — eski tasarımla devam.`)
     } else if (res.reason === "unknown-base" || res.reason === "no-base") {
       // BU NORMAL BİR DURUM DEĞİL, DAĞITIM HATASIDIR: taban XSLT okunamıyor demektir
-      // ve tazeleme hiç çalışmaz. Sessiz kalmak pahalıya patladı — kapsam dışı
-      // bırakılmış bir `outputFileTracingIncludes` yüzünden otomatik tazeleme
-      // canlıda haftalarca hiç koşmadı, kimse fark etmedi, firmalar eski tasarımla
-      // belge bastı. Gönderimi hâlâ engellemiyoruz ama artık görünür.
+      // ve tazeleme hiç çalışmaz — üstelik hata da fırlatmadan.
+      //
+      // Bu dal eskiden hiç loglanmıyordu ve o sessizlik bir teşhisi saatlerce yanlış
+      // yola soktu: "şablonlar eski" şikâyeti gelince kapsam dışı kalmış bir
+      // `outputFileTracingIncludes` sanıldı. Değilmiş — ölçünce mekanizmanın canlıda
+      // düzgün çalıştığı, bayat kalanların yalnızca o belge tipinden hiç gönderim
+      // yapılmamış şablonlar olduğu görüldü. Log olsaydı bu ilk bakışta anlaşılırdı.
+      // Gönderimi hâlâ engellemiyoruz ama artık görünür.
       console.error(
         `[şablon] TABAN XSLT OKUNAMIYOR ("${params.xsltName}", tip ${params.eDocumentType}) — ` +
           `otomatik tazeleme çalışmıyor, belgeler ESKİ tasarımla basılıyor. ` +
