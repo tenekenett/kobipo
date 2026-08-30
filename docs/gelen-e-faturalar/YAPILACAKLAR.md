@@ -1,124 +1,87 @@
-# Gelen E-Faturalar — kalan işler
+# Gelen E-Faturalar — durum ve kalan işler
 
-> **Tarih:** 2026-08-30 · Ekran: `app/(dashboard)/alis/gelen-e-faturalar/page.tsx` ·
-> Uç: `app/api/e-donusum/inbox/route.ts`
->
-> Bu belge, ekranın büyük onarımından sonra yapılan analizde çıkan ve **yapılmaya karar
-> verilen** işleri tutar. Başka bir makinede devam edilecek; devralan için gereken bağlam
-> ve tuzaklar burada.
+> **Son güncelleme:** 2026-08-30 · Ekran: `app/(dashboard)/alis/gelen-e-faturalar/` ·
+> Uçlar: `app/api/e-donusum/inbox/**` · Ortak sorgu:
+> `lib/integrations/e-invoice/incoming-list-query.ts`
 
-## Nerede kalındı (bunlar TAMAM)
+## Tamamlananlar
 
-- **90 gün penceresi.** Mysoft dönem uçları 90 günü aşan aralığı tümden reddediyordu
-  ("Başlangıç bitiş tarihi arasında 90 günden fazla zaman olamaz"), ekran ise 6 ay / 1 yıl
-  sunuyordu. `listIncomingInvoices` artık aralığı ≤90 günlük pencerelere bölüyor; alınamayan
-  pencere `warnings` ile yukarı taşınıyor. Test: `lib/integrations/e-invoice/incoming-inbox-window.test.ts`
-- **`sentDate` kolonu.** Gönderilme tarihi ham JSON'dan kolona alındı, tarih aralığı bu
-  eksende de sorgulanabiliyor (`dateField=docDate|sentDate`). İki migrasyon **canlıya
-  uygulandı**: `20260830000001_incoming_invoice_sent_date.sql` ve
-  `20260830000002_incoming_invoice_sent_date_tz_duzeltme.sql` (ikincisi 3 saatlik saat
-  dilimi kaymasını düzeltiyor — offset'siz `createDate` Türkiye yerelidir).
-- **Sunucu tarafı filtreleme + sayfalama + özet.** Gönderici, VKN, durum, profil,
-  dönüştürme, tutar aralığı, genel arama; `page`/`pageSize`; özet kartlar filtrenin
-  TAMAMINI sayar.
-- **Kur çevrimi.** Özet tutarlar `currencyRate` ile ₺ karşılığına çevriliyor
-  (`lib/integrations/e-invoice/incoming-amount.ts`).
-- **Boş aralık ipucu**, **tutar kutusu doğrulaması**, **yarışan istek koruması**.
+**Mysoft 90 gün penceresi.** Dönem uçları 90 günü aşan aralığı tümden reddediyordu
+("Başlangıç bitiş tarihi arasında 90 günden fazla zaman olamaz"), ekran ise 6 ay / 1 yıl
+sunuyordu — yani seçenek vardı, karşılığı yoktu. `listIncomingInvoices` aralığı ≤90 günlük
+ardışık pencerelere bölüyor, sonuçları ETTN ile tekilleştiriyor; alınamayan pencere
+`warnings` ile yukarı taşınıyor (kısmî başarı sessiz geçilmez). Sınır gerçek API'ye karşı
+ölçüldü: 89 ✓ · 90 ✓ · 91 ✗. Test: `incoming-inbox-window.test.ts`
 
----
+**`sentDate` kolonu.** Gönderilme tarihi ham JSON'dan kolona alındı; tarih aralığı
+`dateField=docDate|sentDate` ile iki eksende de sorgulanabiliyor. Mysoft'un dönem filtresi
+zaten gönderim tarihine göre çalıştığı için, belge tarihine göre süzülen listede kayıtlar
+kayboluyordu (ölçüldü: son 30 günde gönderime göre 116, belgeye göre 96 fatura).
 
-## 1 · Dışa aktarma (Excel / PDF / CSV) — en değerli
+> **Saat dilimi tuzağı:** Mysoft aynı kayıtta `docDate`i offset'li
+> (`2026-07-28T00:00:00+03:00`), gönderim tarihinin geldiği `createDate`i offset'siz
+> (`2026-08-28 14:52:03`) gönderiyor. Offset'siz değer **Türkiye yerelidir** — 1.421 kaydın
+> saat dağılımı %81 oranıyla 08:00–19:00 arasında toplanıyor. UTC sayılırsa değer 3 saat
+> ileri kayar ve gece yarısına yakın gönderim ertesi güne taşar. Kural
+> `incoming-sent-date.ts` içinde, migrasyon da aynı offset'i uygular.
 
-Projede tam bir dışa aktarma katmanı var (`lib/export/`, 18 veri kümesi) ama gelen
-e-faturalar yok. Bu ekranın en sık işi listeyi muhasebeciye göndermek.
+Uygulanan migrasyonlar: `20260830000001_incoming_invoice_sent_date.sql` ve
+`20260830000002_incoming_invoice_sent_date_tz_duzeltme.sql`.
 
-**Kural (repo geleneği): dışa aktarma KENDİ SORGUSUNU YAZMAZ**, listenin sorgusunu çağırır.
-Şu an `where` kurulumu `app/api/e-donusum/inbox/route.ts` içinde satır içi duruyor.
+**Sunucu tarafı filtreleme + sayfalama + özet.** Gönderici, VKN, durum, profil, dönüştürme
+durumu, tutar aralığı, genel arama; `page`/`pageSize`; özet kartlar sayfayı değil filtrenin
+TAMAMINI sayar. Sorgu kurulumu `incoming-list-query.ts` içinde — liste ucu ve dışa aktarma
+aynı modülü çağırır.
 
-Sıra:
+> "Beklemede" filtresi eskiden düz eşitlikti ve **0 sonuç** döndürüyordu: DB'deki gerçek
+> değerler `YANIT_BEKLENIYOR` / `KABUL_KUYRUGUNDA`. Artık "terminal olmayan her durum".
 
-1. **Ortak sorguyu ayır.** `lib/integrations/e-invoice/incoming-list-query.ts` (yeni):
-   query paramlarından `where` + `orderBy` + `dateField` üreten saf fonksiyon
-   (`buildIncomingInvoiceQuery`). Route'taki filtre mantığı buraya taşınır, route onu
-   çağırır. Bu adım atlanırsa iki yerde iki farklı filtre doğar — katmanın var olma sebebi
-   tam olarak bu.
-2. **Dataset:** `lib/export/datasets/gelen-e-faturalar.ts` → `buildIncomingInvoicesDataset`.
-   Model: `lib/export/types.ts` (`ExportDataset` / `ExportSection` / `ExportColumn`).
-   Örnek alınacak dosya: `lib/export/datasets/invoices.ts`.
-3. **Kayıt:** `lib/export/datasets/index.ts` içindeki `DATASETS`e
-   `"gelen-e-faturalar": (companyId, params) => buildIncomingInvoicesDataset({...})` satırı.
-   Route (`app/api/export/[dataset]/route.ts`) ve UI bileşeni **dokunulmadan** çalışır.
-4. **Düğme:** ekrana `<ExportButton dataset="gelen-e-faturalar" companyId={companyId}
-   params={{ ...ekrandaki filtreler }} />` (`components/export/export-button.tsx`).
-   `ExportAction` ile sarmaya gerek yok — düğme salt-okunur yetkiyi kendi denetliyor.
-   Param adları listenin query paramlarıyla **birebir aynı** olmalı (`dateField`,
-   `startDate`, `endDate`, `q`, `sender`, `taxNumber`, `status`, `profile`, `linked`,
-   `minAmount`, `maxAmount`).
+**Kur çevrimi.** Özet tutarlar `currencyRate` ile ₺ karşılığına çevriliyor
+(`incoming-amount.ts`). Kuru olmayan döviz faturası toplama 1 kurundan katılmaz, sayısı
+ekranda söylenir. Tek firmada 2,7 milyon ₺ eksik toplam düzeldi.
 
-**Kolon tasarımı — para birimi tuzağı.** Satır tutarları faturanın KENDİ birimindedir.
-Excel'de tek bir "Tutar" kolonu koyup toplam aldırmak, 318 USD'yi 318 ₺ ile toplar — özet
-kartlarda düzelttiğimiz hatanın aynısı. Kolonlar şöyle olmalı:
+**Dışa aktarma.** `lib/export/datasets/gelen-e-faturalar.ts` + `DATASETS` kaydı +
+`ExportButton`. Modül kapısı: `lib/module-access.ts` içinde
+`/api/export/gelen-e-faturalar → SALES_PURCHASE` (repo'daki koruma testi kuralsız dataset'e
+izin vermiyor). Satır tavanı 20.000; PDF'in kendi 5.000 tavanı route'ta.
 
-| Kolon | Tip | Not |
-|---|---|---|
-| Fatura Tarihi / Gönderilme Tarihi | `date` / `datetime` | ikisi de |
-| Fatura No · Gönderen Ünvanı · VKN/TCKN | `text` | |
-| Profil · Tip · Durum | `text` | |
-| Net · KDV · Tutar | `money` | **kendi para biriminde**, `total: false` |
-| Para Birimi · Kur | `text` / `number` | |
-| **Tutar (₺)** | `money`, `total: true` | `toTryAmount()` ile; toplanabilir tek tutar kolonu |
-| Alış Faturasına Bağlı | `boolean` | |
+> **Para birimi tuzağı:** satır tutarları faturanın KENDİ birimindedir. Belge tutarı kolonu
+> `total: false`; toplanabilir olan yalnız kur uygulanmış **"Tutar (₺)"** kolonudur. Aksi
+> halde Excel 318 USD'yi 318 ₺ ile toplar.
 
-`filters` dizisine uygulanan filtrelerin okunur özeti yazılmalı (tarih ölçütü + aralık
-dahil): kullanıcı altı ay sonra dosyanın hangi filtreyle üretildiğini görebilmeli.
-
-**Sınır:** PDF'te 5.000 satır tavanı var (route sessizce kesmiyor, 413 + Excel'e yönlendiren
-mesaj döndürüyor). Ayrıca `maxDuration = 60` zaten ayarlı.
-
-## 5 · Detay sayfasında gönderilme tarihi yok
-
-`app/(dashboard)/alis/gelen-e-faturalar/[uuid]/page.tsx` — "Fatura Bilgileri" kartında
-Fatura No / Tarih / Profil / Tip / Para Birimi / Durum / Zarf var, **gönderilme tarihi yok**.
-Listede kolon olarak duruyor, detayda kayıp. Sayfa client component; kaydı
-`/api/e-donusum/inbox/[uuid]` üzerinden çekiyor — o ucun yanıtına `sentDate` eklenip
-karta bir satır konacak. Biçim listedeki `fmtDateTime` ile aynı olmalı.
-
-## 6 · Listedeki "Bağlı" rozeti tıklanabilir olsun
-
-Rozet şu an sadece etiket. Detay sayfasında (`[uuid]/page.tsx:336`) ilişkili faturaya
-bağlantı var:
-
-```
-/faturalar/{linkedInvoiceId}/onizleme?company={companyId}
-```
-
-Aynı hedef rozete verilecek; bir tık kazandırır.
-
-**Tuzak:** satırın tamamı bağlantı yüzeyi (`StyledTableRow href=...`). Hücrenin içindeki
-bağlantının çalışması için o hücre `data-row-link-skip` taşımalı, yoksa kaplama üstüne
-biner ve tıklanamaz (bkz. `components/ui/styled-table.tsx` başındaki not). Durum hücresi şu
-an bu işareti taşımıyor — rozet link olurken hücreye eklenmeli.
-
-## 7 · Özet kartlar tıklanabilir olsun
-
-TOPLAM / KABUL / RED / BEKLEYEN kartlarına tıklayınca durum filtresi o değere geçsin
-(TOPLAM → filtreyi temizle), aktif karta tekrar tıklayınca filtre kalksın. Aynı şekilde
-"N fatura zaten alış faturasına dönüştürülmüş" bandı `linked` filtresini kursun.
-
-Kartlar `<button>` olmalı (`aria-pressed`, odak halkası, `cursor-pointer`); `setPage(1)`
-unutulmamalı. Aktif kart görsel olarak da belli olsun (kenarlık kalınlaşması yeter).
+**Diğer:** boş aralık ipucu (aralık dışında kayıt varsa sayısı + en dar yeterli döneme
+götüren düğme), tutar kutusu doğrulaması (harf girilemiyor, geçersizde uç 400 döner),
+yarışan istek koruması, detay sayfasında gönderilme tarihi, listedeki "Bağlı" rozeti
+ilişkili faturaya link, özet kartlar tıklanınca durum filtresi.
 
 ---
 
-## Yapılmayacak (şimdilik) — kaybolmasın diye
+## Kalan işler
 
-- **Yanıt süresi (8 gün) göstergesi.** Ticari faturaya süresinde yanıt verilmezse fatura
-  zımnen kabul edilmiş sayılır. Kodda bu kurala dair **hiçbir iz yok**; bekleyen faturalar
-  ekranda süresiz duruyor. Finansal sonucu olan en değerli ikinci iş — sıraya alındı.
-- **Toplu kabul/red.** 36 bekleyen fatura tek tek, her biri ayrı onay kutusuyla
-  yanıtlanıyor. Uygulamada toplu seçim deseni var: `personel/vardiya`, `restoran/menu`,
-  `stok`.
-- **Filtrelerin URL'ye yazılması.** Yenilemede sıfırlanıyor, link paylaşılamıyor, geri
-  tuşu çalışmıyor.
-- **Kolon başlığından sıralama.** Uygulamada henüz böyle bir desen yok; yeni desen açmak
-  gerekir.
+### 1 · Yanıt süresi (8 gün) göstergesi — en değerli
+
+Ticari faturaya 8 gün içinde yanıt verilmezse fatura **zımnen kabul edilmiş** sayılır.
+Kodda bu kurala dair hiçbir iz yok; bekleyen faturalar ekranda süresiz duruyor.
+
+Yapılacak: satırda kalan süre rozeti ("3 gün kaldı" / "süresi doldu"), süresi dolmak
+üzere olanların öne çıkması, muhtemelen bir de "yanıt bekleyenler" için varsayılan sıralama.
+Süre `sentDate` üzerinden hesaplanabilir (kolon artık var). Yalnız TİCARİ faturada geçerli —
+temel faturaya yanıt verilmez.
+
+### 2 · Toplu kabul/red
+
+36 bekleyen faturayı tek tek, her biri ayrı onay kutusuyla yanıtlamak gerekiyor.
+Uygulamada toplu seçim deseni var: `personel/vardiya`, `restoran/menu`, `stok`.
+Dikkat: kabul/red GİB'e gider, geri alınamaz — toplu işlemde onay ekranı tek tek işlemden
+daha açık olmalı (kaç fatura, hangi tutar).
+
+### 3 · Filtrelerin URL'ye yazılması
+
+Yenilemede sıfırlanıyor, link paylaşılamıyor, tarayıcı geri tuşu çalışmıyor. CLAUDE.md
+zaten şube bağlamı için URL'yi tek kaynak sayıyor; filtreler de oraya yazılabilir.
+`?company=` parametresinin korunması şart.
+
+### 4 · Kolon başlığından sıralama
+
+Uygulamada henüz böyle bir desen yok; yeni desen açmak gerekir. Sıralama sunucuya gitmeli
+(sayfalama var), yani `incoming-list-query.ts` içindeki `incomingOrderBy` parametrik olmalı.

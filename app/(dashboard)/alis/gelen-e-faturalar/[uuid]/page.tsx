@@ -54,6 +54,7 @@ interface IncomingDetail {
   uuid: string
   invoiceNo: string | null
   date: string | null
+  sentDate: string | null
   sender: { name: string | null; taxNumber: string | null }
   profile: string | null
   invoiceType: string | null
@@ -415,8 +416,24 @@ export default function GelenEFaturaDetailPage() {
           <CardContent className="space-y-1.5 text-sm">
             <Row label="Fatura No" value={record.invoiceNo} />
             <Row
-              label="Tarih"
+              label="Fatura Tarihi"
               value={record.date ? new Date(record.date).toLocaleDateString("tr-TR") : null}
+            />
+            {/* Gönderilme tarihi (zarfın GİB'e düştüğü an) fatura tarihinden günlerce
+                sonra olabiliyor; listede kolon, burada da satır. */}
+            <Row
+              label="Gönderilme Tarihi"
+              value={
+                record.sentDate
+                  ? new Date(record.sentDate).toLocaleString("tr-TR", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : null
+              }
             />
             <Row label="Profil" value={record.profile} />
             <Row label="Tip" value={record.invoiceType} />

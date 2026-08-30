@@ -57,6 +57,8 @@ export const GET = withApiErrors(async function GET(
       uuid: record.uuid,
       invoiceNo: record.invoiceNo,
       date: record.docDate ? record.docDate.toISOString() : null,
+      // Gönderilme tarihi listede kolon; detayda da görünsün diye burada da dönüyor.
+      sentDate: record.sentDate ? record.sentDate.toISOString() : null,
       sender: { name: record.senderName, taxNumber: record.senderTaxNumber },
       profile: record.profile,
       invoiceType: record.invoiceType,

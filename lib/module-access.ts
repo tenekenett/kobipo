@@ -85,6 +85,9 @@ export const API_MODULE_RULES: ApiModuleRule[] = [
   { prefix: "/api/export/accountant", read: ["reports"] },
   { prefix: "/api/export/products", read: ["stock", "sales", "purchase"] },
   { prefix: "/api/export/invoices", read: SALES_PURCHASE },
+  // Gelen e-faturalar alış tarafının gelen kutusu; listeleme ucu
+  // (/api/e-donusum/inbox) da aynı kapıdan geçiyor.
+  { prefix: "/api/export/gelen-e-faturalar", read: SALES_PURCHASE },
   { prefix: "/api/export/cari", read: ["sales", "purchase", "finance", "reports"] },
   { prefix: "/api/export/ekstre", read: ["sales", "purchase", "finance", "reports"] },
   { prefix: "/api/import", read: ["stock", "sales", "purchase"] },

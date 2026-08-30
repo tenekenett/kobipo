@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback, useMemo } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -19,6 +19,13 @@ import {
 } from "@/components/ui/styled-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import {
+  addDays,
+  canonicalAmount,
+  parseTrNumber,
+  sanitizeAmountInput,
+  toDateInput,
+} from "@/lib/format"
 import { useToast } from "@/components/ui/use-toast"
 import {
   ArrowDownToLine,
@@ -35,6 +42,8 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
+  X,
   Trash2,
 } from "lucide-react"
 import Link from "next/link"
@@ -132,9 +141,86 @@ export default function FaturalarListing({
   }, [searchParams, fixedDirection])
   const [days, setDays] = useState(90)
   const [search, setSearch] = useState("")
-  // Kategori filtresi istemci tarafında uygulanır: liste zaten dönem+arama ile
-  // sunucudan sınırlı geliyor, ek bir istek atmaya gerek yok.
+  // Kategori artık SUNUCUDA süzülüyor. İstemcide süzülürken üstteki özet kartlar
+  // filtreyi görmüyordu ("Toplam 120" derken tabloda 14 satır) ve satır tavanı
+  // kategoriden ÖNCE uygulandığı için liste sessizce eksik kalabiliyordu.
   const [categoryFilter, setCategoryFilter] = useState("")
+  // Kategori seçenekleri sunucudan gelir; listeden türetilseydi bir kategori
+  // seçilince açılır kutuda yalnız o kalır, kullanıcı başkasına geçemezdi.
+  const [categories, setCategories] = useState<string[]>([])
+  const [truncated, setTruncated] = useState(false)
+
+  // --- Detaylı filtre --------------------------------------------------------
+  const [showFilters, setShowFilters] = useState(false)
+  const [counterpartyFilter, setCounterpartyFilter] = useState("")
+  const [taxNumberFilter, setTaxNumberFilter] = useState("")
+  const [minAmount, setMinAmount] = useState("")
+  const [maxAmount, setMaxAmount] = useState("")
+  const [customRange, setCustomRange] = useState(false)
+  const [startDate, setStartDate] = useState(() => toDateInput(addDays(new Date(), -90)))
+  const [endDate, setEndDate] = useState(() => toDateInput(new Date()))
+
+  const [debouncedText, setDebouncedText] = useState({
+    search: "",
+    counterparty: "",
+    taxNumber: "",
+    minAmount: "",
+    maxAmount: "",
+  })
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const next = {
+        search: search.trim(),
+        counterparty: counterpartyFilter.trim(),
+        taxNumber: taxNumberFilter.trim(),
+        minAmount: canonicalAmount(minAmount),
+        maxAmount: canonicalAmount(maxAmount),
+      }
+      // Değer aynıysa önceki nesneyi koru: yeni kimlik gereksiz bir istek tetikler.
+      setDebouncedText((prev) =>
+        (Object.keys(next) as Array<keyof typeof next>).every((k) => prev[k] === next[k])
+          ? prev
+          : next,
+      )
+    }, 400)
+    return () => clearTimeout(t)
+  }, [search, counterpartyFilter, taxNumberFilter, minAmount, maxAmount])
+
+  /** Yarışan isteklerde yalnız en sonuncusunun yanıtı yazılsın diye sıra no. */
+  const requestSeq = useRef(0)
+
+  const minAmountValue = minAmount.trim() ? parseTrNumber(minAmount) : null
+  const maxAmountValue = maxAmount.trim() ? parseTrNumber(maxAmount) : null
+  const minAmountInvalid = minAmount.trim() !== "" && minAmountValue === null
+  const maxAmountInvalid = maxAmount.trim() !== "" && maxAmountValue === null
+
+  const range = useMemo(() => {
+    if (customRange) {
+      const s = new Date(`${startDate}T00:00:00`)
+      const e = new Date(`${endDate}T23:59:59.999`)
+      const valid =
+        !Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime()) && s.getTime() <= e.getTime()
+      return {
+        startDate: valid ? s.toISOString() : "",
+        endDate: valid ? e.toISOString() : "",
+        valid,
+      }
+    }
+    return { startDate: "", endDate: "", valid: true }
+  }, [customRange, startDate, endDate])
+
+  const activeFilterCount =
+    [counterpartyFilter, taxNumberFilter, categoryFilter].filter((v) => v.trim() !== "").length +
+    (minAmountValue !== null ? 1 : 0) +
+    (maxAmountValue !== null ? 1 : 0)
+
+  const resetFilters = () => {
+    setCounterpartyFilter("")
+    setTaxNumberFilter("")
+    setMinAmount("")
+    setMaxAmount("")
+    setCategoryFilter("")
+  }
   const [checkingStatusId, setCheckingStatusId] = useState<string | null>(null)
   const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null)
   const [downloadingInboxPdfUuid, setDownloadingInboxPdfUuid] = useState<string | null>(null)
@@ -155,17 +241,30 @@ export default function FaturalarListing({
 
   const fetchList = useCallback(async () => {
     if (!companyId) return
+    // Geçersiz aralıkta istek atmıyoruz; uyarı tarih alanlarının altında görünür.
+    if (!range.valid) return
+    // Filtreler hızlı değişince istekler yarışıyor ve GEÇ dönen ESKİ yanıt yeniyi
+    // ezebiliyordu. Her isteğe sıra no verip yalnız sonuncuyu yazıyoruz.
+    const seq = ++requestSeq.current
     setIsLoading(true)
     try {
-      const params = new URLSearchParams({
-        companyId,
-        direction,
-        days: String(days),
-      })
+      const params = new URLSearchParams({ companyId, direction })
+      if (range.startDate) {
+        params.set("startDate", range.startDate)
+        params.set("endDate", range.endDate)
+      } else {
+        params.set("days", String(days))
+      }
       if (!includeInbox) params.set("includeInbox", "false")
-      if (search.trim()) params.set("search", search.trim())
+      if (debouncedText.search) params.set("search", debouncedText.search)
+      if (debouncedText.counterparty) params.set("counterparty", debouncedText.counterparty)
+      if (debouncedText.taxNumber) params.set("taxNumber", debouncedText.taxNumber)
+      if (debouncedText.minAmount) params.set("minAmount", debouncedText.minAmount)
+      if (debouncedText.maxAmount) params.set("maxAmount", debouncedText.maxAmount)
+      if (categoryFilter) params.set("category", categoryFilter)
       const res = await fetch(`/api/faturalar?${params.toString()}`)
       const data = await res.json()
+      if (seq !== requestSeq.current) return
       if (!res.ok) {
         toast({
           title: "Faturalar yüklenemedi",
@@ -177,17 +276,31 @@ export default function FaturalarListing({
       }
       setRows(data.data || [])
       setTotals(data.totals || totals)
+      setTruncated(Boolean(data.truncated))
+      // Kategori seçenekleri filtreden bağımsız gelir; seçim varken listeyi
+      // daraltmasın diye yalnız dolu geldiğinde güncelliyoruz.
+      if (Array.isArray(data.categories)) setCategories(data.categories)
     } catch (e: any) {
+      if (seq !== requestSeq.current) return
       toast({
         title: "Hata",
         description: e?.message || "Liste yüklenirken hata",
         variant: "destructive",
       })
     } finally {
-      setIsLoading(false)
+      if (seq === requestSeq.current) setIsLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, direction, days, search, includeInbox, toast])
+  }, [
+    companyId,
+    direction,
+    days,
+    range,
+    debouncedText,
+    categoryFilter,
+    includeInbox,
+    toast,
+  ])
 
   useEffect(() => {
     fetchCompany()
@@ -439,17 +552,9 @@ export default function FaturalarListing({
   }
 
   // Listede geçen kategoriler (filtre menüsü için) ve seçili kategoriye göre satırlar.
-  const availableCategories = useMemo(
-    () =>
-      Array.from(
-        new Set(rows.map((r) => (r.category || "").trim()).filter((c) => c.length > 0)),
-      ).sort((a, b) => a.localeCompare(b, "tr")),
-    [rows],
-  )
-  const visibleRows = useMemo(
-    () => (categoryFilter ? rows.filter((r) => (r.category || "") === categoryFilter) : rows),
-    [rows, categoryFilter],
-  )
+  // Kategori süzmesi ve seçenekleri artık sunucuda; satırlar olduğu gibi basılır.
+  const availableCategories = categories
+  const visibleRows = rows
 
   if (!companyId) {
     return (
@@ -606,9 +711,16 @@ export default function FaturalarListing({
             size="default"
             params={{
               direction,
-              days,
-              search: search.trim(),
+              // Aralık ekranla aynı: özel aralık seçiliyse gün sayısı değil tarihler gider.
+              ...(range.startDate
+                ? { startDate: range.startDate, endDate: range.endDate }
+                : { days }),
+              search: debouncedText.search,
               category: categoryFilter,
+              counterparty: debouncedText.counterparty,
+              taxNumber: debouncedText.taxNumber,
+              minAmount: debouncedText.minAmount,
+              maxAmount: debouncedText.maxAmount,
               includeInbox: includeInbox ? null : "false",
             }}
           />
@@ -702,21 +814,6 @@ export default function FaturalarListing({
                   </Button>
                 )
               })}
-            {availableCategories.length > 0 && (
-              <select
-                className="rounded border px-2 py-1 text-sm"
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                title="Kategoriye göre filtrele"
-              >
-                <option value="">Tüm kategoriler</option>
-                {availableCategories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            )}
             <div className="relative ml-auto flex-1 max-w-md">
               <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -726,7 +823,163 @@ export default function FaturalarListing({
                 className="pl-8"
               />
             </div>
+            <Button
+              type="button"
+              variant={showFilters ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowFilters((v) => !v)}
+            >
+              <SlidersHorizontal className="mr-2 h-4 w-4" />
+              Detaylı filtre
+              {activeFilterCount > 0 && (
+                <span className="ml-2 rounded-full bg-kobipo-blue px-1.5 text-[10px] font-semibold text-white dark:bg-kobipo-mid">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+            {activeFilterCount > 0 && (
+              <Button type="button" variant="ghost" size="sm" onClick={resetFilters}>
+                <X className="mr-1 h-4 w-4" />
+                Temizle
+              </Button>
+            )}
           </div>
+
+          {showFilters && (
+            <div className="mt-3 grid gap-3 rounded-md border bg-muted/30 p-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <label className="text-xs text-muted-foreground">Karşı taraf ünvanı</label>
+                <Input
+                  value={counterpartyFilter}
+                  onChange={(e) => setCounterpartyFilter(e.target.value)}
+                  placeholder="Örn. ABC Gıda"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">VKN / TCKN</label>
+                <Input
+                  value={taxNumberFilter}
+                  onChange={(e) => setTaxNumberFilter(e.target.value)}
+                  placeholder="Örn. 1234567890"
+                  inputMode="numeric"
+                  className="h-8 font-mono text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Kategori</label>
+                <select
+                  className="mt-0.5 h-8 w-full rounded border bg-background px-2 text-sm"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  disabled={availableCategories.length === 0}
+                >
+                  <option value="">Tüm kategoriler</option>
+                  {availableCategories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Tarih aralığı</label>
+                <select
+                  className="mt-0.5 h-8 w-full rounded border bg-background px-2 text-sm"
+                  value={customRange ? "custom" : String(days)}
+                  onChange={(e) => {
+                    if (e.target.value === "custom") {
+                      setStartDate(toDateInput(addDays(new Date(), -days)))
+                      setEndDate(toDateInput(new Date()))
+                      setCustomRange(true)
+                      return
+                    }
+                    setCustomRange(false)
+                    setDays(Number(e.target.value))
+                  }}
+                >
+                  <option value="30">Son 30 gün</option>
+                  <option value="90">Son 90 gün</option>
+                  <option value="180">Son 6 ay</option>
+                  <option value="365">Son 1 yıl</option>
+                  <option value="custom">Özel aralık…</option>
+                </select>
+              </div>
+              {customRange && (
+                <div className="sm:col-span-2">
+                  <label className="text-xs text-muted-foreground">Başlangıç / Bitiş</label>
+                  <div className="mt-0.5 flex items-center gap-1.5">
+                    <Input
+                      type="date"
+                      value={startDate}
+                      max={endDate || undefined}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="h-8 text-sm"
+                      aria-label="Başlangıç tarihi"
+                    />
+                    <span className="text-muted-foreground">–</span>
+                    <Input
+                      type="date"
+                      value={endDate}
+                      min={startDate || undefined}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="h-8 text-sm"
+                      aria-label="Bitiş tarihi"
+                    />
+                  </div>
+                  {!range.valid && (
+                    <p className="mt-0.5 text-[10px] text-red-600 dark:text-red-400">
+                      Başlangıç tarihi bitiş tarihinden sonra olamaz.
+                    </p>
+                  )}
+                </div>
+              )}
+              <div>
+                <label className="text-xs text-muted-foreground">Tutar (min)</label>
+                <Input
+                  value={minAmount}
+                  onChange={(e) => setMinAmount(sanitizeAmountInput(e.target.value))}
+                  placeholder="0"
+                  inputMode="decimal"
+                  aria-invalid={minAmountInvalid || undefined}
+                  className="h-8 text-sm"
+                />
+                {minAmountInvalid && (
+                  <p className="mt-0.5 text-[10px] text-red-600 dark:text-red-400">
+                    Sayı girin — bu değerle filtrelenmedi.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Tutar (max)</label>
+                <Input
+                  value={maxAmount}
+                  onChange={(e) => setMaxAmount(sanitizeAmountInput(e.target.value))}
+                  placeholder="Sınırsız"
+                  inputMode="decimal"
+                  aria-invalid={maxAmountInvalid || undefined}
+                  className="h-8 text-sm"
+                />
+                {maxAmountInvalid && (
+                  <p className="mt-0.5 text-[10px] text-red-600 dark:text-red-400">
+                    Sayı girin — bu değerle filtrelenmedi.
+                  </p>
+                )}
+              </div>
+              <div className="flex items-end sm:col-span-2">
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  Tutar filtresi belgenin KENDİ para biriminde çalışır: döviz faturasında
+                  “1.000 üstü” araması 1.000 USD üstünü de getirir.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {truncated && (
+            <p className="mt-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+              Liste kaynak başına 500 satırda kesildi — aralığı daraltın ya da filtre ekleyin.
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           <StyledTableContainer>

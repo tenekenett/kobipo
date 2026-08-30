@@ -10,6 +10,7 @@ import { buildProductsDataset } from "./products"
 import { buildCariDataset } from "./cari"
 import { buildEkstreDataset } from "./ekstre"
 import { buildInvoicesDataset } from "./invoices"
+import { buildIncomingInvoicesDataset } from "./gelen-e-faturalar"
 import { buildAgingReportDataset, buildProfitLossDataset, buildStockReportDataset } from "./reports"
 import { buildBalanceSheetDataset, buildCashFlowDataset } from "./reports-finansal"
 import { buildSalesPurchaseDataset } from "./reports-satis-alis"
@@ -66,7 +67,16 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       status: params.get("status"),
       search: params.get("search"),
       category: params.get("category"),
+      counterparty: params.get("counterparty"),
+      taxNumber: params.get("taxNumber"),
+      minAmount: params.get("minAmount"),
+      maxAmount: params.get("maxAmount"),
     }),
+
+  // Filtreler listenin query paramlarıyla birebir aynı; ortak sorgu modülü
+  // (incoming-list-query.ts) ikisini de okuduğu için paramları olduğu gibi geçiyoruz.
+  "gelen-e-faturalar": (companyId, params) =>
+    buildIncomingInvoicesDataset({ companyId, searchParams: params }),
 
   "rapor-stok": (companyId, params) =>
     buildStockReportDataset({

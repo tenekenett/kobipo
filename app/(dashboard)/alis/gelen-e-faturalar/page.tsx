@@ -49,7 +49,14 @@ import {
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { parseTrNumber } from "@/lib/format"
+import {
+  addDays,
+  canonicalAmount,
+  parseTrNumber,
+  sanitizeAmountInput,
+  toDateInput,
+} from "@/lib/format"
+import { ExportButton } from "@/components/export/export-button"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 
 interface IncomingRow {
@@ -101,26 +108,6 @@ const fmtDateTime = (d: string | null) =>
       })
     : "-"
 
-/**
- * Tutar kutusuna yalnız rakam ve ondalık/binlik ayracı girilebilir.
- *
- * Serbest metin kabul ediliyordu ve sonucu görünenden kötüydü: "sadadasdadda"
- * sunucuya gidiyor, orada sayıya çevrilemediği için filtre SESSİZCE düşüyordu —
- * rozet "3 filtre" derken gerçekte biri uygulanıyordu. Karakteri kapıda kesmek
- * hatayı en başta engelliyor; ayraçtan ibaret kalıntı ("," gibi) da alanın
- * altında uyarı olarak görünür ve isteğe eklenmez.
- */
-const sanitizeAmountInput = (raw: string) => raw.replace(/[^\d.,]/g, "")
-
-/**
- * Kutudaki metni API'ye gidecek tek biçime çevirir ("1.500,50" → "1500.5").
- * Çözülemeyen değer boş döner, yani istek parametresi hiç eklenmez.
- */
-const canonicalAmount = (raw: string) => {
-  const value = parseTrNumber(raw)
-  return value === null ? "" : String(value)
-}
-
 /** Hazır dönemler — hem seçicide hem "aralığı genişlet" önerisinde kullanılır. */
 const RANGE_PRESETS = [
   { days: 7, label: "Son 7 gün" },
@@ -131,9 +118,6 @@ const RANGE_PRESETS = [
 ] as const
 
 const DAY_MS = 24 * 60 * 60 * 1000
-const addDays = (d: Date, n: number) => new Date(d.getTime() + n * DAY_MS)
-const toDateInput = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 
 // Mysoft dönem uçları 90 günden uzun aralığı reddediyor; sunucu isteği 90 günlük
 // pencerelere bölerek çekiyor (bkz. mysoft-provider.listIncomingInvoices). Ekranda
@@ -520,6 +504,12 @@ export default function GelenEFaturalarPage() {
     }
   }, [emptyHint])
 
+  /** Özet karta tıklamak durum filtresini kurar; aktif karta tekrar tıklamak kaldırır. */
+  const selectStatus = (value: string) => {
+    setPage(1)
+    setStatusFilter((prev) => (prev === value ? "" : value))
+  }
+
   const applyWiden = () => {
     if (!widen) return
     setPage(1)
@@ -643,6 +633,27 @@ export default function GelenEFaturalarPage() {
                 Mysoft'tan Senkronize Et
               </Button>
             </WriteAction>
+            {/* Dışa aktarma ekrandaki filtrelerin AYNISIYLA çalışır: param adları
+                listenin query paramlarıyla birebir, sunucuda da aynı sorgu modülü
+                okunuyor. Düğme salt-okunur yetkiyi kendi denetler. */}
+            <ExportButton
+              dataset="gelen-e-faturalar"
+              companyId={companyId}
+              disabled={!range.valid || total === 0}
+              params={{
+                dateField,
+                startDate: range.startDate,
+                endDate: range.endDate,
+                status: statusFilter,
+                profile: profileFilter,
+                linked: linkFilter,
+                q: debouncedText.q,
+                sender: debouncedText.sender,
+                taxNumber: debouncedText.taxNumber,
+                minAmount: debouncedText.minAmount,
+                maxAmount: debouncedText.maxAmount,
+              }}
+            />
             <Button variant="outline" onClick={fetchList} disabled={isLoading || !range.valid}>
               {isLoading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -674,68 +685,45 @@ export default function GelenEFaturalarPage() {
         </div>
       </div>
 
-      {/* Stat cards */}
+      {/* Özet kartlar aynı zamanda durum filtresidir: karta tıklamak o duruma
+          süzer, aktif karta tekrar tıklamak filtreyi kaldırır. */}
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-        <Card className="border-slate-200 dark:border-slate-700/60">
-          <CardContent className="flex items-center justify-between pt-6">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                Toplam
-              </p>
-              <p className="text-2xl font-bold">{stats.total.count}</p>
-              <p className="text-xs text-muted-foreground">{fmtSum(stats.total.sum)}</p>
-            </div>
-            <Inbox className="h-8 w-8 text-slate-300 dark:text-slate-500" />
-          </CardContent>
-        </Card>
-        <Card className="border-emerald-200 dark:border-emerald-500/30">
-          <CardContent className="flex items-center justify-between pt-6">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
-                Kabul
-              </p>
-              <p className="text-2xl font-bold text-emerald-800 dark:text-emerald-200">
-                {stats.accepted.count}
-              </p>
-              <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
-                {fmtSum(stats.accepted.sum)}
-              </p>
-            </div>
-            <CheckCircle2 className="h-8 w-8 text-emerald-300 dark:text-emerald-500/70" />
-          </CardContent>
-        </Card>
-        <Card className="border-red-200 dark:border-red-500/30">
-          <CardContent className="flex items-center justify-between pt-6">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-red-700 dark:text-red-300">
-                Red
-              </p>
-              <p className="text-2xl font-bold text-red-800 dark:text-red-200">
-                {stats.rejected.count}
-              </p>
-              <p className="text-xs text-red-700/80 dark:text-red-300/80">
-                {fmtSum(stats.rejected.sum)}
-              </p>
-            </div>
-            <XCircle className="h-8 w-8 text-red-300 dark:text-red-500/70" />
-          </CardContent>
-        </Card>
-        <Card className="border-amber-200 dark:border-amber-500/30">
-          <CardContent className="flex items-center justify-between pt-6">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-amber-700 dark:text-amber-300">
-                Bekleyen
-              </p>
-              <p className="text-2xl font-bold text-amber-800 dark:text-amber-200">
-                {stats.pending.count}
-              </p>
-              <p className="text-xs text-amber-700/80 dark:text-amber-300/80">
-                {fmtSum(stats.pending.sum)}
-              </p>
-            </div>
-            <Clock className="h-8 w-8 text-amber-300 dark:text-amber-500/70" />
-          </CardContent>
-        </Card>
+        <StatCard
+          tone="slate"
+          label="Toplam"
+          count={stats.total.count}
+          sum={fmtSum(stats.total.sum)}
+          Icon={Inbox}
+          active={statusFilter === ""}
+          onClick={() => selectStatus("")}
+        />
+        <StatCard
+          tone="emerald"
+          label="Kabul"
+          count={stats.accepted.count}
+          sum={fmtSum(stats.accepted.sum)}
+          Icon={CheckCircle2}
+          active={statusFilter === "KABUL"}
+          onClick={() => selectStatus("KABUL")}
+        />
+        <StatCard
+          tone="red"
+          label="Red"
+          count={stats.rejected.count}
+          sum={fmtSum(stats.rejected.sum)}
+          Icon={XCircle}
+          active={statusFilter === "RED"}
+          onClick={() => selectStatus("RED")}
+        />
+        <StatCard
+          tone="amber"
+          label="Bekleyen"
+          count={stats.pending.count}
+          sum={fmtSum(stats.pending.sum)}
+          Icon={Clock}
+          active={statusFilter === "BEKLEMEDE"}
+          onClick={() => selectStatus("BEKLEMEDE")}
+        />
       </div>
 
       {/* Döviz notu: özet kartlardaki ₺ rakamı fatura kuruyla çevrilmiş toplamdır.
@@ -1086,17 +1074,32 @@ export default function GelenEFaturalarPage() {
                         <TableCell className="text-right text-xs font-semibold whitespace-nowrap">
                           {fmtCurrency(row.totalAmount, row.currency || "TRY")}
                         </TableCell>
-                        <TableCell>
+                        {/* `data-row-link-skip`: hücrede gerçek bir bağlantı var; satır
+                            kaplaması bunun üstüne binerse rozet tıklanamaz hale gelir
+                            (bkz. components/ui/styled-table.tsx). */}
+                        <TableCell data-row-link-skip onClick={(e) => e.stopPropagation()}>
                           <StatusBadge status={row.status} />
-                          {row.isLinkedToPurchase && (
-                            <span
-                              className="ml-1 inline-flex items-center gap-1 rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[9px] font-medium text-sky-800 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200"
-                              title="Bu fatura alış faturasına dönüştürülmüş"
-                            >
-                              <Link2 className="h-2.5 w-2.5" />
-                              Bağlı
-                            </span>
-                          )}
+                          {row.isLinkedToPurchase &&
+                            (row.linkedInvoiceId ? (
+                              <Link
+                                href={`/faturalar/${row.linkedInvoiceId}/onizleme?company=${encodeURIComponent(
+                                  companyId,
+                                )}`}
+                                className="ml-1 inline-flex items-center gap-1 rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[9px] font-medium text-sky-800 hover:bg-sky-100 hover:underline dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200 dark:hover:bg-sky-500/25"
+                                title="İlişkili alış faturasını aç"
+                              >
+                                <Link2 className="h-2.5 w-2.5" />
+                                Bağlı
+                              </Link>
+                            ) : (
+                              <span
+                                className="ml-1 inline-flex items-center gap-1 rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[9px] font-medium text-sky-800 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200"
+                                title="Bu fatura alış faturasına dönüştürülmüş"
+                              >
+                                <Link2 className="h-2.5 w-2.5" />
+                                Bağlı
+                              </span>
+                            ))}
                         </TableCell>
                         <TableCell className="text-[10px] text-muted-foreground whitespace-nowrap">
                           {fmtDateTime(row.syncedAt)}
@@ -1199,6 +1202,93 @@ export default function GelenEFaturalarPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+/**
+ * Özet kart — aynı zamanda durum filtresi düğmesi.
+ *
+ * `<button>` olması bilinçli: klavyeyle gezilebilsin ve `aria-pressed` ile seçili
+ * olduğu okunabilsin. Aktif kart yalnız renkle değil, halka (ring) ile de belli olur.
+ */
+const STAT_TONES = {
+  slate: {
+    border: "border-slate-200 dark:border-slate-700/60",
+    label: "text-muted-foreground",
+    value: "",
+    sum: "text-muted-foreground",
+    icon: "text-slate-300 dark:text-slate-500",
+    ring: "ring-slate-400 dark:ring-slate-500",
+  },
+  emerald: {
+    border: "border-emerald-200 dark:border-emerald-500/30",
+    label: "text-emerald-700 dark:text-emerald-300",
+    value: "text-emerald-800 dark:text-emerald-200",
+    sum: "text-emerald-700/80 dark:text-emerald-300/80",
+    icon: "text-emerald-300 dark:text-emerald-500/70",
+    ring: "ring-emerald-500",
+  },
+  red: {
+    border: "border-red-200 dark:border-red-500/30",
+    label: "text-red-700 dark:text-red-300",
+    value: "text-red-800 dark:text-red-200",
+    sum: "text-red-700/80 dark:text-red-300/80",
+    icon: "text-red-300 dark:text-red-500/70",
+    ring: "ring-red-500",
+  },
+  amber: {
+    border: "border-amber-200 dark:border-amber-500/30",
+    label: "text-amber-700 dark:text-amber-300",
+    value: "text-amber-800 dark:text-amber-200",
+    sum: "text-amber-700/80 dark:text-amber-300/80",
+    icon: "text-amber-300 dark:text-amber-500/70",
+    ring: "ring-amber-500",
+  },
+} as const
+
+function StatCard({
+  tone,
+  label,
+  count,
+  sum,
+  Icon,
+  active,
+  onClick,
+}: {
+  tone: keyof typeof STAT_TONES
+  label: string
+  count: number
+  sum: string
+  Icon: typeof Inbox
+  active: boolean
+  onClick: () => void
+}) {
+  const t = STAT_TONES[tone]
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={
+        active
+          ? `${label} filtresi açık — kaldırmak için tıklayın`
+          : `${label} olanlara süz`
+      }
+      className="text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-kobipo-blue rounded-lg"
+    >
+      <Card
+        className={`${t.border} transition hover:shadow-md ${active ? `ring-2 ${t.ring}` : ""}`}
+      >
+        <CardContent className="flex items-center justify-between pt-6">
+          <div>
+            <p className={`text-xs uppercase tracking-wider ${t.label}`}>{label}</p>
+            <p className={`text-2xl font-bold ${t.value}`}>{count}</p>
+            <p className={`text-xs ${t.sum}`}>{sum}</p>
+          </div>
+          <Icon className={`h-8 w-8 ${t.icon}`} />
+        </CardContent>
+      </Card>
+    </button>
   )
 }
 

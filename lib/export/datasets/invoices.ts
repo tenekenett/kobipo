@@ -8,6 +8,7 @@
  */
 
 import { fetchInvoiceList } from "@/lib/faturalar/list-query"
+import { parseTrNumber } from "@/lib/format"
 import type { ExportColumn, ExportDataset } from "../types"
 import { loadExportCompany, describeDateRange, describeFilters } from "./context"
 
@@ -23,6 +24,10 @@ export type InvoiceExportParams = {
   status?: string | null
   search?: string | null
   category?: string | null
+  counterparty?: string | null
+  taxNumber?: string | null
+  minAmount?: string | null
+  maxAmount?: string | null
 }
 
 const COLUMNS: ExportColumn[] = [
@@ -80,15 +85,19 @@ export async function buildInvoicesDataset(params: InvoiceExportParams): Promise
       endDate: params.endDate,
       status: params.status,
       search: params.search,
+      // Detaylı filtreler ekranla AYNI sorguya gider; kategori de artık burada
+      // süzülüyor (önce listede JS ile süzülüyordu, satır tavanı kategoriden ÖNCE
+      // uygulandığı için kesilme farklı yerde oluyordu).
+      counterparty: params.counterparty,
+      taxNumber: params.taxNumber,
+      category: params.category,
+      minAmount: parseTrNumber(params.minAmount ?? null),
+      maxAmount: parseTrNumber(params.maxAmount ?? null),
       limit: EXPORT_ROW_LIMIT,
     }),
   ])
 
-  const filtered = params.category
-    ? result.data.filter((row) => (row.category ?? "") === params.category)
-    : result.data
-
-  const rows = filtered.map((row) => ({
+  const rows = result.data.map((row) => ({
     date: row.date,
     directionLabel: row.direction === "incoming" ? "Gelen" : "Giden",
     invoiceNo: row.invoiceNo,
@@ -114,6 +123,10 @@ export async function buildInvoicesDataset(params: InvoiceExportParams): Promise
       ["Yön", direction === "all" ? "Tümü" : direction === "incoming" ? "Gelen" : "Giden"],
       ["Durum", params.status],
       ["Kategori", params.category],
+      ["Karşı taraf", params.counterparty],
+      ["VKN/TCKN", params.taxNumber],
+      ["Tutar (min)", params.minAmount],
+      ["Tutar (max)", params.maxAmount],
       ["Arama", params.search],
     ]),
     sections: [{ title, sheetName: "Faturalar", columns: COLUMNS, rows }],

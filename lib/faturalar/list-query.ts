@@ -51,6 +51,25 @@ export type InvoiceListOptions = {
   endDate?: string | null
   status?: string | null
   search?: string | null
+  // --- Detaylı filtreler ---------------------------------------------------
+  /** Karşı taraf ünvanı içerir (gelen: gönderici, alış: tedarikçi, satış: müşteri). */
+  counterparty?: string | null
+  /** Karşı tarafın VKN/TCKN'si içerir. */
+  taxNumber?: string | null
+  /**
+   * Belge tutarı aralığı — faturanın KENDİ para biriminde. Döviz faturasında
+   * "1000 TL üstü" araması 1000 USD üstünü de getirir; kur ile normalize etmek
+   * satır bazında kur çarpımı gerektirir ve SQL'de sıralanamaz. Ekran bu sınırı
+   * yazıyor.
+   */
+  minAmount?: number | null
+  maxAmount?: number | null
+  /**
+   * Sınıflandırma. Gelen e-faturada kategori ALANI YOK: kategori seçilince
+   * gelen kutusu kaynağı tümden dışarıda kalır (aksi halde kategorisi olmayan
+   * satırlar filtreye rağmen listede kalırdı).
+   */
+  category?: string | null
   /** Kaynak başına satır tavanı. Dışa aktarma bunu yükseltir. */
   limit?: number
 }
@@ -66,6 +85,12 @@ export type InvoiceListResult = {
   data: InvoiceListRow[]
   /** Herhangi bir kaynak tavana dayandıysa true — çağıran uyarı gösterebilir. */
   truncated: boolean
+  /**
+   * Aralıktaki TÜM kategoriler — kategori filtresinden BAĞIMSIZ hesaplanır.
+   * Listeden türetilseydi bir kategori seçildiği anda açılır kutuda yalnız o
+   * kategori kalır ve kullanıcı başkasına geçemezdi.
+   */
+  categories: string[]
 }
 
 export async function fetchInvoiceList(options: InvoiceListOptions): Promise<InvoiceListResult> {
@@ -80,32 +105,71 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
     limit = INVOICE_LIST_DEFAULT_LIMIT,
   } = options
   const search = (options.search || "").trim()
+  const counterparty = (options.counterparty || "").trim()
+  const taxNumber = (options.taxNumber || "").trim()
+  const category = (options.category || "").trim()
+  const minAmount = options.minAmount ?? null
+  const maxAmount = options.maxAmount ?? null
 
   const end = endDate ? new Date(endDate) : new Date()
   const start = startDate
     ? new Date(startDate)
     : new Date(end.getTime() - Math.max(1, days) * 24 * 60 * 60 * 1000)
 
+  /** Tutar aralığı — alan adı kaynağa göre değişiyor (gelen: payableAmount). */
+  const amountFilter = (field: "payableAmount" | "totalAmount") =>
+    minAmount === null && maxAmount === null
+      ? {}
+      : {
+          [field]: {
+            ...(minAmount !== null ? { gte: minAmount } : {}),
+            ...(maxAmount !== null ? { lte: maxAmount } : {}),
+          },
+        }
+
+  /**
+   * Karşı taraf adı/VKN koşulu — ikisi de verilirse TEK `is` bloğunda AND'lenir.
+   * Ayrı ayrı yazılsaydı (`{supplier:{name}}` + `{supplier:{taxNumber}}`) aynı
+   * anahtar iki kez geçer ve ikincisi ilkini sessizce ezerdi.
+   */
+  const hasPartyFilter = Boolean(counterparty || taxNumber)
+  const partyIs = () => ({
+    ...(counterparty ? { name: { contains: counterparty, mode: "insensitive" as const } } : {}),
+    ...(taxNumber ? { taxNumber: { contains: taxNumber } } : {}),
+  })
+
   const out: InvoiceListRow[] = []
   let truncated = false
 
   // 1) Gelen — Mysoft InvoiceInbox (yalnızca includeInbox=true ise)
-  if (direction !== "outgoing" && includeInbox) {
+  // Kategori seçilmişse bu kaynak tümden atlanır: gelen e-faturada kategori alanı yok.
+  if (direction !== "outgoing" && includeInbox && !category) {
     const incoming = await prisma.incomingInvoice.findMany({
       where: {
         companyId,
         docDate: { gte: start, lte: end },
         ...(status ? { status } : {}),
-        ...(search
-          ? {
-              OR: [
-                { invoiceNo: { contains: search, mode: "insensitive" } },
-                { senderName: { contains: search, mode: "insensitive" } },
-                { senderTaxNumber: { contains: search } },
-                { uuid: { contains: search } },
-              ],
-            }
-          : {}),
+        ...amountFilter("payableAmount"),
+        // Koşullar AND dizisinde: "search" kendi OR'unu taşıdığı için düz nesne
+        // yayılımıyla ikinci bir OR eklemek öncekini sessizce ezerdi.
+        AND: [
+          ...(search
+            ? [
+                {
+                  OR: [
+                    { invoiceNo: { contains: search, mode: "insensitive" as const } },
+                    { senderName: { contains: search, mode: "insensitive" as const } },
+                    { senderTaxNumber: { contains: search } },
+                    { uuid: { contains: search } },
+                  ],
+                },
+              ]
+            : []),
+          ...(counterparty
+            ? [{ senderName: { contains: counterparty, mode: "insensitive" as const } }]
+            : []),
+          ...(taxNumber ? [{ senderTaxNumber: { contains: taxNumber } }] : []),
+        ],
       },
       orderBy: [{ docDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       take: limit,
@@ -150,16 +214,27 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
         isReceipt: false, // fişler bu listede değil; ayrı "Alış Fişleri" listesinde
         date: { gte: start, lte: end },
         ...(status ? { status } : {}),
-        ...(search
-          ? {
-              OR: [
-                { invoiceNo: { contains: search, mode: "insensitive" } },
-                { supplier: { is: { name: { contains: search, mode: "insensitive" } } } },
-                { supplier: { is: { taxNumber: { contains: search } } } },
-                { uuid: { contains: search } },
-              ],
-            }
-          : {}),
+        ...(category ? { category } : {}),
+        ...amountFilter("totalAmount"),
+        AND: [
+          ...(search
+            ? [
+                {
+                  OR: [
+                    { invoiceNo: { contains: search, mode: "insensitive" as const } },
+                    {
+                      supplier: {
+                        is: { name: { contains: search, mode: "insensitive" as const } },
+                      },
+                    },
+                    { supplier: { is: { taxNumber: { contains: search } } } },
+                    { uuid: { contains: search } },
+                  ],
+                },
+              ]
+            : []),
+          ...(hasPartyFilter ? [{ supplier: { is: partyIs() } }] : []),
+        ],
       },
       include: { supplier: { select: { name: true, taxNumber: true } } },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
@@ -242,17 +317,32 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
         isReceipt: false, // fişler bu listede değil; ayrı "Satış Fişleri" listesinde
         date: { gte: start, lte: end },
         ...(status ? { status } : {}),
-        ...(search
-          ? {
-              OR: [
-                { invoiceNo: { contains: search, mode: "insensitive" } },
-                { eDocumentNo: { contains: search, mode: "insensitive" } },
-                { customer: { is: { name: { contains: search, mode: "insensitive" } } } },
-                { customer: { is: { taxNumber: { contains: search } } } },
-                { uuid: { contains: search } },
-              ],
-            }
-          : {}),
+        ...(category ? { category } : {}),
+        ...amountFilter("totalAmount"),
+        AND: [
+          ...(search
+            ? [
+                {
+                  OR: [
+                    { invoiceNo: { contains: search, mode: "insensitive" as const } },
+                    { eDocumentNo: { contains: search, mode: "insensitive" as const } },
+                    {
+                      customer: {
+                        is: { name: { contains: search, mode: "insensitive" as const } },
+                      },
+                    },
+                    { customer: { is: { taxNumber: { contains: search } } } },
+                    { uuid: { contains: search } },
+                  ],
+                },
+              ]
+            : []),
+          // Karşı taraf müşteri VEYA tedarikçi olabilir: ALIŞ İADESİNİN karşı tarafı
+          // tedarikçidir, yalnız müşteriye bakmak o satırı filtreden düşürürdü.
+          ...(hasPartyFilter
+            ? [{ OR: [{ customer: { is: partyIs() } }, { supplier: { is: partyIs() } }] }]
+            : []),
+        ],
       },
       // Tedarikçi de gerekli: ALIŞ İADESİNİN karşı tarafı tedarikçidir, yalnız
       // müşteriye bakan eski eşleme o satırı isimsiz gösterirdi.
@@ -322,11 +412,34 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
     totals[r.direction].sum += amt
   }
 
+  // Kategori seçenekleri: aralıktaki TÜM kategoriler, kategori filtresinden
+  // bağımsız. Listeden türetilseydi bir kategori seçilir seçilmez açılır kutuda
+  // yalnız o kategori kalır ve kullanıcı başkasına geçemezdi.
+  const categoryGroups = await prisma.invoice.groupBy({
+    by: ["category"],
+    where: {
+      companyId,
+      isReceipt: false,
+      date: { gte: start, lte: end },
+      ...(direction === "incoming"
+        ? { type: "PURCHASE" as const }
+        : direction === "outgoing"
+          ? { type: { in: ["SALES", "RETURN"] as const } }
+          : {}),
+      NOT: { category: null },
+    },
+  })
+  const categories = categoryGroups
+    .map((g) => (g.category || "").trim())
+    .filter((c) => c.length > 0)
+    .sort((a, b) => a.localeCompare(b, "tr"))
+
   return {
     dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
     totals,
     count: out.length,
     data: out,
     truncated,
+    categories,
   }
 }

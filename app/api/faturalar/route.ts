@@ -3,6 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { fetchInvoiceList } from "@/lib/faturalar/list-query"
+import { parseTrNumber } from "@/lib/format"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -38,6 +39,23 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     const includeInboxParam = url.searchParams.get("includeInbox")
 
+    // Sayıya çevrilemeyen tutar SESSİZCE YUTULMAZ: filtre uygulanmadan liste
+    // dönmek, ekranda "filtre açık" derken tüm kayıtları göstermek olurdu.
+    const amountParam = (key: string): { ok: true; value: number | null } | { ok: false } => {
+      const raw = (url.searchParams.get(key) || "").trim()
+      if (!raw) return { ok: true, value: null }
+      const parsed = parseTrNumber(raw)
+      return parsed === null ? { ok: false } : { ok: true, value: parsed }
+    }
+    const minAmount = amountParam("minAmount")
+    const maxAmount = amountParam("maxAmount")
+    if (!minAmount.ok) {
+      return NextResponse.json({ error: "Tutar (min) sayı olmalı." }, { status: 400 })
+    }
+    if (!maxAmount.ok) {
+      return NextResponse.json({ error: "Tutar (max) sayı olmalı." }, { status: 400 })
+    }
+
     const result = await fetchInvoiceList({
       companyId,
       direction: (url.searchParams.get("direction") || "all") as "all" | "incoming" | "outgoing",
@@ -47,6 +65,11 @@ export const GET = withApiErrors(async function GET(request: Request) {
       endDate: url.searchParams.get("endDate"),
       status: url.searchParams.get("status"),
       search: url.searchParams.get("search"),
+      counterparty: url.searchParams.get("counterparty"),
+      taxNumber: url.searchParams.get("taxNumber"),
+      category: url.searchParams.get("category"),
+      minAmount: minAmount.value,
+      maxAmount: maxAmount.value,
     })
 
     return NextResponse.json({
@@ -54,6 +77,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
       totals: result.totals,
       count: result.count,
       data: result.data,
+      truncated: result.truncated,
+      categories: result.categories,
     })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""

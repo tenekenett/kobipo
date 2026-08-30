@@ -48,6 +48,36 @@ export const pct = (n: number | null | undefined) =>
 export const parseNum = (raw: string): number =>
   parseFloat(String(raw ?? "").replace(",", "."))
 
+// --- Filtre kutularının ortak yardımcıları -----------------------------------
+// Gelen e-faturalar ve fatura listesi ekranları aynı "detaylı filtre" panelini
+// kullanıyor; bu dördü iki yerde birden gerekiyor.
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+export const addDays = (d: Date, n: number) => new Date(d.getTime() + n * DAY_MS)
+
+/** `<input type="date">` için yerel gün (YYYY-MM-DD) — toISOString UTC'ye kayar. */
+export const toDateInput = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+
+/**
+ * Tutar kutusuna yalnız rakam ve ondalık/binlik ayracı girilebilsin.
+ *
+ * Serbest metin kabul edildiğinde sonuç görünenden kötüydü: "abc" sunucuya gidiyor,
+ * sayıya çevrilemediği için filtre SESSİZCE düşüyordu — rozet "3 filtre" derken
+ * yalnız biri uygulanıyordu. Karakteri kapıda kesmek hatayı en başta engelliyor.
+ */
+export const sanitizeAmountInput = (raw: string) => raw.replace(/[^\d.,]/g, "")
+
+/**
+ * Kutudaki metni API'ye gidecek tek biçime çevirir ("1.500,50" → "1500.5").
+ * Çözülemeyen değer boş döner, yani istek parametresi hiç eklenmez.
+ */
+export const canonicalAmount = (raw: string) => {
+  const value = parseTrNumber(raw)
+  return value === null ? "" : String(value)
+}
+
 const THOUSANDS_DOT = /^[1-9]\d{0,2}(\.\d{3})+$/
 
 /**

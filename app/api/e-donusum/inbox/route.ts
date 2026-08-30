@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server"
-import { Prisma } from "@prisma/client"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -9,12 +8,20 @@ import {
   resolveCompanyEInvoiceProvider,
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
-import { parseTrNumber } from "@/lib/format"
 import {
   isForeignCurrency,
   roundKurus,
   toTryAmount,
 } from "@/lib/integrations/e-invoice/incoming-amount"
+import {
+  INCOMING_LIST_SELECT,
+  buildIncomingWhere,
+  buildIncomingWhereWithoutDate,
+  incomingOrderBy,
+  parseIncomingListFilters,
+  parseIncomingListPaging,
+  resolveIncomingDateRange,
+} from "@/lib/integrations/e-invoice/incoming-list-query"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -61,110 +68,23 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
+    // Tarih aralığı, filtreler ve sıralama ORTAK modülde: dışa aktarma da aynı
+    // sorguyu kullanıyor, iki yerde iki filtre mantığı doğmasın.
+    // [[lib/integrations/e-invoice/incoming-list-query.ts]]
     const source = url.searchParams.get("source") === "live" ? "live" : "db"
-    const days = Number(url.searchParams.get("days") || "30")
-    const endParam = url.searchParams.get("endDate")
-    const startParam = url.searchParams.get("startDate")
-    const end = endParam ? new Date(endParam) : new Date()
-    const start = startParam
-      ? new Date(startParam)
-      : new Date(end.getTime() - Math.max(1, days) * 24 * 60 * 60 * 1000)
-
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      return NextResponse.json({ error: "Tarih aralığı geçersiz." }, { status: 400 })
-    }
-    if (start > end) {
-      return NextResponse.json(
-        { error: "Başlangıç tarihi bitiş tarihinden sonra olamaz." },
-        { status: 400 },
-      )
-    }
+    const range = resolveIncomingDateRange(url.searchParams)
+    if (!range.ok) return NextResponse.json({ error: range.error }, { status: 400 })
+    const { start, end } = range
 
     if (source === "db") {
-      const trimmed = (key: string) => (url.searchParams.get(key) || "").trim()
-      const statusParam = trimmed("status").toUpperCase()
-      const profile = trimmed("profile")
-      const linked = trimmed("linked")
-      const q = trimmed("q")
-      const sender = trimmed("sender")
-      const taxNumber = trimmed("taxNumber")
-      const minAmountRaw = trimmed("minAmount")
-      const maxAmountRaw = trimmed("maxAmount")
+      const parsed = parseIncomingListFilters(url.searchParams, { start, end })
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+      const filters = parsed.filters
+      const dateField = filters.dateField
+      const { page, pageSize } = parseIncomingListPaging(url.searchParams)
 
-      const page = Math.max(1, Number(url.searchParams.get("page") || "1") || 1)
-      const pageSize = Math.min(
-        500,
-        Math.max(1, Number(url.searchParams.get("pageSize") || "100") || 100),
-      )
-
-      // Filtreler AND dizisinde toplanır: "q" kendi OR'unu taşıdığı için düz nesne
-      // yayılımıyla birleştirmek (ikinci bir OR anahtarı) öncekini sessizce ezerdi.
-      const and: Prisma.IncomingInvoiceWhereInput[] = []
-
-      // Durum: KABUL/RED terminaldir, "BEKLEMEDE" = terminal OLMAYAN her şey. Mysoft
-      // bekleyen için "YANIT_BEKLENIYOR" gibi farklı metinler döndürebiliyor, boş da
-      // bırakabiliyor; düz eşitlik yazsaydık bekleyenlerin çoğu listeden düşerdi.
-      const notStatus = (value: string): Prisma.IncomingInvoiceWhereInput => ({
-        NOT: { status: { equals: value, mode: "insensitive" } },
-      })
-      if (statusParam === "BEKLEMEDE") {
-        and.push({
-          OR: [{ status: null }, { AND: [notStatus("KABUL"), notStatus("RED")] }],
-        })
-      } else if (statusParam) {
-        and.push({ status: { equals: statusParam, mode: "insensitive" } })
-      }
-
-      if (profile) and.push({ profile })
-      if (linked === "linked") and.push({ isLinkedToPurchase: true })
-      if (linked === "unlinked") and.push({ isLinkedToPurchase: false })
-      if (sender) and.push({ senderName: { contains: sender, mode: "insensitive" } })
-      if (taxNumber) and.push({ senderTaxNumber: { contains: taxNumber } })
-      // Sayıya çevrilemeyen tutar SESSİZCE YUTULMAZ. Önceden `Number.isFinite`
-      // kontrolü tutmayan değeri atlıyordu: ekran "3 filtre uygulandı" derken
-      // sunucu ikisini görmezden geliyor, kullanıcı da yanlış listeye bakıyordu.
-      const minAmount = minAmountRaw ? parseTrNumber(minAmountRaw) : null
-      const maxAmount = maxAmountRaw ? parseTrNumber(maxAmountRaw) : null
-      if (minAmountRaw && minAmount === null) {
-        return NextResponse.json(
-          { error: "Tutar (min) sayı olmalı." },
-          { status: 400 },
-        )
-      }
-      if (maxAmountRaw && maxAmount === null) {
-        return NextResponse.json(
-          { error: "Tutar (max) sayı olmalı." },
-          { status: 400 },
-        )
-      }
-      if (minAmount !== null) {
-        and.push({ payableAmount: { gte: new Prisma.Decimal(minAmount) } })
-      }
-      if (maxAmount !== null) {
-        and.push({ payableAmount: { lte: new Prisma.Decimal(maxAmount) } })
-      }
-      if (q) {
-        and.push({
-          OR: [
-            { invoiceNo: { contains: q, mode: "insensitive" } },
-            { senderName: { contains: q, mode: "insensitive" } },
-            { senderTaxNumber: { contains: q } },
-            { uuid: { contains: q, mode: "insensitive" } },
-          ],
-        })
-      }
-
-      // Tarih aralığı hangi eksene uygulanacak: belge tarihi mi, zarfın GİB'e düştüğü
-      // an mı? İkisi günlerce ayrışabiliyor (geçen ay düzenlenip bu hafta gönderilen
-      // fatura), bu yüzden ölçüt kullanıcının seçimi.
-      const dateField = url.searchParams.get("dateField") === "sentDate" ? "sentDate" : "docDate"
-      const dateFilter = { gte: start, lte: end }
-
-      const where: Prisma.IncomingInvoiceWhereInput = {
-        companyId,
-        ...(dateField === "sentDate" ? { sentDate: dateFilter } : { docDate: dateFilter }),
-        ...(and.length ? { AND: and } : {}),
-      }
+      const where = buildIncomingWhere(companyId, filters)
+      const whereWithoutDate = buildIncomingWhereWithoutDate(companyId, filters)
 
       // Gönderilme tarihi Mysoft ham JSON'ından türetilir; alan hiç gelmemişse kolon
       // NULL kalır ve o kayıt bu eksende HİÇBİR aralığa düşmez. Sessizce kaybolmasın
@@ -172,7 +92,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
       const missingSentDatePromise =
         dateField === "sentDate"
           ? prisma.incomingInvoice.count({
-              where: { companyId, sentDate: null, ...(and.length ? { AND: and } : {}) },
+              where: { AND: [whereWithoutDate, { sentDate: null }] },
             })
           : Promise.resolve(0)
 
@@ -181,34 +101,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
       const [records, byStatus, linkedByCurrency, missingSentDate] = await Promise.all([
         prisma.incomingInvoice.findMany({
           where,
-          // `raw` KASTEN dışarıda: fatura başına tam Mysoft JSON'u, 500 satırlık
-          // sayfada boşuna megabaytlar demek. Gönderilme tarihi artık kolonda.
-          select: {
-            id: true,
-            uuid: true,
-            invoiceNo: true,
-            docDate: true,
-            sentDate: true,
-            senderName: true,
-            senderTaxNumber: true,
-            profile: true,
-            invoiceType: true,
-            currencyCode: true,
-            taxExclusiveAmount: true,
-            vatAmount: true,
-            payableAmount: true,
-            status: true,
-            envelopeStatusCode: true,
-            envelopeStatusDesc: true,
-            isArchived: true,
-            isLinkedToPurchase: true,
-            linkedInvoiceId: true,
-            syncedAt: true,
-          },
-          orderBy:
-            dateField === "sentDate"
-              ? [{ sentDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
-              : [{ docDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+          select: INCOMING_LIST_SELECT,
+          orderBy: incomingOrderBy(dateField),
           skip: (page - 1) * pageSize,
           take: pageSize,
         }),
@@ -287,20 +181,13 @@ export const GET = withApiErrors(async function GET(request: Request) {
       // yalnız tarih koşulu düşürülür; sorgu SADECE boş sonuçta çalışır.
       let emptyHint: { latestDate: string | null; count: number } | null = null
       if (stats.total.count === 0) {
-        const withoutDate: Prisma.IncomingInvoiceWhereInput = {
-          companyId,
-          ...(and.length ? { AND: and } : {}),
-        }
         const [latest, countWithoutDate] = await Promise.all([
           prisma.incomingInvoice.findFirst({
-            where: withoutDate,
-            orderBy:
-              dateField === "sentDate"
-                ? [{ sentDate: { sort: "desc", nulls: "last" } }]
-                : [{ docDate: { sort: "desc", nulls: "last" } }],
+            where: whereWithoutDate,
+            orderBy: incomingOrderBy(dateField),
             select: { docDate: true, sentDate: true },
           }),
-          prisma.incomingInvoice.count({ where: withoutDate }),
+          prisma.incomingInvoice.count({ where: whereWithoutDate }),
         ])
         const latestValue = dateField === "sentDate" ? latest?.sentDate : latest?.docDate
         emptyHint = {
