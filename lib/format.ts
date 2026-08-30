@@ -48,6 +48,52 @@ export const pct = (n: number | null | undefined) =>
 export const parseNum = (raw: string): number =>
   parseFloat(String(raw ?? "").replace(",", "."))
 
+const THOUSANDS_DOT = /^[1-9]\d{0,2}(\.\d{3})+$/
+
+/**
+ * Binlik ayracını da çözen sayı ayrıştırıcı — GEÇERSİZ girdide `null`.
+ *
+ * `parseNum`den farkı gruplamayı anlaması ("1.500,50" → 1500,5). `parseAmount`
+ * (lib/satis/payment.ts) farkı ise POLİTİKASIZ olması: geçersiz girdiyi 0'a
+ * düşürmez. Filtre kutusunda bu ayrım şart — "0" gerçek bir alt sınır, "abc" ise
+ * hata; ikisini aynı sayıya indirgemek filtreyi sessizce düşürür.
+ *
+ * Kural (tr öncelikli):
+ *  - İki ayraç da varsa SONUNCUSU ondalıktır: "1.500,50" da "1,500.50" da 1500,5.
+ *  - Yalnız virgül varsa ondalıktır ("12,50"); birden çok virgül gruplamadır
+ *    ("1,000,000" → 1000000).
+ *  - Yalnız nokta varsa üçlü gruplanmışsa binliktir ("1.500" → 1500), değilse
+ *    ondalık ("12.50" → 12,5). Baştaki grup 0 ise ondalık sayılır ("0.500" → 0,5).
+ *  - Boşluk/₺ gibi karakterler atılır; geriye rakam kalmazsa null.
+ */
+export function parseTrNumber(v: string | number | null | undefined): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null
+
+  const text = String(v ?? "").trim()
+  const negative = text.startsWith("-")
+  const raw = text.replace(/[^\d.,]/g, "")
+  if (!raw) return null
+
+  const dots = raw.split(".").length - 1
+  const commas = raw.split(",").length - 1
+
+  let normalized: string
+  if (dots > 0 && commas > 0) {
+    const decimal = raw.lastIndexOf(".") > raw.lastIndexOf(",") ? "." : ","
+    const thousands = decimal === "." ? "," : "."
+    normalized = raw.split(thousands).join("")
+    normalized = decimal === "," ? normalized.replace(/,([^,]*)$/, ".$1") : normalized
+  } else if (commas > 0) {
+    normalized = commas > 1 ? raw.split(",").join("") : raw.replace(",", ".")
+  } else {
+    normalized = THOUSANDS_DOT.test(raw) ? raw.split(".").join("") : raw
+  }
+
+  const n = parseFloat(normalized)
+  if (!Number.isFinite(n)) return null
+  return negative ? -n : n
+}
+
 /**
  * Tutarı ürünün KENDİ para birimiyle biçimler (₺/$/€). Geçersiz/eksik kodda TRY'ye düşer.
  *

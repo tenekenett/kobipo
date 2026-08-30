@@ -10,9 +10,13 @@ import {
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
 import { voidInvoice } from "@/lib/integrations/e-invoice/void-invoice"
+import { extractSentDate } from "@/lib/integrations/e-invoice/incoming-sent-date"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
+// 6 ay / 1 yıllık aralık Mysoft tarafında 90 günlük pencerelere bölünüp sırayla
+// çekilir; varsayılan (10 sn) sınır bunun için dar kalıyor.
+export const maxDuration = 60
 
 /**
  * Mysoft'tan gelen e-faturaları çekip DB'ye upsert eder.
@@ -29,6 +33,9 @@ export const dynamic = "force-dynamic"
  *  - Status/tutar gibi alanlar Mysoft'ta değiştiyse yansır
  *  - rawJson hep güncellenir (Mysoft yanıtının tamamı)
  *  - isLinkedToPurchase + linkedInvoiceId Kobipo iç akışı — sync sırasında DOKUNULMAZ
+ *  - Aralık 90 günü aşarsa provider onu 90 günlük pencerelere bölüp sırayla çeker
+ *    (Mysoft dönem uçları daha uzun aralığı reddediyor). Bir pencere alınamazsa
+ *    yanıttaki warnings dizisinde döner — liste EKSİK demektir, sessizce geçilmez.
  */
 export const POST = withApiErrors(async function POST(request: Request) {
   try {
@@ -129,6 +136,9 @@ export const POST = withApiErrors(async function POST(request: Request) {
           uuid: row.uuid,
           invoiceNo: row.invoiceNo,
           docDate: row.date ? new Date(row.date) : null,
+          // Gönderilme tarihi ham JSON'da; kolona yazılır ki tarih aralığı bu
+          // eksende de SORGULANABİLSİN (yalnız ekranda gösterilebilir değil).
+          sentDate: extractSentDate(row.raw),
           senderTaxNumber: row.sender.taxNumber,
           senderName: row.sender.name,
           profile: row.profile,
@@ -205,6 +215,9 @@ export const POST = withApiErrors(async function POST(request: Request) {
     return NextResponse.json({
       dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
       fetched: result.data.length,
+      // Mysoft 90 günlük pencerelerden biri alınamadıysa liste EKSİKTİR; sessizce
+      // "başarılı" demiyoruz, uyarıyı kullanıcıya kadar taşıyoruz.
+      warnings: result.warnings ?? [],
       inserted,
       updated,
       skipped,

@@ -1749,6 +1749,8 @@ async sendInvoice(invoiceData: any): Promise<any> {
           sender: { name: string | null; taxNumber: string | null }
           raw: Record<string, any>
         }>
+        /** Kısmî başarı: alınamayan 90 günlük pencerelerin insanca açıklaması. */
+        warnings?: string[]
         rawResponse?: any
       }
     | { success: false; error: string; rawResponse?: any }
@@ -1768,50 +1770,97 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // döndürür; sayfa boş gelene ya da totalCount'a ulaşana kadar dönüyoruz.
       const url = `${this.baseUrl}/api/InvoiceInbox/getInvoiceInboxWithHeaderInfoListForPeriodPaging`
       const PAGE_SIZE = 500
-      const MAX_PAGES = 40 // güvenlik freni — 20.000 kayıt
+      const MAX_PAGES = 40 // güvenlik freni — pencere başına 20.000 kayıt
+
+      // 90 GÜN SINIRI: Mysoft dönem uçları daha uzun aralıkta hiç veri vermez,
+      // isteğin tamamını "Başlangıç bitiş tarihi arasında 90 günden fazla zaman
+      // olamaz" diyerek reddeder. Ekran 6 ay / 1 yıl sunduğu için aralığı burada
+      // ≤90 günlük ardışık pencerelere bölüp her birini ayrı çekiyoruz; çağıran
+      // taraf tek bir liste görür.
+      const WINDOW_MS = 89 * 24 * 60 * 60 * 1000
+      const windows: Array<{ from: Date; to: Date }> = []
+      for (let cursor = start.getTime(); cursor < end.getTime(); ) {
+        const to = Math.min(cursor + WINDOW_MS, end.getTime())
+        windows.push({ from: new Date(cursor), to: new Date(to) })
+        // Sonraki pencere 1 sn sonra başlar; sınırdaki faturanın iki pencerede
+        // birden sayılmasını engeller (yine de uuid ile tekilleştiriyoruz).
+        cursor = to + 1000
+      }
+      if (windows.length === 0) windows.push({ from: start, to: end })
+
       const items: any[] = []
+      const seenUuids = new Set<string>()
+      const warnings: string[] = []
       let lastResult: any = null
+      let firstError: { error: string; rawResponse: any } | null = null
 
-      for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber++) {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            startDate: start.toISOString(),
-            endDate: end.toISOString(),
-            pageNumber,
-            pageSize: PAGE_SIZE,
-          }),
-        })
+      const fmtWindow = (w: { from: Date; to: Date }) =>
+        `${w.from.toLocaleDateString("tr-TR")} – ${w.to.toLocaleDateString("tr-TR")}`
 
-        const result = await res.json().catch(() => null)
-        if (!result || result.succeed === false) {
-          // İlk sayfa başarısızsa gerçek hata; sonraki sayfada patlarsa o ana kadar
-          // toplananla devam etmek, senkronu tümden kaybetmekten iyidir.
-          if (pageNumber === 1) {
-            return {
-              success: false,
-              error: result?.message || `HTTP ${res.status}`,
-              rawResponse: result,
+      for (const w of windows) {
+        for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber++) {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              startDate: w.from.toISOString(),
+              endDate: w.to.toISOString(),
+              pageNumber,
+              pageSize: PAGE_SIZE,
+            }),
+          })
+
+          const result = await res.json().catch(() => null)
+          if (!result || result.succeed === false) {
+            // Kısmî başarı SESSİZ geçilmez: eksik kalan pencere warnings ile yukarı
+            // taşınır, çağıran kullanıcıya bildirir. İlk sayfası patlayan pencereden
+            // hiç kayıt gelmemiştir; sonraki sayfada patlarsa o ana kadar toplananla
+            // devam etmek senkronu tümden kaybetmekten iyidir.
+            const message = result?.message || `HTTP ${res.status}`
+            warnings.push(`${fmtWindow(w)}: ${message}`)
+            if (pageNumber === 1 && !firstError) {
+              firstError = { error: message, rawResponse: result }
             }
+            break
           }
-          break
+          lastResult = result
+
+          const page: any[] = Array.isArray(result.data)
+            ? result.data
+            : Array.isArray(result.data?.items)
+              ? result.data.items
+              : []
+          for (const item of page) {
+            const key = String(
+              item?.ettn ?? item?.invoiceETTN ?? item?.invoiceEttn ?? item?.uuid ?? "",
+            )
+            if (key) {
+              if (seenUuids.has(key)) continue
+              seenUuids.add(key)
+            }
+            items.push(item)
+          }
+
+          // totalCount PENCERE toplamıdır — birikmiş items.length ile karşılaştırmak
+          // çok pencerede yanlış olur, o yüzden okunan sayfa sayısıyla ölçüyoruz.
+          const total = Number(result.totalCount)
+          if (page.length < PAGE_SIZE) break
+          if (Number.isFinite(total) && pageNumber * PAGE_SIZE >= total) break
         }
-        lastResult = result
+      }
 
-        const page: any[] = Array.isArray(result.data)
-          ? result.data
-          : Array.isArray(result.data?.items)
-            ? result.data.items
-            : []
-        items.push(...page)
-
-        const total = Number(result.totalCount)
-        if (page.length < PAGE_SIZE) break
-        if (Number.isFinite(total) && items.length >= total) break
+      // Hiçbir pencereden kayıt gelmediyse bu gerçek bir hatadır (boş gelen kutusu
+      // ile hata birbirine karışmasın). Kısmî başarıda liste döner, eksik pencereler
+      // warnings ile bildirilir.
+      if (firstError && items.length === 0) {
+        return {
+          success: false,
+          error: firstError.error,
+          rawResponse: firstError.rawResponse,
+        }
       }
 
       const result = lastResult
@@ -1870,6 +1919,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
       return {
         success: true,
         data: mapped,
+        warnings: warnings.length ? warnings : undefined,
         rawResponse: params.raw ? result : undefined,
       }
     } catch (error: any) {

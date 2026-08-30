@@ -2477,7 +2477,11 @@ model IncomingInvoice {
   companyId          String
   uuid               String // Mysoft ETTN (firma içinde unique)
   invoiceNo          String?
-  docDate            DateTime?
+  docDate            DateTime? // Fatura (belge) tarihi — Mysoft docDate
+  // Gönderilme tarihi: zarfın GİB'e düştüğü an. Fatura tarihinden GÜNLERCE sonra
+  // olabildiği için tarih aralığı bu eksene göre de sorgulanabiliyor; ham JSON'dan
+  // türetilir (lib/integrations/e-invoice/incoming-sent-date.ts).
+  sentDate           DateTime?
   senderTaxNumber    String?
   senderName         String?
   profile            String? // TEMELFATURA | TICARIFATURA
@@ -2507,6 +2511,7 @@ model IncomingInvoice {
 
   @@unique([companyId, uuid])
   @@index([companyId, docDate])
+  @@index([companyId, sentDate])
   @@index([companyId, status])
   @@map("incoming_invoices")
 }
