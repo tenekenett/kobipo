@@ -411,7 +411,10 @@ export default function StokRaporlariPage() {
               ) : (
                 recentMovements.map((m) => {
                   const type = movementTypeLabel(m.type)
-                  const isOut = m.type === "OUT"
+                  // Yön MİKTARIN İŞARETİNDEN okunur: eksi bakiyeli sayım
+                  // düzeltmesi (ADJUSTMENT) de çıkıştır, tipe bakan kural onu
+                  // yeşil yukarı okla "giriş" gösteriyordu.
+                  const isOut = m.type === "OUT" || Number(m.quantity || 0) < 0
                   return (
                     <TableRow key={m.id}>
                       <TableCell>

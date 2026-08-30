@@ -55,14 +55,32 @@ export const GET = withApiErrors(async function GET(
 
     await ensureCompanyAccess(product.companyId)
 
-    // Calculate totals
-    const totalIn = product.stockMovements
-      .filter(m => m.type === "IN" || (m.type === "TRANSFER" && Number(m.quantity) > 0))
-      .reduce((sum, m) => sum + Number(m.quantity), 0)
-    
-    const totalOut = product.stockMovements
-      .filter(m => m.type === "OUT" || (m.type === "TRANSFER" && Number(m.quantity) < 0))
-      .reduce((sum, m) => sum + Math.abs(Number(m.quantity)), 0)
+    /**
+     * Hareketin İŞARETLİ etkisi (+ giriş, − çıkış).
+     *
+     * Bugün her hareket `adjustWarehouseStock` üzerinden işaretli yazılır, o yüzden
+     * miktarın kendisi yeterli. Tipe yalnız tek kapı ÖNCESİ yazılmış satırlar için
+     * bakılıyor: onlarda çıkışlar pozitif miktarla duruyor.
+     */
+    const outboundTypes = ["OUT", "SALE", "PURCHASE_CANCEL", "RETURN_CANCEL"]
+    const signedQuantity = (m: { type: string; quantity: unknown }) => {
+      const q = Number(m.quantity)
+      return q > 0 && outboundTypes.includes(m.type) ? -q : q
+    }
+
+    // Toplam giriş/çıkış İŞARETE göre sayılır. Eskiden yalnız `IN`/`OUT` (ve
+    // TRANSFER) sayılıyordu; sayım/elle düzeltme (ADJUSTMENT) hiçbir toplama
+    // girmiyordu. Aynı satır, hareket tablosunda "Giriş" etiketiyle görünüyordu:
+    // kullanıcı listede gördüğü girişi üstteki toplamda bulamıyordu.
+    const totalIn = product.stockMovements.reduce((sum, m) => {
+      const q = signedQuantity(m)
+      return q > 0 ? sum + q : sum
+    }, 0)
+
+    const totalOut = product.stockMovements.reduce((sum, m) => {
+      const q = signedQuantity(m)
+      return q < 0 ? sum - q : sum
+    }, 0)
 
     // Eski kayıtlarda unitPrice null olabilir; bu durumda hareket tipine göre
     // ürünün alış/satış fiyatını fallback olarak kullan, böylece tablo 0 göstermez.
@@ -88,15 +106,27 @@ export const GET = withApiErrors(async function GET(
       for (const inv of invoices) invoiceCurrency.set(inv.id, inv.currency || "TRY")
     }
 
-    // Calculate balance after each movement
+    // "Kalan" sütunu: her hareketten SONRAKİ bakiye. Kart bugünkü bakiyeyi
+    // taşıdığı için liste yeniden eskiye doğru GERİ SARILARAK hesaplanır.
+    //
+    // İki hata birlikte düzeltildi:
+    //  • Bakiye, satırın kendi etkisi düşüldükten SONRA yazılıyordu; yani her
+    //    satır bir ÖNCEKİNİN bakiyesini gösteriyordu — en yeni hareket hiçbir
+    //    zaman güncel stoğu göstermiyor, en eski satır hep 0 çıkıyordu.
+    //  • Geri sarma İŞARETE değil TİPE bakıyordu ("IN değilse ekle"): pozitif
+    //    ADJUSTMENT (sayım artışı, karttan elle düzeltme) çıkış sanılıyor ve o
+    //    satırdan sonraki tüm bakiyeler kayıyordu.
+    //
+    // Bugün her hareket `adjustWarehouseStock` üzerinden İŞARETLİ yazılır
+    // (giriş +, çıkış −), dolayısıyla işaret tek başına yeter. Tipe yalnız tek
+    // kapı ÖNCESİ yazılmış satırlar için bakılıyor: onlarda çıkışlar pozitif
+    // miktarla duruyor.
     let runningBalance = Number(product.stockQuantity)
-    const movements = product.stockMovements.map((movement, index) => {
+    const movements = product.stockMovements.map((movement) => {
       const qty = Number(movement.quantity)
-      if (movement.type === "IN" || (movement.type === "TRANSFER" && qty > 0)) {
-        runningBalance -= qty // Reverse calculation
-      } else {
-        runningBalance += Math.abs(qty)
-      }
+      const signed = signedQuantity(movement)
+      const balanceAfter = Math.round(runningBalance * 10000) / 10000
+      runningBalance = Math.round((runningBalance - signed) * 10000) / 10000
 
       const isInbound = inboundTypes.includes(movement.type) || qty > 0
       const hasOwnPrice = movement.unitPrice != null
@@ -114,12 +144,16 @@ export const GET = withApiErrors(async function GET(
           "TRY",
         date: movement.createdAt.toISOString(),
         type: movement.type,
-        quantity: Math.abs(qty),
+        // İŞARETLİ miktar: ekran yönü buradan okuyor (+ giriş, − çıkış) ve mutlak
+        // değeri kendisi basıyor. Burası `Math.abs` döndürdüğü sürece ekrandaki
+        // "miktar > 0 ise Giriş" kuralı HER satırı giriş sanıyordu — satışlar bile
+        // yeşil "Giriş" olarak listeleniyordu.
+        quantity: signed,
         unitPrice,
         totalAmount: Math.abs(qty) * unitPrice,
         description: movement.description || "",
         referenceNo: movement.reference || undefined,
-        balanceAfter: runningBalance,
+        balanceAfter,
       }
     }).reverse() // Reverse to show oldest first
 

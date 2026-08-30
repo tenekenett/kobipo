@@ -36,8 +36,12 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, ChefHat, Sticker, Tags, X } from "lucide-react"
+import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, ChefHat, Sticker, Tags, X, PackagePlus } from "lucide-react"
 import { CategoryManagerDialog } from "@/components/stok/category-manager-dialog"
+import {
+  StockMovementDialog,
+  type StockMovementMode,
+} from "@/components/stok/stock-movement-dialog"
 import { useRecipes } from "@/lib/swr/use-company-data"
 import { useModuleEnabled } from "@/lib/swr/use-module"
 import {
@@ -431,6 +435,18 @@ export default function StokPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Stok hareketi penceresi: ürün kartını DEĞİL bakiyeyi değiştirir (giriş/çıkış/
+  // sayım/açılış). Düzenle penceresinden ayrı durur — biri kataloğu, diğeri stoğu
+  // düzeltir ve ikisini tek forma koymak "isim değiştirirken stok sıfırlandı"
+  // kazalarına açık kapı bırakır.
+  const [movementProduct, setMovementProduct] = useState<Product | null>(null)
+  const [movementMode, setMovementMode] = useState<StockMovementMode>("IN")
+
+  const startMovement = (product: Product, mode: StockMovementMode = "IN") => {
+    setMovementMode(mode)
+    setMovementProduct(product)
   }
 
   const startCreate = () => {
@@ -883,7 +899,9 @@ export default function StokPage() {
                   </div>
                 )}
                 <div className="space-y-2">
-                  <Label htmlFor="stockQuantity">Stok Miktarı</Label>
+                  <Label htmlFor="stockQuantity">
+                    {editingId ? "Stok Miktarı" : "Başlangıç Stoğu"}
+                  </Label>
                   <Input
                     id="stockQuantity"
                     type="number"
@@ -894,6 +912,17 @@ export default function StokPage() {
                     }
                     disabled={isLoading || formData.isService}
                   />
+                  {/* Alan iki ekranda iki ayrı şey yapıyor ve fark görünmezdi:
+                      yeni üründe AÇILIŞ hareketi doğurur, düzenlemede aradaki
+                      farkı DÜZELTME hareketi olarak yazar. Yazılı olmayınca
+                      "kartı düzeltirken stok neden hareket gördü" sorusu doğuyor. */}
+                  {!formData.isService && (
+                    <p className="text-xs text-muted-foreground">
+                      {editingId
+                        ? "Değiştirirseniz aradaki fark düzeltme hareketi olarak yazılır. Giriş/çıkış, sayım ve açılış düzeltmesi için listedeki “Stok” düğmesini kullanın."
+                        : "Ürün bu miktarla açılır; açılış stoğu hareketi olarak yazılır."}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="minStockLevel">Minimum Stok</Label>
@@ -1266,6 +1295,21 @@ export default function StokPage() {
                             Detay
                           </Button>
                         </Link>
+                        {/* Reçeteli üründe bakiye tutulmaz (satışta bileşenleri düşer),
+                            hizmette hiç stok yoktur — ikisinde de düğme basılmaz. */}
+                        {!product.isService && !recipeMap.has(product.id) && (
+                          <WriteAction>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="Stok girişi / çıkışı / sayım / açılış"
+                              onClick={() => startMovement(product)}
+                            >
+                              <PackagePlus className="h-4 w-4 mr-1" />
+                              Stok
+                            </Button>
+                          </WriteAction>
+                        )}
                         <WriteAction>
                           <Button variant="ghost" size="sm" onClick={() => startEdit(product)}>
                             <Pencil className="h-4 w-4 mr-1" />
@@ -1288,6 +1332,25 @@ export default function StokPage() {
           </StyledTableContainer>
         </CardContent>
       </Card>
+
+      {companyId && movementProduct && (
+        <StockMovementDialog
+          companyId={companyId}
+          product={{
+            id: movementProduct.id,
+            name: movementProduct.name,
+            unit: movementProduct.unit,
+            stockQuantity: movementProduct.stockQuantity,
+            purchasePrice: movementProduct.purchasePrice ?? null,
+          }}
+          open={Boolean(movementProduct)}
+          onOpenChange={(open) => {
+            if (!open) setMovementProduct(null)
+          }}
+          initialMode={movementMode}
+          onSaved={fetchProducts}
+        />
+      )}
     </div>
   )
 }

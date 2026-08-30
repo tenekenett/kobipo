@@ -3,7 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
-import { adjustWarehouseStock, resolveCompanyWarehouseId } from "@/lib/stock/warehouse"
+import { adjustWarehouseStock, resolveCompanyWarehouseId, OPENING_STOCK_DESCRIPTION } from "@/lib/stock/warehouse"
 import { resolveAllUnitCosts } from "@/lib/stock/cost"
 import { readImageUrlField } from "@/lib/stock/product-image"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
@@ -242,7 +242,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
           warehouseId: whId,
           delta: initialQty,
           type: "IN",
-          description: "Açılış stoğu",
+          description: OPENING_STOCK_DESCRIPTION,
           createdBy: user.id,
         })
       } else {

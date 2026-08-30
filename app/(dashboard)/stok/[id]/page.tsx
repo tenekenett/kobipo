@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,11 +13,16 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Package, TrendingUp, TrendingDown, BarChart3, Pencil } from "lucide-react"
+import { ArrowLeft, Package, TrendingUp, TrendingDown, BarChart3, Pencil, ArrowDownToLine, ArrowUpFromLine } from "lucide-react"
 import Link from "next/link"
 import { looksLikeCuid } from "@/lib/slug"
 import { formatMoney } from "@/lib/format"
 import { ProductEditDialog } from "@/components/stok/product-edit-dialog"
+import {
+  StockMovementDialog,
+  type StockMovementMode,
+} from "@/components/stok/stock-movement-dialog"
+import { useRecipes } from "@/lib/swr/use-company-data"
 import { WriteAction } from "@/components/dashboard/write-guard"
 
 interface StockMovement {
@@ -59,6 +64,35 @@ interface ProductDetail {
   movements: StockMovement[]
 }
 
+/**
+ * Hareketin YÖNÜ tek kaynaktan okunur: işaretli miktar (+ giriş, − çıkış).
+ * Uç artık işaretli döndürüyor; öncesinde mutlak değer geliyordu ve ekrandaki
+ * "miktar > 0 ise giriş" kuralı satışlar dahil HER satırı yeşil "Giriş" yapıyordu.
+ */
+function movementTone(quantity: number): "in" | "out" | "flat" {
+  return quantity > 0 ? "in" : quantity < 0 ? "out" : "flat"
+}
+
+/** Etiket: tipi bilinen özel hareketler kendi adıyla, kalanlar yönüyle anılır. */
+function movementLabel(movement: StockMovement): string {
+  if (movement.type === "TRANSFER") return "Transfer"
+  if (movement.type === "ADJUSTMENT") return "Düzeltme"
+  const tone = movementTone(movement.quantity)
+  return tone === "in" ? "Giriş" : tone === "out" ? "Çıkış" : "—"
+}
+
+const TONE_BADGE: Record<"in" | "out" | "flat", string> = {
+  in: "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300",
+  out: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300",
+  flat: "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-300",
+}
+
+const TONE_TEXT: Record<"in" | "out" | "flat", string> = {
+  in: "text-green-600",
+  out: "text-red-600",
+  flat: "",
+}
+
 export default function ProductDetailPage() {
   const params = useParams()
   const searchParams = useSearchParams()
@@ -72,6 +106,19 @@ export default function ProductDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [whStocks, setWhStocks] = useState<Array<{ warehouseName: string; quantity: number; unit: string }>>([])
+  const [movementOpen, setMovementOpen] = useState(false)
+  const [movementMode, setMovementMode] = useState<StockMovementMode>("IN")
+
+  // Reçeteli ürünün KENDİ bakiyesi tutulmaz (satışta bileşenleri düşer), bu yüzden
+  // elle giriş/çıkış anlamsızdır — liste ekranı da o ürünlerde stok yerine "—" basar.
+  const { recipeMap } = useRecipes(companyId)
+  const hasRecipe = product ? recipeMap.has(product.id) : false
+  const canMoveStock = Boolean(product && !product.isService && !hasRecipe)
+
+  const openMovement = (mode: StockMovementMode) => {
+    setMovementMode(mode)
+    setMovementOpen(true)
+  }
 
   useEffect(() => {
     if (id && companyId) {
@@ -79,9 +126,9 @@ export default function ProductDetailPage() {
     }
   }, [id, companyId])
 
-  useEffect(() => {
+  const fetchWarehouseStocks = useCallback(() => {
     if (!id || !companyId) return
-    fetch(`/api/depolar/stok?companyId=${companyId}&productId=${id}`)
+    fetch(`/api/depolar/stok?companyId=${companyId}&productId=${id}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.stocks) {
@@ -90,6 +137,10 @@ export default function ProductDetailPage() {
       })
       .catch(() => {})
   }, [id, companyId])
+
+  useEffect(() => {
+    fetchWarehouseStocks()
+  }, [fetchWarehouseStocks])
 
   const fetchProduct = async () => {
     try {
@@ -169,7 +220,23 @@ export default function ProductDetailPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {canMoveStock && (
+            <>
+              <WriteAction>
+                <Button variant="outline" size="sm" onClick={() => openMovement("IN")}>
+                  <ArrowDownToLine className="h-4 w-4 mr-2 text-green-600" />
+                  Stok Girişi
+                </Button>
+              </WriteAction>
+              <WriteAction>
+                <Button variant="outline" size="sm" onClick={() => openMovement("OUT")}>
+                  <ArrowUpFromLine className="h-4 w-4 mr-2 text-red-600" />
+                  Stok Çıkışı
+                </Button>
+              </WriteAction>
+            </>
+          )}
           <WriteAction>
             <Button variant="outline" size="sm" onClick={() => setIsEditOpen(true)}>
               <Pencil className="h-4 w-4 mr-2" />
@@ -232,6 +299,26 @@ export default function ProductDetailPage() {
               <p className="text-xs text-muted-foreground">
                 Min: {formatNumber(product.minStockLevel)} {product.unit}
               </p>
+            )}
+            {canMoveStock && (
+              <WriteAction>
+                <div className="mt-2 flex gap-3 text-xs">
+                  <button
+                    type="button"
+                    className="text-kobipo-blue underline-offset-2 hover:underline"
+                    onClick={() => openMovement("COUNT")}
+                  >
+                    Sayım / düzeltme
+                  </button>
+                  <button
+                    type="button"
+                    className="text-muted-foreground underline-offset-2 hover:underline"
+                    onClick={() => openMovement("OPENING")}
+                  >
+                    Açılış stoğu
+                  </button>
+                </div>
+              </WriteAction>
             )}
           </CardContent>
         </Card>
@@ -385,23 +472,13 @@ export default function ProductDetailPage() {
                       {new Date(movement.date).toLocaleDateString("tr-TR")}
                     </TableCell>
                   <TableCell>
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        ["IN", "PURCHASE", "SALE_CANCEL", "RETURN"].includes(movement.type) || movement.quantity > 0 ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" :
-                        ["OUT", "SALE", "PURCHASE_CANCEL", "RETURN_CANCEL"].includes(movement.type) || movement.quantity < 0 ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" :
-                        "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-300"
-                      }`}>
-                        {["IN", "PURCHASE", "SALE_CANCEL", "RETURN"].includes(movement.type) || movement.quantity > 0 ? "Giriş" :
-                         ["OUT", "SALE", "PURCHASE_CANCEL", "RETURN_CANCEL"].includes(movement.type) || movement.quantity < 0 ? "Çıkış" :
-                         movement.type === "TRANSFER" ? "Transfer" :
-                         "Düzeltme"}
+                      <span className={`px-2 py-1 rounded text-xs ${TONE_BADGE[movementTone(movement.quantity)]}`}>
+                        {movementLabel(movement)}
                       </span>
                     </TableCell>
                     <TableCell>{movement.description || "-"}</TableCell>
                     <TableCell>{movement.referenceNo || "-"}</TableCell>
-                    <TableCell className={`text-right ${
-                      ["IN", "PURCHASE", "SALE_CANCEL", "RETURN"].includes(movement.type) || movement.quantity > 0 ? "text-green-600" : 
-                      ["OUT", "SALE", "PURCHASE_CANCEL", "RETURN_CANCEL"].includes(movement.type) || movement.quantity < 0 ? "text-red-600" : ""
-                    }`}>
+                    <TableCell className={`text-right ${TONE_TEXT[movementTone(movement.quantity)]}`}>
                       {movement.quantity > 0 ? "+" : movement.quantity < 0 ? "-" : ""}
                       {formatNumber(Math.abs(movement.quantity))} {product.unit}
                     </TableCell>
@@ -421,6 +498,26 @@ export default function ProductDetailPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {companyId && canMoveStock && (
+        <StockMovementDialog
+          companyId={companyId}
+          product={{
+            id: product.id,
+            name: product.name,
+            unit: product.unit,
+            stockQuantity: product.stockQuantity,
+            purchasePrice: product.purchasePrice ?? null,
+          }}
+          open={movementOpen}
+          onOpenChange={setMovementOpen}
+          initialMode={movementMode}
+          onSaved={() => {
+            fetchProduct()
+            fetchWarehouseStocks()
+          }}
+        />
+      )}
 
       {companyId && (
         <ProductEditDialog
