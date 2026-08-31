@@ -79,6 +79,11 @@ export const MODULE_KEYS = MANAGEABLE_MODULES.map((m) => m.key)
 
 const MODULE_BY_KEY = new Map(MANAGEABLE_MODULES.map((m) => [m.key, m]))
 
+/** Modülün insan okunur adı. Bilinmeyen anahtar kendisi olarak döner. */
+export function moduleLabel(key: string): string {
+  return MODULE_BY_KEY.get(key)?.label ?? key
+}
+
 /**
  * Seçilen modül kümesini bağımlılıklarıyla birlikte tamamlar (ör. "restaurant"
  * seçiliyse "stock" da eklenir). Hem satın alma arayüzünde hem de hak uygulanırken

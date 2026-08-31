@@ -472,6 +472,17 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
           companyQuota: after.companyQuota,
           billingCycle: after.billingCycle ?? cycle ?? "MONTHLY",
           amount: amount as number,
+          // Elle tahsilatta kalem seçimi yok: yönetici tek bir tutar giriyor. Döküm yine
+          // de yazılır ki satın alma geçmişinde "dökümü olmayan para" satırı kalmasın.
+          priceLines: [
+            {
+              key: "manual",
+              label: "Elle tahsilat (abonelik süresi)",
+              qty: 1,
+              unitPrice: amount as number,
+              total: amount as number,
+            },
+          ],
           autoRenew: false,
           status: "ACTIVE",
           // Kart değil: PayTR akışının dışında alınmış bir tahsilat. `isTest` FALSE —

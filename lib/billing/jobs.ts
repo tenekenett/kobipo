@@ -41,6 +41,7 @@ import {
   subscriptionNotice,
 } from "@/lib/billing/notice"
 import { eventDate, logSubscriptionEvents, type SubscriptionEventInput } from "@/lib/billing/events"
+import { inheritPriceLines, toJsonPriceLines } from "@/lib/billing/order-lines"
 import { issueInvoiceQuietly } from "@/lib/invoicing/issue-sales-invoice"
 import { isTestPurchase } from "@/lib/invoicing/config"
 import { subscriptionNoticeEmail } from "@/lib/email/templates"
@@ -227,6 +228,13 @@ async function recordRenewalOrder(sub: {
   createdById?: string | null
 }, params: { cycle: BillingCycle; paidAt: Date; paymentRef: string | null }): Promise<boolean> {
   try {
+    // Kalem dökümü, o tutarı doğuran satın almadan devralınır — katalogdan yeniden
+    // hesaplanmaz ([[lib/billing/order-lines.ts]]).
+    const priceLines = await inheritPriceLines({
+      companyId: sub.companyId,
+      billingCycle: params.cycle,
+      amount: Number(sub.amount),
+    })
     const order = await prisma.packageOrder.create({
       data: {
         companyId: sub.companyId,
@@ -236,6 +244,7 @@ async function recordRenewalOrder(sub: {
         companyQuota: sub.companyQuota,
         billingCycle: params.cycle,
         amount: Number(sub.amount),
+        priceLines: priceLines ? toJsonPriceLines(priceLines) : undefined,
         autoRenew: true,
         status: "ACTIVE",
         paymentProvider: "PAYTR",

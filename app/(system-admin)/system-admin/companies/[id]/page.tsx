@@ -22,7 +22,9 @@ import {
 import { CompanyEInvoiceCard } from "@/components/system-admin/company-einvoice-card"
 import { CompanyModulesCard } from "@/components/system-admin/company-modules-card"
 import { CompanyQuotaCard } from "@/components/system-admin/company-quota-card"
+import { CompanyPurchasesCard } from "@/components/system-admin/company-purchases-card"
 import { GrantPeriodForm } from "@/components/system-admin/grant-period-form"
+import { getAccountPurchaseHistory } from "@/lib/billing/purchase-history"
 import { getAccountQuotas } from "@/lib/billing/entitlements"
 import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { CompanyUsersCard } from "@/components/system-admin/company-users-card"
@@ -124,6 +126,11 @@ export default async function CompanyDetailPage({
 
   // Elle süre verme kartı hesabın MEVCUT aboneliğini gösterir; kota gibi bu da hesap
   // kökünde tutulur, şube/ek firma detayında da kökün satırı okunur.
+  // "Neyi ne kadara aldı" — paket, kontör ve abonelik hareketleri tek yerde. Kapsam
+  // yine HESAPTIR: şube detayında da kökün ödemeleri görünür (kontör şubeden alınmış
+  // olabilir, orası da aynı cüzdandan ödüyor).
+  const purchaseHistory = await getAccountPurchaseHistory(company.id)
+
   const accountSubscription = await prisma.subscription.findFirst({
     where: { companyId: quotas.rootCompanyId },
     orderBy: { createdAt: "desc" },
@@ -334,6 +341,10 @@ export default async function CompanyDetailPage({
           </Card>
         ))}
       </div>
+
+      {/* Satın alma geçmişi tam genişlikte ve ÜSTTE: bir fiyat/içerik şikâyetinde ilk
+          bakılan yer burasıdır, kart ızgarasının dibinde aranmamalı. */}
+      <CompanyPurchasesCard history={purchaseHistory} companyName={company.name} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Firma bilgileri */}

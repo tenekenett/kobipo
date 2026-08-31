@@ -16,6 +16,7 @@ import {
   paidDependenciesOf,
 } from "@/lib/billing/free-modules"
 import { syncFreeModuleGrants } from "@/lib/billing/free-modules-sync"
+import { logPricingChanges, type PricingChangeInput } from "@/lib/billing/pricing-history"
 
 export const dynamic = "force-dynamic"
 
@@ -68,14 +69,18 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Güncellenecek öğe yok" }, { status: 400 })
     }
 
-    // Ücretsiz işaretinin ÖNCEKİ hâli: hizalama simetrik farktan yürüyor, bu yüzden
-    // yazmadan önce okunmalı.
-    const before = await prisma.pricingItem.findMany({ select: { key: true, isFree: true } })
+    // ÖNCEKİ hâlin TAMAMI okunur. İki iş birden görüyor: ücretsiz kümesi hizalaması
+    // simetrik farktan yürüyor, ve fiyat tarihçesi eski değeri ancak UPDATE'ten önce
+    // görebilir — sonrasında geri dönülemez biçimde kaybolur
+    // ([[lib/billing/pricing-history.ts]]).
+    const before = await prisma.pricingItem.findMany()
     const previousFree = freeModulesFromPricingItems(before)
+    const beforeByKey = new Map(before.map((i) => [i.key, i]))
 
     const ops = []
     const nextFreeKeys: string[] = []
     const touchedKeys = new Set<string>()
+    const changes: PricingChangeInput[] = []
     for (const raw of items) {
       const key = String(raw?.key ?? "").trim()
       if (!isValidItemKey(key)) {
@@ -104,6 +109,24 @@ export async function PUT(request: Request) {
         )
       }
       if (isFree && moduleKey) nextFreeKeys.push(moduleKey)
+
+      const previous = beforeByKey.get(key)
+      changes.push({
+        kind: "PRICING_ITEM",
+        targetKey: key,
+        targetLabel: label || previous?.label || key,
+        before: previous
+          ? {
+              monthlyPrice: previous.monthlyPrice,
+              yearlyPrice: previous.yearlyPrice,
+              isActive: previous.isActive,
+              isFree: previous.isFree,
+              label: previous.label,
+            }
+          : {},
+        after: { monthlyPrice, yearlyPrice, isActive, isFree, ...(label ? { label } : {}) },
+        changedById: auth.user.id,
+      })
 
       ops.push(
         prisma.pricingItem.update({
@@ -138,6 +161,8 @@ export async function PUT(request: Request) {
     const nextFree = sanitizeFreeModules(nextFreeKeys)
 
     await prisma.$transaction(ops)
+    // Katalogda ne değiştiği kalıcı kayda geçer. Yalnız GERÇEKTEN değişen alanlar yazılır.
+    await logPricingChanges(changes)
     // Hizalama ve sonraki okumalar yeni kümeyi görsün.
     invalidateFreeModuleCache()
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { requireSuperAdmin } from "@/lib/auth/require-super-admin"
 import { prisma } from "@/lib/db/prisma"
 import { sanitizeDisabledModules } from "@/lib/modules"
+import { logPricingChanges } from "@/lib/billing/pricing-history"
 import { Prisma } from "@prisma/client"
 
 export const dynamic = "force-dynamic"
@@ -57,7 +58,42 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     }
     if (body?.isActive != null) data.isActive = Boolean(body.isActive)
 
+    // Eski hâl UPDATE'ten ÖNCE okunur: sonrasında geri dönülemez biçimde kaybolur
+    // ([[lib/billing/pricing-history.ts]]).
+    const before = await prisma.plan.findUnique({ where: { id } })
+    if (!before) return NextResponse.json({ error: "Paket bulunamadı" }, { status: 404 })
+
     const updated = await prisma.plan.update({ where: { id }, data })
+
+    await logPricingChanges([
+      {
+        kind: "PLAN",
+        targetKey: id,
+        targetLabel: updated.name,
+        before: {
+          name: before.name,
+          monthlyPrice: before.monthlyPrice,
+          yearlyPrice: before.yearlyPrice,
+          includedModules: before.includedModules,
+          includedBranches: before.includedBranches,
+          includedCompanies: before.includedCompanies,
+          maxUsers: before.maxUsers,
+          isActive: before.isActive,
+        },
+        after: {
+          name: updated.name,
+          monthlyPrice: updated.monthlyPrice,
+          yearlyPrice: updated.yearlyPrice,
+          includedModules: updated.includedModules,
+          includedBranches: updated.includedBranches,
+          includedCompanies: updated.includedCompanies,
+          maxUsers: updated.maxUsers,
+          isActive: updated.isActive,
+        },
+        changedById: auth.user.id,
+      },
+    ])
+
     return NextResponse.json(updated)
   } catch (error: any) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
@@ -75,8 +111,29 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const { id } = await params
   try {
     // FK'lar (subscription.planId / packageOrder.planId) SET NULL olduğundan silme güvenli:
-    // geçmiş abonelik/siparişler korunur, plan bağı boşalır.
+    // geçmiş abonelik/siparişler korunur, plan bağı boşalır. Ama planın FİYATI onunla
+    // birlikte gider — eski siparişlerin neye dayandığı kalsın diye önce günlüğe yazılır.
+    const before = await prisma.plan.findUnique({ where: { id } })
     await prisma.plan.delete({ where: { id } })
+
+    if (before) {
+      await logPricingChanges([
+        {
+          kind: "PLAN",
+          targetKey: id,
+          targetLabel: before.name,
+          before: {
+            monthlyPrice: before.monthlyPrice,
+            yearlyPrice: before.yearlyPrice,
+            includedModules: before.includedModules,
+            isActive: before.isActive,
+          },
+          after: { monthlyPrice: null, yearlyPrice: null, includedModules: [], isActive: false },
+          changedById: auth.user.id,
+        },
+      ])
+    }
+
     return NextResponse.json({ ok: true })
   } catch (error: any) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {

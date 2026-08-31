@@ -2,7 +2,12 @@
 // istemciden gelen tutara ASLA güvenilmez. İstemci yalnızca seçimi (paket + ekstra modül +
 // şube adedi + firma adedi + periyot) gönderir, tutarı sunucu belirler.
 
-import { sanitizeDisabledModules, sanitizeFreeModules, withModuleDependencies } from "@/lib/modules"
+import {
+  moduleLabel,
+  sanitizeDisabledModules,
+  sanitizeFreeModules,
+  withModuleDependencies,
+} from "@/lib/modules"
 import {
   BRANCH_ITEM_KEY,
   COMPANY_ITEM_KEY,
@@ -146,7 +151,15 @@ export function computeOrder(input: ComputeOrderInput): ComputedOrder {
 
   for (const m of extraModules) {
     const unit = cyclePrice(pricing[modulePriceKey(m)], billingCycle)
-    lines.push({ key: modulePriceKey(m), label: `Modül: ${m}`, qty: 1, unitPrice: unit, total: unit })
+    // Etiket satırla birlikte SAKLANIYOR (`PackageOrder.priceLines`) ve destek ekranında
+    // aynen basılıyor; ham anahtar ("stock") değil insan adı ("Stok") yazılır.
+    lines.push({
+      key: modulePriceKey(m),
+      label: `Modül: ${moduleLabel(m)}`,
+      qty: 1,
+      unitPrice: unit,
+      total: unit,
+    })
   }
 
   if (extraBranches > 0) {

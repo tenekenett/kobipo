@@ -2090,6 +2090,39 @@ model PricingItem {
   @@map("pricing_items")
 }
 
+// Katalog değişikliklerinin APPEND-ONLY günlüğü: hangi kalemin hangi alanı, ne zaman,
+// kim tarafından, hangi değerden hangi değere çekildi.
+//
+// Neden var: `PricingItem` ve `Plan` yalnız SON hâli tutar. Bir fiyat değiştiğinde eski
+// değer kalıcı olarak kaybolurdu — 31.08.2026'da katalog güncellendi ve o günün sabahı
+// verilmiş 95 TL'lik siparişin hangi kaleme ne yazıldığı bir daha bulunamadı (aynı sepet
+// yeni fiyatlarla ~5.446 TL tutuyordu). Siparişin kendi `priceLines` snapshot'ı bundan
+// sonrası için yeterli; bu günlük ise KATALOĞUN kendi geçmişini tutar ve "o tarihte fiyat
+// neydi" sorusunu sipariş olmasa da cevaplar.
+//
+// Güncellenmez, silinmez. Bir kaydı düzeltmek gerekirse yeni satır yazılır.
+model PricingChange {
+  id          String   @id @default(cuid())
+  /// PRICING_ITEM | PLAN
+  targetKind  String
+  /// `PricingItem.key` ya da `Plan.id`.
+  targetKey   String
+  /// Okunur ad, değişiklik anı snapshot'ı — kalem sonradan silinse de satır anlamlı kalır.
+  targetLabel String
+  /// Değişen alan: monthlyPrice | yearlyPrice | isFree | isActive | includedModules …
+  field       String
+  /// Değerler metin olarak tutulur: alanlar sayı, bool ve dizi karışık.
+  oldValue    String?
+  newValue    String?
+  /// Değişikliği yapan süper admin; sistem tohumlamasında null.
+  changedById String?
+  createdAt   DateTime @default(now())
+
+  @@index([targetKind, targetKey, createdAt])
+  @@index([createdAt])
+  @@map("pricing_changes")
+}
+
 // Bir hesabın (kök/ana firma) aktif aboneliği. Hibrit + à la carte alımda tek bir
 // bundle olmayabileceğinden planId opsiyoneldir; efektif haklar snapshot olarak tutulur.
 model Subscription {
@@ -2223,6 +2256,15 @@ model PackageOrder {
   // `amount + discountAmount`tır. Yenilemede hangi tutarın çekileceğini
   // `DiscountCode.appliesToRenewals` belirler. [[DiscountCode]]
   amount           Decimal            @db.Decimal(10, 2)
+  // Tutarın KALEM KALEM dökümü (OrderLine[]: key, label, qty, unitPrice, total) —
+  // satın alma anında `computeOrder` ne hesapladıysa o. Toplamları `amount +
+  // discountAmount`a eşittir (indirim kalem değil, siparişin tamamına iner).
+  //
+  // Neden snapshot: katalog (`PricingItem`, `Plan`) canlıda değişiyor. Sonradan
+  // yeniden hesaplamak BUGÜNÜN fiyatını verir, müşterinin ödediğini değil — "şu
+  // modüle ne kadar ödedim" sorusunun cevabı o an yazılmazsa geri getirilemez.
+  // Eski siparişlerde ve dökümü üretilemeyen yollarda null'dır.
+  priceLines       Json?
   discountCodeId   String?
   discountCode     String? // sipariş anı snapshot'ı
   discountAmount   Decimal            @default(0) @db.Decimal(10, 2)

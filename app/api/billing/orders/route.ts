@@ -6,6 +6,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isBillingCycle } from "@/lib/billing/constants"
 import { resolveAccountRootId } from "@/lib/billing/entitlements"
 import { resolvePackageOrderAmount } from "@/lib/billing/order-amount"
+import { toJsonPriceLines } from "@/lib/billing/order-lines"
 import { evaluateDiscountCode } from "@/lib/billing/discount"
 import { isFreeAmount, settleFreePackageOrder } from "@/lib/billing/free-order"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
@@ -129,6 +130,9 @@ export const POST = withApiErrors(async function POST(request: Request) {
         billingCycle,
         // amount = TAHSİL EDİLEN tutar; liste tutarı `amount + discountAmount`.
         amount: payableAmount,
+        // Kalem dökümü tutarla BİRLİKTE saklanır. Katalog fiyatları sonradan
+        // değiştiğinde "bu modüle ne kadar ödedim" ancak bu snapshot'tan okunabilir.
+        priceLines: toJsonPriceLines(computed.lines),
         discountCodeId: discount?.codeId ?? null,
         discountCode: discount?.code ?? null,
         discountAmount: discount?.discountAmount ?? 0,
