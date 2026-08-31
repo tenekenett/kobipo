@@ -94,7 +94,8 @@ export const PUT = withApiErrors(async function PUT(
       return NextResponse.json({ error: "Açılış stoğu sayı olmalı" }, { status: 400 })
     }
 
-    const parsedDate = parseMovementDate(body.date)
+    // Açılış GÜN BAŞINA çapalanır: aynı gün girilmiş satışların önünde dursun.
+    const parsedDate = parseMovementDate(body.date, new Date(), { anchor: "dayStart" })
     if (!parsedDate.ok) {
       return NextResponse.json({ error: parsedDate.error }, { status: 400 })
     }

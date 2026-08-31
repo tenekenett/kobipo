@@ -126,9 +126,14 @@ export default function ProductDetailPage() {
     }
   }, [id, companyId])
 
+  // Depo dökümü ÜRÜNÜN ID'siyle sorulur, adres çubuğundaki slug ile değil:
+  // /api/depolar/stok slug çözmez, "zztest-stok-denemesi" hiçbir satıra uymaz ve
+  // kart her ürün için "henüz depo bazlı dağılım yok" diyordu (SEF adreslere
+  // geçildiğinden beri).
+  const productId = product?.id
   const fetchWarehouseStocks = useCallback(() => {
-    if (!id || !companyId) return
-    fetch(`/api/depolar/stok?companyId=${companyId}&productId=${id}`, { cache: "no-store" })
+    if (!productId || !companyId) return
+    fetch(`/api/depolar/stok?companyId=${companyId}&productId=${productId}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.stocks) {
@@ -136,7 +141,7 @@ export default function ProductDetailPage() {
         }
       })
       .catch(() => {})
-  }, [id, companyId])
+  }, [productId, companyId])
 
   useEffect(() => {
     fetchWarehouseStocks()

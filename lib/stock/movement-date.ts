@@ -35,7 +35,21 @@ const MIN_YEAR = 2000
  * fark burada korunur; ikisini de now'a çevirmek zararsız olurdu ama çağıranın
  * "kullanıcı tarih seçti mi" bilgisini kaybettirirdi.
  */
-export function parseMovementDate(raw: unknown, now: Date = new Date()): MovementDateResult {
+/**
+ * `anchor`: gün içindeki SAAT nasıl seçilsin?
+ *  • "now"      — yeni bir fiş yazılıyor. Bugün seçildiyse saat "şimdi" olur ki
+ *                 hareket defterde bugünkü diğerlerinin ARDINA dizilsin.
+ *  • "dayStart" — AÇILIŞ düzeltiliyor. Açılış, günün ilk kaydıdır: "şimdi"
+ *                 damgalanırsa aynı gün girilmiş satışların ARKASINA düşer ve
+ *                 defter "önce sattık, sonra açtık" gibi okunur (canlıda böyle
+ *                 görüldü: açılış satırı listenin en altına indi).
+ */
+export function parseMovementDate(
+  raw: unknown,
+  now: Date = new Date(),
+  opts: { anchor?: "now" | "dayStart" } = {},
+): MovementDateResult {
+  const anchor = opts.anchor ?? "now"
   if (raw === undefined || raw === null || raw === "") return { ok: true, date: null }
   if (typeof raw !== "string") return { ok: false, error: "Geçersiz tarih" }
 
@@ -48,7 +62,8 @@ export function parseMovementDate(raw: unknown, now: Date = new Date()): Movemen
     const year = Number(y)
     const month = Number(m)
     const day = Number(d)
-    const candidate = new Date(year, month - 1, day, 12, 0, 0, 0)
+    const hour = anchor === "dayStart" ? 0 : 12
+    const candidate = new Date(year, month - 1, day, hour, 0, 0, 0)
     // Takvimde olmayan gün (31 Şubat) JS'te sessizce kayar; geri okuyup doğruluyoruz.
     if (
       candidate.getFullYear() !== year ||
@@ -59,12 +74,13 @@ export function parseMovementDate(raw: unknown, now: Date = new Date()): Movemen
     }
     if (year < MIN_YEAR) return { ok: false, error: `Tarih ${MIN_YEAR} yılından eski olamaz` }
 
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0)
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, 0, 0, 0)
     if (candidate.getTime() > today.getTime()) {
       return { ok: false, error: "İleri tarihli stok hareketi yazılamaz" }
     }
-    // Bugün seçildiyse saat "şimdi" — defterdeki sıra giriş sırası olsun.
-    if (candidate.getTime() === today.getTime()) return { ok: true, date: new Date(now) }
+    if (candidate.getTime() === today.getTime() && anchor === "now") {
+      return { ok: true, date: new Date(now) }
+    }
     return { ok: true, date: candidate }
   }
 

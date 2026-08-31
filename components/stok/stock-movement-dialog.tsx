@@ -100,6 +100,14 @@ export function StockMovementDialog({
   const [isLoading, setIsLoading] = useState(false)
 
   const [rows, setRows] = useState<WarehouseRow[]>([])
+  /**
+   * Depo bakiyesi OKUNDU mu? Pencere açık kaldığı için (detay sayfasında bileşen
+   * mount'ta duruyor) bir önceki açılıştan kalan sayı, yenisi gelene kadar ekranda
+   * duruyordu: 150'ye çıkmış bir ürün "100" gösteriyordu. Sayım hedefi bu sayıdan
+   * okunduğu için ÖNİZLEME yanlış çıkıyordu (kayıt doğruydu — farkı sunucu kendi
+   * bakiyesinden hesaplıyor), yine de kullanıcıya yanlış sayı göstermemek gerek.
+   */
+  const [rowsLoaded, setRowsLoaded] = useState(false)
   const [opening, setOpening] = useState<OpeningInfo | null>(null)
 
   const cardQuantity = Number(product.stockQuantity) || 0
@@ -122,6 +130,8 @@ export function StockMovementDialog({
       )
     } catch {
       /* bakiye dökümü gösterilemezse pencere yine çalışır */
+    } finally {
+      setRowsLoaded(true)
     }
   }, [companyId, product.id])
 
@@ -155,6 +165,8 @@ export function StockMovementDialog({
     setDescription("")
     setDate("")
     setOpening(null)
+    setRows([])
+    setRowsLoaded(false)
     loadRows()
     loadOpening()
   }, [open, initialMode, loadRows, loadOpening])
@@ -213,10 +225,10 @@ export function StockMovementDialog({
     if (!typedValid || typed == null) return null
     if (mode === "IN") return cardQuantity + typed
     if (mode === "OUT") return cardQuantity - typed
-    if (mode === "COUNT") return cardQuantity + (typed - warehouseQuantity)
+    if (mode === "COUNT") return rowsLoaded ? cardQuantity + (typed - warehouseQuantity) : null
     if (mode === "OPENING" && opening) return cardQuantity + (typed - opening.quantity)
     return null
-  }, [mode, typed, typedValid, cardQuantity, warehouseQuantity, opening])
+  }, [mode, typed, typedValid, cardQuantity, warehouseQuantity, opening, rowsLoaded])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -226,6 +238,10 @@ export function StockMovementDialog({
     }
     if (mode !== "OPENING" && !warehouseId) {
       toast({ title: "Depo seçin", variant: "destructive" })
+      return
+    }
+    if (mode === "COUNT" && !rowsLoaded) {
+      toast({ title: "Depo bakiyesi henüz okunmadı", description: "Bir saniye bekleyin." })
       return
     }
     if ((mode === "IN" || mode === "OUT") && typed === 0) {
@@ -245,7 +261,11 @@ export function StockMovementDialog({
                 quantity: typed,
                 unitPrice: unitPrice === "" ? null : unitPrice,
                 warehouseId: warehouseId || undefined,
-                date: date || undefined,
+                // Tarih DOKUNULMADIYSA gönderilmez: gövdede tarih varsa sunucu
+                // hareketi yeniden damgalar ve açılış, aynı gün yapılmış işlemlerin
+                // arkasına düşerdi (miktarı düzeltmek isteyen kullanıcı defterin
+                // sırasını bozuyordu).
+                date: date && date !== toDateInputValue(opening?.date ?? null) ? date : undefined,
               }),
             })
           : await fetch("/api/stok/movements", {
@@ -346,7 +366,8 @@ export function StockMovementDialog({
                 ))}
               </select>
               <p className="text-xs text-muted-foreground">
-                Bu depodaki bakiye: {fmtQty(warehouseQuantity)} {product.unit}
+                Bu depodaki bakiye:{" "}
+                {rowsLoaded ? `${fmtQty(warehouseQuantity)} ${product.unit}` : "…"}
               </p>
             </div>
 

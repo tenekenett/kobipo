@@ -58,3 +58,24 @@ describe("toDateInputValue", () => {
     expect(toDateInputValue("çöp")).toBe("")
   })
 })
+
+describe("parseMovementDate — açılış çapası", () => {
+  it("dayStart: bugün seçilse bile GÜN BAŞI yazılır (açılış, günün ilk kaydıdır)", () => {
+    const result = parseMovementDate("2026-08-30", NOW, { anchor: "dayStart" })
+    expect(result.ok).toBe(true)
+    const date = (result as { date: Date }).date
+    expect(date.getDate()).toBe(30)
+    expect(date.getHours()).toBe(0)
+    expect(date.getMinutes()).toBe(0)
+  })
+
+  it("dayStart: geçmiş gün de gün başına çapalanır", () => {
+    const date = (parseMovementDate("2026-08-29", NOW, { anchor: "dayStart" }) as { date: Date }).date
+    expect(date.getDate()).toBe(29)
+    expect(date.getHours()).toBe(0)
+  })
+
+  it("dayStart: ileri tarih yine reddedilir", () => {
+    expect(parseMovementDate("2026-08-31", NOW, { anchor: "dayStart" }).ok).toBe(false)
+  })
+})
