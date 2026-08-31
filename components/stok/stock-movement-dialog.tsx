@@ -108,6 +108,13 @@ export function StockMovementDialog({
    * bakiyesinden hesaplıyor), yine de kullanıcıya yanlış sayı göstermemek gerek.
    */
   const [rowsLoaded, setRowsLoaded] = useState(false)
+  /**
+   * Depoyu kullanıcı kendisi mi seçti? Seçtiyse hiçbir otomatik kural üstüne
+   * yazmaz. Bayrak olmadan iki davranış çatışıyordu: bir önceki açılışta seçilen
+   * depo pencerede kalıyor (yan depoya giriş yapan kullanıcının SONRAKİ çıkışı da
+   * sessizce oraya gidiyordu), ama bakiye geldiğinde de yeniden seçilemiyordu.
+   */
+  const [warehouseTouched, setWarehouseTouched] = useState(false)
   const [opening, setOpening] = useState<OpeningInfo | null>(null)
 
   const cardQuantity = Number(product.stockQuantity) || 0
@@ -167,23 +174,34 @@ export function StockMovementDialog({
     setOpening(null)
     setRows([])
     setRowsLoaded(false)
+    setWarehouseTouched(false)
     loadRows()
     loadOpening()
   }, [open, initialMode, loadRows, loadOpening])
 
-  // Varsayılan depo: ürünün stoğunun DURDUĞU depo (en çok bakiye), yoksa firmanın
-  // ana deposu. "İlk depo" seçmek, malın olmadığı depoya çıkış yazdırırdı.
+  // Depo seçimi TEK yerden kurulur, sırası önemlidir:
+  //  1. Kullanıcı seçtiyse dokunulmaz.
+  //  2. Açılış sekmesinde depo, açılış hareketinin durduğu depodur — açılışı
+  //     başka depoya taşımak bilinçli bir işlemdir, varsayılan olamaz.
+  //  3. Diğer kiplerde stoğun DURDUĞU depo (en çok bakiye). "İlk depo" seçmek,
+  //     malın olmadığı depodan çıkış yazdırırdı.
+  //  4. Bakiye henüz okunmadıysa firmanın ana deposu (geçici; 3 devreye girince
+  //     kullanıcı dokunmadıysa güncellenir).
   useEffect(() => {
-    if (!open || warehouses.length === 0) return
-    setWarehouseId((current) => {
-      if (current && warehouses.some((w) => w.id === current)) return current
-      const withStock = rows.filter((r) => r.quantity !== 0)
-      if (withStock.length > 0) {
-        return withStock.reduce((a, b) => (b.quantity > a.quantity ? b : a)).warehouseId
-      }
-      return warehouses.find((w) => w.isDefault)?.id ?? warehouses[0].id
-    })
-  }, [open, warehouses, rows])
+    if (!open || warehouses.length === 0 || warehouseTouched) return
+    const isOwn = (id: string | null | undefined) => Boolean(id) && warehouses.some((w) => w.id === id)
+
+    if (mode === "OPENING" && opening && isOwn(opening.warehouseId)) {
+      setWarehouseId(opening.warehouseId as string)
+      return
+    }
+    const withStock = rows.filter((r) => r.quantity !== 0)
+    if (rowsLoaded && withStock.length > 0) {
+      setWarehouseId(withStock.reduce((a, b) => (b.quantity > a.quantity ? b : a)).warehouseId)
+      return
+    }
+    setWarehouseId(warehouses.find((w) => w.isDefault)?.id ?? warehouses[0].id)
+  }, [open, mode, warehouses, rows, rowsLoaded, opening, warehouseTouched])
 
   // Sekme değişince alanlar sıfırlanır: Açılış sekmesindeki 120, Giriş sekmesine
   // geçildiğinde "120 adet daha ekle" anlamına gelirdi.
@@ -201,7 +219,6 @@ export function StockMovementDialog({
     setQuantity(String(opening.quantity))
     setUnitPrice(opening.unitPrice == null ? "" : String(opening.unitPrice))
     setDate(toDateInputValue(opening.date))
-    if (opening.warehouseId) setWarehouseId(opening.warehouseId)
   }, [open, mode, opening])
 
   const warehouseQuantity = useMemo(() => {
@@ -229,6 +246,19 @@ export function StockMovementDialog({
     if (mode === "OPENING" && opening) return cardQuantity + (typed - opening.quantity)
     return null
   }, [mode, typed, typedValid, cardQuantity, warehouseQuantity, opening, rowsLoaded])
+
+  /**
+   * SEÇİLİ DEPONUN kaydetme sonrası bakiyesi. Toplam yeterliyken depo yetersiz
+   * olabiliyor (140 adet var ama 100'ü öbür depoda) ve sunucu bunu 400 ile
+   * reddediyor. Kullanıcının bunu Kaydet'e bastıktan sonra öğrenmesi gereksiz.
+   */
+  const projectedWarehouse = useMemo(() => {
+    if (!typedValid || typed == null || !rowsLoaded) return null
+    if (mode === "IN") return warehouseQuantity + typed
+    if (mode === "OUT") return warehouseQuantity - typed
+    if (mode === "COUNT") return typed
+    return null
+  }, [mode, typed, typedValid, warehouseQuantity, rowsLoaded])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -354,7 +384,10 @@ export function StockMovementDialog({
               <select
                 id="sm-warehouse"
                 value={warehouseId}
-                onChange={(e) => setWarehouseId(e.target.value)}
+                onChange={(e) => {
+                  setWarehouseTouched(true)
+                  setWarehouseId(e.target.value)
+                }}
                 disabled={isLoading || warehouses.length === 0}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
@@ -392,6 +425,12 @@ export function StockMovementDialog({
                 >
                   Yeni toplam stok: {fmtQty(projected)} {product.unit}
                   {projected < 0 && " — negatif bakiye kaydedilemez"}
+                </p>
+              )}
+              {projected != null && projected >= 0 && projectedWarehouse != null && projectedWarehouse < 0 && (
+                <p className="text-xs font-medium text-red-600">
+                  Seçili depoda yalnız {fmtQty(warehouseQuantity)} {product.unit} var — bu depo
+                  eksiye düşemez.
                 </p>
               )}
             </div>
