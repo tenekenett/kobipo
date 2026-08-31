@@ -73,13 +73,22 @@ export interface ComputedOrder {
   extraModules: string[]
   /** Seçimde yer alan ama ücretsiz olduğu için ücretlendirilmeyen modüller (gösterim için). */
   freeModules: string[]
-  /** Normalize edilmiş toplam ek şube kotası (>= paket dahili). */
+  /** Normalize edilmiş TOPLAM şube kotası (>= paket dahili). */
   branchQuota: number
-  /** Ücretlendirilen ek şube sayısı (kota − paket dahili). */
+  /**
+   * Paketin İÇİNDEN gelen şube sayısı — bedeli paket fiyatına dahildir, ayrıca
+   * ücretlendirilmez. Ekran bu sayıyı ayrı basmak zorunda: "3 şube" tek bir sayı olarak
+   * gösterildiğinde müşteri pakete dahil olanı ek şube sanıp aynı hakkı ikinci kez
+   * satın almaya çalışıyor ya da kotayı düşürüp sahip olduğu hakkı siliyordu.
+   */
+  includedBranches: number
+  /** Ücretlendirilen ek şube sayısı (toplam kota − paket dahili). */
   extraBranches: number
-  /** Normalize edilmiş toplam ek firma kotası (>= paket dahili). */
+  /** Normalize edilmiş TOPLAM ek firma kotası (>= paket dahili). */
   companyQuota: number
-  /** Ücretlendirilen ek firma sayısı (kota − paket dahili). */
+  /** Paketin içinden gelen ek firma sayısı — `includedBranches` ile aynı gerekçe. */
+  includedCompanies: number
+  /** Ücretlendirilen ek firma sayısı (toplam kota − paket dahili). */
   extraCompanies: number
   lines: OrderLine[]
 }
@@ -192,8 +201,10 @@ export function computeOrder(input: ComputeOrderInput): ComputedOrder {
     extraModules,
     freeModules: free,
     branchQuota,
+    includedBranches,
     extraBranches,
     companyQuota,
+    includedCompanies,
     extraCompanies,
     lines,
   }

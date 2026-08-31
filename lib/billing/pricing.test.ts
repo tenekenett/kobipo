@@ -116,3 +116,69 @@ describe("computeOrder — ücretsiz modüller", () => {
     expect(out.amount).toBe(2 * 50 + 80)
   })
 })
+
+/**
+ * PAKET DAHİLİ KOTA — "3 şube dahil" yazan bir paketle ek şube almanın matematiği.
+ *
+ * Ekran bu üç sayıyı ayrı ayrı basıyor (dahil / ek / toplam); hesabın da onları ayrı
+ * döndürmesi şart, yoksa arayüz kendi çıkarımını yapar ve sunucunun ücretlendirdiğinden
+ * başka bir kırılım gösterir. Sözleşme: `branchQuota` TOPLAM, `extraBranches` ÜCRETLİ
+ * kısım, `includedBranches` paketten geleni.
+ */
+describe("computeOrder — paket dahili şube/firma kotası", () => {
+  const plan = {
+    id: "p1",
+    name: "Esnaf",
+    monthlyPrice: 500,
+    yearlyPrice: 5000,
+    includedModules: ["sales"],
+    includedBranches: 3,
+    includedCompanies: 1,
+  }
+
+  it("pakete dahil şubeler ücretlendirilmez", () => {
+    const out = computeOrder({ ...base, plan, chosenModules: [], branchQuota: 3 })
+    expect(out.includedBranches).toBe(3)
+    expect(out.extraBranches).toBe(0)
+    expect(out.branchQuota).toBe(3)
+    expect(out.lines.find((l) => l.key === "branch")).toBeUndefined()
+    expect(out.amount).toBe(500)
+  })
+
+  it("yalnız paket dahilinin ÜSTÜ ücretlendirilir", () => {
+    const out = computeOrder({ ...base, plan, chosenModules: [], branchQuota: 5 })
+    expect(out.extraBranches).toBe(2)
+    expect(out.branchQuota).toBe(5)
+    expect(out.lines.find((l) => l.key === "branch")).toMatchObject({ qty: 2, total: 100 })
+    expect(out.amount).toBe(600)
+  })
+
+  it("paket dahilinin ALTI istenemez — kota dahiline yükseltilir", () => {
+    // Ekran zaten sayacın alt sınırını tutuyor; burası sunucu tarafındaki ikinci savunma.
+    const out = computeOrder({ ...base, plan, chosenModules: [], branchQuota: 1 })
+    expect(out.branchQuota).toBe(3)
+    expect(out.extraBranches).toBe(0)
+  })
+
+  it("ek firma kotası şubeyle aynı kalıbı izler, AYRI havuzdur", () => {
+    const out = computeOrder({
+      ...base,
+      plan,
+      chosenModules: [],
+      branchQuota: 4,
+      companyQuota: 3,
+    })
+    expect(out.includedCompanies).toBe(1)
+    expect(out.extraCompanies).toBe(2)
+    expect(out.companyQuota).toBe(3)
+    // 500 paket + 1 ek şube (50) + 2 ek firma (160)
+    expect(out.amount).toBe(710)
+  })
+
+  it("paketsiz seçimde dahil sayılar sıfırdır, kotanın tamamı ücretlidir", () => {
+    const out = computeOrder({ ...base, chosenModules: [], branchQuota: 2 })
+    expect(out.includedBranches).toBe(0)
+    expect(out.extraBranches).toBe(2)
+    expect(out.amount).toBe(100)
+  })
+})

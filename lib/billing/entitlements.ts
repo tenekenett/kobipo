@@ -14,9 +14,8 @@
 import { prisma } from "@/lib/db/prisma"
 import { MODULE_KEYS, sanitizeDisabledModules, withModuleDependencies } from "@/lib/modules"
 import { getFreeModuleKeys } from "@/lib/billing/free-modules"
-import { graceDaysFor, type BillingCycle } from "@/lib/billing/constants"
+import { graceDaysFor } from "@/lib/billing/constants"
 import { DAY_MS } from "@/lib/billing/notice"
-import { addMonths, addYears } from "@/lib/billing/period"
 
 /**
  * Bir firmanın hesap kökünü döndürür: `accountRootId` doluysa o, değilse firmanın
@@ -301,10 +300,9 @@ export async function getAccountQuotas(companyId: string): Promise<AccountQuotas
 /**
  * Periyoda göre dönem bitiş tarihi (başlangıçtan +1 ay / +1 yıl).
  *
- * Ay/yıl ekleme kuralı [[lib/billing/period.ts]]'te TEK yerde: taşma yerine ayın son
- * gününe kırpılır (31 Ocak + 1 ay = 28 Şubat, 3 Mart değil). Elle süre verme de aynı
- * fonksiyonu kullanır — aksi halde "bir ay" iki farklı tarihe düşerdi.
+ * Gövdesi [[lib/billing/period.ts]]'e taşındı — abonelik EKRANI da "ödersem dönemim ne
+ * zamana uzar" cümlesini basarken aynı cevabı vermek zorunda ve bu dosya prisma çektiği
+ * için istemciye alınamıyor. Buradan yeniden dışa veriliyor ki mevcut çağıranlar
+ * (satın alma callback'i, yinelenen çekim) değişmesin.
  */
-export function periodEndFor(cycle: BillingCycle, start = new Date()): Date {
-  return cycle === "YEARLY" ? addYears(start, 1) : addMonths(start, 1)
-}
+export { periodEndFor } from "@/lib/billing/period"

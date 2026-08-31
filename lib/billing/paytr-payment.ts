@@ -7,7 +7,13 @@
 import type { PackageOrder } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { recordDiscountRedemption } from "@/lib/billing/discount"
-import { isBillingCycle, type BillingCycle } from "@/lib/billing/constants"
+import {
+  BRANCH_ITEM_KEY,
+  COMPANY_ITEM_KEY,
+  isBillingCycle,
+  type BillingCycle,
+} from "@/lib/billing/constants"
+import { parsePriceLines } from "@/lib/billing/order-lines"
 import { applyEntitlements, periodEndFor } from "@/lib/billing/entitlements"
 import { eventDate, logSubscriptionEvent } from "@/lib/billing/events"
 import { issueInvoiceQuietly } from "@/lib/invoicing/issue-sales-invoice"
@@ -29,12 +35,31 @@ export type OrderSnapshot = {
   branchQuota: number
   companyQuota: number
   billingCycle: string
+  /**
+   * Kota takviyesinin YENİLEME tutarına ne ekleyeceğini hesaplamak için birim LİSTE
+   * fiyatları (siparişin kendi dökümünden, yoksa katalogdan — bkz. `resolveQuotaUnitPrices`).
+   * `null` = fiyat çözülemedi; o üründen kota eklendiyse tutara HİÇ dokunulmaz, yanlış
+   * bir yenileme tutarı yazmaktansa eski tutar kalsın.
+   */
+  branchUnitPrice?: number | null
+  companyUnitPrice?: number | null
+  /**
+   * İndirimin YENİLEMELERE de işlediği oran (1 = indirim yenilemeye işlemiyor).
+   * `DiscountCode.appliesToRenewals` false ise yenileme liste fiyatından sürer; bu alan
+   * olmadan tek seferlik kupon, eklenen kotanın ömür boyu indirimine dönüşürdü.
+   */
+  renewalPriceRatio?: number
 }
 
 /** Karar için gereken mevcut abonelik alanları. */
 export type ExistingSubscription = {
   purchasedModules: string[]
   periodEnd: Date | null
+  /** Hâlihazırdaki kotalar — takviye bunların ALTINA inemez (bkz. planSubscriptionWrite). */
+  branchQuota: number
+  companyQuota: number
+  /** Yinelenen çekimde kartlan çekilecek tutar (`runRecurring`). Deneme aboneliğinde null. */
+  amount: number | null
 }
 
 /**
@@ -43,7 +68,13 @@ export type ExistingSubscription = {
  *  - `activate`: abonelik ACTIVE yazılır; `applyEntitlements` yalnız modül satın alındığında true.
  */
 export type SubscriptionWrite =
-  | { kind: "quota-top-up"; branchQuota: number; companyQuota: number }
+  | {
+      kind: "quota-top-up"
+      branchQuota: number
+      companyQuota: number
+      /** Yeni yenileme tutarı; `null` = dokunma (fiyat çözülemedi ya da kota artmadı). */
+      amount: number | null
+    }
   | {
       kind: "activate"
       purchasedModules: string[]
@@ -75,6 +106,49 @@ export type SubscriptionWrite =
  * Sonucu: dönem ortasında YÜKSELTME yapan müşteri de kalan süresinin üstüne tam bir
  * periyot alır. Tam periyot bedeli ödediği için doğru olan budur.
  */
+function round2(n: number): number {
+  return Number(n.toFixed(2))
+}
+
+/**
+ * Kota takviyesinden sonra aboneliğin YENİLEME tutarı ne olmalı?
+ *
+ * Kaçak buradaydı: takviye `Subscription.branchQuota`yı yükseltiyor ama `amount`a hiç
+ * dokunmuyordu. `runRecurring` her dönem `sub.amount`ı çekiyor — yani modülsüz alınan
+ * şube/firma kotası BİR KEZ ödeniyor, sonraki bütün dönemlerde bedava sürüyordu.
+ * Canlıda kullanılmış bir yol: `resolvedModules: []` olan siparişler mevcut.
+ *
+ * Kural: tutar, siparişin tamamı kadar değil **EKLENEN kota kadar** artar. Sipariş
+ * (paket seçilmediği için) kotanın TAMAMINI ücretlendirir — hâlihazırda sahip olunan
+ * kotayı bir kez daha yenileme tutarına yazmak, her dönem iki kez tahsil etmek olurdu.
+ *
+ * `null` döner (= tutara dokunma) iki durumda:
+ *  - Eklenen kota yok: zaten artacak bir şey yok.
+ *  - Eklenen kotanın birim fiyatı çözülemedi: yanlış bir yenileme tutarı yazmaktansa
+ *    eski tutar kalsın; olay kaydı ve log durumu görünür kılıyor.
+ */
+export function topUpRenewalAmount(
+  order: OrderSnapshot,
+  existing: ExistingSubscription,
+  branchQuota: number,
+  companyQuota: number,
+): number | null {
+  const branchAdded = Math.max(0, branchQuota - existing.branchQuota)
+  const companyAdded = Math.max(0, companyQuota - existing.companyQuota)
+  if (branchAdded === 0 && companyAdded === 0) return null
+
+  // Fiyatı bilinmeyen bir üründen kota eklendiyse hesap YAPILMAZ (kısmî artış, tam
+  // artıştan daha yanıltıcı olurdu).
+  if (branchAdded > 0 && order.branchUnitPrice == null) return null
+  if (companyAdded > 0 && order.companyUnitPrice == null) return null
+
+  const added =
+    branchAdded * (order.branchUnitPrice ?? 0) + companyAdded * (order.companyUnitPrice ?? 0)
+  if (added <= 0) return null
+
+  return round2((existing.amount ?? 0) + added * (order.renewalPriceRatio ?? 1))
+}
+
 export function planSubscriptionWrite(
   order: OrderSnapshot,
   existing: ExistingSubscription | null,
@@ -90,10 +164,19 @@ export function planSubscriptionWrite(
     // Mevcut abonelik varsa yalnız kotalara dokun. Yoksa satır aç ama MODÜL VERME
     // (şube/firma ekleme aktif abonelik ister — app/api/companies/route.ts, fail-closed).
     if (existing) {
+      // TAKVİYE KOTA DÜŞÜRMEZ. Sipariş iki kotayı da taşır ama müşteri genellikle
+      // yalnız birini artırıyor; diğeri formda 0 kalırsa eskisi SİLİNİRDİ. Canlıda
+      // oldu: 15 Ağu 2026'da ek firma alan hesabın bir gün önce ödediği şube kotası
+      // (branchQuota 1 → 0) yok oldu. Para karşılığı alınmış bir hak, başka bir ürünün
+      // satın alınmasıyla kaybolamaz; küçültmenin meşru yolu modül İÇEREN bir
+      // siparişle aboneliği baştan yazmaktır (o yol kullanıcıyı ekranda uyarır).
+      const branchQuota = Math.max(existing.branchQuota, order.branchQuota)
+      const companyQuota = Math.max(existing.companyQuota, order.companyQuota)
       return {
         kind: "quota-top-up",
-        branchQuota: order.branchQuota,
-        companyQuota: order.companyQuota,
+        branchQuota,
+        companyQuota,
+        amount: topUpRenewalAmount(order, existing, branchQuota, companyQuota),
       }
     }
     return {
@@ -133,6 +216,43 @@ export function planSubscriptionWrite(
       (m) => !order.resolvedModules.includes(m),
     ),
   }
+}
+
+/**
+ * Kota ürünlerinin birim LİSTE fiyatı — önce siparişin kendi dökümünden, yoksa katalogdan.
+ *
+ * Sıra önemli: `priceLines` müşterinin O AN gördüğü fiyattır ve snapshot'tır; katalog
+ * fiyatı sonradan değişmiş olabilir. Döküm yoksa (bu kolon 31 Ağu 2026'da eklendi, eski
+ * siparişlerde null) katalog en iyi tahmindir. İkisi de yoksa `null` döner ve yenileme
+ * tutarına hiç dokunulmaz.
+ */
+async function resolveQuotaUnitPrices(
+  order: Pick<PackageOrder, "priceLines">,
+  cycle: BillingCycle,
+): Promise<{ branch: number | null; company: number | null }> {
+  const lines = parsePriceLines(order.priceLines)
+  const fromLines = (key: string) => {
+    const line = lines?.find((l) => l.key === key)
+    return line ? line.unitPrice : null
+  }
+
+  let branch = fromLines(BRANCH_ITEM_KEY)
+  let company = fromLines(COMPANY_ITEM_KEY)
+  if (branch == null || company == null) {
+    const items = await prisma.pricingItem.findMany({
+      where: { key: { in: [BRANCH_ITEM_KEY, COMPANY_ITEM_KEY] } },
+      select: { key: true, monthlyPrice: true, yearlyPrice: true },
+    })
+    const catalogPrice = (key: string) => {
+      const item = items.find((i) => i.key === key)
+      if (!item) return null
+      const v = Number(cycle === "YEARLY" ? item.yearlyPrice : item.monthlyPrice)
+      return Number.isFinite(v) ? v : null
+    }
+    if (branch == null) branch = catalogPrice(BRANCH_ITEM_KEY)
+    if (company == null) company = catalogPrice(COMPANY_ITEM_KEY)
+  }
+  return { branch, company }
 }
 
 /**
@@ -176,7 +296,39 @@ export async function activateSubscription(order: PackageOrder, card: SavedCard 
     orderBy: { createdAt: "desc" },
   })
 
-  const write = planSubscriptionWrite(order, existing, now)
+  // YENİLEME TUTARI — `Subscription.amount`, saklı kartla çekilecek tutardır
+  // ([[lib/billing/jobs.ts]] runRecurring). İndirim yalnız ilk ödemeye aitse abonelik
+  // LİSTE tutarıyla yazılır; kod "yenilemelerde de geçerli" ise indirimli tutar kalır.
+  // Burada karar verilmezse tek seferlik kupon ömür boyu indirime döner.
+  const listAmount = Number(order.amount) + Number(order.discountAmount ?? 0)
+  const renewalAmount = discountAppliesToRenewals ? Number(order.amount) : listAmount
+  // Kota takviyesi tutarın TAMAMINI değil eklenen kotayı yazar; kuponun yenilemeye
+  // işleyip işlemediği oran olarak taşınır.
+  const renewalPriceRatio =
+    discountAppliesToRenewals && listAmount > 0 ? Number(order.amount) / listAmount : 1
+
+  const quotaUnit = await resolveQuotaUnitPrices(order, cycle)
+  const write = planSubscriptionWrite(
+    {
+      resolvedModules: order.resolvedModules,
+      branchQuota: order.branchQuota,
+      companyQuota: order.companyQuota,
+      billingCycle: order.billingCycle,
+      branchUnitPrice: quotaUnit.branch,
+      companyUnitPrice: quotaUnit.company,
+      renewalPriceRatio,
+    },
+    existing
+      ? {
+          purchasedModules: existing.purchasedModules,
+          periodEnd: existing.periodEnd,
+          branchQuota: existing.branchQuota,
+          companyQuota: existing.companyQuota,
+          amount: existing.amount != null ? Number(existing.amount) : null,
+        }
+      : null,
+    now,
+  )
 
   if (write.kind === "quota-top-up") {
     // Kota takviyesi — abonelik satırının geri kalanı olduğu gibi kalır.
@@ -187,22 +339,43 @@ export async function activateSubscription(order: PackageOrder, card: SavedCard 
         companyQuota: write.companyQuota,
         provider: "PAYTR",
         paymentRef: order.paymentRef,
+        // EKLENEN KOTA YENİLEME TUTARINA DA GİRER. Yazılmazsa müşteri kotayı bir kez
+        // öder, sonraki her dönem bedava kullanır (bkz. topUpRenewalAmount).
+        ...(write.amount != null ? { amount: write.amount } : {}),
+        // SAKLI KART — takviye de gerçek bir PayTR ödemesidir; token'ı atmak,
+        // yükselttiğimiz tutarın hiç çekilememesi demek olurdu. `undefined` =
+        // "alana dokunma": kart gelmediyse mevcut token korunur.
+        ...(card.token ? { providerSubscriptionId: card.token } : {}),
+        ...(card.brand ? { cardBrand: card.brand } : {}),
+        ...(card.last4 ? { cardLast4: card.last4 } : {}),
       },
     })
+    if (write.amount == null) {
+      console.warn(
+        `[billing-callback] order ${order.id}: kota takviyesinde yenileme tutarı ` +
+          `GÜNCELLENMEDİ (eklenen kota yok ya da birim fiyat çözülemedi) — ` +
+          `branch=${quotaUnit.branch}, company=${quotaUnit.company}`,
+      )
+    }
     console.log(
       `[billing-callback] order ${order.id}: kota takviyesi — branchQuota=${write.branchQuota}, ` +
-        `companyQuota=${write.companyQuota} (modüller/dönem korundu, status=${existing!.status})`,
+        `companyQuota=${write.companyQuota}, yenileme tutarı=${write.amount ?? "değişmedi"} ` +
+        `(modüller/dönem korundu, status=${existing!.status})`,
     )
     await logSubscriptionEvent({
       type: "QUOTA_CHANGED",
       companyId: order.companyId,
       subscriptionId: existing!.id,
       actor: "PAYTR",
-      summary: `Kota takviyesi — şube ${write.branchQuota}, ek firma ${write.companyQuota}`,
+      summary:
+        `Kota takviyesi — şube ${write.branchQuota}, ek firma ${write.companyQuota}` +
+        (write.amount != null ? `, yenileme tutarı ${write.amount}` : ""),
       detail: {
         orderId: order.id,
         branchQuota: write.branchQuota,
         companyQuota: write.companyQuota,
+        previousAmount: existing!.amount != null ? Number(existing!.amount) : null,
+        renewalAmount: write.amount,
         // Kota almak modül almak DEĞİLDİR; olay kaydı bunu da anlatsın.
         modulesUntouched: true,
       },
@@ -232,13 +405,6 @@ export async function activateSubscription(order: PackageOrder, card: SavedCard 
         `[${write.droppedModules.join(",")}] — sipariş bunları içermiyordu.`,
     )
   }
-
-  // YENİLEME TUTARI — Subscription.amount, saklı kartla çekilecek tutardır
-  // ([[lib/billing/jobs.ts]] runRecurring). İndirim yalnız ilk ödemeye aitse
-  // abonelik LİSTE tutarıyla yazılır; kod "yenilemelerde de geçerli" ise indirimli
-  // tutar kalır. Burada karar verilmezse tek seferlik kupon ömür boyu indirime döner.
-  const listAmount = Number(order.amount) + Number(order.discountAmount ?? 0)
-  const renewalAmount = discountAppliesToRenewals ? Number(order.amount) : listAmount
 
   const data = {
     userId,

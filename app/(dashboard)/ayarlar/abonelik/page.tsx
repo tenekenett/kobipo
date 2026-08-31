@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -13,7 +13,13 @@ import {
   withModuleDependencies,
 } from "@/lib/modules"
 import { computeOrder, type PricingMap, type PlanPricing } from "@/lib/billing/pricing"
-import { modulePriceKey, type BillingCycle } from "@/lib/billing/constants"
+import {
+  BRANCH_ITEM_KEY,
+  COMPANY_ITEM_KEY,
+  modulePriceKey,
+  type BillingCycle,
+} from "@/lib/billing/constants"
+import { periodEndFor } from "@/lib/billing/period"
 import { Check, Loader2, AlertTriangle, Sparkles, Receipt } from "lucide-react"
 import {
   DiscountCodeField,
@@ -81,6 +87,12 @@ type Catalog = {
 
 const CUSTOM = "__custom__" // "paketsiz" seçimi
 
+const dateFmt = new Intl.DateTimeFormat("tr-TR", {
+  day: "2-digit",
+  month: "long",
+  year: "numeric",
+})
+
 const tl = new Intl.NumberFormat("tr-TR", {
   style: "currency",
   currency: "TRY",
@@ -110,8 +122,15 @@ export default function AbonelikPage() {
   const [cycle, setCycle] = useState<BillingCycle>("MONTHLY")
   const [selectedPlanId, setSelectedPlanId] = useState<string>(CUSTOM)
   const [extras, setExtras] = useState<Set<string>>(new Set())
-  const [branchQuota, setBranchQuota] = useState(0)
-  const [companyQuota, setCompanyQuota] = useState(0)
+  // KOTA DURUMU "EK ADET"TİR, TOPLAM DEĞİL.
+  //
+  // Ekran eskiden toplam kotayı tutuyordu ve müşteri "3 şube dahil" yazan bir paketle
+  // birlikte yine "3" gören bir sayaç görüyordu: ek almak için 4 mü yazacağını
+  // bilemiyor, "zaten bende var" deyip 0'a çekince ödediği kotayı siliyordu. Ek adet
+  // tutulduğunda sayaç yalnız ÜCRETLENDİRİLEN kısmı gösterir; toplam ondan türer
+  // (`computed.branchQuota`) ve paket değişse de kullanıcının seçtiği ek adet kaymaz.
+  const [extraBranches, setExtraBranches] = useState(0)
+  const [extraCompanies, setExtraCompanies] = useState(0)
   const [autoRenew, setAutoRenew] = useState(true)
 
   const [submitting, setSubmitting] = useState(false)
@@ -186,10 +205,11 @@ export default function AbonelikPage() {
 
     const included = new Set(plan?.includedModules ?? [])
     setExtras(new Set(s.purchasedModules.filter((m) => !included.has(m))))
-    setBranchQuota(Math.max(s.branchQuota, catalog.currentBranches, plan?.includedBranches ?? 0))
-    setCompanyQuota(
-      Math.max(s.companyQuota, catalog.currentCompanies, plan?.includedCompanies ?? 0),
-    )
+    // Mevcut kotanın pakete DAHİL olmayan kısmı = bugün ücretini ödediğiniz ek adet.
+    // Böylece form açıldığında hiçbir şey değiştirmeden ödeme yapan müşteri aynı
+    // kotayla kalır; sayaç ise "paketin üstüne kaç tane aldım" sorusunu yanıtlar.
+    setExtraBranches(Math.max(0, s.branchQuota - (plan?.includedBranches ?? 0)))
+    setExtraCompanies(Math.max(0, s.companyQuota - (plan?.includedCompanies ?? 0)))
     setAutoRenew(s.autoRenew)
   }, [catalog])
 
@@ -222,25 +242,41 @@ export default function AbonelikPage() {
     () => new Set([...includedModuleSet, ...freeModuleSet]),
     [includedModuleSet, freeModuleSet],
   )
-  const minBranches = selectedPlan?.includedBranches ?? 0
-  const minCompanies = selectedPlan?.includedCompanies ?? 0
-  // Kota, AÇIK olan şube/firma sayısının altına inemez: sipariş kotayı değiştirdiği için
-  // daha düşük bir değer, zaten var olanları kotasız bırakırdı.
-  const minQuota = Math.max(minBranches, catalog?.currentBranches ?? 0)
-  const minCompanyQuota = Math.max(minCompanies, catalog?.currentCompanies ?? 0)
+  const includedBranches = selectedPlan?.includedBranches ?? 0
+  const includedCompanies = selectedPlan?.includedCompanies ?? 0
+  // AÇIK olan şube/firma kotasız kalamaz: sipariş kotayı baştan yazdığı için toplam,
+  // hâlihazırda açık olanın altına inemez. Paket onları karşılamıyorsa aradaki fark
+  // ZORUNLU ek adettir — sayacın alt sınırı budur.
+  const minExtraBranches = Math.max(0, (catalog?.currentBranches ?? 0) - includedBranches)
+  const minExtraCompanies = Math.max(0, (catalog?.currentCompanies ?? 0) - includedCompanies)
+  const branchExtras = Math.max(extraBranches, minExtraBranches)
+  const companyExtras = Math.max(extraCompanies, minExtraCompanies)
 
-  // Paket değişince: dahil modülleri "ekstra" setinden çıkar, kotaları en az paket dahiline çek.
+  /**
+   * Paket değişince: dahil modülleri "ekstra" setinden çıkar, kotalarda ise TOPLAMI KORU.
+   *
+   * Korunan şey toplamdır, ek adet değil — müşterinin cümlesi "5 şubem olsun", "paketin
+   * üstüne 5 tane daha" değil. 3 şube içeren bir pakete geçildiğinde ek adet 5'ten 2'ye
+   * düşer (kota aynı kalır, fiyat düşer); 1 şubelik pakete geçildiğinde 4'e çıkar (kota
+   * yine aynı kalır, fark ücretlendirilir ve kırılımda görünür).
+   *
+   * Eskiden TOPLAM tutuluyor ve yalnız büyütülüyordu: 5 şube içeren paketten 1 şubelik
+   * pakete geçen müşterinin sepetine sessizce "4 ek şube" giriyordu, üstelik hiçbir yerde
+   * yazmadan. Artık aynı sonucun sebebi kota kartında kalem kalem duruyor.
+   */
   function selectPlan(planId: string) {
-    setSelectedPlanId(planId)
     const plan = planId === CUSTOM ? null : catalog?.plans.find((p) => p.id === planId) ?? null
+    const totalBranches = includedBranches + branchExtras
+    const totalCompanies = includedCompanies + companyExtras
+    setExtraBranches(Math.max(0, totalBranches - (plan?.includedBranches ?? 0)))
+    setExtraCompanies(Math.max(0, totalCompanies - (plan?.includedCompanies ?? 0)))
+    setSelectedPlanId(planId)
     if (plan) {
       setExtras((prev) => {
         const next = new Set(prev)
         for (const m of plan.includedModules) next.delete(m)
         return next
       })
-      setBranchQuota((q) => Math.max(q, plan.includedBranches))
-      setCompanyQuota((q) => Math.max(q, plan.includedCompanies))
     }
   }
 
@@ -271,8 +307,8 @@ export default function AbonelikPage() {
       computeOrder({
         plan: selectedPlan ? toPlanPricing(selectedPlan) : null,
         chosenModules: Array.from(extras),
-        branchQuota: Math.max(branchQuota, minQuota),
-        companyQuota: Math.max(companyQuota, minCompanyQuota),
+        branchQuota: includedBranches + branchExtras,
+        companyQuota: includedCompanies + companyExtras,
         billingCycle: cycle,
         pricing: pricingMap,
         // Ön izleme sunucunun hesabıyla aynı kalsın diye ücretsiz küme buraya da girer;
@@ -282,10 +318,10 @@ export default function AbonelikPage() {
     [
       selectedPlan,
       extras,
-      branchQuota,
-      minQuota,
-      companyQuota,
-      minCompanyQuota,
+      includedBranches,
+      branchExtras,
+      includedCompanies,
+      companyExtras,
       cycle,
       pricingMap,
       catalog,
@@ -304,6 +340,52 @@ export default function AbonelikPage() {
     )
   }, [catalog, computed.resolvedModules, freeModuleSet])
 
+  /**
+   * Bu sipariş SUNUCUDA hangi yolu tetikler?
+   *
+   * `lib/billing/paytr-payment.ts` → `planSubscriptionWrite` ile AYNI koşul: modülsüz ama
+   * kotalı bir sipariş "kota takviyesi"dir — dönemi uzatmaz, modüllere dokunmaz ve kotayı
+   * DÜŞÜREMEZ. Modül/paket içeren sipariş ise aboneliği baştan yazar ve dönemi uzatır.
+   * Ekranın bunu bilmesi şart: müşteri neye para verdiğini iki cümleyle görmeli, yoksa
+   * "1 şube için neden paketin tamamını ödüyorum" sorusu cevapsız kalıyor.
+   */
+  const isQuotaTopUp =
+    computed.resolvedModules.length === 0 &&
+    (computed.branchQuota > 0 || computed.companyQuota > 0)
+
+  /** Ödemesi yapılmış, henüz bitmemiş bir dönem var mı? (yeni periyot onun üstüne biner) */
+  const hasFuturePeriod = useMemo(() => {
+    const end = catalog?.subscription?.periodEnd
+    return !!end && new Date(end).getTime() > Date.now()
+  }, [catalog])
+
+  /** Ödeme sonrası dönem sonu — kural sunucuyla ortak ([[lib/billing/period.ts]]). */
+  const newPeriodEnd = useMemo(() => {
+    if (isQuotaTopUp) return null
+    const end = catalog?.subscription?.periodEnd
+    // Dönem HENÜZ BİTMEDİYSE yeni periyot onun üstüne eklenir (erken yenileyen gün kaybetmez).
+    return periodEndFor(cycle, hasFuturePeriod && end ? new Date(end) : new Date())
+  }, [catalog, cycle, hasFuturePeriod, isQuotaTopUp])
+
+  /**
+   * Bu sipariş kotayı DÜŞÜRÜYOR mu? Modül içeren sipariş aboneliğin yeni hâlini yazar,
+   * yani kota da bu değere çekilir. `droppedModules` ile aynı gerekçe: sessiz kalırsa
+   * müşteri "yeniden ödemeyeyim" diye sayacı indirir ve ödediği hakkı siler (canlıda
+   * oldu, bkz. lib/billing/paytr-payment.ts → quota-top-up notu).
+   */
+  const quotaDrops = useMemo(() => {
+    const s = catalog?.subscription
+    if (!s || isQuotaTopUp) return [] as string[]
+    const out: string[] = []
+    if (computed.branchQuota < s.branchQuota) {
+      out.push(`şube kotanız ${s.branchQuota} → ${computed.branchQuota}`)
+    }
+    if (computed.companyQuota < s.companyQuota) {
+      out.push(`ek firma kotanız ${s.companyQuota} → ${computed.companyQuota}`)
+    }
+    return out
+  }, [catalog, computed.branchQuota, computed.companyQuota, isQuotaTopUp])
+
   const cyclePrice = (key: string) => {
     const item = pricingMap[key]
     if (!item) return 0
@@ -314,7 +396,45 @@ export default function AbonelikPage() {
     return v != null && Number.isFinite(v) ? v : 0
   }
 
+  /**
+   * Modülsüz ("yalnız kota") siparişin durumu — kapı sunucudakiyle AYNI ölçüde
+   * ([[lib/billing/quota-order.ts]]). Ayrışırsa kullanıcı ödeme ekranına gidip 400 yer.
+   *
+   * Takviye dönemi UZATMAZ: kota da artmıyorsa ödemenin karşılığı hiç olmaz. Aktif
+   * olmayan abonelikte ise kota yükselse bile kullanılamaz (`getAccountQuotas`
+   * fail-closed) — ikisi de düğmeyi kapatır, sebebi yazılır.
+   */
+  const topUp = useMemo(() => {
+    if (!isQuotaTopUp) return null
+    const s = catalog?.subscription ?? null
+    const unit = (key: string) => {
+      const item = pricingMap[key]
+      if (!item) return 0
+      return cycle === "YEARLY" ? item.yearlyPrice : item.monthlyPrice
+    }
+    const branchAdded = Math.max(0, computed.branchQuota - (s?.branchQuota ?? 0))
+    const companyAdded = Math.max(0, computed.companyQuota - (s?.companyQuota ?? 0))
+    const blocked: "inactive" | "no-increase" | null = !s
+      ? null
+      : !s.isPaidActive && !s.isTrialActive
+        ? "inactive"
+        : branchAdded === 0 && companyAdded === 0
+          ? "no-increase"
+          : null
+    return {
+      branchAdded,
+      companyAdded,
+      blocked,
+      // Yenileme tutarına EKLENECEK kısım — sunucudaki `topUpRenewalAmount` ile aynı hesap.
+      addedPrice:
+        branchAdded * unit(BRANCH_ITEM_KEY) + companyAdded * unit(COMPANY_ITEM_KEY),
+      currentBranchQuota: s?.branchQuota ?? 0,
+      currentCompanyQuota: s?.companyQuota ?? 0,
+    }
+  }, [isQuotaTopUp, catalog, computed.branchQuota, computed.companyQuota, pricingMap, cycle])
+
   const canPay =
+    !topUp?.blocked &&
     !!catalog?.paytrEnabled &&
     computed.amount > 0 &&
     (computed.resolvedModules.length > 0 ||
@@ -331,7 +451,7 @@ export default function AbonelikPage() {
   const [discountDirty, setDiscountDirty] = useState(false)
   const discountSelectionKey = `${selectedPlan?.id ?? ""}|${Array.from(extras)
     .sort()
-    .join(",")}|${branchQuota}|${companyQuota}|${cycle}`
+    .join(",")}|${computed.branchQuota}|${computed.companyQuota}|${cycle}`
 
   async function handlePay() {
     if (!companySlug || submitting) return
@@ -367,8 +487,10 @@ export default function AbonelikPage() {
           companyId: companySlug,
           planId: selectedPlan?.id ?? null,
           chosenModules: Array.from(extras),
-          branchQuota: Math.max(branchQuota, minQuota),
-          companyQuota: Math.max(companyQuota, minCompanyQuota),
+          // Sunucu sözleşmesi TOPLAM kotadır (paket dahili + ek); tutarı yine kendisi
+          // hesaplar ([[lib/billing/order-amount.ts]]).
+          branchQuota: computed.branchQuota,
+          companyQuota: computed.companyQuota,
           billingCycle: cycle,
           autoRenew,
           billing,
@@ -586,49 +708,50 @@ export default function AbonelikPage() {
         </CardContent>
       </Card>
 
-      {/* Kotalar — şube ve firma AYRI havuzlardır, biri diğerinin yerine geçmez. */}
+      {/* KOTALAR — şube ve firma AYRI havuzlardır, biri diğerinin yerine geçmez.
+          Sayaç EK adedi sorar, toplamı değil: "3 şube dahil" yazan bir pakette toplam
+          sorulunca müşteri hangi kısmın ücretli olduğunu göremiyordu. Kırılım
+          (dahil / ek / toplam) her satırın altında açıkça basılır. */}
       <Card>
         <CardContent className="divide-y py-0">
-          <div className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-medium">Ek şube kotası</p>
-              <p className="text-xs text-muted-foreground">
-                Aynı firmanın <strong>ikinci adresi</strong> (aynı VKN). Açabileceğiniz TOPLAM
-                şube sayısı — mevcut kotanızın üstüne eklenmez, bu değer geçerli olur. Şu an{" "}
-                {catalog.currentBranches} şubeniz var
-                {sub ? `, kotanız ${sub.branchQuota}` : ""}.
-                {minBranches > 0 && ` Paket ${minBranches} şube içeriyor.`}
-                {computed.extraBranches > 0 && ` ${computed.extraBranches} ek şube ücretlendirilir.`}
-              </p>
-            </div>
-            <QuantityStepper
-              value={Math.max(branchQuota, minQuota)}
-              onChange={(v) => setBranchQuota(Math.max(minQuota, Math.floor(v)))}
-              min={minQuota}
-              step={1}
-            />
-          </div>
+          <QuotaRow
+            title="Şube kotası"
+            description={
+              <>
+                Aynı firmanın <strong>ikinci adresi</strong> (aynı VKN). Ünvan, vergi dairesi
+                ve e-Dönüşüm hesabı ana firmadan devralınır.
+              </>
+            }
+            unitLabel="şube"
+            included={computed.includedBranches}
+            extra={computed.extraBranches}
+            total={computed.branchQuota}
+            unitPrice={cyclePrice(BRANCH_ITEM_KEY)}
+            open={catalog.currentBranches}
+            currentQuota={sub ? sub.branchQuota : null}
+            minExtra={minExtraBranches}
+            onChange={setExtraBranches}
+          />
 
-          <div className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-medium">Ek firma kotası</p>
-              <p className="text-xs text-muted-foreground">
+          <QuotaRow
+            title="Ek firma kotası"
+            description={
+              <>
                 <strong>Ayrı VKN&apos;li</strong> ikinci bir firma — kendi ünvanı, adresi ve
                 e-Dönüşüm hesabı olur; modülleriniz ve aboneliğiniz ortak kalır, tek ödeme
-                yaparsınız. Şu an {catalog.currentCompanies} ek firmanız var
-                {sub ? `, kotanız ${sub.companyQuota}` : ""}.
-                {minCompanies > 0 && ` Paket ${minCompanies} ek firma içeriyor.`}
-                {computed.extraCompanies > 0 &&
-                  ` ${computed.extraCompanies} ek firma ücretlendirilir.`}
-              </p>
-            </div>
-            <QuantityStepper
-              value={Math.max(companyQuota, minCompanyQuota)}
-              onChange={(v) => setCompanyQuota(Math.max(minCompanyQuota, Math.floor(v)))}
-              min={minCompanyQuota}
-              step={1}
-            />
-          </div>
+                yaparsınız.
+              </>
+            }
+            unitLabel="ek firma"
+            included={computed.includedCompanies}
+            extra={computed.extraCompanies}
+            total={computed.companyQuota}
+            unitPrice={cyclePrice(COMPANY_ITEM_KEY)}
+            open={catalog.currentCompanies}
+            currentQuota={sub ? sub.companyQuota : null}
+            minExtra={minExtraCompanies}
+            onChange={setExtraCompanies}
+          />
         </CardContent>
       </Card>
 
@@ -685,8 +808,8 @@ export default function AbonelikPage() {
               payload={{
                 planId: selectedPlan?.id ?? null,
                 chosenModules: Array.from(extras),
-                branchQuota: Math.max(branchQuota, minQuota),
-                companyQuota: Math.max(companyQuota, minCompanyQuota),
+                branchQuota: computed.branchQuota,
+                companyQuota: computed.companyQuota,
                 billingCycle: cycle,
               }}
               selectionKey={discountSelectionKey}
@@ -701,6 +824,70 @@ export default function AbonelikPage() {
             <Switch checked={autoRenew} onCheckedChange={setAutoRenew} />
             <span>Dönem sonunda otomatik yenile</span>
           </label>
+
+          {/* NE SATIN ALDIĞIN, NE ALMADIĞIN. Paket seçiliyken tek bir ek şube almak da
+              aboneliğin tamamını yeniden yazar ve dönemi bir periyot uzatır; bu cümle
+              olmadan müşteri "1 şube için neden paketin tamamını ödüyorum" sorusuna
+              cevap bulamıyordu. */}
+          {computed.amount > 0 && (
+            <p className="rounded-md bg-muted/60 p-2.5 text-xs text-muted-foreground">
+              {newPeriodEnd ? (
+                <>
+                  Bu ödeme aboneliğinizin tamamını kapsar: seçtiğiniz paket, modüller ve kota
+                  bir dönem daha geçerli olur. Döneminiz{" "}
+                  {hasFuturePeriod ? "kalan sürenin üstüne eklenerek " : ""}
+                  <strong>{dateFmt.format(newPeriodEnd)}</strong> tarihine kadar sürer.
+                </>
+              ) : (
+                <>
+                  Bu sipariş yalnız <strong>kota takviyesidir</strong>: modülleriniz ve dönem
+                  bitiş tarihiniz değişmez, yalnız kotanız yükselir.
+                  {/* Eklenen kota YENİLEME tutarına da girer — söylenmezse müşteri bir
+                      sonraki dönemde beklemediği bir artışla karşılaşır. */}
+                  {topUp && topUp.addedPrice > 0 && (
+                    <>
+                      {" "}
+                      Dönem yenilendiğinde tahsil edilecek tutar{" "}
+                      <strong>{tl.format(topUp.addedPrice)}</strong> artar.
+                    </>
+                  )}
+                </>
+              )}
+            </p>
+          )}
+
+          {topUp?.blocked && (
+            <p className="flex items-start gap-2 rounded-md bg-amber-50 p-2.5 text-xs text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+              <AlertTriangle className="mt-px h-4 w-4 shrink-0" />
+              <span>
+                {topUp.blocked === "inactive" ? (
+                  <>
+                    Aboneliğiniz aktif olmadığı için yalnız kota satın alınamaz — aldığınız
+                    kotayı kullanamazdınız. Önce bir <strong>paket ya da modül</strong> seçerek
+                    aboneliğinizi başlatın.
+                  </>
+                ) : (
+                  <>
+                    Kotanız zaten bu seviyede (şube {topUp.currentBranchQuota}, ek firma{" "}
+                    {topUp.currentCompanyQuota}). Yalnız kota siparişi{" "}
+                    <strong>dönemi uzatmaz</strong>, yani bu ödemenin karşılığı olmaz. Kota
+                    eklemek için yukarıdan ek adedi yükseltin; aboneliğinizi yenilemek için
+                    paket ya da modül seçin.
+                  </>
+                )}
+              </span>
+            </p>
+          )}
+
+          {quotaDrops.length > 0 && (
+            <p className="flex items-start gap-2 rounded-md bg-amber-50 p-2.5 text-xs text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+              <AlertTriangle className="mt-px h-4 w-4 shrink-0" />
+              <span>
+                Bu sipariş aboneliğinizin yeni hâli olacak; <strong>{quotaDrops.join(", ")}</strong>{" "}
+                olarak düşer. Kotanızı korumak için yukarıdaki ek adetleri geri yükseltin.
+              </span>
+            </p>
+          )}
 
           {droppedModules.length > 0 && (
             <p className="flex items-start gap-2 rounded-md bg-amber-50 p-2.5 text-xs text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
@@ -776,6 +963,96 @@ export default function AbonelikPage() {
           </Button>
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+/**
+ * Tek bir kota satırı: sayaç EK (ücretli) adedi sorar, altındaki kırılım toplamı anlatır.
+ *
+ * Neden kırılım şart: paket 3 şube içerdiğinde ekran tek bir "3" gösteriyordu ve bu sayı
+ * hem "pakette var" hem "ek aldım" okunabiliyordu. Müşteri ya aynı hakkı ikinci kez
+ * satın almaya çalışıyor ya da "bende zaten var" deyip sayacı sıfırlıyor, siparişi
+ * onaylayınca ödediği kotayı kaybediyordu. Üç sayı ayrı basıldığında iki okuma da
+ * mümkün değil.
+ */
+function QuotaRow({
+  title,
+  description,
+  unitLabel,
+  included,
+  extra,
+  total,
+  unitPrice,
+  open,
+  currentQuota,
+  minExtra,
+  onChange,
+}: {
+  title: string
+  description: ReactNode
+  /** "şube" / "ek firma" — cümlelerde geçen birim adı. */
+  unitLabel: string
+  included: number
+  extra: number
+  total: number
+  unitPrice: number
+  /** Hesapta HÂLİHAZIRDA açık olan adet. */
+  open: number
+  /** Aboneliğin şu anki kotası (abonelik yoksa null). */
+  currentQuota: number | null
+  /** Açık olanları karşılamak için ZORUNLU en az ek adet. */
+  minExtra: number
+  onChange: (value: number) => void
+}) {
+  return (
+    <div className="flex flex-col gap-4 py-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0 space-y-2">
+        <p className="font-medium">{title}</p>
+        <p className="text-xs text-muted-foreground">{description}</p>
+
+        {/* KIRILIM — hangi adedin ücretli olduğu tek bakışta görünsün. */}
+        <dl className="max-w-xs space-y-1 text-xs">
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-muted-foreground">Pakete dahil</dt>
+            <dd className="tabular-nums">
+              {included > 0 ? `${included} ${unitLabel}` : "—"}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-muted-foreground">Ek (ücretli)</dt>
+            <dd className="tabular-nums">
+              {extra > 0 ? `${extra} × ${tl.format(unitPrice)}` : "—"}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3 border-t pt-1 font-medium">
+            <dt>Toplam kota</dt>
+            <dd className="tabular-nums">
+              {total} {unitLabel}
+            </dd>
+          </div>
+        </dl>
+
+        <p className="text-xs text-muted-foreground">
+          Şu an {open} {unitLabel} açık
+          {currentQuota != null ? `, kotanız ${currentQuota}` : ""}.
+          {/* Alt sınırın SEBEBİ yazılmazsa "eksi" düğmesi cevapsız biçimde ölü görünür. */}
+          {minExtra > 0 &&
+            (included > 0
+              ? ` Açık olanlar kotasız kalamaz: paket ${included} tanesini karşılıyor, kalan ${minExtra} tanesi ek olarak alınmalı.`
+              : ` Açık olanlar kotasız kalamaz: paket ${unitLabel} içermediği için ${minExtra} tanesi ek olarak alınmalı.`)}
+        </p>
+      </div>
+
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        <QuantityStepper
+          value={extra}
+          onChange={(v) => onChange(Math.max(minExtra, Math.floor(v) || 0))}
+          min={minExtra}
+          step={1}
+        />
+        <span className="text-[11px] text-muted-foreground">ek {unitLabel}</span>
+      </div>
     </div>
   )
 }

@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db/prisma"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isBillingCycle } from "@/lib/billing/constants"
-import { resolveAccountRootId } from "@/lib/billing/entitlements"
+import { isPaidActive, isTrialActive, resolveAccountRootId } from "@/lib/billing/entitlements"
+import { checkQuotaOnlyOrder } from "@/lib/billing/quota-order"
 import { resolvePackageOrderAmount } from "@/lib/billing/order-amount"
 import { toJsonPriceLines } from "@/lib/billing/order-lines"
 import { evaluateDiscountCode } from "@/lib/billing/discount"
@@ -69,6 +70,38 @@ export const POST = withApiErrors(async function POST(request: Request) {
       return NextResponse.json({ error: priced.error }, { status: priced.status })
     }
     const { computed, planId, planName } = priced
+
+    // MODÜLSÜZ ("yalnız kota") SİPARİŞ KAPISI. Bu sipariş ödeme sonrası "kota takviyesi"
+    // olarak işlenir: dönem uzamaz, modüller değişmez, kota düşmez. Dolayısıyla kotayı da
+    // artırmıyorsa müşteri paranın karşılığında hiçbir şey almaz; abonelik aktif değilse
+    // de aldığı kotayı kullanamaz (`getAccountQuotas` fail-closed). Kural saf ve testli:
+    // [[lib/billing/quota-order.ts]].
+    const quotaOnly =
+      computed.resolvedModules.length === 0 &&
+      (computed.branchQuota > 0 || computed.companyQuota > 0)
+    if (quotaOnly) {
+      const sub = await prisma.subscription.findFirst({
+        where: { companyId: rootId },
+        orderBy: { createdAt: "desc" },
+      })
+      const guard = checkQuotaOnlyOrder({
+        quotaOnly,
+        branchQuota: computed.branchQuota,
+        companyQuota: computed.companyQuota,
+        existing: sub
+          ? {
+              branchQuota: sub.branchQuota,
+              companyQuota: sub.companyQuota,
+              // `getAccountQuotas` ile AYNI ölçü; ayrışırsa ekran "hakkın var" derken
+              // uç 400 döndürür.
+              active: isPaidActive(sub) || isTrialActive(sub),
+            }
+          : null,
+      })
+      if (!guard.ok) {
+        return NextResponse.json({ error: guard.error }, { status: 400 })
+      }
+    }
 
     // İNDİRİM KODU — hesap KÖKÜ üzerinden değerlendirilir: abonelik hesaba yazılır,
     // "firma başına 1 kez" hakkını şubeler paylaşır. Geçersiz kodda sipariş açılmaz.

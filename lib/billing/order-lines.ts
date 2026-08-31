@@ -44,11 +44,16 @@ export function deriveContentLines(order: {
   for (const m of modules) {
     lines.push({ key: modulePriceKey(m), label: `Modül: ${moduleLabel(m)}`, qty: 1 })
   }
+  // KOTA SATIRLARI TOPLAMDIR, satın alınan EK adet değil: `PackageOrder.branchQuota`
+  // siparişin sonunda geçerli olacak toplam kotayı tutar ve paket 3 şube içeriyorsa o
+  // 3 de içindedir. "Ek Şube × 4" yazmak, 1 ek şube için ödeme yapmış müşteriye 4 tane
+  // satılmış gibi görünüyordu. Ücretlendirilen ek adet yalnız `priceLines`ta durur
+  // (yukarıdaki tablo); burası "sipariş sonunda kotan ne oldu" sorusunu yanıtlar.
   if (order.branchQuota > 0) {
-    lines.push({ key: BRANCH_ITEM_KEY, label: "Ek Şube", qty: order.branchQuota })
+    lines.push({ key: BRANCH_ITEM_KEY, label: "Şube kotası (toplam)", qty: order.branchQuota })
   }
   if (order.companyQuota > 0) {
-    lines.push({ key: COMPANY_ITEM_KEY, label: "Ek Firma", qty: order.companyQuota })
+    lines.push({ key: COMPANY_ITEM_KEY, label: "Ek firma kotası (toplam)", qty: order.companyQuota })
   }
   return lines
 }

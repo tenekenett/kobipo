@@ -5,6 +5,8 @@
 // soruya üç cevap çıkar — bu alt sistemde daha önce tam olarak bu oldu
 // (docs/paket-abonelik/ABONELIK-TAMAMLAMA.md → Faz 6, "erken yenileyen gün kaybediyor").
 
+import type { BillingCycle } from "@/lib/billing/constants"
+
 export function addDays(date: Date, n: number): Date {
   const d = new Date(date)
   d.setDate(d.getDate() + n)
@@ -36,6 +38,18 @@ export function addYears(date: Date, n: number): Date {
 
 function daysInMonth(year: number, monthIndex: number): number {
   return new Date(year, monthIndex + 1, 0).getDate()
+}
+
+/**
+ * Periyoda göre dönem bitiş tarihi (başlangıçtan +1 ay / +1 yıl).
+ *
+ * Burada durur çünkü SUNUCU DIŞINDAN da soruluyor: abonelik ekranı "ödersem dönemim ne
+ * zamana uzar" cümlesini basarken aynı cevabı vermek zorunda. `entitlements.ts` prisma
+ * çekiyor, istemciye alınamaz; kural orada kalsaydı ekran kendi takvimini yazar ve
+ * müşteriye sunucudan farklı bir tarih gösterirdi.
+ */
+export function periodEndFor(cycle: BillingCycle, start = new Date()): Date {
+  return cycle === "YEARLY" ? addYears(start, 1) : addMonths(start, 1)
 }
 
 // ---------------------------------------------------------------------------

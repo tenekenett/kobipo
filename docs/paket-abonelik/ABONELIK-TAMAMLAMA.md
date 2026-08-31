@@ -768,3 +768,103 @@ veri aktarım ekranına yönlendiriyor ve ADMIN'e "Aboneliği yeniden başlat" s
 Doğrulama: `npx tsc --noEmit` temiz · `npx vitest run` 46 dosya / 552 test ·
 `npm run build` temiz. **Tarayıcıda elle e2e YAPILMADI** — arşiv ekranını görmek için
 canlıda 30 gün önce kilitlenmiş bir hesap ya da elle `archivedAt` damgası gerekir.
+
+### Faz 8 — pakete dahil kota ile ek kotanın ayrışması ✅ (2026-08-31)
+
+**Şikâyet:** "paketin içinde 3 şube kotası var, harici almak istediğimde karışıyor."
+
+Ekran kota sayacında **TOPLAM** kotayı tutuyordu. Paket "3 şube dahil" derken sayaç da
+"3" gösteriyordu ve bu sayı iki türlü okunabiliyordu: *pakette var* mı, *ek aldım* mı?
+Sonuçları canlıda görüldü:
+
+- Ek şube almak isteyen müşteri 4 mü yazacağını 1 mi bilemiyor; 1 yazınca sayaç sessizce
+  3'e geri sıçrıyordu (alt sınır, sebebi yazılmadan).
+- "Bunlar zaten bende var, ikinci kez ödemeyeyim" diyip sayacı düşüren müşteri kotasını
+  SİLİYORDU. **Gerçekleşti:** `cmojuwru3…` hesabı 13 Ağu'da 1 ek şube aldı, 15 Ağu'da ek
+  firma alırken sipariş `branchQuota: 0` taşıdı ve ödenmiş şube kotası yok oldu.
+- Paket değiştirmek sepete sessizce ek kalem yazıyordu: kota yalnız büyütülüyordu
+  (`Math.max(q, plan.includedBranches)`), 5 şubelik paketten 1 şubeliğe geçen müşteri
+  hiçbir yerde yazmadan "4 ek şube" ödüyordu.
+
+**Kural artık tek cümle: sayaç EK (ücretlendirilen) adedi sorar, toplam ondan türer.**
+
+| Ne | Nerede |
+|---|---|
+| Kırılımın kaynağı | `computeOrder` → `includedBranches` / `extraBranches` / `branchQuota` (ve firma eşleniği) |
+| Ekran durumu | `abonelik/page.tsx` → `extraBranches` / `extraCompanies` (toplam DEĞİL) |
+| Kota satırı | `QuotaRow` — "Pakete dahil / Ek (ücretli) / **Toplam kota**" üç satır ayrı basılır |
+| Takviye kapısı | `planSubscriptionWrite` → `quota-top-up` artık `Math.max(existing, order)` |
+| Geçmiş etiketi | `deriveContentLines` → "Şube kotası (toplam)" ("Ek Şube × 4" yanıltıcıydı) |
+| Dönem kuralı | `periodEndFor` `lib/billing/period.ts`e taşındı — ekran da aynı tarihi basıyor |
+
+Kararlar:
+
+- **Paket değişince TOPLAM korunur, ek adet yeniden türetilir.** Müşterinin cümlesi
+  "5 şubem olsun", "paketin üstüne 5 tane daha" değil. 3 şube içeren pakete geçince ek
+  adet 5→2 düşer (kota aynı, fiyat düşer); 1 şubelik pakete geçince 4'e çıkar (kota yine
+  aynı, fark artık kırılımda görünür).
+- **Sayacın alt sınırı SEBEBİYLE yazılır.** Alt sınır `max(0, açık adet − pakete dahil)`:
+  açık şubeler kotasız kalamaz. Yazılmazsa "eksi" düğmesi cevapsız biçimde ölü görünüyor.
+- **Kota takviyesi kota DÜŞÜRMEZ.** Sipariş iki kotayı da taşır ama müşteri genellikle
+  yalnız birini artırır; diğeri formda 0 kalırsa eskisi silinirdi (yukarıdaki canlı olay).
+  Para karşılığı alınmış hak, başka bir ürünün satın alınmasıyla kaybolamaz. Küçültmenin
+  meşru yolu modül İÇEREN bir siparişle aboneliği baştan yazmaktır — ve o yol artık
+  ekranda `quotaDrops` uyarısı gösteriyor ("şube kotanız 3 → 1 olarak düşer").
+- **Siparişin NE OLDUĞU özet kartında yazıyor.** Paket/modül içeren sipariş aboneliği
+  baştan yazar ve dönemi bir periyot uzatır (tarih basılır); modülsüz kota siparişi ise
+  takviyedir, dönem ve modüller değişmez. Bu iki cümle olmadan "1 şube için neden paketin
+  tamamını ödüyorum" sorusu cevapsız kalıyordu.
+
+**Bilerek YAPILMADI — ayrı bir "kota ekle" (pro-rata takviye) akışı.** Bugünkü model
+"her sipariş aboneliğin yeni hâlidir": tam periyot bedeli ödenir, tam periyot alınır.
+Yanına gün bazlı fiyatlanan ikinci bir satın alma yolu koymak fiyatı, fatura kalemlerini
+ve kuponları birden etkilerdi. Kota takviyesi bugünkü hâliyle tam periyot fiyatlıdır.
+
+### Faz 9 — kota takviyesinin PARASI (yenileme tutarı + karşılıksız ödeme kapısı) ✅ (2026-08-31)
+
+Faz 8'in devamı; iki delik de kota takviyesinin üç "yapmaz"ından (dönemi uzatmaz,
+modüllere dokunmaz, kotayı düşürmez) doğuyordu.
+
+**1. Yenileme tutarı kaçağı.** `quota-top-up` `Subscription.branchQuota`yı yükseltip
+`amount`a hiç dokunmuyordu. `runRecurring` her dönem `sub.amount`ı çekiyor — yani
+modülsüz alınan şube/firma kotası **bir kez** ödenip sonraki bütün dönemlerde bedava
+sürüyordu. Canlıda kullanılmış bir yol (`resolvedModules: []` siparişler mevcut); bugüne
+kadar tahsilata dönüşmemesinin tek sebebi o hesapların hiçbirinde saklı kart olmaması.
+
+Kural (`topUpRenewalAmount`, saf ve testli): tutar siparişin tamamı kadar değil
+**EKLENEN kota kadar** artar. Sipariş (paket seçilmediği için) kotanın TAMAMINI
+ücretlendirir; hâlihazırda sahip olunan kotayı bir kez daha yenileme tutarına yazmak her
+dönem iki kez tahsilat olurdu. Birim fiyat önce siparişin kendi dökümünden
+(`priceLines` — müşterinin O AN gördüğü fiyat), yoksa katalogdan okunur; çözülemezse
+tutara **hiç** dokunulmaz (yarım bir artış, hiç artış olmamasından yanıltıcı) ve durum
+hem log'a hem `QUOTA_CHANGED` olayına yazılır. Yenilemelere işleyen kupon oranı
+(`renewalPriceRatio`) eklenen kotaya da uygulanır — yoksa tek seferlik kupon, eklenen
+kotanın ömür boyu indirimine dönerdi.
+
+**Yan düzeltme:** takviye dalı `card.token`ı atıyordu. İlk PayTR ödemesi bir takviye olan
+hesapta kart hiç saklanmıyor, yani yükselttiğimiz tutar hiçbir zaman çekilemiyordu.
+Artık aktifleştirme dalıyla aynı `undefined = dokunma` kuralıyla yazılıyor.
+
+**2. Karşılıksız ödeme kapısı** (`lib/billing/quota-order.ts` → `checkQuotaOnlyOrder`).
+Modülsüz sipariş iki durumda para alıp hiçbir şey vermiyordu:
+
+- **Kota artmıyorsa:** takviye dönemi uzatmadığı için müşteri sahip olduğu kotanın
+  bedelini bir kez daha öder, karşılığında ne kota ne gün alır. (Ekran eskiden bunu
+  teşvik ediyordu: form varsayılan olarak mevcut kotayı yeniden ücretlendiriyordu.)
+- **Abonelik aktif değilse:** kota yükselir ama `getAccountQuotas` aktif olmayan hesapta
+  kotayı 0 sayar (fail-closed) — ödenen şube yine açılamaz.
+
+Kapı sipariş AÇILIRKEN durur (ödeme sonrası fark edilirse iade gerekir) ve kural saf
+tutuldu ki ekran ile uç aynı cevabı versin: arayüz düğmeyi kapatıp sebebi yazar, uç 400
+döndürür. Ayrışsalardı kullanıcı ödeme ekranına gidip hata yerdi.
+
+Ayrıca özet kartı artık takviyenin bedelini de söylüyor: "Dönem yenilendiğinde tahsil
+edilecek tutar X ₺ artar." Söylenmezse müşteri bir sonraki dönemde beklemediği bir
+artışla karşılaşırdı.
+
+**Mevcut kayıtlara DOKUNULMADI.** Kotası yenileme tutarına yansımamış 8 abonelik var ama
+hepsi iç/demo/test hesabı ve hiçbirinde saklı kart yok (`runRecurring` zaten atlıyor).
+Geriye dönük "doğru tutar" ancak tahminle yazılabilirdi; düzeltme ileriye dönüktür.
+
+Doğrulama: `npx tsc --noEmit` temiz · `npx vitest run` 57 dosya / 661 test ·
+`npx next build` temiz. Tarayıcıda elle e2e YAPILMADI.
