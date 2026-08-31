@@ -8,6 +8,11 @@ import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime
 import { decryptSecret } from "@/lib/crypto/secrets"
 import { readSampleTemplate } from "@/lib/integrations/e-invoice/sample-templates"
 import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
+import {
+  credentialDecryptError,
+  resolveEInvoiceCredentials,
+  E_INVOICE_CREDENTIAL_SELECT,
+} from "@/lib/integrations/e-invoice/credentials"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -32,28 +37,32 @@ async function loadCredsAndVerifiedVkn(companyId: string) {
   const company = await prisma.company.findUnique({
     where: { id: companyId },
     select: {
-      eDonusumApiUsername: true,
-      eDonusumApiPassword: true,
-      eDonusumApiUrl: true,
       taxNumber: true,
       eDonusumTenantVkn: true,
-      parentCompany: { select: { taxNumber: true } },
+      ...E_INVOICE_CREDENTIAL_SELECT,
+      parentCompany: {
+        select: { taxNumber: true, ...E_INVOICE_CREDENTIAL_SELECT.parentCompany.select },
+      },
     },
   })
-  if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) return null
+  // ŞUBE: kimlik de VKN gibi ana firmadan devralınır. Yalnız firmanın kendi
+  // alanlarına bakıldığı sürece, ana firmaya sonradan girilen kullanıcı/şifre
+  // şubede görünmüyor ve şablon ekranı "API bilgileri eksik" diyordu.
+  const creds = resolveEInvoiceCredentials(company)
+  if (!creds) return null
   // Mükellef VKN doğrudan firmanın kendi VKN'sinden çekilir (doğrulama adımı yok).
   // Boşsa provider JWT'den keşfeder; bu yüzden zorunlu gate kaldırıldı.
   const vkn = effectiveTenantVkn(company)
   let passwordText: string
   try {
-    passwordText = decryptSecret(company.eDonusumApiPassword)
+    passwordText = decryptSecret(creds.password)
   } catch {
-    return { invalid: "Şifre çözülemedi. E-Dönüşüm şifresini tekrar girin." as const }
+    return { invalid: credentialDecryptError(creds.inherited) }
   }
   return {
-    username: company.eDonusumApiUsername,
+    username: creds.username,
     passwordText,
-    baseUrl: company.eDonusumApiUrl || undefined,
+    baseUrl: creds.baseUrl,
     vkn,
   }
 }

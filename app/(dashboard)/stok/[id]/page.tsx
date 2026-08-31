@@ -34,6 +34,12 @@ interface StockMovement {
   totalAmount: number
   description: string
   referenceNo?: string
+  /**
+   * Hareketin kaynağı faturaysa belgenin kimliği (uç doldurur). `no` e-Belge
+   * numarasıdır, yoksa iç fatura numarası. Yoksa (irsaliye, adisyon, elle fiş)
+   * null gelir ve referans ham haliyle basılır.
+   */
+  invoice?: { id: string; no: string; type: string } | null
   balanceAfter: number
   /** Hareketin KAYNAK BELGE para birimi — ürününkinden farklı olabilir (bkz. API). */
   currency?: string | null
@@ -71,6 +77,16 @@ interface ProductDetail {
  */
 function movementTone(quantity: number): "in" | "out" | "flat" {
   return quantity > 0 ? "in" : quantity < 0 ? "out" : "flat"
+}
+
+/**
+ * Referans hücresinin metni: fatura değilse ne yazacağımız. `waybill:<id>`
+ * (irsaliye) ve çıplak cuid (adisyon vb.) kullanıcıya bir şey anlatmaz.
+ */
+function referenceLabel(referenceNo?: string): string {
+  if (!referenceNo) return "-"
+  if (referenceNo.startsWith("waybill:")) return "İrsaliye"
+  return looksLikeCuid(referenceNo) ? "-" : referenceNo
 }
 
 /** Etiket: tipi bilinen özel hareketler kendi adıyla, kalanlar yönüyle anılır. */
@@ -482,7 +498,23 @@ export default function ProductDetailPage() {
                       </span>
                     </TableCell>
                     <TableCell>{movement.description || "-"}</TableCell>
-                    <TableCell>{movement.referenceNo || "-"}</TableCell>
+                    <TableCell>
+                      {/* Fatura kaynaklı hareket belgeye link olur; `from` geri
+                          dönüşü bu ürün kartına bağlar. Diğer kaynaklar için bkz.
+                          referenceLabel. */}
+                      {movement.invoice ? (
+                        <Link
+                          href={`/faturalar/${movement.invoice.id}/onizleme?company=${encodeURIComponent(
+                            companyId ?? ""
+                          )}&from=${encodeURIComponent(`/stok/${id}`)}`}
+                          className="font-medium text-primary underline-offset-2 hover:underline"
+                        >
+                          {movement.invoice.no}
+                        </Link>
+                      ) : (
+                        referenceLabel(movement.referenceNo)
+                      )}
+                    </TableCell>
                     <TableCell className={`text-right ${TONE_TEXT[movementTone(movement.quantity)]}`}>
                       {movement.quantity > 0 ? "+" : movement.quantity < 0 ? "-" : ""}
                       {formatNumber(Math.abs(movement.quantity))} {product.unit}

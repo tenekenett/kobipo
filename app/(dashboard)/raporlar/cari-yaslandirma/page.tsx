@@ -54,6 +54,9 @@ type AgingAccount = {
   code: string | null
   paymentDueDays: number | null
   taxNumber: string | null
+  /** Cari kartındaki sınıflandırmalar (Ayarlar → Tanımlar); tanımsızsa boş string. */
+  class1: string
+  class2: string
   totals: Totals
   invoices: AgingInvoice[]
 }
@@ -252,6 +255,10 @@ export default function CariYaslandirmaPage() {
                   <TableRow>
                     <TableHead className="w-8" />
                     <TableHead>Hesap</TableHead>
+                    {/* Tanımlar: cari kartındaki sınıflandırmalar (Ayarlar → Tanımlar).
+                        Excel'de de aynı iki sütun var. */}
+                    <TableHead>Sınıflandırma 1</TableHead>
+                    <TableHead>Sınıflandırma 2</TableHead>
                     <TableHead className="text-right">Toplam Açık</TableHead>
                     <TableHead className="text-right">Vadesi Gelmemiş</TableHead>
                     <TableHead className="text-right">Vadesi Geçmiş</TableHead>
@@ -262,7 +269,7 @@ export default function CariYaslandirmaPage() {
                 <TableBody>
                   {current.accounts.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center text-muted-foreground">
                         Açık bakiyeli hesap bulunamadı
                       </TableCell>
                     </TableRow>
@@ -292,6 +299,12 @@ export default function CariYaslandirmaPage() {
                                 {acc.code ? `${acc.code} · ` : ""}
                                 Vade: {acc.paymentDueDays ?? 0} gün
                               </div>
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {acc.class1 || "—"}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {acc.class2 || "—"}
                             </TableCell>
                             <TableCell className="text-right font-semibold">
                               {fmtTRY(acc.totals.total)}
@@ -340,7 +353,7 @@ export default function CariYaslandirmaPage() {
                           </TableRow>
                           {isOpen ? (
                             <TableRow>
-                              <TableCell colSpan={7} className="bg-muted/20 p-0">
+                              <TableCell colSpan={9} className="bg-muted/20 p-0">
                                 <div className="p-3">
                                   <Table>
                                     <TableHeader>

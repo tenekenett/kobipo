@@ -49,8 +49,13 @@ export const GET = withApiErrors(async function GET(request: Request) {
         select: { xsltName: true, eDocumentType: true, options: true },
       })
       if (!row || row.options == null) {
+        // Kaynağı bizde olmayan şablon tasarımcıya yüklenemez (bkz. designs/preview).
         return NextResponse.json(
-          { error: "Bu şablonun düzenlenebilir tasarımı yok." },
+          {
+            error:
+              "Bu şablonun kaynağı Kobipo'da yok (portalden ya da XSLT dosyasıyla eklenmiş), " +
+              "bu yüzden düzenlenemez. Şablon Tasarımcısı'ndan yeni bir tasarım oluşturabilirsiniz.",
+          },
           { status: 404 },
         )
       }

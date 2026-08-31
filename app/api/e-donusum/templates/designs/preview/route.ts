@@ -7,6 +7,11 @@ import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-prov
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
 import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
+import {
+  credentialDecryptError,
+  resolveEInvoiceCredentials,
+  E_INVOICE_CREDENTIAL_SELECT,
+} from "@/lib/integrations/e-invoice/credentials"
 import { readSampleTemplate } from "@/lib/integrations/e-invoice/sample-templates"
 import {
   applyThemeToXslt,
@@ -48,8 +53,15 @@ export const POST = withApiErrors(async function POST(request: Request) {
       select: { options: true },
     })
     if (!row || row.options == null) {
+      // Mysoft kayıtlı XSLT'nin içeriğini geri vermiyor: portalden/dışarıdan
+      // yüklenmiş şablonun kaynağı bizde YOK, o yüzden basılamaz. Mesaj çıkış
+      // yolunu söylemeli — "önizlenemez" tek başına kullanıcıyı duvara sürüyordu.
       return NextResponse.json(
-        { error: "Bu şablon Kobipo tasarımcısıyla yapılmadığından önizlenemez." },
+        {
+          error:
+            "Bu şablonun kaynağı Kobipo'da yok (portalden ya da XSLT dosyasıyla eklenmiş), " +
+            "bu yüzden önizlenemez. Şablon Tasarımcısı'ndan yeni bir tasarım oluşturup aktif yapabilirsiniz.",
+        },
         { status: 409 },
       )
     }
@@ -65,30 +77,32 @@ export const POST = withApiErrors(async function POST(request: Request) {
     const company = await prisma.company.findUnique({
       where: { id: companyId },
       select: {
-        eDonusumApiUsername: true,
-        eDonusumApiPassword: true,
-        eDonusumApiUrl: true,
         taxNumber: true,
         eDonusumTenantVkn: true,
-        parentCompany: { select: { taxNumber: true } },
+        ...E_INVOICE_CREDENTIAL_SELECT,
+        parentCompany: {
+          select: { taxNumber: true, ...E_INVOICE_CREDENTIAL_SELECT.parentCompany.select },
+        },
       },
     })
-    if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) {
+    // ŞUBE: kimlik de VKN gibi ana firmadan devralınır (bkz. credentials.ts).
+    const creds = resolveEInvoiceCredentials(company)
+    if (!creds) {
       return NextResponse.json({ error: "Mysoft API bilgileri eksik." }, { status: 400 })
     }
     // Mükellef VKN doğrudan firmanın VKN'sinden çekilir; boşsa provider JWT'den keşfeder.
     const vkn = effectiveTenantVkn(company)
     let passwordText: string
     try {
-      passwordText = decryptSecret(company.eDonusumApiPassword)
+      passwordText = decryptSecret(creds.password)
     } catch {
-      return NextResponse.json({ error: "Şifre çözülemedi." }, { status: 400 })
+      return NextResponse.json({ error: credentialDecryptError(creds.inherited) }, { status: 400 })
     }
 
     const provider = new MysoftEInvoiceProvider({
-      username: company.eDonusumApiUsername,
+      username: creds.username,
       passwordText,
-      baseUrl: company.eDonusumApiUrl || undefined,
+      baseUrl: creds.baseUrl,
       vknTckn: vkn,
     })
 

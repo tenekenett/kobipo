@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
+import { Check, Pencil, X } from "lucide-react"
 
 type DefinitionType = "CLASS_1" | "CLASS_2"
 type CompanyDefinition = {
@@ -15,6 +16,11 @@ type CompanyDefinition = {
   type: DefinitionType
   label: string
   isActive: boolean
+}
+
+const TAB_LABEL: Record<DefinitionType, string> = {
+  CLASS_1: "Sınıflandırma 1",
+  CLASS_2: "Sınıflandırma 2",
 }
 
 export default function TanimlarPage() {
@@ -25,6 +31,11 @@ export default function TanimlarPage() {
   const [definitions, setDefinitions] = useState<CompanyDefinition[]>([])
   const [newLabel, setNewLabel] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  // Düzenlenen satır: adı yerinde (inline) değiştirilir — tanım cari kartlarına
+  // FK ile bağlı olduğundan yeniden adlandırma tüm kayıtlara anında yansır.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingLabel, setEditingLabel] = useState("")
+  const [savingId, setSavingId] = useState<string | null>(null)
 
   const currentList = useMemo(
     () => definitions.filter((item) => item.type === activeTab),
@@ -86,6 +97,44 @@ export default function TanimlarPage() {
     await fetchDefinitions()
   }
 
+  const startEdit = (item: CompanyDefinition) => {
+    setEditingId(item.id)
+    setEditingLabel(item.label)
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditingLabel("")
+  }
+
+  const saveEdit = async (id: string) => {
+    const label = editingLabel.trim()
+    if (!label) return
+    setSavingId(id)
+    try {
+      const response = await fetch(`/api/company/definitions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || "Tanım güncellenemedi")
+      }
+      cancelEdit()
+      await fetchDefinitions()
+      toast({ title: "Başarılı", description: "Tanım güncellendi" })
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Tanım güncellenemedi",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingId(null)
+    }
+  }
+
   if (!companyId) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -94,6 +143,79 @@ export default function TanimlarPage() {
     )
   }
 
+  const renderTab = (type: DefinitionType) => (
+    <TabsContent value={type} className="space-y-3 pt-3">
+      <div className="flex gap-2">
+        <Input
+          placeholder={`Yeni ${TAB_LABEL[type].toLocaleLowerCase("tr-TR")} adı`}
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void addDefinition()
+          }}
+        />
+        <WriteAction>
+          <Button onClick={addDefinition} disabled={isLoading}>
+            Ekle
+          </Button>
+        </WriteAction>
+      </div>
+      <div className="space-y-2">
+        {currentList.map((item) => (
+          <div key={item.id} className="flex items-center justify-between gap-2 rounded border p-2">
+            {editingId === item.id ? (
+              <>
+                <Input
+                  autoFocus
+                  className="h-9 flex-1"
+                  value={editingLabel}
+                  onChange={(e) => setEditingLabel(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveEdit(item.id)
+                    if (e.key === "Escape") cancelEdit()
+                  }}
+                />
+                <div className="flex shrink-0 gap-1">
+                  <Button
+                    size="sm"
+                    onClick={() => saveEdit(item.id)}
+                    disabled={savingId === item.id || !editingLabel.trim()}
+                  >
+                    <Check className="mr-1 h-4 w-4" />
+                    Kaydet
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={savingId === item.id}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <span className={item.isActive ? "" : "text-muted-foreground line-through"}>
+                  {item.label}
+                </span>
+                <div className="flex shrink-0 gap-1">
+                  <WriteAction>
+                    <Button variant="outline" size="sm" onClick={() => startEdit(item)} title="Adını değiştir">
+                      <Pencil className="mr-1 h-4 w-4" />
+                      Düzenle
+                    </Button>
+                  </WriteAction>
+                  <WriteAction>
+                    <Button variant="outline" size="sm" onClick={() => toggleDefinition(item.id, item.isActive)}>
+                      {item.isActive ? "Pasifleştir" : "Aktifleştir"}
+                    </Button>
+                  </WriteAction>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+        {currentList.length === 0 && <p className="text-sm text-muted-foreground">Henüz tanım yok.</p>}
+      </div>
+    </TabsContent>
+  )
+
   return (
     <Card>
       <CardHeader>
@@ -101,61 +223,21 @@ export default function TanimlarPage() {
         <CardDescription>Sınıflandırma listelerini firma bazında yönetin</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as DefinitionType)}>
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => {
+            setActiveTab(value as DefinitionType)
+            // Sekme değişince yarım kalan düzenleme kapanır: düzenlenen satır
+            // diğer sekmede görünmüyor, açık kalırsa "kayıp" bir form olur.
+            cancelEdit()
+          }}
+        >
           <TabsList>
-            <TabsTrigger value="CLASS_1">Sınıflandırma 1</TabsTrigger>
-            <TabsTrigger value="CLASS_2">Sınıflandırma 2</TabsTrigger>
+            <TabsTrigger value="CLASS_1">{TAB_LABEL.CLASS_1}</TabsTrigger>
+            <TabsTrigger value="CLASS_2">{TAB_LABEL.CLASS_2}</TabsTrigger>
           </TabsList>
-          <TabsContent value="CLASS_1" className="space-y-3 pt-3">
-            <div className="flex gap-2">
-              <Input
-                placeholder="Yeni sınıflandırma 1 adı"
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-              />
-              <WriteAction><Button onClick={addDefinition} disabled={isLoading}>
-                Ekle
-              </Button></WriteAction>
-            </div>
-            <div className="space-y-2">
-              {currentList.map((item) => (
-                <div key={item.id} className="flex items-center justify-between rounded border p-2">
-                  <span className={item.isActive ? "" : "text-muted-foreground line-through"}>{item.label}</span>
-                  <Button variant="outline" size="sm" onClick={() => toggleDefinition(item.id, item.isActive)}>
-                    {item.isActive ? "Pasifleştir" : "Aktifleştir"}
-                  </Button>
-                </div>
-              ))}
-              {currentList.length === 0 && (
-                <p className="text-sm text-muted-foreground">Henüz tanım yok.</p>
-              )}
-            </div>
-          </TabsContent>
-          <TabsContent value="CLASS_2" className="space-y-3 pt-3">
-            <div className="flex gap-2">
-              <Input
-                placeholder="Yeni sınıflandırma 2 adı"
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-              />
-              <WriteAction><Button onClick={addDefinition} disabled={isLoading}>
-                Ekle
-              </Button></WriteAction>
-            </div>
-            <div className="space-y-2">
-              {currentList.map((item) => (
-                <div key={item.id} className="flex items-center justify-between rounded border p-2">
-                  <span className={item.isActive ? "" : "text-muted-foreground line-through"}>{item.label}</span>
-                  <Button variant="outline" size="sm" onClick={() => toggleDefinition(item.id, item.isActive)}>
-                    {item.isActive ? "Pasifleştir" : "Aktifleştir"}
-                  </Button>
-                </div>
-              ))}
-              {currentList.length === 0 && (
-                <p className="text-sm text-muted-foreground">Henüz tanım yok.</p>
-              )}
-            </div>
-          </TabsContent>
+          {renderTab("CLASS_1")}
+          {renderTab("CLASS_2")}
         </Tabs>
       </CardContent>
     </Card>

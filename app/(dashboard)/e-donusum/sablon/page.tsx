@@ -362,6 +362,26 @@ export default function FaturaSablonuPage() {
     }
   }
 
+  /**
+   * Kaynağı Kobipo'da olmayan bir şablonun satırından tasarımcıyı açar.
+   *
+   * Var olan şablonun ADIYLA açmak KASITLI OLARAK yapılmaz: Mysoft şablonu
+   * mükellef (VKN) altında ADA göre saklıyor ([[template-refresh.ts]] →
+   * `addTenantXslt`), yani aynı adla kaydetmek portalden gelmiş dosyanın —
+   * şubede ise ana firmanın— görüntüsünü sessizce değiştirirdi. Kullanıcı yeni
+   * bir ad verir, eski şablon olduğu gibi kalır ve isterse onu aktif yapar.
+   */
+  const startNewDesign = () => {
+    setEditTarget(null)
+    setCreateTab("design")
+    toast({
+      title: "Yeni tasarım",
+      description:
+        "Tasarımcıya yeni bir ad verin; seçtiğiniz şablona dokunulmaz. Hazır olduğunda 'Aktif yap' ile kullanıma alın.",
+    })
+    setTimeout(() => designerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60)
+  }
+
   // "Silme" = listeden gizleme (Mysoft XSLT silmeyi desteklemiyor; şablon hesapta kalır).
   const hideTemplate = async (name: string) => {
     if (!companyId) return
@@ -779,7 +799,12 @@ export default function FaturaSablonuPage() {
                   const isActive = !!name && activeXsltName === name
                   const canPreview = !!name && designMap[name]?.hasOptions
                   const canEdit = !!name && designMap[name]?.hasOptions
-                  const isKobipo = !!name && !!designMap[name]
+                  // "Kobipo tasarımı" YALNIZ tasarım seçenekleri kayıtlıysa doğrudur.
+                  // Yalnız satırın varlığına bakmak yanıltıyordu: "aktif yap" ve
+                  // "listeden kaldır" da seçeneksiz satır yaratıyor, dolayısıyla
+                  // portalden gelmiş bir şablon "Kobipo tasarımı" etiketi alıp yine
+                  // de Önizle/Düzenle düğmesi göstermiyordu.
+                  const isKobipo = !!name && !!designMap[name]?.hasOptions
                   const canRefresh = !!name && designMap[name]?.hasOptions
                   const refreshing = rowBusy?.name === name && rowBusy.action === "refresh"
                   const activating = rowBusy?.name === name && rowBusy.action === "activate"
@@ -833,6 +858,14 @@ export default function FaturaSablonuPage() {
                             </span>
 
                           </div>
+                          {/* Düğmesi olmayan satır kullanıcıya "düzenleyemiyorum"
+                              dedirtiyordu; sebebini satırın kendisinde söyle. */}
+                          {!isKobipo && (
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              Kaynağı Kobipo&apos;da olmadığı için önizlenemez ve düzenlenemez —
+                              tasarımcıyla yeni bir şablon oluşturabilirsiniz.
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -875,6 +908,18 @@ export default function FaturaSablonuPage() {
                           >
                             {editing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Pencil className="mr-1.5 h-3.5 w-3.5" />}
                             Düzenle
+                          </Button></WriteAction>
+                        )}
+                        {!canEdit && (
+                          <WriteAction><Button
+                            variant="outline"
+                            size="sm"
+                            onClick={startNewDesign}
+                            disabled={!!rowBusy}
+                            title="Tasarımcıyı aç ve YENİ bir şablon oluştur. Bu şablona dokunulmaz."
+                          >
+                            <Palette className="mr-1.5 h-3.5 w-3.5" />
+                            Tasarım oluştur
                           </Button></WriteAction>
                         )}
                         {isActive ? (

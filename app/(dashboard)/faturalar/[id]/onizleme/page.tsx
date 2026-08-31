@@ -185,8 +185,13 @@ export default function FaturaOnizlemePage() {
         fetchAttachments()
         setLoadError(null)
         // SEF: eski cuid URL ile gelindiyse okunabilir slug URL'ine sessizce yükselt.
+        // Sorgu OLDUĞU GİBİ taşınır. `from` düşerse "Geri" gelindiği yere değil
+        // fatura listesine döner; rapor bölüm sayfalarından ve cari kartından
+        // gelen linkler cuid taşıdığı için bu yükseltmeye HER ZAMAN girer.
         if (data?.slug && looksLikeCuid(String(invoiceId))) {
-          router.replace(`/faturalar/${data.slug}/onizleme?company=${companyId}`)
+          const query = new URLSearchParams(searchParams.toString())
+          if (companyId) query.set("company", companyId)
+          router.replace(`/faturalar/${data.slug}/onizleme?${query.toString()}`)
         }
         return
       }

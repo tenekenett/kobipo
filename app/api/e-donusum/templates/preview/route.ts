@@ -7,6 +7,11 @@ import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-prov
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
 import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
+import {
+  credentialDecryptError,
+  resolveEInvoiceCredentials,
+  E_INVOICE_CREDENTIAL_SELECT,
+} from "@/lib/integrations/e-invoice/credentials"
 import { readSampleTemplate } from "@/lib/integrations/e-invoice/sample-templates"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
@@ -61,15 +66,17 @@ export const POST = withApiErrors(async function POST(request: Request) {
     const company = await prisma.company.findUnique({
       where: { id: companyId },
       select: {
-        eDonusumApiUsername: true,
-        eDonusumApiPassword: true,
-        eDonusumApiUrl: true,
         taxNumber: true,
         eDonusumTenantVkn: true,
-        parentCompany: { select: { taxNumber: true } },
+        ...E_INVOICE_CREDENTIAL_SELECT,
+        parentCompany: {
+          select: { taxNumber: true, ...E_INVOICE_CREDENTIAL_SELECT.parentCompany.select },
+        },
       },
     })
-    if (!company?.eDonusumApiUsername || !company?.eDonusumApiPassword) {
+    // ŞUBE: kimlik de VKN gibi ana firmadan devralınır (bkz. credentials.ts).
+    const creds = resolveEInvoiceCredentials(company)
+    if (!creds) {
       return NextResponse.json({ error: "Mysoft API bilgileri eksik." }, { status: 400 })
     }
     // Mükellef VKN doğrudan firmanın VKN'sinden çekilir (doğrulama adımı yok);
@@ -77,15 +84,15 @@ export const POST = withApiErrors(async function POST(request: Request) {
     const vkn = effectiveTenantVkn(company)
     let passwordText: string
     try {
-      passwordText = decryptSecret(company.eDonusumApiPassword)
+      passwordText = decryptSecret(creds.password)
     } catch {
-      return NextResponse.json({ error: "Şifre çözülemedi." }, { status: 400 })
+      return NextResponse.json({ error: credentialDecryptError(creds.inherited) }, { status: 400 })
     }
 
     const provider = new MysoftEInvoiceProvider({
-      username: company.eDonusumApiUsername,
+      username: creds.username,
       passwordText,
-      baseUrl: company.eDonusumApiUrl || undefined,
+      baseUrl: creds.baseUrl,
       vknTckn: vkn,
     })
 

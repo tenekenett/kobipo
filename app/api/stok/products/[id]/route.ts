@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { isInboundMovement, signedMovementQuantity } from "@/lib/stock/movement-sign"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -62,11 +63,8 @@ export const GET = withApiErrors(async function GET(
      * miktarın kendisi yeterli. Tipe yalnız tek kapı ÖNCESİ yazılmış satırlar için
      * bakılıyor: onlarda çıkışlar pozitif miktarla duruyor.
      */
-    const outboundTypes = ["OUT", "SALE", "PURCHASE_CANCEL", "RETURN_CANCEL"]
-    const signedQuantity = (m: { type: string; quantity: unknown }) => {
-      const q = Number(m.quantity)
-      return q > 0 && outboundTypes.includes(m.type) ? -q : q
-    }
+    // Kural lib/stock/movement-sign.ts'te — stok hareket raporu da aynı yeri okur.
+    const signedQuantity = signedMovementQuantity
 
     // Toplam giriş/çıkış İŞARETE göre sayılır. Eskiden yalnız `IN`/`OUT` (ve
     // TRANSFER) sayılıyordu; sayım/elle düzeltme (ADJUSTMENT) hiçbir toplama
@@ -86,7 +84,6 @@ export const GET = withApiErrors(async function GET(
     // ürünün alış/satış fiyatını fallback olarak kullan, böylece tablo 0 göstermez.
     const purchasePrice = Number(product.purchasePrice || 0)
     const salePrice = Number(product.salePrice || 0)
-    const inboundTypes = ["IN", "PURCHASE", "SALE_CANCEL", "RETURN"]
 
     // Hareketteki fiyat KAYNAK BELGENİN para birimindedir (stock_movements'ta
     // currency kolonu yok). Ürün kartı USD ama fiş TRY olabilir — sembolü ürünün
@@ -98,12 +95,26 @@ export const GET = withApiErrors(async function GET(
       new Set(product.stockMovements.map((m) => m.reference).filter((r): r is string => !!r)),
     )
     const invoiceCurrency = new Map<string, string>()
+    /**
+     * Referansı fatura olan hareketler için belge kimliği. Liste eskiden ham cuid
+     * basıyordu; kullanıcı hangi fatura olduğunu göremiyordu. Numara olarak
+     * e-Belge numarası (Mysoft/GİB'e giden asıl numara) tercih edilir, yoksa iç
+     * fatura numarasına düşülür.
+     */
+    const invoiceRef = new Map<string, { id: string; no: string; type: string }>()
     if (invoiceRefs.length > 0) {
       const invoices = await prisma.invoice.findMany({
         where: { id: { in: invoiceRefs }, companyId: product.companyId },
-        select: { id: true, currency: true },
+        select: { id: true, currency: true, invoiceNo: true, eDocumentNo: true, type: true },
       })
-      for (const inv of invoices) invoiceCurrency.set(inv.id, inv.currency || "TRY")
+      for (const inv of invoices) {
+        invoiceCurrency.set(inv.id, inv.currency || "TRY")
+        invoiceRef.set(inv.id, {
+          id: inv.id,
+          no: inv.eDocumentNo || inv.invoiceNo,
+          type: inv.type,
+        })
+      }
     }
 
     // "Kalan" sütunu: her hareketten SONRAKİ bakiye. Kart bugünkü bakiyeyi
@@ -128,7 +139,7 @@ export const GET = withApiErrors(async function GET(
       const balanceAfter = Math.round(runningBalance * 10000) / 10000
       runningBalance = Math.round((runningBalance - signed) * 10000) / 10000
 
-      const isInbound = inboundTypes.includes(movement.type) || qty > 0
+      const isInbound = isInboundMovement(movement)
       const hasOwnPrice = movement.unitPrice != null
       const unitPrice = hasOwnPrice
         ? Number(movement.unitPrice)
@@ -153,6 +164,9 @@ export const GET = withApiErrors(async function GET(
         totalAmount: Math.abs(qty) * unitPrice,
         description: movement.description || "",
         referenceNo: movement.reference || undefined,
+        // Fatura kaynaklı hareket: ekran numarayı basar ve faturaya link verir.
+        // Referans irsaliye/adisyon ise eşleşme olmaz, alan null kalır.
+        invoice: (movement.reference && invoiceRef.get(movement.reference)) || null,
         balanceAfter,
       }
     }).reverse() // Reverse to show oldest first

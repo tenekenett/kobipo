@@ -1,6 +1,12 @@
 import { MysoftEInvoiceProvider } from "./mysoft-provider"
 import { createPartnerProvider, PARTNER_NOT_CONFIGURED_ERROR } from "./partner"
 import { effectiveTenantVkn } from "./tenant"
+import {
+  credentialDecryptError,
+  resolveEInvoiceCredentials,
+  type EInvoiceCredentialFields,
+  type EInvoiceCredentialSource,
+} from "./credentials"
 import { decryptSecret } from "@/lib/crypto/secrets"
 
 /**
@@ -18,18 +24,21 @@ import { decryptSecret } from "@/lib/crypto/secrets"
  * Plan: docs/e-donusum-onboarding/PLAN.md (Faz 4)
  */
 
-export type CompanyProviderFields = {
+export type CompanyProviderFields = EInvoiceCredentialFields & {
   isEDonusumEnabled?: boolean | null
-  eDonusumApiUsername?: string | null
-  eDonusumApiPassword?: string | null
-  eDonusumApiUrl?: string | null
   taxNumber?: string | null
   eDonusumTenantVkn?: string | null
   eDonusumOnboardingStatus?: string | null
-  parentCompany?: { taxNumber?: string | null } | null
+  parentCompany?: (EInvoiceCredentialSource & { taxNumber?: string | null }) | null
 }
 
-/** Provider select'lerinde tekrar tekrar yazmamak için ortak alan kümesi. */
+/**
+ * Provider select'lerinde tekrar tekrar yazmamak için ortak alan kümesi.
+ *
+ * Ana firmadan hem VKN hem KİMLİK okunur: şube ikisini de devralır (bkz.
+ * `resolveEInvoiceCredentials`). Alt select'i bölerseniz şube, ana firmaya
+ * sonradan girilen kullanıcı/şifreyi göremez.
+ */
 export const COMPANY_PROVIDER_SELECT = {
   isEDonusumEnabled: true,
   eDonusumApiUsername: true,
@@ -38,7 +47,14 @@ export const COMPANY_PROVIDER_SELECT = {
   taxNumber: true,
   eDonusumTenantVkn: true,
   eDonusumOnboardingStatus: true,
-  parentCompany: { select: { taxNumber: true } },
+  parentCompany: {
+    select: {
+      taxNumber: true,
+      eDonusumApiUsername: true,
+      eDonusumApiPassword: true,
+      eDonusumApiUrl: true,
+    },
+  },
 } as const
 
 export type ResolvedCompanyProvider =
@@ -62,22 +78,20 @@ export function resolveCompanyEInvoiceProvider(
 
   const tenantVkn = effectiveTenantVkn(company)
 
-  // 1) MANUEL yol — firmanın kendi kimliği varsa her zaman öncelikli (mevcut davranış).
-  if (company.eDonusumApiUsername && company.eDonusumApiPassword) {
+  // 1) MANUEL yol — kendi kimliği (yoksa ŞUBEDE ana firmanınki) varsa her zaman
+  //    öncelikli. Devralma yalnız boşluğu doldurur; mevcut davranış korunur.
+  const creds = resolveEInvoiceCredentials(company)
+  if (creds) {
     let passwordText: string
     try {
-      passwordText = decryptSecret(company.eDonusumApiPassword)
+      passwordText = decryptSecret(creds.password)
     } catch {
-      return {
-        ok: false,
-        status: 400,
-        error: "Kayıtlı Mysoft şifresi çözülemedi. E-Dönüşüm Ayarları'ndan şifreyi tekrar girin.",
-      }
+      return { ok: false, status: 400, error: credentialDecryptError(creds.inherited) }
     }
     const provider = new MysoftEInvoiceProvider({
-      username: company.eDonusumApiUsername,
+      username: creds.username,
       passwordText,
-      baseUrl: company.eDonusumApiUrl || undefined,
+      baseUrl: creds.baseUrl,
       vknTckn: tenantVkn || undefined,
     })
     return { ok: true, provider, tenantVkn, mode: "manual" }

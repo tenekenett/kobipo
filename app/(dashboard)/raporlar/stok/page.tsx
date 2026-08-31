@@ -21,8 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { AlertTriangle, Boxes, PackageCheck, TrendingDown, TrendingUp, Search, RefreshCcw } from "lucide-react"
+import { AlertTriangle, ArrowUpRight, Boxes, PackageCheck, TrendingUp, Search, RefreshCcw } from "lucide-react"
 import { ExportButton } from "@/components/export/export-button"
+import Link from "next/link"
 
 interface Product {
   id: string
@@ -39,18 +40,6 @@ interface Product {
   isActive: boolean
 }
 
-interface StockMovement {
-  id: string
-  productId: string
-  type: string
-  quantity: number | string
-  unitPrice?: number | string | null
-  description?: string | null
-  reference?: string | null
-  createdAt: string
-  product?: { name: string; unit: string } | null
-}
-
 type FilterType = "ALL" | "PRODUCT" | "SERVICE"
 type StockFilter = "ALL" | "LOW" | "OUT" | "NORMAL"
 
@@ -59,7 +48,6 @@ export default function StokRaporlariPage() {
   const companyId = searchParams.get("company")
 
   const [products, setProducts] = useState<Product[]>([])
-  const [movements, setMovements] = useState<StockMovement[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [search, setSearch] = useState("")
   const [typeFilter, setTypeFilter] = useState<FilterType>("ALL")
@@ -91,12 +79,10 @@ export default function StokRaporlariPage() {
     if (!companyId) return
     setIsLoading(true)
     try {
-      const [productsRes, movementsRes] = await Promise.all([
-        fetch(`/api/stok/products?companyId=${companyId}`, { cache: "no-store" }),
-        fetch(`/api/stok/movements?companyId=${companyId}`, { cache: "no-store" }),
-      ])
+      const productsRes = await fetch(`/api/stok/products?companyId=${companyId}`, {
+        cache: "no-store",
+      })
       if (productsRes.ok) setProducts(await productsRes.json())
-      if (movementsRes.ok) setMovements(await movementsRes.json())
     } catch (error) {
       console.error("Stok raporu verisi alınamadı:", error)
     } finally {
@@ -157,23 +143,6 @@ export default function StokRaporlariPage() {
     })
   }, [products, typeFilter, stockFilter, search])
 
-  const recentMovements = useMemo(() => movements.slice(0, 25), [movements])
-
-  const movementTypeLabel = (type: string) => {
-    switch (type) {
-      case "IN":
-        return { label: "Giriş", variant: "default" as const }
-      case "OUT":
-        return { label: "Çıkış", variant: "destructive" as const }
-      case "TRANSFER":
-        return { label: "Transfer", variant: "secondary" as const }
-      case "ADJUSTMENT":
-        return { label: "Sayım", variant: "outline" as const }
-      default:
-        return { label: type, variant: "outline" as const }
-    }
-  }
-
   const stockStatus = (p: Product) => {
     const qty = Number(p.stockQuantity || 0)
     const min = Number(p.minStockLevel || 0)
@@ -200,7 +169,7 @@ export default function StokRaporlariPage() {
         <div>
           <h1 className="text-3xl font-bold">Stok Raporu</h1>
           <p className="text-muted-foreground">
-            Stok durumu, değerleme ve son hareketler
+            Stok durumu ve değerleme
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -382,75 +351,23 @@ export default function StokRaporlariPage() {
         </CardContent>
       </Card>
 
+      {/* Hareket listesi bu sayfadan ÇIKARILDI: tarih/cari/tanım süzgeçleriyle
+          kendi sayfasında yaşıyor (bkz. raporlar/stok/hareketler). Burada yalnız
+          kapısı duruyor. */}
       <Card>
         <CardHeader>
-          <CardTitle>Son Stok Hareketleri</CardTitle>
+          <CardTitle>Stok Hareketleri</CardTitle>
           <CardDescription>
-            En son kaydedilen {recentMovements.length} hareket
+            Giriş/çıkış hareketleri tarih, cari ve tanım bazında süzülebildiği ayrı sayfada
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Tarih</TableHead>
-                <TableHead>Ürün</TableHead>
-                <TableHead>Hareket</TableHead>
-                <TableHead className="text-right">Miktar</TableHead>
-                <TableHead className="text-right">Birim Fiyat</TableHead>
-                <TableHead>Açıklama</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recentMovements.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    {isLoading ? "Yükleniyor..." : "Hareket bulunamadı"}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                recentMovements.map((m) => {
-                  const type = movementTypeLabel(m.type)
-                  // Yön MİKTARIN İŞARETİNDEN okunur: eksi bakiyeli sayım
-                  // düzeltmesi (ADJUSTMENT) de çıkıştır, tipe bakan kural onu
-                  // yeşil yukarı okla "giriş" gösteriyordu.
-                  const isOut = m.type === "OUT" || Number(m.quantity || 0) < 0
-                  return (
-                    <TableRow key={m.id}>
-                      <TableCell>
-                        {new Date(m.createdAt).toLocaleString("tr-TR")}
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        {m.product?.name || "-"}
-                      </TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center gap-1">
-                          {isOut ? (
-                            <TrendingDown className="h-3.5 w-3.5 text-red-500" />
-                          ) : (
-                            <TrendingUp className="h-3.5 w-3.5 text-green-500" />
-                          )}
-                          <Badge variant={type.variant}>{type.label}</Badge>
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {numberFormatter.format(Number(m.quantity || 0))}{" "}
-                        {m.product?.unit || ""}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {m.unitPrice
-                          ? currencyFormatter.format(Number(m.unitPrice))
-                          : "-"}
-                      </TableCell>
-                      <TableCell className="max-w-[280px] truncate text-muted-foreground">
-                        {m.description || m.reference || "-"}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })
-              )}
-            </TableBody>
-          </Table>
+          <Link href={`/raporlar/stok/hareketler?company=${encodeURIComponent(companyId)}`}>
+            <Button variant="outline">
+              Stok hareketlerini aç
+              <ArrowUpRight className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
         </CardContent>
       </Card>
     </div>

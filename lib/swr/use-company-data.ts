@@ -52,6 +52,8 @@ export type RefAccount = { id: string; name: string; type: string }
 export type RefEmployee = { id: string; name: string; position: string | null }
 export type RefWarehouse = { id: string; name: string; isDefault?: boolean }
 export type RefWarehouseStock = { warehouseId: string; productId: string; quantity: number }
+/** Firma tanımı (sınıflandırma) — süzgeçlerde id ile eşleşir. */
+export type RefDefinition = { id: string; label: string }
 
 const companyKey = (companyId: string | null, path: string, extra = "") =>
   companyId ? `${path}?companyId=${companyId}${extra}` : null
@@ -193,6 +195,21 @@ export function useProductCategories(companyId: string | null) {
     [data]
   )
   return { categories, isLoading, error, mutate }
+}
+
+/**
+ * Cari sınıflandırmaları (Ayarlar → Tanımlar). Ürün kategorisinden farkı:
+ * burada ID'ler de lazım — süzgeçler tanımın id'siyle çalışır.
+ */
+export function useCompanyDefinitions(companyId: string | null, type: "CLASS_1" | "CLASS_2") {
+  const key = companyKey(companyId, "/api/company/definitions", `&type=${type}`)
+  const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
+  const definitions = useMemo<RefDefinition[]>(
+    () =>
+      (Array.isArray(data) ? data : []).map((d) => ({ id: String(d.id), label: String(d.label) })),
+    [data]
+  )
+  return { definitions, isLoading, error, mutate }
 }
 
 export function useWarehouseStocks(companyId: string | null) {

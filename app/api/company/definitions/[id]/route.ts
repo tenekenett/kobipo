@@ -23,6 +23,22 @@ export const PATCH = withApiErrors(async function PATCH(request: Request, { para
     return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 })
   }
 
+  if (label !== undefined && !label) {
+    return NextResponse.json({ error: "Tanım adı boş olamaz" }, { status: 400 })
+  }
+
+  // (companyId, type, label) benzersiz: aynı ada çevirmek P2002 ile 500'e düşerdi.
+  // Kullanıcı ne olduğunu görsün diye çakışma burada açık mesajla döner.
+  if (label !== undefined && label !== definition.label) {
+    const clash = await prisma.companyDefinition.findFirst({
+      where: { companyId: definition.companyId, type: definition.type, label },
+      select: { id: true },
+    })
+    if (clash) {
+      return NextResponse.json({ error: "Bu adda bir tanım zaten var" }, { status: 409 })
+    }
+  }
+
   const updated = await prisma.companyDefinition.update({
     where: { id },
     data: {

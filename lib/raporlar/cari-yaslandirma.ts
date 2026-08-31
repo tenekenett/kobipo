@@ -46,6 +46,9 @@ export type AgingAccount = {
   code: string | null
   paymentDueDays: number | null
   taxNumber: string | null
+  /** Cari kartındaki sınıflandırmalar (Ayarlar → Tanımlar); tanımsızsa boş string. */
+  class1: string
+  class2: string
   totals: AgingTotals
   invoices: AgingInvoice[]
 }
@@ -266,6 +269,8 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
       code: true,
       paymentDueDays: true,
       taxNumber: true,
+      classification1: { select: { label: true } },
+      classification2: { select: { label: true } },
       openingBalanceAmount: true,
       openingBalanceType: true,
       createdAt: true,
@@ -304,6 +309,8 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
       code: true,
       paymentDueDays: true,
       taxNumber: true,
+      classification1: { select: { label: true } },
+      classification2: { select: { label: true } },
       openingBalanceAmount: true,
       openingBalanceType: true,
       createdAt: true,
@@ -376,6 +383,8 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
         code: c.code,
         paymentDueDays: c.paymentDueDays,
         taxNumber: c.taxNumber,
+        class1: c.classification1?.label || "",
+        class2: c.classification2?.label || "",
         totals: summarize(analyzed),
         invoices,
       }
@@ -418,6 +427,8 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
         code: s.code,
         paymentDueDays: s.paymentDueDays,
         taxNumber: s.taxNumber,
+        class1: s.classification1?.label || "",
+        class2: s.classification2?.label || "",
         totals: summarize(analyzed),
         invoices,
       }
@@ -458,5 +469,95 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
       accounts: supplierAccounts,
       totals: grandTotal(supplierAccounts),
     },
+  }
+}
+
+/**
+ * AY İÇİ ÖDEME PLANI — ayı üç on günlük dilime böler (1-10, 11-20, 21-ay sonu) ve
+ * her cari için o dilime VADESİ DÜŞEN açık tutarı toplar.
+ *
+ * Geçmiş ve sonraki aylara düşen tutarlar kendi sütunlarında ayrı durur: yoksa
+ * satırdaki üç dilimin toplamı "toplam açık"ı tutmaz ve tablo, borcun bir kısmını
+ * yutmuş gibi görünürdü.
+ *
+ * `pastMonths`, yaşlandırmanın `totals.overdue`u DEĞİLDİR: buradaki ölçü ayın 1'i,
+ * orada bugündür. Ayın 20'sinde, vadesi 5'inde olan fatura gecikmiştir ama planda
+ * "1-10" diliminde görünür — dilim tanımı vade tarihine göredir.
+ */
+export type PaymentPlanRow = {
+  id: string
+  code: string | null
+  name: string
+  class1: string
+  class2: string
+  /** Vadesi bu aydan ÖNCE olan açık tutar. */
+  pastMonths: number
+  period1: number
+  period2: number
+  period3: number
+  monthTotal: number
+  nextMonths: number
+  total: number
+}
+
+export type PaymentPlan = {
+  /** Sütun başlıkları — ay adıyla ("1-10 Eylül"). */
+  labels: { period1: string; period2: string; period3: string }
+  rows: PaymentPlanRow[]
+}
+
+export function buildPaymentPlan(accounts: AgingAccount[], reference = new Date()): PaymentPlan {
+  const year = reference.getFullYear()
+  const month = reference.getMonth()
+  const monthStart = new Date(year, month, 1).getTime()
+  // Dilim sınırları GÜN başlangıcıdır; 11'i vadeli fatura ikinci dilime girer.
+  const secondStart = new Date(year, month, 11).getTime()
+  const thirdStart = new Date(year, month, 21).getTime()
+  const nextMonthStart = new Date(year, month + 1, 1).getTime()
+  const monthName = reference.toLocaleDateString("tr-TR", { month: "long" })
+  const lastDay = new Date(year, month + 1, 0).getDate()
+
+  const rows = accounts.map((account) => {
+    const row: PaymentPlanRow = {
+      id: account.id,
+      code: account.code,
+      name: account.name,
+      class1: account.class1,
+      class2: account.class2,
+      pastMonths: 0,
+      period1: 0,
+      period2: 0,
+      period3: 0,
+      monthTotal: 0,
+      nextMonths: 0,
+      total: 0,
+    }
+    for (const invoice of account.invoices) {
+      const due = new Date(invoice.effectiveDueDate).getTime()
+      const amount = invoice.openAmount
+      row.total += amount
+      if (due < monthStart) row.pastMonths += amount
+      else if (due >= nextMonthStart) row.nextMonths += amount
+      else if (due < secondStart) row.period1 += amount
+      else if (due < thirdStart) row.period2 += amount
+      else row.period3 += amount
+    }
+    row.monthTotal = round2(row.period1 + row.period2 + row.period3)
+    row.pastMonths = round2(row.pastMonths)
+    row.period1 = round2(row.period1)
+    row.period2 = round2(row.period2)
+    row.period3 = round2(row.period3)
+    row.nextMonths = round2(row.nextMonths)
+    row.total = round2(row.total)
+    return row
+  })
+
+  return {
+    labels: {
+      period1: `1-10 ${monthName}`,
+      period2: `11-20 ${monthName}`,
+      period3: `21-${lastDay} ${monthName}`,
+    },
+    rows,
   }
 }

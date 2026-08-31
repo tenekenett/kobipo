@@ -31,7 +31,40 @@ export type SalesPurchaseInvoice = {
   /** İade belgesi mi — tutarları EKSİ gelir, listede öyle işaretlenmeli. */
   isReturn: boolean
   counterpartyName: string
+  /**
+   * Cari kartındaki sınıflandırmalar (Ayarlar → Tanımlar). Rapor ve dosya bunları
+   * ayrı sütunlarda gösterir; tanımsız cari için boş string gelir.
+   */
+  class1: string
+  class2: string
   netAmount: number
+  vatAmount: number
+  totalAmount: number
+}
+
+/**
+ * Faturanın SATIRI — "Detaylı Faturalar" sayfası için. Fatura kimliği her satırda
+ * tekrarlanır ki Excel'de tek başına süzülebilsin/pivotlanabilsin.
+ */
+export type SalesPurchaseInvoiceLine = {
+  invoiceId: string
+  invoiceNo: string
+  /** e-Belge numarası (GİB'e giden asıl numara); yoksa boş. */
+  eDocumentNo: string
+  date: string
+  isReturn: boolean
+  counterpartyName: string
+  class1: string
+  class2: string
+  productCode: string
+  /** Kalemin adı — ürün kartına bağlı değilse fatura satırındaki serbest metin. */
+  description: string
+  kind: "Stok" | "Hizmet" | "Serbest kalem"
+  unit: string
+  quantity: number
+  unitPrice: number
+  discountAmount: number
+  vatRate: number
   vatAmount: number
   totalAmount: number
 }
@@ -41,8 +74,10 @@ export type SalesPurchaseResult = {
   count: number
   totalAmount: number
   monthly: Array<{ label: string; sortKey: string; amount: number; count: number }>
-  topCounterparties: Array<{ name: string; amount: number; count: number }>
+  topCounterparties: Array<{ name: string; class1: string; class2: string; amount: number; count: number }>
   invoices: SalesPurchaseInvoice[]
+  /** Yalnız `includeLines` istendiğinde dolar (dışa aktarma); ekran kullanmaz. */
+  lines: SalesPurchaseInvoiceLine[]
 }
 
 const monthLabel = (date: Date) =>
@@ -56,6 +91,11 @@ export async function computeSalesPurchaseReport(args: {
   endDate?: string | null
   /** En çok işlem yapılan cari sayısı. */
   topCount?: number
+  /**
+   * Fatura kalemlerini de getir ("Detaylı Faturalar" sayfası). Ekran bunu
+   * istemez: kalem sorgusu fatura sayısıyla büyür, özet ekranı yavaşlatır.
+   */
+  includeLines?: boolean
 }): Promise<SalesPurchaseResult> {
   const isSales = args.type === "SALES"
   const dateFilter =
@@ -77,14 +117,45 @@ export async function computeSalesPurchaseReport(args: {
       ...(dateFilter ? { date: dateFilter } : {}),
     },
     include: {
-      customer: { select: { name: true } },
-      supplier: { select: { name: true } },
+      customer: {
+        select: {
+          name: true,
+          classification1: { select: { label: true } },
+          classification2: { select: { label: true } },
+        },
+      },
+      supplier: {
+        select: {
+          name: true,
+          classification1: { select: { label: true } },
+          classification2: { select: { label: true } },
+        },
+      },
+      ...(args.includeLines
+        ? {
+            items: {
+              orderBy: { order: "asc" as const },
+              select: {
+                description: true,
+                unit: true,
+                quantity: true,
+                unitPrice: true,
+                discountAmount: true,
+                vatRate: true,
+                vatAmount: true,
+                totalAmount: true,
+                product: { select: { code: true, isService: true } },
+              },
+            },
+          }
+        : {}),
     },
     orderBy: { date: "desc" },
   })
 
+  const lines: SalesPurchaseInvoiceLine[] = []
   const monthlyMap = new Map<string, { label: string; sortKey: string; amount: number; count: number }>()
-  const counterpartyMap = new Map<string, { amount: number; count: number }>()
+  const counterpartyMap = new Map<string, { class1: string; class2: string; amount: number; count: number }>()
   let totalAmount = 0
 
   const rows: SalesPurchaseInvoice[] = invoices.map((invoice) => {
@@ -101,13 +172,39 @@ export async function computeSalesPurchaseReport(args: {
     monthlyMap.set(sortKey, month)
 
     // Carisiz satış = hızlı/perakende satış.
-    const name =
-      (isSales ? invoice.customer?.name : invoice.supplier?.name)?.trim() ||
-      (isSales ? "Perakende" : "Tanımsız")
-    const counterparty = counterpartyMap.get(name) ?? { amount: 0, count: 0 }
+    const party = isSales ? invoice.customer : invoice.supplier
+    const name = party?.name?.trim() || (isSales ? "Perakende" : "Tanımsız")
+    const class1 = party?.classification1?.label || ""
+    const class2 = party?.classification2?.label || ""
+    const counterparty = counterpartyMap.get(name) ?? { class1, class2, amount: 0, count: 0 }
     counterparty.amount += amount
     counterparty.count += 1
     counterpartyMap.set(name, counterparty)
+
+    // İADE satırlarının tutarları da EKSİ yazılır: kalem sayfasının toplamı
+    // fatura sayfasınınkiyle tutmalı.
+    for (const item of (invoice as { items?: any[] }).items ?? []) {
+      lines.push({
+        invoiceId: invoice.id,
+        invoiceNo: invoice.invoiceNo,
+        eDocumentNo: invoice.eDocumentNo || "",
+        date: invoice.date.toISOString(),
+        isReturn,
+        counterpartyName: name,
+        class1,
+        class2,
+        productCode: item.product?.code || "",
+        description: item.description,
+        kind: item.product ? (item.product.isService ? "Hizmet" : "Stok") : "Serbest kalem",
+        unit: item.unit,
+        quantity: sign * Number(item.quantity || 0),
+        unitPrice: Number(item.unitPrice || 0),
+        discountAmount: sign * Number(item.discountAmount || 0),
+        vatRate: Number(item.vatRate || 0),
+        vatAmount: sign * Number(item.vatAmount || 0),
+        totalAmount: sign * Number(item.totalAmount || 0),
+      })
+    }
 
     return {
       id: invoice.id,
@@ -116,6 +213,8 @@ export async function computeSalesPurchaseReport(args: {
       status: invoice.status,
       isReturn,
       counterpartyName: name,
+      class1,
+      class2,
       netAmount: sign * Number(invoice.netAmount || 0),
       vatAmount: sign * Number(invoice.vatAmount || 0),
       totalAmount: amount,
@@ -132,5 +231,6 @@ export async function computeSalesPurchaseReport(args: {
       .sort((a, b) => b.amount - a.amount)
       .slice(0, args.topCount ?? 20),
     invoices: rows,
+    lines,
   }
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -69,6 +70,12 @@ type ProductComboboxProps = {
 
 const MAX_RESULTS = 50
 
+/**
+ * Açılır listenin TABAN genişliği (px). Ürün sütunu fatura satırında dar; liste
+ * input genişliğine hapsolursa ürün adları kesilir ve seçim yapılamaz hale gelir.
+ */
+const MIN_MENU_WIDTH = 360
+
 function normalizeName(s: string) {
   return s.trim().toLowerCase()
 }
@@ -106,11 +113,24 @@ export function ProductCombobox({
   const listId = useId()
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [highlighted, setHighlighted] = useState(-1)
   const [creating, setCreating] = useState(false)
+  /**
+   * Açılır listenin ekrandaki yeri. Liste `document.body`'ye portal ile
+   * `position: fixed` basılır: fatura kalemleri kartı `overflow-hidden` olduğu
+   * için absolute liste satırın içinde kırpılıyor, alttaki satırın üzerine
+   * binemiyordu. Aynı desen TaxTypeCombobox/WithholdingCombobox'ta da var.
+   */
+  const [rect, setRect] = useState<{
+    top: number
+    left: number
+    width: number
+    maxHeight: number
+  } | null>(null)
 
   // Yeni ürün popup state'i
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -226,10 +246,41 @@ export function ProductCombobox({
     setQuery("")
   }, [])
 
+  const updateRect = useCallback(() => {
+    const el = inputRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const margin = 8
+    const width = Math.min(Math.max(r.width, MIN_MENU_WIDTH), window.innerWidth - margin * 2)
+    // Sağ kenardan taşarsa içeri çekilir — ekran dışında kalan liste seçilemez.
+    const left = Math.max(margin, Math.min(r.left, window.innerWidth - width - margin))
+    const below = window.innerHeight - r.bottom - margin
+    const above = r.top - margin
+    // Aşağıda yer kalmadıysa yukarı açılır (sayfa sonundaki kalem satırı).
+    const openUp = below < 200 && above > below
+    const maxHeight = Math.max(120, Math.min(384, openUp ? above : below))
+    setRect({ top: openUp ? r.top - 4 - maxHeight : r.bottom + 4, left, width, maxHeight })
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    updateRect()
+    const onMove = () => updateRect()
+    // capture: liste, iç scroll'u olan bir kap içindeyken de input'a yapışık kalsın.
+    window.addEventListener("scroll", onMove, true)
+    window.addEventListener("resize", onMove)
+    return () => {
+      window.removeEventListener("scroll", onMove, true)
+      window.removeEventListener("resize", onMove)
+    }
+  }, [open, updateRect])
+
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent) => {
-      if (!containerRef.current?.contains(e.target as Node)) close()
+      const t = e.target as Node
+      // Liste portal ile body'de: container'a bakmak yetmez, tıklama "dışarı" sayılırdı.
+      if (!containerRef.current?.contains(t) && !dropdownRef.current?.contains(t)) close()
     }
     document.addEventListener("mousedown", onDoc)
     return () => document.removeEventListener("mousedown", onDoc)
@@ -289,9 +340,12 @@ export function ProductCombobox({
       })
       setAddingCategory(false)
       setNewCategory("")
+      // Liste portal ile body'de ve dialog overlay'inden ÜSTTE duruyor; dialog
+      // açılırken kapatılmazsa modalin önünde asılı kalır.
+      close()
       setDialogOpen(true)
     },
-    [defaults, priceContext, defaultWarehouseId]
+    [defaults, priceContext, defaultWarehouseId, close]
   )
 
   const openCreateDialog = useCallback(() => {
@@ -410,6 +464,74 @@ export function ProductCombobox({
 
   const inputValue = open ? query : closedDisplay
 
+  /**
+   * Liste `document.body`'ye portal ile basılır: fatura kalemleri kartının
+   * `overflow-hidden`'ı absolute listeyi satırın içinde kırpıyordu. Fixed konum
+   * hem alttaki satırın üzerine binmeyi hem de sütundan geniş bir liste vermeyi
+   * sağlar (konum: updateRect).
+   */
+  const dropdown =
+    open && rect
+      ? createPortal(
+          <div
+            ref={dropdownRef}
+            id={listId}
+            role="listbox"
+            style={{
+              position: "fixed",
+              top: rect.top,
+              left: rect.left,
+              width: rect.width,
+              maxHeight: rect.maxHeight,
+              zIndex: 60,
+            }}
+            className="overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
+          >
+            {filtered.length === 0 && !canCreate ? (
+              <div className="px-2 py-3 text-sm text-muted-foreground">Sonuç yok</div>
+            ) : null}
+            {filtered.map((p, i) => (
+              <button
+                key={p.id}
+                type="button"
+                role="option"
+                aria-selected={highlighted === i}
+                className={`flex w-full flex-col items-start rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground ${
+                  highlighted === i ? "bg-accent text-accent-foreground" : ""
+                }`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(p)}
+              >
+                <span className="font-medium">{p.name}</span>
+                {/* Kod ve barkod: neden eşleştiği görünsün — aynı ada sahip iki
+                    kalemi ayıran tek ipucu çoğu zaman bunlar. */}
+                {p.code || p.barcode ? (
+                  <span className="text-xs text-muted-foreground">
+                    {[p.code, p.barcode ? `⌷ ${p.barcode}` : null].filter(Boolean).join("  ")}
+                  </span>
+                ) : null}
+              </button>
+            ))}
+            {canCreate ? (
+              <button
+                type="button"
+                role="option"
+                aria-selected={highlighted === filtered.length}
+                className={`mt-1 w-full rounded-sm border-t px-2 py-2 text-left text-sm font-medium text-primary hover:bg-accent ${
+                  highlighted === filtered.length ? "bg-accent" : ""
+                }`}
+                disabled={creating}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => openCreateDialog()}
+              >
+                {creating ? "Kaydediliyor…" : `+ "${query.trim()}" adıyla yeni ürün ekle`}
+              </button>
+            ) : null}
+          </div>,
+          document.body,
+        )
+      : null
+
   return (
     <div ref={containerRef} className="relative min-w-0">
       <div className="flex gap-1">
@@ -462,54 +584,7 @@ export function ProductCombobox({
           </Button>
         ) : null}
       </div>
-      {open ? (
-        <div
-          id={listId}
-          role="listbox"
-          className="absolute z-50 mt-1 max-h-64 w-full min-w-[240px] overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-        >
-          {filtered.length === 0 && !canCreate ? (
-            <div className="px-2 py-3 text-sm text-muted-foreground">Sonuç yok</div>
-          ) : null}
-          {filtered.map((p, i) => (
-            <button
-              key={p.id}
-              type="button"
-              role="option"
-              aria-selected={highlighted === i}
-              className={`flex w-full flex-col items-start rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground ${
-                highlighted === i ? "bg-accent text-accent-foreground" : ""
-              }`}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick(p)}
-            >
-              <span className="font-medium">{p.name}</span>
-              {/* Kod ve barkod: neden eşleştiği görünsün — aynı ada sahip iki
-                  kalemi ayıran tek ipucu çoğu zaman bunlar. */}
-              {p.code || p.barcode ? (
-                <span className="text-xs text-muted-foreground">
-                  {[p.code, p.barcode ? `⌷ ${p.barcode}` : null].filter(Boolean).join("  ")}
-                </span>
-              ) : null}
-            </button>
-          ))}
-          {canCreate ? (
-            <button
-              type="button"
-              role="option"
-              aria-selected={highlighted === filtered.length}
-              className={`mt-1 w-full rounded-sm border-t px-2 py-2 text-left text-sm font-medium text-primary hover:bg-accent ${
-                highlighted === filtered.length ? "bg-accent" : ""
-              }`}
-              disabled={creating}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => openCreateDialog()}
-            >
-              {creating ? "Kaydediliyor…" : `+ "${query.trim()}" adıyla yeni ürün ekle`}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      {dropdown}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-lg">

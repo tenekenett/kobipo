@@ -9,8 +9,12 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { resolveAllUnitCosts } from "@/lib/stock/cost"
-import { computeCariAging } from "@/lib/raporlar/cari-yaslandirma"
+import { buildPaymentPlan, computeCariAging, type AgingAccount } from "@/lib/raporlar/cari-yaslandirma"
 import { computeProfitLoss } from "@/lib/raporlar/kar-zarar"
+import {
+  computeStockMovementReport,
+  type StockMovementFilters,
+} from "@/lib/raporlar/stok-hareket"
 import type { ExportColumn, ExportDataset, ExportRow, ExportSection } from "../types"
 import { loadExportCompany, describeDateRange, describeFilters } from "./context"
 
@@ -160,11 +164,63 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
   }
 }
 
+// --------------------------- STOK HAREKETLERİ ---------------------------
+
+const STOCK_MOVEMENT_COLUMNS: ExportColumn[] = [
+  { key: "date", label: "Tarih", type: "datetime", width: 26 },
+  { key: "typeLabel", label: "Hareket", width: 18 },
+  { key: "productCode", label: "Ürün Kodu", width: 22 },
+  { key: "productName", label: "Ürün" },
+  { key: "warehouseName", label: "Depo", width: 24 },
+  { key: "documentNo", label: "Belge No", width: 28 },
+  { key: "counterpartyName", label: "Cari", width: 40 },
+  { key: "class1", label: "Sınıflandırma 1", width: 26 },
+  { key: "class2", label: "Sınıflandırma 2", width: 26 },
+  { key: "quantity", label: "Miktar", type: "qty", width: 20, total: true },
+  { key: "unit", label: "Birim", width: 14, align: "center" },
+  { key: "unitPrice", label: "Birim Fiyat", type: "money", width: 24 },
+  { key: "totalAmount", label: "Tutar", type: "money", width: 26, total: true },
+  { key: "description", label: "Açıklama" },
+]
+
+export async function buildStockMovementDataset(
+  params: StockMovementFilters
+): Promise<ExportDataset> {
+  const [company, report] = await Promise.all([
+    loadExportCompany(params.companyId),
+    computeStockMovementReport(params),
+  ])
+
+  return {
+    title: "Stok Hareketleri",
+    company,
+    filters: describeFilters([
+      ["Dönem", describeDateRange(params.startDate, params.endDate) ?? "Tüm kayıtlar"],
+      ["Hareket adedi", report.totals.count],
+      ["Toplam giriş", report.totals.totalIn],
+      ["Toplam çıkış", report.totals.totalOut],
+    ]),
+    sections: [
+      {
+        title: "Stok Hareketleri",
+        sheetName: "Hareketler",
+        columns: STOCK_MOVEMENT_COLUMNS,
+        rows: report.rows,
+      },
+    ],
+    generatedAt: new Date(),
+  }
+}
+
 // --------------------------- CARİ YAŞLANDIRMA ---------------------------
 
 const AGING_COLUMNS: ExportColumn[] = [
   { key: "code", label: "Kod", width: 22 },
   { key: "name", label: "Ünvan" },
+  // Tanımlar: cari kartındaki sınıflandırmalar (Ayarlar → Tanımlar); ekranda da
+  // aynı iki sütun var.
+  { key: "class1", label: "Sınıflandırma 1", width: 26 },
+  { key: "class2", label: "Sınıflandırma 2", width: 26 },
   { key: "taxNumber", label: "VKN/TCKN", width: 26 },
   { key: "paymentDueDays", label: "Vade (gün)", type: "number", width: 20 },
   { key: "notDue", label: "Vadesi Gelmemiş", type: "money", width: 28, total: true },
@@ -174,6 +230,42 @@ const AGING_COLUMNS: ExportColumn[] = [
   { key: "performanceLabel", label: "Ödeme Davranışı", width: 26 },
   { key: "performanceScore", label: "Skor", type: "number", width: 16 },
 ]
+
+/**
+ * "Ödeme Planı" sayfası: ay üç on günlük dilime bölünür, vadesi o dilime düşen
+ * açık tutarlar cari (firma) bazında toplanır. Geçmiş ve sonraki aylara düşen
+ * tutarlar ayrı sütunlarda durur — üç dilimin toplamı tek başına toplam açığı
+ * vermez.
+ *
+ * "Geçmiş Aylar" başlığı bilinçli: yaşlandırma sayfalarındaki "Vadesi Geçmiş"
+ * bugüne göre ölçülür, burası ayın 1'ine göre. Aynı başlık kullanılsaydı tek
+ * çalışma kitabında aynı cari için iki farklı sayı görünürdü.
+ */
+function paymentPlanSection(
+  title: string,
+  sheetName: string,
+  accounts: AgingAccount[]
+): ExportSection {
+  const plan = buildPaymentPlan(accounts)
+  return {
+    title,
+    sheetName,
+    columns: [
+      { key: "code", label: "Kod", width: 22 },
+      { key: "name", label: "Ünvan" },
+      { key: "class1", label: "Sınıflandırma 1", width: 26 },
+      { key: "class2", label: "Sınıflandırma 2", width: 26 },
+      { key: "pastMonths", label: "Geçmiş Aylar", type: "money", width: 26, total: true },
+      { key: "period1", label: plan.labels.period1, type: "money", width: 26, total: true },
+      { key: "period2", label: plan.labels.period2, type: "money", width: 26, total: true },
+      { key: "period3", label: plan.labels.period3, type: "money", width: 26, total: true },
+      { key: "monthTotal", label: "Bu Ay Toplam", type: "money", width: 26, total: true },
+      { key: "nextMonths", label: "Sonraki Aylar", type: "money", width: 26, total: true },
+      { key: "total", label: "Toplam Açık", type: "money", width: 26, total: true },
+    ],
+    rows: plan.rows,
+  }
+}
 
 export async function buildAgingReportDataset(params: { companyId: string }): Promise<ExportDataset> {
   const [company, aging] = await Promise.all([
@@ -185,6 +277,8 @@ export async function buildAgingReportDataset(params: { companyId: string }): Pr
     accounts.map((account) => ({
       code: account.code,
       name: account.name,
+      class1: account.class1,
+      class2: account.class2,
       taxNumber: account.taxNumber,
       paymentDueDays: account.paymentDueDays,
       notDue: account.totals.not_due,
@@ -212,6 +306,8 @@ export async function buildAgingReportDataset(params: { companyId: string }): Pr
         columns: AGING_COLUMNS,
         rows: toRows(aging.suppliers.accounts),
       },
+      paymentPlanSection("Beklenen Tahsilatlar (Ay İçi Plan)", "Tahsilat Planı", aging.customers.accounts),
+      paymentPlanSection("Beklenen Ödemeler (Ay İçi Plan)", "Ödeme Planı", aging.suppliers.accounts),
     ],
     generatedAt: new Date(),
   }

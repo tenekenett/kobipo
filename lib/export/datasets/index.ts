@@ -11,7 +11,12 @@ import { buildCariDataset } from "./cari"
 import { buildEkstreDataset } from "./ekstre"
 import { buildInvoicesDataset } from "./invoices"
 import { buildIncomingInvoicesDataset } from "./gelen-e-faturalar"
-import { buildAgingReportDataset, buildProfitLossDataset, buildStockReportDataset } from "./reports"
+import {
+  buildAgingReportDataset,
+  buildProfitLossDataset,
+  buildStockMovementDataset,
+  buildStockReportDataset,
+} from "./reports"
 import { buildBalanceSheetDataset, buildCashFlowDataset } from "./reports-finansal"
 import { buildSalesPurchaseDataset } from "./reports-satis-alis"
 import { buildHrReportDataset } from "./reports-personel"
@@ -84,6 +89,19 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       search: params.get("search"),
       type: params.get("type"),
       stock: params.get("stock"),
+    }),
+
+  "rapor-stok-hareket": (companyId, params) =>
+    buildStockMovementDataset({
+      companyId,
+      startDate: params.get("startDate"),
+      endDate: params.get("endDate"),
+      customerId: params.get("customerId"),
+      supplierId: params.get("supplierId"),
+      class1Id: params.get("class1Id"),
+      class2Id: params.get("class2Id"),
+      productId: params.get("productId"),
+      search: params.get("search"),
     }),
 
   "rapor-cari-yaslandirma": (companyId) => buildAgingReportDataset({ companyId }),

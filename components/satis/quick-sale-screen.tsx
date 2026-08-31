@@ -1004,9 +1004,8 @@ export function QuickSaleScreen() {
           </Card>
 
           {/* Ürün arama — sepetin altında, hızlı ürünlerin üstünde.
-              overflow-hidden VERİLMEZ: ProductCombobox'un sonuç listesi
-              `position:absolute` ile kartın dışına taşar; kart kırparsa yazdıkça
-              hiçbir sonuç görünmez ve arama "çalışmıyor" sanılır. */}
+              ProductCombobox'un sonuç listesi artık body'ye portal ile basılıyor,
+              yani bu kartın overflow'u onu kırpamaz. */}
           <Card>
             <CardContent className="space-y-2 p-3">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
