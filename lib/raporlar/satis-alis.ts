@@ -14,12 +14,19 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { invoiceStatusLabel } from "@/lib/invoice/status-label"
+import { resolveReportDateFilter } from "./satis-alis-shared"
 import {
   PURCHASE_RETURN_WHERE,
   SALES_RETURN_WHERE,
   payableSign,
   receivableSign,
 } from "@/lib/cari/invoice-direction"
+
+// Dönem sınırı ve toplam farkı açıklaması SAF modülde durur (ekran da çağırıyor);
+// buradan yeniden dışa veriliyor ki çağıranlar tek adres bilsin.
+export { describeLineTotalGap, resolveReportDateFilter } from "./satis-alis-shared"
+export type { LineTotalGap } from "./satis-alis-shared"
 
 export type SalesPurchaseKind = "SALES" | "PURCHASE"
 
@@ -28,6 +35,8 @@ export type SalesPurchaseInvoice = {
   invoiceNo: string
   date: string
   status: string
+  /** Durumun Türkçe karşılığı — ekran ve dosya AYNI kelimeyi yazsın diye burada üretilir. */
+  statusLabel: string
   /** İade belgesi mi — tutarları EKSİ gelir, listede öyle işaretlenmeli. */
   isReturn: boolean
   counterpartyName: string
@@ -78,6 +87,14 @@ export type SalesPurchaseResult = {
   invoices: SalesPurchaseInvoice[]
   /** Yalnız `includeLines` istendiğinde dolar (dışa aktarma); ekran kullanmaz. */
   lines: SalesPurchaseInvoiceLine[]
+  /** Kalem satırlarının toplamı. `includeLines` yoksa 0. */
+  linesTotal: number
+  /**
+   * Fatura GENELİNE uygulanan iskontonun toplamı. Kalem satırlarında GÖRÜNMEZ:
+   * "Detaylı Faturalar" toplamının "Faturalar" toplamından yüksek çıkmasının
+   * başlıca sebebi budur (bkz. `describeLineTotalGap`).
+   */
+  globalDiscountTotal: number
 }
 
 const monthLabel = (date: Date) =>
@@ -89,7 +106,12 @@ export async function computeSalesPurchaseReport(args: {
   /** Ekranda karşılığı yok; dışa aktarmada dönem daraltmak için opsiyonel. */
   startDate?: string | null
   endDate?: string | null
-  /** En çok işlem yapılan cari sayısı. */
+  /**
+   * Cari listesini KES (ör. 5). Verilmezse dönemin TÜM carileri döner:
+   * varsayılan 20'lik kesme, "tümü için başlığa tıklayın" diyen kartın açtığı
+   * sayfada da uygulanıyordu — 83 müşterisi olan firmada 63'ü hiçbir yerde
+   * görünmüyordu (ölçüldü) ve ekranda uyarı da yoktu.
+   */
   topCount?: number
   /**
    * Fatura kalemlerini de getir ("Detaylı Faturalar" sayfası). Ekran bunu
@@ -98,13 +120,7 @@ export async function computeSalesPurchaseReport(args: {
   includeLines?: boolean
 }): Promise<SalesPurchaseResult> {
   const isSales = args.type === "SALES"
-  const dateFilter =
-    args.startDate || args.endDate
-      ? {
-          gte: args.startDate ? new Date(args.startDate) : undefined,
-          lte: args.endDate ? new Date(args.endDate) : undefined,
-        }
-      : undefined
+  const dateFilter = resolveReportDateFilter(args.startDate, args.endDate)
 
   // İADELER de çekilir ve tutarları EKSİ sayılır: net ciro/net alış budur.
   // Ayrı bir rapor yerine aynı listede negatif satır olması, "fatura toplamım
@@ -157,12 +173,15 @@ export async function computeSalesPurchaseReport(args: {
   const monthlyMap = new Map<string, { label: string; sortKey: string; amount: number; count: number }>()
   const counterpartyMap = new Map<string, { class1: string; class2: string; amount: number; count: number }>()
   let totalAmount = 0
+  let linesTotal = 0
+  let globalDiscountTotal = 0
 
   const rows: SalesPurchaseInvoice[] = invoices.map((invoice) => {
     const sign = isSales ? receivableSign(invoice) : payableSign(invoice)
     const isReturn = sign < 0
     const amount = sign * Number(invoice.totalAmount || 0)
     totalAmount += amount
+    globalDiscountTotal += sign * Number(invoice.globalDiscountAmount || 0)
 
     const date = new Date(invoice.date)
     const sortKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
@@ -184,6 +203,7 @@ export async function computeSalesPurchaseReport(args: {
     // İADE satırlarının tutarları da EKSİ yazılır: kalem sayfasının toplamı
     // fatura sayfasınınkiyle tutmalı.
     for (const item of (invoice as { items?: any[] }).items ?? []) {
+      linesTotal += sign * Number(item.totalAmount || 0)
       lines.push({
         invoiceId: invoice.id,
         invoiceNo: invoice.invoiceNo,
@@ -211,6 +231,7 @@ export async function computeSalesPurchaseReport(args: {
       invoiceNo: invoice.invoiceNo,
       date: invoice.date.toISOString(),
       status: invoice.status,
+      statusLabel: invoiceStatusLabel(invoice.status, { isPurchase: !isSales }),
       isReturn,
       counterpartyName: name,
       class1,
@@ -229,8 +250,10 @@ export async function computeSalesPurchaseReport(args: {
     topCounterparties: Array.from(counterpartyMap.entries())
       .map(([name, value]) => ({ name, ...value }))
       .sort((a, b) => b.amount - a.amount)
-      .slice(0, args.topCount ?? 20),
+      .slice(0, args.topCount ?? Number.MAX_SAFE_INTEGER),
     invoices: rows,
     lines,
+    linesTotal,
+    globalDiscountTotal,
   }
 }

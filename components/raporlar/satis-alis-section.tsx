@@ -17,8 +17,9 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { ExportButton } from "@/components/export/export-button"
-import { ArrowLeft } from "lucide-react"
+import { AlertTriangle, ArrowLeft } from "lucide-react"
 import { withCompanyHref } from "@/lib/company/href"
+import { describeLineTotalGap } from "@/lib/raporlar/satis-alis-shared"
 import type {
   SalesPurchaseInvoice,
   SalesPurchaseInvoiceLine,
@@ -184,6 +185,8 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
       // İade satırlarının tutarları EKSİ gelir; sütun olmasaydı okuyan kişi
       // negatif rakamı hata sanardı.
       { header: "Belge", cell: (row) => (row.isReturn ? "İade" : isSales ? "Satış" : "Alış") },
+      // Excel'de de var; ekranla dosya aynı sütunları göstersin.
+      { header: "Durum", cell: (row) => row.statusLabel || "—" },
       {
         header: "Matrah",
         align: "right",
@@ -227,6 +230,11 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
       // GİB'e giden asıl numara; fatura no'dan farklı olabilir.
       { header: "e-Belge No", cell: (row) => row.eDocumentNo || "—" },
       { header: isSales ? "Müşteri" : "Tedarikçi", cell: (row) => row.counterpartyName },
+      // Tanımlar (Ayarlar → Tanımlar) Excel'de vardı, ekranda YOKTU: aynı bölümün
+      // ekranı ile dosyası ayrışıyordu. Belge ve İskonto da aynı sebeple eklendi.
+      { header: "Sınıflandırma 1", cell: (row) => row.class1 || "—" },
+      { header: "Sınıflandırma 2", cell: (row) => row.class2 || "—" },
+      { header: "Belge", cell: (row) => (row.isReturn ? "İade" : isSales ? "Satış" : "Alış") },
       { header: "Stok Kodu", cell: (row) => row.productCode || "—" },
       { header: "Stok / Hizmet", cell: (row) => row.description },
       { header: "Tür", cell: (row) => row.kind },
@@ -236,6 +244,12 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
         cell: (row) => `${fmtQty(row.quantity)} ${row.unit}`,
       },
       { header: "Birim Fiyat", align: "right", cell: (row) => TL(row.unitPrice) },
+      {
+        header: "İskonto",
+        align: "right",
+        cell: (row) => TL(row.discountAmount),
+        total: (rows) => TL(rows.reduce((sum, row) => sum + row.discountAmount, 0)),
+      },
       { header: "KDV %", align: "right", cell: (row) => row.vatRate },
       {
         header: "KDV",
@@ -266,6 +280,14 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
     }
   })() as { columns: Col<unknown>[]; rows: unknown[] }
 
+  // Kalem toplamı ile fatura toplamı arasındaki fark AÇIKLANIR: fatura geneline
+  // uygulanan iskonto kalem satırlarında görünmez, söylenmezse "rakamlar tutmuyor"
+  // denir. Yalnız kalemlerin ÇEKİLDİĞİ bölümde anlamlı; fark yoksa hiç basılmaz.
+  const totalGap = useMemo(
+    () => (report && section.needsLines ? describeLineTotalGap(report) : null),
+    [report, section.needsLines]
+  )
+
   const cap = ROW_CAP[section.key]
   const visibleRows = cap ? table.rows.slice(0, cap) : table.rows
   const isTruncated = visibleRows.length < table.rows.length
@@ -280,13 +302,14 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Dosya, raporun TAMAMINI (dört sayfa) üretir; bu bölüm onun
-              "{section.sheetName}" sekmesidir. */}
+          {/* Dosya EKRANDAKİ bölümü taşır: `section` olmadan dört bölümlük tam rapor
+              iniyordu ve "Detaylı Faturalar" düğmesi, kullanıcının baktığı listeyi
+              değil raporun tamamını veriyordu. */}
           <ExportButton
             dataset={isSales ? "rapor-satis" : "rapor-alis"}
             companyId={companyId}
             size="default"
-            params={{ startDate, endDate }}
+            params={{ startDate, endDate, section: section.key }}
           />
           <Link href={withCompanyHref(reportBasePath(kind), companyId)}>
             <Button variant="outline">
@@ -336,6 +359,16 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
           </Button>
         </CardContent>
       </Card>
+
+      {totalGap ? (
+        <div className="flex gap-2.5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            <span className="font-medium">Toplam farkı: </span>
+            {totalGap.text}
+          </p>
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader>

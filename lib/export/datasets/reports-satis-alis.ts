@@ -6,11 +6,12 @@
  */
 
 import { computeSalesPurchaseReport, type SalesPurchaseKind } from "@/lib/raporlar/satis-alis"
+import { describeLineTotalGap } from "@/lib/raporlar/satis-alis-shared"
 import {
   salesPurchaseSections,
   type SalesPurchaseSectionKey,
 } from "@/lib/raporlar/satis-alis-sections"
-import type { ExportColumn, ExportDataset } from "../types"
+import type { ExportColumn, ExportDataset, ExportSection } from "../types"
 import { loadExportCompany, describeDateRange, describeFilters } from "./context"
 
 /** Cari kartındaki tanımlar — hem cari sayfasında hem fatura satırlarında aynı iki sütun. */
@@ -43,7 +44,8 @@ function invoiceColumns(isSales: boolean): ExportColumn[] {
     // İade satırlarının tutarları EKSİ gelir; sütun olmasaydı okuyan kişi
     // negatif rakamı hata sanardı.
     { key: "belge", label: "Belge", width: 18 },
-    { key: "status", label: "Durum", width: 22 },
+    // Ham kod ("GIB_DRAFT") değil ekrandaki kelime; etiket `lib/invoice/status-label.ts`ten.
+    { key: "statusLabel", label: "Durum", width: 22 },
     { key: "netAmount", label: "Matrah", type: "money", width: 26, total: true },
     { key: "vatAmount", label: "KDV", type: "money", width: 24, total: true },
     { key: "totalAmount", label: "Genel Toplam", type: "money", width: 28, total: true },
@@ -83,21 +85,76 @@ export async function buildSalesPurchaseDataset(params: {
   type: SalesPurchaseKind
   startDate?: string | null
   endDate?: string | null
+  /**
+   * TEK bölüm dışa aktarılsın (bölüm anahtarı: `aylik` | `cariler` | `faturalar`
+   * | `kalemler`). Bölüm alt sayfasındaki düğme kendi bölümünü gönderir: kullanıcı
+   * "Detaylı Faturalar" sayfasında Dışa Aktar'a bastığında dosyada ekrandaki liste
+   * olmalı — dört sayfalık raporun içinde aranan bir sekme değil.
+   * Verilmezse (özet ekranın düğmesi) dosya dört bölümü birden taşır.
+   * Bilinmeyen değer yok sayılır, tam rapora düşer.
+   */
+  section?: string | null
 }): Promise<ExportDataset> {
   const isSales = params.type === "SALES"
-  const [company, report] = await Promise.all([
-    loadExportCompany(params.companyId),
-    computeSalesPurchaseReport({ ...params, includeLines: true }),
-  ])
-
-  const title = isSales ? "Satış Raporu" : "Alış Raporu"
 
   // Başlık ve sayfa adları ekranın kartlarıyla AYNI kaynaktan gelir: kullanıcı
   // "Faturalar kartındaki rakam Excel'in hangi sekmesinde" diye sormamalı.
   const sections = salesPurchaseSections(params.type)
-  const meta = (key: SalesPurchaseSectionKey) => {
+  const only = params.section ? (sections.find((s) => s.key === params.section) ?? null) : null
+
+  // Kalem sorgusu fatura sayısıyla büyür; tek bölüm isteniyorsa yalnız o bölüm
+  // gerektiriyorsa çekilir.
+  const includeLines = only ? only.needsLines : true
+
+  const [company, report] = await Promise.all([
+    loadExportCompany(params.companyId),
+    computeSalesPurchaseReport({
+      companyId: params.companyId,
+      type: params.type,
+      startDate: params.startDate,
+      endDate: params.endDate,
+      includeLines,
+    }),
+  ])
+
+  // Kalem sayfasının toplamı fatura sayfasınınkini tutmayabilir (fatura geneli
+  // iskonto kalem satırlarında görünmez). Sessiz bırakmak "rakamlar tutmuyor"
+  // sorusunu doğurduğu için dosyaya not olarak yazılır — künye sayfasında ve
+  // PDF'in altında görünür.
+  const gap = includeLines ? describeLineTotalGap(report) : null
+
+  const reportTitle = isSales ? "Satış Raporu" : "Alış Raporu"
+  // Tek bölümlük dosyanın ADI da bölümü söyler: indirilen dosya
+  // "Satis_Raporu_Detayli_Faturalar_<firma>_<tarih>.xlsx".
+  const title = only ? `${reportTitle} — ${only.title}` : reportTitle
+
+  const buildSection = (key: SalesPurchaseSectionKey): ExportSection => {
     const section = sections.find((s) => s.key === key)!
-    return { title: section.title, sheetName: section.sheetName }
+    const meta = { title: section.title, sheetName: section.sheetName }
+    switch (key) {
+      case "aylik":
+        return { ...meta, columns: MONTHLY_COLUMNS, rows: report.monthly }
+      case "cariler":
+        return { ...meta, columns: counterpartyColumns(isSales), rows: report.topCounterparties }
+      case "faturalar":
+        return {
+          ...meta,
+          columns: invoiceColumns(isSales),
+          rows: report.invoices.map((inv) => ({
+            ...inv,
+            belge: inv.isReturn ? "İade" : isSales ? "Satış" : "Alış",
+          })),
+        }
+      case "kalemler":
+        return {
+          ...meta,
+          columns: invoiceLineColumns(isSales),
+          rows: report.lines.map((line) => ({
+            ...line,
+            belge: line.isReturn ? "İade" : isSales ? "Satış" : "Alış",
+          })),
+        }
+    }
   }
 
   return {
@@ -107,40 +164,16 @@ export async function buildSalesPurchaseDataset(params: {
       ["Dönem", describeDateRange(params.startDate, params.endDate) ?? "Tüm kayıtlar"],
       ["Fatura adedi", report.count],
       ["İade adedi", report.invoices.filter((i) => i.isReturn).length],
-      ["Kalem adedi", report.lines.length],
+      // Kalem adedi yalnız kalemler ÇEKİLDİYSE yazılır; çekilmemişken "0" basmak
+      // dosyayı okuyan kişiye "hiç kalem yok" dedirtirdi.
+      ["Kalem adedi", includeLines ? report.lines.length : null],
       [isSales ? "Toplam ciro" : "Toplam alış", report.totalAmount.toLocaleString("tr-TR", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })],
     ]),
-    sections: [
-      {
-        ...meta("aylik"),
-        columns: MONTHLY_COLUMNS,
-        rows: report.monthly,
-      },
-      {
-        ...meta("cariler"),
-        columns: counterpartyColumns(isSales),
-        rows: report.topCounterparties,
-      },
-      {
-        ...meta("faturalar"),
-        columns: invoiceColumns(isSales),
-        rows: report.invoices.map((inv) => ({
-          ...inv,
-          belge: inv.isReturn ? "İade" : isSales ? "Satış" : "Alış",
-        })),
-      },
-      {
-        ...meta("kalemler"),
-        columns: invoiceLineColumns(isSales),
-        rows: report.lines.map((line) => ({
-          ...line,
-          belge: line.isReturn ? "İade" : isSales ? "Satış" : "Alış",
-        })),
-      },
-    ],
+    sections: (only ? [only.key] : sections.map((s) => s.key)).map(buildSection),
+    note: gap ? `Detaylı Faturalar: ${gap.text}` : undefined,
     generatedAt: new Date(),
   }
 }

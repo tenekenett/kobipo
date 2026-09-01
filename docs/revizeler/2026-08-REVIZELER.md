@@ -415,6 +415,60 @@ Kod tarafında iş kalmadı; aşağıdakiler **karar** bekliyor.
 
 ---
 
+---
+
+## 2026-09-01 · Revize maddeleri yeniden ölçüldü (A1–A4)
+
+"11/11 kapandı" denmişti; müşteri mesajları canlı veriyle tekrar sınandığında
+**beş kusur** çıktı. Dördü düzeltildi, biri müşteri kararına kaldı.
+
+| # | Bulgu | Ölçüm | Durum |
+|---|---|---|---|
+| A | Dönem sınırı günün 00:00'ı olarak uygulanıyordu (`lte`), saatli faturalar son gün düşüyordu | Reypo Medya: son fatura 29.08 **16:14**, bitiş=29.08 seçilince **0 fatura**. 252 faturanın 62'si saatli | ✅ düzeltildi |
+| B | Cari bölümü sessizce ilk 20'de kesiliyordu (ekran + Excel) | EREN FORKLİFT PNÖMATİK 83 müşteri → **20** satır; kart ise "tümü için başlığa tıklayın" diyor | ✅ düzeltildi |
+| D | "Detaylı Faturalar" EKRANINDA Sınıflandırma 1/2, Belge, İskonto sütunları yoktu (Excel'de vardı) | Ekran 12 sütun, dosya 17 | ✅ düzeltildi |
+| E | Excel "Durum" sütunu ham kod basıyordu | `DRAFT, SENT, GIB_DRAFT, CONVERTED, CANCELLED` | ✅ düzeltildi |
+| F | Kalem toplamı ≠ fatura toplamı | Reypo Medya: 838.280,69 / 827.341,90 → fark 10.938,79 (8.956,60'ı fatura geneli iskonto) | ✅ **açıklanıyor** (düzen kararı hâlâ açık) |
+
+**A · dönem sınırı.** `resolveReportDateFilter()` (`lib/raporlar/satis-alis-shared.ts`):
+`YYYY-MM-DD` bitişi ERTESİ GÜNÜN başına (`lt`) çevrilir, gün ekseni UTC — aylık
+kırılım da aynı eksende. Saat taşıyan değer olduğu gibi uygulanır. Testli
+(ay sonu, yıl sonu, artık yıl, tek uçlu aralık).
+
+**B · cari kesmesi.** `topCount` artık VARSAYILAN DEĞİL: verilmezse dönemin tüm
+carileri döner. Özet ekran kendi listesini zaten 5'e kesiyor; alt sayfa ve Excel
+tam liste alıyor. Yan etki: özet ekrandaki "Aktif Müşteri" sayacı da 20'de
+takılıyordu, artık gerçek adedi gösteriyor (83).
+
+**D/E · ekran–dosya eşitliği.** Kalem tablosuna Sınıflandırma 1/2 + Belge +
+İskonto, fatura tablosuna Durum sütunu eklendi. Durum etiketi tek kaynaktan:
+`lib/invoice/status-label.ts` (`GIB_DRAFT` → "GİB Taslağı", alışta `DRAFT` →
+"Kayıtlı"; ekrandaki rozetle aynı kural). Ölçüldü: satışta
+`Taslak, Gönderildi, GİB Taslağı, Dönüştürüldü, İptal`, alışta `Kayıtlı, Gönderildi`.
+
+**F · fark artık söyleniyor.** `describeLineTotalGap()` farkı bileşenlerine ayırıp
+tek cümle üretir; **ekranda** Detaylı Faturalar sayfasının üstünde sarı uyarı,
+**dosyada** "Rapor Bilgisi" sayfasındaki `Not` satırı (PDF'te sayfa altı) olarak
+basılır. Fark kuruş altındaysa hiçbir şey yazılmaz. Örnek çıktı:
+
+> Kalem toplamı ₺838.280,69, Faturalar sayfasının toplamı ₺827.341,90 — fark
+> ₺10.938,79. Bunun ₺8.956,60 kadarı fatura geneline uygulanan iskontodur; kalem
+> satırlarına dağıtılmaz. Kalan ₺1.982,19 ise kayıtlı toplamı kalemleriyle
+> uyuşmayan belgelerden gelir.
+
+**Hâlâ açık (müşteri kararı):** A3 düzeni — müşteri "her faturanın ALTINA
+kalemler" (fatura başlığı + alt satırlar) istiyor; bizde düz liste, fatura kimliği
+her satırda tekrar ediyor (Excel'de süzme/pivot için). Bu, yukarıdaki "Kalan
+sorular" bölümünün 1. maddesidir ve kapanmadı.
+
+**Aynı turda düzeltilen ayrı iki şey:** bölüm alt sayfasındaki "Dışa Aktar"
+raporun tamamını indiriyordu → artık yalnız o bölümü (`section` parametresi,
+dosya adı da bölümü söylüyor); rapor bölümleri özet ekranda kutu şeridi olarak
+sayfanın üstüne alındı.
+
+`npx tsc --noEmit` temiz · `npx vitest run` **671 test** geçti · `npx next build`
+temiz.
+
 ## Dokunulan dosyalar
 
 **Yeni:** `app/api/raporlar/satis-alis/route.ts`,

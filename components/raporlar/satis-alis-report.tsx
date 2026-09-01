@@ -6,7 +6,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ArrowUpRight, Receipt, TrendingDown, TrendingUp, UserRound, Users } from "lucide-react"
+import {
+  ArrowUpRight,
+  CalendarRange,
+  ChevronRight,
+  ListTree,
+  Receipt,
+  TrendingDown,
+  TrendingUp,
+  UserRound,
+  Users,
+  type LucideIcon,
+} from "lucide-react"
 import { ExportButton } from "@/components/export/export-button"
 import { withCompanyHref } from "@/lib/company/href"
 import type { SalesPurchaseKind, SalesPurchaseResult } from "@/lib/raporlar/satis-alis"
@@ -25,9 +36,9 @@ import {
  * hesabı (`lib/raporlar/satis-alis.ts`) çağırdığı için ekran ile dosya birebir
  * aynıdır — tarih aralığı ikisine birden uygulanır.
  *
- * DÜZEN: Excel'deki her sayfanın burada bir kartı var, kartın başlığı da o
- * bölümün alt sayfasına gider (`/raporlar/satis/faturalar` gibi). Kartlar özet,
- * alt sayfa tam liste gösterir; ikisi de aynı bölüm listesinden
+ * DÜZEN: Excel'deki her sayfa ekranda iki yerden açılır — özetin üstündeki
+ * "Rapor bölümleri" şeridi ve (özeti olan bölümlerde) kartın başlığındaki link.
+ * Kartlar özet, alt sayfa tam liste gösterir; üçü de aynı bölüm listesinden
  * (`lib/raporlar/satis-alis-sections.ts`) doğar.
  */
 
@@ -38,6 +49,14 @@ const isoDay = (date: Date) => date.toISOString().split("T")[0]
 
 /** Cari kartındaki iki tanım tek satırda: "Bayi · Marmara". İkisi de boşsa "". */
 const classText = (class1: string, class2: string) => [class1, class2].filter(Boolean).join(" · ")
+
+/** Bölüm kapılarının ikonu. Anahtarlar bölüm listesinden gelir, kart eklenirse burası da uyarır. */
+const sectionIcons: Record<SalesPurchaseSectionKey, LucideIcon> = {
+  aylik: CalendarRange,
+  cariler: Users,
+  faturalar: Receipt,
+  kalemler: ListTree,
+}
 
 type Props = {
   kind: SalesPurchaseKind
@@ -237,6 +256,41 @@ export function SatisAlisReport({ kind, companyId }: Props) {
         </Card>
       </div>
 
+      {/* Bölüm kapıları. Dört bölüm de (Excel'in dört sayfası) ÖZETİN ÜSTÜNDE tek
+          şeritte duruyor: "Detaylı Faturalar" en altta, kalem özeti olmayan boş bir
+          kartın içindeyken fark edilmiyordu. Kart başlıklarındaki linkler duruyor —
+          iki yol da aynı bölüm listesinden doğuyor. */}
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Rapor bölümleri
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {sections.map((section) => {
+            const Icon = sectionIcons[section.key]
+            return (
+              <Link
+                key={section.key}
+                href={hrefOf(section.key)}
+                className="group flex items-start gap-3 rounded-xl border bg-card p-4 shadow-card transition-all hover:-translate-y-0.5 hover:border-kobipo-blue/50 hover:shadow-md"
+              >
+                <span className="shrink-0 rounded-lg bg-muted p-2 text-muted-foreground transition-colors group-hover:bg-kobipo-blue/10 group-hover:text-kobipo-blue dark:group-hover:bg-primary/15 dark:group-hover:text-primary">
+                  <Icon className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold leading-tight">
+                    {section.title}
+                    <ChevronRight className="ml-1 inline-block h-3.5 w-3.5 align-[-2px] text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  </p>
+                  <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                    {section.description}
+                  </p>
+                </div>
+              </Link>
+            )
+          })}
+        </div>
+      </div>
+
       <Card>
         <SectionCardHeader section={sectionOf("aylik")} href={hrefOf("aylik")} />
         <CardContent>
@@ -352,31 +406,6 @@ export function SatisAlisReport({ kind, companyId }: Props) {
               ))}
             </ul>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Kalem listesinin özeti YOK: kalem sorgusu fatura sayısıyla büyüdüğü için
-          bu ekranda hiç çekilmez (bkz. uçtaki `includeLines`). Kart yalnız kapı. */}
-      <Card>
-        <SectionCardHeader
-          section={sectionOf("kalemler")}
-          href={hrefOf("kalemler")}
-          hint="Faturaların satır satır dökümü — hangi üründen ne kadar satıldığı"
-        />
-        <CardContent>
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed p-4">
-            <p className="text-sm text-muted-foreground">
-              Her satır bir fatura kalemidir; fatura kimliği (tarih, no, e-Belge no, cari, tanımlar)
-              her satırda tekrar eder. Excel&apos;de aynı liste &quot;{sectionOf("kalemler").sheetName}
-              &quot; sayfasındadır.
-            </p>
-            <Link href={hrefOf("kalemler")}>
-              <Button variant="outline">
-                Kalemleri aç
-                <ArrowUpRight className="ml-2 h-4 w-4" />
-              </Button>
-            </Link>
-          </div>
         </CardContent>
       </Card>
     </div>

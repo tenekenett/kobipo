@@ -102,22 +102,24 @@ export default function CustomerSupplierDetailPage() {
   const companyId = searchParams.get("company")
   const fromParam = searchParams.get("from")
   const safeFrom = fromParam && fromParam.startsWith("/") ? fromParam : null
+
+  const isCustomer = type === "customers"
+  const entityLabel = isCustomer ? "Müşteri" : "Tedarikçi"
+  const endpoint = isCustomer ? "customers" : "suppliers"
+  // Cari listesinin İLGİLİ sekmesi: arşivleme/silme sonrası ve geri düğmesinin
+  // varsayılanı. `?tab=` taşınmazsa liste her zaman Müşteriler'i açar; tedarikçiden
+  // çıkan kullanıcı müşteri listesine düşüyordu.
+  const listHref = `/cari?tab=${endpoint}&company=${encodeURIComponent(companyId || "")}`
   const backHref = safeFrom
     ? `${safeFrom}${safeFrom.includes("?") ? "&" : "?"}company=${encodeURIComponent(companyId || "")}`
-    : `/cari?company=${encodeURIComponent(companyId || "")}`
-  
+    : listHref
+
   const [data, setData] = useState<CustomerSupplierDetail | null>(null)
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isTransactionDialogOpen, setIsTransactionDialogOpen] = useState(false)
   const [cariAction, setCariAction] = useState<"archive" | "delete" | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
-
-  const isCustomer = type === "customers"
-  const entityLabel = isCustomer ? "Müşteri" : "Tedarikçi"
-  const endpoint = isCustomer ? "customers" : "suppliers"
-  // Arşivleme/silme sonrası dönülecek liste (ilgili sekme açık).
-  const listHref = `/cari?tab=${endpoint}&company=${companyId || ""}`
 
   const performArchive = async () => {
     if (!data) return

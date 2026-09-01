@@ -123,12 +123,15 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       endDate: params.get("endDate"),
     }),
 
+  // `section` verilirse dosya YALNIZ o bölümü taşır (bölüm alt sayfasındaki
+  // düğme kendi anahtarını gönderir); verilmezse dört bölümlük tam rapor.
   "rapor-satis": (companyId, params) =>
     buildSalesPurchaseDataset({
       companyId,
       type: "SALES",
       startDate: params.get("startDate"),
       endDate: params.get("endDate"),
+      section: params.get("section"),
     }),
 
   "rapor-alis": (companyId, params) =>
@@ -137,6 +140,7 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       type: "PURCHASE",
       startDate: params.get("startDate"),
       endDate: params.get("endDate"),
+      section: params.get("section"),
     }),
 
   "rapor-personel": (companyId, params) =>
