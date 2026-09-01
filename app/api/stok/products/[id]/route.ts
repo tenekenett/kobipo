@@ -94,6 +94,13 @@ export const GET = withApiErrors(async function GET(
     const invoiceRefs = Array.from(
       new Set(product.stockMovements.map((m) => m.reference).filter((r): r is string => !!r)),
     )
+    // Referans iki biçimde gelir: fatura id'si ya da "waybill:<id>" (irsaliye).
+    const WAYBILL_PREFIX = "waybill:"
+    const waybillIds = invoiceRefs
+      .filter((r) => r.startsWith(WAYBILL_PREFIX))
+      .map((r) => r.slice(WAYBILL_PREFIX.length))
+    const plainRefs = invoiceRefs.filter((r) => !r.startsWith(WAYBILL_PREFIX))
+
     const invoiceCurrency = new Map<string, string>()
     /**
      * Referansı fatura olan hareketler için belge kimliği. Liste eskiden ham cuid
@@ -102,9 +109,9 @@ export const GET = withApiErrors(async function GET(
      * fatura numarasına düşülür.
      */
     const invoiceRef = new Map<string, { id: string; no: string; type: string }>()
-    if (invoiceRefs.length > 0) {
+    if (plainRefs.length > 0) {
       const invoices = await prisma.invoice.findMany({
-        where: { id: { in: invoiceRefs }, companyId: product.companyId },
+        where: { id: { in: plainRefs }, companyId: product.companyId },
         select: { id: true, currency: true, invoiceNo: true, eDocumentNo: true, type: true },
       })
       for (const inv of invoices) {
@@ -114,6 +121,24 @@ export const GET = withApiErrors(async function GET(
           no: inv.eDocumentNo || inv.invoiceNo,
           type: inv.type,
         })
+      }
+    }
+
+    /**
+     * İrsaliye kaynaklı hareketler. Ekran bunlarda yalnız "İrsaliye" yazıyordu —
+     * hangi irsaliye olduğu görünmüyordu; oysa stok hareket raporu aynı hareketi
+     * numarasıyla çözüyor (`lib/raporlar/stok-hareket.ts`). Numara buradan gelir,
+     * bağlantı ilgili irsaliye listesini o numarayla süzülü açar (irsaliyenin
+     * ayrı bir detay sayfası yok).
+     */
+    const waybillRef = new Map<string, { id: string; no: string; type: string }>()
+    if (waybillIds.length > 0) {
+      const waybills = await prisma.waybill.findMany({
+        where: { id: { in: waybillIds }, companyId: product.companyId },
+        select: { id: true, waybillNo: true, type: true },
+      })
+      for (const w of waybills) {
+        waybillRef.set(`${WAYBILL_PREFIX}${w.id}`, { id: w.id, no: w.waybillNo, type: w.type })
       }
     }
 
@@ -165,8 +190,10 @@ export const GET = withApiErrors(async function GET(
         description: movement.description || "",
         referenceNo: movement.reference || undefined,
         // Fatura kaynaklı hareket: ekran numarayı basar ve faturaya link verir.
-        // Referans irsaliye/adisyon ise eşleşme olmaz, alan null kalır.
+        // Referans adisyon ya da SİLİNMİŞ bir fatura ise eşleşme olmaz, alan null
+        // kalır (açıklama satırı belge numarasını yine taşır).
         invoice: (movement.reference && invoiceRef.get(movement.reference)) || null,
+        waybill: (movement.reference && waybillRef.get(movement.reference)) || null,
         balanceAfter,
       }
     }).reverse() // Reverse to show oldest first

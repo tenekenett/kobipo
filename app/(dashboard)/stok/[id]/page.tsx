@@ -40,6 +40,8 @@ interface StockMovement {
    * null gelir ve referans ham haliyle basılır.
    */
   invoice?: { id: string; no: string; type: string } | null
+  /** İrsaliye kaynaklı hareket: numara + hangi listede aranacağı (SALES/PURCHASE). */
+  waybill?: { id: string; no: string; type: string } | null
   balanceAfter: number
   /** Hareketin KAYNAK BELGE para birimi — ürününkinden farklı olabilir (bkz. API). */
   currency?: string | null
@@ -83,8 +85,19 @@ function movementTone(quantity: number): "in" | "out" | "flat" {
  * Referans hücresinin metni: fatura değilse ne yazacağımız. `waybill:<id>`
  * (irsaliye) ve çıplak cuid (adisyon vb.) kullanıcıya bir şey anlatmaz.
  */
+/**
+ * İrsaliyenin ayrı bir detay sayfası yok; liste sayfası `?ara=` ile numarayla
+ * süzülü açılır, kullanıcı belgeyi tek tıkla bulur.
+ */
+function waybillHref(waybill: { no: string; type: string }, companyId: string | null): string {
+  const base = waybill.type === "PURCHASE" ? "/alis/irsaliye" : "/satis/irsaliye"
+  return `${base}?company=${encodeURIComponent(companyId ?? "")}&ara=${encodeURIComponent(waybill.no)}`
+}
+
 function referenceLabel(referenceNo?: string): string {
   if (!referenceNo) return "-"
+  // Buraya yalnız SİLİNMİŞ/bulunamayan irsaliye düşer: çözülebilenler numarasıyla
+  // ve bağlantılı basılır (bkz. waybillHref).
   if (referenceNo.startsWith("waybill:")) return "İrsaliye"
   return looksLikeCuid(referenceNo) ? "-" : referenceNo
 }
@@ -510,6 +523,13 @@ export default function ProductDetailPage() {
                           className="font-medium text-primary underline-offset-2 hover:underline"
                         >
                           {movement.invoice.no}
+                        </Link>
+                      ) : movement.waybill ? (
+                        <Link
+                          href={waybillHref(movement.waybill, companyId)}
+                          className="font-medium text-primary underline-offset-2 hover:underline"
+                        >
+                          İrsaliye {movement.waybill.no}
                         </Link>
                       ) : (
                         referenceLabel(movement.referenceNo)

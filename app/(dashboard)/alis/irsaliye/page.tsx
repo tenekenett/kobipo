@@ -123,7 +123,9 @@ export default function AlisIrsaliyePage() {
   // (sunucu kapısı da aynı sahipliği uygular: lib/page-access.ts → /api/cari/*).
   const canCreateCari = useCanCreateCari().supplier
   const [quickCari, setQuickCari] = useState({ open: false, name: "" })
-  const [search, setSearch] = useState("")
+  // `?ara=` ile gelen numara arama kutusuna düşer: ürün kartındaki stok hareketi
+  // irsaliyeyi buradan buldurur (irsaliyenin ayrı detay sayfası yok).
+  const [search, setSearch] = useState(() => searchParams.get("ara") ?? "")
   const [statusFilter, setStatusFilter] = useState("ALL")
   // Dolu ise dialog düzenleme modundadır (PUT), boşsa yeni kayıt (POST).
   const [editingId, setEditingId] = useState<string | null>(null)

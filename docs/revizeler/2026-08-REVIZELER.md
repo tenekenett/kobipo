@@ -469,6 +469,54 @@ sayfanın üstüne alındı.
 `npx tsc --noEmit` temiz · `npx vitest run` **671 test** geçti · `npx next build`
 temiz.
 
+---
+
+## 2026-09-01 · İkinci tur (B1, C1, B2, D1, E1, D2) yeniden ölçüldü
+
+Beş madde ölçümde temiz çıktı, **ikisinde eksik vardı**; ikisi de düzeltildi.
+
+**Temiz çıkanlar (ölçümle):** tanım düzenleme (rename + pasif/aktif + 400/409/403
+denetimleri) · yaşlandırma ekranında ve Excel'inde tanım sütunları (ekranda tek
+tablo iki sekmeyi besliyor) · yaşlandırma Excel'inde ödeme planı (dört firmada da
+`Alacaklar | Borçlar | Tahsilat Planı | Ödeme Planı`, **toplamı tutmayan satır 0**)
+· stok hareketleri ayrı sayfası ve süzgeçleri (346 satır → müşteri süzgeciyle 45;
+kesilme yok) · ürün detayında faturaya link (310/346, 100/104 …).
+
+**Eksik 1 — arama listesi düzeltmesi beş ekranda yoktu.** ProductCombobox'ın İKİ
+kopyası var: `components/e-donusum/product-combobox.tsx` (fatura + hızlı satış/alış,
+düzeltilmişti) ve `components/ui/product-combobox.tsx` (irsaliye ×2, sipariş ×2,
+teklif) — ikincisi hâlâ `absolute … w-full max-h-56` idi, yani girdi kadar dar ve
+kırpılabilir. Devir notu "irsaliye, sipariş, teklif de düzeltildi" diyordu; doğru
+değildi.
+
+- Konumlandırma tek yere alındı: saf hesap `lib/ui/anchored-menu.ts`
+  (`computeAnchoredRect`, **6 test**: dar girdide 360px tabana çıkma, sağ kenardan
+  içeri çekme, yer yoksa yukarı açılma, dar pencere, sığ alan), React tarafı
+  `components/ui/use-anchored-menu.ts` (portal konumu + dışarı tıklama).
+- İki combobox da bu ortak mantığı kullanıyor; kopya bitti.
+
+**Eksik 2 — irsaliye kaynaklı stok hareketi ürün kartında kimliksizdi.** Referans
+hücresi düz "İrsaliye" yazıyordu (numara yok, bağlantı yok); oysa stok hareket
+raporu aynı hareketi `waybillNo` ile çözüyordu.
+
+- `app/api/stok/products/[id]/route.ts` artık `waybill:<id>` referanslarını da
+  çözüyor (`waybill: { id, no, type }`).
+- Ürün kartı "İrsaliye AIR-2026-000002" yazıp ilgili listeye bağlanıyor. İrsaliyenin
+  detay sayfası olmadığı için bağlantı listeyi `?ara=<numara>` ile **süzülü** açar;
+  iki irsaliye sayfası da arama kutusunu bu paramla dolduruyor.
+- Ölçüm: iki referansın ikisi de çözüldü (AIR-2026-000002, AIR-2026-000003; PURCHASE
+  → alış irsaliyesi listesi).
+- Çözülemeyen referanslar araştırıldı: hepsi **silinmiş fatura** (hareket duruyor,
+  fatura yok; ör. `SAT-2026-0004` iptal çifti). Bunlarda hücre "—" kalıyor, belge
+  numarası Açıklama sütununda görünüyor.
+
+**Kusur değil, veri notu:** tanım sütunları çoğu firmada boş — Reypo Medya 0/8,
+EREN FORKLİFT PNÖMATİK 0/24, EREN VİNÇ 0/17, EREN FORKLİFT 27/30. Cari kartlarında
+tanım girilmedikçe rapor "—" gösterir; toplu atama ekranı yok. Benzer şekilde
+e-Belge no'su olmayan faturada iç fatura numarası yazılır (65/266, 37/55, 42/47).
+
+`npx tsc --noEmit` temiz · `npx vitest run` **677 test** · `npx next build` temiz.
+
 ## Dokunulan dosyalar
 
 **Yeni:** `app/api/raporlar/satis-alis/route.ts`,

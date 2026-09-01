@@ -1,7 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { Input } from "@/components/ui/input"
+import { useAnchoredMenu } from "@/components/ui/use-anchored-menu"
 import { Loader2, Package, Plus, Type } from "lucide-react"
 
 export type ProductOption = {
@@ -45,6 +47,12 @@ function norm(s: string): string {
  * Kalem ürün/açıklama girişi: mevcut ürünler içinde aratılır (yazdıkça filtreler)
  * ve listeden seçilebilir. Listede yoksa yazılan metin, kalem açıklaması olarak
  * doğrudan kullanılır (serbest metin) — ayrı bir "ürün ekle" adımı gerekmez.
+ *
+ * Liste `document.body`'ye PORTAL ile basılır (`useAnchoredMenu`): `absolute` +
+ * `w-full` haliyle girdi kadar dar kalıyor ve `overflow` sınırlayan bir kabın
+ * içinde kırpılıyordu. Fatura ekranındaki kardeş bileşen
+ * (`components/e-donusum/product-combobox.tsx`) düzeltilirken bu kopya atlanmıştı;
+ * artık konumlandırma ikisinde de ortak.
  */
 export function ProductCombobox({
   id,
@@ -60,6 +68,8 @@ export function ProductCombobox({
   const [highlight, setHighlight] = useState(-1)
   const [creating, setCreating] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const menuRef = useRef<HTMLUListElement>(null)
 
   const matches = useMemo(() => {
     const q = norm(value.trim())
@@ -72,16 +82,6 @@ export function ProductCombobox({
     [products, value],
   )
   const typed = value.trim().length > 0
-
-  useEffect(() => {
-    function onDocMouseDown(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener("mousedown", onDocMouseDown)
-    return () => document.removeEventListener("mousedown", onDocMouseDown)
-  }, [])
 
   function select(product: ProductOption) {
     onSelectProduct(product)
@@ -103,7 +103,7 @@ export function ProductCombobox({
     }
   }
 
-  function useFreeText() {
+  function applyFreeText() {
     // Metin zaten satıra yazılı (onTextChange); sadece listeyi kapat.
     setOpen(false)
     setHighlight(-1)
@@ -112,9 +112,19 @@ export function ProductCombobox({
   // Listede ürün varsa ya da serbest metin ipucu gösterilecekse aç.
   const showList = open && (matches.length > 0 || (typed && !hasExact))
 
+  const closeList = useCallback(() => setOpen(false), [])
+  const rect = useAnchoredMenu({
+    open: showList,
+    anchorRef: inputRef,
+    menuRef,
+    containerRef,
+    onOutsideClick: closeList,
+  })
+
   return (
     <div ref={containerRef} className="relative">
       <Input
+        ref={inputRef}
         id={id}
         value={value}
         disabled={disabled}
@@ -144,8 +154,19 @@ export function ProductCombobox({
           }
         }}
       />
-      {showList && (
-        <ul className="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-md border bg-popover p-1 shadow-md">
+      {showList && rect && typeof document !== "undefined" &&
+        createPortal(
+        <ul
+          ref={menuRef}
+          style={{
+            position: "fixed",
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            maxHeight: rect.maxHeight,
+          }}
+          // z-60: "yeni ürün" gibi diyalog kaplamalarının (z-50) üstünde kalsın.
+          className="z-[60] overflow-auto rounded-md border bg-popover p-1 shadow-md">
           {matches.map((p, i) => (
             <li key={p.id}>
               <button
@@ -196,7 +217,7 @@ export function ProductCombobox({
                     disabled={creating}
                     onMouseDown={(e) => {
                       e.preventDefault()
-                      useFreeText()
+                      applyFreeText()
                     }}
                     className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent disabled:opacity-60"
                   >
@@ -214,7 +235,8 @@ export function ProductCombobox({
               )}
             </li>
           )}
-        </ul>
+        </ul>,
+        document.body
       )}
     </div>
   )

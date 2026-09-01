@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { useAnchoredMenu } from "@/components/ui/use-anchored-menu"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -119,18 +120,6 @@ export function ProductCombobox({
   const [query, setQuery] = useState("")
   const [highlighted, setHighlighted] = useState(-1)
   const [creating, setCreating] = useState(false)
-  /**
-   * Açılır listenin ekrandaki yeri. Liste `document.body`'ye portal ile
-   * `position: fixed` basılır: fatura kalemleri kartı `overflow-hidden` olduğu
-   * için absolute liste satırın içinde kırpılıyor, alttaki satırın üzerine
-   * binemiyordu. Aynı desen TaxTypeCombobox/WithholdingCombobox'ta da var.
-   */
-  const [rect, setRect] = useState<{
-    top: number
-    left: number
-    width: number
-    maxHeight: number
-  } | null>(null)
 
   // Yeni ürün popup state'i
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -246,45 +235,22 @@ export function ProductCombobox({
     setQuery("")
   }, [])
 
-  const updateRect = useCallback(() => {
-    const el = inputRef.current
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    const margin = 8
-    const width = Math.min(Math.max(r.width, MIN_MENU_WIDTH), window.innerWidth - margin * 2)
-    // Sağ kenardan taşarsa içeri çekilir — ekran dışında kalan liste seçilemez.
-    const left = Math.max(margin, Math.min(r.left, window.innerWidth - width - margin))
-    const below = window.innerHeight - r.bottom - margin
-    const above = r.top - margin
-    // Aşağıda yer kalmadıysa yukarı açılır (sayfa sonundaki kalem satırı).
-    const openUp = below < 200 && above > below
-    const maxHeight = Math.max(120, Math.min(384, openUp ? above : below))
-    setRect({ top: openUp ? r.top - 4 - maxHeight : r.bottom + 4, left, width, maxHeight })
-  }, [])
-
-  useEffect(() => {
-    if (!open) return
-    updateRect()
-    const onMove = () => updateRect()
-    // capture: liste, iç scroll'u olan bir kap içindeyken de input'a yapışık kalsın.
-    window.addEventListener("scroll", onMove, true)
-    window.addEventListener("resize", onMove)
-    return () => {
-      window.removeEventListener("scroll", onMove, true)
-      window.removeEventListener("resize", onMove)
-    }
-  }, [open, updateRect])
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      const t = e.target as Node
-      // Liste portal ile body'de: container'a bakmak yetmez, tıklama "dışarı" sayılırdı.
-      if (!containerRef.current?.contains(t) && !dropdownRef.current?.contains(t)) close()
-    }
-    document.addEventListener("mousedown", onDoc)
-    return () => document.removeEventListener("mousedown", onDoc)
-  }, [open, close])
+  /**
+   * Açılır listenin ekrandaki yeri. Liste `document.body`'ye portal ile
+   * `position: fixed` basılır: fatura kalemleri kartı `overflow-hidden` olduğu
+   * için absolute liste satırın içinde kırpılıyor, alttaki satırın üzerine
+   * binemiyordu. Ölçü ve dışarı-tıklama artık ORTAK (`useAnchoredMenu`) — aynı
+   * mantık `components/ui/product-combobox.tsx`te kopya duruyordu ve orada
+   * düzeltilmemişti.
+   */
+  const rect = useAnchoredMenu({
+    open,
+    anchorRef: inputRef,
+    menuRef: dropdownRef,
+    containerRef,
+    onOutsideClick: close,
+    minWidth: MIN_MENU_WIDTH,
+  })
 
   useEffect(() => {
     setHighlighted(-1)
