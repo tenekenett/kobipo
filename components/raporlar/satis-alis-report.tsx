@@ -12,6 +12,7 @@ import {
   ChevronRight,
   ListTree,
   Receipt,
+  Tags,
   TrendingDown,
   TrendingUp,
   UserRound,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react"
 import { ExportButton } from "@/components/export/export-button"
 import { withCompanyHref } from "@/lib/company/href"
+import { useClassificationLabels, useCompanyDefinitions } from "@/lib/swr/use-company-data"
 import type { SalesPurchaseKind, SalesPurchaseResult } from "@/lib/raporlar/satis-alis"
 import {
   salesPurchaseSections,
@@ -54,6 +56,7 @@ const classText = (class1: string, class2: string) => [class1, class2].filter(Bo
 const sectionIcons: Record<SalesPurchaseSectionKey, LucideIcon> = {
   aylik: CalendarRange,
   cariler: Users,
+  siniflandirma: Tags,
   faturalar: Receipt,
   kalemler: ListTree,
 }
@@ -96,6 +99,13 @@ export function SatisAlisReport({ kind, companyId }: Props) {
   // Dönem varsayılanı yılbaşı → bugün (kar/zarar ekranıyla aynı alışkanlık).
   const [startDate, setStartDate] = useState(() => isoDay(new Date(new Date().getFullYear(), 0, 1)))
   const [endDate, setEndDate] = useState(() => isoDay(new Date()))
+  // Cari sınıflandırması: rapor bu eksenleri yalnız sütun olarak gösteriyordu,
+  // "bayilere ne sattım" ancak Excel'e indirip süzerek cevaplanabiliyordu.
+  const [class1Id, setClass1Id] = useState("")
+  const [class2Id, setClass2Id] = useState("")
+  const { labels: classLabels } = useClassificationLabels(companyId)
+  const { definitions: class1Options } = useCompanyDefinitions(companyId, "CLASS_1")
+  const { definitions: class2Options } = useCompanyDefinitions(companyId, "CLASS_2")
 
   const fetchReport = useCallback(async () => {
     if (!companyId) return
@@ -104,6 +114,8 @@ export function SatisAlisReport({ kind, companyId }: Props) {
       const params = new URLSearchParams({ companyId, type: kind })
       if (startDate) params.set("startDate", startDate)
       if (endDate) params.set("endDate", endDate)
+      if (class1Id) params.set("class1Id", class1Id)
+      if (class2Id) params.set("class2Id", class2Id)
       const res = await fetch(`/api/raporlar/satis-alis?${params}`, { cache: "no-store" })
       if (!res.ok) throw new Error(await res.text())
       setReport(await res.json())
@@ -113,7 +125,7 @@ export function SatisAlisReport({ kind, companyId }: Props) {
     } finally {
       setIsLoading(false)
     }
-  }, [companyId, kind, startDate, endDate])
+  }, [companyId, kind, startDate, endDate, class1Id, class2Id])
 
   useEffect(() => {
     void fetchReport()
@@ -127,6 +139,9 @@ export function SatisAlisReport({ kind, companyId }: Props) {
   const maxMonthly = Math.max(0, ...monthly.map((m) => m.amount))
 
   const sections = useMemo(() => salesPurchaseSections(kind), [kind])
+  // Şerit DÖRT kutu: beşincisi (kalem dökümü) tek başına alt satıra düşüyordu;
+  // o başlıktaki düğmeye taşındı.
+  const stripSections = useMemo(() => sections.filter((s) => s.key !== "kalemler"), [sections])
   const sectionOf = (key: SalesPurchaseSectionKey) => sections.find((s) => s.key === key)!
   // Kart linki o an seçili dönemi de taşır; alt sayfa aynı aralıkla açılır ve
   // kullanıcı filtreyi ikinci kez kurmak zorunda kalmaz.
@@ -134,6 +149,8 @@ export function SatisAlisReport({ kind, companyId }: Props) {
     const query = new URLSearchParams()
     if (startDate) query.set("startDate", startDate)
     if (endDate) query.set("endDate", endDate)
+    if (class1Id) query.set("class1Id", class1Id)
+    if (class2Id) query.set("class2Id", class2Id)
     const suffix = query.toString()
     return withCompanyHref(
       `${sectionPath(kind, sectionOf(key))}${suffix ? `?${suffix}` : ""}`,
@@ -154,13 +171,22 @@ export function SatisAlisReport({ kind, companyId }: Props) {
               : "Fatura, detay ve iade hareketleri için özet veriler"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ExportButton
             dataset={isSales ? "rapor-satis" : "rapor-alis"}
             companyId={companyId}
             size="default"
-            params={{ startDate, endDate }}
+            params={{ startDate, endDate, class1Id, class2Id }}
           />
+          {/* "Detaylı Faturalar" şeritten ALINDI: beşinci kutu tek başına alt
+              satıra düşüyordu. Kalem dökümü zaten dosya/detay tarafına ait bir
+              iş, o yüzden dışa aktarmanın yanında duruyor. */}
+          <Link href={hrefOf("kalemler")}>
+            <Button variant="outline">
+              <ListTree className="mr-2 h-4 w-4" />
+              Detaylı Faturalar
+            </Button>
+          </Link>
           <Link href={withCompanyHref(`/${isSales ? "satis" : "alis"}/fatura`, companyId)}>
             <Button variant="outline">
               {isSales ? "Tüm satış faturaları" : "Tüm alış faturaları"}
@@ -194,6 +220,39 @@ export function SatisAlisReport({ kind, companyId }: Props) {
               onChange={(e) => setEndDate(e.target.value)}
             />
           </div>
+          {/* Sınıflandırma süzgeçleri: eksen adları firmadan gelir (Ayarlar → Tanımlar). */}
+          <div className="space-y-1.5">
+            <Label htmlFor="rapor-sinif1">{classLabels.class1}</Label>
+            <select
+              id="rapor-sinif1"
+              className="flex h-10 w-[190px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={class1Id}
+              onChange={(e) => setClass1Id(e.target.value)}
+            >
+              <option value="">Tümü</option>
+              {class1Options.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="rapor-sinif2">{classLabels.class2}</Label>
+            <select
+              id="rapor-sinif2"
+              className="flex h-10 w-[190px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={class2Id}
+              onChange={(e) => setClass2Id(e.target.value)}
+            >
+              <option value="">Tümü</option>
+              {class2Options.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <Button variant="outline" onClick={fetchReport} disabled={isLoading}>
             {isLoading ? "Yükleniyor…" : "Raporu getir"}
           </Button>
@@ -204,8 +263,10 @@ export function SatisAlisReport({ kind, companyId }: Props) {
             onClick={() => {
               setStartDate("")
               setEndDate("")
+              setClass1Id("")
+              setClass2Id("")
             }}
-            disabled={isLoading || (!startDate && !endDate)}
+            disabled={isLoading || (!startDate && !endDate && !class1Id && !class2Id)}
           >
             Tüm kayıtlar
           </Button>
@@ -265,7 +326,7 @@ export function SatisAlisReport({ kind, companyId }: Props) {
           Rapor bölümleri
         </p>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {sections.map((section) => {
+          {stripSections.map((section) => {
             const Icon = sectionIcons[section.key]
             return (
               <Link

@@ -78,11 +78,21 @@ export type SalesPurchaseInvoiceLine = {
   totalAmount: number
 }
 
+/** Sınıflandırma ÇİFTİ bazında özet — "hangi tip müşteriye, hangi bölgede ne sattım". */
+export type SalesPurchaseClassGroup = {
+  class1: string
+  class2: string
+  count: number
+  amount: number
+}
+
 export type SalesPurchaseResult = {
   type: SalesPurchaseKind
   count: number
   totalAmount: number
   monthly: Array<{ label: string; sortKey: string; amount: number; count: number }>
+  /** Sınıflandırma 1 × 2 kırılımı; tutara göre azalan. */
+  classGroups: SalesPurchaseClassGroup[]
   topCounterparties: Array<{ name: string; class1: string; class2: string; amount: number; count: number }>
   invoices: SalesPurchaseInvoice[]
   /** Yalnız `includeLines` istendiğinde dolar (dışa aktarma); ekran kullanmaz. */
@@ -118,6 +128,13 @@ export async function computeSalesPurchaseReport(args: {
    * istemez: kalem sorgusu fatura sayısıyla büyür, özet ekranı yavaşlatır.
    */
   includeLines?: boolean
+  /**
+   * Cari SINIFLANDIRMASINA göre daralt (Ayarlar → Tanımlar'daki tanımın id'si).
+   * Rapor bu eksenleri yalnız sütun olarak gösteriyordu; "bayilere ne sattım"
+   * sorusu ancak Excel'e indirip süzerek cevaplanabiliyordu.
+   */
+  class1Id?: string | null
+  class2Id?: string | null
 }): Promise<SalesPurchaseResult> {
   const isSales = args.type === "SALES"
   const dateFilter = resolveReportDateFilter(args.startDate, args.endDate)
@@ -126,11 +143,23 @@ export async function computeSalesPurchaseReport(args: {
   // Ayrı bir rapor yerine aynı listede negatif satır olması, "fatura toplamım
   // neden rapordan yüksek" sorusunu satır satır cevaplar.
   const returnWhere = isSales ? SALES_RETURN_WHERE() : PURCHASE_RETURN_WHERE()
+  // Süzgeç cariye bağlı: satışta müşteri, alışta tedarikçi kartındaki tanım.
+  const partyWhere: Record<string, unknown> = {}
+  if (args.class1Id) partyWhere.classification1Id = args.class1Id
+  if (args.class2Id) partyWhere.classification2Id = args.class2Id
+  const classFilter =
+    Object.keys(partyWhere).length > 0
+      ? isSales
+        ? { customer: { is: partyWhere } }
+        : { supplier: { is: partyWhere } }
+      : {}
+
   const invoices = await prisma.invoice.findMany({
     where: {
       companyId: args.companyId,
       OR: [{ type: args.type }, returnWhere],
       ...(dateFilter ? { date: dateFilter } : {}),
+      ...classFilter,
     },
     include: {
       customer: {
@@ -172,6 +201,7 @@ export async function computeSalesPurchaseReport(args: {
   const lines: SalesPurchaseInvoiceLine[] = []
   const monthlyMap = new Map<string, { label: string; sortKey: string; amount: number; count: number }>()
   const counterpartyMap = new Map<string, { class1: string; class2: string; amount: number; count: number }>()
+  const classMap = new Map<string, SalesPurchaseClassGroup>()
   let totalAmount = 0
   let linesTotal = 0
   let globalDiscountTotal = 0
@@ -199,6 +229,13 @@ export async function computeSalesPurchaseReport(args: {
     counterparty.amount += amount
     counterparty.count += 1
     counterpartyMap.set(name, counterparty)
+
+    // Tanımsız cariler de görünsün: "—" satırı, kaç TL'nin sınıflandırılmadığını söyler.
+    const classKey = `${class1}\u0000${class2}`
+    const group = classMap.get(classKey) ?? { class1, class2, amount: 0, count: 0 }
+    group.amount += amount
+    group.count += 1
+    classMap.set(classKey, group)
 
     // İADE satırlarının tutarları da EKSİ yazılır: kalem sayfasının toplamı
     // fatura sayfasınınkiyle tutmalı.
@@ -247,6 +284,7 @@ export async function computeSalesPurchaseReport(args: {
     count: invoices.length,
     totalAmount,
     monthly: Array.from(monthlyMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey)),
+    classGroups: Array.from(classMap.values()).sort((a, b) => b.amount - a.amount),
     topCounterparties: Array.from(counterpartyMap.entries())
       .map(([name, value]) => ({ name, ...value }))
       .sort((a, b) => b.amount - a.amount)

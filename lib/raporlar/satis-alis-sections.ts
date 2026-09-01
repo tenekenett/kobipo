@@ -11,7 +11,12 @@
 
 import type { SalesPurchaseKind } from "./satis-alis"
 
-export type SalesPurchaseSectionKey = "aylik" | "cariler" | "faturalar" | "kalemler"
+export type SalesPurchaseSectionKey =
+  | "aylik"
+  | "cariler"
+  | "siniflandirma"
+  | "faturalar"
+  | "kalemler"
 
 export type SalesPurchaseSection = {
   key: SalesPurchaseSectionKey
@@ -48,6 +53,14 @@ export function salesPurchaseSections(kind: SalesPurchaseKind): SalesPurchaseSec
       title: isSales ? "En Çok Satış Yapılan Müşteriler" : "En Çok Alış Yapılan Tedarikçiler",
       description: "Sınıflandırmalarıyla birlikte, tutara göre sıralı",
       sheetName: isSales ? "Müşteriler" : "Tedarikçiler",
+      needsLines: false,
+    },
+    {
+      key: "siniflandirma",
+      slug: "siniflandirma",
+      title: "Sınıflandırma Özeti",
+      description: "Cari tanımlarına göre kırılım — hangi gruba ne kadar",
+      sheetName: "Sınıflandırma",
       needsLines: false,
     },
     {

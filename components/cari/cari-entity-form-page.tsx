@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useClassificationLabels } from "@/lib/swr/use-company-data"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -113,6 +114,8 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
   const { toast } = useToast()
 
   const companyId = searchParams.get("company")
+  // Eksen adları firmaya ait ("Müşteri Tipi"); verilmemişse "Sınıflandırma 1/2".
+  const { labels: classLabels } = useClassificationLabels(companyId)
   const isCustomer = entityType === "customers"
   const entityLabel = isCustomer ? "Müşteri" : "Tedarikçi"
   const [activeTab, setActiveTab] = useState("identity")
@@ -697,7 +700,7 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <Label htmlFor="classification1Id">Sınıflandırma 1</Label>
+                      <Label htmlFor="classification1Id">{classLabels.class1}</Label>
                       <Link
                         href={`/ayarlar/tanimlar?company=${companyId}`}
                         className="text-xs text-amber-600 hover:underline"
@@ -748,7 +751,7 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <Label htmlFor="classification2Id">Sınıflandırma 2</Label>
+                      <Label htmlFor="classification2Id">{classLabels.class2}</Label>
                       <Link
                         href={`/ayarlar/tanimlar?company=${companyId}`}
                         className="text-xs text-amber-600 hover:underline"

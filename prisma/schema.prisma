@@ -199,6 +199,11 @@ model LoginAttempt {
 model Company {
   id                           String             @id @default(cuid())
   slug                         String             @unique @default("")
+  // Cari sınıflandırma EKSENLERİNİN adı. Küme (Bayi/Perakende…) CompanyDefinition'da;
+  // burada duran şey eksenin ne olduğu: "Müşteri Tipi", "Bölge". Boşsa ekranlarda
+  // "Sınıflandırma 1/2" yazar (bkz. lib/company/classification-labels.ts).
+  classification1Label         String?            @db.VarChar(60)
+  classification2Label         String?            @db.VarChar(60)
   // `name` resmi ÜNVAN'dır (faturada/e-belgede basılan ad). Aynı tüzel kişinin birden
   // çok şubesi aynı ünvanı taşıdığı için firma seçicide ayırt edilemiyordu; `branchName`
   // yalnızca ARAYÜZ için kısa ayırt edici addır (ör. "Kadıköy"). Seçici ve şube

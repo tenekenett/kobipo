@@ -104,7 +104,12 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       search: params.get("search"),
     }),
 
-  "rapor-cari-yaslandirma": (companyId) => buildAgingReportDataset({ companyId }),
+  "rapor-cari-yaslandirma": (companyId, params) =>
+    buildAgingReportDataset({
+      companyId,
+      includeDrafts: params.get("includeDrafts") === "1",
+      planMonth: params.get("planMonth"),
+    }),
 
   "rapor-kar-zarar": (companyId, params) =>
     buildProfitLossDataset({
@@ -132,6 +137,8 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       startDate: params.get("startDate"),
       endDate: params.get("endDate"),
       section: params.get("section"),
+      class1Id: params.get("class1Id"),
+      class2Id: params.get("class2Id"),
     }),
 
   "rapor-alis": (companyId, params) =>
@@ -141,6 +148,8 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       startDate: params.get("startDate"),
       endDate: params.get("endDate"),
       section: params.get("section"),
+      class1Id: params.get("class1Id"),
+      class2Id: params.get("class2Id"),
     }),
 
   "rapor-personel": (companyId, params) =>

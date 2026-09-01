@@ -26,7 +26,10 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
-    return NextResponse.json(await computeCariAging(companyId))
+    // Satış taslakları varsayılan olarak SAYILMAZ (henüz kesilmemiş belge);
+    // ekrandaki anahtar açıkça isterse dahil edilir.
+    const includeDrafts = searchParams.get("includeDrafts") === "1"
+    return NextResponse.json(await computeCariAging(companyId, { includeDrafts }))
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {

@@ -12,12 +12,22 @@ import {
   type SalesPurchaseSectionKey,
 } from "@/lib/raporlar/satis-alis-sections"
 import type { ExportColumn, ExportDataset, ExportSection } from "../types"
-import { loadExportCompany, describeDateRange, describeFilters } from "./context"
+import {
+  loadExportCompany,
+  loadClassificationLabels,
+  describeDateRange,
+  describeFilters,
+} from "./context"
+import type { ClassificationLabels } from "@/lib/company/classification-labels"
 
-/** Cari kartındaki tanımlar — hem cari sayfasında hem fatura satırlarında aynı iki sütun. */
-const CLASS_COLUMNS: ExportColumn[] = [
-  { key: "class1", label: "Sınıflandırma 1", width: 26 },
-  { key: "class2", label: "Sınıflandırma 2", width: 26 },
+/**
+ * Cari kartındaki tanımlar — hem cari sayfasında hem fatura satırlarında aynı iki
+ * sütun. Başlık firmanın verdiği EKSEN adıdır ("Müşteri Tipi"), yoksa
+ * "Sınıflandırma 1/2".
+ */
+const classColumns = (labels: ClassificationLabels): ExportColumn[] => [
+  { key: "class1", label: labels.class1, width: 26 },
+  { key: "class2", label: labels.class2, width: 26 },
 ]
 
 const MONTHLY_COLUMNS: ExportColumn[] = [
@@ -26,21 +36,31 @@ const MONTHLY_COLUMNS: ExportColumn[] = [
   { key: "amount", label: "Tutar", type: "money", width: 40, total: true },
 ]
 
-function counterpartyColumns(isSales: boolean): ExportColumn[] {
+function counterpartyColumns(isSales: boolean, labels: ClassificationLabels): ExportColumn[] {
   return [
     { key: "name", label: isSales ? "Müşteri" : "Tedarikçi", width: 70 },
-    ...CLASS_COLUMNS,
+    ...classColumns(labels),
     { key: "count", label: "Fatura Adedi", type: "number", width: 25, total: true },
     { key: "amount", label: "Tutar", type: "money", width: 35, total: true },
   ]
 }
 
-function invoiceColumns(isSales: boolean): ExportColumn[] {
+/** Sınıflandırma çifti bazında özet: hangi gruba ne kadar. */
+function classGroupColumns(labels: ClassificationLabels): ExportColumn[] {
+  return [
+    { key: "class1", label: labels.class1, width: 32 },
+    { key: "class2", label: labels.class2, width: 32 },
+    { key: "count", label: "Fatura Adedi", type: "number", width: 24, total: true },
+    { key: "amount", label: "Tutar", type: "money", width: 32, total: true },
+  ]
+}
+
+function invoiceColumns(isSales: boolean, labels: ClassificationLabels): ExportColumn[] {
   return [
     { key: "date", label: "Tarih", type: "date", width: 22 },
     { key: "invoiceNo", label: "Fatura No", width: 30 },
     { key: "counterpartyName", label: isSales ? "Müşteri" : "Tedarikçi" },
-    ...CLASS_COLUMNS,
+    ...classColumns(labels),
     // İade satırlarının tutarları EKSİ gelir; sütun olmasaydı okuyan kişi
     // negatif rakamı hata sanardı.
     { key: "belge", label: "Belge", width: 18 },
@@ -59,13 +79,13 @@ function invoiceColumns(isSales: boolean): ExportColumn[] {
  * gelir — ama kimlik tekrarlandığı için Excel'de tek başına süzülüp
  * pivotlanabilir.
  */
-function invoiceLineColumns(isSales: boolean): ExportColumn[] {
+function invoiceLineColumns(isSales: boolean, labels: ClassificationLabels): ExportColumn[] {
   return [
     { key: "date", label: "Tarih", type: "date", width: 22 },
     { key: "invoiceNo", label: "Fatura No", width: 30 },
     { key: "eDocumentNo", label: "e-Belge No", width: 30 },
     { key: "counterpartyName", label: isSales ? "Müşteri" : "Tedarikçi" },
-    ...CLASS_COLUMNS,
+    ...classColumns(labels),
     { key: "belge", label: "Belge", width: 18 },
     { key: "productCode", label: "Stok Kodu", width: 24 },
     { key: "description", label: "Stok / Hizmet" },
@@ -94,6 +114,9 @@ export async function buildSalesPurchaseDataset(params: {
    * Bilinmeyen değer yok sayılır, tam rapora düşer.
    */
   section?: string | null
+  /** Ekrandaki sınıflandırma süzgeci — dosya da aynı kesiti üretir. */
+  class1Id?: string | null
+  class2Id?: string | null
 }): Promise<ExportDataset> {
   const isSales = params.type === "SALES"
 
@@ -106,14 +129,17 @@ export async function buildSalesPurchaseDataset(params: {
   // gerektiriyorsa çekilir.
   const includeLines = only ? only.needsLines : true
 
-  const [company, report] = await Promise.all([
+  const [company, labels, report] = await Promise.all([
     loadExportCompany(params.companyId),
+    loadClassificationLabels(params.companyId),
     computeSalesPurchaseReport({
       companyId: params.companyId,
       type: params.type,
       startDate: params.startDate,
       endDate: params.endDate,
       includeLines,
+      class1Id: params.class1Id,
+      class2Id: params.class2Id,
     }),
   ])
 
@@ -135,11 +161,22 @@ export async function buildSalesPurchaseDataset(params: {
       case "aylik":
         return { ...meta, columns: MONTHLY_COLUMNS, rows: report.monthly }
       case "cariler":
-        return { ...meta, columns: counterpartyColumns(isSales), rows: report.topCounterparties }
+        return { ...meta, columns: counterpartyColumns(isSales, labels), rows: report.topCounterparties }
+      case "siniflandirma":
+        return {
+          ...meta,
+          columns: classGroupColumns(labels),
+          rows: report.classGroups.map((row) => ({
+            ...row,
+            // Boş tanım "—" yazılır: kaç TL'nin sınıflandırılmadığı görünsün.
+            class1: row.class1 || "—",
+            class2: row.class2 || "—",
+          })),
+        }
       case "faturalar":
         return {
           ...meta,
-          columns: invoiceColumns(isSales),
+          columns: invoiceColumns(isSales, labels),
           rows: report.invoices.map((inv) => ({
             ...inv,
             belge: inv.isReturn ? "İade" : isSales ? "Satış" : "Alış",
@@ -148,7 +185,7 @@ export async function buildSalesPurchaseDataset(params: {
       case "kalemler":
         return {
           ...meta,
-          columns: invoiceLineColumns(isSales),
+          columns: invoiceLineColumns(isSales, labels),
           rows: report.lines.map((line) => ({
             ...line,
             belge: line.isReturn ? "İade" : isSales ? "Satış" : "Alış",

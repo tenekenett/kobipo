@@ -9,14 +9,22 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { resolveAllUnitCosts } from "@/lib/stock/cost"
-import { buildPaymentPlan, computeCariAging, type AgingAccount } from "@/lib/raporlar/cari-yaslandirma"
+import { computeCariAging, type AgingAccount } from "@/lib/raporlar/cari-yaslandirma"
+import { buildPaymentPlan, resolvePlanMonth } from "@/lib/raporlar/cari-yaslandirma-plan"
 import { computeProfitLoss } from "@/lib/raporlar/kar-zarar"
 import {
   computeStockMovementReport,
   type StockMovementFilters,
 } from "@/lib/raporlar/stok-hareket"
 import type { ExportColumn, ExportDataset, ExportRow, ExportSection } from "../types"
-import { loadExportCompany, describeDateRange, describeFilters } from "./context"
+import {
+  loadExportCompany,
+  loadClassificationLabels,
+  describeDateRange,
+  describeFilters,
+} from "./context"
+import type { ClassificationLabels } from "@/lib/company/classification-labels"
+import { AGING_BUCKETS, AGING_BUCKET_LABEL } from "@/lib/raporlar/cari-yaslandirma-buckets"
 
 // --------------------------- STOK RAPORU ---------------------------
 
@@ -166,7 +174,7 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
 
 // --------------------------- STOK HAREKETLERİ ---------------------------
 
-const STOCK_MOVEMENT_COLUMNS: ExportColumn[] = [
+const stockMovementColumns = (labels: ClassificationLabels): ExportColumn[] => [
   { key: "date", label: "Tarih", type: "datetime", width: 26 },
   { key: "typeLabel", label: "Hareket", width: 18 },
   { key: "productCode", label: "Ürün Kodu", width: 22 },
@@ -174,8 +182,8 @@ const STOCK_MOVEMENT_COLUMNS: ExportColumn[] = [
   { key: "warehouseName", label: "Depo", width: 24 },
   { key: "documentNo", label: "Belge No", width: 28 },
   { key: "counterpartyName", label: "Cari", width: 40 },
-  { key: "class1", label: "Sınıflandırma 1", width: 26 },
-  { key: "class2", label: "Sınıflandırma 2", width: 26 },
+  { key: "class1", label: labels.class1, width: 26 },
+  { key: "class2", label: labels.class2, width: 26 },
   { key: "quantity", label: "Miktar", type: "qty", width: 20, total: true },
   { key: "unit", label: "Birim", width: 14, align: "center" },
   { key: "unitPrice", label: "Birim Fiyat", type: "money", width: 24 },
@@ -186,8 +194,9 @@ const STOCK_MOVEMENT_COLUMNS: ExportColumn[] = [
 export async function buildStockMovementDataset(
   params: StockMovementFilters
 ): Promise<ExportDataset> {
-  const [company, report] = await Promise.all([
+  const [company, labels, report] = await Promise.all([
     loadExportCompany(params.companyId),
+    loadClassificationLabels(params.companyId),
     computeStockMovementReport(params),
   ])
 
@@ -204,7 +213,7 @@ export async function buildStockMovementDataset(
       {
         title: "Stok Hareketleri",
         sheetName: "Hareketler",
-        columns: STOCK_MOVEMENT_COLUMNS,
+        columns: stockMovementColumns(labels),
         rows: report.rows,
       },
     ],
@@ -214,17 +223,26 @@ export async function buildStockMovementDataset(
 
 // --------------------------- CARİ YAŞLANDIRMA ---------------------------
 
-const AGING_COLUMNS: ExportColumn[] = [
+const agingColumns = (labels: ClassificationLabels): ExportColumn[] => [
   { key: "code", label: "Kod", width: 22 },
   { key: "name", label: "Ünvan" },
   // Tanımlar: cari kartındaki sınıflandırmalar (Ayarlar → Tanımlar); ekranda da
   // aynı iki sütun var.
-  { key: "class1", label: "Sınıflandırma 1", width: 26 },
-  { key: "class2", label: "Sınıflandırma 2", width: 26 },
+  { key: "class1", label: labels.class1, width: 26 },
+  { key: "class2", label: labels.class2, width: 26 },
   { key: "taxNumber", label: "VKN/TCKN", width: 26 },
   { key: "paymentDueDays", label: "Vade (gün)", type: "number", width: 20 },
-  { key: "notDue", label: "Vadesi Gelmemiş", type: "money", width: 28, total: true },
-  { key: "overdue", label: "Vadesi Geçmiş", type: "money", width: 26, total: true },
+  // Kova sütunları ekranla AYNI listeden doğar (`cari-yaslandirma-buckets.ts`):
+  // başlıklar burada elle yazılıyordu, kova eklendiğinde ikisi ayrışırdı.
+  ...AGING_BUCKETS.map((bucket) => ({
+    key: bucket,
+    label: AGING_BUCKET_LABEL[bucket],
+    type: "money" as const,
+    width: 26,
+    total: true,
+  })),
+  { key: "overdue", label: "Vadesi Geçmiş (toplam)", type: "money" as const, width: 30, total: true },
+  { key: "offsetCredit", label: "Mahsup (karşı belge)", type: "money", width: 30, total: true },
   { key: "overdueAvgDays", label: "Ort. Gecikme (gün)", type: "number", width: 26 },
   { key: "total", label: "Toplam Açık", type: "money", width: 26, total: true },
   { key: "performanceLabel", label: "Ödeme Davranışı", width: 26 },
@@ -244,17 +262,22 @@ const AGING_COLUMNS: ExportColumn[] = [
 function paymentPlanSection(
   title: string,
   sheetName: string,
-  accounts: AgingAccount[]
+  accounts: AgingAccount[],
+  labels: ClassificationLabels,
+  /** Hangi ay bölünecek — ekranda seçilen ay dosyaya da geçer. */
+  planMonth: Date
 ): ExportSection {
-  const plan = buildPaymentPlan(accounts)
+  const plan = buildPaymentPlan(accounts, planMonth)
   return {
     title,
     sheetName,
     columns: [
       { key: "code", label: "Kod", width: 22 },
       { key: "name", label: "Ünvan" },
-      { key: "class1", label: "Sınıflandırma 1", width: 26 },
-      { key: "class2", label: "Sınıflandırma 2", width: 26 },
+      { key: "class1", label: labels.class1, width: 26 },
+      { key: "class2", label: labels.class2, width: 26 },
+      // Vadesi tanımsız tutar: dilimlere giremez, ekrandaki "Vade Tanımsız" ile aynı para.
+      { key: "noDue", label: "Vade Tanımsız", type: "money", width: 26, total: true },
       { key: "pastMonths", label: "Geçmiş Aylar", type: "money", width: 26, total: true },
       { key: "period1", label: plan.labels.period1, type: "money", width: 26, total: true },
       { key: "period2", label: plan.labels.period2, type: "money", width: 26, total: true },
@@ -267,10 +290,18 @@ function paymentPlanSection(
   }
 }
 
-export async function buildAgingReportDataset(params: { companyId: string }): Promise<ExportDataset> {
-  const [company, aging] = await Promise.all([
+export async function buildAgingReportDataset(params: {
+  companyId: string
+  /** Ekrandaki anahtarla aynı: satış taslakları sayılsın mı. */
+  includeDrafts?: boolean
+  /** Plan sayfalarının böleceği ay (`YYYY-MM`); yoksa içinde bulunulan ay. */
+  planMonth?: string | null
+}): Promise<ExportDataset> {
+  const planMonth = resolvePlanMonth(params.planMonth)
+  const [company, labels, aging] = await Promise.all([
     loadExportCompany(params.companyId),
-    computeCariAging(params.companyId),
+    loadClassificationLabels(params.companyId),
+    computeCariAging(params.companyId, { includeDrafts: params.includeDrafts }),
   ])
 
   const toRows = (accounts: typeof aging.customers.accounts): ExportRow[] =>
@@ -281,8 +312,9 @@ export async function buildAgingReportDataset(params: { companyId: string }): Pr
       class2: account.class2,
       taxNumber: account.taxNumber,
       paymentDueDays: account.paymentDueDays,
-      notDue: account.totals.not_due,
+      ...Object.fromEntries(AGING_BUCKETS.map((bucket) => [bucket, account.totals[bucket]])),
       overdue: account.totals.overdue,
+      offsetCredit: account.totals.offsetCredit,
       overdueAvgDays: account.totals.overdueAvgDays,
       total: account.totals.total,
       performanceLabel: account.totals.performanceLabel,
@@ -292,22 +324,35 @@ export async function buildAgingReportDataset(params: { companyId: string }): Pr
   return {
     title: "Cari Yaşlandırma",
     company,
-    filters: describeFilters([["Rapor tarihi", new Date().toLocaleDateString("tr-TR")]]),
+    filters: describeFilters([
+      ["Rapor tarihi", new Date().toLocaleDateString("tr-TR")],
+      // Dosyayı okuyan kişi hangi kesitten üretildiğini bilmeli.
+      // Dosyayı okuyan kişi hangi ayın planına baktığını bilmeli.
+      ["Plan ayı", planMonth.toLocaleDateString("tr-TR", { month: "long", year: "numeric" })],
+      [
+        "Satış taslakları",
+        params.includeDrafts
+          ? "dahil"
+          : aging.excludedDrafts.count > 0
+            ? `hariç (${aging.excludedDrafts.count} belge, ${aging.excludedDrafts.amount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} TL sayılmadı)`
+            : "hariç",
+      ],
+    ]),
     sections: [
       {
         title: "Müşteriler (Alacaklar)",
         sheetName: "Alacaklar",
-        columns: AGING_COLUMNS,
+        columns: agingColumns(labels),
         rows: toRows(aging.customers.accounts),
       },
       {
         title: "Tedarikçiler (Borçlar)",
         sheetName: "Borçlar",
-        columns: AGING_COLUMNS,
+        columns: agingColumns(labels),
         rows: toRows(aging.suppliers.accounts),
       },
-      paymentPlanSection("Beklenen Tahsilatlar (Ay İçi Plan)", "Tahsilat Planı", aging.customers.accounts),
-      paymentPlanSection("Beklenen Ödemeler (Ay İçi Plan)", "Ödeme Planı", aging.suppliers.accounts),
+      paymentPlanSection("Beklenen Tahsilatlar (Ay İçi Plan)", "Tahsilat Planı", aging.customers.accounts, labels, planMonth),
+      paymentPlanSection("Beklenen Ödemeler (Ay İçi Plan)", "Ödeme Planı", aging.suppliers.accounts, labels, planMonth),
     ],
     generatedAt: new Date(),
   }

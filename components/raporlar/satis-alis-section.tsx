@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useClassificationLabels } from "@/lib/swr/use-company-data"
 import {
   Table,
   TableBody,
@@ -76,12 +77,16 @@ type Props = {
 export function SatisAlisSection({ kind, companyId, section }: Props) {
   const isSales = kind === "SALES"
   const searchParams = useSearchParams()
+  const { labels: classLabels } = useClassificationLabels(companyId)
   const [report, setReport] = useState<SalesPurchaseResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [startDate, setStartDate] = useState(
     () => searchParams.get("startDate") ?? isoDay(new Date(new Date().getFullYear(), 0, 1))
   )
   const [endDate, setEndDate] = useState(() => searchParams.get("endDate") ?? isoDay(new Date()))
+  // Sınıflandırma süzgeci de karttan taşınır; alt sayfa aynı kesiti gösterir.
+  const class1Id = searchParams.get("class1Id") ?? ""
+  const class2Id = searchParams.get("class2Id") ?? ""
 
   const fetchReport = useCallback(async () => {
     if (!companyId) return
@@ -91,6 +96,8 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
       if (startDate) params.set("startDate", startDate)
       if (endDate) params.set("endDate", endDate)
       if (section.needsLines) params.set("includeLines", "1")
+      if (class1Id) params.set("class1Id", class1Id)
+      if (class2Id) params.set("class2Id", class2Id)
       const res = await fetch(`/api/raporlar/satis-alis?${params}`, { cache: "no-store" })
       if (!res.ok) throw new Error(await res.text())
       setReport(await res.json())
@@ -100,7 +107,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
     } finally {
       setIsLoading(false)
     }
-  }, [companyId, kind, startDate, endDate, section.needsLines])
+  }, [companyId, kind, startDate, endDate, section.needsLines, class1Id, class2Id])
 
   useEffect(() => {
     void fetchReport()
@@ -143,8 +150,8 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
         cell: (row) => row.name,
         total: () => "Toplam",
       },
-      { header: "Sınıflandırma 1", cell: (row) => row.class1 || "—" },
-      { header: "Sınıflandırma 2", cell: (row) => row.class2 || "—" },
+      { header: classLabels.class1, cell: (row) => row.class1 || "—" },
+      { header: classLabels.class2, cell: (row) => row.class2 || "—" },
       {
         header: "Fatura Adedi",
         align: "right",
@@ -158,7 +165,28 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
         total: (rows) => TL(rows.reduce((sum, row) => sum + row.amount, 0)),
       },
     ],
-    [isSales]
+    [isSales, classLabels]
+  )
+
+  const classGroupColumns: Col<SalesPurchaseResult["classGroups"][number]>[] = useMemo(
+    () => [
+      // Tanımsız cari "—" satırında toplanır: kaç TL'nin sınıflandırılmadığı görünür.
+      { header: classLabels.class1, cell: (row) => row.class1 || "—", total: () => "Toplam" },
+      { header: classLabels.class2, cell: (row) => row.class2 || "—" },
+      {
+        header: "Fatura Adedi",
+        align: "right",
+        cell: (row) => row.count,
+        total: (rows) => rows.reduce((sum, row) => sum + row.count, 0),
+      },
+      {
+        header: "Tutar",
+        align: "right",
+        cell: (row) => TL(row.amount),
+        total: (rows) => TL(rows.reduce((sum, row) => sum + row.amount, 0)),
+      },
+    ],
+    [classLabels]
   )
 
   const invoiceColumns: Col<SalesPurchaseInvoice>[] = useMemo(
@@ -180,8 +208,8 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
         ),
       },
       { header: isSales ? "Müşteri" : "Tedarikçi", cell: (row) => row.counterpartyName },
-      { header: "Sınıflandırma 1", cell: (row) => row.class1 || "—" },
-      { header: "Sınıflandırma 2", cell: (row) => row.class2 || "—" },
+      { header: classLabels.class1, cell: (row) => row.class1 || "—" },
+      { header: classLabels.class2, cell: (row) => row.class2 || "—" },
       // İade satırlarının tutarları EKSİ gelir; sütun olmasaydı okuyan kişi
       // negatif rakamı hata sanardı.
       { header: "Belge", cell: (row) => (row.isReturn ? "İade" : isSales ? "Satış" : "Alış") },
@@ -206,7 +234,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
         total: (rows) => TL(rows.reduce((sum, row) => sum + row.totalAmount, 0)),
       },
     ],
-    [isSales, invoiceHref]
+    [isSales, invoiceHref, classLabels]
   )
 
   const lineColumns: Col<SalesPurchaseInvoiceLine>[] = useMemo(
@@ -232,8 +260,8 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
       { header: isSales ? "Müşteri" : "Tedarikçi", cell: (row) => row.counterpartyName },
       // Tanımlar (Ayarlar → Tanımlar) Excel'de vardı, ekranda YOKTU: aynı bölümün
       // ekranı ile dosyası ayrışıyordu. Belge ve İskonto da aynı sebeple eklendi.
-      { header: "Sınıflandırma 1", cell: (row) => row.class1 || "—" },
-      { header: "Sınıflandırma 2", cell: (row) => row.class2 || "—" },
+      { header: classLabels.class1, cell: (row) => row.class1 || "—" },
+      { header: classLabels.class2, cell: (row) => row.class2 || "—" },
       { header: "Belge", cell: (row) => (row.isReturn ? "İade" : isSales ? "Satış" : "Alış") },
       { header: "Stok Kodu", cell: (row) => row.productCode || "—" },
       { header: "Stok / Hizmet", cell: (row) => row.description },
@@ -264,7 +292,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
         total: (rows) => TL(rows.reduce((sum, row) => sum + row.totalAmount, 0)),
       },
     ],
-    [isSales, invoiceHref]
+    [isSales, invoiceHref, classLabels]
   )
 
   const table = (() => {
@@ -273,6 +301,8 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
         return { columns: monthlyColumns, rows: report?.monthly ?? [] }
       case "cariler":
         return { columns: counterpartyColumns, rows: report?.topCounterparties ?? [] }
+      case "siniflandirma":
+        return { columns: classGroupColumns, rows: report?.classGroups ?? [] }
       case "faturalar":
         return { columns: invoiceColumns, rows: report?.invoices ?? [] }
       case "kalemler":
@@ -309,7 +339,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
             dataset={isSales ? "rapor-satis" : "rapor-alis"}
             companyId={companyId}
             size="default"
-            params={{ startDate, endDate, section: section.key }}
+            params={{ startDate, endDate, section: section.key, class1Id, class2Id }}
           />
           <Link href={withCompanyHref(reportBasePath(kind), companyId)}>
             <Button variant="outline">

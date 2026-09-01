@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { AlertTriangle, ArrowUpRight, Boxes, PackageCheck, TrendingUp, Search, RefreshCcw } from "lucide-react"
+import { AlertTriangle, ArrowLeftRight, Boxes, PackageCheck, TrendingUp, Search, RefreshCcw } from "lucide-react"
 import { ExportButton } from "@/components/export/export-button"
 import Link from "next/link"
 
@@ -178,6 +178,15 @@ export default function StokRaporlariPage() {
             companyId={companyId}
             params={{ search, type: typeFilter, stock: stockFilter }}
           />
+          {/* Hareket listesi bu sayfadan ÇIKARILDI: tarih/cari/tanım süzgeçleriyle
+              kendi sayfasında yaşıyor. Kapısı sayfanın DİBİNDE bir kart olarak
+              duruyordu ve tablo uzayınca görünmüyordu; başlığa alındı. */}
+          <Link href={`/raporlar/stok/hareketler?company=${encodeURIComponent(companyId)}`}>
+            <Button variant="outline" size="sm">
+              <ArrowLeftRight className="mr-2 h-4 w-4" />
+              Stok Hareketleri
+            </Button>
+          </Link>
           <Button variant="outline" size="sm" onClick={fetchData} disabled={isLoading}>
             <RefreshCcw className="mr-2 h-4 w-4" />
             {isLoading ? "Yükleniyor..." : "Yenile"}
@@ -351,25 +360,6 @@ export default function StokRaporlariPage() {
         </CardContent>
       </Card>
 
-      {/* Hareket listesi bu sayfadan ÇIKARILDI: tarih/cari/tanım süzgeçleriyle
-          kendi sayfasında yaşıyor (bkz. raporlar/stok/hareketler). Burada yalnız
-          kapısı duruyor. */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Stok Hareketleri</CardTitle>
-          <CardDescription>
-            Giriş/çıkış hareketleri tarih, cari ve tanım bazında süzülebildiği ayrı sayfada
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Link href={`/raporlar/stok/hareketler?company=${encodeURIComponent(companyId)}`}>
-            <Button variant="outline">
-              Stok hareketlerini aç
-              <ArrowUpRight className="ml-2 h-4 w-4" />
-            </Button>
-          </Link>
-        </CardContent>
-      </Card>
     </div>
   )
 }

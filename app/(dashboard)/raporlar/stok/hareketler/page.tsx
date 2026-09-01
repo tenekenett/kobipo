@@ -21,8 +21,7 @@ import { ArrowLeft } from "lucide-react"
 import {
   useCompanyDefinitions,
   useCustomers,
-  useSuppliers,
-} from "@/lib/swr/use-company-data"
+  useSuppliers, useClassificationLabels } from "@/lib/swr/use-company-data"
 import type { StockMovementReport } from "@/lib/raporlar/stok-hareket"
 
 /**
@@ -46,6 +45,7 @@ export default function StokHareketleriPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
 
+  const { labels: classLabels } = useClassificationLabels(companyId)
   const [startDate, setStartDate] = useState(() => isoDay(new Date(new Date().getFullYear(), 0, 1)))
   const [endDate, setEndDate] = useState(() => isoDay(new Date()))
   const [customerId, setCustomerId] = useState("")
@@ -181,7 +181,7 @@ export default function StokHareketleriPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="hareket-sinif1">Sınıflandırma 1</Label>
+            <Label htmlFor="hareket-sinif1">{classLabels.class1}</Label>
             <SearchSelect
               id="hareket-sinif1"
               options={class1Options.map((d) => ({ id: d.id, name: d.label }))}
@@ -193,7 +193,7 @@ export default function StokHareketleriPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="hareket-sinif2">Sınıflandırma 2</Label>
+            <Label htmlFor="hareket-sinif2">{classLabels.class2}</Label>
             <SearchSelect
               id="hareket-sinif2"
               options={class2Options.map((d) => ({ id: d.id, name: d.label }))}

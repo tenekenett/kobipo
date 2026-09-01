@@ -7,6 +7,10 @@
 
 import { useMemo } from "react"
 import useSWR from "swr"
+import {
+  DEFAULT_CLASSIFICATION_LABELS,
+  type ClassificationLabels,
+} from "@/lib/company/classification-labels"
 import { jsonFetcher } from "./fetcher"
 import {
   DEFAULT_RECEIPT_TEMPLATE,
@@ -210,6 +214,23 @@ export function useCompanyDefinitions(companyId: string | null, type: "CLASS_1" 
     [data]
   )
   return { definitions, isLoading, error, mutate }
+}
+
+/**
+ * Sınıflandırma EKSENLERİNİN adı ("Müşteri Tipi", "Bölge"). Raporların sütun
+ * başlıkları buradan gelir; firma ad vermediyse "Sınıflandırma 1/2"ye düşer.
+ */
+export function useClassificationLabels(companyId: string | null) {
+  const key = companyKey(companyId, "/api/company/definitions/labels")
+  const { data, error, isLoading, mutate } = useSWR<ClassificationLabels>(key, jsonFetcher)
+  const labels = useMemo<ClassificationLabels>(
+    () => ({
+      class1: data?.class1 || DEFAULT_CLASSIFICATION_LABELS.class1,
+      class2: data?.class2 || DEFAULT_CLASSIFICATION_LABELS.class2,
+    }),
+    [data]
+  )
+  return { labels, isLoading, error, mutate }
 }
 
 export function useWarehouseStocks(companyId: string | null) {

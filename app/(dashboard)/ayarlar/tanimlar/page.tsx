@@ -8,7 +8,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
-import { Check, Pencil, X } from "lucide-react"
+import { Check, Pencil, Tag, X } from "lucide-react"
+import {
+  DEFAULT_CLASSIFICATION_LABELS,
+  CLASSIFICATION_LABEL_MAX,
+  type ClassificationLabels,
+} from "@/lib/company/classification-labels"
 
 type DefinitionType = "CLASS_1" | "CLASS_2"
 type CompanyDefinition = {
@@ -18,9 +23,10 @@ type CompanyDefinition = {
   isActive: boolean
 }
 
+/** Eksen adı verilmemişse gösterilen varsayılan başlıklar. */
 const TAB_LABEL: Record<DefinitionType, string> = {
-  CLASS_1: "Sınıflandırma 1",
-  CLASS_2: "Sınıflandırma 2",
+  CLASS_1: DEFAULT_CLASSIFICATION_LABELS.class1,
+  CLASS_2: DEFAULT_CLASSIFICATION_LABELS.class2,
 }
 
 export default function TanimlarPage() {
@@ -36,6 +42,16 @@ export default function TanimlarPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingLabel, setEditingLabel] = useState("")
   const [savingId, setSavingId] = useState<string | null>(null)
+  /**
+   * EKSEN adları. Liste "Bayi/Perakende"yi tutuyor; bu ikisi o listenin NE
+   * olduğunu söyler ("Müşteri Tipi"). Rapor başlıkları da bunu kullanır.
+   */
+  const [labels, setLabels] = useState<ClassificationLabels>(DEFAULT_CLASSIFICATION_LABELS)
+  const [axisDraft, setAxisDraft] = useState<string | null>(null)
+  const [savingAxis, setSavingAxis] = useState(false)
+
+  const axisLabel = (type: DefinitionType) =>
+    type === "CLASS_1" ? labels.class1 : labels.class2
 
   const currentList = useMemo(
     () => definitions.filter((item) => item.type === activeTab),
@@ -49,9 +65,45 @@ export default function TanimlarPage() {
     setDefinitions(await response.json())
   }
 
+  const fetchLabels = async () => {
+    if (!companyId) return
+    const response = await fetch(`/api/company/definitions/labels?companyId=${companyId}`)
+    if (!response.ok) return
+    setLabels(await response.json())
+  }
+
   useEffect(() => {
     void fetchDefinitions()
+    void fetchLabels()
   }, [companyId])
+
+  /** Eksenin adını kaydeder. Boş bırakmak varsayılana ("Sınıflandırma 1") döner. */
+  const saveAxisLabel = async (type: DefinitionType, value: string) => {
+    if (!companyId) return
+    setSavingAxis(true)
+    try {
+      const response = await fetch(`/api/company/definitions/labels?companyId=${companyId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(type === "CLASS_1" ? { class1: value } : { class2: value }),
+      })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        throw new Error(body.error || "Ad kaydedilemedi")
+      }
+      setLabels(await response.json())
+      setAxisDraft(null)
+      toast({ title: "Kaydedildi", description: "Rapor başlıkları bu adla görünecek." })
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: error instanceof Error ? error.message : "Ad kaydedilemedi",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingAxis(false)
+    }
+  }
 
   const addDefinition = async () => {
     if (!companyId || !newLabel.trim()) return
@@ -145,9 +197,54 @@ export default function TanimlarPage() {
 
   const renderTab = (type: DefinitionType) => (
     <TabsContent value={type} className="space-y-3 pt-3">
+      {/* Eksenin ADI: listenin öğeleri değil, listenin ne olduğu. Raporlarda ve
+          Excel'de sütun başlığı olarak bu ad çıkar. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2">
+        <Tag className="h-4 w-4 shrink-0 text-muted-foreground" />
+        {axisDraft === null ? (
+          <>
+            <span className="text-sm">
+              Bu listenin adı: <span className="font-medium">{axisLabel(type)}</span>
+            </span>
+            <WriteAction>
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                onClick={() => setAxisDraft(axisLabel(type))}
+              >
+                <Pencil className="mr-1 h-4 w-4" />
+                Adını değiştir
+              </Button>
+            </WriteAction>
+          </>
+        ) : (
+          <>
+            <Input
+              autoFocus
+              className="h-9 flex-1"
+              maxLength={CLASSIFICATION_LABEL_MAX}
+              placeholder="Ör. Müşteri Tipi, Bölge"
+              value={axisDraft}
+              onChange={(e) => setAxisDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void saveAxisLabel(type, axisDraft)
+                if (e.key === "Escape") setAxisDraft(null)
+              }}
+            />
+            <Button size="sm" disabled={savingAxis} onClick={() => saveAxisLabel(type, axisDraft)}>
+              <Check className="mr-1 h-4 w-4" />
+              Kaydet
+            </Button>
+            <Button variant="ghost" size="sm" disabled={savingAxis} onClick={() => setAxisDraft(null)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </>
+        )}
+      </div>
       <div className="flex gap-2">
         <Input
-          placeholder={`Yeni ${TAB_LABEL[type].toLocaleLowerCase("tr-TR")} adı`}
+          placeholder={`Yeni ${axisLabel(type).toLocaleLowerCase("tr-TR")} adı`}
           value={newLabel}
           onChange={(e) => setNewLabel(e.target.value)}
           onKeyDown={(e) => {
@@ -220,7 +317,11 @@ export default function TanimlarPage() {
     <Card>
       <CardHeader>
         <CardTitle>Tanımlar</CardTitle>
-        <CardDescription>Sınıflandırma listelerini firma bazında yönetin</CardDescription>
+        <CardDescription>
+          Carileri iki eksende gruplamak için kullanılır (ör. &quot;Müşteri Tipi&quot; ve
+          &quot;Bölge&quot;). Buradaki adlar cari kartında seçilir, raporlarda ve Excel&apos;de
+          sütun olarak çıkar.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Tabs
@@ -230,11 +331,12 @@ export default function TanimlarPage() {
             // Sekme değişince yarım kalan düzenleme kapanır: düzenlenen satır
             // diğer sekmede görünmüyor, açık kalırsa "kayıp" bir form olur.
             cancelEdit()
+            setAxisDraft(null)
           }}
         >
           <TabsList>
-            <TabsTrigger value="CLASS_1">{TAB_LABEL.CLASS_1}</TabsTrigger>
-            <TabsTrigger value="CLASS_2">{TAB_LABEL.CLASS_2}</TabsTrigger>
+            <TabsTrigger value="CLASS_1">{labels.class1}</TabsTrigger>
+            <TabsTrigger value="CLASS_2">{labels.class2}</TabsTrigger>
           </TabsList>
           {renderTab("CLASS_1")}
           {renderTab("CLASS_2")}

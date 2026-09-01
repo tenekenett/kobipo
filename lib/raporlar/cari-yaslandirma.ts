@@ -6,6 +6,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { AGING_BUCKETS, OVERDUE_BUCKETS, bucketOf, type AgingBucket } from "./cari-yaslandirma-buckets"
 import { getCheckNoteCreditMap } from "@/lib/cari/check-credit"
 import {
   PURCHASE_RETURN_WHERE,
@@ -16,14 +17,30 @@ import {
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-export type AgingTotals = {
-  not_due: number
+// Kova sözlüğü SAF modülde (ekran ve Excel de okuyor); buradan yeniden dışa veriliyor.
+export {
+  AGING_BUCKETS,
+  OVERDUE_BUCKETS,
+  AGING_BUCKET_LABEL,
+  bucketOf,
+} from "./cari-yaslandirma-buckets"
+export type { AgingBucket } from "./cari-yaslandirma-buckets"
+
+export type AgingTotals = Record<AgingBucket, number> & {
+  /** Ölçülebilen gecikme kovalarının toplamı (türetilmiş). */
   overdue: number
   overdueAvgDays: number
   performanceAvgDays: number
   performanceScore: number
   performanceLabel: string
   total: number
+  /**
+   * Çift rollü caride KARŞI yöndeki açık belgelerin mahsup ettiği tutar.
+   * Aynı müşteri kaydına işlenmiş alış faturaları gibi. Cari bakiyesi bunu
+   * düşüyordu, yaşlandırma düşmüyordu: bir hesapta kart −78.365 TL (biz
+   * borçluyuz) derken rapor +116.062 TL alacak yazıyordu.
+   */
+  offsetCredit: number
 }
 
 export type AgingInvoice = {
@@ -31,13 +48,18 @@ export type AgingInvoice = {
   invoiceNo: string
   date: Date
   effectiveDueDate: Date
+  /** Vade GERÇEKTEN tanımlı mı (fatura vadesi ya da cari vade günü). */
+  hasDueDate: boolean
   totalAmount: number
   paidAmount: number
   openAmount: number
   lastPaymentDate: Date | null
   overdueDays: number
-  bucket: "not_due" | "overdue"
+  bucket: AgingBucket
+  /** Ödenen kısım için: son ödeme − vade. */
   performanceDays: number
+  /** Açık kalan kısım için: bugün − vade. Kısmi ödeme skoru şişirmesin diye ayrı. */
+  openPerformanceDays: number
 }
 
 export type AgingAccount = {
@@ -53,15 +75,31 @@ export type AgingAccount = {
   invoices: AgingInvoice[]
 }
 
+export type CariAgingOptions = {
+  /**
+   * Satış TASLAKLARI da alacak sayılsın mı (varsayılan hayır). Taslak/GİB
+   * taslağı henüz kesilmemiş belgedir; ölçümde bir firmada 118 taslak
+   * 187.121 TL'lik "vadesi geçmiş alacak" üretiyordu. ALIŞ tarafında DRAFT
+   * "Kayıtlı" anlamına geldiği için orada ayıklama YAPILMAZ.
+   */
+  includeDrafts?: boolean
+}
+
 function emptyTotals(): AgingTotals {
   return {
     not_due: 0,
+    d1_30: 0,
+    d31_60: 0,
+    d61_90: 0,
+    d90_plus: 0,
+    no_due: 0,
     overdue: 0,
     overdueAvgDays: 0,
     performanceAvgDays: 0,
     performanceScore: 0,
     performanceLabel: "Veri yok",
     total: 0,
+    offsetCredit: 0,
   }
 }
 
@@ -73,14 +111,22 @@ function round2(value: number) {
   return Number(value.toFixed(2))
 }
 
-function resolveEffectiveDueMs(invoice: any, paymentDueDays: number | null) {
+/**
+ * Vade: faturanın kendi vadesi, yoksa cari kartındaki vade günü. İkisi de yoksa
+ * vade BİLİNMİYOR — fatura tarihi yalnız sıralama/plan için kullanılır, belge
+ * "gecikmiş" sayılmaz (bkz. `no_due`).
+ */
+function resolveEffectiveDue(
+  invoice: any,
+  paymentDueDays: number | null
+): { ms: number; explicit: boolean } {
   const baseDate = new Date(invoice.date).getTime()
   const explicitDue = invoice.dueDate ? new Date(invoice.dueDate).getTime() : null
-  if (explicitDue !== null) return explicitDue
+  if (explicitDue !== null) return { ms: explicitDue, explicit: true }
   if (typeof paymentDueDays === "number" && paymentDueDays > 0) {
-    return baseDate + paymentDueDays * DAY_MS
+    return { ms: baseDate + paymentDueDays * DAY_MS, explicit: true }
   }
-  return baseDate
+  return { ms: baseDate, explicit: false }
 }
 
 function computePerformanceScore(avgDays: number) {
@@ -107,7 +153,8 @@ function bucketize(invoice: any, paymentDueDays: number | null, today: number): 
   const paid = payments.reduce((s: number, p: any) => s + Number(p.amount), 0)
   const open = round2(total - paid)
 
-  const effectiveDueMs = resolveEffectiveDueMs(invoice, paymentDueDays)
+  const due = resolveEffectiveDue(invoice, paymentDueDays)
+  const effectiveDueMs = due.ms
   const overdueDays = Math.floor((today - effectiveDueMs) / DAY_MS)
   const sortedByDate = payments
     .filter((p: any) => p.paymentDate)
@@ -115,13 +162,17 @@ function bucketize(invoice: any, paymentDueDays: number | null, today: number): 
   const lastPaymentDate = sortedByDate.length > 0 ? sortedByDate[sortedByDate.length - 1].paymentDate : null
   const performanceRefMs = (lastPaymentDate ?? new Date(today)).getTime()
   const performanceDays = Math.floor((performanceRefMs - effectiveDueMs) / DAY_MS)
-  const bucket: AgingInvoice["bucket"] = overdueDays > 0 ? "overdue" : "not_due"
+  // Açık kalan kısım BUGÜNE göre ölçülür: 22.000 TL'lik faturaya 500 TL yatıran
+  // müşteri, kalan 21.500 için de "zamanında ödedi" sayılıyordu.
+  const openPerformanceDays = overdueDays
+  const bucket = bucketOf(overdueDays, due.explicit)
 
   return {
     id: invoice.id,
     invoiceNo: invoice.invoiceNo,
     date: invoice.date,
     effectiveDueDate: new Date(effectiveDueMs),
+    hasDueDate: due.explicit,
     totalAmount: total,
     paidAmount: paid,
     openAmount: open,
@@ -129,6 +180,7 @@ function bucketize(invoice: any, paymentDueDays: number | null, today: number): 
     overdueDays: Math.max(0, overdueDays),
     bucket,
     performanceDays,
+    openPerformanceDays,
   }
 }
 
@@ -148,12 +200,13 @@ function openingBalanceToAgingItem(
   if (String(account.openingBalanceType || "DEBIT").toUpperCase() !== "DEBIT") return null
 
   const baseDate = new Date(account.createdAt)
-  const dueMs =
-    typeof account.paymentDueDays === "number" && account.paymentDueDays > 0
-      ? baseDate.getTime() + account.paymentDueDays * DAY_MS
-      : baseDate.getTime()
+  // Açılış bakiyesinin vadesi ancak cari kartında vade günü varsa bilinir; yoksa
+  // "vade tanımsız"dır — hesabın açıldığı gün vadesi dolmuş sayılamaz.
+  const hasDueDate = typeof account.paymentDueDays === "number" && account.paymentDueDays > 0
+  const dueMs = hasDueDate
+    ? baseDate.getTime() + (account.paymentDueDays as number) * DAY_MS
+    : baseDate.getTime()
   const overdueDays = Math.floor((today - dueMs) / DAY_MS)
-  const performanceDays = Math.floor((today - dueMs) / DAY_MS)
   const amount = round2(openingAmount)
 
   return {
@@ -161,13 +214,15 @@ function openingBalanceToAgingItem(
     invoiceNo: "Açılış Bakiyesi",
     date: baseDate,
     effectiveDueDate: new Date(dueMs),
+    hasDueDate,
     totalAmount: amount,
     paidAmount: 0,
     openAmount: amount,
     lastPaymentDate: null,
     overdueDays: Math.max(0, overdueDays),
-    bucket: overdueDays > 0 ? "overdue" : "not_due",
-    performanceDays,
+    bucket: bucketOf(overdueDays, hasDueDate),
+    performanceDays: overdueDays,
+    openPerformanceDays: overdueDays,
   }
 }
 
@@ -213,12 +268,13 @@ function applyUnallocatedCredits(items: AgingInvoice[], pool: number) {
       // Tamamen tahsil edildi: artık açık/gecikmiş değil.
       item.openAmount = 0
       item.overdueDays = 0
-      item.bucket = "not_due"
+      item.bucket = item.hasDueDate ? "not_due" : "no_due"
     }
   }
 }
 
-function summarize(invoices: AgingInvoice[]): AgingTotals {
+/** Kalemlerden hesap toplamı — kovalar, ortalama gecikme, performans. */
+export function summarize(invoices: AgingInvoice[]): AgingTotals {
   const totals = emptyTotals()
   let overdueWeightedDays = 0
   let overdueWeight = 0
@@ -229,24 +285,35 @@ function summarize(invoices: AgingInvoice[]): AgingTotals {
     totals[inv.bucket] += inv.openAmount
     totals.total += inv.openAmount
 
-    if (inv.bucket === "overdue") {
+    if (OVERDUE_BUCKETS.includes(inv.bucket)) {
+      totals.overdue += inv.openAmount
       overdueWeightedDays += inv.overdueDays * inv.openAmount
       overdueWeight += inv.openAmount
     }
 
-    // Karma performans: kapanan kısım + açık kısım birlikte.
+    // Vadesi TANIMSIZ belge performansa girmez: neye göre geciktiğini
+    // bilmiyoruz. Girseydi skor, müşterinin davranışını değil vade boşluğunu
+    // ölçerdi (ölçüldü: bir firmada 5 hesabın 5'i "Riskli", 4/100).
+    if (!inv.hasDueDate) continue
+
+    // Ödenen kısım SON ÖDEMEYE göre: erken ödeme eksi, geç ödeme artı gün.
     if (inv.paidAmount > 0) {
       perfWeightedDays += inv.performanceDays * inv.paidAmount
       perfWeight += inv.paidAmount
     }
-    if (inv.openAmount > 0) {
-      perfWeightedDays += inv.performanceDays * inv.openAmount
+    // Açık kısım YALNIZ GECİKMİŞSE sayılır. Vadesi henüz gelmemiş bir borç,
+    // müşterinin davranışı hakkında hiçbir şey söylemez; sayılınca eksi gün
+    // üretiyor ve hiç ödeme yapmamış hesap "Erken ödeyen 100/100" görünüyordu
+    // (ölçüldü: 283.599,73 TL açık, tek kuruş ödeme yok, skor 100).
+    if (inv.openAmount > 0 && inv.openPerformanceDays > 0) {
+      perfWeightedDays += inv.openPerformanceDays * inv.openAmount
       perfWeight += inv.openAmount
     }
   }
   totals.overdueAvgDays = overdueWeight > 0 ? round2(overdueWeightedDays / overdueWeight) : 0
   totals.performanceAvgDays = perfWeight > 0 ? round2(perfWeightedDays / perfWeight) : 0
-  const perf = computePerformanceScore(totals.performanceAvgDays)
+  // Ölçülebilir hiç belge yoksa skor uydurulmaz.
+  const perf = perfWeight > 0 ? computePerformanceScore(totals.performanceAvgDays) : { score: 0, label: "Veri yok" }
   totals.performanceScore = perf.score
   totals.performanceLabel = perf.label
   return totals
@@ -256,10 +323,26 @@ export type CariAgingResult = {
   asOf: string
   customers: { accounts: AgingAccount[]; totals: AgingTotals }
   suppliers: { accounts: AgingAccount[]; totals: AgingTotals }
+  /**
+   * Sayılmayan satış taslakları. Cari kartındaki bakiye bunları İÇERİR; rapor
+   * içermez. Söylenmezse kullanıcı iki ekranda iki farklı rakam görüp hangisinin
+   * doğru olduğunu bilemez.
+   */
+  excludedDrafts: { count: number; amount: number }
 }
 
-export async function computeCariAging(companyId: string): Promise<CariAgingResult> {
+/** Satış tarafında sayılmayacak durumlar. Alışta DRAFT "Kayıtlı" demek, elenmez. */
+const SALES_EXCLUDED_STATUSES = ["CANCELLED", "CONVERTED", "DRAFT", "GIB_DRAFT"]
+const ALWAYS_EXCLUDED_STATUSES = ["CANCELLED", "CONVERTED"]
+
+export async function computeCariAging(
+  companyId: string,
+  options: CariAgingOptions = {}
+): Promise<CariAgingResult> {
   const today = Date.now()
+  const salesStatusFilter = {
+    notIn: options.includeDrafts ? ALWAYS_EXCLUDED_STATUSES : SALES_EXCLUDED_STATUSES,
+  }
 
   const customers = await prisma.customer.findMany({
     where: { companyId },
@@ -280,14 +363,18 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
         // serbest kredi havuzuna girip açık faturaları FIFO kapatır. Kural:
         // lib/cari/invoice-direction.ts.
         where: {
-          OR: [{ type: "SALES" }, SALES_RETURN_WHERE()],
-          status: { notIn: ["CANCELLED", "CONVERTED"] },
+          // Çift rollü cari: AYNI müşteri kaydına işlenmiş ALIŞ faturaları da
+          // çekilir; açık kısımları alacağı mahsup eder (cari bakiyesi bunu
+          // zaten yapıyordu, yaşlandırma yapmıyordu).
+          OR: [{ type: "SALES" }, SALES_RETURN_WHERE(), { type: "PURCHASE" }, PURCHASE_RETURN_WHERE()],
+          status: { notIn: ALWAYS_EXCLUDED_STATUSES },
         },
         select: {
           id: true,
           invoiceNo: true,
           type: true,
           returnKind: true,
+          status: true,
           date: true,
           dueDate: true,
           totalAmount: true,
@@ -317,14 +404,17 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
       invoices: {
         // Alış iadesi borcumuzu azaltır → kalem değil, kredi havuzu (yukarıdaki not).
         where: {
-          OR: [{ type: "PURCHASE" }, PURCHASE_RETURN_WHERE()],
-          status: { notIn: ["CANCELLED", "CONVERTED"] },
+          // Çift rollü cari (ters yön): tedarikçi kaydına işlenmiş SATIŞ
+          // faturalarının açık kısmı borcu mahsup eder.
+          OR: [{ type: "PURCHASE" }, PURCHASE_RETURN_WHERE(), { type: "SALES" }, SALES_RETURN_WHERE()],
+          status: { notIn: ALWAYS_EXCLUDED_STATUSES },
         },
         select: {
           id: true,
           invoiceNo: true,
           type: true,
           returnKind: true,
+          status: true,
           date: true,
           dueDate: true,
           totalAmount: true,
@@ -344,14 +434,48 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
     getCheckNoteCreditMap("supplier", companyId),
   ])
 
+  /** Satış tarafında taslak belgeler istenmedikçe sayılmaz. */
+  const salesCounts = (inv: { status: string }) =>
+    options.includeDrafts || !SALES_EXCLUDED_STATUSES.includes(inv.status)
+
+  // Sayılmayan taslakların TUTARI: ekranda ve dosyada açıkça yazılır.
+  const excludedDrafts = { count: 0, amount: 0 }
+  if (!options.includeDrafts) {
+    // Tedarikçi kaydına işlenmiş satış taslakları da sayılmıyor (çift rollü
+    // caride borcu mahsup ederlerdi); uyarı iki sekmede de doğru olsun.
+    for (const party of [...customers, ...suppliers]) {
+      for (const inv of party.invoices) {
+        if (receivableSign(inv) > 0 && SALES_EXCLUDED_STATUSES.includes(inv.status)) {
+          excludedDrafts.count += 1
+          excludedDrafts.amount += Number(inv.totalAmount || 0)
+        }
+      }
+    }
+    excludedDrafts.amount = round2(excludedDrafts.amount)
+  }
+
   const customerAccounts: AgingAccount[] = customers
     .map((c) => {
       // İadeler kalem listesine GİRMEZ; kapattıkları tutar krediye yazılır.
       const returnCredit = c.invoices
-        .filter((inv) => receivableSign(inv) < 0)
+        .filter((inv) => receivableSign(inv) < 0 && salesCounts(inv))
         .reduce((sum, inv) => sum + returnCreditOf(inv), 0)
+      // Çift rollü cari: bu kayda işlenmiş ALIŞ belgelerinin açık kısmı (alış −
+      // alış iadesi) alacağı mahsup eder. Alışta taslak "Kayıtlı" demek olduğu
+      // için orada ayıklama yapılmaz.
+      const offsetCredit = round2(
+        Math.max(
+          0,
+          c.invoices
+            .filter((inv) => payableSign(inv) > 0)
+            .reduce((sum, inv) => sum + returnCreditOf(inv), 0) -
+            c.invoices
+              .filter((inv) => payableSign(inv) < 0)
+              .reduce((sum, inv) => sum + returnCreditOf(inv), 0)
+        )
+      )
       const analyzed = c.invoices
-        .filter((inv) => receivableSign(inv) > 0)
+        .filter((inv) => receivableSign(inv) > 0 && salesCounts(inv))
         .map((inv) => bucketize(inv, c.paymentDueDays, today))
         .filter((x): x is AgingInvoice => Boolean(x))
       const openingItem = openingBalanceToAgingItem(c, today)
@@ -367,7 +491,7 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
       // Yalnız SATIŞ faturaları: iadenin işleme bağlı geri ödemesi havuza
       // expense/income üzerinden giriyor, burada tekrar mahsuplaşmamalı.
       const linkedSum = c.invoices
-        .filter((inv) => receivableSign(inv) > 0)
+        .filter((inv) => receivableSign(inv) > 0 && salesCounts(inv))
         .reduce(
           (s, inv) =>
             s + inv.payments.reduce((a, p) => a + (p.transactionId ? Number(p.amount) : 0), 0),
@@ -375,8 +499,13 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
         )
       // Çek/senet (müşteriden alınan) alacağı kapatır → serbest krediye eklenir.
       const checkCredit = customerCheckCredit.get(c.id) || 0
-      applyUnallocatedCredits(analyzed, round2(incomeSum - expenseSum - linkedSum + checkCredit + returnCredit))
+      applyUnallocatedCredits(
+        analyzed,
+        round2(incomeSum - expenseSum - linkedSum + checkCredit + returnCredit + offsetCredit)
+      )
       const invoices = analyzed.filter((inv) => inv.openAmount > 0)
+      const totals = summarize(analyzed)
+      totals.offsetCredit = offsetCredit
       return {
         id: c.id,
         name: c.name,
@@ -385,7 +514,7 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
         taxNumber: c.taxNumber,
         class1: c.classification1?.label || "",
         class2: c.classification2?.label || "",
-        totals: summarize(analyzed),
+        totals,
         invoices,
       }
     })
@@ -396,6 +525,19 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
       const returnCredit = s.invoices
         .filter((inv) => payableSign(inv) < 0)
         .reduce((sum, inv) => sum + returnCreditOf(inv), 0)
+      // Çift rollü cari (ters yön): tedarikçi kaydına işlenmiş SATIŞ belgelerinin
+      // açık kısmı borcu mahsup eder.
+      const offsetCredit = round2(
+        Math.max(
+          0,
+          s.invoices
+            .filter((inv) => receivableSign(inv) > 0 && salesCounts(inv))
+            .reduce((sum, inv) => sum + returnCreditOf(inv), 0) -
+            s.invoices
+              .filter((inv) => receivableSign(inv) < 0 && salesCounts(inv))
+              .reduce((sum, inv) => sum + returnCreditOf(inv), 0)
+        )
+      )
       const analyzed = s.invoices
         .filter((inv) => payableSign(inv) > 0)
         .map((inv) => bucketize(inv, s.paymentDueDays, today))
@@ -419,8 +561,13 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
         )
       // Çek/senet (tedarikçiye verilen) borcu kapatır → serbest krediye eklenir.
       const checkCredit = supplierCheckCredit.get(s.id) || 0
-      applyUnallocatedCredits(analyzed, round2(expenseSum - incomeSum - linkedSum + checkCredit + returnCredit))
+      applyUnallocatedCredits(
+        analyzed,
+        round2(expenseSum - incomeSum - linkedSum + checkCredit + returnCredit + offsetCredit)
+      )
       const invoices = analyzed.filter((inv) => inv.openAmount > 0)
+      const totals = summarize(analyzed)
+      totals.offsetCredit = offsetCredit
       return {
         id: s.id,
         name: s.name,
@@ -429,7 +576,7 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
         taxNumber: s.taxNumber,
         class1: s.classification1?.label || "",
         class2: s.classification2?.label || "",
-        totals: summarize(analyzed),
+        totals,
         invoices,
       }
     })
@@ -443,17 +590,22 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
     let perfWeight = 0
 
     for (const a of accounts) {
-      t.not_due += a.totals.not_due
+      for (const bucket of AGING_BUCKETS) t[bucket] += a.totals[bucket]
       t.overdue += a.totals.overdue
       t.total += a.totals.total
+      t.offsetCredit += a.totals.offsetCredit
       overdueWeightedDays += a.totals.overdueAvgDays * a.totals.overdue
       overdueWeight += a.totals.overdue
-      perfWeightedDays += a.totals.performanceAvgDays * a.totals.total
-      perfWeight += a.totals.total
+      // Vadesi tanımsız tutar skora girmediği için ağırlığa da girmez.
+      const perfBase = a.totals.total - a.totals.no_due
+      if (a.totals.performanceLabel !== "Veri yok" && perfBase > 0) {
+        perfWeightedDays += a.totals.performanceAvgDays * perfBase
+        perfWeight += perfBase
+      }
     }
     t.overdueAvgDays = overdueWeight > 0 ? round2(overdueWeightedDays / overdueWeight) : 0
     t.performanceAvgDays = perfWeight > 0 ? round2(perfWeightedDays / perfWeight) : 0
-    const perf = computePerformanceScore(t.performanceAvgDays)
+    const perf = perfWeight > 0 ? computePerformanceScore(t.performanceAvgDays) : { score: 0, label: "Veri yok" }
     t.performanceScore = perf.score
     t.performanceLabel = perf.label
     return t
@@ -465,6 +617,7 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
       accounts: customerAccounts,
       totals: grandTotal(customerAccounts),
     },
+    excludedDrafts,
     suppliers: {
       accounts: supplierAccounts,
       totals: grandTotal(supplierAccounts),
@@ -472,92 +625,7 @@ export async function computeCariAging(companyId: string): Promise<CariAgingResu
   }
 }
 
-/**
- * AY İÇİ ÖDEME PLANI — ayı üç on günlük dilime böler (1-10, 11-20, 21-ay sonu) ve
- * her cari için o dilime VADESİ DÜŞEN açık tutarı toplar.
- *
- * Geçmiş ve sonraki aylara düşen tutarlar kendi sütunlarında ayrı durur: yoksa
- * satırdaki üç dilimin toplamı "toplam açık"ı tutmaz ve tablo, borcun bir kısmını
- * yutmuş gibi görünürdü.
- *
- * `pastMonths`, yaşlandırmanın `totals.overdue`u DEĞİLDİR: buradaki ölçü ayın 1'i,
- * orada bugündür. Ayın 20'sinde, vadesi 5'inde olan fatura gecikmiştir ama planda
- * "1-10" diliminde görünür — dilim tanımı vade tarihine göredir.
- */
-export type PaymentPlanRow = {
-  id: string
-  code: string | null
-  name: string
-  class1: string
-  class2: string
-  /** Vadesi bu aydan ÖNCE olan açık tutar. */
-  pastMonths: number
-  period1: number
-  period2: number
-  period3: number
-  monthTotal: number
-  nextMonths: number
-  total: number
-}
-
-export type PaymentPlan = {
-  /** Sütun başlıkları — ay adıyla ("1-10 Eylül"). */
-  labels: { period1: string; period2: string; period3: string }
-  rows: PaymentPlanRow[]
-}
-
-export function buildPaymentPlan(accounts: AgingAccount[], reference = new Date()): PaymentPlan {
-  const year = reference.getFullYear()
-  const month = reference.getMonth()
-  const monthStart = new Date(year, month, 1).getTime()
-  // Dilim sınırları GÜN başlangıcıdır; 11'i vadeli fatura ikinci dilime girer.
-  const secondStart = new Date(year, month, 11).getTime()
-  const thirdStart = new Date(year, month, 21).getTime()
-  const nextMonthStart = new Date(year, month + 1, 1).getTime()
-  const monthName = reference.toLocaleDateString("tr-TR", { month: "long" })
-  const lastDay = new Date(year, month + 1, 0).getDate()
-
-  const rows = accounts.map((account) => {
-    const row: PaymentPlanRow = {
-      id: account.id,
-      code: account.code,
-      name: account.name,
-      class1: account.class1,
-      class2: account.class2,
-      pastMonths: 0,
-      period1: 0,
-      period2: 0,
-      period3: 0,
-      monthTotal: 0,
-      nextMonths: 0,
-      total: 0,
-    }
-    for (const invoice of account.invoices) {
-      const due = new Date(invoice.effectiveDueDate).getTime()
-      const amount = invoice.openAmount
-      row.total += amount
-      if (due < monthStart) row.pastMonths += amount
-      else if (due >= nextMonthStart) row.nextMonths += amount
-      else if (due < secondStart) row.period1 += amount
-      else if (due < thirdStart) row.period2 += amount
-      else row.period3 += amount
-    }
-    row.monthTotal = round2(row.period1 + row.period2 + row.period3)
-    row.pastMonths = round2(row.pastMonths)
-    row.period1 = round2(row.period1)
-    row.period2 = round2(row.period2)
-    row.period3 = round2(row.period3)
-    row.nextMonths = round2(row.nextMonths)
-    row.total = round2(row.total)
-    return row
-  })
-
-  return {
-    labels: {
-      period1: `1-10 ${monthName}`,
-      period2: `11-20 ${monthName}`,
-      period3: `21-${lastDay} ${monthName}`,
-    },
-    rows,
-  }
-}
+// Ay içi ödeme planı SAF modülde (ekran da çağırıyor); buradan yeniden dışa
+// veriliyor ki çağıranlar tek adres bilsin.
+export { buildPaymentPlan } from "./cari-yaslandirma-plan"
+export type { PaymentPlan, PaymentPlanRow } from "./cari-yaslandirma-plan"

@@ -43,6 +43,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
         // Kalemler yalnız "Detaylı Faturalar" alt sayfası için çekilir: kalem
         // sorgusu fatura sayısıyla büyür, özet ekranını yavaşlatır.
         includeLines: searchParams.get("includeLines") === "1",
+        class1Id: searchParams.get("class1Id"),
+        class2Id: searchParams.get("class2Id"),
       })
     )
   } catch (error: any) {

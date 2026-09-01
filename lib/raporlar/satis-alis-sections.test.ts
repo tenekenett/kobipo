@@ -17,11 +17,12 @@ import {
 const KINDS = ["SALES", "PURCHASE"] as const
 
 describe("bölüm listesi", () => {
-  it("her iki tarafta dört bölüm ve aynı anahtarlar vardır", () => {
+  it("her iki tarafta beş bölüm ve aynı anahtarlar vardır", () => {
     for (const kind of KINDS) {
       expect(salesPurchaseSections(kind).map((s) => s.key)).toEqual([
         "aylik",
         "cariler",
+        "siniflandirma",
         "faturalar",
         "kalemler",
       ])

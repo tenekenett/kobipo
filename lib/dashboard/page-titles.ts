@@ -107,11 +107,13 @@ const STATIC_TITLES: Record<string, string> = {
   // Satış/alış raporunun bölüm sayfaları (bkz. lib/raporlar/satis-alis-sections.ts).
   "/raporlar/satis/aylik": "Satış — Aylık Dağılım",
   "/raporlar/satis/musteriler": "Satış — Müşteriler",
+  "/raporlar/satis/siniflandirma": "Satış — Sınıflandırma Özeti",
   "/raporlar/satis/faturalar": "Satış — Faturalar",
   "/raporlar/satis/kalemler": "Satış — Detaylı Faturalar",
   "/raporlar/alis": "Alış Raporları",
   "/raporlar/alis/aylik": "Alış — Aylık Dağılım",
   "/raporlar/alis/tedarikciler": "Alış — Tedarikçiler",
+  "/raporlar/alis/siniflandirma": "Alış — Sınıflandırma Özeti",
   "/raporlar/alis/faturalar": "Alış — Faturalar",
   "/raporlar/alis/kalemler": "Alış — Detaylı Faturalar",
   "/raporlar/satis-alis": "Satışlar - Alışlar",
