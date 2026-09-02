@@ -43,6 +43,7 @@ import {
   Unlink,
 } from "lucide-react"
 import Link from "next/link"
+import { toDateInput } from "@/lib/format"
 
 type Waybill = {
   id: string
@@ -91,7 +92,7 @@ const emptyForm = () => ({
   // sunucu AIR-YYYY-###### üretir.
   waybillNo: "",
   supplierId: "",
-  date: new Date().toISOString().split("T")[0],
+  date: toDateInput(new Date()),
   deliveryDate: "",
   carrier: "",
   vehicleNo: "",
@@ -205,7 +206,7 @@ export default function AlisIrsaliyePage() {
     setForm({
       waybillNo: full.waybillNo || "",
       supplierId: full.supplierId || "",
-      date: full.date ? String(full.date).split("T")[0] : new Date().toISOString().split("T")[0],
+      date: full.date ? toDateInput(new Date(full.date)) : toDateInput(new Date()),
       deliveryDate: full.deliveryDate ? String(full.deliveryDate).split("T")[0] : "",
       carrier: full.carrier || "",
       vehicleNo: full.vehicleNo || "",

@@ -2,6 +2,7 @@ import { EInvoiceProvider } from "./types"
 import { resolveMysoftBaseUrl } from "./constants"
 import { normalizeUnitCode } from "@/lib/data/units"
 import { isOtherTaxCharge, isOtherTaxInVatBase } from "./gib-tax-types"
+import { istanbulDay } from "@/lib/format"
 
 // GİB "Diğer Vergiler" (KDV/ÖTV dışı) vergi türü kodları → okunur ad. Gelen faturada
 // alt-toplamın taxName'i boş gelirse bu tablodan ada çevrilir; kod da tanınmıyorsa
@@ -380,7 +381,9 @@ export class MysoftEInvoiceProvider implements EInvoiceProvider {
     try {
       const token = await this.getToken()
       if (!token) return { success: false, error: "Mysoft token alınamadı." }
-      const today = new Date().toISOString().slice(0, 10)
+      // Mükellefin takvim günü: `toISOString()` UTC verir ve TSİ 00:00-03:00
+      // arasında sağlayıcıya DÜNKÜ tarih gönderiliyordu.
+      const today = istanbulDay()
       const body: Record<string, unknown> = {
         identifierNumber: params.identifierNumber,
         tariffCode: params.tariffCode,

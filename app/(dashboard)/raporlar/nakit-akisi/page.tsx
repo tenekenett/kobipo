@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ExportButton } from "@/components/export/export-button"
+import { toDateInput } from "@/lib/format"
 
 interface CashFlowReport {
   period: {
@@ -43,9 +44,10 @@ export default function NakitAkisiPage() {
   useEffect(() => {
     if (companyId) {
       const now = new Date()
-      const startOfYear = new Date(now.getFullYear(), 0, 1)
-      setStartDate(startOfYear.toISOString().split("T")[0])
-      setEndDate(now.toISOString().split("T")[0])
+      // Nakit akışı da kümülatif okunur: yılbaşı → bugün. Gün yerel yazılır,
+      // `toISOString()` UTC'ye kayıp 1 Ocak'ı "31.12.2025" gösteriyordu.
+      setStartDate(toDateInput(new Date(now.getFullYear(), 0, 1)))
+      setEndDate(toDateInput(now))
     }
   }, [companyId])
 

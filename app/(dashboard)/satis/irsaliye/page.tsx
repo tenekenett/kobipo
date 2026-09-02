@@ -29,6 +29,7 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, Minus, Search, Truck, PackageCheck, Clock } from "lucide-react"
+import { toDateInput } from "@/lib/format"
 
 type Waybill = {
   id: string
@@ -87,7 +88,7 @@ export default function SatisIrsaliyePage() {
   const [statusFilter, setStatusFilter] = useState("ALL")
   const [form, setForm] = useState({
     customerId: "",
-    date: new Date().toISOString().split("T")[0],
+    date: toDateInput(new Date()),
     deliveryDate: "",
     carrier: "",
     vehicleNo: "",
@@ -182,7 +183,7 @@ export default function SatisIrsaliyePage() {
         toast({ title: "İrsaliye oluşturuldu" })
         setForm({
           customerId: "",
-          date: new Date().toISOString().split("T")[0],
+          date: toDateInput(new Date()),
           deliveryDate: "",
           carrier: "",
           vehicleNo: "",

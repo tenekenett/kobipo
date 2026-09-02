@@ -37,6 +37,7 @@ import { WriteAction } from "@/components/dashboard/write-guard"
 import { PAYMENT_LINKS_ENABLED } from "@/lib/faturalar/payment-links"
 import { Plus, Trash2, ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { toDateInput } from "@/lib/format"
 
 interface Invoice {
   id: string
@@ -106,7 +107,7 @@ export default function FaturaOdemelerPage() {
 
   const [formData, setFormData] = useState({
     amount: "",
-    paymentDate: new Date().toISOString().split("T")[0],
+    paymentDate: toDateInput(new Date()),
     paymentMethod: "CASH",
     accountId: "",
     reference: "",
@@ -196,7 +197,7 @@ export default function FaturaOdemelerPage() {
         setIsModalOpen(false)
         setFormData({
           amount: "",
-          paymentDate: new Date().toISOString().split("T")[0],
+          paymentDate: toDateInput(new Date()),
           paymentMethod: "CASH",
           accountId: "",
           reference: "",

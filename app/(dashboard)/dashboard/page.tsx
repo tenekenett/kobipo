@@ -66,8 +66,12 @@ function buildCashflowSeries(
   }
   const out: CashflowPoint[] = []
   for (let i = 0; i <= DAYS_CHART; i++) {
+    // Eksen günleri SQL ile AYNI eksende (UTC) yürümeli. `setDate` + yerel gece
+    // yarısı kullanılıyordu: sunucu UTC dışında koşarken (yerel geliştirme)
+    // anahtarlar `DATE_TRUNC('day')`in ürettiği UTC günleriyle tutmuyor ve
+    // grafik bir gün kaymış veriyi doğru etiketin altına basıyordu.
     const d = new Date(start)
-    d.setDate(start.getDate() + i)
+    d.setUTCDate(start.getUTCDate() + i)
     const key = d.toISOString().slice(0, 10)
     const v = byDay.get(key) ?? { income: 0, expense: 0 }
     out.push({
@@ -226,9 +230,11 @@ export default async function DashboardIndexPage({
     )
   }
 
+  // Gün sınırı UTC: sorgu `DATE_TRUNC('day', "date")` ile grupluyor ve kolon
+  // naive UTC. Yerel gece yarısı alınırsa eksen ile veri farklı eksende olur.
   const chartStart = new Date()
-  chartStart.setHours(0, 0, 0, 0)
-  chartStart.setDate(chartStart.getDate() - DAYS_CHART)
+  chartStart.setUTCHours(0, 0, 0, 0)
+  chartStart.setUTCDate(chartStart.getUTCDate() - DAYS_CHART)
 
   const { statsRows, recentInvoices, cashflowRows } = await getDashboardDataCached(companyId)(
     companyId,

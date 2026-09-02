@@ -61,6 +61,18 @@ export const toDateInput = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 
 /**
+ * YYYY-MM-DD — MÜKELLEFİN takvim günü (Europe/Istanbul).
+ *
+ * `toDateInput` TARAYICI için: kullanıcının kendi saatine göre gün verir ve form
+ * kutularında doğrusu odur. SUNUCUDA aynısı kullanılamaz — Vercel UTC'de koşar,
+ * yerel gün UTC günü olur ve TSİ 00:00-03:00 arasındaki işlem bir önceki güne
+ * yazılır. Sunucudan bir güne karar veriliyorsa (belge tarihi, sağlayıcıya giden
+ * `docDate`) saat dilimi AÇIKÇA verilmelidir.
+ */
+export const istanbulDay = (date: Date = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(date)
+
+/**
  * Tutar kutusuna yalnız rakam ve ondalık/binlik ayracı girilebilsin.
  *
  * Serbest metin kabul edildiğinde sonuç görünenden kötüydü: "abc" sunucuya gidiyor,

@@ -39,6 +39,7 @@ import {
   accountHasBankFields,
   accountTypeLabel,
 } from "@/lib/finans/account-types"
+import { toDateInput } from "@/lib/format"
 
 interface Account {
   id: string
@@ -88,7 +89,7 @@ export default function FinansPage() {
     amount: "",
     currency: "TRY",
     description: "",
-    date: new Date().toISOString().split("T")[0],
+    date: toDateInput(new Date()),
     reference: "",
     customerId: "",
     supplierId: "",
@@ -198,7 +199,7 @@ export default function FinansPage() {
           amount: "",
           currency: "TRY",
           description: "",
-          date: new Date().toISOString().split("T")[0],
+          date: toDateInput(new Date()),
           reference: "",
           customerId: "",
           supplierId: "",

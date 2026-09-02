@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ExportButton } from "@/components/export/export-button"
+import { toDateInput } from "@/lib/format"
 
 interface BalanceSheet {
   asOfDate: string
@@ -35,8 +36,9 @@ export default function BilancoPage() {
 
   useEffect(() => {
     if (companyId) {
-      const now = new Date()
-      setAsOfDate(now.toISOString().split("T")[0])
+      // Yerel gün: `toISOString()` UTC'ye kayıyor ve gece 00:00-03:00 arasında
+      // bilanço DÜNKÜ tarihe göre çıkıyordu.
+      setAsOfDate(toDateInput(new Date()))
     }
   }, [companyId])
 

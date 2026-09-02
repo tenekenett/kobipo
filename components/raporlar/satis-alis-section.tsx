@@ -21,6 +21,7 @@ import { ExportButton } from "@/components/export/export-button"
 import { AlertTriangle, ArrowLeft } from "lucide-react"
 import { withCompanyHref } from "@/lib/company/href"
 import { describeLineTotalGap } from "@/lib/raporlar/satis-alis-shared"
+import { defaultReportRange } from "@/lib/raporlar/date-range"
 import type {
   SalesPurchaseInvoice,
   SalesPurchaseInvoiceLine,
@@ -47,8 +48,6 @@ const TL = (value: number) =>
 
 const fmtQty = (value: number) =>
   value.toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 4 })
-
-const isoDay = (date: Date) => date.toISOString().split("T")[0]
 
 /** Ekranda tek satırda gösterilen iki tanım: "Bayi · Marmara". */
 const classText = (class1: string, class2: string) => [class1, class2].filter(Boolean).join(" · ")
@@ -80,10 +79,14 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
   const { labels: classLabels } = useClassificationLabels(companyId)
   const [report, setReport] = useState<SalesPurchaseResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  // Üst rapordan gelinmişse dönem URL'de taşınır; doğrudan açıldıysa varsayılan
+  // ORADAKİYLE aynı olmalı (son 30 gün), yoksa aynı bağlantı iki farklı aralık gösterir.
   const [startDate, setStartDate] = useState(
-    () => searchParams.get("startDate") ?? isoDay(new Date(new Date().getFullYear(), 0, 1))
+    () => searchParams.get("startDate") ?? defaultReportRange().startDate
   )
-  const [endDate, setEndDate] = useState(() => searchParams.get("endDate") ?? isoDay(new Date()))
+  const [endDate, setEndDate] = useState(
+    () => searchParams.get("endDate") ?? defaultReportRange().endDate
+  )
   // Sınıflandırma süzgeci de karttan taşınır; alt sayfa aynı kesiti gösterir.
   const class1Id = searchParams.get("class1Id") ?? ""
   const class2Id = searchParams.get("class2Id") ?? ""

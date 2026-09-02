@@ -56,6 +56,7 @@ import {
   solveNetFromTotal,
 } from "@/lib/invoice/line-tax"
 import { returnRefError } from "@/lib/invoice/return-ref"
+import { toDateInput } from "@/lib/format"
 
 
 // description = kalemin ADI (faturada mal/hizmet adı olarak basılır, ürün seçilmediyse
@@ -341,7 +342,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     invoiceNo: "", // boş bırakılırsa API otomatik üretir; gelen e-faturadan içe aktarmada doldurulur
     customerId: "",
     supplierId: "",
-    date: new Date().toISOString().split("T")[0],
+    date: toDateInput(new Date()),
     dueDate: "",
     currency: "TRY",
     exchangeRate: "",
@@ -793,7 +794,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           customerId: "",
           supplierId: matchedSupplier?.id || "",
           date: data.date
-            ? new Date(data.date).toISOString().split("T")[0]
+            ? toDateInput(new Date(data.date))
             : prev.date,
           currency: data.currency || prev.currency,
           notes: prev.notes && prev.notes.includes(sourceNote) ? prev.notes : sourceNote,
@@ -1096,18 +1097,18 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         returnKind: data.returnKind || "SALES",
         returnRefInvoiceNo: data.returnRefInvoiceNo || "",
         returnRefInvoiceDate: data.returnRefInvoiceDate
-          ? new Date(data.returnRefInvoiceDate).toISOString().split("T")[0]
+          ? toDateInput(new Date(data.returnRefInvoiceDate))
           : "",
         returnRefNote: data.returnRefNote || "",
         invoiceType: data.invoiceType || "MANUAL",
         invoiceNo: data.invoiceNo || "",
         customerId: data.customerId || "",
         supplierId: data.supplierId || "",
-        date: data.date ? new Date(data.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
-        dueDate: data.dueDate ? new Date(data.dueDate).toISOString().split("T")[0] : "",
+        date: data.date ? toDateInput(new Date(data.date)) : toDateInput(new Date()),
+        dueDate: data.dueDate ? toDateInput(new Date(data.dueDate)) : "",
         currency: data.currency || "TRY",
         exchangeRate: data.exchangeRate ? String(data.exchangeRate) : "",
-        exchangeRateDate: data.exchangeRateDate ? new Date(data.exchangeRateDate).toISOString().split("T")[0] : "",
+        exchangeRateDate: data.exchangeRateDate ? toDateInput(new Date(data.exchangeRateDate)) : "",
         notes: data.notes || "",
         category: data.category || "",
         tags: Array.isArray(data.tags) ? data.tags : [],
@@ -1215,11 +1216,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         invoiceNo: "", // kopyaya yeni numara üretilsin
         customerId: data.customerId || "",
         supplierId: data.supplierId || "",
-        date: new Date().toISOString().split("T")[0], // güncel tarih
+        date: toDateInput(new Date()), // güncel tarih
         dueDate: "", // vade kullanıcı tarafından yeniden girilsin
         currency: data.currency || "TRY",
         exchangeRate: data.exchangeRate ? String(data.exchangeRate) : "",
-        exchangeRateDate: data.exchangeRateDate ? new Date(data.exchangeRateDate).toISOString().split("T")[0] : "",
+        exchangeRateDate: data.exchangeRateDate ? toDateInput(new Date(data.exchangeRateDate)) : "",
         notes: data.notes || "",
         category: data.category || "",
         tags: Array.isArray(data.tags) ? data.tags : [],
@@ -1784,7 +1785,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   const resetForm = () => {
     setEditingInvoiceId(null)
-    setFormData({ type: "SALES", returnKind: "SALES", returnRefInvoiceNo: "", returnRefInvoiceDate: "", returnRefNote: "", invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL", invoiceNo: "", customerId: "", supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", currency: "TRY", exchangeRate: "", exchangeRateDate: "", notes: "", category: "", tags: [], deliveryAddress: "", deliveryDistrict: "", deliveryCity: "" })
+    setFormData({ type: "SALES", returnKind: "SALES", returnRefInvoiceNo: "", returnRefInvoiceDate: "", returnRefNote: "", invoiceType: companySettings?.isEDonusumEnabled ? "E_ARCHIVE" : "MANUAL", invoiceNo: "", customerId: "", supplierId: "", date: toDateInput(new Date()), dueDate: "", currency: "TRY", exchangeRate: "", exchangeRateDate: "", notes: "", category: "", tags: [], deliveryAddress: "", deliveryDistrict: "", deliveryCity: "" })
     setTagInput("")
     setItems([{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }])
     setLineExtras([[]])

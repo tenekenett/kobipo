@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ExportButton } from "@/components/export/export-button"
 import type { ProfitLossResult } from "@/lib/raporlar/kar-zarar"
+import { toDateInput } from "@/lib/format"
 
 // Sunucu tipinin KOPYASI değil kendisi: alan eklenip burası güncellenmediğinde
 // (ör. satış iadesi satırı) rapor sessizce eksik kalıyordu.
@@ -26,9 +27,11 @@ export default function KarZararPage() {
   useEffect(() => {
     if (companyId) {
       const now = new Date()
-      const startOfYear = new Date(now.getFullYear(), 0, 1)
-      setStartDate(startOfYear.toISOString().split("T")[0])
-      setEndDate(now.toISOString().split("T")[0])
+      // Kâr/zarar YILBAŞINDAN BUGÜNE açılır (kümülatif okunan bir rapor);
+      // satış/alış gibi 30 güne çekilmez. Gün `toDateInput` ile yazılır:
+      // `toISOString()` UTC'ye kayıyor ve 1 Ocak kutuda "31.12.2025" görünüyordu.
+      setStartDate(toDateInput(new Date(now.getFullYear(), 0, 1)))
+      setEndDate(toDateInput(now))
     }
   }, [companyId])
 

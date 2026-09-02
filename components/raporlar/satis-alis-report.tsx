@@ -23,6 +23,7 @@ import { ExportButton } from "@/components/export/export-button"
 import { withCompanyHref } from "@/lib/company/href"
 import { useClassificationLabels, useCompanyDefinitions } from "@/lib/swr/use-company-data"
 import type { SalesPurchaseKind, SalesPurchaseResult } from "@/lib/raporlar/satis-alis"
+import { defaultReportRange } from "@/lib/raporlar/date-range"
 import {
   salesPurchaseSections,
   sectionPath,
@@ -46,8 +47,6 @@ import {
 
 const TL = (value: number, digits = 2) =>
   `₺${value.toLocaleString("tr-TR", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`
-
-const isoDay = (date: Date) => date.toISOString().split("T")[0]
 
 /** Cari kartındaki iki tanım tek satırda: "Bayi · Marmara". İkisi de boşsa "". */
 const classText = (class1: string, class2: string) => [class1, class2].filter(Boolean).join(" · ")
@@ -96,9 +95,10 @@ export function SatisAlisReport({ kind, companyId }: Props) {
   const isSales = kind === "SALES"
   const [report, setReport] = useState<SalesPurchaseResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  // Dönem varsayılanı yılbaşı → bugün (kar/zarar ekranıyla aynı alışkanlık).
-  const [startDate, setStartDate] = useState(() => isoDay(new Date(new Date().getFullYear(), 0, 1)))
-  const [endDate, setEndDate] = useState(() => isoDay(new Date()))
+  // Dönem varsayılanı SON 30 GÜN: başlangıç bitişten 30 gün geride açılır.
+  // Yılbaşı → bugün varsayılanıyla Eylül'de açılan rapor sekiz ayı çekiyordu.
+  const [startDate, setStartDate] = useState(() => defaultReportRange().startDate)
+  const [endDate, setEndDate] = useState(() => defaultReportRange().endDate)
   // Cari sınıflandırması: rapor bu eksenleri yalnız sütun olarak gösteriyordu,
   // "bayilere ne sattım" ancak Excel'e indirip süzerek cevaplanabiliyordu.
   const [class1Id, setClass1Id] = useState("")

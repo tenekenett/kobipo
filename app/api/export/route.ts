@@ -7,6 +7,7 @@ import { XMLBuilder } from "fast-xml-parser"
 import { DATASETS } from "@/lib/export/datasets"
 import { exportResponse } from "@/lib/export/response"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { toDateInput } from "@/lib/format"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -32,7 +33,9 @@ const MODULE_TO_DATASET: Record<string, { dataset: string; extraParams?: Record<
 function toXmlInvoice(invoice: any) {
   return {
     ID: invoice.invoiceNo,
-    IssueDate: invoice.date.toISOString().split("T")[0],
+    // Yerel gün: `toISOString()` UTC'ye kayıyor ve saat 21:00 sonrası kesilen
+    // fatura dosyaya BİR ÖNCEKİ günle yazılıyordu.
+    IssueDate: toDateInput(invoice.date),
     DocumentCurrencyCode: invoice.currency || "TRY",
     AccountingCustomerParty: { Party: { PartyName: { Name: invoice.customer?.name || "" } } },
     AccountingSupplierParty: { Party: { PartyName: { Name: invoice.supplier?.name || "" } } },

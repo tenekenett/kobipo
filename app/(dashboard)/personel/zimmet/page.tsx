@@ -21,6 +21,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import Link from "next/link"
 import { Plus, RefreshCcw, Trash2, Search, Undo2, BadgeCheck, FileText } from "lucide-react"
+import { toDateInput } from "@/lib/format"
 
 type Employee = { id: string; firstName: string; lastName: string; status: string }
 type Asset = {
@@ -35,7 +36,7 @@ type Asset = {
   status: string
 }
 
-const emptyForm = () => ({ employeeId: "", assetName: "", category: "", serialNo: "", quantity: "1", assignedDate: new Date().toISOString().split("T")[0], notes: "" })
+const emptyForm = () => ({ employeeId: "", assetName: "", category: "", serialNo: "", quantity: "1", assignedDate: toDateInput(new Date()), notes: "" })
 
 export default function ZimmetPage() {
   const searchParams = useSearchParams()

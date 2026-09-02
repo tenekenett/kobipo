@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/components/ui/use-toast"
 import { ToastAction } from "@/components/ui/toast"
 import { Printer, Wallet } from "lucide-react"
+import { toDateInput } from "@/lib/format"
 
 type FinancialAccount = {
   id: string
@@ -43,7 +44,7 @@ type TransactionDialogProps = {
   onSuccess?: () => Promise<void> | void
 }
 
-const initialDate = () => new Date().toISOString().split("T")[0]
+const initialDate = () => toDateInput(new Date())
 
 const emptyForm = () => ({
   accountId: "",

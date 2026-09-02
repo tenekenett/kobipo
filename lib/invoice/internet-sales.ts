@@ -16,6 +16,8 @@
 // MAL SEVKİNE bağlıdır; kontör ve abonelik dijital hizmettir, sevk yoktur → bu alanlar
 // hiç gönderilmez. Tip de onları taşımaz ki ileride yanlışlıkla doldurulmasın.
 
+import { istanbulDay } from "@/lib/format"
+
 /** Mysoft'un kabul ettiği ödeme şekli kümesi — GİB listesiyle birebir, serbest metin değil. */
 export const INTERNET_PAYMENT_TYPES = [
   "KREDIKARTI/BANKAKARTI",
@@ -61,9 +63,7 @@ export function resolveWebSiteUrl(): string {
 }
 
 /** YYYY-MM-DD (mükellefin takvim günü; sunucu UTC'de koşsa da). */
-function dayInTurkey(date: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(date)
-}
+const dayInTurkey = istanbulDay
 
 /**
  * Kobipo'nun kendi satışı için internet satış bilgisini kurar.

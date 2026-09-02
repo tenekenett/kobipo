@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useToast } from "@/components/ui/use-toast"
 import { useCanExport } from "@/components/dashboard/write-guard"
+import { toDateInput } from "@/lib/format"
 
 /**
  * Tüm ekranların ortak "Dışa Aktar" düğmesi.
@@ -60,7 +61,7 @@ function fileNameFrom(disposition: string | null, dataset: string, format: strin
   }
   const plain = disposition?.match(/filename="([^"]+)"/i)
   if (plain) return plain[1]
-  return `${dataset}-${new Date().toISOString().slice(0, 10)}.${format}`
+  return `${dataset}-${toDateInput(new Date())}.${format}`
 }
 
 export function ExportButton({

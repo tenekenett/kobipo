@@ -29,6 +29,7 @@ import {
 import { EmployeeVardiyaTab } from "@/components/personel/employee-vardiya-tab"
 import { ArrowLeft, FileText, FileDown, ExternalLink, Plus, Pencil, Trash2, Wallet, CalendarCheck, BadgeCheck, FolderOpen } from "lucide-react"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
+import { toDateInput } from "@/lib/format"
 
 type Employee = {
   id: string
@@ -133,7 +134,7 @@ export default function PersonelDetayPage() {
   const [docFiles, setDocFiles] = useState<File[]>([])
 
   // Bordro / İzin / Zimmet ekleme diyalogları (bu personele özel)
-  const today = new Date().toISOString().split("T")[0]
+  const today = toDateInput(new Date())
   const [payOpen, setPayOpen] = useState(false)
   const [paySaving, setPaySaving] = useState(false)
   const [payForm, setPayForm] = useState({ periodYear: new Date().getFullYear(), periodMonth: new Date().getMonth() + 1, grossSalary: "", bonus: "", advance: "", sgkDeduction: "", taxDeduction: "", otherDeduction: "", notes: "" })

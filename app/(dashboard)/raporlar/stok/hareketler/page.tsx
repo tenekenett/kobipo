@@ -23,6 +23,7 @@ import {
   useCustomers,
   useSuppliers, useClassificationLabels } from "@/lib/swr/use-company-data"
 import type { StockMovementReport } from "@/lib/raporlar/stok-hareket"
+import { defaultReportRange } from "@/lib/raporlar/date-range"
 
 /**
  * Stok hareketleri — stok raporundan ayrılmış kendi sayfası.
@@ -32,8 +33,6 @@ import type { StockMovementReport } from "@/lib/raporlar/stok-hareket"
  * üzerinden çözülür — bu yüzden cari süzgeci seçilince belgesiz hareketler
  * (sayım, transfer, açılış stoğu) listede görünmez. Bkz. lib/raporlar/stok-hareket.ts
  */
-
-const isoDay = (date: Date) => date.toISOString().split("T")[0]
 
 const fmtQty = (value: number) =>
   value.toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 4 })
@@ -46,8 +45,11 @@ export default function StokHareketleriPage() {
   const companyId = searchParams.get("company")
 
   const { labels: classLabels } = useClassificationLabels(companyId)
-  const [startDate, setStartDate] = useState(() => isoDay(new Date(new Date().getFullYear(), 0, 1)))
-  const [endDate, setEndDate] = useState(() => isoDay(new Date()))
+  // Dönem varsayılanı SON 30 GÜN (satış/alış raporlarıyla aynı kural): yılbaşı
+  // varsayılanı hem gereğinden geniş bir aralık çekiyor hem de UTC'ye kayıp
+  // kutuda bir önceki yılı gösteriyordu.
+  const [startDate, setStartDate] = useState(() => defaultReportRange().startDate)
+  const [endDate, setEndDate] = useState(() => defaultReportRange().endDate)
   const [customerId, setCustomerId] = useState("")
   const [supplierId, setSupplierId] = useState("")
   const [class1Id, setClass1Id] = useState("")

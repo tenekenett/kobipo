@@ -21,6 +21,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import Link from "next/link"
 import { Plus, RefreshCcw, Trash2, Check, X, CalendarCheck, FileText, Scale, AlertTriangle } from "lucide-react"
+import { toDateInput } from "@/lib/format"
 
 type Employee = { id: string; firstName: string; lastName: string; status: string }
 type Leave = {
@@ -39,7 +40,7 @@ const STATUS_LABELS: Record<string, string> = { PENDING: "Bekliyor", APPROVED: "
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-const emptyForm = () => ({ employeeId: "", type: "ANNUAL", startDate: new Date().toISOString().split("T")[0], endDate: new Date().toISOString().split("T")[0], reason: "" })
+const emptyForm = () => ({ employeeId: "", type: "ANNUAL", startDate: toDateInput(new Date()), endDate: toDateInput(new Date()), reason: "" })
 
 export default function IzinDevamPage() {
   const searchParams = useSearchParams()

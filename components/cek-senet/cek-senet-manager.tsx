@@ -44,6 +44,7 @@ import { Plus, Trash2, Edit, Printer } from "lucide-react"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import { cekSenetStatusLabel, resolveCekSenetDirection } from "@/lib/cek-senet/labels"
 import { withCompanyHref } from "@/lib/company/href"
+import { toDateInput } from "@/lib/format"
 
 interface Check {
   id: string
@@ -126,7 +127,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
     branchName: "",
     accountNo: "",
     amount: "",
-    issueDate: new Date().toISOString().split("T")[0],
+    issueDate: toDateInput(new Date()),
     dueDate: "",
     status: "PORTFÖYDE",
     cariType: "",
@@ -139,7 +140,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
   const [noteForm, setNoteForm] = useState({
     noteNo: "",
     amount: "",
-    issueDate: new Date().toISOString().split("T")[0],
+    issueDate: toDateInput(new Date()),
     dueDate: "",
     status: "PORTFÖYDE",
     cariType: "",
@@ -292,8 +293,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
         branchName: (item as Check).branchName || "",
         accountNo: (item as Check).accountNo || "",
         amount: String((item as Check).amount),
-        issueDate: new Date((item as Check).issueDate).toISOString().split("T")[0],
-        dueDate: new Date((item as Check).dueDate).toISOString().split("T")[0],
+        issueDate: toDateInput(new Date((item as Check).issueDate)),
+        dueDate: toDateInput(new Date((item as Check).dueDate)),
         status: (item as Check).status,
         cariType: (item as Check).customer?.id ? "customer" : (item as Check).supplier?.id ? "supplier" : "",
         direction: (item as Check).direction || ((item as Check).supplier?.id ? "GIVEN" : "RECEIVED"),
@@ -305,8 +306,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
       setNoteForm({
         noteNo: (item as PromissoryNote).noteNo,
         amount: String((item as PromissoryNote).amount),
-        issueDate: new Date((item as PromissoryNote).issueDate).toISOString().split("T")[0],
-        dueDate: new Date((item as PromissoryNote).dueDate).toISOString().split("T")[0],
+        issueDate: toDateInput(new Date((item as PromissoryNote).issueDate)),
+        dueDate: toDateInput(new Date((item as PromissoryNote).dueDate)),
         status: (item as PromissoryNote).status,
         cariType: (item as PromissoryNote).customer?.id ? "customer" : (item as PromissoryNote).supplier?.id ? "supplier" : "",
         direction: (item as PromissoryNote).direction || ((item as PromissoryNote).supplier?.id ? "GIVEN" : "RECEIVED"),
@@ -325,7 +326,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
       branchName: "",
       accountNo: "",
       amount: "",
-      issueDate: new Date().toISOString().split("T")[0],
+      issueDate: toDateInput(new Date()),
       dueDate: "",
       status: "PORTFÖYDE",
       cariType: "",
@@ -337,7 +338,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
     setNoteForm({
       noteNo: "",
       amount: "",
-      issueDate: new Date().toISOString().split("T")[0],
+      issueDate: toDateInput(new Date()),
       dueDate: "",
       status: "PORTFÖYDE",
       cariType: "",

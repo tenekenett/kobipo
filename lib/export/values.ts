@@ -7,6 +7,7 @@
  */
 
 import type { ExportColumn, ExportColumnType, ExportRow, ExportSection } from "./types"
+import { toDateInput } from "@/lib/format"
 
 const NUMERIC_TYPES: ExportColumnType[] = ["number", "money", "qty", "percent"]
 
@@ -105,7 +106,9 @@ export function formatCellRaw(value: unknown, type: ExportColumnType = "text"): 
   }
   if (type === "date") {
     const date = toDate(value)
-    return date ? date.toISOString().slice(0, 10) : ""
+    // Yerel gün: `toISOString()` UTC'ye kayıyor ve saat taşıyan tarihler
+    // dosyaya BİR ÖNCEKİ günle yazılıyordu (569 faturanın 90'ında saat var).
+    return date ? toDateInput(date) : ""
   }
   if (type === "datetime") {
     const date = toDate(value)

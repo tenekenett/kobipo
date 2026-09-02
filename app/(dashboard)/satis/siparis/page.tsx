@@ -30,6 +30,7 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, FileText, Minus, Search, Ban, ShoppingCart, Wallet, CheckCircle2 } from "lucide-react"
+import { toDateInput } from "@/lib/format"
 
 type Order = {
   id: string
@@ -125,7 +126,7 @@ export default function SatisSiparisPage() {
   const [form, setForm] = useState({
     customerId: "",
     currency: "TRY",
-    date: new Date().toISOString().split("T")[0],
+    date: toDateInput(new Date()),
     deliveryDate: "",
     notes: "",
   })
@@ -217,7 +218,7 @@ export default function SatisSiparisPage() {
         setForm({
           customerId: "",
           currency: "TRY",
-          date: new Date().toISOString().split("T")[0],
+          date: toDateInput(new Date()),
           deliveryDate: "",
           notes: "",
         })

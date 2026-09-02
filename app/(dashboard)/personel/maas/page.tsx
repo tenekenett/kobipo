@@ -21,6 +21,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import Link from "next/link"
 import { Plus, RefreshCcw, Trash2, Wallet, DollarSign, Users, FileText, Download, Pencil } from "lucide-react"
+import { toDateInput } from "@/lib/format"
 
 type Employee = { id: string; firstName: string; lastName: string; grossSalary?: number | null; status: string }
 type Account = { id: string; name: string; type: string }
@@ -76,7 +77,7 @@ export default function MaasOdemelerPage() {
 
   const [payTarget, setPayTarget] = useState<Payroll | null>(null)
   const [payAccountId, setPayAccountId] = useState("")
-  const [payDate, setPayDate] = useState(new Date().toISOString().split("T")[0])
+  const [payDate, setPayDate] = useState(toDateInput(new Date()))
 
   const fetchRecords = useCallback(async () => {
     if (!companyId) return

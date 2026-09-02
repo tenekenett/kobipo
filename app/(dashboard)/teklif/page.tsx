@@ -41,6 +41,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, Eye } from "lucide-react"
 import { useTcmbRates } from "@/lib/exchange/use-rates"
+import { toDateInput } from "@/lib/format"
 
 type Quote = {
   id: string
@@ -113,7 +114,7 @@ export default function TeklifPage() {
   const [form, setForm] = useState({
     customerId: "",
     currency: "TRY",
-    date: new Date().toISOString().split("T")[0],
+    date: toDateInput(new Date()),
     validUntil: "",
     notes: "",
   })
@@ -219,7 +220,7 @@ export default function TeklifPage() {
       setForm({
         customerId: "",
         currency: "TRY",
-        date: new Date().toISOString().split("T")[0],
+        date: toDateInput(new Date()),
         validUntil: "",
         notes: "",
       })

@@ -26,6 +26,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { ExportAction, WriteAction, useCanEditHere } from "@/components/dashboard/write-guard"
 import { ArrowLeft, Building2, Download, FileText, Landmark, Loader2, Minus, Plus, Save } from "lucide-react"
 import { looksLikeCuid } from "@/lib/slug"
+import { toDateInput } from "@/lib/format"
 
 type QuoteItem = {
   id?: string
@@ -181,8 +182,8 @@ export default function TeklifDetailPage() {
       setIsPurchase(Boolean(data.supplierId))
       setPartyId(data.supplierId || data.customerId || "")
       setCurrency(data.currency || "TRY")
-      setDate(data.date ? new Date(data.date).toISOString().split("T")[0] : "")
-      setValidUntil(data.validUntil ? new Date(data.validUntil).toISOString().split("T")[0] : "")
+      setDate(data.date ? toDateInput(new Date(data.date)) : "")
+      setValidUntil(data.validUntil ? toDateInput(new Date(data.validUntil)) : "")
       setNotes(data.notes || "")
       if (data.items?.length) {
         setLines(
