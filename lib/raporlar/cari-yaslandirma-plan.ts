@@ -91,6 +91,16 @@ export type PaymentPlan = {
   /** Sütun başlıkları — ay adıyla ("1-10 Eylül"). */
   labels: { period1: string; period2: string; period3: string }
   rows: PaymentPlanRow[]
+  /**
+   * Görüntülenen aydan SONRA vadesi düşen ilk ay (`YYYY-MM`), yoksa null.
+   *
+   * Ekranın "dilimler boş ama para duruyor" halini açıklayabilmesi için var:
+   * bugün Eylül'ken 10 Ekim vadeli fatura üç dilimin hiçbirine girmez, sessizce
+   * "Sonraki Aylar" sütununda durur ve rapor tutarı yutmuş gibi görünür.
+   */
+  nextDueMonth: string | null
+  /** Aynı gerekçeyle geriye doğru: görüntülenen aydan ÖNCEKİ en yakın vade ayı. */
+  prevDueMonth: string | null
 }
 
 export function buildPaymentPlan(accounts: PaymentPlanInput[], reference = new Date()): PaymentPlan {
@@ -103,6 +113,11 @@ export function buildPaymentPlan(accounts: PaymentPlanInput[], reference = new D
   const nextMonthStart = new Date(year, month + 1, 1).getTime()
   const monthName = reference.toLocaleDateString("tr-TR", { month: "long" })
   const lastDay = new Date(year, month + 1, 0).getDate()
+
+  // Aydan taşan vadelerin EN YAKINLARI: ileride ilk, geride son. Vadesi tanımsız
+  // belge sayılmaz — onun bir ayı yok.
+  let nextDueMs: number | null = null
+  let prevDueMs: number | null = null
 
   const rows = accounts.map((account) => {
     const row: PaymentPlanRow = {
@@ -127,9 +142,13 @@ export function buildPaymentPlan(accounts: PaymentPlanInput[], reference = new D
       // Vade yoksa dilim de yok: `effectiveDueDate` bu belgelerde fatura tarihine
       // düşer ve hepsi "Geçmiş Aylar"da toplanıp planı boş gösteriyordu.
       if (!invoice.hasDueDate) row.noDue += amount
-      else if (due < monthStart) row.pastMonths += amount
-      else if (due >= nextMonthStart) row.nextMonths += amount
-      else if (due < secondStart) row.period1 += amount
+      else if (due < monthStart) {
+        row.pastMonths += amount
+        if (prevDueMs === null || due > prevDueMs) prevDueMs = due
+      } else if (due >= nextMonthStart) {
+        row.nextMonths += amount
+        if (nextDueMs === null || due < nextDueMs) nextDueMs = due
+      } else if (due < secondStart) row.period1 += amount
       else if (due < thirdStart) row.period2 += amount
       else row.period3 += amount
     }
@@ -151,5 +170,7 @@ export function buildPaymentPlan(accounts: PaymentPlanInput[], reference = new D
       period3: `21-${lastDay} ${monthName}`,
     },
     rows,
+    nextDueMonth: nextDueMs === null ? null : formatPlanMonth(new Date(nextDueMs)),
+    prevDueMonth: prevDueMs === null ? null : formatPlanMonth(new Date(prevDueMs)),
   }
 }

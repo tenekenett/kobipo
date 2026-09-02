@@ -24,16 +24,19 @@ import { useCanView } from "@/components/dashboard/dashboard-company-provider"
 import { useClassificationLabels } from "@/lib/swr/use-company-data"
 import { buildPaymentPlan, formatPlanMonth } from "@/lib/raporlar/cari-yaslandirma-plan"
 import {
-  AGING_BUCKETS,
   AGING_BUCKET_LABEL,
+  DUE_WINDOWS,
+  DUE_WINDOW_LABEL,
+  OVERDUE_BUCKETS,
   type AgingBucket,
+  type DueWindow,
 } from "@/lib/raporlar/cari-yaslandirma-buckets"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 
 type Bucket = AgingBucket
 
-type Totals = Record<Bucket, number> & {
+type Totals = Record<Bucket, number> & Record<DueWindow, number> & {
   /** Ölçülebilen gecikme kovalarının toplamı. */
   overdue: number
   overdueAvgDays: number
@@ -55,6 +58,10 @@ type AgingInvoice = {
   openAmount: number
   overdueDays: number
   bucket: Bucket
+  /** Vadeye kalan gün; "12 gün kaldı" bundan yazılır. */
+  daysUntilDue: number
+  /** Vadesi gelmemişse hangi ileri pencere; gecikmiş/vadesizse null. */
+  dueWindow: DueWindow | null
   /** Vade gerçekten tanımlı mı — plan dilimleri buna bakar. */
   hasDueDate: boolean
 }
@@ -80,10 +87,22 @@ type AgingResponse = {
   excludedDrafts?: { count: number; amount: number }
 }
 
-// Kova listesi ve etiketleri TEK kaynaktan (`cari-yaslandirma-buckets.ts`):
-// burada kopya durduğunda kova eklenince biri güncellenip diğeri unutulurdu.
-const BUCKETS = AGING_BUCKETS
+// Etiketler TEK kaynaktan (`cari-yaslandirma-buckets.ts`): burada kopya
+// durduğunda kova eklenince biri güncellenip diğeri unutulurdu.
 const BUCKET_LABEL = AGING_BUCKET_LABEL
+
+/**
+ * TABLO KOLONLARI İLERİ YÖNLÜDÜR. Asıl soru "ne zaman ne kadar tahsilat geliyor";
+ * gecikme yaşı (1-30 / 31-60 …) tek bir "Vadesi Geçmiş" kolonuna toplanır ve
+ * kırılımı satır açılınca gösterilir. Hepsini yan yana koymak 10 para kolonu
+ * demekti; öncelik ileri yönde.
+ */
+const WINDOW_TONE: Record<DueWindow, string> = {
+  w0_30: "text-emerald-700",
+  w31_60: "text-emerald-600",
+  w61_90: "text-teal-600",
+  w90_plus: "text-slate-500",
+}
 
 // Yaşlandıkça koyulaşan tek bir skala: kullanıcı rengi okuyup sırayı anlayabilsin.
 const BUCKET_TONE: Record<Bucket, string> = {
@@ -110,6 +129,15 @@ function fmtTRY(value: number) {
     currency: "TRY",
     minimumFractionDigits: 2,
   }).format(value || 0)
+}
+
+/** `YYYY-MM` → "Ekim 2026". Plan yönlendirmesinin düğme metni. */
+function monthLabel(yyyyMm: string) {
+  const [year, month] = yyyyMm.split("-").map(Number)
+  return new Date(year, month - 1, 1).toLocaleDateString("tr-TR", {
+    month: "long",
+    year: "numeric",
+  })
 }
 
 function fmtDate(value: string) {
@@ -223,6 +251,16 @@ export default function CariYaslandirmaPage() {
     return base
   }, [planRows])
 
+  /**
+   * Planı verilen aya (`YYYY-MM`) taşır. Ay farkı 12*yıl + ay ile ölçülür, gün
+   * sayısıyla değil: farklı uzunluktaki aylar arasında gün farkı yanlış offset verir.
+   */
+  const goToPlanMonth = (yyyyMm: string) => {
+    const [year, month] = yyyyMm.split("-").map(Number)
+    const now = new Date()
+    setPlanOffset((year - now.getFullYear()) * 12 + (month - 1 - now.getMonth()))
+  }
+
   const toggle = (id: string) =>
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))
 
@@ -332,18 +370,20 @@ export default function CariYaslandirmaPage() {
         <>
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <SummaryCard label="Toplam Açık" value={current.totals.total} tone="text-foreground" />
-            {BUCKETS.map((b) => (
-              <SummaryCard
-                key={b}
-                label={BUCKET_LABEL[b]}
-                value={current.totals[b]}
-                tone={BUCKET_TONE[b]}
-              />
-            ))}
             <SummaryCard
-              label="Vadesi Geçmiş (toplam)"
+              label="Vadesi Geçmiş"
               value={current.totals.overdue}
               tone="text-red-600"
+            />
+            <SummaryCard
+              label={BUCKET_LABEL.not_due}
+              value={current.totals.not_due}
+              tone={BUCKET_TONE.not_due}
+            />
+            <SummaryCard
+              label={BUCKET_LABEL.no_due}
+              value={current.totals.no_due}
+              tone={BUCKET_TONE.no_due}
             />
             <InfoCard
               label="Vadesi Geçmiş Ortalama"
@@ -357,15 +397,45 @@ export default function CariYaslandirmaPage() {
             />
           </div>
 
+          {/* GECİKME YAŞI — geriye dönük eksen. Tabloda kolon olarak durmuyor
+              (orası ileri yöne ayrıldı); toplam dağılım burada, hesap bazlı
+              kırılım satır açılınca gösteriliyor. */}
+          {current.totals.overdue > 0 ? (
+            <Card>
+              <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-3 p-4">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Gecikme yaşı
+                </div>
+                {OVERDUE_BUCKETS.map((b) => (
+                  <div key={b} className="flex items-baseline gap-2">
+                    <span className="text-xs text-muted-foreground">{BUCKET_LABEL[b]}</span>
+                    <span
+                      className={cn(
+                        "text-sm font-semibold tabular-nums",
+                        current.totals[b] > 0 ? BUCKET_TONE[b] : "text-muted-foreground/50"
+                      )}
+                    >
+                      {current.totals[b] > 0 ? fmtTRY(current.totals[b]) : "—"}
+                    </span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader>
               <CardTitle>
                 {tab === "customers" ? "Müşteri Yaşlandırması" : "Tedarikçi Yaşlandırması"}
               </CardTitle>
               <CardDescription>
-                Hesap bazında açık tutar, gecikme dilimleri ve ödeme performansı.
-                Vadesi hiç tanımlanmamış belgeler ayrı sütunda durur; gecikmiş
-                sayılmaz.
+                Kolonlar <strong>ileri</strong> yönlüdür: vadesi gelmemiş tutar,
+                vadesine kalan güne göre ayrılır &mdash; &ldquo;0-30 Gün İçinde&rdquo;,
+                vadesi önümüzdeki 30 günde dolacak tutardır. Vadesi geçmiş tutarın
+                tamamı tek kolonda durur; <strong>gecikme yaşı</strong> kırılımı
+                (1-30 / 31-60 / 61-90 / 90+) üstteki şeritte, hesap bazında ise
+                satırı açınca görünür. Vadesi hiç tanımlanmamış belgeler ayrı
+                sütundadır; gecikmiş sayılmaz.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -379,12 +449,17 @@ export default function CariYaslandirmaPage() {
                     <TableHead>{classLabels.class1}</TableHead>
                     <TableHead>{classLabels.class2}</TableHead>
                     <TableHead className="text-right">Toplam Açık</TableHead>
-                    {/* Yaşlandırmanın kendisi: hangi para ne kadar eskidi. */}
-                    {BUCKETS.map((b) => (
-                      <TableHead key={b} className="text-right whitespace-nowrap">
-                        {BUCKET_LABEL[b]}
+                    {/* Geriye dönük eksen TEK kolon; yaş kırılımı satır açılınca. */}
+                    <TableHead className="text-right whitespace-nowrap">Vadesi Geçmiş</TableHead>
+                    {/* İleri yön: vadesi gelmemiş para ne zaman tahsil edilecek. */}
+                    {DUE_WINDOWS.map((w) => (
+                      <TableHead key={w} className="text-right whitespace-nowrap">
+                        {DUE_WINDOW_LABEL[w]}
                       </TableHead>
                     ))}
+                    <TableHead className="text-right whitespace-nowrap">
+                      {BUCKET_LABEL.no_due}
+                    </TableHead>
                     <TableHead className="text-right">Geri Dönüş</TableHead>
                     <TableHead className="text-right">İşlem</TableHead>
                   </TableRow>
@@ -431,11 +506,6 @@ export default function CariYaslandirmaPage() {
                             </TableCell>
                             <TableCell className="text-right font-semibold">
                               {fmtTRY(acc.totals.total)}
-                              {acc.totals.overdue > 0 ? (
-                                <div className="text-xs font-normal text-muted-foreground">
-                                  Ort. gecikme {fmtDays(acc.totals.overdueAvgDays)}
-                                </div>
-                              ) : null}
                               {/* Çift rollü cari: karşı yöndeki açık belgeler bu tutarı
                                   mahsup etti. Yazılmazsa "kartta borç yok ama raporda
                                   alacak var" görünür. */}
@@ -445,17 +515,42 @@ export default function CariYaslandirmaPage() {
                                 </div>
                               ) : null}
                             </TableCell>
-                            {BUCKETS.map((b) => (
+                            <TableCell
+                              className={cn(
+                                "text-right tabular-nums",
+                                acc.totals.overdue > 0 ? "text-red-600" : "text-muted-foreground/50"
+                              )}
+                            >
+                              {acc.totals.overdue > 0 ? fmtTRY(acc.totals.overdue) : "—"}
+                              {/* Ortalama gecikme "Toplam Açık"ın altındaydı; ölçtüğü
+                                  tutar bu kolondaki, oraya taşındı. */}
+                              {acc.totals.overdue > 0 ? (
+                                <div className="text-xs font-normal text-muted-foreground">
+                                  ort. {fmtDays(acc.totals.overdueAvgDays)}
+                                </div>
+                              ) : null}
+                            </TableCell>
+                            {DUE_WINDOWS.map((w) => (
                               <TableCell
-                                key={b}
+                                key={w}
                                 className={cn(
                                   "text-right tabular-nums",
-                                  acc.totals[b] > 0 ? BUCKET_TONE[b] : "text-muted-foreground/50"
+                                  acc.totals[w] > 0 ? WINDOW_TONE[w] : "text-muted-foreground/50"
                                 )}
                               >
-                                {acc.totals[b] > 0 ? fmtTRY(acc.totals[b]) : "—"}
+                                {acc.totals[w] > 0 ? fmtTRY(acc.totals[w]) : "—"}
                               </TableCell>
                             ))}
+                            <TableCell
+                              className={cn(
+                                "text-right tabular-nums",
+                                acc.totals.no_due > 0
+                                  ? BUCKET_TONE.no_due
+                                  : "text-muted-foreground/50"
+                              )}
+                            >
+                              {acc.totals.no_due > 0 ? fmtTRY(acc.totals.no_due) : "—"}
+                            </TableCell>
                             <TableCell className="text-right tabular-nums">
                               <div className="font-medium">
                                 {acc.totals.performanceScore}/100 · {acc.totals.performanceLabel}
@@ -493,14 +588,47 @@ export default function CariYaslandirmaPage() {
                             <TableRow>
                               <TableCell colSpan={13} className="bg-muted/20 p-0">
                                 <div className="p-3">
+                                  {/* Hesabın GECİKME YAŞI kırılımı. Kolon olarak
+                                      tabloda durmuyor (orası ileri yöne ayrıldı);
+                                      geriye dönük kırılımın adresi burası. */}
+                                  {acc.totals.overdue > 0 ? (
+                                    <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-md border bg-background px-3 py-2">
+                                      <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                                        Gecikme yaşı
+                                      </span>
+                                      {OVERDUE_BUCKETS.map((b) => (
+                                        <span key={b} className="flex items-baseline gap-1.5">
+                                          <span className="text-xs text-muted-foreground">
+                                            {BUCKET_LABEL[b]}
+                                          </span>
+                                          <span
+                                            className={cn(
+                                              "text-sm font-semibold tabular-nums",
+                                              acc.totals[b] > 0
+                                                ? BUCKET_TONE[b]
+                                                : "text-muted-foreground/50"
+                                            )}
+                                          >
+                                            {acc.totals[b] > 0 ? fmtTRY(acc.totals[b]) : "—"}
+                                          </span>
+                                        </span>
+                                      ))}
+                                      <span className="ml-auto text-xs text-muted-foreground">
+                                        Ort. gecikme {fmtDays(acc.totals.overdueAvgDays)}
+                                      </span>
+                                    </div>
+                                  ) : null}
                                   <Table>
                                     <TableHeader>
                                       <TableRow>
                                         <TableHead>Fatura No</TableHead>
                                         <TableHead>Tarih</TableHead>
                                         <TableHead>Vade</TableHead>
-                                        <TableHead>Geciken Gün</TableHead>
-                                        <TableHead>Dilim</TableHead>
+                                        <TableHead>Vadeye Kalan / Geciken</TableHead>
+                                        {/* "Dilim" DEĞİL: alttaki ödeme planı on günlük
+                                            dilimleri anlatıyor, aynı sayfada aynı kelime
+                                            iki şey demek olurdu. */}
+                                        <TableHead>Durum</TableHead>
                                         <TableHead className="text-right">Tutar</TableHead>
                                         <TableHead className="text-right">Ödenen</TableHead>
                                         <TableHead className="text-right">Açık</TableHead>
@@ -521,12 +649,23 @@ export default function CariYaslandirmaPage() {
                                             <TableCell>{fmtDate(inv.effectiveDueDate)}</TableCell>
                                             <TableCell>
                                               {inv.bucket === "not_due" ? (
-                                                <span className="text-xs text-muted-foreground">vadesi gelmedi</span>
+                                                // İleri yön: "vadesi gelmedi" demek yerine KAÇ GÜN
+                                                // kaldığını yaz — 4 Eylül ile 9 Ekim ayırt edilsin.
+                                                <span className="text-xs text-emerald-700 dark:text-emerald-300">
+                                                  {/* Bugün dolan vade "0 gün kaldı" diyordu. */}
+                                                  {inv.daysUntilDue === 0
+                                                    ? "bugün doluyor"
+                                                    : `${inv.daysUntilDue} gün kaldı`}
+                                                </span>
                                               ) : inv.bucket === "no_due" ? (
                                                 // Vade tanımsız: gün sayısı yazmak "gecikmiş" izlenimi verir.
                                                 <span className="text-xs text-muted-foreground">vade yok</span>
                                               ) : (
-                                                <span className="text-sm font-medium">{inv.overdueDays}</span>
+                                                // Çıplak sayı ("13") yazılıyordu; kolon iki yönü
+                                                // birden taşıdığı için yön kelimeyle söylenmeli.
+                                                <span className="text-xs font-medium text-red-600 dark:text-red-400">
+                                                  {inv.overdueDays} gün gecikti
+                                                </span>
                                               )}
                                             </TableCell>
                                             <TableCell>
@@ -536,7 +675,11 @@ export default function CariYaslandirmaPage() {
                                                   BUCKET_BADGE[inv.bucket]
                                                 )}
                                               >
-                                                {BUCKET_LABEL[inv.bucket]}
+                                                {/* Vadesi gelmemişte pencere adı yazılır: tablodaki
+                                                    hangi kolona düştüğü rozetten okunsun. */}
+                                                {inv.dueWindow
+                                                  ? DUE_WINDOW_LABEL[inv.dueWindow]
+                                                  : BUCKET_LABEL[inv.bucket]}
                                               </span>
                                             </TableCell>
                                             <TableCell className="text-right tabular-nums">
@@ -609,11 +752,49 @@ export default function CariYaslandirmaPage() {
               <CardDescription>
                 {planMonthLabel} ayında hangi on günlük dilimde ne kadar{" "}
                 {tab === "customers" ? "tahsilat" : "ödeme"} beklendiği — vade tarihine göre, firma
-                bazlı. Vadesi tanımsız tutarlar dilime giremez, kendi sütununda durur. Dışa
-                aktarılan dosya da seçili ayı böler.
+                bazlı. Vadesi tanımsız tutarlar dilime giremez, kendi sütununda durur.
+                &ldquo;Geçmiş Aylar&rdquo; üstteki &ldquo;Vadesi Geçmiş&rdquo; ile AYNI
+                DEĞİLDİR: buradaki ölçü ayın 1&apos;i, oradaki bugün. Dışa aktarılan dosya
+                da seçili ayı böler.
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {/* ÜÇ DİLİM BOŞ ama para duruyor: vade başka bir aya düşüyordur.
+                  Söylenmezse tablo tutarı yutmuş görünür — alt detayda "vade
+                  10.10.2026" yazan fatura, Eylül planında hiçbir dilimde çıkmıyor
+                  ve kullanıcı raporu hatalı sanıyordu. */}
+              {planRows.length > 0 && planTotals.monthTotal === 0 ? (
+                <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-dashed bg-muted/30 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">
+                    {planMonthLabel} dilimlerine düşen vade yok.
+                  </span>
+                  {planTotals.nextMonths > 0 && plan?.nextDueMonth ? (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0"
+                      onClick={() => goToPlanMonth(plan.nextDueMonth!)}
+                    >
+                      {fmtTRY(planTotals.nextMonths)} sonraki aylarda → {monthLabel(plan.nextDueMonth)}
+                    </Button>
+                  ) : null}
+                  {planTotals.pastMonths > 0 && plan?.prevDueMonth ? (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0"
+                      onClick={() => goToPlanMonth(plan.prevDueMonth!)}
+                    >
+                      {fmtTRY(planTotals.pastMonths)} geçmiş aylarda → {monthLabel(plan.prevDueMonth)}
+                    </Button>
+                  ) : null}
+                  {planTotals.noDue > 0 ? (
+                    <span className="text-muted-foreground">
+                      {fmtTRY(planTotals.noDue)} vadesi tanımsız.
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               {planRows.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">
                   {planMonthLabel} için planlanacak açık tutar yok.

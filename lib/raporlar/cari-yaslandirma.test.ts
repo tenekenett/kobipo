@@ -3,6 +3,7 @@ import { formatPlanMonth, resolvePlanMonth } from "./cari-yaslandirma-plan"
 import {
   bucketOf,
   buildPaymentPlan,
+  dueWindowOf,
   summarize,
   type AgingAccount,
   type AgingInvoice,
@@ -25,7 +26,9 @@ function invoice(dueDate: Date, openAmount: number): AgingInvoice {
     openAmount,
     lastPaymentDate: null,
     overdueDays: 0,
+    daysUntilDue: 0,
     bucket: "not_due",
+    dueWindow: "w0_30",
     performanceDays: 0,
     hasDueDate: true,
     openPerformanceDays: 0,
@@ -49,6 +52,10 @@ function account(invoices: AgingInvoice[], name = "ACME"): AgingAccount {
       d61_90: 0,
       d90_plus: 0,
       no_due: 0,
+      w0_30: total,
+      w31_60: 0,
+      w61_90: 0,
+      w90_plus: 0,
       overdue: 0,
       overdueAvgDays: 0,
       performanceAvgDays: 0,
@@ -177,7 +184,7 @@ describe("yaşlandırma kovaları", () => {
 })
 
 function item(partial: Partial<AgingInvoice>): AgingInvoice {
-  return {
+  const merged: AgingInvoice = {
     id: "x",
     invoiceNo: "F-1",
     date: new Date(2026, 0, 1),
@@ -188,11 +195,17 @@ function item(partial: Partial<AgingInvoice>): AgingInvoice {
     openAmount: 1000,
     lastPaymentDate: null,
     overdueDays: 0,
+    daysUntilDue: 0,
     bucket: "not_due",
+    dueWindow: null,
     performanceDays: 0,
     openPerformanceDays: 0,
     ...partial,
   }
+  // Pencere kovadan TÜRER: gecikmiş kaleme elle pencere yazılırsa fikstür,
+  // üretimde imkânsız bir durumu ölçer (pencerelerin toplamı = not_due bozulur).
+  if ("dueWindow" in partial) return merged
+  return { ...merged, dueWindow: merged.bucket === "not_due" ? "w0_30" : null }
 }
 
 describe("hesap toplamı", () => {
@@ -318,5 +331,120 @@ describe("plan ayı çözümü", () => {
     expect(plan.rows[0].pastMonths).toBe(500)
     expect(plan.rows[0].period1).toBe(300)
     expect(plan.rows[0].monthTotal).toBe(300)
+  })
+})
+
+/**
+ * "Vadesi 10 Ekim" diyen fatura Eylül planında üç dilimin hiçbirinde çıkmaz —
+ * doğru davranış, ama ekranın bunu SÖYLEYEBİLMESİ için parayı taşıyan ayı
+ * bilmesi gerekir; bilmezse tablo tutarı yutmuş görünür.
+ */
+describe("ödeme planı — aydan taşan vadenin ayı", () => {
+  const ekim10 = invoice(new Date(2026, 9, 10), 5400)
+
+  it("sonraki aya düşen en YAKIN vadenin ayını verir", () => {
+    const plan = buildPaymentPlan(
+      [account([ekim10, invoice(new Date(2026, 11, 5), 100)])],
+      reference
+    )
+    expect(plan.rows[0].monthTotal).toBe(0)
+    expect(plan.rows[0].nextMonths).toBe(5500)
+    expect(plan.nextDueMonth).toBe("2026-10")
+    expect(plan.prevDueMonth).toBeNull()
+  })
+
+  it("geçmiş aya düşen en GEÇ vadenin ayını verir", () => {
+    const plan = buildPaymentPlan(
+      [account([invoice(new Date(2026, 5, 3), 200), invoice(new Date(2026, 7, 20), 300)])],
+      reference
+    )
+    expect(plan.prevDueMonth).toBe("2026-08")
+    expect(plan.nextDueMonth).toBeNull()
+  })
+
+  it("o aya geçilince tutar ilk dilime düşer", () => {
+    const plan = buildPaymentPlan([account([ekim10])], resolvePlanMonth("2026-10"))
+    expect(plan.rows[0].period1).toBe(5400)
+    expect(plan.nextDueMonth).toBeNull()
+  })
+
+  it("vadesi tanımsız belge ay yönlendirmesine girmez", () => {
+    const vadesiz = { ...invoice(new Date(2026, 9, 10), 900), hasDueDate: false }
+    const plan = buildPaymentPlan([account([vadesiz])], reference)
+    expect(plan.rows[0].noDue).toBe(900)
+    expect(plan.nextDueMonth).toBeNull()
+  })
+})
+
+/**
+ * İLERİ YÖNLÜ EKSEN. Tablo kolonları vadesi gelmemiş parayı "kaç gün SONRA
+ * dolacak" diye ayırır; gecikme kovalarının tam tersi yöne bakar. Kimlik:
+ * pencerelerin toplamı = `not_due`.
+ */
+describe("vade penceresi", () => {
+  it("kalan güne göre pencereye yazar", () => {
+    expect(dueWindowOf(0)).toBe("w0_30")
+    expect(dueWindowOf(30)).toBe("w0_30")
+    expect(dueWindowOf(31)).toBe("w31_60")
+    expect(dueWindowOf(60)).toBe("w31_60")
+    expect(dueWindowOf(61)).toBe("w61_90")
+    expect(dueWindowOf(90)).toBe("w61_90")
+    expect(dueWindowOf(91)).toBe("w90_plus")
+  })
+
+  it("pencerelerin toplamı 'Vadesi Gelmemiş'i kapatır", () => {
+    const totals = summarize([
+      item({ openAmount: 3231, bucket: "not_due", daysUntilDue: 2, dueWindow: "w0_30" }),
+      item({ openAmount: 3231, bucket: "not_due", daysUntilDue: 26, dueWindow: "w0_30" }),
+      item({ openAmount: 1000, bucket: "not_due", daysUntilDue: 37, dueWindow: "w31_60" }),
+      item({ openAmount: 500, bucket: "not_due", daysUntilDue: 120, dueWindow: "w90_plus" }),
+    ])
+    expect(totals.w0_30).toBe(6462)
+    expect(totals.w31_60).toBe(1000)
+    expect(totals.w61_90).toBe(0)
+    expect(totals.w90_plus).toBe(500)
+    expect(totals.w0_30 + totals.w31_60 + totals.w61_90 + totals.w90_plus).toBe(totals.not_due)
+  })
+
+  it("gecikmiş ve vadesiz kalem pencereye girmez", () => {
+    const totals = summarize([
+      item({ openAmount: 3231, bucket: "d1_30", overdueDays: 13 }),
+      item({ openAmount: 900, bucket: "no_due", hasDueDate: false }),
+    ])
+    expect(totals.w0_30 + totals.w31_60 + totals.w61_90 + totals.w90_plus).toBe(0)
+    expect(totals.overdue).toBe(3231)
+    expect(totals.no_due).toBe(900)
+  })
+})
+
+/**
+ * EKRAN KİMLİĞİ. Tablo satırı şu kolonları basıyor:
+ *   Toplam Açık | Vadesi Geçmiş | 4 pencere | Vade Tanımsız
+ * Bu beş grubun toplamı "Toplam Açık"ı KAPATMAK zorunda; kapatmazsa tablo
+ * borcun bir kısmını yutmuş görünür (kullanıcının ilk şikâyeti tam buydu).
+ */
+describe("yaşlandırma tablosu — kolonların toplamı", () => {
+  it("vadesi geçmiş + pencereler + vade tanımsız = toplam açık", () => {
+    const totals = summarize([
+      item({ openAmount: 3231, bucket: "d1_30", overdueDays: 13 }),
+      item({ openAmount: 1500, bucket: "d90_plus", overdueDays: 120 }),
+      item({ openAmount: 3231, bucket: "not_due", daysUntilDue: 2, dueWindow: "w0_30" }),
+      item({ openAmount: 3231, bucket: "not_due", daysUntilDue: 37, dueWindow: "w31_60" }),
+      item({ openAmount: 900, bucket: "no_due", hasDueDate: false }),
+    ])
+    const pencereler = totals.w0_30 + totals.w31_60 + totals.w61_90 + totals.w90_plus
+    expect(totals.overdue + pencereler + totals.no_due).toBe(totals.total)
+    expect(totals.total).toBe(12093)
+    // Pencereler "Vadesi Gelmemiş"i tam böler — Excel'de ikisi yan yana
+    // durmasın diye (aynı para iki kez sayılırdı) buna güveniliyor.
+    expect(pencereler).toBe(totals.not_due)
+  })
+
+  it("bugün vadesi dolan kalem gecikmiş DEĞİL, ilk pencerededir", () => {
+    // bucketOf(0) = not_due: bir tam gün geçmeden gecikme sayılmaz.
+    expect(bucketOf(0, true)).toBe("not_due")
+    expect(dueWindowOf(0)).toBe("w0_30")
+    // İlk gecikme günü 1'dir; ekranda "0 gün gecikti" diye bir hal yoktur.
+    expect(bucketOf(1, true)).toBe("d1_30")
   })
 })

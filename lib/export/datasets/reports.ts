@@ -24,7 +24,12 @@ import {
   describeFilters,
 } from "./context"
 import type { ClassificationLabels } from "@/lib/company/classification-labels"
-import { AGING_BUCKETS, AGING_BUCKET_LABEL } from "@/lib/raporlar/cari-yaslandirma-buckets"
+import {
+  AGING_BUCKETS,
+  AGING_BUCKET_LABEL,
+  DUE_WINDOWS,
+  DUE_WINDOW_LABEL,
+} from "@/lib/raporlar/cari-yaslandirma-buckets"
 
 // --------------------------- STOK RAPORU ---------------------------
 
@@ -232,11 +237,27 @@ const agingColumns = (labels: ClassificationLabels): ExportColumn[] => [
   { key: "class2", label: labels.class2, width: 26 },
   { key: "taxNumber", label: "VKN/TCKN", width: 26 },
   { key: "paymentDueDays", label: "Vade (gün)", type: "number", width: 20 },
-  // Kova sütunları ekranla AYNI listeden doğar (`cari-yaslandirma-buckets.ts`):
-  // başlıklar burada elle yazılıyordu, kova eklendiğinde ikisi ayrışırdı.
-  ...AGING_BUCKETS.map((bucket) => ({
+  // Kova/pencere sütunları ekranla AYNI listeden doğar
+  // (`cari-yaslandirma-buckets.ts`): başlıklar burada elle yazılıyordu, kova
+  // eklendiğinde ikisi ayrışırdı.
+  //
+  // Dosya HER İKİ EKSENİ de taşır: ekranda gecikme yaşı kolonları yer darlığı
+  // yüzünden tek "Vadesi Geçmiş"e toplandı, Excel'de böyle bir kısıt yok ve
+  // yaşlandırma dosyasının asıl kullanımı zaten yaş kırılımını süzmek.
+  // `not_due` kolonu YOK: dört pencere onu tam olarak bölüyor (pencerelerin
+  // toplamı = vadesi gelmemiş). İkisi yan yana dursaydı satırı soldan sağa
+  // toplayan okuyucu aynı parayı iki kez sayardı. Kalan kolonlar toplamı
+  // ÖRTÜŞMEDEN böler: gecikme yaşı + pencereler + vade tanımsız = toplam açık.
+  ...AGING_BUCKETS.filter((bucket) => bucket !== "not_due").map((bucket) => ({
     key: bucket,
     label: AGING_BUCKET_LABEL[bucket],
+    type: "money" as const,
+    width: 26,
+    total: true,
+  })),
+  ...DUE_WINDOWS.map((window) => ({
+    key: window,
+    label: DUE_WINDOW_LABEL[window],
     type: "money" as const,
     width: 26,
     total: true,
@@ -312,7 +333,10 @@ export async function buildAgingReportDataset(params: {
       class2: account.class2,
       taxNumber: account.taxNumber,
       paymentDueDays: account.paymentDueDays,
+      // İKİ EKSEN de yazılır: kolon listesi ikisini de içeriyor, satır yalnız
+      // kovaları taşısaydı pencere kolonları boş çıkardı.
       ...Object.fromEntries(AGING_BUCKETS.map((bucket) => [bucket, account.totals[bucket]])),
+      ...Object.fromEntries(DUE_WINDOWS.map((window) => [window, account.totals[window]])),
       overdue: account.totals.overdue,
       offsetCredit: account.totals.offsetCredit,
       overdueAvgDays: account.totals.overdueAvgDays,

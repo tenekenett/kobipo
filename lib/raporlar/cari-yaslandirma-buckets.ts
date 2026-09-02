@@ -23,12 +23,21 @@ export const AGING_BUCKETS: AgingBucket[] = [
 /** Gecikme ölçülebilen kovalar — "Vadesi Geçmiş" toplamı bunların toplamıdır. */
 export const OVERDUE_BUCKETS: AgingBucket[] = ["d1_30", "d31_60", "d61_90", "d90_plus"]
 
+/**
+ * Kova adları. Gecikme kovalarında "Gecikmiş" kelimesi ZORUNLU: çıplak "1-30 Gün"
+ * başlığı, vadesi önümüzdeki 30 günde DOLACAK tutar diye okunuyordu. Ölçü tam
+ * tersidir — vadesi 1-30 gün ÖNCE dolmuş tutar. Yaklaşan vadelerin tamamı,
+ * tarihi ne olursa olsun, "Vadesi Gelmemiş"te toplanır.
+ *
+ * Etiket ekranda (özet kartı, tablo başlığı, kalem rozeti) ve Excel'de aynı
+ * yerden okunur; biri değişip diğeri unutulmasın diye tek sözlükte durur.
+ */
 export const AGING_BUCKET_LABEL: Record<AgingBucket, string> = {
   not_due: "Vadesi Gelmemiş",
-  d1_30: "1-30 Gün",
-  d31_60: "31-60 Gün",
-  d61_90: "61-90 Gün",
-  d90_plus: "90+ Gün",
+  d1_30: "1-30 Gün Gecikmiş",
+  d31_60: "31-60 Gün Gecikmiş",
+  d61_90: "61-90 Gün Gecikmiş",
+  d90_plus: "90+ Gün Gecikmiş",
   no_due: "Vade Tanımsız",
 }
 
@@ -45,4 +54,37 @@ export function bucketOf(overdueDays: number, hasDueDate: boolean): AgingBucket 
   if (overdueDays <= 60) return "d31_60"
   if (overdueDays <= 90) return "d61_90"
   return "d90_plus"
+}
+
+/**
+ * VADE PENCERESİ — ileri yönlü eksen: vadesi HENÜZ GELMEMİŞ tutarın ne zaman
+ * tahsil edileceği.
+ *
+ * Gecikme kovalarıyla (`AgingBucket`) karıştırılmamalı; ikisi zıt yöne bakar:
+ * kova "vadesi kaç gün ÖNCE doldu", pencere "vadesi kaç gün SONRA dolacak".
+ * Tabloda ileri yön öncelikli çünkü asıl soru "ne zaman ne kadar tahsilat
+ * geliyor"; vadesi ileride olan her tutar tek bir "Vadesi Gelmemiş" kolonunda
+ * toplanınca 4 Eylül vadeli fatura ile 9 Ekim vadeli fatura ayırt edilemiyordu.
+ */
+export type DueWindow = "w0_30" | "w31_60" | "w61_90" | "w90_plus"
+
+/** Ekranda ve dosyada bu SIRAYLA görünür. */
+export const DUE_WINDOWS: DueWindow[] = ["w0_30", "w31_60", "w61_90", "w90_plus"]
+
+export const DUE_WINDOW_LABEL: Record<DueWindow, string> = {
+  w0_30: "0-30 Gün İçinde",
+  w31_60: "31-60 Gün İçinde",
+  w61_90: "61-90 Gün İçinde",
+  w90_plus: "90+ Gün Sonra",
+}
+
+/**
+ * Vadeye KALAN günü pencereye çevirir. Yalnız `not_due` kalemler için anlamlıdır:
+ * gecikmiş ya da vadesi tanımsız belgenin penceresi yoktur.
+ */
+export function dueWindowOf(daysUntilDue: number): DueWindow {
+  if (daysUntilDue <= 30) return "w0_30"
+  if (daysUntilDue <= 60) return "w31_60"
+  if (daysUntilDue <= 90) return "w61_90"
+  return "w90_plus"
 }

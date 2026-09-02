@@ -6,7 +6,15 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
-import { AGING_BUCKETS, OVERDUE_BUCKETS, bucketOf, type AgingBucket } from "./cari-yaslandirma-buckets"
+import {
+  AGING_BUCKETS,
+  DUE_WINDOWS,
+  OVERDUE_BUCKETS,
+  bucketOf,
+  dueWindowOf,
+  type AgingBucket,
+  type DueWindow,
+} from "./cari-yaslandirma-buckets"
 import { getCheckNoteCreditMap } from "@/lib/cari/check-credit"
 import {
   PURCHASE_RETURN_WHERE,
@@ -22,26 +30,31 @@ export {
   AGING_BUCKETS,
   OVERDUE_BUCKETS,
   AGING_BUCKET_LABEL,
+  DUE_WINDOWS,
+  DUE_WINDOW_LABEL,
   bucketOf,
+  dueWindowOf,
 } from "./cari-yaslandirma-buckets"
-export type { AgingBucket } from "./cari-yaslandirma-buckets"
+export type { AgingBucket, DueWindow } from "./cari-yaslandirma-buckets"
 
-export type AgingTotals = Record<AgingBucket, number> & {
-  /** Ölçülebilen gecikme kovalarının toplamı (türetilmiş). */
-  overdue: number
-  overdueAvgDays: number
-  performanceAvgDays: number
-  performanceScore: number
-  performanceLabel: string
-  total: number
-  /**
-   * Çift rollü caride KARŞI yöndeki açık belgelerin mahsup ettiği tutar.
-   * Aynı müşteri kaydına işlenmiş alış faturaları gibi. Cari bakiyesi bunu
-   * düşüyordu, yaşlandırma düşmüyordu: bir hesapta kart −78.365 TL (biz
-   * borçluyuz) derken rapor +116.062 TL alacak yazıyordu.
-   */
-  offsetCredit: number
-}
+export type AgingTotals = Record<AgingBucket, number> &
+  /** İleri yönlü eksen: vadesi gelmemiş tutarın hangi pencerede tahsil edileceği. */
+  Record<DueWindow, number> & {
+    /** Ölçülebilen gecikme kovalarının toplamı (türetilmiş). */
+    overdue: number
+    overdueAvgDays: number
+    performanceAvgDays: number
+    performanceScore: number
+    performanceLabel: string
+    total: number
+    /**
+     * Çift rollü caride KARŞI yöndeki açık belgelerin mahsup ettiği tutar.
+     * Aynı müşteri kaydına işlenmiş alış faturaları gibi. Cari bakiyesi bunu
+     * düşüyordu, yaşlandırma düşmüyordu: bir hesapta kart −78.365 TL (biz
+     * borçluyuz) derken rapor +116.062 TL alacak yazıyordu.
+     */
+    offsetCredit: number
+  }
 
 export type AgingInvoice = {
   id: string
@@ -55,7 +68,11 @@ export type AgingInvoice = {
   openAmount: number
   lastPaymentDate: Date | null
   overdueDays: number
+  /** Vadeye KALAN gün (gecikmişte / vadesizde 0). İleri yönlü sütunların ekseni. */
+  daysUntilDue: number
   bucket: AgingBucket
+  /** Vadesi gelmemişse hangi pencere; gecikmiş ya da vadesizse null. */
+  dueWindow: DueWindow | null
   /** Ödenen kısım için: son ödeme − vade. */
   performanceDays: number
   /** Açık kalan kısım için: bugün − vade. Kısmi ödeme skoru şişirmesin diye ayrı. */
@@ -83,6 +100,14 @@ export type CariAgingOptions = {
    * "Kayıtlı" anlamına geldiği için orada ayıklama YAPILMAZ.
    */
   includeDrafts?: boolean
+  /**
+   * TEK CARİYE daralt. Cari ekstresi yaşlandırma kutularını buradan okuyor:
+   * kendi kovalarını hesaplarken vadeyi değil belge tarihini ölçüyordu ve aynı
+   * cari için ekstre ile rapor farklı "vadesi geçmiş" rakamı gösteriyordu.
+   * Verilirse karşı taraf hiç sorgulanmaz (tek cari için tüm firmayı çekmeyelim).
+   */
+  customerId?: string | null
+  supplierId?: string | null
 }
 
 function emptyTotals(): AgingTotals {
@@ -93,6 +118,10 @@ function emptyTotals(): AgingTotals {
     d61_90: 0,
     d90_plus: 0,
     no_due: 0,
+    w0_30: 0,
+    w31_60: 0,
+    w61_90: 0,
+    w90_plus: 0,
     overdue: 0,
     overdueAvgDays: 0,
     performanceAvgDays: 0,
@@ -166,6 +195,9 @@ function bucketize(invoice: any, paymentDueDays: number | null, today: number): 
   // müşteri, kalan 21.500 için de "zamanında ödedi" sayılıyordu.
   const openPerformanceDays = overdueDays
   const bucket = bucketOf(overdueDays, due.explicit)
+  // Pencere YALNIZ vadesi gelmemiş kalemde vardır: gecikmişin ve vadesizin
+  // "kaç gün sonra" değeri yok.
+  const daysUntilDue = Math.max(0, -overdueDays)
 
   return {
     id: invoice.id,
@@ -178,7 +210,9 @@ function bucketize(invoice: any, paymentDueDays: number | null, today: number): 
     openAmount: open,
     lastPaymentDate,
     overdueDays: Math.max(0, overdueDays),
+    daysUntilDue,
     bucket,
+    dueWindow: bucket === "not_due" ? dueWindowOf(daysUntilDue) : null,
     performanceDays,
     openPerformanceDays,
   }
@@ -208,6 +242,8 @@ function openingBalanceToAgingItem(
     : baseDate.getTime()
   const overdueDays = Math.floor((today - dueMs) / DAY_MS)
   const amount = round2(openingAmount)
+  const bucket = bucketOf(overdueDays, hasDueDate)
+  const daysUntilDue = Math.max(0, -overdueDays)
 
   return {
     id: `opening-${account.id}`,
@@ -220,7 +256,9 @@ function openingBalanceToAgingItem(
     openAmount: amount,
     lastPaymentDate: null,
     overdueDays: Math.max(0, overdueDays),
-    bucket: bucketOf(overdueDays, hasDueDate),
+    daysUntilDue,
+    bucket,
+    dueWindow: bucket === "not_due" ? dueWindowOf(daysUntilDue) : null,
     performanceDays: overdueDays,
     openPerformanceDays: overdueDays,
   }
@@ -269,6 +307,8 @@ function applyUnallocatedCredits(items: AgingInvoice[], pool: number) {
       item.openAmount = 0
       item.overdueDays = 0
       item.bucket = item.hasDueDate ? "not_due" : "no_due"
+      // Kapanan kalemin beklenen bir tahsilatı da kalmaz.
+      item.dueWindow = null
     }
   }
 }
@@ -284,6 +324,9 @@ export function summarize(invoices: AgingInvoice[]): AgingTotals {
   for (const inv of invoices) {
     totals[inv.bucket] += inv.openAmount
     totals.total += inv.openAmount
+    // İleri yönlü eksen: "Vadesi Gelmemiş" toplamının pencerelere dağılımı.
+    // Kimlik: pencerelerin toplamı = not_due.
+    if (inv.dueWindow) totals[inv.dueWindow] += inv.openAmount
 
     if (OVERDUE_BUCKETS.includes(inv.bucket)) {
       totals.overdue += inv.openAmount
@@ -344,8 +387,13 @@ export async function computeCariAging(
     notIn: options.includeDrafts ? ALWAYS_EXCLUDED_STATUSES : SALES_EXCLUDED_STATUSES,
   }
 
-  const customers = await prisma.customer.findMany({
-    where: { companyId },
+  // Tek cariye daraltıldıysa KARŞI taraf hiç sorgulanmaz.
+  const onlyParty = Boolean(options.customerId || options.supplierId)
+  const skipCustomers = onlyParty && !options.customerId
+  const skipSuppliers = onlyParty && !options.supplierId
+
+  const customers = skipCustomers ? [] : await prisma.customer.findMany({
+    where: { companyId, ...(options.customerId ? { id: options.customerId } : {}) },
     select: {
       id: true,
       name: true,
@@ -388,8 +436,8 @@ export async function computeCariAging(
     orderBy: { name: "asc" },
   })
 
-  const suppliers = await prisma.supplier.findMany({
-    where: { companyId },
+  const suppliers = skipSuppliers ? [] : await prisma.supplier.findMany({
+    where: { companyId, ...(options.supplierId ? { id: options.supplierId } : {}) },
     select: {
       id: true,
       name: true,
@@ -591,6 +639,7 @@ export async function computeCariAging(
 
     for (const a of accounts) {
       for (const bucket of AGING_BUCKETS) t[bucket] += a.totals[bucket]
+      for (const window of DUE_WINDOWS) t[window] += a.totals[window]
       t.overdue += a.totals.overdue
       t.total += a.totals.total
       t.offsetCredit += a.totals.offsetCredit
