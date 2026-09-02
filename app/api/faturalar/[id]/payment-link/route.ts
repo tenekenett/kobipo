@@ -5,6 +5,10 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
+import {
+  PAYMENT_LINKS_DISABLED_MESSAGE,
+  PAYMENT_LINKS_ENABLED,
+} from "@/lib/faturalar/payment-links"
 import crypto from "crypto"
 
 export const dynamic = "force-dynamic"
@@ -38,6 +42,10 @@ export const POST = withApiErrors(async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Üretilen link kullanılamıyor (bkz. lib/faturalar/payment-links.ts) — yenisini de üretme.
+  if (!PAYMENT_LINKS_ENABLED) {
+    return NextResponse.json({ error: PAYMENT_LINKS_DISABLED_MESSAGE }, { status: 503 })
+  }
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { id: rawId } = await params

@@ -4,6 +4,10 @@ import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import {
+  PAYMENT_LINKS_DISABLED_MESSAGE,
+  PAYMENT_LINKS_ENABLED,
+} from "@/lib/faturalar/payment-links"
 
 type PaymentLinkPayload = {
   token: string
@@ -75,9 +79,30 @@ export default function PublicPaymentPage() {
   }
 
   useEffect(() => {
+    if (!PAYMENT_LINKS_ENABLED) {
+      setLoading(false)
+      return
+    }
     fetchLink()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
+
+  // Özellik pasif: uç zaten 503 döner, sayfa da ham hata yerine düzgün bir bilgi basar.
+  if (!PAYMENT_LINKS_ENABLED) {
+    return (
+      <div className="mx-auto max-w-xl p-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Online Tahsilat</CardTitle>
+            <CardDescription>{PAYMENT_LINKS_DISABLED_MESSAGE}</CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Ödemenizi yapmak için lütfen faturayı düzenleyen firma ile iletişime geçin.
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   if (loading) {
     return <div className="p-8 text-center text-muted-foreground">Yükleniyor...</div>

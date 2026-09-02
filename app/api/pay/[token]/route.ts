@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { Decimal } from "@prisma/client/runtime/library"
+import {
+  PAYMENT_LINKS_DISABLED_MESSAGE,
+  PAYMENT_LINKS_ENABLED,
+} from "@/lib/faturalar/payment-links"
 
 export const dynamic = "force-dynamic"
+
+/** Özellik pasifken uç hiç veri döndürmez — token'ı bilen fatura bilgisini de göremez. */
+function disabledResponse() {
+  return NextResponse.json({ error: PAYMENT_LINKS_DISABLED_MESSAGE }, { status: 503 })
+}
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  if (!PAYMENT_LINKS_ENABLED) return disabledResponse()
   const { token } = await params
   const link = await prisma.paymentLink.findUnique({
     where: { token },
@@ -46,8 +56,11 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  // Bu uç oturum aramaz ve doğrudan tahsilat KAYDI yazar; sağlayıcı doğrulaması
+  // eklenene kadar kapalı. [[lib/faturalar/payment-links.ts]]
+  if (!PAYMENT_LINKS_ENABLED) return disabledResponse()
   const { token } = await params
-  
+
   // GÜVENLİ JSON OKUMA: Body boş gelirse hata vermemesi için try-catch
   let body: any = {}
   try {

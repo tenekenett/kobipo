@@ -34,6 +34,7 @@ import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { WriteAction } from "@/components/dashboard/write-guard"
+import { PAYMENT_LINKS_ENABLED } from "@/lib/faturalar/payment-links"
 import { Plus, Trash2, ArrowLeft } from "lucide-react"
 import Link from "next/link"
 
@@ -117,7 +118,7 @@ export default function FaturaOdemelerPage() {
       fetchInvoice()
       fetchPayments()
       fetchAccounts()
-      fetchPaymentLinks()
+      if (PAYMENT_LINKS_ENABLED) fetchPaymentLinks()
     }
   }, [invoiceId, companyId])
 
@@ -441,76 +442,78 @@ export default function FaturaOdemelerPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Online Tahsilat Linkleri</CardTitle>
-          <CardDescription>
-            Link oluşturup müşteriye gönderin. Ödeme sonrası kayıt otomatik oluşur.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <WriteAction>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="Tutar (boş bırakılırsa kalan)"
-                value={linkAmount}
-                onChange={(e) => setLinkAmount(e.target.value)}
-              />
-              <Input
-                type="datetime-local"
-                value={linkExpiresAt}
-                onChange={(e) => setLinkExpiresAt(e.target.value)}
-              />
-              <Button onClick={createPaymentLink} disabled={remaining <= 0}>
-                Ödeme Linki Oluştur
-              </Button>
-            </div>
-          </WriteAction>
+      {PAYMENT_LINKS_ENABLED && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Online Tahsilat Linkleri</CardTitle>
+            <CardDescription>
+              Link oluşturup müşteriye gönderin. Ödeme sonrası kayıt otomatik oluşur.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <WriteAction>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="Tutar (boş bırakılırsa kalan)"
+                  value={linkAmount}
+                  onChange={(e) => setLinkAmount(e.target.value)}
+                />
+                <Input
+                  type="datetime-local"
+                  value={linkExpiresAt}
+                  onChange={(e) => setLinkExpiresAt(e.target.value)}
+                />
+                <Button onClick={createPaymentLink} disabled={remaining <= 0}>
+                  Ödeme Linki Oluştur
+                </Button>
+              </div>
+            </WriteAction>
 
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Token</TableHead>
-                <TableHead>Tutar</TableHead>
-                <TableHead>Durum</TableHead>
-                <TableHead>Son Kullanım</TableHead>
-                <TableHead>İşlem</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paymentLinks.length === 0 ? (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    Link bulunamadı
-                  </TableCell>
+                  <TableHead>Token</TableHead>
+                  <TableHead>Tutar</TableHead>
+                  <TableHead>Durum</TableHead>
+                  <TableHead>Son Kullanım</TableHead>
+                  <TableHead>İşlem</TableHead>
                 </TableRow>
-              ) : (
-                paymentLinks.map((link) => (
-                  <TableRow key={link.id}>
-                    <TableCell className="font-mono text-xs">{link.token.slice(0, 12)}...</TableCell>
-                    <TableCell>{formatCurrency(Number(link.amount))}</TableCell>
-                    <TableCell>{link.status}</TableCell>
-                    <TableCell>{link.expiresAt ? formatDate(link.expiresAt) : "-"}</TableCell>
-                    <TableCell>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          navigator.clipboard.writeText(`${window.location.origin}/pay/${link.token}`)
-                        }
-                      >
-                        URL Kopyala
-                      </Button>
+              </TableHeader>
+              <TableBody>
+                {paymentLinks.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      Link bulunamadı
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                ) : (
+                  paymentLinks.map((link) => (
+                    <TableRow key={link.id}>
+                      <TableCell className="font-mono text-xs">{link.token.slice(0, 12)}...</TableCell>
+                      <TableCell>{formatCurrency(Number(link.amount))}</TableCell>
+                      <TableCell>{link.status}</TableCell>
+                      <TableCell>{link.expiresAt ? formatDate(link.expiresAt) : "-"}</TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            navigator.clipboard.writeText(`${window.location.origin}/pay/${link.token}`)
+                          }
+                        >
+                          URL Kopyala
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="max-w-2xl">
