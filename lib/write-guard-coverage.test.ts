@@ -44,6 +44,9 @@ const GESTURE_SURFACES: Record<string, string | null> = {
   "components/stok/label-designer/element-preview.tsx": null,
   // Görsel kırpma penceresi: sonuç, açan ekranın kendi kaydetme akışına gider.
   "components/stok/image-crop-dialog.tsx": null,
+  // Fiş fotoğrafını sürükleyip bırakmak modele çağrı yapar, yani PARA HARCAR.
+  // Kapı ekranın kendisinde: useWriteGuard hem sürüklemeyi hem seçmeyi süzer.
+  "components/alis/fis-tarama-screen.tsx": "components/alis/fis-tarama-screen.tsx",
 }
 
 /**

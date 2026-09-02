@@ -8,6 +8,11 @@
 // standart olmayan kalem adları ("DMTS PYNR" = domates püresi). Tek geçerli
 // ölçüm kendi fişlerinle yapılandır.
 //
+// ŞEMA/PROMPT İKİZİ: uygulama tarafındaki kopya `lib/fis-ocr/schema.ts`'te yaşıyor
+// (bu dosya bilerek uygulamadan bağımsız kalıyor, TS modülü import edemiyor).
+// BİRİNİ DEĞİŞTİREN ÖTEKİNİ DE DEĞİŞTİRMELİ — ayrışırlarsa ölçtüğün prompt ile
+// üretimde koşan prompt farklılaşır ve buradaki sayılar yalan söylemeye başlar.
+//
 // Aynı görsel + aynı prompt ile N modeli koşturur, sonucu ve GERÇEK maliyeti
 // yan yana basar. Uygulamaya hiç bağlı değil (Prisma/Next import etmez) —
 // sağlayıcı kararı vermeden önce çalışsın diye.
@@ -30,7 +35,12 @@ dotenv.config({ path: ".env.local" })
 dotenv.config()
 
 const API = "https://openrouter.ai/api/v1/chat/completions"
-const VARSAYILAN_MODEL = "qwen/qwen2.5-vl-72b-instruct"
+// ÖLÇÜMLE seçildi (2026-09-02, üç fişli kare): Gemini ailesi rakamları kusursuz
+// okudu; Qwen2.5-VL ise KDV'yi KDV-dahil toplamın ÜSTÜNE ekledi (525,58 -> 613,18),
+// POS slipinin markasını ("Ödeal") kalem sandı ve bir TCKN'yi tümden kaçırdı.
+// Varsayılan, ölçümün kazananı olmalı — aksi halde "hızlıca bir koştur" diyen
+// herkes en kötü modelle ölçer.
+const VARSAYILAN_MODEL = "google/gemini-2.5-flash"
 
 // ---------------------------------------------------------------- argümanlar
 
@@ -43,6 +53,12 @@ const dizin = argv("dir", "./fis-ornekleri")
 const modeller = argv("model", VARSAYILAN_MODEL).split(",").map((m) => m.trim())
 const uzunKenar = Number(argv("px", "1568"))
 const cikti = argv("out", "./fis-test-sonuc")
+// Düşünme seviyesi. Gemini 3.x ailesinde akıl yürütme ZORUNLU (kapatılamıyor:
+// "Reasoning is mandatory for this endpoint"), ama seviyesi kısılabiliyor ve
+// düşünme tokenları ÇIKTI olarak faturalanıyor — 3.7-flash'ta varsayılan ayar
+// maliyetin yarısından fazlasını buraya yakıyor. Veri çıkarma akıl yürütme işi
+// olmadığı için kısmanın bedava olması beklenir; beklenti değil ÖLÇÜM karar versin.
+const akil = argv("akil", null) // low | medium | high
 
 // -------------------------------------------------------------------- şema
 
@@ -117,9 +133,15 @@ const PROMPT = [
   "AYRI bir fiş DEĞİLDİR ve içindeki TUTAR satırı bir kalem DEĞİLDİR — tamamen yok say.",
   "Ödeme bilgisi zaten mali fişin kendisinde yazıyor.",
   "",
+  "VKN'Yİ MERSIS NUMARASIYLA KARIŞTIRMA: fişte çoğu zaman ikisi de yazar ve MERSIS",
+  "numarası VKN'yi İÇİNDE barındırır (MERSIS 0660004943800011 -> VKN 6600049438).",
+  '"VKN/TCKN" veya "VD"/"VERGİ DAİRESİ" satırındaki numarayı al; MERSIS satırından',
+  "hane sayarak VKN türetmeye çalışma.",
+  "",
   "Kurallar:",
   "- SADECE fişte GÖRÜNEN veriyi çıkar. Okuyamadığın alana null yaz, TAHMİN ETME.",
   '- Tutarlar sayı olsun: "1.234,56" -> 1234.56 (Türkçe binlik nokta, ondalık virgül).',
+  '- Tarih YYYY-MM-DD olsun, saat EKLEME. İki haneli yıl 26 -> 2026.',
   '- KDV oranı Türkiye\'de 1, 10 veya 20\'dir. Fişte "%08" gibi eski oran varsa olduğu gibi yaz.',
   "- TOPKDV ve TOPLAM'ı KARIŞTIRMA. Yazarkasa fişlerinde tutar, etiketinin bir üst",
   "  satırında basılabilir. Kontrol et: TOPKDV = TOPLAM x oran / (100 + oran).",
@@ -181,6 +203,7 @@ async function modeleSor(model, b64, mime, semaKullan = true, deneme = 0) {
     // sağlayıcı fiyatı değiştirdiğinde script yalan söylemez.
     usage: { include: true },
   }
+  if (akil) govde.reasoning = { effort: akil }
   if (semaKullan) {
     govde.response_format = {
       type: "json_schema",
@@ -279,15 +302,58 @@ function kdvTutarliMi(fis) {
   return Math.abs(beklenen - kdv) < 0.05
 }
 
+// Çıkan fişi gerçek değerle EŞLEŞTİR — sırayla değil.
+//
+// NEDEN: model, karedeki fişleri hangi sırayla döndüreceğini garanti etmiyor
+// (soldan sağa, tutara göre, rastgele). İndeksle eşlersen KUSURSUZ bir okuma bile
+// üç fişlik karede %0 alabilir; tezgâh o zaman okuma kalitesini değil sıralamayı
+// ölçer ve model seçimini yanlış yönlendirir. Önce VKN (fişteki tek benzersiz
+// anahtar), tutmazsa genel toplam, ikisi de yoksa eşleşmemiş say.
+function dogruEsle(fis, dogruFisler, kullanilan) {
+  const bos = (i) => !kullanilan.has(i)
+  const rakam = (v) => String(v ?? "").replace(/\D/g, "")
+
+  const vkn = rakam(fis.vknTckn)
+  if (vkn) {
+    const i = dogruFisler.findIndex((d, i) => bos(i) && rakam(d.vknTckn) === vkn)
+    if (i !== -1) return i
+  }
+
+  const toplam = Number(fis.genelToplam)
+  if (Number.isFinite(toplam)) {
+    const i = dogruFisler.findIndex(
+      (d, i) => bos(i) && Math.abs(Number(d.genelToplam) - toplam) < 0.01
+    )
+    if (i !== -1) return i
+  }
+
+  return -1
+}
+
+// Model tarihi bazen ISO datetime döndürüyor ("2026-08-27T21:57:00"). GÜN doğru
+// okunmuştur; saat eki üretimde tek satırlık normalizasyonla düşer. Bunu hata
+// saymak modeli okuma kalitesi yüzünden değil BİÇİM yüzünden cezalandırır ve
+// sıralamayı bozar: ilk koşumda Qwen3-VL tam da bu yüzden %47 görünüyordu,
+// oysa üç fişin de tarihini doğru okumuştu. Ham fiş biçimi ("27-08-2026") ise
+// kısalmadan kalır ve hata sayılmaya devam eder — orada gerçekten uymamıştır.
+const tarihSade = (t) => (typeof t === "string" ? t.slice(0, 10) : t)
+
 function dogrulukOlc(cikan, dogru) {
   const esit = (a, b) => sadeMetin(a) === sadeMetin(b) && sadeMetin(a) !== ""
   const sayiEsit = (a, b) =>
     a != null && b != null && Math.abs(Number(a) - Number(b)) < 0.01
 
+  // Ünvanın tek doğru cevabı olmayabilir: fişin başlığında işletme adı ("KULÜBE"),
+  // VD satırında tüzel kişi ("OGUZCAN OGUZ") yazar. İkisi de DOĞRU okumadır.
+  // Gerçek değer dosyasındaki "saticiUnvanAlt" listesi kabul edilenleri sayar;
+  // liste yoksa davranış eskisiyle aynı. Bu olmadan tezgâh, modelin doğru okuduğu
+  // bir alanı hata sayıp sıralamayı bozar.
+  const unvanlar = [dogru.saticiUnvan, ...(dogru.saticiUnvanAlt ?? [])]
+
   const kontrol = [
-    ["satici", esit(cikan.saticiUnvan, dogru.saticiUnvan)],
+    ["satici", unvanlar.some((u) => esit(cikan.saticiUnvan, u))],
     ["vkn", esit(cikan.vknTckn, dogru.vknTckn)],
-    ["tarih", cikan.tarih === dogru.tarih],
+    ["tarih", tarihSade(cikan.tarih) === tarihSade(dogru.tarih)],
     ["toplam", sayiEsit(cikan.genelToplam, dogru.genelToplam)],
     ["kdv", sayiEsit(cikan.kdvToplam, dogru.kdvToplam)],
     ["kalemSayisi", (cikan.kalemler?.length ?? 0) === (dogru.kalemler?.length ?? 0)],
@@ -392,6 +458,9 @@ async function main() {
 
       const fisler = sonuc.veri.fisler ?? []
       toplamFis += fisler.length
+      // Bir gerçek fiş yalnız bir kez eşleşsin: model aynı fişi iki kez döndürürse
+      // (yan yana duran fişlerde oluyor) ikincisi kopya sayılıp %0 alsın.
+      const kullanilanDogru = new Set()
       console.log(
         "  " + say(dosya, 26) +
           say(fisler.length + " fiş", 8) +
@@ -401,18 +470,27 @@ async function main() {
           (sonuc.semaliydi ? "" : "⚠ şemasız")
       )
 
-      fisler.forEach((fis, i) => {
+      fisler.forEach((fis) => {
         const guvenler = Object.values(fis.guven ?? {}).filter((v) => typeof v === "number")
         const enDusuk = guvenler.length ? Math.min(...guvenler) : null
         const kdvOk = kdvTutarliMi(fis)
         if (kdvOk === false) kdvHatali++
 
         let dogrulukEtiket = ""
-        if (dogruFisler?.[i]) {
-          const d = dogrulukOlc(fis, dogruFisler[i])
-          yuzdeler.push(d.yuzde)
-          const hatalar = d.kontrol.filter(([, v]) => !v).map(([k]) => k)
-          dogrulukEtiket = "%" + d.yuzde + (hatalar.length ? " (" + hatalar.join(",") + ")" : "")
+        if (dogruFisler) {
+          const eslesen = dogruEsle(fis, dogruFisler, kullanilanDogru)
+          if (eslesen === -1) {
+            // Uydurma ya da kopya fiş: ölçüye 0 girer. Sessizce atlarsak model
+            // hayali fiş üretip ortalamayı yükseltebilirdi.
+            yuzdeler.push(0)
+            dogrulukEtiket = "%0 (eşleşmedi)"
+          } else {
+            kullanilanDogru.add(eslesen)
+            const d = dogrulukOlc(fis, dogruFisler[eslesen])
+            yuzdeler.push(d.yuzde)
+            const hatalar = d.kontrol.filter(([, v]) => !v).map(([k]) => k)
+            dogrulukEtiket = "%" + d.yuzde + (hatalar.length ? " (" + hatalar.join(",") + ")" : "")
+          }
         }
 
         console.log(

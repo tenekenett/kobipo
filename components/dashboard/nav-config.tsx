@@ -40,6 +40,7 @@ import {
   Percent,
   Receipt,
   Scale,
+  ScanLine,
   ScrollText,
   ShieldCheck,
   Sticker,
@@ -81,6 +82,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/alis/siparis": ClipboardList,
   "/alis/hizli": Zap,
   "/alis/fisler": Receipt,
+  "/alis/fis-tarama": ScanLine,
   "/alis/teklif": ScrollText,
 
   "/stok/urunler": Package,

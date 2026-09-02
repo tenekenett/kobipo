@@ -235,6 +235,15 @@ export const PAGE_API_RULES: PageApiRule[] = [
     writePages: ["/satis/fisler", "/alis/fisler"],
   },
 
+  {
+    // Fiş tarama TEST ucu: fotoğrafı modele okutur, kayıt üretmez. Yalnız kendi
+    // ekranı kullanır — başka bir sayfanın bu uca ihtiyacı yok.
+    prefix: "/api/alis/fis-tarama",
+    pages: ["/alis/fis-tarama"],
+    // Okuma yolu YOK: uç yalnız POST kabul ediyor ve her çağrı para harcıyor.
+    writePages: ["/alis/fis-tarama"],
+  },
+
   // ---- Stok / depo -------------------------------------------------------
   {
     prefix: "/api/stok/movements",

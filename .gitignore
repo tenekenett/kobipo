@@ -58,7 +58,7 @@ supabase/.temp
 
 # AI fiş OCR testi — gerçek fiş görselleri ve model çıktıları (mali veri, repoya girmez)
 fis-ornekleri/
-fis-test-sonuc/
+fis-test-sonuc*/
 
 # Yerel dev sunucusu çıktısı
 dev-server.log

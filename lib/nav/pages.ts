@@ -53,6 +53,7 @@ export const NAV_PAGES: NavPageDef[] = [
   { href: "/alis/siparis", label: "Alış Siparişi", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/alis/hizli", label: "Hızlı Alış", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/alis/fisler", label: "Alış Fişleri", roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/alis/fis-tarama", label: "Fiş Tarama", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/alis/teklif", label: "Satın Alma Teklifi", roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Stok
@@ -176,6 +177,7 @@ export const NAV_GROUPS: Array<{ title: string; hrefs: string[] }> = [
       "/alis/siparis",
       "/alis/hizli",
       "/alis/fisler",
+      "/alis/fis-tarama",
       "/alis/teklif",
     ],
   },
@@ -373,6 +375,17 @@ export function navPage(href: string): NavPageDef | undefined {
  * modül süzgecinden hiç geçmiyorlardı. Kontör linki gruplarda değil, düz link
  * (`STANDALONE_NAV_HREFS`) olduğu için ayrıca yazılıyor.
  */
+/**
+ * Canlıda yalnız SEÇİLİ firmalarla yürütülen DENEME sayfaları.
+ *
+ * e-Dönüşüm gibi modüle değil firma bayrağına bağlı — ama TERS yönde: bayrak
+ * açıkça true değilse sayfa yok (fail-closed). Bayrağın kaynağı
+ * FIS_TARAMA_COMPANIES env listesi, sunucuda çözülür (lib/fis-ocr/access.ts).
+ *
+ * Buradaki gizleme KOZMETİK: gerçek kapı, parayı harcayan uçta.
+ */
+export const DENEME_PAGES: string[] = ["/alis/fis-tarama"]
+
 export const E_DONUSUM_PAGES: string[] = [
   ...(NAV_GROUPS.find((g) => g.title === "E-Dönüşüm")?.hrefs ?? []),
   "/e-donusum/kontor",

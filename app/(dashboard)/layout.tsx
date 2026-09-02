@@ -1,3 +1,4 @@
+import { fisTaramaAcikMi } from "@/lib/fis-ocr/access"
 import { redirect } from "next/navigation"
 import { getUserContext } from "@/lib/auth/user-context"
 import { DashboardNav } from "@/components/dashboard/nav"
@@ -71,6 +72,8 @@ export default async function DashboardLayout({
     // Rol firma bazındadır: provider aktif rolü seçili firmadan türetir.
     role: entry.role,
     isEDonusumEnabled: entry.isEDonusumEnabled,
+    // Beyaz liste SUNUCUDA çözülür; istemciye yalnız boolean gider, firma listesi değil.
+    isFisTaramaEnabled: fisTaramaAcikMi({ id: entry.companyId, slug: entry.companySlug }),
     disabledModules: entry.disabledModules,
     // Kısıtlı çalışan izinleri de firma bazında (boş = kısıt yok).
     allowedPaths: entry.allowedPaths,

@@ -20,6 +20,8 @@ export type DashboardCompany = {
   /** Kullanıcının BU firmadaki rolü (şubede parent-admin'den gelen sanal ADMIN). */
   role?: string
   isEDonusumEnabled?: boolean
+  /** Fiş Tarama denemesine dahil mi? Sunucuda FIS_TARAMA_COMPANIES'ten çözülür. */
+  isFisTaramaEnabled?: boolean
   disabledModules?: string[]
   /** Hesap salt-okunur arşivde mi? ([[lib/billing/archive.ts]]) */
   isArchived?: boolean

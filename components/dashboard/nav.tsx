@@ -14,7 +14,7 @@ import { useDashboardCompany, useVisiblePages } from "@/components/dashboard/das
 import { withCompanyHref } from "@/lib/company/href"
 import { useSidebar } from "@/components/dashboard/sidebar-provider"
 import { landingPathFor } from "@/lib/page-access"
-import { E_DONUSUM_PAGES, moduleKeyForPath } from "@/lib/nav/pages"
+import { DENEME_PAGES, E_DONUSUM_PAGES, moduleKeyForPath } from "@/lib/nav/pages"
 export function DashboardNav() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -51,6 +51,7 @@ export function DashboardNav() {
   // `visibleHrefs` zaten rol matrisinin izin listesiyle kesişimi (lib/page-access.ts),
   // yani rol kontrolü burada ikinci kez yapılmaz.
   const eDonusumEnabled = Boolean(selectedCompany?.isEDonusumEnabled)
+  const denemeAcik = selectedCompany?.isFisTaramaEnabled === true
 
   const navItems = useMemo(() => {
     const visible = new Set(visibleHrefs)
@@ -61,9 +62,11 @@ export function DashboardNav() {
       // /e-donusum/seri-no, /e-donusum/sablon, /e-donusum/kontor) e-Dönüşüm
       // kapalıyken de menüde duruyordu. Liste artık tek kaynaktan geliyor.
       if (!eDonusumEnabled && E_DONUSUM_PAGES.includes(item.href)) return false
+      // Deneme sayfası: bayrak AÇIKÇA true değilse gizli (firma seçilmemişken de).
+      if (DENEME_PAGES.includes(item.href) && !denemeAcik) return false
       return visible.has(item.href)
     })
-  }, [eDonusumEnabled, visibleHrefs])
+  }, [denemeAcik, eDonusumEnabled, visibleHrefs])
 
   // Firma için kapalı modüllerin nav gruplarını gizle.
   //

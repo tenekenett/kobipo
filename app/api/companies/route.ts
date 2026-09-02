@@ -1,3 +1,4 @@
+import { fisTaramaAcikMi } from "@/lib/fis-ocr/access"
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { getUserContext } from "@/lib/auth/user-context"
@@ -43,6 +44,8 @@ export async function GET() {
         // Rol firma bazında değişir; istemci aktif rolü seçili firmadan türetir.
         role: c.role,
         isEDonusumEnabled: c.isEDonusumEnabled,
+        // İstemci listesi ile layout yükü aynı alanları taşımalı.
+        isFisTaramaEnabled: fisTaramaAcikMi({ id: c.companyId, slug: c.companySlug }),
         disabledModules: c.disabledModules,
         // Hesap salt-okunur arşivde mi? Düşerse arayüz düzenleme düğmelerini çizer,
         // kullanıcı tıklar ve 403 yer — kapı tutar ama ekran yalan söyler.
