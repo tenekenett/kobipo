@@ -108,6 +108,9 @@ const PURCHASE_DOC_PAGES = [
   "/alis/hizli",
   "/alis/fisler",
   "/alis/teklif",
+  // Fiş tarama da bir alış belgesi ekranıdır: tedarikçi listesini (VKN eşleşmesi)
+  // ve ürün listesini (kalem eşleşmesi) okur.
+  "/alis/fis-tarama",
 ]
 
 /**
@@ -190,6 +193,7 @@ export const PAGE_API_RULES: PageApiRule[] = [
       "/alis/fatura",
       "/satis/hizli",
       "/alis/hizli",
+      "/alis/fis-tarama",
       "/finans/hareketler",
       "/restoran/satis",
       ...TICKET_PAGES,
@@ -197,8 +201,15 @@ export const PAGE_API_RULES: PageApiRule[] = [
     // Tahsilat/ödeme KAYDEDEN ekranlar: fatura ödeme sayfası (sahibi satış/alış
     // faturası) ve hızlı satış/alış. Restoran adisyonu kendi ucundan kapanır
     // (/api/restoran/adisyonlar/[id]/kapat), finans hareketleri de buraya yazmaz —
-    // ikisi de yalnız okur.
-    writePages: ["/satis/fatura", "/alis/fatura", "/satis/hizli", "/alis/hizli"],
+    // ikisi de yalnız okur. Fiş tarama YAZAR: fişi kestikten hemen sonra
+    // tahsilatı buraya işler.
+    writePages: [
+      "/satis/fatura",
+      "/alis/fatura",
+      "/satis/hizli",
+      "/alis/hizli",
+      "/alis/fis-tarama",
+    ],
   },
   {
     prefix: "/api/faturalar",
@@ -236,11 +247,11 @@ export const PAGE_API_RULES: PageApiRule[] = [
   },
 
   {
-    // Fiş tarama TEST ucu: fotoğrafı modele okutur, kayıt üretmez. Yalnız kendi
-    // ekranı kullanır — başka bir sayfanın bu uca ihtiyacı yok.
+    // Fiş tarama: POST fotoğrafı modele okutur (para harcar), GET mükerrer
+    // denetimi yapar. Yalnız kendi ekranı kullanır — başka bir sayfanın bu uca
+    // ihtiyacı yok. Kaydı bu uç DEĞİL, /api/e-donusum/invoices yazıyor.
     prefix: "/api/alis/fis-tarama",
     pages: ["/alis/fis-tarama"],
-    // Okuma yolu YOK: uç yalnız POST kabul ediyor ve her çağrı para harcıyor.
     writePages: ["/alis/fis-tarama"],
   },
 
@@ -305,6 +316,8 @@ export const PAGE_API_RULES: PageApiRule[] = [
       "/stok/transfer",
       "/satis/hizli",
       "/alis/hizli",
+      // "Kalemleri stoğa işle" açıkken varsayılan depoyu seçmek için.
+      "/alis/fis-tarama",
       "/restoran/menu",
       "/restoran/satis",
       ...TICKET_PAGES,
@@ -324,6 +337,8 @@ export const PAGE_API_RULES: PageApiRule[] = [
       "/alis/fatura",
       "/satis/hizli",
       "/alis/hizli",
+      // Taranan fişin tahsilatı kasaya/POS'a yazılıyor; kanal listesi gerekli.
+      "/alis/fis-tarama",
       "/teklif",
       "/cari/musteri",
       "/cari/tedarikci",
@@ -549,6 +564,9 @@ export const PAGE_API_RULES: PageApiRule[] = [
       "/alis/fatura",
       "/satis/hizli",
       "/alis/hizli",
+      // Fiş tarama onayı alış fişini BU uçtan kesiyor: kendi yazma kapısını
+      // açmıyor, Hızlı Alış'ın kullandığı uca gidiyor.
+      "/alis/fis-tarama",
       "/raporlar/satis",
       "/raporlar/alis",
       "/restoran/satis",
@@ -558,7 +576,13 @@ export const PAGE_API_RULES: PageApiRule[] = [
       // (`?type=PURCHASE`). Yalnız okuma: irsaliye ekranı fatura yazmaz, bağlar.
       "/alis/irsaliye",
     ],
-    writePages: ["/satis/fatura", "/alis/fatura", "/satis/hizli", "/alis/hizli"],
+    writePages: [
+      "/satis/fatura",
+      "/alis/fatura",
+      "/satis/hizli",
+      "/alis/hizli",
+      "/alis/fis-tarama",
+    ],
   },
   // Şablonu tasarımcı ekranı yazar; seri numaratörlerini hem seri-no ekranı hem
   // tasarımcı (şablona seri bağlarken) yazar.

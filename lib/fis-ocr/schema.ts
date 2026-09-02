@@ -18,6 +18,23 @@ export type FisKalem = {
   tutar: number | null
 }
 
+/**
+ * Fişin ödeme satırı — TOPLAM'ın altında basılır ("NAKİT", "KREDİ",
+ * "K.KARTI/B.KARTI", yemek kartı markası). Kayıt akışında tahsilatın hangi
+ * kanala (kasa / POS / banka) yazılacağını bu belirliyor; okunamadığında
+ * kullanıcı ekranda seçer, TAHMİN EDİLMEZ.
+ *
+ * Değerler uygulamanın kendi ödeme kümesine birebir çevrilir (fisOdemeToMethod,
+ * lib/fis-ocr/to-invoice.ts) — küme burada büyürse orası derlenmez.
+ */
+export type FisOdemeSekli = "NAKIT" | "KREDI_KARTI" | "YEMEK_KARTI" | "HAVALE"
+
+export type FisOdeme = {
+  sekil: FisOdemeSekli | null
+  /** Fişte ödeme satırının yanında yazan tutar; çoğu fişte genel toplama eşit. */
+  tutar: number | null
+}
+
 export type FisGuven = {
   satici: number
   tarih: number
@@ -34,6 +51,7 @@ export type Fis = {
   araToplam: number | null
   kdvToplam: number | null
   genelToplam: number | null
+  odeme: FisOdeme | null
   guven: FisGuven | null
 }
 
@@ -49,6 +67,7 @@ const FIS_SEMA = {
     "araToplam",
     "kdvToplam",
     "genelToplam",
+    "odeme",
     "guven",
   ],
   properties: {
@@ -77,6 +96,23 @@ const FIS_SEMA = {
     araToplam: { type: ["number", "null"] },
     kdvToplam: { type: ["number", "null"] },
     genelToplam: { type: ["number", "null"] },
+    // Nesne NULLABLE DEĞİL, içindeki alanlar nullable: strict json_schema'da
+    // nullable nesne sağlayıcıdan sağlayıcıya farklı karşılanıyor, "her zaman
+    // nesne dön, bilmiyorsan içini null bırak" her yerde aynı davranıyor.
+    // `sekil` enum DEĞİL: strict modda enum + null bileşimi bazı sağlayıcılarda
+    // reddediliyor; küme denetimi kodda (bkz. normalizeOdeme, extract.ts).
+    odeme: {
+      type: "object",
+      additionalProperties: false,
+      required: ["sekil", "tutar"],
+      properties: {
+        sekil: {
+          type: ["string", "null"],
+          description: "NAKIT, KREDI_KARTI, YEMEK_KARTI veya HAVALE",
+        },
+        tutar: { type: ["number", "null"] },
+      },
+    },
     guven: {
       type: "object",
       additionalProperties: false,
@@ -108,10 +144,18 @@ export const TARAMA_PROMPT = [
   "Görselde BİRDEN FAZLA fiş olabilir (masaya yan yana dizilmiş). Her mali fiş için",
   '"fisler" dizisine ayrı bir nesne ekle. Tek fiş varsa dizi tek elemanlı olur.',
   "",
-  "BANKA SLİPİNİ AYRI BELGE SAY: mali fişin altında çoğu zaman POS slipi basılıdır",
+  "BANKA SLİPİ AYRI BELGE DEĞİLDİR: mali fişin altında çoğu zaman POS slipi basılıdır",
   "(TERMİNAL NO, ONAY KODU, REFERANS NO, KART TURU, SATIS, banka logosu). Bu slip",
-  "AYRI bir fiş DEĞİLDİR ve içindeki TUTAR satırı bir kalem DEĞİLDİR — tamamen yok say.",
-  "Ödeme bilgisi zaten mali fişin kendisinde yazıyor.",
+  "AYRI bir fiş DEĞİLDİR, içindeki TUTAR satırı bir kalem DEĞİLDİR ve bankanın ya da",
+  'POS sağlayıcısının adı ("TEB", "Ödeal") bir kalem DEĞİLDİR. Slipten okunacak TEK',
+  "şey ödeme şeklidir; geri kalanını yok say.",
+  "",
+  "ÖDEME ŞEKLİ: mali fişte TOPLAM'ın altında ödemenin nasıl yapıldığı yazar —",
+  '"NAKİT", "KREDİ", "K.KARTI/B.KARTI", "BANKA KARTI", yemek kartı markası',
+  '(Multinet, Sodexo, Ticket, Setcard...). Bunu "odeme" alanına şu kümeden yaz:',
+  "  NAKIT · KREDI_KARTI · YEMEK_KARTI · HAVALE",
+  "Mali fişte ödeme satırı YOKSA ama altta POS slipi varsa ödeme KREDI_KARTI'dır.",
+  "Hiçbir ipucu yoksa sekil alanına null yaz — ÖDEME ŞEKLİNİ TAHMİN ETME.",
   "",
   "VKN'Yİ MERSIS NUMARASIYLA KARIŞTIRMA: fişte çoğu zaman ikisi de yazar ve MERSIS",
   "numarası VKN'yi İÇİNDE barındırır (MERSIS 0660004943800011 -> VKN 6600049438).",

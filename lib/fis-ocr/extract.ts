@@ -8,7 +8,13 @@
  */
 
 import sharp from "sharp"
-import { TARAMA_PROMPT, TARAMA_SEMA, type Fis } from "./schema"
+import {
+  TARAMA_PROMPT,
+  TARAMA_SEMA,
+  type Fis,
+  type FisOdeme,
+  type FisOdemeSekli,
+} from "./schema"
 import { VARSAYILAN_MODEL } from "./models"
 
 export { VARSAYILAN_MODEL, DENENEBILIR_MODELLER } from "./models"
@@ -68,6 +74,30 @@ function jsonAyikla(metin: string): any {
     }
   }
   throw new TaramaHatasi("Model yanıtı JSON'a çevrilemedi", metin)
+}
+
+/**
+ * Ödeme şeklini kümeye zorlar.
+ *
+ * Küme şemaya `enum` olarak YAZILAMIYOR (strict json_schema'da enum + null
+ * bileşimi bazı sağlayıcılarda reddediliyor), yani modelin küme dışına çıkması
+ * mümkün: "KREDI KARTI", "Kredi Kartı", "CARD", hatta "TEB". Serbest metni
+ * olduğu gibi geçirirsek tahsilat kanalı seçimi sessizce boşa düşer.
+ *
+ * Tanımadığı değeri null yapar — yanlış kanala yazmaktansa kullanıcıya sordurur.
+ */
+const ODEME_KUMESI: FisOdemeSekli[] = ["NAKIT", "KREDI_KARTI", "YEMEK_KARTI", "HAVALE"]
+
+export function normalizeOdeme(ham: unknown): FisOdeme | null {
+  if (!ham || typeof ham !== "object") return null
+  const o = ham as Record<string, unknown>
+  const sade = String(o.sekil ?? "")
+    .toLocaleUpperCase("tr")
+    .replace(/[^A-ZÇĞİÖŞÜ]/g, "")
+  const eslesen = ODEME_KUMESI.find((k) => k.replace(/_/g, "") === sade) ?? null
+  const tutar =
+    typeof o.tutar === "number" && Number.isFinite(o.tutar) ? o.tutar : null
+  return { sekil: eslesen, tutar }
 }
 
 export async function fisTara(
@@ -149,7 +179,11 @@ export async function fisTara(
 
   const u = j.usage ?? {}
   return {
-    fisler: fisler.map((f) => ({ ...f, kalemler: Array.isArray(f.kalemler) ? f.kalemler : [] })),
+    fisler: fisler.map((f) => ({
+      ...f,
+      kalemler: Array.isArray(f.kalemler) ? f.kalemler : [],
+      odeme: normalizeOdeme(f.odeme),
+    })),
     model,
     saglayici: j.provider ?? "?",
     semaliydi: true,

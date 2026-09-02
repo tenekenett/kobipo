@@ -54,6 +54,12 @@ type QuickCariDialogProps = {
   /** Cari isim kutusuna açılışta yazılacak metin (combobox'ta aranan). */
   initialName?: string
   /**
+   * VKN/TCKN ön dolgusu. Fiş taramada cari, fişten okunan VKN ile açılıyor —
+   * kullanıcıya numarayı elle yeniden yazdırmak, tam da eşleşmenin dayandığı
+   * alanda yazım hatası davet ederdi.
+   */
+  initialTaxNumber?: string
+  /**
    * VKN/vergi dairesi/adres zorunlu mu? Fatura akışında UBL bu alanları istediği için
    * zorunlu (varsayılan). İrsaliye/sipariş/teklif gibi belgelerde cari elde olmayabilir;
    * oralarda `false` verilir — API zaten yalnız ad ister, eksikler cari kartından tamamlanır.
@@ -69,6 +75,7 @@ export function QuickCariDialog({
   companyId,
   defaultKind = "customer",
   initialName = "",
+  initialTaxNumber = "",
   requireTaxFields = true,
   onCreated,
 }: QuickCariDialogProps) {
@@ -97,7 +104,7 @@ export function QuickCariDialog({
         name: initialName || "",
         // Takma ad boş açılır: combobox'ta aranan metin ÜNVAN kutusuna gider.
         nickname: "",
-        taxNumber: "",
+        taxNumber: initialTaxNumber || "",
         taxOffice: "",
         phone: "",
         email: "",
@@ -106,7 +113,7 @@ export function QuickCariDialog({
         district: "",
       })
     }
-  }, [open, defaultKind, initialName, allowed.customer, allowed.supplier])
+  }, [open, defaultKind, initialName, initialTaxNumber, allowed.customer, allowed.supplier])
 
   const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }))
 

@@ -507,6 +507,39 @@ describe("yazma daraltması — gören yazamaz", () => {
     expect(isApiPathAllowedForUser("/api/personel", "POST", puantaj)).toBe(false)
   })
 
+  it("fiş tarama ekranı, kaydın gerektirdiği HER uca erişebilir", () => {
+    // Fiş tarama kendi yazma kapısını açmıyor: onaydan sonra Hızlı Alış'ın
+    // uçlarına gidiyor. Yani ekranın gerçek bağımlılık yüzeyi kendi ucundan
+    // ÇOK daha geniş ve haritada eksik kalan tek satır, akışı kısıtlı bir
+    // çalışanda sessizce 403'e düşürür. (Tam olarak bu oldu: harita yalnız
+    // /api/alis/fis-tarama'yı tanıyordu, tedarikçi listesi bile boş geliyordu.)
+    //
+    // Kısıtsız rollerde açık kalmasının sebebi başka ekranları da görmeleridir;
+    // bu yüzden ölçü, YALNIZCA bu sayfaya izinli bir çalışandır.
+    const taramaci = w("ACCOUNTANT", "/alis/fis-tarama")
+
+    // Okuma: tedarikçi (VKN eşleşmesi), ürün (kalem eşleşmesi), kasa/banka
+    // (tahsilat kanalı), depo (stoğa işleme seçeneği).
+    expect(isApiPathAllowedForUser("/api/cari/suppliers", "GET", taramaci)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/stok/products", "GET", taramaci)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/finans/accounts", "GET", taramaci)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/depolar", "GET", taramaci)).toBe(true)
+
+    // Yazma: taramanın kendisi (para harcar), fişin kesilmesi, tahsilat.
+    expect(isApiPathAllowedForUser("/api/alis/fis-tarama", "POST", taramaci)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/e-donusum/invoices", "POST", taramaci)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/faturalar/odemeler", "POST", taramaci)).toBe(true)
+
+    // Mükerrer denetimi aynı ucun GET'i.
+    expect(isApiPathAllowedForUser("/api/alis/fis-tarama", "GET", taramaci)).toBe(true)
+
+    // Ama cari KARTI açamaz: o yetki /cari/tedarikci'ye ait ve ekran düğmeyi
+    // `useCanCreateCari` ile gizliyor. Kapı gevşerse burası kırılsın.
+    expect(isApiPathAllowedForUser("/api/cari/suppliers", "POST", taramaci)).toBe(false)
+    // Ve ürün kartı yazamaz: kalem eşleştirmesi yalnız OKUR.
+    expect(isApiPathAllowedForUser("/api/stok/products", "POST", taramaci)).toBe(false)
+  })
+
   it("meşru yazma yolları açık kalır (regresyon bekçisi)", () => {
     // Daraltmanın bedeli çalışan bir ekranı kırmak olmamalı.
     expect(isApiPathAllowedForUser("/api/faturalar/odemeler", "POST", w("SALES", "/satis/fatura"))).toBe(true)

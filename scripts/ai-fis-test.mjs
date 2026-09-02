@@ -73,7 +73,7 @@ const FIS_SEMA = {
   additionalProperties: false,
   required: [
     "saticiUnvan", "vknTckn", "tarih", "fisNo",
-    "kalemler", "araToplam", "kdvToplam", "genelToplam", "guven",
+    "kalemler", "araToplam", "kdvToplam", "genelToplam", "odeme", "guven",
   ],
   properties: {
     saticiUnvan: { type: ["string", "null"] },
@@ -101,6 +101,19 @@ const FIS_SEMA = {
     araToplam: { type: ["number", "null"] },
     kdvToplam: { type: ["number", "null"] },
     genelToplam: { type: ["number", "null"] },
+    // Nesne nullable DEĞİL, içi nullable — gerekçe uygulama ikizinde yazılı.
+    odeme: {
+      type: "object",
+      additionalProperties: false,
+      required: ["sekil", "tutar"],
+      properties: {
+        sekil: {
+          type: ["string", "null"],
+          description: "NAKIT, KREDI_KARTI, YEMEK_KARTI veya HAVALE",
+        },
+        tutar: { type: ["number", "null"] },
+      },
+    },
     guven: {
       type: "object",
       additionalProperties: false,
@@ -128,10 +141,18 @@ const PROMPT = [
   "Görselde BİRDEN FAZLA fiş olabilir (masaya yan yana dizilmiş). Her mali fiş için",
   '"fisler" dizisine ayrı bir nesne ekle. Tek fiş varsa dizi tek elemanlı olur.',
   "",
-  "BANKA SLİPİNİ AYRI BELGE SAY: mali fişin altında çoğu zaman POS slipi basılıdır",
+  "BANKA SLİPİ AYRI BELGE DEĞİLDİR: mali fişin altında çoğu zaman POS slipi basılıdır",
   "(TERMİNAL NO, ONAY KODU, REFERANS NO, KART TURU, SATIS, banka logosu). Bu slip",
-  "AYRI bir fiş DEĞİLDİR ve içindeki TUTAR satırı bir kalem DEĞİLDİR — tamamen yok say.",
-  "Ödeme bilgisi zaten mali fişin kendisinde yazıyor.",
+  "AYRI bir fiş DEĞİLDİR, içindeki TUTAR satırı bir kalem DEĞİLDİR ve bankanın ya da",
+  'POS sağlayıcısının adı ("TEB", "Ödeal") bir kalem DEĞİLDİR. Slipten okunacak TEK',
+  "şey ödeme şeklidir; geri kalanını yok say.",
+  "",
+  "ÖDEME ŞEKLİ: mali fişte TOPLAM'ın altında ödemenin nasıl yapıldığı yazar —",
+  '"NAKİT", "KREDİ", "K.KARTI/B.KARTI", "BANKA KARTI", yemek kartı markası',
+  '(Multinet, Sodexo, Ticket, Setcard...). Bunu "odeme" alanına şu kümeden yaz:',
+  "  NAKIT · KREDI_KARTI · YEMEK_KARTI · HAVALE",
+  "Mali fişte ödeme satırı YOKSA ama altta POS slipi varsa ödeme KREDI_KARTI'dır.",
+  "Hiçbir ipucu yoksa sekil alanına null yaz — ÖDEME ŞEKLİNİ TAHMİN ETME.",
   "",
   "VKN'Yİ MERSIS NUMARASIYLA KARIŞTIRMA: fişte çoğu zaman ikisi de yazar ve MERSIS",
   "numarası VKN'yi İÇİNDE barındırır (MERSIS 0660004943800011 -> VKN 6600049438).",
@@ -359,6 +380,13 @@ function dogrulukOlc(cikan, dogru) {
     ["kalemSayisi", (cikan.kalemler?.length ?? 0) === (dogru.kalemler?.length ?? 0)],
   ]
 
+  // Ödeme şekli ölçüye ANCAK gerçek değer dosyasında varsa girer: alan sonradan
+  // eklendi ve eski .dogru.json'larda yok. Koşulsuz eklersek güncellenmemiş her
+  // örnek modeli haksız yere cezalandırır ve model sıralaması bozulur.
+  if (dogru.odeme?.sekil) {
+    kontrol.push(["odeme", (cikan.odeme?.sekil ?? null) === dogru.odeme.sekil])
+  }
+
   // Kalem adları küme olarak: sıra farkı hata sayılmasın, eksik/uydurma sayılsın.
   const cikanAd = new Set((cikan.kalemler ?? []).map((k) => sadeMetin(k.ad)))
   const dogruAd = new Set((dogru.kalemler ?? []).map((k) => sadeMetin(k.ad)))
@@ -499,6 +527,7 @@ async function main() {
             say(fis.genelToplam != null ? Number(fis.genelToplam).toFixed(2) + " TL" : "—", 12) +
             say("güven " + (enDusuk != null ? enDusuk.toFixed(2) : "—"), 12) +
             say(kdvOk === null ? "kdv —" : kdvOk ? "kdv ✓" : "kdv ✗", 8) +
+            say(fis.odeme?.sekil ?? "ödeme —", 14) +
             dogrulukEtiket
         )
       })
