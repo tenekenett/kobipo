@@ -19,6 +19,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft } from "lucide-react"
 import { ExportButton } from "@/components/export/export-button"
 import { cn } from "@/lib/utils"
+import {
+  AGING_BUCKET_LABEL,
+  OVERDUE_BUCKETS,
+  type AgingBucket,
+} from "@/lib/raporlar/cari-yaslandirma-buckets"
 
 interface EkstreEntry {
   type: string
@@ -31,16 +36,17 @@ interface EkstreEntry {
   reference?: string
 }
 
-interface AgingBuckets {
-  current: number
-  days_0_30: number
-  days_31_60: number
-  days_61_90: number
-  days_90_plus: number
-}
+/**
+ * Kovalar yaşlandırma RAPORUYLA aynı sözlükten gelir
+ * (`lib/raporlar/cari-yaslandirma-buckets.ts`). Burada kendi kovaları vardı ve
+ * "Vadesi Yaklaşan" 1-30 gün GECİKMİŞ tutarı da içeriyordu: aynı cari için
+ * ekstre ile rapor farklı "vadesi geçmiş" rakamı gösteriyordu.
+ */
+type AgingBuckets = Record<AgingBucket, number>
 
 const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   INVOICE: { label: "Fatura", cls: "bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40" },
+  INVOICE_PAYMENT: { label: "Fatura Ödemesi", cls: "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-500/15 dark:text-teal-200 dark:border-teal-500/40" },
   TRANSACTION: { label: "Tahsilat/Ödeme", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/40" },
   CHECK: { label: "Çek", cls: "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/40" },
   PROMISSORY_NOTE: { label: "Senet", cls: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-500/15 dark:text-purple-200 dark:border-purple-500/40" },
@@ -61,13 +67,10 @@ export default function EkstrePage() {
   const [totalDebit, setTotalDebit] = useState(0)
   const [totalCredit, setTotalCredit] = useState(0)
   const [finalBalance, setFinalBalance] = useState(0)
-  const [aging, setAging] = useState<AgingBuckets>({
-    current: 0,
-    days_0_30: 0,
-    days_31_60: 0,
-    days_61_90: 0,
-    days_90_plus: 0,
-  })
+  // null = cari seçilmedi ("Tümü"): yaşlandırma hesaplanamaz, kutular gizlenir.
+  const [aging, setAging] = useState<AgingBuckets | null>(null)
+  // Yaşlandırmaya sayılmayan satış taslakları — bakiye bunları İÇERİR.
+  const [agingDrafts, setAgingDrafts] = useState<{ count: number; amount: number } | null>(null)
   const [customerId, setCustomerId] = useState(initialCustomerId)
   const [supplierId, setSupplierId] = useState(initialSupplierId)
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([])
@@ -103,7 +106,8 @@ export default function EkstrePage() {
         setTotalDebit(data.totalDebit)
         setTotalCredit(data.totalCredit)
         setFinalBalance(data.finalBalance)
-        if (data.aging) setAging(data.aging)
+        setAging(data.aging ?? null)
+        setAgingDrafts(data.agingExcludedDrafts ?? null)
       }
     } catch (error) {
       console.error("Error fetching ekstre:", error)
@@ -174,9 +178,52 @@ export default function EkstrePage() {
                 : "text-foreground"
           }
         />
-        <SummaryStat label="Vadesi Yaklaşan" value={fmtTRY(aging.current + aging.days_0_30)} tone="text-amber-600 dark:text-amber-400" />
-        <SummaryStat label="Vadesi Geçmiş" value={fmtTRY(aging.days_31_60 + aging.days_61_90 + aging.days_90_plus)} tone="text-rose-600 dark:text-rose-400" />
+        {/* Yaşlandırma YALNIZ tek cari seçiliyken anlamlı: "Tümü"de alacakla
+            borç aynı torbaya girer. "Yaklaşan" ise yalnız vadesi gelmemiştir;
+            gecikmiş tutarın tamamı karşı kutuda durur — toplamlar yaşlandırma
+            raporuyla birebir aynı. */}
+        {aging ? (
+          <>
+            <SummaryStat
+              label="Vadesi Gelmemiş"
+              value={fmtTRY(aging.not_due)}
+              tone="text-emerald-600 dark:text-emerald-400"
+            />
+            <SummaryStat
+              label="Vadesi Geçmiş"
+              value={fmtTRY(OVERDUE_BUCKETS.reduce((sum, b) => sum + aging[b], 0))}
+              tone="text-rose-600 dark:text-rose-400"
+            />
+            {aging.no_due > 0 ? (
+              // Vadesi tanımsız tutar iki kutunun da dışındadır; yazılmazsa
+              // "bakiye var ama iki kutu da boş" görünür.
+              <SummaryStat
+                label={AGING_BUCKET_LABEL.no_due}
+                value={fmtTRY(aging.no_due)}
+                tone="text-slate-500"
+              />
+            ) : null}
+          </>
+        ) : (
+          <SummaryStat
+            label="Vade Durumu"
+            value="Cari seçin"
+            tone="text-muted-foreground"
+          />
+        )}
       </div>
+
+      {/* Vade kutularının kapsamı hareket listesininkinden FARKLI; söylenmezse
+          "bakiye şu kadar ama kutular tutmuyor" görünür. */}
+      {aging ? (
+        <p className="text-xs text-muted-foreground">
+          Vade kutuları BUGÜNKÜ açık pozisyonu gösterir; yukarıdaki tarih süzgecinden
+          etkilenmez ve yaşlandırma raporuyla aynı hesaptan gelir.
+          {agingDrafts
+            ? ` ${agingDrafts.count} taslak satış faturası (${fmtTRY(agingDrafts.amount)}) sayılmaz — hareket listesi ve bakiye bunları içerir.`
+            : ""}
+        </p>
+      ) : null}
 
       <Card>
         <CardHeader>

@@ -8,8 +8,13 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { fetchEkstre } from "@/lib/cari/ekstre-query"
-import type { ExportColumn, ExportDataset } from "../types"
+import type { ExportColumn, ExportDataset, ExportSection } from "../types"
 import { loadExportCompany, describeDateRange, describeFilters } from "./context"
+import {
+  AGING_BUCKETS,
+  AGING_BUCKET_LABEL,
+  OVERDUE_BUCKETS,
+} from "@/lib/raporlar/cari-yaslandirma-buckets"
 
 export type EkstreExportParams = {
   companyId: string
@@ -21,6 +26,7 @@ export type EkstreExportParams = {
 
 const TYPE_LABELS: Record<string, string> = {
   INVOICE: "Fatura",
+  INVOICE_PAYMENT: "Fatura Ödemesi",
   TRANSACTION: "Tahsilat/Ödeme",
   CHECK: "Çek",
   PROMISSORY_NOTE: "Senet",
@@ -77,9 +83,38 @@ export async function buildEkstreDataset(params: EkstreExportParams): Promise<Ex
     balance: entry.balance,
   }))
 
+  // Yaşlandırma yalnız TEK CARİ seçiliyken hesaplanır; "Tümü"de alacakla borç
+  // aynı torbaya girerdi. Sayfa da o durumda hiç yazılmaz (ekranla aynı kural).
   const aging = result.aging
-  const upcoming = aging.current + aging.days_0_30
-  const overdue = aging.days_31_60 + aging.days_61_90 + aging.days_90_plus
+  const agingSection: ExportSection[] = aging
+    ? [
+        {
+          title: "Yaşlandırma Özeti",
+          sheetName: "Yaşlandırma",
+          columns: [
+            { key: "bucket", label: "Vade Aralığı", width: 70 },
+            { key: "amount", label: "Tutar", type: "money", width: 40 },
+          ],
+          totals: null,
+          rows: [
+            // Kova adları yaşlandırma raporuyla AYNI sözlükten; "0-30 gün" gibi
+            // yönü belirsiz bir başlık iki ekranı ayrıştırıyordu.
+            ...AGING_BUCKETS.map((bucket) => ({
+              bucket: AGING_BUCKET_LABEL[bucket],
+              amount: aging[bucket],
+            })),
+            // "Yaklaşan" YALNIZ vadesi gelmemiştir; 1-30 gün gecikmiş tutar
+            // buraya sayılıyordu ve dosya ekranla da raporla da tutmuyordu.
+            {
+              bucket: "Vadesi geçmiş (toplam)",
+              amount: OVERDUE_BUCKETS.reduce((sum, bucket) => sum + aging[bucket], 0),
+            },
+            { bucket: "Vadesi gelmemiş (toplam)", amount: aging.not_due },
+            { bucket: "KAPANIŞ BAKİYESİ", amount: result.finalBalance },
+          ],
+        },
+      ]
+    : []
 
   return {
     title: cari ? `Cari Ekstre - ${cari.name}` : "Cari Ekstre",
@@ -103,25 +138,7 @@ export async function buildEkstreDataset(params: EkstreExportParams): Promise<Ex
         },
         rows,
       },
-      {
-        title: "Yaşlandırma Özeti",
-        sheetName: "Yaşlandırma",
-        columns: [
-          { key: "bucket", label: "Vade Aralığı", width: 70 },
-          { key: "amount", label: "Tutar", type: "money", width: 40 },
-        ],
-        totals: null,
-        rows: [
-          { bucket: "Vadesi gelmemiş", amount: aging.current },
-          { bucket: "0-30 gün", amount: aging.days_0_30 },
-          { bucket: "31-60 gün", amount: aging.days_31_60 },
-          { bucket: "61-90 gün", amount: aging.days_61_90 },
-          { bucket: "90+ gün", amount: aging.days_90_plus },
-          { bucket: "Vadesi yaklaşan (toplam)", amount: upcoming },
-          { bucket: "Vadesi geçmiş (toplam)", amount: overdue },
-          { bucket: "KAPANIŞ BAKİYESİ", amount: result.finalBalance },
-        ],
-      },
+      ...agingSection,
     ],
     generatedAt: new Date(),
   }
