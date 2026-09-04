@@ -14,6 +14,7 @@ import {
   type BillingCycle,
 } from "@/lib/billing/constants"
 import { parsePriceLines } from "@/lib/billing/order-lines"
+import { checkPaidAmount } from "@/lib/billing/paid-amount"
 import {
   applyEntitlements,
   periodEndFor,
@@ -508,10 +509,45 @@ export async function handlePackageNotification(
     return "ok"
   }
 
+  // TAHSİL EDİLEN TUTAR SİPARİŞİN TUTARINI KARŞILIYOR MU? Hash yalnız "bu bildirimi
+  // PayTR gönderdi" der; "bu, bu siparişin bedelidir" demez. Yetkiyi açan tek olay bu
+  // bildirim olduğu için eksik tutarda modül AÇILMAZ (bkz. lib/billing/paid-amount.ts).
+  const amountCheck = checkPaidAmount({ totalAmount: p.totalAmount, expected: order.amount })
+  if (!amountCheck.ok) {
+    console.error(
+      `[paytr-callback] TUTAR UYUŞMUYOR: sipariş=${order.id} sebep=${amountCheck.reason} ` +
+        `ödenen=${amountCheck.paidKurus ?? "?"}kr beklenen=${amountCheck.expectedKurus}kr — ` +
+        `abonelik AÇILMADI, elle inceleyin.`,
+    )
+    // FAILED yazılır ki sipariş "ödeme bekliyor" görünüp tekrar denenmesin; tutar
+    // uyuşmazlığı tekrar denemekle düzelmez, insan bakmalı. PayTR'a "ok" dönülür
+    // (bildirim teslim alındı), aksi halde aynı bildirim sonsuza dek tekrar gelirdi.
+    await prisma.packageOrder.update({
+      where: { id: order.id },
+      data: {
+        status: "FAILED",
+        paymentError:
+          amountCheck.reason === "short"
+            ? `Tahsil edilen tutar siparişten düşük (${amountCheck.paidKurus} kr < ${amountCheck.expectedKurus} kr)`
+            : "Bildirimdeki tutar okunamadı",
+        paymentRef: p.paymentType || null,
+      },
+    })
+    return "ok"
+  }
+  if (amountCheck.overpaid) {
+    // Reddetmiyoruz: müşteri fazlasıyla ödemiş, kapıyı kapatmak ona zarar verir. Ama
+    // beklenmedik bir durum (paket ödemelerinde taksit kapalı), o yüzden iz bırakıyoruz.
+    console.warn(
+      `[paytr-callback] FAZLA TAHSİLAT: sipariş=${order.id} ` +
+        `ödenen=${amountCheck.paidKurus}kr beklenen=${amountCheck.expectedKurus}kr`,
+    )
+  }
+
   // Ödeme başarılı. Sıra ÖNEMLİ ve status ACTIVE en son yazılır (tamamlanma işareti):
   // 1) ödemeyi kaydet, 2) aboneliği uygula (idempotent), 3) siparişi ACTIVE'e al.
   // Böylece 2. adım hata verirse sipariş ACTIVE olmaz, PayTR tekrar dener ve müşteri
-  // ödediği halde modülsüz kalmaz. Tutar bütünlüğü hash ile garanti.
+  // ödediği halde modülsüz kalmaz.
   const paid = await prisma.packageOrder.update({
     where: { id: order.id },
     data: {

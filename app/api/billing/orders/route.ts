@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { resolvePurchaseAuthority } from "@/lib/billing/purchase-authority"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
@@ -52,9 +53,6 @@ export const POST = withApiErrors(async function POST(request: Request) {
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
 
     const access = await ensureCompanyAccess(companyId)
-    if (access.role !== "ADMIN") {
-      return NextResponse.json({ error: "Abonelik yönetimi yalnızca firma yöneticisine açıktır" }, { status: 403 })
-    }
 
     const billingCycle = body?.billingCycle
     if (!isBillingCycle(billingCycle)) {
@@ -63,24 +61,23 @@ export const POST = withApiErrors(async function POST(request: Request) {
 
     const rootId = await resolveAccountRootId(companyId)
 
-    // SATIN ALMA YETKİSİ HESAP YÖNETİCİSİNDE. Abonelik firma bazında olsa da ödemeyi
-    // hesabın sahibi yapar: şubeye atanmış bir ADMIN (ör. şube sorumlusu) ana firmanın
-    // kartıyla ya da onun adına fatura kesilecek bir satın alma başlatamamalı.
-    // Kökün kendi ekranında bu kontrol zaten yukarıdakiyle aynı sonucu verir.
-    if (rootId !== companyId && !user.isSuperAdmin) {
-      const rootAdmin = await prisma.userCompany.findFirst({
-        where: { userId: user.id, companyId: rootId, role: "ADMIN" },
-        select: { id: true },
-      })
-      if (!rootAdmin) {
-        return NextResponse.json(
-          {
-            error:
-              "Bu firmanın aboneliğini yalnızca hesap yöneticisi (ana firmanın yöneticisi) satın alabilir",
-          },
-          { status: 403 },
-        )
-      }
+    // SATIN ALMA YETKİSİ — kural `lib/billing/purchase-authority.ts`te; abonelik ekranı
+    // (catalog ucu) AYNI fonksiyonu çağırıp düğmeyi ona göre kapatır. Ayrı yazılırsa
+    // kullanıcı formu doldurup 403 duvarına çarpar.
+    const authority = resolvePurchaseAuthority({
+      companyRole: access.role,
+      isAccountRoot: rootId === companyId,
+      isSuperAdmin: user.isSuperAdmin,
+      isAccountRootAdmin:
+        rootId === companyId
+          ? false
+          : (await prisma.userCompany.findFirst({
+              where: { userId: user.id, companyId: rootId, role: "ADMIN" },
+              select: { id: true },
+            })) != null,
+    })
+    if (!authority.ok) {
+      return NextResponse.json({ error: authority.error }, { status: 403 })
     }
 
     // KOTA YALNIZ HESAP KÖKÜNDEN ALINIR. Şube ya da ek firma kendi şubesini/ek firmasını

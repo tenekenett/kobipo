@@ -14,6 +14,12 @@ import {
 } from "@/lib/modules"
 import { computeOrder, type PricingMap, type PlanPricing } from "@/lib/billing/pricing"
 import {
+  purchaseNoticeFor,
+  resolvePayButton,
+  resolveQuotaSelection,
+  showsQuotaCards,
+} from "@/lib/billing/subscription-screen"
+import {
   BRANCH_ITEM_KEY,
   COMPANY_ITEM_KEY,
   modulePriceKey,
@@ -93,6 +99,8 @@ type Catalog = {
   isAccountRoot: boolean
   /** Bu kullanıcı bu firma için ödeme yapabilir mi? (hesap yöneticisi) */
   canPurchase: boolean
+  /** Kapalıysa sebebi — uyarı cümlesi buna göre değişir (bkz. purchase-authority.ts). */
+  purchaseBlockedReason: "not-admin" | "not-account-admin" | null
   /** Hesap kökünün adı — şubede "kotayı ana firmadan alın" cümlesinde geçer. */
   accountName: string | null
   subscription: CatalogSubscription
@@ -151,14 +159,15 @@ export default function AbonelikPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  // FATURA BİLGİSİ — ödeme sonrası satış faturası otomatik kesilir. Alıcı, aboneliğin
-  // sahibi olan HESAP KÖKÜ firmasıdır; bu yüzden scope="account".
+  // FATURA BİLGİSİ — ödeme sonrası satış faturası otomatik kesilir. Alıcı SATIN ALAN
+  // firmadır (sipariş ucu da öyle yazar): abonelik firma bazında olduğu için ek firma
+  // kendi VKN'sine, şube ise ana firmadan devraldığı VKN'ye fatura alır.
   const {
     value: billing,
     setValue: setBilling,
     loading: billingLoading,
     complete: billingComplete,
-  } = useBillingInfo(companySlug, "account")
+  } = useBillingInfo(companySlug)
   const [billingOpen, setBillingOpen] = useState(false)
   const [invalidFields, setInvalidFields] = useState<string[]>([])
 
@@ -332,11 +341,13 @@ export default function AbonelikPage() {
       computeOrder({
         plan: selectedPlan ? toPlanPricing(selectedPlan) : null,
         chosenModules: Array.from(extras),
-        // Şube ve ek firma kota SATIN ALAMAZ (uç 400 döner): hesap ağacı sonsuza
-        // dallanmasın diye açma hakkı yalnız kökten alınıyor. Sıfırlamak ekranı
-        // gizlemekten fazlası — paket kotayla gelse bile tutara girmemeli.
-        branchQuota: catalog?.isAccountRoot ? includedBranches + branchExtras : 0,
-        companyQuota: catalog?.isAccountRoot ? includedCompanies + companyExtras : 0,
+        // Kota yalnız hesap kökünden alınır; kural ve gerekçesi ortak modülde
+        // ([[lib/billing/subscription-screen.ts]] → resolveQuotaSelection).
+        ...resolveQuotaSelection({
+          isAccountRoot: catalog?.isAccountRoot ?? false,
+          branchQuota: includedBranches + branchExtras,
+          companyQuota: includedCompanies + companyExtras,
+        }),
         billingCycle: cycle,
         pricing: pricingMap,
         // Ön izleme sunucunun hesabıyla aynı kalsın diye ücretsiz küme buraya da girer;
@@ -461,17 +472,19 @@ export default function AbonelikPage() {
     }
   }, [isQuotaTopUp, catalog, computed.branchQuota, computed.companyQuota, pricingMap, cycle])
 
-  const canPay =
-    !topUp?.blocked &&
-    !!catalog?.paytrEnabled &&
-    // Ödemeyi hesap yöneticisi yapar; şubeye atanmış ADMIN ekranı görür ama ödeyemez
-    // (uç da 403 döner — düğmeyi açık bırakmak kullanıcıyı formu doldurtup duvara
-    // çarptırırdı).
-    catalog?.canPurchase !== false &&
-    computed.amount > 0 &&
-    (computed.resolvedModules.length > 0 ||
-      computed.branchQuota > 0 ||
-      computed.companyQuota > 0)
+  // Düğmenin açık/kapalı olması ve SEBEBİ ortak modülden — sunucunun reddedeceği bir
+  // seçimde kullanıcıyı formu doldurtup duvara çarptırmamak için
+  // ([[lib/billing/subscription-screen.ts]]).
+  const payButton = resolvePayButton({
+    quotaTopUpBlocked: Boolean(topUp?.blocked),
+    paytrEnabled: Boolean(catalog?.paytrEnabled),
+    canPurchase: catalog?.canPurchase !== false,
+    amount: computed.amount,
+    resolvedModules: computed.resolvedModules,
+    branchQuota: computed.branchQuota,
+    companyQuota: computed.companyQuota,
+  })
+  const canPay = payButton.enabled
 
   // İNDİRİM KODU — seçim değişince (plan/modül/kota/periyot) kod DÜŞMEZ, kutu onu yeni
   // tutara göre YENİDEN DOĞRULAR ([[components/billing/discount-code-field.tsx]]).
@@ -752,7 +765,7 @@ export default function AbonelikPage() {
           YALNIZ HESAP KÖKÜNDE: şube ya da ek firma kendi şubesini açamaz (hesap ağacı
           sonsuza dallanırdı) ve kota tek havuz olarak kökün aboneliğinde durur. Uç da
           aynı kuralı zorluyor — burada gizlemek yetmez. */}
-      {!catalog.isAccountRoot ? (
+      {!showsQuotaCards(catalog.isAccountRoot) ? (
         <Card>
           <CardContent className="py-4 text-sm text-muted-foreground">
             Şube ve ek firma kotası yalnızca ana firmadan
@@ -960,8 +973,8 @@ export default function AbonelikPage() {
               Online ödeme şu an yapılandırılmamış. Lütfen daha sonra tekrar deneyin veya destekle iletişime geçin.
             </p>
           )}
-          {/* Fatura bilgileri: ödeme sonrası satış faturası otomatik kesilir. Alıcı,
-              aboneliğin sahibi olan hesap kökü firmasıdır (scope="account"). */}
+          {/* Fatura bilgileri: ödeme sonrası satış faturası otomatik kesilir. Alıcı bu
+              ekranın firmasıdır — hesap kökü değil. */}
           <div className="space-y-2 rounded-lg border p-3">
             <button
               type="button"
@@ -1002,9 +1015,7 @@ export default function AbonelikPage() {
 
           {catalog.canPurchase === false && (
             <p className="mb-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
-              Bu firmanın aboneliğini yalnızca hesap yöneticisi
-              {catalog.accountName ? ` (${catalog.accountName} yöneticisi)` : ""} satın
-              alabilir.
+              {purchaseNoticeFor(catalog.purchaseBlockedReason, catalog.accountName)}
             </p>
           )}
           <Button className="w-full" size="lg" disabled={!canPay || submitting} onClick={handlePay}>

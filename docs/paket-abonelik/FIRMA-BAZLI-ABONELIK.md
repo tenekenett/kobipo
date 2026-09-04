@@ -1,7 +1,7 @@
 # Firma bazlı abonelik — "yetki devretmez"
 
-**Durum:** kod tarafı bitti (sunucu + arayüz + testler). Kalan: geçiş betiğinin canlıda
-çalıştırılması ve tarayıcı doğrulaması — bkz. aşağıdaki **▶ DEVAM** bölümü.
+**Durum:** bitti. Kod, canlı geçiş ve uçtan uca doğrulama tamam; sistem-admin paneli de
+görsel olarak doğrulandı. Açık kalan tek madde aşağıda (**▶ KALAN**).
 **Tarih:** 2026-09-04
 
 ---
@@ -63,6 +63,11 @@ Kota **açma hakkıdır, modül hakkı değildir** — bu ayrım eskiden de vard
 | `app/api/billing/catalog/route.ts` | `isAccountRoot`, `canPurchase`, `accountName` dönüyor. |
 | `app/api/billing/subscription/route.ts` | Abonelik/sipariş/olaylar firma bazında; `canManage` hesap yöneticisine bağlandı. |
 | `app/api/billing/{notice,subscription/auto-renew,subscription/cancel}/route.ts` | Firma aboneliğini okuyor. |
+| `app/api/invoicing/billing-info/route.ts`, `components/invoicing/billing-info-form.tsx` | `scope="account"` KALDIRILDI — fatura bilgisi artık daima ekranın firmasından okunur (aşağıya bak). |
+| `lib/billing/purchase-authority.ts` (+ testi) | Satın alma yetkisi kuralı TEK yerde; `catalog` ve `orders` uçları aynı fonksiyonu çağırıyor. |
+| `lib/billing/paid-amount.ts` (+ testi) | Callback'te tahsil edilen tutar siparişin tutarını karşılıyor mu — eksikse abonelik AÇILMAZ. |
+| `lib/billing/subscription-screen.ts` (+ testi) | Abonelik ekranının kararları (kota seçimi, ödeme düğmesi, engel cümlesi) saf ve testli. |
+| `lib/billing/subscription-wiring.test.ts` | Nöbetçi: ekranın gerçekten bu kuralları çağırdığını kaynak taramasıyla kilitler. |
 | `app/api/billing/admin/overview/route.ts` + `components/system-admin/subscription-admin.tsx` | Hesap satırında ÜYELERİN kendi abonelik durumu listeleniyor ("şube ödedi mi"). |
 | `app/(dashboard)/ayarlar/abonelik/page.tsx` | "yalnız bu firma" metni, kota kartları yalnız kökte, kota 0 gönderimi, ödeme yetkisi uyarısı. |
 | `components/dashboard/new-company-form.tsx`, `components/system-admin/company-modules-card.tsx` | Devir vaadi eden metinler düzeltildi. |
@@ -95,27 +100,107 @@ açılmaz**; şube kendi aboneliğini alır → açılır; şubenin süresi dola
 kapanır**; şubede ücretsiz Stok kapatılır → şubede Restoran da zincirle kapanır ama
 **ödenmiş yetki iptal edilmez**; yeni şube kilitli doğar.
 
-## ▶ DEVAM — kaldığımız yer (2026-09-04)
+## Geçiş canlıda uygulandı (2026-09-04)
 
-Kod tarafı **bitti ve doğrulandı** (`npx tsc` temiz, 752 vitest, E2E 27/27). Sıradaki üç iş:
+`npx tsx scripts/abonelik-firma-bazina-gecis.ts --uygula` çalıştırıldı: **7 hesap üyesine**
+kökün aboneliğinin kopyası açıldı (4 şube + 2 ek firma + 1 şube; Reypo'nun iki ek firması
+gerçek ACTIVE yetki taşıyordu). Betik tekrar çalıştırılıp 7'sinin de "kendi aboneliği zaten
+var" diye atlandığı görüldü — idempotenslik doğrulandı.
 
-1. **GEÇİŞ BETİĞİ CANLIDA ÇALIŞTIRILMADI — en kritik madde.**
-   ```bash
-   npx tsx scripts/abonelik-firma-bazina-gecis.ts            # rapor
-   npx tsx scripts/abonelik-firma-bazina-gecis.ts --uygula   # yazar
-   ```
-   Çalıştırılmazsa mevcut 5 şube + 2 ek firma ilk reconcile/yenileme turunda ücretli
-   modüllerini KAYBEDER (kendi abonelik satırları yok). Kuru çalışma bugün alındı:
-   7 üye kopyalanacak, 2'si (Reypo'nun ek firmaları) gerçek ACTIVE yetki taşıyor.
+Yazılan satırların ölçülen hâli tasarımla birebir: her üyede **tek** abonelik satırı,
+`branchQuota`/`companyQuota` = 0, `autoRenew` = false, `amount` ve kart token'ı boş; dönem
+ve durum kökten devralınmış. Yetki tarafında Reypo'nun iki ek firması `restaurant` dâhil
+yedi modülle açık kaldı, TRIAL şubeler ise ücretsiz modüllerle çalışmaya devam ediyor.
 
-2. **Tarayıcı doğrulaması yarıda kaldı.** Şubenin abonelik ekranı açılırken kesildi.
-   Bakılacaklar: (a) "Seçtiğiniz modüller yalnız bu firma için açılır" metni, (b) şubede
-   kota kartlarının yerinde "kota yalnız ana firmadan" notunun görünmesi, (c) hesap
-   yöneticisi olmayan bir kullanıcıda ödeme düğmesinin kapalı + uyarılı gelmesi,
-   (d) sistem-admin abonelik panelinde üye satırlarının ("şube: … ACTIVE/abonelik yok")
-   çizilmesi.
+Geçişten SONRA tekrar alınan doğrulama: `npx tsc --noEmit` temiz, **752 vitest** geçti,
+`scripts/test-modul-kapatma.ts` **27/27** (geçici firma kalmadı).
 
-3. **Karar bekleyen, bilerek ertelenenler** — aşağıdaki "Bilinen sınırlar" bölümü.
+> Kenar not: `Kobipo Demo Merkez` kökünde `restaurant` satın alınmamış olduğu hâlde açık
+> görünüyor (`disabledModules` boş). Geçişin ürünü değil — köke dokunulmadı; ilk reconcile
+> turunda kapanacaktır. Demo hesabı olduğu için elle düzeltilmedi.
+
+## Geçişte yakalanan hata: fatura bilgisi hesap kökünden okunuyordu
+
+Sipariş ucu faturayı **satın alan firmaya** kesecek şekilde güncellenmişti
+(`orders/route.ts` → `buyerCompany`), ama abonelik ekranı fatura kartını hâlâ
+`useBillingInfo(companySlug, "account")` ile yüklüyordu; uç da `scope=account` görünce
+`resolveAccountRootId` ile kökü çözüyordu. Sonuç: ek firmanın kendi ekranında ANA FİRMANIN
+ünvanı ve VKN'si görünüyordu ve "Öde"ye basıldığında `companyFillFromBilling` bu değerleri
+ek firmanın boş `taxNumber`/`address`/`email` alanlarına **yazıyordu** — yani yanlış tüzel
+kişi kalıcılaşıyordu.
+
+Düzeltme: `scope` seçeneği hem uçtan hem `useBillingInfo`dan kaldırıldı; alıcı daima
+ekranın firmasıdır. Ek firmanın kendi bilgisi eksikse form kendiliğinden açılıp eksik
+alanları kırmızı işaretliyor (tarayıcıda doğrulandı) — sessizce kökün VKN'siyle devam
+etmek yerine kullanıcıya soruyor.
+
+## Satın alma yetkisi tek kaynağa indi
+
+Kural iki kere yazılmıştı ve ikisi aynı değildi:
+
+| | `orders` (uç) | `catalog` (ekran) |
+|---|---|---|
+| firmada ADMIN olma şartı | var | **YOKTU** |
+| kök değilse hesap ADMIN'i olma şartı | var | var |
+
+Yani ekran "satın alabilirsin" derken uç 403 döndürebilirdi. **Bugün kullanıcıya
+yansımıyordu**: `/ayarlar/abonelik` `ACCOUNT_ADMIN_PAGES` içinde, yalnız enum ADMIN'e açık
+ve özel rollere devredilemiyor — ADMIN olmayan biri ekrana zaten giremiyor. Yine de kural
+`lib/billing/purchase-authority.ts`e taşındı ve iki uç da oradan okuyor; kotada
+`getAccountQuotas` neden tek kaynaksa (bkz. CLAUDE.md) bu da öyle. `catalog` artık
+`purchaseBlockedReason` de döndürüyor, ekran uyarı cümlesini ona göre seçiyor.
+Kapsam: `lib/billing/purchase-authority.test.ts` (7 test).
+
+## Ödenen tutar artık doğrulanıyor
+
+Callback'te gelen `total_amount` yalnız HASH'e giriyordu. İmza tutarı sahteciliğe kapatır
+("PayTR bunu gönderdi") ama o tutarın SİPARİŞİN bedeli olduğunu söylemez. `checkPaidAmount`
+bu son adımı ekliyor: kuruş üzerinden karşılaştırılır, eksikse sipariş `FAILED` yazılır ve
+**abonelik açılmaz** (yetkiyi açan tek olay bu bildirimdir). Ölçüt eşitlik değil "en az" —
+PayTR taksit komisyonunu `total_amount`a ekleyebiliyor; eşitlik arayan bir kontrol bir gün
+taksit açılırsa ödeyen müşteriyi kilitlerdi. Fazla tahsilat geçer ama log'a düşer.
+Okunamayan tutar da reddedilir (fail-closed).
+
+Kontör akışında aynı boşluk DURUYOR (`lib/kontor/paytr-payment.ts`) — istenirse aynı
+fonksiyon oraya da bağlanır.
+
+## Kullanıcı tarafı testleri
+
+Proje bileşen testi tutmuyor (bkz. `vitest.config.ts` — kapsam bilinçli olarak `lib/**`
+saf fonksiyonları). Ekranın kararları bu yüzden `lib/billing/subscription-screen.ts`e
+taşındı ve orada kilitlendi; bileşen yalnızca sonucu çiziyor. Üç katman:
+
+1. **Kararlar** — `subscription-screen.test.ts` (23 test): şube/ek firma ekranında kotanın
+   sıfırlanması, ödeme düğmesinin açık/kapalı olması ve SEBEBİ, engel cümlesinin seçimi.
+2. **Ekran ≡ uç sözleşmesi** — aynı dosyada: `resolvePurchaseAuthority`nin ürettiği her
+   sonuç için düğmenin uçla aynı cevabı vermesi (5 rol kombinasyonu).
+3. **Nöbetçi** — `subscription-wiring.test.ts` (11 test): ekranın bu fonksiyonları
+   gerçekten çağırdığını ve kaldırılan `scope="account"` yolunun geri gelmediğini kaynak
+   taramasıyla doğrular (`page-api-coverage.test.ts` ile aynı desen). Yakaladığı, iki
+   geçici ihlal sokularak sınandı. Negatif iddialar YORUMLARI eleyerek bakar — açıklamayı
+   silmeye zorlamasın diye.
+
+Hâlâ YOK: bileşen (DOM) testi, route/entegrasyon testi, tarayıcı otomasyonu.
+
+## ▶ KALAN — tek madde
+
+**Şubeye atanmış ADMIN'de ödeme düğmesinin kapalı görünmesi canlı ekranda görülmedi.**
+Kural ve arayüz bağlantısı test altında; eksik olan yalnız göz teyidi. Canlıda bu senaryoyu
+taşıyan bir hesap YOK: şubede ADMIN olan iki kullanıcının ikisi de aynı zamanda kökün
+ADMIN'i (`destek@hidroeren.com`, `erenvinc20@gmail.com`), dolayısıyla ikisinde de düğme
+haklı olarak açık. Görmek için şubeye ADMIN atanmış, ana firmada üyeliği olmayan bir
+kullanıcı gerekiyor.
+
+DOĞRULANANLAR (tarayıcı):
+- Hesap kökünde (Reypo) "yalnız bu firma için açılır" metni ve kota kartları.
+- Ek firmada (asdasdsa) kota kartlarının yerinde "kota yalnızca ana firmadan (Reypo Medya
+  Ajansı)" notu, sipariş özetinde kota kalemi yok, firmanın KENDİ aboneliği "Aktif ·
+  Restoran & Kafe açık".
+- Ek firmanın fatura kartında artık KENDİ ünvanı/VKN'si; eksik alanlar kırmızı.
+- `/system-admin/abonelikler`: geçişten sonra 7 üyenin hepsi kendi durumuyla çiziliyor —
+  `ek firma: asdasdsa ACTIVE bitiş 29.04.2027 tüm modüller açık`, `şube: Kobipo Demo
+  Kadıköy Şubesi TRIAL bitiş 30.07.2027 kilitli: restaurant`. Hiçbirinde "abonelik yok"
+  yok.
 
 Not: E2E betiğini `| head` ile kırpmayın — süreç erken ölürse `finally` temizliği
 çalışmaz ve `zz-e2e-` firmaları DB'de kalır (bir kez yaşandı, elle silindi).

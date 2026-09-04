@@ -3,7 +3,6 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { resolveAccountRootId } from "@/lib/billing/entitlements"
 import { normalizeBillingInput } from "@/lib/invoicing/billing-info"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
@@ -15,10 +14,12 @@ export const dynamic = "force-dynamic"
  * Sipariş uçları bilgiyi zaten doğruluyor (eksikse 412); burası yalnız kullanıcıya
  * neyin dolu neyin eksik olduğunu ödeme ekranına gelmeden göstermek içindir.
  *
- * `scope`:
- *  - "company" (varsayılan) → kontör satın alma. Alıcı, kontörün yükleneceği firmadır.
- *  - "account"              → paket/abonelik. Alıcı HESAP KÖKÜ firmasıdır; abonelik
- *    oradan akar ve fatura o tüzel kişiye kesilir, isteği açan şubeye değil.
+ * Alıcı DAİMA verilen firmadır — hem kontörde hem pakette. 2026-09-04'e kadar paket
+ * ekranı `scope="account"` gönderip hesap KÖKÜNÜ çözüyordu; abonelik firma bazına
+ * inince sipariş ucu faturayı satın alan firmaya kesmeye başladı ve bu ekran geride
+ * kaldı: ek firmanın kendi ekranında ana firmanın ünvanı/VKN'si görünüyor, ödeme
+ * anında `companyFillFromBilling` onu ek firmanın boş alanlarına YAZIYORDU. Seçenek
+ * bu yüzden kaldırıldı; geri getirilmemeli.
  */
 export const GET = withApiErrors(async function GET(request: Request) {
   try {
@@ -31,11 +32,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
-    const targetId =
-      searchParams.get("scope") === "account" ? await resolveAccountRootId(companyId) : companyId
-
     const company = await prisma.company.findUnique({
-      where: { id: targetId },
+      where: { id: companyId },
       select: { name: true, taxNumber: true, taxOffice: true, address: true, city: true, email: true },
     })
     if (!company) return NextResponse.json({ error: "Firma bulunamadı" }, { status: 404 })

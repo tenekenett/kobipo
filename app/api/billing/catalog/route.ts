@@ -1,5 +1,6 @@
 import { withApiErrors } from "@/lib/api/errors"
 import { NextResponse } from "next/server"
+import { resolvePurchaseAuthority } from "@/lib/billing/purchase-authority"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
@@ -31,20 +32,25 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
   const companyId = await resolveCompanyId(new URL(request.url).searchParams.get("companyId"))
   if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
-  await ensureCompanyAccess(companyId)
+  const access = await ensureCompanyAccess(companyId)
 
   const rootId = await resolveAccountRootId(companyId)
 
-  // SATIN ALMA YETKİSİ hesap yöneticisinde (uçtaki kuralla aynı, bkz.
-  // app/api/billing/orders/route.ts). Ekran bunu bilmezse şube sorumlusu formu
-  // doldurup ödeme adımında 403 yerdi.
-  const canPurchase =
-    rootId === companyId ||
-    user.isSuperAdmin ||
-    (await prisma.userCompany.findFirst({
-      where: { userId: user.id, companyId: rootId, role: "ADMIN" },
-      select: { id: true },
-    })) != null
+  // SATIN ALMA YETKİSİ — sipariş ucuyla AYNI fonksiyondan (bkz.
+  // lib/billing/purchase-authority.ts). Ekran bunu bilmezse kullanıcı formu doldurup
+  // ödeme adımında 403 yerdi; sebebi de taşıyoruz ki uyarı doğru cümleyi yazsın.
+  const authority = resolvePurchaseAuthority({
+    companyRole: access.role,
+    isAccountRoot: rootId === companyId,
+    isSuperAdmin: user.isSuperAdmin,
+    isAccountRootAdmin:
+      rootId === companyId
+        ? false
+        : (await prisma.userCompany.findFirst({
+            where: { userId: user.id, companyId: rootId, role: "ADMIN" },
+            select: { id: true },
+          })) != null,
+  })
 
   await ensureDefaultPricingItems()
   const [plans, pricing, sub, currentBranches, currentCompanies, company, accountRoot] =
@@ -106,7 +112,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
     // aboneliğini alır ama şube/firma AÇMA hakkı hesap düzeyindedir ve yalnız kökten
     // satın alınır (uç da aynı kuralı zorluyor, bkz. app/api/billing/orders/route.ts).
     isAccountRoot: rootId === companyId,
-    canPurchase,
+    canPurchase: authority.ok,
+    purchaseBlockedReason: authority.reason,
     accountName: accountRoot?.name ?? null,
     subscription,
     currentBranches,

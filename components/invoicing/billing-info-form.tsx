@@ -48,10 +48,12 @@ export function missingBillingFields(v: BillingFormValue): string[] {
 }
 
 /**
- * Fatura bilgilerini yükler. `scope="account"` paket/abonelik içindir (alıcı hesap
- * kökü firmasıdır).
+ * Fatura bilgilerini yükler. Alıcı DAİMA verilen firmadır: abonelik firma bazında
+ * olduğu için fatura da satın alan firmaya kesilir (şubede bu ana firmayla aynı tüzel
+ * kişidir, ek firmada kendi VKN'sidir). Eskiden burada bir `scope="account"` seçeneği
+ * vardı ve hesap kökünü çözüyordu — kaldırıldı; bkz. FIRMA-BAZLI-ABONELIK.md.
  */
-export function useBillingInfo(companyId: string, scope: "company" | "account" = "company") {
+export function useBillingInfo(companyId: string) {
   const [value, setValue] = useState<BillingFormValue>(EMPTY_BILLING)
   const [loading, setLoading] = useState(true)
   const [complete, setComplete] = useState(false)
@@ -60,7 +62,7 @@ export function useBillingInfo(companyId: string, scope: "company" | "account" =
     setLoading(true)
     try {
       const res = await fetch(
-        `/api/invoicing/billing-info?companyId=${encodeURIComponent(companyId)}&scope=${scope}`,
+        `/api/invoicing/billing-info?companyId=${encodeURIComponent(companyId)}`,
       )
       const data = await res.json().catch(() => ({}))
       if (res.ok && data?.billing) {
@@ -70,7 +72,7 @@ export function useBillingInfo(companyId: string, scope: "company" | "account" =
     } finally {
       setLoading(false)
     }
-  }, [companyId, scope])
+  }, [companyId])
 
   useEffect(() => {
     load()
