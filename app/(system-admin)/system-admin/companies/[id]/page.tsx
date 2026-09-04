@@ -131,6 +131,14 @@ export default async function CompanyDetailPage({
   // olabilir, orası da aynı cüzdandan ödüyor).
   const purchaseHistory = await getAccountPurchaseHistory(company.id)
 
+  // Modül kartı "kapatmayı hesabın tümüne uygula" derken kaç firmadan söz ettiğini
+  // yazabilsin diye hesabın firma sayısı (kök + şubeler + ek firmalar) çözülür.
+  const accountCompanyCount = await prisma.company.count({
+    where: {
+      OR: [{ id: quotas.rootCompanyId }, { accountRootId: quotas.rootCompanyId }],
+    },
+  })
+
   const accountSubscription = await prisma.subscription.findFirst({
     where: { companyId: quotas.rootCompanyId },
     orderBy: { createdAt: "desc" },
@@ -307,12 +315,17 @@ export default async function CompanyDetailPage({
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
+            {/* Başlıkta ŞUBE ADI da basılır: aynı tüzel kişinin birden çok kaydı ünvan
+                olarak birebir aynı görünüyor ve yanlış kaydı düzenlemek buradan doğuyordu
+                (modülü bir kayıtta kapatıp menüde başka kaydı görmek gibi).
+                [[lib/company/display-name.ts]] */}
             <h1 className="text-3xl font-bold text-white flex items-center gap-3">
               <Building2 className="h-7 w-7 text-blue-400" />
-              {company.name}
+              {companyDisplayName(company)}
             </h1>
             <p className="text-slate-400 mt-1">
-              Kayıt: {new Date(company.createdAt).toLocaleDateString("tr-TR")}
+              Kayıt: {new Date(company.createdAt).toLocaleDateString("tr-TR")} · VKN:{" "}
+              {company.taxNumber || "—"} · id: {company.id}
             </p>
           </div>
         </div>
@@ -465,11 +478,19 @@ export default async function CompanyDetailPage({
           </CardContent>
         </Card>
 
-        {/* Modül yönetimi (hesap düzeyinde uygulanır) */}
+        {/* Modül yönetimi. Ücretli modül yetkisi HESAP düzeyinde, elle kapatma FİRMA
+            düzeyinde uygulanır; kart bunu yazıyla söylüyor. `initialSuppressed` ve
+            `initialPurchased` kapalılığın NEDENİNİ ayırt etmek için gerekli — yoksa
+            gereksinimi kapatılmış ama ödenmiş bir modül "kapat" diye geri gönderilir ve
+            yetkisi sessizce iptal edilirdi. */}
         <CompanyModulesCard
           companyId={company.id}
           initialDisabled={company.disabledModules ?? []}
           freeModules={await getFreeModuleKeys()}
+          initialSuppressed={company.suppressedModules ?? []}
+          initialPurchased={accountSubscription?.purchasedModules ?? []}
+          accountName={accountRootName}
+          accountCompanyCount={accountCompanyCount}
         />
 
         {/* Şube + ek firma kotası. Kotalar hesap kökünde tutulur; bu firma bir şube ya da

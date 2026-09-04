@@ -101,9 +101,16 @@ export async function resetAccountBilling(companyId: string, mode: ResetMode) {
   const previousBranchQuota = previous?.branchQuota ?? 0
   const previousCompanyQuota = previous?.companyQuota ?? 0
 
-  // Ortak temizlik: kullanım sayaçları (hesabın tümü) + siparişler (kökte tutulur).
+  // Ortak temizlik: kullanım sayaçları (hesabın tümü) + siparişler (kökte tutulur) +
+  // elle kapatılmış temel modüller. Kapatma bilerek siliniyor: iki kipin de onay metni
+  // ("TÜM modüller açılacak" / "kilitlenecek") bilinen bir son durum vaat ediyor, kalan
+  // bir kapatma o vaadi sessizce bozardı.
   await prisma.usageLimit.deleteMany({ where: { companyId: { in: scopeIds } } })
   await prisma.packageOrder.deleteMany({ where: { companyId: rootId } })
+  await prisma.company.updateMany({
+    where: { id: { in: scopeIds } },
+    data: { suppressedModules: [] },
+  })
 
   const now = new Date()
 

@@ -12,7 +12,13 @@
 // İkisi de `accountRootId` taşır, bu yüzden hesap tek sorguda çözülür.
 
 import { prisma } from "@/lib/db/prisma"
-import { MODULE_KEYS, sanitizeDisabledModules, withModuleDependencies } from "@/lib/modules"
+import {
+  MODULE_KEYS,
+  applySuppression,
+  sanitizeDisabledModules,
+  sanitizeSuppressedModules,
+  withModuleDependencies,
+} from "@/lib/modules"
 import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { graceDaysFor } from "@/lib/billing/constants"
 import { DAY_MS } from "@/lib/billing/notice"
@@ -136,6 +142,10 @@ export function resolveGrantedModules(sub: SubStatusView | null | undefined, now
  * `setAccountModules` — hepsi buradan geçer, yani ücretsiz modül hiçbir yeniden
  * hesaplamada kapanmaz. Küme `PricingItem.isFree`ten okunur (lib/billing/free-modules.ts).
  *
+ * TEK İSTİSNA firmanın `suppressedModules` alanıdır: sistem yöneticisinin o firmada
+ * bilerek kapattığı temel modüller açık kümeden (bağımlılarıyla birlikte) düşülür.
+ * Kapatma firma bazında olduğu için satırlar tek `updateMany` ile değil, üye üye yazılır.
+ *
  * ARŞİV: ücretli modül açıldığında hesabın `archivedAt` damgası da SİLİNİR — yeniden
  * abone olan müşterinin yazma kapısı açılmalı. Bu fonksiyon her yeniden aktifleşme
  * yolunun (satın alma callback'i, elle grant) geçtiği tek nokta olduğu için kural
@@ -167,21 +177,38 @@ export async function applyEntitlements(rootCompanyId: string, grantedModules: s
   const granted = new Set(
     withModuleDependencies([...sanitizeDisabledModules(grantedModules), ...free]),
   )
-  const disabled = MODULE_KEYS.filter((k) => !granted.has(k))
 
   const unarchive = shouldUnarchive(granted, free) ? { archivedAt: null } : {}
 
-  await prisma.$transaction([
-    prisma.company.update({
-      where: { id: rootCompanyId },
-      data: { disabledModules: disabled, ...unarchive },
+  // ELLE KAPATMA firma bazındadır, bu yüzden satırlar tek `updateMany` ile yazılamaz:
+  // her üyenin kendi `suppressedModules`ı düşülür. Hesaplar küçük (kök + şubeler + ek
+  // firmalar), tek transaction yeterli; kapatması olmayan firmalar için sonuç eskisiyle
+  // birebir aynı listedir.
+  const members = await prisma.company.findMany({
+    where: { OR: [{ id: rootCompanyId }, { accountRootId: rootCompanyId }] },
+    select: { id: true, suppressedModules: true },
+  })
+
+  await prisma.$transaction(
+    members.map((member) => {
+      const open = applySuppression([...granted], member.suppressedModules ?? [])
+      const openSet = new Set(open)
+      return prisma.company.update({
+        where: { id: member.id },
+        data: { disabledModules: MODULE_KEYS.filter((k) => !openSet.has(k)), ...unarchive },
+      })
     }),
-    prisma.company.updateMany({
-      where: { accountRootId: rootCompanyId },
-      data: { disabledModules: disabled, ...unarchive },
-    }),
-  ])
+  )
 }
+
+/**
+ * Elle kapatma isteği: hangi temel modüller, hangi kapsamda kapatılacak.
+ *
+ * `scope: "account"` kapatmayı hesabın tüm firmalarına (kök + şubeler + ek firmalar)
+ * yayar; varsayılan yalnız verilen firmadır — satın alma hesaba yapılır ama elle
+ * kapatma düzenlenen firmayı bağlar.
+ */
+export type SuppressionInput = { modules: string[]; scope?: "company" | "account" }
 
 /**
  * Elle verilen modül setini hesap için KALICI yapar: `Subscription.purchasedModules`'a
@@ -197,11 +224,18 @@ export async function applyEntitlements(rootCompanyId: string, grantedModules: s
  * `durable=false` dönerse yazacak abonelik yok ya da abonelik ücretli-aktif değil:
  * yetki şimdilik açık ama ilk yeniden hesaplamada kapanır — çağıran bunu KULLANICIYA
  * söylemeli (deneme durumu tanım gereği modül üretmez).
+ *
+ * `suppression` verilirse ELLE KAPATILAN temel modüller de aynı işlemde yazılır. İki
+ * kapatma kanalı bilinçli olarak ayrı: ÜCRETLİ modülü kapatmak `grantedModules`tan
+ * çıkarmakla olur (yetki hesaptan kalkar, abonelik onu faturalamaz), ÜCRETSİZ modülü
+ * kapatmak ise `suppression` ile — çünkü yetki listesinden çıkarmak yetmez,
+ * `applyEntitlements` ücretsizleri her uygulamada geri açar.
  */
 export async function setAccountModules(
   companyId: string,
   grantedModules: string[],
-): Promise<{ rootCompanyId: string; granted: string[]; durable: boolean }> {
+  suppression?: SuppressionInput,
+): Promise<{ rootCompanyId: string; granted: string[]; durable: boolean; suppressed: string[] }> {
   const rootCompanyId = await resolveAccountRootId(companyId)
   const granted = withModuleDependencies(sanitizeDisabledModules(grantedModules))
 
@@ -209,7 +243,8 @@ export async function setAccountModules(
   // ücretsizlik oradan değil `PricingItem.isFree`ten akar. Yazılsaydı, admin modülü
   // ücretliye çevirdiğinde hesap onu "satın almış" görünür, bedava kullanmaya devam
   // ederdi. `applyEntitlements` ücretsizleri zaten kendisi ekliyor.
-  const free = new Set(await getFreeModuleKeys())
+  const freeKeys = await getFreeModuleKeys()
+  const free = new Set(freeKeys)
   const purchased = granted.filter((k) => !free.has(k))
 
   const sub = await prisma.subscription.findFirst({
@@ -222,6 +257,27 @@ export async function setAccountModules(
       data: { purchasedModules: purchased },
     })
   }
+
+  // ELLE KAPATMA yetkiden ÖNCE yazılır: `applyEntitlements` alanı okuyup açık kümeden
+  // düşüyor. `suppression` verilmediyse mevcut kapatmalara DOKUNULMAZ — reconcile,
+  // yinelenen ödeme ve "kilitle/sıfırla" bu fonksiyonu kapatma bilgisi taşımadan
+  // çağırıyor; çıkarım yapılsaydı (ör. "açık olmayan her ücretsiz kapatılmıştır")
+  // kilitleme işlemi hesabın tüm temel modüllerini sessizce kapatırdı.
+  const suppressed = suppression
+    ? sanitizeSuppressedModules(suppression.modules, freeKeys)
+    : []
+  if (suppression) {
+    const data = { suppressedModules: suppressed }
+    if (suppression.scope === "account") {
+      await prisma.company.updateMany({
+        where: { OR: [{ id: rootCompanyId }, { accountRootId: rootCompanyId }] },
+        data,
+      })
+    } else {
+      await prisma.company.update({ where: { id: companyId }, data })
+    }
+  }
+
   await applyEntitlements(rootCompanyId, granted)
 
   // `durable` yalnız ÜCRETLİ modüller için anlamlı: ücretsiz olanlar zaten aboneliğe
@@ -231,6 +287,7 @@ export async function setAccountModules(
     rootCompanyId,
     granted,
     durable: !needsSubscription || (!!sub && (isPaidActive(sub) || isInGracePeriod(sub))),
+    suppressed,
   }
 }
 

@@ -33,7 +33,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
   const rootId = await resolveAccountRootId(companyId)
 
   await ensureDefaultPricingItems()
-  const [plans, pricing, sub, currentBranches, currentCompanies] = await Promise.all([
+  const [plans, pricing, sub, currentBranches, currentCompanies, company] = await Promise.all([
     getSellablePlans(false),
     // `isActive` filtresi YOK: ücretsiz bir modül satılmadığı için pasife alınmış
     // olabilir ama ekranda "Ücretsiz" olarak görünmek zorunda. Fiyat haritasına yalnız
@@ -42,6 +42,12 @@ export const GET = withApiErrors(async function GET(request: Request) {
     getAccountSubscription(rootId),
     countAccountBranches(rootId),
     countAccountCompanies(rootId),
+    // ELLE KAPATILAN temel modüller — kapsam FİRMA bazındadır, bu yüzden kökün değil
+    // ekranın açık olduğu firmanın satırı okunur.
+    prisma.company.findUnique({
+      where: { id: companyId },
+      select: { suppressedModules: true },
+    }),
   ])
 
   const subscription = sub
@@ -72,6 +78,10 @@ export const GET = withApiErrors(async function GET(request: Request) {
     // işaretler ve seçimden çıkarılamaz yapar; tutar hesabı da bunları atlar
     // (lib/billing/pricing.ts → computeOrder). Sunucu bu kümenin tek kaynağıdır.
     freeModules: freeModulesFromPricingItems(pricing),
+    // Sistem yöneticisinin bu firmada kapattığı temel modüller: ekranda hiç
+    // görünmezler. `freeModules`tan DÜŞÜLMEZ — o küme tutar hesabının girdisi ve
+    // sunucudaki fiyatlamayla (lib/billing/pricing.ts) birebir aynı kalmalı.
+    suppressedModules: company?.suppressedModules ?? [],
     subscription,
     currentBranches,
     currentCompanies,

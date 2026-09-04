@@ -68,6 +68,12 @@ export type ResolvedPlacement = {
   accountRootId: string | null
   /** Yeni firmanın doğacağı modül kümesi (hesaba katılıyorsa kökün anlık hâli). */
   disabledModules: string[]
+  /**
+   * Elle kapatılmış TEMEL modüller — hesaba katılan firma bunu da devralır.
+   * Devralmasaydı satır tutarsız doğardı: `disabledModules` kapalı gösterirken alan boş
+   * kalır, ilk `applyEntitlements` modülü sessizce geri açardı.
+   */
+  suppressedModules: string[]
   /** Yalnız şubede dolu: ana firmadan devralınan kimlik alanları. */
   inherited: InheritedIdentity | null
 }
@@ -143,6 +149,7 @@ export async function resolveCompanyPlacement(
       parentCompanyId: parentId,
       accountRootId,
       disabledModules: parent.disabledModules,
+      suppressedModules: parent.suppressedModules,
       inherited: parent,
     }
   }
@@ -178,12 +185,13 @@ export async function resolveCompanyPlacement(
     // bulunamazsa temel (ücretsiz) modüller açık, kalanı kilitli doğar.
     const root = await prisma.company.findUnique({
       where: { id: rootCompanyId },
-      select: { disabledModules: true },
+      select: { disabledModules: true, suppressedModules: true },
     })
     return {
       parentCompanyId: null,
       accountRootId: rootCompanyId,
       disabledModules: root?.disabledModules ?? defaultDisabledModules(await getFreeModuleKeys()),
+      suppressedModules: root?.suppressedModules ?? [],
       inherited: null,
     }
   }
@@ -218,6 +226,7 @@ export async function resolveCompanyPlacement(
     parentCompanyId: null,
     accountRootId: null,
     disabledModules: defaultDisabledModules(await getFreeModuleKeys()),
+    suppressedModules: [],
     inherited: null,
   }
 }
@@ -334,6 +343,7 @@ export async function createCompany(args: {
         parentCompanyId: resolved.parentCompanyId,
         accountRootId: resolved.accountRootId,
         disabledModules: resolved.disabledModules,
+        suppressedModules: resolved.suppressedModules,
         // Kimlik: şubede ana firmadan devralınır, diğer modlarda formdan (ek firma da
         // kendi VKN'sini girer — ayrı tüzel kişidir).
         taxNumber: inherited ? inherited.taxNumber : input.taxNumber ?? null,

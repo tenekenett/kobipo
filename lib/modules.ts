@@ -189,14 +189,76 @@ export function isAccountLocked(
 }
 
 /**
- * Kapalı modül listesini bağımlılıklarla tutarlı hale getirir: açık bir modülün
- * gerektirdiği modül kapalı bırakılamaz (ör. Restoran & Kafe açıkken Stok).
- * Elle modül yönetimi yapan uçlarda (sistem-admin) sanitize'ın hemen ardından
- * çağrılır.
+ * ELLE KAPATMA (suppression) uygulanmış açık modül kümesi.
+ *
+ * `withModuleDependencies` ile YÖNÜ TERSTİR: orada "açık modülün gereksinimi de açılır"
+ * (Restoran seçilirse Stok eklenir), burada "kapatılan modülün BAĞIMLISI da kapanır"
+ * (Stok kapatılırsa Restoran da kapanır). Elle kapatmada ikinci yön doğrudur — aksi
+ * halde sistem yöneticisinin "Stok'u kapat" tıklaması, Restoran açık olduğu için
+ * bağımlılık tamamlanırken sessizce geri alınırdı. Sistem-admin ucu ikisini sırayla
+ * kullanır: önce seçim bağımlılıklarıyla tamamlanır, sonra kapatılanlar düşülür.
+ *
+ * Fixpoint'e kadar yürür (a → b → c zinciri).
  */
-export function reconcileDisabledModules(disabled: string[]): string[] {
-  const disabledSet = new Set(sanitizeDisabledModules(disabled))
-  const enabled = withModuleDependencies(MODULE_KEYS.filter((k) => !disabledSet.has(k)))
-  const enabledSet = new Set(enabled)
-  return MODULE_KEYS.filter((k) => !enabledSet.has(k))
+export function applySuppression(open: string[], suppressed: string[]): string[] {
+  const suppressedSet = new Set(sanitizeDisabledModules(suppressed))
+  const result = new Set(sanitizeDisabledModules(open).filter((k) => !suppressedSet.has(k)))
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const key of Array.from(result)) {
+      const requires = MODULE_BY_KEY.get(key)?.requires ?? []
+      if (requires.some((dep) => !result.has(dep))) {
+        result.delete(key)
+        changed = true
+      }
+    }
+  }
+  return MODULE_KEYS.filter((k) => result.has(k))
+}
+
+/**
+ * Elle kapatılabilecek modül kümesini temizler: yalnız ÜCRETSİZ modüller kalır.
+ *
+ * Ücretli modülü kapatmanın doğru yolu satın alma yetkisini (`purchasedModules`)
+ * kaldırmaktır; buraya yazılsaydı abonelik kullanılmayan modülü faturalamaya devam
+ * eder, üstelik iki ayrı kapatma kanalı doğardı. Ücretsiz kümenin kendisi
+ * `PricingItem.isFree`ten gelir (bkz. lib/billing/free-modules.ts).
+ */
+export function sanitizeSuppressedModules(input: unknown, freeModuleKeys: string[]): string[] {
+  const free = new Set(sanitizeFreeModules(freeModuleKeys))
+  return sanitizeDisabledModules(input).filter((k) => free.has(k))
+}
+
+/**
+ * Sistem-admin modül kartının kaydı → iki kanala ayrılmış karar.
+ *
+ * Kart "bu firmada kapalı olsun" listesini gönderir; kapatmanın iki farklı sonucu var ve
+ * karıştırılırsa para yönünde hata olur:
+ *
+ *   ÜCRETLİ modül  → satın alma yetkisi kalkar (`granted`ten düşer). Kapsam HESAPTIR;
+ *                    aksi halde abonelik, kimsenin kullanmadığı modülü faturalamaya
+ *                    devam ederdi.
+ *   ÜCRETSİZ modül → firmaya kalıcı kapatma (`suppressed`) yazılır. Yetki listesinden
+ *                    düşürmek işe yaramaz: `applyEntitlements` ücretsizleri her
+ *                    uygulamada geri açar.
+ *
+ * `granted` YALNIZ ücretli kapatmalara göre hesaplanır. Ücretsiz bir modülün kapatılması
+ * bağımlısını da kapatır (Stok → Restoran) ama bu FİRMA düzeyinde olur; hesabın satın
+ * aldığı modülü iptal etmez — o iş `applyEntitlements`in üye üye uyguladığı
+ * `applySuppression` adımında yapılır.
+ */
+export function planCompanyModuleUpdate(
+  desiredOff: string[],
+  freeModuleKeys: string[],
+): { suppressed: string[]; granted: string[] } {
+  const off = sanitizeDisabledModules(desiredOff)
+  const suppressed = sanitizeSuppressedModules(off, freeModuleKeys)
+  const suppressedSet = new Set(suppressed)
+  const offPaid = off.filter((k) => !suppressedSet.has(k))
+  const granted = applySuppression(
+    withModuleDependencies(MODULE_KEYS.filter((k) => !offPaid.includes(k))),
+    offPaid,
+  )
+  return { suppressed, granted }
 }

@@ -266,6 +266,20 @@ model Company {
   onboardingCompletedAt        DateTime?
   isActive                     Boolean            @default(true) // Firma aktif/pasif durumu
   disabledModules              String[]           @default([]) // Kapalı modül anahtarları (boş = tüm modüller açık)
+  // ELLE KAPATILAN TEMEL MODÜLLER — sistem yöneticisinin bu firmada bilerek kapattığı
+  // ÜCRETSİZ modüller. `disabledModules`tan farkı KALICI olması: o alan her yetki
+  // hesaplamasında (`applyEntitlements`) yeniden üretiliyor ve ücretsizleri geri açıyor,
+  // dolayısıyla oraya yazılan bir kapatma ilk reconcile'da sessizce geri alınırdı.
+  //
+  // Kapsam FİRMA bazındadır (hesap değil): satın alma hesaba yapılır ama elle kapatma
+  // düzenlenen firmayı bağlar; hesabın tümüne uygulamak sistem-admin kartındaki açık
+  // seçimle olur. Ücretli modülü kapatmak bu alana YAZILMAZ — orada doğru davranış
+  // satın alma yetkisini (`Subscription.purchasedModules`) kaldırmaktır, yoksa abonelik
+  // kullanılmayan modülü faturalamaya devam ederdi.
+  //
+  // Modül ücretliye çevrilirse buradaki kaydı düşer (bkz. lib/billing/free-modules-sync.ts):
+  // kapatma yalnız "ücretsiz olduğu için açık gelen" modül için anlamlıdır.
+  suppressedModules            String[]           @default([])
   // ARŞİV — abonelik süresi dolduktan sonra veri salt-okunur hâle geçtiğinde yazılır.
   // NULL = normal. Dolu = hesap arşivde: okuma ve DIŞA AKTARMA açık, yazma uçları 403.
   //

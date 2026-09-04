@@ -5,6 +5,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isRecurringEnabled } from "@/lib/integrations/paytr/client"
 import { freeModulesFromPricingItems } from "@/lib/billing/free-modules"
+import { applySuppression } from "@/lib/modules"
 import { EVENT_LABELS, getSubscriptionEvents, type SubscriptionEventType } from "@/lib/billing/events"
 import { isAutoRenewActive, subscriptionNotice } from "@/lib/billing/notice"
 import {
@@ -78,6 +79,15 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     const free = freeModulesFromPricingItems(pricing)
     const granted = resolveGrantedModules(sub)
+    // ELLE KAPATMA firma bazındadır: abonelik hesabın olsa da "açık modüller" listesi
+    // EKRANIN AÇIK OLDUĞU firmanın gerçeğini söylemeli. Düşülmezse sistem yöneticisinin
+    // kapattığı modül burada "açık" görünür — şikâyetin ta kendisi.
+    const suppressed = (
+      await prisma.company.findUnique({
+        where: { id: companyId },
+        select: { suppressedModules: true },
+      })
+    )?.suppressedModules ?? []
 
     const notice = subscriptionNotice(
       sub && { ...sub, autoRenewActive: isAutoRenewActive(sub, recurringEnabled) },
@@ -128,7 +138,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
       // abonelikten bağımsızdır (`applyEntitlements` her uygulamada geri açar), bu yüzden
       // "modülleriniz" listesinde satın alınmışlarla birlikte görünmeleri doğru.
       freeModules: free,
-      openModules: Array.from(new Set([...granted, ...free])),
+      openModules: applySuppression([...granted, ...free], suppressed),
       quotas,
       orders: orders.map((o) => ({
         id: o.id,

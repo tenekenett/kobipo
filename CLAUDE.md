@@ -76,7 +76,8 @@ Kurallar:
   bağımsızdır ve `purchasedModules`a ASLA yazılmaz. Yazılırsa modül sonradan ücretliye
   çevrildiğinde o hesapta "satın alınmış" görünüp bedava açık kalır. Küme
   `getFreeModuleKeys()` ile okunur; `applyEntitlements` her uygulamada ekler, yani
-  ücretsiz modül hiçbir yeniden hesaplamada kapanmaz. Sonuçları:
+  ücretsiz modül hiçbir yeniden hesaplamada kapanmaz — TEK istisna aşağıdaki elle
+  kapatmadır. Sonuçları:
   - Yeni firma `defaultDisabledModules(free)` ile doğar (ücretsizler açık).
   - `isAccountLocked(disabled, free)` yalnız ÜCRETLİ modüllere bakar — ücretsizleri
     ölçüye katarsanız satın alma ekranı (`LockedAccount`) hiç görünmez.
@@ -84,6 +85,18 @@ Kurallar:
     bağımlılık tamamlama ücretli modülü bedavaya açar.
   - Küme değişince mevcut hesaplar `syncFreeModuleGrants()` ile hizalanır; satın alınmış
     modül kapatılmaz. Ayrıntı: `docs/paket-abonelik/TEMEL-MODULLER.md`.
+- **Ücretsiz modülü ELLE kapatmanın yeri `Company.suppressedModules`tır** (firma bazında,
+  sistem-admin modül kartı). `disabledModules`a yazmak yetmez: orası her yetki
+  hesaplamasında yeniden üretilir. Kurallar:
+  - Kapatma yalnız ÜCRETSİZ modüller için ifade edilir (`sanitizeSuppressedModules`).
+    Ücretli modülü kapatmak = `purchasedModules`tan düşürmek; aksi halde abonelik
+    kullanılmayan modülü faturalamaya devam eder.
+  - Kapatılan modülün BAĞIMLILARI da kapanır (`applySuppression`) — yön
+    `withModuleDependencies`in tersidir; karıştırılırsa "Stok'u kapat" sessizce geri alınır.
+  - `setAccountModules`a `suppression` verilmezse mevcut kapatmalara DOKUNULMAZ. Reconcile
+    ve "kilitle/sıfırla" bu bilgiyi taşımadan çağırıyor; çıkarım yapılsa hesabın tüm temel
+    modülleri sessizce kapanırdı.
+  - Modül ücretliye çevrilirse kapatma kaydı `syncFreeModuleGrants()` ile düşer.
 - **Firma YALNIZCA `lib/company/create-company.ts` içinden yazılır.** Erişim, rol ve kota
   denetimi orada; uçlar sadece gövdeyi normalize edip `createCompany(...)` çağırır. Kuralı
   uca kopyalamak, kotayı bilmeyen ikinci bir kapı açar. Sapmayı yakalamak için:

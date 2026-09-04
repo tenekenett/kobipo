@@ -4,8 +4,14 @@ import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
 import { encryptSecret } from "@/lib/crypto/secrets"
 import { EDonusumIntegrator, Prisma } from "@prisma/client"
-import { MODULE_KEYS, reconcileDisabledModules } from "@/lib/modules"
+import {
+  MODULE_KEYS,
+  applySuppression,
+  planCompanyModuleUpdate,
+  sanitizeDisabledModules,
+} from "@/lib/modules"
 import { setAccountModules } from "@/lib/billing/entitlements"
+import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 
 export const dynamic = "force-dynamic"
 
@@ -125,12 +131,13 @@ export async function PUT(
     // aboneliğe işlemediği için ilk yeniden hesaplamada silinir. İkisini de
     // `setAccountModules` çözüyor; company.update'ten SONRA çağrılır ki firma adı vb.
     // aynı istekte kaydedilebilsin.
-    const disabledModules =
-      body.disabledModules === undefined
-        ? null
-        : // Açık bir modülün gerektirdiği modül kapalı kalamaz
-          // (ör. Restoran & Kafe açıkken Stok da açılır).
-          reconcileDisabledModules(body.disabledModules)
+    //
+    // Gelen liste AÇIKÇA kapatılanlardır — bağımlılık yüzünden kapananlar (Stok kapalıysa
+    // Restoran) burada YOKTUR ve sunucuda türetilir. Ayrım şart: bağımlılık sonucu
+    // kapanan ücretli bir modül listeye girseydi, ücretsiz bir modülü tek şubede kapatmak
+    // hesabın satın alınmış modülünü de iptal ederdi.
+    const desiredOff =
+      body.disabledModules === undefined ? null : sanitizeDisabledModules(body.disabledModules)
 
     const company = await prisma.company.update({
       where: { id: resolvedParams.id },
@@ -138,9 +145,36 @@ export async function PUT(
     })
 
     let moduleWarning: string | null = null
-    if (disabledModules) {
-      const granted = MODULE_KEYS.filter((key) => !disabledModules.includes(key))
-      const result = await setAccountModules(company.id, granted)
+    let moduleLog = ""
+    if (desiredOff) {
+      const free = await getFreeModuleKeys()
+
+      // Kararın iki kanala ayrılması (ücretli → yetki, ücretsiz → kalıcı kapatma) saf
+      // kuralda duruyor ve orada test ediliyor: lib/modules.ts → planCompanyModuleUpdate.
+      const { suppressed, granted } = planCompanyModuleUpdate(desiredOff, free)
+
+      const scope = body.applyModulesToAccount === true ? "account" : "company"
+
+      const result = await setAccountModules(company.id, granted, {
+        modules: suppressed,
+        scope,
+      })
+
+      // Modül değişikliği loga AYRINTISIYLA yazılır: "kim neyi kapattı" sorusu destek
+      // tarafında en çok sorulan şey ve genel "bilgileri güncellendi" satırı bunu
+      // taşımıyordu (aynı ünvanlı firmalarda hangi kayda dokunulduğu da böyle izleniyor).
+      // Yazılan şey BU FİRMANIN sonucu: hesap yetkisinden elle kapatmalar düşülmüş hâli.
+      const open = applySuppression(result.granted, suppressed)
+      const off = MODULE_KEYS.filter((k) => !open.includes(k))
+      moduleLog =
+        ` · modüller: açık [${open.join(", ") || "—"}]` +
+        ` / kapalı [${off.join(", ") || "—"}]` +
+        (suppressed.length
+          ? ` · elle kapatılan temel modüller [${suppressed.join(", ")}] (kapsam: ${
+              scope === "account" ? "hesabın tümü" : "yalnız bu firma"
+            })`
+          : "")
+
       if (!result.durable) {
         // Yetki şu an açık ama abonelik ücretli-aktif değil: reconcile / dönem sonu
         // gibi ilk yeniden hesaplamada kapanır. Sessiz kalmak yanıltıcı olur.
@@ -156,7 +190,7 @@ export async function PUT(
         action: "UPDATE_COMPANY",
         entity: "Company",
         entityId: company.id,
-        details: `Firma "${company.name}" bilgileri güncellendi`,
+        details: `Firma "${company.name}" bilgileri güncellendi${moduleLog}`,
         level: "INFO"
       }
     })

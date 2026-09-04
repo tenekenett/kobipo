@@ -57,7 +57,7 @@ sistem-admin → Paket & Fiyat Yönetimi → Tekil Fiyatlar → "Ücretsiz" kutu
 | `app/api/billing/pricing/route.ts` | `isFree` yazımı + iki doğrulama + hizalama; yanıtta `sync` özeti. |
 | `app/api/billing/catalog/route.ts` | Müşteri ekranına `freeModules` verir; ücretsiz kalem pasif olsa da listede kalır. |
 | `components/system-admin/package-admin.tsx` | "Ücretsiz" sütunu (yalnız modül satırlarında), fiyat alanları kilitlenir, kaç firmanın hizalandığı toast'ta. |
-| `components/system-admin/company-modules-card.tsx` | Ücretsiz modülün anahtarı devre dışı — firma bazında kapatmak `applyEntitlements` tarafından geri alınırdı. |
+| `components/system-admin/company-modules-card.tsx` | Ücretsiz modülün anahtarı AÇIK (2026-09-04 eki): kapatma `Company.suppressedModules`a yazılır. |
 | `app/(dashboard)/ayarlar/abonelik/page.tsx` | "Ücretsiz" rozeti, seçimden çıkarılamaz, tutara girmez. |
 | `components/dashboard/locked-account.tsx` | Ücretsizler "satın alınacaklar" listesinden çıkar, "hesabınızda açık" satırında görünür. |
 | `app/(dashboard)/dashboard/{,admin,sales,stock,accountant,viewer}/page.tsx` | Kilit kontrolü ücretsiz kümeyi alır. |
@@ -75,11 +75,64 @@ Testlerin baktığı asıl asimetri: hata hep **para** yönüne düşüyor. "Sat
 kapatma", "ücretsizi purchasedModules'a yazma", "ücretsizin ücretli bağımlılığını bedavaya
 açma" ayrı ayrı sınandı.
 
+---
+
+# Ek (2026-09-04) — firma bazında elle kapatma
+
+**Şikâyet:** "firmaların modüllerini düzenleyebiliyoruz ancak müdahale edemiyoruz; adama
+restoran/kafe açık gelmiş kapatamıyoruz, ücretsiz olanlara müdahale edilemiyor."
+
+Yukarıdaki kurgu ücretsiz modülü **kapatılamaz** yapıyordu: `applyEntitlements` kümeyi her
+uygulamada geri açtığı için sistem-admin kartındaki anahtar devre dışı bırakılmıştı.
+Canlıda yedi modülün altısı ücretsiz işaretli olduğundan kart pratikte donmuştu — tek
+çalışan anahtar Restoran & Kafe idi.
+
+## Karar
+
+- Kapatma kararı **ayrı ve kalıcı** bir alanda durur: `Company.suppressedModules`.
+  `disabledModules` her yetki hesaplamasında yeniden üretildiği için oraya yazmak
+  yetmiyordu.
+- Kapsam **FİRMA** bazındadır. Satın alma hesaba (kök + şubeler + ek firmalar) yapılır ama
+  elle kapatma düzenlenen firmayı bağlar; sistem-admin kartındaki kutu ile istenirse
+  hesabın tümüne uygulanır.
+- **Ücretli** modülü kapatmak bu alana yazılmaz — orada doğru davranış satın alma
+  yetkisini (`Subscription.purchasedModules`) kaldırmaktır, yoksa abonelik kullanılmayan
+  modülü faturalamaya devam ederdi. `sanitizeSuppressedModules` bunu zorlar.
+- Modül **ücretliye çevrilirse** kapatma kaydı düşer (`syncFreeModuleGrants`): kalsaydı,
+  hesap o modülü sonradan satın aldığında kapatma yetkiyi sessizce yer ve müşteri
+  kullanamadığı bir modüle ödeme yapmış olurdu.
+- Bağımlılık yönü: kapatılan modülün **bağımlıları** da kapanır (`applySuppression`).
+  Eski `reconcileDisabledModules` ters yöndeydi ("açığın gereksinimi açılır") ve tek
+  çağıranı bu uçtu — yani "Stok'u kapat" isteği sessizce geri alınıyordu. Kaldırıldı.
+
+## Dosyalar (ek)
+
+| Dosya | Ne yapar |
+|---|---|
+| `prisma/schema.prisma` → `Company.suppressedModules` | Kapatmanın tek kaynağı. |
+| `supabase/migrations/20260904000001_company_suppressed_modules.sql` | Kolonu ekler. Yeni tablo yok → RLS satırı gerekmez. |
+| `lib/modules.ts` | `applySuppression` (kapatma + bağımlıları, fixpoint), `sanitizeSuppressedModules` (yalnız ücretsizler). `reconcileDisabledModules` kaldırıldı. |
+| `lib/billing/entitlements.ts` | `applyEntitlements` her üyenin kendi kapatmasını düşer (üye üye yazma); `setAccountModules(..., suppression?)` kapatmayı aynı işlemde yazar. Parametre verilmezse mevcut kapatmalara DOKUNULMAZ — reconcile/kilitle çağrıları çıkarım yapsaydı tüm temel modülleri kapatırdı. |
+| `lib/billing/free-modules-sync.ts` | Ücretsiz olan modül kapatılmış firmada açılmaz; ücretliye dönen modülün kaydı düşer; "yönetilen satır" ölçüsü kapatmayı hesaba katar. |
+| `lib/company/create-company.ts` | Hesaba katılan firma kökün/ana firmanın kapatmasını devralır (yoksa satır tutarsız doğardı). |
+| `app/api/system-admin/companies/[id]/route.ts` | `disabledModules` + `applyModulesToAccount` alır; ücretliyi yetkiden düşer, ücretsizi kapatmaya yazar; SystemLog'a açık/kapalı listesini basar. |
+| `app/api/billing/catalog/route.ts` | Yanıta `suppressedModules` ekler (ekranın açık olduğu firmanın satırı). |
+| `app/(dashboard)/ayarlar/abonelik/page.tsx` | Kapatılan modül listede ve paket içeriğinde HİÇ görünmez. |
+
+## Bilinen sınır (bilinçli)
+
+- Kapatma yalnız **ücretsiz** modüller için ifade edilebilir. Ücretli bir modülü "satın
+  alınmış ama bu şubede kapalı" yapmak istenirse ikinci bir kavram gerekir; bugün böyle
+  bir talep yok ve kapatma ile yetki arasında tek yön korunuyor.
+
+---
+
 ## Kalan iş
 
-1. Migrasyonu canlıya uygula (kullanıcı çalıştırır):
+1. Migrasyonları canlıya uygula (kullanıcı çalıştırır):
    ```bash
    node scripts/apply-migration.js supabase/migrations/20260826000003_pricing_item_is_free.sql
+   node scripts/apply-migration.js supabase/migrations/20260904000001_company_suppressed_modules.sql
    ```
 2. Sistem yönetimi → **Paket & Fiyat Yönetimi → Tekil Fiyatlar**'dan temel modülleri
    işaretle. Kaydettiğinde mevcut firmalar da hizalanır (toast kaç firma olduğunu söyler).

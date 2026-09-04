@@ -80,6 +80,12 @@ type Catalog = {
    * seçimden çıkarılamazlar ve tutara girmezler. Küme sunucudan gelir, istemcide türetilmez.
    */
   freeModules: string[]
+  /**
+   * Sistem yöneticisinin bu firmada KAPATTIĞI temel modüller. Ekranda hiç görünmezler:
+   * satın alınacak bir şey değiller (ücretsizler) ve hesapta kapalılar — listede
+   * "Ücretsiz ✓" olarak durmaları müşteriye olmayan bir modülü vaat ederdi.
+   */
+  suppressedModules: string[]
   subscription: CatalogSubscription
   currentBranches: number
   currentCompanies: number
@@ -236,6 +242,16 @@ export default function AbonelikPage() {
   const freeModuleSet = useMemo(
     () => new Set(sanitizeFreeModules(catalog?.freeModules ?? [])),
     [catalog],
+  )
+  /** Bu firmada elle kapatılmış temel modüller — listeden tamamen çıkarılırlar. */
+  const suppressedModuleSet = useMemo(
+    () => new Set(catalog?.suppressedModules ?? []),
+    [catalog],
+  )
+  /** Ekranda gösterilecek modüller (kapatılanlar hariç). */
+  const visibleModules = useMemo(
+    () => MANAGEABLE_MODULES.filter((m) => !suppressedModuleSet.has(m.key)),
+    [suppressedModuleSet],
   )
   /** Kullanıcının ödemeden sahip olduğu modüller: pakete dahil olanlar + ücretsizler. */
   const grantedModuleSet = useMemo(
@@ -605,9 +621,12 @@ export default function AbonelikPage() {
                 </span>
               </p>
               <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
-                {p.includedModules.length > 0 && (
+                {/* Kapatılmış modül paket içeriğinde de sayılmaz: satın alındığında yine
+                    açılmayacağı için listelemek olmayan bir şeyi vaat etmek olurdu. */}
+                {p.includedModules.filter((k) => !suppressedModuleSet.has(k)).length > 0 && (
                   <li>
                     {p.includedModules
+                      .filter((k) => !suppressedModuleSet.has(k))
                       .map((k) => MANAGEABLE_MODULES.find((m) => m.key === k)?.label || k)
                       .join(", ")}
                   </li>
@@ -647,7 +666,7 @@ export default function AbonelikPage() {
           <CardTitle className="text-base">Modüller</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-2 sm:grid-cols-2">
-          {MANAGEABLE_MODULES.map((m) => {
+          {visibleModules.map((m) => {
             const included = includedModuleSet.has(m.key)
             const isFree = freeModuleSet.has(m.key)
             const checked = included || isFree || extras.has(m.key)
