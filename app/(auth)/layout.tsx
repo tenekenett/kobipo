@@ -73,8 +73,8 @@ export default function AuthLayout({
                   <Image
                     src="/assets/logos/kobipo-logo-yatay-koyu-transparent.svg"
                     alt="Kobipo"
-                    width={180}
-                    height={52}
+                    width={240}
+                    height={69}
                     priority
                   />
                 </Link>

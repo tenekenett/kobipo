@@ -1,4 +1,6 @@
 import { fisTaramaAcikMi } from "@/lib/fis-ocr/access"
+import { asistanAcikMi } from "@/lib/asistan/erisim"
+import { AsistanPanel } from "@/components/asistan/asistan-panel"
 import { redirect } from "next/navigation"
 import { getUserContext } from "@/lib/auth/user-context"
 import { DashboardNav } from "@/components/dashboard/nav"
@@ -74,6 +76,8 @@ export default async function DashboardLayout({
     isEDonusumEnabled: entry.isEDonusumEnabled,
     // Beyaz liste SUNUCUDA çözülür; istemciye yalnız boolean gider, firma listesi değil.
     isFisTaramaEnabled: fisTaramaAcikMi({ id: entry.companyId, slug: entry.companySlug }),
+    // Asistan da aynı desende: beyaz liste SUNUCUDA çözülür, istemciye yalnız boolean gider.
+    isAsistanEnabled: asistanAcikMi({ id: entry.companyId, slug: entry.companySlug }),
     disabledModules: entry.disabledModules,
     // Kısıtlı çalışan izinleri de firma bazında (boş = kısıt yok).
     allowedPaths: entry.allowedPaths,
@@ -118,6 +122,9 @@ export default async function DashboardLayout({
               </div>
             </div>
           </MainArea>
+          {/* Panel sabit konumlu ve MainArea DIŞINDA: içeride olsaydı sayfa
+              kaydırma kabının altında kalır, mobilde tam ekran açılamazdı. */}
+          <AsistanPanel />
         </div>
       </SidebarProvider>
     </DashboardCompanyProvider>

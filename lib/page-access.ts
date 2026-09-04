@@ -430,6 +430,25 @@ export const PAGE_API_RULES: PageApiRule[] = [
     writePages: ["/muhasebe/yevmiye", "/muhasebe/kebir"],
   },
 
+  // ---- İşletme asistanı --------------------------------------------------
+  // Asistan paneli menüde bir sayfa DEĞİL; her panel ekranının sağ alt köşesinde
+  // duruyor. Bu yüzden sahibi tüm rollerde bulunan `/dashboard`.
+  //
+  // `writePages` = `pages`: sohbet ucu POST'tur ama YAZMAZ. Gövdeli bir OKUMADIR
+  // (soru + geçmiş GET'e sığmaz). Asistanın araç kümesinde yazan tek bir uç
+  // yoktur ve bu, `lib/asistan/araclar.test.ts` tarafından test edilir.
+  //
+  // Kapının GERÇEK işi burada değil, asistanın içinde: her sinyalin ve her aracın
+  // kendi sayfa + modül şartı var ve `canViewPage` ile aynı izinlere karşı
+  // sınanıyor. Yani kısıtlı çalışan bu uca ulaşır ama yalnız KENDİ görebildiği
+  // ekranların verisini alır. Kapıyı burada dar yazmak (ör. yalnız /raporlar/*)
+  // stok yetkisi olan çalışanın stok uyarılarını da kapatırdı.
+  {
+    prefix: "/api/asistan",
+    pages: ["/dashboard"],
+    writePages: ["/dashboard"],
+  },
+
   // ---- Personel ----------------------------------------------------------
   // Bordro, izin, zimmet ve özlük dosyası aynı modülün İÇİNDE bile birbirinden
   // ayrılır: "vardiya girsin ama maaşları görmesin" en sık istenen kısıt.

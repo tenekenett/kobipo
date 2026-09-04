@@ -32,6 +32,7 @@
     "paytr:simulate": "node scripts/paytr-simulate-callback.js",
     "kobipo:export-png": "node scripts/export-kobipo-pngs.mjs",
     "ai:fis-test": "node scripts/ai-fis-test.mjs",
+    "asistan:olcum": "node scripts/asistan-olcum.mjs",
     "vercel:dev": "vercel dev",
     "vercel:deploy": "vercel",
     "vercel:prod": "vercel --prod",

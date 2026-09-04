@@ -22,6 +22,8 @@ export type DashboardCompany = {
   isEDonusumEnabled?: boolean
   /** Fiş Tarama denemesine dahil mi? Sunucuda FIS_TARAMA_COMPANIES'ten çözülür. */
   isFisTaramaEnabled?: boolean
+  /** İşletme asistanı denemesine dahil mi? Sunucuda ASISTAN_COMPANIES'ten çözülür. */
+  isAsistanEnabled?: boolean
   disabledModules?: string[]
   /** Hesap salt-okunur arşivde mi? ([[lib/billing/archive.ts]]) */
   isArchived?: boolean

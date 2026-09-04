@@ -31,6 +31,8 @@ yarn-error.log*
 .env.development
 # yedek kopyalar da: ".env*.local" kalıbı .env.local.bak'ı YAKALAMAZ
 *.bak
+# aynısı Türkçe adlandırma için: .env.local.yedek de anahtarların tam kopyasıdır
+*.yedek
 # but keep .env.example
 !.env.example
 
