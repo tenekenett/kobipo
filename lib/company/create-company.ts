@@ -66,12 +66,15 @@ export type ResolvedPlacement = {
   parentCompanyId: string | null
   /** Hesap (faturalama) kökü; yeni hesapta null (firma kendi köküdür). */
   accountRootId: string | null
-  /** Yeni firmanın doğacağı modül kümesi (hesaba katılıyorsa kökün anlık hâli). */
+  /**
+   * Yeni firmanın doğacağı modül kümesi: temel (ücretsiz) modüller açık, ücretliler
+   * kapalı. Şube ve ek firma da böyle doğar — abonelik firma bazındadır, ana firmadan
+   * modül DEVRALINMAZ.
+   */
   disabledModules: string[]
   /**
-   * Elle kapatılmış TEMEL modüller — hesaba katılan firma bunu da devralır.
-   * Devralmasaydı satır tutarsız doğardı: `disabledModules` kapalı gösterirken alan boş
-   * kalır, ilk `applyEntitlements` modülü sessizce geri açardı.
+   * Elle kapatılmış TEMEL modüller. Yeni firma bunu DEVRALMAZ (boş doğar): kapatma
+   * sistem yöneticisinin o firma için verdiği ayrı bir karardır.
    */
   suppressedModules: string[]
   /** Yalnız şubede dolu: ana firmadan devralınan kimlik alanları. */
@@ -145,11 +148,16 @@ export async function resolveCompanyPlacement(
       )
     }
 
+    // MODÜL DEVRİ YOK: şube ana firmanın aboneliğinden yararlanmaz, kendi aboneliğini
+    // satın alır (2026-09-04 kararı). Kimlik alanları devralınmaya devam eder —
+    // şube aynı tüzel kişidir, VKN/vergi dairesi/e-Dönüşüm ana firmadan gelir.
+    // Elle kapatma da devralınmaz: yeni firma temiz doğar, kapatma firmanın kendi
+    // kararıdır (sistem-admin kartından verilir).
     return {
       parentCompanyId: parentId,
       accountRootId,
-      disabledModules: parent.disabledModules,
-      suppressedModules: parent.suppressedModules,
+      disabledModules: defaultDisabledModules(await getFreeModuleKeys()),
+      suppressedModules: [],
       inherited: parent,
     }
   }
@@ -181,17 +189,14 @@ export async function resolveCompanyPlacement(
       )
     }
 
-    // Modüller kökten akar: ek firma, hesabın satın aldığı modüllerle doğar. Kök
-    // bulunamazsa temel (ücretsiz) modüller açık, kalanı kilitli doğar.
-    const root = await prisma.company.findUnique({
-      where: { id: rootCompanyId },
-      select: { disabledModules: true, suppressedModules: true },
-    })
+    // MODÜL DEVRİ YOK: ek firma ayrı bir tüzel kişidir ve kendi aboneliğini satın alır.
+    // Hesaptan devraldığı tek şey KOTA hakkıdır (bu firmayı açabilmiş olması).
+    // Temel (ücretsiz) modüller açık, ücretliler kilitli doğar.
     return {
       parentCompanyId: null,
       accountRootId: rootCompanyId,
-      disabledModules: root?.disabledModules ?? defaultDisabledModules(await getFreeModuleKeys()),
-      suppressedModules: root?.suppressedModules ?? [],
+      disabledModules: defaultDisabledModules(await getFreeModuleKeys()),
+      suppressedModules: [],
       inherited: null,
     }
   }

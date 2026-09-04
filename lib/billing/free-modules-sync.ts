@@ -17,7 +17,6 @@ import { resolveGrantedModules } from "@/lib/billing/entitlements"
 /** Hizalamada okunan firma alanları. */
 export type SyncCompanyView = {
   id: string
-  accountRootId: string | null
   disabledModules: string[]
   /** Sistem yöneticisinin bu firmada elle kapattığı temel modüller. */
   suppressedModules?: string[]
@@ -86,19 +85,20 @@ function sameSet(a: Set<string>, b: Set<string>): boolean {
  * alındığında bu firmalarda o modülü KAPATIRDI; ölçüldü, 25 firma etkileniyordu. Oysa onlar
  * o modülü ücretsizlikten değil, en baştan beri açık taşıyor.
  *
- * @param grantedByRoot hesap kökü → aboneliğin BUGÜN verdiği modüller.
+ * @param grantedByCompany firma → KENDİ aboneliğinin bugün verdiği modüller. Abonelik
+ *        firma düzeyinde olduğu için anahtar hesap kökü değil firmanın kendisidir;
+ *        kökten okunsaydı ödemeyen bir şube ana firmanın hakkıyla korunurdu.
  */
 export function planFreeModuleSync(
   companies: SyncCompanyView[],
-  grantedByRoot: Map<string, Set<string>>,
+  grantedByCompany: Map<string, Set<string>>,
   delta: FreeModuleDelta,
 ): Array<{ id: string; disabledModules: string[]; suppressedModules?: string[] }> {
   const updates: Array<{ id: string; disabledModules: string[]; suppressedModules?: string[] }> = []
   if (delta.opened.length === 0 && delta.closed.length === 0) return updates
 
   for (const company of companies) {
-    const rootId = company.accountRootId ?? company.id
-    const granted = grantedByRoot.get(rootId) ?? new Set<string>()
+    const granted = grantedByCompany.get(company.id) ?? new Set<string>()
     const disabled = new Set(company.disabledModules ?? [])
     const suppressed = new Set(company.suppressedModules ?? [])
     // Satırı bu sistem mi yazmış? Ölçü DEĞİŞİKLİKTEN ÖNCEKİ hâle bakılarak alınır.
@@ -167,7 +167,6 @@ export async function syncFreeModuleGrants(
     prisma.company.findMany({
       select: {
         id: true,
-        accountRootId: true,
         disabledModules: true,
         suppressedModules: true,
       },
@@ -184,15 +183,16 @@ export async function syncFreeModuleGrants(
     }),
   ])
 
-  // Hesap kökü → aboneliğin BUGÜN verdiği modüller. Sorgu tarihe göre sıralı; ilk görülen
-  // satır en günceli olduğu için sonrakiler atlanır (`getAccountSubscription` ile aynı seçim).
-  const grantedByRoot = new Map<string, Set<string>>()
+  // Firma → KENDİ aboneliğinin bugün verdiği modüller. Sorgu tarihe göre sıralı; ilk
+  // görülen satır en günceli olduğu için sonrakiler atlanır (`getCompanySubscription`
+  // ile aynı seçim).
+  const grantedByCompany = new Map<string, Set<string>>()
   for (const sub of subscriptions) {
-    if (grantedByRoot.has(sub.companyId)) continue
-    grantedByRoot.set(sub.companyId, new Set(resolveGrantedModules(sub)))
+    if (grantedByCompany.has(sub.companyId)) continue
+    grantedByCompany.set(sub.companyId, new Set(resolveGrantedModules(sub)))
   }
 
-  const updates = planFreeModuleSync(companies, grantedByRoot, delta)
+  const updates = planFreeModuleSync(companies, grantedByCompany, delta)
 
   // Parçalı transaction: tek seferde binlerce update'i tek işleme sokmak bağlantıyı uzun
   // süre kilitler. Hesap sayısı bugün küçük, yarın büyüyebilir.

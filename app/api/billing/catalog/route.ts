@@ -8,7 +8,7 @@ import { isPaytrEnabled } from "@/lib/integrations/paytr/client"
 import { getSellablePlans, ensureDefaultPricingItems } from "@/lib/billing/catalog"
 import { freeModulesFromPricingItems } from "@/lib/billing/free-modules"
 import {
-  getAccountSubscription,
+  getCompanySubscription,
   resolveAccountRootId,
   countAccountBranches,
   countAccountCompanies,
@@ -20,7 +20,10 @@ export const dynamic = "force-dynamic"
 
 /**
  * Müşteri abonelik ekranını besleyen tek uç: satılabilir paketler + à la carte fiyatlar +
- * hesabın mevcut abonelik özeti + PayTR durumu. Hepsi hesap (kök firma) düzeyindedir.
+ * FİRMANIN mevcut abonelik özeti + PayTR durumu.
+ *
+ * İki eksen bilerek ayrı: MODÜL aboneliği firmanındır (şube ana firmanınkinden
+ * yararlanmaz), KOTA hesabındır (şube/ek firma açma hakkı kök abonelikte, tek havuz).
  */
 export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
@@ -32,14 +35,26 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
   const rootId = await resolveAccountRootId(companyId)
 
+  // SATIN ALMA YETKİSİ hesap yöneticisinde (uçtaki kuralla aynı, bkz.
+  // app/api/billing/orders/route.ts). Ekran bunu bilmezse şube sorumlusu formu
+  // doldurup ödeme adımında 403 yerdi.
+  const canPurchase =
+    rootId === companyId ||
+    user.isSuperAdmin ||
+    (await prisma.userCompany.findFirst({
+      where: { userId: user.id, companyId: rootId, role: "ADMIN" },
+      select: { id: true },
+    })) != null
+
   await ensureDefaultPricingItems()
-  const [plans, pricing, sub, currentBranches, currentCompanies, company] = await Promise.all([
+  const [plans, pricing, sub, currentBranches, currentCompanies, company, accountRoot] =
+    await Promise.all([
     getSellablePlans(false),
     // `isActive` filtresi YOK: ücretsiz bir modül satılmadığı için pasife alınmış
     // olabilir ama ekranda "Ücretsiz" olarak görünmek zorunda. Fiyat haritasına yalnız
     // aktifler girer (aşağıda), ücretsiz kümesi tüm satırlardan çözülür.
     prisma.pricingItem.findMany({ orderBy: { sortOrder: "asc" } }),
-    getAccountSubscription(rootId),
+    getCompanySubscription(companyId),
     countAccountBranches(rootId),
     countAccountCompanies(rootId),
     // ELLE KAPATILAN temel modüller — kapsam FİRMA bazındadır, bu yüzden kökün değil
@@ -47,6 +62,11 @@ export const GET = withApiErrors(async function GET(request: Request) {
     prisma.company.findUnique({
       where: { id: companyId },
       select: { suppressedModules: true },
+    }),
+    // Kök firmanın adı: şubede "kotayı ana firmadan alın" cümlesi adıyla yazılır.
+    prisma.company.findUnique({
+      where: { id: rootId },
+      select: { name: true, branchName: true, slug: true },
     }),
   ])
 
@@ -82,6 +102,12 @@ export const GET = withApiErrors(async function GET(request: Request) {
     // görünmezler. `freeModules`tan DÜŞÜLMEZ — o küme tutar hesabının girdisi ve
     // sunucudaki fiyatlamayla (lib/billing/pricing.ts) birebir aynı kalmalı.
     suppressedModules: company?.suppressedModules ?? [],
+    // Ekran KOTA kartlarını yalnız hesap kökünde çizsin: şube/ek firma kendi modül
+    // aboneliğini alır ama şube/firma AÇMA hakkı hesap düzeyindedir ve yalnız kökten
+    // satın alınır (uç da aynı kuralı zorluyor, bkz. app/api/billing/orders/route.ts).
+    isAccountRoot: rootId === companyId,
+    canPurchase,
+    accountName: accountRoot?.name ?? null,
     subscription,
     currentBranches,
     currentCompanies,

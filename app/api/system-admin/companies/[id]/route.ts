@@ -10,7 +10,7 @@ import {
   planCompanyModuleUpdate,
   sanitizeDisabledModules,
 } from "@/lib/modules"
-import { setAccountModules } from "@/lib/billing/entitlements"
+import { setCompanyModules } from "@/lib/billing/entitlements"
 import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 
 export const dynamic = "force-dynamic"
@@ -126,11 +126,10 @@ export async function PUT(
     if (body.invoiceSeriesPrefix !== undefined) {
       data.invoiceSeriesPrefix = clean(body.invoiceSeriesPrefix)
     }
-    // Modül seti `data` ile TEK FİRMAYA yazılmaz. Yetki HESAP düzeyindedir: buradan
-    // yalnız bu firmaya yazmak (a) hesabın diğer üyeleriyle sapma yaratır, (b) yetkiyi
-    // aboneliğe işlemediği için ilk yeniden hesaplamada silinir. İkisini de
-    // `setAccountModules` çözüyor; company.update'ten SONRA çağrılır ki firma adı vb.
-    // aynı istekte kaydedilebilsin.
+    // Modül seti `data` ile YAZILMAZ: yalnız `disabledModules`a yazmak yetkiyi aboneliğe
+    // işlemediği için ilk yeniden hesaplamada silinir. `setCompanyModules` ikisini birden
+    // yazar (firmanın kendi abonelik satırı + türetilmiş kapalı liste); company.update'ten
+    // SONRA çağrılır ki firma adı vb. aynı istekte kaydedilebilsin.
     //
     // Gelen liste AÇIKÇA kapatılanlardır — bağımlılık yüzünden kapananlar (Stok kapalıysa
     // Restoran) burada YOKTUR ve sunucuda türetilir. Ayrım şart: bağımlılık sonucu
@@ -155,7 +154,7 @@ export async function PUT(
 
       const scope = body.applyModulesToAccount === true ? "account" : "company"
 
-      const result = await setAccountModules(company.id, granted, {
+      const result = await setCompanyModules(company.id, granted, {
         modules: suppressed,
         scope,
       })

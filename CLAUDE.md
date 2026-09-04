@@ -43,8 +43,8 @@ accountRootId    → HESAP:    faturalama kökü. Hesabın TÜM üyelerinde (şu
 ```
 
 **Ek firma** = `parentCompanyId` null + `accountRootId` dolu: ayrı VKN'li bağımsız bir
-tüzel kişi (kendi ünvanı, adresi, e-Dönüşüm hesabı) ama abonelik ve modüller hesap
-kökünden akar. Satın alınarak açılır.
+tüzel kişi (kendi ünvanı, adresi, e-Dönüşüm hesabı). Hesaptan devraldığı tek şey KOTA
+hakkıdır; aboneliği ayrıdır. Satın alınarak açılır.
 
 | | şube | ek firma |
 |---|---|---|
@@ -54,13 +54,30 @@ kökünden akar. Satın alınarak açılır.
 
 İki kota **ayrı havuzdur**: şube açmak firma hakkını yemez, tersi de geçerli.
 
+## Abonelik FİRMA bazındadır — yetki devretmez
+
+2026-09-04'te değişti: her firma (kök, şube, ek firma) kendi aboneliğini satın alır.
+Ana firmanın ödemesi şubeyi AÇMAZ; şubenin süresi dolunca ana firma kapanmaz. Ayrıntı ve
+geçiş: `docs/paket-abonelik/FIRMA-BAZLI-ABONELIK.md`.
+
+- Yetkinin kaynağı **firmanın kendi aboneliğidir**: `getCompanySubscription(companyId)`.
+  `getAccountSubscription` yalnız KOTA içindir, modül sorusuna cevap vermez.
+- `applyEntitlements(companyId, granted)` **tek firmaya** yazar; elle modül verme
+  `setCompanyModules()`. (Eski adları hesap kapsamlıydı: `setAccountModules`.)
+- Yeni şube/ek firma **kilitli doğar** (`defaultDisabledModules(free)`) — modül devri yok.
+- **Kota yalnız hesap kökünden satın alınır** (şube kendi şubesini açamaz: sonsuz döngü).
+  Kapı üç yerde: uç 400, ekranda kart gizli, tutar hesabında kota 0.
+- **Satın almayı hesap yöneticisi yapar** — şubeye atanmış ADMIN ödeyemez (uç 403).
+- Kilit ve arşiv de firma bazındadır: süresi dolan şube tek başına salt-okunura geçer.
+
 Kurallar:
 
 - Hesabı **daima** `resolveAccountRootId()` ile çöz — `parentCompanyId`'ye bakarak kök
   bulmaya çalışma, ek firmayı kaçırırsın.
 - Hesap kapsamlı yazma/sayma `accountRootId` üzerinden yapılır (`getAccountCompanyIds`,
-  `countAccountBranches`, `countAccountCompanies`, `applyEntitlements`). "Kökün
-  şubeleri" (`parentCompanyId: root`) diye sorgulamak ek firmaların şubelerini atlar.
+  `countAccountBranches`, `countAccountCompanies`). "Kökün şubeleri"
+  (`parentCompanyId: root`) diye sorgulamak ek firmaların şubelerini atlar.
+  `applyEntitlements` bu listede DEĞİLDİR: yetki firma bazındadır (yukarı bak).
 - Kota denetimi ve "kaç tane daha açabilirim" göstergesi **aynı** fonksiyondan gelir:
   `getAccountQuotas()` (`lib/billing/entitlements.ts`). Ayrı hesaplarsan ekran "hakkın
   var" derken API 402 döndürür.
@@ -70,8 +87,8 @@ Kurallar:
 - **SATIN ALINAN modül yetkisinin kaynağı `Subscription.purchasedModules`tır.** Yalnız
   `company.disabledModules` yazmak yetkiyi KALICI yapmaz: reconcile, yinelenen ödeme,
   "kilitle/sıfırla" ve her yeni sipariş yetkiyi bu alandan yeniden üretir ve elle açılmış
-  modüller sessizce kapanır. Elle açarken `setAccountModules()` kullanın (ikisini birden
-  yazar, hesabın tümüne uygular).
+  modüller sessizce kapanır. Elle açarken `setCompanyModules()` kullanın (ikisini birden
+  yazar, kapsam o firmadır).
 - **TEMEL (ücretsiz) modülün kaynağı ise `PricingItem.isFree`tir** — abonelikten
   bağımsızdır ve `purchasedModules`a ASLA yazılmaz. Yazılırsa modül sonradan ücretliye
   çevrildiğinde o hesapta "satın alınmış" görünüp bedava açık kalır. Küme

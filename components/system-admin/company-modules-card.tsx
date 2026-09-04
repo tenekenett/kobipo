@@ -151,9 +151,10 @@ export function CompanyModulesCard({
           ? { title: "Kaydedildi — dikkat", description: json.warning, variant: "destructive" }
           : {
               title: "Başarılı",
-              description: suppressed.length && !applyToAccount
-                ? "Modül ayarları kaydedildi. Temel modül kapatması yalnız bu firmada geçerli."
-                : "Modül ayarları hesabın tümüne uygulandı (şubeler ve ek firmalar dahil)",
+              description:
+                suppressed.length && applyToAccount
+                  ? "Modül ayarları kaydedildi; temel modül kapatması hesabın tüm firmalarına uygulandı."
+                  : "Modül ayarları kaydedildi — yalnız bu firma için geçerli.",
             },
       )
       router.refresh()
@@ -269,7 +270,9 @@ export function CompanyModulesCard({
 
         <p className="mt-3 text-xs text-slate-500">
           Kapatılan modüller firmanın menüsünde gizlenir. Dashboard, Ayarlar ve E-Dönüşüm temel
-          erişimleri her zaman açıktır.{" "}
+          erişimleri her zaman açıktır. Modül yetkisi <span className="font-medium text-slate-300">
+          firma bazındadır</span>: burada açtığınız modül şubelere ya da ek firmalara GEÇMEZ,
+          onların kendi abonelikleri vardır.{" "}
           <span className="text-emerald-400">Ücretsiz</span> işaretli modüller satın alma
           gerektirmez; kapatılırsa bu karar kalıcıdır ve müşterinin abonelik ekranında da
           görünmez. Ücretli bir modülü kapatmak satın alma yetkisini{" "}

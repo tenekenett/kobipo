@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { getAccountSubscription, isPaidActive } from "@/lib/billing/entitlements"
+import { getCompanySubscription, isPaidActive } from "@/lib/billing/entitlements"
 import { eventDate, logSubscriptionEvent } from "@/lib/billing/events"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
@@ -33,7 +33,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       )
     }
 
-    const sub = await getAccountSubscription(companyId)
+    const sub = await getCompanySubscription(companyId)
     if (!sub || !isPaidActive(sub)) {
       return NextResponse.json({ error: "İptal edilecek aktif abonelik yok" }, { status: 400 })
     }

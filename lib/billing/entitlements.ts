@@ -1,14 +1,23 @@
 // Abonelik → yetki (entitlement) çözümü ve uygulanışı.
 //
-// Model: abonelik HESAP düzeyindedir (kök firma). Seçilen modüller kök firma VE hesabın
-// tüm üyeleri (şubeler + satın alınmış ek firmalar) için geçerlidir. Uygulama mevcut modül
-// gating'ini yeniden kullanır: satın alınan modüller `company.disabledModules`'a türetilmiş
-// yazılır (disabled = TÜM − satın alınan), böylece menü gizleme / route guard / server
-// context hiç değişmeden çalışır. Bkz. [[lib/modules.ts]].
+// MODEL (2026-09-04'te değişti): abonelik FİRMA düzeyindedir. Her firma — kök, şube ve ek
+// firma — kendi modüllerini kendi satın alır; hiçbir yetki bir firmadan diğerine GEÇMEZ.
+// Öncesinde abonelik hesap kökünde duruyor ve `applyEntitlements` hesabın tüm üyelerine
+// yazıyordu; ayrıntı ve geçiş: docs/paket-abonelik/FIRMA-BAZLI-ABONELIK.md.
+//
+// Uygulama mevcut modül gating'ini yeniden kullanır: satın alınan modüller
+// `company.disabledModules`'a türetilmiş yazılır (disabled = TÜM − satın alınan), böylece
+// menü gizleme / route guard / server context hiç değişmeden çalışır. Bkz. [[lib/modules.ts]].
+//
+// HESAP kavramı ölmedi, kapsamı daraldı — bugün yalnız ŞU üç işi yapar:
+//   1. KOTA: şube/ek firma açma hakkı hesap kökünün abonelik satırında tutulur ve tek
+//      havuzdur (`getAccountQuotas`). Kota "açma hakkı"dır, modül hakkı DEĞİLDİR.
+//   2. YETKİLENDİRME: kökün ADMIN'i hesabın tüm firmalarını yönetir (satın alma dahil).
+//   3. BİLDİRİM: dönem sonu e-postası hesabın ADMIN'lerine gider.
 //
 // Hesap üyeliği ile şube hiyerarşisi AYRI eksenlerdir (bkz. prisma → Company.accountRootId):
 //   şube     → parentCompanyId dolu  (aynı tüzel kişi, VKN devralınır)
-//   ek firma → accountRootId dolu    (ayrı tüzel kişi, yalnız abonelik ortak)
+//   ek firma → accountRootId dolu    (ayrı tüzel kişi, yalnız hesap/kota ortak)
 // İkisi de `accountRootId` taşır, bu yüzden hesap tek sorguda çözülür.
 
 import { prisma } from "@/lib/db/prisma"
@@ -49,7 +58,26 @@ export async function getAccountCompanyIds(rootCompanyId: string): Promise<strin
   return [rootCompanyId, ...members.map((m) => m.id)]
 }
 
-/** Hesabın (kök firma) en güncel aboneliğini döndürür. */
+/**
+ * FİRMANIN kendi en güncel aboneliği — yetkinin tek kaynağı.
+ *
+ * Modül soran her yer bunu okur: şube ana firmanın aboneliğinden yararlanmaz, kendi
+ * satırı yoksa ücretli modülü yoktur (ücretsizler `applyEntitlements` ile yine açık).
+ */
+export async function getCompanySubscription(companyId: string) {
+  return prisma.subscription.findFirst({
+    where: { companyId },
+    orderBy: { createdAt: "desc" },
+    include: { plan: true },
+  })
+}
+
+/**
+ * Hesap KÖKÜNÜN en güncel aboneliği. Yalnız KOTA için okunur (şube/ek firma açma hakkı
+ * hesap düzeyindedir ve kökün satırında durur).
+ *
+ * Modül yetkisi için KULLANMAYIN — o firma bazındadır, `getCompanySubscription`.
+ */
 export async function getAccountSubscription(companyId: string) {
   const rootId = await resolveAccountRootId(companyId)
   return prisma.subscription.findFirst({
@@ -129,29 +157,6 @@ export function resolveGrantedModules(sub: SubStatusView | null | undefined, now
 }
 
 /**
- * Verilen açık modül setini hesabın kök firmasına VE tüm üyelerine (şubeler + ek
- * firmalar) uygular. `company.disabledModules = TÜM − (granted ∪ ücretsiz)` yazar.
- * Tek transaction.
- *
- * Ek firma da bu kümededir: ayrı tüzel kişi olsa da aboneliği kökten akar, yoksa
- * müşteri ödediği modülleri ikinci firmasında göremezdi.
- *
- * TEMEL (ücretsiz) modüller BURADA eklenir — çağıranların hiçbiri onları taşımak zorunda
- * değildir. Bu, `disabledModules` yazan TEK yol olduğu için ücretsizliğin de tek kapısıdır:
- * reconcile, yinelenen ödeme, satın alma callback'i, süper-admin "kilitle/sıfırla" ve
- * `setAccountModules` — hepsi buradan geçer, yani ücretsiz modül hiçbir yeniden
- * hesaplamada kapanmaz. Küme `PricingItem.isFree`ten okunur (lib/billing/free-modules.ts).
- *
- * TEK İSTİSNA firmanın `suppressedModules` alanıdır: sistem yöneticisinin o firmada
- * bilerek kapattığı temel modüller açık kümeden (bağımlılarıyla birlikte) düşülür.
- * Kapatma firma bazında olduğu için satırlar tek `updateMany` ile değil, üye üye yazılır.
- *
- * ARŞİV: ücretli modül açıldığında hesabın `archivedAt` damgası da SİLİNİR — yeniden
- * abone olan müşterinin yazma kapısı açılmalı. Bu fonksiyon her yeniden aktifleşme
- * yolunun (satın alma callback'i, elle grant) geçtiği tek nokta olduğu için kural
- * burada duruyor; ayrı bir "arşivden çıkar" çağrısı bir gün unutulurdu.
- */
-/**
  * Bu yetki uygulaması hesabı ARŞİVDEN ÇIKARMALI mı?
  *
  * Ücretli bir modül açılan hesap arşivde KALAMAZ: `archivedAt` dolu kaldığı sürece yazma
@@ -170,7 +175,30 @@ export function shouldUnarchive(granted: Iterable<string>, freeModules: Iterable
   return [...granted].some((k) => !freeSet.has(k))
 }
 
-export async function applyEntitlements(rootCompanyId: string, grantedModules: string[]): Promise<void> {
+/**
+ * Verilen açık modül setini TEK FİRMAYA uygular:
+ * `company.disabledModules = TÜM − (granted ∪ ücretsiz − elle kapatılan)`.
+ *
+ * KAPSAM FİRMADIR. Eskiden bu fonksiyon hesabın tüm üyelerine (şubeler + ek firmalar)
+ * yazıyordu; abonelik firma düzeyine indiğinde bu yanlış oldu — bir firmanın ödemesi
+ * diğerinin modülünü açardı. Şube ve ek firmanın yetkisi kendi abonelik satırından
+ * üretilir (bkz. `getCompanySubscription`).
+ *
+ * TEMEL (ücretsiz) modüller BURADA eklenir — çağıranların hiçbiri onları taşımak zorunda
+ * değildir. Bu, `disabledModules` yazan TEK yol olduğu için ücretsizliğin de tek kapısıdır:
+ * reconcile, yinelenen ödeme, satın alma callback'i, süper-admin "kilitle/sıfırla" ve
+ * `setCompanyModules` — hepsi buradan geçer, yani ücretsiz modül hiçbir yeniden
+ * hesaplamada kapanmaz. Küme `PricingItem.isFree`ten okunur (lib/billing/free-modules.ts).
+ *
+ * TEK İSTİSNA firmanın `suppressedModules` alanıdır: sistem yöneticisinin o firmada
+ * bilerek kapattığı temel modüller açık kümeden (bağımlılarıyla birlikte) düşülür.
+ *
+ * ARŞİV: ücretli modül açıldığında firmanın `archivedAt` damgası da SİLİNİR — yeniden
+ * abone olanın yazma kapısı açılmalı. Bu fonksiyon her yeniden aktifleşme yolunun
+ * (satın alma callback'i, elle grant) geçtiği tek nokta olduğu için kural burada duruyor;
+ * ayrı bir "arşivden çıkar" çağrısı bir gün unutulurdu.
+ */
+export async function applyEntitlements(companyId: string, grantedModules: string[]): Promise<void> {
   const free = await getFreeModuleKeys()
   // Bağımlılıklar burada da tamamlanır: arayüz atlanıp bu fonksiyon doğrudan
   // çağrılsa bile DB'ye tutarsız bir küme (ör. restaurant açık, stock kapalı) yazılmasın.
@@ -180,39 +208,35 @@ export async function applyEntitlements(rootCompanyId: string, grantedModules: s
 
   const unarchive = shouldUnarchive(granted, free) ? { archivedAt: null } : {}
 
-  // ELLE KAPATMA firma bazındadır, bu yüzden satırlar tek `updateMany` ile yazılamaz:
-  // her üyenin kendi `suppressedModules`ı düşülür. Hesaplar küçük (kök + şubeler + ek
-  // firmalar), tek transaction yeterli; kapatması olmayan firmalar için sonuç eskisiyle
-  // birebir aynı listedir.
-  const members = await prisma.company.findMany({
-    where: { OR: [{ id: rootCompanyId }, { accountRootId: rootCompanyId }] },
-    select: { id: true, suppressedModules: true },
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { suppressedModules: true },
   })
+  if (!company) return
 
-  await prisma.$transaction(
-    members.map((member) => {
-      const open = applySuppression([...granted], member.suppressedModules ?? [])
-      const openSet = new Set(open)
-      return prisma.company.update({
-        where: { id: member.id },
-        data: { disabledModules: MODULE_KEYS.filter((k) => !openSet.has(k)), ...unarchive },
-      })
-    }),
-  )
+  const open = new Set(applySuppression([...granted], company.suppressedModules ?? []))
+  await prisma.company.update({
+    where: { id: companyId },
+    data: { disabledModules: MODULE_KEYS.filter((k) => !open.has(k)), ...unarchive },
+  })
 }
 
 /**
  * Elle kapatma isteği: hangi temel modüller, hangi kapsamda kapatılacak.
  *
  * `scope: "account"` kapatmayı hesabın tüm firmalarına (kök + şubeler + ek firmalar)
- * yayar; varsayılan yalnız verilen firmadır — satın alma hesaba yapılır ama elle
- * kapatma düzenlenen firmayı bağlar.
+ * yayar; varsayılan yalnız verilen firmadır. Yetki artık zaten firma bazında olduğu için
+ * "hesabın tümü" seçeneği bir KOLAYLIKTIR: aynı kararı firma firma tekrarlamamak için.
  */
 export type SuppressionInput = { modules: string[]; scope?: "company" | "account" }
 
 /**
- * Elle verilen modül setini hesap için KALICI yapar: `Subscription.purchasedModules`'a
- * yazar ve hesabın tümüne uygular.
+ * Elle verilen modül setini FİRMA için KALICI yapar: o firmanın
+ * `Subscription.purchasedModules` alanına yazar ve yetkiyi uygular.
+ *
+ * Kapsam firmadır: şubeye modül açmak ana firmayı, ana firmaya açmak şubeyi ETKİLEMEZ.
+ * Abonelik firma düzeyine indiği için doğru davranış budur — eskiden bu fonksiyon
+ * hesabın kök aboneliğini yazıyordu.
  *
  * Neden aboneliğe de yazılır: yetki her yeniden hesaplandığında kaynak
  * `purchasedModules`tır (`resolveGrantedModules`) — reconcile, yinelenen ödeme
@@ -231,12 +255,11 @@ export type SuppressionInput = { modules: string[]; scope?: "company" | "account
  * kapatmak ise `suppression` ile — çünkü yetki listesinden çıkarmak yetmez,
  * `applyEntitlements` ücretsizleri her uygulamada geri açar.
  */
-export async function setAccountModules(
+export async function setCompanyModules(
   companyId: string,
   grantedModules: string[],
   suppression?: SuppressionInput,
-): Promise<{ rootCompanyId: string; granted: string[]; durable: boolean; suppressed: string[] }> {
-  const rootCompanyId = await resolveAccountRootId(companyId)
+): Promise<{ companyId: string; granted: string[]; durable: boolean; suppressed: string[] }> {
   const granted = withModuleDependencies(sanitizeDisabledModules(grantedModules))
 
   // ÜCRETSİZ modüller `purchasedModules`a YAZILMAZ: orası satın alınanın kaydıdır ve
@@ -247,8 +270,11 @@ export async function setAccountModules(
   const free = new Set(freeKeys)
   const purchased = granted.filter((k) => !free.has(k))
 
+  // FİRMANIN kendi abonelik satırı. Yoksa yazılacak yer de yok: yetki şimdilik
+  // `disabledModules`ta açık görünür ama ilk yeniden hesaplamada kapanır — `durable`
+  // bunu söylüyor ve arayüz kullanıcıyı uyarıyor.
   const sub = await prisma.subscription.findFirst({
-    where: { companyId: rootCompanyId },
+    where: { companyId },
     orderBy: { createdAt: "desc" },
   })
   if (sub) {
@@ -269,22 +295,30 @@ export async function setAccountModules(
   if (suppression) {
     const data = { suppressedModules: suppressed }
     if (suppression.scope === "account") {
-      await prisma.company.updateMany({
-        where: { OR: [{ id: rootCompanyId }, { accountRootId: rootCompanyId }] },
-        data,
-      })
+      const rootCompanyId = await resolveAccountRootId(companyId)
+      const ids = await getAccountCompanyIds(rootCompanyId)
+      await prisma.company.updateMany({ where: { id: { in: ids } }, data })
+      // Kapatma hesabın tümüne yayıldıysa yetki de her firmada yeniden uygulanmalı;
+      // her firmanın açık kümesi KENDİ aboneliğinden üretilir.
+      for (const id of ids.filter((x) => x !== companyId)) {
+        const memberSub = await prisma.subscription.findFirst({
+          where: { companyId: id },
+          orderBy: { createdAt: "desc" },
+        })
+        await applyEntitlements(id, resolveGrantedModules(memberSub))
+      }
     } else {
       await prisma.company.update({ where: { id: companyId }, data })
     }
   }
 
-  await applyEntitlements(rootCompanyId, granted)
+  await applyEntitlements(companyId, granted)
 
   // `durable` yalnız ÜCRETLİ modüller için anlamlı: ücretsiz olanlar zaten aboneliğe
   // bağlı değil, hiçbir yeniden hesaplamada kapanmıyor.
   const needsSubscription = purchased.length > 0
   return {
-    rootCompanyId,
+    companyId,
     granted,
     durable: !needsSubscription || (!!sub && (isPaidActive(sub) || isInGracePeriod(sub))),
     suppressed,

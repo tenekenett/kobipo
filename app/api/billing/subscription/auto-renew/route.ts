@@ -6,7 +6,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isRecurringEnabled } from "@/lib/integrations/paytr/client"
 import { isAutoRenewActive } from "@/lib/billing/notice"
 import { eventDate, logSubscriptionEvent } from "@/lib/billing/events"
-import { getAccountSubscription, isInGracePeriod, isPaidActive } from "@/lib/billing/entitlements"
+import { getCompanySubscription, isInGracePeriod, isPaidActive } from "@/lib/billing/entitlements"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -49,7 +49,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       )
     }
 
-    const sub = await getAccountSubscription(companyId)
+    const sub = await getCompanySubscription(companyId)
     // Hoşgörüdeki abonelik de kapsamda: ödemesi aksamış müşterinin ilk yapacağı şey
     // otomatik yenilemeyi açmak olabilir, o kapıyı kapatmak anlamsız olurdu.
     if (!sub || !(isPaidActive(sub) || isInGracePeriod(sub))) {

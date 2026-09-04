@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { getAccountSubscription } from "@/lib/billing/entitlements"
+import { getCompanySubscription } from "@/lib/billing/entitlements"
 import { isAutoRenewActive, subscriptionNotice } from "@/lib/billing/notice"
 import { isRecurringEnabled } from "@/lib/integrations/paytr/client"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
@@ -26,7 +26,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
     if (!companyId) return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
 
     const context = await ensureCompanyAccess(companyId)
-    const sub = await getAccountSubscription(companyId)
+    const sub = await getCompanySubscription(companyId)
     // Kart saklı ve otomatik yenileme gerçekten kuruluysa "bitiyor" şeridi bastırılır:
     // sorunsuz ödeyen müşteriye her dönem kapatılamayan bir uyarı göstermek gürültüdür.
     // Çekim başarısız olursa abonelik PAST_DUE'ya düşer ve `grace` şeridi devreye girer.

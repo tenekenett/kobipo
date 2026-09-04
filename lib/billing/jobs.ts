@@ -26,7 +26,8 @@ import {
 import {
   applyEntitlements,
   getAccountCompanyIds,
-  getAccountSubscription,
+  getCompanySubscription,
+  resolveAccountRootId,
   periodEndFor,
   resolveGrantedModules,
 } from "@/lib/billing/entitlements"
@@ -122,11 +123,14 @@ export async function notifyExpiring(options: {
     if (!notice || threshold == null) continue
     matched++
 
-    // Yenileme yetkisi ADMIN'de; uyarı da onlara gider. Hesabın TAMAMI taranır (kök +
-    // şubeler + ek firmalar): abonelik kökte tutulsa da hesabın yöneticisi bir ek firmanın
-    // üyelik satırında duruyor olabilir. Yalnız köke bakmak o hesabı sessizce uyarısız
-    // bırakırdı — kapsam `canManageCompany` ile aynı eksende tutulur (CLAUDE.md).
-    const accountCompanyIds = await getAccountCompanyIds(sub.companyId)
+    // Yenileme yetkisi HESAP yöneticisindedir (satın almayı o yapar, bkz.
+    // app/api/billing/orders/route.ts), uyarı da ona gider. Abonelik artık şubede de
+    // olabildiği için önce KÖK çözülür: `getAccountCompanyIds`e şube id'si verilseydi
+    // boş liste dönerdi ve şubesi süresi dolan hesap sessizce uyarısız kalırdı.
+    // Kapsam `canManageCompany` ile aynı eksende tutulur (CLAUDE.md).
+    const accountCompanyIds = await getAccountCompanyIds(
+      await resolveAccountRootId(sub.companyId),
+    )
     const admins = await prisma.userCompany.findMany({
       where: { companyId: { in: accountCompanyIds }, role: "ADMIN" },
       select: { user: { select: { email: true, name: true } } },
@@ -456,6 +460,7 @@ export async function runReconcile(options: { now?: Date } = {}): Promise<Reconc
 
   const toExpire: string[] = []
   const toPastDue: string[] = []
+  // Süresi dolan FİRMALAR (eskiden hesap kökleriydi; abonelik firma bazına indi).
   const expiredRoots = new Set<string>()
   const events: SubscriptionEventInput[] = []
 
@@ -505,11 +510,12 @@ export async function runReconcile(options: { now?: Date } = {}): Promise<Reconc
     })
   }
 
-  // Kilitlenen her hesap kökü için modülleri yeniden çöz. En güncel abonelik hâlâ
-  // aktifse (ör. eski deneme bitti ama yeni ücretli sub var) modüller açık kalır.
-  for (const root of expiredRoots) {
-    const latest = await getAccountSubscription(root)
-    await applyEntitlements(root, resolveGrantedModules(latest, now))
+  // Kilitlenen her FİRMA için modülleri yeniden çöz. En güncel abonelik hâlâ aktifse
+  // (ör. eski deneme bitti ama yeni ücretli sub var) modüller açık kalır. Kapsam firma:
+  // şubenin süresi dolduğunda yalnız o şube kapanır, ana firma çalışmaya devam eder.
+  for (const companyId of expiredRoots) {
+    const latest = await getCompanySubscription(companyId)
+    await applyEntitlements(companyId, resolveGrantedModules(latest, now))
   }
 
   await logSubscriptionEvents(events)
@@ -571,10 +577,13 @@ export async function runArchive(options: { now?: Date } = {}): Promise<ArchiveR
     // Abonelik satırı eskimiş olabilir: hesabın EN GÜNCEL aboneliği aktifse (müşteri
     // bu arada yeni dönem başlattı) arşivlenmemeli. Bunu sormadan damgalamak, ödeyen
     // müşteriyi salt-okunura düşürürdü.
-    const latest = await getAccountSubscription(sub.companyId)
+    const latest = await getCompanySubscription(sub.companyId)
     if (!latest || latest.status !== "EXPIRED") continue
 
-    const scopeIds = await getAccountCompanyIds(sub.companyId)
+    // Kapsam FİRMA: arşiv de yetki gibi firma bazında. Ana firma ödemeye devam ederken
+    // süresi dolan şube tek başına salt-okunura geçer; eskiden kökün arşivi hesabın
+    // tamamını damgalıyordu ve artık ödeyen şubeyi de kilitlerdi.
+    const scopeIds = [sub.companyId]
     const stamped = await prisma.company.updateMany({
       where: { id: { in: scopeIds }, archivedAt: null },
       data: { archivedAt: now },

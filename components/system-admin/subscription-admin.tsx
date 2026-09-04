@@ -57,11 +57,29 @@ type Usage = {
   periodEnd: string
 }
 
+/** Hesabın bir üyesi (şube ya da ek firma) ve KENDİ aboneliği. */
+type AccountMember = {
+  id: string
+  name: string
+  branchName: string | null
+  kind: "branch" | "company"
+  lockedModules: string[]
+  subscription: {
+    status: string
+    purchasedModules: string[]
+    periodEnd: string | null
+    trialEndsAt: string | null
+    billingCycle: string | null
+  } | null
+}
+
 type Account = {
   id: string
   name: string
   slug: string
   disabledModules: string[]
+  /** Üyelerin kendi abonelikleri — abonelik firma bazında olduğu için ayrı gösterilir. */
+  members?: AccountMember[]
   /** Hesaptaki şube sayısı (aynı VKN'li ikinci adresler). */
   branchCount: number
   /** Hesaptaki ek firma sayısı (ayrı VKN'li tüzel kişiler, kök hariç). */
@@ -399,6 +417,39 @@ function AccountCard({
               <span className="inline-flex items-center gap-1 text-red-400"><Lock className="h-3 w-3" /> kilitli: {acc.disabledModules.join(", ")}</span>
             )}
           </div>
+
+          {/* ÜYELERİN KENDİ ABONELİĞİ. Abonelik firma bazında olduğu için "hesap ödedi"
+              demek yetmiyor: şube ayrı ödüyor ve ayrı kilitleniyor. Destek en çok bu
+              satırı soruyor ("şube neden kapalı"). */}
+          {acc.members && acc.members.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {acc.members.map((m) => {
+                const s = m.subscription
+                const locked = m.lockedModules.length > 0
+                return (
+                  <div key={m.id} className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-slate-500">
+                      {m.kind === "branch" ? "şube" : "ek firma"}:
+                    </span>
+                    <span className="text-slate-300">
+                      {m.branchName ? `${m.name} (${m.branchName})` : m.name}
+                    </span>
+                    {s ? (
+                      <Badge label={s.status} cls={SUB_BADGE[s.status]} />
+                    ) : (
+                      <Badge label="abonelik yok" />
+                    )}
+                    <span className="text-slate-500">
+                      {s?.periodEnd ? `bitiş ${fmtDate(s.periodEnd)}` : ""}
+                    </span>
+                    <span className={locked ? "text-red-400" : "text-emerald-400"}>
+                      {locked ? `kilitli: ${m.lockedModules.join(", ")}` : "tüm modüller açık"}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Aksiyonlar */}

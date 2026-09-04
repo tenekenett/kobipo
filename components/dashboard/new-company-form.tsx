@@ -257,7 +257,7 @@ export function NewCompanyForm() {
             {isBranch
               ? "Yeni şubenin bilgilerini doldurun. Şube, erişiminizdeki firma/şube listesine eklenir."
               : isExtraCompany
-                ? "Ayrı vergi numaralı yeni bir firma ekleyin. Aboneliğiniz ortak kalır."
+                ? "Ayrı vergi numaralı yeni bir firma ekleyin. Kendi aboneliğini satın alır."
                 : "İlk firmanızı oluşturmak için bilgileri doldurun"}
           </CardDescription>
         </CardHeader>
@@ -271,7 +271,9 @@ export function NewCompanyForm() {
                   <span className="font-semibold">{parent?.name || "ana firmaya"}</span>{" "}
                   bağlı olarak eklenir. <span className="font-semibold">Ünvan, VKN, vergi dairesi ve
                   e-Dönüşüm ayarları</span> ana firmadan devralınır — şubeyi ayırt etmek için{" "}
-                  <span className="font-semibold">Şube İsmi</span> ve adres bilgilerini girin.
+                  <span className="font-semibold">Şube İsmi</span> ve adres bilgilerini girin.{" "}
+                  <span className="font-semibold">Abonelik devralınmaz</span>: şube açıldıktan
+                  sonra kendi modüllerini satın alır (temel modüller açık gelir).
                 </p>
               </div>
             )}
@@ -282,8 +284,9 @@ export function NewCompanyForm() {
                   Bu <span className="font-semibold">ayrı bir firmadır</span>: kendi ünvanı, VKN&apos;si,
                   adresi ve e-Dönüşüm hesabı olur — şube değildir, hiçbir bilgi devralınmaz.{" "}
                   <span className="font-semibold">{accountName || "Mevcut hesabınızın"}</span>{" "}
-                  aboneliğine bağlanır; modülleriniz burada da açıktır ve tek ödeme yaparsınız.
-                  Firma kotanızdan bir hak düşer.
+                  hesabına bağlanır ve firma kotanızdan bir hak düşer;{" "}
+                  <span className="font-semibold">aboneliği ayrıdır</span> — modüllerini
+                  açıldıktan sonra kendisi satın alır (temel modüller açık gelir).
                 </p>
               </div>
             )}

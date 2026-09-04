@@ -8,7 +8,7 @@ import {
   getAccountCompanyIds,
   resolveAccountRootId,
   resolveGrantedModules,
-  setAccountModules,
+  setCompanyModules,
 } from "@/lib/billing/entitlements"
 import { TRIAL_PLAN_CODE } from "@/lib/billing/catalog"
 import {
@@ -42,19 +42,31 @@ export class BillingAdminError extends Error {
 }
 
 /** Abonelik oluştururken sahip kullanıcı: mevcut aboneliğin userId'si → yoksa ilk üye. */
-async function resolveAccountOwnerUserId(rootId: string): Promise<string | null> {
+async function resolveAccountOwnerUserId(companyId: string): Promise<string | null> {
   const existingSub = await prisma.subscription.findFirst({
-    where: { companyId: rootId },
+    where: { companyId },
     orderBy: { createdAt: "desc" },
     select: { userId: true },
   })
   if (existingSub?.userId) return existingSub.userId
   const uc = await prisma.userCompany.findFirst({
-    where: { companyId: rootId },
+    where: { companyId },
     orderBy: { createdAt: "asc" },
     select: { userId: true },
   })
-  return uc?.userId ?? null
+  if (uc?.userId) return uc.userId
+
+  // Abonelik artık ŞUBEDE de açılabiliyor ve şubenin çoğu zaman KENDİ üyesi yoktur
+  // (erişim ana firmanın ADMIN'inden gelir, bkz. lib/auth/branch-access.ts). Sahibi
+  // hesap kökünden çözmezsek "firmada kullanıcı yok" diye elle süre verilemezdi.
+  const rootId = await resolveAccountRootId(companyId)
+  if (rootId === companyId) return null
+  const rootUc = await prisma.userCompany.findFirst({
+    where: { companyId: rootId, role: "ADMIN" },
+    orderBy: { createdAt: "asc" },
+    select: { userId: true },
+  })
+  return rootUc?.userId ?? null
 }
 
 /** Deneme planı (FREE_1Y) kaydını garanti eder. */
@@ -106,7 +118,7 @@ export async function resetAccountBilling(companyId: string, mode: ResetMode) {
   // ("TÜM modüller açılacak" / "kilitlenecek") bilinen bir son durum vaat ediyor, kalan
   // bir kapatma o vaadi sessizce bozardı.
   await prisma.usageLimit.deleteMany({ where: { companyId: { in: scopeIds } } })
-  await prisma.packageOrder.deleteMany({ where: { companyId: rootId } })
+  await prisma.packageOrder.deleteMany({ where: { companyId: { in: scopeIds } } })
   await prisma.company.updateMany({
     where: { id: { in: scopeIds } },
     data: { suppressedModules: [] },
@@ -114,44 +126,51 @@ export async function resetAccountBilling(companyId: string, mode: ResetMode) {
 
   const now = new Date()
 
+  // KAPSAM: sıfırlama hesabın TÜM firmalarına işler ama artık her firmaya KENDİ abonelik
+  // satırını yazar — abonelik firma düzeyinde olduğu için yalnız köke yazmak, şubeleri
+  // kilitli bırakırdı ve "TÜM modüller açılacak" vaadi tutmazdı.
   if (mode === "trial") {
     if (!userId) throw new Error("Firmada kullanıcı yok; deneme aboneliği oluşturulamadı")
     const trialEndsAt = new Date(now)
     trialEndsAt.setFullYear(trialEndsAt.getFullYear() + 1)
     const freePlan = await upsertTrialPlan()
-    await prisma.subscription.deleteMany({ where: { companyId: rootId } })
-    await prisma.subscription.create({
-      data: {
-        userId,
-        companyId: rootId,
-        planId: freePlan.id,
-        provider: "NONE",
-        status: "TRIAL",
-        branchQuota: previousBranchQuota,
-        companyQuota: previousCompanyQuota,
-        // Açılan modüller aboneliğe de yazılır: yetkinin kaynağı `purchasedModules`tır
-        // ve yalnız `disabledModules` yazan bir override ilk yeniden hesaplamada silinir.
-        // (TRIAL durumu tanım gereği modül ÜRETMEZ; bu alan, hesap ücretliye geçtiğinde
-        // ya da elle ACTIVE'e alındığında override'ın ayakta kalmasını sağlar.)
-        purchasedModules: [...MODULE_KEYS],
-        trialEndsAt,
-        periodStart: now,
-        periodEnd: trialEndsAt,
-      },
-    })
-    // Süper-admin override: modülleri elle açar. Deneme durumu KENDİLİĞİNDEN modül
-    // vermez (bkz. resolveGrantedModules) — bu satır bilinçli bir demo/destek açmasıdır.
-    await applyEntitlements(rootId, [...MODULE_KEYS])
+    await prisma.subscription.deleteMany({ where: { companyId: { in: scopeIds } } })
+    for (const id of scopeIds) {
+      await prisma.subscription.create({
+        data: {
+          userId,
+          companyId: id,
+          planId: freePlan.id,
+          provider: "NONE",
+          status: "TRIAL",
+          // KOTA yalnız kökte tutulur: şube/ek firma açma hakkı hesap düzeyindedir ve
+          // her firmaya kopyalamak hesaba kaç şube açılabileceğini çoğaltırdı.
+          branchQuota: id === rootId ? previousBranchQuota : 0,
+          companyQuota: id === rootId ? previousCompanyQuota : 0,
+          // Açılan modüller aboneliğe de yazılır: yetkinin kaynağı `purchasedModules`tır
+          // ve yalnız `disabledModules` yazan bir override ilk yeniden hesaplamada silinir.
+          // (TRIAL durumu tanım gereği modül ÜRETMEZ; bu alan, firma ücretliye geçtiğinde
+          // ya da elle ACTIVE'e alındığında override'ın ayakta kalmasını sağlar.)
+          purchasedModules: [...MODULE_KEYS],
+          trialEndsAt,
+          periodStart: now,
+          periodEnd: trialEndsAt,
+        },
+      })
+      // Süper-admin override: modülleri elle açar. Deneme durumu KENDİLİĞİNDEN modül
+      // vermez (bkz. resolveGrantedModules) — bu satır bilinçli bir demo/destek açmasıdır.
+      await applyEntitlements(id, [...MODULE_KEYS])
+    }
   } else {
     // locked: mevcut abonelikleri EXPIRED'a çek (tarihleri geçmişe), modülleri kilitle.
     const past = new Date(now.getTime() - 24 * 60 * 60 * 1000)
     await prisma.subscription.updateMany({
-      where: { companyId: rootId },
+      where: { companyId: { in: scopeIds } },
       data: { status: "EXPIRED", trialEndsAt: past, periodEnd: past },
     })
     // Satın alınmış hiçbir modül yok → ücretli modüller kilitlenir. Ücretsiz (temel)
     // modülleri `applyEntitlements` kendisi geri açar.
-    await applyEntitlements(rootId, [])
+    for (const id of scopeIds) await applyEntitlements(id, [])
   }
 
   return { rootId, mode, scopeCompanies: scopeIds.length }
@@ -352,9 +371,12 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
     }
   }
 
-  const rootId = await resolveAccountRootId(input.companyId)
+  // Kapsam FİRMA: abonelik firma düzeyinde olduğu için elle verilen süre de düzenlenen
+  // firmaya yazılır. Eskiden hesap köküne yazılıyordu; şubeye süre vermek isteyen
+  // yönetici farkında olmadan ana firmayı uzatırdı.
+  const targetId = input.companyId
   const sub = await prisma.subscription.findFirst({
-    where: { companyId: rootId },
+    where: { companyId: targetId },
     orderBy: { createdAt: "desc" },
   })
 
@@ -410,14 +432,14 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
     })
     subscriptionId = updated.id
   } else {
-    const userId = await resolveAccountOwnerUserId(rootId)
+    const userId = await resolveAccountOwnerUserId(targetId)
     if (!userId) {
       throw new BillingAdminError("Firmada kullanıcı yok; abonelik oluşturulamadı", "NO_USER", 409)
     }
     const created = await prisma.subscription.create({
       data: {
         userId,
-        companyId: rootId,
+        companyId: targetId,
         provider: "NONE",
         purchasedModules: [],
         ...periodData,
@@ -431,12 +453,12 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
     createdSubscription = true
   }
 
-  // YETKİLER YENİDEN UYGULANIR. Modül seti verildiyse o yazılır (setAccountModules hem
+  // YETKİLER YENİDEN UYGULANIR. Modül seti verildiyse o yazılır (setCompanyModules hem
   // `purchasedModules` hem `disabledModules` yazar — yalnız birini yazmak yetkiyi ilk
   // yeniden hesaplamada sildirir, bu projede iki kez oldu). Verilmediyse aboneliğin
   // mevcut setiyle kilit AÇILIR.
   if (input.modules != null) {
-    await setAccountModules(rootId, input.modules)
+    await setCompanyModules(targetId, input.modules)
   } else {
     const fresh = await prisma.subscription.findUnique({
       where: { id: subscriptionId },
@@ -448,7 +470,7 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
         billingCycle: true,
       },
     })
-    await applyEntitlements(rootId, resolveGrantedModules(fresh))
+    await applyEntitlements(targetId, resolveGrantedModules(fresh))
   }
 
   const after = await prisma.subscription.findUnique({
@@ -472,7 +494,7 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
     try {
       const order = await prisma.packageOrder.create({
         data: {
-          companyId: rootId,
+          companyId: targetId,
           planId: after.planId,
           resolvedModules: after.purchasedModules,
           branchQuota: after.branchQuota,
@@ -507,7 +529,7 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
     } catch (error) {
       // Sipariş/fatura üretilemese bile SÜRE VERİLDİ — geri almak müşteriyi kapı
       // dışında bırakırdı. Hata uyarı olarak yukarı taşınır, sessizce yutulmaz.
-      console.error(`[billing-grant] elle tahsilat siparişi oluşturulamadı (${rootId}):`, error)
+      console.error(`[billing-grant] elle tahsilat siparişi oluşturulamadı (${targetId}):`, error)
     }
   }
 
@@ -533,7 +555,7 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
 
   await logSubscriptionEvent({
     type: "MANUAL_GRANT",
-    companyId: rootId,
+    companyId: targetId,
     subscriptionId,
     actor: "ADMIN",
     actorUserId: input.actorUserId ?? null,
@@ -563,7 +585,9 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
   })
 
   return {
-    rootId,
+    // Alan adı `rootId` KALDI (uç ve arayüz onu okuyor) ama artık düzenlenen FİRMA'yı
+    // gösteriyor: abonelik firma düzeyinde.
+    rootId: targetId,
     subscriptionId,
     createdSubscription,
     previousStatus,

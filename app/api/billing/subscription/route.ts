@@ -10,7 +10,7 @@ import { EVENT_LABELS, getSubscriptionEvents, type SubscriptionEventType } from 
 import { isAutoRenewActive, subscriptionNotice } from "@/lib/billing/notice"
 import {
   getAccountQuotas,
-  getAccountSubscription,
+  getCompanySubscription,
   isInGracePeriod,
   isPaidActive,
   isTrialActive,
@@ -31,7 +31,8 @@ export const dynamic = "force-dynamic"
  * nerede. İkisini tek uçta birleştirmek, her satın alma turunda sipariş geçmişini ve
  * olay günlüğünü de çekmek demek olurdu.
  *
- * Hepsi HESAP (kök firma) düzeyindedir — abonelik şubede değil kökte durur.
+ * Abonelik FİRMA düzeyindedir (şube kendi satırını taşır); yalnız KOTA hesap kökünden
+ * okunur — şube/ek firma açma hakkı orada tutulur.
  */
 export const GET = withApiErrors(async function GET(request: Request) {
   try {
@@ -43,17 +44,26 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     const access = await ensureCompanyAccess(companyId)
     const rootId = await resolveAccountRootId(companyId)
+    const isAccountAdmin =
+      rootId === companyId ||
+      user.isSuperAdmin ||
+      (await prisma.userCompany.findFirst({
+        where: { userId: user.id, companyId: rootId, role: "ADMIN" },
+        select: { id: true },
+      })) != null
 
     const recurringEnabled = isRecurringEnabled()
     const [sub, quotas, pricing, orders, events] = await Promise.all([
-      getAccountSubscription(rootId),
+      getCompanySubscription(companyId),
       getAccountQuotas(rootId),
       prisma.pricingItem.findMany({ select: { key: true, isFree: true, isActive: true } }),
       // ÖDEME GEÇMİŞİ: bekleyen sipariş "geçmiş" değildir — kullanıcı ödemeyi yarıda
       // bıraktıysa listede "ödeme" gibi durmamalı. Başarısız/iptal olanlar KALIR:
       // "param gitti mi" sorusunun cevabı da bu listede aranıyor.
       prisma.packageOrder.findMany({
-        where: { companyId: rootId, status: { in: ["ACTIVE", "FAILED", "CANCELLED"] } },
+        // Sipariş ve olaylar da FİRMANIN: şube kendi ödemesini yapıyor, ana firmanın
+        // ödeme geçmişini görmesi (ya da tersi) yanlış olurdu.
+        where: { companyId, status: { in: ["ACTIVE", "FAILED", "CANCELLED"] } },
         orderBy: { createdAt: "desc" },
         take: 24,
         select: {
@@ -74,7 +84,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
           invoice: { select: { status: true, invoiceNo: true, eDocumentNo: true } },
         },
       }),
-      getSubscriptionEvents(rootId, 20),
+      getSubscriptionEvents(companyId, 20),
     ])
 
     const free = freeModulesFromPricingItems(pricing)
@@ -95,7 +105,11 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     return NextResponse.json({
       // Aboneliğe dokunan her işlem (iptal, otomatik yenileme, satın alma) ADMIN'in işi.
-      canManage: access.role === "ADMIN",
+      // Aboneliği YÖNETME (yenilemeyi kapatma, iptal) yetkisi hesap yöneticisinindir.
+      // Abonelik firma bazına indi ama ödemeyi hesabın sahibi yapıyor
+      // (app/api/billing/orders/route.ts); şubeye atanmış bir ADMIN ana firmanın
+      // ödemesini yönetememeli — ekranı görür, düğmeleri kapalıdır.
+      canManage: access.role === "ADMIN" && (rootId === companyId || isAccountAdmin),
       // Otomatik yenileme ürünü hesapta kapalıysa ekran "kart sakla" vaadi vermemeli.
       recurringEnabled,
       subscription: sub

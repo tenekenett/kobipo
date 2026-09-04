@@ -1,23 +1,29 @@
 /**
- * UÇTAN UCA: firma bazında elle modül kapatma (`Company.suppressedModules`).
+ * UÇTAN UCA: FİRMA BAZLI abonelik + firma bazında elle modül kapatma.
  *
  *   npx tsx scripts/test-modul-kapatma.ts
  *
- * Neden betik: kuralın saf kısmı vitest'te (lib/modules.test.ts,
- * lib/billing/free-modules-sync.test.ts) ama asıl soru DB'de cevaplanıyor — "yetki
- * yeniden hesaplandığında kapatma ayakta kalıyor mu". Bu, ekranın bugüne kadarki
- * hatasının tam olarak yaşandığı yer; regresyonu ancak gerçek yazma yolu yakalar.
+ * İki kuralı birlikte sınar, çünkü ikisi de aynı yerde (`applyEntitlements`) buluşuyor:
+ *
+ *   1. YETKİ GEÇMEZ (2026-09-04 modeli): her firma — kök, şube, ek firma — kendi
+ *      aboneliğini satın alır. Ana firmanın ödemesi şubeyi açmaz, şubenin süresi
+ *      dolduğunda ana firma kapanmaz.
+ *   2. ELLE KAPATMA: ücretsiz modül firma bazında kapatılabilir ve yetki her yeniden
+ *      hesaplandığında (reconcile, yenileme) KAPALI kalır.
+ *
+ * Neden betik: saf kısım vitest'te (lib/modules.test.ts, lib/billing/free-modules-sync.test.ts)
+ * ama asıl soru DB'de cevaplanıyor — yazma yolunun kendisi doğru mu.
  *
  * CANLI veritabanında koşar ama YALNIZ kendi yarattığı geçici kayıtlara dokunur
  * (`zz-e2e-` slug öneki) ve sonunda siler. Gerçek firmaların modül alanları baştan ve
  * sondan alınan parmak iziyle karşılaştırılır; betik onlara dokunursa test kalır.
  */
 import { prisma } from "@/lib/db/prisma"
-import { MODULE_KEYS, planCompanyModuleUpdate } from "@/lib/modules"
+import { MODULE_KEYS, defaultDisabledModules, planCompanyModuleUpdate } from "@/lib/modules"
 import {
   applyEntitlements,
   resolveGrantedModules,
-  setAccountModules,
+  setCompanyModules,
 } from "@/lib/billing/entitlements"
 import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 
@@ -47,13 +53,29 @@ async function state(id: string) {
   return { disabled: sorted(c.disabledModules), suppressed: sorted(c.suppressedModules) }
 }
 
-async function purchased(rootId: string) {
-  const s = await prisma.subscription.findFirstOrThrow({
-    where: { companyId: rootId },
+async function purchased(companyId: string) {
+  const s = await prisma.subscription.findFirst({
+    where: { companyId },
     orderBy: { createdAt: "desc" },
     select: { purchasedModules: true },
   })
-  return sorted(s.purchasedModules)
+  return s ? sorted(s.purchasedModules) : null
+}
+
+/** Aboneliğin BUGÜN verdiği modüllerle yetkiyi yeniden uygular — reconcile deseni. */
+async function recompute(companyId: string) {
+  const sub = await prisma.subscription.findFirst({
+    where: { companyId },
+    orderBy: { createdAt: "desc" },
+    select: {
+      status: true,
+      purchasedModules: true,
+      trialEndsAt: true,
+      periodEnd: true,
+      billingCycle: true,
+    },
+  })
+  await applyEntitlements(companyId, resolveGrantedModules(sub))
 }
 
 /** Gerçek firmaların modül alanlarının parmak izi — betik bunları BOZMAMALI. */
@@ -71,6 +93,7 @@ async function fingerprint() {
 async function main() {
   const free = await getFreeModuleKeys()
   const paid = MODULE_KEYS.filter((k) => !free.includes(k))
+  const lockedAtBirth = sorted(defaultDisabledModules(free))
   console.log(`ücretsiz modüller: [${free.join(", ")}]`)
   console.log(`ücretli modüller : [${paid.join(", ")}]\n`)
   if (!free.includes("hr") || !free.includes("stock") || !paid.includes("restaurant")) {
@@ -82,7 +105,7 @@ async function main() {
 
   const before = await fingerprint()
 
-  // --- kurulum: kök firma + şube + ACTIVE abonelik (restaurant satın alınmış) --------
+  // --- kurulum: kök firma + şube. Abonelik YALNIZ KÖKTE. ---------------------------
   const user = await prisma.user.create({
     data: { email: `zz-e2e-${STAMP}@kobipo.test`, name: "ZZ E2E", password: "x" },
     select: { id: true },
@@ -94,12 +117,13 @@ async function main() {
       name: "ZZ-E2E KÖK FİRMA",
       slug: `zz-e2e-${STAMP}-kok`,
       taxNumber: `9${STAMP}9`,
-      disabledModules: [],
+      disabledModules: defaultDisabledModules(free),
     },
     select: { id: true },
   })
   ids.companies.push(root.id)
 
+  // Şube `createCompany` ile aynı şekilde doğar: ücretsizler açık, ücretliler kilitli.
   const branch = await prisma.company.create({
     data: {
       name: "ZZ-E2E KÖK FİRMA",
@@ -107,69 +131,75 @@ async function main() {
       slug: `zz-e2e-${STAMP}-sube`,
       parentCompanyId: root.id,
       accountRootId: root.id,
-      disabledModules: [],
+      disabledModules: defaultDisabledModules(free),
     },
     select: { id: true },
   })
   ids.companies.push(branch.id)
 
-  const sub = await prisma.subscription.create({
-    data: {
-      userId: user.id,
-      companyId: root.id,
-      status: "ACTIVE",
-      billingCycle: "MONTHLY",
-      purchasedModules: ["restaurant"],
-      periodStart: new Date(),
-      periodEnd: new Date(Date.now() + 30 * 24 * 3600 * 1000),
-      branchQuota: 3,
-    },
-    select: { id: true },
+  const activePeriod = {
+    status: "ACTIVE",
+    billingCycle: "MONTHLY",
+    periodStart: new Date(),
+    periodEnd: new Date(Date.now() + 30 * 24 * 3600 * 1000),
+  }
+  await prisma.subscription.create({
+    data: { userId: user.id, companyId: root.id, purchasedModules: ["restaurant"], branchQuota: 3, ...activePeriod },
   })
 
-  const grantNow = async () => {
-    const s = await prisma.subscription.findUniqueOrThrow({
-      where: { id: sub.id },
-      select: {
-        status: true,
-        purchasedModules: true,
-        trialEndsAt: true,
-        periodEnd: true,
-        billingCycle: true,
-      },
-    })
-    return resolveGrantedModules(s)
-  }
-
-  console.log("1) Başlangıç: abonelik uygulanır (ücretsizler + satın alınan restaurant)")
-  await applyEntitlements(root.id, await grantNow())
+  console.log("1) Kök Restoran'ı satın aldı; şube hiçbir şey almadı")
+  await recompute(root.id)
+  await recompute(branch.id)
   check("kök: hiçbir modül kapalı değil", (await state(root.id)).disabled, [])
-  check("şube: hiçbir modül kapalı değil", (await state(branch.id)).disabled, [])
+  check("ŞUBE: yetki GEÇMEDİ — ücretliler kapalı", (await state(branch.id)).disabled, lockedAtBirth)
+  check("şube: ücretsizler yine de açık", lockedAtBirth.includes("hr"), false)
+  check("şube: kendi aboneliği yok", await purchased(branch.id), null)
 
-  console.log("\n2) Admin ŞUBEDE ücretsiz 'Personel'i kapatır (kapsam: yalnız firma)")
+  console.log("\n2) Şube KENDİ aboneliğini alır (Restoran)")
+  await prisma.subscription.create({
+    data: { userId: user.id, companyId: branch.id, purchasedModules: ["restaurant"], branchQuota: 0, ...activePeriod },
+  })
+  await recompute(branch.id)
+  check("şube: kendi ödemesiyle açıldı", (await state(branch.id)).disabled, [])
+  check("kök: etkilenmedi", (await state(root.id)).disabled, [])
+
+  console.log("\n3) Şubenin süresi doldu — ana firma çalışmaya DEVAM etmeli")
+  const past = new Date(Date.now() - 24 * 3600 * 1000)
+  await prisma.subscription.updateMany({
+    where: { companyId: branch.id },
+    data: { status: "EXPIRED", periodEnd: past },
+  })
+  await recompute(branch.id)
+  await recompute(root.id)
+  check("şube: ücretli modüller kapandı", (await state(branch.id)).disabled, lockedAtBirth)
+  check("kök: hâlâ açık", (await state(root.id)).disabled, [])
+
+  // Şube yeniden abone olur; kalan adımlar onun üstünde yürüyor.
+  await prisma.subscription.updateMany({
+    where: { companyId: branch.id },
+    data: { status: "ACTIVE", periodEnd: new Date(Date.now() + 30 * 24 * 3600 * 1000) },
+  })
+  await recompute(branch.id)
+
+  console.log("\n4) Admin ŞUBEDE ücretsiz 'Personel'i kapatır (kapsam: yalnız firma)")
   {
     const plan = planCompanyModuleUpdate(["hr"], free)
     check("karar: suppressed", plan.suppressed, ["hr"])
-    check("karar: hr yetkiden düşmez", plan.granted.includes("hr"), true)
-    await setAccountModules(branch.id, plan.granted, { modules: plan.suppressed, scope: "company" })
+    await setCompanyModules(branch.id, plan.granted, { modules: plan.suppressed, scope: "company" })
     check("şube: hr kapalı", (await state(branch.id)).disabled, ["hr"])
     check("şube: kalıcı kapatma yazıldı", (await state(branch.id)).suppressed, ["hr"])
     check("kök: etkilenmedi", (await state(root.id)).disabled, [])
-    check("kök: kapatma yok", (await state(root.id)).suppressed, [])
-    check("abonelik: restaurant duruyor", await purchased(root.id), ["restaurant"])
+    check("şube aboneliği: restoran duruyor", await purchased(branch.id), ["restaurant"])
   }
 
-  console.log("\n3) ASIL SINAV — yetki yeniden hesaplanır (reconcile / dönem yenileme)")
-  await applyEntitlements(root.id, await grantNow())
-  check("şube: hr HÂLÂ kapalı (eskiden burada geri açılıyordu)", (await state(branch.id)).disabled, [
-    "hr",
-  ])
-  check("kök: hâlâ tamamen açık", (await state(root.id)).disabled, [])
+  console.log("\n5) ASIL SINAV — yetki yeniden hesaplanır (reconcile / dönem yenileme)")
+  await recompute(branch.id)
+  check("şube: hr HÂLÂ kapalı", (await state(branch.id)).disabled, ["hr"])
 
-  console.log("\n4) Şubede ücretsiz 'Stok' da kapatılır — ÖDENMİŞ Restoran ne olur?")
+  console.log("\n6) Şubede ücretsiz 'Stok' da kapatılır — ÖDENMİŞ Restoran ne olur?")
   {
     const plan = planCompanyModuleUpdate(["hr", "stock"], free)
-    await setAccountModules(branch.id, plan.granted, { modules: plan.suppressed, scope: "company" })
+    await setCompanyModules(branch.id, plan.granted, { modules: plan.suppressed, scope: "company" })
     check("şube: stok + zincirle restoran kapalı", (await state(branch.id)).disabled, [
       "hr",
       "restaurant",
@@ -179,42 +209,37 @@ async function main() {
       "hr",
       "stock",
     ])
+    check("şube aboneliği: restoran yetkisi İPTAL EDİLMEDİ", await purchased(branch.id), [
+      "restaurant",
+    ])
     check("kök: restoran AÇIK kaldı", (await state(root.id)).disabled, [])
-    check("abonelik: restoran yetkisi İPTAL EDİLMEDİ", await purchased(root.id), ["restaurant"])
   }
 
-  console.log("\n5) Kökte ÜCRETLİ 'Restoran' kapatılır — hesabın tümünü etkilemeli")
+  console.log("\n7) Şubede ÜCRETLİ 'Restoran' kapatılır — yalnız ŞUBENİN yetkisi kalkar")
   {
     const plan = planCompanyModuleUpdate(["restaurant"], free)
     check("karar: kapatma kaydı yok (ücretli)", plan.suppressed, [])
-    await setAccountModules(root.id, plan.granted, { modules: plan.suppressed, scope: "company" })
-    check("abonelik: satın alma yetkisi kalktı", await purchased(root.id), [])
-    check("kök: restoran kapalı", (await state(root.id)).disabled, ["restaurant"])
-    check("şube: kendi kapatmaları duruyor", (await state(branch.id)).disabled, [
-      "hr",
-      "restaurant",
-      "stock",
-    ])
+    await setCompanyModules(branch.id, plan.granted, { modules: plan.suppressed, scope: "company" })
+    check("şube aboneliği: satın alma yetkisi kalktı", await purchased(branch.id), [])
+    check("kök aboneliği: DOKUNULMADI", await purchased(root.id), ["restaurant"])
+    check("kök: restoran hâlâ açık", (await state(root.id)).disabled, [])
   }
 
-  console.log("\n6) Kapsam 'hesabın tümü': kökten kapatma şubeye de yayılır")
+  console.log("\n8) Kapsam 'hesabın tümü': kapatma her firmaya yayılır")
   {
     const plan = planCompanyModuleUpdate(["reports"], free)
-    await setAccountModules(root.id, plan.granted, { modules: plan.suppressed, scope: "account" })
+    await setCompanyModules(root.id, plan.granted, { modules: plan.suppressed, scope: "account" })
     check("kök: reports kapalı", (await state(root.id)).disabled, ["reports"])
-    check("kök: kapatma kaydı", (await state(root.id)).suppressed, ["reports"])
-    check("şube: kapatma kaydı ÜZERİNE YAZILDI", (await state(branch.id)).suppressed, ["reports"])
-    check("şube: reports kapalı, eski kapatmalar kalktı", (await state(branch.id)).disabled, [
+    check("şube: kapatma kaydı yayıldı", (await state(branch.id)).suppressed, ["reports"])
+    // Şube kendi aboneliğinden üretiliyor: 7. adımda restoranı düştüğü için kapalı.
+    check("şube: reports + restoran kapalı", (await state(branch.id)).disabled, [
       "reports",
+      "restaurant",
     ])
   }
 
-  console.log("\n7) Yeni şube kökün kapatmasını devralır (createCompany deseni)")
+  console.log("\n9) Yeni şube KİLİTLİ doğar (createCompany deseni)")
   {
-    const parent = await prisma.company.findUniqueOrThrow({
-      where: { id: root.id },
-      select: { disabledModules: true, suppressedModules: true },
-    })
     const child = await prisma.company.create({
       data: {
         name: "ZZ-E2E KÖK FİRMA",
@@ -222,31 +247,16 @@ async function main() {
         slug: `zz-e2e-${STAMP}-yeni`,
         parentCompanyId: root.id,
         accountRootId: root.id,
-        disabledModules: parent.disabledModules,
-        suppressedModules: parent.suppressedModules,
+        disabledModules: defaultDisabledModules(free),
       },
       select: { id: true },
     })
     ids.companies.push(child.id)
-    await applyEntitlements(root.id, await grantNow())
-    check("yeni şube: reports kapalı doğdu ve kapalı kaldı", (await state(child.id)).disabled, [
-      "reports",
-    ])
+    await recompute(child.id)
+    check("yeni şube: ücretliler kapalı, ücretsizler açık", (await state(child.id)).disabled, lockedAtBirth)
   }
 
-  console.log("\n8) Kapatma geri alınır (admin anahtarı tekrar açar)")
-  {
-    const plan = planCompanyModuleUpdate([], free)
-    await setAccountModules(root.id, plan.granted, { modules: [], scope: "account" })
-    check("kök: kapatma kaydı temizlendi", (await state(root.id)).suppressed, [])
-    check("şube: kapatma kaydı temizlendi", (await state(branch.id)).suppressed, [])
-    // Restoran 5. adımda yetkiden düşmüştü; burada elle yeniden verildi.
-    check("abonelik: restoran yeniden verildi", await purchased(root.id), ["restaurant"])
-    check("kök: her şey açık", (await state(root.id)).disabled, [])
-    check("şube: her şey açık", (await state(branch.id)).disabled, [])
-  }
-
-  console.log("\n9) Gerçek firmalara dokunulmadı mı?")
+  console.log("\n10) Gerçek firmalara dokunulmadı mı?")
   check("diğer firmaların modül alanları değişmedi", (await fingerprint()) === before, true)
 }
 

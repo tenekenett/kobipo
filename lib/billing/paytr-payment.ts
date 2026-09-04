@@ -14,7 +14,11 @@ import {
   type BillingCycle,
 } from "@/lib/billing/constants"
 import { parsePriceLines } from "@/lib/billing/order-lines"
-import { applyEntitlements, periodEndFor } from "@/lib/billing/entitlements"
+import {
+  applyEntitlements,
+  periodEndFor,
+  resolveAccountRootId,
+} from "@/lib/billing/entitlements"
 import { eventDate, logSubscriptionEvent } from "@/lib/billing/events"
 import { issueInvoiceQuietly } from "@/lib/invoicing/issue-sales-invoice"
 import type { NotificationResult, PaytrNotification } from "@/lib/integrations/paytr/notification"
@@ -384,10 +388,16 @@ export async function activateSubscription(order: PackageOrder, card: SavedCard 
   }
 
   // Subscription.userId zorunlu: sipariş sahibi yoksa hesabın ilk ADMIN'ine bağla.
+  //
+  // Arama ŞUBEDE bitmez, HESAP KÖKÜNE kadar gider: abonelik firma bazına indiğinden
+  // sipariş artık şubeye de yazılıyor ve şubenin çoğu zaman kendi üyesi yoktur (erişim
+  // ana firmanın ADMIN'inden gelir, bkz. lib/auth/branch-access.ts). Yalnız şubeye
+  // bakılsaydı ÖDEME ALINMIŞ bir sipariş "kullanıcı yok" diye yazılamadan dönerdi.
   let userId = order.createdById ?? existing?.userId ?? null
   if (!userId) {
+    const rootId = await resolveAccountRootId(order.companyId)
     const admin = await prisma.userCompany.findFirst({
-      where: { companyId: order.companyId, role: "ADMIN" },
+      where: { companyId: { in: [order.companyId, rootId] }, role: "ADMIN" },
       orderBy: { createdAt: "asc" },
       select: { userId: true },
     })

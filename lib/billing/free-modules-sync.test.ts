@@ -38,8 +38,8 @@ describe("freeModuleDelta", () => {
 
 describe("planFreeModuleSync — açılma", () => {
   const companies: SyncCompanyView[] = [
-    { id: "kok", accountRootId: null, disabledModules: allLocked() },
-    { id: "sube", accountRootId: "kok", disabledModules: allLocked() },
+    { id: "kok", disabledModules: allLocked() },
+    { id: "sube", disabledModules: allLocked() },
   ]
 
   it("yeni ücretsiz modül hesabın TÜM firmalarında açılır", () => {
@@ -55,7 +55,7 @@ describe("planFreeModuleSync — açılma", () => {
 
   it("zaten açıksa firma listeye girmez (gereksiz yazma yok)", () => {
     const open: SyncCompanyView[] = [
-      { id: "a", accountRootId: null, disabledModules: MODULE_KEYS.filter((k) => k !== "sales") },
+      { id: "a", disabledModules: MODULE_KEYS.filter((k) => k !== "sales") },
     ]
     expect(planFreeModuleSync(open, new Map(), freeModuleDelta([], ["sales"]))).toEqual([])
   })
@@ -67,7 +67,6 @@ describe("planFreeModuleSync — kapanma", () => {
   const companies: SyncCompanyView[] = [
     {
       id: "kok",
-      accountRootId: null,
       disabledModules: MODULE_KEYS.filter((k) => k !== "sales"),
     },
   ]
@@ -88,14 +87,28 @@ describe("planFreeModuleSync — kapanma", () => {
     expect(updates).toEqual([])
   })
 
-  it("şube, KÖKÜN satın alımına bakar", () => {
+  it("şube KENDİ satın alımına bakar — kökün hakkı şubeyi korumaz", () => {
+    // Abonelik firma bazına indi: kök `sales`i satın almış olsa da şube almadıysa,
+    // ücretsizlik kalkınca şubede KAPANIR. Eski model kökün hakkını şubeye taşıyordu.
     const withBranch: SyncCompanyView[] = [
-      ...companies,
-      { id: "sube", accountRootId: "kok", disabledModules: MODULE_KEYS.filter((k) => k !== "sales") },
+      { id: "sube", disabledModules: MODULE_KEYS.filter((k) => k !== "sales") },
     ]
     const updates = planFreeModuleSync(
       withBranch,
       granted("kok", ["sales"]),
+      freeModuleDelta(["sales"], []),
+    )
+    expect(updates).toHaveLength(1)
+    expect(updates[0].disabledModules).toContain("sales")
+  })
+
+  it("KENDİ satın alımı olan şubede modül açık kalır", () => {
+    const withBranch: SyncCompanyView[] = [
+      { id: "sube", disabledModules: MODULE_KEYS.filter((k) => k !== "sales") },
+    ]
+    const updates = planFreeModuleSync(
+      withBranch,
+      granted("sube", ["sales"]),
       freeModuleDelta(["sales"], []),
     )
     expect(updates).toEqual([])
@@ -108,14 +121,14 @@ describe("planFreeModuleSync — yönetilmeyen satırlar (canlı regresyon)", ()
   // "Satın almamışsan kapat" kuralı bu firmalarda, hiç ücretsiz almadıkları bir modülü
   // kapatıyordu — ölçüldüğünde 25 firma etkileniyordu.
   it("her şeyi açık gelen ESKİ hesapta ücretsizlik geri alınınca modül KAPANMAZ", () => {
-    const legacy: SyncCompanyView[] = [{ id: "eski", accountRootId: null, disabledModules: [] }]
+    const legacy: SyncCompanyView[] = [{ id: "eski", disabledModules: [] }]
     expect(planFreeModuleSync(legacy, new Map(), freeModuleDelta(["hr"], []))).toEqual([])
   })
 
   it("elle düzenlenmiş (yönetilmeyen) satıra da dokunulmaz", () => {
     // Yalnız restaurant kapalı: ücretsiz küme ["hr"] iken applyEntitlements bunu yazmazdı.
     const manual: SyncCompanyView[] = [
-      { id: "elle", accountRootId: null, disabledModules: ["restaurant"] },
+      { id: "elle", disabledModules: ["restaurant"] },
     ]
     expect(planFreeModuleSync(manual, new Map(), freeModuleDelta(["hr"], []))).toEqual([])
   })
@@ -123,7 +136,7 @@ describe("planFreeModuleSync — yönetilmeyen satırlar (canlı regresyon)", ()
   it("YÖNETİLEN satırda kapanma yine çalışır (kilitli hesap ücretsiz hr almıştı)", () => {
     // Ücretsiz küme ["hr"] iken kilitli hesabın hâli: hr hariç hepsi kapalı.
     const managed: SyncCompanyView[] = [
-      { id: "kilitli", accountRootId: null, disabledModules: MODULE_KEYS.filter((k) => k !== "hr") },
+      { id: "kilitli", disabledModules: MODULE_KEYS.filter((k) => k !== "hr") },
     ]
     const updates = planFreeModuleSync(managed, new Map(), freeModuleDelta(["hr"], []))
     expect(updates).toHaveLength(1)
@@ -132,7 +145,7 @@ describe("planFreeModuleSync — yönetilmeyen satırlar (canlı regresyon)", ()
 
   it("AÇMA yönetilmeyen satırda da çalışır — ücretsizlik herkese", () => {
     const legacy: SyncCompanyView[] = [
-      { id: "eski", accountRootId: null, disabledModules: ["restaurant", "hr"] },
+      { id: "eski", disabledModules: ["restaurant", "hr"] },
     ]
     const updates = planFreeModuleSync(legacy, new Map(), freeModuleDelta([], ["hr"]))
     expect(updates).toHaveLength(1)
@@ -146,7 +159,6 @@ describe("planFreeModuleSync — kapsam", () => {
     const company: SyncCompanyView[] = [
       {
         id: "a",
-        accountRootId: null,
         disabledModules: MODULE_KEYS.filter((k) => k !== "finance"),
       },
     ]
@@ -157,7 +169,7 @@ describe("planFreeModuleSync — kapsam", () => {
 
   it("delta boşsa hiçbir firma yazılmaz", () => {
     const company: SyncCompanyView[] = [
-      { id: "a", accountRootId: null, disabledModules: allLocked() },
+      { id: "a", disabledModules: allLocked() },
     ]
     expect(planFreeModuleSync(company, new Map(), freeModuleDelta(["sales"], ["sales"]))).toEqual([])
   })
@@ -168,8 +180,8 @@ describe("planFreeModuleSync — elle kapatılmış modüller", () => {
     // Kapatmanın tüm anlamı bu: sistem yöneticisinin kararı fiyat düzenlemesiyle
     // sessizce geri alınamaz.
     const companies: SyncCompanyView[] = [
-      { id: "kapali", accountRootId: null, disabledModules: allLocked(), suppressedModules: ["hr"] },
-      { id: "normal", accountRootId: null, disabledModules: allLocked() },
+      { id: "kapali", disabledModules: allLocked(), suppressedModules: ["hr"] },
+      { id: "normal", disabledModules: allLocked() },
     ]
     const updates = planFreeModuleSync(companies, new Map(), freeModuleDelta([], ["hr"]))
     expect(updates.map((u) => u.id)).toEqual(["normal"])
@@ -178,7 +190,7 @@ describe("planFreeModuleSync — elle kapatılmış modüller", () => {
 
   it("aynı firmanın DİĞER modülleri normal açılır", () => {
     const companies: SyncCompanyView[] = [
-      { id: "kapali", accountRootId: null, disabledModules: allLocked(), suppressedModules: ["hr"] },
+      { id: "kapali", disabledModules: allLocked(), suppressedModules: ["hr"] },
     ]
     const updates = planFreeModuleSync(companies, new Map(), freeModuleDelta([], ["hr", "sales"]))
     expect(updates).toHaveLength(1)
@@ -190,7 +202,7 @@ describe("planFreeModuleSync — elle kapatılmış modüller", () => {
     // Kayıt kalsaydı hesap o modülü sonradan satın aldığında kapatma yetkiyi yer;
     // müşteri kullanamadığı bir modüle ödeme yapmış olurdu.
     const companies: SyncCompanyView[] = [
-      { id: "kapali", accountRootId: null, disabledModules: allLocked(), suppressedModules: ["hr"] },
+      { id: "kapali", disabledModules: allLocked(), suppressedModules: ["hr"] },
     ]
     const updates = planFreeModuleSync(companies, granted("kapali", []), freeModuleDelta(["hr"], []))
     expect(updates).toHaveLength(1)
@@ -204,7 +216,6 @@ describe("planFreeModuleSync — elle kapatılmış modüller", () => {
     const companies: SyncCompanyView[] = [
       {
         id: "kapali",
-        accountRootId: null,
         // free = [hr, sales], hr elle kapatılmış → yalnız sales açık.
         disabledModules: MODULE_KEYS.filter((k) => k !== "sales"),
         suppressedModules: ["hr"],

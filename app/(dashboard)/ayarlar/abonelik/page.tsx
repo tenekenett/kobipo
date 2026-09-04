@@ -86,6 +86,15 @@ type Catalog = {
    * "Ücretsiz ✓" olarak durmaları müşteriye olmayan bir modülü vaat ederdi.
    */
   suppressedModules: string[]
+  /**
+   * Bu firma hesabın KÖKÜ mü? Kota (şube/ek firma açma hakkı) yalnız kökten satın
+   * alınır; şube ve ek firma bu ekrandan yalnız KENDİ modül aboneliğini alır.
+   */
+  isAccountRoot: boolean
+  /** Bu kullanıcı bu firma için ödeme yapabilir mi? (hesap yöneticisi) */
+  canPurchase: boolean
+  /** Hesap kökünün adı — şubede "kotayı ana firmadan alın" cümlesinde geçer. */
+  accountName: string | null
   subscription: CatalogSubscription
   currentBranches: number
   currentCompanies: number
@@ -323,8 +332,11 @@ export default function AbonelikPage() {
       computeOrder({
         plan: selectedPlan ? toPlanPricing(selectedPlan) : null,
         chosenModules: Array.from(extras),
-        branchQuota: includedBranches + branchExtras,
-        companyQuota: includedCompanies + companyExtras,
+        // Şube ve ek firma kota SATIN ALAMAZ (uç 400 döner): hesap ağacı sonsuza
+        // dallanmasın diye açma hakkı yalnız kökten alınıyor. Sıfırlamak ekranı
+        // gizlemekten fazlası — paket kotayla gelse bile tutara girmemeli.
+        branchQuota: catalog?.isAccountRoot ? includedBranches + branchExtras : 0,
+        companyQuota: catalog?.isAccountRoot ? includedCompanies + companyExtras : 0,
         billingCycle: cycle,
         pricing: pricingMap,
         // Ön izleme sunucunun hesabıyla aynı kalsın diye ücretsiz küme buraya da girer;
@@ -452,6 +464,10 @@ export default function AbonelikPage() {
   const canPay =
     !topUp?.blocked &&
     !!catalog?.paytrEnabled &&
+    // Ödemeyi hesap yöneticisi yapar; şubeye atanmış ADMIN ekranı görür ama ödeyemez
+    // (uç da 403 döner — düğmeyi açık bırakmak kullanıcıyı formu doldurtup duvara
+    // çarptırırdı).
+    catalog?.canPurchase !== false &&
     computed.amount > 0 &&
     (computed.resolvedModules.length > 0 ||
       computed.branchQuota > 0 ||
@@ -562,8 +578,9 @@ export default function AbonelikPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Abonelik</h1>
         <p className="text-sm text-muted-foreground">
-          Paket seçin veya modülleri tek tek satın alın. Seçtiğiniz modüller ana firma, tüm
-          şubeleriniz ve hesabınıza bağlı ek firmalar için açılır.
+          Paket seçin veya modülleri tek tek satın alın. Seçtiğiniz modüller{" "}
+          <strong>yalnız bu firma</strong> için açılır — şubeler ve hesabınıza bağlı ek
+          firmalar kendi aboneliklerini alır.
         </p>
       </div>
 
@@ -730,7 +747,20 @@ export default function AbonelikPage() {
       {/* KOTALAR — şube ve firma AYRI havuzlardır, biri diğerinin yerine geçmez.
           Sayaç EK adedi sorar, toplamı değil: "3 şube dahil" yazan bir pakette toplam
           sorulunca müşteri hangi kısmın ücretli olduğunu göremiyordu. Kırılım
-          (dahil / ek / toplam) her satırın altında açıkça basılır. */}
+          (dahil / ek / toplam) her satırın altında açıkça basılır.
+
+          YALNIZ HESAP KÖKÜNDE: şube ya da ek firma kendi şubesini açamaz (hesap ağacı
+          sonsuza dallanırdı) ve kota tek havuz olarak kökün aboneliğinde durur. Uç da
+          aynı kuralı zorluyor — burada gizlemek yetmez. */}
+      {!catalog.isAccountRoot ? (
+        <Card>
+          <CardContent className="py-4 text-sm text-muted-foreground">
+            Şube ve ek firma kotası yalnızca ana firmadan
+            {catalog.accountName ? ` (${catalog.accountName})` : ""} satın alınır. Bu
+            ekrandan bu firmanın kendi modül aboneliğini alırsınız.
+          </CardContent>
+        </Card>
+      ) : (
       <Card>
         <CardContent className="divide-y py-0">
           <QuotaRow
@@ -738,7 +768,8 @@ export default function AbonelikPage() {
             description={
               <>
                 Aynı firmanın <strong>ikinci adresi</strong> (aynı VKN). Ünvan, vergi dairesi
-                ve e-Dönüşüm hesabı ana firmadan devralınır.
+                ve e-Dönüşüm hesabı ana firmadan devralınır; <strong>abonelik devralınmaz</strong>
+                — şube kendi modüllerini satın alır.
               </>
             }
             unitLabel="şube"
@@ -757,8 +788,8 @@ export default function AbonelikPage() {
             description={
               <>
                 <strong>Ayrı VKN&apos;li</strong> ikinci bir firma — kendi ünvanı, adresi ve
-                e-Dönüşüm hesabı olur; modülleriniz ve aboneliğiniz ortak kalır, tek ödeme
-                yaparsınız.
+                e-Dönüşüm hesabı olur. Burada satın aldığınız şey firmayı{" "}
+                <strong>açma hakkıdır</strong>; modül aboneliğini o firma kendisi alır.
               </>
             }
             unitLabel="ek firma"
@@ -773,6 +804,7 @@ export default function AbonelikPage() {
           />
         </CardContent>
       </Card>
+      )}
 
       {/* Özet + öde */}
       <Card>
@@ -968,6 +1000,13 @@ export default function AbonelikPage() {
             </p>
           )}
 
+          {catalog.canPurchase === false && (
+            <p className="mb-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+              Bu firmanın aboneliğini yalnızca hesap yöneticisi
+              {catalog.accountName ? ` (${catalog.accountName} yöneticisi)` : ""} satın
+              alabilir.
+            </p>
+          )}
           <Button className="w-full" size="lg" disabled={!canPay || submitting} onClick={handlePay}>
             {submitting ? (
               <>

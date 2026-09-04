@@ -8,8 +8,10 @@ export const dynamic = "force-dynamic"
  * Sistem-admin abonelik/sipariş genel bakışı: her hesap (kök firma) için en güncel abonelik,
  * son siparişler ve kullanım sayaçları. Süper-admin korumalı.
  *
- * Yalnızca hesap KÖKLERİ listelenir: `accountRootId` dolu olan firma (şube ya da satın
- * alınmış ek firma) kendi başına bir hesap değildir, aboneliği kökte durur.
+ * Satır başına hesap KÖKÜ listelenir, ama abonelik artık FİRMA düzeyinde: şube ve ek
+ * firma kendi aboneliğini satın alıyor. Bu yüzden her üyenin kendi abonelik özeti de
+ * dönüyor — yoksa panel "hesap ödemiş" derken şubesi kilitli olurdu ve destek bunu
+ * göremezdi.
  */
 export async function GET() {
   const auth = await requireSuperAdmin()
@@ -23,8 +25,28 @@ export async function GET() {
       name: true,
       slug: true,
       disabledModules: true,
-      // Hesabın üyeleri: şubeler + ek firmalar. Kota göstergesi bunları ayrı sayar.
-      accountMembers: { select: { id: true, name: true, parentCompanyId: true } },
+      // Hesabın üyeleri: şubeler + ek firmalar. Kota göstergesi bunları ayrı sayar,
+      // abonelik özeti ise her üyenin KENDİ satırından gelir.
+      accountMembers: {
+        select: {
+          id: true,
+          name: true,
+          branchName: true,
+          parentCompanyId: true,
+          disabledModules: true,
+          subscriptions: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              status: true,
+              purchasedModules: true,
+              periodEnd: true,
+              trialEndsAt: true,
+              billingCycle: true,
+            },
+          },
+        },
+      },
       subscriptions: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -98,6 +120,15 @@ export async function GET() {
     })),
     branchCount: accountMembers.filter((m) => m.parentCompanyId).length,
     companyCount: accountMembers.filter((m) => !m.parentCompanyId).length,
+    // Üyelerin KENDİ abonelikleri: "şube ödedi mi" sorusunun cevabı burada.
+    members: accountMembers.map((m) => ({
+      id: m.id,
+      name: m.name,
+      branchName: m.branchName,
+      kind: m.parentCompanyId ? ("branch" as const) : ("company" as const),
+      lockedModules: m.disabledModules,
+      subscription: m.subscriptions[0] ?? null,
+    })),
   }))
 
   return NextResponse.json({ data })

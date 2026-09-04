@@ -63,6 +63,42 @@ export const POST = withApiErrors(async function POST(request: Request) {
 
     const rootId = await resolveAccountRootId(companyId)
 
+    // SATIN ALMA YETKİSİ HESAP YÖNETİCİSİNDE. Abonelik firma bazında olsa da ödemeyi
+    // hesabın sahibi yapar: şubeye atanmış bir ADMIN (ör. şube sorumlusu) ana firmanın
+    // kartıyla ya da onun adına fatura kesilecek bir satın alma başlatamamalı.
+    // Kökün kendi ekranında bu kontrol zaten yukarıdakiyle aynı sonucu verir.
+    if (rootId !== companyId && !user.isSuperAdmin) {
+      const rootAdmin = await prisma.userCompany.findFirst({
+        where: { userId: user.id, companyId: rootId, role: "ADMIN" },
+        select: { id: true },
+      })
+      if (!rootAdmin) {
+        return NextResponse.json(
+          {
+            error:
+              "Bu firmanın aboneliğini yalnızca hesap yöneticisi (ana firmanın yöneticisi) satın alabilir",
+          },
+          { status: 403 },
+        )
+      }
+    }
+
+    // KOTA YALNIZ HESAP KÖKÜNDEN ALINIR. Şube ya da ek firma kendi şubesini/ek firmasını
+    // açamaz: hem hesap ağacı sonsuza dallanırdı hem de kota tek havuz olarak kökün
+    // abonelik satırında tutuluyor (`getAccountQuotas`). Modül aboneliği ise her firmanın
+    // kendisine aittir — bu uç ikisini aynı istekte taşıyabilir, o yüzden kapı burada.
+    const wantsQuota = Number(body?.branchQuota ?? 0) > 0 || Number(body?.companyQuota ?? 0) > 0
+    if (wantsQuota && rootId !== companyId) {
+      return NextResponse.json(
+        {
+          error:
+            "Şube ve ek firma kotası yalnızca ana firmadan (hesap kökü) satın alınabilir. " +
+            "Bu firmadan yalnızca kendi modül aboneliğini alabilirsiniz.",
+        },
+        { status: 400 },
+      )
+    }
+
     // Fiyat SUNUCUDA çözülür; "kodu uygula" ucu da aynı fonksiyonu çağırır ki ekranda
     // görünen tutar ile tahsil edilen tutar ayrışmasın ([[lib/billing/order-amount.ts]]).
     const priced = await resolvePackageOrderAmount(body)
@@ -103,8 +139,10 @@ export const POST = withApiErrors(async function POST(request: Request) {
       }
     }
 
-    // İNDİRİM KODU — hesap KÖKÜ üzerinden değerlendirilir: abonelik hesaba yazılır,
-    // "firma başına 1 kez" hakkını şubeler paylaşır. Geçersiz kodda sipariş açılmaz.
+    // İNDİRİM KODU — hesap KÖKÜ üzerinden değerlendirilir: "firma başına 1 kez" hakkını
+    // hesabın tüm firmaları PAYLAŞIR. Abonelik firma bazına indi ama kod bilerek hesap
+    // bazında kaldı; aksi halde tek kullanımlık bir kod şube sayısı kadar çoğalırdı.
+    // Geçersiz kodda sipariş açılmaz.
     let discount: { codeId: string; code: string; discountAmount: number; payable: number } | null = null
     const rawDiscountCode = String(body?.discountCode ?? "").trim()
     if (rawDiscountCode) {
@@ -122,35 +160,38 @@ export const POST = withApiErrors(async function POST(request: Request) {
     const payableAmount = discount ? discount.payable : computed.amount
 
     // FATURA BİLGİSİ — ödeme öncesi zorunlu ([[lib/invoicing/billing-info.ts]]).
-    // Alıcı, siparişin sahibi olan HESAP KÖKÜ firmasıdır (`rootId`); abonelik oradan
-    // akar ve fatura da o tüzel kişiye kesilir — isteği gönderen şube değil.
-    const rootCompany = await prisma.company.findUnique({
-      where: { id: rootId },
+    // Alıcı SATIN ALAN FİRMADIR: abonelik artık firma bazında olduğu için fatura da o
+    // firmaya kesilir. Şubede bu, ana firmayla aynı tüzel kişidir (VKN devralınır);
+    // ek firmada ise kendi VKN'sine kesilmesi zaten doğrusuydu.
+    const buyerCompany = await prisma.company.findUnique({
+      where: { id: companyId },
       select: { name: true, taxNumber: true, taxOffice: true, address: true, city: true, email: true },
     })
     const billing = normalizeBillingInput(
       body?.billing ?? {
-        name: rootCompany?.name,
-        taxNumber: rootCompany?.taxNumber,
-        taxOffice: rootCompany?.taxOffice,
-        address: rootCompany?.address,
-        city: rootCompany?.city,
-        email: rootCompany?.email,
+        name: buyerCompany?.name,
+        taxNumber: buyerCompany?.taxNumber,
+        taxOffice: buyerCompany?.taxOffice,
+        address: buyerCompany?.address,
+        city: buyerCompany?.city,
+        email: buyerCompany?.email,
       },
     )
     if (!billing.ok) {
       return NextResponse.json({ error: billing.error, fields: billing.fields }, { status: 412 })
     }
-    if (rootCompany) {
-      const patch = companyFillFromBilling(rootCompany, billing.value)
+    if (buyerCompany) {
+      const patch = companyFillFromBilling(buyerCompany, billing.value)
       if (Object.keys(patch).length > 0) {
-        await prisma.company.update({ where: { id: rootId }, data: patch })
+        await prisma.company.update({ where: { id: companyId }, data: patch })
       }
     }
 
     const order = await prisma.packageOrder.create({
       data: {
-        companyId: rootId,
+        // Sipariş SATIN ALAN firmaya yazılır; ödeme onaylanınca abonelik de o firmada
+        // açılır (bkz. lib/billing/paytr-payment.ts → `order.companyId`).
+        companyId,
         planId,
         planName,
         // Paket ödemeleri daima PayTR sanal POS'undan geçer.
