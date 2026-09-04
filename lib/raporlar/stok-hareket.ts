@@ -43,6 +43,8 @@ export type StockMovementReportRow = {
   type: string
   typeLabel: string
   productId: string
+  /** Ürün kartının adresi (slug varsa SEF hâli, yoksa id) — ekran adı linkler. */
+  productRef: string
   productCode: string
   productName: string
   unit: string
@@ -52,12 +54,18 @@ export type StockMovementReportRow = {
   unitPrice: number
   totalAmount: number
   description: string
-  /** Kaynak belge — yoksa hepsi boş gelir. */
-  documentKind: "INVOICE" | "WAYBILL" | null
+  /**
+   * Kaynak belge — yoksa hepsi boş gelir. Fiş (satış fişi / restoran adisyonu)
+   * da `Invoice` satırıdır ama detayı `/fisler/[id]`de açılır; faturadan AYRI
+   * tutulur ki ekran doğru sayfaya bağlansın.
+   */
+  documentKind: "INVOICE" | "RECEIPT" | "WAYBILL" | null
   documentId: string | null
   documentNo: string
   counterpartyKind: "customer" | "supplier" | null
   counterpartyId: string | null
+  /** Cari kartının adresi (slug ya da id); belgesiz harekette null. */
+  counterpartyRef: string | null
   counterpartyName: string
   class1: string
   class2: string
@@ -73,6 +81,8 @@ export type StockMovementReport = {
 type PartyRef = {
   kind: "customer" | "supplier"
   id: string
+  /** Kart adresi: slug varsa SEF hâli, yoksa id. */
+  ref: string
   name: string
   class1: string
   class2: string
@@ -81,6 +91,7 @@ type PartyRef = {
 const PARTY_SELECT = {
   select: {
     id: true,
+    slug: true,
     name: true,
     classification1: { select: { label: true } },
     classification2: { select: { label: true } },
@@ -89,6 +100,7 @@ const PARTY_SELECT = {
 
 type PartyRow = {
   id: string
+  slug: string
   name: string
   classification1: { label: string } | null
   classification2: { label: string } | null
@@ -99,6 +111,7 @@ function toPartyRef(kind: "customer" | "supplier", party: PartyRow): PartyRef | 
   return {
     kind,
     id: party.id,
+    ref: party.slug || party.id,
     name: party.name,
     class1: party.classification1?.label || "",
     class2: party.classification2?.label || "",
@@ -190,7 +203,17 @@ export async function computeStockMovementReport(
         : {}),
     },
     include: {
-      product: { select: { id: true, code: true, name: true, unit: true, purchasePrice: true, salePrice: true } },
+      product: {
+        select: {
+          id: true,
+          slug: true,
+          code: true,
+          name: true,
+          unit: true,
+          purchasePrice: true,
+          salePrice: true,
+        },
+      },
       warehouse: { select: { name: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -218,6 +241,7 @@ export async function computeStockMovementReport(
           select: {
             id: true,
             invoiceNo: true,
+            isReceipt: true,
             eDocumentNo: true,
             customer: PARTY_SELECT,
             supplier: PARTY_SELECT,
@@ -238,7 +262,7 @@ export async function computeStockMovementReport(
   ])
 
   type DocumentInfo = {
-    kind: "INVOICE" | "WAYBILL"
+    kind: "INVOICE" | "RECEIPT" | "WAYBILL"
     id: string
     no: string
     party: PartyRef | null
@@ -246,7 +270,7 @@ export async function computeStockMovementReport(
   const documents = new Map<string, DocumentInfo>()
   for (const invoice of invoices) {
     documents.set(invoice.id, {
-      kind: "INVOICE",
+      kind: invoice.isReceipt ? "RECEIPT" : "INVOICE",
       id: invoice.id,
       // Belge numarası olarak e-Belge numarası tercih edilir (GİB'e giden asıl
       // numara); yoksa iç fatura numarasına düşülür.
@@ -292,6 +316,7 @@ export async function computeStockMovementReport(
       type: movement.type,
       typeLabel: movementTypeLabel(movement),
       productId: movement.productId,
+      productRef: movement.product?.slug || movement.productId,
       productCode: movement.product?.code || "",
       productName: movement.product?.name || "",
       unit: movement.product?.unit || "",
@@ -305,6 +330,7 @@ export async function computeStockMovementReport(
       documentNo: document?.no ?? "",
       counterpartyKind: document?.party?.kind ?? null,
       counterpartyId: document?.party?.id ?? null,
+      counterpartyRef: document?.party?.ref ?? null,
       counterpartyName: document?.party?.name ?? "",
       class1: document?.party?.class1 ?? "",
       class2: document?.party?.class2 ?? "",

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table"
 import { SearchSelect } from "@/components/ui/search-select"
 import { ExportButton } from "@/components/export/export-button"
+import { BelgeLink, CariLink, ProductLink } from "@/components/raporlar/rapor-link"
 import { ArrowLeft } from "lucide-react"
 import {
   useCompanyDefinitions,
@@ -316,12 +317,9 @@ export default function StokHareketleriPage() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Link
-                        href={`/stok/${row.productId}?company=${encodeURIComponent(companyId)}`}
-                        className="font-medium text-primary underline-offset-2 hover:underline"
-                      >
+                      <ProductLink companyId={companyId} productRef={row.productRef}>
                         {row.productName}
-                      </Link>
+                      </ProductLink>
                       {row.productCode ? (
                         <p className="text-xs text-muted-foreground">{row.productCode}</p>
                       ) : null}
@@ -330,21 +328,36 @@ export default function StokHareketleriPage() {
                       {row.warehouseName || "—"}
                     </TableCell>
                     <TableCell>
-                      {/* Faturaya link verilir; irsaliye/adisyon için numara düz metin. */}
-                      {row.documentKind === "INVOICE" && row.documentId ? (
-                        <Link
-                          href={`/faturalar/${row.documentId}/onizleme?company=${encodeURIComponent(
-                            companyId
-                          )}&from=${encodeURIComponent("/raporlar/stok/hareketler")}`}
-                          className="font-medium text-primary underline-offset-2 hover:underline"
+                      {/* Fatura ve fiş kendi sayfasına bağlanır; irsaliyenin detay
+                          sayfası YOK (yalnız liste), numarası düz metin kalır. */}
+                      {row.documentKind === "INVOICE" || row.documentKind === "RECEIPT" ? (
+                        <BelgeLink
+                          companyId={companyId}
+                          belgeId={row.documentId}
+                          isReceipt={row.documentKind === "RECEIPT"}
+                          from="/raporlar/stok/hareketler"
                         >
                           {row.documentNo}
-                        </Link>
+                        </BelgeLink>
                       ) : (
                         <span className="text-sm text-muted-foreground">{row.documentNo || "—"}</span>
                       )}
                     </TableCell>
-                    <TableCell>{row.counterpartyName || "—"}</TableCell>
+                    <TableCell>
+                      {/* Belgesiz hareketin (sayım, transfer, ikram) carisi yoktur. */}
+                      {row.counterpartyName && row.counterpartyKind ? (
+                        <CariLink
+                          companyId={companyId}
+                          kind={row.counterpartyKind}
+                          cariRef={row.counterpartyRef}
+                          from="/raporlar/stok/hareketler"
+                        >
+                          {row.counterpartyName}
+                        </CariLink>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{row.class1 || "—"}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{row.class2 || "—"}</TableCell>
                     <TableCell

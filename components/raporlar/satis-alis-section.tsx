@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { ExportButton } from "@/components/export/export-button"
+import { BelgeLink, CariLink, ProductLink } from "@/components/raporlar/rapor-link"
 import { AlertTriangle, ArrowLeft } from "lucide-react"
 import { withCompanyHref } from "@/lib/company/href"
 import { describeLineTotalGap } from "@/lib/raporlar/satis-alis-shared"
@@ -116,16 +117,10 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
     void fetchReport()
   }, [fetchReport])
 
-  const invoiceHref = useCallback(
-    (invoiceId: string) =>
-      withCompanyHref(
-        `/faturalar/${invoiceId}/onizleme?from=${encodeURIComponent(
-          `${reportBasePath(kind)}/${section.slug}`
-        )}`,
-        companyId
-      ),
-    [companyId, kind, section.slug]
-  )
+  // Link'ler detay sayfasına "geri" yolunu taşır: kullanıcı listesine değil,
+  // geldiği rapor bölümüne dönsün.
+  const backTo = `${reportBasePath(kind)}/${section.slug}`
+  const cariKind = isSales ? ("customer" as const) : ("supplier" as const)
 
   const monthlyColumns: Col<SalesPurchaseResult["monthly"][number]>[] = useMemo(
     () => [
@@ -150,7 +145,11 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
     () => [
       {
         header: isSales ? "Müşteri" : "Tedarikçi",
-        cell: (row) => row.name,
+        cell: (row) => (
+          <CariLink companyId={companyId} kind={cariKind} cariRef={row.ref} from={backTo}>
+            {row.name}
+          </CariLink>
+        ),
         total: () => "Toplam",
       },
       { header: classLabels.class1, cell: (row) => row.class1 || "—" },
@@ -168,7 +167,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
         total: (rows) => TL(rows.reduce((sum, row) => sum + row.amount, 0)),
       },
     ],
-    [isSales, classLabels]
+    [isSales, classLabels, companyId, cariKind, backTo]
   )
 
   const classGroupColumns: Col<SalesPurchaseResult["classGroups"][number]>[] = useMemo(
@@ -202,15 +201,29 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
       {
         header: "Fatura No",
         cell: (row) => (
-          <Link
-            href={invoiceHref(row.id)}
-            className="font-medium text-primary underline-offset-2 hover:underline"
+          <BelgeLink
+            companyId={companyId}
+            belgeId={row.id}
+            isReceipt={row.isReceipt}
+            from={backTo}
           >
             {row.invoiceNo}
-          </Link>
+          </BelgeLink>
         ),
       },
-      { header: isSales ? "Müşteri" : "Tedarikçi", cell: (row) => row.counterpartyName },
+      {
+        header: isSales ? "Müşteri" : "Tedarikçi",
+        cell: (row) => (
+          <CariLink
+            companyId={companyId}
+            kind={cariKind}
+            cariRef={row.counterpartyRef}
+            from={backTo}
+          >
+            {row.counterpartyName}
+          </CariLink>
+        ),
+      },
       { header: classLabels.class1, cell: (row) => row.class1 || "—" },
       { header: classLabels.class2, cell: (row) => row.class2 || "—" },
       // İade satırlarının tutarları EKSİ gelir; sütun olmasaydı okuyan kişi
@@ -237,7 +250,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
         total: (rows) => TL(rows.reduce((sum, row) => sum + row.totalAmount, 0)),
       },
     ],
-    [isSales, invoiceHref, classLabels]
+    [isSales, classLabels, companyId, cariKind, backTo]
   )
 
   const lineColumns: Col<SalesPurchaseInvoiceLine>[] = useMemo(
@@ -250,24 +263,56 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
       {
         header: "Fatura No",
         cell: (row) => (
-          <Link
-            href={invoiceHref(row.invoiceId)}
-            className="font-medium text-primary underline-offset-2 hover:underline"
+          <BelgeLink
+            companyId={companyId}
+            belgeId={row.invoiceId}
+            isReceipt={row.isReceipt}
+            from={backTo}
           >
             {row.invoiceNo}
-          </Link>
+          </BelgeLink>
         ),
       },
       // GİB'e giden asıl numara; fatura no'dan farklı olabilir.
       { header: "e-Belge No", cell: (row) => row.eDocumentNo || "—" },
-      { header: isSales ? "Müşteri" : "Tedarikçi", cell: (row) => row.counterpartyName },
+      {
+        header: isSales ? "Müşteri" : "Tedarikçi",
+        cell: (row) => (
+          <CariLink
+            companyId={companyId}
+            kind={cariKind}
+            cariRef={row.counterpartyRef}
+            from={backTo}
+          >
+            {row.counterpartyName}
+          </CariLink>
+        ),
+      },
       // Tanımlar (Ayarlar → Tanımlar) Excel'de vardı, ekranda YOKTU: aynı bölümün
       // ekranı ile dosyası ayrışıyordu. Belge ve İskonto da aynı sebeple eklendi.
       { header: classLabels.class1, cell: (row) => row.class1 || "—" },
       { header: classLabels.class2, cell: (row) => row.class2 || "—" },
       { header: "Belge", cell: (row) => (row.isReturn ? "İade" : isSales ? "Satış" : "Alış") },
-      { header: "Stok Kodu", cell: (row) => row.productCode || "—" },
-      { header: "Stok / Hizmet", cell: (row) => row.description },
+      {
+        header: "Stok Kodu",
+        cell: (row) =>
+          row.productCode ? (
+            <ProductLink companyId={companyId} productRef={row.productRef}>
+              {row.productCode}
+            </ProductLink>
+          ) : (
+            "—"
+          ),
+      },
+      {
+        // Serbest kalem bir ürün kartına bağlı değildir: adı düz metin kalır.
+        header: "Stok / Hizmet",
+        cell: (row) => (
+          <ProductLink companyId={companyId} productRef={row.productRef}>
+            {row.description}
+          </ProductLink>
+        ),
+      },
       { header: "Tür", cell: (row) => row.kind },
       {
         header: "Miktar",
@@ -295,7 +340,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
         total: (rows) => TL(rows.reduce((sum, row) => sum + row.totalAmount, 0)),
       },
     ],
-    [isSales, invoiceHref, classLabels]
+    [isSales, classLabels, companyId, cariKind, backTo]
   )
 
   const table = (() => {

@@ -37,9 +37,21 @@ export type SalesPurchaseInvoice = {
   status: string
   /** Durumun Türkçe karşılığı — ekran ve dosya AYNI kelimeyi yazsın diye burada üretilir. */
   statusLabel: string
+  /**
+   * Fiş mi (satış fişi / restoran adisyonu)? Fiş de `Invoice` satırıdır ama
+   * detayı `/fisler/[id]`de açılır; `/faturalar/.../onizleme` onu "Satış
+   * Faturası" başlığıyla gösterirdi.
+   */
+  isReceipt: boolean
   /** İade belgesi mi — tutarları EKSİ gelir, listede öyle işaretlenmeli. */
   isReturn: boolean
   counterpartyName: string
+  /**
+   * Cari kartının ADRESİ: slug varsa SEF hâli, yoksa id. Rapor ekranı adı bu
+   * değerle karta bağlar. Carisiz belgede (perakende satış) null'dır —
+   * gidilecek kart yok, ad düz metin basılır.
+   */
+  counterpartyRef: string | null
   /**
    * Cari kartındaki sınıflandırmalar (Ayarlar → Tanımlar). Rapor ve dosya bunları
    * ayrı sütunlarda gösterir; tanımsız cari için boş string gelir.
@@ -58,14 +70,23 @@ export type SalesPurchaseInvoice = {
 export type SalesPurchaseInvoiceLine = {
   invoiceId: string
   invoiceNo: string
+  /** Belge fiş mi — kalem satırı da doğru detay sayfasına bağlansın. */
+  isReceipt: boolean
   /** e-Belge numarası (GİB'e giden asıl numara); yoksa boş. */
   eDocumentNo: string
   date: string
   isReturn: boolean
   counterpartyName: string
+  /** Cari kartının adresi (slug ya da id); carisiz belgede null. */
+  counterpartyRef: string | null
   class1: string
   class2: string
   productCode: string
+  /**
+   * Ürün kartının adresi (slug ya da id). Serbest kalemde null: satır bir karta
+   * bağlı değildir, açılacak stok sayfası yoktur.
+   */
+  productRef: string | null
   /** Kalemin adı — ürün kartına bağlı değilse fatura satırındaki serbest metin. */
   description: string
   kind: "Stok" | "Hizmet" | "Serbest kalem"
@@ -93,7 +114,19 @@ export type SalesPurchaseResult = {
   monthly: Array<{ label: string; sortKey: string; amount: number; count: number }>
   /** Sınıflandırma 1 × 2 kırılımı; tutara göre azalan. */
   classGroups: SalesPurchaseClassGroup[]
-  topCounterparties: Array<{ name: string; class1: string; class2: string; amount: number; count: number }>
+  /**
+   * `ref`: cari kartının adresi (slug ya da id). Liste ADA göre gruplanır; aynı
+   * ad iki AYRI karta aitse ref null bırakılır — yanlış karta götüren bir link,
+   * linksiz addan kötüdür.
+   */
+  topCounterparties: Array<{
+    name: string
+    ref: string | null
+    class1: string
+    class2: string
+    amount: number
+    count: number
+  }>
   invoices: SalesPurchaseInvoice[]
   /** Yalnız `includeLines` istendiğinde dolar (dışa aktarma); ekran kullanmaz. */
   lines: SalesPurchaseInvoiceLine[]
@@ -162,8 +195,11 @@ export async function computeSalesPurchaseReport(args: {
       ...classFilter,
     },
     include: {
+      // id/slug rapor satırını cari kartına bağlamak için: ekran adı linkler.
       customer: {
         select: {
+          id: true,
+          slug: true,
           name: true,
           classification1: { select: { label: true } },
           classification2: { select: { label: true } },
@@ -171,6 +207,8 @@ export async function computeSalesPurchaseReport(args: {
       },
       supplier: {
         select: {
+          id: true,
+          slug: true,
           name: true,
           classification1: { select: { label: true } },
           classification2: { select: { label: true } },
@@ -189,7 +227,7 @@ export async function computeSalesPurchaseReport(args: {
                 vatRate: true,
                 vatAmount: true,
                 totalAmount: true,
-                product: { select: { code: true, isService: true } },
+                product: { select: { id: true, slug: true, code: true, isService: true } },
               },
             },
           }
@@ -200,7 +238,10 @@ export async function computeSalesPurchaseReport(args: {
 
   const lines: SalesPurchaseInvoiceLine[] = []
   const monthlyMap = new Map<string, { label: string; sortKey: string; amount: number; count: number }>()
-  const counterpartyMap = new Map<string, { class1: string; class2: string; amount: number; count: number }>()
+  const counterpartyMap = new Map<
+    string,
+    { ref: string | null; refConflict: boolean; class1: string; class2: string; amount: number; count: number }
+  >()
   const classMap = new Map<string, SalesPurchaseClassGroup>()
   let totalAmount = 0
   let linesTotal = 0
@@ -223,9 +264,16 @@ export async function computeSalesPurchaseReport(args: {
     // Carisiz satış = hızlı/perakende satış.
     const party = isSales ? invoice.customer : invoice.supplier
     const name = party?.name?.trim() || (isSales ? "Perakende" : "Tanımsız")
+    // Kart adresi: SEF slug varsa o, yoksa id (`/cari/[type]/[id]` ikisini de çözer).
+    const partyRef = party ? party.slug || party.id : null
     const class1 = party?.classification1?.label || ""
     const class2 = party?.classification2?.label || ""
-    const counterparty = counterpartyMap.get(name) ?? { class1, class2, amount: 0, count: 0 }
+    const counterparty =
+      counterpartyMap.get(name) ??
+      { ref: partyRef, refConflict: false, class1, class2, amount: 0, count: 0 }
+    // Aynı ADI taşıyan iki ayrı kart varsa link kaldırılır: satır ikisinin
+    // toplamıdır, birine götürmek yanlış kartı doğru gibi gösterir.
+    if (counterparty.ref !== partyRef) counterparty.refConflict = true
     counterparty.amount += amount
     counterparty.count += 1
     counterpartyMap.set(name, counterparty)
@@ -244,13 +292,16 @@ export async function computeSalesPurchaseReport(args: {
       lines.push({
         invoiceId: invoice.id,
         invoiceNo: invoice.invoiceNo,
+        isReceipt: invoice.isReceipt,
         eDocumentNo: invoice.eDocumentNo || "",
         date: invoice.date.toISOString(),
         isReturn,
         counterpartyName: name,
+        counterpartyRef: partyRef,
         class1,
         class2,
         productCode: item.product?.code || "",
+        productRef: item.product ? item.product.slug || item.product.id : null,
         description: item.description,
         kind: item.product ? (item.product.isService ? "Hizmet" : "Stok") : "Serbest kalem",
         unit: item.unit,
@@ -269,8 +320,10 @@ export async function computeSalesPurchaseReport(args: {
       date: invoice.date.toISOString(),
       status: invoice.status,
       statusLabel: invoiceStatusLabel(invoice.status, { isPurchase: !isSales }),
+      isReceipt: invoice.isReceipt,
       isReturn,
       counterpartyName: name,
+      counterpartyRef: partyRef,
       class1,
       class2,
       netAmount: sign * Number(invoice.netAmount || 0),
@@ -286,7 +339,11 @@ export async function computeSalesPurchaseReport(args: {
     monthly: Array.from(monthlyMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey)),
     classGroups: Array.from(classMap.values()).sort((a, b) => b.amount - a.amount),
     topCounterparties: Array.from(counterpartyMap.entries())
-      .map(([name, value]) => ({ name, ...value }))
+      .map(([name, { ref, refConflict, ...value }]) => ({
+        name,
+        ref: refConflict ? null : ref,
+        ...value,
+      }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, args.topCount ?? Number.MAX_SAFE_INTEGER),
     invoices: rows,

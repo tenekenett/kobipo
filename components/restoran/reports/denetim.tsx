@@ -18,6 +18,7 @@ import {
 import { CompanyLink } from "@/components/dashboard/company-link"
 import { DiscountLimitCard } from "@/components/restoran/discount-limit-card"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { ProductLink } from "@/components/raporlar/rapor-link"
 import {
   ReportState,
   StatTile,
@@ -376,7 +377,11 @@ export function DenetimReport({ range }: ReportProps) {
                           {p.kind === "COMP" ? "İKRAM" : "ZAYİ"}
                         </span>
                       </TableCell>
-                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <ProductLink companyId={companyId} productRef={p.productId}>
+                          {p.name}
+                        </ProductLink>
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {qty(p.quantity)} {p.unit}
                       </TableCell>

@@ -119,7 +119,8 @@ export type WithholdingResult = {
     date: string
     amount: number
     description: string | null
-    supplier: { name: string; taxNumber: string | null } | null
+    /** `ref`: tedarikçi kartının adresi (slug ya da id) — ekran adı karta bağlar. */
+    supplier: { ref: string; name: string; taxNumber: string | null } | null
   }>
   totalWithholding: number
   totalPayments: number
@@ -157,7 +158,13 @@ export async function computeWithholding(args: {
       date: p.date.toISOString(),
       amount: Number(p.amount),
       description: p.description,
-      supplier: p.supplier ? { name: p.supplier.name, taxNumber: p.supplier.taxNumber } : null,
+      supplier: p.supplier
+        ? {
+            ref: p.supplier.slug || p.supplier.id,
+            name: p.supplier.name,
+            taxNumber: p.supplier.taxNumber,
+          }
+        : null,
     })),
     // Basit örnek: %15 stopaj (gerçek hesaplama daha karmaşık).
     totalWithholding: payments.reduce((sum, p) => sum + Number(p.amount) * WITHHOLDING_RATE, 0),

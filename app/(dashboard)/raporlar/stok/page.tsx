@@ -23,10 +23,13 @@ import {
 } from "@/components/ui/select"
 import { AlertTriangle, ArrowLeftRight, Boxes, PackageCheck, TrendingUp, Search, RefreshCcw } from "lucide-react"
 import { ExportButton } from "@/components/export/export-button"
+import { ProductLink } from "@/components/raporlar/rapor-link"
 import Link from "next/link"
 
 interface Product {
   id: string
+  /** Ürün kartının SEF adresi; eski kayıtlarda boş olabilir, o zaman id kullanılır. */
+  slug?: string | null
   code?: string | null
   name: string
   barcode?: string | null
@@ -328,8 +331,20 @@ export default function StokRaporlariPage() {
                   const status = stockStatus(p)
                   return (
                     <TableRow key={p.id}>
-                      <TableCell>{p.code || "-"}</TableCell>
-                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell>
+                        {p.code ? (
+                          <ProductLink companyId={companyId} productRef={p.slug || p.id}>
+                            {p.code}
+                          </ProductLink>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        <ProductLink companyId={companyId} productRef={p.slug || p.id}>
+                          {p.name}
+                        </ProductLink>
+                      </TableCell>
                       <TableCell>{p.unit}</TableCell>
                       <TableCell className="text-right">
                         {p.isService ? "-" : numberFormatter.format(qty)}

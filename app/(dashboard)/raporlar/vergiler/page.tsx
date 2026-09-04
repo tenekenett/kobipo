@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ExportButton } from "@/components/export/export-button"
+import { CariLink } from "@/components/raporlar/rapor-link"
 
 interface VATDeclaration {
   period: string
@@ -32,7 +33,7 @@ interface WithholdingTax {
     date: string
     amount: number
     description: string | null
-    supplier: { name: string; taxNumber: string | null } | null
+    supplier: { ref: string; name: string; taxNumber: string | null } | null
   }>
 }
 
@@ -245,7 +246,20 @@ export default function VergilerPage() {
                           {withholdingTax.payments.map((payment) => (
                             <TableRow key={payment.id}>
                               <TableCell>{new Date(payment.date).toLocaleDateString("tr-TR")}</TableCell>
-                              <TableCell>{payment.supplier?.name || "-"}</TableCell>
+                              <TableCell>
+                                {payment.supplier ? (
+                                  <CariLink
+                                    companyId={companyId}
+                                    kind="supplier"
+                                    cariRef={payment.supplier.ref}
+                                    from="/raporlar/vergiler"
+                                  >
+                                    {payment.supplier.name}
+                                  </CariLink>
+                                ) : (
+                                  "-"
+                                )}
+                              </TableCell>
                               <TableCell className="text-right">{formatCurrency(payment.amount)}</TableCell>
                               <TableCell className="text-right">
                                 {formatCurrency(payment.amount * 0.15)}

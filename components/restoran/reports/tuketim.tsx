@@ -13,6 +13,7 @@ import {
   StyledTableRow,
 } from "@/components/ui/styled-table"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { ProductLink } from "@/components/raporlar/rapor-link"
 import {
   Bar,
   ReportState,
@@ -120,7 +121,11 @@ export function TuketimReport({ range }: ReportProps) {
                 {items.map((i) => (
                   <StyledTableRow key={i.productId ?? i.name}>
                     <TableCell>
-                      <div className="font-semibold">{i.name}</div>
+                      <div className="font-semibold">
+                        <ProductLink companyId={companyId} productRef={i.productId}>
+                          {i.name}
+                        </ProductLink>
+                      </div>
                       {i.minStock != null && (
                         <div className="text-xs text-muted-foreground">
                           Kritik eşik {qty(i.minStock)} {i.unit}

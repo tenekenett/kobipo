@@ -19,6 +19,7 @@ function invoice(dueDate: Date, openAmount: number): AgingInvoice {
   return {
     id: `inv-${dueDate.toISOString()}-${openAmount}`,
     invoiceNo: "F-1",
+    documentKind: "INVOICE",
     date: dueDate,
     effectiveDueDate: dueDate,
     totalAmount: openAmount,
@@ -187,6 +188,7 @@ function item(partial: Partial<AgingInvoice>): AgingInvoice {
   const merged: AgingInvoice = {
     id: "x",
     invoiceNo: "F-1",
+    documentKind: "INVOICE",
     date: new Date(2026, 0, 1),
     effectiveDueDate: new Date(2026, 0, 31),
     hasDueDate: true,

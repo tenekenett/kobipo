@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { ExportButton } from "@/components/export/export-button"
+import { CariLink } from "@/components/raporlar/rapor-link"
 import { withCompanyHref } from "@/lib/company/href"
 import { useClassificationLabels, useCompanyDefinitions } from "@/lib/swr/use-company-data"
 import type { SalesPurchaseKind, SalesPurchaseResult } from "@/lib/raporlar/satis-alis"
@@ -404,7 +405,16 @@ export function SatisAlisReport({ kind, companyId }: Props) {
                       {idx + 1}
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate font-medium">{row.name}</p>
+                      <p className="truncate font-medium">
+                        <CariLink
+                          companyId={companyId}
+                          kind={isSales ? "customer" : "supplier"}
+                          cariRef={row.ref}
+                          from={isSales ? "/raporlar/satis" : "/raporlar/alis"}
+                        >
+                          {row.name}
+                        </CariLink>
+                      </p>
                       {/* Tanımlar: cari kartındaki sınıflandırmalar (Ayarlar → Tanımlar).
                           Excel'de ayrı iki sütun, ekranda tek satır. */}
                       {classText(row.class1, row.class2) ? (
@@ -438,7 +448,12 @@ export function SatisAlisReport({ kind, companyId }: Props) {
               {recentInvoices.map((inv) => (
                 <li key={inv.id}>
                   <Link
-                    href={withCompanyHref(`/faturalar/${inv.id}/onizleme`, companyId)}
+                    // Fiş ile fatura AYRI sayfalara gider: fişi fatura
+                    // önizlemesinde açmak onu "Satış Faturası" başlığıyla gösterir.
+                    href={withCompanyHref(
+                      inv.isReceipt ? `/fisler/${inv.id}` : `/faturalar/${inv.id}/onizleme`,
+                      companyId
+                    )}
                     className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
                   >
                     <div className="min-w-0">

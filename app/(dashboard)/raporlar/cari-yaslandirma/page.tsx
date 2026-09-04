@@ -32,6 +32,7 @@ import {
   type DueWindow,
 } from "@/lib/raporlar/cari-yaslandirma-buckets"
 import Link from "next/link"
+import { BelgeLink, CariLink } from "@/components/raporlar/rapor-link"
 import { cn } from "@/lib/utils"
 
 type Bucket = AgingBucket
@@ -51,6 +52,8 @@ type Totals = Record<Bucket, number> & Record<DueWindow, number> & {
 type AgingInvoice = {
   id: string
   invoiceNo: string
+  /** Belgenin türü; açılış bakiyesi satırında null (açılacak belge yok). */
+  documentKind: "INVOICE" | "RECEIPT" | null
   date: string
   effectiveDueDate: string
   totalAmount: number
@@ -492,7 +495,18 @@ export default function CariYaslandirmaPage() {
                               )}
                             </TableCell>
                             <TableCell>
-                              <div className="font-medium">{acc.name}</div>
+                              <div className="font-medium">
+                                {/* Satır tıklaması detayı açar; link onu tetiklemesin. */}
+                                <CariLink
+                                  companyId={companyId}
+                                  kind={tab === "customers" ? "customer" : "supplier"}
+                                  cariRef={acc.id}
+                                  from="/raporlar/cari-yaslandirma"
+                                  stopRowClick
+                                >
+                                  {acc.name}
+                                </CariLink>
+                              </div>
                               <div className="text-xs text-muted-foreground">
                                 {acc.code ? `${acc.code} · ` : ""}
                                 Vade: {acc.paymentDueDays ?? 0} gün
@@ -644,7 +658,17 @@ export default function CariYaslandirmaPage() {
                                       ) : (
                                         acc.invoices.map((inv) => (
                                           <TableRow key={inv.id}>
-                                            <TableCell className="font-medium">{inv.invoiceNo}</TableCell>
+                                            <TableCell className="font-medium">
+                                              {/* Açılış bakiyesi sentetik satırdır: belgesi yok. */}
+                                              <BelgeLink
+                                                companyId={companyId}
+                                                belgeId={inv.documentKind ? inv.id : null}
+                                                isReceipt={inv.documentKind === "RECEIPT"}
+                                                from="/raporlar/cari-yaslandirma"
+                                              >
+                                                {inv.invoiceNo}
+                                              </BelgeLink>
+                                            </TableCell>
                                             <TableCell>{fmtDate(inv.date)}</TableCell>
                                             <TableCell>{fmtDate(inv.effectiveDueDate)}</TableCell>
                                             <TableCell>
@@ -819,7 +843,16 @@ export default function CariYaslandirmaPage() {
                       {planRows.map((row) => (
                         <TableRow key={row.id}>
                           <TableCell>
-                            <div className="font-medium">{row.name}</div>
+                            <div className="font-medium">
+                              <CariLink
+                                companyId={companyId}
+                                kind={tab === "customers" ? "customer" : "supplier"}
+                                cariRef={row.id}
+                                from="/raporlar/cari-yaslandirma"
+                              >
+                                {row.name}
+                              </CariLink>
+                            </div>
                             {row.code ? (
                               <div className="text-xs text-muted-foreground">{row.code}</div>
                             ) : null}

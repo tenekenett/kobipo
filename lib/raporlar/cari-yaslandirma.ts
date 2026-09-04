@@ -59,6 +59,12 @@ export type AgingTotals = Record<AgingBucket, number> &
 export type AgingInvoice = {
   id: string
   invoiceNo: string
+  /**
+   * Satırın hangi ekrana bağlanacağı. Fiş de `Invoice` satırıdır ama AYRI
+   * sayfada açılır. Açılış bakiyesi sentetik bir kalemdir (`opening-*`),
+   * açılacak bir belgesi YOKTUR: null.
+   */
+  documentKind: "INVOICE" | "RECEIPT" | null
   date: Date
   effectiveDueDate: Date
   /** Vade GERÇEKTEN tanımlı mı (fatura vadesi ya da cari vade günü). */
@@ -202,6 +208,7 @@ function bucketize(invoice: any, paymentDueDays: number | null, today: number): 
   return {
     id: invoice.id,
     invoiceNo: invoice.invoiceNo,
+    documentKind: invoice.isReceipt ? "RECEIPT" : "INVOICE",
     date: invoice.date,
     effectiveDueDate: new Date(effectiveDueMs),
     hasDueDate: due.explicit,
@@ -248,6 +255,7 @@ function openingBalanceToAgingItem(
   return {
     id: `opening-${account.id}`,
     invoiceNo: "Açılış Bakiyesi",
+    documentKind: null,
     date: baseDate,
     effectiveDueDate: new Date(dueMs),
     hasDueDate,
@@ -420,6 +428,7 @@ export async function computeCariAging(
         select: {
           id: true,
           invoiceNo: true,
+          isReceipt: true,
           type: true,
           returnKind: true,
           status: true,
@@ -460,6 +469,7 @@ export async function computeCariAging(
         select: {
           id: true,
           invoiceNo: true,
+          isReceipt: true,
           type: true,
           returnKind: true,
           status: true,

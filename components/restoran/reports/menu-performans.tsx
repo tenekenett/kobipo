@@ -19,6 +19,7 @@ import {
   StyledTableRow,
 } from "@/components/ui/styled-table"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { ProductLink } from "@/components/raporlar/rapor-link"
 import {
   Bar,
   ReportState,
@@ -175,7 +176,11 @@ export function MenuPerformansReport({ range }: ReportProps) {
                 {items.map((i) => (
                   <StyledTableRow key={`${i.productId ?? "x"}-${i.name}`}>
                     <TableCell>
-                      <div className="font-semibold">{i.name}</div>
+                      <div className="font-semibold">
+                        <ProductLink companyId={companyId} productRef={i.productId}>
+                          {i.name}
+                        </ProductLink>
+                      </div>
                       <div className="text-xs text-muted-foreground">
                         {i.category || "kategorisiz"}
                         {i.costBasis === "purchase" && " · maliyet alış fiyatından"}
