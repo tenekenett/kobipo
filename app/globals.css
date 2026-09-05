@@ -126,6 +126,28 @@
   .bg-app-surface { background-color: hsl(var(--surface)); color: hsl(var(--surface-foreground)); }
   .bg-app-header { background-color: hsl(var(--header)); }
   .bg-app-sidebar { background-color: hsl(var(--sidebar)); color: hsl(var(--sidebar-foreground)); }
+
+  /*
+   * Kaydırma çubuğunu GİZLER, kaydırmayı BOZMAZ.
+   *
+   * Menü (`components/dashboard/nav.tsx`) ekrandan uzun olabildiği için kutu
+   * kaydırılabilir kalmak zorunda; Linux/Windows Chrome bu kutulara kalın, koyu
+   * bir çubuk basıyor ve lacivert kenar çubuğunun üstünde çok göze batıyor.
+   * `overflow: hidden` YAPILAMAZ — Ayarlar grubu açıkken alttaki öğeler
+   * (Kontör, Destek, Profil) erişilemez hâle gelirdi.
+   *
+   * Tekerlek, dokunma, klavye ve `scrollIntoView` çalışmaya devam eder; yalnız
+   * çubuğun kendisi çizilmez.
+   */
+  .scrollbar-none {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* eski Edge */
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
 }
 
 /* --- Auth animations --- */

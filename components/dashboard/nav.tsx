@@ -178,7 +178,7 @@ export function DashboardNav() {
             <KobipoLogoMark className="h-12 w-auto" />
           </Link>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-3 [-webkit-overflow-scrolling:touch]">
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain scrollbar-none p-3 [-webkit-overflow-scrolling:touch]">
           <div className="space-y-1">
             {groupedItems.map((group) => (
               <div key={group.title} className="rounded-lg border border-white/10 bg-white/[0.04]">
@@ -287,7 +287,7 @@ export function DashboardNav() {
                 <X className="h-5 w-5" />
               </Button>
             </div>
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-y-contain p-4 [-webkit-overflow-scrolling:touch]">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-y-contain scrollbar-none p-4 [-webkit-overflow-scrolling:touch]">
               {groupedItems.map((group) => (
                 <div key={`mobile-${group.title}`} className="rounded-lg border border-kobipo-border bg-kobipo-offwhite/80 dark:border-border dark:bg-muted/30">
                   <button
