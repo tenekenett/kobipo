@@ -69,8 +69,10 @@ export function DashboardHeader() {
     userRole === "SALES" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" :
     "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300"
 
+  // Yatay dolgu en dar telefonda 8px kazandırır (px-3); 640px'ten itibaren
+  // eski değerlerine döner — başlığın sığması için gereken payın bir parçası.
   return (
-    <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-kobipo-border bg-white px-4 dark:border-border dark:bg-card sm:px-6">
+    <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-kobipo-border bg-white px-3 dark:border-border dark:bg-card sm:px-4 md:px-6">
       <div className="flex min-w-0 items-center gap-3">
         <Button
           variant="ghost"
@@ -82,7 +84,15 @@ export function DashboardHeader() {
         >
           {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
         </Button>
-        <h1 className="min-w-0 shrink-0 text-base font-bold">
+        {/*
+          `shrink-0` DEĞİL: sağdaki düğme grubu (bildirim/arama/tema/kullanıcı)
+          shrink-0 ve 192px; 320px'lik telefonda sola 65px kalıyor ama başlık
+          81px istiyordu. Küçülmesi engellendiği için taşıp düğmelerin altına
+          giriyordu — `min-w-0` ile birlikte yazılmış olması da niyetin zaten
+          küçülebilmek olduğunu gösteriyor. Dar ekranda punto da bir tık iner;
+          `truncate` ise ne olursa olsun çakışma yerine kısaltma garantisi.
+        */}
+        <h1 className="min-w-0 truncate text-sm font-bold sm:text-base">
           <Link
             href={dashboardHref}
             className="text-kobipo-navy transition-colors hover:text-kobipo-blue focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kobipo-blue/30 dark:text-foreground dark:hover:text-primary"

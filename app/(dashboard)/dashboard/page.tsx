@@ -351,22 +351,32 @@ export default async function DashboardIndexPage({
             <p className="text-xs font-semibold uppercase tracking-wide text-kobipo-gray">Net bakiye (tüm zamanlar)</p>
             <p
               className={cn(
-                "mt-1 font-mono text-3xl font-bold tracking-tight md:text-[2rem]",
+                // Rakam ekranla birlikte küçülür: ₺2.342.810,85 gibi 13 haneli bir
+                // tutar `text-3xl` monospace'te ~234px eder ve 320-360px'lik
+                // telefonlarda kartı taşırıyordu.
+                "mt-1 font-mono text-2xl font-bold tracking-tight sm:text-3xl md:text-[2rem]",
                 balance >= 0 ? "text-kobipo-navy dark:text-foreground" : "text-orange-700",
               )}
             >
               ₺{balance.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
-            <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-              <div className="rounded-xl bg-kobipo-green-light/50 px-3 py-2 dark:bg-emerald-950/40">
+            {/*
+              320px'lik telefonlarda iki sütun sığmıyor (rakamlar kırılamaz),
+              360px'ten itibaren rahat sığıyor — eşik bu yüzden `sm` (640px)
+              değil: sm kullanmak 390-600px arası TÜM telefonlarda gereksiz yere
+              alt alta dizerdi.
+            */}
+            <div className="mt-4 grid grid-cols-1 gap-3 text-xs min-[360px]:grid-cols-2">
+              {/* Aynı gerekçe: iki sütuna sığması için rakam dar ekranda küçülür. */}
+              <div className="rounded-xl bg-kobipo-green-light/50 px-2.5 py-2 sm:px-3 dark:bg-emerald-950/40">
                 <p className="font-medium text-kobipo-green-dark dark:text-emerald-300">Gelir</p>
-                <p className="font-mono text-sm font-semibold text-kobipo-navy dark:text-foreground">
+                <p className="font-mono text-xs font-semibold text-kobipo-navy dark:text-foreground sm:text-sm">
                   ₺{income.toLocaleString("tr-TR", { maximumFractionDigits: 0 })}
                 </p>
               </div>
-              <div className="rounded-xl bg-red-50/80 px-3 py-2 dark:bg-red-950/40">
+              <div className="rounded-xl bg-red-50/80 px-2.5 py-2 sm:px-3 dark:bg-red-950/40">
                 <p className="font-medium text-red-800/90 dark:text-red-300">Gider</p>
-                <p className="font-mono text-sm font-semibold text-kobipo-navy dark:text-foreground">
+                <p className="font-mono text-xs font-semibold text-kobipo-navy dark:text-foreground sm:text-sm">
                   ₺{expense.toLocaleString("tr-TR", { maximumFractionDigits: 0 })}
                 </p>
               </div>
@@ -545,7 +555,14 @@ export default async function DashboardIndexPage({
 
       {/* Recent invoices + quick tiles */}
       <section className="grid gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-7 animate-fade-up rounded-3xl border border-kobipo-border/90 bg-card shadow-card [animation-delay:220ms]">
+        {/*
+          `min-w-0`: grid çocuğu varsayılan olarak `min-width:auto` alır, yani
+          KIRILAMAYAN en uzun içeriğinden dar olamaz. Fatura numarası boşluksuz
+          tek bir jeton olduğu için (canlıda 46 karakterlik örneği var) sütun
+          ekranı aşacak kadar genişliyordu — ve aynı grid'i paylaştığı için
+          yanındaki "Hızlı erişim" de onunla birlikte taşıyordu.
+        */}
+        <div className="min-w-0 lg:col-span-7 animate-fade-up rounded-3xl border border-kobipo-border/90 bg-card shadow-card [animation-delay:220ms]">
           <div className="flex items-center justify-between border-b border-kobipo-border/60 px-6 py-4">
             <div>
               <h2 className="text-lg font-bold text-kobipo-navy dark:text-foreground">Son faturalar</h2>
@@ -578,7 +595,17 @@ export default async function DashboardIndexPage({
                   <>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-sm font-bold text-kobipo-navy dark:text-foreground">{inv.invoiceNo}</span>
+                        {/*
+                          Numara BOŞLUKSUZ tek jeton: sarmalanamaz, o yüzden
+                          kısaltılabilir olmalı (`min-w-0` olmadan `truncate`
+                          flex içinde küçülmez ve hiçbir işe yaramaz).
+                        */}
+                        <span
+                          className="min-w-0 truncate font-mono text-sm font-bold text-kobipo-navy dark:text-foreground"
+                          title={inv.invoiceNo}
+                        >
+                          {inv.invoiceNo}
+                        </span>
                         <Badge variant={invoiceStatusBadge(inv.status)}>{invoiceStatusText(inv.status)}</Badge>
                       </div>
                       <p className="mt-1 truncate text-sm text-kobipo-gray">
@@ -618,7 +645,7 @@ export default async function DashboardIndexPage({
           </div>
         </div>
 
-        <div className={cn("lg:col-span-5", quickTiles.length === 0 && "hidden")}>
+        <div className={cn("min-w-0 lg:col-span-5", quickTiles.length === 0 && "hidden")}>
           <h2 className="mb-3 text-lg font-bold text-kobipo-navy dark:text-foreground animate-fade-up [animation-delay:240ms]">
             Hızlı erişim
           </h2>
