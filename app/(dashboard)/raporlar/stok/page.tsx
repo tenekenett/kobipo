@@ -36,11 +36,29 @@ interface Product {
   unit: string
   vatRate: number | string
   purchasePrice?: number | string | null
+  /**
+   * Alış faturalarından türeyen ağırlıklı ortalama maliyet (AVCO). Uç bunu
+   * zaten döndürüyordu ama bu ekran YOKSAYIP kartın elle girilen fiyatını
+   * basıyordu: /stok listesi aynı ürün için ortalamayı gösterirken stok
+   * raporu başka bir sayı veriyor, depo değeri de o yanlış sayıdan çıkıyordu.
+   * Tanım lib/stock/cost.ts.
+   */
+  avgPurchasePrice?: number | null
   salePrice?: number | string | null
   stockQuantity: number | string
   minStockLevel?: number | string | null
   isService: boolean
   isActive: boolean
+}
+
+/**
+ * Satırın birim maliyeti: alış faturalarından çıkan ortalama, o yoksa kartın
+ * elle girilen alış fiyatı. Tek yerde duruyor ki özet kartı ile tablo satırı
+ * ayrışmasın — ayrışırsa toplam, satırların toplamı olmaz.
+ */
+function unitCostOf(p: Product): number {
+  if (p.avgPurchasePrice != null) return Number(p.avgPurchasePrice)
+  return Number(p.purchasePrice || 0)
 }
 
 type FilterType = "ALL" | "PRODUCT" | "SERVICE"
@@ -98,7 +116,8 @@ export default function StokRaporlariPage() {
     const onlyServices = products.filter((p) => p.isService)
     const totalStockValue = onlyProducts.reduce((sum, p) => {
       const qty = Number(p.stockQuantity || 0)
-      const price = Number(p.purchasePrice || 0)
+      // Ortalama maliyet; yoksa kartın alış fiyatı — tablo satırıyla AYNI ölçü.
+      const price = unitCostOf(p)
       return sum + qty * price
     }, 0)
     const totalSaleValue = onlyProducts.reduce((sum, p) => {
@@ -326,7 +345,7 @@ export default function StokRaporlariPage() {
               ) : (
                 filteredProducts.map((p) => {
                   const qty = Number(p.stockQuantity || 0)
-                  const purchase = Number(p.purchasePrice || 0)
+                  const purchase = unitCostOf(p)
                   const sale = Number(p.salePrice || 0)
                   const status = stockStatus(p)
                   return (

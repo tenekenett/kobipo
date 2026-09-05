@@ -118,8 +118,14 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
 
   // Özet — ekrandaki kartların aynısı. PDF'i açan kişi tek bakışta durumu görsün.
   const onlyProducts = products.filter((product) => !product.isService)
+  // Satırlarla AYNI ölçü: ortalama maliyet, yoksa kartın alış fiyatı. Eskiden
+  // satırlar AVCO'dan, özet ham `purchasePrice`tan hesaplanıyordu — PDF'in
+  // toplamı, üstündeki satırların toplamını tutmuyordu.
   const totalStockValue = onlyProducts.reduce(
-    (sum, product) => sum + Number(product.stockQuantity || 0) * Number(product.purchasePrice || 0),
+    (sum, product) =>
+      sum +
+      Number(product.stockQuantity || 0) *
+        (costByProduct.get(product.id) ?? Number(product.purchasePrice || 0)),
     0,
   )
   const totalSaleValue = onlyProducts.reduce(

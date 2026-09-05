@@ -12,6 +12,7 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { avgCostCte } from "@/lib/stock/cost"
+import { avgSaleCte } from "@/lib/stock/sale-price"
 import { gunFarki, bugunBasi, gunOnce, sayi } from "./temel"
 
 export type OluStokSatiri = {
@@ -237,14 +238,19 @@ export type ZararinaSatisSatiri = {
  * Satır iskontosu düşülür; fatura ALTI iskonto kaleme dağıtılmadığı için hesaba
  * GİRMEZ — yani gerçek zarar burada görünenden biraz daha büyük olabilir, küçük
  * değil. Uyarının yönü güvenli tarafta kalır.
+ *
+ * Satış ortalaması BURADA HESAPLANMAZ: `avgSaleCte` (lib/stock/sale-price.ts)
+ * çağrılır — maliyette olduğu gibi. Formül eskiden bu sorgunun içinde duruyordu
+ * ve ürün kartındaki "ort. satış" ile bu uyarının fiyatı ayrışabilirdi.
+ * `fallbackToAllTime: false` bilinçli: soru "SON 90 günde zararına sattım mı",
+ * pencere boşsa cevap "hayır"dır — tüm zamana düşmek iki yıl önceki tek bir
+ * satışı bugünün uyarısı yapardı.
  */
 export async function zararinaSatilanlar(
   companyId: string,
   gunSayisi = 90,
   limit = 20
 ): Promise<ZararinaSatisSatiri[]> {
-  const baslangic = gunOnce(gunSayisi)
-
   const rows = await prisma.$queryRaw<
     Array<{
       id: string
@@ -252,41 +258,28 @@ export async function zararinaSatilanlar(
       name: string
       code: string | null
       adet: unknown
-      net_ciro: unknown
+      ort_satis: unknown
       unit_cost: unknown
     }>
   >(Prisma.sql`
     WITH ${avgCostCte(companyId)},
-    kalemler AS (
-      SELECT ii."productId" AS pid,
-             SUM(ii.quantity) AS adet,
-             SUM(ii.quantity * ii."unitPrice" - COALESCE(ii."discountAmount", 0)) AS net_ciro
-      FROM invoice_items ii
-      JOIN invoices i ON i.id = ii."invoiceId"
-      WHERE i."companyId" = ${companyId}
-        AND i.type = 'SALES'
-        AND i.status NOT IN ('CANCELLED', 'CONVERTED')
-        AND i.date >= ${baslangic}
-        AND ii."productId" IS NOT NULL
-        AND ii.quantity > 0
-      GROUP BY ii."productId"
-    )
+    ${avgSaleCte(companyId, gunSayisi, { fallbackToAllTime: false })}
     SELECT p.id, p.slug, p.name, p.code,
-           k.adet, k.net_ciro, ac.unit_cost
-    FROM kalemler k
-    JOIN products p ON p.id = k.pid
+           s.quantity AS adet, s.avg_price AS ort_satis, ac.unit_cost
+    FROM avg_sale s
+    JOIN products p ON p.id = s.product_id
     JOIN avg_cost ac ON ac.product_id = p.id
-    WHERE p."companyId" = ${companyId}
-      AND ac.unit_cost IS NOT NULL
-      AND k.adet > 0
-      AND (k.net_ciro / k.adet) < ac.unit_cost
-    ORDER BY (ac.unit_cost - k.net_ciro / k.adet) * k.adet DESC
+    WHERE ac.unit_cost IS NOT NULL
+      AND s.avg_price IS NOT NULL
+      AND s.quantity > 0
+      AND s.avg_price < ac.unit_cost
+    ORDER BY (ac.unit_cost - s.avg_price) * s.quantity DESC
     LIMIT ${limit}
   `)
 
   return rows.map((r) => {
     const adet = sayi(r.adet)
-    const ortSatis = adet > 0 ? sayi(r.net_ciro) / adet : 0
+    const ortSatis = sayi(r.ort_satis)
     const birimMaliyet = sayi(r.unit_cost)
     const birimZarar = birimMaliyet - ortSatis
     return {

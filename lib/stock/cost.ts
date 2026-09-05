@@ -16,6 +16,18 @@
 // "Geri alınmamış" kısmı sonradan eklendi: iptal/silinen alışın fiyatı ortalamada
 // kalıyordu (bkz. AVG_COST_SELECT yorumu ve docs/restoran/SADELESTIRME.md "İş 11").
 //
+// "ALIŞ hareketi"nin sınırı da sonradan daraldı — fiyatlı her `IN` alış DEĞİLDİR:
+//   • SATIŞ İADESİ stoğa `IN` olarak, müşteriden aldığımız SATIŞ fiyatıyla girer
+//     (lib/stock/invoice-stock.ts). O fiyat maliyet değildir; ortalamaya karışınca
+//     maliyeti satış fiyatına doğru şişiriyordu — yani iade alan firma kendini
+//     olduğundan kârsız görüyordu. Artık ağırlığa girmez: iade edilen mal o anki
+//     ortalama maliyetle değerlenir, doğrusu budur.
+//   • BAŞKA PARA BİRİMİNDEKİ belgenin fiyatı da girmez. Hareket, kaynak belgenin
+//     para birimindedir (`stock_movements`ta currency yok) ve kart kendi biriminde
+//     fiyat tutar; 100 USD'lik alışı 100 TRY'lik alışla ortalamak yeni bir yanlış
+//     üretirdi. Kur çevirmek yerine eleniyor — belge kuru geçmişin, kart bugünün.
+//     (Aynı kural satış tarafında da geçerli: lib/stock/sale-price.ts.)
+//
 // `null` ile `0` ayrımı kritik: maliyeti bilinmeyen ürünü 0 saymak onu bedava
 // gösterir ve marjı %100'e fırlatır. Çağıranlar null'ı sayıya çevirmek yerine
 // "eksik maliyet" olarak RAPORLAMALI.
@@ -42,9 +54,17 @@ import { prisma } from "@/lib/db/prisma"
  * `doc_key`: `reference` (boşsa hareketin kendi id'si — referanssız elle girilen
  * hareketler tek tek kendi belgesi sayılır, birbirini götürmesinler diye).
  *
- * Fiyatlı ağırlık yalnız `IN`/`PURCHASE` + `unitPrice IS NOT NULL` satırlardan
- * gelir; net miktar ise belgedeki TÜM satırlardan (ters hareket dahil). Böylece
- * TRANSFER ve satış hareketleri ortalamayı bozmaz, ters hareket ise götürür.
+ * Fiyatlı ağırlık yalnız `counts_as_purchase` satırlardan gelir; net miktar ise
+ * belgedeki TÜM satırlardan (ters hareket dahil). Böylece TRANSFER ve satış
+ * hareketleri ortalamayı bozmaz, ters hareket ise götürür.
+ *
+ * `counts_as_purchase` bayrağı satır bazında hesaplanıp GRUPLAMAYA girer; koşulu
+ * iki toplamın içine kopyalamak yerine tek yerde durması, ikisinin zamanla
+ * ayrışmasını engelliyor (biri filtreleyip öteki filtrelemezse ortalama bölme
+ * hatası verir, sessizce yanlış çıkar). Kaynak belge `reference` üzerinden LEFT
+ * JOIN'lenir: eşleşme YOKSA (irsaliye, adisyon, elle fiş, silinmiş fatura) satır
+ * alış sayılmaya DEVAM eder — `COALESCE(..., FALSE)` bunun içindir; NULL'ı
+ * dışlamak elle girilen tüm alış fişlerini ortalamadan düşürürdü.
  *
  * `LEAST/GREATEST`: kısmi geri alma (fatura düzenlenip miktar düşürülmüş) hâlinde
  * ağırlık kalan miktara iner; aşırı geri alma negatife düşmez.
@@ -71,16 +91,30 @@ const AVG_COST_SELECT = Prisma.sql`
   FROM products p
   LEFT JOIN LATERAL (
     SELECT
-      SUM(CASE WHEN m.type IN ('IN', 'PURCHASE') AND m."unitPrice" IS NOT NULL
-               THEN ABS(m.quantity) ELSE 0 END) AS priced_qty,
-      SUM(CASE WHEN m.type IN ('IN', 'PURCHASE') AND m."unitPrice" IS NOT NULL
-               THEN ABS(m.quantity) * m."unitPrice" ELSE 0 END) AS priced_value,
-      SUM(m.quantity) AS net_qty
-    FROM stock_movements m
-    WHERE m."productId" = p.id
-      AND m."companyId" = p."companyId"
-      AND m.quantity <> 0
-    GROUP BY COALESCE(NULLIF(m."reference", ''), m.id)
+      SUM(CASE WHEN mm.counts_as_purchase THEN ABS(mm.quantity) ELSE 0 END) AS priced_qty,
+      SUM(CASE WHEN mm.counts_as_purchase THEN ABS(mm.quantity) * mm."unitPrice" ELSE 0 END) AS priced_value,
+      SUM(mm.quantity) AS net_qty
+    FROM (
+      SELECT m.quantity,
+             m."unitPrice",
+             COALESCE(NULLIF(m."reference", ''), m.id) AS doc_key,
+             (
+               m.type IN ('IN', 'PURCHASE')
+               AND m."unitPrice" IS NOT NULL
+               AND NOT COALESCE(
+                     src.type = 'RETURN'
+                     AND (src."returnKind" IS NULL OR UPPER(src."returnKind") = 'SALES'),
+                     FALSE
+                   )
+               AND COALESCE(src.currency, COALESCE(p.currency, 'TRY')) = COALESCE(p.currency, 'TRY')
+             ) AS counts_as_purchase
+      FROM stock_movements m
+      LEFT JOIN invoices src ON src.id = NULLIF(m."reference", '')
+      WHERE m."productId" = p.id
+        AND m."companyId" = p."companyId"
+        AND m.quantity <> 0
+    ) mm
+    GROUP BY mm.doc_key
   ) d ON TRUE
 `
 
@@ -135,6 +169,69 @@ export async function resolveUnitCosts(
   for (const id of ids) if (!costs.has(id)) costs.set(id, null)
 
   return costs
+}
+
+/** Ürünün fiyatı kayıtlı SON alış hareketi. */
+export type LastPurchase = {
+  unitPrice: number
+  date: Date
+}
+
+/**
+ * Fiyatı kayıtlı son alış hareketleri.
+ *
+ * Ortalamanın YERİNE geçmez, YANINDA durur: ürün detayı "ort. maliyet ₺42 ama en
+ * son ₺55'e aldın" diyebilsin diye. Tedarikçi zam yaptığında AVCO zammı ancak
+ * eski stok eridikçe yansıtır — arada kullanıcı iki sayının neden ayrıştığını
+ * göremezse ortalamayı hatalı sanır.
+ *
+ * `AVG_COST_SELECT` ile aynı DIŞLAMALARI uygular (satış iadesi ve yabancı para
+ * belgesi alış sayılmaz) ama belge bazında NETLEŞTİRMEZ: burada sorulan "en son ne
+ * ödedim", "elimdeki mal kaça mal oldu" değil. Geri alınmış bir alış son hareket
+ * olarak görünebilir; ortalamadan düştüğü için hesabı bozmaz, yalnız bilgi satırı
+ * biraz eski kalır.
+ *
+ * Dışlamalar burada da geçerli olmasa kart kendi içinde çelişirdi: ortalamaya
+ * girmeyen bir satış iadesi "Son alış ₺3.048" diye yazılır, kullanıcı ortalamayı
+ * hatalı sanardı.
+ */
+export async function resolveLastPurchases(
+  companyId: string,
+  productIds: string[],
+): Promise<Map<string, LastPurchase>> {
+  const result = new Map<string, LastPurchase>()
+  const ids = Array.from(new Set(productIds.filter(Boolean)))
+  if (ids.length === 0) return result
+
+  const rows = await prisma.$queryRaw<
+    Array<{ product_id: string; unit_price: unknown; created_at: Date }>
+  >`
+    SELECT DISTINCT ON (m."productId")
+           m."productId" AS product_id,
+           m."unitPrice" AS unit_price,
+           m."createdAt" AS created_at
+    FROM stock_movements m
+    LEFT JOIN invoices src ON src.id = NULLIF(m."reference", '')
+    LEFT JOIN products pr ON pr.id = m."productId"
+    WHERE m."companyId" = ${companyId}
+      AND m."productId" IN (${Prisma.join(ids)})
+      AND m.type IN ('IN', 'PURCHASE')
+      AND m."unitPrice" IS NOT NULL
+      AND m.quantity <> 0
+      AND NOT COALESCE(
+            src.type = 'RETURN'
+            AND (src."returnKind" IS NULL OR UPPER(src."returnKind") = 'SALES'),
+            FALSE
+          )
+      AND COALESCE(src.currency, COALESCE(pr.currency, 'TRY')) = COALESCE(pr.currency, 'TRY')
+    ORDER BY m."productId", m."createdAt" DESC
+  `
+
+  for (const row of rows) {
+    const price = Number(row.unit_price)
+    if (Number.isFinite(price)) result.set(row.product_id, { unitPrice: price, date: row.created_at })
+  }
+  return result
 }
 
 /**

@@ -417,6 +417,8 @@ export const PUT = withApiErrors(async function PUT(
             productId: item.productId,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
+            // Bkz. POST ucu: maliyet iskontolu fiyattan hesaplanır.
+            discountAmount: item.discountAmount ?? null,
             order: index,
           })),
         })

@@ -553,6 +553,9 @@ const company = await prisma.company.findUnique({
           productId: item.productId || (item as any).product?.id || null,
           quantity: Number(item.quantity),
           unitPrice: item.unitPrice != null ? Number(item.unitPrice) : null,
+          // İskonto stok hareketine taşınır: maliyet ortalaması harekete yazılan
+          // fiyattan çıkar, liste fiyatı yazılırsa iskontolu alım pahalı görünür.
+          discountAmount: item.discountAmount != null ? Number(item.discountAmount) : null,
           order: Number(item.order) || 0,
           recipeEffects: source?.recipeEffects,
           recipeFactor: source?.recipeFactor,

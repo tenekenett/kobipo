@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server"
-import { isInboundMovement, signedMovementQuantity } from "@/lib/stock/movement-sign"
+import { Prisma } from "@prisma/client"
+import {
+  isInboundMovement,
+  OUTBOUND_MOVEMENT_TYPES,
+  signedMovementQuantity,
+} from "@/lib/stock/movement-sign"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -10,6 +15,8 @@ import { normalizeUnitCode } from "@/lib/data/units"
 import { findRecipeUnitConflicts } from "@/lib/stock/recipe"
 import { deleteProductImage, readImageUrlField } from "@/lib/stock/product-image"
 import { adjustWarehouseStock, closeProductStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
+import { resolveLastPurchases, resolveUnitCosts } from "@/lib/stock/cost"
+import { effectiveAvgSale, emptyAvgSalePrice, resolveAvgSalePrices } from "@/lib/stock/sale-price"
 
 
 export const dynamic = 'force-dynamic'
@@ -70,15 +77,36 @@ export const GET = withApiErrors(async function GET(
     // TRANSFER) sayılıyordu; sayım/elle düzeltme (ADJUSTMENT) hiçbir toplama
     // girmiyordu. Aynı satır, hareket tablosunda "Giriş" etiketiyle görünüyordu:
     // kullanıcı listede gördüğü girişi üstteki toplamda bulamıyordu.
-    const totalIn = product.stockMovements.reduce((sum, m) => {
-      const q = signedQuantity(m)
-      return q > 0 ? sum + q : sum
-    }, 0)
+    //
+    // TOPLAM, VERİTABANINDA hesaplanır — yukarıdaki listeden DEĞİL. Liste ekranda
+    // gösterilecek son 50 hareketle sınırlı (`take: 50`); toplamlar da o listeden
+    // türetildiği sürece "Toplam Giriş/Çıkış" kartları aslında "son 50 hareketin
+    // girişi/çıkışı"nı gösteriyordu ve etiketleriyle çelişiyordu. Somut hâli:
+    // 6 giriş, 144 çıkış, ama mevcut stok 1.062 — üçü hiçbir aritmetikle
+    // bağdaşmıyordu (gerçek toplamlar 31.231.324 / 31.230.262 idi).
+    //
+    // İşaret kuralı SQL'e kopyalanmıyor: çıkış tipleri lib/stock/movement-sign.ts
+    // sabitinden geliyor, yoksa aynı kuralın ikinci bir sürümü doğardı.
+    const [movementTotals] = await prisma.$queryRaw<
+      Array<{ total_in: unknown; total_out: unknown }>
+    >`
+      SELECT
+        COALESCE(SUM(CASE WHEN s.signed_qty > 0 THEN s.signed_qty ELSE 0 END), 0) AS total_in,
+        COALESCE(SUM(CASE WHEN s.signed_qty < 0 THEN -s.signed_qty ELSE 0 END), 0) AS total_out
+      FROM (
+        SELECT CASE
+                 WHEN m.quantity > 0 AND m.type IN (${Prisma.join(OUTBOUND_MOVEMENT_TYPES)})
+                 THEN -m.quantity
+                 ELSE m.quantity
+               END AS signed_qty
+        FROM stock_movements m
+        WHERE m."productId" = ${product.id}
+          AND m."companyId" = ${product.companyId}
+      ) s
+    `
 
-    const totalOut = product.stockMovements.reduce((sum, m) => {
-      const q = signedQuantity(m)
-      return q < 0 ? sum - q : sum
-    }, 0)
+    const totalIn = Number(movementTotals?.total_in ?? 0)
+    const totalOut = Number(movementTotals?.total_out ?? 0)
 
     // Eski kayıtlarda unitPrice null olabilir; bu durumda hareket tipine göre
     // ürünün alış/satış fiyatını fallback olarak kullan, böylece tablo 0 göstermez.
@@ -198,11 +226,48 @@ export const GET = withApiErrors(async function GET(
       }
     }).reverse() // Reverse to show oldest first
 
+    // ── TÜRETİLMİŞ FİYATLAR ─────────────────────────────────────────────────
+    // Kart iki sayıyı YAN YANA gösterir: elle girilen fiyat ve belgelerden çıkan
+    // gerçek. Hiçbiri karta OTOMATİK yazılmaz — kullanıcı "Fiyatı güncelle" derse yazılır
+    // (gerekçe: lib/stock/sale-price.ts başlığı, liste fiyatı geri besleme döngüsü).
+    //
+    // Tanımlar burada DEĞİL, ortak modüllerde: maliyet lib/stock/cost.ts (AVCO),
+    // satış lib/stock/sale-price.ts. Buraya kopyalansaydı liste ekranı, reçete
+    // ekranı ve bu kart aynı ürün için farklı maliyet gösterirdi.
+    const [costByProduct, lastPurchases, avgSales] = await Promise.all([
+      resolveUnitCosts(product.companyId, [product.id]),
+      resolveLastPurchases(product.companyId, [product.id]),
+      resolveAvgSalePrices(product.companyId, [product.id]),
+    ])
+
+    const avgSale = avgSales.get(product.id) ?? emptyAvgSalePrice()
+    const effectiveSale = effectiveAvgSale(avgSale)
+    const lastPurchase = lastPurchases.get(product.id) ?? null
+
     return NextResponse.json({
       ...product,
       totalIn,
       totalOut,
       movements,
+      /** AVCO — alış faturalarından türeyen ağırlıklı ortalama maliyet; yoksa null. */
+      avgPurchasePrice: costByProduct.get(product.id) ?? null,
+      lastPurchase: lastPurchase
+        ? { unitPrice: lastPurchase.unitPrice, date: lastPurchase.date.toISOString() }
+        : null,
+      /**
+       * Gerçekleşen satış fiyatı. `scope` hangi aralıktan geldiğini söyler:
+       * pencere doluysa "PERIOD", değilse "ALL". Ekran etiketi buna bağlı —
+       * etiketsiz basılırsa iki farklı soru aynı sayıymış gibi okunur.
+       */
+      avgSalePrice: effectiveSale
+        ? {
+            price: effectiveSale.price,
+            quantity: effectiveSale.quantity,
+            scope: effectiveSale.scope,
+            periodDays: avgSale.periodDays,
+            lastSaleDate: avgSale.lastSaleDate ? avgSale.lastSaleDate.toISOString() : null,
+          }
+        : null,
     })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
@@ -328,8 +393,18 @@ export const PUT = withApiErrors(async function PUT(
         // aynı değeri yazmalı, aksi halde doğrulanan ile saklanan ayrışır.
         unit: unit !== undefined ? normalizeUnitCode(unit) || product.unit : product.unit,
         vatRate: vatForCalc,
-        purchasePrice: toNetPrice(purchasePrice, Boolean(purchasePriceVatIncluded)),
-        salePrice: toNetPrice(salePrice, Boolean(salePriceVatIncluded)),
+        // Gövdede ALAN YOKSA dokunulmaz — yukarıdaki shelfCode/unit ile aynı kural.
+        // Eskiden koşulsuz yazılıyordu: yalnız bir fiyatı güncelleyen kısmi bir
+        // istek (ürün detayındaki "Fiyatı güncelle") ötekini sessizce NULL'a çekerdi.
+        // Alanı BOŞ göndermek ("") hâlâ silmektir; formlar temizlemeyi böyle yapar.
+        purchasePrice:
+          purchasePrice !== undefined
+            ? toNetPrice(purchasePrice, Boolean(purchasePriceVatIncluded))
+            : product.purchasePrice,
+        salePrice:
+          salePrice !== undefined
+            ? toNetPrice(salePrice, Boolean(salePriceVatIncluded))
+            : product.salePrice,
         currency:
           typeof currency === "string" && currency.trim()
             ? currency.trim().toUpperCase()
@@ -342,7 +417,11 @@ export const PUT = withApiErrors(async function PUT(
           purchasePriceVatIncluded !== undefined
             ? Boolean(purchasePriceVatIncluded)
             : product.purchasePriceVatIncluded,
-        minStockLevel: minStockLevel ? parseFloat(minStockLevel) : null,
+        // Fiyatlarla aynı gerekçe: alan gövdede yoksa dokunma, boşsa temizle.
+        minStockLevel:
+          minStockLevel !== undefined
+            ? (minStockLevel ? parseFloat(minStockLevel) : null)
+            : product.minStockLevel,
         isService: isService !== undefined ? isService : product.isService,
         isActive: isActive !== undefined ? isActive : product.isActive,
         isSellable: isSellable !== undefined ? Boolean(isSellable) : product.isSellable,

@@ -191,6 +191,58 @@ describe("iade yönü — isOutboundInvoice", () => {
   })
 })
 
+describe("prepareInvoiceStockOps — satır iskontosu maliyete iner", () => {
+  // Harekete yazılan fiyat AVCO'nun tek girdisidir (lib/stock/cost.ts). Liste
+  // fiyatı yazıldığı sürece iskontolu alınan mal ortalamayı gerçekte ödenenin
+  // ÜSTÜNE çekiyor, kullanıcı kârını olduğundan düşük görüyordu.
+  it("iskonto düşülmüş NET birim fiyat yazılır", async () => {
+    const ops = await prepareInvoiceStockOps(fakeDb(), {
+      companyId: "c1",
+      type: "PURCHASE",
+      // 10 × ₺25 = ₺250, ₺50 iskonto → net ₺200 → birim ₺20.
+      lines: [{ productId: "p1", quantity: 10, unitPrice: 25, discountAmount: 50, order: 0 }],
+    })
+
+    expect(ops).toEqual([{ productId: "p1", delta: 10, unitPrice: 20, recipeNote: null }])
+  })
+
+  it("iskonto yoksa/0 ise liste fiyatı korunur — eski davranış birebir", async () => {
+    const ops = await prepareInvoiceStockOps(fakeDb(), {
+      companyId: "c1",
+      type: "PURCHASE",
+      lines: [
+        { productId: "p1", quantity: 4, unitPrice: 25, discountAmount: 0, order: 0 },
+        { productId: "p2", quantity: 4, unitPrice: 30, discountAmount: null, order: 1 },
+        { productId: "p3", quantity: 4, unitPrice: 40, order: 2 },
+      ],
+    })
+
+    expect(ops.map((o) => o.unitPrice)).toEqual([25, 30, 40])
+  })
+
+  it("iskonto satır tutarını AŞARSA fiyat eksiye düşmez, liste fiyatında kalır", async () => {
+    // Veri hatası: ₺100'lük satıra ₺500 iskonto. Negatif birim maliyet ortalamayı
+    // sessizce bozardı — 0'a kırpmak da malı bedava gösterirdi.
+    const ops = await prepareInvoiceStockOps(fakeDb(), {
+      companyId: "c1",
+      type: "PURCHASE",
+      lines: [{ productId: "p1", quantity: 4, unitPrice: 25, discountAmount: 500, order: 0 }],
+    })
+
+    expect(ops[0].unitPrice).toBe(25)
+  })
+
+  it("fiyatsız kalemde iskonto bir şey uydurmaz — fiyat null kalır", async () => {
+    const ops = await prepareInvoiceStockOps(fakeDb(), {
+      companyId: "c1",
+      type: "PURCHASE",
+      lines: [{ productId: "p1", quantity: 4, unitPrice: null, discountAmount: 10, order: 0 }],
+    })
+
+    expect(ops[0].unitPrice).toBeNull()
+  })
+})
+
 describe("prepareInvoiceStockOps — iki yönlü iade", () => {
   it("alış iadesinde mal depodan ÇIKAR", async () => {
     const ops = await prepareInvoiceStockOps(fakeDb(), {

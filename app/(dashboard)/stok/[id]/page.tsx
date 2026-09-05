@@ -70,6 +70,21 @@ interface ProductDetail {
   totalIn: number
   totalOut: number
   movements: StockMovement[]
+  /**
+   * BELGELERDEN türeyen fiyatlar — kartın elle girilen alanlarının yanında
+   * "gerçek" olarak durur, karta OTOMATİK yazılmaz (bkz. lib/stock/sale-price.ts).
+   * Tanımları uç değil ortak modüller verir: cost.ts (AVCO) ve sale-price.ts.
+   */
+  avgPurchasePrice?: number | null
+  lastPurchase?: { unitPrice: number; date: string } | null
+  avgSalePrice?: {
+    price: number
+    quantity: number
+    /** PERIOD = pencere içi, ALL = tüm zamanlar (pencere boş kaldı). */
+    scope: "PERIOD" | "ALL"
+    periodDays: number
+    lastSaleDate: string | null
+  } | null
 }
 
 /**
@@ -137,6 +152,8 @@ export default function ProductDetailPage() {
   const [whStocks, setWhStocks] = useState<Array<{ warehouseName: string; quantity: number; unit: string }>>([])
   const [movementOpen, setMovementOpen] = useState(false)
   const [movementMode, setMovementMode] = useState<StockMovementMode>("IN")
+  /** Hangi türetilmiş fiyat karta yazılıyor — düğme iki kez basılmasın diye. */
+  const [applying, setApplying] = useState<"purchase" | "sale" | null>(null)
 
   // Reçeteli ürünün KENDİ bakiyesi tutulmaz (satışta bileşenleri düşer), bu yüzden
   // elle giriş/çıkış anlamsızdır — liste ekranı da o ürünlerde stok yerine "—" basar.
@@ -206,6 +223,53 @@ export default function ProductDetailPage() {
     }
   }
 
+  /**
+   * Türetilmiş fiyatı KARTA yazar — kullanıcının açık eylemi.
+   *
+   * Gövdeye YALNIZ o fiyat konur; uç gövdede olmayan alana dokunmuyor
+   * (app/api/stok/products/[id] PUT). Öteki fiyatı da göndermek, kullanıcı
+   * bu sırada başka bir sekmede fiyatı değiştirdiyse onun yazdığını geri alırdı.
+   *
+   * `...VatIncluded: false` bilinçli: ortak modüllerin verdiği sayı NET'tir
+   * (KDV hariç) ve DB de net saklar. Bayrak "kullanıcı KDV dahil girdi mi"
+   * sorusunu hatırlar; true kalsaydı form aynı sayıyı KDV ile şişirip gösterirdi.
+   */
+  const applyDerivedPrice = async (field: "purchase" | "sale", value: number) => {
+    if (!companyId || !product) return
+    setApplying(field)
+    try {
+      const body =
+        field === "purchase"
+          ? { companyId, purchasePrice: String(value), purchasePriceVatIncluded: false }
+          : { companyId, salePrice: String(value), salePriceVatIncluded: false }
+      const response = await fetch(`/api/stok/products/${product.id}?companyId=${companyId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        throw new Error(data?.error || "Fiyat güncellenemedi")
+      }
+      await fetchProduct()
+      toast({
+        title: "Fiyat güncellendi",
+        description:
+          field === "purchase"
+            ? "Alış fiyatı ortalama maliyete çekildi."
+            : "Satış fiyatı gerçekleşen ortalamaya çekildi.",
+      })
+    } catch (error: any) {
+      toast({
+        title: "Hata",
+        description: error?.message || "Fiyat güncellenemedi",
+        variant: "destructive",
+      })
+    } finally {
+      setApplying(null)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -233,6 +297,52 @@ export default function ProductDetailPage() {
       maximumFractionDigits: 2,
     }).format(num)
   }
+
+  const formatDay = (iso: string) => new Date(iso).toLocaleDateString("tr-TR")
+
+  /**
+   * Yüzde — Türkçe biçimde: işaret ÖNDE, `%` sayının solunda, ondalık ayırıcı
+   * virgül. `%{rate.toFixed(1)}` "%-80.0" üretiyordu: hem eksi yanlış yerde hem
+   * ayırıcı nokta.
+   */
+  const formatRate = (rate: number) => {
+    const sign = rate < 0 ? "-" : ""
+    const value = new Intl.NumberFormat("tr-TR", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }).format(Math.abs(rate))
+    return `${sign}%${value}`
+  }
+
+  /**
+   * Fiyat karşılaştırma/yazma hassasiyeti: 4 ondalık.
+   *
+   * Kuruşa yuvarlamak hammaddeyi bozardı — gram başına ₺0,0234 duran kahve
+   * çekirdeği ₺0,02'ye inince reçete maliyeti %15 kayar. Ham bölme sonucunu
+   * olduğu gibi bırakmak ise ters uçta sorunlu: 42.499999999 ile 42,5 asla eşit
+   * çıkmaz ve düğme fiyat güncellendikten SONRA da ekranda durmaya devam eder.
+   */
+  const roundPrice = (value: number) => Math.round(value * 10000) / 10000
+  const samePrice = (a: number, b: number | null) => b != null && roundPrice(a) === roundPrice(b)
+
+  const avgCost = product.avgPurchasePrice ?? null
+  const cardPurchase = product.purchasePrice != null ? Number(product.purchasePrice) : null
+  const cardSale = product.salePrice != null ? Number(product.salePrice) : null
+  const derivedSale = product.avgSalePrice ?? null
+
+  /**
+   * Stok değeri ve marj ORTALAMA MALİYETTEN hesaplanır; o yoksa kartın alış
+   * fiyatına düşer. Eskiden ikisi de yalnız karta bakıyordu: alış faturaları
+   * ortalamayı ₺42'ye taşımışken kartta ₺30 duruyorsa depo değeri olduğundan
+   * düşük, marj olduğundan yüksek görünüyordu — üstelik /stok listesi aynı ürün
+   * için AVCO basıyordu, yani liste ile kart birbirini tutmuyordu.
+   */
+  const unitCost = avgCost ?? cardPurchase
+  const marginBase = unitCost != null && unitCost > 0 ? unitCost : null
+  const margin =
+    marginBase != null && cardSale != null
+      ? { profit: cardSale - marginBase, rate: ((cardSale - marginBase) / marginBase) * 100 }
+      : null
 
   return (
     <div className="space-y-6">
@@ -388,20 +498,42 @@ export default function ProductDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(Number(product.stockQuantity) * Number(product.purchasePrice || 0))}
+              {unitCost == null ? "—" : formatCurrency(Number(product.stockQuantity) * unitCost)}
             </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {unitCost == null
+                ? "Maliyet bilinmiyor"
+                : avgCost != null
+                  ? "Ortalama maliyetten"
+                  : "Kart alış fiyatından"}
+            </p>
           </CardContent>
         </Card>
       </div>
 
       {/* Product Details */}
-      <div className="grid gap-6 md:grid-cols-2">
+      {/*
+        İki kart YAN YANA DEĞİL, alt alta ve ikisi de tam genişlik.
+        Yan yana dizildiklerinde ürün bilgileri kartı (4-6 kısa alan) fiyat kartının
+        yanında yarım sayfalık bir boşluk bırakıyordu; kartı içeriğine kısaltmak da
+        boşluğu kartın içinden yanına taşımaktan öteye gitmedi. Ürün bilgileri artık
+        alanları yatay dizen bir şerit, fiyat kartı ise genişliği gerçekten kullanıyor
+        (alış/satış ekseni iki sütun).
+      */}
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>Ürün / Hizmet Bilgileri</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <CardContent>
+            {/*
+              Izgara DEĞİL, akış: alanların sayısı ürüne göre 3 ile 6 arasında
+              değişiyor (barkod, raf, kategori, para birimi koşullu). Sabit sütunlu
+              bir ızgarada 5 alan aralarında 200px boşlukla dağılıyor, 3 alan ise
+              satırın yarısını boş bırakıyordu. `flex-wrap` alanları sabit aralıkla
+              yan yana dizer; sayı kaç olursa olsun şerit aynı sıklıkta görünür.
+            */}
+            <div className="flex flex-wrap gap-x-10 gap-y-4">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Birim</p>
                 <p className="font-medium">{product.unit}</p>
@@ -422,49 +554,182 @@ export default function ProductDetailPage() {
                   <p className="font-medium font-mono">{product.shelfCode}</p>
                 </div>
               )}
+              {/* Kategori sayfanın HİÇBİR yerinde görünmüyordu — başlık satırı da basmıyor. */}
+              {product.category && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Kategori</p>
+                  <p className="font-medium">{product.category}</p>
+                </div>
+              )}
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Tip</p>
                 <p className="font-medium">{product.isService ? "Hizmet" : "Ürün"}</p>
               </div>
+              {/* Para birimi yalnız TRY DIŞINDA anlamlı: kartın fiyatları o birimdedir. */}
+              {product.currency && product.currency !== "TRY" && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Para Birimi</p>
+                  <p className="font-medium">{product.currency}</p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
 
+        {/*
+          Kart TEK bir soruyu cevaplıyor: "bu ürünün fiyatı ne?" — ve cevabın iki
+          hâli var. Kartta YAZAN fiyat yeni belgelerde kullanılan tahminimiz;
+          FATURALARA GÖRE olan ise gerçekte olan biten. Bu yüzden düzen, alış ve
+          satış eksenlerini ayrı kutulara alıp her kutuda AYNI iki satırı
+          (Kartta yazan / Faturalara göre) tekrarlıyor: kullanıcı iki sayıyı
+          karşılaştırmak için etiket okumak zorunda kalmıyor, aynı yerde yan yana
+          duruyorlar.
+
+          Önceki düzen bilgiyi taşıyordu ama ilişkiyi göstermiyordu: elle girilen
+          fiyatlar üstte bir satır, türetilenler altta ayrı bir kutu, aralarında
+          hangi sayının hangisinin karşılığı olduğunu söyleyen bir şey yoktu.
+
+          Türetilen sayı karta kendiliğinden YAZILMAZ — "Fiyatı güncelle" kullanıcının
+          açık eylemidir. Gerekçe lib/stock/sale-price.ts başlığında: gerçekleşen
+          ortalama liste fiyatının üstüne otomatik yazılsaydı iskontolu her satış
+          fiyatı aşağı çeker, sonraki satış daha aşağıdan başlardı.
+        */}
         <Card>
           <CardHeader>
             <CardTitle>Fiyat Bilgileri</CardTitle>
+            <CardDescription>
+              Her fiyatın iki değeri var: kartta yazan (yeni fatura ve tekliflerde
+              kullanılır) ve faturalarınızdan hesaplanan (gerçekleşen).
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Alış Fiyatı</p>
-                <p className="font-medium text-lg">
-                  {product.purchasePrice ? formatCurrency(Number(product.purchasePrice)) : "-"}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Satış Fiyatı</p>
-                <p className="font-medium text-lg text-green-600">
-                  {product.salePrice ? formatCurrency(Number(product.salePrice)) : "-"}
-                </p>
-              </div>
-              {product.purchasePrice && product.salePrice && (
-                <>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Kar Marjı</p>
-                    <p className="font-medium">
-                      {formatCurrency(Number(product.salePrice) - Number(product.purchasePrice))}
-                    </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {/* ── ALIŞ EKSENİ ────────────────────────────────────────────── */}
+              <section className="rounded-lg border p-4">
+                <h3 className="text-sm font-semibold">Alış</h3>
+
+                <div className="mt-3 flex items-baseline justify-between gap-3">
+                  <span className="text-sm text-muted-foreground">Kartta yazan</span>
+                  <span className="text-lg font-medium tabular-nums">
+                    {cardPurchase != null ? formatCurrency(cardPurchase) : "—"}
+                  </span>
+                </div>
+
+                <div className="mt-3 border-t pt-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-sm text-muted-foreground">Faturalara göre</span>
+                    <span className="text-lg font-medium tabular-nums">
+                      {avgCost != null ? formatCurrency(avgCost) : "—"}
+                    </span>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Kar Oranı</p>
-                    <p className="font-medium">
-                      %{(((Number(product.salePrice) - Number(product.purchasePrice)) / Number(product.purchasePrice)) * 100).toFixed(1)}
-                    </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {avgCost == null
+                      ? "Fiyatı kayıtlı alış hareketi yok"
+                      : product.lastPurchase
+                        ? `Alış faturalarının ağırlıklı ortalaması · son alış ${formatCurrency(product.lastPurchase.unitPrice)} (${formatDay(product.lastPurchase.date)})`
+                        : "Alış faturalarının ağırlıklı ortalaması"}
+                  </p>
+                  {/*
+                    ₺0 çıkan ortalama GÖSTERİLİR ama düğme ÇIKMAZ: fiyatsız kesilmiş
+                    fatura satırları ortalamayı sıfıra indirir, karta sıfır yazmak
+                    hiçbir soruyu çözmez — düzeltilecek yer faturadır.
+                  */}
+                  {avgCost != null && avgCost > 0 && !samePrice(avgCost, cardPurchase) && (
+                    <WriteAction>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-3 w-full"
+                        disabled={applying !== null}
+                        onClick={() => applyDerivedPrice("purchase", roundPrice(avgCost))}
+                      >
+                        {applying === "purchase" ? "Güncelleniyor..." : "Fiyatı güncelle"}
+                      </Button>
+                    </WriteAction>
+                  )}
+                </div>
+              </section>
+
+              {/* ── SATIŞ EKSENİ ───────────────────────────────────────────── */}
+              <section className="rounded-lg border p-4">
+                <h3 className="text-sm font-semibold">Satış</h3>
+
+                <div className="mt-3 flex items-baseline justify-between gap-3">
+                  <span className="text-sm text-muted-foreground">Kartta yazan</span>
+                  <span className="text-lg font-medium tabular-nums text-green-600">
+                    {cardSale != null ? formatCurrency(cardSale) : "—"}
+                  </span>
+                </div>
+
+                <div className="mt-3 border-t pt-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-sm text-muted-foreground">Faturalara göre</span>
+                    <span className="text-lg font-medium tabular-nums text-green-600">
+                      {derivedSale ? formatCurrency(derivedSale.price) : "—"}
+                    </span>
                   </div>
-                </>
-              )}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {!derivedSale
+                      ? "Bu üründen satış faturası kesilmemiş"
+                      : `${
+                          derivedSale.scope === "PERIOD"
+                            ? `Son ${derivedSale.periodDays} günde`
+                            : "Tüm zamanlarda"
+                        } ${formatNumber(derivedSale.quantity)} ${product.unit} satıldı${
+                          derivedSale.lastSaleDate
+                            ? ` · son satış ${formatDay(derivedSale.lastSaleDate)}`
+                            : ""
+                        }`}
+                  </p>
+                  {derivedSale && derivedSale.price > 0 && !samePrice(derivedSale.price, cardSale) && (
+                    <WriteAction>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-3 w-full"
+                        disabled={applying !== null}
+                        onClick={() => applyDerivedPrice("sale", roundPrice(derivedSale.price))}
+                      >
+                        {applying === "sale" ? "Güncelleniyor..." : "Fiyatı güncelle"}
+                      </Button>
+                    </WriteAction>
+                  )}
+                </div>
+              </section>
             </div>
+
+            {/*
+              Kâr, hesabın NEYE göre yapıldığı etiketin İÇİNDE yazacak şekilde
+              duruyor. Önce "Kar Marjı / Kar Oranı" diye iki başlık vardı ve hangi
+              maliyetin kullanıldığı en altta küçük bir dipnottaydı — kullanıcı
+              rakamı karttaki alış fiyatıyla karşılaştırıp tutmadığını görüyordu.
+            */}
+            {margin && (
+              <div className="rounded-lg bg-muted/40 p-3">
+                <p className="text-sm font-medium">
+                  Kâr:{" "}
+                  <span className="text-muted-foreground">
+                    karttaki satış fiyatı −{" "}
+                    {avgCost != null ? "faturalara göre maliyet" : "karttaki alış fiyatı"}
+                  </span>
+                </p>
+                <p
+                  className={`mt-1 text-lg font-semibold tabular-nums ${
+                    margin.profit < 0 ? "text-red-600" : "text-green-600"
+                  }`}
+                >
+                  {formatCurrency(margin.profit)}{" "}
+                  <span className="text-base font-medium opacity-80">
+                    ({formatRate(margin.rate)})
+                  </span>
+                </p>
+              </div>
+            )}
+
+            <p className="text-xs leading-snug text-muted-foreground">
+              Tutarlar KDV hariçtir. Faturalara göre satış fiyatı, satır iskontosu
+              düşülmüş net fiyattır ve satış iadeleri çıkarılmıştır.
+            </p>
           </CardContent>
         </Card>
       </div>

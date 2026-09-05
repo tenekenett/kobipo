@@ -29,7 +29,17 @@ export type InvoiceStockLine = {
   productId: string | null
   /** Pozitif miktar; yön (giriş/çıkış) fatura tipinden türetilir. */
   quantity: number
+  /** Kalemin LİSTE birim fiyatı (KDV hariç, satır iskontosu DÜŞÜLMEMİŞ). */
   unitPrice: number | null
+  /**
+   * Satır iskontosu (`InvoiceItem.discountAmount`) — tutar, oran değil.
+   *
+   * Harekete yazılan fiyat bunun DÜŞÜLMÜŞ hâlidir: `stock_movements.unitPrice`
+   * maliyet hesabının (AVCO) girdisidir ve iskontolu alınan malı liste
+   * fiyatından saymak maliyeti gerçekte ödenenden yüksek gösterirdi. Alan boş
+   * bırakılırsa iskonto yok sayılır (eski davranış).
+   */
+  discountAmount?: number | null
   /** Kalem sırası — reçete seçenek etkileri satıra özeldir, eşleme bununla yapılır. */
   order: number
   /** Restoran seçenekleri (porsiyon/ek malzeme). Yalnız satışta anlamlı. */
@@ -70,6 +80,38 @@ export function isOutboundInvoice(
   if (safe === "SALES") return true
   if (safe === "RETURN") return String(returnKind || "").trim().toUpperCase() === "PURCHASE"
   return false
+}
+
+/**
+ * Harekete YAZILACAK birim fiyat: satır iskontosu düşülmüş net.
+ *
+ * `stock_movements.unitPrice` maliyet ortalamasının (AVCO, lib/stock/cost.ts)
+ * tek girdisidir. Buraya liste fiyatı yazıldığı sürece iskontolu alınan mal
+ * ortalamayı gerçekte ödenenin ÜSTÜNE çekiyordu — kullanıcı kârını olduğundan
+ * düşük görüyordu.
+ *
+ * Fatura ALTI iskonto kaleme dağıtılmadığı için buraya GİRMEZ; maliyet o kadarlık
+ * bir payla hâlâ yüksek kalabilir, yani sapmanın yönü güvenli tarafta.
+ *
+ * GEÇMİŞE DÖNÜK DEĞİLDİR: zaten yazılmış hareketler liste fiyatını taşımaya devam
+ * eder. İlgili fatura düzenlenip kaydedildiğinde hareketler yeniden yazılır ve
+ * kendiliğinden düzelir (bkz. revertStockByReference + writeInvoiceStockOps).
+ */
+function netUnitPrice(
+  unitPrice: number | null | undefined,
+  quantity: number,
+  discountAmount: number | null | undefined,
+): number | null {
+  if (unitPrice == null) return null
+  const price = Number(unitPrice)
+  if (!Number.isFinite(price)) return null
+  const discount = Number(discountAmount)
+  if (!Number.isFinite(discount) || discount === 0) return price
+  if (!Number.isFinite(quantity) || quantity <= 0) return price
+  const net = (price * quantity - discount) / quantity
+  // İskonto satır tutarını aşarsa (veri hatası) fiyatı EKSİYE düşürmek yerine
+  // liste fiyatında bırak: negatif maliyet ortalamayı sessizce bozardı.
+  return Number.isFinite(net) && net >= 0 ? net : price
 }
 
 function stockLineKey(productId: string | null, quantity: number, unitPrice: number) {
@@ -137,7 +179,7 @@ export async function prepareInvoiceStockOps(
       return {
         productId: line.productId,
         delta,
-        unitPrice: line.unitPrice != null ? Number(line.unitPrice) : null,
+        unitPrice: netUnitPrice(line.unitPrice, quantity, line.discountAmount),
         order: Number(line.order) || 0,
       }
     })
