@@ -163,29 +163,31 @@ export function defaultDisabledModules(freeModuleKeys: string[] = []): string[] 
 }
 
 /**
- * Hesabın ÜCRETLİ hiçbir modülü açık değil mi? Yeni firma bu hâlde doğar (modül =
- * satın alınan şey) ve abonelik süresi dolunca buraya geri döner.
+ * Firmanın HİÇBİR modülü açık değil mi? Rakam basan panel sayfalarının ilk kontrolü
+ * budur: kilitli firmada widget yerine `LockedAccount` gösterilir.
  *
- * Ücretsiz modüller ölçüye GİRMEZ: aksi halde temel bir modül açıldığı anda hiçbir hesap
- * "kilitli" sayılmaz, satın alma ekranını (LockedAccount) kimse görmez — modül kilidi
- * sessizce devre dışı kalırdı. Bu yüzden çağıran ücretsiz kümeyi vermek zorundadır
- * (sunucuda `getFreeModuleKeys()`, bkz. lib/billing/free-modules.ts).
+ * ÖLÇÜ 2026-09-05'te DEĞİŞTİ — önceden "ücretli modüllerin hepsi kapalı mı?" diye
+ * soruyordu ve ücretsizler ölçüye girmiyordu. O soru, her modülün ücretli olduğu düzende
+ * doğruydu; ücretsiz küme büyüyünce sessizce başka bir şeye dönüştü:
  *
- * Rakam basan her panelin ilk kontrolü budur: kilitli hesapta widget yerine
- * `LockedAccount` gösterilir. Giriş sonrası kullanıcı rolüne göre `/dashboard/admin`,
- * `/dashboard/sales`... sayfalarından BİRİNE düşüyor — kontrol yalnız `/dashboard`'da
- * olursa satın alma ekranını hiç kimse görmez.
+ *   2026-08-31'de yedi modülün altısı TEMEL yapıldı → geriye tek ücretli modül
+ *   (Restoran & Kafe) kaldı → "hiçbir şey satın almamış" ile "Restoran almamış" AYNI
+ *   soru oldu. Restoran kullanmayan 33 firmanın 15'i, altı modülü açık ÇALIŞIRKEN
+ *   "hesabınız hazır, şimdi modüllerinizi seçin" satın alma ekranına düştü; sistem-admin
+ *   kartı ise (doğru biçimde) 6/7 açık gösteriyordu. Çelişkinin kaynağı buydu.
+ *
+ * Bugünkü ölçü ücretli/ücretsiz ayrımı YAPMAZ, "açık modül var mı" diye sorar. Yeni
+ * firmanın modül seçim ekranına düşmesi artık bu ölçüye değil, onboarding'in son adımına
+ * bağlıdır (app/(dashboard)/companies/onboarding/complete/page.tsx); firma zaten temel
+ * modülleri açık doğduğu için "boş panel" sorunu da yok.
+ *
+ * Kontrol altı panel sayfasının HEPSİNDE durmalı — giriş sonrası kullanıcı rolüne göre
+ * `/dashboard/admin`, `/dashboard/sales`... sayfalarından birine düşüyor. Tekrarı
+ * önlemek için tek yerden çözülür: lib/dashboard/locked.ts → `lockedScreenFor`.
  */
-export function isAccountLocked(
-  disabledModules: string[] | undefined | null,
-  freeModuleKeys: string[] = [],
-): boolean {
+export function isAccountLocked(disabledModules: string[] | undefined | null): boolean {
   const disabled = new Set(disabledModules ?? [])
-  const free = new Set(sanitizeFreeModules(freeModuleKeys))
-  const paid = MODULE_KEYS.filter((k) => !free.has(k))
-  // Her modül ücretsizse "kilit" diye bir durum yok; satılacak bir şey de yok.
-  if (paid.length === 0) return false
-  return paid.every((key) => disabled.has(key))
+  return MODULE_KEYS.every((key) => disabled.has(key))
 }
 
 /**

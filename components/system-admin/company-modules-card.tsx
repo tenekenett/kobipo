@@ -48,6 +48,7 @@ export function CompanyModulesCard({
   freeModules = [],
   initialSuppressed = [],
   initialPurchased = [],
+  initialGranted = [],
   accountName,
   accountCompanyCount = 1,
 }: {
@@ -64,6 +65,12 @@ export function CompanyModulesCard({
   initialSuppressed?: string[]
   /** Hesabın satın aldığı modüller (`Subscription.purchasedModules`). */
   initialPurchased?: string[]
+  /**
+   * Bu firmaya BEDELSİZ verilmiş ücretli modüller (`Company.grantedModules`) — burada
+   * açılmış ama satın alınmamış olanlar. Satın alınmışlarla aynı işi görürler (kapalılık
+   * nedenini ayırt etmek ve rozet basmak), o yüzden ölçüye birlikte girerler.
+   */
+  initialGranted?: string[]
   /** Hesap kökünün adı — değişikliğin hangi hesabı etkileyeceği yazıyla söylenir. */
   accountName?: string
   /** Hesaptaki firma sayısı (kök + şubeler + ek firmalar). */
@@ -80,17 +87,23 @@ export function CompanyModulesCard({
    * DB'den gelen liste sonucu taşıyor; gereksinimi de kapalı olan modül elle
    * kapatılmış sayılmaz (Stok kapalıysa Restoran'ın kapalılığı ondan türer).
    */
+  // Satın alınmış + bedelsiz verilmiş: ikisi de "yetkisi var" demek.
+  const held = useMemo(
+    () => [...new Set([...initialPurchased, ...initialGranted])],
+    [initialPurchased, initialGranted],
+  )
   const [off, setOff] = useState<Set<string>>(() =>
-    explicitOff(initialDisabled, initialSuppressed, initialPurchased),
+    explicitOff(initialDisabled, initialSuppressed, [...initialPurchased, ...initialGranted]),
   )
   const [applyToAccount, setApplyToAccount] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const freeSet = useMemo(() => new Set(sanitizeFreeModules(freeModules)), [freeModules])
   const initialSet = useMemo(
-    () => explicitOff(initialDisabled, initialSuppressed, initialPurchased),
-    [initialDisabled, initialSuppressed, initialPurchased],
+    () => explicitOff(initialDisabled, initialSuppressed, held),
+    [initialDisabled, initialSuppressed, held],
   )
+  const giftedSet = useMemo(() => new Set(initialGranted), [initialGranted])
   const dirty = useMemo(() => {
     if (off.size !== initialSet.size) return true
     return Array.from(off).some((k) => !initialSet.has(k))
@@ -144,19 +157,18 @@ export function CompanyModulesCard({
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "Kaydetme başarısız")
-      // Yetki artık aboneliğe de yazılıyor; yazacak aktif abonelik yoksa uç uyarı
-      // döner (yeniden hesaplamada kapanır) — sessizce "başarılı" demek yanıltırdı.
-      toast(
-        json.warning
-          ? { title: "Kaydedildi — dikkat", description: json.warning, variant: "destructive" }
-          : {
-              title: "Başarılı",
-              description:
-                suppressed.length && applyToAccount
-                  ? "Modül ayarları kaydedildi; temel modül kapatması hesabın tüm firmalarına uygulandı."
-                  : "Modül ayarları kaydedildi — yalnız bu firma için geçerli.",
-            },
-      )
+      // Uç, aboneliğin KAPSAMADIĞI ücretli modülleri bedelsiz verildi diye bildiriyor.
+      // Bu bir hata değil: kayıt kalıcı, yalnız faturaya girmiyor — o yüzden not olarak
+      // gösterilir. (Eskiden "yeniden hesaplandığında kapanacaktır" uyarısıydı; o
+      // davranış `Company.grantedModules` ile ortadan kalktı.)
+      toast({
+        title: "Başarılı",
+        description:
+          json.notice ??
+          (suppressed.length && applyToAccount
+            ? "Modül ayarları kaydedildi; temel modül kapatması hesabın tüm firmalarına uygulandı."
+            : "Modül ayarları kaydedildi — yalnız bu firma için geçerli."),
+      })
       router.refresh()
     } catch (e) {
       toast({
@@ -229,6 +241,11 @@ export function CompanyModulesCard({
                         elle kapatıldı
                       </span>
                     )}
+                    {!isFree && isEnabled && giftedSet.has(m.key) && (
+                      <span className="rounded bg-sky-600/20 px-1.5 py-0.5 text-[10px] font-normal text-sky-300">
+                        bedelsiz
+                      </span>
+                    )}
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">{m.description}</p>
                   {blockedBy.length > 0 && (
@@ -275,9 +292,11 @@ export function CompanyModulesCard({
           onların kendi abonelikleri vardır.{" "}
           <span className="text-emerald-400">Ücretsiz</span> işaretli modüller satın alma
           gerektirmez; kapatılırsa bu karar kalıcıdır ve müşterinin abonelik ekranında da
-          görünmez. Ücretli bir modülü kapatmak satın alma yetkisini{" "}
-          <span className="font-medium text-slate-300">hesabın tümünden</span> kaldırır
-          (abonelik onu artık faturalamaz).
+          görünmez. Ücretli bir modülü burada açarsanız ve firmanın o modülü kapsayan aktif
+          bir satın alması yoksa modül{" "}
+          <span className="text-sky-400">bedelsiz</span> verilir: kalıcıdır, faturalanmaz ve
+          süresi dolmaz. Kapatmak anahtarı kapatmakla olur — satın alınmış bir modülü
+          kapatmak ise onu abonelikten de düşürür (artık faturalanmaz).
         </p>
       </CardContent>
     </Card>

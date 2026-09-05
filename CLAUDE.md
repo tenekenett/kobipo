@@ -96,12 +96,31 @@ Kurallar:
   ücretsiz modül hiçbir yeniden hesaplamada kapanmaz — TEK istisna aşağıdaki elle
   kapatmadır. Sonuçları:
   - Yeni firma `defaultDisabledModules(free)` ile doğar (ücretsizler açık).
-  - `isAccountLocked(disabled, free)` yalnız ÜCRETLİ modüllere bakar — ücretsizleri
-    ölçüye katarsanız satın alma ekranı (`LockedAccount`) hiç görünmez.
+  - **`isAccountLocked(disabled)` ücretsiz kümeyi OKUMAZ** (2026-09-05'te değişti):
+    ölçü "firmanın hiç açık modülü yok mu". Eski ölçü yalnız ücretli modüllere bakıyordu
+    ve 2026-08-31'de yedi modülün altısı temel yapılınca sessizce başka bir soruya
+    dönüştü — "hiçbir şey almamış" ile "Restoran almamış" aynı şey oldu; altı modülü
+    açık çalışan 15 firmanın panosu satın alma duvarına düştü, sistem-admin kartı ise
+    doğru biçimde 6/7 açık gösteriyordu. Kilit ekranını ücretli/ücretsiz ayrımına geri
+    bağlamayın. Karar tek yerde: `lib/dashboard/locked.ts` → `lockedScreenFor` (altı
+    pano sayfası oradan geçer). Arşiv ekranı da orada ve kilitten BAĞIMSIZ sorulur.
+  - Satın alma tanıtımı erişimi engellemez: kapalı ücretli modüller panonun üstündeki
+    kapatılabilir şeritte duyurulur (`components/dashboard/module-upsell-banner.tsx`).
+    `LockedAccount` yalnız gerçekten sıfır modüllü firmada çıkar.
   - Gereksinimi ücretli olan modül ücretsiz YAPILAMAZ (restoran → stok); yoksa
     bağımlılık tamamlama ücretli modülü bedavaya açar.
   - Küme değişince mevcut hesaplar `syncFreeModuleGrants()` ile hizalanır; satın alınmış
     modül kapatılmaz. Ayrıntı: `docs/paket-abonelik/TEMEL-MODULLER.md`.
+- **Ücretli modülü satın alma OLMADAN açmanın yeri `Company.grantedModules`tır**
+  (firma bazında, sistem-admin modül kartı). Ölçü `setCompanyModules` içindeki saf
+  `planModuleRecords`ta: firmanın ücretli-aktif (ya da hoşgörüde) aboneliği varsa modül
+  `Subscription.purchasedModules`a yazılır ve yenilemede faturalanır; yoksa aynı modül
+  `grantedModules`a BEDELSİZ yazılır — faturalanmaz, süresi dolmaz ve hiçbir yeniden
+  hesaplamada kapanmaz. İkisini birleştirmeyin: bedelsiz modül `purchasedModules`a
+  yazılırsa abonelik parası alınmamış modülü faturalamaya başlar. Kapatma iki kayıttan
+  da düşer. (Öncesinde elle açılan modül `purchasedModules`a yazılıyor ve deneme/süresi
+  dolmuş firmada ilk reconcile'da sessizce kapanıyordu; uç bunu `durable:false` ile
+  söylüyor ama düzeltmiyordu.)
 - **Ücretsiz modülü ELLE kapatmanın yeri `Company.suppressedModules`tır** (firma bazında,
   sistem-admin modül kartı). `disabledModules`a yazmak yetmez: orası her yetki
   hesaplamasında yeniden üretilir. Kurallar:

@@ -20,6 +20,12 @@ export type SyncCompanyView = {
   disabledModules: string[]
   /** Sistem yöneticisinin bu firmada elle kapattığı temel modüller. */
   suppressedModules?: string[]
+  /**
+   * Bu firmaya BEDELSİZ verilmiş ücretli modüller (`Company.grantedModules`).
+   * Aboneliğin verdikleriyle aynı ölçüye girer: ücretsizlik kalktığında kapatılmazlar,
+   * `applyEntitlements`in yazacağı şekle de dahildirler.
+   */
+  grantedModules?: string[]
 }
 
 export type FreeModuleDelta = {
@@ -98,7 +104,12 @@ export function planFreeModuleSync(
   if (delta.opened.length === 0 && delta.closed.length === 0) return updates
 
   for (const company of companies) {
-    const granted = grantedByCompany.get(company.id) ?? new Set<string>()
+    // Aboneliğin verdikleri + bedelsiz verilenler: ikisi de "yetkisi var" demek ve
+    // ücretsizlik kalktığında kapatılmamalı.
+    const granted = new Set([
+      ...(grantedByCompany.get(company.id) ?? []),
+      ...(company.grantedModules ?? []),
+    ])
     const disabled = new Set(company.disabledModules ?? [])
     const suppressed = new Set(company.suppressedModules ?? [])
     // Satırı bu sistem mi yazmış? Ölçü DEĞİŞİKLİKTEN ÖNCEKİ hâle bakılarak alınır.
@@ -169,6 +180,7 @@ export async function syncFreeModuleGrants(
         id: true,
         disabledModules: true,
         suppressedModules: true,
+        grantedModules: true,
       },
     }),
     prisma.subscription.findMany({

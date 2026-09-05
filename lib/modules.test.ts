@@ -178,33 +178,28 @@ describe("defaultDisabledModules", () => {
 })
 
 describe("isAccountLocked", () => {
-  it("yeni firmanın doğduğu hâl kilitlidir", () => {
+  it("hiçbir modülü açık olmayan firma kilitlidir", () => {
     expect(isAccountLocked([...MODULE_KEYS])).toBe(true)
-  })
-
-  it("yalnız ÜCRETSİZ modülü açık olan hesap hâlâ kilitlidir", () => {
-    // Kritik: ücretsiz modül ölçüye girseydi hiçbir hesap kilitli sayılmaz, satın alma
-    // ekranı (LockedAccount) hiç görünmezdi.
-    const disabled = defaultDisabledModules(["sales"])
-    expect(isAccountLocked(disabled, ["sales"])).toBe(true)
-  })
-
-  it("ücretli bir modül açıldığında kilit kalkar", () => {
-    const disabled = defaultDisabledModules(["sales"]).filter((k) => k !== "finance")
-    expect(isAccountLocked(disabled, ["sales"])).toBe(false)
-  })
-
-  it("ücretsiz küme verilmezse ücretsizler kilidi düşürür (geriye dönük davranış)", () => {
-    const disabled = defaultDisabledModules(["sales"])
-    expect(isAccountLocked(disabled)).toBe(false)
   })
 
   it("tek modül bile açıksa kilitli sayılmaz", () => {
     expect(isAccountLocked(MODULE_KEYS.filter((k) => k !== "sales"))).toBe(false)
   })
 
+  it("ÜCRETSİZ modülü açık olan firma kilitli DEĞİLDİR", () => {
+    // 2026-09-05'te tersine döndü. Eski ölçü ücretsizleri saymıyordu; ücretli küme tek
+    // modüle inince (Restoran) "hiçbir şey almamış" ile "Restoran almamış" aynı soru oldu
+    // ve altı modülü açık çalışan 15 firma satın alma duvarına düştü. Bkz. lib/modules.ts.
+    expect(isAccountLocked(defaultDisabledModules(["sales"]))).toBe(false)
+  })
+
+  it("yalnız tek ücretli modül kapalıyken kilit YOKTUR (canlıdaki hata)", () => {
+    // Eren Forklift'in hâli: restaurant hariç her şey açık. Eski ölçü burada true
+    // döndürüyordu ve panonun yerine satın alma ekranı basılıyordu.
+    expect(isAccountLocked(["restaurant"])).toBe(false)
+  })
+
   it("boş/eksik liste kilitli DEĞİLDİR (red listesi)", () => {
-    // Eski hesaplar boş listeyle duruyor = hepsi açık; onlara satın alma ekranı basılmaz.
     expect(isAccountLocked([])).toBe(false)
     expect(isAccountLocked(null)).toBe(false)
     expect(isAccountLocked(undefined)).toBe(false)

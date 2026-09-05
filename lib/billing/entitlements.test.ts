@@ -13,6 +13,7 @@ import { DAY_MS } from "./notice"
 import {
   isInGracePeriod,
   isPaidActive,
+  planModuleRecords,
   isTrialActive,
   periodEndFor,
   resolveGrantedModules,
@@ -177,5 +178,71 @@ describe("shouldUnarchive", () => {
   it("Set ile de çalışır (applyEntitlements Set geçiyor)", () => {
     expect(shouldUnarchive(new Set(["stock"]), new Set(FREE))).toBe(true)
     expect(shouldUnarchive(new Set(FREE), new Set(FREE))).toBe(false)
+  })
+})
+
+describe("planModuleRecords", () => {
+  // Elle açılan modülün NEREYE yazıldığı. Yanlış kayıt iki ayrı sessiz hataya çıkıyor:
+  // bedelsiz modül `purchasedModules`a yazılırsa abonelik onu faturalamaya başlar,
+  // ücretli-aktif olmayan firmanın modülü oraya yazılırsa ilk reconcile'da kapanır.
+
+  it("ücretli-aktif abonelikte modüller SATIN ALINMIŞ yazılır", () => {
+    const out = planModuleRecords({
+      paidModules: ["restaurant"],
+      subscription: sub({ status: "ACTIVE", purchasedModules: [] }),
+      now: NOW,
+    })
+    expect(out.purchased).toEqual(["restaurant"])
+    expect(out.gifted).toEqual([])
+  })
+
+  it("DENEME hesabında aynı modül BEDELSİZ verilir", () => {
+    // Canlıdaki hata buydu: `purchasedModules`a yazılıyor, `resolveGrantedModules`
+    // deneme hesabında boş küme döndürdüğü için ilk reconcile'da sessizce kapanıyordu.
+    const out = planModuleRecords({
+      paidModules: ["restaurant"],
+      subscription: sub({ status: "TRIAL", purchasedModules: [], trialEndsAt: inDays(30) }),
+      now: NOW,
+    })
+    expect(out.purchased).toEqual([])
+    expect(out.gifted).toEqual(["restaurant"])
+  })
+
+  it("aboneliği hiç olmayan firmada da bedelsiz verilir", () => {
+    const out = planModuleRecords({ paidModules: ["restaurant"], subscription: null, now: NOW })
+    expect(out.gifted).toEqual(["restaurant"])
+  })
+
+  it("hoşgörü süresindeki abonelik satın alma sayılır", () => {
+    const out = planModuleRecords({
+      paidModules: ["restaurant"],
+      subscription: sub({ status: "PAST_DUE", periodEnd: inDays(-2), purchasedModules: [] }),
+      now: NOW,
+    })
+    expect(out.purchased).toEqual(["restaurant"])
+    expect(out.gifted).toEqual([])
+  })
+
+  it("KAPATMA iki kayıttan da düşer", () => {
+    // Kapatılan modül bedelsiz kayıtta kalsaydı "kapat" tıklaması sessizce geri alınırdı.
+    const out = planModuleRecords({
+      paidModules: [],
+      subscription: sub({ status: "ACTIVE", purchasedModules: ["restaurant"] }),
+      now: NOW,
+    })
+    expect(out.purchased).toEqual([])
+    expect(out.gifted).toEqual([])
+  })
+
+  it("süresi dolmuş abonelikte var olan satın alma kaydı korunur", () => {
+    // Yenilemede "bu abonelik neyi kapsıyordu" bilgisi gerekiyor; modül yine açık kalır
+    // ama bedelsiz sayılmaz — parası bir kez ödenmişti.
+    const out = planModuleRecords({
+      paidModules: ["restaurant"],
+      subscription: sub({ status: "EXPIRED", periodEnd: inDays(-40), purchasedModules: ["restaurant"] }),
+      now: NOW,
+    })
+    expect(out.purchased).toEqual(["restaurant"])
+    expect(out.gifted).toEqual([])
   })
 })

@@ -176,6 +176,46 @@ export function shouldUnarchive(granted: Iterable<string>, freeModules: Iterable
 }
 
 /**
+ * ELLE AÇILAN ÜCRETLİ MODÜL NEREYE YAZILIR? — `setCompanyModules`in saf kararı.
+ *
+ * İki kayıt var ve karıştırılmaları pahalı:
+ *
+ *   `Subscription.purchasedModules` → SATIN ALINMIŞ. Yenilemede faturalanır.
+ *   `Company.grantedModules`        → BEDELSİZ verilmiş. Faturalanmaz, süresi dolmaz.
+ *
+ * Ölçü firmanın ücretli-aktif (ya da hoşgörü süresinde) bir aboneliğinin olup olmadığı:
+ * varsa satın alma kaydı güncellenir, yoksa aynı modüller bedelsiz verilir. Bu ayrım
+ * olmadan elle açılan modül `purchasedModules`a yazılıyor, `resolveGrantedModules` ise o
+ * firmada boş küme döndürdüğü için ilk reconcile'da sessizce kapanıyordu.
+ *
+ * KAPATMA iki kayıttan da düşer: `paidModules` (açık kalan ücretli modüller) dışında
+ * kalan hiçbir anahtar sonuçta yer almaz. Ücretli-aktif OLMAYAN firmada var olan satın
+ * alma kaydı korunur (yalnız kapatılanlar düşer) — süresi dolmuş aboneliğin neyi
+ * kapsadığı bilgisi yenilemede gerekiyor.
+ *
+ * DB'siz sınanabilmesi şart: bozulduğunda belirtisi "sistem yöneticisi modülü açtı, bir
+ * gece sonra kapandı" gibi geç fark edilen bir hatadır.
+ */
+export function planModuleRecords(input: {
+  /** Açık kalacak ÜCRETLİ modüller (ücretsizler bu kümeye girmez). */
+  paidModules: string[]
+  /** Firmanın en güncel abonelik satırı (yoksa null). */
+  subscription: (SubStatusView & { purchasedModules: string[] }) | null | undefined
+  now?: Date
+}): { purchased: string[]; gifted: string[] } {
+  const now = input.now ?? new Date()
+  const sub = input.subscription
+  const paid = new Set(input.paidModules)
+  const payingActive = !!sub && (isPaidActive(sub, now) || isInGracePeriod(sub, now))
+
+  const purchased = payingActive
+    ? input.paidModules
+    : (sub?.purchasedModules ?? []).filter((k) => paid.has(k))
+  const keptSet = new Set(purchased)
+  return { purchased, gifted: input.paidModules.filter((k) => !keptSet.has(k)) }
+}
+
+/**
  * Verilen açık modül setini TEK FİRMAYA uygular:
  * `company.disabledModules = TÜM − (granted ∪ ücretsiz − elle kapatılan)`.
  *
@@ -200,19 +240,29 @@ export function shouldUnarchive(granted: Iterable<string>, freeModules: Iterable
  */
 export async function applyEntitlements(companyId: string, grantedModules: string[]): Promise<void> {
   const free = await getFreeModuleKeys()
-  // Bağımlılıklar burada da tamamlanır: arayüz atlanıp bu fonksiyon doğrudan
-  // çağrılsa bile DB'ye tutarsız bir küme (ör. restaurant açık, stock kapalı) yazılmasın.
-  const granted = new Set(
-    withModuleDependencies([...sanitizeDisabledModules(grantedModules), ...free]),
-  )
-
-  const unarchive = shouldUnarchive(granted, free) ? { archivedAt: null } : {}
 
   const company = await prisma.company.findUnique({
     where: { id: companyId },
-    select: { suppressedModules: true },
+    select: { suppressedModules: true, grantedModules: true },
   })
   if (!company) return
+
+  // Bağımlılıklar burada da tamamlanır: arayüz atlanıp bu fonksiyon doğrudan
+  // çağrılsa bile DB'ye tutarsız bir küme (ör. restaurant açık, stock kapalı) yazılmasın.
+  const granted = new Set(
+    withModuleDependencies([
+      ...sanitizeDisabledModules(grantedModules),
+      ...free,
+      // BEDELSİZ verilenler ücretsizlerle aynı yerde: ikisi de abonelikten bağımsız ve
+      // hiçbir yeniden hesaplamada kapanmaz. Fark, ücretsizliğin küresel (PricingItem),
+      // bunun firma bazında bir karar olması.
+      ...sanitizeDisabledModules(company.grantedModules),
+    ]),
+  )
+
+  // Arşiv ölçüsüne ücretsizler girmez ama BEDELSİZ verilenler girer: sistem yöneticisi
+  // ücretli bir modülü açtıysa firma o modülü kullanabilmeli, arşiv yazmayı kapatıyor.
+  const unarchive = shouldUnarchive(granted, free) ? { archivedAt: null } : {}
 
   const open = new Set(applySuppression([...granted], company.suppressedModules ?? []))
   await prisma.company.update({
@@ -245,9 +295,13 @@ export type SuppressionInput = { modules: string[]; scope?: "company" | "account
  * sessizce silinir; canlıda tam olarak bu yaşandı (2026-08-15, bkz.
  * docs/paket-abonelik/ILERLEME.md).
  *
- * `durable=false` dönerse yazacak abonelik yok ya da abonelik ücretli-aktif değil:
- * yetki şimdilik açık ama ilk yeniden hesaplamada kapanır — çağıran bunu KULLANICIYA
- * söylemeli (deneme durumu tanım gereği modül üretmez).
+ * ÜCRETLİ modülün açık kalması iki kayıttan birine yaslanır ve ayrımı bu fonksiyon
+ * kurar: aboneliğin bugün gerçekten verdiği modül `Subscription.purchasedModules`ta
+ * kalır (yenilemede faturalanır), aboneliğin KAPSAMADIĞI modül ise
+ * `Company.grantedModules`a BEDELSİZ yazılır (faturalanmaz, süresi yoktur). Böylece
+ * deneme/süresi dolmuş/aboneliksiz bir firmaya elle modül açmak kalıcıdır — eskiden
+ * `purchasedModules`a yazılıyor ama `resolveGrantedModules` o firmada boş küme
+ * döndürdüğü için ilk reconcile'da sessizce kapanıyordu.
  *
  * `suppression` verilirse ELLE KAPATILAN temel modüller de aynı işlemde yazılır. İki
  * kapatma kanalı bilinçli olarak ayrı: ÜCRETLİ modülü kapatmak `grantedModules`tan
@@ -259,7 +313,14 @@ export async function setCompanyModules(
   companyId: string,
   grantedModules: string[],
   suppression?: SuppressionInput,
-): Promise<{ companyId: string; granted: string[]; durable: boolean; suppressed: string[] }> {
+): Promise<{
+  companyId: string
+  granted: string[]
+  durable: boolean
+  suppressed: string[]
+  /** Aboneliğin kapsamadığı, bu firmaya BEDELSİZ verilen ücretli modüller. */
+  gifted: string[]
+}> {
   const granted = withModuleDependencies(sanitizeDisabledModules(grantedModules))
 
   // ÜCRETSİZ modüller `purchasedModules`a YAZILMAZ: orası satın alınanın kaydıdır ve
@@ -270,19 +331,34 @@ export async function setCompanyModules(
   const free = new Set(freeKeys)
   const purchased = granted.filter((k) => !free.has(k))
 
-  // FİRMANIN kendi abonelik satırı. Yoksa yazılacak yer de yok: yetki şimdilik
-  // `disabledModules`ta açık görünür ama ilk yeniden hesaplamada kapanır — `durable`
-  // bunu söylüyor ve arayüz kullanıcıyı uyarıyor.
+  // ÜCRETLİ modülün açık kalması iki farklı kayda dayanabilir ve ayrımı BURASI kurar:
+  //
+  //   satın alınmış → `Subscription.purchasedModules`. Yenilemede faturalanır.
+  //   bedelsiz      → `Company.grantedModules`. Faturalanmaz, süresi yoktur.
+  //
+  // Satın alma / bedelsiz ayrımı saf kuralda: `planModuleRecords` (yukarıda, testli).
   const sub = await prisma.subscription.findFirst({
     where: { companyId },
     orderBy: { createdAt: "desc" },
   })
+  const { purchased: keptPurchased, gifted: gifts } = planModuleRecords({
+    paidModules: purchased,
+    subscription: sub,
+  })
+
   if (sub) {
     await prisma.subscription.update({
       where: { id: sub.id },
-      data: { purchasedModules: purchased },
+      data: { purchasedModules: keptPurchased },
     })
   }
+
+  // Bedelsiz küme her kayıtta yeniden yazılır (birikmez): kartta kapatılan modül burada
+  // da kalmaz.
+  await prisma.company.update({
+    where: { id: companyId },
+    data: { grantedModules: gifts },
+  })
 
   // ELLE KAPATMA yetkiden ÖNCE yazılır: `applyEntitlements` alanı okuyup açık kümeden
   // düşüyor. `suppression` verilmediyse mevcut kapatmalara DOKUNULMAZ — reconcile,
@@ -314,15 +390,10 @@ export async function setCompanyModules(
 
   await applyEntitlements(companyId, granted)
 
-  // `durable` yalnız ÜCRETLİ modüller için anlamlı: ücretsiz olanlar zaten aboneliğe
-  // bağlı değil, hiçbir yeniden hesaplamada kapanmıyor.
-  const needsSubscription = purchased.length > 0
-  return {
-    companyId,
-    granted,
-    durable: !needsSubscription || (!!sub && (isPaidActive(sub) || isInGracePeriod(sub))),
-    suppressed,
-  }
+  // Yetki artık HER durumda kalıcı: aboneliğin kapsamadığı ücretli modül
+  // `Company.grantedModules`a bedelsiz yazıldı. `durable` alanı geriye dönük uyumluluk
+  // için duruyor ve sabit true; çağıranların uyarı basmasına gerek yok.
+  return { companyId, granted, durable: true, suppressed, gifted: gifts }
 }
 
 /** Bir hesap kotasının (şube ya da firma) durumu — hem arayüz hem denetim bunu okur. */

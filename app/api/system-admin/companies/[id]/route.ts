@@ -143,7 +143,8 @@ export async function PUT(
       data,
     })
 
-    let moduleWarning: string | null = null
+    // Kaydetme sonrası kullanıcıya söylenecek not (uyarı DEĞİL: işlem başarılı).
+    let moduleNotice: string | null = null
     let moduleLog = ""
     if (desiredOff) {
       const free = await getFreeModuleKeys()
@@ -168,18 +169,22 @@ export async function PUT(
       moduleLog =
         ` · modüller: açık [${open.join(", ") || "—"}]` +
         ` / kapalı [${off.join(", ") || "—"}]` +
+        (result.gifted.length ? ` · bedelsiz verilen [${result.gifted.join(", ")}]` : "") +
         (suppressed.length
           ? ` · elle kapatılan temel modüller [${suppressed.join(", ")}] (kapsam: ${
               scope === "account" ? "hesabın tümü" : "yalnız bu firma"
             })`
           : "")
 
-      if (!result.durable) {
-        // Yetki şu an açık ama abonelik ücretli-aktif değil: reconcile / dönem sonu
-        // gibi ilk yeniden hesaplamada kapanır. Sessiz kalmak yanıltıcı olur.
-        moduleWarning =
-          "Modüller açıldı ancak hesabın ücretli-aktif aboneliği yok — abonelik yeniden " +
-          "hesaplandığında (dönem sonu, reconcile) kapanacaktır."
+      if (result.gifted.length) {
+        // Uyarı değil BİLGİ: modül kalıcı olarak açıldı ama satın alınmadı, yani
+        // aboneliğe girmiyor ve faturalanmıyor. Eskiden buradaki mesaj "yeniden
+        // hesaplandığında kapanacaktır" diyordu — o davranış `Company.grantedModules`
+        // ile ortadan kalktı (bkz. lib/billing/entitlements.ts → setCompanyModules).
+        moduleNotice =
+          `Bedelsiz verildi: ${result.gifted.join(", ")}. Bu modüller firmanın ` +
+          "aboneliğine girmez, faturalanmaz ve süresi dolmaz; kapatmak için anahtarı " +
+          "kapatmanız yeterli."
       }
     }
 
@@ -194,7 +199,7 @@ export async function PUT(
       }
     })
 
-    return NextResponse.json({ success: true, company, warning: moduleWarning })
+    return NextResponse.json({ success: true, company, notice: moduleNotice })
   } catch (error) {
     console.error("Update company error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

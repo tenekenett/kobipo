@@ -489,6 +489,7 @@ export default async function CompanyDetailPage({
           freeModules={await getFreeModuleKeys()}
           initialSuppressed={company.suppressedModules ?? []}
           initialPurchased={accountSubscription?.purchasedModules ?? []}
+          initialGranted={company.grantedModules ?? []}
           accountName={accountRootName}
           accountCompanyCount={accountCompanyCount}
         />

@@ -230,3 +230,33 @@ describe("planFreeModuleSync — elle kapatılmış modüller", () => {
     expect(updates[0].disabledModules).toContain("sales")
   })
 })
+
+describe("planFreeModuleSync — bedelsiz verilmiş modüller", () => {
+  // `Company.grantedModules`: sistem yöneticisinin satın alma olmadan açtığı ücretli
+  // modüller. Ücretsizlik kalktığında bunlar da kapatılmamalı — aksi halde "bedelsiz
+  // verdim" kararı ilk fiyat düzenlemesinde sessizce geri alınırdı.
+  it("bedelsiz verilen modül, ücretsizliği kalksa da AÇIK kalır", () => {
+    const companies: SyncCompanyView[] = [
+      {
+        id: "kok",
+        disabledModules: MODULE_KEYS.filter((k) => k !== "sales"),
+        grantedModules: ["sales"],
+      },
+    ]
+    expect(planFreeModuleSync(companies, new Map(), freeModuleDelta(["sales"], []))).toEqual([])
+  })
+
+  it("bedelsiz verilmemiş modül aynı satırda kapanmaya devam eder", () => {
+    const companies: SyncCompanyView[] = [
+      {
+        id: "kok",
+        disabledModules: MODULE_KEYS.filter((k) => k !== "sales" && k !== "hr"),
+        grantedModules: ["hr"],
+      },
+    ]
+    const updates = planFreeModuleSync(companies, new Map(), freeModuleDelta(["sales", "hr"], ["hr"]))
+    expect(updates).toHaveLength(1)
+    expect(updates[0].disabledModules).toContain("sales")
+    expect(updates[0].disabledModules).not.toContain("hr")
+  })
+})

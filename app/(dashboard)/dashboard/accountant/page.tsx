@@ -26,8 +26,7 @@ import {
 import { getMonthlyCashflow } from "@/lib/dashboard/admin-queries"
 import { getAccountantStats, getRecentTransactions } from "@/lib/dashboard/role-queries"
 import { LockedAccount } from "@/components/dashboard/locked-account"
-import { isAccountLocked } from "@/lib/modules"
-import { getFreeModuleKeys } from "@/lib/billing/free-modules"
+import { lockedScreenFor } from "@/lib/dashboard/locked"
 import { assertRouteAccessOrRedirect } from "@/lib/middleware/page-guard"
 
 export const dynamic = "force-dynamic"
@@ -269,21 +268,15 @@ export default async function AccountantDashboard({
   // component çektiği için istemci guard'ı geç kalır (bkz. lib/middleware/page-guard.ts).
   assertRouteAccessOrRedirect(activeCompany, "/dashboard/accountant", requested)
 
-  // Hiçbir ÜCRETLİ modülü açık olmayan hesap: rakam yerine satın alma ekranı. Temel
-  // (ücretsiz) modüller ölçüye girmez — girseydi kilit ekranı hiç görünmezdi. Giriş sonrası
-  // kullanıcı rolüne göre bu sayfalardan birine düşüyor, o yüzden kontrol her rol
-  // panelinde ayrı ayrı durmalı — yalnız /dashboard'da olması yetmiyor.
-  const freeModules = await getFreeModuleKeys()
-  if (isAccountLocked(activeCompany.disabledModules, freeModules)) {
-    return (
-      <LockedAccount
-        companyId={activeCompany.companySlug ?? activeCompany.companyId}
-        canPurchase={activeCompany.role === "ADMIN"}
-        freeModules={freeModules}
-        isArchived={activeCompany.isArchived}
-      />
-    )
-  }
+  // Arşiv ya da hiç açık modül yoksa rakam yerine karşılama ekranı. Ölçü altı panoda
+  // ortak: lib/dashboard/locked.ts.
+  const locked = lockedScreenFor({
+    href: activeCompany.companySlug ?? activeCompany.companyId,
+    role: activeCompany.role,
+    disabledModules: activeCompany.disabledModules,
+    isArchived: activeCompany.isArchived,
+  })
+  if (locked) return <LockedAccount {...locked} />
 
   const companyId = activeCompany.companyId
 

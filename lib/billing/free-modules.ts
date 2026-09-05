@@ -7,7 +7,12 @@
 //   1. `applyEntitlements`  → yetki her yeniden hesaplandığında ücretsizler AÇIK kalır
 //                             (abonelik bitmiş/hiç olmamış olsa bile).
 //   2. `createCompany`      → yeni firma ücretsiz modüller açık doğar.
-//   3. `isAccountLocked`    → "kilitli hesap" ölçüsü yalnız ÜCRETLİ modüllere bakar.
+//   3. `ModuleUpsellBanner` → panodaki tanıtım şeridi yalnız kapalı ÜCRETLİ modülleri
+//                             sayar (ücretsiz olan satılmaz).
+//
+// `isAccountLocked` bu kümeyi ARTIK OKUMUYOR (2026-09-05). Okuduğu sürece kilit ölçüsü
+// ücretsiz kümenin büyüklüğüne bağlıydı: altı modül temel yapılınca "hiç modülü yok"
+// sorusu "Restoran almamış"a dönüştü ve çalışan firmalar satın alma duvarına düştü.
 //
 // Ücretsizlik `Subscription.purchasedModules`a YAZILMAZ: orası satın alınanın kaydıdır.
 // Ücretsiz küme her uygulamada yeniden okunur, böylece admin bir modülü ücretliye

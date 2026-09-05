@@ -1,25 +1,28 @@
 import Link from "next/link"
 import { Archive, Download, Lock, ShoppingCart } from "lucide-react"
-import { MANAGEABLE_MODULES, sanitizeFreeModules } from "@/lib/modules"
+import { MANAGEABLE_MODULES } from "@/lib/modules"
 import { withCompanyHref } from "@/lib/company/href"
 
 /**
- * Hiçbir ÜCRETLİ modülü açık olmayan hesabın karşılama ekranı. Yeni firma ücretli
- * modüller kapalı doğduğu için (modül = satın alınan şey) ilk giriş burasıdır: rakam
- * basmak yerine ne satın alınacağını gösterir.
+ * Panoda rakam basılamayan iki durumun ekranı. Hangisinin geçerli olduğunu çağıran
+ * değil, ortak karar söyler: lib/dashboard/locked.ts → `lockedScreenFor`.
  *
- * Dashboard'da widget'ların yerini alır; menüde de yalnız Ayarlar/E-Dönüşüm — ve varsa
- * temel (ücretsiz) modüller — kalır (bkz. components/dashboard/nav.tsx).
+ *   isArchived → veri salt-okunur arşivde; önce "verileriniz duruyor, indirebilirsiniz".
+ *   kilit      → firmanın HİÇBİR modülü açık değil, menüde de yalnız Ayarlar/E-Dönüşüm
+ *                kalır (bkz. components/dashboard/nav.tsx).
  *
- * ARŞİVDEKİ hesap da buraya düşer (ücretli modülleri kapalıdır) ama gördüğü ekran
- * FARKLIDIR: ona modül satmadan önce "verileriniz duruyor, indirebilirsiniz" demek
- * gerekir. Aynı bileşende durmasının sebebi, altı dashboard sayfasının hepsinin bu
- * dalı zaten çağırıyor olması — ayrı bir ekran altı çağrı yerinde de kontrol isterdi.
+ * Kilit ekranı 2026-09-05'e kadar "ücretli modülü olmayan" hesaba da basılıyordu ve
+ * ücretsiz modüller büyüyünce çalışan müşterilerin panosunu yuttu (bkz. lib/modules.ts →
+ * `isAccountLocked`). Bugün ekran yalnız gerçekten sıfır modüllü firmada çıkar; satın
+ * alınabilecekleri tanıtma işi panonun üstündeki şeride taşındı
+ * ([[components/dashboard/module-upsell-banner.tsx]]) — orası erişimi ENGELLEMEZ.
+ *
+ * Aynı bileşende durmalarının sebebi, altı pano sayfasının hepsinin bu dalı zaten
+ * çağırıyor olması: ayrı bir ekran altı çağrı yerinde de kontrol isterdi.
  */
 export function LockedAccount({
   companyId,
   canPurchase,
-  freeModules = [],
   isArchived = false,
 }: {
   companyId: string
@@ -30,16 +33,11 @@ export function LockedAccount({
    * değil, "verileriniz duruyor" mesajı ve indirme yolu gösterir.
    */
   isArchived?: boolean
-  /**
-   * Sistem yöneticisinin TEMEL yaptığı modüller — bu hesapta zaten açıklar. Listede
-   * "satın alınacaklar" arasında görünmemeli, yoksa ekran kullanıcıya kapalı olmayan
-   * bir şeyi satmaya çalışır.
-   */
-  freeModules?: string[]
 }) {
-  const free = new Set(sanitizeFreeModules(freeModules))
-  const purchasable = MANAGEABLE_MODULES.filter((m) => !free.has(m.key))
-  const openFree = MANAGEABLE_MODULES.filter((m) => free.has(m.key))
+  // Ekran yalnız HİÇ açık modül kalmadığında basılıyor, dolayısıyla listelenecek şey
+  // modüllerin tamamıdır. Eskiden burada "ücretsizler zaten açık" ayrımı yapılıyordu;
+  // ölçü değişince o dal tanım gereği erişilemez oldu (açık modül varsa ekran çıkmaz).
+  const purchasable = MANAGEABLE_MODULES
 
   if (isArchived) {
     return (
@@ -106,23 +104,13 @@ export function LockedAccount({
         </div>
 
         <h1 className="mt-5 text-xl font-bold text-kobipo-navy dark:text-foreground">
-          Hesabınız hazır — şimdi modüllerinizi seçin
+          Firmanızda açık modül yok
         </h1>
         <p className="mt-2 text-sm text-kobipo-gray dark:text-muted-foreground">
           {canPurchase
             ? "Kobipo modüllerden oluşur; yalnızca ihtiyacınız olanların bedelini ödersiniz. Bir paket ya da tek tek modül seçtiğinizde ilgili menüler anında açılır."
-            : "Firmanızda henüz açık modül yok. Modül satın alma yetkisi firma yöneticisindedir; lütfen yöneticinizle iletişime geçin."}
+            : "Firmanızda açık modül yok. Modül satın alma yetkisi firma yöneticisindedir; lütfen yöneticinizle iletişime geçin."}
         </p>
-
-        {openFree.length > 0 && (
-          <p className="mt-4 rounded-lg border border-kobipo-border bg-kobipo-pale/40 px-4 py-3 text-xs text-kobipo-gray dark:border-border dark:bg-muted/30 dark:text-muted-foreground">
-            <strong className="text-kobipo-navy dark:text-foreground">
-              {openFree.map((m) => m.label).join(", ")}
-            </strong>{" "}
-            {openFree.length > 1 ? "modülleri" : "modülü"} hesabınızda ücretsiz açık —
-            menüden hemen kullanabilirsiniz.
-          </p>
-        )}
 
         <ul className="mt-6 grid gap-3 sm:grid-cols-2">
           {purchasable.map((module) => (

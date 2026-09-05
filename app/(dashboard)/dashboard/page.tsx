@@ -21,8 +21,7 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { LockedAccount } from "@/components/dashboard/locked-account"
-import { isAccountLocked } from "@/lib/modules"
-import { getFreeModuleKeys } from "@/lib/billing/free-modules"
+import { lockedScreenFor } from "@/lib/dashboard/locked"
 import { assertRouteAccessOrRedirect, pagePermissionsOfRole } from "@/lib/middleware/page-guard"
 import { canAccessRoute } from "@/lib/page-access"
 import { cn } from "@/lib/utils"
@@ -215,20 +214,15 @@ export default async function DashboardIndexPage({
   // `/alis/fatura`); tek soru ikisini birden yanıtlar.
   const canOpenInvoices = canOpen("/faturalar")
 
-  // Hiçbir ÜCRETLİ modülü olmayan hesap: rakam yerine satın alma ekranı. Sorgular da
-  // atlanır — kilitli hesapta hepsi sıfır döner, çalıştırmanın anlamı yok. Temel
-  // (ücretsiz) modüller ölçüye girmez; girseydi kilit ekranı hiç görünmezdi.
-  const freeModules = await getFreeModuleKeys()
-  if (isAccountLocked(selectedCompany.disabledModules, freeModules)) {
-    return (
-      <LockedAccount
-        companyId={companyId}
-        canPurchase={selectedCompany.role === "ADMIN"}
-        freeModules={freeModules}
-        isArchived={selectedCompany.isArchived}
-      />
-    )
-  }
+  // Arşiv ya da hiç açık modül yoksa rakam yerine karşılama ekranı; sorgular da atlanır
+  // (hepsi sıfır döner). Ölçü altı panoda ortak: lib/dashboard/locked.ts.
+  const locked = lockedScreenFor({
+    href: companyId,
+    role: selectedCompany.role,
+    disabledModules: selectedCompany.disabledModules,
+    isArchived: selectedCompany.isArchived,
+  })
+  if (locked) return <LockedAccount {...locked} />
 
   // Gün sınırı UTC: sorgu `DATE_TRUNC('day', "date")` ile grupluyor ve kolon
   // naive UTC. Yerel gece yarısı alınırsa eksen ile veri farklı eksende olur.

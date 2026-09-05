@@ -280,6 +280,21 @@ model Company {
   // Modül ücretliye çevrilirse buradaki kaydı düşer (bkz. lib/billing/free-modules-sync.ts):
   // kapatma yalnız "ücretsiz olduğu için açık gelen" modül için anlamlıdır.
   suppressedModules            String[]           @default([])
+  // BEDELSİZ VERİLEN MODÜLLER — sistem yöneticisinin bu firmaya, satın alma olmadan
+  // açtığı ÜCRETLİ modüller. `suppressedModules`un aynadaki karşılığı: o alan açık
+  // kümeden düşer, bu alan açık kümeye EKLER.
+  //
+  // Neden `Subscription.purchasedModules` yetmiyordu: yetki her yeniden hesaplamada
+  // `resolveGrantedModules`ten üretiliyor ve o, aboneliği ücretli-aktif OLMAYAN firmada
+  // (deneme, süresi dolmuş, hiç aboneliği yok) boş küme döndürüyor. Yani elle açılan
+  // modül `purchasedModules`a yazılsa bile ilk reconcile'da kapanıyordu; uç bunu
+  // "durable=false" uyarısıyla söylüyordu ama düzeltmiyordu.
+  //
+  // Kapsam FİRMA bazındadır ve fatura üretmez: burada duran modül satılmış SAYILMAZ,
+  // yalnız açıktır. Satın alınmış modülün yeri `purchasedModules` olmaya devam eder —
+  // ikisini ayırmak şart, yoksa bedelsiz verilen modül abonelik yenilemesinde
+  // faturalanmaya başlardı.
+  grantedModules               String[]           @default([])
   // ARŞİV — abonelik süresi dolduktan sonra veri salt-okunur hâle geçtiğinde yazılır.
   // NULL = normal. Dolu = hesap arşivde: okuma ve DIŞA AKTARMA açık, yazma uçları 403.
   //

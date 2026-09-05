@@ -10,6 +10,8 @@ import { MainArea } from "@/components/dashboard/main-area"
 import { CompanySelector } from "@/components/dashboard/company-selector"
 import { BranchContextBanner } from "@/components/dashboard/branch-context-banner"
 import { SubscriptionNoticeBanner } from "@/components/dashboard/subscription-notice-banner"
+import { ModuleUpsellBanner } from "@/components/dashboard/module-upsell-banner"
+import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { DashboardCompanyProvider } from "@/components/dashboard/dashboard-company-provider"
 import { SWRProvider } from "@/components/providers/swr-provider"
 import { ModuleGuard } from "@/components/dashboard/module-guard"
@@ -95,6 +97,11 @@ export default async function DashboardLayout({
   const initialRole =
     visibleCompanies.find((c) => !c.isBranch)?.role ?? visibleCompanies[0]?.role ?? "VIEWER"
 
+  // Tanıtım şeridinin "satılabilir modül" ölçüsü. Tek sorgu, kısa ömürlü önbellekli
+  // (bkz. lib/billing/free-modules.ts); altı pano sayfasında ayrı ayrı okunmasının yerini
+  // aldı — kilit kararı artık ücretsiz kümeye bakmıyor.
+  const freeModules = await getFreeModuleKeys()
+
   return (
     <SWRProvider>
     <DashboardCompanyProvider initialCompanies={initialCompanies} initialRole={initialRole}>
@@ -106,6 +113,10 @@ export default async function DashboardLayout({
             <DashboardHeader />
             <div className="w-full min-w-0 overflow-x-clip p-4 sm:p-6">
               <SubscriptionNoticeBanner />
+              {/* Kapalı ücretli modüllerin tanıtımı. Ücretsiz küme SUNUCUDA çözülür:
+                  istemci hangi modülün satılabilir olduğunu bilmiyor ve yanlış bilirse
+                  elle kapatılmış TEMEL bir modülü "satın al" diye tanıtırdı. */}
+              <ModuleUpsellBanner freeModules={freeModules} />
               <BranchContextBanner />
               <CompanySelector />
               <div className="mt-4 w-full min-w-0">
