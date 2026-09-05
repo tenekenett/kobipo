@@ -35,6 +35,7 @@ import {
   LayoutList,
   LayoutTemplate,
   LifeBuoy,
+  LineChart,
   ListChecks,
   Package,
   Percent,
@@ -105,6 +106,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/cek-senet/cek": FileCheck,
   "/cek-senet/senet": FileSignature,
 
+  "/raporlar/finansal": LineChart,
   "/raporlar/satis": TrendingUp,
   "/raporlar/alis": TrendingDown,
   "/raporlar/cari": Briefcase,

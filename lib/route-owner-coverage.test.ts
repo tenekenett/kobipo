@@ -33,7 +33,6 @@ const UNOWNED_ROUTES: Record<string, string> = {
   "/e-donusum/[id]/duzenle": "e-Fatura düzenleme; aynı ön ek çakışması, aynı uç kuralı.",
   "/raporlar":
     "Rapor dizini. `/raporlar` ön eki tüm rapor MENÜ sayfalarını yutardı; sayfa yalnız link listeler, veri çekmez.",
-  "/raporlar/finansal": "Mali tablo link listesi — veri çekmez, tıklanan ekranın kendi kapısı var.",
   "/raporlar/musteri": "Tek satırlık yönlendirme (redirect); hedefin kapısı geçerli.",
   "/raporlar/satis-alis": "Satış/alış rapor link listesi — veri çekmez.",
 }
@@ -84,12 +83,16 @@ describe("panel sayfalarının sahibi", () => {
     // Regresyon: bu üçü 2026-08-20'de sahipsizlikten çıkarıldı.
     expect(navHrefsForPath("/muhasebe/yevmiye", null)).toEqual(["/muhasebe/yevmiye"])
     expect(navHrefsForPath("/raporlar/bilanco", null)).toEqual([
+      "/raporlar/finansal",
       "/raporlar/nakit-banka",
       "/raporlar/vergi",
     ])
     expect(navHrefsForPath("/raporlar/kar-zarar", null)).toEqual([
+      "/raporlar/finansal",
       "/raporlar/nakit-banka",
       "/raporlar/vergi",
     ])
+    // 2026-09-05: hub'ın kendisi menü öğesi oldu — artık sahipsiz değil.
+    expect(navHrefsForPath("/raporlar/finansal", null)).toEqual(["/raporlar/finansal"])
   })
 })

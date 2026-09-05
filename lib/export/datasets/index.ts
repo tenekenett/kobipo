@@ -17,7 +17,12 @@ import {
   buildStockMovementDataset,
   buildStockReportDataset,
 } from "./reports"
-import { buildBalanceSheetDataset, buildCashFlowDataset } from "./reports-finansal"
+import {
+  buildBalanceSheetDataset,
+  buildCashFlowDataset,
+  buildExpenseReportDataset,
+  buildIncomeExpenseDataset,
+} from "./reports-finansal"
 import { buildSalesPurchaseDataset } from "./reports-satis-alis"
 import { buildHrReportDataset } from "./reports-personel"
 import { buildPuantajDataset } from "./personel-puantaj"
@@ -126,6 +131,21 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       companyId,
       startDate: params.get("startDate"),
       endDate: params.get("endDate"),
+    }),
+
+  "rapor-gelir-gider": (companyId, params) =>
+    buildIncomeExpenseDataset({
+      companyId,
+      startDate: params.get("startDate"),
+      endDate: params.get("endDate"),
+    }),
+
+  "rapor-harcamalar": (companyId, params) =>
+    buildExpenseReportDataset({
+      companyId,
+      startDate: params.get("startDate"),
+      endDate: params.get("endDate"),
+      category: params.get("category"),
     }),
 
   // `section` verilirse dosya YALNIZ o bölümü taşır (bölüm alt sayfasındaki

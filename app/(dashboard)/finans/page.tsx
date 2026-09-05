@@ -34,6 +34,7 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { Plus } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { CategoryCombobox } from "@/components/e-donusum/category-combobox"
 import {
   FINANCIAL_ACCOUNT_TYPES,
   accountHasBankFields,
@@ -93,7 +94,14 @@ export default function FinansPage() {
     reference: "",
     customerId: "",
     supplierId: "",
+    category: "",
   })
+
+  /**
+   * Kategori önerileri — fatura formuyla AYNI kümeden (uç ikisini birleştirir).
+   * Hata olursa sessizce boş kalır; form serbest metinle çalışmaya devam eder.
+   */
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([])
 
   useEffect(() => {
     if (companyId) {
@@ -103,6 +111,16 @@ export default function FinansPage() {
       }
     }
   }, [companyId, activeTab])
+
+  useEffect(() => {
+    if (!companyId) return
+    fetch(`/api/finans/transactions/classifications?companyId=${encodeURIComponent(companyId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.categories) setCategoryOptions(d.categories)
+      })
+      .catch(() => {})
+  }, [companyId])
 
   const fetchAccounts = async () => {
     if (!companyId) return
@@ -203,6 +221,7 @@ export default function FinansPage() {
           reference: "",
           customerId: "",
           supplierId: "",
+          category: "",
         })
         fetchTransactions()
         fetchAccounts()
@@ -549,6 +568,31 @@ export default function FinansPage() {
                             disabled={isLoading}
                           />
                         </div>
+                        {/* Kategori yalnız GELİR/GİDERDE sorulur: virman iki kendi
+                            hesabımız arasında para taşır, gider değildir — kategori
+                            sorulsaydı gelir-gider raporunda sahte bir kalem açardı. */}
+                        {transactionFormData.type !== "TRANSFER" && (
+                          <div className="space-y-2 md:col-span-2">
+                            <Label>Kategori</Label>
+                            <CategoryCombobox
+                              value={transactionFormData.category}
+                              options={categoryOptions}
+                              onChange={(next) =>
+                                setTransactionFormData({ ...transactionFormData, category: next })
+                              }
+                              onCreateOption={(next) =>
+                                setCategoryOptions((prev) =>
+                                  prev.includes(next) ? prev : [...prev, next],
+                                )
+                              }
+                              placeholder="Örn. Kira, Maaş, Akaryakıt"
+                              disabled={isLoading}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Gelir-Gider (Karlılık) raporundaki kırılım bu alandan çıkar.
+                            </p>
+                          </div>
+                        )}
                         <div className="space-y-2">
                           <Label htmlFor="reference">Referans</Label>
                           <Input

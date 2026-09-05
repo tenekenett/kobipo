@@ -8,24 +8,12 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ExportButton } from "@/components/export/export-button"
+import type { BalanceSheetResult } from "@/lib/raporlar/bilanco"
 import { toDateInput } from "@/lib/format"
 
-interface BalanceSheet {
-  asOfDate: string
-  assets: {
-    cashAndBanks: number
-    receivables: number
-    inventory: number
-    total: number
-  }
-  liabilities: {
-    payables: number
-    total: number
-  }
-  equity: number
-  total: number
-  totalLiabilitiesAndEquity: number
-}
+// Sunucu tipinin KOPYASI değil kendisi (kâr/zarar ekranıyla aynı gerekçe).
+// `import type` derlemede silinir — prisma istemciye sızmaz.
+type BalanceSheet = BalanceSheetResult
 
 export default function BilancoPage() {
   const searchParams = useSearchParams()
@@ -128,9 +116,17 @@ export default function BilancoPage() {
                       <TableCell className="text-right">{formatCurrency(report.assets.cashAndBanks)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell>Alacaklar</TableCell>
+                      <TableCell>Ticari Alacaklar</TableCell>
                       <TableCell className="text-right">{formatCurrency(report.assets.receivables)}</TableCell>
                     </TableRow>
+                    {/* Avans satırları yalnız VARSA çizilir: fazla ödeme olmayan
+                        firmada her bilançoya sıfırlı satır eklemek gürültüdür. */}
+                    {report.assets.supplierAdvances > 0 && (
+                      <TableRow>
+                        <TableCell>Tedarikçilere Verilen Avanslar</TableCell>
+                        <TableCell className="text-right">{formatCurrency(report.assets.supplierAdvances)}</TableCell>
+                      </TableRow>
+                    )}
                     <TableRow>
                       <TableCell>Stoklar</TableCell>
                       <TableCell className="text-right">{formatCurrency(report.assets.inventory)}</TableCell>
@@ -147,16 +143,35 @@ export default function BilancoPage() {
                 <Table>
                   <TableBody>
                     <TableRow>
-                      <TableCell>Borçlar</TableCell>
+                      <TableCell>Ticari Borçlar</TableCell>
                       <TableCell className="text-right">{formatCurrency(report.liabilities.payables)}</TableCell>
                     </TableRow>
+                    {report.liabilities.customerAdvances > 0 && (
+                      <TableRow>
+                        <TableCell>Müşterilerden Alınan Avanslar</TableCell>
+                        <TableCell className="text-right">{formatCurrency(report.liabilities.customerAdvances)}</TableCell>
+                      </TableRow>
+                    )}
                     <TableRow className="bg-muted/50">
                       <TableCell className="font-bold">Toplam Yükümlülükler</TableCell>
                       <TableCell className="text-right font-bold">{formatCurrency(report.liabilities.total)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell>Öz Sermaye</TableCell>
-                      <TableCell className="text-right">{formatCurrency(report.equity)}</TableCell>
+                      <TableCell className="pl-4">Geçmiş dönem + dönem kârı</TableCell>
+                      <TableCell className="text-right">{formatCurrency(report.equity.retainedEarnings)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="pl-4">
+                        Sermaye ve diğer düzeltmeler
+                        <span className="block text-xs text-muted-foreground">
+                          Kârla açıklanamayan kısım: kuruluş sermayesi, ortak cari, devir
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">{formatCurrency(report.equity.adjustments)}</TableCell>
+                    </TableRow>
+                    <TableRow className="bg-muted/50">
+                      <TableCell className="font-bold">Öz Sermaye (net varlık)</TableCell>
+                      <TableCell className="text-right font-bold">{formatCurrency(report.equity.total)}</TableCell>
                     </TableRow>
                     <TableRow className="bg-primary/10">
                       <TableCell className="font-bold">Toplam Pasifler</TableCell>

@@ -397,7 +397,13 @@ export const PAGE_API_RULES: PageApiRule[] = [
   // "raporu görebilen rapor ucuna yazabilir" gibi anlamsız ama açık bir kapı
   // kalıyordu; ileride bir rapor ucuna yanlışlıkla POST eklenirse de kapalı doğar.
   { prefix: "/api/raporlar/personel", pages: ["/raporlar/personel", "/personel/puantaj"], writePages: [] },
-  { prefix: "/api/raporlar/nakit-akisi", pages: ["/raporlar/nakit-banka"], writePages: [] },
+  // Finansal panonun TEK ucu — sahibi kendi menü öğesidir. Pano cari VADE
+  // TOPLAMLARINI da basar ama cari BAZINDA döküm vermez: o ayrıntı
+  // `/api/raporlar/cari-yaslandirma`da ve orası "Cari Raporlar"a bağlı kalır.
+  { prefix: "/api/raporlar/finansal-ozet", pages: ["/raporlar/finansal"], writePages: [] },
+  { prefix: "/api/raporlar/nakit-akisi", pages: ["/raporlar/nakit-banka", "/raporlar/finansal"], writePages: [] },
+  // İleriye dönük projeksiyon — geçmişe bakan tabloyla aynı ekranlarda yaşar.
+  { prefix: "/api/raporlar/nakit-projeksiyon", pages: ["/raporlar/nakit-banka", "/raporlar/finansal"], writePages: [] },
   { prefix: "/api/raporlar/cari-yaslandirma", pages: ["/raporlar/cari"], writePages: [] },
   { prefix: "/api/raporlar/ba-bs", pages: ["/raporlar/vergi"], writePages: [] },
   { prefix: "/api/raporlar/kdv", pages: ["/raporlar/vergi"], writePages: [] },
@@ -406,9 +412,15 @@ export const PAGE_API_RULES: PageApiRule[] = [
   // adreslerinden açılıyorlar), o yüzden genel `/api/raporlar` kuralına düşüyorlardı —
   // yani "yalnız Satış Raporları" izni olan biri kâr-zararı okuyabiliyordu. Firmanın
   // bütününü gösterdikleri için finansal rapor öğelerine bağlandılar.
-  { prefix: "/api/raporlar/kar-zarar", pages: ["/raporlar/nakit-banka", "/raporlar/vergi"], writePages: [] },
-  { prefix: "/api/raporlar/bilanco", pages: ["/raporlar/nakit-banka", "/raporlar/vergi"], writePages: [] },
-  { prefix: "/api/raporlar/gelir-gider", pages: ["/raporlar/nakit-banka", "/raporlar/vergi"], writePages: [] },
+  //
+  // 2026-09-05: mali tabloların menüde kendi öğesi OLDU (`/raporlar/finansal`)
+  // ve sahip listesine EKLENDİ — çıkarılmadı. Var olan kısıtlı rollerin izinleri
+  // sayfa href'i olarak saklı; eski sahipler düşseydi bugüne kadar kâr-zararı
+  // okuyabilen roller sessizce erişimini yitirirdi.
+  { prefix: "/api/raporlar/kar-zarar", pages: ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi"], writePages: [] },
+  { prefix: "/api/raporlar/bilanco", pages: ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi"], writePages: [] },
+  { prefix: "/api/raporlar/gelir-gider", pages: ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi"], writePages: [] },
+  { prefix: "/api/raporlar/harcamalar", pages: ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi", "/raporlar/alis"], writePages: [] },
   { prefix: "/api/raporlar", pages: REPORT_PAGES, writePages: [] },
 
   // Muhasebe defterleri (yevmiye, kebir, hesap planı). Ekranları menüde YOK —
@@ -623,6 +635,38 @@ export const PAGE_API_RULES: PageApiRule[] = [
   // Export uçlarının tamamı salt okumadır (üçünde de yalnız GET var): dosya üretir,
   // veri değiştirmez. `writePages: []` ile bu sözleşme kural tarafında da yazılı.
   { prefix: "/api/export/rapor-personel", pages: ["/raporlar/personel"], writePages: [] },
+  // MALİ TABLO DOSYALARI — uçlarıyla AYNI dar kapı.
+  //
+  // 2026-08-20'de `/api/raporlar/kar-zarar` ve `/bilanco` genel `/api/raporlar`
+  // kuralından çıkarılmıştı ("yalnız Satış Raporları izni olan biri kâr-zararı
+  // okuyabiliyordu"), ama aynı veriyi dosya olarak üreten `/api/export/rapor-*`
+  // eşlenikleri geride kalıp `REPORT_PAGES` (tüm rapor sayfaları) altında açık
+  // kaldı: ekran reddederken Excel indiriliyordu. Açığın kapatılmamış yarısı.
+  {
+    prefix: "/api/export/rapor-kar-zarar",
+    pages: ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi"],
+    writePages: [],
+  },
+  {
+    prefix: "/api/export/rapor-bilanco",
+    pages: ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi"],
+    writePages: [],
+  },
+  {
+    prefix: "/api/export/rapor-gelir-gider",
+    pages: ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi"],
+    writePages: [],
+  },
+  {
+    prefix: "/api/export/rapor-harcamalar",
+    pages: ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi", "/raporlar/alis"],
+    writePages: [],
+  },
+  {
+    prefix: "/api/export/rapor-nakit-akisi",
+    pages: ["/raporlar/finansal", "/raporlar/nakit-banka"],
+    writePages: [],
+  },
   { prefix: "/api/export/rapor-", pages: REPORT_PAGES, writePages: [] },
   { prefix: "/api/export/personel-", pages: [...PERSONNEL_PAGES, "/raporlar/personel"], writePages: [] },
   {
@@ -964,13 +1008,17 @@ const ROUTE_OWNERS: Record<string, string[]> = {
   "/e-donusum/yeni": ["/satis/fatura"],
   "/faturalar": ["/satis/fatura", "/alis/fatura"],
   "/fisler": ["/satis/fisler", "/alis/fisler"],
-  "/raporlar/nakit-akisi": ["/raporlar/nakit-banka"],
+  "/raporlar/nakit-akisi": ["/raporlar/nakit-banka", "/raporlar/finansal"],
   // Mali tablo EKRANLARI. Uçları (`/api/raporlar/bilanco`, `/kar-zarar`) zaten bu iki
   // rapor sayfasına bağlıydı; sayfanın kendisi bağlı olmadığı için izinsiz bir rol
   // adresi elle yazınca boş ama açık bir ekran görüyordu. Kapı artık veriyle aynı yeri
-  // gösteriyor.
-  "/raporlar/bilanco": ["/raporlar/nakit-banka", "/raporlar/vergi"],
-  "/raporlar/kar-zarar": ["/raporlar/nakit-banka", "/raporlar/vergi"],
+  // gösteriyor. `/raporlar/finansal` menü öğesi olunca listeye EKLENDİ (bkz. uç kuralı).
+  "/raporlar/bilanco": ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi"],
+  "/raporlar/kar-zarar": ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi"],
+  "/raporlar/gelir-gider": ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi"],
+  // Harcamalar defteri alış belgelerini kalem kalem listeler; "Alış Raporları"
+  // izni olan da açabilmeli — aynı veriyi zaten o rapordan görüyor.
+  "/raporlar/harcamalar": ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi", "/raporlar/alis"],
   "/raporlar/cari-yaslandirma": ["/raporlar/cari"],
   "/raporlar/vergiler": ["/raporlar/vergi"],
   "/restoran/adisyon": TICKET_PAGES,

@@ -1,12 +1,18 @@
 /**
  * Rapor hub sayfalarının içeriği — TEK kaynak.
  *
- * `/raporlar`, `/raporlar/satis-alis` ve `/raporlar/finansal` menüde yer almayan
- * "kavşak" ekranlarıdır: kendileri veri basmaz, başka rapor sayfalarına link verir.
- * Menüsüz oldukları için sayfa kapısına da tabi değiller (`navHrefsForPath` sahip
- * bulamaz → serbest); asıl karar linklerin gittiği sayfalarda verilir. Bu yüzden
- * listeler burada duruyor: üst hub, alt hub'ın linklerini görmeden "bu bölümde
+ * `/raporlar` ve `/raporlar/satis-alis` menüde yer almayan "kavşak" ekranlarıdır:
+ * kendileri veri basmaz, başka rapor sayfalarına link verir. Menüsüz oldukları
+ * için sayfa kapısına da tabi değiller (`navHrefsForPath` sahip bulamaz →
+ * serbest); asıl karar linklerin gittiği sayfalarda verilir. Bu yüzden listeler
+ * burada duruyor: üst hub, alt hub'ın linklerini görmeden "bu bölümde
  * kullanıcının açabileceği bir şey var mı" sorusunu yanıtlayamaz.
+ *
+ * `/raporlar/finansal` 2026-09-05'te bu kümeden ÇIKTI: artık kendi menü öğesi
+ * olan ve rakam basan bir pano (mali tablolara tek erişim yolu üç tık ötedeki bu
+ * kavşaktı, kullanıcı "mali tablo yok" sanıyordu). Link listesi burada kaldı
+ * çünkü `/raporlar` hub'ı hâlâ aynı listeyi süzerek "bu bölümde açabileceği bir
+ * şey var mı" diye soruyor.
  *
  * İkon BU DOSYADA YOK, `iconKey` var: liste sunucu tarafında da okunabilsin diye
  * (lucide bileşenlerini bundle'a çekmemek için `lib/nav/pages.ts` ile aynı ayrım).
@@ -47,6 +53,16 @@ const SATIS_ALIS_LINKS: ReportHubLink[] = [
 ]
 
 const FINANSAL_LINKS: ReportHubLink[] = [
+  {
+    title: "Gelir-Gider (Karlılık)",
+    description: "Kategori, etiket ve cari kırılımıyla dönem kârlılığı.",
+    href: "/raporlar/gelir-gider",
+  },
+  {
+    title: "Harcamalar",
+    description: "Gider kategorisi ağacı ve kalem kalem harcama defteri.",
+    href: "/raporlar/harcamalar",
+  },
   {
     title: "Kar/Zarar Tablosu",
     description: "Dönemsel gelir, gider ve net kar/zarar analizi.",
@@ -94,7 +110,7 @@ export const REPORT_HUBS: ReportHub[] = [
   },
   {
     title: "Finansal Raporlar",
-    description: "Kar/zarar, bilanço ve nakit akış tablolarını görüntüleyin.",
+    description: "Dönem özeti, kar/zarar, bilanço ve nakit akış tabloları.",
     href: "/raporlar/finansal",
     iconKey: "financial",
     links: FINANSAL_LINKS,

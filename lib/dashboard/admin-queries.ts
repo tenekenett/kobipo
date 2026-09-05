@@ -60,8 +60,12 @@ async function _getAdminStats(companyId: string): Promise<AdminStats> {
       (SELECT COUNT(*) FROM "products" WHERE "companyId" = ${companyId}) AS product_count,
       (SELECT COUNT(*) FROM "invoices" WHERE "companyId" = ${companyId}) AS invoice_count,
       (SELECT COUNT(*) FROM "user_companies" WHERE "companyId" = ${companyId}) AS user_count,
-      (SELECT COALESCE(SUM(amount), 0) FROM "transactions" WHERE "companyId" = ${companyId} AND "type" = 'INCOME') AS income_total,
-      (SELECT COALESCE(SUM(amount), 0) FROM "transactions" WHERE "companyId" = ${companyId} AND "type" = 'EXPENSE') AS expense_total
+      (SELECT COALESCE(SUM(amount), 0) FROM "transactions"
+        WHERE "companyId" = ${companyId} AND "type" = 'INCOME'
+          AND ("reference" IS NULL OR "reference" NOT LIKE 'TRANSFER:%')) AS income_total,
+      (SELECT COALESCE(SUM(amount), 0) FROM "transactions"
+        WHERE "companyId" = ${companyId} AND "type" = 'EXPENSE'
+          AND ("reference" IS NULL OR "reference" NOT LIKE 'TRANSFER:%')) AS expense_total
   `
 
   const row = rows[0] ?? {
@@ -100,6 +104,9 @@ async function _getMonthlyCashflow(
   start.setDate(1)
   start.setHours(0, 0, 0, 0)
 
+  // Virman bacakları hariç (TRANSFER: önekli reference): hesaplar arası
+  // aktarımın HEDEF bacağı type=INCOME yazılıyor, yani kasadan bankaya para
+  // taşımak panoda gelir üretiyordu. Bkz. lib/finans/nakit-hareket.ts.
   const rows = await prisma.$queryRaw<
     Array<{ month: Date; income: string | number | null; expense: string | number | null }>
   >`
@@ -109,6 +116,7 @@ async function _getMonthlyCashflow(
       SUM(CASE WHEN "type" = 'EXPENSE' THEN amount ELSE 0 END) AS expense
     FROM "transactions"
     WHERE "companyId" = ${companyId} AND "date" >= ${start}
+      AND ("reference" IS NULL OR "reference" NOT LIKE 'TRANSFER:%')
     GROUP BY 1
     ORDER BY 1 ASC
   `

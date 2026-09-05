@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
+import { normalizeCategory, normalizeTags } from "@/lib/finans/siniflandirma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { accountPaymentMethod } from "@/lib/finans/account-types"
@@ -121,6 +122,8 @@ export const POST = withApiErrors(async function POST(request: Request) {
       customerId,
       supplierId,
       invoiceId,
+      category,
+      tags,
     } = body
 
     if (!companyId || !accountId || !type || !amount) {
@@ -234,6 +237,11 @@ export const POST = withApiErrors(async function POST(request: Request) {
           reference: reference || (type === "TRANSFER" ? `TRANSFER:${transferAccountId}` : undefined),
           customerId: resolvedCustomerId,
           supplierId: resolvedSupplierId,
+          // Sınıflandırma — gelir-gider raporunun kategori/etiket kırılımı bunu
+          // okur. Normalize edilmeden yazılırsa boş dizgi "" adlı bir kategori
+          // açar ve raporda "Kategorisiz"in yanında ikinci bir boş satır olur.
+          category: normalizeCategory(category),
+          tags: normalizeTags(tags),
           createdBy: user.id,
         },
       })

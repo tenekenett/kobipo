@@ -92,6 +92,11 @@ export const NAV_PAGES: NavPageDef[] = [
   { href: "/cek-senet/senet", label: "Senet Portföyü", roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Raporlar
+  // "Finansal Raporlar" MENÜDEYDİ SANILIYORDU ama değildi: kâr/zarar ve bilanço
+  // ekranlarına tek erişim yolu pano → hızlı işlem kartı → /raporlar → bu hub
+  // idi (üç tık, ikisi menüsüz kavşak sayfası). Kullanıcı "mali tablo yok"
+  // sanıyordu; ekranlar baştan beri vardı.
+  { href: "/raporlar/finansal", label: "Finansal Raporlar", roles: ["ADMIN", BM, "ACCOUNTANT", "VIEWER"] },
   { href: "/raporlar/satis", label: "Satış Raporları", roles: ["ADMIN", BM, "ACCOUNTANT", "SALES", "VIEWER"] },
   { href: "/raporlar/alis", label: "Alış Raporları", roles: ["ADMIN", BM, "ACCOUNTANT", "VIEWER"] },
   { href: "/raporlar/cari", label: "Cari Raporlar", roles: ["ADMIN", BM, "ACCOUNTANT", "SALES", "VIEWER"] },
@@ -213,6 +218,7 @@ export const NAV_GROUPS: Array<{ title: string; hrefs: string[] }> = [
   {
     title: "Raporlar",
     hrefs: [
+      "/raporlar/finansal",
       "/raporlar/satis",
       "/raporlar/alis",
       "/raporlar/cari",

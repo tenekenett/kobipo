@@ -2,17 +2,15 @@ import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { computeIncomeExpense } from "@/lib/raporlar/gelir-gider"
+import { computeCashProjection } from "@/lib/raporlar/nakit-projeksiyon"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
 
 /**
- * Gelir-gider (karlılık) raporu — kategori/etiket/cari/ay kırılımlı.
- *
- * Bu uç 2026-09-05'e kadar ÖLÜYDÜ: hiçbir ekran çağırmıyordu, `totalAmount`
- * (KDV dahil) topluyordu ve kırılımı yoktu. Hesap artık
- * `lib/raporlar/gelir-gider.ts`te ve kâr/zararla aynı ölçüyü kullanıyor.
+ * İleriye dönük nakit projeksiyonu (12 hafta / 12 ay). Hesap
+ * `lib/raporlar/nakit-projeksiyon.ts`te; geçmişe bakan tablo ise
+ * `/api/raporlar/nakit-akisi`.
  */
 export const GET = withApiErrors(async function GET(request: Request) {
   try {
@@ -31,17 +29,16 @@ export const GET = withApiErrors(async function GET(request: Request) {
     await ensureCompanyAccess(companyId)
 
     return NextResponse.json(
-      await computeIncomeExpense({
+      await computeCashProjection({
         companyId,
-        startDate: searchParams.get("startDate"),
-        endDate: searchParams.get("endDate"),
+        granularity: searchParams.get("granularity"),
       }),
     )
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)
     }
-    console.error("Error generating income/expense report:", error)
+    console.error("Error generating cash projection:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 })

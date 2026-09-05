@@ -8,14 +8,13 @@ import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 export const dynamic = "force-dynamic"
 
 /**
- * Firmanın DAHA ÖNCE kullandığı kategori ve etiketler.
+ * Gelir/gider işlem formunun kategori-etiket önerileri.
  *
- * Küme faturalar VE kasa hareketlerinin birleşimidir (bkz.
- * `lib/finans/siniflandirma.ts`): iki form ayrı kümeler önerseydi aynı gider iki
- * ayrı adla yazılır, gelir-gider raporunda "Kira" ve "kira" ayrı satırlara
- * bölünürdü.
+ * Fatura formunun ucuyla (`/api/e-donusum/invoices/classifications`) AYNI kümeyi
+ * döner; ayrı uç olmasının sebebi veri değil YETKİ: kasa ekranı fatura sayfası
+ * izni olmadan da açılabilir.
  *
- * GET /api/e-donusum/invoices/classifications?companyId=...
+ * GET /api/finans/transactions/classifications?companyId=...
  *   → { categories: string[], tags: string[] }
  */
 export const GET = withApiErrors(async function GET(request: Request) {
@@ -30,15 +29,13 @@ export const GET = withApiErrors(async function GET(request: Request) {
     }
     await ensureCompanyAccess(companyId)
 
-    const { categories, tags } = await loadClassificationOptions(companyId)
-
-    return NextResponse.json({ categories, tags })
+    return NextResponse.json(await loadClassificationOptions(companyId))
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
       return accessDeniedResponse(error)
     }
-    console.error("invoice classifications error:", error)
+    console.error("transaction classifications error:", error)
     return NextResponse.json(
       { error: message || "Kategori/etiket listesi alınamadı." },
       { status: 500 },

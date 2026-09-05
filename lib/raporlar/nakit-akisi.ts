@@ -3,25 +3,35 @@
  *
  * `app/api/raporlar/nakit-akisi/route.ts`ten ayıklandı — dışa aktarma ucu da
  * aynı fonksiyonu çağırır.
+ *
+ * TABLONUN OMURGASI BAKİYE EKSENİDİR: `dönem başı + net akış = dönem sonu`
+ * kimliği TANIM GEREĞİ tutar, çünkü net akış iki bakiyenin farkı olarak
+ * bulunur. Sınıflandırma (tahsilat / ödeme / diğer gelir / diğer gider) bu
+ * farkı açıklamaya çalışır; açıklayamadığı kısım "sınıflandırılmamış" satırında
+ * görünür kalır — gizlenmez.
+ *
+ * Eskiden tersiydi: dönem başı `createdAt < start` olan hesapların BUGÜNKÜ
+ * bakiyeleri, dönem sonu ise tarihten bağımsız bugünkü bakiye toplamıydı. İki
+ * uç da aynı günü gösterdiği için tablo kendi içinde çelişiyordu; üstelik
+ * hesaplar arası virmanın hedef bacağı (type=INCOME) gelir sayıldığından kendi
+ * cebinden cebine para aktarmak nakit akışını şişiriyordu.
  */
 
 import { prisma } from "@/lib/db/prisma"
-import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
+import {
+  LEGACY_CASH_PAYMENT_WHERE,
+  NOT_TRANSFER_WHERE,
+  cashBalanceBefore,
+} from "@/lib/finans/nakit-hareket"
+import { periodWhere, resolvePeriodBounds } from "./date-range"
+import { summarizeCashFlow, type CashFlowSummary } from "./nakit-akisi-ozet"
 
-export type CashFlowResult = {
+/**
+ * Aritmetik ve alan tanımları `nakit-akisi-ozet.ts`te (saf, testli); burası
+ * yalnız veriyi toplayıp oraya veriyor.
+ */
+export type CashFlowResult = CashFlowSummary & {
   period: { startDate: string; endDate: string }
-  beginningBalance: number
-  operatingActivities: {
-    collections: number
-    payments: number
-    otherIncome: number
-    otherExpense: number
-    net: number
-  }
-  investingActivities: { net: number }
-  financingActivities: { net: number }
-  netCashFlow: number
-  endingBalance: number
 }
 
 export async function computeCashFlow(args: {
@@ -30,120 +40,95 @@ export async function computeCashFlow(args: {
   endDate?: string | null
 }): Promise<CashFlowResult> {
   const companyId = args.companyId
-  const start = args.startDate ? new Date(args.startDate) : new Date(new Date().getFullYear(), 0, 1)
-  const end = args.endDate ? new Date(args.endDate) : new Date()
+  const bounds = resolvePeriodBounds(args.startDate, args.endDate)
+  const date = periodWhere(bounds)
 
   const [
-    startBalance,
-    collections,
-    payments,
+    beginningBalance,
+    endingBalance,
+    invoiceCashIn,
+    invoiceCashOut,
+    legacyCashIn,
+    legacyCashOut,
     otherIncome,
     otherExpense,
-    endBalance,
-    salesReturnRefunds,
-    purchaseReturnRefunds,
   ] = await Promise.all([
-      // Başlangıç bakiyesi
-      prisma.financialAccount.aggregate({
-        where: { companyId, isActive: true, createdAt: { lt: start } },
-        _sum: { balance: true },
-      }),
-      // İşletme faaliyetlerinden nakit akışı.
-      // NOT (çift sayım önleme): Bir tahsilat/ödeme faturaya eşleştirildiğinde hem
-      // bir Transaction hem de transactionId dolu bir InvoicePayment oluşur. Aynı
-      // nakit hareketini iki kez saymamak için InvoicePayment'lerden yalnızca
-      // transactionId IS NULL olanlar (Transaction üretmeyen doğrudan ödemeler)
-      // alınır; işleme bağlı tahsilat/ödemeler aşağıdaki Transaction toplamlarında
-      // (otherIncome/otherExpense) zaten yer alır.
-      // - Müşterilerden doğrudan tahsilatlar
-      prisma.invoicePayment.aggregate({
-        where: {
-          companyId,
-          transactionId: null,
-          paymentDate: { gte: start, lte: end },
-          invoice: { type: "SALES" },
-        },
-        _sum: { amount: true },
-      }),
-      // - Tedarikçilere doğrudan ödemeler
-      prisma.invoicePayment.aggregate({
-        where: {
-          companyId,
-          transactionId: null,
-          paymentDate: { gte: start, lte: end },
-          invoice: { type: "PURCHASE" },
-        },
-        _sum: { amount: true },
-      }),
-      // - Gelir işlemleri (faturaya bağlı tahsilatlar dahil tüm INCOME hareketleri)
-      prisma.transaction.aggregate({
-        where: { companyId, type: "INCOME", date: { gte: start, lte: end } },
-        _sum: { amount: true },
-      }),
-      // - Gider işlemleri (faturaya bağlı ödemeler dahil tüm EXPENSE hareketleri)
-      prisma.transaction.aggregate({
-        where: { companyId, type: "EXPENSE", date: { gte: start, lte: end } },
-        _sum: { amount: true },
-      }),
-      // Bitiş bakiyesi
-      prisma.financialAccount.aggregate({
-        where: { companyId, isActive: true },
-        _sum: { balance: true },
-      }),
-      // İADE GERİ ÖDEMELERİ (yine yalnız transactionId IS NULL — işleme bağlı
-      // olanlar aşağıdaki Transaction toplamlarında zaten var).
-      //  - Müşteriye yapılan iade ödemesi kasadan ÇIKAR → tahsilattan düşülür.
-      //  - Tedarikçiden alınan iade bedeli kasaya GİRER → ödemelerden düşülür.
-      prisma.invoicePayment.aggregate({
-        where: {
-          companyId,
-          transactionId: null,
-          paymentDate: { gte: start, lte: end },
-          invoice: SALES_RETURN_WHERE(),
-        },
-        _sum: { amount: true },
-      }),
-      prisma.invoicePayment.aggregate({
-        where: {
-          companyId,
-          transactionId: null,
-          paymentDate: { gte: start, lte: end },
-          invoice: PURCHASE_RETURN_WHERE(),
-        },
-        _sum: { amount: true },
-      }),
-    ])
+    cashBalanceBefore(companyId, bounds.start),
+    cashBalanceBefore(companyId, bounds.endExclusive),
 
-  // Net nakit: iade geri ödemeleri kendi yönlerinden düşülür.
-  const netCollections =
-    Number(collections._sum.amount || 0) - Number(salesReturnRefunds._sum.amount || 0)
-  const netPayments =
-    Number(payments._sum.amount || 0) - Number(purchaseReturnRefunds._sum.amount || 0)
+    // FATURAYA BAĞLI NAKİT — yön belgenin tipinden DEĞİL, hareketin kendisinden
+    // okunur. İade ödemesinin işaretini belgeden türetmek gerekmiyor: para hangi
+    // yöne aktıysa yazma yolu o işaretle bir Transaction bırakmış durumda.
+    prisma.transaction.aggregate({
+      where: { companyId, type: "INCOME", date, invoicePayments: { some: {} } },
+      _sum: { amount: true },
+    }),
+    prisma.transaction.aggregate({
+      where: { companyId, type: "EXPENSE", date, invoicePayments: { some: {} } },
+      _sum: { amount: true },
+    }),
 
-  const operatingCashFlow =
-    netCollections +
-    Number(otherIncome._sum.amount || 0) -
-    netPayments -
-    Number(otherExpense._sum.amount || 0)
+    // Transaction yazılmadan önce girilmiş ESKİ ödemeler: bakiyeyi doğrudan
+    // değiştirmişlerdi, işaret belgenin tipinden gelir (SALES giriş, diğeri çıkış).
+    prisma.invoicePayment.aggregate({
+      where: {
+        companyId,
+        ...LEGACY_CASH_PAYMENT_WHERE,
+        paymentDate: date,
+        invoice: { type: "SALES" },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.invoicePayment.aggregate({
+      where: {
+        companyId,
+        ...LEGACY_CASH_PAYMENT_WHERE,
+        paymentDate: date,
+        invoice: { type: { not: "SALES" } },
+      },
+      _sum: { amount: true },
+    }),
 
-  // Yatırım ve finansman faaliyetleri şimdilik 0 (ayrı sınıflandırma yok).
-  const investingCashFlow = 0
-  const financingCashFlow = 0
-  const netCashFlow = operatingCashFlow + investingCashFlow + financingCashFlow
+    // FATURASIZ ("serbest") gelir/gider. Faturaya bağlı olanlar yukarıda
+    // sayıldığı için burada `none` şart; virman bacakları da dışarıda.
+    prisma.transaction.aggregate({
+      where: {
+        companyId,
+        type: "INCOME",
+        date,
+        invoicePayments: { none: {} },
+        ...NOT_TRANSFER_WHERE,
+      },
+      _sum: { amount: true },
+    }),
+    prisma.transaction.aggregate({
+      where: {
+        companyId,
+        type: "EXPENSE",
+        date,
+        invoicePayments: { none: {} },
+        ...NOT_TRANSFER_WHERE,
+      },
+      _sum: { amount: true },
+    }),
+  ])
 
   return {
-    period: { startDate: start.toISOString(), endDate: end.toISOString() },
-    beginningBalance: Number(startBalance._sum.balance || 0),
-    operatingActivities: {
-      collections: netCollections,
-      payments: netPayments,
+    // Dönem sonu EKRANDA kapsayıcı gösterilir: sınır dışlayıcı olduğu için
+    // olduğu gibi basılsaydı kullanıcı 5 Eylül seçip "6 Eylül" okurdu.
+    period: {
+      startDate: bounds.start.toISOString(),
+      endDate: new Date(bounds.endExclusive.getTime() - 1).toISOString(),
+    },
+    ...summarizeCashFlow({
+      beginningBalance,
+      endingBalance,
+      collections:
+        Number(invoiceCashIn._sum.amount || 0) + Number(legacyCashIn._sum.amount || 0),
+      payments:
+        Number(invoiceCashOut._sum.amount || 0) + Number(legacyCashOut._sum.amount || 0),
       otherIncome: Number(otherIncome._sum.amount || 0),
       otherExpense: Number(otherExpense._sum.amount || 0),
-      net: operatingCashFlow,
-    },
-    investingActivities: { net: investingCashFlow },
-    financingActivities: { net: financingCashFlow },
-    netCashFlow,
-    endingBalance: Number(endBalance._sum.balance || 0),
+    }),
   }
 }

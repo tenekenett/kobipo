@@ -420,8 +420,11 @@ export async function buildProfitLossDataset(params: ProfitLossExportParams): Pr
         sheetName: "Gelirler",
         columns,
         totals: { label: "Toplam Gelir", amount: report.revenue.total },
+        // İade satırı ATLANMAMALI: toplam iadeyi düşerek bulunuyor, satırlar
+        // arasında görünmezse dosyada "kalemler toplamı başlığı tutmuyor" olur.
         rows: [
           { label: "Satış gelirleri (fatura matrahı)", amount: report.revenue.sales },
+          { label: "Satış iadeleri (−)", amount: -report.revenue.returns },
           { label: "Diğer gelirler (faturasız)", amount: report.revenue.other },
         ],
       },
@@ -431,11 +434,12 @@ export async function buildProfitLossDataset(params: ProfitLossExportParams): Pr
         columns,
         totals: {
           label: "Toplam Gider",
-          amount: report.costOfGoodsSold + report.operatingExpenses,
+          amount: report.purchases.total + report.otherExpenses,
         },
         rows: [
-          { label: "Satılan malın maliyeti (alış matrahı)", amount: report.costOfGoodsSold },
-          { label: "Faaliyet giderleri (faturasız)", amount: report.operatingExpenses },
+          { label: "Alışlar (alış faturası matrahı)", amount: report.purchases.invoices },
+          { label: "Alış iadeleri (−)", amount: -report.purchases.returns },
+          { label: "Diğer giderler (faturasız)", amount: report.otherExpenses },
         ],
       },
       {
@@ -444,8 +448,8 @@ export async function buildProfitLossDataset(params: ProfitLossExportParams): Pr
         columns,
         totals: null,
         rows: [
-          { label: "Brüt kâr", amount: report.grossProfit },
-          { label: "Faaliyet giderleri", amount: report.operatingExpenses },
+          { label: "Brüt kâr (gelir − alışlar)", amount: report.grossProfit },
+          { label: "Diğer giderler (faturasız)", amount: report.otherExpenses },
           { label: "NET KÂR / ZARAR", amount: report.netProfit },
         ],
       },

@@ -1469,6 +1469,13 @@ model Transaction {
   reference   String?
   customerId  String?
   supplierId  String?
+  // Sınıflandırma — faturadaki (`Invoice.category`/`tags`) ile AYNI model ve aynı
+  // küme: kategori TEK değer (kira, maaş, akaryakıt…), etiket ÇOKLU serbest metin
+  // (proje, şube, kampanya…). Ayrı tablo yok, serbest metin + mevcut değerlerden
+  // öneri. Faturadan farklı bir küme kullanılsaydı gelir-gider raporunda faturadaki
+  // "Kira" ile fişteki "Kira" iki ayrı satır olurdu.
+  category    String?
+  tags        String[] @default([])
   createdAt   DateTime @default(now())
   createdBy   String?
 
@@ -1482,6 +1489,7 @@ model Transaction {
   @@index([companyId, type, date])
   @@index([companyId, type, customerId])
   @@index([companyId, type, supplierId])
+  @@index([companyId, category])
   @@index([accountId])
   @@index([customerId])
   @@index([supplierId])

@@ -147,7 +147,7 @@ export default function KarZararPage() {
                   </TableRow>
                 )}
                 <TableRow>
-                  <TableCell className="pl-8">Diğer Gelirler</TableCell>
+                  <TableCell className="pl-8">Diğer Gelirler (faturasız)</TableCell>
                   <TableCell className="text-right">{formatCurrency(report.revenue.other)}</TableCell>
                 </TableRow>
                 <TableRow className="bg-muted/50">
@@ -156,18 +156,28 @@ export default function KarZararPage() {
                 </TableRow>
                 <TableRow>
                   <TableCell className="font-medium">
-                    Satılan Malın Maliyeti
-                    {report.purchaseReturns > 0 ? " (alış iadesi düşülmüş)" : ""}
+                    Alışlar (mal ve hizmet)
+                    <span className="block text-xs font-normal text-muted-foreground">
+                      Dönemde kesilen alış faturaları — satılan malın maliyeti değil
+                    </span>
                   </TableCell>
-                  <TableCell className="text-right">{formatCurrency(report.costOfGoodsSold)}</TableCell>
+                  <TableCell className="text-right">{formatCurrency(report.purchases.invoices)}</TableCell>
                 </TableRow>
+                {report.purchases.returns > 0 && (
+                  <TableRow>
+                    <TableCell className="pl-8">Alış İadeleri (−)</TableCell>
+                    <TableCell className="text-right text-red-600 dark:text-red-400">
+                      −{formatCurrency(report.purchases.returns)}
+                    </TableCell>
+                  </TableRow>
+                )}
                 <TableRow className="bg-muted/50">
-                  <TableCell className="font-medium">Brüt Kar</TableCell>
+                  <TableCell className="font-medium">Brüt Kar (gelir − alışlar)</TableCell>
                   <TableCell className="text-right font-bold">{formatCurrency(report.grossProfit)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell className="font-medium">İşletme Giderleri</TableCell>
-                  <TableCell className="text-right">{formatCurrency(report.operatingExpenses)}</TableCell>
+                  <TableCell className="font-medium">Diğer Giderler (faturasız)</TableCell>
+                  <TableCell className="text-right">{formatCurrency(report.otherExpenses)}</TableCell>
                 </TableRow>
                 <TableRow className="bg-primary/10">
                   <TableCell className="font-bold text-lg">Net Kar/Zarar</TableCell>
