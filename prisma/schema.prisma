@@ -2967,3 +2967,64 @@ model DiscountCodeRedemption {
   @@index([codeId, companyId])
   @@map("discount_code_redemptions")
 }
+
+/// Otomasyon kartlarının gösterim ve karar günlüğü.
+///
+/// AMACI SADECE ÖLÇÜM DEĞİL. İleride "bu kullanıcı hangi karta yanıt veriyor,
+/// hangi eşikte umursuyor" sorusunun cevabı buradan çıkacak; o yüzden `cardKey`
+/// ASLA değişmez (eşik/metin değişirse `cardVersion` artar, kod korunur) ve
+/// `payload` karta BASILAN rakamları saklar — "kart haklı çıktı mı" denetimi
+/// ancak o rakamlarla yapılabilir, sonradan üretilemez.
+///
+/// `companyId` bilerek ilişkisiz: emsali `PayrollRecord`. Günlük analitik bir
+/// kayıttır, firma silinince Prisma zincirine takılmasına gerek yok.
+model AutomationCardEvent {
+  id          String @id @default(cuid())
+  companyId   String
+  /// Kartı gören kişi — rol bazlı fark ölçümü için.
+  userId      String?
+  /// K-STK-01 gibi. Katalog: docs/otomasyonlar/KATALOG.md
+  cardKey     String
+  /// Eşik veya metin değişince artar; eski ve yeni eşiğin verisi karışmasın.
+  cardVersion Int    @default(1)
+  /// KRITIK | YUKSEK | ORTA | DUSUK
+  severity    String
+
+  /// Kartın HAKKINDA olduğu kayıt. Kişiselleştirme bu eksende yapılacak.
+  /// product | customer | supplier | check | invoice | ...
+  /// ZORUNLU: her kart bir kaydın hakkındadır (`Kart.ozneId`). Nullable bırakmak
+  /// tekillik indeksini de delerdi — Postgres'te NULL'lar çakışmaz, aynı kart
+  /// gün içinde defalarca yazılırdı.
+  subjectType String
+  subjectId   String
+
+  /// Karta basılan rakamların tamamı.
+  payload     Json
+
+  shownAt     DateTime  @default(now())
+  /// Gösterimin ait olduğu gün (UTC 00:00). Aynı kart aynı özne için günde bir
+  /// kez yazılsın diye: sayfa her açılışta satır atarsa gösterim sayısı ilgiyle
+  /// karışır ve oran ölçülemez olur.
+  shownDay    DateTime  @db.Date
+
+  /// ACTED | DISMISSED | SNOOZED · null = henüz karar verilmedi
+  decision    String?
+  decidedAt   DateTime?
+  /// Hangi butona basıldı: siparis_olustur, tedarikciyi_ara ...
+  actionKey   String?
+  /// SNOOZED ise kartın yeniden çıkabileceği an.
+  snoozeUntil DateTime?
+
+  /// SONUÇ ÖLÇÜMÜ — asıl değerli alan. Kart "sipariş ver" dedi, verildi mi?
+  /// Bu olmadan yalnız ilgi ölçülür, İSABET ölçülemez.
+  outcomeAt   DateTime?
+  /// order | payment | price_change | none
+  outcomeType String?
+  outcomeRef  String?
+
+  @@unique([companyId, cardKey, subjectId, shownDay])
+  @@index([companyId, cardKey, shownAt])
+  @@index([companyId, decision])
+  @@index([subjectType, subjectId])
+  @@map("automation_card_events")
+}

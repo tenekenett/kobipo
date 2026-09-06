@@ -27,6 +27,7 @@ import { canAccessRoute } from "@/lib/page-access"
 import { cn } from "@/lib/utils"
 import { DashboardCashflowChart, type CashflowPoint } from "@/components/dashboard/dashboard-cashflow-chart"
 import { dashboardTag } from "@/lib/dashboard/cache"
+import { OtomasyonKartlari } from "@/components/otomasyon/otomasyon-kartlari"
 
 export const dynamic = "force-dynamic"
 
@@ -398,6 +399,13 @@ export default async function DashboardIndexPage({
           </div>
         </div>
       </section>
+
+      {/*
+        Otomasyon kartları — koşul oluşmadan HİÇBİR ŞEY basmaz (bileşen kart yoksa
+        null döner). Yeri kasıtlı: karşılamanın hemen altı, KPI'ların üstü.
+        Rakamlar "ne oldu"yu anlatır, kartlar "ne yapmalısın"ı; ikincisi önce gelir.
+      */}
+      <OtomasyonKartlari />
 
       {/* KPI strip */}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

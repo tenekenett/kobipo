@@ -461,6 +461,25 @@ export const PAGE_API_RULES: PageApiRule[] = [
     writePages: ["/dashboard"],
   },
 
+  // ---- Otomasyon kartları -------------------------------------------------
+  // Asistanla aynı yerleşim: kartlar menüde bir sayfa değil, panonun üstünde
+  // duruyor — sahibi tüm rollerde bulunan `/dashboard`.
+  //
+  // Karar ucu (POST) İŞ VERİSİ YAZMAZ, yalnız gösterim günlüğüne karar düşer.
+  // Ama `writePages` yine de yazma yetkisi ister, çünkü kararın YAN ETKİSİ
+  // firma geneli susturmadır (`aktifSusturmalar` companyId ile sorar): salt-
+  // okunur bir çalışanın kapattığı kart, patron için de susardı.
+  //
+  // Kapının GERÇEK işi burada değil, kart üretiminin içinde: her kartın kendi
+  // sayfa + modül şartı `canViewPage` ile aynı izinlere karşı sınanıyor
+  // (`lib/otomasyon/kartlar.ts`). Kısıtlı çalışan bu uca ulaşır ama yalnız
+  // KENDİ görebildiği ekranların kartlarını alır.
+  {
+    prefix: "/api/otomasyon",
+    pages: ["/dashboard"],
+    writePages: ["/dashboard"],
+  },
+
   // ---- Personel ----------------------------------------------------------
   // Bordro, izin, zimmet ve özlük dosyası aynı modülün İÇİNDE bile birbirinden
   // ayrılır: "vardiya girsin ama maaşları görmesin" en sık istenen kısıt.

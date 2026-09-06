@@ -50,8 +50,13 @@ const SALE_SIGN = Prisma.sql`
  * KDV hariç olması `Product.salePrice` ile aynı ölçüde durmasını sağlar: kart da
  * net saklar (bkz. schema.prisma Product yorumu). Aksi halde "Fiyatı güncelle"
  * düğmesi KDV'li tutarı net alana yazardı.
+ *
+ * DIŞA AÇIK: otomasyon kartı K-MUS-04 (aynı ürüne farklı müşteri fiyatı) aynı
+ * net tanımını kullanır. İkinci bir kopya yazmak, bu dosyanın başlığındaki
+ * "aynı soruya dört ayrı cevap" hatasını tam olarak tekrarlardı: kart iskontolu
+ * satışı brüt sayar, ürün ekranı net sayar ve ikisi farklı fiyat gösterirdi.
  */
-const LINE_NET = Prisma.sql`
+export const LINE_NET = Prisma.sql`
   (ii.quantity * ii."unitPrice" - COALESCE(ii."discountAmount", 0))
 `
 
