@@ -104,6 +104,41 @@ function resolveInitialDirection(
   return "all"
 }
 
+/**
+ * Ekranın URL SÖZLEŞMESİ: `?gun=180&durum=DRAFT,GIB_DRAFT`.
+ *
+ * Otomasyon kartlarının aksiyon linkleri buradan geçiyor — kart kendi penceresini
+ * ve süzgecini biliyor, ekran onu duymazsa "167 taslak" diyen karttan varsayılan
+ * 90 günlük karışık listeye düşülüyordu (2026-09-06'da tarayıcıda yakalandı).
+ *
+ * Gün değeri HAZIR SEÇENEKLERE kısıtlı: kutuda karşılığı olmayan bir sayı
+ * seçiciyi boş gösterir, kullanıcı neye baktığını göremez.
+ */
+const GUN_SECENEKLERI = [30, 90, 180, 365] as const
+
+/** Çiple gösterilen durum kümeleri. Tanınmayan değer süzgece dönüşmez. */
+const DURUM_KUMELERI: Record<string, string> = {
+  "DRAFT,GIB_DRAFT": "Yalnız kesilmemiş belgeler",
+  DRAFT: "Yalnız taslaklar",
+  GIB_DRAFT: "Yalnız GİB taslakları",
+  SENT: "Yalnız gönderilmiş faturalar",
+  CANCELLED: "Yalnız iptal edilenler",
+}
+
+function baslangicGunu(ham: string | null): number {
+  const n = Number(ham)
+  return GUN_SECENEKLERI.some((g) => g === n) ? n : 90
+}
+
+function durumSuzgeci(ham: string | null): string {
+  const temiz = (ham || "")
+    .split(",")
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean)
+    .join(",")
+  return temiz in DURUM_KUMELERI ? temiz : ""
+}
+
 export interface FaturalarListingProps {
   fixedDirection?: "incoming" | "outgoing"
   pageTitle?: string
@@ -139,7 +174,15 @@ export default function FaturalarListing({
   useEffect(() => {
     setDirection(fixedDirection ?? resolveInitialDirection(searchParams))
   }, [searchParams, fixedDirection])
-  const [days, setDays] = useState(90)
+  const [days, setDays] = useState(() => baslangicGunu(searchParams.get("gun")))
+  /**
+   * Durum süzgeci — yalnız URL'den gelir (`?durum=DRAFT,GIB_DRAFT`), açılır
+   * kutusu yoktur. Otomasyon kartı kullanıcıyı "167 fatura taslakta kalmış"
+   * diyerek buraya yolluyor; süzgeç olmasa liste kartın konusu olmayan yüzlerce
+   * kesilmiş faturayla birlikte açılırdı. Uygulandığında ÇİPLE görünür ve tek
+   * tıkla kalkar — sebebi görünmeyen bir daraltma, boş listeden beterdir.
+   */
+  const [statusFilter, setStatusFilter] = useState(() => durumSuzgeci(searchParams.get("durum")))
   const [search, setSearch] = useState("")
   // Kategori artık SUNUCUDA süzülüyor. İstemcide süzülürken üstteki özet kartlar
   // filtreyi görmüyordu ("Toplam 120" derken tabloda 14 satır) ve satır tavanı
@@ -256,6 +299,7 @@ export default function FaturalarListing({
         params.set("days", String(days))
       }
       if (!includeInbox) params.set("includeInbox", "false")
+      if (statusFilter) params.set("status", statusFilter)
       if (debouncedText.search) params.set("search", debouncedText.search)
       if (debouncedText.counterparty) params.set("counterparty", debouncedText.counterparty)
       if (debouncedText.taxNumber) params.set("taxNumber", debouncedText.taxNumber)
@@ -296,6 +340,7 @@ export default function FaturalarListing({
     direction,
     days,
     range,
+    statusFilter,
     debouncedText,
     categoryFilter,
     includeInbox,
@@ -664,6 +709,22 @@ export default function FaturalarListing({
             <option value={180}>Son 6 ay</option>
             <option value={365}>Son 1 yıl</option>
           </select>
+          {statusFilter && (
+            // Süzgeç URL'den geldi; kullanıcı bunu kendisi seçmedi. Görünür
+            // olmazsa "listede neden bu kadar az fatura var" sorusunun cevabı
+            // ekranda hiçbir yerde yazmaz.
+            <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/60 px-2.5 py-1 text-xs">
+              {DURUM_KUMELERI[statusFilter]}
+              <button
+                type="button"
+                onClick={() => setStatusFilter("")}
+                aria-label="Durum süzgecini kaldır"
+                className="opacity-60 hover:opacity-100"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          )}
           {fixedDirection !== "outgoing" && includeInbox && (
             <Button
               variant="outline"

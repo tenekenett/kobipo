@@ -119,6 +119,30 @@ const RANGE_PRESETS = [
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+/**
+ * Ekranın URL SÖZLEŞMESİ: `?gun=90&durum=KABUL&aktarim=unlinked`.
+ *
+ * Otomasyon kartı bu ekrana "517 fatura aktarılmadı" diyerek yolluyor; param
+ * taşımazsa liste varsayılan 30 günde açılıyor ve karta rağmen SIFIR satır
+ * gösteriyordu (2026-09-06'da tarayıcıda yakalandı). Kart kendi penceresini
+ * (`PENCERE_GUN`) ve süzgeçlerini biliyor — ekranın onu duyması yeterli.
+ *
+ * Değerler HAZIR SEÇENEKLERE kısıtlı: seçicilerde karşılığı olmayan bir değer
+ * yazıldığında kontrol boş görünür, kullanıcı da neye baktığını göremezdi.
+ */
+const STATUS_SECENEKLERI = ["KABUL", "RED", "BEKLEMEDE"] as const
+const LINK_SECENEKLERI = ["linked", "unlinked"] as const
+
+function secenekten(ham: string | null, izinli: readonly string[]): string | null {
+  if (!ham) return null
+  return izinli.includes(ham) ? ham : null
+}
+
+function baslangicGunu(ham: string | null): number {
+  const n = Number(ham)
+  return RANGE_PRESETS.some((p) => p.days === n) ? n : 30
+}
+
 // Mysoft dönem uçları 90 günden uzun aralığı reddediyor; sunucu isteği 90 günlük
 // pencerelere bölerek çekiyor (bkz. mysoft-provider.listIncomingInvoices). Ekranda
 // yalnızca "uzun sürebilir" uyarısı için kullanılır.
@@ -164,21 +188,31 @@ export default function GelenEFaturalarPage() {
   // GİB'e düştüğü an mı? Geçen ay düzenlenip bu hafta gönderilen fatura ikisinde
   // farklı aralıklara düşer.
   const [dateField, setDateField] = useState<"docDate" | "sentDate">("docDate")
-  const [days, setDays] = useState(30)
+  const [days, setDays] = useState(() => baslangicGunu(searchParams.get("gun")))
   const [customRange, setCustomRange] = useState(false)
-  const [startDate, setStartDate] = useState(() => toDateInput(addDays(new Date(), -30)))
+  const [startDate, setStartDate] = useState(() =>
+    toDateInput(addDays(new Date(), -baslangicGunu(searchParams.get("gun")))),
+  )
   const [endDate, setEndDate] = useState(() => toDateInput(new Date()))
 
   // --- Filtreler: metin alanları debounce'lanır, seçimler anında uygulanır -----
-  const [showFilters, setShowFilters] = useState(false)
   const [search, setSearch] = useState("")
   const [senderFilter, setSenderFilter] = useState("")
   const [taxNumberFilter, setTaxNumberFilter] = useState("")
   const [minAmount, setMinAmount] = useState("")
   const [maxAmount, setMaxAmount] = useState("")
-  const [statusFilter, setStatusFilter] = useState<string>("")
+  const [statusFilter, setStatusFilter] = useState<string>(
+    () => secenekten(searchParams.get("durum"), STATUS_SECENEKLERI) ?? "",
+  )
   const [profileFilter, setProfileFilter] = useState<string>("")
-  const [linkFilter, setLinkFilter] = useState<string>("")
+  const [linkFilter, setLinkFilter] = useState<string>(
+    () => secenekten(searchParams.get("aktarim"), LINK_SECENEKLERI) ?? "",
+  )
+  // "Aktarım" seçicisi katlanmış panelin içinde: URL'den geldiğinde panel açık
+  // başlar, yoksa liste sebebini göstermeden daralmış olurdu.
+  const [showFilters, setShowFilters] = useState(
+    () => secenekten(searchParams.get("aktarim"), LINK_SECENEKLERI) !== null,
+  )
 
   const [debouncedText, setDebouncedText] = useState({
     q: "",

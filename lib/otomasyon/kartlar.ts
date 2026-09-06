@@ -42,6 +42,10 @@ import {
   type FiyatFarkiOzeti,
   PENCERE_GUN as FIYAT_PENCERESI,
 } from "./veri/musteri-fiyat-farki"
+import {
+  vadesiGecmisAlacaklar,
+  type GecikmisAlacak,
+} from "./veri/vadesi-gecmis-alacak"
 
 export type KartBaglami = {
   companyId: string
@@ -117,6 +121,16 @@ const TANIMLAR: KartTanimi[] = [
       return ozet ? [fiyatFarkiKarti(b.companyId, ozet)] : []
     },
   },
+
+  {
+    kod: "K-THS-07",
+    ad: "Vadesi geçmiş alacak",
+    kapi: { modul: "sales", sayfa: "/cari/musteri" },
+    async uret(b) {
+      const satirlar = await vadesiGecmisAlacaklar(b.companyId)
+      return satirlar.map((s) => gecikmisAlacakKarti(s))
+    },
+  },
 ]
 
 /** K-STK-01'in tek satırdan kart üretimi. Sürüm: eşik veya metin değişirse artar. */
@@ -169,9 +183,12 @@ function stokTukenmeKarti(s: StokTukenmeSatiri): Kart {
       {
         anahtar: "siparis_olustur",
         etiket: "Sipariş oluştur",
-        // Sipariş ekranı bu param'ları HENÜZ okumuyor; ürün ve miktar önceden
-        // dolu gelsin diye bırakıldı. Okunana kadar buton doğru ekranı açar.
-        href: `/alis/siparis?urun=${encodeURIComponent(s.slug || s.id)}&miktar=${s.onerilenMiktar}`,
+        // Sipariş ekranı bu üçünü okuyup formu ön dolduruyor (AlisSiparisPage,
+        // "Otomasyon kartından gelen ön dolgu"). Ürün SLUG değil ID ile
+        // gönderilir: formdaki seçici ürünleri id ile eşliyor.
+        href:
+          `/alis/siparis?urun=${encodeURIComponent(s.id)}&miktar=${s.onerilenMiktar}` +
+          (s.tedarikci ? `&tedarikci=${encodeURIComponent(s.tedarikci.id)}` : ""),
         birincil: true,
       },
       ...(s.tedarikci
@@ -272,7 +289,9 @@ function negatifStokKarti(companyId: string, o: NegatifStokOzeti): Kart {
       {
         anahtar: "gelen_faturalari_ac",
         etiket: "Gelen faturalar",
-        href: "/alis/gelen-e-faturalar",
+        // Eksi stoğun en sık sebebi girilmemiş alış: aktarılmamış gelen faturalar
+        // K-BLG-01 ile AYNI süzgeçle açılır, kullanıcı doğrudan oradan işler.
+        href: `/alis/gelen-e-faturalar?gun=${PENCERE_GUN}&durum=KABUL&aktarim=unlinked`,
       },
       { anahtar: "urunleri_gor", etiket: "Ürünleri gör", href: "/stok/urunler" },
     ],
@@ -316,7 +335,10 @@ function islenmemisFaturaKarti(companyId: string, o: IslenmemisFaturaOzeti): Kar
       {
         anahtar: "gelen_kutusunu_ac",
         etiket: "Gelen faturaları aç",
-        href: "/alis/gelen-e-faturalar",
+        // Kartın SAYDIĞI kayıtlar açılsın: ekran varsayılan 30 günde ve süzgeçsiz
+        // açılıyordu, kart "517 fatura" derken liste SIFIR satır gösteriyordu
+        // (2026-09-06). Param'lar buradaki üç süzgecin birebir karşılığı.
+        href: `/alis/gelen-e-faturalar?gun=${PENCERE_GUN}&durum=KABUL&aktarim=unlinked`,
         birincil: true,
       },
       { anahtar: "alis_faturalarini_gor", etiket: "Alış faturaları", href: "/alis/fatura" },
@@ -333,6 +355,17 @@ function islenmemisFaturaKarti(companyId: string, o: IslenmemisFaturaOzeti): Kar
 }
 
 const K_BLG_04_SURUM = 1
+
+/**
+ * Liste ekranının kartı karşılayacak en dar penceresi.
+ *
+ * Fatura listesi hazır dönemlerle çalışıyor (30/90/180/365); aradaki bir sayı
+ * seçiciyi boş bırakırdı. En eski belgeyi KAPSAYAN en küçük dönem seçilir —
+ * daha geniş dönem, kartın konusu olmayan belgeleri de listeye sokardı.
+ */
+function listePenceresi(enEskiGun: number): number {
+  return [30, 90, 180, 365].find((g) => g >= enEskiGun) ?? 365
+}
 
 /**
  * K-BLG-04 · Taslakta kalmış satış faturası.
@@ -367,7 +400,16 @@ function bekleyenTaslakKarti(companyId: string, o: BekleyenTaslakOzeti): Kart {
       // `/faturalar` bir MENÜ ANAHTARI, sayfa değil: altında yalnız [id] rotaları
       // var, index yok (page-access.ts ROUTE_OWNERS onu /satis|alis/fatura'ya
       // bağlar). Oraya link vermek kartı 404'e götürürdü.
-      { anahtar: "faturalari_ac", etiket: "Satış faturaları", href: "/satis/fatura", birincil: true },
+      //
+      // Pencere kartın kendi en eski belgesinden türer: 128 günlük taslak sayan
+      // kart, ekranı varsayılan 90 günde açsaydı saydığı belgenin bir kısmı
+      // listede HİÇ olmazdı. Durum süzgeci de sorgunun aynısı (DRAFT+GIB_DRAFT).
+      {
+        anahtar: "faturalari_ac",
+        etiket: "Satış faturaları",
+        href: `/satis/fatura?gun=${listePenceresi(o.enEskiGun)}&durum=DRAFT,GIB_DRAFT`,
+        birincil: true,
+      },
     ],
     olcum: {
       adet: o.adet,
@@ -466,6 +508,69 @@ function fiyatFarkiKarti(companyId: string, o: FiyatFarkiOzeti): Kart {
       { anahtar: "urunleri_gor", etiket: "Ürünler", href: "/stok/urunler" },
     ],
     olcum: { urunSayisi: o.urunSayisi, pencereGun: FIYAT_PENCERESI, ornekler: o.ornekler },
+  }
+}
+
+const K_THS_07_SURUM = 1
+
+/**
+ * K-THS-07 · Vadesi geçmiş alacak.
+ *
+ * Kartların içinde KARŞI TARAFI en çok hak edeni bu: sonuç zaten "birini
+ * aramak". Telefon `karsiTaraf`ta, ekstre birincil aksiyonda.
+ *
+ * TUTAR CARİ BAKİYEDİR, gecikmiş faturanın tutarı değil — ikisi ayrı sorulardır
+ * ve gerekçe bunu açıkça söyler. Sebebi veri dosyasının başlığında: tahsilat
+ * cariye işlenip faturaya bağlanmayınca fatura "ödenmemiş" görünüyor.
+ */
+function gecikmisAlacakKarti(a: GecikmisAlacak): Kart {
+  const vadeCumlesi =
+    a.vadeKaynagi === "alan"
+      ? "Vade faturanın kendi vade tarihinden."
+      : `Faturada vade tarihi yok; müşteri kartındaki ${a.vadeGunu} günlük vadeyi fatura tarihine ekledim.`
+
+  return {
+    kod: "K-THS-07",
+    surum: K_THS_07_SURUM,
+    // Bir ay ve üstü gecikme tahsilat sorununa dönüşmüş demektir.
+    onem: a.gecikmeGun >= 30 ? "kritik" : a.gecikmeGun >= 14 ? "yuksek" : "orta",
+    ozneTuru: "customer",
+    ozneId: a.musteriId,
+    baslik: `${a.ad} ${a.gecikmeGun} gündür geciken ödemesini yapmadı — ${money0(a.bakiye)} açık.`,
+    gerekce:
+      `${a.faturaAdet} faturanın vadesi geçti. ${vadeCumlesi} ` +
+      `${money0(a.bakiye)} rakamı bu müşterinin CARİ BAKİYESİDİR: geciken faturaların yanında ` +
+      `kapanmamış eski bakiye, tahsilatlar ve çek/senet de içindedir — ekstredeki tutarın aynısı.`,
+    sonTarih:
+      a.gecikmeGun >= 30
+        ? "Bir ayı geçti; bugün aranmalı."
+        : "Gecikme büyümeden aranmalı.",
+    karsiTaraf: {
+      ad: a.ad,
+      yetkili: a.yetkili,
+      telefon: a.telefon,
+      href: `/cari/customers/${a.slug || a.musteriId}`,
+    },
+    aksiyonlar: [
+      {
+        anahtar: "ekstreyi_ac",
+        etiket: "Ekstreyi aç",
+        href: `/cari/ekstre?customerId=${encodeURIComponent(a.musteriId)}`,
+        birincil: true,
+      },
+      {
+        anahtar: "cari_karti",
+        etiket: "Cari kartı",
+        href: `/cari/customers/${a.slug || a.musteriId}`,
+      },
+    ],
+    olcum: {
+      bakiye: a.bakiye,
+      faturaAdet: a.faturaAdet,
+      gecikmeGun: a.gecikmeGun,
+      vadeKaynagi: a.vadeKaynagi,
+      vadeGunu: a.vadeGunu,
+    },
   }
 }
 

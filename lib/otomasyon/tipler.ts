@@ -100,3 +100,16 @@ export type KartKapisi = {
 
 /** Kullanıcının kart üzerinde verdiği karar — günlüğe aynen yazılır. */
 export type KartKarari = "ACTED" | "DISMISSED" | "SNOOZED"
+
+/**
+ * Panoya en fazla kaç kart BASILIR — gerisi sayıyla duyurulur.
+ *
+ * SUNUCU DA OKUR, İSTEMCİ DE, çünkü günlüğün ölçtüğü şey "kullanıcıya gösterildi"
+ * olmalı. Sayı yalnız bileşende dursaydı uç bütün kartları "gösterildi" diye
+ * yazardı; ekranda hiç görünmemiş kart, sonradan "gösterildi ama umursanmadı"
+ * havuzunda çıkar ve kartın yanıt oranını olduğundan düşük gösterirdi — tam da
+ * bu günlüğün cevaplamak için tutulduğu soruyu bozar.
+ *
+ * (2026-09-06'da elle yakalandı: ekranda 3 kart varken günlüğe 4 satır düşüyordu.)
+ */
+export const GOSTERILECEK = 3

@@ -111,6 +111,25 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
   const minAmount = options.minAmount ?? null
   const maxAmount = options.maxAmount ?? null
 
+  /**
+   * Durum süzgeci VİRGÜLLE ÇOKLU olabilir: "DRAFT,GIB_DRAFT".
+   *
+   * Tek değere kilitliyken "kesilmemiş satış faturaları"nı tek istekle sormak
+   * mümkün değildi; oysa iş tarafında ikisi AYNI ŞEY — belge müşteriye gitmemiş
+   * (K-BLG-04 kartı da ikisini birlikte sayıyor). Boş parçalar atılır, tek değer
+   * eskisi gibi eşitlikle sorulur.
+   */
+  const statusList = (status || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const statusWhere =
+    statusList.length === 0
+      ? {}
+      : statusList.length === 1
+        ? { status: statusList[0] }
+        : { status: { in: statusList } }
+
   const end = endDate ? new Date(endDate) : new Date()
   const start = startDate
     ? new Date(startDate)
@@ -148,7 +167,7 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
       where: {
         companyId,
         docDate: { gte: start, lte: end },
-        ...(status ? { status } : {}),
+        ...statusWhere,
         ...amountFilter("payableAmount"),
         // Koşullar AND dizisinde: "search" kendi OR'unu taşıdığı için düz nesne
         // yayılımıyla ikinci bir OR eklemek öncekini sessizce ezerdi.
@@ -213,7 +232,7 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
         type: "PURCHASE",
         isReceipt: false, // fişler bu listede değil; ayrı "Alış Fişleri" listesinde
         date: { gte: start, lte: end },
-        ...(status ? { status } : {}),
+        ...statusWhere,
         ...(category ? { category } : {}),
         ...amountFilter("totalAmount"),
         AND: [
@@ -316,7 +335,7 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
         type: { in: ["SALES", "RETURN"] },
         isReceipt: false, // fişler bu listede değil; ayrı "Satış Fişleri" listesinde
         date: { gte: start, lte: end },
-        ...(status ? { status } : {}),
+        ...statusWhere,
         ...(category ? { category } : {}),
         ...amountFilter("totalAmount"),
         AND: [

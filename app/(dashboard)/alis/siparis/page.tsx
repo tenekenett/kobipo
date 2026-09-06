@@ -1,7 +1,7 @@
 "use client"
 
 import { WriteAction } from "@/components/dashboard/write-guard"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -161,6 +161,61 @@ export default function AlisSiparisPage() {
     if (isCreateOpen && companyId) fetchProducts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCreateOpen, companyId])
+
+  /**
+   * Otomasyon kartından gelen ön dolgu: `?urun=<id>&miktar=12&tedarikci=<id>`.
+   *
+   * K-STK-01 kartı "bugün sipariş vermezsen N gün stoksuz kalırsın" derken
+   * ürünü, önerilen miktarı ve tedarikçiyi ZATEN hesaplamış oluyor. Ekran bunu
+   * okumazsa kullanıcı aynı üç bilgiyi elle bulmak zorunda kalır ve kartın "tek
+   * tıkla aksiyon" iddiası boşa düşer.
+   *
+   * Form AÇILIR ama GÖNDERİLMEZ: kart yanılabilir, miktarı ve tedarikçiyi
+   * onaylayacak olan kullanıcıdır.
+   */
+  const onDolguUrun = searchParams.get("urun")
+  const onDolguMiktar = searchParams.get("miktar")
+  const onDolguTedarikci = searchParams.get("tedarikci")
+  const onDolguUygulandi = useRef(false)
+
+  useEffect(() => {
+    if (onDolguUygulandi.current) return
+    if (!companyId || !onDolguUrun) return
+    onDolguUygulandi.current = true
+
+    if (onDolguTedarikci) setForm((p) => ({ ...p, supplierId: onDolguTedarikci }))
+    const miktar = Number(onDolguMiktar)
+    setLines([
+      {
+        ...emptyLine(),
+        productId: onDolguUrun,
+        quantity: Number.isFinite(miktar) && miktar > 0 ? String(miktar) : "1",
+      },
+    ])
+    setIsCreateOpen(true)
+  }, [companyId, onDolguUrun, onDolguMiktar, onDolguTedarikci])
+
+  /**
+   * Ürün listesi diyalog açılınca geliyor; ad ve alış fiyatı ancak o zaman
+   * bilinebilir. Ön dolgulu satırın adı boş kalmasın diye liste dolduğunda
+   * bir kez uygulanır — `applyProductToLine` ile AYNI yol, ikinci bir eşleme
+   * kuralı iki ekranda farklı fiyat demek olurdu.
+   */
+  useEffect(() => {
+    if (!onDolguUrun || products.length === 0) return
+    setLines((prev) => {
+      if (prev.length !== 1 || prev[0].productId !== onDolguUrun || prev[0].description) return prev
+      const p = products.find((x) => x.id === onDolguUrun)
+      if (!p) return prev
+      return [
+        {
+          ...prev[0],
+          description: p.name,
+          unitPrice: p.purchasePrice != null ? String(Number(p.purchasePrice)) : prev[0].unitPrice,
+        },
+      ]
+    })
+  }, [products, onDolguUrun])
 
   function updateLine(index: number, patch: Partial<ItemLine>) {
     setLines((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))

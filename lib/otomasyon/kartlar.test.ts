@@ -47,6 +47,17 @@ function kapilar(): Array<{ modul?: string; sayfa?: string }> {
   }))
 }
 
+/** Karttaki bütün `href` değerleri — ham hâlleriyle, sorgu dizesi dahil. */
+function hamHrefler(): string[] {
+  return [
+    ...new Set(
+      [...kaynak.matchAll(/href: (`[^`]+`|"[^"]+")/g)].map((m) =>
+        m[1].slice(1, -1).replace(/\$\{[^}]*\}/g, "SEGMENT")
+      )
+    ),
+  ]
+}
+
 /**
  * Karttaki bütün `href` değerleri.
  *
@@ -55,13 +66,29 @@ function kapilar(): Array<{ modul?: string; sayfa?: string }> {
  * segment SAYISI ve dinamik olup olmadığıdır, değerin kendisi değil.
  */
 function hrefler(): string[] {
-  const bulunan = [...kaynak.matchAll(/href: (`[^`]+`|"[^"]+")/g)].map((m) =>
-    m[1]
-      .slice(1, -1)
-      .replace(/\$\{[^}]*\}/g, "SEGMENT")
-      .split("?")[0]
+  return [...new Set(hamHrefler().map((h) => h.split("?")[0]))]
+}
+
+/**
+ * Bir rotanın sayfa dosyası + BİR SEVİYE altındaki yerel bileşenleri.
+ *
+ * Tek dosyaya bakmak yetmiyor: `/satis/fatura/page.tsx` on üç satır ve bütün işi
+ * `FaturalarListing`e devrediyor; param'ı okuyan da o. Bir seviye izlemek, bugün
+ * kartların bastığı üç hedefin üçünü de kapsıyor.
+ */
+function hedefKaynagi(href: string): string {
+  const yol = path.resolve(ROOT, SAYFA_KOKU, `.${href}`, "page.tsx")
+  if (!fs.existsSync(yol)) return ""
+  const sayfa = fs.readFileSync(yol, "utf8")
+  const yerel = [...sayfa.matchAll(/from "@\/((?:components|lib)\/[^"]+)"/g)].map((m) => m[1])
+  return (
+    sayfa +
+    yerel
+      .flatMap((rel) => [`${rel}.tsx`, `${rel}.ts`])
+      .filter((p) => fs.existsSync(path.resolve(ROOT, p)))
+      .map((p) => fs.readFileSync(path.resolve(ROOT, p), "utf8"))
+      .join("\n")
   )
-  return [...new Set(bulunan)]
 }
 
 /** app/(dashboard) altındaki tüm sayfa rotaları, `/a/[id]/b` biçiminde. */
@@ -132,6 +159,42 @@ describe("otomasyon kartları", () => {
     expect(
       kirik,
       `Şu linklerin karşılığında sayfa yok — kart tıklanınca 404 açar:\n${kirik.join("\n")}`
+    ).toEqual([])
+  })
+
+  /**
+   * Linkteki her param'ı hedef ekran GERÇEKTEN okumalı.
+   *
+   * Okumayan bir param sessizdir — en beteri de bu: buton doğru sayfayı açar,
+   * sayfa kendi varsayılanıyla gelir ve kart "517 fatura" derken liste sıfır
+   * satır gösterir. 2026-09-06'da tarayıcıda tam olarak bu yaşandı; param'lar
+   * yazılmıştı, ekran okumuyordu.
+   */
+  it("aksiyon linkindeki her param'ı hedef ekran okuyor", () => {
+    const hatalar: string[] = []
+
+    for (const href of hamHrefler()) {
+      const [yol, sorgu] = href.split("?")
+      if (!sorgu) continue
+      const kaynakMetni = hedefKaynagi(yol)
+      if (!kaynakMetni) {
+        hatalar.push(`${yol}: sayfa dosyası bulunamadı`)
+        continue
+      }
+      for (const parca of sorgu.split("&")) {
+        const ad = parca.split("=")[0]
+        // `company` her panel linkinde var ve CompanyLink/URL katmanı okur.
+        if (!ad || ad === "company") continue
+        if (!kaynakMetni.includes(`get("${ad}")`)) {
+          hatalar.push(`${yol}: "${ad}" param'ı gönderiliyor ama ekran okumuyor`)
+        }
+      }
+    }
+
+    expect(
+      hatalar,
+      "Okunmayan param SESSİZDİR: sayfa açılır, kartın saydığı kayıtlar görünmez.\n" +
+        hatalar.join("\n")
     ).toEqual([])
   })
 })

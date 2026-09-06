@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic"
  *  - days        (default 90) — son N gün; startDate verilirse görmezden gelinir
  *  - startDate   ISO
  *  - endDate     ISO
- *  - status      filtre (KABUL/RED/DRAFT/SENT/...)
+ *  - status      filtre (KABUL/RED/DRAFT/SENT/...); virgülle çoklu: "DRAFT,GIB_DRAFT"
  *  - search      fatura no / karşı taraf adı / VKN / ETTN
  */
 export const GET = withApiErrors(async function GET(request: Request) {

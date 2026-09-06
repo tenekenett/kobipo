@@ -6,9 +6,13 @@
  * harcar, gecikme eklerdi ve en kötüsü kullanıcının en çok güvendiği rakamlar
  * tahmin edilebilir olurdu.
  *
- * Uç üç işi sırayla yapar: kartları üret → susturulmuşları süz → kalanları
+ * Uç üç işi sırayla yapar: kartları üret → susturulmuşları süz → EKRANA GİRENLERİ
  * günlüğe yaz. Sıra önemli: susturulmuş kart gösterilmediği için günlüğe de
  * yazılmaz, yoksa "gösterildi ama umursanmadı" sayısı şişerdi.
+ *
+ * Aynı gerekçe gösterim bütçesi için de geçerli: kartların tamamı döner (istemci
+ * "+N konu daha var" diyebilsin) ama günlüğe yalnız ilk `GOSTERILECEK` tanesi
+ * yazılır — gerisi kullanıcının gözüne HİÇ girmedi.
  */
 
 import { NextResponse } from "next/server"
@@ -17,6 +21,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess, pagePermissionsOf } from "@/lib/middleware/company"
 import { withApiErrors } from "@/lib/api/errors"
 import { kartlariUret } from "@/lib/otomasyon/kartlar"
+import { GOSTERILECEK } from "@/lib/otomasyon/tipler"
 import { aktifSusturmalar, gosterimleriYaz, susturmaAnahtari } from "@/lib/otomasyon/gunluk"
 
 export const dynamic = "force-dynamic"
@@ -45,7 +50,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
     (k) => !susturulmus.has(susturmaAnahtari(k.kod, k.ozneId))
   )
 
-  await gosterimleriYaz(companyId, user.id ?? null, kartlar)
+  // Yalnız ekrana girenler günlüğe yazılır; kalanlar "+N konu daha" satırında
+  // sayı olarak duyuruluyor, gösterilmiş sayılmazlar.
+  await gosterimleriYaz(companyId, user.id ?? null, kartlar.slice(0, GOSTERILECEK))
 
   return NextResponse.json({
     kartlar,

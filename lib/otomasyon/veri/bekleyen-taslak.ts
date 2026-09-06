@@ -12,6 +12,13 @@
  * DRAFT ve GIB_DRAFT birlikte sayılır: ikisi de KESİLMEMİŞTİR. Ayrım
  * resmileştirme akışının içindedir (DRAFT → GIB_DRAFT → SENT, bkz. GİB taslak
  * akışı) ama kullanıcı açısından sonuç aynı — belge müşteriye gitmemiştir.
+ *
+ * SATIŞ FİŞİ SAYILMAZ (`isReceipt = false`). Fiş faturanın taslağı değil, AYRI
+ * bir belgedir ve ayrı ekranda durur ("Satış Fişleri"); fatura listesi onları
+ * `isReceipt: false` ile dışarıda bırakıyor (`lib/faturalar/list-query.ts`).
+ * Sayılınca kartın gönderdiği ekranda BULUNAMAYAN belgeler oluşuyordu:
+ * 2026-09-06'da kart "167 taslak" derken liste 131 satır gösteriyordu, aradaki
+ * 41 belge fişti. Kartın saydığı her belge, aksiyonun açtığı ekranda görünmeli.
  */
 
 import { Prisma } from "@prisma/client"
@@ -60,6 +67,7 @@ export async function bekleyenTaslakOzeti(
     FROM invoices
     WHERE "companyId" = ${companyId}
       AND type = 'SALES'
+      AND "isReceipt" = false
       AND status IN ('DRAFT', 'GIB_DRAFT')
       AND date <= ${sinir}
     ORDER BY "totalAmount" DESC

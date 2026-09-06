@@ -18,6 +18,7 @@
 | K-BLG-01 | İşlenmemiş gelen fatura | 8 firmada · ₺484K'ya varan KDV indirimi |
 | K-BLG-04 | Taslak fatura | 8 firmada · ₺589K faturalanmamış |
 | K-NKT-06 | Vadesi geçmiş çek/senet | 3 firmada · ₺480K'lık çek 89 gündür |
+| K-THS-07 | Vadesi geçmiş alacak | 2 firmada · ₺60K 36 gündür, ₺98K 17 gündür |
 | K-STK-01 | Tükenme + tedarik süresi | sessiz — 61 üründen 43'ü negatif stoklu |
 | K-MUS-04 | Aynı ürüne farklı fiyat | sessiz — bulguların tamamı hizmetti, elendi |
 
@@ -31,6 +32,26 @@
 | K-OPR-04 | Hiç kasa sayımı kaydı yok |
 | K-SIS-01 | 38 firmada kontör var ama kimse bitmeye yakın değil |
 | K-TDR-01 | Tek üründe ateşliyor — alış verisi çok ince |
+| K-STK-05 | "Ölü stok" ile "yeni alınmış" ayrılamıyor — aşağıya bak |
+| K-STK-06 | K-STK-05 ile aynı kümeye düşüyor; ayrı kart değil |
+| K-BLG-06 · K-MRJ-02 · K-MUS-03 | Her biri tek firmada tek kayıt — kart bütçesine değmiyor |
+
+**K-STK-05 / K-STK-06 ölçümü (2026-09-06).** Hiç satılmamış, stoğu ve maliyeti
+olan 206 ürün var ve bağladıkları sermaye **₺2,05M** — kart yazmak için fazlasıyla
+yeterli görünüyor. Ama iki ölçü onu durdurdu:
+
+| ölçü | sonuç |
+|---|---|
+| "satılıyordu, durdu" (K-STK-05'in asıl tanımı) | **0 ürün** |
+| ürün yaşı ≥ 90 gün | **0 ürün** — en yaşlısı 45 günlük |
+
+Yani veritabanındaki her "ölü" kalem aslında YENİ: 38–45 gün önce girilmiş ve
+henüz satılmamış. Bunlara "ölü stok, elden çıkar" demek kartı ilk günden haksız
+çıkarırdı (anatomi kuralı 5). En büyük kalem de bunu doğruluyor: *Motorin,
+5.908 LT, ₺336K, 45 günlük* — akaryakıt satılmaz, TÜKETİLİR; hiç OUT hareketi
+görmemesi ölü stok değil, ölçünün yanlış ürüne bakması demektir.
+
+İki kart da veri yaşlanınca (≥90 günlük stok geçmişi) yeniden ölçülmeli.
 
 ### Altyapı
 
@@ -41,13 +62,40 @@
 - Nöbetçi test: `lib/otomasyon/kartlar.test.ts` — kod biçimi, kapı ve link
   doğruluğunu mekanik korur (mutasyonla doğrulandı).
 
+### Pano tarayıcıda çalıştırıldı — 2026-09-06
+
+Arayüz ilk kez canlıda koşturuldu ve **beş hata çıktı**; hiçbiri veri katmanında
+değildi, hepsi arayüz–uç arasındaydı:
+
+1. **Uç 500 dönüyordu ve pano bunu hiç göstermiyordu.** Prisma istemcisi şema
+   değişince yeniden üretilmemişti (`automationCardEvent` tanımsız). SWR hatası
+   yutulunca bileşen `null` dönüyor ve pano SAĞLIKLI görünüyordu. Artık hata
+   şeridi basılıyor, kısmi hata da kart kodlarıyla duyuruluyor; `postinstall`
+   eklendi, istemci bir daha eskimiyor.
+2. **Günlük, ekranda görünmeyen kartı "gösterildi" yazıyordu.** Ekranda 3 kart
+   varken 4 satır düşüyordu. `GOSTERILECEK` artık `tipler.ts`te ve uç da onu
+   okuyor — ölçüm "gösterildi ama umursanmadı" sorusuna geri döndü.
+3. **Aksiyon linkleri kartın saydığı kayıtları AÇMIYORDU.** "517 fatura
+   aktarılmadı" diyen kart, varsayılan 30 günlük listeye düşürüyor ve ekran
+   *0 fatura listelendi* diyordu. Hedef ekranlar artık `?gun=&durum=&aktarim=`
+   okuyor; aynı kart şimdi tam 517 satır açıyor. Sipariş ekranı da kartın
+   ürün/miktar/tedarikçi param'larını okuyup formu ön dolduruyor.
+4. **K-BLG-04 satış FİŞLERİNİ taslak fatura sayıyordu** (167 yerine 129).
+   41 fiş, aksiyonun açtığı fatura listesinde hiç görünmüyordu — fatura listesi
+   `isReceipt = false` süzüyor. Kartın saydığı her belge, aksiyonun açtığı
+   ekranda görünmeli.
+5. Nöbetçi teste dördüncü kural eklendi: **linkteki her param'ı hedef ekran
+   okumalı.** Okunmayan param sessizdir; sayfa açılır, kayıtlar görünmez.
+
 ### Sıradaki iş
 
-1. **Panoyu gerçekten aç ve bak.** Veri katmanı altı kez ölçüldü; arayüz
-   (SWR çağrısı, yazma kapısı, kart bileşeni) canlıda HİÇ çalışmadı.
-2. Faz 2 — A motoru: çek/senet + maaş + tekrarlayan gider projeksiyona,
+1. Faz 2 — A motoru: çek/senet + maaş + tekrarlayan gider projeksiyona,
    günlük çözünürlük. K-NKT-01…05'i birden açar.
-3. Faz 3 — B motoru: cari ödeme davranışı profili. K-THS grubunu açar.
+2. Faz 3 — B motoru: cari ödeme davranışı profili. K-THS-01…03'ü açar;
+   K-THS-07 bugünün ölçülebilir çekirdeğini şimdiden veriyor.
+3. `Invoice.dueDate` doluluğu %5. Vade türetmesi (K-THS-07) bunu kısmen
+   kapatıyor ama asıl çözüm, fatura kesilirken vadenin müşteri kartından
+   otomatik dolmasıdır — o gün K-THS grubunun tamamı güçlenir.
 
 ### Çalışma yöntemi (bu iş boyunca izlendi)
 
@@ -300,6 +348,35 @@ susma        tarih değiştirilirse kapanır · yok say → o çek için kalıc�
 | K-THS-04 | Hiç hatırlatılmamış alacak | Vade geçti + hiç hatırlatma kaydı yok | ◆ |
 | K-THS-05 | Açık bakiye limiti aştı | Cari açık bakiye, geçen yıl aynı dönemin belirgin üstünde | ◆ |
 | K-THS-06 | Ödeme linki ödenmedi | `PaymentLink.status = ACTIVE` + oluşturma üstünden N gün | ◆ |
+| K-THS-07 | Vadesi geçmiş alacak | Vadesi geçmiş satış faturası VE cari bakiye hâlâ borçlu | ◆ **kodlandı** |
+
+> **ÖLÇÜM — 2026-09-06.** K-THS-07 yeni bir koddur; K-THS-04'ün yerine geçmez.
+> K-THS-04 "vade geçti VE hiç hatırlatma kaydı yok" diyor, hatırlatma kaydı tutan
+> tablo yok. Aynı kodu bugünkü dar tanımla yazmak, tablo geldiğinde kodun farklı
+> bir soruyu ölçmesi olurdu (§3, kod asla değişmez).
+>
+> **İki ölçüm kartın şeklini belirledi:**
+>
+> *1. Vade alanı ölü, türetme diriltiyor.* 302 SENT satış faturasının yalnız
+> **16'sında** (%5) `dueDate` dolu. `Customer.paymentDueDays` ise 348 müşterinin
+> **168'inde** dolu; fatura tarihine eklenince kapsam **16 → 53** faturaya
+> çıkıyor. Kart hangi vadeyi kullandığını cümle içinde söylüyor.
+>
+> *2. "Faturası ödenmemiş" ≠ "bize borcu var".* Faturanın kendi ödeme kayıtlarına
+> bakan ilk sürüm, gecikmiş görünen 4 müşterinin **ikisinde yanılıyordu** — para
+> tahsil edilmiş ama cariye işlenip faturaya bağlanmamıştı:
+>
+> | müşteri | açık fatura | cari bakiye | karar |
+> |---|---|---|---|
+> | DENTAŞ KAĞIT | ₺21.600 | ₺60.000 | gerçek alacak (bakiye daha büyük) |
+> | Pusula Tekstil | ₺6.462 | ₺98.789 | gerçek alacak |
+> | UMUT YAŞAR KÜSMEN | ₺8.000 | **₺0** | ödenmiş — elendi |
+> | KADİR ÖZDEMİR | — | **₺0** | ödenmiş — elendi |
+> | earsin sinar | ₺16.155 | **−₺78.365** | fazla ödemiş — elendi |
+>
+> Bu yüzden tutar `lib/cari/list-query.ts`teki bakiyeden okunur — cari ekranının
+> ta kendisi. İkinci bir formül, kartın "borcu var" derken ekstrenin "kapalı"
+> demesi olurdu. Kart bakiyenin ne olduğunu gerekçede açıkça yazar.
 
 **K-THS-02 · Vadesi gelmeden hatırlat** — tahsilat takibini reaktiften proaktife çeviren
 tek kart.
