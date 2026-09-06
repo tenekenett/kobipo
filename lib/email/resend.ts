@@ -16,6 +16,15 @@ const resend = apiKey ? new Resend(apiKey) : null
 export const EMAIL_FROM =
   process.env.EMAIL_FROM || "Kobipo <no-reply@kobipo.com>"
 
+/**
+ * Gönderen adres no-reply@ olduğu için sistem e-postasına "yanıtla" diyen
+ * kullanıcının yazdığı BOŞLUĞA gidiyordu: no-reply@ bir posta kutusu değil.
+ * Her gönderim varsayılan olarak destek adresine yanıtlanır; çağıran taraf
+ * `replyTo` vererek bunu ezebilir (ör. fatura e-postasında firmanın kendi
+ * adresi). Adresin gerçekten bir kutuya düşmesi kobipo.com MX kaydına bağlıdır.
+ */
+export const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || "destek@kobipo.com"
+
 export type SendEmailParams = {
   to: string | string[]
   subject: string
@@ -60,7 +69,13 @@ export async function sendEmailBatch(
     const chunk = messages.slice(i, i + CHUNK)
     try {
       const { error } = await resend.batch.send(
-        chunk.map((m) => ({ from: EMAIL_FROM, to: m.to, subject: m.subject, html: m.html })),
+        chunk.map((m) => ({
+          from: EMAIL_FROM,
+          to: m.to,
+          subject: m.subject,
+          html: m.html,
+          replyTo: m.replyTo ?? EMAIL_REPLY_TO,
+        })),
       )
       if (error) {
         console.error("[email] Resend toplu gönderim hatası:", error)
@@ -96,7 +111,7 @@ export async function sendEmail({
       to,
       subject,
       html,
-      replyTo,
+      replyTo: replyTo ?? EMAIL_REPLY_TO,
     })
 
     if (error) {
