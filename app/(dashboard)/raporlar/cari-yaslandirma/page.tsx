@@ -37,6 +37,30 @@ import { cn } from "@/lib/utils"
 
 type Bucket = AgingBucket
 
+/**
+ * "Geri dönüş" hücresi: vadeye göre gecikme skoru ÖNCE, yoksa fiili tahsilattan
+ * türetilen ödeme davranışı.
+ *
+ * İkisi AYRI ölçüdür, bu yüzden aynı cümleyle yazılmaz: skor "sözüne göre kaç
+ * gün geç", davranış "kaç günde ödüyor". Vade neredeyse hiç yazılmadığı için
+ * skor 80 müşterinin 78'inde boştu; hücre o hâlde tamamen sessiz kalıyordu.
+ */
+function geriDonus(t: Totals): { primary: string; secondary: string } {
+  if (t.performanceLabel && t.performanceLabel !== "Veri yok") {
+    return {
+      primary: `${t.performanceScore}/100 · ${t.performanceLabel}`,
+      secondary: fmtDays(t.performanceAvgDays),
+    }
+  }
+  if (t.paymentBehaviorDays !== null) {
+    return {
+      primary: t.paymentBehaviorLabel ?? "—",
+      secondary: `${t.paymentBehaviorDays} günde ödüyor · ${fmtTRY(t.paymentBehaviorMatched)} tahsilata göre`,
+    }
+  }
+  return { primary: "Veri yok", secondary: "vade ya da tahsilat geçmişi yok" }
+}
+
 type Totals = Record<Bucket, number> & Record<DueWindow, number> & {
   /** Ölçülebilen gecikme kovalarının toplamı. */
   overdue: number
@@ -44,6 +68,10 @@ type Totals = Record<Bucket, number> & Record<DueWindow, number> & {
   performanceAvgDays: number
   performanceScore: number
   performanceLabel: string
+  /** Fiili tahsilata göre "kaç günde ödüyor" — vade gerektirmez, ayrı ölçüdür. */
+  paymentBehaviorDays: number | null
+  paymentBehaviorLabel: string | null
+  paymentBehaviorMatched: number
   total: number
   /** Çift rollü caride karşı yöndeki açık belgelerin mahsup ettiği tutar. */
   offsetCredit: number
@@ -395,8 +423,8 @@ export default function CariYaslandirmaPage() {
             />
             <InfoCard
               label="Geri Dönüş"
-              primary={`${current.totals.performanceScore}/100 · ${current.totals.performanceLabel}`}
-              secondary={fmtDays(current.totals.performanceAvgDays)}
+              primary={geriDonus(current.totals).primary}
+              secondary={geriDonus(current.totals).secondary}
             />
           </div>
 
@@ -567,10 +595,10 @@ export default function CariYaslandirmaPage() {
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
                               <div className="font-medium">
-                                {acc.totals.performanceScore}/100 · {acc.totals.performanceLabel}
+                                {geriDonus(acc.totals).primary}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                {fmtDays(acc.totals.performanceAvgDays)}
+                                {geriDonus(acc.totals).secondary}
                               </div>
                             </TableCell>
                             <TableCell

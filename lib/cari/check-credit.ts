@@ -76,3 +76,53 @@ export async function getCheckNoteCreditMap(
   }
   return map
 }
+
+/**
+ * Ödeme DAVRANIŞI için çek/senetler — toplam değil, TARİHLİ olaylar.
+ *
+ * `getCheckNoteCreditMap` cari bakiyesini kapatan tutarı verir ve tarihi
+ * umursamaz; davranış ölçüsü ise "para kaç günde geldi" diye sorduğu için
+ * olayın gününe ihtiyaç duyar.
+ *
+ * TARİH OLARAK VADE KULLANILIR, kayıt tarihi değil: 90 gün vadeli çek veren
+ * müşteri o gün ÖDEMİŞ olmaz, para vadesinde gelir. Kayıt gününe bakılsaydı
+ * çekle çalışan her müşteri "peşin ödüyor" görünürdü.
+ *
+ * Yalnız bakiyeyi AZALTAN yön alınır (müşteride alınan, tedarikçide verilen);
+ * ters yöndeki evrak bir tahsilat olayı değildir.
+ */
+export async function getCheckNoteEventMap(
+  kind: "customer" | "supplier",
+  companyId: string,
+): Promise<Map<string, Array<{ tarih: Date; tutar: number }>>> {
+  const map = new Map<string, Array<{ tarih: Date; tutar: number }>>()
+  const status = { notIn: [...CHECK_NOTE_NON_SETTLING] }
+  const where =
+    kind === "customer"
+      ? { companyId, customerId: { not: null }, status }
+      : { companyId, supplierId: { not: null }, status }
+  const select = {
+    customerId: true,
+    supplierId: true,
+    amount: true,
+    direction: true,
+    dueDate: true,
+  } as const
+
+  const [checks, notes] = await Promise.all([
+    prisma.check.findMany({ where, select }),
+    prisma.promissoryNote.findMany({ where, select }),
+  ])
+
+  for (const r of [...checks, ...notes]) {
+    const id = kind === "customer" ? r.customerId : r.supplierId
+    if (!id) continue
+    // İşaretli etki negatifse evrak bakiyeyi ARTIRIYOR (ör. müşteriye verilen
+    // iade çeki) — tahsilat sayılmaz.
+    const etki = checkNoteSignedCredit(kind, r.direction, Number(r.amount))
+    if (etki <= 0) continue
+    if (!map.has(id)) map.set(id, [])
+    map.get(id)!.push({ tarih: r.dueDate, tutar: etki })
+  }
+  return map
+}

@@ -57,6 +57,7 @@ import {
 } from "@/lib/invoice/line-tax"
 import { returnRefError } from "@/lib/invoice/return-ref"
 import { toDateInput } from "@/lib/format"
+import { vadeTarihiTuret } from "@/lib/cari/vade"
 
 
 // description = kalemin ADI (faturada mal/hizmet adı olarak basılır, ürün seçilmediyse
@@ -111,8 +112,10 @@ const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
 // aynı kaynak. Buradaki gömülü liste yalnız başlangıç/fallback değeridir; uç
 // Mysoft'ta canlı liste bulursa state onunla değiştirilir.
 
-interface Customer { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null }
-interface Supplier { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null }
+// `paymentDueDays`: cari kartındaki ödeme vadesi (gün). Liste sorgusu zaten
+// döndürüyor (lib/cari/list-query.ts); fatura vadesi bundan türetilir.
+interface Customer { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null; paymentDueDays?: number | null }
+interface Supplier { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null; paymentDueDays?: number | null }
 interface Product { id: string; name: string; code?: string; barcode?: string | null; salePrice?: number; vatRate: number; unit?: string; stockQuantity?: number | string; minStockLevel?: number | string | null; isService?: boolean }
 // Faturaya bağlanabilir alış irsaliyesi (stoğa işlenmiş + henüz bağlanmamış).
 interface LinkableWaybillItem {
@@ -379,6 +382,31 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           : undefined,
     [customers, suppliers, formData.customerId, formData.supplierId],
   )
+
+  /**
+   * VADE, CARİ KARTINDAN TÜRETİLİR — ama sessizce değil.
+   *
+   * `Invoice.dueDate` neredeyse hiç doldurulmuyor (en büyük firmada %0) ve boş
+   * vade üç katmanı birden kör ediyor: yaşlandırma kovası, nakit projeksiyonu
+   * (vadesiz tutar eğriye HİÇ girmez) ve gecikme ölçüsü. Gerekçe ve ölçüm:
+   * `lib/cari/vade.ts`.
+   *
+   * Öneri olarak yazılır, dayatma olarak değil: alan e-Fatura/e-Arşiv gövdesine
+   * gidiyor, yani GİB'e giden belgede müşteriye taahhüt edilen tarih. Kullanıcı
+   * kutuyu görür, kaynağı altında yazar ve dilediğinde değiştirir.
+   *
+   * ELLE GİRİLEN VADEYE BİR DAHA DOKUNULMAZ. Düzenleme modunda da baştan "elle"
+   * sayılır: kayıtlı bir belgenin vadesini açılışta değiştirmek, kullanıcının
+   * fark etmediği bir düzeltme olurdu.
+   */
+  const [vadeElleGirildi, setVadeElleGirildi] = useState(mode === "edit")
+
+  useEffect(() => {
+    if (vadeElleGirildi) return
+    const turetilen = vadeTarihiTuret(formData.date, selectedCari?.paymentDueDays) ?? ""
+    // Cari kartında vade yoksa kutu BOŞ kalır — "bilmiyorsan uydurma".
+    setFormData((prev) => (prev.dueDate === turetilen ? prev : { ...prev, dueDate: turetilen }))
+  }, [vadeElleGirildi, formData.date, selectedCari])
 
   const fillDeliveryFromCari = () => {
     if (!selectedCari) return
@@ -2595,7 +2623,22 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               </div>
               <div className="space-y-2">
                 <Label>Vade Tarihi</Label>
-                <Input type="date" value={formData.dueDate} onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })} />
+                <Input
+                  type="date"
+                  value={formData.dueDate}
+                  onChange={(e) => {
+                    // Kutuya dokunulduğu an türetme susar: kullanıcının yazdığı
+                    // vade, cari kartından gelen öneriyi her zaman yener.
+                    setVadeElleGirildi(true)
+                    setFormData({ ...formData, dueDate: e.target.value })
+                  }}
+                />
+                {!vadeElleGirildi && formData.dueDate && selectedCari?.paymentDueDays ? (
+                  <p className="text-xs text-muted-foreground">
+                    {selectedCari.name} kartındaki {selectedCari.paymentDueDays} günlük vadeden
+                    dolduruldu — değiştirebilirsiniz.
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>

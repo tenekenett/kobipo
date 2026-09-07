@@ -8,7 +8,7 @@
 > DEĞİŞMEZ, çünkü ileride "bu kullanıcı hangi karta yanıt veriyor" sorusunu cevaplayacak
 > olan şey bu kodlarla birikmiş geçmiştir. Kod şeması bu yüzden katalogla aynı belgede.
 
-## 0. Durum — 2026-09-07
+## 0. Durum — 2026-09-07 (ikinci tur)
 
 ### Kodlanan kartlar
 
@@ -122,6 +122,47 @@ değildi, hepsi arayüz–uç arasındaydı:
    ekranda görünmeli.
 5. Nöbetçi teste dördüncü kural eklendi: **linkteki her param'ı hedef ekran
    okumalı.** Okunmayan param sessizdir; sayfa açılır, kayıtlar görünmez.
+
+### B motoru ölçümü — 2026-09-07
+
+A motorunun kalanı `Invoice.dueDate`e takılınca iki yol ölçüldü.
+
+**(a) Vadeyi doldurmak — kapsamı dar, riski büyük.** Vade müşteri kartından
+türetilip forma öneri olarak yazıldı (`lib/cari/vade.ts`). Kapsam ölçüldü: son 6
+ayın 303 satış faturasının %5'inde vade yazılı, **%12'si** müşteri kartından
+türetilebiliyor, **%83'ünde hiçbir kaynak yok**. Kapsamı büyütmek için düşünülen
+"firma varsayılan vadesi" ÖLÇÜMLE REDDEDİLDİ: 30 gün varsayılsaydı **172 fatura
+/ ₺7.050.386 bir gecede "vadesi geçmiş"e** düşerdi. Dahası `dueDate` iç bir alan
+değil — `mysoft-provider.ts` üzerinden GİB'e giden UBL'e ve fatura PDF'ine
+("Vade Tarihi" satırı) basılıyor; yanlış varsayılan yanlış rapor değil, YANLIŞ
+RESMÎ BELGE üretir. Bu yüzden vade yalnız cari kartında ZATEN girilmişse,
+yalnız yeni faturada, görünür ve düzeltilebilir biçimde doluyor.
+
+**(b) Ödeme davranışını ölçmek — kazanan yol.** Bu işletmeler açık hesap
+çalışıyor: ödeme faturaya değil CARİYE işleniyor (bir firmada 4 faturaya bağlı
+ödemeye karşılık **101 serbest cari tahsilatı**). Sözleşme vadesi yok ama ritim
+var ve ölçülebiliyor.
+
+`lib/cari/odeme-davranisi.ts`: satış faturaları ile fiili tahsilatlar (serbest
+tahsilat + bağsız fatura ödemesi + çek/senet, çek VADE tarihinde) FIFO eşlenir;
+eşleşen her lira bir "kaç gün" çifti üretir. **Vadeye hiç bakmaz.**
+
+Sonuç: 23 müşteride profil, medyan **11 gün**, çeyrekler 4 ve 30, 180+ gün YOK,
+tek negatif değer gerçek (avans veren müşteri).
+
+**Ölü bir gösterge dirildi.** Yaşlandırmadaki "Geri Dönüş" skoru vadesi tanımsız
+belgeyi atladığı için 80 müşterinin **78'inde "Veri yok"** basıyordu (%3 kapsam).
+Davranış ölçüsü aynı ekranda yedek olarak devreye girdi: kapsam **%3 → %11**
+(rapora yalnız açık bakiyeli cariler girdiği için 23'ün 9'u görünüyor).
+
+İki ölçü AYRI alanlarda ve ayrı cümlelerle duruyor — karıştırılmamalı:
+`performanceAvgDays` "sözüne göre kaç gün geç" (vade ister),
+`paymentBehaviorDays` "kaç günde ödüyor" (vade istemez). 30 gün vadeyle tam
+gününde ödeyen müşteri birincide 0, ikincide 30 gündür.
+
+**K-THS "davranış bozuldu" kartı YAZILMADI.** Ölçüldü: profilli müşterilerin
+**16'sında açık bakiye sıfır** — geçmişi olan müşteriler güncel. Eşik ne
+seçilirse seçilsin kart 2 müşteride ateşliyor. Profil biriktikçe yeniden ölçülür.
 
 ### Sıradaki iş
 

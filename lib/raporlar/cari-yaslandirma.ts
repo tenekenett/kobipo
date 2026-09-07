@@ -15,7 +15,12 @@ import {
   type AgingBucket,
   type DueWindow,
 } from "./cari-yaslandirma-buckets"
-import { getCheckNoteCreditMap } from "@/lib/cari/check-credit"
+import { getCheckNoteCreditMap, getCheckNoteEventMap } from "@/lib/cari/check-credit"
+import {
+  davranisEtiketi,
+  odemeDavranisiHesapla,
+  type DavranisGirdisi,
+} from "@/lib/cari/odeme-davranisi"
 import {
   PURCHASE_RETURN_WHERE,
   SALES_RETURN_WHERE,
@@ -46,6 +51,23 @@ export type AgingTotals = Record<AgingBucket, number> &
     performanceAvgDays: number
     performanceScore: number
     performanceLabel: string
+    /**
+     * ÖDEME DAVRANIŞI — parayı fiilen kaç günde getirdiği (ağırlıklı ortalama).
+     *
+     * `performance*` alanlarından AYRI bir ölçüdür ve karıştırılmamalıdır: orada
+     * soru "sözüne göre kaç gün geç ödedi" (vade gerektirir), burada "kaç günde
+     * ödedi" (vade GEREKTİRMEZ). 30 gün vadeyle tam gününde ödeyen müşteri
+     * birincide 0, ikincide 30 gündür.
+     *
+     * Ayrı durmasının sebebi ölçüldü: vade neredeyse hiç yazılmadığı için
+     * performans skoru 80 müşterinin 78'inde "Veri yok" idi; bu alan aynı veriyle
+     * 23 müşteride doluyor. Gerekçe: `lib/cari/odeme-davranisi.ts`.
+     * Profil kurulamıyorsa null — "veri yok" ile "0 gün" ayrı şeylerdir.
+     */
+    paymentBehaviorDays: number | null
+    paymentBehaviorLabel: string | null
+    /** Davranışın dayandığı eşleşmiş tutar — göstergenin ne kadar sağlam olduğu. */
+    paymentBehaviorMatched: number
     total: number
     /**
      * Çift rollü caride KARŞI yöndeki açık belgelerin mahsup ettiği tutar.
@@ -132,6 +154,9 @@ function emptyTotals(): AgingTotals {
     overdueAvgDays: 0,
     performanceAvgDays: 0,
     performanceScore: 0,
+    paymentBehaviorDays: null,
+    paymentBehaviorLabel: null,
+    paymentBehaviorMatched: 0,
     performanceLabel: "Veri yok",
     total: 0,
     offsetCredit: 0,
@@ -440,7 +465,7 @@ export async function computeCariAging(
       },
       // Faturaya bağlanmamış serbest tahsilat/ödeme işlemleri (Tahsilat Ekle →
       // INCOME). Açık faturaları kapatmak için kullanılır.
-      transactions: { select: { type: true, amount: true } },
+      transactions: { select: { type: true, amount: true, date: true } },
     },
     orderBy: { name: "asc" },
   })
@@ -480,17 +505,51 @@ export async function computeCariAging(
         },
       },
       // Faturaya bağlanmamış serbest ödeme işlemleri (Ödeme Ekle → EXPENSE).
-      transactions: { select: { type: true, amount: true } },
+      transactions: { select: { type: true, amount: true, date: true } },
     },
     orderBy: { name: "asc" },
   })
 
   // Çek/senet kredileri (iade/protesto hariç): cariId→tutar. Serbest tahsilat gibi
   // açık faturaları FIFO kapatır.
-  const [customerCheckCredit, supplierCheckCredit] = await Promise.all([
+  const [customerCheckCredit, supplierCheckCredit, customerCheckEvents] = await Promise.all([
     getCheckNoteCreditMap("customer", companyId),
     getCheckNoteCreditMap("supplier", companyId),
+    // Davranış ölçüsü için TARİHLİ evrak: çekle ödeyen müşteri "peşin" sayılmasın.
+    getCheckNoteEventMap("customer", companyId),
   ])
+
+  /**
+   * Bir carinin TAHSİLAT OLAYLARI — davranış ölçüsünün alacak tarafı.
+   *
+   * Üç kaynak birleşir ve hiçbiri iki kez sayılmaz:
+   *   serbest tahsilat   INCOME işlemleri (Tahsilat Ekle)
+   *   fatura ödemesi     yalnız `transactionId` BOŞ olanlar — işleme bağlı
+   *                      olanlar zaten yukarıdaki INCOME satırıdır (cari
+   *                      bakiyesindeki `ip."transactionId" IS NULL` kuralının
+   *                      aynısı; iki yerde ayrışırsa gün ortalaması şişer)
+   *   çek/senet          VADE tarihinde, bakiyeyi azaltan yönde
+   */
+  const tahsilatOlaylari = (
+    cari: {
+      id: string
+      transactions: Array<{ type: string; amount: unknown; date: Date }>
+      invoices: Array<{ payments: Array<{ amount: unknown; paymentDate: Date; transactionId: string | null }> }>
+    },
+    faturaSuzgeci: (inv: any) => boolean,
+  ): DavranisGirdisi[] => [
+    ...cari.transactions
+      .filter((t) => t.type === "INCOME")
+      .map((t) => ({ tarih: t.date, tutar: Number(t.amount) })),
+    ...cari.invoices
+      .filter(faturaSuzgeci)
+      .flatMap((inv) =>
+        inv.payments
+          .filter((p) => !p.transactionId)
+          .map((p) => ({ tarih: p.paymentDate, tutar: Number(p.amount) })),
+      ),
+    ...(customerCheckEvents.get(cari.id) ?? []).map((e) => ({ tarih: e.tarih, tutar: e.tutar })),
+  ]
 
   /** Satış tarafında taslak belgeler istenmedikçe sayılmaz. */
   const salesCounts = (inv: { status: string }) =>
@@ -564,6 +623,22 @@ export async function computeCariAging(
       const invoices = analyzed.filter((inv) => inv.openAmount > 0)
       const totals = summarize(analyzed)
       totals.offsetCredit = offsetCredit
+
+      // ÖDEME DAVRANIŞI: satış faturaları ile fiili tahsilatlar FIFO eşleşir.
+      // Vadeye HİÇ bakmaz — bu yüzden vade yazılmayan hesapta da dolar.
+      const davranis = odemeDavranisiHesapla(
+        c.invoices
+          .filter((inv) => receivableSign(inv) > 0 && salesCounts(inv))
+          .map((inv) => ({ tarih: inv.date, tutar: Number(inv.totalAmount) })),
+        tahsilatOlaylari(c, (inv) => receivableSign(inv) > 0 && salesCounts(inv)),
+        new Date(today),
+      )
+      if (davranis) {
+        totals.paymentBehaviorDays = davranis.gunOrtalama
+        totals.paymentBehaviorLabel = davranisEtiketi(davranis.gunOrtalama)
+        totals.paymentBehaviorMatched = davranis.eslesenTutar
+      }
+
       return {
         id: c.id,
         name: c.name,
