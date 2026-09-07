@@ -18,9 +18,10 @@ import { OtomasyonKarti } from "./otomasyon-karti"
  * bir şeride dönerdi.
  *
  * GÖSTERİM BÜTÇESİ: en fazla `GOSTERILECEK` kart basılır, gerisi sayıyla
- * duyurulur. Sıralama sunucudan önem sırasına göre geliyor. Sayı `tipler.ts`te
- * çünkü uç de aynı sayıyı okuyor — günlüğe yalnız EKRANA GİREN kart yazılsın
- * diye (bkz. `GOSTERILECEK` başlığı).
+ * duyurulur. Sıralama SUNUCUDA yapılır — önce önem kademesi, sonra parasal etki
+ * (`tipler.ts` → `kartSirasi`); istemci diziyi olduğu gibi basar. Sayı da
+ * `tipler.ts`te çünkü uç aynı sayıyı okuyor: günlüğe yalnız EKRANA GİREN kart
+ * yazılsın diye (bkz. `GOSTERILECEK` başlığı).
  *
  * HATA SESSİZ GEÇMEZ — "kart yok" ile "kart hesaplanamadı" ayrı şeylerdir ve
  * ikisi de boş ekranla ifade edilemez. Uç `hatalar[]` alanını zaten dolduruyor;

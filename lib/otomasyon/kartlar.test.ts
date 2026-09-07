@@ -13,6 +13,7 @@
 import { describe, expect, it } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
+import { kartSirasi, type Kart, type KartOnem } from "./tipler"
 import { NAV_PAGES } from "../nav/pages"
 import { MODULE_KEYS } from "../modules"
 
@@ -118,6 +119,28 @@ function eslesir(rota: string, href: string): boolean {
   return r.every((parca, i) => (parca.startsWith("[") ? true : parca === h[i]))
 }
 
+/**
+ * YALNIZ birincil aksiyonların href'leri.
+ *
+ * Ayrım anlamlı: birincil aksiyon "kartın saydığı kayıtları aç" demektir,
+ * ikincil linkler ise "şuraya da bakabilirsin" kısayoludur. Pencere kuralı
+ * (aşağıda) yalnız birincisi için geçerli — ikincil "Alış faturaları"
+ * kısayoluna pencere dayatmak, kartın hiç saymadığı bir listeyi daraltmak olurdu.
+ *
+ * Şablon ifadeleri (`${...}`) önce yer tutucuya indirgeniyor; aksi hâlde
+ * ifadenin içindeki `}` nesne sınırıyla karışırdı.
+ */
+function birincilHrefler(): string[] {
+  const duz = kaynak.replace(/\$\{[^}]*\}/g, "SEGMENT")
+  return [
+    ...new Set(
+      [...duz.matchAll(/href: (`[^`]+`|"[^"]+")[^}]*?birincil: true/g)].map((m) =>
+        m[1].slice(1, -1)
+      )
+    ),
+  ]
+}
+
 describe("otomasyon kartları", () => {
   it("kod biçimi doğru ve benzersiz", () => {
     const hepsi = kodlar()
@@ -163,6 +186,49 @@ describe("otomasyon kartları", () => {
   })
 
   /**
+   * Hedef ekranın TARİH PENCERESİ varsa, kart onu ele almak ZORUNDA.
+   *
+   * 2026-09-07'de tarayıcıda yakalandı ve dördüncü kural bunu göremedi: K-BLG-09
+   * "6 fatura takılmış, en eskisi 117 gün" diyordu, linki `?durum=SENT`
+   * taşıyordu — param okunuyordu, kural geçiyordu. Ama ekranın varsayılan
+   * penceresi 90 gün: liste 55 satır gösterdi ve kartın saydığı belgelerin
+   * dördü orada HİÇ YOKTU.
+   *
+   * Kural iki koşula birden bakar: link SÜZGEÇ taşıyorsa (sorgu dizesi varsa)
+   * ve hedef sayfa `gun` okuyorsa, `gun=` de taşımalı. Süzgeçli link "işte
+   * saydığım kayıtlar" demektir; SÜZGEÇSİZ link ise yalnız yön tarifidir
+   * (K-STK-09'un "alış faturası gir" düğmesi gibi — o kart ürün sayar, fatura
+   * değil) ve pencere dayatmak orada yanlış olurdu.
+   *
+   * Pencereyi kartın kendi en eski kaydından türetmek kartın işi; test yalnız
+   * "pencereyi hiç düşünmemiş" hâli yakalar — bugün kaybettiğimiz tam olarak oydu.
+   */
+  it("tarih penceresi olan ekrana giden BİRİNCİL link pencereyi taşıyor", () => {
+    const hatalar: string[] = []
+
+    for (const href of birincilHrefler()) {
+      const [yol, sorgu] = href.split("?")
+      // Süzgeçsiz link "işte saydığım kayıtlar" iddiası taşımaz.
+      if (!sorgu) continue
+      const kaynakMetni = hedefKaynagi(yol)
+      // Sayfa gün penceresi okumuyorsa kuralın konusu değil.
+      if (!kaynakMetni.includes('get("gun")')) continue
+      if (!/(^|&)gun=/.test(sorgu)) {
+        hatalar.push(
+          `${yol}: süzgeçli birincil link, ekranın "gun" penceresini taşımıyor` +
+            ` (?${sorgu})`
+        )
+      }
+    }
+
+    expect(
+      hatalar,
+      "Pencere taşımayan link, kartın saydığı eski kayıtları EKRANDA GÖSTERMEZ:\n" +
+        hatalar.join("\n")
+    ).toEqual([])
+  })
+
+  /**
    * Linkteki her param'ı hedef ekran GERÇEKTEN okumalı.
    *
    * Okumayan bir param sessizdir — en beteri de bu: buton doğru sayfayı açar,
@@ -196,5 +262,46 @@ describe("otomasyon kartları", () => {
       "Okunmayan param SESSİZDİR: sayfa açılır, kartın saydığı kayıtlar görünmez.\n" +
         hatalar.join("\n")
     ).toEqual([])
+  })
+})
+
+/**
+ * Sıralama kuralı — panonun üç kartlık bütçesinde kimin görüneceğini bu belirler.
+ *
+ * `kartSirasi` ayrı bir fonksiyon olarak duruyor çünkü hatası SESSİZ: fark yanlış
+ * yöne yazılırsa pano en küçük tutarı en üste basar, hiçbir yerde hata çıkmaz.
+ */
+describe("kart sıralaması", () => {
+  const kart = (onem: KartOnem, etki?: number): Kart => ({
+    kod: "K-TST-01",
+    surum: 1,
+    onem,
+    ozneTuru: "company",
+    ozneId: "c1",
+    baslik: "",
+    gerekce: "",
+    aksiyonlar: [],
+    olcum: {},
+    ...(etki === undefined ? {} : { etki }),
+  })
+
+  it("önem kademesi her zaman tutarın önünde gelir", () => {
+    // ₺3,2 trilyonluk "yüksek" kart, ₺1'lik "kritik" kartı GEÇEMEZ.
+    const sirali = [kart("yuksek", 3_213_123_123_123), kart("kritik", 1)].sort(kartSirasi)
+    expect(sirali.map((k) => k.onem)).toEqual(["kritik", "yuksek"])
+  })
+
+  it("aynı kademede büyük tutar öne geçer", () => {
+    const sirali = [kart("yuksek", 5_500), kart("yuksek", 100_000)].sort(kartSirasi)
+    expect(sirali.map((k) => k.etki)).toEqual([100_000, 5_500])
+  })
+
+  it("parası olmayan kart kendi kademesinin sonuna düşer, kademeyi terk etmez", () => {
+    const sirali = [kart("orta", 10), kart("kritik"), kart("kritik", 5)].sort(kartSirasi)
+    expect(sirali.map((k) => [k.onem, k.etki ?? 0])).toEqual([
+      ["kritik", 5],
+      ["kritik", 0],
+      ["orta", 10],
+    ])
   })
 })

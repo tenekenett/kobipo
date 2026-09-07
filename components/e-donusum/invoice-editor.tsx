@@ -134,6 +134,20 @@ interface CompanySettings { id: string; name?: string; taxNumber?: string | null
 // hem de kaydetme öncesi son kontrolde aynı mantıkla kullanılır.
 // matchedProductId: kullanıcı bu kalemi mevcut bir stok ürününe eşleştirdiyse o
 // ürünün id'si — set ise yeni ürün OLUŞTURULMAZ, kalem mevcut ürüne bağlanır.
+/**
+ * Gelen belgeden okunan tarihi form kutusunun biçimine çevirir.
+ *
+ * Mysoft tarihi ISO ya da "2026-09-07T00:00:00" gibi döndürebiliyor; ayrıştırılamayan
+ * ya da boş değer `null` olur ve çağıran kendi türetmesine düşer. Sessizce
+ * "Invalid Date" yazmak, GİB'e giden belgeye bozuk vade koymak demekti.
+ */
+function okunabilirTarih(ham: unknown): string | null {
+  if (typeof ham !== "string" || !ham.trim()) return null
+  const d = new Date(ham)
+  if (Number.isNaN(d.getTime())) return null
+  return toDateInput(d)
+}
+
 /** Tam sayı kısmını Türkçe binlik ayracıyla gruplar ("2692" → "2.692"). */
 function groupTr(digits: string): string {
   const d = digits.replace(/\D/g, "")
@@ -398,15 +412,28 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
    * ELLE GİRİLEN VADEYE BİR DAHA DOKUNULMAZ. Düzenleme modunda da baştan "elle"
    * sayılır: kayıtlı bir belgenin vadesini açılışta değiştirmek, kullanıcının
    * fark etmediği bir düzeltme olurdu.
+   *
+   * ── ÜÇÜNCÜ KAYNAK: GELEN BELGENİN KENDİ VADESİ ─────────────────────────────
+   * Alış tarafında türetme neredeyse hiç işe yaramıyor — tedarikçilerin 53/56'sında
+   * ödeme vadesi boş (ölçüm 2026-09-07) ve boş kartta türetme "" döndürüyor. Ama
+   * satıcı vadeyi ZATEN kendi faturasına yazmış oluyor; gelen e-fatura modeli onu
+   * taşıyor. Bu yüzden kaynak üç değerli:
+   *
+   *   "oneri" → cari kartından türetildi; tarih ya da cari değişince yeniden hesaplanır.
+   *   "gelen" → gelen e-faturadan geldi; türetme onu EZMEZ (ezseydi kartı boş olan
+   *             tedarikçilerde belgedeki gerçek vade silinirdi).
+   *   "elle"  → kullanıcı yazdı; hiçbir şey dokunamaz.
    */
-  const [vadeElleGirildi, setVadeElleGirildi] = useState(mode === "edit")
+  const [vadeKaynagi, setVadeKaynagi] = useState<"oneri" | "gelen" | "elle">(
+    mode === "edit" ? "elle" : "oneri",
+  )
 
   useEffect(() => {
-    if (vadeElleGirildi) return
+    if (vadeKaynagi !== "oneri") return
     const turetilen = vadeTarihiTuret(formData.date, selectedCari?.paymentDueDays) ?? ""
     // Cari kartında vade yoksa kutu BOŞ kalır — "bilmiyorsan uydurma".
     setFormData((prev) => (prev.dueDate === turetilen ? prev : { ...prev, dueDate: turetilen }))
-  }, [vadeElleGirildi, formData.date, selectedCari])
+  }, [vadeKaynagi, formData.date, selectedCari])
 
   const fillDeliveryFromCari = () => {
     if (!selectedCari) return
@@ -814,6 +841,16 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         // Tedarikçinin gerçek fatura numarasını koru — POST endpoint'i body.invoiceNo
         // varsa kendi numarasını üretmiyor (generateInvoiceNumber fallback'i atlanıyor).
         const importedInvoiceNo = typeof data.invoiceNo === "string" ? data.invoiceNo.trim() : ""
+
+        // VADE, ÖNCE GELEN BELGEDEN. Satıcı vadeyi kendi faturasına yazdıysa
+        // tahmine gerek yok; Mysoft modelindeki `dueDate` alanı bunu taşıyor
+        // (bkz. mysoft-provider → getIncomingInvoiceModel). Kaynak "gelen"e
+        // çekiliyor ki cari kartından türeten efekt bu tarihi EZMESİN —
+        // tedarikçilerin 53/56'sında ödeme vadesi boş, türetme çoğu belgede
+        // gerçek vadeyi silmekten başka bir şey yapmazdı.
+        const gelenVade = okunabilirTarih(data.model?.dueDate)
+        if (gelenVade) setVadeKaynagi("gelen")
+
         setFormData((prev) => ({
           ...prev,
           type: "PURCHASE",
@@ -824,6 +861,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           date: data.date
             ? toDateInput(new Date(data.date))
             : prev.date,
+          dueDate: gelenVade ?? prev.dueDate,
           currency: data.currency || prev.currency,
           notes: prev.notes && prev.notes.includes(sourceNote) ? prev.notes : sourceNote,
         }))
@@ -2629,11 +2667,15 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   onChange={(e) => {
                     // Kutuya dokunulduğu an türetme susar: kullanıcının yazdığı
                     // vade, cari kartından gelen öneriyi her zaman yener.
-                    setVadeElleGirildi(true)
+                    setVadeKaynagi("elle")
                     setFormData({ ...formData, dueDate: e.target.value })
                   }}
                 />
-                {!vadeElleGirildi && formData.dueDate && selectedCari?.paymentDueDays ? (
+                {vadeKaynagi === "gelen" && formData.dueDate ? (
+                  <p className="text-xs text-muted-foreground">
+                    Gelen faturadaki vade tarihinden dolduruldu — değiştirebilirsiniz.
+                  </p>
+                ) : vadeKaynagi === "oneri" && formData.dueDate && selectedCari?.paymentDueDays ? (
                   <p className="text-xs text-muted-foreground">
                     {selectedCari.name} kartındaki {selectedCari.paymentDueDays} günlük vadeden
                     dolduruldu — değiştirebilirsiniz.

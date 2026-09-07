@@ -80,10 +80,50 @@ export type Kart = {
   aksiyonlar: KartAksiyonu[]
 
   /**
+   * Kartın PARASAL AĞIRLIĞI (TL) — yalnız sıralama içindir, ekranda basılmaz.
+   *
+   * Gürültü bütçesi panoya üç kart basıyor (`GOSTERILECEK`) ve hangi üçü
+   * olduğunu bu alan gelene kadar dizideki SIRA belirliyordu: aynı önemdeki iki
+   * kart arasında kayıt defterinde önce yazılan kazanıyordu. Ölçüldüğünde
+   * (2026-09-07, canlı) bu tesadüf HİDROEREN'de şunu yapıyordu: ₺5.500'lük eksi
+   * kasa kartı, "₺100.000 alınmış ama hiç fatura kesilmemiş" kartının ÖNÜNDE
+   * duruyordu — ikisi de "yüksek", sırayı yalnız yazılma tarihleri belirliyordu.
+   *
+   * Kartın konusu para değilse (negatif stok, vadesi geçmiş evrak, fiyat farkı)
+   * alan 0 kalır ve kart kendi önem kademesinin sonuna düşer. Bu bilinçli: üç
+   * kartlık bütçede, parayla ifade edilebilen sonuç önce gelir. Kademe zaten
+   * aciliyeti taşıdığı için pratikte bu kartlar ekrandan düşmüyor — negatif stok
+   * "kritik" olduğu için hâlâ ilk üçte (ölçüm: Reypo ve EREN FORKLİFT).
+   *
+   * NEDEN ÇARPIM DEĞİL: katalog §7 "önem × parasal etki" diyordu. Çarpım iki
+   * ölçeği karıştırıyor — `onem` her kartın KENDİ eşiğinden geliyor (K-NKT-08'de
+   * ₺100.000, K-BLG-01'de 50 belge), yani kartlar arasında karşılaştırılabilir
+   * değil; tutar ise karşılaştırılabilir. Dahası canlı veride ₺3.213.123.123.123
+   * tutarlı bir çek var: çarpımda o tek kayıt panonun en üst sırasını kalıcı
+   * olarak işgal ederdi. Bu yüzden sıra ÖNCE önem, SONRA tutar.
+   */
+  etki?: number
+
+  /**
    * Karta basılan ham rakamlar — günlüğe `payload` olarak yazılır.
    * Sonradan "kart haklı çıktı mı" ancak bununla ölçülür.
    */
   olcum: Record<string, unknown>
+}
+
+/**
+ * Panodaki sıralama kuralı: ÖNCE önem kademesi, SONRA parasal etki.
+ *
+ * Kayıt defterindeki `sort` çağrısından ayrı bir fonksiyon, çünkü kural üç
+ * satırlık ama sessizce ters çevrilebilir bir şey: `etki` farkı yanlış yöne
+ * yazılırsa pano en küçük tutarı en üste basar ve bunu hiçbir hata göstermez.
+ * Ayrı durunca testle tutuluyor.
+ *
+ * `Array.prototype.sort` kararlıdır: ikisi de eşitse kayıt defterindeki sıra
+ * korunur.
+ */
+export function kartSirasi(a: Kart, b: Kart): number {
+  return ONEM_SIRASI[a.onem] - ONEM_SIRASI[b.onem] || (b.etki ?? 0) - (a.etki ?? 0)
 }
 
 /**

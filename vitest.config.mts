@@ -19,6 +19,10 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   test: {
     include: ["lib/**/*.test.ts"],
+    // CANLI takım burada KOŞMAZ: veritabanına yazıyor ve `npm test`in
+    // veritabanısız kalması bilinçli bir karar (yukarı bak). Kendi
+    // yapılandırması var: `vitest.canli.config.mts` / `npm run test:canli`.
+    exclude: ["**/node_modules/**", "lib/**/*.canli.test.ts"],
     environment: "node",
   },
   resolve: {

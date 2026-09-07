@@ -2302,6 +2302,19 @@ async sendInvoice(invoiceData: any): Promise<any> {
           uuid: string
           invoiceNo: string | null
           date: string | null
+          /**
+           * Gönderenin belgeye yazdığı VADE TARİHİ (UBL PaymentTerms → Mysoft
+           * `InvoiceForApiModel.dueDate`).
+           *
+           * Alan şemada baştan beri vardı ama okunmuyordu; alış tarafında vade
+           * bu yüzden neredeyse hiç dolmuyor (ölçüm 2026-09-07: 79 alış
+           * faturasının 1'inde vade var, 56 tedarikçinin 3'ünde ödeme vadesi
+           * girili). Sonuç nakit projeksiyonunda görülüyordu: ileri eğrinin
+           * HİÇBİR kovasında çıkış yok, eğri yalnız girişten oluşup monoton
+           * artıyordu. Vadeyi kimse tahmin etmek zorunda değil — satıcı zaten
+           * kendi belgesine yazmış.
+           */
+          dueDate: string | null
           currency: string | null
           currencyRate: number | null
           sender: {
@@ -2918,6 +2931,16 @@ async sendInvoice(invoiceData: any): Promise<any> {
           uuid,
           invoiceNo: pick(model, "docNo", "invoiceNo", "documentNo") as string | null,
           date: pick(model, "docDate", "invoiceDate", "issueDate") as string | null,
+          // Resmî şemadaki ad `dueDate`; varyantlar için ödeme koşulu alanları da
+          // deneniyor. Gelmezse null döner ve editör kendi türetmesine düşer —
+          // "bilmiyorsan uydurma" (bkz. lib/cari/vade.ts).
+          dueDate: pick(
+            model,
+            "dueDate",
+            "paymentTermDueDate",
+            "paymentDueDate",
+            "vadeTarihi",
+          ) as string | null,
           currency: pick(model, "currencyCode", "currency") as string | null,
           currencyRate: num(pick(model, "currencyRate")),
           sender: {
