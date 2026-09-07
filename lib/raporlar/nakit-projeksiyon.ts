@@ -12,11 +12,19 @@
  * yönü orada zaten doğru çözülmüş durumda. İkinci bir sorgu yazmak, panodaki
  * "vadesi geçmiş" ile buradaki rakamın ayrışmasıyla biterdi.
  *
+ * TEK İSTİSNA ÇEK/SENET. Yaşlandırma onları cari kredisi sayıp faturayı
+ * kapattığı için, ileri vadeli bir çek eğriden hem faturayı hem kendisini
+ * düşürüyordu — 30 gün sonra gelecek para tabloda hiç görünmüyordu. Gerekçe ve
+ * ölçüm `nakit-kiymet.ts`te; oradaki kalemler yaşlandırmanınkilerin YANINA
+ * eklenir, çifte saymaz (fatura zaten kapanmış durumda).
+ *
  * Kova aritmetiği `nakit-projeksiyon-kova.ts`te (saf, testli).
  */
 
+import { prisma } from "@/lib/db/prisma"
 import { cashBalanceBefore } from "@/lib/finans/nakit-hareket"
 import { computeCariAging, type AgingAccount } from "./cari-yaslandirma"
+import { PROJEKSIYONA_GIREN_DURUM, kiymetleriKalemeCevir } from "./nakit-kiymet"
 import {
   DEFAULT_BUCKET_COUNT,
   buildCashProjection,
@@ -58,11 +66,26 @@ export async function computeCashProjection(args: {
   const bucketCount = args.bucketCount ?? DEFAULT_BUCKET_COUNT
   const now = new Date()
 
-  const [aging, openingBalance] = await Promise.all([
+  const kiymetKosulu = {
+    companyId,
+    status: PROJEKSIYONA_GIREN_DURUM,
+    // Vadesi geçmiş evrak eğriye girmez; gerekçesi `nakit-kiymet.ts`te.
+    dueDate: { gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) },
+  }
+  const kiymetAlanlari = {
+    amount: true,
+    dueDate: true,
+    direction: true,
+    supplierId: true,
+  } as const
+
+  const [aging, openingBalance, cekler, senetler] = await Promise.all([
     computeCariAging(companyId),
     // Bugünün SONUNA kadar olan bakiye: projeksiyon yarından itibaren ilerler,
     // bugün girmiş bir tahsilat açılış bakiyesinde olmalı.
     cashBalanceBefore(companyId, new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)),
+    prisma.check.findMany({ where: kiymetKosulu, select: kiymetAlanlari }),
+    prisma.promissoryNote.findMany({ where: kiymetKosulu, select: kiymetAlanlari }),
   ])
 
   const projection = buildCashProjection({
@@ -73,6 +96,7 @@ export async function computeCashProjection(args: {
     items: [
       ...toItems(aging.customers.accounts, "in"),
       ...toItems(aging.suppliers.accounts, "out"),
+      ...kiymetleriKalemeCevir([...cekler, ...senetler], now),
     ],
   })
 

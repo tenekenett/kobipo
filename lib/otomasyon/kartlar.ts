@@ -42,6 +42,7 @@ import {
   type FiyatFarkiOzeti,
   PENCERE_GUN as FIYAT_PENCERESI,
 } from "./veri/musteri-fiyat-farki"
+import { eksiKasaOzeti, KRITIK_ESIK, type EksiKasaOzeti } from "./veri/eksi-kasa"
 import {
   vadesiGecmisAlacaklar,
   type GecikmisAlacak,
@@ -119,6 +120,16 @@ const TANIMLAR: KartTanimi[] = [
     async uret(b) {
       const ozet = await musteriFiyatFarki(b.companyId)
       return ozet ? [fiyatFarkiKarti(b.companyId, ozet)] : []
+    },
+  },
+
+  {
+    kod: "K-NKT-08",
+    ad: "Kasada eksi bakiye",
+    kapi: { modul: "finance", sayfa: "/finans/kanallar" },
+    async uret(b) {
+      const ozet = await eksiKasaOzeti(b.companyId)
+      return ozet ? [eksiKasaKarti(b.companyId, ozet)] : []
     },
   },
 
@@ -508,6 +519,50 @@ function fiyatFarkiKarti(companyId: string, o: FiyatFarkiOzeti): Kart {
       { anahtar: "urunleri_gor", etiket: "Ürünler", href: "/stok/urunler" },
     ],
     olcum: { urunSayisi: o.urunSayisi, pencereGun: FIYAT_PENCERESI, ornekler: o.ornekler },
+  }
+}
+
+const K_NKT_08_SURUM = 1
+
+/**
+ * K-NKT-08 · Kasada eksi bakiye.
+ *
+ * TOPLAM DEĞİL, HESAP HESAP yazılır — K-NKT-06'daki gerekçenin aynısı: eksi
+ * bakiyeler tek rakama toplanınca hangi kasanın kaç lira açık verdiği kaybolur,
+ * oysa aksiyon tam olarak o kasanın ekstresine bakmaktır.
+ *
+ * Kart SUÇLAMAZ, hesabı gösterir: "para kayıp" demez, "bu kasa eksi görünüyor,
+ * fiziksel olarak mümkün değil, kayıt eksik" der.
+ */
+function eksiKasaKarti(companyId: string, o: EksiKasaOzeti): Kart {
+  const hesapMetni = o.ornekler.map((h) => `${h.ad} ${money0(h.bakiye)}`).join(" · ")
+  const kalan = o.adet - o.ornekler.length
+
+  return {
+    kod: "K-NKT-08",
+    surum: K_NKT_08_SURUM,
+    onem: o.enDerin >= KRITIK_ESIK ? "kritik" : "yuksek",
+    ozneTuru: "company",
+    ozneId: companyId,
+    baslik:
+      o.adet === 1
+        ? `${o.ornekler[0].ad} kasası ${money0(o.ornekler[0].bakiye)} görünüyor — kasa eksiye düşemez.`
+        : `${o.adet} kasa eksi bakiyede — kasa eksiye düşemez.`,
+    gerekce:
+      `${hesapMetni}${kalan > 0 ? ` (+${kalan} kasa daha)` : ""}. ` +
+      `Kasadaki nakit fiziksel olarak eksiye düşemez: ya bir tahsilat girilmemiş, ` +
+      `ya bir ödeme yanlış kasadan işlenmiştir. Yanlış bakiye nakit raporunu ve ` +
+      `projeksiyonu da olduğundan düşük gösterir.`,
+    aksiyonlar: [
+      { anahtar: "kasalari_ac", etiket: "Kasaları aç", href: "/finans/kanallar", birincil: true },
+      { anahtar: "hareketleri_gor", etiket: "Hareketler", href: "/finans/hareketler" },
+    ],
+    olcum: {
+      adet: o.adet,
+      enDerin: o.enDerin,
+      toplam: o.toplam,
+      ornekler: o.ornekler,
+    },
   }
 }
 

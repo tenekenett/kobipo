@@ -8,7 +8,7 @@
 > DEĞİŞMEZ, çünkü ileride "bu kullanıcı hangi karta yanıt veriyor" sorusunu cevaplayacak
 > olan şey bu kodlarla birikmiş geçmiştir. Kod şeması bu yüzden katalogla aynı belgede.
 
-## 0. Durum — 2026-09-06
+## 0. Durum — 2026-09-07
 
 ### Kodlanan kartlar
 
@@ -19,6 +19,7 @@
 | K-BLG-04 | Taslak fatura | 8 firmada · ₺589K faturalanmamış |
 | K-NKT-06 | Vadesi geçmiş çek/senet | 3 firmada · ₺480K'lık çek 89 gündür |
 | K-THS-07 | Vadesi geçmiş alacak | 2 firmada · ₺60K 36 gündür, ₺98K 17 gündür |
+| K-NKT-08 | Kasada eksi bakiye | 3 firmada · ₺726K + ₺328K iki kasada |
 | K-STK-01 | Tükenme + tedarik süresi | sessiz — 61 üründen 43'ü negatif stoklu |
 | K-MUS-04 | Aynı ürüne farklı fiyat | sessiz — bulguların tamamı hizmetti, elendi |
 
@@ -52,6 +53,41 @@ henüz satılmamış. Bunlara "ölü stok, elden çıkar" demek kartı ilk günd
 görmemesi ölü stok değil, ölçünün yanlış ürüne bakması demektir.
 
 İki kart da veri yaşlanınca (≥90 günlük stok geçmişi) yeniden ölçülmeli.
+
+### A motoru ölçümü — 2026-09-07
+
+Faz 2 "çek/senet + maaş + tekrarlayan gider + günlük çözünürlük" olarak
+planlanmıştı. Dördü de ölçüldü; **yalnız biri ayakta kaldı.**
+
+| kaynak | ölçüm (canlı, 33 firma) | karar |
+|---|---|---|
+| çek/senet | ileri vadeli portföy evrakı 3 firmada: **₺1.167.000 giriş, ₺200.000 çıkış** | **projeksiyona eklendi** |
+| maaş (`PayrollRecord`) | veritabanının TAMAMINDA **4 kayıt**; 2'si PENDING ve ikisi de GEÇMİŞ dönem (202607, 202608) | K-NKT-03 yazılmadı |
+| tekrarlayan gider | son 6 ayda 38 `EXPENSE` hareketi, **kategorili olan 0**; 3+ ay tekrar eden 2 serinin ikisi de "(kategorisiz)" ve sapma ortalamadan büyük (₺276K ± ₺363K) | türetilemiyor |
+| günlük çözünürlük | ileri vadeli kalem sayısı **tek haneli**; `Invoice.dueDate` en büyük firmada %0 dolu | ertelendi |
+
+**Çek/senet neden gerçek bir boşluktu.** Projeksiyon kalemlerini cari
+yaşlandırmadan alıyor, yaşlandırma ise çek/senedi `getCheckNoteCreditMap` ile
+cari kredisi sayıyor: müşteri çek verince faturanın açık tutarı SIFIRLANIYOR.
+Fatura eğriden düşüyor, çekin kendisi hiç eklenmediği için **30 gün sonra
+gelecek para tabloda hiçbir yerde görünmüyordu.** Çifte sayım değil, doğru
+tarihe taşıma: kredi haritası parayı zaten cariden düşmüş durumda.
+
+Etkisi ölçüldü (üretim yolundan, `computeCashProjection`): HİDROEREN'in ileri
+eğrisinde **hiç dolu kova yoktu**, şimdi 14-20 Eylül'de ₺100.000 var ve bakiye
+−₺5.500'den +₺94.500'e çıkıyor. EREN FORKLİFT PNÖMATİK'te üç yeni kova (₺347K).
+
+**Vadesi geçmiş evrak eğriye GİRMEZ.** Portföyde duran vadesi geçmiş çek
+planlanmış nakit hareketi değil, kayıt boşluğudur (K-NKT-06'nın konusu). Canlı
+veri bunu ayrıca zorluyor: bir firmada ₺3.213.123.123.123 tutarlı, vadesi geçmiş
+bir portföy çeki var — "vadesi geçmiş giriş" toplamına girseydi o firmanın nakit
+raporu okunamaz olurdu.
+
+**K-NKT-08 neden yalnız KASA'ya bakıyor.** Kartın gücü tartışılmaz bir gerçeğe
+dayanıyor: kasadaki nakit eksiye düşemez, eksiyse kayıt hatası vardır. Banka için
+aynısı söylenemez — kredili mevduat ve kredi kartı eksi çalışır. Ölçümde eksi
+bakiyeli 6 hesabın 2'si bankaydı ve biri doğrudan "KREDİ KARTI FAHR."
+(−₺24.843): karta girseydi ilk gün haksız çıkardı.
 
 ### Altyapı
 
@@ -89,13 +125,19 @@ değildi, hepsi arayüz–uç arasındaydı:
 
 ### Sıradaki iş
 
-1. Faz 2 — A motoru: çek/senet + maaş + tekrarlayan gider projeksiyona,
-   günlük çözünürlük. K-NKT-01…05'i birden açar.
+1. **`Invoice.dueDate` doluluğu artık YOL ÜSTÜNDEKİ TAŞ.** En büyük firmada %0,
+   ikincisinde %2, en iyisinde %16. Vade türetmesi (K-THS-07, cari kartındaki
+   ödeme günü) kapsamı büyütüyor ama türetilen vade de fatura tarihine bağlı
+   olduğu için çoğu GEÇMİŞTE kalıyor; ileri eğri bu yüzden boş. Asıl çözüm,
+   fatura kesilirken vadenin müşteri kartından otomatik dolmasıdır. **A motorunun
+   kalan kartları (K-NKT-01/02/04) bundan önce yazılamaz** — eşiğin altına inen
+   bir eğri yoksa "nakit eşiğin altına iniyor" kartı hiç çıkmaz.
 2. Faz 3 — B motoru: cari ödeme davranışı profili. K-THS-01…03'ü açar;
-   K-THS-07 bugünün ölçülebilir çekirdeğini şimdiden veriyor.
-3. `Invoice.dueDate` doluluğu %5. Vade türetmesi (K-THS-07) bunu kısmen
-   kapatıyor ama asıl çözüm, fatura kesilirken vadenin müşteri kartından
-   otomatik dolmasıdır — o gün K-THS grubunun tamamı güçlenir.
+   K-THS-07 bugünün ölçülebilir çekirdeğini şimdiden veriyor. `dueDate`e
+   bağımlılığı A motorundan az.
+3. Maaş ve tekrarlayan gider, kendi verileri birikince yeniden ölçülür
+   (yukarıdaki A motoru ölçümü). Bordro modülü kullanılmaya başlanırsa K-NKT-03,
+   gider kategorisi doldurulmaya başlanırsa tekrarlayan gider açılır.
 
 ### Çalışma yöntemi (bu iş boyunca izlendi)
 
@@ -296,9 +338,11 @@ aksiyon      alternatifi_ara · fiyat_gecmisini_gor
 
 ### 4.3 Nakit takvimi — `K-NKT`
 
-> Bu grubun tamamı **A motoruna** bağlı. A motoru bugün eksik: `nakit-projeksiyon.ts`
-> yalnız açık faturaları okuyor; çek/senet, maaş ve tekrarlayan gider takvime girmiyor,
-> çözünürlük hafta/ay. Önce A tamamlanmalı (bkz. §7 Faz 1).
+> Bu grubun tamamı **A motoruna** bağlı. A motorunun çek/senet ayağı 2026-09-07'de
+> bağlandı (`lib/raporlar/nakit-kiymet.ts`): ileri vadeli portföy evrakı artık kendi
+> vadesindeki kovaya düşüyor. Maaş, tekrarlayan gider ve günlük çözünürlük ÖLÇÜMLE
+> ertelendi — gerekçeleri §0 "A motoru ölçümü"nde. Kalan K-NKT kartlarının önündeki
+> asıl engel A motoru değil, `Invoice.dueDate` doluluğudur.
 
 > **K-NKT-06 kodlandı** — 3 firmada ateşliyor. EREN VİNÇ'te ₺480.000'lik çek 89,
 > ₺402.926'lık çek 45 gündür vadesi geçtiği hâlde portföyde.
@@ -317,7 +361,7 @@ aksiyon      alternatifi_ara · fiyat_gecmisini_gor
 | K-NKT-05 | Atıl nakit | Bakiye − 30 günlük net çıkış > eşik | ▲ |
 | K-NKT-06 | Vadesi geçmiş çek/senet portföyde | `dueDate < bugün` ve `status = PORTFÖYDE` | ◆ **kodlandı** |
 | K-NKT-07 | Vade tatile denk geliyor | Vade `CompanyHoliday` veya hafta sonunda | ◆ |
-| K-NKT-08 | Eksi bakiyeli hesap | `FinancialAccount.balance < 0` | ◆ *(sinyal var)* |
+| K-NKT-08 | Kasada eksi bakiye | `FinancialAccount.balance < 0` VE `type = CASH` | ◆ **kodlandı** |
 
 **K-NKT-01 · Ödeme günü önerisi** *(çek örneği)*
 
@@ -657,7 +701,8 @@ her kartı kapattığı bir günlük hiçbir şey öğretmez).
 | 0 | **Etkileşim günlüğü** (§5) + kart bileşeni + gürültü bütçesi | altyapı |
 | 1 | **K-STK-01** referans kart *(kodlandı)* | iskeleti ve formatı kurdu |
 | 1b | **K-STK-09** negatif stok *(kodlandı)* — K-STK-01'in önkoşulu | 7 firmada ateşliyor |
-| 2 | **A motoru**: çek/senet + maaş + tekrarlayan gider + günlük çözünürlük | K-NKT-01…05 |
+| 2 | **A motoru**: çek/senet *(bağlandı)*; maaş + tekrarlayan gider + günlük çözünürlük ÖLÇÜMLE ERTELENDİ (§0) | K-NKT-08 *(kodlandı)* |
+| 2b | **`Invoice.dueDate` otomatik dolsun** — A motorunun kalanının ön koşulu | K-NKT-01/02/04'ün kapısı |
 | 3 | **B motoru**: cari ödeme davranışı profili | K-THS-01…03, K-NKT-01'in gerçekçiliği |
 | 4 | Ucuz kazançlar: **K-BLG-01 *(kodlandı)***, K-BLG-02…05, K-SIS-01, K-TDR-01/02, K-MUS-03 | tek sorgu + şablon |
 | 5 | **C motoru** genişleme: K-STK-02…08, K-TDR-03 | akış hızı |
