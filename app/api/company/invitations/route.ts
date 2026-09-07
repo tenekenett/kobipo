@@ -5,30 +5,9 @@ import { randomBytes } from "crypto"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { resolveBaseUrl } from "@/lib/utils/base-url"
 
 export const dynamic = "force-dynamic"
-
-/**
- * Davet linki için temel URL'yi çözer. Öncelik isteğin geldiği gerçek domain'dir
- * (kullanıcı hangi adresteyse — örn. kobipo.com), böylece link Vercel önizleme
- * domaini (kobipo.vercel.app) yerine doğru adresle üretilir. Sondaki "/" temizlenir
- * ki "//invite" gibi çift slash oluşmasın.
- */
-function resolveBaseUrl(request: Request): string {
-  const origin = request.headers.get("origin")
-  if (origin) return origin.replace(/\/+$/, "")
-  const host = request.headers.get("host")
-  if (host) {
-    const proto = request.headers.get("x-forwarded-proto") || "https"
-    return `${proto}://${host}`.replace(/\/+$/, "")
-  }
-  const env =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXTAUTH_URL ||
-    process.env.AUTH_URL ||
-    "http://localhost:3000"
-  return env.replace(/\/+$/, "")
-}
 
 export const GET = withApiErrors(async function GET(request: Request) {
   const user = await getCurrentUser()
