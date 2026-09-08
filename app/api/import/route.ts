@@ -7,6 +7,17 @@ import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { XMLParser } from "fast-xml-parser"
 import * as XLSX from "xlsx"
 import { computeLineTax } from "@/lib/invoice/line-tax"
+import { applyCariRow, applyProductRow, type ImportRowResult } from "@/lib/import/apply"
+import {
+  customerHeaderAliases,
+  invoiceHeaderAliases,
+  normalizeHeader,
+  normalizeTaxNumber,
+  parseDecimal,
+  productHeaderAliases,
+  readCell,
+  supplierHeaderAliases,
+} from "@/lib/import/rows"
 
 export const dynamic = "force-dynamic"
 
@@ -129,39 +140,6 @@ function collectDecimalValuesByKeySuffix(obj: any, keySuffix: string): number[] 
   return collectNodeValuesByKeySuffix(obj, keySuffix)
     .map((value) => parseDecimal(value, Number.NaN))
     .filter((value) => Number.isFinite(value))
-}
-
-function normalizeTaxNumber(value: string | null | undefined) {
-  return String(value || "").replace(/\D/g, "")
-}
-
-function parseDecimal(value: any, fallback = 0) {
-  const raw = String(value ?? "").trim()
-  if (!raw) return fallback
-
-  const normalized = raw
-    .replace(/\s+/g, "")
-    .replace(/\.(?=\d{3}(\D|$))/g, "")
-    .replace(/,(?=\d{3}(\D|$))/g, "")
-    .replace(",", ".")
-
-  const parsed = Number(normalized)
-  return Number.isFinite(parsed) ? parsed : fallback
-}
-
-function normalizeHeader(value: string) {
-  return String(value || "")
-    .toLocaleLowerCase("tr-TR")
-    .replace(/ı/g, "i")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]/g, "")
-}
-
-function parseOpeningBalanceType(value: string) {
-  const normalized = normalizeHeader(value)
-  if (["alacak", "credit", "c"].includes(normalized)) return "CREDIT"
-  return "DEBIT"
 }
 
 function parseUblInvoices(xml: string) {
@@ -376,7 +354,20 @@ export const POST = withApiErrors(async function POST(request: Request) {
 
   const body = await request.json()
   body.companyId = await resolveCompanyId(body.companyId)
-  const { companyId, module, csv, fileBase64, format = "csv", dryRun = false } = body
+  const {
+    companyId,
+    module,
+    csv,
+    fileBase64,
+    format = "csv",
+    dryRun = false,
+    // Açıkken dosyadaki satır mevcut bir kayda denk gelirse HATA değil GÜNCELLEME
+    // olur; kapalıyken eski davranış sürer (mevcut kayıt "çift" diye reddedilir).
+    updateExisting = false,
+    // Güncellemede stok miktarının da yazılıp yazılmayacağı — ayrı bir soru,
+    // bkz. lib/import/rows.ts → productUpdateData.
+    updateStock = false,
+  } = body
 
   if (!companyId || !module) {
     return NextResponse.json({ error: "companyId and module are required" }, { status: 400 })
@@ -389,6 +380,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
   const companyTaxNumber = normalizeTaxNumber(company?.taxNumber)
   const errors: Array<{ row: number; error: string }> = []
   let imported = 0
+  let updated = 0
 
   if (module === "invoices-ubl") {
     if (!fileBase64 && !csv) {
@@ -649,115 +641,32 @@ export const POST = withApiErrors(async function POST(request: Request) {
   const headers = rows[0].map((value) => normalizeHeader(String(value)))
   const dataRows = rows.slice(1)
 
-  const getValueByAliases = (row: string[], aliases: Record<string, string[]>, key: string) => {
-    const candidates = aliases[key] || [key]
-    for (const candidate of candidates) {
-      const idx = headers.indexOf(candidate)
-      if (idx >= 0) {
-        return String(row[idx] || "").trim()
-      }
-    }
-    return ""
+  // Başlık takma adları ve satır okuma `lib/import/rows.ts`tedir; oradaki liste
+  // dışa aktarımın yazdığı başlıkları da tanır (dışa aktar → düzelt → geri yükle).
+  const getValueByAliases = (row: string[], aliases: Record<string, string[]>, key: string) =>
+    readCell(headers, row, aliases, key)
+
+  // Satırın veritabanına uygulanması `lib/import/apply.ts`tedir: eşleştirmenin
+  // bir kısmı SQL'in içinde olduğu için canlı takım aynı fonksiyonları çağırır.
+  const rowOptions = {
+    updateExisting: Boolean(updateExisting),
+    updateStock: Boolean(updateStock),
+    dryRun: Boolean(dryRun),
   }
 
-  const customerHeaderAliases: Record<string, string[]> = {
-    code: ["code", "kod"],
-    name: ["name", "ad", "unvan"],
-    taxnumber: ["taxnumber", "vergino", "vkn", "tckn"],
-    taxoffice: ["taxoffice", "vergidairesi"],
-    phone: ["phone", "telefon"],
-    email: ["email", "eposta", "mail"],
-    address: ["address", "adres"],
-    city: ["city", "sehir", "il"],
-    contactperson: ["contactperson", "yetkilikisi"],
-    paymentduedays: ["paymentduedays", "vadegun", "vade"],
-    openingbalance: ["openingbalance", "acilisbakiyesi"],
-    openingbalancetype: ["openingbalancetype", "bakiyeturu"],
-    risklimit: ["risklimit", "risklimiti"],
-    bankinfo: ["bankinfo", "bankabilgisi"],
-    note: ["note", "not"],
+  const countRow = (result: ImportRowResult) => {
+    if (result === "updated") updated++
+    else imported++
   }
 
-  const supplierHeaderAliases: Record<string, string[]> = {
-    ...customerHeaderAliases,
-  }
+  if (module === "customers" || module === "suppliers") {
+    const aliases = module === "customers" ? customerHeaderAliases : supplierHeaderAliases
 
-  const productHeaderAliases: Record<string, string[]> = {
-    code: ["code", "kod"],
-    name: ["name", "ad"],
-    barcode: ["barcode", "barkod"],
-    shelfcode: ["shelfcode", "rafno", "raf"],
-    unit: ["unit", "birim"],
-    stockquantity: ["stockquantity", "stokmiktari"],
-    purchaseprice: ["purchaseprice", "alisfiyati"],
-    saleprice: ["saleprice", "satisfiyati"],
-    vatrate: ["vatrate", "kdvorani"],
-  }
-
-  const invoiceHeaderAliases: Record<string, string[]> = {
-    invoiceno: ["invoiceno", "faturano"],
-    date: ["date", "tarih"],
-    type: ["type", "tip"],
-    invoicetype: ["invoicetype", "faturatipi"],
-    netamount: ["netamount", "nettutar"],
-    vatamount: ["vatamount", "kdvtutari"],
-    totalamount: ["totalamount", "toplamtutar"],
-    currency: ["currency", "parabirimi"],
-    notes: ["notes", "aciklama", "notlar"],
-  }
-
-  if (module === "customers") {
     for (let index = 0; index < dataRows.length; index++) {
       const row = dataRows[index]
       try {
-        const get = (name: string) => getValueByAliases(row, customerHeaderAliases, name)
-        const name = get("name")
-        if (!name) throw new Error("name is required")
-
-        const taxNumber = get("taxnumber") || null
-
-        // Duplicate kontrolü: aynı ad veya vergi numarası varsa
-        const existingCustomer = await prisma.customer.findFirst({
-          where: {
-            companyId,
-            OR: [
-              { name: name.trim() },
-              ...(taxNumber ? [{ taxNumber: taxNumber.trim() }] : []),
-            ],
-          },
-          select: { id: true, name: true },
-        })
-
-        if (existingCustomer) {
-          throw new Error(`Çift cari bulundu: "${existingCustomer.name}" zaten mevcut`)
-        }
-
-        const openingBalanceAmount = parseDecimal(get("openingbalance"), 0)
-        const openingBalanceType = parseOpeningBalanceType(get("openingbalancetype"))
-
-        await prisma.customer.create({
-          data: {
-            companyId,
-            code: get("code") || null,
-            name,
-            taxNumber,
-            taxOffice: get("taxoffice") || null,
-            phone: get("phone") || null,
-            email: get("email") || null,
-            address: get("address") || null,
-            city: get("city") || null,
-            contactPerson: get("contactperson") || null,
-            paymentDueDays: get("paymentduedays") ? Math.max(0, Math.trunc(parseDecimal(get("paymentduedays"), 0))) : null,
-            openingBalanceAmount,
-            openingBalanceType,
-            riskLimit: get("risklimit") ? parseDecimal(get("risklimit"), 0) : null,
-            bankInfo: get("bankinfo") || null,
-            note: get("note") || null,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-        })
-        imported++
+        const get = (name: string) => getValueByAliases(row, aliases, name)
+        countRow(await applyCariRow(companyId, module, get, rowOptions))
       } catch (error: any) {
         // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
         if (isAccessDeniedError(error)) return accessDeniedResponse(error)
@@ -769,83 +678,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       const row = dataRows[index]
       try {
         const get = (name: string) => getValueByAliases(row, productHeaderAliases, name)
-        const name = get("name")
-        if (!name) throw new Error("name is required")
-
-        const barcode = get("barcode") || null
-
-        // Duplicate kontrolü: aynı ad veya barkod varsa
-        const existingProduct = await prisma.product.findFirst({
-          where: {
-            companyId,
-            OR: [
-              { name: name.trim() },
-              ...(barcode ? [{ barcode: barcode.trim() }] : []),
-            ],
-          },
-          select: { id: true, name: true, barcode: true },
-        })
-
-        if (existingProduct) {
-          throw new Error(`Çift ürün bulundu: "${existingProduct.name}" zaten mevcut`)
-        }
-
-        await prisma.product.create({
-          data: {
-            companyId,
-            code: get("code") || null,
-            name,
-            barcode,
-            shelfCode: get("shelfcode") || null,
-            unit: get("unit") || "ADET",
-            stockQuantity: parseDecimal(get("stockquantity"), 0),
-            purchasePrice: get("purchaseprice") ? parseDecimal(get("purchaseprice")) : null,
-            salePrice: get("saleprice") ? parseDecimal(get("saleprice")) : null,
-            vatRate: parseDecimal(get("vatrate"), 20),
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-        })
-        imported++
-      } catch (error: any) {
-        // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
-        if (isAccessDeniedError(error)) return accessDeniedResponse(error)
-        errors.push({ row: index + 2, error: error.message || "failed" })
-      }
-    }
-  } else if (module === "suppliers") {
-    for (let index = 0; index < dataRows.length; index++) {
-      const row = dataRows[index]
-      try {
-        const get = (name: string) => getValueByAliases(row, supplierHeaderAliases, name)
-        const name = get("name")
-        if (!name) throw new Error("name is required")
-        const openingBalanceAmount = parseDecimal(get("openingbalance"), 0)
-        const openingBalanceType = parseOpeningBalanceType(get("openingbalancetype"))
-
-        await prisma.supplier.create({
-          data: {
-            companyId,
-            code: get("code") || null,
-            name,
-            taxNumber: get("taxnumber") || null,
-            taxOffice: get("taxoffice") || null,
-            phone: get("phone") || null,
-            email: get("email") || null,
-            address: get("address") || null,
-            city: get("city") || null,
-            contactPerson: get("contactperson") || null,
-            paymentDueDays: get("paymentduedays") ? Math.max(0, Math.trunc(parseDecimal(get("paymentduedays"), 0))) : null,
-            openingBalanceAmount,
-            openingBalanceType,
-            riskLimit: get("risklimit") ? parseDecimal(get("risklimit"), 0) : null,
-            bankInfo: get("bankinfo") || null,
-            note: get("note") || null,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          },
-        })
-        imported++
+        countRow(await applyProductRow(companyId, get, rowOptions))
       } catch (error: any) {
         // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
         if (isAccessDeniedError(error)) return accessDeniedResponse(error)
@@ -910,8 +743,14 @@ export const POST = withApiErrors(async function POST(request: Request) {
   return NextResponse.json({
     success: true,
     module,
+    // `imported` = yeni açılan kayıt, `updated` = mevcut kayda yazılan satır.
+    // Tek sayıda birleştirilmemeleri gerekir: kullanıcı fiyat listesini geri
+    // yüklediğinde "120 içe aktarıldı" görüp 120 yeni ürün açıldığını sanardı.
     imported,
+    updated,
     failed: errors.length,
+    dryRun: Boolean(dryRun),
+    updateExisting: Boolean(updateExisting),
     errors,
   })
 })

@@ -25,8 +25,15 @@ export default function VeriAktarimPage() {
   const [fileBase64, setFileBase64] = useState("")
   const [fileName, setFileName] = useState("")
   const [dryRun, setDryRun] = useState(false)
+  // Mevcut kayda denk gelen satır: kapalıyken "çift kayıt" hatası, açıkken güncelleme.
+  const [updateExisting, setUpdateExisting] = useState(false)
+  const [updateStock, setUpdateStock] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const [progress, setProgress] = useState(0)
+
+  // Güncelleme yalnız kart modüllerinde anlamlı: fatura yeniden yazılmaz, yeni
+  // fatura olarak kesilir.
+  const supportsUpdate = module === "customers" || module === "suppliers" || module === "products"
 
   const importFormatOptions = useMemo(() => {
     if (module === "invoices-ubl") {
@@ -71,7 +78,16 @@ export default function VeriAktarimPage() {
       const response = await fetch("/api/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, module, csv, fileBase64, format: importFormat, dryRun }),
+        body: JSON.stringify({
+          companyId,
+          module,
+          csv,
+          fileBase64,
+          format: importFormat,
+          dryRun,
+          updateExisting: supportsUpdate && updateExisting,
+          updateStock: supportsUpdate && updateExisting && updateStock,
+        }),
       })
 
       clearInterval(progressInterval)
@@ -130,8 +146,11 @@ export default function VeriAktarimPage() {
           Kod: "URUN-001",
           Ad: "Örnek Ürün",
           Barkod: "8690000000001",
+          "Raf No": "A-04",
+          Kategori: "İçecek",
           Birim: "ADET",
           "Stok Miktarı": 10,
+          "Min. Stok": 3,
           "Alış Fiyatı": 100,
           "Satış Fiyatı": 150,
           "KDV Oranı": 20,
@@ -282,6 +301,35 @@ export default function VeriAktarimPage() {
               value={csv}
               onChange={(e) => setCsv(e.target.value)}
             />
+            {supportsUpdate && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Mevcut kayıtları güncelle</p>
+                    <p className="text-xs text-muted-foreground">
+                      Kapalıyken listedeki mevcut kayıtlar &quot;çift kayıt&quot; diye atlanır.
+                      Açıkken üzerine yazılır: eşleştirme önce <strong>ada</strong>, sonra{" "}
+                      {module === "products" ? "barkoda" : "VKN'ye"}, sonra koda bakar. Dosyada
+                      boş bırakılan sütun değiştirilmez.
+                    </p>
+                  </div>
+                  <Switch checked={updateExisting} onCheckedChange={setUpdateExisting} />
+                </div>
+                {module === "products" && updateExisting && (
+                  <div className="flex items-center justify-between gap-3 border-t pt-3">
+                    <div>
+                      <p className="text-sm font-medium">Stok miktarını da güncelle</p>
+                      <p className="text-xs text-muted-foreground">
+                        Varsayılan olarak kapalıdır: dosyadaki miktar listeyi aldığınız andaki
+                        bakiyedir ve açık bırakılırsa aradaki irsaliye/fatura hareketlerini geri
+                        alır. Yalnızca sayım sonucu yüklüyorsanız açın.
+                      </p>
+                    </div>
+                    <Switch checked={updateStock} onCheckedChange={setUpdateStock} />
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex items-center justify-between rounded-md border p-3">
               <div>
                 <p className="text-sm font-medium">Önizleme (Dry Run)</p>
@@ -322,7 +370,9 @@ export default function VeriAktarimPage() {
                       <div>
                         <p className="font-medium text-yellow-900">Çift Kayıtlar Bulundu</p>
                         <p className="text-sm text-yellow-800 mt-1">
-                          Aşağıdaki satırlarda zaten mevcut olan kayıtlar atlanmıştır:
+                          Aşağıdaki satırlarda zaten mevcut olan kayıtlar atlandı. Bunları
+                          güncellemek istiyorsanız <strong>Mevcut kayıtları güncelle</strong>{" "}
+                          anahtarını açıp dosyayı yeniden yükleyin:
                         </p>
                         <ul className="text-sm text-yellow-800 mt-2 space-y-1 list-disc list-inside">
                           {importResult.errors
@@ -344,9 +394,18 @@ export default function VeriAktarimPage() {
                     ? "bg-red-50 border border-red-200"
                     : "bg-green-50 border border-green-200"
                 }`}>
+                  {/* Yeni ve güncellenen ayrı yazılır: tek sayıda birleştirilseydi
+                      fiyat listesini geri yükleyen kullanıcı aynı ürünlerin ikinci kez
+                      açıldığını sanardı. */}
                   <p className={importResult.failed > 0 ? "text-red-900 font-medium" : "text-green-900 font-medium"}>
-                    {importResult.imported} kayıt başarıyla içe aktarıldı
-                    {importResult.failed > 0 && `, ${importResult.failed} hata`}
+                    {[
+                      `${importResult.imported ?? 0} yeni kayıt`,
+                      importResult.updated ? `${importResult.updated} kayıt güncellendi` : null,
+                      importResult.failed > 0 ? `${importResult.failed} hata` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}
+                    {importResult.dryRun && " (önizleme — hiçbir şey yazılmadı)"}
                   </p>
                 </div>
 
