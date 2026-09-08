@@ -86,6 +86,9 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { fetchCustomerList, fetchSupplierList } from "@/lib/cari/list-query"
+// Otomasyon firma GENELİNDE çalışır: uyarı bir kullanıcının görüş alanına değil,
+// işletmenin durumuna bakar — üstelik cron bağlamında oturum da yoktur.
+import { CARI_VISIBILITY_ALL } from "@/lib/cari/visibility"
 import { sayi } from "@/lib/asistan/veri/temel"
 
 /** Bu tutarın altındaki ters bakiye kuruş farkıdır, kart konusu değildir. */
@@ -152,8 +155,8 @@ export async function tersBakiyeOzeti(
 ): Promise<TersBakiyeOzeti | null> {
   const liste =
     yon === "musteri"
-      ? await fetchCustomerList({ companyId })
-      : await fetchSupplierList({ companyId })
+      ? await fetchCustomerList({ companyId, visibility: CARI_VISIBILITY_ALL })
+      : await fetchSupplierList({ companyId, visibility: CARI_VISIBILITY_ALL })
 
   const adaylar = liste.items.filter((c) => Number(c.balance) < -TABAN)
   if (adaylar.length === 0) return null

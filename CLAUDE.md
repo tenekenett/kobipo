@@ -150,6 +150,42 @@ Kurallar:
 > yiyordu ve satılabilir bir "ek firma" ürünü yoktu. Ayrıntı:
 > `docs/paket-abonelik/ILERLEME.md` (2026-08-15 bölümü).
 
+## Cari görünürlüğü: "yetkili çalışan" atanmamışsa çalışan göremez
+
+`Customer.authorizedUserId` / `Supplier.authorizedUserId` bir GÖRÜNÜRLÜK anahtarıdır
+(2026-09-08'den beri; öncesinde alan yalnızca kaydediliyor, hiçbir yerde okunmuyordu).
+
+```
+ADMIN + BRANCH_MANAGER (+ süper-admin)  → firmanın TÜM carileri
+diğer her üye (CUSTOM dahil)            → yalnız authorizedUserId = kendisi
+authorizedUserId boş olan cari          → yalnız yöneticiler
+```
+
+Yani hiç ataması olmayan bir çalışan hiçbir cari göremez. Karar TEK yerde:
+`lib/cari/visibility.ts` (saf kural; istemci de okuyor) + `lib/cari/resolve-visibility.ts`
+(oturumdan çözer). Kapsam **cari modülüdür**: liste, kart, silinebilirlik, ekstre, açık
+faturalar ve bunların dışa aktarımı.
+
+- Cari OKUYAN yeni bir uç yazarken kapı elle kurulur:
+  `assertCariVisible(cari, await resolveCariVisibility(companyId))` — `ensureCompanyAccess`
+  bunu yapmaz, o firmaya erişimi doğrular.
+- `fetchCustomerList` / `fetchSupplierList` / `fetchEkstre` için `visibility` alanı
+  **zorunludur**. Opsiyonel yapmayın: unutulan bir çağrı sessizce tüm carileri döker.
+  Sistem tarafı (otomasyon/cron — oturum yok) `CARI_VISIBILITY_ALL` ile açıkça
+  kapsam dışı olduğunu söyler.
+- Liste önbelleği görünürlüğe göre anahtarlanır (`visibilityKey`). Anahtardan
+  düşerse ilk yönetici isteğinden sonra kısıt 15 sn boyunca herkes için kalkar.
+- Atamayı yalnız yönetici yazar: `resolveAuthorizedUserIdOnWrite` kısıtlı kullanıcıda
+  her zaman kendi id'sini döndürür (yeni kayıt kendisine atanır, mevcut kayıtta alan
+  değişmez) — aksi halde kullanıcı gördüğü cariyi geri alamayacak şekilde devrederdi.
+- İkiz kart (`isAlsoSupplier` / `isAlsoCustomer`) atamayı da kopyalar; ikisi ayrışırsa
+  aynı cari bir sekmede görünür, ötekinde görünmez olur.
+- **BİLEREK kapsam dışı:** fatura/irsaliye/sipariş/teklif listeleri, cari bazlı raporlar
+  (`rapor-cari-yaslandirma`) ve fiş uçları. Buralarda cari adı hâlâ herkese görünür.
+  Not: cari LİSTE ucu aynı zamanda o ekranların müşteri/tedarikçi SEÇİCİSİDİR, yani
+  kısıtlı çalışan yalnız kendi carilerine belge kesebilir — bu, ucun paylaşılmasının
+  kaçınılmaz sonucudur, ayrı bir karar değildir.
+
 ## Yeni tablo → RLS açılacak
 
 `public` şemadaki her tablo RLS **açık ve policy'siz** (default deny) tutulur; veriye

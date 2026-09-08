@@ -8,6 +8,8 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { fetchEkstre } from "@/lib/cari/ekstre-query"
+import { cariVisibilityWhere, type CariVisibility } from "@/lib/cari/visibility"
+import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import type { ExportColumn, ExportDataset, ExportSection } from "../types"
 import { loadExportCompany, describeDateRange, describeFilters } from "./context"
 import {
@@ -49,17 +51,30 @@ const COLUMNS: ExportColumn[] = [
  * Sorgu `companyId` ile kapsanıyor: hareketler zaten firmaya göre süzülüyor ama
  * `findUnique(id)` başka bir firmanın carisinin ADINI belge başlığına taşırdı.
  */
-async function resolveCariName(params: EkstreExportParams): Promise<{ name: string; role: string } | null> {
+async function resolveCariName(
+  params: EkstreExportParams,
+  visibility: CariVisibility,
+): Promise<{ name: string; role: string } | null> {
+  // Görünürlük kısıtı ADI da kapsar: süzgeçsiz kalsaydı hareketleri boş dönen
+  // dosyanın başlığı yine de "Cari Ekstre - <göremediğiniz müşteri>" olurdu.
   if (params.customerId) {
     const customer = await prisma.customer.findFirst({
-      where: { id: params.customerId, companyId: params.companyId },
+      where: {
+        id: params.customerId,
+        companyId: params.companyId,
+        ...cariVisibilityWhere(visibility),
+      },
       select: { name: true },
     })
     return customer ? { name: customer.name, role: "Müşteri" } : null
   }
   if (params.supplierId) {
     const supplier = await prisma.supplier.findFirst({
-      where: { id: params.supplierId, companyId: params.companyId },
+      where: {
+        id: params.supplierId,
+        companyId: params.companyId,
+        ...cariVisibilityWhere(visibility),
+      },
       select: { name: true },
     })
     return supplier ? { name: supplier.name, role: "Tedarikçi" } : null
@@ -68,10 +83,11 @@ async function resolveCariName(params: EkstreExportParams): Promise<{ name: stri
 }
 
 export async function buildEkstreDataset(params: EkstreExportParams): Promise<ExportDataset> {
+  const visibility = await resolveCariVisibility(params.companyId)
   const [company, cari, result] = await Promise.all([
     loadExportCompany(params.companyId),
-    resolveCariName(params),
-    fetchEkstre(params),
+    resolveCariName(params, visibility),
+    fetchEkstre({ ...params, visibility }),
   ])
 
   const rows = result.entries.map((entry) => ({

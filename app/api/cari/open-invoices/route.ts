@@ -4,6 +4,8 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
+import { cariVisibilityWhere } from "@/lib/cari/visibility"
+import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -43,6 +45,24 @@ export const GET = withApiErrors(async function GET(request: Request) {
     const resolvedSupplierId = supplierId
       ? await resolveSlugId("supplier", supplierId, companyId)
       : null
+
+    // Yetkili çalışan kısıtı: bu uç carinin AÇIK BAKİYESİNİ fatura fatura döker.
+    // Kartın kendisi kapalıyken burası açık kalsaydı kısıt yalnız görsel olurdu.
+    const visibility = await resolveCariVisibility(companyId)
+    const visibleCari = resolvedCustomerId
+      ? await prisma.customer.findFirst({
+          where: { id: resolvedCustomerId, companyId, ...cariVisibilityWhere(visibility) },
+          select: { id: true },
+        })
+      : await prisma.supplier.findFirst({
+          where: { id: resolvedSupplierId!, companyId, ...cariVisibilityWhere(visibility) },
+          select: { id: true },
+        })
+    // Bulunamadı = ya başka firmanın carisi ya da bu kullanıcıya atanmamış. İkisinde
+    // de boş liste doğru cevap: hata metni "var ama göremezsin" bilgisini sızdırırdı.
+    if (!visibleCari) {
+      return NextResponse.json([])
+    }
 
     const invoices = await prisma.invoice.findMany({
       where: {

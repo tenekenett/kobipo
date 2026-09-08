@@ -7,6 +7,11 @@ import {
   ACCOUNT_ARCHIVED_MESSAGE_TR,
   accountArchivedFrom,
 } from "@/lib/billing/archive"
+import {
+  CARI_FORBIDDEN_CODE,
+  CARI_FORBIDDEN_MESSAGE_TR,
+  cariForbiddenFrom,
+} from "@/lib/cari/visibility"
 import { navPage } from "@/lib/nav/pages"
 
 /**
@@ -53,6 +58,16 @@ export function accessDeniedResponse(error: unknown, fallbackMessage: unknown = 
         pages: forbidden.pages,
       },
       { status: 403 }
+    )
+  }
+
+  // Cari görünürlük kapısı: yetki de modül de yerinde, cari BU KULLANICIYA
+  // atanmamış. Ayrı bir mesaj gerekiyor — "yetkiniz yok" kullanıcıyı yöneticiye
+  // yollar, oysa çözüm cari kartındaki atamadır (bkz. lib/cari/visibility.ts).
+  if (cariForbiddenFrom(error)) {
+    return NextResponse.json(
+      { error: CARI_FORBIDDEN_MESSAGE_TR, code: CARI_FORBIDDEN_CODE },
+      { status: 403 },
     )
   }
 

@@ -8,6 +8,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { cariRelationVisibilityWhere, cariVisibilityWhere, type CariVisibility } from "@/lib/cari/visibility"
 import { isPurchaseReturn, payableSign, receivableSign } from "@/lib/cari/invoice-direction"
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 import { AGING_BUCKETS, type AgingBucket } from "@/lib/raporlar/cari-yaslandirma-buckets"
@@ -183,14 +184,27 @@ export type EkstreOptions = {
   supplierId?: string | null
   startDate?: string | null
   endDate?: string | null
+  /**
+   * Yetkili çalışan kısıtı — ZORUNLU (bkz. lib/cari/visibility.ts).
+   *
+   * Tek cari seçiliyken uç zaten 403 veriyor; kritik olan "Tümü" hâli: kısıt
+   * buraya girmeseydi kısıtlı çalışan cari seçmeden ekstre isteyerek firmanın
+   * BÜTÜN hareketlerini (ve bakiyesini) okuyabilirdi.
+   */
+  visibility: CariVisibility
 }
 
 export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult> {
-  const { companyId, customerId, supplierId, startDate, endDate } = options
+  const { companyId, customerId, supplierId, startDate, endDate, visibility } = options
+
+  // Cariye BAĞLI kayıtların (fatura/işlem/çek/senet) süzgeci. "all"da boş nesne,
+  // yani sorgular bugünküyle birebir aynı kalır.
+  const visibleParty = cariRelationVisibilityWhere(visibility)
 
   const where: any = {
     companyId,
     status: { notIn: ["CANCELLED", "CONVERTED"] },
+    ...visibleParty,
   }
   if (customerId) where.customerId = customerId
   if (supplierId) where.supplierId = supplierId
@@ -219,7 +233,7 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
   // Açılış bakiyesi YALNIZ tek cari seçiliyken okunur (gerekçe: `acilisSatiri`).
   const acilisKaydi = customerId
     ? await prisma.customer.findFirst({
-        where: { id: customerId, companyId },
+        where: { id: customerId, companyId, ...cariVisibilityWhere(visibility) },
         select: {
           id: true,
           name: true,
@@ -230,7 +244,7 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       })
     : supplierId
       ? await prisma.supplier.findFirst({
-          where: { id: supplierId, companyId },
+          where: { id: supplierId, companyId, ...cariVisibilityWhere(visibility) },
           select: {
             id: true,
             name: true,
@@ -258,7 +272,7 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       orderBy: { date: "desc" },
     }),
     prisma.transaction.findMany({
-      where: { companyId, ...partyFilter, ...dateRange("date") },
+      where: { companyId, ...partyFilter, ...visibleParty, ...dateRange("date") },
       include: { account: true, customer: true, supplier: true },
       orderBy: { date: "desc" },
     }),
@@ -268,6 +282,7 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       where: {
         companyId,
         ...partyFilter,
+        ...visibleParty,
         ...dateRange("dueDate"),
         status: { notIn: [...CHECK_NOTE_NON_SETTLING] },
       },
@@ -277,6 +292,7 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       where: {
         companyId,
         ...partyFilter,
+        ...visibleParty,
         ...dateRange("dueDate"),
         status: { notIn: [...CHECK_NOTE_NON_SETTLING] },
       },

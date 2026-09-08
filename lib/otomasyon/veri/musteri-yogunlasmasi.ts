@@ -35,6 +35,9 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { fetchCustomerList } from "@/lib/cari/list-query"
+// Otomasyon firma GENELİNDE çalışır: uyarı bir kullanıcının görüş alanına değil,
+// işletmenin durumuna bakar — üstelik cron bağlamında oturum da yoktur.
+import { CARI_VISIBILITY_ALL } from "@/lib/cari/visibility"
 import { sayi, gunOnce } from "@/lib/asistan/veri/temel"
 
 /** Bu payın altındaki yoğunlaşma kart konusu değildir. */
@@ -131,7 +134,7 @@ export async function musteriYogunlasmasi(
 
   // Kart ancak buraya gelirse cari listesini ister; eşiği aşmayan firmada
   // (ölçümde 34 firmanın 32'si) hiç sorgu açılmaz.
-  const liste = await fetchCustomerList({ companyId })
+  const liste = await fetchCustomerList({ companyId, visibility: CARI_VISIBILITY_ALL })
   const cari = liste.items.find((c) => c.id === enBuyuk.id)
   if (!cari) return null
 

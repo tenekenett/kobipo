@@ -12,6 +12,21 @@
 
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
+import type { CariVisibility } from "@/lib/cari/visibility"
+
+/**
+ * Görünürlük kısıtının ham SQL karşılığı. Kural `lib/cari/visibility.ts`te;
+ * burada durmasının sebebi `Prisma.sql`in yalnızca sunucuda yüklenebilmesi —
+ * kural dosyası istemci bileşeni tarafından da okunuyor ve saf kalmalı.
+ *
+ * `alias` bizim sabitlerimizden gelir ama yine de doğrulanır: `Prisma.raw`
+ * parametrelemez, dışarıdan gelen bir değer buraya sızarsa enjeksiyon olur.
+ */
+function cariVisibilitySql(alias: string, visibility: CariVisibility): Prisma.Sql {
+  if (visibility.kind === "all") return Prisma.empty
+  if (!/^[a-z_][a-z0-9_]*$/i.test(alias)) throw new Error(`Invalid SQL alias: ${alias}`)
+  return Prisma.sql`AND ${Prisma.raw(`${alias}."authorizedUserId"`)} = ${visibility.userId}`
+}
 
 const LIST_CACHE_TTL_MS = 15000
 
@@ -27,6 +42,12 @@ export type CariListOptions = {
   pageSize?: number
   /** `true` → LIMIT/OFFSET uygulanır ve `totalCount` hesaplanır. */
   paginate?: boolean
+  /**
+   * Yetkili çalışan kısıtı — ZORUNLU (bkz. lib/cari/visibility.ts). Opsiyonel
+   * olsaydı yeni bir çağıran unuttuğunda sessizce tüm carileri dökerdi; böyle
+   * derleyici niyeti sorar. Sistem işleri `CARI_VISIBILITY_ALL` geçer.
+   */
+  visibility: CariVisibility
 }
 
 export type CariListResult = {
@@ -49,12 +70,19 @@ function normalize(options: CariListOptions) {
     offset: (safePage - 1) * safePageSize,
     hasSearch: search.length > 0,
     searchLike: `%${search}%`,
+    /**
+     * Önbellek anahtarının parçası. Görünürlük anahtara GİRMEZSE aynı firmada
+     * ilk isteyenin satırları 15 sn boyunca herkese servis edilir — yani kısıt
+     * ilk yönetici isteğinden sonra tamamen kalkar.
+     */
+    visibilityKey: options.visibility.kind === "all" ? "all" : `own:${options.visibility.userId}`,
   }
 }
 
 export async function fetchCustomerList(options: CariListOptions): Promise<CariListResult> {
-  const { paginate, safePage, safePageSize, offset, hasSearch, searchLike } = normalize(options)
-  const cacheKey = `customers|${options.companyId}|${searchLike}|${safePage}|${safePageSize}|${paginate ? "1" : "0"}`
+  const { paginate, safePage, safePageSize, offset, hasSearch, searchLike, visibilityKey } =
+    normalize(options)
+  const cacheKey = `customers|${options.companyId}|${visibilityKey}|${searchLike}|${safePage}|${safePageSize}|${paginate ? "1" : "0"}`
 
   const now = Date.now()
   const cached = listCache.get(cacheKey)
@@ -69,6 +97,7 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
         FROM customers c
         WHERE c."companyId" = ${options.companyId}
           AND c."archivedAt" IS NULL
+          ${cariVisibilitySql("c", options.visibility)}
           ${hasSearch
             ? Prisma.sql`AND (
               c.name ILIKE ${searchLike}
@@ -214,6 +243,7 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
           FROM customers c
           WHERE c."companyId" = ${options.companyId}
           AND c."archivedAt" IS NULL
+          ${cariVisibilitySql("c", options.visibility)}
           ${hasSearch
             ? Prisma.sql`AND (
               c.name ILIKE ${searchLike}
@@ -260,8 +290,9 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
 }
 
 export async function fetchSupplierList(options: CariListOptions): Promise<CariListResult> {
-  const { paginate, safePage, safePageSize, offset, hasSearch, searchLike } = normalize(options)
-  const cacheKey = `suppliers|${options.companyId}|${searchLike}|${safePage}|${safePageSize}|${paginate ? "1" : "0"}`
+  const { paginate, safePage, safePageSize, offset, hasSearch, searchLike, visibilityKey } =
+    normalize(options)
+  const cacheKey = `suppliers|${options.companyId}|${visibilityKey}|${searchLike}|${safePage}|${safePageSize}|${paginate ? "1" : "0"}`
 
   const now = Date.now()
   const cached = listCache.get(cacheKey)
@@ -276,6 +307,7 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
         FROM suppliers s
         WHERE s."companyId" = ${options.companyId}
           AND s."archivedAt" IS NULL
+          ${cariVisibilitySql("s", options.visibility)}
           ${hasSearch
             ? Prisma.sql`AND (
               s.name ILIKE ${searchLike}
@@ -417,6 +449,7 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
           FROM suppliers s
           WHERE s."companyId" = ${options.companyId}
           AND s."archivedAt" IS NULL
+          ${cariVisibilitySql("s", options.visibility)}
           ${hasSearch
             ? Prisma.sql`AND (
               s.name ILIKE ${searchLike}

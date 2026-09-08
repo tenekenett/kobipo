@@ -3,6 +3,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { fetchEkstre } from "@/lib/cari/ekstre-query"
+import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = 'force-dynamic'
@@ -37,6 +38,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
         supplierId: searchParams.get("supplierId"),
         startDate: searchParams.get("startDate"),
         endDate: searchParams.get("endDate"),
+        // Yetkili çalışan kısıtı. Cari SEÇİLMEDİĞİNDE ("Tümü") kısıt tek koruma:
+        // sorgu firmanın bütün hareketlerini toplar, süzgeç oraya iner.
+        visibility: await resolveCariVisibility(companyId),
       }),
     )
   } catch (error: any) {

@@ -8,6 +8,7 @@
  */
 
 import { fetchCustomerList, fetchSupplierList } from "@/lib/cari/list-query"
+import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import type { ExportColumn, ExportDataset, ExportSection } from "../types"
 import { loadExportCompany, describeFilters } from "./context"
 
@@ -44,10 +45,17 @@ function columnsFor(kind: "customers" | "suppliers"): ExportColumn[] {
 export async function buildCariDataset(params: CariExportParams): Promise<ExportDataset> {
   const tab = params.tab === "suppliers" || params.tab === "customers" ? params.tab : "all"
   const company = await loadExportCompany(params.companyId)
+  // Yetkili çalışan kısıtı ekranla AYNI: dosya süzülmeseydi kısıtlı çalışan
+  // göremediği carilerin listesini "Excel'e aktar" ile indirebilirdi.
+  const visibility = await resolveCariVisibility(params.companyId)
   const sections: ExportSection[] = []
 
   if (tab === "customers" || tab === "all") {
-    const { items } = await fetchCustomerList({ companyId: params.companyId, search: params.search })
+    const { items } = await fetchCustomerList({
+      companyId: params.companyId,
+      search: params.search,
+      visibility,
+    })
     sections.push({
       title: "Müşteriler",
       sheetName: "Müşteriler",
@@ -57,7 +65,11 @@ export async function buildCariDataset(params: CariExportParams): Promise<Export
   }
 
   if (tab === "suppliers" || tab === "all") {
-    const { items } = await fetchSupplierList({ companyId: params.companyId, search: params.search })
+    const { items } = await fetchSupplierList({
+      companyId: params.companyId,
+      search: params.search,
+      visibility,
+    })
     sections.push({
       title: "Tedarikçiler",
       sheetName: "Tedarikçiler",

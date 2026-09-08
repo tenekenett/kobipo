@@ -15,7 +15,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
 import { CityDistrictSelect } from "@/components/address/city-district-select"
 import { WriteAction } from "@/components/dashboard/write-guard"
-import { useCanEdit } from "@/components/dashboard/dashboard-company-provider"
+import { useCanEdit, useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { hasFullCariAccess } from "@/lib/cari/visibility"
 
 type EntityType = "customers" | "suppliers"
 type OpeningBalanceType = "DEBIT" | "CREDIT"
@@ -128,6 +129,18 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
    * ikiz olduğunu göremezdi.
    */
   const canEditMirror = useCanEdit(isCustomer ? "/cari/tedarikci" : "/cari/musteri")
+  /**
+   * "Yetkili Çalışan" bir GÖRÜNÜRLÜK anahtarıdır (bkz. lib/cari/visibility.ts), o
+   * yüzden yalnız yönetici atar. Kısıtlı çalışanda alan gizlenmiyor, KİLİTLENİYOR:
+   * kartın kime atandığını görmesi doğru, değiştirebilmesi değil — sunucu da aynı
+   * kararı uyguluyor (`resolveAuthorizedUserIdOnWrite`), yani alan elle değiştirilse
+   * bile kayıt kullanıcının üstünde kalır.
+   *
+   * Rol SEÇİLİ firmadan gelir; çok şubeli hesapta aynı kişi bir şubede yönetici,
+   * ötekinde kısıtlı olabilir (CLAUDE.md → "rol firma bazındadır").
+   */
+  const { userRole } = useDashboardCompany()
+  const canAssignAuthorizedUser = hasFullCariAccess(userRole)
   const [activeTab, setActiveTab] = useState("identity")
   const [isLoading, setIsLoading] = useState(false)
   const [isFetching, setIsFetching] = useState(mode === "edit")
@@ -743,12 +756,12 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                     </div>
                     <select
                       id="authorizedUserId"
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                       value={formData.authorizedUserId}
                       onChange={(e) => setFormData({ ...formData, authorizedUserId: e.target.value })}
-                      disabled={isLoading}
+                      disabled={isLoading || !canAssignAuthorizedUser}
                     >
-                      <option value="">çalışan seçin... (isteğe bağlı)</option>
+                      <option value="">çalışan seçin... (yalnızca yöneticiler görür)</option>
                       {members
                         .filter((item) => Boolean(item.user?.id))
                         .map((item) => (
@@ -758,7 +771,9 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                         ))}
                     </select>
                     <p className="text-xs text-muted-foreground">
-                      Dilerseniz bu müşteriyi sadece seçtiğiniz çalışanın görmesini sağlayabilirsiniz.
+                      {canAssignAuthorizedUser
+                        ? `Bu ${entityLabel.toLocaleLowerCase("tr-TR")} kartını yalnızca seçtiğiniz çalışan görebilir. Boş bırakırsanız kartı sadece yöneticiler ve şube müdürleri görür; yönetici olmayan çalışanların hiçbiri göremez.`
+                        : "Yetkili çalışan atamasını yalnızca yöneticiler ve şube müdürleri değiştirebilir."}
                     </p>
                   </div>
                   <div className="space-y-2">

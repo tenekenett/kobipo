@@ -6,6 +6,8 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import { toBool } from "@/lib/cari/repair-dual-role"
 import { assertCariMirrorWrite } from "@/lib/cari/dual-role-access"
 import { fetchCustomerList } from "@/lib/cari/list-query"
+import { resolveAuthorizedUserIdOnWrite } from "@/lib/cari/visibility"
+import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = 'force-dynamic'
@@ -58,6 +60,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
       page,
       pageSize,
       paginate: usePagination,
+      // Yetkili çalışan kısıtı: yönetici olmayan üye yalnız kendine atanan
+      // carileri görür (bkz. lib/cari/visibility.ts).
+      visibility: await resolveCariVisibility(companyId),
     })
 
     if (usePagination) {
@@ -126,6 +131,9 @@ export const POST = withApiErrors(async function POST(request: Request) {
     }
 
     const access = await ensureCompanyWrite(companyId)
+    // Kısıtlı kullanıcı atamayı KENDİ dışına yapamaz; boş bıraktığında da kart
+    // kendisine atanır — yoksa açtığı cari daha ilk yüklemede listesinden düşerdi.
+    const visibility = await resolveCariVisibility(companyId)
     // İkiz tedarikçi kartı DOĞACAKSA "Tedarikçi" sayfasının yazma yetkisi de şart.
     if (toBool(isAlsoSupplier)) {
       await assertCariMirrorWrite(access, "supplier")
@@ -151,7 +159,10 @@ export const POST = withApiErrors(async function POST(request: Request) {
     const customer = await prisma.$transaction(async (tx) => {
       const normalizedClassification1Id = classification1Id ? String(classification1Id) : null
       const normalizedClassification2Id = classification2Id ? String(classification2Id) : null
-      const normalizedAuthorizedUserId = authorizedUserId ? String(authorizedUserId) : null
+      const normalizedAuthorizedUserId = resolveAuthorizedUserIdOnWrite(
+        authorizedUserId ? String(authorizedUserId) : null,
+        visibility,
+      )
 
       if (normalizedClassification1Id) {
         const classification1 = await tx.companyDefinition.findFirst({

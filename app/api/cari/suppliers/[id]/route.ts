@@ -8,6 +8,8 @@ import { assertCariMirrorWrite } from "@/lib/cari/dual-role-access"
 import { getSupplierDeletability } from "@/lib/cari/archive-guard"
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 import { resolveSlugId } from "@/lib/slug-resolve"
+import { assertCariVisible, resolveAuthorizedUserIdOnWrite } from "@/lib/cari/visibility"
+import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { payableSign, receivableSign } from "@/lib/cari/invoice-direction"
 
@@ -47,12 +49,15 @@ export const GET = withApiErrors(async function GET(
     if (new URL(request.url).searchParams.get("only") === "deletability") {
       const lite = await prisma.supplier.findUnique({
         where: { id: resolvedParams.id },
-        select: { id: true, companyId: true },
+        select: { id: true, companyId: true, authorizedUserId: true },
       })
       if (!lite) {
         return NextResponse.json({ error: "Supplier not found" }, { status: 404 })
       }
       await ensureCompanyAccess(lite.companyId)
+      // Hafif yol da kapıdan geçer: silinebilirlik cevabı carinin VARLIĞINI
+      // (ve fatura/işlem geçmişi olup olmadığını) ele verir.
+      assertCariVisible(lite, await resolveCariVisibility(lite.companyId))
       const deletability = await getSupplierDeletability(lite.id)
       return NextResponse.json({ deletability })
     }
@@ -86,6 +91,9 @@ export const GET = withApiErrors(async function GET(
     }
 
     await ensureCompanyAccess(supplier.companyId)
+    // Yetkili çalışan kısıtı: liste süzülüyor, kart da süzülmeli — yoksa eski
+    // link ya da elle yazılan adres başkasının carisini açardı.
+    assertCariVisible(supplier, await resolveCariVisibility(supplier.companyId))
 
     // Get all invoices and payments
     const allInvoices = await prisma.invoice.findMany({
@@ -358,6 +366,8 @@ export const PUT = withApiErrors(async function PUT(
     }
 
     const access = await ensureCompanyWrite(supplier.companyId)
+    const visibility = await resolveCariVisibility(supplier.companyId)
+    assertCariVisible(supplier, visibility)
     const {
       code,
       name,
@@ -423,10 +433,15 @@ export const PUT = withApiErrors(async function PUT(
         classification2Id !== undefined
           ? (classification2Id ? String(classification2Id) : null)
           : current.classification2Id
-      const normalizedAuthorizedUserId =
+      // Kısıtlı kullanıcı bu alanı DEĞİŞTİREMEZ: atamayı başkasına devretmek ya da
+      // boşaltmak, gördüğü cariyi kendi elleriyle erişilmez yapmak demektir.
+      // Yardımcı onda hep kendi id'sini döndürür (= mevcut değer).
+      const normalizedAuthorizedUserId = resolveAuthorizedUserIdOnWrite(
         authorizedUserId !== undefined
           ? (authorizedUserId ? String(authorizedUserId) : null)
-          : current.authorizedUserId
+          : current.authorizedUserId,
+        visibility,
+      )
 
       if (normalizedClassification1Id) {
         const classification1 = await tx.companyDefinition.findFirst({
@@ -670,6 +685,7 @@ export const DELETE = withApiErrors(async function DELETE(
     }
 
     await ensureCompanyWrite(supplier.companyId)
+    assertCariVisible(supplier, await resolveCariVisibility(supplier.companyId))
 
     const deletability = await getSupplierDeletability(supplier.id)
     if (!deletability.canDelete) {
@@ -723,6 +739,7 @@ export const PATCH = withApiErrors(async function PATCH(
     }
 
     await ensureCompanyWrite(supplier.companyId)
+    assertCariVisible(supplier, await resolveCariVisibility(supplier.companyId))
 
     const body = await request.json().catch(() => ({}))
     const action = body?.action === "unarchive" ? "unarchive" : "archive"
