@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { toBool } from "@/lib/cari/repair-dual-role"
+import { assertCariMirrorWrite } from "@/lib/cari/dual-role-access"
 import { fetchCustomerList } from "@/lib/cari/list-query"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
@@ -124,7 +125,11 @@ export const POST = withApiErrors(async function POST(request: Request) {
       )
     }
 
-    await ensureCompanyWrite(companyId)
+    const access = await ensureCompanyWrite(companyId)
+    // İkiz tedarikçi kartı DOĞACAKSA "Tedarikçi" sayfasının yazma yetkisi de şart.
+    if (toBool(isAlsoSupplier)) {
+      await assertCariMirrorWrite(access, "supplier")
+    }
     // Takma ad: boş/whitespace ise NULL yaz ki liste ve arama boş string'e takılmasın.
     const normalizedNickname =
       typeof nickname === "string" && nickname.trim() ? nickname.trim() : null

@@ -972,6 +972,51 @@ export function requiredPagesForApiPath(pathname: string, method: string): strin
   return isWriteRequest(method) ? rule.writePages ?? rule.pages : rule.pages
 }
 
+// ---- Yan etkinin GERÇEK sahibi ------------------------------------------------
+//
+// Yukarıdaki harita "bu YOL hangi sayfanın işi" sorusunu yanıtlar ve uçların çoğu
+// için yeterlidir. Ama bazı uçlar KENDİ yolunun sahibi olmayan bir tabloya da yazar;
+// o yazma kendi yolundan denetlenince kapı yanlış sayfaya sorulur ve kısıt yan
+// kapıdan aşılır. İki gerçek örnek (ikisi de kullanıcı şikâyetiyle bulundu):
+//
+//   tedarikçi kartında "Aynı zamanda Müşteri" → bir Customer satırı doğar/silinir,
+//   veri aktarım ekranı "müşteriler" dosyası    → Customer satırları yazılır,
+//
+// ve ikisi de `/cari/musteri` yazması KAPALI bir çalışanda çalışıyordu.
+//
+// Aşağıdakiler o yazmanın karşılık geldiği "gerçek" ucu verir; çağıran taraf
+// `assertPagePath` ile o yoldan denetler (bkz. lib/cari/dual-role-access.ts,
+// lib/import/access.ts). Sayfa adları burada da ELLE yazılmaz — kural tablosu tek
+// kaynak kalır. Saf tutuldular ki oturum/DB olmadan sınanabilsinler.
+
+export type CariMirror = "customer" | "supplier"
+
+/** İkiz cari kartının yazıldığı uç. */
+export function cariMirrorApiPath(mirror: CariMirror): string {
+  return mirror === "customer" ? "/api/cari/customers" : "/api/cari/suppliers"
+}
+
+/**
+ * İçe aktarma modülü → o veriyi normalde yazan uç.
+ *
+ * Haritada olmayan modül bu EK koşula tabi değildir; uç yine `/api/import`
+ * kuralıyla `/ayarlar/veri-aktarim` yazması ister. Yeni aktarım modülü eklerken
+ * hedefini buraya yazın.
+ */
+const IMPORT_TARGET_API_PATHS: Record<string, string> = {
+  customers: "/api/cari/customers",
+  suppliers: "/api/cari/suppliers",
+  products: "/api/stok/products",
+  invoices: "/api/faturalar",
+  // UBL dosyası bir faturadır; içindeki cari kartı gerekiyorsa AYRICA sorulur
+  // (bkz. app/api/import/route.ts → karşı taraf oluşturma).
+  "invoices-ubl": "/api/faturalar",
+}
+
+export function importTargetApiPath(module: string): string | null {
+  return IMPORT_TARGET_API_PATHS[module] ?? null
+}
+
 /**
  * Panel içindeki GERÇEK bir route'un hangi menü öğesine ait olduğunu çözer.
  *

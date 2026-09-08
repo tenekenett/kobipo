@@ -76,5 +76,34 @@ export function useAnchoredMenu({
     return () => document.removeEventListener("mousedown", onDoc)
   }, [open, anchorRef, containerRef, menuRef, onOutsideClick])
 
+  /**
+   * MODAL DİYALOG İÇİNDE liste tıklanabilir kalsın.
+   *
+   * Radix `Dialog` modalken `document.body`ye `pointer-events: none` yazar ve yalnız
+   * kendi içeriğine `auto` verir. Liste portal ile body'ye basıldığı için diyalogun
+   * KARDEŞİDİR: kuralı miras alır, ekranda görünür ama tıklanamaz. Sipariş/teklif
+   * ekranlarında "ürün seçme çalışmıyor" şikâyeti buydu — aynı diyalogdaki müşteri
+   * seçici (`SearchSelect`) listesini satır içinde bastığı için etkilenmiyordu.
+   *
+   * İki adım birlikte gerekiyor:
+   *  1. `pointer-events: auto` — liste yeniden hedef alınabilir hâle gelir.
+   *  2. `pointerdown` yutulur — Radix'in kapatma denetimi `document` üzerinde bu
+   *     olayı dinliyor ve listeyi "dışarı" saydığı için TÜM diyaloğu kapatırdı
+   *     (kullanıcı ürüne tıklayınca formu kaybederdi). `mousedown` bilinçle
+   *     dokunulmadı: seçim işleyicileri ve yukarıdaki dışarı-tıklama denetimi ondan
+   *     besleniyor, o da ayrı bir olay.
+   *
+   * `rect` bağımlılıkta çünkü liste ancak ölçü hesaplandıktan sonra DOM'a giriyor;
+   * yalnız `open`e bakan bir etki menü daha basılmamışken çalışıp boşa düşerdi.
+   */
+  useEffect(() => {
+    const el = menuRef.current
+    if (!open || !rect || !el) return
+    el.style.pointerEvents = "auto"
+    const swallow = (event: Event) => event.stopPropagation()
+    el.addEventListener("pointerdown", swallow)
+    return () => el.removeEventListener("pointerdown", swallow)
+  }, [open, rect, menuRef])
+
   return rect
 }

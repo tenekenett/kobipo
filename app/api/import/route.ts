@@ -8,6 +8,8 @@ import { XMLParser } from "fast-xml-parser"
 import * as XLSX from "xlsx"
 import { computeLineTax } from "@/lib/invoice/line-tax"
 import { applyCariRow, applyProductRow, type ImportRowResult } from "@/lib/import/apply"
+import { assertImportTargetWrite } from "@/lib/import/access"
+import { assertCariMirrorWrite } from "@/lib/cari/dual-role-access"
 import {
   customerHeaderAliases,
   invoiceHeaderAliases,
@@ -373,7 +375,16 @@ export const POST = withApiErrors(async function POST(request: Request) {
   if (!companyId || !module) {
     return NextResponse.json({ error: "companyId and module are required" }, { status: 400 })
   }
-  await ensureCompanyWrite(companyId)
+  const access = await ensureCompanyWrite(companyId)
+  // İçe aktarma HEDEF EKRANIN yetkisini de ister.
+  //
+  // Kapı ucun kendi yolundan türüyor (`/api/import` → `/ayarlar/veri-aktarim`) ve bu
+  // tek başına yetersizdi: "Müşteri" sayfası salt-okunur yapılmış bir çalışan, veri
+  // aktarım ekranından müşteri listesi yükleyerek cari EKLEYEBİLİYORDU. Aktarım bir
+  // taşıma aracıdır, yetki devretmez — yazdığı veriye kim dokunabiliyorsa o
+  // aktarabilir. Sahiplik `assertImportTargetWrite` içinde PAGE_API_RULES'tan
+  // türetilir; sayfa adı burada elle yazılmaz.
+  await assertImportTargetWrite(access, String(module))
   const company = await prisma.company.findUnique({
     where: { id: companyId },
     select: { name: true, taxNumber: true },
@@ -444,6 +455,11 @@ export const POST = withApiErrors(async function POST(request: Request) {
         if (existingCustomer) {
           customerId = existingCustomer.id
         } else {
+          // Fatura izni cari kartı AÇMA hakkı vermez: normal fatura ekranında da
+          // "yeni cari ekle" `/cari/musteri` yazmasına bağlı (useCanCreateCari).
+          // Karşı taraf yalnız GEREKTİĞİNDE doğduğu için kapı da burada sorulur —
+          // mevcut cariye kesilen UBL faturası bu koşula takılmaz.
+          await assertCariMirrorWrite(access, "customer")
           const created = await prisma.customer.create({
             data: {
               companyId,
@@ -471,6 +487,8 @@ export const POST = withApiErrors(async function POST(request: Request) {
         if (existingSupplier) {
           supplierId = existingSupplier.id
         } else {
+          // Müşteri tarafıyla aynı gerekçe: fatura izni tedarikçi kartı açmaz.
+          await assertCariMirrorWrite(access, "supplier")
           const created = await prisma.supplier.create({
             data: {
               companyId,

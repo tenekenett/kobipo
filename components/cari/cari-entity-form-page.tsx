@@ -14,6 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
 import { CityDistrictSelect } from "@/components/address/city-district-select"
+import { WriteAction } from "@/components/dashboard/write-guard"
+import { useCanEdit } from "@/components/dashboard/dashboard-company-provider"
 
 type EntityType = "customers" | "suppliers"
 type OpeningBalanceType = "DEBIT" | "CREDIT"
@@ -118,6 +120,14 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
   const { labels: classLabels } = useClassificationLabels(companyId)
   const isCustomer = entityType === "customers"
   const entityLabel = isCustomer ? "Müşteri" : "Tedarikçi"
+  /**
+   * "Aynı zamanda Müşteri/Tedarikçi" KARŞI kartı yazar (doğurur ya da siler), o
+   * yüzden yetkisi de karşı sayfadan gelir — sunucu kapısı aynı sahipliği uygular
+   * (bkz. lib/cari/dual-role-access.ts). Yetki yoksa anahtar kaldırılmıyor,
+   * KİLİTLENİYOR: mevcut bir çiftte bilgiyi de gösteriyor, silinse kullanıcı kaydın
+   * ikiz olduğunu göremezdi.
+   */
+  const canEditMirror = useCanEdit(isCustomer ? "/cari/tedarikci" : "/cari/musteri")
   const [activeTab, setActiveTab] = useState("identity")
   const [isLoading, setIsLoading] = useState(false)
   const [isFetching, setIsFetching] = useState(mode === "edit")
@@ -397,10 +407,12 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
             </Button>
           </Link>
         </div>
-        <Button type="submit" form="cari-entity-form" variant="success" disabled={isLoading}>
-          <Save className="mr-2 h-4 w-4" />
-          {isLoading ? "Kaydediliyor..." : "Kaydet"}
-        </Button>
+        <WriteAction>
+          <Button type="submit" form="cari-entity-form" variant="success" disabled={isLoading}>
+            <Save className="mr-2 h-4 w-4" />
+            {isLoading ? "Kaydediliyor..." : "Kaydet"}
+          </Button>
+        </WriteAction>
       </div>
 
       <Card>
@@ -801,9 +813,17 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                             isAlsoCustomer: isCustomer ? false : checked,
                           })
                         }
-                        disabled={isLoading}
+                        disabled={isLoading || !canEditMirror}
                       />
                     </div>
+                    {!canEditMirror && (
+                      <p className="text-xs text-muted-foreground">
+                        Bu anahtar {isCustomer ? "bir tedarikçi" : "bir müşteri"} kartı
+                        oluşturur ya da siler; bunun için{" "}
+                        <strong>{isCustomer ? "Tedarikçi" : "Müşteri"}</strong> sayfasında
+                        düzenleme yetkisi gerekir. Yetki için firma yöneticinize başvurun.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="note">Not</Label>
@@ -869,10 +889,12 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
               )}
             </Tabs>
             <div className="flex justify-end border-t pt-4">
-              <Button type="submit" variant="success" disabled={isLoading}>
-                <Save className="mr-2 h-4 w-4" />
-                {isLoading ? "Kaydediliyor..." : "Kaydet"}
-              </Button>
+              <WriteAction>
+                <Button type="submit" variant="success" disabled={isLoading}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {isLoading ? "Kaydediliyor..." : "Kaydet"}
+                </Button>
+              </WriteAction>
             </div>
           </form>
         </CardContent>

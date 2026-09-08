@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { customerHasBusinessReferences } from "@/lib/cari/dual-role"
+import { assertCariMirrorWrite } from "@/lib/cari/dual-role-access"
 import { getSupplierDeletability } from "@/lib/cari/archive-guard"
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 import { resolveSlugId } from "@/lib/slug-resolve"
@@ -356,7 +357,7 @@ export const PUT = withApiErrors(async function PUT(
       return NextResponse.json({ error: "Supplier not found" }, { status: 404 })
     }
 
-    await ensureCompanyWrite(supplier.companyId)
+    const access = await ensureCompanyWrite(supplier.companyId)
     const {
       code,
       name,
@@ -381,6 +382,24 @@ export const PUT = withApiErrors(async function PUT(
       authorizedUserId,
       isAlsoCustomer,
     } = body
+
+    // İkiz müşteri kartı DOĞACAK ya da SİLİNECEKSE "Müşteri" sayfasının yazma
+    // yetkisi de şart (bkz. lib/cari/dual-role-access.ts). Koşullar aşağıdaki
+    // işlemin kendi dallarıyla birebir aynı tutuldu: yoksa kapı, hiçbir şey
+    // yaratmayan/silmeyen sıradan bir kaydı da reddederdi.
+    {
+      const linkedCustomer = await prisma.customer.findFirst({
+        where: { linkedSupplierId: supplier.id },
+        select: { id: true },
+      })
+      const nextIsAlsoCustomer =
+        isAlsoCustomer !== undefined ? Boolean(isAlsoCustomer) : supplier.isAlsoCustomer
+      const willDelete = isAlsoCustomer === false && Boolean(linkedCustomer)
+      const willCreate = nextIsAlsoCustomer && !linkedCustomer
+      if (willDelete || willCreate) {
+        await assertCariMirrorWrite(access, "customer")
+      }
+    }
 
     const paymentDueDaysVal = parsePaymentDueDays(paymentDueDays)
     const openingBalanceAmountVal =
