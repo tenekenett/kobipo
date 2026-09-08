@@ -39,7 +39,6 @@ const cari = (over: Partial<TersBakiyeCarisi> = {}): TersBakiyeCarisi => ({
   faturaAdet: 2,
   faturaToplam: 50_000,
   ciftRol: false,
-  acilisVar: false,
   ...over,
 })
 
@@ -49,7 +48,6 @@ const tersOzet = (over: Partial<TersBakiyeOzeti> = {}): TersBakiyeOzeti => ({
   faturasizAdet: 0,
   enBuyuk: 100_000,
   ciftRolVar: false,
-  acilisVarMi: false,
   ornekler: [cari()],
   ...over,
 })
@@ -96,20 +94,18 @@ describe("K-THS-08 / K-TDR-05 metni", () => {
     expect(cok.baslik).toContain("2 ")
   })
 
-  it("çift rol ve açılış notları YALNIZ ilgili durumda eklenir", () => {
+  it("çift rol notu YALNIZ çift rollü caride eklenir", () => {
     const sade = tersBakiyeKarti(FIRMA, tersOzet())
     expect(sade.gerekce).not.toContain("mahsuplaşmaz")
-    expect(sade.gerekce).not.toContain("ekstre ekranı")
 
-    const isaretli = tersBakiyeKarti(FIRMA, tersOzet({ ciftRolVar: true, acilisVarMi: true }))
+    const isaretli = tersBakiyeKarti(FIRMA, tersOzet({ ciftRolVar: true }))
     expect(isaretli.gerekce).toContain("mahsuplaşmaz")
-    expect(isaretli.gerekce).toContain("ekstre ekranı")
   })
 
-  it("kart 'ekstredeki rakamın aynısı' İDDİASINI TAŞIMAZ (tarayıcıda yanlış çıktı)", () => {
+  it("kart hangi bakiyeyi söylediğini yazar — ekstre 2026-09-08'de hizalandı", () => {
     const kart = tersBakiyeKarti(FIRMA, tersOzet())
-    expect(kart.gerekce).toContain("cari listesindeki bakiye")
-    expect(kart.gerekce).not.toContain("ekstredeki rakamın aynısı")
+    expect(kart.gerekce).toContain("cari listesindeki bakiyedir")
+    expect(kart.gerekce).toContain("ekstrede de aynı rakam")
   })
 })
 

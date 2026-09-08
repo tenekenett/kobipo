@@ -25,6 +25,7 @@ export type EkstreExportParams = {
 }
 
 const TYPE_LABELS: Record<string, string> = {
+  OPENING: "Açılış",
   INVOICE: "Fatura",
   INVOICE_PAYMENT: "Fatura Ödemesi",
   TRANSACTION: "Tahsilat/Ödeme",

@@ -55,17 +55,17 @@
  *   Denizli Özstar     ₺31.200 fatura, ₺35.000 tahsilat
  *   REFORM KABLO       ₺6.015 alış, ₺46.019 ödeme
  *
- * ── EKSTRE İLE FARK: açılış bakiyesi ───────────────────────────────────────
+ * ── EKSTREYLE AYRIŞMA: bulundu ve KAYNAĞINDA düzeltildi ────────────────────
  * TARAYICI DENETİMİNDE ÇIKTI (2026-09-07): kart ABC Müşteri için ₺47.214
- * derken ekstre ekranı −₺62.214 gösteriyordu. Aradaki ₺15.000, o carinin AÇILIŞ
- * BAKİYESİ: cari listesi (ve yaşlandırma) açılışı hesaba katıyor,
- * `lib/cari/ekstre-query.ts` ise açılış için satır ÜRETMİYOR. Yani iki ekran
- * açılışı olan caride farklı rakam gösteriyor — kartın yol açtığı bir şey değil,
- * ürünün mevcut tutarsızlığı.
+ * derken ekstre ekranı −₺62.214 gösteriyordu. Aradaki ₺15.000 o carinin AÇILIŞ
+ * BAKİYESİYDİ: cari listesi ve yaşlandırma açılışı hesaba katıyor, ekstre ise
+ * onun için satır üretmiyordu. Kartın yol açtığı bir şey değildi — ürünün iki
+ * ekranı arasındaki tutarsızlıktı.
  *
- * Kart bu yüzden "ekstredeki rakamın aynısı" DEMİYOR; açılışı olan caride farkı
- * ve sebebini açıkça yazıyor. Kartın söylediği rakamla kullanıcının açtığı
- * ekranın rakamı ayrışıyorsa, sebebini söylemek tek dürüst davranıştır.
+ * 2026-09-08'de kaynağında düzeltildi (`lib/cari/ekstre-query.ts` → açılış
+ * satırı; aynı denetimde çek/senedin ters yazıldığı ikinci hata da çıktı).
+ * Doğrulandı: çeki/senedi ya da açılışı olan 13 carinin 13'ünde iki ekran artık
+ * kuruşu kuruşuna aynı. Kart bu yüzden tekrar "ekstrede de aynı rakam" diyor.
  *
  * ── Tutar CARİ BAKİYEDİR — ikinci formül yazılmaz ───────────────────────────
  * K-THS-07'de öğrenilen kural burada da geçerli: tutar `lib/cari/list-query.ts`
@@ -110,8 +110,6 @@ export type TersBakiyeCarisi = {
   faturaToplam: number
   /** Cari, karşı tarafta da kayıtlı mı (müşteri ↔ tedarikçi eşi var mı)? */
   ciftRol: boolean
-  /** Açılış bakiyesi girilmiş mi — kart iki ekran arasındaki farkı SÖYLESİN diye. */
-  acilisVar: boolean
 }
 
 export type TersBakiyeOzeti = {
@@ -123,8 +121,6 @@ export type TersBakiyeOzeti = {
   enBuyuk: number
   /** Listedeki carilerden biri çift rollüyse kart bunu SÖYLER (bkz. başlık). */
   ciftRolVar: boolean
-  /** Listedekilerden birinde açılış bakiyesi varsa kart ekstre farkını yazar. */
-  acilisVarMi: boolean
   ornekler: TersBakiyeCarisi[]
 }
 
@@ -225,7 +221,6 @@ export function tersBakiyeSec(
       faturaAdet: f ? Number(f.dogal_adet) : 0,
       faturaToplam: f ? sayi(f.dogal_tutar) : 0,
       ciftRol: Boolean(yon === "musteri" ? c.isAlsoSupplier : c.isAlsoCustomer),
-      acilisVar: Number(c.openingBalanceAmount ?? 0) > 0,
     })
   }
 
@@ -239,7 +234,6 @@ export function tersBakiyeSec(
     faturasizAdet: kalanlar.filter((c) => c.faturaAdet === 0).length,
     enBuyuk: kalanlar[0].tutar,
     ciftRolVar: kalanlar.slice(0, ORNEK_CARI_SAYISI).some((c) => c.ciftRol),
-    acilisVarMi: kalanlar.slice(0, ORNEK_CARI_SAYISI).some((c) => c.acilisVar),
     // TOPLAM ALINMIYOR — K-NKT-06'daki gerekçenin aynısı: veride
     // ₺3.213.123.123.123 tutarlı bir çek var; toplanan her rakam onunla
     // birlikte okunamaz hâle gelir. Cariler kartın içinde tek tek yazılır.

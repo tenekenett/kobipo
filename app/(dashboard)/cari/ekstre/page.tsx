@@ -45,6 +45,9 @@ interface EkstreEntry {
 type AgingBuckets = Record<AgingBucket, number>
 
 const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
+  // Açılış bakiyesi bir HAREKET değil, devirdir: nötr renkte ve her zaman
+  // listenin ilk satırında durur (bkz. lib/cari/ekstre-query → acilisSatiri).
+  OPENING: { label: "Açılış", cls: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40" },
   INVOICE: { label: "Fatura", cls: "bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40" },
   INVOICE_PAYMENT: { label: "Fatura Ödemesi", cls: "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-500/15 dark:text-teal-200 dark:border-teal-500/40" },
   TRANSACTION: { label: "Tahsilat/Ödeme", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/40" },

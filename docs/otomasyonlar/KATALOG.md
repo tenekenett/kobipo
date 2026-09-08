@@ -518,11 +518,17 @@ aynı kuralı kullanıyor, iç numara yalnız günlüğe yazılıyor.
 BAKİYESİ: cari listesi ve yaşlandırma açılışı hesaba katıyor,
 `lib/cari/ekstre-query.ts` ise açılış için satır ÜRETMİYOR.
 
-> Bu, kartların yol açtığı bir şey değil — **ürünün iki ekranı arasındaki mevcut
-> tutarsızlık**. Açılış bakiyesi girili tek cari olduğu için (349 müşterinin
-> 1'i) bugüne kadar görülmemiş. Kartlar (K-THS-07, K-THS-08, K-TDR-05) artık
-> "cari listesindeki bakiye" diyor ve açılışı olan caride farkı SÖYLÜYOR.
-> Ekstrenin kendisi hâlâ açılışsız: ayrı bir iş olarak duruyor.
+> Bu, kartların yol açtığı bir şey değildi — **ürünün iki ekranı arasındaki
+> tutarsızlıktı**. Açılış bakiyesi girili tek cari olduğu için (349 müşterinin
+> 1'i) bugüne kadar görülmemiş.
+>
+> **2026-09-08'de kaynağında düzeltildi** (`lib/cari/ekstre-query.ts`): ekstre
+> artık açılış bakiyesi için satır üretiyor. Doğrulama sırasında AYNI AİLEDEN
+> ikinci ve daha büyük bir hata çıktı — ekstre çek/senedi ters tarafa yazıyordu:
+> müşteriden ALINAN çek onun borcunu kapatır, ekstre ise borcu artırıyordu
+> (üç caride fark, çek tutarının tam iki katıydı). İkisi de düzeltildi; çeki,
+> senedi ya da açılışı olan 13 carinin 13'ünde ekstre ile cari listesi artık
+> kuruşu kuruşuna aynı. Kartlar da tekrar "ekstrede de aynı rakam" diyor.
 
 **Doğrulananlar:**
 

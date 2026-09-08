@@ -716,8 +716,7 @@ function gecikmisAlacakKarti(a: GecikmisAlacak): Kart {
       `${a.faturaAdet} faturanın vadesi geçti. ${vadeCumlesi} ` +
       `${money0(a.bakiye)} rakamı bu müşterinin CARİ BAKİYESİDİR: geciken faturaların yanında ` +
       `kapanmamış eski bakiye, tahsilatlar ve çek/senet de içindedir — cari listesindeki ` +
-      `tutarın aynısı. (Ekstre ekranı açılış bakiyesini satır olarak göstermiyor; açılışı ` +
-      `girili caride iki ekran arasında o kadar fark çıkar.)`,
+      `ve ekstredeki tutarın aynısı.`,
     sonTarih:
       a.gecikmeGun >= 30
         ? "Bir ayı geçti; bugün aranmalı."
@@ -789,8 +788,8 @@ export function tersBakiyeKarti(companyId: string, o: TersBakiyeOzeti): Kart {
 
   const gerekce =
     `${listeMetni}${kalan > 0 ? ` (+${kalan} cari daha)` : ""}. ` +
-    `Bu tutarlar cari listesindeki bakiyedir: fatura, tahsilat, çek/senet ve ` +
-    `açılış bakiyesi birlikte hesaplanır.${acilisNotu(o)} ` +
+    `Bu tutarlar cari listesindeki bakiyedir ve ekstrede de aynı rakam görünür: ` +
+    `fatura, tahsilat, çek/senet ve açılış bakiyesi birlikte hesaplanır. ` +
     `${musteri ? "Bu müşterilere kesilmiş alış faturası" : "Bu tedarikçilere kesilmiş satış faturası"} ` +
     `yok, yani bakiye mahsuptan doğmuyor.${ciftRolNotu(o, musteri)} ${teshis}`
 
@@ -857,23 +856,6 @@ function ciftRolNotu(o: TersBakiyeOzeti, musteri: boolean): string {
   return musteri
     ? " Listedeki cari(ler) tedarikçi olarak da kayıtlı; iki kaydın bakiyesi ayrı tutulur, mahsuplaşmaz."
     : " Listedeki cari(ler) müşteri olarak da kayıtlı; iki kaydın bakiyesi ayrı tutulur, mahsuplaşmaz."
-}
-
-/**
- * Açılış bakiyesi uyarısı — kartın rakamı ile EKSTRENİN rakamı ayrıştığında.
- *
- * Tarayıcı denetiminde yakalandı: ekstre ekranı açılış bakiyesi için satır
- * üretmiyor (`lib/cari/ekstre-query.ts`), cari listesi ise açılışı bakiyeye
- * katıyor. Açılışı olan caride kart ₺47.214 derken ekstre −₺62.214 gösteriyor.
- * Kartın aksiyonu ekstreyi açtığı için bu farkı SÖYLEMEK zorunda: sessiz kalsa,
- * kullanıcı iki rakamdan hangisinin doğru olduğunu bilemezdi.
- */
-function acilisNotu(o: TersBakiyeOzeti): string {
-  if (!o.acilisVarMi) return ""
-  return (
-    " Bu carilerde açılış bakiyesi girili; ekstre ekranı açılışı satır olarak" +
-    " göstermediği için orada farklı bir rakam görürsünüz."
-  )
 }
 
 function tersBakiyeBasligi(

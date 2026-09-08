@@ -9,10 +9,12 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { isPurchaseReturn, payableSign, receivableSign } from "@/lib/cari/invoice-direction"
+import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 import { AGING_BUCKETS, type AgingBucket } from "@/lib/raporlar/cari-yaslandirma-buckets"
 import { computeCariAging } from "@/lib/raporlar/cari-yaslandirma"
 
 export type EkstreEntryType =
+  | "OPENING"
   | "INVOICE"
   | "INVOICE_PAYMENT"
   | "TRANSACTION"
@@ -71,6 +73,110 @@ export type EkstreResult = {
   agingExcludedDrafts: { count: number; amount: number } | null
 }
 
+/**
+ * AÇILIŞ BAKİYESİ — ekstrenin ilk satırı.
+ *
+ * ── Neden sonradan eklendi ──────────────────────────────────────────────────
+ * Cari listesi ve yaşlandırma raporu açılış bakiyesini HESABA KATIYOR
+ * (`lib/cari/list-query.ts` bakiye formülü, `cari-yaslandirma.ts` →
+ * `openingBalanceToAgingItem`), ekstre ise onun için satır ÜRETMİYORDU. Aynı
+ * cari iki ekranda iki farklı rakam gösteriyordu:
+ *
+ *   ABC Müşteri A.Ş. · cari listesi −47.214 TL · ekstre −62.214 TL
+ *   aradaki 15.000 TL = kartına girilmiş açılış bakiyesi
+ *
+ * Fark 2026-09-07'de otomasyon kartı denetiminde çıktı: kart "cari bakiye"
+ * diyor, kullanıcı ekstreyi açıyor ve başka bir rakam görüyordu. Kartın dili
+ * düzeltildi ama asıl tutarsızlık buradaydı.
+ *
+ * ── İki karar ───────────────────────────────────────────────────────────────
+ * 1. YALNIZ TEK CARİ SEÇİLİYKEN. "Tümü" görünümünde her carinin açılışı ayrı
+ *    satır olurdu; o görünüm bir bakiye tablosu değil hareket listesidir ve
+ *    yaşlandırma kutusu da orada bilerek boş bırakılıyor (bkz. `EkstreResult`).
+ * 2. TARİH SÜZGECİNE TABİ. Açılışın tarihi hesabın açıldığı gündür
+ *    (`createdAt` — yaşlandırma raporu da onu kullanıyor). Dönem seçen kullanıcı
+ *    o dönemin hareketlerini görür; açılış da diğer satırlar gibi süzülür.
+ *    Süzgeçten bağımsız eklenseydi, seçilen ayın bakiyesi dönem dışı bir tutarı
+ *    içerirdi.
+ *
+ * Yön muhasebenin kendi sözlüğü: DEBIT açılış BORÇ sütununa, CREDIT açılış
+ * ALACAK sütununa yazılır — müşteride de tedarikçide de aynı, çünkü ekstrenin
+ * borç/alacak ekseni zaten cari türüne göre kuruluyor.
+ */
+export type AcilisKaydi = {
+  id: string
+  name: string
+  createdAt: Date
+  openingBalanceAmount: unknown
+  openingBalanceType: string | null
+}
+
+export function acilisSatiri(
+  kayit: AcilisKaydi | null,
+  startDate?: string | null,
+  endDate?: string | null
+): EkstreEntry | null {
+  if (!kayit) return null
+  const tutar = Number(kayit.openingBalanceAmount ?? 0)
+  if (!Number.isFinite(tutar) || tutar <= 0) return null
+
+  const tarih = new Date(kayit.createdAt)
+  const zaman = tarih.getTime()
+  if (startDate && zaman < new Date(startDate).getTime()) return null
+  if (endDate && zaman > new Date(endDate).getTime()) return null
+
+  const borc = String(kayit.openingBalanceType || "DEBIT").toUpperCase() === "DEBIT"
+
+  return {
+    type: "OPENING",
+    id: `opening-${kayit.id}`,
+    date: tarih,
+    description: "Açılış bakiyesi",
+    debit: borc ? tutar : 0,
+    credit: borc ? 0 : tutar,
+    balance: 0,
+    reference: null,
+    data: {
+      openingBalanceAmount: tutar,
+      openingBalanceType: borc ? "DEBIT" : "CREDIT",
+      createdAt: tarih,
+    },
+  }
+}
+
+/**
+ * ÇEK/SENEDİN EKSTREDEKİ YÖNÜ — kural `lib/cari/check-credit.ts`ten gelir.
+ *
+ * ── Bulunan hata (2026-09-08) ───────────────────────────────────────────────
+ * Ekstre yönü kıymetin `direction` alanına DEĞİL, hangi cari alanının dolu
+ * olduğuna bakarak seçiyordu: müşteriye ait her çek BORÇ, tedarikçiye ait her
+ * çek ALACAK yazılıyordu. Müşteriden ALINAN çek onun borcunu KAPATIR; ekstre
+ * ise borcu artırıyordu — işaret ters.
+ *
+ * Ölçüldü: 67 carinin 3'ünde ekstre ile cari listesi ayrışıyordu ve üçünde de
+ * fark, çek tutarının TAM İKİ KATIydı (ters işaretin imzası):
+ *   Özkan Karakan   liste −100.000 · ekstre +100.000  (100.000 TL alınan çek)
+ *   Kanyon Turizm   liste −189.750 · ekstre +303.336  (246.543 TL alınan çek)
+ *   AYGÜL YAPI      liste  168.000 · ekstre  568.000  (200.000 TL alınan çek)
+ *
+ * Kural artık tek kaynaktan: `checkNoteSignedCredit` "bakiyeyi AZALTAN etki"yi
+ * işaretli döndürür. Müşteride azaltmak ALACAK sütunudur; tedarikçide ekstrenin
+ * ekseni ters olduğu için (alış faturası alacak yazılır) azaltmak BORÇ sütunudur.
+ */
+export function kiymetYonu(kiymet: {
+  customerId: string | null
+  direction: string | null
+  amount: unknown
+}): { debit: number; credit: number } {
+  const tutar = Number(kiymet.amount)
+  const kind = kiymet.customerId ? "customer" : "supplier"
+  const azaltan = checkNoteSignedCredit(kind, kiymet.direction, tutar)
+  if (kind === "customer") {
+    return { debit: Math.max(-azaltan, 0), credit: Math.max(azaltan, 0) }
+  }
+  return { debit: Math.max(azaltan, 0), credit: Math.max(-azaltan, 0) }
+}
+
 export type EkstreOptions = {
   companyId: string
   customerId?: string | null
@@ -110,6 +216,31 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
     ...(supplierId && { supplierId }),
   }
 
+  // Açılış bakiyesi YALNIZ tek cari seçiliyken okunur (gerekçe: `acilisSatiri`).
+  const acilisKaydi = customerId
+    ? await prisma.customer.findFirst({
+        where: { id: customerId, companyId },
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+          openingBalanceAmount: true,
+          openingBalanceType: true,
+        },
+      })
+    : supplierId
+      ? await prisma.supplier.findFirst({
+          where: { id: supplierId, companyId },
+          select: {
+            id: true,
+            name: true,
+            createdAt: true,
+            openingBalanceAmount: true,
+            openingBalanceType: true,
+          },
+        })
+      : null
+
   const [invoices, transactions, checks, promissoryNotes] = await Promise.all([
     prisma.invoice.findMany({
       where,
@@ -131,12 +262,24 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       include: { account: true, customer: true, supplier: true },
       orderBy: { date: "desc" },
     }),
+    // İADE_EDİLDİ / PROTESTOLU kıymet cari pozisyonunu DEĞİŞTİRMEZ; cari
+    // listesi ve yaşlandırma ikisini de elemiş, ekstre elemiyordu.
     prisma.check.findMany({
-      where: { companyId, ...partyFilter, ...dateRange("dueDate") },
+      where: {
+        companyId,
+        ...partyFilter,
+        ...dateRange("dueDate"),
+        status: { notIn: [...CHECK_NOTE_NON_SETTLING] },
+      },
       orderBy: { dueDate: "desc" },
     }),
     prisma.promissoryNote.findMany({
-      where: { companyId, ...partyFilter, ...dateRange("dueDate") },
+      where: {
+        companyId,
+        ...partyFilter,
+        ...dateRange("dueDate"),
+        status: { notIn: [...CHECK_NOTE_NON_SETTLING] },
+      },
       orderBy: { dueDate: "desc" },
     }),
   ])
@@ -219,8 +362,7 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       id: check.id,
       date: check.dueDate,
       description: `Çek ${check.checkNo}`,
-      debit: check.customerId ? Number(check.amount) : 0,
-      credit: check.supplierId ? Number(check.amount) : 0,
+      ...kiymetYonu(check),
       balance: 0,
       reference: check.checkNo,
       data: check,
@@ -230,13 +372,19 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       id: note.id,
       date: note.dueDate,
       description: `Senet ${note.noteNo}`,
-      debit: note.customerId ? Number(note.amount) : 0,
-      credit: note.supplierId ? Number(note.amount) : 0,
+      ...kiymetYonu(note),
       balance: 0,
       reference: note.noteNo,
       data: note,
     })),
   ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+  // AÇILIŞ SATIRI SIRALAMADAN SONRA, EN BAŞA eklenir — tarihine bakılmadan.
+  // Muhasebede devir/açılış her zaman ekstrenin ilk satırıdır; geri tarihli bir
+  // fatura hesabın açıldığı günden önceye düşebiliyor ve tarihe göre sıralamak
+  // açılışı listenin ortasına atardı.
+  const acilis = acilisSatiri(acilisKaydi, startDate, endDate)
+  if (acilis) entries.unshift(acilis)
 
   // Yürüyen bakiye
   let runningBalance = 0
