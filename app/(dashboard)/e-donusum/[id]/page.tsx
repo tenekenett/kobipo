@@ -140,7 +140,10 @@ export default function InvoiceDetailPage() {
 
     setIsSending(true)
     try {
-      const response = await fetch(`/api/e-donusum/invoices/${id}`, {
+      // `id` SEF slug'ıdır (yukarıda cuid URL'i slug'a yükseltiliyor); slug yalnız
+      // firma içinde benzersiz olduğu için firma olmadan çözülemez — param'sız
+      // istek "fatura bulunamadı" ile dönerdi. Bkz. lib/slug-resolve.ts.
+      const response = await fetch(`/api/e-donusum/invoices/${id}?companyId=${companyId}`, {
         method: "POST",
       })
 

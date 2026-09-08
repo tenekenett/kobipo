@@ -2,8 +2,14 @@ import { prisma } from "@/lib/db/prisma"
 import { looksLikeCuid } from "@/lib/slug"
 
 /**
- * SEF (okunabilir URL) [id] route'ları için ortak çözümleyici — cari'deki
- * `resolveCariId`'nin genelleştirilmiş hâli (bkz. lib/cari/resolve-cari.ts).
+ * SEF (okunabilir URL) [id] route'ları için TEK çözümleyici.
+ *
+ * Cari'nin ayrı bir kopyası (`lib/cari/resolve-cari.ts` → `resolveCariId`) vardı ve
+ * companyId verilmediğinde slug'ı firma-KÖR arıyordu; 2026-09-08'de cari kartı
+ * kaydetmek bu yüzden başka firmanın aynı slug'lı carisine düşüyor, kullanıcı
+ * "Sınıflandırma 2 kaydı bulunamadı" (500) ya da "Access denied" alıyordu.
+ * Kopya kaldırıldı: ikinci bir kapı, güvenli olanın yanında sessizce eskiyor.
+ *
  * URL segmentini gerçek kayıt id'sine (cuid) çevirir:
  * - Segment cuid ise (eski URL / bookmark / çapraz linkler) olduğu gibi döner.
  * - Segment slug ise, firma-içi (companyId verilmişse) slug ile kaydı bulup

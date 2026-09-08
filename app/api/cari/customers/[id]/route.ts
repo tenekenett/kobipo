@@ -6,7 +6,7 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import { supplierHasBusinessReferences } from "@/lib/cari/dual-role"
 import { getCustomerDeletability } from "@/lib/cari/archive-guard"
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
-import { resolveCariId } from "@/lib/cari/resolve-cari"
+import { resolveSlugId } from "@/lib/slug-resolve"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
 
@@ -39,7 +39,7 @@ export const GET = withApiErrors(async function GET(
     }
 
     const resolvedParams = await params
-    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
+    resolvedParams.id = await resolveSlugId("customer", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
 
     // Hafif yol: silme diyaloğu yalnızca silinebilirliği ister. Tüm ekstreyi
     // (bakiye + faturalar + işlemler + çek/senet + yürüyen bakiye) hesaplamadan
@@ -408,7 +408,16 @@ export const PUT = withApiErrors(async function PUT(
     }
 
     const resolvedParams = await params
-    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
+    // Gövde slug çözümünden ÖNCE okunur: düzenleme formu firmayı query'de değil
+    // gövdede yolluyor ve slug yalnız firma içinde benzersiz. Firma verilmezse
+    // `resolveSlugId` çözmeyi reddeder (fail-closed) ve istek 404'e düşerdi;
+    // eski hâlinde ise firma-kör arama başka firmanın aynı slug'lı carisini
+    // bulup düzenlemeyi ORAYA yazıyordu.
+    const body = await request.json()
+    const requestedCompanyId = await resolveCompanyId(
+      body?.companyId ?? new URL(request.url).searchParams.get("companyId"),
+    )
+    resolvedParams.id = await resolveSlugId("customer", resolvedParams.id, requestedCompanyId)
     const customer = await prisma.customer.findUnique({
       where: { id: resolvedParams.id },
     })
@@ -417,9 +426,13 @@ export const PUT = withApiErrors(async function PUT(
       return NextResponse.json({ error: "Customer not found" }, { status: 404 })
     }
 
-    await ensureCompanyWrite(customer.companyId)
+    // Eski cuid URL'lerinde slug çözümü devreye girmez; kaydın firması istenen
+    // firmadan farklıysa istek burada durur (çapraz firma düzenlemesi yok).
+    if (requestedCompanyId && customer.companyId !== requestedCompanyId) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 })
+    }
 
-    const body = await request.json()
+    await ensureCompanyWrite(customer.companyId)
     const {
       code,
       name,
@@ -708,7 +721,7 @@ export const DELETE = withApiErrors(async function DELETE(
     }
 
     const resolvedParams = await params
-    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
+    resolvedParams.id = await resolveSlugId("customer", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const customer = await prisma.customer.findUnique({
       where: { id: resolvedParams.id },
     })
@@ -764,7 +777,7 @@ export const PATCH = withApiErrors(async function PATCH(
     }
 
     const resolvedParams = await params
-    resolvedParams.id = await resolveCariId("customer", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
+    resolvedParams.id = await resolveSlugId("customer", resolvedParams.id, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
     const customer = await prisma.customer.findUnique({
       where: { id: resolvedParams.id },
     })
