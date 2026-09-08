@@ -22,8 +22,24 @@ export function normalizeTaxNumber(value: string | null | undefined) {
   return String(value || "").replace(/\D/g, "")
 }
 
+/**
+ * Sayı hücresinin çevresindeki süsü atar: para birimi simgesi/eki, yüzde
+ * işareti, kırılmayan boşluk.
+ *
+ * XLSX `raw: false` ile okunuyor, yani hücrenin EKRANDA GÖRÜNEN metni geliyor.
+ * Excel'de "Para Birimi" ya da "Muhasebe" biçimli bir fiyat sütunu buraya
+ * "2.094,70 ₺" diye ulaşır; temizlenmezse sayıya çevrilemez.
+ */
+function stripAmountNoise(raw: string) {
+  return raw
+    .replace(/[\u00a0\u202f\u2007]/g, " ")
+    .replace(/[₺$€£%]/g, "")
+    .replace(/\b(?:TL|TRY|USD|EUR|GBP)\b/gi, "")
+    .trim()
+}
+
 export function parseDecimal(value: any, fallback = 0) {
-  const raw = String(value ?? "").trim()
+  const raw = stripAmountNoise(String(value ?? "").trim())
   if (!raw) return fallback
 
   const normalized = raw
@@ -34,6 +50,31 @@ export function parseDecimal(value: any, fallback = 0) {
 
   const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : fallback
+}
+
+/**
+ * Sayı hücresi — okunamayan değer SESSİZCE 0 OLMAZ, satırı hataya düşürür.
+ *
+ * 2026-09-08'de bir ürün listesindeki 518 satırın tamamı alış/satış fiyatı 0 ile
+ * açıldı: dosyanın fiyat sütunu Excel'de para birimi biçimliydi, hücreler
+ * "2.094,70 ₺" olarak geldi ve `parseDecimal`in varsayılanı sessizce 0 yazdı.
+ * Kullanıcı bunu ancak ürün listesinde fark edebildi. Artık böyle bir hücre
+ * satırı reddettirir ve hangi sütunun ne yüzden okunamadığı ekranda yazar.
+ *
+ * Dönüş `undefined` = hücre boş; "değiştirme"/"varsayılanı kullan" anlamındadır.
+ */
+export function parseAmountCell(raw: string, alan: string): number | undefined {
+  const temiz = stripAmountNoise(String(raw ?? "").trim())
+  if (!temiz) return undefined
+
+  // Muhasebe biçimi sıfırı tire ile gösterir ("-", "--").
+  if (/^-+$/.test(temiz)) return 0
+
+  const parsed = parseDecimal(temiz, Number.NaN)
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`"${alan}" sütunu sayı değil: "${raw}"`)
+  }
+  return parsed
 }
 
 export function parseOpeningBalanceType(value: string) {
@@ -191,7 +232,11 @@ export function describeMatchConflict<T extends { name: string }>(
 function collectProvided(entries: Array<[string, string, (raw: string) => unknown]>) {
   const data: Record<string, unknown> = {}
   for (const [field, raw, map] of entries) {
-    if (raw !== "") data[field] = map(raw)
+    if (raw === "") continue
+    const value = map(raw)
+    // `undefined` = hücre yalnızca süsten ibaretmiş (bir "₺" ya da boşluk);
+    // alanı null'a çekmek yerine dokunulmaz.
+    if (value !== undefined) data[field] = value
   }
   return data
 }
@@ -219,10 +264,10 @@ export function productUpdateData(
     ["shelfCode", get("shelfcode"), (raw) => raw],
     ["category", get("category"), (raw) => raw],
     ["unit", get("unit"), (raw) => raw],
-    ["minStockLevel", get("minstocklevel"), (raw) => parseDecimal(raw, 0)],
-    ["purchasePrice", get("purchaseprice"), (raw) => parseDecimal(raw)],
-    ["salePrice", get("saleprice"), (raw) => parseDecimal(raw)],
-    ["vatRate", get("vatrate"), (raw) => parseDecimal(raw, 20)],
+    ["minStockLevel", get("minstocklevel"), (raw) => parseAmountCell(raw, "Min. Stok")],
+    ["purchasePrice", get("purchaseprice"), (raw) => parseAmountCell(raw, "Alış Fiyatı")],
+    ["salePrice", get("saleprice"), (raw) => parseAmountCell(raw, "Satış Fiyatı")],
+    ["vatRate", get("vatrate"), (raw) => parseAmountCell(raw, "KDV Oranı")],
   ])
 
   // Stok miktarı VARSAYILAN OLARAK yazılmaz: dosyadaki sayı dışa aktarım
@@ -230,7 +275,8 @@ export function productUpdateData(
   // alır. Fiyat güncelleyen kullanıcı stoğunu geri sarmış olmamalı.
   if (options.updateStock) {
     const raw = get("stockquantity")
-    if (raw !== "") data.stockQuantity = parseDecimal(raw, 0)
+    const miktar = parseAmountCell(raw, "Stok Miktarı")
+    if (miktar !== undefined) data.stockQuantity = miktar
   }
 
   return data
@@ -247,8 +293,12 @@ export function cariUpdateData(get: ImportGetter, options: UpdateOptions) {
     ["address", get("address"), (raw) => raw],
     ["city", get("city"), (raw) => raw],
     ["contactPerson", get("contactperson"), (raw) => raw],
-    ["paymentDueDays", get("paymentduedays"), (raw) => Math.max(0, Math.trunc(parseDecimal(raw, 0)))],
-    ["riskLimit", get("risklimit"), (raw) => parseDecimal(raw, 0)],
+    [
+      "paymentDueDays",
+      get("paymentduedays"),
+      (raw) => Math.max(0, Math.trunc(parseAmountCell(raw, "Vade (gün)") ?? 0)),
+    ],
+    ["riskLimit", get("risklimit"), (raw) => parseAmountCell(raw, "Risk Limiti")],
     ["bankInfo", get("bankinfo"), (raw) => raw],
     ["note", get("note"), (raw) => raw],
   ])
@@ -257,7 +307,7 @@ export function cariUpdateData(get: ImportGetter, options: UpdateOptions) {
   // gelmediyse yazılmaz, yoksa "Alacak" bir cari sessizce "Borç" olurdu.
   const openingBalance = get("openingbalance")
   if (openingBalance !== "") {
-    data.openingBalanceAmount = parseDecimal(openingBalance, 0)
+    data.openingBalanceAmount = parseAmountCell(openingBalance, "Açılış Bakiyesi") ?? 0
     data.openingBalanceType = parseOpeningBalanceType(get("openingbalancetype"))
   }
 

@@ -13,6 +13,7 @@ import {
   invoiceHeaderAliases,
   normalizeHeader,
   normalizeTaxNumber,
+  parseAmountCell,
   parseDecimal,
   productHeaderAliases,
   readCell,
@@ -695,9 +696,10 @@ export const POST = withApiErrors(async function POST(request: Request) {
         const date = String(get("date") || "")
         const type = String(get("type") || "SALES").toUpperCase()
         const invoiceType = String(get("invoicetype") || "MANUAL").toUpperCase()
-        const netAmount = parseDecimal(get("netamount"), 0)
-        const vatAmount = parseDecimal(get("vatamount"), 0)
-        const totalAmount = parseDecimal(get("totalamount"), 0)
+        // Okunamayan tutar sessizce 0 olmaz; satır hataya düşer.
+        const netAmount = parseAmountCell(get("netamount"), "Net Tutar") ?? 0
+        const vatAmount = parseAmountCell(get("vatamount"), "KDV Tutarı") ?? 0
+        const totalAmount = parseAmountCell(get("totalamount"), "Toplam Tutar") ?? 0
 
         const duplicateInvoice = await prisma.invoice.findFirst({
           where: { companyId, invoiceNo },

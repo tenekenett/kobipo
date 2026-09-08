@@ -265,6 +265,38 @@ describe("ürün — eşleştirme sırası ada göredir", () => {
   })
 })
 
+describe("fiyat hücresi — sessiz sıfır yok", () => {
+  it("para birimi biçimli fiyat sütunu karta 0 yazmaz", async () => {
+    // 2026-09-08'de 518 ürün tam bu yüzden 0 fiyatla açılmıştı: XLSX `raw: false`
+    // ile okunuyor ve Excel'de para birimi biçimli sütun buraya böyle geliyor.
+    const AD = `${IZ} Hidrolik Yağ`
+    const liste = urunSatiri({
+      Ad: AD,
+      Barkod: `${IZ}-BARKOD-4`,
+      "Alış Fiyatı": "2.094,70 ₺",
+      "Satış Fiyatı": "2.500,00 TL",
+      "KDV Oranı": "%20",
+    })
+
+    expect(await uygula.applyProductRow(companyId, liste, EKLE)).toBe("created")
+
+    const urun = await urunuOku(AD)
+    expect(Number(urun.purchasePrice)).toBe(2094.7)
+    expect(Number(urun.salePrice)).toBe(2500)
+    expect(Number(urun.vatRate)).toBe(20)
+  })
+
+  it("okunamayan fiyat satırı reddettirir; ürün hiç açılmaz", async () => {
+    const AD = `${IZ} Bozuk Fiyat`
+    const liste = urunSatiri({ Ad: AD, "Satış Fiyatı": "fiyat sorulacak" })
+
+    await expect(uygula.applyProductRow(companyId, liste, EKLE)).rejects.toThrow(
+      /"Satış Fiyatı" sütunu sayı değil/,
+    )
+    expect(await prisma.product.count({ where: { companyId, name: AD } })).toBe(0)
+  })
+})
+
 describe("cari ve tedarikçi", () => {
   const TEDARIKCI = `${IZ} Tedarik Ltd.`
   const MUSTERI = `${IZ} Müşteri A.Ş.`

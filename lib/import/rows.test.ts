@@ -4,6 +4,7 @@ import {
   customerHeaderAliases,
   describeMatchConflict,
   normalizeHeader,
+  parseAmountCell,
   pickMatch,
   productHeaderAliases,
   productUpdateData,
@@ -96,6 +97,39 @@ describe("readCell — dışa aktarım başlıkları", () => {
   it("bilinmeyen sütun boş döner (sessizce başka alana yazılmaz)", () => {
     expect(get("minstocklevel")).toBe("3")
     expect(getterFor(["Kod"], ["X"], productHeaderAliases)("saleprice")).toBe("")
+  })
+})
+
+describe("parseAmountCell — sessiz sıfır yok", () => {
+  it("para birimi simgesi/eki taşıyan hücreyi okur", () => {
+    // 2026-09-08: 518 ürün tam da bu yüzden 0 fiyatla açıldı. XLSX `raw: false`
+    // ile okunuyor, yani Excel'de para birimi biçimli sütun buraya böyle geliyor.
+    expect(parseAmountCell("2.094,70 ₺", "Alış Fiyatı")).toBe(2094.7)
+    expect(parseAmountCell("₺2.094,70", "Alış Fiyatı")).toBe(2094.7)
+    expect(parseAmountCell("2.094,70 TL", "Alış Fiyatı")).toBe(2094.7)
+    expect(parseAmountCell("2,094.70", "Alış Fiyatı")).toBe(2094.7)
+    expect(parseAmountCell("1 234,56", "Alış Fiyatı")).toBe(1234.56)
+  })
+
+  it("yüzde işaretli KDV hücresini okur", () => {
+    expect(parseAmountCell("%20", "KDV Oranı")).toBe(20)
+    expect(parseAmountCell("20,00%", "KDV Oranı")).toBe(20)
+  })
+
+  it("muhasebe biçiminin tiresi sıfırdır", () => {
+    expect(parseAmountCell("-", "Satış Fiyatı")).toBe(0)
+  })
+
+  it("boş hücre undefined döner (varsayılan/değiştirme)", () => {
+    expect(parseAmountCell("", "Satış Fiyatı")).toBeUndefined()
+    expect(parseAmountCell("  ", "Satış Fiyatı")).toBeUndefined()
+    expect(parseAmountCell("₺", "Satış Fiyatı")).toBeUndefined()
+  })
+
+  it("okunamayan hücre 0 YAZMAZ, sütun adıyla hata verir", () => {
+    expect(() => parseAmountCell("fiyat yok", "Satış Fiyatı")).toThrow(
+      /"Satış Fiyatı" sütunu sayı değil: "fiyat yok"/,
+    )
   })
 })
 
