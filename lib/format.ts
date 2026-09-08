@@ -8,38 +8,63 @@
 // Sunucuda da kullanılabilir (saf, tarayıcı API'si gerektirmez — Intl her iki
 // çalışma zamanında da var).
 
+/**
+ * Biçimlendiricilere gelen değeri sayıya çevirir; çevrilemiyorsa null.
+ *
+ * ZORUNLU: Prisma'nın `Decimal` alanları (fiyat, tutar, bakiye) JSON'a METİN
+ * olarak döner — `/api/stok/products` bir ürünün satış fiyatını "2692.5" diye
+ * yollar. `Number.isFinite("2692.5")` FALSE'tur (metni sayıya çevirmez), bu
+ * yüzden "önce sonluluk sına, değilse 0 yaz" kalıbı gerçek fiyatları ekranda
+ * 0,00 gösteriyordu — veri yerli yerindeyken. 2026-08-25'te `formatMoney`
+ * bu dosyaya taşınırken eklenen koruma tam olarak bunu yaptı; öncesinde
+ * doğrudan `Intl...format(amount)` çağrılıyordu ve Intl metni kendisi
+ * çeviriyordu.
+ *
+ * Yani sıra ÖNCE ÇEVİR, SONRA SINA olmalı; tersi sessizce sıfırlar.
+ */
+function toFinite(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null
+  const n = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Biçimlendiricilerin kabul ettiği girdi: sayı, Decimal metni ya da boş. */
+export type Formattable = number | string | null | undefined
+
 /** ₺1.234,50 — para tutarları. */
-export const money = (n: number) =>
+export const money = (n: Formattable) =>
   new Intl.NumberFormat("tr-TR", {
     style: "currency",
     currency: "TRY",
     currencyDisplay: "narrowSymbol",
     maximumFractionDigits: 2,
-  }).format(Number.isFinite(n) ? n : 0)
+  }).format(toFinite(n) ?? 0)
 
 /** ₺1.235 — kuruşun anlamsız olduğu özet kutuları (ciro, ortalama fiş). */
-export const money0 = (n: number) =>
+export const money0 = (n: Formattable) =>
   new Intl.NumberFormat("tr-TR", {
     style: "currency",
     currency: "TRY",
     currencyDisplay: "narrowSymbol",
     maximumFractionDigits: 0,
-  }).format(Number.isFinite(n) ? n : 0)
+  }).format(toFinite(n) ?? 0)
 
 /**
  * Stok miktarı. Kolonlar `Decimal(14,4)` — 4 ondalık şart: 20 gr kahve KG
  * cinsinden 0,02; 5 ml vanilya LT cinsinden 0,005 eder. 2 ondalıkla
  * biçimlendirmek bunları ekranda sıfırlardı.
  */
-export const qty = (n: number) =>
+export const qty = (n: Formattable) =>
   new Intl.NumberFormat("tr-TR", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 4,
-  }).format(Number(n) || 0)
+  }).format(toFinite(n) ?? 0)
 
 /** %80,0 — null/NaN girdide tire (0 DEĞİL: "hesaplanamadı" ile "sıfır" farklı). */
-export const pct = (n: number | null | undefined) =>
-  n == null || !Number.isFinite(n) ? "—" : `%${n.toFixed(1)}`
+export const pct = (n: Formattable) => {
+  const v = toFinite(n)
+  return v === null ? "—" : `%${v.toFixed(1)}`
+}
 
 /**
  * "12,5" ve "12.5" ikisini de kabul eden sayı ayrıştırıcı; geçersizse NaN.
@@ -145,7 +170,7 @@ export function parseTrNumber(v: string | number | null | undefined): number | n
  *
  * `signed` kâr/fark gibi işaretin anlamlı olduğu yerlerde `+`/`−` ekler.
  */
-export function formatMoney(amount: number, currency?: string | null, signed = false): string {
+export function formatMoney(amount: Formattable, currency?: string | null, signed = false): string {
   const cur = (currency || "TRY").toUpperCase()
   const opts: Intl.NumberFormatOptions = {
     style: "currency",
@@ -153,7 +178,7 @@ export function formatMoney(amount: number, currency?: string | null, signed = f
     currencyDisplay: "narrowSymbol",
   }
   if (signed) opts.signDisplay = "exceptZero"
-  return new Intl.NumberFormat("tr-TR", opts).format(Number.isFinite(amount) ? amount : 0)
+  return new Intl.NumberFormat("tr-TR", opts).format(toFinite(amount) ?? 0)
 }
 
 // --- Türkçe rakam → yazı ---

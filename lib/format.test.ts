@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseTrNumber } from "./format"
+import { formatMoney, money, money0, parseTrNumber, pct, qty } from "./format"
 import { parseAmount } from "./satis/payment"
 
 /**
@@ -64,5 +64,46 @@ describe("parseAmount (ödeme kutusu politikası)", () => {
     expect(parseAmount("")).toBe(0)
     expect(parseAmount(null)).toBe(0)
     expect(parseAmount("0")).toBe(0)
+  })
+})
+
+/**
+ * Biçimlendiriciler Prisma'nın `Decimal` alanlarını METİN olarak alır
+ * (`/api/stok/products` satış fiyatını "2692.5" diye yollar). Bu testler
+ * 2026-08-25'te girip 2026-09-08'de fark edilen regresyonun nöbetçisidir:
+ * `Number.isFinite("2692.5")` false olduğu için gerçek fiyatlar ekranda
+ * ₺0,00 görünüyordu ve kullanıcı "satış fiyatları gitti" sandı.
+ *
+ * Ölçü tek cümle: ÖNCE ÇEVİR, SONRA SINA.
+ */
+describe("para/sayı biçimlendirme — Decimal metni", () => {
+  it("formatMoney metin gelen fiyatı sıfırlamaz", () => {
+    expect(formatMoney("2692.5")).toBe(money(2692.5))
+    expect(formatMoney(2692.5)).toBe(money(2692.5))
+    expect(formatMoney("141.666667")).toBe(formatMoney(141.666667))
+  })
+
+  it("formatMoney para birimini korur", () => {
+    expect(formatMoney("32", "USD")).toBe(formatMoney(32, "USD"))
+    expect(formatMoney("32", "USD")).not.toBe(formatMoney(32, "TRY"))
+  })
+
+  it("money/money0/qty metin girdiyi çözer", () => {
+    expect(money("1234.5")).toBe(money(1234.5))
+    expect(money0("1234.5")).toBe(money0(1234.5))
+    expect(qty("12.3456")).toBe(qty(12.3456))
+  })
+
+  it("gerçek sıfır ile okunamayan değer aynı sonucu verir (0)", () => {
+    expect(formatMoney("0")).toBe(formatMoney(0))
+    expect(formatMoney("abc")).toBe(formatMoney(0))
+    expect(formatMoney(null)).toBe(formatMoney(0))
+  })
+
+  it("pct metni çözer, hesaplanamayanda tire kalır", () => {
+    expect(pct("80")).toBe("%80.0")
+    expect(pct(80)).toBe("%80.0")
+    expect(pct(null)).toBe("—")
+    expect(pct("abc")).toBe("—")
   })
 })
