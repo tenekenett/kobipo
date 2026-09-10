@@ -28,6 +28,7 @@ import { getAccountantStats, getRecentTransactions } from "@/lib/dashboard/role-
 import { LockedAccount } from "@/components/dashboard/locked-account"
 import { lockedScreenFor } from "@/lib/dashboard/locked"
 import { assertRouteAccessOrRedirect } from "@/lib/middleware/page-guard"
+import { OtomasyonKartlari } from "@/components/otomasyon/otomasyon-kartlari"
 
 export const dynamic = "force-dynamic"
 
@@ -295,6 +296,16 @@ export default async function AccountantDashboard({
           <p className="font-semibold">{activeCompany.companyName}</p>
         </div>
       </div>
+
+      {/*
+        Otomasyon kartları — "ne oldu" rakamlarının ÜSTÜNDE, "ne yapmalısın" olarak.
+        Yeri jenerik panoyla (app/(dashboard)/dashboard/page.tsx) aynı gerekçeye
+        dayanır. Rol panolarına 2026-09-10'da eklendi: bileşen yalnız `/dashboard`ta
+        duruyordu ama hiçbir rol oraya DÜŞMÜYOR — giriş ve başlıktaki bağlantı
+        `roleToDashboardPath` ile rol panosuna gidiyor. Kartlar üretiliyor, kimse
+        görmüyordu. Koşul oluşmazsa bileşen null döner, pano kalabalıklaşmaz.
+      */}
+      <OtomasyonKartlari />
 
       <Suspense fallback={<StatsSkeleton />}>
         <AccountantStatsCards companyId={companyId} />
