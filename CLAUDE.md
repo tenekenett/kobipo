@@ -156,12 +156,16 @@ Kurallar:
 (2026-09-08'den beri; öncesinde alan yalnızca kaydediliyor, hiçbir yerde okunmuyordu).
 
 ```
-ADMIN + BRANCH_MANAGER (+ süper-admin)  → firmanın TÜM carileri
-diğer her üye (CUSTOM dahil)            → yalnız authorizedUserId = kendisi
-authorizedUserId boş olan cari          → yalnız yöneticiler
+ADMIN + BRANCH_MANAGER + ACCOUNTANT (+ süper-admin)  → firmanın TÜM carileri
+diğer her üye (SALES, STOCK, VIEWER, CUSTOM)         → yalnız authorizedUserId = kendisi
+authorizedUserId boş olan cari                       → yalnız bu üç rol
 ```
 
-Yani hiç ataması olmayan bir çalışan hiçbir cari göremez. Karar TEK yerde:
+Yani hiç ataması olmayan bir satışçı hiçbir cari göremez — kısıtın amacı budur.
+**Muhasebeci 2026-09-10'da tam erişime alındı:** kısıt onu da kapsayınca rol çalışamaz
+hâle geliyordu (cari ekranları boş, üstelik liste ucu belge ekranlarının müşteri
+seçicisi olduğu için hiçbir cariye fatura kesilemiyordu) ve güvenlik de kazandırmıyordu
+— cari adları raporlarda/belge listelerinde zaten görünüyor. Karar TEK yerde:
 `lib/cari/visibility.ts` (saf kural; istemci de okuyor) + `lib/cari/resolve-visibility.ts`
 (oturumdan çözer). Kapsam **cari modülüdür**: liste, kart, silinebilirlik, ekstre, açık
 faturalar ve bunların dışa aktarımı.
@@ -175,7 +179,7 @@ faturalar ve bunların dışa aktarımı.
   kapsam dışı olduğunu söyler.
 - Liste önbelleği görünürlüğe göre anahtarlanır (`visibilityKey`). Anahtardan
   düşerse ilk yönetici isteğinden sonra kısıt 15 sn boyunca herkes için kalkar.
-- Atamayı yalnız yönetici yazar: `resolveAuthorizedUserIdOnWrite` kısıtlı kullanıcıda
+- Atamayı yalnız tam erişimli roller yazar: `resolveAuthorizedUserIdOnWrite` kısıtlı kullanıcıda
   her zaman kendi id'sini döndürür (yeni kayıt kendisine atanır, mevcut kayıtta alan
   değişmez) — aksi halde kullanıcı gördüğü cariyi geri alamayacak şekilde devrederdi.
 - İkiz kart (`isAlsoSupplier` / `isAlsoCustomer`) atamayı da kopyalar; ikisi ayrışırsa

@@ -21,6 +21,16 @@ describe("cari görünürlüğü — kimin ne gördüğü", () => {
     expect(cariVisibilityFor("BRANCH_MANAGER", AYSE, false)).toEqual(CARI_VISIBILITY_ALL)
   })
 
+  /**
+   * Muhasebeci kısıtlıyken rol çalışmıyordu: cari ekranları boş açılıyor ve liste ucu
+   * belge ekranlarının müşteri seçicisi olduğu için hiçbir cariye fatura kesilemiyordu.
+   * Kısıtın hedefi satışçıdır; muhasebeciyi geri kısıtlamak o hatayı geri getirir.
+   */
+  it("muhasebeci tüm carileri görür", () => {
+    expect(cariVisibilityFor("ACCOUNTANT", AYSE, false)).toEqual(CARI_VISIBILITY_ALL)
+    expect(hasFullCariAccess("ACCOUNTANT")).toBe(true)
+  })
+
   it("süper-admin rolü ne olursa olsun tüm carileri görür (destek erişimi)", () => {
     expect(cariVisibilityFor("SALES", AYSE, true)).toEqual(CARI_VISIBILITY_ALL)
   })
@@ -30,8 +40,8 @@ describe("cari görünürlüğü — kimin ne gördüğü", () => {
    * için "yönetici" sayılamaz. Gevşetilirse firmanın tanımladığı her rol tüm
    * cari listesini görür ve kısıt anlamını yitirir.
    */
-  it("satış, muhasebe, stok, gözlemci ve özel rol yalnız kendine atananı görür", () => {
-    for (const role of ["SALES", "ACCOUNTANT", "STOCK", "VIEWER", "CUSTOM"]) {
+  it("satış, stok, gözlemci ve özel rol yalnız kendine atananı görür", () => {
+    for (const role of ["SALES", "STOCK", "VIEWER", "CUSTOM"]) {
       expect(cariVisibilityFor(role, AYSE, false)).toEqual({ kind: "own", userId: AYSE })
       expect(hasFullCariAccess(role)).toBe(false)
     }

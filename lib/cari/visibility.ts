@@ -1,11 +1,12 @@
 /**
  * Cari GÖRÜNÜRLÜĞÜ — "yetkili çalışan" kısıtının TEK kaynağı.
  *
- * KURAL (2026-09-08):
- *   ADMIN ve BRANCH_MANAGER (ve süper-admin) firmanın TÜM carilerini görür.
+ * KURAL (2026-09-08, muhasebeci 2026-09-10'da eklendi):
+ *   ADMIN, BRANCH_MANAGER ve ACCOUNTANT (ve süper-admin) firmanın TÜM carilerini görür.
  *   Diğer her üye YALNIZCA `authorizedUserId` kendisi olan carileri görür.
  *   Yetkili çalışanı BOŞ olan cari, kısıtlı üyelerin HİÇBİRİNE görünmez — yalnız
- *   yöneticilere. Yani hiç ataması olmayan bir çalışan hiçbir cari göremez.
+ *   yöneticilere ve muhasebeciye. Yani hiç ataması olmayan bir SATIŞÇI hiçbir cari
+ *   göremez; bu kısıtın amacıdır.
  *
  * NEDEN TEK DOSYA: aynı soru sekiz yerde soruluyor (liste, kart, silinebilirlik,
  * ekstre, açık faturalar, iki dışa aktarma, yazma uçları) — üstelik formdaki alan
@@ -27,7 +28,7 @@ export const CARI_FORBIDDEN_CODE = "CARI_FORBIDDEN"
 
 export const CARI_FORBIDDEN_MESSAGE_TR =
   "Bu cari size atanmamış. Yalnızca yetkili çalışanı siz olan carileri görebilirsiniz; " +
-  "atamayı yönetici, cari kartının Diğer sekmesinden yapar."
+  "atamayı yönetici ya da muhasebeci, cari kartının Diğer sekmesinden yapar."
 
 const CARI_FORBIDDEN_MESSAGE = "Access denied: cari not assigned to user"
 
@@ -56,11 +57,18 @@ export function cariForbiddenFrom(error: unknown): CariForbiddenError | null {
 /**
  * Tüm carileri gören roller.
  *
+ * ACCOUNTANT 2026-09-10'da eklendi: kısıt satışçı senaryosu için yazılmıştı ("satışçı
+ * yalnız kendi müşterisini görsün") ama muhasebeciyi de kapsayınca rolü çalışamaz hâle
+ * getirdi — cari ekranları boş açılıyordu ve liste ucu aynı zamanda fatura/irsaliye/
+ * teklif ekranlarının müşteri SEÇİCİSİ olduğu için muhasebeci hiçbir cariye belge
+ * kesemiyordu. Kısıt ona güvenlik de kazandırmıyordu: cari adları raporlarda ve belge
+ * listelerinde (bilerek kapsam dışı) zaten görünüyor.
+ *
  * Özel rol (CUSTOM) bilerek DIŞARIDA: firmanın kendi tanımladığı rol hesap yönetimi
  * yetkisi taşıyamıyor (bkz. `assignablePages`), dolayısıyla "yönetici" sayılamaz.
  * Özel rolde geniş cari erişimi isteniyorsa yol atama yapmaktır.
  */
-const FULL_ACCESS_ROLES: readonly string[] = ["ADMIN", "BRANCH_MANAGER"]
+const FULL_ACCESS_ROLES: readonly string[] = ["ADMIN", "BRANCH_MANAGER", "ACCOUNTANT"]
 
 export function hasFullCariAccess(role: string | null | undefined): boolean {
   return role != null && FULL_ACCESS_ROLES.includes(role)

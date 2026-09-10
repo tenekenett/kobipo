@@ -131,7 +131,7 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
   const canEditMirror = useCanEdit(isCustomer ? "/cari/tedarikci" : "/cari/musteri")
   /**
    * "Yetkili Çalışan" bir GÖRÜNÜRLÜK anahtarıdır (bkz. lib/cari/visibility.ts), o
-   * yüzden yalnız yönetici atar. Kısıtlı çalışanda alan gizlenmiyor, KİLİTLENİYOR:
+   * yüzden yalnız tüm carileri gören roller (yönetici, şube müdürü, muhasebeci) atar. Kısıtlı çalışanda alan gizlenmiyor, KİLİTLENİYOR:
    * kartın kime atandığını görmesi doğru, değiştirebilmesi değil — sunucu da aynı
    * kararı uyguluyor (`resolveAuthorizedUserIdOnWrite`), yani alan elle değiştirilse
    * bile kayıt kullanıcının üstünde kalır.
@@ -761,7 +761,7 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                       onChange={(e) => setFormData({ ...formData, authorizedUserId: e.target.value })}
                       disabled={isLoading || !canAssignAuthorizedUser}
                     >
-                      <option value="">çalışan seçin... (yalnızca yöneticiler görür)</option>
+                      <option value="">çalışan seçin... (yalnızca yönetici/muhasebeci görür)</option>
                       {members
                         .filter((item) => Boolean(item.user?.id))
                         .map((item) => (
@@ -772,8 +772,8 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                     </select>
                     <p className="text-xs text-muted-foreground">
                       {canAssignAuthorizedUser
-                        ? `Bu ${entityLabel.toLocaleLowerCase("tr-TR")} kartını yalnızca seçtiğiniz çalışan görebilir. Boş bırakırsanız kartı sadece yöneticiler ve şube müdürleri görür; yönetici olmayan çalışanların hiçbiri göremez.`
-                        : "Yetkili çalışan atamasını yalnızca yöneticiler ve şube müdürleri değiştirebilir."}
+                        ? `Bu ${entityLabel.toLocaleLowerCase("tr-TR")} kartını yalnızca seçtiğiniz çalışan görebilir. Boş bırakırsanız kartı sadece yöneticiler, şube müdürleri ve muhasebeciler görür; diğer çalışanların hiçbiri göremez.`
+                        : "Yetkili çalışan atamasını yalnızca yöneticiler, şube müdürleri ve muhasebeciler değiştirebilir."}
                     </p>
                   </div>
                   <div className="space-y-2">
