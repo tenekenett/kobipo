@@ -44,6 +44,7 @@ export function VardiyaHafta({
   today,
   onOpenShift,
   onAddShift,
+  onEmployeeClick,
 }: {
   days: string[]
   employees: WeekEmployee[]
@@ -59,6 +60,8 @@ export function VardiyaHafta({
    */
   warningsByEmployee?: Map<string, LaborWarning[]>
   today: string
+  /** Ad sütunundaki isme tıklanınca — çalışma düzeni penceresi. */
+  onEmployeeClick?: (employeeId: string) => void
   onOpenShift: (shift: WeekShift) => void
   onAddShift: (employeeId: string, day: string) => void
 }) {
@@ -110,7 +113,19 @@ export function VardiyaHafta({
                 className="sticky left-0 z-20 shrink-0 border-r border-border/70 bg-card px-3 py-2"
                 style={{ width: 208 }}
               >
-                <p className="truncate text-sm font-medium">{emp.name}</p>
+                {/* Gün görünümüyle aynı jest: isme tıklamak çalışma düzenini açar. */}
+                {onEmployeeClick ? (
+                  <button
+                    type="button"
+                    onClick={() => onEmployeeClick(emp.id)}
+                    title="Çalışma düzenini değiştir"
+                    className="block max-w-full truncate text-left text-sm font-medium text-kobipo-blue hover:underline dark:text-primary"
+                  >
+                    {emp.name}
+                  </button>
+                ) : (
+                  <p className="truncate text-sm font-medium">{emp.name}</p>
+                )}
                 <p
                   className={cn(
                     "text-[11px] text-muted-foreground",

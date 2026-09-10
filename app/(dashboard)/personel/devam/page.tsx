@@ -31,6 +31,7 @@ import { DevamHafta, type DevamRowData } from "@/components/personel/devam-hafta
 import { AcilisSaatiDialog } from "@/components/personel/acilis-saati-dialog"
 import { TatilDialog } from "@/components/personel/tatil-dialog"
 import { KipUyarisi } from "@/components/personel/kip-uyarisi"
+import { PersonelKipDialog, type KipHedefi } from "@/components/personel/personel-kip-dialog"
 import { DEVAM_DOT_CLASS } from "@/components/personel/devam-renkleri"
 import {
   DEVAM_STATUS,
@@ -97,7 +98,7 @@ export default function DevamPage() {
   const companyId = searchParams.get("company")
   const { toast } = useToast()
   const { canWrite, refuse } = useWriteGuard()
-  const { selectedCompany } = useDashboardCompany()
+  const { selectedCompany, fetchCompanies } = useDashboardCompany()
   const mode = normalizeMode(selectedCompany?.workScheduleMode)
 
   const [weekStart, setWeekStart] = useState(() => weekStartIso(todayIso()))
@@ -121,6 +122,8 @@ export default function DevamPage() {
   const { holidays, mutate: mutateHolidays } = useCompanyHolidays(companyId)
   const [openingOpen, setOpeningOpen] = useState(false)
   const [tatilOpen, setTatilOpen] = useState(false)
+  /** Ad sütununa tıklanan personel — çalışma düzeni penceresi. */
+  const [kipHedefi, setKipHedefi] = useState<KipHedefi | null>(null)
 
   const days = useMemo(() => weekDaysIso(weekStart), [weekStart])
 
@@ -246,6 +249,67 @@ export default function DevamPage() {
     },
     [toast],
   )
+
+  /** Vardiya takvimiyle aynı jest: isme tıklamak çalışma düzenini açar. */
+  function acKipPenceresi(employeeId: string) {
+    if (!canWrite) {
+      refuse()
+      return
+    }
+    const emp = employees.find((e) => e.id === employeeId)
+    if (!emp) return
+    setKipHedefi({
+      id: emp.id,
+      name: `${emp.firstName} ${emp.lastName}`.trim(),
+      usesShifts: emp.usesShifts ?? null,
+    })
+  }
+
+  async function kipKaydet(
+    employeeId: string,
+    usesShifts: boolean | null,
+    karmaYap: boolean,
+  ) {
+    if (!companyId) return
+    setIsSaving(true)
+    try {
+      const res = await fetch(`/api/personel/employees/${employeeId}?companyId=${companyId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usesShifts }),
+      })
+      if (!res.ok) {
+        await fail(res, "Çalışma düzeni değiştirilemedi")
+        return
+      }
+      // Seçilen tarafın takvimi firmada kapalıysa firma karmaya alınır; yoksa
+      // kişi menüde olmayan bir ekrana atanmış olur ve günleri işaretlenemez.
+      if (karmaYap) {
+        const modRes = await fetch("/api/personel/ayarlar", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, workScheduleMode: "MIXED" }),
+        })
+        if (!modRes.ok) {
+          await fail(modRes, "Firma çalışma düzeni güncellenemedi")
+          return
+        }
+        await fetchCompanies()
+      }
+      setKipHedefi(null)
+      // Liste tazelenmeli: vardiyalıya alınan kişi bu takvimden düşer.
+      await load()
+      toast({
+        title: "Çalışma düzeni güncellendi",
+        description:
+          usesShifts === true
+            ? "Bu çalışan artık Vardiya Takvimi'nde planlanacak."
+            : "Bu çalışan devam takviminde işaretlenecek.",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   async function saveOpening(next: OpeningHours) {
     if (!companyId) return
@@ -491,8 +555,9 @@ export default function DevamPage() {
           )}
           <p className="text-xs text-muted-foreground">
             Hücreye tıklayınca seçili durum uygulanır; aynı durumu ikinci kez tıklamak
-            işaretlemeyi kaldırır ve gün yeniden hesaplanır. Personel adına tıklamak
-            haftanın çalışma günlerine uygular (tatil günleri atlanır). <strong>Kesikli çerçeveli</strong> günler
+            işaretlemeyi kaldırır ve gün yeniden hesaplanır. Addaki fırça düğmesi seçili durumu
+            haftanın çalışma günlerine uygular (tatil günleri atlanır). Personel adına
+            tıklamak o kişinin çalışma düzenini değiştirir. <strong>Kesikli çerçeveli</strong> günler
             işaretlenmemiştir: izin kaydından, işletme tatilinden veya kapalı günden
             gelirler.
           </p>
@@ -530,6 +595,7 @@ export default function DevamPage() {
               canWrite={canWrite}
               onCellClick={onCellClick}
               onRowFill={onRowFill}
+              onEmployeeClick={acKipPenceresi}
             />
           )}
         </CardContent>
@@ -563,6 +629,13 @@ export default function DevamPage() {
         </div>
       )}
 
+      <PersonelKipDialog
+        hedef={kipHedefi}
+        companyMode={selectedCompany?.workScheduleMode}
+        isSaving={isSaving}
+        onClose={() => setKipHedefi(null)}
+        onSave={kipKaydet}
+      />
       <AcilisSaatiDialog
         open={openingOpen}
         value={openingHours ?? null}

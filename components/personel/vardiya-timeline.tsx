@@ -112,6 +112,7 @@ export function VardiyaTimeline({
   onUpdate,
   onOpenShift,
   onOpenOpening,
+  onEmployeeClick,
 }: {
   employees: TimelineEmployee[]
   shifts: TimelineShift[]
@@ -125,6 +126,8 @@ export function VardiyaTimeline({
   onUpdate: (shiftId: string, next: { employeeId: string; start: number; end: number }) => void
   onOpenShift: (shift: TimelineShift) => void
   onOpenOpening: () => void
+  /** Ad sütunundaki isme tıklanınca — çalışma düzeni penceresi. */
+  onEmployeeClick?: (employeeId: string) => void
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const rowRefs = useRef(new Map<string, HTMLDivElement>())
@@ -471,7 +474,20 @@ export function VardiyaTimeline({
                 className="sticky left-0 z-20 shrink-0 border-r border-border/70 bg-card px-3 py-2"
                 style={{ width: NAME_W }}
               >
-                <p className="truncate text-sm font-medium">{emp.name}</p>
+                {/* İsme tıklamak çalışma düzenini açar: "bu kişi neden burada"
+                    sorusu takvime bakarken doğuyor, cevabı da burada verilmeli. */}
+                {onEmployeeClick ? (
+                  <button
+                    type="button"
+                    onClick={() => onEmployeeClick(emp.id)}
+                    title="Çalışma düzenini değiştir"
+                    className="block max-w-full truncate text-left text-sm font-medium text-kobipo-blue hover:underline dark:text-primary"
+                  >
+                    {emp.name}
+                  </button>
+                ) : (
+                  <p className="truncate text-sm font-medium">{emp.name}</p>
+                )}
                 <p className="truncate text-[11px] text-muted-foreground">
                   {emp.position || emp.department || "—"}
                 </p>

@@ -38,6 +38,7 @@ import {
 } from "lucide-react"
 import { CompanyLink } from "@/components/dashboard/company-link"
 import { KipUyarisi } from "@/components/personel/kip-uyarisi"
+import { PersonelKipDialog, type KipHedefi } from "@/components/personel/personel-kip-dialog"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { flatEmployees, normalizeMode, shiftEmployees } from "@/lib/personel/kip"
 import { ExportButton } from "@/components/export/export-button"
@@ -156,7 +157,7 @@ export default function VardiyaPage() {
   // çizmek, barı taşımak, boş hücreye tıklamak. Kapı bu yüzden jestin bittiği
   // yerde, yazma fonksiyonlarının başında duruyor.
   const { canWrite, refuse } = useWriteGuard()
-  const { selectedCompany } = useDashboardCompany()
+  const { selectedCompany, fetchCompanies } = useDashboardCompany()
   const scheduleMode = normalizeMode(selectedCompany?.workScheduleMode)
 
   const [view, setView] = useState<View>("gun")
@@ -181,6 +182,8 @@ export default function VardiyaPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [draft, setDraft] = useState<ShiftDraft | null>(null)
   const [openingOpen, setOpeningOpen] = useState(false)
+  /** Ad sütununa tıklanan personel — çalışma düzeni penceresi. */
+  const [kipHedefi, setKipHedefi] = useState<KipHedefi | null>(null)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [fillOpen, setFillOpen] = useState(false)
   const [tatilOpen, setTatilOpen] = useState(false)
@@ -695,6 +698,73 @@ export default function VardiyaPage() {
     }
   }
 
+  /**
+   * Ad sütunundaki isme tıklanınca çalışma düzeni penceresini aç.
+   *
+   * Ayar personel kartında da var; buradaki kısayolun sebebi sorunun burada
+   * doğması: kullanıcı ızgaraya bakarken "bu kişi neden listede / neden değil"
+   * diye soruyor ve cevabı ekran değiştirmeden verebilmeli.
+   */
+  function acKipPenceresi(employeeId: string) {
+    if (!canWrite) {
+      refuse()
+      return
+    }
+    const emp = employees.find((e) => e.id === employeeId)
+    if (!emp) return
+    setKipHedefi({
+      id: emp.id,
+      name: `${emp.firstName} ${emp.lastName}`.trim(),
+      usesShifts: emp.usesShifts ?? null,
+    })
+  }
+
+  async function kipKaydet(
+    employeeId: string,
+    usesShifts: boolean | null,
+    karmaYap: boolean,
+  ) {
+    if (!companyId) return
+    setIsSaving(true)
+    try {
+      const res = await fetch(`/api/personel/employees/${employeeId}?companyId=${companyId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usesShifts }),
+      })
+      if (!res.ok) {
+        await fail(res, "Çalışma düzeni değiştirilemedi")
+        return
+      }
+      // Seçilen tarafın takvimi firmada kapalıysa firma karmaya alınır; yoksa
+      // kişi menüde olmayan bir ekrana atanmış olur ve günleri işaretlenemez.
+      if (karmaYap) {
+        const modRes = await fetch("/api/personel/ayarlar", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, workScheduleMode: "MIXED" }),
+        })
+        if (!modRes.ok) {
+          await fail(modRes, "Firma çalışma düzeni güncellenemedi")
+          return
+        }
+        await fetchCompanies()
+      }
+      setKipHedefi(null)
+      // Liste tazelenmeli: sabit mesaiye alınan kişi bu ızgaradan düşer.
+      await load()
+      toast({
+        title: "Çalışma düzeni güncellendi",
+        description:
+          usesShifts === false
+            ? "Bu çalışan artık Devam Takvimi'nde işaretlenecek."
+            : "Bu çalışan vardiya takviminde planlanacak.",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   async function saveOpening(next: OpeningHours) {
     if (!companyId) return
     setIsSaving(true)
@@ -970,6 +1040,13 @@ export default function VardiyaPage() {
   return (
     <div className="space-y-4">
       <KipUyarisi ekran="vardiya" />
+      <PersonelKipDialog
+        hedef={kipHedefi}
+        companyMode={selectedCompany?.workScheduleMode}
+        isSaving={isSaving}
+        onClose={() => setKipHedefi(null)}
+        onSave={kipKaydet}
+      />
       {devamTakvimiSayisi > 0 && (
         <p className="rounded-lg border border-dashed border-border p-2.5 text-xs text-muted-foreground">
           {devamTakvimiSayisi} personel sabit mesai olarak işaretli ve bu ızgarada
@@ -1212,6 +1289,7 @@ export default function VardiyaPage() {
                   onUpdate={moveShift}
                   onOpenShift={(s) => openEditor(s.id)}
                   onOpenOpening={() => (canWrite ? setOpeningOpen(true) : refuse())}
+                  onEmployeeClick={acKipPenceresi}
                 />
                 {/* Kapsama şeridi ızgaranın hemen ALTINDA ve aynı eksende: ayrı
                     bir sekmeye konsaydı planlama sırasında kimse bakmazdı. */}
@@ -1236,6 +1314,7 @@ export default function VardiyaPage() {
                 today={todayIso()}
                 onOpenShift={(s) => openEditor(s.id)}
                 onAddShift={openDraftFor}
+                onEmployeeClick={acKipPenceresi}
               />
             )}
           </div>

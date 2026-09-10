@@ -181,7 +181,13 @@ UYDURMAYAN taraftır.
   araması ikisi de oradan geçer); MIXED'de hiçbir takvim elenmez. Ayarın kullanıcıya
   görünen yeri `Ayarlar → Firma Bilgileri → Çalışma Düzeni`; soru penceresi
   `app/(dashboard)/personel/layout.tsx` içinde bir kez sorulur. Personel bazlı istisna
-  personel kartındadır (`components/personel/calisma-duzeni-secici.tsx`).
+  İKİ yerden yazılır: personel kartı (`calisma-duzeni-secici.tsx`) ve her iki takvimde
+  personel adına tıklayınca açılan pencere (`personel-kip-dialog.tsx`) — soru takvime
+  bakarken doğuyor, cevabı da orada verilebilmeli.
+- **Kişi menüde olmayan takvime atanamaz:** vardiyalı firmada birini sabit mesaiye
+  alırken firma otomatik olarak MIXED'e geçer (pencere bunu kaydetmeden önce yazar).
+  Geçilmeseydi o takvim menüde olmadığı için kişinin günleri hiçbir ekranda
+  işaretlenemez, ayı da bordroya girmezdi.
 - Karma işletmede `/personel/puantaj` İKİ bölüm çizer: üstte vardiya puantajı (saat),
   altta devam özeti (gün). Ölçüler BİRLEŞTİRİLMEZ — 8 sa 30 dk ile 0,5 gün aynı sütunda
   toplanamaz; ayrı sayfaya koymak ise "bordroya veri buradan gelir" sözünü ikiye bölerdi.

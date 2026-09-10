@@ -10,6 +10,7 @@
  * böyle yazmamıştım" itirazının cevabı kalmaz.
  */
 
+import { Paintbrush } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { DEVAM_CELL_CLASS, DEVAM_CELL_SOFT } from "@/components/personel/devam-renkleri"
 import { DEVAM_STATUS, type DevamCell, type DevamStatus } from "@/lib/personel/devam"
@@ -31,6 +32,7 @@ export function DevamHafta({
   canWrite,
   onCellClick,
   onRowFill,
+  onEmployeeClick,
 }: {
   days: string[]
   rows: DevamRowData[]
@@ -39,6 +41,8 @@ export function DevamHafta({
   canWrite: boolean
   onCellClick: (employeeId: string, day: string, cell: DevamCell) => void
   onRowFill: (employeeId: string) => void
+  /** İsme tıklanınca — çalışma düzeni penceresi (vardiya takvimiyle aynı jest). */
+  onEmployeeClick?: (employeeId: string) => void
 }) {
   return (
     <div className="overflow-x-auto">
@@ -73,15 +77,31 @@ export function DevamHafta({
           {rows.map((row) => (
             <tr key={row.employeeId} className="align-middle">
               <td className="sticky left-0 z-10 max-w-48 bg-background px-3 py-1.5">
-                <button
-                  type="button"
-                  onClick={() => onRowFill(row.employeeId)}
-                  disabled={!canWrite}
-                  className="block max-w-full truncate text-left font-medium text-kobipo-blue hover:underline disabled:cursor-default disabled:text-foreground disabled:no-underline dark:text-primary"
-                  title={canWrite ? "Tüm haftaya seçili durumu uygula" : row.name}
-                >
-                  {row.name}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {/* İSİM = kişinin çalışma düzeni (vardiya takvimiyle aynı jest),
+                      FIRÇA DÜĞMESİ = haftanın tamamına seçili durumu uygula. İki
+                      farklı iş aynı tıklamaya bindirilmemeli: biri kişiyi başka
+                      takvime taşır, öteki yedi güne kayıt yazar. */}
+                  <button
+                    type="button"
+                    onClick={() => onEmployeeClick?.(row.employeeId)}
+                    disabled={!canWrite || !onEmployeeClick}
+                    className="block min-w-0 flex-1 truncate text-left font-medium text-kobipo-blue hover:underline disabled:cursor-default disabled:text-foreground disabled:no-underline dark:text-primary"
+                    title={canWrite ? "Çalışma düzenini değiştir" : row.name}
+                  >
+                    {row.name}
+                  </button>
+                  {canWrite && (
+                    <button
+                      type="button"
+                      onClick={() => onRowFill(row.employeeId)}
+                      title="Haftanın çalışma günlerine seçili durumu uygula"
+                      className="shrink-0 rounded p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                    >
+                      <Paintbrush className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
                 {row.subtitle && (
                   <div className="truncate text-[11px] text-muted-foreground">{row.subtitle}</div>
                 )}
