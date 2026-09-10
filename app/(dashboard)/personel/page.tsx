@@ -20,6 +20,14 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, Search, Pencil, UserX, UserCheck, Users } from "lucide-react"
+import { MaasAlanlari, type MaasBasis } from "@/components/personel/maas-alanlari"
+import {
+  CalismaDuzeniSecici,
+  formFromUsesShifts,
+  usesShiftsFromForm,
+  type CalismaDuzeniDegeri,
+} from "@/components/personel/calisma-duzeni-secici"
+import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 
 type Employee = {
   id: string
@@ -33,6 +41,9 @@ type Employee = {
   position?: string | null
   hireDate?: string | null
   grossSalary?: number | null
+  netSalary?: number | null
+  salaryBasis?: string | null
+  usesShifts?: boolean | null
   iban?: string | null
   annualLeaveDays?: number | null
   address?: string | null
@@ -57,6 +68,12 @@ const emptyForm = () => ({
   position: "",
   hireDate: "",
   grossSalary: "",
+  netSalary: "",
+  // Anlaşmanın hangi uçtan yapıldığı: net anlaşmada brüt her ay yeniden çözülür.
+  salaryBasis: "GROSS" as MaasBasis,
+  // Boş = firmanın çalışma düzeni. Karma işletmede bu alan çalışanın hangi
+  // takvimde görüneceğini belirler (bkz. lib/personel/kip.ts).
+  calismaDuzeni: "" as CalismaDuzeniDegeri,
   iban: "",
   annualLeaveDays: "14",
   address: "",
@@ -74,6 +91,7 @@ export default function PersonellerPage() {
   const companyId = searchParams.get("company")
   const { toast } = useToast()
   const { confirm } = useConfirm()
+  const { selectedCompany } = useDashboardCompany()
   const [employees, setEmployees] = useState<Employee[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [search, setSearch] = useState("")
@@ -118,6 +136,9 @@ export default function PersonellerPage() {
       position: e.position || "",
       hireDate: e.hireDate ? e.hireDate.split("T")[0] : "",
       grossSalary: e.grossSalary != null ? String(e.grossSalary) : "",
+      netSalary: e.netSalary != null ? String(e.netSalary) : "",
+      salaryBasis: e.salaryBasis === "NET" ? "NET" : "GROSS",
+      calismaDuzeni: formFromUsesShifts(e.usesShifts),
       iban: e.iban || "",
       annualLeaveDays: e.annualLeaveDays != null ? String(e.annualLeaveDays) : "14",
       address: e.address || "",
@@ -139,6 +160,9 @@ export default function PersonellerPage() {
         ...form,
         companyId,
         grossSalary: form.grossSalary || null,
+        netSalary: form.netSalary || null,
+        salaryBasis: form.salaryBasis,
+        usesShifts: usesShiftsFromForm(form.calismaDuzeni),
         annualLeaveDays: form.annualLeaveDays || "14",
       }
       const res = editingId
@@ -339,8 +363,16 @@ export default function PersonellerPage() {
             <div><Label>Departman</Label><Input value={form.department} onChange={(e) => setForm((p) => ({ ...p, department: e.target.value }))} /></div>
             <div><Label>Görev / Unvan</Label><Input value={form.position} onChange={(e) => setForm((p) => ({ ...p, position: e.target.value }))} /></div>
             <div><Label>İşe Giriş Tarihi</Label><Input type="date" value={form.hireDate} onChange={(e) => setForm((p) => ({ ...p, hireDate: e.target.value }))} /></div>
-            <div><Label>Brüt Maaş (₺)</Label><Input type="number" value={form.grossSalary} onChange={(e) => setForm((p) => ({ ...p, grossSalary: e.target.value }))} /></div>
+            <MaasAlanlari
+              value={{ grossSalary: form.grossSalary, netSalary: form.netSalary, salaryBasis: form.salaryBasis }}
+              onChange={(next) => setForm((p) => ({ ...p, ...next }))}
+            />
             <div><Label>Yıllık İzin Hakkı (gün)</Label><Input type="number" value={form.annualLeaveDays} onChange={(e) => setForm((p) => ({ ...p, annualLeaveDays: e.target.value }))} /></div>
+            <CalismaDuzeniSecici
+              value={form.calismaDuzeni}
+              companyMode={selectedCompany?.workScheduleMode}
+              onChange={(v) => setForm((p) => ({ ...p, calismaDuzeni: v }))}
+            />
             <div><Label>IBAN</Label><Input value={form.iban} onChange={(e) => setForm((p) => ({ ...p, iban: e.target.value }))} /></div>
             <div><Label>Acil Durum İletişim</Label><Input value={form.emergencyContact} onChange={(e) => setForm((p) => ({ ...p, emergencyContact: e.target.value }))} /></div>
             <div className="sm:col-span-2"><Label>Adres</Label><Input value={form.address} onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))} /></div>

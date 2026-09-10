@@ -80,6 +80,13 @@ export const POST = withApiErrors(async function POST(request: Request) {
       position: body.position || null,
       hireDate: dateOrNull(body.hireDate),
       grossSalary: numOrNull(body.grossSalary),
+      // Net ücret ve anlaşmanın hangi uçtan yapıldığı. Çevrim İSTEMCİDE yapılır
+      // (lib/personel/bordro-hesap.ts) ve kullanıcı iki rakamı da ekranda görür;
+      // burada sunucu ikinci bir hesap yapmaz, gördüğü rakamı yazar.
+      netSalary: numOrNull(body.netSalary),
+      salaryBasis: body.salaryBasis === "NET" ? "NET" : "GROSS",
+      // Çalışma düzeni istisnası: null = firmanın düzeni (bkz. lib/personel/kip.ts).
+      usesShifts: body.usesShifts === true ? true : body.usesShifts === false ? false : null,
       iban: body.iban || null,
       address: body.address || null,
       emergencyContact: body.emergencyContact || null,

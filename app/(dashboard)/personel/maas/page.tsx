@@ -20,8 +20,9 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import Link from "next/link"
-import { Plus, RefreshCcw, Trash2, Wallet, DollarSign, Users, FileText, Download, Pencil } from "lucide-react"
+import { Calculator, Plus, RefreshCcw, Trash2, Wallet, DollarSign, Users, FileText, Download, Pencil } from "lucide-react"
 import { toDateInput } from "@/lib/format"
+import { brutenNete } from "@/lib/personel/bordro-hesap"
 
 type Employee = { id: string; firstName: string; lastName: string; grossSalary?: number | null; status: string }
 type Account = { id: string; name: string; type: string }
@@ -117,6 +118,32 @@ export default function MaasOdemelerPage() {
     const n = (v: string) => Number(v || 0)
     return n(form.grossSalary) + n(form.bonus) - n(form.advance) - n(form.sgkDeduction) - n(form.taxDeduction) - n(form.otherDeduction)
   }, [form])
+
+  /**
+   * Brütten SGK + vergi kesintilerini doldur.
+   *
+   * Hesap `lib/personel/bordro-hesap.ts`ten gelir — personel kartındaki brüt↔net
+   * çevrimiyle AYNI kaynak. İki yerde ayrı hesaplansaydı personel kartında
+   * gösterilen net ile bordronun neti tutmazdı.
+   */
+  function kesintileriHesapla() {
+    const gross = Number(form.grossSalary || 0)
+    if (!(gross > 0)) {
+      toast({
+        title: "Brüt maaş gerekli",
+        description: "Önce brüt maaşı girin.",
+        variant: "destructive",
+      })
+      return
+    }
+    const r = brutenNete(gross, { year, month })
+    setForm((p) => ({
+      ...p,
+      sgkDeduction: (r.sgkEmployee + r.unemploymentEmployee).toFixed(2),
+      // Damga vergisinin ayrı alanı yok; gelir vergisiyle birlikte yazılır.
+      taxDeduction: (r.incomeTax + r.stampTax).toFixed(2),
+    }))
+  }
 
   function openCreate() {
     setEditingId(null)
@@ -370,6 +397,19 @@ export default function MaasOdemelerPage() {
               <div><Label>SGK Kesintisi</Label><Input type="number" value={form.sgkDeduction} onChange={(e) => setForm((p) => ({ ...p, sgkDeduction: e.target.value }))} /></div>
               <div><Label>Gelir Vergisi</Label><Input type="number" value={form.taxDeduction} onChange={(e) => setForm((p) => ({ ...p, taxDeduction: e.target.value }))} /></div>
               <div><Label>Diğer Kesinti</Label><Input type="number" value={form.otherDeduction} onChange={(e) => setForm((p) => ({ ...p, otherDeduction: e.target.value }))} /></div>
+            </div>
+            {/* Kesintileri brütten türet. ÖNERİDİR, otomatik değil: teşvikli SGK
+                oranları, engelli indirimi ve AGİ benzeri özel durumlar hesabı
+                değiştirir; kullanıcı gördüğü rakamı düzeltebilmeli. Damga vergisi
+                ayrı bir alan olmadığı için gelir vergisiyle birlikte yazılır. */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed border-border p-3">
+              <span className="text-xs text-muted-foreground">
+                SGK ve vergi kesintilerini brüt maaştan hesapla ({MONTHS[month - 1]} ayı,
+                yıl başından beri aynı ücret varsayımıyla).
+              </span>
+              <Button type="button" variant="outline" size="sm" onClick={kesintileriHesapla}>
+                <Calculator className="mr-1 h-4 w-4" /> Hesapla
+              </Button>
             </div>
             <div><Label>Not</Label><Input value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></div>
             <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3">

@@ -16,6 +16,12 @@ export interface UserCompanyContext {
   isEDonusumEnabled: boolean
   disabledModules: string[]
   /**
+   * Çalışma düzeni (`Company.workScheduleMode`): SHIFT | FLAT | MIXED, null =
+   * personel modülünün ilk açılışında sorulacak. Menüde hangi takvimin duracağını
+   * belirler — bkz. lib/nav/pages.ts `hiddenByShiftMode`.
+   */
+  workScheduleMode: string | null
+  /**
    * Hesap SALT-OKUNUR arşivde mi? (`Company.archivedAt` dolu.) `disabledModules` ile
    * aynı desende hesabın her üyesine yazılır, bu yüzden istek başına ek sorgu yok —
    * yazma kapısı ([[lib/middleware/company.ts]] → `ensureCompanyWrite`) bunu okur.
@@ -79,6 +85,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
         isActive: boolean
         isEDonusumEnabled: boolean
         disabledModules: string[]
+        workScheduleMode: string | null
         archivedAt: Date | null
         accountRootId: string | null
         parentCompanyId: string | null
@@ -115,6 +122,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
                 isActive: true,
                 isEDonusumEnabled: true,
                 disabledModules: true,
+                workScheduleMode: true,
                 archivedAt: true,
                 accountRootId: true,
                 parentCompanyId: true,
@@ -142,6 +150,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
     isActive: entry.company.isActive,
     isEDonusumEnabled: entry.company.isEDonusumEnabled,
     disabledModules: entry.company.disabledModules ?? [],
+    workScheduleMode: entry.company.workScheduleMode ?? null,
     isArchived: entry.company.archivedAt != null,
     // Özel rol varsa yetki ONDAN gelir; üyelikteki listeler o durumda okunmaz.
     // Rol silinmişse (customRoleId null'a düşer) üyelik enum rolüne geri döner —
@@ -188,6 +197,7 @@ export const getUserContext = cache(async function getUserContext(): Promise<Use
       isActive: true,
       isEDonusumEnabled: c.isEDonusumEnabled,
       disabledModules: c.disabledModules,
+      workScheduleMode: c.workScheduleMode,
       isArchived: c.archivedAt != null,
       // Erişim ana firmanın/hesap kökünün ADMIN'liğinden doğar, üyelik satırı yoktur —
       // dolayısıyla tutunacak bir izin kaydı da yok: bu bağlam her zaman kısıtsız.

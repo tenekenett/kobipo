@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Search } from "lucide-react"
 import { allNavItems, moduleKeyForPath, navGroups } from "@/components/dashboard/nav-config"
-import { DENEME_PAGES } from "@/lib/nav/pages"
+import { DENEME_PAGES, hiddenByShiftMode } from "@/lib/nav/pages"
 import { useDashboardCompany, useVisiblePages } from "@/components/dashboard/dashboard-company-provider"
 import { MODULE_KEYS } from "@/lib/modules"
 
@@ -43,6 +43,9 @@ export function MenuSearch({ userRole: _userRole }: { userRole: string }) {
       if (!visible.has(i.href)) return false
       // Kenar çubuğunda gizli olan deneme sayfası aramada da çıkmasın.
       if (DENEME_PAGES.includes(i.href) && selectedCompany?.isFisTaramaEnabled !== true) return false
+      // Çalışma düzeni dışında kalan takvim kenar çubuğunda gizli; aramada çıkarsa
+      // kullanıcı menüde bulamadığı bir ekrana buradan girer.
+      if (hiddenByShiftMode(i.href, selectedCompany?.workScheduleMode ?? null)) return false
       const moduleKey = i.module ?? moduleKeyForPath(i.href)
       return !(moduleKey && disabled.has(moduleKey))
     })

@@ -26,6 +26,7 @@ import {
   utcDateToDay,
 } from "@/lib/personel/vardiya"
 import { laborCost } from "@/lib/personel/maliyet"
+import { normalizeMode, shiftEmployees } from "@/lib/personel/kip"
 
 export type PuantajRow = {
   employeeId: string
@@ -79,7 +80,15 @@ export async function computePuantaj(args: {
   const from = dayToUtcDate(first)
   const to = dayToUtcDate(last)
 
-  const [employees, shifts, leaves, payrolls, sales] = await Promise.all([
+  const [company, employees, shifts, leaves, payrolls, sales] = await Promise.all([
+    // Çalışma düzeni: karma işletmede bu özet YALNIZ vardiyalı personeli sayar,
+    // sabit mesaililer devam özetine gider (lib/personel/devam-ozet.ts). Ayrım
+    // olmasaydı aynı çalışan iki özette birden görünür ve bordroya hem saat hem
+    // gün üzerinden iki kez girerdi.
+    prisma.company.findUnique({
+      where: { id: companyId },
+      select: { workScheduleMode: true },
+    }),
     prisma.employee.findMany({
       /**
        * Sadece AKTİF personel YETMEZ: ayın 20'sinde çıkan kişinin o aya ait
@@ -104,6 +113,7 @@ export async function computePuantaj(args: {
         grossSalary: true,
         status: true,
         terminationDate: true,
+        usesShifts: true,
       },
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
     }),
@@ -144,7 +154,13 @@ export async function computePuantaj(args: {
 
   const payrollByEmployee = new Map(payrolls.map((p) => [p.employeeId, p]))
 
-  const rows: PuantajRow[] = employees.map((e) => {
+  // Sabit mesaili personel bu tabloda YOK: kip değiştirildiğinde eski vardiya
+  // kayıtları silinmez ama toplanmaz da — kişi o dönemde artık devam özetinde
+  // sayılıyordur ve iki yerde birden sayılmak, bordroyu ikiye katlar.
+  const rows: PuantajRow[] = shiftEmployees(
+    employees,
+    normalizeMode(company?.workScheduleMode),
+  ).map((e) => {
     const own = shifts.filter((s) => s.employeeId === e.id)
     const acc = {
       shiftCount: own.length,

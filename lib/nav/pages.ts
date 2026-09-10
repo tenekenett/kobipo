@@ -10,6 +10,11 @@
 // ne diyor" ayrışmasına ve sessiz yetki açıklarına yol açardı.
 
 import { MANAGEABLE_MODULES, MODULE_GROUP_TO_KEY } from "@/lib/modules"
+import {
+  attendanceCalendarEnabled,
+  normalizeMode,
+  shiftCalendarEnabled,
+} from "@/lib/personel/kip"
 
 export type NavPageDef = {
   href: string
@@ -108,7 +113,13 @@ export const NAV_PAGES: NavPageDef[] = [
   // Personel
   { href: "/personel", label: "Personeller", roles: ["ADMIN", BM] },
   { href: "/personel/maas", label: "Maaş-Ödemeler", roles: ["ADMIN", BM] },
+  // VARDİYA ↔ DEVAM: aynı işin iki kipi, MENÜDE AYNI ANDA GÖRÜNMEZLER.
+  // Hangisinin çizileceğini firma ayarı (`Company.usesShifts`) belirler; kapı
+  // aşağıdaki SHIFT_MODE_PAGES / ATTENDANCE_MODE_PAGES listelerinden okunur.
+  // Vardiya takvimi her gün aynı saatte gelen ekipte yalnız kafa karıştırıyordu;
+  // o işletmeye saatsiz "çalıştı / izinli" takvimi gösterilir.
   { href: "/personel/vardiya", label: "Vardiya Takvimi", roles: ["ADMIN", BM] },
+  { href: "/personel/devam", label: "Devam Takvimi", roles: ["ADMIN", BM] },
   { href: "/personel/puantaj", label: "Aylık Puantaj", roles: ["ADMIN", BM] },
   { href: "/personel/izin", label: "İzin-Devam", roles: ["ADMIN", BM] },
   { href: "/personel/zimmet", label: "Zimmet", roles: ["ADMIN", BM] },
@@ -234,6 +245,7 @@ export const NAV_GROUPS: Array<{ title: string; hrefs: string[] }> = [
       "/personel",
       "/personel/maas",
       "/personel/vardiya",
+      "/personel/devam",
       "/personel/puantaj",
       "/personel/izin",
       "/personel/zimmet",
@@ -391,6 +403,34 @@ export function navPage(href: string): NavPageDef | undefined {
  * Buradaki gizleme KOZMETİK: gerçek kapı, parayı harcayan uçta.
  */
 export const DENEME_PAGES: string[] = ["/alis/fis-tarama"]
+
+/**
+ * Vardiya takvimi sayfaları — firma SHIFT ya da MIXED düzenindeyse görünür.
+ *
+ * `Company.workScheduleMode === "FLAT"` olan firmada menüden kalkar; yerine
+ * ATTENDANCE_MODE_PAGES gelir. Ayar HENÜZ SORULMAMIŞSA (null) vardiya tarafı
+ * görünür: bugüne kadarki davranış budur ve kurulum penceresi zaten ilk açılışta
+ * soruyu sorar — menüyü boşaltıp kullanıcıyı ekransız bırakmak yerine.
+ */
+export const SHIFT_MODE_PAGES: string[] = ["/personel/vardiya"]
+
+/** Devam takvimi sayfaları — FLAT ve MIXED düzeninde görünür. */
+export const ATTENDANCE_MODE_PAGES: string[] = ["/personel/devam"]
+
+/**
+ * Çalışma düzenine göre elenmesi gereken sayfa mı?
+ *
+ * KARMA (MIXED) işletmede hiçbir takvim elenmez: bazı personel vardiyalı, bazısı
+ * sabit mesai çalışır ve ikisinin de ekranı gerekir. Kimin hangi takvimde olduğu
+ * sayfa değil PERSONEL kararıdır (lib/personel/kip.ts → employeeUsesShifts).
+ */
+export function hiddenByShiftMode(href: string, mode: string | null | undefined): boolean {
+  if (!shiftCalendarEnabled(normalizeMode(mode)) && SHIFT_MODE_PAGES.includes(href)) return true
+  if (!attendanceCalendarEnabled(normalizeMode(mode)) && ATTENDANCE_MODE_PAGES.includes(href)) {
+    return true
+  }
+  return false
+}
 
 export const E_DONUSUM_PAGES: string[] = [
   ...(NAV_GROUPS.find((g) => g.title === "E-Dönüşüm")?.hrefs ?? []),

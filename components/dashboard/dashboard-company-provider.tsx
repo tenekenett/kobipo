@@ -25,6 +25,11 @@ export type DashboardCompany = {
   /** İşletme asistanı denemesine dahil mi? Sunucuda ASISTAN_COMPANIES'ten çözülür. */
   isAsistanEnabled?: boolean
   disabledModules?: string[]
+  /**
+   * Çalışma düzeni: SHIFT | FLAT | MIXED. null = personel modülünün ilk açılışında
+   * sorulacak. Menüde hangi takvimin (ya da ikisinin birden) duracağını belirler.
+   */
+  workScheduleMode?: string | null
   /** Hesap salt-okunur arşivde mi? ([[lib/billing/archive.ts]]) */
   isArchived?: boolean
   /** Kısıtlı çalışan izinleri; boş = kısıt yok. Bkz. lib/page-access.ts. */

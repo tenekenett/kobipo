@@ -41,6 +41,8 @@ export type ManagedCompany = {
   accountRootId: string | null
   isEDonusumEnabled: boolean
   disabledModules: string[]
+  /** Çalışma düzeni (`Company.workScheduleMode`); null = henüz sorulmadı. */
+  workScheduleMode: string | null
   /** Hesap salt-okunur arşivde mi? (`Company.archivedAt`) */
   archivedAt: Date | null
 }
@@ -119,6 +121,7 @@ export async function getManagedCompanies(userId: string): Promise<ManagedCompan
       accountRootId: true,
       isEDonusumEnabled: true,
       disabledModules: true,
+      workScheduleMode: true,
       archivedAt: true,
     },
     orderBy: { name: "asc" },
@@ -155,6 +158,7 @@ export async function getManagedCompanies(userId: string): Promise<ManagedCompan
     accountRootId: c.accountRootId,
     isEDonusumEnabled: c.isEDonusumEnabled,
     disabledModules: c.disabledModules ?? [],
+    workScheduleMode: c.workScheduleMode ?? null,
     archivedAt: c.archivedAt,
   }))
 }

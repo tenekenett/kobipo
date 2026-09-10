@@ -27,6 +27,13 @@ import { money } from "@/lib/format"
 import { durationLabel } from "@/lib/personel/vardiya"
 import { HOURLY_BASIS_LABEL, laborRatio } from "@/lib/personel/maliyet"
 import { BordroAktarDialog } from "@/components/personel/bordro-aktar-dialog"
+import { DevamPuantaj } from "@/components/personel/devam-puantaj"
+import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import {
+  attendanceCalendarEnabled,
+  normalizeMode,
+  shiftCalendarEnabled,
+} from "@/lib/personel/kip"
 // Satırın şekli sunucudaki hesapla aynı yerden gelir; ekranın kendi kopyası
 // olsaydı uca eklenen bir alan burada sessizce eksik kalırdı.
 import type { PuantajRow as Row } from "@/lib/personel/puantaj"
@@ -41,6 +48,20 @@ export default function PuantajPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const { toast } = useToast()
+  /**
+   * Çalışma düzeni bu ekranın neyi göstereceğini belirler:
+   *   FLAT  → yalnız devam özeti (saat toplamları boş çıkardı)
+   *   SHIFT → yalnız vardiya puantajı (bugünkü tablo)
+   *   MIXED → İKİSİ BİRDEN, alt alta. Ölçüler birleştirilmez: 8 sa 30 dk ile
+   *           0,5 gün aynı sütunda toplanamaz, toplamı da anlamsız olurdu.
+   *           Hangi personelin hangi tabloda olduğunu sunucu ayırır
+   *           (lib/personel/kip.ts), yani kimse iki tabloda birden sayılmaz.
+   */
+  const { selectedCompany } = useDashboardCompany()
+  const scheduleMode = normalizeMode(selectedCompany?.workScheduleMode)
+  const vardiyaTablosu = shiftCalendarEnabled(scheduleMode)
+  const devamTablosu = attendanceCalendarEnabled(scheduleMode)
+  const devamModu = !vardiyaTablosu
 
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
@@ -54,7 +75,9 @@ export default function PuantajPage() {
   const periodLabel = `${AYLAR[month - 1]} ${year}`
 
   const load = useCallback(async () => {
-    if (!companyId) return
+    // Devam kipinde vardiya özeti hiç çekilmez: boş dönecek bir istek her ay
+    // değişiminde tekrarlanırdı.
+    if (!companyId || devamModu) return
     setIsLoading(true)
     try {
       const res = await fetch(
@@ -68,7 +91,7 @@ export default function PuantajPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [companyId, year, month])
+  }, [companyId, devamModu, year, month])
 
   useEffect(() => {
     load()
@@ -151,6 +174,10 @@ export default function PuantajPage() {
 
   if (!companyId) {
     return <p className="p-4 text-muted-foreground">Firma seçili değil.</p>
+  }
+
+  if (devamModu) {
+    return <DevamPuantaj companyId={companyId} />
   }
 
   return (
@@ -373,6 +400,16 @@ export default function PuantajPage() {
         onClose={() => setTransfer(null)}
         onApply={applyTransfer}
       />
+
+      {/* KARMA işletme: sabit mesaili personelin gün özeti aynı sayfada, ayrı
+          bölüm olarak. Tek tabloda birleştirmek doğru olmazdı — saat ve gün
+          toplanamaz; ayrı sayfaya koymak ise "bordroya veri buradan gelir"
+          sözünü ikiye bölerdi. Kendi ay seçicisi ve bordro penceresi vardır. */}
+      {devamTablosu && (
+        <div className="border-t border-border/70 pt-6">
+          <DevamPuantaj companyId={companyId} nested />
+        </div>
+      )}
     </div>
   )
 }

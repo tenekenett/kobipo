@@ -81,6 +81,8 @@ export default async function DashboardLayout({
     // Asistan da aynı desende: beyaz liste SUNUCUDA çözülür, istemciye yalnız boolean gider.
     isAsistanEnabled: asistanAcikMi({ id: entry.companyId, slug: entry.companySlug }),
     disabledModules: entry.disabledModules,
+    // Çalışma düzeni menüyü etkiler; ilk render'da da doğru olsun diye sunucudan gelir.
+    workScheduleMode: entry.workScheduleMode ?? null,
     // Kısıtlı çalışan izinleri de firma bazında (boş = kısıt yok).
     allowedPaths: entry.allowedPaths,
     writablePaths: entry.writablePaths,

@@ -75,6 +75,13 @@ export const PUT = withApiErrors(async function PUT(
   if (body.hireDate !== undefined) data.hireDate = dateOrNull(body.hireDate)
   if (body.terminationDate !== undefined) data.terminationDate = dateOrNull(body.terminationDate)
   if (body.grossSalary !== undefined) data.grossSalary = numOrNull(body.grossSalary)
+  if (body.netSalary !== undefined) data.netSalary = numOrNull(body.netSalary)
+  if (body.salaryBasis !== undefined) data.salaryBasis = body.salaryBasis === "NET" ? "NET" : "GROSS"
+  // null GEÇERLİ bir değerdir ("firmanın düzenine dön"), bu yüzden undefined ile
+  // null ayrı ele alınır.
+  if (body.usesShifts !== undefined) {
+    data.usesShifts = body.usesShifts === true ? true : body.usesShifts === false ? false : null
+  }
   if (body.annualLeaveDays !== undefined) data.annualLeaveDays = numOrNull(body.annualLeaveDays) ?? existing.annualLeaveDays
   // Kobipo hesabı bağı. Yalnız BU firmanın ekip üyesi bağlanabilir — aksi halde
   // yabancı bir kullanıcı id'si personel kartına iliştirilebilir ve vardiya/ikram

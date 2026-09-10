@@ -37,6 +37,9 @@ import {
   Wand2,
 } from "lucide-react"
 import { CompanyLink } from "@/components/dashboard/company-link"
+import { KipUyarisi } from "@/components/personel/kip-uyarisi"
+import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { flatEmployees, normalizeMode, shiftEmployees } from "@/lib/personel/kip"
 import { ExportButton } from "@/components/export/export-button"
 import {
   TIMELINE_NAME_WIDTH,
@@ -86,6 +89,8 @@ type Employee = {
   email?: string | null
   /** Prisma Decimal JSON'da string gelir; maliyet hesabından önce sayıya çevrilir. */
   grossSalary?: number | string | null
+  /** null = firmanın çalışma düzeni (bkz. lib/personel/kip.ts). */
+  usesShifts?: boolean | null
 }
 
 /** Haftanın yayın kaydı; hiç yayınlanmadıysa null. */
@@ -151,6 +156,8 @@ export default function VardiyaPage() {
   // çizmek, barı taşımak, boş hücreye tıklamak. Kapı bu yüzden jestin bittiği
   // yerde, yazma fonksiyonlarının başında duruyor.
   const { canWrite, refuse } = useWriteGuard()
+  const { selectedCompany } = useDashboardCompany()
+  const scheduleMode = normalizeMode(selectedCompany?.workScheduleMode)
 
   const [view, setView] = useState<View>("gun")
   const [day, setDay] = useState(todayIso())
@@ -324,15 +331,27 @@ export default function VardiyaPage() {
   )
   const win = useMemo(() => gridWindow(opening, weekdayOf(day), dayShifts), [opening, day, dayShifts])
 
+  /**
+   * Izgarada YALNIZ vardiyalı personel: sabit mesailiye saatli bar çizmek zaten
+   * bu ekranın kaçınmaya çalıştığı iş. Karma işletmede ötekiler devam
+   * takvimindedir ve bir çalışan hiçbir zaman iki takvimde birden görünmez
+   * (bkz. lib/personel/kip.ts).
+   */
   const rows = useMemo(
     () =>
-      employees.map((e) => ({
+      shiftEmployees(employees, scheduleMode).map((e) => ({
         id: e.id,
         name: `${e.firstName} ${e.lastName}`.trim(),
         department: e.department,
         position: e.position,
       })),
-    [employees],
+    [employees, scheduleMode],
+  )
+
+  /** Devam takvimindeki aktif personel sayısı — "eksik" görünen ekran açıklansın. */
+  const devamTakvimiSayisi = useMemo(
+    () => flatEmployees(employees, scheduleMode).filter((e) => e.status !== "TERMINATED").length,
+    [employees, scheduleMode],
   )
 
   /** "employeeId|gün" → izin etiketi; iki görünüm de buradan okur. */
@@ -950,6 +969,17 @@ export default function VardiyaPage() {
 
   return (
     <div className="space-y-4">
+      <KipUyarisi ekran="vardiya" />
+      {devamTakvimiSayisi > 0 && (
+        <p className="rounded-lg border border-dashed border-border p-2.5 text-xs text-muted-foreground">
+          {devamTakvimiSayisi} personel sabit mesai olarak işaretli ve bu ızgarada
+          görünmüyor; onların günleri{" "}
+          <CompanyLink href="/personel/devam" className="underline underline-offset-4">
+            Devam Takvimi
+          </CompanyLink>{" "}
+          ekranında işaretlenir.
+        </p>
+      )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">

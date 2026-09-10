@@ -150,6 +150,75 @@ Kurallar:
 > yiyordu ve satılabilir bir "ek firma" ürünü yoktu. Ayrıntı:
 > `docs/paket-abonelik/ILERLEME.md` (2026-08-15 bölümü).
 
+## Çalışma düzeni: bir çalışan ASLA iki takvimde birden
+
+İki ayrı eksen var ve karıştırılmamalı:
+
+```
+Company.workScheduleMode → hangi TAKVİMLER var (menüde ne duruyor)
+  null    → henüz sorulmadı (modülün ilk açılışında kurulum penceresi; menü SHIFT gibi)
+  "SHIFT" → /personel/vardiya (saatli ızgara)
+  "FLAT"  → /personel/devam   (haftalık çalıştı/izinli)
+  "MIXED" → İKİSİ BİRDEN
+
+Employee.usesShifts      → bu ÇALIŞAN hangi takvimde (null = firmanın düzeni)
+```
+
+"Henüz sorulmadı" ile "sabit mesai" farklı şeylerdir; varsayılanı FLAT olan bir alanla
+soru hiç sorulamaz. Kip firma bazındadır (hesap değil) — aynı hesabın kafesi vardiyalı,
+ofisi tek düze çalışabilir.
+
+**DEĞİŞMEZ: bir çalışan her zaman TEK takvime aittir.** Karar tek yerde:
+`lib/personel/kip.ts` → `employeeUsesShifts` (personel seçimi firmanın düzenini ezer).
+Vardiya takvimi, devam takvimi, aylık puantaj, devam özeti ve iki dışa aktarım — hepsi
+bu fonksiyondan geçer. Aynı kişi iki takvimde birden görünseydi bordroya hem saat hem
+gün girer, kesinti iki kez sayılırdı. Karma firmada seçim yapılmamış personel
+VARDİYALI sayılır: devam tarafında işaretlenmemiş gün "çalıştı"dır ve yanlış tarafa
+düşen kişi sessizce 22 gün çalışmış gibi bordroya girerdi — güvenli varsayılan, veri
+UYDURMAYAN taraftır.
+
+- Menü kararı TEK yerde: `lib/nav/pages.ts` → `hiddenByShiftMode` (kenar çubuğu ve menü
+  araması ikisi de oradan geçer); MIXED'de hiçbir takvim elenmez. Ayarın kullanıcıya
+  görünen yeri `Ayarlar → Firma Bilgileri → Çalışma Düzeni`; soru penceresi
+  `app/(dashboard)/personel/layout.tsx` içinde bir kez sorulur. Personel bazlı istisna
+  personel kartındadır (`components/personel/calisma-duzeni-secici.tsx`).
+- Karma işletmede `/personel/puantaj` İKİ bölüm çizer: üstte vardiya puantajı (saat),
+  altta devam özeti (gün). Ölçüler BİRLEŞTİRİLMEZ — 8 sa 30 dk ile 0,5 gün aynı sütunda
+  toplanamaz; ayrı sayfaya koymak ise "bordroya veri buradan gelir" sözünü ikiye bölerdi.
+- Kip yalnız MENÜYÜ değiştirir, veri silmez: yazılmış vardiyalar ve devam kayıtları
+  yerinde kalır. Adres çubuğundan yanlış takvime gelen kullanıcıya `KipUyarisi` şeridi
+  çıkar — ekran KİLİTLENMEZ.
+- Açılış saatleri ve işletme tatilleri vardiyaya ÖZGÜ DEĞİLDİR: devam takvimi de ikisini
+  okur (kapalı gün → hafta tatili, tatil → tatil) ve düzenler. Kapıyı yalnız vardiyaya
+  bağlarsanız tek düze çalışan firma hafta tatilini hiç tanımlayamaz.
+
+**Devam kaydı = İSTİSNA.** `AttendanceDay` yalnız SAPMA için yazılır; kayıt yoksa gün
+sırayla türetilir (`lib/personel/devam.ts` → `effectiveDayStatus`): istihdam sınırı →
+elle kayıt → onaylı izin → işletme tatili → kapalı gün → **çalıştı**. Sıra böyledir:
+izin tatilin önüne geçmezse izin bakiyesinden düşen gün takvimde kaybolur. "Çalıştı"ya
+dönmek yazma değil SİLMEDİR (uç `status: null` alır) — aksi halde sonradan girilen bir
+iznin üstünü örten binlerce satır birikir.
+
+Bordroya gün kesintisi tek fonksiyondan gelir: `deductionDaysFor` (devamsızlık + yarım
+gün her zaman, ücretsiz izin varsayılan, raporlu yalnız istenirse). Ekran, dışa aktarım
+ve aktarım penceresi aynı varsayımı kullanmalı, yoksa üç yerde üç rakam çıkar.
+
+## Brüt ↔ net: parametreler YILLIKTIR, elle güncellenir
+
+Çevrim `lib/personel/bordro-hesap.ts`tedir ve tek kaynaktır (personel kartı, bordro
+penceresi, kesinti hesaplayıcı). Netten brüt için kapalı formül YOKTUR — dilimli vergi
+ve asgari ücret istisnası fonksiyonu kırıklı yapar, o yüzden ikili aramayla çözülür.
+
+`BORDRO_PARAMS` tablosuna **her yıl** yeni satır eklenmelidir (asgari ücret, gelir
+vergisi tarifesi, SGK tavanı). Eksikse hesap bilinen en son yılın tarifesiyle yapılır ve
+sonuç `paramYear` ile hangi yılı kullandığını söyler; ekranlar bunu kullanıcıya YAZAR.
+Sessizce eski tarifeyle hesaplamak, kullanıcının göremediği bir hatadır.
+
+Personel kartındaki net bir SÖZLEŞME rakamıdır, ayın kesin neti değil: gelir vergisi
+kümülatif matrahtan hesaplandığı için aynı brüt yıl sonuna doğru daha az net verir.
+`Employee.salaryBasis` hangi ucun sabit olduğunu söyler (net anlaşmada brüt her ay
+yeniden çözülür).
+
 ## Cari görünürlüğü: "yetkili çalışan" atanmamışsa çalışan göremez
 
 `Customer.authorizedUserId` / `Supplier.authorizedUserId` bir GÖRÜNÜRLÜK anahtarıdır

@@ -311,6 +311,21 @@ model Company {
   // "işletme açık ama kimse yok" boşluğu ancak bu bantla görünür hale geliyor.
   // Şekil: lib/personel/opening-hours.ts (OpeningHours). NULL = tanımsız (bant çizilmez).
   openingHours                 Json?
+  // ÇALIŞMA DÜZENİ — personel modülünün ilk açılışında sorulur.
+  //   null    → henüz sorulmadı (kurulum penceresi çıkar; menü SHIFT gibi davranır)
+  //   "SHIFT" → vardiyalı: saatli vardiya takvimi
+  //   "FLAT"  → tek düze: haftalık devam takvimi (çalıştı/izinli)
+  //   "MIXED" → karma: İKİ takvim birden menüde; hangi personelin nerede olduğunu
+  //             `Employee.usesShifts` söyler
+  //
+  // Neden boolean DEĞİL (2026-09-10'da `usesShifts` boolean'ından çevrildi): karma
+  // işletme üçüncü bir cevaptır ve boolean'a sığmaz. "false" ile "hiç sorulmadı"
+  // ayrımı da korunuyor — varsayılanı FLAT olan bir alanla soru hiç sorulamazdı.
+  //
+  // Ayar FİRMA bazındadır (hesap değil): aynı hesabın kafesi vardiyalı, ofisi tek
+  // düze çalışabilir. Menüde hangi takvimin duracağını bu alan belirler
+  // (lib/nav/pages.ts → hiddenByShiftMode); kapı sunucuda da vardır.
+  workScheduleMode             String?
   // Restoran & Kafe iskonto TAVANI: bir hesaba verilebilecek en yüksek indirim,
   // yüzde olarak. Tutar iskontosunu da bağlar (600 ₺ hesaba 500 ₺ indirim %83'tür);
   // ölçü her iki türde de iskontonun hesaba oranıdır — bkz. lib/restoran/discount-limit.ts.
@@ -389,6 +404,7 @@ model Company {
   checklistEntries        ChecklistEntry[]
   productOptionGroups     ProductOptionGroup[]
   workShifts              WorkShift[]
+  attendanceDays          AttendanceDay[]
   shiftTemplates          ShiftTemplate[]
   shiftPublications       ShiftPublication[]
   holidays                CompanyHoliday[]
@@ -2631,6 +2647,29 @@ model Employee {
   hireDate         DateTime?
   terminationDate  DateTime?
   grossSalary      Decimal?  @db.Decimal(12, 2)
+  // Net ücret ve anlaşmanın hangi uçtan yapıldığı.
+  //
+  // Türkiye'de küçük işletmenin çalışanla anlaşması çoğu zaman NET üzerindendir
+  // ("eline 40 bin geçecek"); brüt o anlaşmadan türetilir. İkisini birden tutmak
+  // şart, çünkü brütten net her ay DEĞİŞİR: gelir vergisi kümülatif matrahtan
+  // hesaplanır ve yıl ilerledikçe dilim yükselir. `salaryBasis` hangi rakamın
+  // SÖZLEŞME olduğunu söyler — net anlaşmada bordro her ay brütü yeniden çözer,
+  // brüt anlaşmada net düşer. Hesap: lib/personel/bordro-hesap.ts.
+  netSalary        Decimal?  @db.Decimal(12, 2)
+  salaryBasis      String?   @default("GROSS") // GROSS | NET
+  // BU ÇALIŞAN VARDİYALI MI? null = firmanın çalışma düzenini izler
+  // (`Company.workScheduleMode`). Karma işletmede tek gerçek kaynak budur:
+  // vardiya takvimi yalnız true olanları, devam takvimi yalnız false olanları
+  // listeler ve aylık özetler de aynı ayrımı uygular.
+  //
+  // AYRIM ŞART: aynı çalışan iki takvimde birden görünseydi hem saat hem gün
+  // bordroya girer, kesinti iki kez sayılırdı. Bir çalışan HER ZAMAN tek
+  // takvime aittir (bkz. lib/personel/kip.ts → employeeUsesShifts).
+  //
+  // Karma firmada ayarlanmamış personel VARDİYALI sayılır: devam tarafında
+  // varsayılan "çalıştı"dır ve ayarlanmamış bir kişi sessizce 22 gün çalışmış
+  // gibi bordroya girerdi — güvenli taraf, veri uydurmayan taraftır.
+  usesShifts       Boolean?
   iban             String?
   address          String?   @db.Text
   emergencyContact String?
@@ -2658,6 +2697,7 @@ model Employee {
   compItems        RestaurantTicketItem[] @relation("TicketItemCompEmployee")
   compMovements    StockMovement[]        @relation("StockMovementEmployee")
   shifts           WorkShift[]
+  attendance       AttendanceDay[]
   // Bu personel adına atılmış açılış/kapanış tikleri. Seçim listeden yapıldığı
   // için "bu maddeyi o yaptı" kanıtı değil, yalnız beyandır.
   checklistEntries ChecklistEntry[]
@@ -2794,6 +2834,46 @@ model ShiftTemplate {
 
   @@index([companyId])
   @@map("shift_templates")
+}
+
+// TEK DÜZE ÇALIŞMA — bir personelin bir gününe düşen DEVAM kaydı.
+//
+// NEDEN WorkShift DEĞİL: vardiya "kim saat kaçta" sorusunun cevabıdır; burada
+// soru "bugün geldi mi, gelmediyse ne olarak sayılacak"tır. Aynı tabloya
+// sıkıştırılsaydı saatsiz bir devam kaydı için uydurma plannedStart/End yazmak
+// gerekir, puantajın saat toplamları da o uydurma saatlerle şişerdi.
+//
+// SATIR = İSTİSNA. Grid boş haliyle doğru okunur: kayıt YOKSA günün durumu
+// türetilir (lib/personel/devam.ts `effectiveDayStatus`) — onaylı izin varsa
+// izinli, işletme tatiliyse tatil, açılış saatinde kapalı günse hafta tatili,
+// hiçbiri değilse ÇALIŞTI. Aylık maaşlı çalışanda olağan durum "çalıştı"
+// olduğu için kullanıcı yalnız sapmayı işaretler; her gün için satır açan bir
+// tasarım 30 çalışan × 30 gün = 900 tıklama isterdi.
+//
+// `status` bordroya nasıl yansıdığını da belirler (bkz. DEVAM_STATUS):
+// ücretsiz izin ve devamsızlık gün kesintisi üretir, diğerleri üretmez.
+model AttendanceDay {
+  id         String   @id @default(cuid())
+  companyId  String
+  employeeId String
+  workDate   DateTime @db.Date
+  status     String // WORKED, HALF_DAY, PAID_LEAVE, SICK, UNPAID_LEAVE, ABSENT, HOLIDAY, WEEKLY_OFF
+  note       String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  createdBy  String?
+  // Bordro itirazında ("o gün izinliydim") kimin işaretlediği sorulur; `updatedAt`
+  // yalnız "ne zaman"ı söylüyordu. WorkShift ile aynı desen.
+  updatedBy  String?
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  // Bir personelin bir gününde tek durum olur: ikinci satır "hem izinli hem
+  // devamsız" gibi çözümsüz bir hâl yaratır ve kesinti iki kez sayılırdı.
+  @@unique([employeeId, workDate])
+  @@index([companyId, workDate])
+  @@map("attendance_days")
 }
 
 model PayrollRecord {

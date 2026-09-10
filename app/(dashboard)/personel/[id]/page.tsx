@@ -27,7 +27,17 @@ import {
   useRestoranActivity,
 } from "@/components/personel/employee-restoran-tab"
 import { EmployeeVardiyaTab } from "@/components/personel/employee-vardiya-tab"
-import { ArrowLeft, FileText, FileDown, ExternalLink, Plus, Pencil, Trash2, Wallet, CalendarCheck, BadgeCheck, FolderOpen } from "lucide-react"
+import { ArrowLeft, Calculator, FileText, FileDown, ExternalLink, Plus, Pencil, Trash2, Wallet, CalendarCheck, BadgeCheck, FolderOpen } from "lucide-react"
+import { MaasAlanlari, type MaasBasis } from "@/components/personel/maas-alanlari"
+import {
+  CalismaDuzeniSecici,
+  formFromUsesShifts,
+  usesShiftsFromForm,
+  type CalismaDuzeniDegeri,
+} from "@/components/personel/calisma-duzeni-secici"
+import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { defaultUsesShifts, normalizeMode } from "@/lib/personel/kip"
+import { brutenNete } from "@/lib/personel/bordro-hesap"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import { toDateInput } from "@/lib/format"
 
@@ -45,6 +55,9 @@ type Employee = {
   hireDate?: string | null
   terminationDate?: string | null
   grossSalary?: number | null
+  netSalary?: number | null
+  salaryBasis?: string | null
+  usesShifts?: boolean | null
   iban?: string | null
   address?: string | null
   emergencyContact?: string | null
@@ -71,7 +84,7 @@ const money = (n?: number | null) => (n != null ? `${Number(n).toLocaleString("t
 const date = (d?: string | null) => (d ? new Date(d).toLocaleDateString("tr-TR") : "—")
 const fmtSize = (b?: number | null) => (!b || b <= 0 ? "" : b < 1024 * 1024 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`)
 const DOC_CATEGORIES = ["Sözleşme", "Kimlik", "Diploma", "Sağlık Raporu", "İşe Giriş Formu", "Performans", "Diğer"]
-const emptyEditForm = () => ({ firstName: "", lastName: "", nationalId: "", phone: "", email: "", department: "", position: "", hireDate: "", grossSalary: "", iban: "", annualLeaveDays: "14", address: "", emergencyContact: "", notes: "" })
+const emptyEditForm = () => ({ firstName: "", lastName: "", nationalId: "", phone: "", email: "", department: "", position: "", hireDate: "", grossSalary: "", netSalary: "", salaryBasis: "GROSS" as MaasBasis, calismaDuzeni: "" as CalismaDuzeniDegeri, iban: "", annualLeaveDays: "14", address: "", emergencyContact: "", notes: "" })
 
 function tenure(hireDate?: string | null): string {
   if (!hireDate) return "—"
@@ -113,6 +126,7 @@ export default function PersonelDetayPage() {
   const router = useRouter()
   const { toast } = useToast()
   const { confirm } = useConfirm()
+  const { selectedCompany } = useDashboardCompany()
   const companyId = searchParams.get("company")
   const id = params.id
   const [emp, setEmp] = useState<Employee | null>(null)
@@ -170,6 +184,9 @@ export default function PersonelDetayPage() {
       firstName: emp.firstName || "", lastName: emp.lastName || "", nationalId: emp.nationalId || "",
       phone: emp.phone || "", email: emp.email || "", department: emp.department || "", position: emp.position || "",
       hireDate: emp.hireDate ? emp.hireDate.split("T")[0] : "", grossSalary: emp.grossSalary != null ? String(emp.grossSalary) : "",
+      netSalary: emp.netSalary != null ? String(emp.netSalary) : "",
+      salaryBasis: emp.salaryBasis === "NET" ? "NET" : "GROSS",
+      calismaDuzeni: formFromUsesShifts(emp.usesShifts),
       iban: emp.iban || "", annualLeaveDays: emp.annualLeaveDays != null ? String(emp.annualLeaveDays) : "14",
       address: emp.address || "", emergencyContact: emp.emergencyContact || "", notes: emp.notes || "",
     })
@@ -186,7 +203,12 @@ export default function PersonelDetayPage() {
       const res = await fetch(`/api/personel/employees/${id}${companyId ? `?companyId=${companyId}` : ""}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...editForm, grossSalary: editForm.grossSalary || null }),
+        body: JSON.stringify({
+          ...editForm,
+          grossSalary: editForm.grossSalary || null,
+          netSalary: editForm.netSalary || null,
+          usesShifts: usesShiftsFromForm(editForm.calismaDuzeni),
+        }),
       })
       if (res.ok) {
         toast({ title: "Personel güncellendi" })
@@ -291,6 +313,25 @@ export default function PersonelDetayPage() {
       return
     }
     await genericCreate("/api/personel/assets", assetForm, "Zimmet kaydedildi", setAssetSaving, () => setAssetOpen(false))
+  }
+
+  /**
+   * Brütten SGK + vergi kesintilerini doldur. Hesap personel kartındaki brüt↔net
+   * çevrimiyle aynı kaynaktan gelir; damga vergisinin ayrı alanı olmadığı için
+   * gelir vergisiyle birlikte yazılır.
+   */
+  function kesintileriHesapla() {
+    const gross = Number(payForm.grossSalary || 0)
+    if (!(gross > 0)) {
+      toast({ title: "Brüt maaş gerekli", description: "Önce brüt maaşı girin.", variant: "destructive" })
+      return
+    }
+    const r = brutenNete(gross, { year: payForm.periodYear, month: payForm.periodMonth })
+    setPayForm((p) => ({
+      ...p,
+      sgkDeduction: (r.sgkEmployee + r.unemploymentEmployee).toFixed(2),
+      taxDeduction: (r.incomeTax + r.stampTax).toFixed(2),
+    }))
   }
 
   const payNet = (() => {
@@ -415,7 +456,19 @@ export default function PersonelDetayPage() {
                 <Field label="Çıkış Tarihi" value={date(emp.terminationDate)} />
                 <Field label="Departman" value={emp.department} />
                 <Field label="Görev" value={emp.position} />
+                <Field
+                  label="Çalışma Düzeni"
+                  value={
+                    (emp.usesShifts ?? defaultUsesShifts(normalizeMode(selectedCompany?.workScheduleMode)))
+                      ? "Vardiyalı"
+                      : "Sabit mesai"
+                  }
+                />
                 <Field label="Brüt Maaş" value={money(emp.grossSalary)} />
+                <Field
+                  label={emp.salaryBasis === "NET" ? "Net Maaş (anlaşma)" : "Net Maaş"}
+                  value={emp.netSalary != null ? money(emp.netSalary) : null}
+                />
                 <Field label="IBAN" value={emp.iban} />
                 <Field label="Acil Durum" value={emp.emergencyContact} />
                 <Field label="Adres" value={emp.address} />
@@ -697,8 +750,16 @@ export default function PersonelDetayPage() {
             <div><Label>Departman</Label><Input value={editForm.department} onChange={(e) => setEditForm((p) => ({ ...p, department: e.target.value }))} /></div>
             <div><Label>Görev / Unvan</Label><Input value={editForm.position} onChange={(e) => setEditForm((p) => ({ ...p, position: e.target.value }))} /></div>
             <div><Label>İşe Giriş</Label><Input type="date" value={editForm.hireDate} onChange={(e) => setEditForm((p) => ({ ...p, hireDate: e.target.value }))} /></div>
-            <div><Label>Brüt Maaş (₺)</Label><Input type="number" value={editForm.grossSalary} onChange={(e) => setEditForm((p) => ({ ...p, grossSalary: e.target.value }))} /></div>
+            <MaasAlanlari
+              value={{ grossSalary: editForm.grossSalary, netSalary: editForm.netSalary, salaryBasis: editForm.salaryBasis }}
+              onChange={(next) => setEditForm((p) => ({ ...p, ...next }))}
+            />
             <div><Label>Yıllık İzin (gün)</Label><Input type="number" value={editForm.annualLeaveDays} onChange={(e) => setEditForm((p) => ({ ...p, annualLeaveDays: e.target.value }))} /></div>
+            <CalismaDuzeniSecici
+              value={editForm.calismaDuzeni}
+              companyMode={selectedCompany?.workScheduleMode}
+              onChange={(v) => setEditForm((p) => ({ ...p, calismaDuzeni: v }))}
+            />
             <div><Label>IBAN</Label><Input value={editForm.iban} onChange={(e) => setEditForm((p) => ({ ...p, iban: e.target.value }))} /></div>
             <div><Label>Acil Durum</Label><Input value={editForm.emergencyContact} onChange={(e) => setEditForm((p) => ({ ...p, emergencyContact: e.target.value }))} /></div>
             <div className="sm:col-span-2"><Label>Adres</Label><Input value={editForm.address} onChange={(e) => setEditForm((p) => ({ ...p, address: e.target.value }))} /></div>
@@ -775,6 +836,15 @@ export default function PersonelDetayPage() {
               <div><Label>SGK Kesintisi</Label><Input type="number" value={payForm.sgkDeduction} onChange={(e) => setPayForm((p) => ({ ...p, sgkDeduction: e.target.value }))} /></div>
               <div><Label>Gelir Vergisi</Label><Input type="number" value={payForm.taxDeduction} onChange={(e) => setPayForm((p) => ({ ...p, taxDeduction: e.target.value }))} /></div>
               <div><Label>Diğer Kesinti</Label><Input type="number" value={payForm.otherDeduction} onChange={(e) => setPayForm((p) => ({ ...p, otherDeduction: e.target.value }))} /></div>
+            </div>
+            {/* Kesintileri brütten türet — personel kartındaki brüt↔net çevrimiyle
+                AYNI kaynak (lib/personel/bordro-hesap.ts). ÖNERİDİR: teşvikli SGK
+                oranı, engelli indirimi gibi özel durumlarda elle düzeltilir. */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed border-border p-3">
+              <span className="text-xs text-muted-foreground">SGK ve vergi kesintilerini brüt maaştan hesapla.</span>
+              <Button type="button" variant="outline" size="sm" onClick={kesintileriHesapla}>
+                <Calculator className="mr-1 h-4 w-4" /> Hesapla
+              </Button>
             </div>
             <div><Label>Not</Label><Input value={payForm.notes} onChange={(e) => setPayForm((p) => ({ ...p, notes: e.target.value }))} /></div>
             <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3"><span className="text-sm text-muted-foreground">Net Maaş</span><span className="text-lg font-bold">{money(payNet)}</span></div>

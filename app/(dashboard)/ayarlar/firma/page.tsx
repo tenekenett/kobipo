@@ -12,6 +12,8 @@ import { AlertTriangle, CheckCircle2, Loader2, Mailbox, RefreshCw, Save } from "
 import Link from "next/link"
 import { getFirstAccessibleCompanyId } from "@/lib/company/client-selection"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { VardiyaModuKarti } from "@/components/personel/vardiya-modu-karti"
+import { isModuleEnabled } from "@/lib/modules"
 
 interface Company {
   id: string
@@ -630,6 +632,12 @@ export default function FirmaAyarlariPage() {
           </form>
         </CardContent>
       </Card>
+
+      {/* Personel modülü kapalıyken kart çizilmez: kapalı bir modülün ayarını
+          sormak kullanıcıya olmayan bir ekranın kipini seçtirirdi. */}
+      {isModuleEnabled(selectedCompany?.disabledModules, "hr") && (
+        <VardiyaModuKarti companyId={company.id} />
+      )}
     </div>
   )
 }

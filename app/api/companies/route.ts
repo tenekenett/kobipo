@@ -47,6 +47,9 @@ export async function GET() {
         // İstemci listesi ile layout yükü aynı alanları taşımalı.
         isFisTaramaEnabled: fisTaramaAcikMi({ id: c.companyId, slug: c.companySlug }),
         disabledModules: c.disabledModules,
+        // Çalışma düzeni: menüde vardiya takvimi mi, devam takvimi mi, ikisi mi
+        // duracak. null = personel modülünün ilk açılışında sorulacak.
+        workScheduleMode: c.workScheduleMode ?? null,
         // Hesap salt-okunur arşivde mi? Düşerse arayüz düzenleme düğmelerini çizer,
         // kullanıcı tıklar ve 403 yer — kapı tutar ama ekran yalan söyler.
         isArchived: c.isArchived,

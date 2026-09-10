@@ -493,12 +493,34 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/personel/vardiya", "/personel/puantaj", "/personel", "/raporlar/personel"],
     writePages: ["/personel/vardiya"],
   },
+  {
+    // Devam takvimi: vardiyasız (tek düze) çalışan işletmenin günlük "çalıştı /
+    // izinli" kaydı. Puantaj ekranı bordroya aktarırken OKUR, yazma yalnız
+    // takvimin kendisinden.
+    prefix: "/api/personel/attendance",
+    pages: ["/personel/devam", "/personel/puantaj", "/personel", "/raporlar/personel"],
+    writePages: ["/personel/devam"],
+  },
+  {
+    // Vardiya kipi ayarı. Kurulum sorusu personel modülünün HERHANGİ bir
+    // sayfasında çıkabilir (modülün ilk açılışı) ve ayrıca firma ayarlarından
+    // değiştirilir; bu yüzden yazma kapısı personel sayfalarının tamamı + firma
+    // ayarlarıdır.
+    prefix: "/api/personel/ayarlar",
+    pages: [...PERSONNEL_PAGES, "/ayarlar/firma"],
+    writePages: [...PERSONNEL_PAGES, "/ayarlar/firma"],
+  },
   { prefix: "/api/personel/shift-templates", pages: ["/personel/vardiya"], writePages: ["/personel/vardiya"] },
-  { prefix: "/api/personel/holidays", pages: ["/personel/vardiya"], writePages: ["/personel/vardiya"] },
-  { prefix: "/api/personel/opening-hours", pages: ["/personel/vardiya"], writePages: ["/personel/vardiya"] },
+  // Tatil ve açılış saati VARDİYAYA ÖZGÜ DEĞİLDİR: devam takvimi de ikisini okur
+  // (kapalı gün → hafta tatili, tatil günü → tatil) ve düzenler. Vardiya ekranı
+  // tek düze çalışan firmada menüde olmadığı için ikinci bir düzenleme yolu şart:
+  // olmasaydı o firma hafta tatilini hiç tanımlayamaz, pazar günleri de "çalıştı"
+  // sayılırdı.
+  { prefix: "/api/personel/holidays", pages: ["/personel/vardiya", "/personel/devam"], writePages: ["/personel/vardiya", "/personel/devam"] },
+  { prefix: "/api/personel/opening-hours", pages: ["/personel/vardiya", "/personel/devam"], writePages: ["/personel/vardiya", "/personel/devam"] },
   {
     prefix: "/api/personel/leaves",
-    pages: ["/personel/izin", "/personel/vardiya", "/personel"],
+    pages: ["/personel/izin", "/personel/vardiya", "/personel/devam", "/personel"],
     writePages: ["/personel/izin"],
   },
   {

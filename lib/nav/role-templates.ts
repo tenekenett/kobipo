@@ -58,6 +58,9 @@ export const DEFAULT_ROLE_TEMPLATES: RoleTemplate[] = [
       ...TICKET_PAGES,
       "/restoran/kontrol-listesi",
       "/restoran/raporlar",
+      // Yalnız vardiya takvimi: bu kalıp migrasyonun TOHUMLADIĞI liste ile birebir
+      // aynı kalmak zorunda (lib/nav/role-templates.test.ts). Vardiyasız çalışan
+      // işletmede bu role devam takvimi gerekiyorsa rol düzenlemesinden eklenir.
       "/personel/vardiya",
     ],
     writablePaths: [

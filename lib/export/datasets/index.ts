@@ -25,6 +25,7 @@ import {
 } from "./reports-finansal"
 import { buildSalesPurchaseDataset } from "./reports-satis-alis"
 import { buildHrReportDataset } from "./reports-personel"
+import { buildDevamDataset } from "./personel-devam"
 import { buildPuantajDataset } from "./personel-puantaj"
 import { buildVardiyaPlanDataset } from "./personel-vardiya"
 import { buildTaxReportDataset } from "./reports-vergi"
@@ -177,6 +178,16 @@ export const DATASETS: Record<string, DatasetBuilder> = {
 
   "personel-puantaj": (companyId, params) =>
     buildPuantajDataset({
+      companyId,
+      year: num(params, "year", new Date().getFullYear()),
+      month: num(params, "month", new Date().getMonth() + 1),
+    }),
+
+  // Vardiyasız (tek düze) işletmenin ay sonu tablosu: puantajın gün cinsinden
+  // karşılığı. İki dosya aynı anda anlamlı değildir — firma hangi kipteyse o
+  // ekranda düğme çıkar (bkz. Company.usesShifts).
+  "personel-devam": (companyId, params) =>
+    buildDevamDataset({
       companyId,
       year: num(params, "year", new Date().getFullYear()),
       month: num(params, "month", new Date().getMonth() + 1),
