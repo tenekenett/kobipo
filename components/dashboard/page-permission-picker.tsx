@@ -10,8 +10,15 @@ import {
   navPage,
 } from "@/lib/nav/pages"
 import { useOptionalDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { impliedReadPages } from "@/lib/page-access"
 import { MANAGEABLE_MODULES } from "@/lib/modules"
-import { Eye, Lock, Pencil } from "lucide-react"
+import { Eye, Info, Lock, Pencil } from "lucide-react"
+
+/** "A, B ve C" — uyarı cümlesi içinde okunacak liste. */
+function listTr(labels: string[]): string {
+  if (labels.length <= 1) return labels[0] ?? ""
+  return `${labels.slice(0, -1).join(", ")} ve ${labels[labels.length - 1]}`
+}
 
 /**
  * Sayfa yetkisi seçici — hem ekip üyesinin kişisel kısıtında hem de özel rol
@@ -133,47 +140,65 @@ export function PagePermissionPicker({
               {group.hrefs.map((href) => {
                 const current = access[href] ?? "none"
                 const closedModule = closedModuleFor(href)
+                // Bu ekran açıkken hangi LİSTELER de görünür oluyor? Yalnız kullanıcıya
+                // ayrıca VERİLMEMİŞ olanları say: zaten işaretlenmiş sayfayı uyarı diye
+                // tekrarlamak notu gürültüye çevirir ve okunmaz hâle getirir.
+                const implied =
+                  current === "none"
+                    ? []
+                    : impliedReadPages(href).filter((h) => (access[h] ?? "none") === "none")
                 return (
-                  <div
-                    key={href}
-                    className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
-                  >
-                    <label className="flex flex-1 items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={current !== "none"}
-                        onChange={(e) => set(href, e.target.checked ? "view" : "none")}
-                      />
-                      <span className={closedModule ? "text-muted-foreground" : undefined}>
-                        {navPage(href)?.label ?? href}
-                      </span>
-                      {closedModule && (
-                        <span
-                          className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-                          title={`${closedModule} modülü satın alınmadığı için bu sayfa yetki verilse de açılmaz.`}
-                        >
-                          <Lock className="h-3 w-3" />
-                          {closedModule} kapalı
+                  <div key={href} className="rounded-lg border px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="flex flex-1 items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={current !== "none"}
+                          onChange={(e) => set(href, e.target.checked ? "view" : "none")}
+                        />
+                        <span className={closedModule ? "text-muted-foreground" : undefined}>
+                          {navPage(href)?.label ?? href}
                         </span>
-                      )}
-                    </label>
-                    <div className="flex shrink-0 gap-1">
-                      <AccessButton
-                        active={current === "view"}
-                        disabled={current === "none"}
-                        onClick={() => set(href, "view")}
-                        icon={<Eye className="h-3.5 w-3.5" />}
-                        label="Görüntüle"
-                      />
-                      <AccessButton
-                        active={current === "edit"}
-                        disabled={current === "none"}
-                        onClick={() => set(href, "edit")}
-                        icon={<Pencil className="h-3.5 w-3.5" />}
-                        label="Düzenle"
-                      />
+                        {closedModule && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                            title={`${closedModule} modülü satın alınmadığı için bu sayfa yetki verilse de açılmaz.`}
+                          >
+                            <Lock className="h-3 w-3" />
+                            {closedModule} kapalı
+                          </span>
+                        )}
+                      </label>
+                      <div className="flex shrink-0 gap-1">
+                        <AccessButton
+                          active={current === "view"}
+                          disabled={current === "none"}
+                          onClick={() => set(href, "view")}
+                          icon={<Eye className="h-3.5 w-3.5" />}
+                          label="Görüntüle"
+                        />
+                        <AccessButton
+                          active={current === "edit"}
+                          disabled={current === "none"}
+                          onClick={() => set(href, "edit")}
+                          icon={<Pencil className="h-3.5 w-3.5" />}
+                          label="Düzenle"
+                        />
+                      </div>
                     </div>
+                    {implied.length > 0 && (
+                      <p className="mt-1.5 flex items-start gap-1.5 pl-6 text-[11px] leading-snug text-muted-foreground">
+                        <Info className="mt-[2px] h-3 w-3 shrink-0" />
+                        <span>
+                          Bu ekran açıkken {listTr(implied.map((h) => navPage(h)?.label ?? h))}{" "}
+                          {implied.length > 1 ? "listelerini" : "listesini"} de{" "}
+                          <strong>görüntüleyebilir</strong> — belge keserken
+                          seçmesi gerektiği için. Kayıt ekleyip silemez; onun için o
+                          sayfanın kendisinde “Düzenle” yetkisi gerekir.
+                        </span>
+                      </p>
+                    )}
                   </div>
                 )
               })}

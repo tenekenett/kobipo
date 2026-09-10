@@ -57,12 +57,37 @@ export const PATCH = withApiErrors(async function PATCH(request: Request, { para
   // İzinler yalnız İKİSİ BİRDEN gönderildiğinde yazılır: yazma listesi görüntüleme
   // listesinin alt kümesi olmak zorunda ve ikisini ayrı isteklerle güncellemek arada
   // tutarsız bir an bırakırdı.
-  // Özel rol atandıysa kişisel liste yukarıda temizlendi; ikisi birden gönderilirse
-  // rol kazanır (yetkinin tek kaynağı belirsiz kalmasın).
-  if (data.customRoleId == null && (allowedPaths !== undefined || writablePaths !== undefined)) {
+  //
+  // ÖNCE "bu üye özel rolde mi KALIYOR" sorulur. `data.customRoleId == null` demek
+  // YETMİYORDU: alanı hiç GÖNDERMEYEN bir istek (kişisel izin kaydı böyle) ile "özel
+  // rolü kaldır" (açıkça null) aynı sayılıyordu. Sonuç, özel rollü bir üyede sessiz
+  // veri kaybıydı: dal çalışıyor, `sanitizePagePermissions` role "CUSTOM" ile ama
+  // `custom` bayrağı OLMADAN çağrılıyor, tavan `pagesForRole("CUSTOM")` = BOŞ KÜME
+  // çıkıyor ve gönderilen liste tamamen elenip üyeliğe [] yazılıyordu — üstelik yetki
+  // zaten rolden geldiği için ekranda hiçbir şey değişmiyordu.
+  const keepsCustomRole =
+    customRoleId === undefined ? membership.customRoleId != null : data.customRoleId != null
+  if (keepsCustomRole && (allowedPaths !== undefined || writablePaths !== undefined)) {
+    // Sessizce yutmak yerine SÖYLE: özel rolde yetki rolün kendisindedir
+    // (bkz. lib/auth/user-context.ts → customRole?.allowedPaths ?? allowedPaths).
+    // Kişisel liste yazılsaydı hiçbir etkisi olmayacaktı; çağıran bunu bilmeli.
+    return NextResponse.json(
+      {
+        error:
+          "Bu üyenin yetkisi özel rolünden geliyor; kişiye özel izin listesi uygulanmaz. " +
+          "Yetkiyi Ayarlar → Rol Yetkileri ekranından rolün kendisinde düzenleyin.",
+      },
+      { status: 400 },
+    )
+  }
+  if (!keepsCustomRole && (allowedPaths !== undefined || writablePaths !== undefined)) {
     // Rol de aynı istekte değişiyor olabilir; kesişim YENİ role göre alınmalı.
     const effectiveRole = (role as string | undefined) ?? membership.role
-    const sanitized = sanitizePagePermissions(effectiveRole, allowedPaths, writablePaths)
+    const sanitized = sanitizePagePermissions(effectiveRole, allowedPaths, writablePaths, {
+      // Özel rolü kaldırılan ama enum'u hâlâ CUSTOM olan ara hâlde tavan boş kümeye
+      // düşmesin; `ceilingPages` bu bayrakla yönetim-dışı tüm sayfaları verir.
+      custom: effectiveRole === "CUSTOM",
+    })
     data.allowedPaths = sanitized.allowedPaths
     data.writablePaths = sanitized.writablePaths
   }

@@ -965,6 +965,49 @@ export function isApiPathAllowedForUser(
   return required.some((href) => granted.has(href))
 }
 
+/**
+ * "Şu sayfayı açarsan şu LİSTE de görünür olur" uyarısında sayılan veri katalogları:
+ * ucun ön eki → o ucun döktüğü listenin sahibi olan sayfa(lar).
+ *
+ * Uç haritasındaki her paylaşım uyarıya DEĞMEZ. Belge uçları yönü yolda taşımadığı
+ * için (`?type=SALES`) satış ekranının izni alış belgesinin ucunu da açar; bu, aynı
+ * ekranın ikizidir, yöneticiye söylenecek yeni bir bilgi değil. Yöneticinin sorduğu
+ * soru "bu çalışan hangi LİSTEYİ görecek": cari, ürün/hizmet katalogu, depo,
+ * personel ve finans kanalları. Uyarı bu beşle sınırlı tutuldu ki gerçekten okunsun.
+ *
+ * Anahtarlar `PAGE_API_RULES` ön ekleriyle birebir olmalı; yanlış yazılan bir anahtar
+ * uyarıyı sessizce kapatır — nöbetçi test bunu doğrular (lib/page-access.test.ts).
+ */
+const CATALOG_PAGES_BY_RULE: Record<string, string[]> = {
+  "/api/cari/customers": ["/cari/musteri"],
+  "/api/cari/suppliers": ["/cari/tedarikci"],
+  "/api/stok": ["/stok/urunler", "/stok/hizmetler"],
+  "/api/depolar": ["/depolar"],
+  "/api/personel/employees": ["/personel"],
+  "/api/finans/accounts": ["/finans/kanallar"],
+}
+
+/**
+ * Bu sayfaya izin vermek, hangi başka sayfaların LİSTESİNİ de okunur kılar?
+ *
+ * Kaynak yine `PAGE_API_RULES`: bir uç birden çok ekranın ihtiyacıdır — teklif
+ * ekranı müşteri ve ürün listesini kalem seçici olarak çeker, yani "Teklif"i açan
+ * yönetici ürün kataloğunu da göstermiş olur. İzin seçicisi bunu söylemezse yetki
+ * ekranda göründüğünden daha geniş olur ve fark ancak kullanıcı listeyi görünce
+ * anlaşılır. YAZMA devretmez: kayıt eklemek/silmek hep listenin kendi sayfasına bağlı.
+ */
+export function impliedReadPages(href: string): string[] {
+  const pages: string[] = []
+  for (const rule of PAGE_API_RULES) {
+    const catalog = CATALOG_PAGES_BY_RULE[rule.prefix]
+    if (!catalog || !rule.pages.includes(href)) continue
+    for (const page of catalog) {
+      if (page !== href && !pages.includes(page)) pages.push(page)
+    }
+  }
+  return pages
+}
+
 /** 403 gövdesinde ve logda kullanılacak sayfa listesi (ucun gerektirdikleri). */
 export function requiredPagesForApiPath(pathname: string, method: string): string[] {
   const rule = pageRuleForApiPath(pathname)

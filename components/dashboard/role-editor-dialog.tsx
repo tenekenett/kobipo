@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -86,9 +86,36 @@ export function RoleEditorDialog({
    */
   const [editingId, setEditingId] = useState<string | null>(null)
 
+  /**
+   * Formun tohumlandığı hedef ("rol id"i ya da "kalıp anahtarı"). Tohumlama SADECE
+   * hedef değiştiğinde yapılır.
+   *
+   * Effect'in bağımlılıkları (`templates`, `selectable`) KİMLİK bazında değişebiliyor:
+   * `selectable`, `usePageAvailability` → `selectedCompany` üzerinden firma listesine
+   * bağlı ve o liste düzen (layout) yeniden çizildiğinde ya da `?company=` adres
+   * çubuğuna yazıldığında yeni bir dizi olarak geliyor; `templates` de SWR yeniden
+   * doğrulamasıyla tazeleniyor. Her birinde effect yeniden koşup `setAccess` ile
+   * KAYDEDİLMİŞ değerlere dönüyordu: yönetici "Müşteri"yi kapatıp Kaydet'e bastığında
+   * ekrandaki seçim arada sessizce eski hâline dönmüş olabiliyor ve rol değişmemiş
+   * gibi görünüyordu. Diyalog açıkken kullanıcının seçimi TEK gerçektir.
+   */
+  const seededFor = useRef<string | null>(null)
+
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      // Kapanışta sıfırla ki aynı rol ikinci kez açıldığında kayıtlı hâli gelsin.
+      seededFor.current = null
+      return
+    }
     const template = templateKey ? templates.find((t) => t.key === templateKey) : null
+    // Kalıptan açıldıysa kalıp gelene kadar BEKLE: SWR yanıtı sonradan düşebilir ve
+    // erken tohumlarsak form boş kalır, kullanıcı kalıbı hiç görmeden kaydeder.
+    if (templateKey && !template) return
+
+    const target = role?.id ?? (templateKey ? `template:${templateKey}` : "new")
+    if (seededFor.current === target) return
+    seededFor.current = target
+
     setEditingId(role?.id ?? null)
     setName(role?.name ?? template?.name ?? "")
     setDescription(role?.description ?? template?.description ?? "")

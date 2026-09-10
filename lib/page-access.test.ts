@@ -34,6 +34,7 @@ import {
   isApiPathAllowedForUser,
   isPageGateApplicable,
   isReadOnlyMembership,
+  impliedReadPages,
   isReadOnlyRole,
   isRestrictedMembership,
   landingPathFor,
@@ -937,5 +938,51 @@ describe("PageForbiddenError", () => {
     expect(moduleLockedFrom(new PageForbiddenError(["/personel/maas"]))).toBeNull()
     expect(pageForbiddenFrom(new Error("Access denied to this company"))).toBeNull()
     expect(pageForbiddenFrom(null)).toBeNull()
+  })
+})
+
+/**
+ * "Bu sayfayı açarsan şu listeyi de görür" uyarısı (izin seçicideki not).
+ *
+ * Uyarı yetkiyi DEĞİŞTİRMEZ, yalnız var olanı görünür kılar: teklif ekranı ürün ve
+ * müşteri listesini kalem seçici olarak zaten çekiyor. Sessiz kalırsa yönetici
+ * "Teklif verebilsin" derken cari ve ürün kataloğunu da açtığını fark etmez.
+ */
+describe("dolaylı okuma uyarısı", () => {
+  it("teklif ekranı müşteri ve ürün/hizmet kataloğunu da görünür kılar", () => {
+    const implied = impliedReadPages("/teklif")
+    expect(implied).toContain("/cari/musteri")
+    expect(implied).toContain("/stok/urunler")
+    expect(implied).toContain("/stok/hizmetler")
+  })
+
+  it("sipariş ekranında da aynı katalog açılır", () => {
+    expect(impliedReadPages("/satis/siparis")).toContain("/stok/urunler")
+    expect(impliedReadPages("/alis/siparis")).toContain("/cari/tedarikci")
+  })
+
+  it("sayfanın KENDİSİ listede çıkmaz", () => {
+    expect(impliedReadPages("/cari/musteri")).not.toContain("/cari/musteri")
+    expect(impliedReadPages("/stok/urunler")).not.toContain("/stok/urunler")
+  })
+
+  it("kataloğa dokunmayan sayfa uyarı üretmez", () => {
+    // Profil/destek kişisel ekranlar; hiçbir liste ucuna bağlı değiller.
+    expect(impliedReadPages("/ayarlar/profil")).toEqual([])
+  })
+
+  it("katalog tablosundaki her ön ek gerçek bir kuralla eşleşir", () => {
+    // Yanlış yazılan bir ön ek uyarıyı sessizce kapatır; hata mesajı da vermez.
+    const prefixes = new Set(PAGE_API_RULES.map((rule) => rule.prefix))
+    for (const prefix of [
+      "/api/cari/customers",
+      "/api/cari/suppliers",
+      "/api/stok",
+      "/api/depolar",
+      "/api/personel/employees",
+      "/api/finans/accounts",
+    ]) {
+      expect(prefixes, `${prefix} kuralı kalmamış`).toContain(prefix)
+    }
   })
 })
