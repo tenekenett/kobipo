@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   companySlugForId,
@@ -91,6 +91,9 @@ export function DashboardCompanyProvider({
     setIsLoading(initialCompanies.length === 0)
   }, [initialCompanies, initialRole])
 
+  /** URL'deki firma listede bulunamadığında tazelemeyi param başına bir kez dener. */
+  const refreshedForParam = useRef<string | null>(null)
+
   const fetchCompanies = useCallback(async () => {
     try {
       const companiesResponse = await fetch("/api/companies", { cache: "no-store" })
@@ -146,6 +149,21 @@ export function DashboardCompanyProvider({
     // localStorage) kararı ona bırak — burada hiçbir şey yapma.
     const urlParam = searchParams.get("company")
     if (urlParam && findCompanyByParam(companies, urlParam)) return
+
+    // URL'de listede OLMAYAN bir firma var. İki ihtimal: (a) liste BAYAT — firma/şube az
+    // önce açıldı ve layout yükü Next router cache'inden geliyor; (b) firma gerçekten
+    // erişilemez. Ayırt etmenin tek yolu listeyi TAZELEMEK: hemen aşağıdaki "ilk firmaya
+    // dön" dalına düşmek, kullanıcının açıkça istediği şubeyi sessizce ana firmayla
+    // değiştiriyordu ("yeni açtığım şubeye geçemiyorum, merkezde kalıyorum"). Tazeleme
+    // param başına BİR kez denenir (ref) — erişilemeyen firmada sonsuz döngü olmasın.
+    if (urlParam && refreshedForParam.current !== urlParam) {
+      refreshedForParam.current = urlParam
+      void fetchCompanies()
+      return
+    }
+
+    // Tazelemeden sonra da bulunamadıysa firma gerçekten erişilemiyordur: aşağıdaki
+    // "ilk firmaya dön" dalı devreye girer ve bayat bir yer imi kendini onarır.
     if (!urlParam) {
       const stored = typeof window !== "undefined" ? localStorage.getItem("selectedCompanyId") : null
       if (stored && findCompanyByParam(companies, stored)) return
@@ -169,7 +187,7 @@ export function DashboardCompanyProvider({
     setSelectedCompanyId(firstCompanyId)
     localStorage.setItem("selectedCompanyId", firstCompanyId)
     pushCompanyToUrl(firstCompanyId)
-  }, [companies, selectedCompanyId, pushCompanyToUrl, searchParams])
+  }, [companies, selectedCompanyId, pushCompanyToUrl, searchParams, fetchCompanies])
 
   const handleCompanyChange = useCallback(
     (companyId: string) => {
