@@ -211,12 +211,24 @@ model Company {
   // Belge/e-fatura içeriğinde KULLANILMAZ. NULL/boş = yalnızca ünvan gösterilir.
   name                         String
   branchName                   String?
+  // ŞUBE NO — `branchName`in aksine BELGEYE girer. Şubenin kestiği e-faturada şubenin
+  // kendi adresi UBL'e `cac:AgentParty` (ŞUBE BİLGİLERİ) olarak yazılır ve Mysoft bu
+  // bloğu şube numarası OLMADAN üretmiyor ("SupplierParty.agentNumber null olamaz").
+  // Belgede `<cbc:ID schemeID="SUBENO">` olarak görünür. NULL = "1" varsayılır; birden
+  // çok şubesi olan firma burayı doldurmalı, yoksa iki şube aynı numarayla basılır.
+  // Yalnız şubede anlamlıdır (bkz. lib/integrations/e-invoice/branch-party.ts).
+  branchNo                     String?            @db.VarChar(10)
   // Şubeler ana firmayla aynı VKN'yi paylaşabildiği için taxNumber global benzersiz
   // DEĞİLDİR. Aynı tüzel kişinin (parentCompanyId) birden fazla şubesi olabilir.
   taxNumber                    String?
   taxOffice                    String?
   address                      String?            @db.Text
   city                         String?
+  // İLÇE. Adresin ayrı tutulan tek parçası: UBL-TR `cac:PostalAddress` içinde
+  // İl ile birlikte ZORUNLUDUR (`cbc:CitySubdivisionName`). Boşsa il ile doldurulur
+  // — belgede "DENİZLİ / DENİZLİ" gibi görünür ama şematron geçer. Şubenin e-belgeye
+  // yazılan adresinde (AgentParty) ve Mysoft mükellef kaydı açılışında kullanılır.
+  district                     String?
   country                      String             @default("TR")
   phone                        String?
   email                        String?

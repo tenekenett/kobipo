@@ -6,6 +6,7 @@ import {
   invoiceTypeToEDocumentType,
 } from "@/lib/integrations/e-invoice/active-template"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
+import { branchPartyWarning, resolveBranchParty } from "@/lib/integrations/e-invoice/branch-party"
 import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider"
 import { parseInternetSalesInfo } from "@/lib/invoice/internet-sales"
 import { ensureTemplateFreshQuietly } from "@/lib/integrations/e-invoice/template-refresh"
@@ -142,7 +143,14 @@ async function resolveSendContext(
       eArchiveInternetPrefix: true,
       eFaturaBackdatePrefix: true,
       eArchiveBackdatePrefix: true,
-      parentCompany: { select: { taxNumber: true } },
+      // Şube mi? Şubenin kendi adresi belgeye "ŞUBE BİLGİLERİ" (AgentParty) olarak
+      // girer; ana firmanın adresi karşılaştırma içindir (bkz. branch-party.ts).
+      parentCompanyId: true,
+      branchNo: true,
+      district: true,
+      phone: true,
+      email: true,
+      parentCompany: { select: { taxNumber: true, address: true, city: true } },
     },
   })
 
@@ -219,6 +227,15 @@ async function resolveSendContext(
       // GİB sorgusu yapılamadıysa orijinal seçimle devam et — Mysoft yine hata verirse alttaki yakalanır.
       console.warn("[send-invoice-helper] GİB sorgusu başarısız:", e?.message)
     }
+  }
+
+  // ŞUBE ADRESİ: faturayı kesen firma bir şubeyse kendi adresi belgeye AgentParty
+  // olarak yazılır (bkz. branch-party.ts). Adresi yarım bırakılmış şube sessizce
+  // ana firmanın adresiyle gitmesin diye eksiklik loglanır.
+  const branchParty = resolveBranchParty(company)
+  const branchWarning = branchPartyWarning(company)
+  if (branchWarning) {
+    console.warn(`[send-invoice-helper] Fatura ${invoice.id}: ${branchWarning}`)
   }
 
   // İnternet satışı mı? Yalnız doğrulanmış nesne geçilir; yarım bilgi provider'a hiç
@@ -320,6 +337,10 @@ async function resolveSendContext(
       address: company.address,
       city: company.city,
     },
+    // ŞUBE: belgedeki satıcı adresi Mysoft'un VKN başına tuttuğu mükellef
+    // kaydından gelir, yani şube faturasında ANA FİRMANIN adresidir. Şubenin
+    // kendi adresi belgeye ancak AgentParty ("ŞUBE BİLGİLERİ") olarak girer.
+    branch: branchParty || undefined,
     // `customer` = belgenin ALICISI (alış iadesinde tedarikçi — yukarıdaki `receiver`).
     customer: receiver
       ? {

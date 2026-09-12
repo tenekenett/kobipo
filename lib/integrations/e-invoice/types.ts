@@ -29,6 +29,23 @@ export interface InvoiceData {
     address?: string | null
     city?: string | null
   }
+  /**
+   * ŞUBE BİLGİLERİ — faturayı kesen firma ana firmanın VKN'siyle çalışan bir ŞUBE ise
+   * kendi adresi belgeye buradan girer (Mysoft `supplierAgentAccount`, UBL
+   * cac:AgentParty). Satıcı ünvan/adresi Mysoft'un mükellef kaydından geldiği için
+   * başka yolu yok. Kural: lib/integrations/e-invoice/branch-party.ts.
+   */
+  branch?: {
+    name: string
+    /** Şube numarası — Mysoft bu alan boşken bloğu üretmiyor (belgede SUBENO). */
+    branchNo?: string
+    address?: string
+    city?: string
+    district?: string
+    country?: string
+    phone?: string
+    email?: string
+  }
   customer?: {
     name: string
     taxNumber?: string

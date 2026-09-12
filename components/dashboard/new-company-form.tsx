@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { CityCombobox } from "@/components/ui/city-combobox"
+import { CityDistrictSelect } from "@/components/address/city-district-select"
 import { useToast } from "@/components/ui/use-toast"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { Info } from "lucide-react"
@@ -53,6 +53,7 @@ export function NewCompanyForm() {
     taxOffice: "",
     address: "",
     city: "",
+    district: "",
     phone: "",
   })
   const [isLoading, setIsLoading] = useState(false)
@@ -161,6 +162,7 @@ export function NewCompanyForm() {
             branchName: formData.branchName,
             address: formData.address,
             city: formData.city,
+            district: formData.district,
             phone: formData.phone,
             parentCompanyId,
           }
@@ -352,16 +354,19 @@ export function NewCompanyForm() {
                   readOnly={isBranch}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="city">Şehir</Label>
-                <CityCombobox
-                  id="city"
-                  value={formData.city}
-                  onChange={(v) => setFormData({ ...formData, city: v })}
-                  disabled={isLoading}
-                  placeholder="Şehir yazın, listeden seçin…"
-                />
-              </div>
+              {/* İl/ilçe sabit listeden (cari adresleriyle aynı bileşen): ilçe ile
+                  birlikte seçilir, serbest metin veriye girmez. */}
+              <CityDistrictSelect
+                idPrefix="yeni-firma"
+                city={formData.city}
+                district={formData.district}
+                onChange={(next) =>
+                  setFormData({ ...formData, city: next.city, district: next.district })
+                }
+                disabled={isLoading}
+                cityLabel="Şehir (İl)"
+                fieldClassName="space-y-2"
+              />
               <div className="space-y-2">
                 <Label htmlFor="phone">Telefon</Label>
                 <Input

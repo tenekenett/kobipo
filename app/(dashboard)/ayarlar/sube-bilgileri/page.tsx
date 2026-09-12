@@ -29,6 +29,7 @@ interface CompanyDetail {
   taxOffice?: string | null
   address?: string | null
   city?: string | null
+  district?: string | null
   phone?: string | null
   email?: string | null
   isEDonusumEnabled?: boolean
@@ -219,6 +220,7 @@ export default function SubeBilgileriPage() {
               <Info label="VKN / TCKN" value={company.taxNumber} mono />
               <Info label="Vergi Dairesi" value={company.taxOffice} />
               <Info label="Adres" value={company.address} icon={MapPin} />
+              <Info label="İlçe" value={company.district} />
               <Info label="Şehir" value={company.city} />
               <Info label="Telefon" value={company.phone} icon={Phone} />
               <Info label="E-Posta" value={company.email} icon={Mail} />

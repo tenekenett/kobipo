@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider"
 import { getActiveXsltName } from "@/lib/integrations/e-invoice/active-template"
+import { resolveBranchParty } from "@/lib/integrations/e-invoice/branch-party"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { generateInvoiceNumber, normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
@@ -248,7 +249,14 @@ const company = await prisma.company.findUnique({
     city: true,
     // Kafe/restoran iskonto tavanı — fiş (isReceipt) satışında uygulanır, bkz. aşağısı.
     restaurantMaxDiscountPercent: true,
-    parentCompany: { select: { taxNumber: true } },
+    // Şube mi? Şubenin kendi adresi belgeye "ŞUBE BİLGİLERİ" (AgentParty) olarak
+    // girer; ana firmanın adresi karşılaştırma içindir (bkz. branch-party.ts).
+    parentCompanyId: true,
+    branchNo: true,
+    district: true,
+    phone: true,
+    email: true,
+    parentCompany: { select: { taxNumber: true, address: true, city: true } },
   },
 })
     if (!company) {
@@ -765,7 +773,11 @@ const invoiceData = {
     address: company.address,
     city: company.city,
   },
-  
+  // ŞUBE: belgedeki satıcı adresi Mysoft'un VKN başına tuttuğu mükellef kaydından
+  // gelir — şube faturasında ana firmanın adresidir. Şubenin kendi adresi belgeye
+  // ancak AgentParty ("ŞUBE BİLGİLERİ") olarak girer (bkz. branch-party.ts).
+  branch: resolveBranchParty(company) || undefined,
+
   // MÜŞTERİ (Faturanın Kesildiği Kişi/Firma)
   customer: invoice.customer
     ? {

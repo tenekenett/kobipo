@@ -28,10 +28,12 @@ export const GET = withApiErrors(async function GET(
         id: true,
         name: true,
         branchName: true,
+        branchNo: true,
         taxNumber: true,
         taxOffice: true,
         address: true,
         city: true,
+        district: true,
         country: true,
         phone: true,
         email: true,
@@ -119,10 +121,12 @@ export const PUT = withApiErrors(async function PUT(
     const {
       name,
       branchName,
+      branchNo,
       taxNumber,
       taxOffice,
       address,
       city,
+      district,
       phone,
       email,
       website,
@@ -189,10 +193,19 @@ export const PUT = withApiErrors(async function PUT(
           branchName === undefined
             ? undefined
             : (typeof branchName === "string" && branchName.trim() ? branchName.trim() : null),
+        // ŞUBE NO belgeye girer (e-faturada "ŞUBE BİLGİLERİ" bloğundaki SUBENO):
+        // gönderilmediyse dokunma, boş gönderildiyse temizle (o zaman "1" varsayılır).
+        branchNo:
+          branchNo === undefined
+            ? undefined
+            : (typeof branchNo === "string" && branchNo.trim()
+                ? branchNo.trim().slice(0, 10)
+                : null),
         taxNumber,
         taxOffice,
         address,
         city,
+        district,
         phone,
         email,
         website,

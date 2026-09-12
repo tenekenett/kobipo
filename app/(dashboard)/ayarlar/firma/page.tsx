@@ -12,6 +12,7 @@ import { AlertTriangle, CheckCircle2, Loader2, Mailbox, RefreshCw, Save } from "
 import Link from "next/link"
 import { getFirstAccessibleCompanyId } from "@/lib/company/client-selection"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { CityDistrictSelect } from "@/components/address/city-district-select"
 import { VardiyaModuKarti } from "@/components/personel/vardiya-modu-karti"
 import { isModuleEnabled } from "@/lib/modules"
 
@@ -19,10 +20,14 @@ interface Company {
   id: string
   name: string
   branchName?: string | null
+  branchNo?: string | null
+  /** Dolu = bu firma bir ŞUBE (şubeye özgü alanlar yalnız o zaman gösterilir). */
+  parentCompanyId?: string | null
   taxNumber?: string
   taxOffice?: string
   address?: string
   city?: string
+  district?: string
   phone?: string
   email?: string
   website?: string
@@ -55,10 +60,12 @@ export default function FirmaAyarlariPage() {
   const [formData, setFormData] = useState({
     name: "",
     branchName: "",
+    branchNo: "",
     taxNumber: "",
     taxOffice: "",
     address: "",
     city: "",
+    district: "",
     phone: "",
     website: "",
     invoiceSeriesPrefix: "",
@@ -112,10 +119,12 @@ export default function FirmaAyarlariPage() {
         setFormData({
           name: data.name || "",
           branchName: data.branchName || "",
+          branchNo: data.branchNo || "",
           taxNumber: data.taxNumber || "",
           taxOffice: data.taxOffice || "",
           address: data.address || "",
           city: data.city || "",
+          district: data.district || "",
           phone: data.phone || "",
           website: data.website || "",
           invoiceSeriesPrefix: data.invoiceSeriesPrefix || "",
@@ -318,6 +327,24 @@ export default function FirmaAyarlariPage() {
                   Belgelere yazılmaz.
                 </p>
               </div>
+              {company?.parentCompanyId && (
+                <div className="space-y-2">
+                  <Label htmlFor="branchNo">Şube No</Label>
+                  <Input
+                    id="branchNo"
+                    placeholder="1"
+                    value={formData.branchNo}
+                    onChange={(e) => setFormData({ ...formData, branchNo: e.target.value })}
+                    disabled={isLoading || !isEditing}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Şube isminin aksine <span className="font-medium">belgeye yazılır</span>:
+                    kestiğiniz e-faturada, şubenin adresiyle birlikte &quot;Şube Bilgileri&quot;
+                    bölümünde görünür. Boş bırakılırsa 1 kabul edilir — birden çok şubeniz varsa
+                    her şubeye ayrı numara verin.
+                  </p>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="taxNumber">Vergi No</Label>
                 <Input
@@ -336,14 +363,37 @@ export default function FirmaAyarlariPage() {
                   disabled={isLoading || !isEditing}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="city">Şehir</Label>
+              {/* İl/ilçe SABİT listeden seçilir (cari adresleriyle aynı bileşen):
+                  e-belgeye giden il/ilçe adları GİB'in tanıdığı yazımda kalsın ve
+                  "Istanbul / ist" gibi varyantlar veriye girmesin. */}
+              <CityDistrictSelect
+                idPrefix="firma"
+                city={formData.city}
+                district={formData.district}
+                onChange={(next) =>
+                  setFormData({ ...formData, city: next.city, district: next.district })
+                }
+                disabled={isLoading || !isEditing}
+                cityLabel="Şehir (İl)"
+                fieldClassName="space-y-2"
+              />
+              {/* Adres, il/ilçenin hemen yanında durur: e-belgede üçü birlikte basılır.
+                  Formun dibinde (posta kutusu/prefix kartlarından sonra) duruyordu ve
+                  kullanıcı adresi bulamıyordu. */}
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="address">Adres</Label>
                 <Input
-                  id="city"
-                  value={formData.city}
-                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                  id="address"
+                  placeholder="Mahalle, cadde/sokak, kapı no"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   disabled={isLoading || !isEditing}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Faturada ve e-belgelerde bu adres basılır; şubede şubenin kendi adresi
+                  &quot;Şube Bilgileri&quot; bölümünde görünür. Boş bırakılırsa şube bloğu
+                  belgeye hiç yazılmaz.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="phone">Telefon</Label>
@@ -603,15 +653,6 @@ export default function FirmaAyarlariPage() {
                   )}
                 </div>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="address">Adres</Label>
-              <Input
-                id="address"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                disabled={isLoading || !isEditing}
-              />
             </div>
             <div className="flex justify-end gap-2">
               {isEditing && (

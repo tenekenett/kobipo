@@ -54,6 +54,31 @@ hakkıdır; aboneliği ayrıdır. Satın alınarak açılır.
 
 İki kota **ayrı havuzdur**: şube açmak firma hakkını yemez, tersi de geçerli.
 
+### Şubenin adresi belgeye AgentParty ile girer
+
+Mysoft satıcı ünvan/adresini VKN başına tuttuğu **mükellef kaydından** yazar; fatura
+gövdesinde satıcı adresi alanı YOKTUR. Şube ana firmanın VKN'siyle çalıştığı için,
+farklı adresteki şubenin faturası ana firmanın adresiyle gidiyordu. Tek kanal
+`supplierAgentAccount` → UBL `cac:AgentParty`; GİB dizaynları bunu "ŞUBE BİLGİLERİ"
+bloğu olarak basar. Karar tek yerde: `lib/integrations/e-invoice/branch-party.ts`
+(iki gönderim yolu da oradan geçer).
+
+- Üstteki satıcı adresi ŞUBEYLE DEĞİŞTİRİLMEZ: orası vergi dairesine kayıtlı merkez
+  adresidir. Değiştirmenin tek yolu Mysoft mükellef kaydı (`UpdateTenantAddressInfo`)
+  ya da belgeyi baştan biz üretmek (`invoiceOutboxWithUblXml`) olurdu.
+- `Company.branchNo` **belgeye girer** (`schemeID="SUBENO"`), `branchName` girmez.
+  Mysoft bloğu şube numarası olmadan üretmiyor ("SupplierParty.agentNumber null
+  olamaz" — ölçüldü); boşsa "1" gönderilir, çok şubeli firma numaraları doldurmalı.
+- Adres ya da şehir eksikse blok HİÇ gönderilmez: UBL-TR'de İl/İlçe zorunludur, yarım
+  adres belgenin TAMAMINI reddettirir. Eksiklik loglanır (`branchPartyWarning`).
+- `Company.district` (İlçe) adresin ayrı tutulan tek parçasıdır — UBL'de
+  `cbc:CitySubdivisionName`. Boşsa İL ile doldurulur (belgede "DENİZLİ / DENİZLİ");
+  aynı geri düşme Mysoft mükellef kaydı açılışında da vardır (onboarding
+  `createTenant`). Serbest adres metninden ilçe AYIKLANMAZ, tahmin edilmez.
+- "Payload'a koyduk" ≠ "belgede var" — Mysoft bazı alanları sessizce yutuyor (sevk
+  adresi). Ölçüm yolu: `npx tsx scripts/sube-adresi-kontrol.ts --canli --test`
+  (provider'da `draftXmlOnly`; taslak UBL'i döner, GİB'e belge gitmez).
+
 ## Abonelik FİRMA bazındadır — yetki devretmez
 
 2026-09-04'te değişti: her firma (kök, şube, ek firma) kendi aboneliğini satın alır.

@@ -89,6 +89,7 @@ export type CompanyInput = {
   taxOffice?: string | null
   address?: string | null
   city?: string | null
+  district?: string | null
   phone?: string | null
   email?: string | null
   isEDonusumEnabled?: boolean
@@ -343,6 +344,7 @@ export async function createCompany(args: {
         branchName,
         address: input.address ?? null,
         city: input.city ?? null,
+        district: input.district ?? null,
         phone: input.phone ?? null,
         email: input.email ?? null,
         parentCompanyId: resolved.parentCompanyId,

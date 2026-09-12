@@ -1368,6 +1368,31 @@ async sendInvoice(invoiceData: any): Promise<any> {
             }
           : {}),
 
+        // ŞUBE BİLGİLERİ (UBL cac:AgentParty). Satıcı ünvan/adresi Mysoft'ta VKN
+        // başına tutulan MÜKELLEF kaydından gelir — bu modelde satıcı adresi alanı
+        // yoktur. Şube ana firmanın VKN'siyle çalıştığından farklı adresteki şubenin
+        // faturası ana firmanın adresiyle gidiyordu; şubenin kendi adresi belgeye
+        // buradan girer ve GİB dizaynları "ŞUBE BİLGİLERİ" bloğu olarak basar.
+        // Kural ve yarım adres koruması: lib/integrations/e-invoice/branch-party.ts.
+        ...(invoiceData.branch?.name && invoiceData.branch?.city
+          ? {
+              supplierAgentAccount: {
+                agentAccountName: invoiceData.branch.name,
+                // ZORUNLU: boş bırakılırsa Mysoft belgeyi hiç üretmiyor
+                // ("SupplierParty.agentNumber null olamaz." — ölçüldü).
+                agentNumber: invoiceData.branch.branchNo || "1",
+                streetName: invoiceData.branch.address || "-",
+                city: { name: invoiceData.branch.city },
+                // İlçe: firma kartında ayrı alan yok; UBL-TR zorunlu tuttuğu için
+                // il'e geri düşeriz (invoiceAccount ile aynı desen).
+                citySubdivision: invoiceData.branch.district || invoiceData.branch.city,
+                country: { name: invoiceData.branch.country || "TÜRKİYE" },
+                ...(invoiceData.branch.phone ? { telephone1: invoiceData.branch.phone } : {}),
+                ...(invoiceData.branch.email ? { email1: invoiceData.branch.email } : {}),
+              },
+            }
+          : {}),
+
         "invoiceAccount": {
             "accountName": invoiceData.customer?.name || "Son Kullanıcı",
             "vknTckn": rawVkn,
@@ -1538,6 +1563,29 @@ async sendInvoice(invoiceData: any): Promise<any> {
         const pdf = await this.unzipFirstPdf(r.data)
         if (!pdf) return { success: false, error: "Zip içinde taslak PDF bulunamadı." }
         return { success: true, isPdf: true, pdfBuffer: pdf.pdfBuffer, filename: pdf.filename }
+      }
+
+      // TASLAK UBL XML (ÖLÇÜM MODU): aynı payload "Fatura Önizleme - XML" ucuna
+      // verilir ve belgeye FİİLEN ne yazıldığı görülür. Mysoft payload'daki bazı
+      // alanları sessizce yok sayıyor (sevk adresi delivery* alanları — 2026-08-05
+      // böyle ölçüldü); "gönderdik" ile "belgede var" ancak burada ayrışır.
+      // Önizlemedir: GİB'e gitmez, Mysoft'ta kayıt bırakmaz.
+      if (invoiceData.draftXmlOnly) {
+        const xmlRes = await fetch(`${this.baseUrl}/api/InvoiceOutbox/getInvoiceOutboxDraftXMLAsZip`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${tokenData.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        })
+        const r = await xmlRes.json().catch(() => null)
+        if (!r?.succeed || !r?.data) {
+          return { success: false, error: r?.message || "Taslak XML alınamadı.", payload }
+        }
+        const xml = await this.unzipFirstText(r.data, ".xml")
+        if (!xml) return { success: false, error: "Zip içinde taslak XML bulunamadı.", payload }
+        return { success: true, isXml: true, xml, payload }
       }
 
       // 3. MYSOFT'A GÖNDER (profile fallback ile)
@@ -3096,6 +3144,16 @@ async sendInvoice(invoiceData: any): Promise<any> {
 
   // base64-zip → içindeki ilk PDF'i Buffer olarak çıkarır. Resmî (getInvoicePdf) ve
   // taslak (getDraftInvoicePdf) PDF'leri ortak kullanır — GİB PDF'leri hep zip içinde döner.
+  /** Base64 zip içindeki ilk `ext` uzantılı dosyayı metin olarak döner (taslak XML ölçümü). */
+  private async unzipFirstText(base64Zip: string, ext: string): Promise<string | null> {
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(Buffer.from(base64Zip, "base64"));
+    const entry = Object.values(zip.files).find(
+      (f) => !f.dir && f.name.toLowerCase().endsWith(ext),
+    );
+    return entry ? await entry.async("string") : null;
+  }
+
   private async unzipFirstPdf(base64Zip: string): Promise<{ pdfBuffer: Buffer; filename: string } | null> {
     const zipBuffer = Buffer.from(base64Zip, "base64");
     const JSZip = (await import("jszip")).default;

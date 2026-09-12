@@ -279,7 +279,10 @@ export default async function CompanyDetailPage({
     {
       icon: <MapPin className="h-4 w-4" />,
       label: "Adres",
-      value: [company.address, company.city, company.country].filter(Boolean).join(", ") || null,
+      value:
+        [company.address, company.district, company.city, company.country]
+          .filter(Boolean)
+          .join(", ") || null,
     },
     { icon: <Globe className="h-4 w-4" />, label: "Ülke", value: company.country },
     {

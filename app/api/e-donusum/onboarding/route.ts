@@ -130,6 +130,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
         taxOffice: true,
         address: true,
         city: true,
+        district: true,
         email: true,
         phone: true,
         eDonusumOnboardingStatus: true,
@@ -371,7 +372,8 @@ export const POST = withApiErrors(async function POST(request: Request) {
           countryName: "TÜRKİYE",
           cityCode,
           cityName: officialCityName,
-          citySubdivision: cityName, // ilçe bilinmiyor → il ile doldur (zorunlu alan)
+          // İlçe zorunlu alan; firma kartında girilmemişse il ile doldurulur.
+          citySubdivision: (company.district || "").trim() || cityName,
           streetName: (company.address || "").trim() || "-",
           buildingNumber: "1",
         },
