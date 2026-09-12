@@ -223,8 +223,19 @@ export default function SubelerPage() {
                 return (
                   <div
                     key={c.id}
-                    className="group flex items-start justify-between gap-3 rounded-xl border p-4 transition-colors hover:border-primary/40 hover:bg-muted/30"
+                    className="group relative flex items-start justify-between gap-3 rounded-xl border p-4 transition-colors hover:border-primary/40 hover:bg-muted/30"
                   >
+                    {/* Kartın TAMAMI "bu firmaya geç" bağlantısıdır (stretched link):
+                        yalnız köşedeki küçük ok tıklanabilirken kullanıcı kartın
+                        gövdesine basıp hiçbir şey olmadığını görüyordu. Bağlantı
+                        kardeş bir katman olarak duruyor — içteki "Detay" düğmesi
+                        onun İÇİNDE değil (iç içe <a> geçersiz olurdu) ve z-10 ile
+                        üstte kalır. */}
+                    <Link
+                      href={`/dashboard?company=${encodeURIComponent(c.id)}`}
+                      className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                      aria-label={`${companyDisplayName(c)} firmasına geç`}
+                    />
                     <div className="flex items-start gap-3 min-w-0">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-kobipo-blue/10 text-kobipo-blue dark:bg-primary/15 dark:text-primary">
                         <Building2 className="h-5 w-5" />
@@ -264,29 +275,31 @@ export default function SubelerPage() {
                         </div>
                       </div>
                     </div>
-                    {c.isBranch ? (
-                      <Link
-                        // Aktif firma taşınır: detay sayfası ŞUBEnin verisini gösterir ama
-                        // seçim ana firmadadır; param düşerse geri dönüş bağlamı kaybolur.
-                        href={withCompanyHref(
-                          `/ayarlar/subeler/${encodeURIComponent(c.id)}`,
-                          activeCompanyId
-                        )}
-                        className="inline-flex shrink-0 self-center items-center gap-1.5 rounded-md border border-teal-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-teal-700 transition hover:bg-teal-50 dark:border-teal-800 dark:bg-transparent dark:text-teal-300 dark:hover:bg-teal-900/30"
-                        aria-label="Şube detayı"
-                      >
-                        Detay
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </Link>
-                    ) : (
-                      <Link
-                        href={`/dashboard?company=${encodeURIComponent(c.id)}`}
-                        className="shrink-0 self-center text-muted-foreground transition-colors group-hover:text-foreground"
-                        aria-label="Firmaya geç"
-                      >
-                        <ArrowRight className="h-4 w-4" />
-                      </Link>
-                    )}
+                    <div className="relative z-10 flex shrink-0 self-center items-center gap-2">
+                      {/* "Detay" ÖLÇÜSÜ de rozetle aynı: `isBranch || parentCompanyId`.
+                          Yalnız `isBranch`e bakılıyordu, yani doğrudan üye olunan şube
+                          rozette "Şube" görünüp detay düğmesini alamıyordu. */}
+                      {(c.isBranch || c.parentCompanyId) && (
+                        <Link
+                          // Aktif firma taşınır: detay sayfası ŞUBEnin verisini gösterir ama
+                          // seçim ana firmadadır; param düşerse geri dönüş bağlamı kaybolur.
+                          href={withCompanyHref(
+                            `/ayarlar/subeler/${encodeURIComponent(c.id)}`,
+                            activeCompanyId
+                          )}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-teal-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-teal-700 transition hover:bg-teal-50 dark:border-teal-800 dark:bg-transparent dark:text-teal-300 dark:hover:bg-teal-900/30"
+                          aria-label="Şube detayı"
+                        >
+                          Detay
+                        </Link>
+                      )}
+                      {/* Ok artık ayrı bir bağlantı DEĞİL: kartın tamamı zaten o
+                          bağlantı, bu yalnız yönü gösteren süs. */}
+                      <ArrowRight
+                        aria-hidden
+                        className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground"
+                      />
+                    </div>
                   </div>
                 )
               })}
