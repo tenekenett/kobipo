@@ -12,8 +12,28 @@ import { parseInternetSalesInfo } from "@/lib/invoice/internet-sales"
 import { ensureTemplateFreshQuietly } from "@/lib/integrations/e-invoice/template-refresh"
 import { normalizeGibDocumentNo, returnRefError } from "@/lib/invoice/return-ref"
 
+/**
+ * Mysoft gönderdiğimiz e-Arşiv şablonunu reddedip mükellefin ONAYLI şablonuna
+ * düştüyse (bkz. template-approval.ts) belge kullanıcının seçmediği bir dizaynla
+ * basıldı — bunu sessiz geçmeyiz, sonuçla birlikte söyleriz.
+ */
+export function templateFallbackWarning(
+  fb: { requested: string | null; used: string } | undefined,
+): string | undefined {
+  if (!fb) return undefined
+  return fb.requested
+    ? `Seçili "${fb.requested}" şablonu Mysoft'ta onaylı olmadığı için belge onaylı "${fb.used}" şablonuyla basıldı. Şablonun onayını E-Dönüşüm → Belge Şablonları sayfasından takip edin.`
+    : `Aktif e-Arşiv şablonu seçili olmadığı için belge Mysoft'taki onaylı "${fb.used}" şablonuyla basıldı.`
+}
+
 export type SendInvoiceResult =
-  | { ok: true; uuid: string; providerName: string }
+  | {
+      ok: true
+      uuid: string
+      providerName: string
+      /** Belge gitti ama kullanıcının bilmesi gereken bir sapma var (ör. yedek şablon). */
+      warning?: string
+    }
   | { ok: false; status: number; error: string; integrationStatus: string }
 
 export type DraftPdfResult =
@@ -549,7 +569,9 @@ export async function createGibDraft(
         integrationStatus: "DRAFT",
       },
     })
-    return { ok: true, uuid: response.uuid, providerName: provider.name }
+    const warning = templateFallbackWarning(response.templateFallback)
+    if (warning) console.warn(`[send-invoice-helper] Fatura ${invoice.id}: ${warning}`)
+    return { ok: true, uuid: response.uuid, providerName: provider.name, warning }
   }
 
   // Hata: friendly mesaja çevir ve kaydet.
@@ -641,6 +663,8 @@ export async function getGibDraftPdf(invoiceId: string): Promise<DraftPdfResult>
   if (!response.success || !response.pdfBuffer) {
     return { ok: false, status: 502, error: response.error || "Taslak PDF alınamadı." }
   }
+  const warning = templateFallbackWarning(response.templateFallback)
+  if (warning) console.warn(`[send-invoice-helper] Taslak PDF ${invoiceId}: ${warning}`)
   return { ok: true, pdfBuffer: response.pdfBuffer, filename: response.filename || "taslak.pdf" }
 }
 

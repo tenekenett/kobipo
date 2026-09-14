@@ -678,6 +678,8 @@ export const POST = withApiErrors(async function POST(
       uuid: result.uuid,
       integrationId: result.providerName,
       invoice: updated,
+      // Belge gitti ama yedek şablonla basıldı vb. — istemci toast'ta gösterir.
+      ...(result.warning ? { warning: result.warning } : {}),
     })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""

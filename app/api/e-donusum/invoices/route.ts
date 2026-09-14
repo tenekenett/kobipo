@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/company-provider"
 import { getActiveXsltName } from "@/lib/integrations/e-invoice/active-template"
+import { templateFallbackWarning } from "@/lib/integrations/e-invoice/send-invoice-helper"
 import { resolveBranchParty } from "@/lib/integrations/e-invoice/branch-party"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { generateInvoiceNumber, normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
@@ -861,11 +862,14 @@ const invoiceData = {
             },
           })
 
+          const templateWarning = templateFallbackWarning(response.templateFallback)
+          if (templateWarning) console.warn(`[e-donusum/invoices] Fatura ${invoice.id}: ${templateWarning}`)
           return NextResponse.json({
             ...invoice,
             uuid: response.uuid,
             status: "SENT",
             ...(stockWarning ? { stockWarning } : {}),
+            ...(templateWarning ? { warning: templateWarning } : {}),
           })
         }
         if (!response.success) {

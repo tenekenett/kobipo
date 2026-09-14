@@ -238,9 +238,24 @@ export default function FaturaSablonuPage() {
    * iyileştirildiğinde (ör. kaleme açıklama satırı eklendiğinde) Mysoft'taki
    * kayıtlı kopya eski kalır. Aynı ad kullanıldığı için aktif seçim ve seri
    * eşlemeleri bozulmaz, görsel aynı kalır — tek fark tabana eklenenlerdir.
+   *
+   * BEDELİ: her yükleme Mysoft'ta yeniden onaya girer; onaylanana kadar e-Arşiv bu
+   * şablonla basılmaz (gönderim onaylı başka şablona düşer, yoksa kesilemez),
+   * e-Fatura standart dizaynla gider. Bu yüzden gönderim öncesi otomatik tazeleme
+   * onaylı kopyaya dokunmaz — riski yalnız burada, bilerek alırsınız.
    */
   const refreshDesign = async (name: string) => {
     if (!companyId) return
+    const ok = await confirm({
+      title: "Şablonu yeniden yükle",
+      description: `“${name}” güncel taban tasarımla yeniden üretilip Mysoft'a aynı adla yüklenecek. Yükleme Mysoft onayını sıfırlar: onay gelene kadar ${
+        docType === 2
+          ? "e-Arşiv belgeleri bu şablonla basılamaz (gönderim onaylı başka şablona düşer, yoksa kesilemez)"
+          : "e-Fatura belgeleri GİB'in standart dizaynıyla gider"
+      }. Onay Mysoft tarafından elle verilir, saatler sürebilir.`,
+      confirmLabel: "Yeniden yükle",
+    })
+    if (!ok) return
     setRowBusy({ name, action: "refresh" })
     try {
       const res = await fetch("/api/e-donusum/templates/refresh", {
@@ -250,9 +265,20 @@ export default function FaturaSablonuPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || "Şablon yenilenemedi")
+      // Sunucu yükleme sonrası Mysoft'un onay durumunu söyler; onay düştüyse
+      // "güncellendi" deyip geçmek e-Arşiv'in kesilemez olduğunu gizlerdi.
+      const approved: boolean | null = typeof data?.approved === "boolean" ? data.approved : null
       toast({
-        title: "Şablon güncellendi",
-        description: `“${name}” güncel tasarımla yüklendi. Görsel aynı; bu adım normalde ilk gönderimde kendiliğinden yapılır.`,
+        title: approved === false ? "Şablon yüklendi — Mysoft onayı bekliyor" : "Şablon güncellendi",
+        description:
+          approved === false
+            ? `“${name}” güncel tasarımla yüklendi. Mysoft onaylayana kadar ${
+                docType === 2
+                  ? "e-Arşiv belgeleri bu şablonla basılamaz; gönderim onaylı başka şablona düşer."
+                  : "e-Fatura belgeleri GİB'in standart dizaynıyla gider."
+              }`
+            : `“${name}” güncel tasarımla yüklendi. Görsel aynı; tek fark tabana eklenenler.`,
+        ...(approved === false ? { variant: "destructive" as const } : {}),
       })
       fetchDesigns()
     } catch (error) {
@@ -298,7 +324,15 @@ export default function FaturaSablonuPage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || "İşlem başarısız")
       setActiveXsltName(null)
-      toast({ title: "Aktif seçim kaldırıldı", description: "Faturalar Mysoft'un varsayılan dizaynıyla gönderilecek." })
+      // e-Arşiv'de Mysoft "genel dizayna düşme"yi canlıda uygulamıyor; gönderim
+      // mükellefin ONAYLI şablonuna düşer (bkz. template-approval.ts).
+      toast({
+        title: "Aktif seçim kaldırıldı",
+        description:
+          docType === 2
+            ? "e-Arşiv belgeleri Mysoft'taki onaylı şablonla (varsa varsayılan) gönderilecek."
+            : "Faturalar Mysoft'un varsayılan dizaynıyla gönderilecek.",
+      })
     } catch (error) {
       toast({ title: "Hata", description: error instanceof Error ? error.message : "Hata", variant: "destructive" })
     } finally {
@@ -485,7 +519,19 @@ export default function FaturaSablonuPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || "Şablon yüklenemedi")
-      toast({ title: "Şablon yüklendi", description: data?.message || "Mysoft hesabınıza tanımlandı." })
+      toast({
+        title: data?.approved === false ? "Şablon yüklendi — Mysoft onayı bekliyor" : "Şablon yüklendi",
+        description:
+          (data?.message || "Mysoft hesabınıza tanımlandı.") +
+          (data?.approved === false
+            ? ` Onaylanana kadar ${
+                docType === 2
+                  ? "e-Arşiv belgeleri bu şablonla basılamaz."
+                  : "e-Fatura belgeleri GİB'in standart dizaynıyla gider."
+              }`
+            : ""),
+        ...(data?.approved === false ? { variant: "destructive" as const } : {}),
+      })
       setXsltName("")
       setFileName("")
       setFileContent("")
@@ -876,7 +922,7 @@ export default function FaturaSablonuPage() {
                             size="sm"
                             onClick={() => refreshDesign(name)}
                             disabled={!!rowBusy}
-                            title="Şablonu güncel tasarımla yeniden yükle — görsel aynı kalır. (Normalde ilk gönderimde kendiliğinden yapılır.)"
+                            title="Şablonu güncel tasarımla yeniden yükle — görsel aynı kalır. Yükleme Mysoft onayını sıfırlar; onaylanana kadar e-Arşiv bu şablonla basılmaz."
                           >
                             {refreshing ? (
                               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />

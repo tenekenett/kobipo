@@ -8,6 +8,11 @@ import {
   normalizeDesignOptions,
   sampleKeyForDocType,
 } from "@/lib/integrations/e-invoice/template-designer"
+import {
+  templateStatus,
+  type TemplateStatus,
+  type TenantXsltEntry,
+} from "@/lib/integrations/e-invoice/template-approval"
 
 /**
  * Belge tasarımının Mysoft'taki kopyasını GÜNCEL TUTAR.
@@ -26,11 +31,28 @@ import {
  *    şablonun içeriği bizde yok, üzerine yazmak kullanıcının tasarımını silerdi.
  *  - Tazeleme ASLA faturayı engellemez: hata olursa eski tasarımla gönderilir.
  *  - Aynı ad kullanılır → aktif seçim ve seri eşlemeleri bozulmaz.
+ *  - ONAYLI kopya SESSİZCE yeniden yüklenmez (2026-09-14). Her yükleme Mysoft'ta
+ *    onay sürecine girer; onay elle ve saatler/günler sonra gelir, reddedilebilir de.
+ *    e-Arşiv onaysız şablonla HİÇ basılmaz (e-Fatura sessizce GİB standart dizayna
+ *    düşer). Eren Forklift'te 3 Eylül'deki otomatik tazeleme şablonu onaydan
+ *    düşürdü, 9–14 Eylül arası tek bir e-Arşiv kesilemedi. Taban iyileştirmesini
+ *    onaylı bir tasarıma taşımanın yolu artık "Yenile" düğmesidir (force) — ekran
+ *    sonucu (onay bekliyor) söyler. Durum okunamıyorsa da yüklenmez: risk, kazançtan
+ *    (kozmetik güncelleme) büyük.
  */
 
 export type RefreshDecision =
   | { shouldRefresh: false; reason: "external" | "current" | "unknown-base" }
   | { shouldRefresh: true; reason: "stale" }
+
+/**
+ * Onay koruması — saf fonksiyon. Mysoft'taki kopya ONAYLIYSA (ya da durumu
+ * bilinmiyorsa) sessiz yükleme yapılmaz; onay bekleyen/olmayan kopyada kaybedecek
+ * onay yoktur, yükleme serbest.
+ */
+export function uploadWouldRiskApproval(status: TemplateStatus | "unknown"): boolean {
+  return status === "approved" || status === "unknown"
+}
 
 /**
  * Tazeleme kararı — saf fonksiyon (test edilebilir).
@@ -58,9 +80,44 @@ export function isRenderableXslt(content: string): boolean {
 
 export type EnsureResult = {
   refreshed: boolean
-  reason: RefreshDecision["reason"] | "uploaded" | "upload-failed" | "not-found" | "no-base"
+  reason:
+    | RefreshDecision["reason"]
+    | "uploaded"
+    | "upload-failed"
+    | "not-found"
+    | "no-base"
+    /** Mysoft'taki kopya onaylı: sessiz yükleme onayı düşürürdü, atlandı. */
+    | "approved-copy"
+    /** Onay durumu okunamadı: risk alınmadı, atlandı. */
+    | "approval-unknown"
   baseVersion?: string | null
   error?: string
+  /** Yükleme sonrası Mysoft'un söylediği onay durumu (okunamadıysa null). */
+  approvedAfterUpload?: boolean | null
+}
+
+type RefreshProvider = {
+  addTenantXslt: (p: any) => Promise<{ success: boolean; error?: string }>
+  listTenantXslt?: (
+    vknTckn?: string,
+    eDocumentType?: number,
+  ) => Promise<{ success: boolean; data?: TenantXsltEntry[]; error?: string }>
+}
+
+/** Mysoft'taki kopyanın onay durumu; liste okunamazsa "unknown". */
+async function mysoftTemplateStatus(
+  provider: RefreshProvider,
+  eDocumentType: number,
+  xsltName: string,
+): Promise<TemplateStatus | "unknown"> {
+  if (!provider.listTenantXslt) return "unknown"
+  try {
+    const list = await provider.listTenantXslt()
+    if (!list.success || !list.data) return "unknown"
+    return templateStatus(list.data, eDocumentType, xsltName)
+  } catch {
+    return "unknown"
+  }
 }
 
 /**
@@ -72,7 +129,7 @@ export async function ensureTemplateFresh(params: {
   companyId: string
   eDocumentType: number
   xsltName: string
-  provider: { addTenantXslt: (p: any) => Promise<{ success: boolean; error?: string }> }
+  provider: RefreshProvider
   force?: boolean
 }): Promise<EnsureResult> {
   const { companyId, eDocumentType, xsltName, provider, force = false } = params
@@ -89,6 +146,16 @@ export async function ensureTemplateFresh(params: {
   // Zorlamada bile dış şablona dokunulmaz.
   if (row.options == null) return { refreshed: false, reason: "external" }
   if (!currentVersion) return { refreshed: false, reason: "no-base" }
+
+  // ONAY KORUMASI: sessiz tazeleme onaylı kopyayı onaydan düşürür (ya da Mysoft
+  // incelemesinde reddedilir) ve e-Arşiv o şablonla kesilemez olur. Yalnız
+  // kullanıcının bilerek bastığı "Yenile" (force) bu riski alır.
+  if (!force) {
+    const status = await mysoftTemplateStatus(provider, eDocumentType, xsltName)
+    if (uploadWouldRiskApproval(status)) {
+      return { refreshed: false, reason: status === "approved" ? "approved-copy" : "approval-unknown" }
+    }
+  }
 
   const sampleKey = sampleKeyForDocType(eDocumentType)
   if (!sampleKey) return { refreshed: false, reason: "no-base" }
@@ -115,22 +182,40 @@ export async function ensureTemplateFresh(params: {
     data: { baseVersion: currentVersion, refreshedAt: new Date(), hidden: false },
   })
 
-  return { refreshed: true, reason: "uploaded", baseVersion: currentVersion }
+  // Yükleme onayı düşürdü mü? Ekran bunu söylesin; "güncellendi" deyip geçmek,
+  // e-Arşiv'in o şablonla kesilemez hale geldiğini gizlerdi.
+  const after = await mysoftTemplateStatus(provider, eDocumentType, xsltName)
+  const approvedAfterUpload = after === "unknown" ? null : after === "approved"
+
+  return { refreshed: true, reason: "uploaded", baseVersion: currentVersion, approvedAfterUpload }
 }
 
 /**
  * Gönderim/önizleme yolundan çağrılan SESSİZ sürüm: hata fırlatmaz, faturayı
  * asla engellemez. Tazeleme başarısızsa belge eski tasarımla gider.
  */
+const protectedLogged = new Set<string>()
+
 export async function ensureTemplateFreshQuietly(params: {
   companyId: string
   eDocumentType: number
   xsltName: string
-  provider: { addTenantXslt: (p: any) => Promise<{ success: boolean; error?: string }> }
+  provider: RefreshProvider
 }): Promise<void> {
   try {
     const res = await ensureTemplateFresh(params)
-    if (res.refreshed) {
+    if (res.reason === "approved-copy" || res.reason === "approval-unknown") {
+      // Her gönderimde tekrarlamasın; süreç başına bir kez görünür olsun.
+      const key = `${params.companyId}:${params.eDocumentType}:${params.xsltName}`
+      if (!protectedLogged.has(key)) {
+        protectedLogged.add(key)
+        console.log(
+          `[şablon] "${params.xsltName}" tabanı eski ama ${
+            res.reason === "approved-copy" ? "Mysoft'ta ONAYLI" : "onay durumu okunamadı"
+          } — otomatik tazeleme atlandı (onayı düşürürdü). Güncellemek için Belge Şablonları → Yenile.`,
+        )
+      }
+    } else if (res.refreshed) {
       console.log(
         `[şablon] "${params.xsltName}" gönderim öncesi otomatik tazelendi (taban ${res.baseVersion}).`,
       )

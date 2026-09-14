@@ -83,7 +83,14 @@ export const POST = withApiErrors(async function POST(request: Request) {
     }
     const baseVersion = result.baseVersion ?? null
 
-    return NextResponse.json({ success: true, xsltName, baseVersion })
+    // Yükleme Mysoft onayını düşürmüş olabilir (bkz. template-approval.ts): e-Arşiv
+    // onaysız şablonla basılmaz. Ekran bunu "güncellendi"nin yanına yazar.
+    return NextResponse.json({
+      success: true,
+      xsltName,
+      baseVersion,
+      approved: result.approvedAfterUpload ?? null,
+    })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {

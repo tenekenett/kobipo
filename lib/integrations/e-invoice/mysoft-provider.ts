@@ -3,6 +3,12 @@ import { resolveMysoftBaseUrl } from "./constants"
 import { normalizeUnitCode } from "@/lib/data/units"
 import { isOtherTaxCharge, isOtherTaxInVatBase } from "./gib-tax-types"
 import { istanbulDay } from "@/lib/format"
+import {
+  isTemplateNotFoundError,
+  pickApprovedXslt,
+  templateNotFoundMessage,
+  templateStatus,
+} from "./template-approval"
 
 // GİB "Diğer Vergiler" (KDV/ÖTV dışı) vergi türü kodları → okunur ad. Gelen faturada
 // alt-toplamın taxName'i boş gelirse bu tablodan ada çevrilir; kod da tanınmıyorsa
@@ -1276,10 +1282,13 @@ async sendInvoice(invoiceData: any): Promise<any> {
         // Kullanıcının Belge Şablonları ekranından seçtiği aktif dizayn (varsa).
         // Boşsa Mysoft varsayılan/genel dizaynı kullanır (alttaki bayrak).
         ...(invoiceData.xsltName ? { xsltName: invoiceData.xsltName } : {}),
-        // Firmaya özel/varsayılan onaylı dizayn yoksa Mysoft'un genel dizaynıyla gönder.
-        // Bu olmadan E-Arşiv'de "belge görseli bulunamadı" hatası alınıyor (E-Fatura'da
-        // GİB standart dizaynı devreye girdiği için sorun çıkmıyordu). Kullanıcı kendi
-        // şablonunu Belge Şablonları ekranından yüklerse o kullanılır.
+        // "Varsayılan dizayn yoksa Mysoft'un genel dizaynıyla gönder." DİKKAT: bu bayrak
+        // canlıda e-Arşiv için ÇALIŞMIYOR — 2026-09-14'te ölçüldü: xsltName yokken, onay
+        // bekleyen ya da olmayan bir adla Mysoft yine "belge görseli bulunamadı" diyor
+        // (test ortamı düşürüyor, oradan bakıp "çalışıyor" denmesin). e-Fatura'da GİB
+        // standart dizaynı devreye girdiği için sorun görünmez. Gerçek koruma aşağıda:
+        // ret gelirse mükellefin ONAYLI e-Arşiv şablonuna bir kez daha denenir
+        // (bkz. template-approval.ts). Bayrak zararsız olduğu için duruyor.
         "isSendWithGeneralXsltIfDefaultNotExists": true,
         // Dip toplamlar bizden (yukarıdaki invoiceCalculation). false bırakılırsa
         // Mysoft brütten kurup iskontoyu düşmüyor → Ödenecek Tutar yanlış çıkıyordu.
@@ -1547,22 +1556,37 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // getInvoiceOutboxDraftPdfAsZip tam model ister — bu yüzden sendInvoice'ın
       // kurduğu payload'ı yeniden kullanıyoruz (ettn dışarıdan taslağınkiyle gelir).
       if (invoiceData.draftPdfOnly) {
-        const draftBody = { ...payload, isSaveAsDraft: true, isPrintDraftWatermark: true }
-        const pdfRes = await fetch(`${this.baseUrl}/api/InvoiceOutbox/getInvoiceOutboxDraftPdfAsZip`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${tokenData.access_token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(draftBody),
-        })
-        const r = await pdfRes.json().catch(() => null)
+        const draftPdfOnce = async (body: any) => {
+          const pdfRes = await fetch(`${this.baseUrl}/api/InvoiceOutbox/getInvoiceOutboxDraftPdfAsZip`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${tokenData.access_token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+          })
+          return pdfRes.json().catch(() => null)
+        }
+        let draftBody: any = { ...payload, isSaveAsDraft: true, isPrintDraftWatermark: true }
+        let r = await draftPdfOnce(draftBody)
+        // Şablon reddi: taslak oluşturmayla AYNI yedek (deterministik) — önizleme,
+        // taslağın basıldığı dizaynla aynı görünsün.
+        let templateFallback: { requested: string | null; used: string } | undefined
+        if (!r?.succeed && !isEFatura && isTemplateNotFoundError(r?.message)) {
+          const fb = await this.approvedXsltFallback(tenantId, payload.xsltName)
+          if (fb.xsltName) {
+            draftBody = { ...draftBody, xsltName: fb.xsltName }
+            r = await draftPdfOnce(draftBody)
+            if (r?.succeed) templateFallback = { requested: payload.xsltName ?? null, used: fb.xsltName }
+          }
+          if (!r?.succeed) return { success: false, error: fb.message }
+        }
         if (!r?.succeed || !r?.data) {
           return { success: false, error: r?.message || "Taslak PDF alınamadı." }
         }
         const pdf = await this.unzipFirstPdf(r.data)
         if (!pdf) return { success: false, error: "Zip içinde taslak PDF bulunamadı." }
-        return { success: true, isPdf: true, pdfBuffer: pdf.pdfBuffer, filename: pdf.filename }
+        return { success: true, isPdf: true, pdfBuffer: pdf.pdfBuffer, filename: pdf.filename, templateFallback }
       }
 
       // TASLAK UBL XML (ÖLÇÜM MODU): aynı payload "Fatura Önizleme - XML" ucuna
@@ -1621,6 +1645,23 @@ async sendInvoice(invoiceData: any): Promise<any> {
         result = await sendOnce(payload);
       }
 
+      // E-ARŞİV ŞABLON REDDİ: gönderdiğimiz xsltName mükellefte ONAYLI değilse (onay
+      // bekliyor / silinmiş) ya da hiç xsltName yoksa Mysoft belgeyi üretmez —
+      // isSendWithGeneralXsltIfDefaultNotExists canlıda bunu kurtarmıyor (ölçüldü,
+      // bkz. template-approval.ts). Mysoft'un ONAYLI e-Arşiv şablonuyla bir kez daha
+      // denenir; yedek yoksa kullanıcıya durum açıkça söylenir. Önce istenen adla
+      // deneniyor ki Mysoft'un kabul ettiği tasarım gereksiz yere değiştirilmesin.
+      let templateFallback: { requested: string | null; used: string } | undefined
+      if (!result?.succeed && !isEFatura && isTemplateNotFoundError(result?.message)) {
+        const fb = await this.approvedXsltFallback(tenantId, payload.xsltName)
+        if (fb.xsltName) {
+          payload.xsltName = fb.xsltName
+          result = await sendOnce(payload)
+          if (result?.succeed) templateFallback = { requested: fb.requested, used: fb.xsltName }
+        }
+        if (!result?.succeed) return { success: false, error: fb.message }
+      }
+
       if (!result.succeed) return { success: false, error: result.message };
 
       // Mysoft v8 normalde data.invoiceETTN döner; sürüm farklılıklarına karşı
@@ -1651,7 +1692,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
       const rawDocNo = data?.docNo ?? data?.documentNo ?? data?.invoiceNo;
       const docNo = typeof rawDocNo === "string" && rawDocNo.trim() ? rawDocNo.trim() : undefined;
 
-      return { success: true, uuid: rawUuid, docNo };
+      return { success: true, uuid: rawUuid, docNo, templateFallback };
 
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -3517,6 +3558,40 @@ async sendInvoice(invoiceData: any): Promise<any> {
     zip.file(fileName, content)
     const buf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
     return buf.toString("base64")
+  }
+
+  /**
+   * "Belge görseli bulunamadı" reddinden sonra mükellefin ONAYLI e-Arşiv şablonunu
+   * bulur. Liste okunamazsa yedek yoktur; mesaj bunu uydurmadan söyler.
+   * Karar saf tarafta (template-approval.ts): önce Mysoft varsayılanı, sonra en son
+   * onaylanan — taslak ve önizleme aynı yedeği seçsin diye deterministik.
+   */
+  private async approvedXsltFallback(
+    tenantVkn: string | undefined,
+    requested: string | null | undefined,
+  ): Promise<{ xsltName: string | null; requested: string | null; message: string }> {
+    const req = requested?.trim() || null
+    // Tip süzgeci Mysoft'a bırakılmaz (enum değeri uçtan uca aynı mı bilinmiyor);
+    // tam liste alınır, belge tipi metinden ayıklanır (entryMatchesDocType).
+    const list = await this.listTenantXslt(tenantVkn || undefined)
+    if (!list.success || !list.data) {
+      console.warn(`[Mysoft] e-Arşiv şablon reddi; şablon listesi okunamadı: ${list.error}`)
+      return {
+        xsltName: null,
+        requested: req,
+        message: templateNotFoundMessage({ xsltName: req, status: "missing", listFailed: true }),
+      }
+    }
+    const status = templateStatus(list.data, 2, req)
+    const fallback = pickApprovedXslt(list.data, 2, req)
+    console.warn(
+      `[Mysoft] e-Arşiv şablon reddi: istenen "${req ?? "(yok)"}" → ${status}; onaylı yedek: ${fallback ?? "(yok)"}`,
+    )
+    return {
+      xsltName: fallback,
+      requested: req,
+      message: templateNotFoundMessage({ xsltName: req, status }),
+    }
   }
 
   /**

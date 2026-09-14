@@ -480,7 +480,11 @@ export default function FaturaOnizlemePage() {
       }
       toast({
         title: "GİB taslağı oluşturuldu",
-        description: "Taslak PDF'ini kontrol edip kesinleştirebilirsiniz.",
+        // Sunucu bir sapma bildirdiyse (ör. seçili şablon onaysız, yedekle basıldı)
+        // kullanıcı taslak PDF'ine bakmadan önce bunu görsün.
+        description: data?.warning
+          ? `${data.warning} Taslak PDF'ini kontrol edip kesinleştirebilirsiniz.`
+          : "Taslak PDF'ini kontrol edip kesinleştirebilirsiniz.",
       })
       fetchInvoice()
     } catch (error: any) {

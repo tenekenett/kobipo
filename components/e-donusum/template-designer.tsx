@@ -380,12 +380,31 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
 
       const savedName = xsltName.trim()
       onSaved?.()
+      // Mysoft şablonu onaya alır; e-Arşiv onaysız şablonla BASILMAZ (gönderim onaylı
+      // başka şablona düşer), e-Fatura standart dizaynla gider. "Kaydedildi" deyip
+      // geçmek bunu gizlerdi — kullanıcı onayı beklemesi gerektiğini burada öğrenir.
+      const pendingNote =
+        data?.approved === false
+          ? ` Mysoft onayı bekliyor: onaylanana kadar ${
+              docType === 2
+                ? "e-Arşiv belgeleri bu şablonla basılamaz."
+                : "e-Fatura belgeleri GİB'in standart dizaynıyla gider."
+            }`
+          : ""
       if (isEditing) {
         // Düzenleme: aynı adla üzerine yazıldı — atama diyaloğunu açmaya gerek yok.
-        toast({ title: "Şablon güncellendi", description: `“${savedName}” dizaynı yeni haliyle kaydedildi.` })
+        toast({
+          title: "Şablon güncellendi",
+          description: `“${savedName}” dizaynı yeni haliyle kaydedildi.${pendingNote}`,
+          ...(pendingNote ? { variant: "destructive" as const } : {}),
+        })
         cancelEdit()
       } else {
-        toast({ title: "Tasarım kaydedildi", description: data?.message || "Mysoft hesabınıza tanımlandı." })
+        toast({
+          title: "Tasarım kaydedildi",
+          description: (data?.message || "Mysoft hesabınıza tanımlandı.") + pendingNote,
+          ...(pendingNote ? { variant: "destructive" as const } : {}),
+        })
         setXsltName("")
         // Kaydetme sonrası: bu şablonu bir seri no'ya atama diyaloğunu aç (isteğe bağlı).
         openAssignDialog(savedName)

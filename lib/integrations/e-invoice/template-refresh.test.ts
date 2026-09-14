@@ -7,7 +7,7 @@
  * belgeyi eski görselle bastırır.
  */
 import { describe, expect, it } from "vitest"
-import { isRenderableXslt, planTemplateRefresh } from "./template-refresh"
+import { isRenderableXslt, planTemplateRefresh, uploadWouldRiskApproval } from "./template-refresh"
 
 describe("otomatik tazeleme kararı", () => {
   it("taban değiştiyse tazelenir", () => {
@@ -63,5 +63,18 @@ describe("üretilen şablonun sağlık kontrolü", () => {
 
   it("kalem tablosu kaybolduysa reddedilir (tema gövdeyi bozmuş)", () => {
     expect(isRenderableXslt(`<xsl:stylesheet>${"y".repeat(1200)}</xsl:stylesheet>`)).toBe(false)
+  })
+})
+
+describe("onay koruması (uploadWouldRiskApproval)", () => {
+  it("Mysoft'taki kopya onaylıysa sessiz yükleme yapılmaz", () => {
+    expect(uploadWouldRiskApproval("approved")).toBe(true)
+  })
+  it("durum okunamadıysa risk alınmaz", () => {
+    expect(uploadWouldRiskApproval("unknown")).toBe(true)
+  })
+  it("onay bekleyen/olmayan kopyada kaybedecek onay yok — yükleme serbest", () => {
+    expect(uploadWouldRiskApproval("pending")).toBe(false)
+    expect(uploadWouldRiskApproval("missing")).toBe(false)
   })
 })

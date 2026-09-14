@@ -7,6 +7,7 @@ import { MysoftEInvoiceProvider } from "@/lib/integrations/e-invoice/mysoft-prov
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { decryptSecret } from "@/lib/crypto/secrets"
 import { readSampleTemplate } from "@/lib/integrations/e-invoice/sample-templates"
+import { templateStatus } from "@/lib/integrations/e-invoice/template-approval"
 import { effectiveTenantVkn } from "@/lib/integrations/e-invoice/tenant"
 import {
   credentialDecryptError,
@@ -208,7 +209,19 @@ export const POST = withApiErrors(async function POST(request: Request) {
       console.error("templates POST unhide error:", unhideError)
     }
 
-    return NextResponse.json({ success: true, message: result.message })
+    // Yeni/yeniden yüklenen şablon Mysoft'ta onaya girer; e-Arşiv onaysız şablonla
+    // basılmaz (bkz. template-approval.ts). Ekran bunu "kaydedildi"nin yanına yazar.
+    let approved: boolean | null = null
+    try {
+      const list = await provider.listTenantXslt(creds.vkn)
+      if (list.success && list.data) {
+        approved = templateStatus(list.data, docType, xsltName.trim()) === "approved"
+      }
+    } catch {
+      /* onay durumu okunamadı → null: uydurmayız */
+    }
+
+    return NextResponse.json({ success: true, message: result.message, approved })
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {

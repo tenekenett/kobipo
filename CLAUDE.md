@@ -79,6 +79,38 @@ bloğu olarak basar. Karar tek yerde: `lib/integrations/e-invoice/branch-party.t
   adresi). Ölçüm yolu: `npx tsx scripts/sube-adresi-kontrol.ts --canli --test`
   (provider'da `draftXmlOnly`; taslak UBL'i döner, GİB'e belge gitmez).
 
+## e-Arşiv yalnız Mysoft'ta ONAYLI şablonla basılır
+
+Canlı Mysoft'ta ölçüldü (2026-09-14, Reypo mükellefi, taslak PDF ucu): e-Arşiv'de
+`xsltName` onay bekleyen ya da olmayan bir ada denk gelirse — ve `xsltName` hiç
+gönderilmezse — Mysoft *"E-Arşiv Fatura belge tipine ait uygun belge görseli
+bulunamamıştır"* der ve belgeyi üretmez. `isSendWithGeneralXsltIfDefaultNotExists`
+bayrağı bunu KURTARMAZ (test ortamı düşürüyor; oradan bakıp "çalışıyor" denmesin).
+e-Fatura'da GİB standart dizaynı devreye girdiği için aynı durum sessizce geçer.
+
+Her `addTenantXslt` yüklemesi (tasarımcı kaydı, dosya yükleme, "Yenile", gönderim
+öncesi otomatik tazeleme) Mysoft'ta onaya girer; onay elle ve saatler/günler sonra
+gelir, reddedilebilir de. Eren Forklift: 3 Eylül'de otomatik tazelenen şablon onaydan
+düştü, 9–14 Eylül arası tek bir e-Arşiv kesilemedi; e-Fatura çalıştığı için fark
+edilmedi. Karar iki yerde:
+
+- **Gönderim** (`mysoft-provider.ts` → `approvedXsltFallback`, saf kural
+  `template-approval.ts`): ret gelince mükellefin onaylı e-Arşiv şablonuna
+  (önce Mysoft varsayılanı, sonra en son onaylanan) BİR KEZ daha denenir; hem
+  `invoiceOutbox` hem taslak PDF yolu aynı deterministik yedeği seçer ki taslak ve
+  önizleme farklı görünmesin. Yedek kullanıldıysa sonuç `templateFallback` taşır,
+  uçlar `warning` olarak istemciye verir — sessiz geçilmez. Yedek yoksa mesaj
+  durumu söyler (onay bekliyor / bulunamadı), Mysoft portalına yollamaz.
+- **Tazeleme** (`template-refresh.ts`): onaylı kopya SESSİZCE yeniden yüklenmez
+  (`uploadWouldRiskApproval`; durum okunamıyorsa da yüklenmez). Taban iyileştirmesi
+  onaylı tasarıma yalnız "Yenile" (force) ile gider; düğme sonucu onaylatıp
+  onay durumunu (`approvedAfterUpload`) ekrana yazar. Yükleme uçları da `approved`
+  döner, toast'lar "onay bekliyor"u söyler.
+
+Ölçüm: `npx tsx scripts/earsiv-sablon-kontrol.ts --bayi-vkn=<vkn> --xslt=<ad>`
+(bayi kimliği yalnız Kobipo bayiliğindeki mükellefleri görür; `--firma=<id>` için
+canlının `NEXTAUTH_SECRET`i gerekir — `vercel env pull --environment=production`).
+
 ## Abonelik FİRMA bazındadır — yetki devretmez
 
 2026-09-04'te değişti: her firma (kök, şube, ek firma) kendi aboneliğini satın alır.
