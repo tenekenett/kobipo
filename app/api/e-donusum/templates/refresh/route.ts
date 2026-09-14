@@ -70,7 +70,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Bu şablon dışarıdan yüklenmiş; içeriği Kobipo'da saklanmıyor, yenilenemez. Mysoft portalinden güncelleyin.",
+            "Bu şablon dışarıdan yüklenmiş; içeriği Kobipo'da saklanmıyor, yenilenemez. Güncel tasarım için Kobipo tasarımcısıyla yeniden oluşturun.",
         },
         { status: 409 },
       )

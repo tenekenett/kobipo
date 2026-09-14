@@ -33,14 +33,16 @@ export type TenantXsltEntry = {
 export type TemplateStatus = "approved" | "pending" | "missing"
 
 /**
- * Onayın nasıl alınacağı — TEK metin, dört ekran bunu basar. Mysoft API'sinde XSLT
- * için yalnız ekle/sorgula/önizleme uçları var (swagger-v8), "onaya gönder" ucu YOK:
- * API'den yüklenen şablon portalda "Şablon Bilgileri" ekranında onaya gönderilmemiş
- * bekler (2026-09-14, Eren Forklift: 11 gün kimse basmadı). Adım yalnız portaldan.
+ * Onay beklerken kullanıcıya söylenen — TEK metin, dört ekran bunu basar.
+ *
+ * KULLANICI MYSOFT PORTALINA YÖNLENDİRİLMEZ. Kobipo, Mysoft'u kullanıcıdan saklar;
+ * "portalda şuraya girip Onaya Gönder'e basın" demek o ilkeyi deler (2026-09-14'te
+ * bir an öyle yazıldı, geri alındı). Onay Mysoft'tan gelir; gelmezse kullanıcı Kobipo
+ * desteğe yazar, portal adımı (Şablon Bilgileri › Onaya Gönder — API'de karşılığı yok,
+ * swagger-v8) Kobipo/bayi tarafında yapılır. Bkz. CLAUDE.md.
  */
 export const MYSOFT_APPROVAL_STEP =
-  "Onay için Mysoft portalında Firma Bilgileri › Belge Ayarları › Şablonlar'da şablonu açıp " +
-  "\"Onaya Gönder\"e basın; onayı Mysoft verir (saatler sürebilir)."
+  "Onay Mysoft tarafından verilir ve genellikle birkaç saat sürer; gelmezse Kobipo desteğe bildirin."
 
 /**
  * Mysoft'un "bu belge tipi için uygun belge görseli yok" reddi mi? Ham mesaj:
@@ -116,7 +118,7 @@ export function templateNotFoundMessage(params: {
   const name = xsltName?.trim()
   const son =
     "Mükellefte onaylı başka bir e-Arşiv şablonu da yok; Mysoft onaylayana kadar e-Arşiv kesilemez. " +
-    "Durumu E-Dönüşüm → Belge Şablonları sayfasından izleyebilir, onay için Mysoft'a başvurabilirsiniz."
+    "Durumu E-Dönüşüm → Belge Şablonları sayfasından izleyebilirsiniz."
   if (listFailed) {
     return (
       `Mysoft bu e-Arşiv için belge görseli (şablon) bulamadı` +
