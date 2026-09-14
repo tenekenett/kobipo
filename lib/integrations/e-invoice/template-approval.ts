@@ -33,6 +33,16 @@ export type TenantXsltEntry = {
 export type TemplateStatus = "approved" | "pending" | "missing"
 
 /**
+ * Onayın nasıl alınacağı — TEK metin, dört ekran bunu basar. Mysoft API'sinde XSLT
+ * için yalnız ekle/sorgula/önizleme uçları var (swagger-v8), "onaya gönder" ucu YOK:
+ * API'den yüklenen şablon portalda "Şablon Bilgileri" ekranında onaya gönderilmemiş
+ * bekler (2026-09-14, Eren Forklift: 11 gün kimse basmadı). Adım yalnız portaldan.
+ */
+export const MYSOFT_APPROVAL_STEP =
+  "Onay için Mysoft portalında Firma Bilgileri › Belge Ayarları › Şablonlar'da şablonu açıp " +
+  "\"Onaya Gönder\"e basın; onayı Mysoft verir (saatler sürebilir)."
+
+/**
  * Mysoft'un "bu belge tipi için uygun belge görseli yok" reddi mi? Ham mesaj:
  *   "E-Arşiv Fatura belge tipine ait uygun belge görseli bulunamamıştır. Portal
  *    üzerinde Firma Bilgileri > Belge Ayarları > Şablonlar tanımında belge görseli
@@ -119,7 +129,12 @@ export function templateNotFoundMessage(params: {
     return `Bu firmada aktif bir e-Arşiv şablonu seçili değil ve Mysoft'ta varsayılan e-Arşiv dizaynı yok. ` + son
   }
   if (status === "pending") {
-    return `"${name}" şablonu Mysoft'ta ONAY BEKLİYOR — e-Arşiv belgesi onaysız şablonla basılamıyor. ` + son
+    return (
+      `"${name}" şablonu Mysoft'ta ONAY BEKLİYOR — e-Arşiv belgesi onaysız şablonla basılamıyor. ` +
+      son +
+      " " +
+      MYSOFT_APPROVAL_STEP
+    )
   }
   return `"${name}" şablonu Mysoft'ta bulunamadı (silinmiş ya da reddedilmiş olabilir). ` + son
 }

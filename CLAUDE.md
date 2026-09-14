@@ -107,6 +107,17 @@ edilmedi. Karar iki yerde:
   onay durumunu (`approvedAfterUpload`) ekrana yazar. Yükleme uçları da `approved`
   döner, toast'lar "onay bekliyor"u söyler.
 
+**Onay yalnız portaldan istenir.** Mysoft API'sinde XSLT için ekle / sorgula /
+HTML-PDF önizleme dışında uç yok (`swagger-v8.json`); "onaya gönder" ucu YOK. API'den
+yüklenen şablon portalda *Firma Bilgileri › Belge Ayarları › Şablonlar › Şablon
+Bilgileri* ekranında **"Onaya Gönder"** basılana kadar bekler — Eren'de 11 gün kimse
+basmadı. Metin tek yerde: `MYSOFT_APPROVAL_STEP` (dört ekran onu basar). O ekrandaki
+otomatik kontrollerden ikisi Kobipo tasarımlarında kırmızı çıkıyor ("Kaşe-İmza yok",
+"QR Kod yok"): Mysoft kaşeyi/QR'ı `isHasStamp`/`isHasLogo` ile KENDİ yerleştirir, biz
+CSS/JS ile çiziyoruz ve bayrağı göndermiyoruz; denetleyici bizimkini görmüyor.
+Reypo'nun aynı yapıdaki şablonu yine de elle onaylandı — Mysoft bunu gerekçe gösterip
+reddederse taban şablon Mysoft yerleştirmesine uyarlanmalı (ayrı iş).
+
 Ölçüm: `npx tsx scripts/earsiv-sablon-kontrol.ts --bayi-vkn=<vkn> --xslt=<ad>`
 (bayi kimliği yalnız Kobipo bayiliğindeki mükellefleri görür; `--firma=<id>` için
 canlının `NEXTAUTH_SECRET`i gerekir — `vercel env pull --environment=production`).

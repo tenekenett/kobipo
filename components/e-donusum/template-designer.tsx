@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
+import { MYSOFT_APPROVAL_STEP } from "@/lib/integrations/e-invoice/template-approval"
 import {
   DESIGN_FONTS,
   DENSITY_OPTIONS,
@@ -389,7 +390,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
               docType === 2
                 ? "e-Arşiv belgeleri bu şablonla basılamaz."
                 : "e-Fatura belgeleri GİB'in standart dizaynıyla gider."
-            }`
+            } ${MYSOFT_APPROVAL_STEP}`
           : ""
       if (isEditing) {
         // Düzenleme: aynı adla üzerine yazıldı — atama diyaloğunu açmaya gerek yok.

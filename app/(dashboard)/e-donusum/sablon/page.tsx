@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
+import { MYSOFT_APPROVAL_STEP } from "@/lib/integrations/e-invoice/template-approval"
 import { TemplateDesigner } from "@/components/e-donusum/template-designer"
 import type { TemplateDesignOptions } from "@/lib/integrations/e-invoice/template-designer"
 import {
@@ -276,7 +277,7 @@ export default function FaturaSablonuPage() {
                 docType === 2
                   ? "e-Arşiv belgeleri bu şablonla basılamaz; gönderim onaylı başka şablona düşer."
                   : "e-Fatura belgeleri GİB'in standart dizaynıyla gider."
-              }`
+              } ${MYSOFT_APPROVAL_STEP}`
             : `“${name}” güncel tasarımla yüklendi. Görsel aynı; tek fark tabana eklenenler.`,
         ...(approved === false ? { variant: "destructive" as const } : {}),
       })
@@ -528,7 +529,7 @@ export default function FaturaSablonuPage() {
                 docType === 2
                   ? "e-Arşiv belgeleri bu şablonla basılamaz."
                   : "e-Fatura belgeleri GİB'in standart dizaynıyla gider."
-              }`
+              } ${MYSOFT_APPROVAL_STEP}`
             : ""),
         ...(data?.approved === false ? { variant: "destructive" as const } : {}),
       })
