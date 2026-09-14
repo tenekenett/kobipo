@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
+import { trFold } from "@/lib/text/tr-fold"
 import { Loader2, Plus, X } from "lucide-react"
 
 const UNIT_OPTIONS = ["ADET", "KG", "MT", "M2", "M3", "LT", "SA", "GUN", "PAKET"] as const
@@ -78,7 +79,7 @@ const MAX_RESULTS = 50
 const MIN_MENU_WIDTH = 360
 
 function normalizeName(s: string) {
-  return s.trim().toLowerCase()
+  return trFold(s)
 }
 
 /**
@@ -88,12 +89,15 @@ function normalizeName(s: string) {
  * edilip karşılaştırılır.
  */
 function normalizeForSearch(s: string) {
-  return s
-    .toLowerCase()
-    // Rakamlar arasındaki boyut ayraçlarını sil (lookaround: rakamı tüketmez,
-    // böylece "18x20x30" gibi zincirler de doğru normalize olur → "182030").
-    .replace(/(?<=\d)\s*[x×*/.\-%]\s*(?=\d)/g, "")
-    .replace(/[^a-z0-9ğüşıöç]+/gi, "")
+  // `trFold` Türkçe harfleri katlar (ışık = IŞIK); buradaki EK adım boyut
+  // ayracını önemsiz kılmaktır, o yüzden korunuyor.
+  return (
+    trFold(s)
+      // Rakamlar arasındaki boyut ayraçlarını sil (lookaround: rakamı tüketmez,
+      // böylece "18x20x30" gibi zincirler de doğru normalize olur → "182030").
+      .replace(/(?<=\d)\s*[x×*/.\-%]\s*(?=\d)/g, "")
+      .replace(/[^a-z0-9]+/g, "")
+  )
 }
 
 export function ProductCombobox({

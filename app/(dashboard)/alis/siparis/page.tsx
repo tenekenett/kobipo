@@ -31,6 +31,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, FileText, Minus, Search, Ban, ShoppingCart, Wallet, CheckCircle2 } from "lucide-react"
 import { toDateInput } from "@/lib/format"
+import { trFold } from "@/lib/text/tr-fold"
 
 type Order = {
   id: string
@@ -362,13 +363,13 @@ export default function AlisSiparisPage() {
     return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
   }
 
-  const term = search.trim().toLocaleLowerCase("tr-TR")
+  const term = trFold(search)
   const filtered = orders.filter((o) => {
     if (statusFilter !== "ALL" && o.status !== statusFilter) return false
     if (!term) return true
     return (
-      o.orderNo.toLocaleLowerCase("tr-TR").includes(term) ||
-      (o.supplier?.name || "").toLocaleLowerCase("tr-TR").includes(term)
+      trFold(o.orderNo).includes(term) ||
+      trFold(o.supplier?.name).includes(term)
     )
   })
 

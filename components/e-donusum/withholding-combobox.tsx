@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
+import { trFold } from "@/lib/text/tr-fold"
 
 export type WithholdingType = { code: string; name: string; rate: number }
 
@@ -49,11 +50,11 @@ export function WithholdingCombobox({
     ? `${selected.code} · ${selected.name}${selected.code !== "650" && selected.rate ? `  (%${selected.rate})` : ""}`
     : ""
 
-  const q = query.trim().toLowerCase()
+  const q = trFold(query)
   const rows = useMemo(() => {
     const filtered = q
       ? types.filter(
-          (t) => t.code.toLowerCase().includes(q) || t.name.toLowerCase().includes(q),
+          (t) => trFold(t.code).includes(q) || trFold(t.name).includes(q),
         )
       : types
     return filtered.slice(0, MAX_RESULTS)

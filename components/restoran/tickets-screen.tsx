@@ -35,6 +35,7 @@ import { useDayTickets, useOpenTickets, useTables, type Ticket } from "@/lib/swr
 import { currency } from "@/lib/fis/receipt-html"
 import { cn } from "@/lib/utils"
 import { WriteAction } from "@/components/dashboard/write-guard"
+import { trFold } from "@/lib/text/tr-fold"
 
 type SortKey = "time" | "amount"
 type StatusFilter = "ALL" | "OPEN" | "CLOSED" | "CANCELLED"
@@ -135,13 +136,13 @@ export function TicketsScreen() {
   }, [all])
 
   const rows = useMemo(() => {
-    const q = search.trim().toLocaleLowerCase("tr-TR")
+    const q = trFold(search)
     const filtered = all.filter((t) => {
       if (status !== "ALL" && t.status !== status) return false
       if (!q) return true
       return [t.code, t.tableName, t.customerName, t.note, t.invoiceNo]
         .filter(Boolean)
-        .some((v) => (v as string).toLocaleLowerCase("tr-TR").includes(q))
+        .some((v) => trFold(v as string).includes(q))
     })
 
     return filtered.sort((a, b) => {

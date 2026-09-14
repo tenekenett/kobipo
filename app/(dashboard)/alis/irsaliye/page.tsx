@@ -44,6 +44,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { toDateInput } from "@/lib/format"
+import { trFold } from "@/lib/text/tr-fold"
 
 type Waybill = {
   id: string
@@ -398,13 +399,13 @@ export default function AlisIrsaliyePage() {
     return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
   }
 
-  const term = search.trim().toLocaleLowerCase("tr-TR")
+  const term = trFold(search)
   const filtered = waybills.filter((w) => {
     if (statusFilter !== "ALL" && w.status !== statusFilter) return false
     if (!term) return true
     return (
-      w.waybillNo.toLocaleLowerCase("tr-TR").includes(term) ||
-      (w.supplier?.name || "").toLocaleLowerCase("tr-TR").includes(term)
+      trFold(w.waybillNo).includes(term) ||
+      trFold(w.supplier?.name).includes(term)
     )
   })
 

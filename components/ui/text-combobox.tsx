@@ -15,19 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-
-/** Türkçe karakterleri sadeleştirerek arama anahtarı üretir. */
-function norm(s: string): string {
-  return s
-    .toLocaleLowerCase("tr-TR")
-    .replace(/ı/g, "i")
-    .replace(/ş/g, "s")
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .trim()
-}
+import { trFold } from "@/lib/text/tr-fold"
 
 export function TextCombobox({
   id,
@@ -52,13 +40,13 @@ export function TextCombobox({
   const containerRef = useRef<HTMLDivElement>(null)
 
   const matches = useMemo(() => {
-    const q = norm(value)
+    const q = trFold(value)
     if (!q) return options
-    return options.filter((o) => norm(o).includes(q))
+    return options.filter((o) => trFold(o).includes(q))
   }, [options, value])
 
   // Yazılan metin listedeki TEK eşleşmenin aynısıysa liste bilgi taşımıyor demektir.
-  const showList = open && !(matches.length === 1 && norm(matches[0]) === norm(value))
+  const showList = open && !(matches.length === 1 && trFold(matches[0]) === trFold(value))
 
   useEffect(() => {
     function onDocMouseDown(e: MouseEvent) {

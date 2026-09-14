@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { MAX_BRANCH_QUOTA, MAX_COMPANY_QUOTA } from "@/lib/billing/constants"
 import { GrantPeriodForm } from "@/components/system-admin/grant-period-form"
+import { trFold } from "@/lib/text/tr-fold"
 
 /** Hesabın iki ayrı kotası — arayüzde aynı düzenleyiciyle çizilir. */
 type QuotaKind = "branch" | "company"
@@ -139,10 +140,10 @@ export function SubscriptionAdmin() {
   }, [])
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase("tr-TR")
+    const q = trFold(query)
     if (!q) return accounts
     return accounts.filter(
-      (a) => a.name.toLocaleLowerCase("tr-TR").includes(q) || a.slug.toLowerCase().includes(q),
+      (a) => trFold(a.name).includes(q) || trFold(a.slug).includes(q),
     )
   }, [accounts, query])
 

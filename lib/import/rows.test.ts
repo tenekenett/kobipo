@@ -167,6 +167,32 @@ describe("pickMatch", () => {
     expect(outcome).toMatchObject({ status: "match", by: "ad" })
   })
 
+  it("Türkçe aksan farkı aynı kayıttır (SEKER = Şeker)", () => {
+    // Aday havuzu da aynı `trFold` kuralıyla kuruluyor (lib/import/apply.ts);
+    // ikisi ayrışırsa satır havuza girer ama seçilmez ve ürün ikinci kez açılır.
+    const seker = { id: "p3", name: "Şeker", barcode: "333", code: "URUN-3" }
+    expect(pickMatch([seker], productRules({ name: "SEKER" }))).toMatchObject({
+      status: "match",
+      by: "ad",
+    })
+    expect(pickMatch([seker], productRules({ name: "seker" }))).toMatchObject({
+      status: "match",
+      by: "ad",
+    })
+  })
+
+  it("I/ı/İ/i farkı aynı kayıttır (IŞIK = ışık)", () => {
+    const isik = { id: "p4", name: "IŞIK Ampul", barcode: "444", code: "URUN-4" }
+    expect(pickMatch([isik], productRules({ name: "ışık ampul" }))).toMatchObject({
+      status: "match",
+      by: "ad",
+    })
+    expect(pickMatch([isik], productRules({ name: "Isik Ampul" }))).toMatchObject({
+      status: "match",
+      by: "ad",
+    })
+  })
+
   it("ad bir kaydı, barkod başka kaydı tutuyorsa karar verilmez", () => {
     const outcome = pickMatch([ELMA, ARMUT], productRules({ name: "Elma", barcode: "222" }))
     expect(outcome.status).toBe("conflict")

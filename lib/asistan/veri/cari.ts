@@ -16,6 +16,7 @@ import { prisma } from "@/lib/db/prisma"
 import { computeCariAging, type AgingAccount } from "@/lib/raporlar/cari-yaslandirma"
 import { bugunBasi, gunFarki, gunOnce, sayi } from "./temel"
 import { hatirla, type IstekOnbellegi } from "./onbellek"
+import { trFold } from "@/lib/text/tr-fold"
 
 /**
  * Yaşlandırmayı istek başına BİR KEZ hesaplar. Aşağıdaki üç fonksiyon da bunu
@@ -183,15 +184,15 @@ export async function cariAra(
   limit = 8,
   onbellek?: IstekOnbellegi
 ): Promise<CariKarti[]> {
-  const aranan = sorgu.trim().toLocaleLowerCase("tr")
+  const aranan = trFold(sorgu)
   if (!aranan) return []
   const aging = await yaslandirma(companyId, onbellek)
 
   const eslesenler: CariKarti[] = []
   const ekle = (hesaplar: AgingAccount[], taraf: "musteri" | "tedarikci") => {
     for (const h of hesaplar) {
-      const ad = h.name.toLocaleLowerCase("tr")
-      const kod = (h.code ?? "").toLocaleLowerCase("tr")
+      const ad = trFold(h.name)
+      const kod = trFold(h.code)
       if (!ad.includes(aranan) && !kod.includes(aranan)) continue
       const sonIslem = h.invoices.reduce<Date | null>((en, f) => {
         const t = new Date(f.date)

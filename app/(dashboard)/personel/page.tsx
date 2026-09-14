@@ -28,6 +28,7 @@ import {
   type CalismaDuzeniDegeri,
 } from "@/components/personel/calisma-duzeni-secici"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
+import { trFold } from "@/lib/text/tr-fold"
 
 type Employee = {
   id: string
@@ -219,11 +220,13 @@ export default function PersonellerPage() {
     return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
   }
 
-  const term = search.trim().toLocaleLowerCase("tr-TR")
+  const term = trFold(search)
   const filtered = employees.filter((e) => {
     if (statusFilter !== "ALL" && e.status !== statusFilter) return false
     if (!term) return true
-    const hay = `${e.firstName} ${e.lastName} ${e.department || ""} ${e.position || ""} ${e.nationalId || ""}`.toLocaleLowerCase("tr-TR")
+    const hay = trFold(
+      `${e.firstName} ${e.lastName} ${e.department || ""} ${e.position || ""} ${e.nationalId || ""}`,
+    )
     return hay.includes(term)
   })
 

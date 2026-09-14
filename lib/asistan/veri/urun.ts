@@ -13,6 +13,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { avgCostCte } from "@/lib/stock/cost"
 import { avgSaleCte } from "@/lib/stock/sale-price"
+import { trFoldAnyLike, trLikePattern } from "@/lib/db/tr-search"
 import { gunFarki, bugunBasi, gunOnce, sayi } from "./temel"
 
 export type OluStokSatiri = {
@@ -329,7 +330,9 @@ export async function urunAra(
   bitis: Date,
   limit = 10
 ): Promise<UrunKarti[]> {
-  const like = `%${sorgu.trim()}%`
+  // `ILIKE` Türkçe I/ı'yı çözmez: "ışık" araması "IŞIK" ürününü bulmazdı.
+  // Boş sorgu eskiden `%%` ile her şeyi getiriyordu; o davranış korunur.
+  const like = trLikePattern(sorgu)
 
   const rows = await prisma.$queryRaw<
     Array<{
@@ -388,7 +391,7 @@ export async function urunAra(
     LEFT JOIN son s ON s.pid = p.id
     WHERE p."companyId" = ${companyId}
       AND p."isActive" = true
-      AND (p.name ILIKE ${like} OR p.code ILIKE ${like} OR p.barcode ILIKE ${like})
+      ${like ? Prisma.sql`AND ${trFoldAnyLike(["p.name", "p.code", "p.barcode"], like)}` : Prisma.empty}
     ORDER BY COALESCE(d.ciro, 0) DESC, p.name ASC
     LIMIT ${limit}
   `)

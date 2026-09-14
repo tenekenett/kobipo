@@ -7,6 +7,7 @@ import { adjustWarehouseStock, resolveCompanyWarehouseId, OPENING_STOCK_DESCRIPT
 import { resolveAllUnitCosts } from "@/lib/stock/cost"
 import { readImageUrlField } from "@/lib/stock/product-image"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { trContainsIds } from "@/lib/db/tr-search"
 
 export const dynamic = 'force-dynamic'
 
@@ -40,14 +41,19 @@ export const GET = withApiErrors(async function GET(request: Request) {
     }
 
     if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { code: { contains: search, mode: "insensitive" } },
-        { barcode: { contains: search, mode: "insensitive" } },
-        // Depoda "A-04 rafında ne var" diye aranır; raf no arama dışında kalırsa
-        // alan yalnız kartta durur, işe yaramaz.
-        { shelfCode: { contains: search, mode: "insensitive" } },
-      ]
+      // Prisma `mode: "insensitive"` ILIKE üretir, o da Türkçe I/ı'yı çözmez
+      // ("ışık" araması "IŞIK" ürününü bulmuyordu). Önce ham bir ön süzgeçle
+      // id listesi çıkarılır (bkz. lib/db/tr-search.ts).
+      //
+      // Depoda "A-04 rafında ne var" diye aranır; raf no arama dışında kalırsa
+      // alan yalnız kartta durur, işe yaramaz.
+      const ids = await trContainsIds({
+        table: "products",
+        columns: ["name", "code", "barcode", '"shelfCode"'],
+        companyId,
+        term: search,
+      })
+      if (ids) where.id = { in: ids }
     }
 
     if (isService !== null) {

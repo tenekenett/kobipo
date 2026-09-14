@@ -337,6 +337,53 @@ faturalar ve bunların dışa aktarımı.
   kısıtlı çalışan yalnız kendi carilerine belge kesebilir — bu, ucun paylaşılmasının
   kaçınılmaz sonucudur, ayrı bir karar değildir.
 
+## Arama Türkçe duyarsızdır: `ILIKE` / `insensitive` / `toLowerCase` KULLANMA
+
+`lower('I')` Türkçe'de `'ı'` değil `'i'`dir; `"İ".toLowerCase()` ise iki kod birimi
+("i" + U+0307) üretir. Bu yüzden `ILIKE`, Prisma `mode: "insensitive"` ve düz
+`toLowerCase()` ile yazılan arama, BÜYÜK harfle girilmiş kaydı küçük harfle
+aratınca bulmaz — "IŞIK GIDA" carisi `ışık` aramasında görünmüyordu.
+
+Kural tek yerde: `lib/text/tr-fold.ts` → `trFold()` (saf, istemcide de çalışır).
+Büyük/küçük harf VE aksan farkı yok sayılır: `ı/i/İ/I → i`, `ş → s`, `ğ → g`,
+`ü → u`, `ö → o`, `ç → c`, `â/î/û → a/i/u`. YALNIZ arama/eşleştirme içindir;
+görüntülenen metne dokunmaz.
+
+```ts
+// Bellek içi liste süzme
+import { trFold, trMatcher } from "@/lib/text/tr-fold"
+const eslesir = trMatcher(arama)            // terim BİR kez katlanır
+rows.filter((r) => eslesir(r.name, r.code))
+
+// Ham SQL
+import { trFoldAnyLike, trLikePattern } from "@/lib/db/tr-search"
+const desen = trLikePattern(arama)          // boş terimde null
+Prisma.sql`AND ${trFoldAnyLike(["c.name", "c.\"taxNumber\""], desen)}`
+
+// Prisma where (SQL fonksiyonu sokulamaz) → id ÖN SÜZGECİ
+const ids = await trContainsIds({ table: "products", columns: ["name", "code"], companyId, term })
+if (ids) where.id = { in: ids }             // null = "arama yok"; [] = "eşleşme yok"
+```
+
+- SQL tarafında DB'ye fonksiyon EKLENMEZ: `translate()` ifadesi sorguya gömülür
+  (`lib/db/tr-search.ts`), harf tablosu `TR_FOLD_FROM`/`TR_FOLD_TO` ile TS'ten gelir.
+  Migrasyon gerekmemesi bilinçli — `tr_fold()` fonksiyonu olsaydı deploy'dan önce
+  uygulanmayan migrasyon cari listesini "function does not exist" ile düşürürdü.
+  İki tablonun eşitliği `lib/text/tr-fold.canli.test.ts` ile ölçülür (salt okur).
+- Ön süzgeç **daima boyut tablosuna** kurulur (müşteri/tedarikçi/ürün/personel),
+  olgu tablosuna (fatura satırları) DEĞİL: "a" araması on binlerce id üretip bind
+  parametre sınırına çarpar. Tavan `PREFILTER_LIMIT` (5000).
+- `trContainsIds` boş terimde `null`, eşleşme yokken `[]` döner. İkisini
+  karıştırmak listeyi ters çevirir: `null`ı `in: []` sanmak her şeyi gizler,
+  `[]`i "süzme yok" saymak TÜM kayıtları döker.
+- **ASCII alanlar bilerek kapsam dışı:** `invoiceNo`, `eDocumentNo`, `uuid`,
+  VKN/TCKN, e-posta, durum kodları — `contains` olarak kalırlar.
+- İçe aktarımda aday HAVUZU (`lib/import/apply.ts` → `trEqualsIds`) ile seçim
+  (`lib/import/rows.ts` → `comparable`) AYNI kuraldan geçmeli; ayrışırsa satır
+  havuza girer ama seçilmez ve aynı ürün ikinci kez açılır.
+- Ekran ve dışa aktarım aynı süzgeci kullanır (ürün listesi, stok raporu, gelen
+  e-faturalar): biri katlar öteki katlamazsa "listede 42, Excel'de 47" doğar.
+
 ## Yeni tablo → RLS açılacak
 
 `public` şemadaki her tablo RLS **açık ve policy'siz** (default deny) tutulur; veriye

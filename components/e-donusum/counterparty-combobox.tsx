@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Plus, X } from "lucide-react"
+import { trFold } from "@/lib/text/tr-fold"
 import {
   QuickCariDialog,
   useCanCreateCari,
@@ -90,15 +91,15 @@ export function CounterpartyCombobox({
     return ""
   }, [customers, suppliers, selectedCustomerId, selectedSupplierId])
 
-  const q = query.trim().toLowerCase()
+  const q = trFold(query)
   const hasEnough = q.length >= minChars
 
   const matches = useCallback(
     (item: Counterparty) =>
-      item.name.toLowerCase().includes(q) ||
+      trFold(item.name).includes(q) ||
       // Kullanıcı cariyi çoğu zaman ünvanıyla değil takma adıyla arar.
-      (item.nickname ? item.nickname.toLowerCase().includes(q) : false) ||
-      (item.taxNumber ? String(item.taxNumber).toLowerCase().includes(q) : false),
+      (item.nickname ? trFold(item.nickname).includes(q) : false) ||
+      (item.taxNumber ? trFold(String(item.taxNumber)).includes(q) : false),
     [q],
   )
 

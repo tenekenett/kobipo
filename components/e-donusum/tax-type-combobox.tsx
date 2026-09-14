@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
+import { trFold } from "@/lib/text/tr-fold"
 
 export type TaxType = { code: string; name: string; rate?: number }
 
@@ -48,10 +49,10 @@ export function TaxTypeCombobox({
     ? `${selected.code} · ${selected.name}${selected.rate != null ? `  (%${selected.rate})` : ""}`
     : ""
 
-  const q = query.trim().toLowerCase()
+  const q = trFold(query)
   const rows = useMemo(() => {
     const filtered = q
-      ? types.filter((t) => t.code.toLowerCase().includes(q) || t.name.toLowerCase().includes(q))
+      ? types.filter((t) => trFold(t.code).includes(q) || trFold(t.name).includes(q))
       : types
     return filtered.slice(0, MAX_RESULTS)
   }, [types, q])

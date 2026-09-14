@@ -12,6 +12,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { trEqualsIds } from "@/lib/db/tr-search"
 import {
   cariUpdateData,
   describeMatchConflict,
@@ -49,15 +50,22 @@ export async function applyProductRow(
 
   // Aday havuzu: ada, barkoda ya da koda değen ürünler. Hangisinin geçerli
   // sayılacağına `pickMatch` sırayla karar verir (ad → barkod → kod).
+  //
+  // Karşılaştırma `trFold` anahtarıyla yapılır — `mode: "insensitive"` Türkçe
+  // I/ı'yı çözmüyordu ve havuz ile `pickMatch` AYNI kuralı kullanmak zorunda:
+  // "SEKER" satırı havuza girmeyip yeni ürün açıyordu, "Şeker" ikinci kez
+  // oluşuyordu.
+  const candidateIds = await trEqualsIds({
+    table: "products",
+    companyId,
+    matches: [
+      { column: "name", value: name },
+      { column: "barcode", value: barcode },
+      { column: "code", value: code },
+    ],
+  })
   const candidates = await prisma.product.findMany({
-    where: {
-      companyId,
-      OR: [
-        { name: { equals: name, mode: "insensitive" as const } },
-        ...(barcode ? [{ barcode: { equals: barcode, mode: "insensitive" as const } }] : []),
-        ...(code ? [{ code: { equals: code, mode: "insensitive" as const } }] : []),
-      ],
-    },
+    where: { companyId, id: { in: candidateIds ?? [] } },
     select: { id: true, name: true, barcode: true, code: true },
   })
 
@@ -130,15 +138,19 @@ export async function applyCariRow(
   const taxNumber = get("taxnumber")
   const code = get("code")
 
+  // Havuz `trFold` anahtarıyla kurulur (ürün tarafıyla aynı gerekçe):
+  // "IŞIK GIDA" satırı "Işık Gıda" carisini günceller, ikinci kez açmaz.
+  const candidateIds = await trEqualsIds({
+    table: kind,
+    companyId,
+    matches: [
+      { column: "name", value: name },
+      { column: '"taxNumber"', value: taxNumber },
+      { column: "code", value: code },
+    ],
+  })
   const candidates = await model.findMany({
-    where: {
-      companyId,
-      OR: [
-        { name: { equals: name, mode: "insensitive" as const } },
-        ...(taxNumber ? [{ taxNumber: { equals: taxNumber, mode: "insensitive" as const } }] : []),
-        ...(code ? [{ code: { equals: code, mode: "insensitive" as const } }] : []),
-      ],
-    },
+    where: { companyId, id: { in: candidateIds ?? [] } },
     select: { id: true, name: true, taxNumber: true, code: true },
   })
 

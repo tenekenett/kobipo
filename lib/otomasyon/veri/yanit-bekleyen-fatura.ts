@@ -105,21 +105,23 @@ function ekranDonemi(enEskiGun: number): number {
 export async function yanitBekleyenOzeti(
   companyId: string
 ): Promise<YanitBekleyenOzeti | null> {
+  const ekranFiltresi = await buildIncomingWhereWithoutDate(companyId, {
+    dateField: "docDate",
+    startDate: new Date(0),
+    endDate: new Date(0),
+    status: "BEKLEMEDE",
+    profile: "TICARIFATURA",
+    linked: "",
+    q: "",
+    sender: "",
+    taxNumber: "",
+    minAmount: null,
+    maxAmount: null,
+  })
+
   const kayitlar = await prisma.incomingInvoice.findMany({
     where: {
-      ...buildIncomingWhereWithoutDate(companyId, {
-        dateField: "docDate",
-        startDate: new Date(0),
-        endDate: new Date(0),
-        status: "BEKLEMEDE",
-        profile: "TICARIFATURA",
-        linked: "",
-        q: "",
-        sender: "",
-        taxNumber: "",
-        minAmount: null,
-        maxAmount: null,
-      }),
+      ...ekranFiltresi,
       isArchived: false,
       docDate: { not: null },
     },

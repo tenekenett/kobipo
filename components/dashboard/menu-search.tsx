@@ -8,6 +8,7 @@ import { allNavItems, moduleKeyForPath, navGroups } from "@/components/dashboard
 import { DENEME_PAGES, hiddenByShiftMode } from "@/lib/nav/pages"
 import { useDashboardCompany, useVisiblePages } from "@/components/dashboard/dashboard-company-provider"
 import { MODULE_KEYS } from "@/lib/modules"
+import { trFold } from "@/lib/text/tr-fold"
 
 // href -> menü grubu başlığı (sonuçlarda grup etiketi + grup adıyla arama için).
 const GROUP_BY_HREF: Record<string, string> = (() => {
@@ -15,8 +16,6 @@ const GROUP_BY_HREF: Record<string, string> = (() => {
   for (const g of navGroups) for (const href of g.hrefs) map[href] = g.title
   return map
 })()
-
-const lc = (s: string) => s.toLocaleLowerCase("tr")
 
 /**
  * `userRole` artık yalnızca geriye dönük uyumluluk için duruyor: erişilebilir sayfa
@@ -49,11 +48,11 @@ export function MenuSearch({ userRole: _userRole }: { userRole: string }) {
       const moduleKey = i.module ?? moduleKeyForPath(i.href)
       return !(moduleKey && disabled.has(moduleKey))
     })
-    const q = lc(query.trim())
+    const q = trFold(query)
     if (!q) return items
     // Etikete VEYA ait olduğu grup başlığına göre eşleşir (ör. "finans" → tüm grup).
     return items.filter(
-      (i) => lc(i.label).includes(q) || lc(GROUP_BY_HREF[i.href] ?? "").includes(q)
+      (i) => trFold(i.label).includes(q) || trFold(GROUP_BY_HREF[i.href]).includes(q)
     )
   }, [query, visibleHrefs, selectedCompany])
 

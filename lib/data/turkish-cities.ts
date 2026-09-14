@@ -1,3 +1,5 @@
+import { trFold } from "@/lib/text/tr-fold"
+
 // Türkiye'nin 81 ili (alfabetik). Şehir seçim/otomatik tamamlama alanlarında kullanılır.
 export const TURKISH_CITIES = [
   "Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya",
@@ -12,16 +14,10 @@ export const TURKISH_CITIES = [
   "Tekirdağ", "Tokat", "Trabzon", "Tunceli", "Uşak", "Van", "Yalova", "Yozgat", "Zonguldak",
 ] as const
 
-/** Türkçe karaktere ve büyük/küçük harfe duyarsız, aksanları sadeleştirilmiş arama anahtarı. */
+/**
+ * Türkçe karaktere ve büyük/küçük harfe duyarsız arama anahtarı — kural
+ * `lib/text/tr-fold.ts`te, tüm aramalarla ortak ("sanli" → "Şanlıurfa").
+ */
 export function normalizeCity(value: string): string {
-  return value
-    .toLocaleLowerCase("tr-TR")
-    .replace(/ı/g, "i")
-    .replace(/ş/g, "s")
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .replace(/â/g, "a")
-    .trim()
+  return trFold(value)
 }

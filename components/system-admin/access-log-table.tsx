@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Search } from "lucide-react"
+import { trFold } from "@/lib/text/tr-fold"
 
 export type AccessLogRow = {
   id: string
@@ -69,14 +70,14 @@ export function AccessLogTable({ logs }: { logs: AccessLogRow[] }) {
   const [action, setAction] = useState<string>("")
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase("tr-TR")
+    const q = trFold(query)
     return logs.filter((log) => {
       if (action && log.action !== action) return false
       if (!q) return true
       // IP araması hukuki sorgunun ana ekseni; e-posta ve ad da aranır.
       return [log.email, log.ip, log.user?.email, log.user?.name, log.forwardedFor]
         .filter(Boolean)
-        .some((field) => field!.toLocaleLowerCase("tr-TR").includes(q))
+        .some((field) => trFold(field).includes(q))
     })
   }, [logs, query, action])
 

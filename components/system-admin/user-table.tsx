@@ -46,6 +46,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useRouter } from "next/navigation"
 import { Role } from "@prisma/client"
 import { roleLabels } from "@/lib/auth/role-labels"
+import { trFold } from "@/lib/text/tr-fold"
 
 interface User {
   id: string
@@ -245,11 +246,11 @@ export function UserTable({ users, companies }: UserTableProps) {
   // Arama kayıt bilgilerinin TAMAMINI tarar: destek talebi telefonla ya da firma
   // ünvanıyla geliyor, e-postayla değil.
   const filteredUsers = users.filter((user) => {
-    const q = searchTerm.toLocaleLowerCase("tr-TR")
+    const q = trFold(searchTerm)
     if (!q) return true
     return [user.name, user.email, user.phone, user.companyDisplayName, user.companyBranchName]
       .filter(Boolean)
-      .some((field) => field!.toLocaleLowerCase("tr-TR").includes(q))
+      .some((field) => trFold(field).includes(q))
   })
 
   const handleResetPassword = async (userId: string, userEmail: string) => {

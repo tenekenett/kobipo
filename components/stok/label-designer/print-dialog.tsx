@@ -20,6 +20,7 @@ import { useProducts } from "@/lib/swr/use-company-data"
 import type { LabelDesign } from "@/lib/labels/types"
 import type { LabelProduct } from "@/lib/labels/fields"
 import { generateLabelPdf } from "@/lib/pdf/label-pdf"
+import { trFold } from "@/lib/text/tr-fold"
 
 interface PrintDialogProps {
   open: boolean
@@ -38,13 +39,13 @@ export function PrintDialog({ open, onOpenChange, design, companyId, companyName
   const [generating, setGenerating] = useState(false)
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = trFold(search)
     if (!q) return products
     return products.filter(
       (p) =>
-        p.name.toLowerCase().includes(q) ||
-        (p.code ?? "").toLowerCase().includes(q) ||
-        (p.barcode ?? "").toLowerCase().includes(q)
+        trFold(p.name).includes(q) ||
+        trFold(p.code).includes(q) ||
+        trFold(p.barcode).includes(q)
     )
   }, [products, search])
 

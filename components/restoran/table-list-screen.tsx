@@ -32,6 +32,7 @@ import { useTableOpener, tableTapIntent } from "@/lib/restoran/use-table-opener"
 import { useTables, type PlanTable } from "@/lib/swr/use-restoran"
 import { currency } from "@/lib/fis/receipt-html"
 import { cn } from "@/lib/utils"
+import { trFold } from "@/lib/text/tr-fold"
 
 const ALL_AREAS = "__ALL__"
 
@@ -70,10 +71,10 @@ export function TableListScreen() {
   }, [activeTables])
 
   const visible = useMemo(() => {
-    const q = search.trim().toLocaleLowerCase("tr-TR")
+    const q = trFold(search)
     return activeTables
       .filter((t) => activeArea === ALL_AREAS || t.areaName === activeArea)
-      .filter((t) => !q || t.name.toLocaleLowerCase("tr-TR").includes(q))
+      .filter((t) => !q || trFold(t.name).includes(q))
       .sort((a, b) => a.name.localeCompare(b.name, "tr-TR", { numeric: true }))
   }, [activeTables, activeArea, search])
 

@@ -33,6 +33,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useRouter } from "next/navigation"
 import { companyDisplayName } from "@/lib/company/display-name"
+import { trMatcher } from "@/lib/text/tr-fold"
 
 interface Company {
   id: string
@@ -133,12 +134,11 @@ export function CompanyTable({ companies }: CompanyTableProps) {
     }
   }
 
+  const companyMatches = trMatcher(searchTerm)
   const filteredCompanies = companies.filter(company =>
-    company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     // Şube adıyla da aranabilsin: aynı ünvanlı 5 şube arasında aranan "Kadıköy"dür.
-    company.branchName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    company.taxNumber?.includes(searchTerm) ||
-    company.city?.toLowerCase().includes(searchTerm.toLowerCase())
+    companyMatches(company.name, company.branchName, company.city) ||
+    company.taxNumber?.includes(searchTerm)
   )
 
   const handleDelete = async (companyId: string, companyName: string) => {

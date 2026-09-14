@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { UNIT_OPTIONS } from "@/lib/data/units"
+import { trFold } from "@/lib/text/tr-fold"
 
 type UnitComboboxProps = {
   id?: string
@@ -10,18 +11,6 @@ type UnitComboboxProps = {
   onChange: (value: string) => void
   disabled?: boolean
   placeholder?: string
-}
-
-function norm(s: string): string {
-  return s
-    .toLocaleLowerCase("tr-TR")
-    .replace(/ı/g, "i")
-    .replace(/ş/g, "s")
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .trim()
 }
 
 /**
@@ -34,9 +23,9 @@ export function UnitCombobox({ id, value, onChange, disabled, placeholder }: Uni
   const containerRef = useRef<HTMLDivElement>(null)
 
   const matches = useMemo(() => {
-    const q = norm(value.trim())
+    const q = trFold(value.trim())
     if (!q) return UNIT_OPTIONS
-    return UNIT_OPTIONS.filter((u) => norm(u.value).includes(q) || norm(u.label).includes(q))
+    return UNIT_OPTIONS.filter((u) => trFold(u.value).includes(q) || trFold(u.label).includes(q))
   }, [value])
 
   // Yalnızca tam seçili kod listede tekse açma (gereksiz tekrar göstermeyi önler).

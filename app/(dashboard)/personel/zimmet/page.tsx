@@ -22,6 +22,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import Link from "next/link"
 import { Plus, RefreshCcw, Trash2, Search, Undo2, BadgeCheck, FileText } from "lucide-react"
 import { toDateInput } from "@/lib/format"
+import { trFold } from "@/lib/text/tr-fold"
 
 type Employee = { id: string; firstName: string; lastName: string; status: string }
 type Asset = {
@@ -127,11 +128,13 @@ export default function ZimmetPage() {
 
   if (!companyId) return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
 
-  const term = search.trim().toLocaleLowerCase("tr-TR")
+  const term = trFold(search)
   const filtered = assets.filter((a) => {
     if (statusFilter !== "ALL" && a.status !== statusFilter) return false
     if (!term) return true
-    const hay = `${a.assetName} ${a.category || ""} ${a.serialNo || ""} ${a.employee.firstName} ${a.employee.lastName}`.toLocaleLowerCase("tr-TR")
+    const hay = trFold(
+      `${a.assetName} ${a.category || ""} ${a.serialNo || ""} ${a.employee.firstName} ${a.employee.lastName}`,
+    )
     return hay.includes(term)
   })
   const assignedCount = assets.filter((a) => a.status === "ASSIGNED").length

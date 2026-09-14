@@ -1,3 +1,5 @@
+import { trFold } from "@/lib/text/tr-fold"
+
 // Ürün/hizmet birim seçenekleri. value = saklanan kod (mevcut verilerle uyumlu,
 // büyük harf), label = kullanıcıya gösterilen okunaklı ad.
 export const UNIT_OPTIONS: { value: string; label: string }[] = [
@@ -71,18 +73,13 @@ const UBL_UNIT_CODE_MAP: Record<string, string> = {
   ANN: "YIL",
 }
 
-/** Türkçe karakterleri sadeleştirir (eşleştirme anahtarı üretmek için). */
+/**
+ * Birim eşleştirme anahtarı: ortak `trFold` (lib/text/tr-fold.ts) + birime
+ * ÖZGÜ ek adım — nokta/boşluk/eğik çizgi atılır, yoksa "k.g" ile "kg" ayrı
+ * anahtar olur ve eş anlamlı tablosu ıskalar.
+ */
 function normTrUnit(s: string): string {
-  return s
-    .toLocaleLowerCase("tr-TR")
-    .replace(/ı/g, "i")
-    .replace(/ş/g, "s")
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .replace(/[^a-z0-9]/g, "")
-    .trim()
+  return trFold(s).replace(/[^a-z0-9]/g, "")
 }
 
 // Serbest yazılmış Türkçe/uzun birim adları → uygulama değeri.

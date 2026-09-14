@@ -83,8 +83,10 @@ export const GET = withApiErrors(async function GET(request: Request) {
       const dateField = filters.dateField
       const { page, pageSize } = parseIncomingListPaging(url.searchParams)
 
-      const where = buildIncomingWhere(companyId, filters)
-      const whereWithoutDate = buildIncomingWhereWithoutDate(companyId, filters)
+      const [where, whereWithoutDate] = await Promise.all([
+        buildIncomingWhere(companyId, filters),
+        buildIncomingWhereWithoutDate(companyId, filters),
+      ])
 
       // Gönderilme tarihi Mysoft ham JSON'ından türetilir; alan hiç gelmemişse kolon
       // NULL kalır ve o kayıt bu eksende HİÇBİR aralığa düşmez. Sessizce kaybolmasın

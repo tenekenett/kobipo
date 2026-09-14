@@ -101,6 +101,7 @@ import {
   productKindOptions,
   type ProductKind,
 } from "@/lib/stock/product-kind"
+import { trFold } from "@/lib/text/tr-fold"
 
 // Ürün ve reçete tipleri SWR katmanından geliyor (lib/swr/use-company-data.ts).
 // Eskiden bu dosyada birer kopyası vardı; Decimal→number normalizasyonu da
@@ -339,7 +340,7 @@ export default function ReceptelerPage() {
   }, [products, tab])
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLocaleLowerCase("tr-TR")
+    const q = trFold(search)
     return products
       .filter((p) => p.isActive && !p.isService)
       .filter(
@@ -353,7 +354,7 @@ export default function ReceptelerPage() {
       // hem reçetede kullanılan bir ürün (paket kahve çekirdeği) İKİ sekmede de
       // görünür. Eskiden "Hammaddeler" = !isSellable idi ve o ürün kayboluyordu.
       .filter((p) => (tab === "menu" ? p.isSellable : p.isIngredient))
-      .filter((p) => !q || p.name.toLocaleLowerCase("tr-TR").includes(q) || (p.code ?? "").toLocaleLowerCase("tr-TR").includes(q))
+      .filter((p) => !q || trFold(p.name).includes(q) || trFold(p.code).includes(q))
       .sort((a, b) => a.name.localeCompare(b.name, "tr-TR"))
   }, [products, tab, search, categoryFilter])
 

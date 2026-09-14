@@ -34,6 +34,7 @@ import { unitShortLabel } from "@/lib/data/units"
 import type { RecipeMap } from "@/lib/stock/recipe-expand"
 import type { RefProduct } from "@/lib/swr/use-company-data"
 import { cn } from "@/lib/utils"
+import { trFold } from "@/lib/text/tr-fold"
 
 const ALL_CATEGORIES = "__ALL__"
 
@@ -165,15 +166,15 @@ export function MenuGrid({
   }, [menuProducts])
 
   const visibleProducts = useMemo(() => {
-    const q = search.trim().toLocaleLowerCase("tr-TR")
+    const q = trFold(search)
     return menuProducts
       .filter((p) => activeCat === ALL_CATEGORIES || p.category === activeCat)
       .filter(
         (p) =>
           !q ||
-          p.name.toLocaleLowerCase("tr-TR").includes(q) ||
-          (p.code ?? "").toLocaleLowerCase("tr-TR").includes(q) ||
-          (p.barcode ?? "").toLocaleLowerCase("tr-TR").includes(q)
+          trFold(p.name).includes(q) ||
+          trFold(p.code).includes(q) ||
+          trFold(p.barcode).includes(q)
       )
       .sort((a, b) => a.name.localeCompare(b.name, "tr-TR"))
   }, [menuProducts, activeCat, search])

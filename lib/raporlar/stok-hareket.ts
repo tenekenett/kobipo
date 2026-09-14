@@ -10,6 +10,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { trContainsIds } from "@/lib/db/tr-search"
 import {
   isInboundMovement,
   movementTypeLabel,
@@ -184,23 +185,38 @@ export async function computeStockMovementReport(
   }
 
   const search = filters.search?.trim()
+  // Ürün araması Türkçe duyarsızdır (`mode: "insensitive"` I/ı'yı çözmez):
+  // eşleşen ürünlerin id'si önce ÜRÜN tablosundan çıkarılır, hareket tablosuna
+  // `productId in (...)` olarak girer.
+  const searchProductIds = await trContainsIds({
+    table: "products",
+    columns: ["name", "code", "barcode"],
+    companyId,
+    term: search,
+  })
+  /**
+   * Ürün süzgeci ile arama AYNI anahtarı yazıyor: ikisi ayrı satırda spread
+   * edilseydi ikincisi ilkini sessizce ezer, seçili ürün filtresi arama
+   * yapıldığı anda düşerdi. Tek koşulda kesiştiriliyor.
+   */
+  const productIdWhere = searchProductIds
+    ? {
+        productId: {
+          in: filters.productId
+            ? searchProductIds.filter((id) => id === filters.productId)
+            : searchProductIds,
+        },
+      }
+    : filters.productId
+      ? { productId: filters.productId }
+      : {}
+
   const movements = await prisma.stockMovement.findMany({
     where: {
       companyId,
       ...(dateFilter ? { createdAt: dateFilter } : {}),
-      ...(filters.productId ? { productId: filters.productId } : {}),
       ...(referenceFilter ? { reference: { in: referenceFilter } } : {}),
-      ...(search
-        ? {
-            product: {
-              OR: [
-                { name: { contains: search, mode: "insensitive" as const } },
-                { code: { contains: search, mode: "insensitive" as const } },
-                { barcode: { contains: search, mode: "insensitive" as const } },
-              ],
-            },
-          }
-        : {}),
+      ...productIdWhere,
     },
     include: {
       product: {

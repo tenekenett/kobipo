@@ -7,12 +7,14 @@
  * aktarımın sınanabilir tek yeri burasıdır.
  */
 
+import { trFold } from "@/lib/text/tr-fold"
+
 export type ImportGetter = (key: string) => string
 
 export function normalizeHeader(value: string) {
-  return String(value || "")
-    .toLocaleLowerCase("tr-TR")
-    .replace(/ı/g, "i")
+  // `trFold` Türkçe harfleri katlar; NFD adımı geri kalan aksanları (é, ñ…)
+  // temizler, son süzgeç de boşluk/noktalama farkını siler ("Ürün Adı" = "urunadi").
+  return trFold(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]/g, "")
@@ -172,8 +174,13 @@ export type MatchOutcome<T> =
   | { status: "match"; record: T; by: string }
   | { status: "conflict"; hits: Array<{ by: string; record: T }> }
 
+/**
+ * Eşleştirme anahtarı. Aday HAVUZU da (lib/import/apply.ts → `trEqualsIds`)
+ * aynı `trFold` kuralını kullanır; ikisi ayrışırsa satır havuza girer ama
+ * seçilmez ve aynı kayıt ikinci kez açılır.
+ */
 function comparable(value: string | null | undefined) {
-  return String(value ?? "").trim().toLocaleLowerCase("tr-TR")
+  return trFold(value)
 }
 
 /**

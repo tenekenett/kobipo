@@ -10,18 +10,7 @@ import { Package, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { RefProduct } from "@/lib/swr/use-company-data"
-
-function norm(s: string): string {
-  return s
-    .toLocaleLowerCase("tr-TR")
-    .replace(/ı/g, "i")
-    .replace(/ş/g, "s")
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .trim()
-}
+import { trFold } from "@/lib/text/tr-fold"
 
 interface PreviewProductPickerProps {
   products: RefProduct[]
@@ -39,16 +28,16 @@ export function PreviewProductPicker({ products, value, onChange }: PreviewProdu
   useEffect(() => setText(value?.name ?? ""), [value])
 
   const matches = useMemo(() => {
-    const q = norm(text)
+    const q = trFold(text)
     // Seçiliyken metin ürün adına eşittir; filtrelemeden tüm listeyi göster ki
     // açılır liste "sadece seçili ürün" olarak daralmasın.
     if (!q || (value && text === value.name)) return products.slice(0, 50)
     return products
       .filter(
         (p) =>
-          norm(p.name).includes(q) ||
-          norm(p.code ?? "").includes(q) ||
-          (p.barcode ?? "").toLowerCase().includes(q)
+          trFold(p.name).includes(q) ||
+          trFold(p.code).includes(q) ||
+          trFold(p.barcode).includes(q)
       )
       .slice(0, 50)
   }, [products, text, value])

@@ -30,6 +30,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, Minus, Search, Truck, PackageCheck, Clock } from "lucide-react"
 import { toDateInput } from "@/lib/format"
+import { trFold } from "@/lib/text/tr-fold"
 
 type Waybill = {
   id: string
@@ -244,13 +245,13 @@ export default function SatisIrsaliyePage() {
     return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
   }
 
-  const term = search.trim().toLocaleLowerCase("tr-TR")
+  const term = trFold(search)
   const filtered = waybills.filter((w) => {
     if (statusFilter !== "ALL" && w.status !== statusFilter) return false
     if (!term) return true
     return (
-      w.waybillNo.toLocaleLowerCase("tr-TR").includes(term) ||
-      (w.customer?.name || "").toLocaleLowerCase("tr-TR").includes(term)
+      trFold(w.waybillNo).includes(term) ||
+      trFold(w.customer?.name).includes(term)
     )
   })
 

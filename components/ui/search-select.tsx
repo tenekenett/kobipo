@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Check, ChevronsUpDown, Plus } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { trFold } from "@/lib/text/tr-fold"
 
 export type SearchOption = { id: string; name: string }
 
@@ -29,18 +30,6 @@ type SearchSelectProps = {
   createLabel?: string
   /** Girdi kutusuna eklenecek sınıf (ör. doğrulama hatasında kırmızı kenar). */
   className?: string
-}
-
-function norm(s: string): string {
-  return s
-    .toLocaleLowerCase("tr-TR")
-    .replace(/ı/g, "i")
-    .replace(/ş/g, "s")
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .trim()
 }
 
 /**
@@ -88,10 +77,10 @@ export function SearchSelect({
   }, [])
 
   const matches = useMemo(() => {
-    const q = norm(query)
+    const q = trFold(query)
     // Henüz yazılmadıysa (sorgu = seçili ad) ya da boşsa tüm listeyi göster.
     if (!q || query === selectedName) return options
-    return options.filter((o) => norm(o.name).includes(q))
+    return options.filter((o) => trFold(o.name).includes(q))
   }, [query, options, selectedName])
 
   // Seçili adı değil, KULLANICININ yazdığını taşı: yeni kayıt formuna ad olarak gider.

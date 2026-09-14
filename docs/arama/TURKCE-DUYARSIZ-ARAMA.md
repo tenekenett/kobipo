@@ -1,13 +1,21 @@
 # Türkçe duyarsız arama — teşhis ve uygulama planı
 
-Durum: **PLAN, kod yazılmadı** (2026-09-14). Başka bilgisayardan devam edilecek.
+Durum: **UYGULANDI** (2026-09-14). Kural CLAUDE.md'de ("Arama Türkçe duyarsızdır");
+bu dosya teşhisi ve kararın gerekçesini saklar.
+
+Plandan tek SAPMA: **migrasyon yok.** `tr_fold()` veritabanı fonksiyonu yerine
+`translate()` ifadesi sorguya gömüldü (`lib/db/tr-search.ts`, harf tablosu TS'ten).
+Sebep: fonksiyon canlıya bağımlılık ve deploy sırası tuzağı ekliyordu — migrasyon
+deploy'dan önce uygulanmazsa cari listesi "function tr_fold does not exist" ile
+düşecekti. `LIKE '%x%'` zaten index kullanamadığı için fonksiyonun performans
+faydası da yoktu. İleride ifade index'i istenirse migrasyon O ZAMAN yazılır.
 
 ## Şikâyet
 
 "Müşteri arama kısmında Türkçe karakter (I harfi vb.) duyarlı değil; hiçbir yerde
 bu sorun yaşanmamalı."
 
-## Teşhis (koddan; canlı DB yoklaması izin gerektirdiği için yapılmadı)
+## Teşhis (koddan; sonradan canlı Postgres'te de doğrulandı)
 
 Kök neden iki katmanda aynı: **I/ı ve İ/i** harfleri Türkçe kuralla küçültülmüyor.
 
@@ -21,10 +29,8 @@ Kök neden iki katmanda aynı: **I/ı ve İ/i** harfleri Türkçe kuralla küç�
 - `toLocaleLowerCase("tr")` kullanan yerler I/ı'yı doğru küçültür ama kullanıcı
   Türkçe harfsiz ("isik", "sisli") yazınca yine bulmaz.
 
-Canlıda doğrulamak istenirse (salt okunur): `.env.local`'daki `DIRECT_URL`e `pg` ile
-bağlanıp `select 'IŞIK' ilike '%ışık%', 'Işık' ilike '%IŞIK%', current_setting('lc_ctype')`
-çalıştırmak yeter. (Bu oturumda "Production Reads" izni verilmediği için atlandı;
-bekleneni değiştirmez.)
+Canlıda doğrulandı (2026-09-14, `scripts/tr-arama-kontrol.ts`): 12 örnekte
+Postgres `lower(translate(...))` ile JS `trFold()` birebir aynı anahtarı üretiyor.
 
 ## Karar
 
@@ -55,23 +61,27 @@ export function trMatcher(term: string): (...fields: Array<string | number | nul
 `lib/text/tr-fold.test.ts`: `IŞIK`/`ışık`/`Işık`/`isik` hepsi aynı anahtar;
 `İstanbul` = `istanbul` = `ISTANBUL`; `Şişli` = `sisli`; boş/null → "".
 
-### 2) SQL karşılığı: `supabase/migrations/20260914000001_tr_fold.sql`
+### 2) SQL karşılığı: gömülü `translate` (migrasyon YOK)
 
 ```sql
-CREATE OR REPLACE FUNCTION public.tr_fold(input text) RETURNS text
-LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
-RETURN lower(translate(input, 'IİıŞşĞğÜüÖöÇçÂâÎîÛû', 'iiissgguuooccaaiiuu'));
--- 19 ↔ 19 karakter. Tablo lib/text/tr-fold.ts ile BİREBİR aynı olmalı.
-REVOKE EXECUTE ON FUNCTION public.tr_fold(text) FROM PUBLIC;  -- rls_lockdown duruşu
+lower(translate(btrim(<sütun>), 'IİıŞşĞğÜüÖöÇçÂâÎîÛû', 'iiissgguuooccaaiiuu'))
 ```
 
-Uygulama: `node scripts/apply-migration.js supabase/migrations/20260914000001_tr_fold.sql`
-(kullanıcı çalıştırır; DEPLOY'DAN ÖNCE uygulanmalı — fonksiyon yoksa cari listesi
-"function tr_fold(text) does not exist" ile YÜKSEK SESLE düşer, sessiz geçmez).
+19 ↔ 19 karakter; tablo `lib/text/tr-fold.ts`ten (`TR_FOLD_FROM`/`TR_FOLD_TO`)
+geliyor, yani JS ile SQL aynı sabiti paylaşıyor. `btrim`, JS tarafındaki
+`.trim()`in karşılığıdır.
 
-`lib/text/tr-fold.canli.test.ts` (`npm run test:canli`): örnek küme için
-`SELECT tr_fold($1)` ile `trFold()` sonucunu karşılaştırır — iki tablo ayrışırsa
-burada görünür.
+Ölçüm (SALT OKUR, veri okumaz — var olmayan bir companyId ile sorguları Postgres'e
+ayrıştırtır):
+
+```bash
+npx tsx scripts/tr-arama-kontrol.ts              # SQL sağlaması + tablo eşitliği
+npx tsx scripts/tr-arama-kontrol.ts --firma=<id> # gerçek veride arama sonucu
+```
+
+`lib/text/tr-fold.canli.test.ts` (`npm run test:canli`) aynı eşitliği test olarak
+sabitler: bir örnek kümesinde `SELECT lower(translate(...))` ile `trFold()`
+karşılaştırılır, iki tablo ayrışırsa orada görünür.
 
 ### 3) Sunucu yardımcısı: `lib/db/tr-search.ts`
 
@@ -132,10 +142,18 @@ karşılaştırmaları, e-posta normalizasyonu, klavye kısayolları, etiket met
 - Tarayıcı: cari listesinde `IŞIK`, `ışık`, `Işık`, `isik` dördü de aynı kartı
   bulmalı; fatura editörü müşteri seçicisinde de aynı.
 
-### 7) Sıra
+### 7) Yapıldı
 
-1. `lib/text/tr-fold.ts` + test, migrasyon dosyası, `lib/db/tr-search.ts`.
-2. Cari listesi (şikâyetin geldiği yer) + fatura editörü cari seçicisi.
-3. Kalan sunucu noktaları (4. tablo), sonra istemci noktaları (5).
-4. `npm run test:canli` için canli test; CLAUDE.md'ye kısa bölüm ("arama trFold'dan
-   geçer; yeni arama yazarken ILIKE / `mode: insensitive` / `toLowerCase` KULLANMA").
+1. `lib/text/tr-fold.ts` (+ 15 test) ve `lib/db/tr-search.ts`; migrasyon yerine
+   gömülü `translate` (yukarı bak).
+2. Cari listesi (şikâyetin geldiği yer), ürün/personel/fatura/gelen e-fatura/stok
+   hareket aramaları, içe aktarım eşleştirmesi — 4. tablodaki tüm sunucu noktaları.
+3. 5'teki istemci noktalarının tamamı; yerel `norm()` kopyaları silindi
+   (`trFold` kullanan dosya: 35, `tr-search`: 9).
+4. `lib/text/tr-fold.canli.test.ts` + `lib/import/apply.canli.test.ts`e Türkçe
+   örnekler; `scripts/tr-arama-kontrol.ts`; CLAUDE.md bölümü.
+
+Doğrulandı: `npm test` (1139 geçti), `npx tsc --noEmit`, `npm run build`,
+`npx tsx scripts/tr-arama-kontrol.ts` (SQL ↔ JS 12 örnekte birebir).
+KALAN: tarayıcıda elle e2e — cari listesinde `IŞIK` / `ışık` / `Işık` / `isik`
+dördü de aynı kartı bulmalı; `npm run test:canli` (canlı DB'ye yazar).

@@ -12,6 +12,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { trContainsIds, trSearchDistinctValues } from "@/lib/db/tr-search"
 
 /** Liste ekranının kaynak başına satır tavanı. */
 export const INVOICE_LIST_DEFAULT_LIMIT = 500
@@ -146,15 +147,58 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
           },
         }
 
-  /**
-   * Karşı taraf adı/VKN koşulu — ikisi de verilirse TEK `is` bloğunda AND'lenir.
-   * Ayrı ayrı yazılsaydı (`{supplier:{name}}` + `{supplier:{taxNumber}}`) aynı
-   * anahtar iki kez geçer ve ikincisi ilkini sessizce ezerdi.
-   */
   const hasPartyFilter = Boolean(counterparty || taxNumber)
-  const partyIs = () => ({
-    ...(counterparty ? { name: { contains: counterparty, mode: "insensitive" as const } } : {}),
-    ...(taxNumber ? { taxNumber: { contains: taxNumber } } : {}),
+
+  /**
+   * Cari ADI aramaları Türkçe duyarsızdır: Prisma `contains + insensitive`
+   * ILIKE üretir, o da I/ı'yı çözmez ("ışık" araması "IŞIK GIDA"yı bulmuyordu).
+   * Prisma `where`ine SQL fonksiyonu sokulamadığı için ad koşulu BOYUT
+   * tablosunda (müşteri/tedarikçi) ham ön süzgeçle id listesine çevrilir;
+   * fatura tablosuna kurulsaydı "a" araması on binlerce id üretirdi.
+   *
+   * `invoiceNo` / `eDocumentNo` / `uuid` / VKN ASCII olduğu için `contains`
+   * olarak KALIR.
+   */
+  const [
+    searchCustomerIds,
+    searchSupplierIds,
+    searchSenderNames,
+    partyCustomerIds,
+    partySupplierIds,
+    partySenderNames,
+  ] = await Promise.all([
+    trContainsIds({ table: "customers", columns: ["name"], companyId, term: search }),
+    trContainsIds({ table: "suppliers", columns: ["name"], companyId, term: search }),
+    trSearchDistinctValues({
+      table: "incoming_invoices",
+      column: '"senderName"',
+      companyId,
+      term: search,
+    }),
+    trContainsIds({ table: "customers", columns: ["name"], companyId, term: counterparty }),
+    trContainsIds({ table: "suppliers", columns: ["name"], companyId, term: counterparty }),
+    trSearchDistinctValues({
+      table: "incoming_invoices",
+      column: '"senderName"',
+      companyId,
+      term: counterparty,
+    }),
+  ])
+
+  /**
+   * Karşı taraf adı/VKN koşulu. İkisi de verilirse AYNI nesnede AND'lenir:
+   * ad artık id listesiyle (`customerId in ...`), VKN ilişki üzerinden
+   * sorulur — farklı anahtarlar olduğu için biri diğerini ezmez. Eskiden ikisi
+   * tek `is` bloğundaydı; ayrı ayrı yazılsaydı aynı anahtar iki kez geçer ve
+   * ikincisi ilkini sessizce ezerdi.
+   */
+  const partyWhere = (side: "customer" | "supplier") => ({
+    ...(counterparty
+      ? side === "customer"
+        ? { customerId: { in: partyCustomerIds ?? [] } }
+        : { supplierId: { in: partySupplierIds ?? [] } }
+      : {}),
+    ...(taxNumber ? { [side]: { is: { taxNumber: { contains: taxNumber } } } } : {}),
   })
 
   const out: InvoiceListRow[] = []
@@ -177,16 +221,14 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
                 {
                   OR: [
                     { invoiceNo: { contains: search, mode: "insensitive" as const } },
-                    { senderName: { contains: search, mode: "insensitive" as const } },
+                    { senderName: { in: searchSenderNames ?? [] } },
                     { senderTaxNumber: { contains: search } },
                     { uuid: { contains: search } },
                   ],
                 },
               ]
             : []),
-          ...(counterparty
-            ? [{ senderName: { contains: counterparty, mode: "insensitive" as const } }]
-            : []),
+          ...(counterparty ? [{ senderName: { in: partySenderNames ?? [] } }] : []),
           ...(taxNumber ? [{ senderTaxNumber: { contains: taxNumber } }] : []),
         ],
       },
@@ -241,18 +283,14 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
                 {
                   OR: [
                     { invoiceNo: { contains: search, mode: "insensitive" as const } },
-                    {
-                      supplier: {
-                        is: { name: { contains: search, mode: "insensitive" as const } },
-                      },
-                    },
+                    { supplierId: { in: searchSupplierIds ?? [] } },
                     { supplier: { is: { taxNumber: { contains: search } } } },
                     { uuid: { contains: search } },
                   ],
                 },
               ]
             : []),
-          ...(hasPartyFilter ? [{ supplier: { is: partyIs() } }] : []),
+          ...(hasPartyFilter ? [partyWhere("supplier")] : []),
         ],
       },
       include: { supplier: { select: { name: true, taxNumber: true } } },
@@ -345,11 +383,7 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
                   OR: [
                     { invoiceNo: { contains: search, mode: "insensitive" as const } },
                     { eDocumentNo: { contains: search, mode: "insensitive" as const } },
-                    {
-                      customer: {
-                        is: { name: { contains: search, mode: "insensitive" as const } },
-                      },
-                    },
+                    { customerId: { in: searchCustomerIds ?? [] } },
                     { customer: { is: { taxNumber: { contains: search } } } },
                     { uuid: { contains: search } },
                   ],
@@ -359,7 +393,7 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
           // Karşı taraf müşteri VEYA tedarikçi olabilir: ALIŞ İADESİNİN karşı tarafı
           // tedarikçidir, yalnız müşteriye bakmak o satırı filtreden düşürürdü.
           ...(hasPartyFilter
-            ? [{ OR: [{ customer: { is: partyIs() } }, { supplier: { is: partyIs() } }] }]
+            ? [{ OR: [partyWhere("customer"), partyWhere("supplier")] }]
             : []),
         ],
       },

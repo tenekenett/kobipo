@@ -81,10 +81,13 @@ export async function buildIncomingInvoicesDataset(
   if (!parsed.ok) throw new Error(parsed.error)
   const filters: IncomingListFilters = parsed.filters
 
+  // `where` ekranınkiyle AYNI kurallardan gelir; Türkçe duyarsız gönderici
+  // araması sorgu gerektirdiği için önce çözülür.
+  const where = await buildIncomingWhere(params.companyId, filters)
   const [company, records] = await Promise.all([
     loadExportCompany(params.companyId),
     prisma.incomingInvoice.findMany({
-      where: buildIncomingWhere(params.companyId, filters),
+      where,
       select: INCOMING_LIST_SELECT,
       orderBy: incomingOrderBy(filters.dateField),
       take: ROW_LIMIT + 1,

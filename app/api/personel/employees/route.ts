@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { isValidTcKimlik } from "@/lib/personel/validation"
+import { trContainsIds } from "@/lib/db/tr-search"
 
 export const dynamic = "force-dynamic"
 
@@ -36,12 +37,17 @@ export const GET = withApiErrors(async function GET(request: Request) {
   if (status) where.status = status
   if (search && search.trim()) {
     const q = search.trim()
+    // Ad/soyad Türkçe duyarsız aranır ("ışık" → "IŞIK"); TC yalnız rakam
+    // olduğu için düz `contains` yeter ve ön süzgecin dışında kalır.
+    const ids = await trContainsIds({
+      table: "employees",
+      columns: ['"firstName"', '"lastName"', "department", "position"],
+      companyId,
+      term: q,
+    })
     where.OR = [
-      { firstName: { contains: q, mode: "insensitive" } },
-      { lastName: { contains: q, mode: "insensitive" } },
+      ...(ids ? [{ id: { in: ids } }] : []),
       { nationalId: { contains: q } },
-      { department: { contains: q, mode: "insensitive" } },
-      { position: { contains: q, mode: "insensitive" } },
     ]
   }
 

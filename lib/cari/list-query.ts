@@ -12,6 +12,7 @@
 
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
+import { trFoldAnyLike, trLikePattern } from "@/lib/db/tr-search"
 import type { CariVisibility } from "@/lib/cari/visibility"
 
 /**
@@ -69,7 +70,12 @@ function normalize(options: CariListOptions) {
     safePageSize,
     offset: (safePage - 1) * safePageSize,
     hasSearch: search.length > 0,
-    searchLike: `%${search}%`,
+    /**
+     * `ILIKE` DEĞİL: `lower('I') = 'i'` olduğu için "IŞIK" kaydı "ışık"
+     * aramasıyla bulunmuyordu. Desen de sütunlar da `trFold` anahtarına
+     * indirgenir (bkz. lib/db/tr-search.ts).
+     */
+    searchPattern: trLikePattern(search),
     /**
      * Önbellek anahtarının parçası. Görünürlük anahtara GİRMEZSE aynı firmada
      * ilk isteyenin satırları 15 sn boyunca herkese servis edilir — yani kısıt
@@ -80,9 +86,9 @@ function normalize(options: CariListOptions) {
 }
 
 export async function fetchCustomerList(options: CariListOptions): Promise<CariListResult> {
-  const { paginate, safePage, safePageSize, offset, hasSearch, searchLike, visibilityKey } =
+  const { paginate, safePage, safePageSize, offset, hasSearch, searchPattern, visibilityKey } =
     normalize(options)
-  const cacheKey = `customers|${options.companyId}|${visibilityKey}|${searchLike}|${safePage}|${safePageSize}|${paginate ? "1" : "0"}`
+  const cacheKey = `customers|${options.companyId}|${visibilityKey}|${searchPattern ?? ""}|${safePage}|${safePageSize}|${paginate ? "1" : "0"}`
 
   const now = Date.now()
   const cached = listCache.get(cacheKey)
@@ -98,14 +104,11 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
         WHERE c."companyId" = ${options.companyId}
           AND c."archivedAt" IS NULL
           ${cariVisibilitySql("c", options.visibility)}
-          ${hasSearch
-            ? Prisma.sql`AND (
-              c.name ILIKE ${searchLike}
-              OR c.nickname ILIKE ${searchLike}
-              OR c.code ILIKE ${searchLike}
-              OR c."taxNumber" ILIKE ${searchLike}
-              OR c.email ILIKE ${searchLike}
-            )`
+          ${hasSearch && searchPattern
+            ? Prisma.sql`AND ${trFoldAnyLike(
+                ["c.name", "c.nickname", "c.code", "c.\"taxNumber\"", "c.email"],
+                searchPattern,
+              )}`
             : Prisma.empty}
       ),
       paged_customers AS (
@@ -244,14 +247,11 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
           WHERE c."companyId" = ${options.companyId}
           AND c."archivedAt" IS NULL
           ${cariVisibilitySql("c", options.visibility)}
-          ${hasSearch
-            ? Prisma.sql`AND (
-              c.name ILIKE ${searchLike}
-              OR c.nickname ILIKE ${searchLike}
-              OR c.code ILIKE ${searchLike}
-              OR c."taxNumber" ILIKE ${searchLike}
-              OR c.email ILIKE ${searchLike}
-            )`
+          ${hasSearch && searchPattern
+            ? Prisma.sql`AND ${trFoldAnyLike(
+                ["c.name", "c.nickname", "c.code", "c.\"taxNumber\"", "c.email"],
+                searchPattern,
+              )}`
             : Prisma.empty}
         `)
       : Promise.resolve([] as Array<{ total_count: bigint | number }>),
@@ -290,9 +290,9 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
 }
 
 export async function fetchSupplierList(options: CariListOptions): Promise<CariListResult> {
-  const { paginate, safePage, safePageSize, offset, hasSearch, searchLike, visibilityKey } =
+  const { paginate, safePage, safePageSize, offset, hasSearch, searchPattern, visibilityKey } =
     normalize(options)
-  const cacheKey = `suppliers|${options.companyId}|${visibilityKey}|${searchLike}|${safePage}|${safePageSize}|${paginate ? "1" : "0"}`
+  const cacheKey = `suppliers|${options.companyId}|${visibilityKey}|${searchPattern ?? ""}|${safePage}|${safePageSize}|${paginate ? "1" : "0"}`
 
   const now = Date.now()
   const cached = listCache.get(cacheKey)
@@ -308,14 +308,11 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
         WHERE s."companyId" = ${options.companyId}
           AND s."archivedAt" IS NULL
           ${cariVisibilitySql("s", options.visibility)}
-          ${hasSearch
-            ? Prisma.sql`AND (
-              s.name ILIKE ${searchLike}
-              OR s.nickname ILIKE ${searchLike}
-              OR s.code ILIKE ${searchLike}
-              OR s."taxNumber" ILIKE ${searchLike}
-              OR s.email ILIKE ${searchLike}
-            )`
+          ${hasSearch && searchPattern
+            ? Prisma.sql`AND ${trFoldAnyLike(
+                ["s.name", "s.nickname", "s.code", "s.\"taxNumber\"", "s.email"],
+                searchPattern,
+              )}`
             : Prisma.empty}
       ),
       paged_suppliers AS (
@@ -450,14 +447,11 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
           WHERE s."companyId" = ${options.companyId}
           AND s."archivedAt" IS NULL
           ${cariVisibilitySql("s", options.visibility)}
-          ${hasSearch
-            ? Prisma.sql`AND (
-              s.name ILIKE ${searchLike}
-              OR s.nickname ILIKE ${searchLike}
-              OR s.code ILIKE ${searchLike}
-              OR s."taxNumber" ILIKE ${searchLike}
-              OR s.email ILIKE ${searchLike}
-            )`
+          ${hasSearch && searchPattern
+            ? Prisma.sql`AND ${trFoldAnyLike(
+                ["s.name", "s.nickname", "s.code", "s.\"taxNumber\"", "s.email"],
+                searchPattern,
+              )}`
             : Prisma.empty}
         `)
       : Promise.resolve([] as Array<{ total_count: bigint | number }>),

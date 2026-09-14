@@ -2,7 +2,7 @@
 
 import { withCompanyHref } from "@/lib/company/href"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -188,6 +188,8 @@ export default function StokPage() {
   const { recipeMap } = useRecipes(companyId)
   const [products, setProducts] = useState<Product[]>([])
   const [search, setSearch] = useState("")
+  /** Yarışan isteklerde yalnız en sonuncusunun yanıtı yazılsın diye sıra no. */
+  const requestSeq = useRef(0)
   /**
    * Restoran & Kafe açıkken tür isimleri menü diline geçer (Menü ürünü /
    * Hammadde / Her ikisi / Hizmet). Kapalıyken aynı bayraklar
@@ -278,11 +280,24 @@ export default function StokPage() {
   const [addingFormCategory, setAddingFormCategory] = useState(false)
   const [formNewCategory, setFormNewCategory] = useState("")
 
+  /**
+   * Arama kutusu her tuşta istek atmasın diye geciktirilir; ayrıca YARIŞAN
+   * isteklerde yalnız sonuncusunun yanıtı yazılır (aşağıdaki `requestSeq`).
+   * İkisi de gerekli: gecikme istek sayısını düşürür ama sıraya BAĞLAMAZ —
+   * "HIZ" için dönen geç yanıt "HIZLISATIS" listesini eziyordu ve kullanıcı
+   * yazdığıyla alakasız üç satır görüyordu.
+   */
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 400)
+    return () => clearTimeout(t)
+  }, [search])
+
   useEffect(() => {
     if (companyId) {
       fetchProducts()
     }
-  }, [companyId, search])
+  }, [companyId, debouncedSearch])
 
   useEffect(() => {
     if (companyId) fetchCategories()
@@ -366,10 +381,11 @@ export default function StokPage() {
   const fetchProducts = async () => {
     if (!companyId) return
 
+    const seq = ++requestSeq.current
     try {
       const params = new URLSearchParams({
         companyId,
-        ...(search && { search }),
+        ...(debouncedSearch && { search: debouncedSearch }),
       })
 
       const [response, stockRes] = await Promise.all([
@@ -378,10 +394,13 @@ export default function StokPage() {
       ])
       if (response.ok) {
         const data = await response.json()
+        // Geç dönen ESKİ yanıt yeniyi ezmesin.
+        if (seq !== requestSeq.current) return
         setProducts(data)
       }
       if (stockRes.ok) {
         const sd = await stockRes.json()
+        if (seq !== requestSeq.current) return
         setWarehouseStocks(sd.stocks || [])
       }
     } catch (error) {
@@ -595,7 +614,10 @@ export default function StokPage() {
           companyId={companyId ?? ""}
           size="default"
           params={{
-            search,
+            // Tabloda GÖRÜNEN terim: yazılan `search` değil geciktirilmiş olanı,
+            // yoksa tuşa basıldıktan sonraki 400 ms içinde indirilen dosya
+            // ekrandakinden farklı satırlar içerirdi.
+            search: debouncedSearch,
             kind: kindFilter,
             category: categoryFilter === "ALL" ? null : categoryFilter,
             warehouseId: warehouseFilter === "ALL" ? null : warehouseFilter,

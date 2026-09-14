@@ -30,6 +30,7 @@ import {
   DUE_WINDOWS,
   DUE_WINDOW_LABEL,
 } from "@/lib/raporlar/cari-yaslandirma-buckets"
+import { trMatcher } from "@/lib/text/tr-fold"
 
 // --------------------------- STOK RAPORU ---------------------------
 
@@ -73,7 +74,9 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
 
   const typeFilter = params.type || "ALL"
   const stockFilter = params.stock || "ALL"
-  const search = (params.search || "").toLowerCase()
+  // Ekranla AYNI süzgeç: /raporlar/stok da `trMatcher` kullanır.
+  const search = (params.search || "").trim()
+  const searchMatches = trMatcher(search)
 
   const filtered = products.filter((product) => {
     if (typeFilter === "PRODUCT" && product.isService) return false
@@ -86,10 +89,7 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
     if (stockFilter === "NORMAL" && (quantity <= 0 || (minimum > 0 && quantity <= minimum))) return false
 
     if (search) {
-      const hit =
-        product.name.toLowerCase().includes(search) ||
-        (product.code || "").toLowerCase().includes(search) ||
-        (product.barcode || "").toLowerCase().includes(search)
+      const hit = searchMatches(product.name, product.code, product.barcode)
       if (!hit) return false
     }
     return true

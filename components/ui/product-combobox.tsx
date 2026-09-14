@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import { Input } from "@/components/ui/input"
 import { useAnchoredMenu } from "@/components/ui/use-anchored-menu"
 import { Loader2, Package, Plus, Type } from "lucide-react"
+import { trFold } from "@/lib/text/tr-fold"
 
 export type ProductOption = {
   id: string
@@ -29,18 +30,6 @@ type ProductComboboxProps = {
   products: ProductOption[]
   disabled?: boolean
   placeholder?: string
-}
-
-function norm(s: string): string {
-  return s
-    .toLocaleLowerCase("tr-TR")
-    .replace(/ı/g, "i")
-    .replace(/ş/g, "s")
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .trim()
 }
 
 /**
@@ -72,13 +61,13 @@ export function ProductCombobox({
   const menuRef = useRef<HTMLUListElement>(null)
 
   const matches = useMemo(() => {
-    const q = norm(value.trim())
+    const q = trFold(value.trim())
     if (!q) return products
-    return products.filter((p) => norm(p.name).includes(q))
+    return products.filter((p) => trFold(p.name).includes(q))
   }, [value, products])
 
   const hasExact = useMemo(
-    () => products.some((p) => norm(p.name) === norm(value.trim())),
+    () => products.some((p) => trFold(p.name) === trFold(value.trim())),
     [products, value],
   )
   const typed = value.trim().length > 0

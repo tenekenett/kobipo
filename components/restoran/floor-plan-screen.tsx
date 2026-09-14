@@ -97,6 +97,7 @@ import {
   tableState,
   type TableState,
 } from "./plan-kinds"
+import { trFold } from "@/lib/text/tr-fold"
 
 const ALL_AREAS = "__ALL__"
 const NO_AREA = "__NONE__"
@@ -253,7 +254,7 @@ export function FloorPlanScreen() {
   const stateCount = (state: TableState) =>
     visibleTables.filter((t) => tableState(t) === state).length
 
-  const normalizedQuery = query.trim().toLocaleLowerCase("tr")
+  const normalizedQuery = trFold(query)
   const hasFocus = focusState !== null || normalizedQuery.length > 0
   const focusIds = useMemo(() => {
     if (!hasFocus) return null
@@ -262,7 +263,7 @@ export function FloorPlanScreen() {
         .filter(
           (t) =>
             (!focusState || tableState(t) === focusState) &&
-            (!normalizedQuery || t.name.toLocaleLowerCase("tr").includes(normalizedQuery)),
+            (!normalizedQuery || trFold(t.name).includes(normalizedQuery)),
         )
         .map((t) => t.id),
     )

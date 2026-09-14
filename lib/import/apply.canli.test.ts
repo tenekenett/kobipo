@@ -8,9 +8,11 @@
  *
  * ── Neden gerekli ───────────────────────────────────────────────────────────
  * Eşleştirmenin yarısı SQL'in içinde ve saf testle görülemez:
- *   • aday havuzu `mode: "insensitive"` ile çekiliyor — düz eşitliğe dönerse
- *     "ELMA" satırı "Elma" ürününü bulamaz ve aynı ürün ikinci kez açılır;
- *     saf teste adaylar HAZIR geldiği için bu kayıp orada görünmez.
+ *   • aday havuzu SQL'de `trFold` anahtarıyla çekiliyor (lib/db/tr-search.ts) —
+ *     düz eşitliğe dönerse "ELMA" satırı "Elma" ürününü, "SEKER" satırı da
+ *     "Şeker"i bulamaz ve aynı ürün ikinci kez açılır; saf teste adaylar HAZIR
+ *     geldiği için bu kayıp orada görünmez. Havuzun SQL tarafı ile `pickMatch`in
+ *     JS tarafı AYNI kuralı kullanmak zorundadır.
  *   • güncellemenin gerçekten kısmi olduğu (dosyada olmayan sütunun kartta
  *     durduğu) ancak yazılan satır geri okunarak doğrulanabilir.
  *   • "önizleme açıkken yazılmıyor" ölçüsünün tek kanıtı veritabanının
@@ -178,6 +180,57 @@ describe("ürün — aynı listeyi ikinci kez yükleme", () => {
     expect(urun.name).toBe(AD)
     expect(Number(urun.salePrice)).toBe(175)
     expect(await izliUrunSayisi()).toBe(1)
+  })
+
+  it("Türkçe karakter farkı aynı üründür (SEKER = Şeker, IŞIK = ışık)", async () => {
+    // Aday havuzu SQL'de kuruluyor: `lower()` I/ı'yı çözmediği için bu satır
+    // eskiden havuza hiç girmiyor ve ürün ikinci kez açılıyordu.
+    // Ad aşağıdaki "eşleştirme sırası" bloğundaki fixture'larla ÇAKIŞMAMALI.
+    const seker = `${IZ} Şekerleme`
+    expect(
+      await uygula.applyProductRow(
+        companyId,
+        urunSatiri({ Ad: seker, Kod: `${IZ}-KOD-TR1`, "Satış Fiyatı": "40" }),
+        EKLE,
+      ),
+    ).toBe("created")
+
+    expect(
+      await uygula.applyProductRow(
+        companyId,
+        urunSatiri({ Ad: `${IZ} SEKERLEME`, "Satış Fiyatı": "45" }),
+        GUNCELLE,
+      ),
+    ).toBe("updated")
+
+    const kart = await urunuOku(seker)
+    expect(kart.name).toBe(seker)
+    expect(Number(kart.salePrice)).toBe(45)
+    expect(await prisma.product.count({ where: { companyId, code: `${IZ}-KOD-TR1` } })).toBe(1)
+
+    // I/ı ayrımı: `lower('IŞIK')` = 'ışık' DEĞİL 'işik'tir; katlama olmadan
+    // aşağıdaki satır eşleşmez ve ikinci bir ürün açılırdı.
+    const isik = `${IZ} IŞIK Ampul`
+    expect(
+      await uygula.applyProductRow(
+        companyId,
+        urunSatiri({ Ad: isik, Kod: `${IZ}-KOD-TR2`, "Satış Fiyatı": "60" }),
+        EKLE,
+      ),
+    ).toBe("created")
+
+    expect(
+      await uygula.applyProductRow(
+        companyId,
+        urunSatiri({ Ad: `${IZ} ışık ampul`, "Satış Fiyatı": "65" }),
+        GUNCELLE,
+      ),
+    ).toBe("updated")
+
+    const ampul = await urunuOku(isik)
+    expect(ampul.name).toBe(isik)
+    expect(Number(ampul.salePrice)).toBe(65)
+    expect(await prisma.product.count({ where: { companyId, code: `${IZ}-KOD-TR2` } })).toBe(1)
   })
 
   it("dışa aktarımın başlıklarıyla gelen dosya tanınır", async () => {

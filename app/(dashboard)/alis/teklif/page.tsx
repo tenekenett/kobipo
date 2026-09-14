@@ -39,6 +39,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, RefreshCcw, Trash2, FileText, Search, ScrollText, Hourglass, CheckCircle2, Eye } from "lucide-react"
 import { useTcmbRates } from "@/lib/exchange/use-rates"
 import { toDateInput } from "@/lib/format"
+import { trFold } from "@/lib/text/tr-fold"
 
 type Quote = {
   id: string
@@ -286,13 +287,13 @@ export default function SatinAlmaTeklifiPage() {
   // param'sız bir link bağlamı düşürür ve kullanıcı başka firmanın verisine geçer.
   const companyQs = `?company=${encodeURIComponent(companyId)}`
 
-  const term = search.trim().toLocaleLowerCase("tr-TR")
+  const term = trFold(search)
   const filtered = quotes.filter((q) => {
     if (statusFilter !== "ALL" && q.status !== statusFilter) return false
     if (!term) return true
     return (
-      q.quoteNo.toLocaleLowerCase("tr-TR").includes(term) ||
-      (q.supplier?.name || "").toLocaleLowerCase("tr-TR").includes(term)
+      trFold(q.quoteNo).includes(term) ||
+      trFold(q.supplier?.name).includes(term)
     )
   })
 

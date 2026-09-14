@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { parseTrNumber } from "@/lib/format"
+import { trSearchDistinctValues } from "@/lib/db/tr-search"
 
 /**
  * GELEN E-FATURA LİSTESİNİN SORGUSU — tek kaynak.
@@ -140,10 +141,33 @@ export function parseIncomingListPaging(params: URLSearchParams): IncomingListPa
  * "gönderilme tarihi olmayan kaç kayıt var" sayımı ve liste boşken "aralığın dışında
  * kayıt var mı" ipucu.
  */
-export function buildIncomingFilterConditions(
+export async function buildIncomingFilterConditions(
+  companyId: string,
   filters: IncomingListFilters,
-): Prisma.IncomingInvoiceWhereInput[] {
+): Promise<Prisma.IncomingInvoiceWhereInput[]> {
   const and: Prisma.IncomingInvoiceWhereInput[] = []
+
+  /**
+   * Gönderici ÜNVANI Türkçe duyarsız aranır: `mode: "insensitive"` ILIKE
+   * üretir ve `lower('I') = 'i'` olduğu için "ışık" araması "IŞIK GIDA"yı
+   * bulmuyordu. Ünvanın boyut tablosu yok (alan gelen faturanın üstünde), o
+   * yüzden önce eşleşen FARKLI ünvanlar çıkarılıp `senderName in (...)`
+   * sorulur. VKN/ETTN/fatura no ASCII olduğu için `contains` olarak kalır.
+   */
+  const [senderNames, qSenderNames] = await Promise.all([
+    trSearchDistinctValues({
+      table: "incoming_invoices",
+      column: '"senderName"',
+      companyId,
+      term: filters.sender,
+    }),
+    trSearchDistinctValues({
+      table: "incoming_invoices",
+      column: '"senderName"',
+      companyId,
+      term: filters.q,
+    }),
+  ])
 
   // Durum: KABUL/RED terminaldir, "BEKLEMEDE" = terminal OLMAYAN her şey. Mysoft
   // bekleyen için "YANIT_BEKLENIYOR" / "KABUL_KUYRUGUNDA" gibi metinler döndürüyor;
@@ -160,7 +184,7 @@ export function buildIncomingFilterConditions(
   if (filters.profile) and.push({ profile: filters.profile })
   if (filters.linked === "linked") and.push({ isLinkedToPurchase: true })
   if (filters.linked === "unlinked") and.push({ isLinkedToPurchase: false })
-  if (filters.sender) and.push({ senderName: { contains: filters.sender, mode: "insensitive" } })
+  if (filters.sender) and.push({ senderName: { in: senderNames ?? [] } })
   if (filters.taxNumber) and.push({ senderTaxNumber: { contains: filters.taxNumber } })
   if (filters.minAmount !== null) {
     and.push({ payableAmount: { gte: new Prisma.Decimal(filters.minAmount) } })
@@ -174,7 +198,7 @@ export function buildIncomingFilterConditions(
     and.push({
       OR: [
         { invoiceNo: { contains: filters.q, mode: "insensitive" } },
-        { senderName: { contains: filters.q, mode: "insensitive" } },
+        { senderName: { in: qSenderNames ?? [] } },
         { senderTaxNumber: { contains: filters.q } },
         { uuid: { contains: filters.q, mode: "insensitive" } },
       ],
@@ -185,11 +209,11 @@ export function buildIncomingFilterConditions(
 }
 
 /** Tarih koşulu dahil, listenin tam `where`i. */
-export function buildIncomingWhere(
+export async function buildIncomingWhere(
   companyId: string,
   filters: IncomingListFilters,
-): Prisma.IncomingInvoiceWhereInput {
-  const and = buildIncomingFilterConditions(filters)
+): Promise<Prisma.IncomingInvoiceWhereInput> {
+  const and = await buildIncomingFilterConditions(companyId, filters)
   const dateFilter = { gte: filters.startDate, lte: filters.endDate }
   return {
     companyId,
@@ -199,11 +223,11 @@ export function buildIncomingWhere(
 }
 
 /** Tarih koşulu OLMADAN aynı filtreler. */
-export function buildIncomingWhereWithoutDate(
+export async function buildIncomingWhereWithoutDate(
   companyId: string,
   filters: IncomingListFilters,
-): Prisma.IncomingInvoiceWhereInput {
-  const and = buildIncomingFilterConditions(filters)
+): Promise<Prisma.IncomingInvoiceWhereInput> {
+  const and = await buildIncomingFilterConditions(companyId, filters)
   return { companyId, ...(and.length ? { AND: and } : {}) }
 }
 

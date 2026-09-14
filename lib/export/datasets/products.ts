@@ -8,6 +8,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { trContainsIds } from "@/lib/db/tr-search"
 import { resolveAllUnitCosts } from "@/lib/stock/cost"
 import { matchesKindFilter, productKindOf, type ProductKind } from "@/lib/stock/product-kind"
 import type { ExportColumn, ExportDataset } from "../types"
@@ -68,14 +69,16 @@ export async function buildProductsDataset(params: ProductExportParams): Promise
   const where: any = { companyId: params.companyId }
 
   if (params.search) {
-    where.OR = [
-      { name: { contains: params.search, mode: "insensitive" } },
-      { code: { contains: params.search, mode: "insensitive" } },
-      { barcode: { contains: params.search, mode: "insensitive" } },
-      // Ekranın araması da raf no'yu kapsıyor; ikisi ayrışırsa Excel ile liste
-      // farklı sayıda satır verir.
-      { shelfCode: { contains: params.search, mode: "insensitive" } },
-    ]
+    // Ekranın araması da Türkçe duyarsızdır ve raf no'yu kapsar; ikisi
+    // ayrışırsa Excel ile liste farklı sayıda satır verir
+    // (app/api/stok/products/route.ts ile AYNI sütunlar, aynı ön süzgeç).
+    const ids = await trContainsIds({
+      table: "products",
+      columns: ["name", "code", "barcode", '"shelfCode"'],
+      companyId: params.companyId,
+      term: params.search,
+    })
+    if (ids) where.id = { in: ids }
   }
   // Eski `/api/export` uyumu — yeni ekranlar `kind` gönderiyor.
   if (params.isService === "true" || params.isService === "false") where.isService = params.isService === "true"

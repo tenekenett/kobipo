@@ -25,6 +25,7 @@ import { AlertTriangle, ArrowLeftRight, Boxes, PackageCheck, TrendingUp, Search,
 import { ExportButton } from "@/components/export/export-button"
 import { ProductLink } from "@/components/raporlar/rapor-link"
 import Link from "next/link"
+import { trMatcher } from "@/lib/text/tr-fold"
 
 interface Product {
   id: string
@@ -143,6 +144,9 @@ export default function StokRaporlariPage() {
   }, [products])
 
   const filteredProducts = useMemo(() => {
+    // Terim BİR kez katlanır; dışa aktarım da aynı süzgeci kullanır
+    // (lib/export/datasets/reports.ts) — ekran ile Excel aynı satırları versin.
+    const searchMatches = trMatcher(search)
     return products.filter((p) => {
       if (typeFilter === "PRODUCT" && p.isService) return false
       if (typeFilter === "SERVICE" && !p.isService) return false
@@ -153,14 +157,7 @@ export default function StokRaporlariPage() {
       if (stockFilter === "LOW" && !(min > 0 && qty > 0 && qty <= min)) return false
       if (stockFilter === "NORMAL" && (qty <= 0 || (min > 0 && qty <= min))) return false
 
-      if (search) {
-        const q = search.toLowerCase()
-        const hit =
-          p.name.toLowerCase().includes(q) ||
-          (p.code || "").toLowerCase().includes(q) ||
-          (p.barcode || "").toLowerCase().includes(q)
-        if (!hit) return false
-      }
+      if (search && !searchMatches(p.name, p.code, p.barcode)) return false
       return true
     })
   }, [products, typeFilter, stockFilter, search])

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
+import { trFold } from "@/lib/text/tr-fold"
 
 /**
  * Fatura kategorisi seçici.
@@ -46,16 +47,15 @@ export function CategoryCombobox({
   const containerRef = useRef<HTMLDivElement>(null)
 
   const query = value.trim()
-  const norm = (v: string) => v.trim().toLocaleLowerCase("tr")
 
   const matches = useMemo(() => {
     if (query.length < MIN_QUERY) return []
-    const q = norm(query)
-    return options.filter((o) => norm(o).includes(q)).slice(0, 8)
+    const q = trFold(query)
+    return options.filter((o) => trFold(o).includes(q)).slice(0, 8)
   }, [options, query])
 
   // Yazılan değer mevcut bir kategoriyle birebir aynıysa "oluştur" satırı gereksiz.
-  const exactExists = options.some((o) => norm(o) === norm(query))
+  const exactExists = options.some((o) => trFold(o) === trFold(query))
   const canCreate = query.length >= MIN_QUERY && !exactExists
 
   // NOT: liste satırlarında onMouseEnter ile highlighted DEĞİŞTİRİLMEZ. Değiştirilseydi
