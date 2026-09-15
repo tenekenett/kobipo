@@ -124,6 +124,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/personel/izin": CalendarCheck,
   "/personel/zimmet": BadgeCheck,
   "/personel/ik": FolderOpen,
+  "/personel/belge-sablonlari": FileSignature,
 
   "/ayarlar/e-donusum": FileText,
   "/e-donusum/kontor": Coins,

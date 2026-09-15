@@ -534,6 +534,17 @@ export const PAGE_API_RULES: PageApiRule[] = [
     writePages: ["/personel/ik"],
   },
   {
+    // İK belge şablonları: okuma personel sayfalarının geneline açık (belge basmak
+    // için şablonu görmek gerekir), YAZMA yalnız şablon ekranına bağlı — bordroyu
+    // görebilen biri şirketin fesih bildirimi metnini değiştirememeli.
+    //
+    // NOT: `/{id}/pdf` bu ön ekin altındadır ve POST'tur (elle doldurulan alanlar
+    // gövdede taşınır, sorgu dizesine değil). Yazma sayılması doğru: belge ÜRETİR.
+    prefix: "/api/personel/belge-sablonlari",
+    pages: ["/personel/belge-sablonlari", "/personel/ik", "/personel"],
+    writePages: ["/personel/belge-sablonlari"],
+  },
+  {
     prefix: "/api/personel/employees",
     // Restoran tarafı personel listesini ikram/iskonto sorumlusu seçmek için okur.
     pages: [...PERSONNEL_PAGES, "/restoran/satis", ...TICKET_PAGES],

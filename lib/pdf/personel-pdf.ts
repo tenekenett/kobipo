@@ -367,3 +367,44 @@ export async function buildAssetFormPdf(args: {
     }),
   )
 }
+
+// --------------------------- ŞABLONDAN BELGE ---------------------------
+/**
+ * İK belge şablonundan üretilen serbest metinli belge.
+ *
+ * Yukarıdaki üç belge (bordro, izin, zimmet) SABİT yapıdadır: alanları kod bilir.
+ * Bu ise gövdesi kullanıcıdan gelen belgedir — metni firma yazar ya da Kobipo
+ * kataloğundan kopyalayıp değiştirir (lib/personel/belge-sablonlari.server.ts).
+ *
+ * ÇERÇEVE GÖVDEDEN GELMEZ: antet (firma künyesi + belge adı) ve imza hücreleri
+ * burada çizilir, şablon yalnız metni verir. Böylece kullanıcı şablonu istediği gibi
+ * değiştirse de belge kurumsal biçimini korur — rakip üründe çıktı antetsiz,
+ * logosuz, imza alanı düz metin olan bir HTML yazdırmasıydı.
+ *
+ * Personel künyesi personel SEÇİLDİYSE basılır: şablonların bir kısmı (duyuru,
+ * yönetmelik) kişiye bağlı değildir.
+ */
+export async function buildTemplateDocPdf(args: {
+  company: PdfCompany
+  employee?: PdfEmployee | null
+  title: string
+  /** Doldurulmuş gövdeden üretilmiş pdfmake içeriği (lib/personel/belge-govde.ts). */
+  body: Content[]
+  /** İmza etiketleri; verilmezse belge imzasız basılır (örn. bilgilendirme yazısı). */
+  signatureLabels?: [string, string] | null
+}): Promise<Buffer> {
+  const content: Content[] = [header(args.company, args.title.toUpperCase())]
+  if (args.employee) content.push(employeeBlock(args.employee))
+  content.push(section(null, args.body, mm(5)))
+  if (args.signatureLabels) {
+    content.push(signatures(args.signatureLabels[0], args.signatureLabels[1]))
+  }
+
+  return renderPdf(
+    buildDocDefinition({
+      title: args.title,
+      footerNote: footerNote(),
+      content,
+    }),
+  )
+}

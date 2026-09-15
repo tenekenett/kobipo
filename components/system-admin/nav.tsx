@@ -23,6 +23,7 @@ import {
   CreditCard,
   Fingerprint,
   ShieldCheck,
+  FileSignature,
   Percent,
 } from "lucide-react"
 import { useState } from "react"
@@ -74,6 +75,12 @@ const navItems = [
     title: "Hazır Roller",
     href: "/system-admin/roller",
     icon: ShieldCheck,
+  },
+  {
+    // Firmalara sunulan hazır İK belgeleri (Personel → Belge Şablonları ekranı).
+    title: "İK Belge Şablonları",
+    href: "/system-admin/belge-sablonlari",
+    icon: FileSignature,
   },
   {
     title: "Abonelikler",
