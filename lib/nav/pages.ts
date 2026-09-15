@@ -124,6 +124,7 @@ export const NAV_PAGES: NavPageDef[] = [
   { href: "/personel/izin", label: "İzin-Devam", roles: ["ADMIN", BM] },
   { href: "/personel/zimmet", label: "Zimmet", roles: ["ADMIN", BM] },
   { href: "/personel/ik", label: "İnsan Kaynakları", roles: ["ADMIN", BM] },
+  { href: "/personel/belge-sablonlari", label: "Belge Şablonları", roles: ["ADMIN", BM] },
 
   // Muhasebe defterleri — KATALOGDA VAR, MENÜDE YOK.
   //
@@ -250,6 +251,7 @@ export const NAV_GROUPS: Array<{ title: string; hrefs: string[] }> = [
       "/personel/izin",
       "/personel/zimmet",
       "/personel/ik",
+      "/personel/belge-sablonlari",
     ],
   },
   {

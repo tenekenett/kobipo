@@ -419,6 +419,7 @@ model Company {
   attendanceDays          AttendanceDay[]
   shiftTemplates          ShiftTemplate[]
   shiftPublications       ShiftPublication[]
+  documentTemplates       DocumentTemplate[]
   holidays                CompanyHoliday[]
 
   @@index([parentCompanyId])
@@ -2991,6 +2992,57 @@ model EmployeeDocumentBlob {
   document   EmployeeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@map("employee_document_blobs")
+}
+
+// ————— İK BELGE ŞABLONLARI —————
+//
+// Şablon = İK belgesinin metni. Gövde `{Personel Ad Soyad}` gibi alan adları taşır;
+// sözlükteki adlar kayıttan doldurulur, geri kalanlar doldurma ekranında sorulur
+// (lib/personel/belge-alanlari.ts).
+//
+// TEK TABLO, İKİ KAPSAM: `companyId` boşsa satır KOBİPO KATALOĞUDUR (sistem yönetim
+// panelinden düzenlenir, her firmaya görünür); doluysa FİRMANIN KENDİ şablonudur.
+// Ayrı tablo kurmak, aynı gövdeyi doldurmak/basmak için iki yol açardı.
+//
+// KULLANICI KATALOĞU DEĞİŞTİRMEZ, KOPYALAR: firma bir katalog şablonunu düzenlemek
+// istediğinde kendi satırı üretilir ve `sourceKey` hangi kalıptan geldiğini söyler
+// (iz, bağ değil). Kopya olduğu için Kobipo katalogda düzeltme yapınca müşterinin
+// elleyip özelleştirdiği metin sessizce değişmez — rakip üründeki asıl kusur bunun
+// tersiydi: 15 hazır şablon kilitliydi ve içlerindeki hata (TC alanına telefon
+// basan değişken, iki kez yazılmış cümle) kullanıcı tarafından düzeltilemiyordu.
+//
+// GİZLEME: firma katalogdaki bir şablonu kullanmak istemiyorsa kopyasını üretip
+// `isActive=false` yapar — katalog satırı ortadan kalkmaz, diğer firmalar görür.
+model DocumentTemplate {
+  id        String  @id @default(cuid())
+  /// Boş = Kobipo kataloğu (sistem admin); dolu = firmanın kendi şablonu.
+  companyId String?
+  /// Kararlı anahtar. Katalogda benzersiz, firma içinde benzersiz.
+  key       String
+  /// Kopyaysa kaynak katalog şablonunun `key`i — iz, yabancı anahtar DEĞİL.
+  sourceKey String?
+  title     String
+  /// Sözleşme, İzin, Zimmet, Fesih, Talep, Diğer
+  category  String?
+  /// Şablon gövdesi (HTML). `{Alan Adı}` yer tutucuları içerir.
+  body      String  @db.Text
+  /// Şablon yazarına gösterilen kısa açıklama (ne zaman kullanılır).
+  description String?
+  sortOrder Int     @default(0)
+  /// Pasif şablon doldurma ekranında listelenmez; basılmış belgeler etkilenmez.
+  isActive  Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// Aynı anahtar bir firmada bir kez; katalogda da bir kez (companyId NULL).
+  /// NOT: Postgres'te NULL'lar eşit sayılmadığı için katalog benzersizliği ayrıca
+  /// kısmi indeksle kurulur (bkz. migrasyon).
+  @@unique([companyId, key])
+  @@index([companyId, isActive, sortOrder])
+  @@map("document_templates")
 }
 
 // ————— İNDİRİM KODLARI —————

@@ -63,6 +63,8 @@ const GATE_EXEMPT_ENDPOINTS: Record<string, string> = {
   "/invitations/[token]/accept":
     "Davet TOKEN'ı ile açılır — çağıran henüz o firmanın üyesi değildir, kapı zaten reddederdi.",
   "/pay/[token]": "Ödeme bağlantısı token ile açılır; oturum gerektirmez.",
+  "/system-admin/document-templates": "requireSuperAdmin (yalnız KATALOG satırlarına yazar; firma kopyalarına dokunmaz)",
+  "/system-admin/document-templates/[id]": "requireSuperAdmin + kapsam kapısı: companyId dolu satır 404 döner",
   "/system-admin/users": "isSuperAdmin denetimi handler içinde",
   "/system-admin/users/[id]/companies": "isSuperAdmin denetimi handler içinde",
   "/system-admin/users/[id]/companies/[companyId]": "requireSuperAdmin (dosya içi)",
