@@ -27,10 +27,14 @@ import {
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { MYSOFT_PROD_URL, MYSOFT_TEST_URL } from "@/lib/integrations/e-invoice/constants"
+import { withCompanyHref } from "@/lib/company/href"
+import Link from "next/link"
 
 interface Company {
   id: string
   name?: string | null
+  parentCompanyId?: string | null
+  parentCompany?: { id: string; name: string; branchName?: string | null } | null
   taxNumber?: string | null
   taxOffice?: string | null
   email?: string | null
@@ -102,6 +106,9 @@ export default function EDonusumAyarlariPage() {
 
   // Mysoft mükellef VKN'si — firmanın VKN'sinden okunur (sadece görüntü).
   const [tenantVkn, setTenantVkn] = useState("")
+  // Şube: e-Dönüşüm kimliği ana firmadan devralınır, burada düzenlenmez
+  // (bkz. lib/company/branch-identity.ts).
+  const [parent, setParent] = useState<{ id: string; name: string } | null>(null)
 
   // --- Onboarding (bayi self-servis başvuru) — alttaki kapalı bölüm ---
   const [showOnboarding, setShowOnboarding] = useState(false)
@@ -149,6 +156,7 @@ export default function EDonusumAyarlariPage() {
     setLastTestSuccess(typeof data.eDonusumLastTestSuccess === "boolean" ? data.eDonusumLastTestSuccess : null)
     const companyVkn = (data.eDonusumTenantVkn || data.taxNumber || "").replace(/\D/g, "")
     setTenantVkn(companyVkn)
+    setParent(data.parentCompanyId && data.parentCompany ? { id: data.parentCompany.id, name: data.parentCompany.name } : null)
     setFormData({
       isEDonusumEnabled: Boolean(data.isEDonusumEnabled),
       eDonusumApiUsername: data.eDonusumApiUsername || "",
@@ -355,6 +363,35 @@ export default function EDonusumAyarlariPage() {
           <CardDescription>Firma seçiniz</CardDescription>
         </CardHeader>
       </Card>
+    )
+  }
+
+  if (parent) {
+    return (
+      <div className="space-y-5">
+        <div>
+          <h1 className="text-2xl font-bold text-kobipo-navy dark:text-foreground">E-Dönüşüm Ayarları</h1>
+          <p className="text-sm text-muted-foreground">Bu firma bir şubedir</p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>e-Dönüşüm kimliği ana firmadan devralınır</CardTitle>
+            <CardDescription>
+              Şube aynı tüzel kişinin ikinci adresidir: VKN, mükellef kaydı ve entegratör
+              bilgileri <span className="font-medium">{parent.name}</span> firmasınındır ve
+              şubede değiştirilemez. Ayarları ana firmada güncellediğinizde şubelere kendiliğinden
+              yayılır. Şubenin belgeye giren kendi adresi ise Firma Bilgileri ekranında düzenlenir.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="outline">
+              <Link href={withCompanyHref("/ayarlar/e-donusum", parent.id)}>
+                Ana firmanın e-Dönüşüm ayarlarına git
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 

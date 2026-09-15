@@ -6,6 +6,7 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import { Decimal } from "@prisma/client/runtime/library"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
+import { isPurchaseReturn } from "@/lib/cari/invoice-direction"
 
 export const dynamic = 'force-dynamic'
 
@@ -121,6 +122,15 @@ export const POST = withApiErrors(async function POST(request: Request) {
         { status: 404 }
       )
     }
+    // İptal edilmiş / dönüştürülmüş belgeye tahsilat yazılmaz: cari sorguları o
+    // faturayı ve ödemelerini zaten dışlıyor, ödeme yazılsaydı kasaya girer ama
+    // hiçbir ekstrede görünmezdi. (`finans/transactions` aynı kuralı uyguluyor.)
+    if (invoice.status === "CANCELLED" || invoice.status === "CONVERTED") {
+      return NextResponse.json(
+        { error: "İptal edilmiş veya dönüştürülmüş faturaya ödeme kaydedilemez" },
+        { status: 400 },
+      )
+    }
 
     // Toplam ödeme tutarı ve kalan — DECIMAL ile, `Number` ile DEĞİL.
     //
@@ -159,7 +169,11 @@ export const POST = withApiErrors(async function POST(request: Request) {
       return NextResponse.json({ error: "Hesap bulunamadı" }, { status: 404 })
     }
 
-    const isSales = invoice.type === "SALES"
+    // PARA YÖNÜ: satış ve ALIŞ İADESİ tahsilattır (para bize gelir); alış ve SATIŞ
+    // İADESİ ödemedir (para bizden çıkar). Eskiden yalnız `type === "SALES"`
+    // bakılıyordu: tedarikçiye iade edip parasını aldığımızda kasa AZALIYOR,
+    // tedarikçi bakiyesi iki kez düşüyordu (bkz. lib/cari/invoice-direction.ts).
+    const isSales = invoice.type === "SALES" || isPurchaseReturn(invoice)
     const paidAt = paymentDate ? new Date(paymentDate) : new Date()
     const paidAmount = new Decimal(amount)
 

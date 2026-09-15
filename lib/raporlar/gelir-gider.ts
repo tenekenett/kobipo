@@ -65,7 +65,8 @@ export type UninvoicedGroup = {
  * kırılımı olmadan tüm dönem tek aya yığılır ve aylık grafik yalan söylerdi.
  * Süzgeç `kar-zarar.ts`teki "Diğer Gelirler/Giderler" ile birebir aynı:
  * faturaya bağlı işlem elenir (çift sayım), virman bacağı elenir (kendi
- * cebinden cebine para).
+ * cebinden cebine para), çek/senet tahsili elenir (gelir faturada sayıldı —
+ * bkz. lib/finans/nakit-hareket.ts CHECK_SETTLEMENT_PREFIXES).
  *
  * `category` sütunu 2026-09-05'te eklendi; öncesinde faturasız giderlerin
  * tamamı tek bir "Faturasız işlemler" satırına yığılıyor ve "personel gideri ne
@@ -88,7 +89,7 @@ async function uninvoicedGroups(
     WHERE t."companyId" = ${companyId}
       AND t."type" = ${type}
       AND t."date" >= ${start} AND t."date" < ${endExclusive}
-      AND (t."reference" IS NULL OR t."reference" NOT LIKE 'TRANSFER:%')
+      AND (t."reference" IS NULL OR (t."reference" NOT LIKE 'TRANSFER:%' AND t."reference" NOT LIKE 'CEK:%' AND t."reference" NOT LIKE 'SENET:%'))
       AND NOT EXISTS (
         SELECT 1 FROM "invoice_payments" p WHERE p."transactionId" = t.id
       )

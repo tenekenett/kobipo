@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { Decimal } from "@prisma/client/runtime/library"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { assertOwnedByCompany } from "@/lib/company/owned"
+import { revertCheckSettlement, settlementAccountRequiredFrom, syncCheckSettlement } from "@/lib/cek-senet/tahsil"
 
 export const dynamic = 'force-dynamic'
 
@@ -92,6 +94,8 @@ export const GET = withApiErrors(async function GET(
   }
 })
 
+const VALID_STATUSES = new Set(["PORTFÖYDE", "CİRO_EDİLDİ", "TAHSİL_EDİLDİ", "İADE_EDİLDİ", "PROTESTOLU"])
+
 export const PUT = withApiErrors(async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -112,6 +116,15 @@ export const PUT = withApiErrors(async function PUT(
         { status: 400 }
       )
     }
+    if (data.status !== undefined && !VALID_STATUSES.has(String(data.status))) {
+      return NextResponse.json({ error: "Geçersiz durum" }, { status: 400 })
+    }
+    // Tahsil edilen kasa/banka — durum TAHSİL_EDİLDİ'ye geçerken zorunlu
+    // (bkz. lib/cek-senet/tahsil.ts).
+    const settlementAccountId =
+      typeof data.settlementAccountId === "string" && data.settlementAccountId.trim()
+        ? data.settlementAccountId.trim()
+        : null
 
     if (type === "CHECK") {
       const check = await prisma.check.findUnique({
@@ -126,6 +139,15 @@ export const PUT = withApiErrors(async function PUT(
       }
 
       await ensureCompanyWrite(check.companyId)
+      // Sahiplik + tutar (bkz. POST).
+      await assertOwnedByCompany(check.companyId, {
+        customer: data.customerId,
+        supplier: data.supplierId,
+        invoice: data.invoiceId,
+      })
+      if (data.amount !== undefined && !(Number(data.amount) > 0)) {
+        return NextResponse.json({ error: "Tutar 0'dan büyük olmalı" }, { status: 400 })
+      }
 
       const updateData: any = {}
       if (data.checkNo !== undefined) updateData.checkNo = data.checkNo
@@ -142,7 +164,8 @@ export const PUT = withApiErrors(async function PUT(
       if (data.invoiceId !== undefined) updateData.invoiceId = data.invoiceId || null
       if (data.notes !== undefined) updateData.notes = data.notes || null
 
-      const updated = await prisma.check.update({
+      const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.check.update({
         where: { id: resolvedParams.id },
         data: updateData,
         include: {
@@ -159,6 +182,20 @@ export const PUT = withApiErrors(async function PUT(
             },
           },
         },
+      })
+      await syncCheckSettlement(tx, {
+        kind: "CHECK",
+        companyId: check.companyId,
+        id: row.id,
+        no: row.checkNo,
+        bankName: row.bankName,
+        amount: row.amount,
+        direction: row.direction,
+        status: row.status,
+        accountId: settlementAccountId,
+        createdBy: user.id,
+      })
+      return row
       })
 
       return NextResponse.json(updated)
@@ -175,6 +212,14 @@ export const PUT = withApiErrors(async function PUT(
       }
 
       await ensureCompanyWrite(note.companyId)
+      await assertOwnedByCompany(note.companyId, {
+        customer: data.customerId,
+        supplier: data.supplierId,
+        invoice: data.invoiceId,
+      })
+      if (data.amount !== undefined && !(Number(data.amount) > 0)) {
+        return NextResponse.json({ error: "Tutar 0'dan büyük olmalı" }, { status: 400 })
+      }
 
       const updateData: any = {}
       if (data.noteNo !== undefined) updateData.noteNo = data.noteNo
@@ -188,7 +233,8 @@ export const PUT = withApiErrors(async function PUT(
       if (data.invoiceId !== undefined) updateData.invoiceId = data.invoiceId || null
       if (data.notes !== undefined) updateData.notes = data.notes || null
 
-      const updated = await prisma.promissoryNote.update({
+      const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.promissoryNote.update({
         where: { id: resolvedParams.id },
         data: updateData,
         include: {
@@ -206,10 +252,25 @@ export const PUT = withApiErrors(async function PUT(
           },
         },
       })
+      await syncCheckSettlement(tx, {
+        kind: "PROMISSORY_NOTE",
+        companyId: note.companyId,
+        id: row.id,
+        no: row.noteNo,
+        amount: row.amount,
+        direction: row.direction,
+        status: row.status,
+        accountId: settlementAccountId,
+        createdBy: user.id,
+      })
+      return row
+      })
 
       return NextResponse.json(updated)
     }
   } catch (error: any) {
+    const acc = settlementAccountRequiredFrom(error)
+    if (acc) return NextResponse.json({ error: acc.messageTr, code: acc.code }, { status: 400 })
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)
     }
@@ -256,8 +317,10 @@ export const DELETE = withApiErrors(async function DELETE(
 
       await ensureCompanyWrite(check.companyId)
 
-      await prisma.check.delete({
-        where: { id: resolvedParams.id },
+      await prisma.$transaction(async (tx) => {
+        // Tahsil hareketi varsa kasadan geri sar (bkz. lib/cek-senet/tahsil.ts).
+        await revertCheckSettlement(tx, "CHECK", check.companyId, check.id)
+        await tx.check.delete({ where: { id: resolvedParams.id } })
       })
 
       return NextResponse.json({ success: true })
@@ -275,8 +338,9 @@ export const DELETE = withApiErrors(async function DELETE(
 
       await ensureCompanyWrite(note.companyId)
 
-      await prisma.promissoryNote.delete({
-        where: { id: resolvedParams.id },
+      await prisma.$transaction(async (tx) => {
+        await revertCheckSettlement(tx, "PROMISSORY_NOTE", note.companyId, note.id)
+        await tx.promissoryNote.delete({ where: { id: resolvedParams.id } })
       })
 
       return NextResponse.json({ success: true })

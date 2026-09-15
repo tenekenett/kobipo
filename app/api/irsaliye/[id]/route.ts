@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { adjustWarehouseStock, ensureDefaultWarehouseId, revertStockByReference } from "@/lib/stock/warehouse"
+import { assertOwnedByCompany } from "@/lib/company/owned"
 
 export const dynamic = "force-dynamic"
 
@@ -212,6 +213,10 @@ export const PUT = withApiErrors(async function PUT(
     if (!normalized.length) {
       return NextResponse.json({ error: "En az bir geçerli kalem gerekli" }, { status: 400 })
     }
+    // Sahiplik: kalem ürünleri bu firmanın olmalı (cari/fatura yukarıda tek tek doğrulandı).
+    await assertOwnedByCompany(existing.companyId, {
+      product: normalized.map((item: { productId: string | null }) => item.productId),
+    })
     data.items = { deleteMany: {}, create: normalized }
   }
 

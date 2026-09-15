@@ -161,7 +161,7 @@ async function monthlySeries(companyId: string, until: Date): Promise<OverviewMo
       FROM "transactions" t
       WHERE t."companyId" = ${companyId}
         AND t."date" >= ${first} AND t."date" < ${until}
-        AND (t."reference" IS NULL OR t."reference" NOT LIKE 'TRANSFER:%')
+        AND (t."reference" IS NULL OR (t."reference" NOT LIKE 'TRANSFER:%' AND t."reference" NOT LIKE 'CEK:%' AND t."reference" NOT LIKE 'SENET:%'))
         AND NOT EXISTS (
           SELECT 1 FROM "invoice_payments" p WHERE p."transactionId" = t.id
         )

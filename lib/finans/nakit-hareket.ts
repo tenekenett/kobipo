@@ -72,6 +72,37 @@ export const NOT_TRANSFER_WHERE = {
   ],
 }
 
+/**
+ * Çek/senet TAHSİL hareketlerinin `reference` önekleri (lib/cek-senet/tahsil.ts).
+ *
+ * Bu hareketler KASAYA girer ama GELİR DEĞİLDİR: gelir çekin karşılığı olan
+ * faturada zaten sayıldı, çek de cariyi düşürdü. Kâr/zarar, gelir-gider ve
+ * harcamalar "faturasız gelir/gider" sayarken bunları dışlar; nakit akışı ve
+ * kasa bakiyesi sayar.
+ */
+export const CHECK_SETTLEMENT_PREFIXES = { CHECK: "CEK:", PROMISSORY_NOTE: "SENET:" } as const
+
+export function isCheckSettlement(tx: MaybeTransferLeg): boolean {
+  const ref = tx.reference ?? ""
+  return ref.startsWith(CHECK_SETTLEMENT_PREFIXES.CHECK) || ref.startsWith(CHECK_SETTLEMENT_PREFIXES.PROMISSORY_NOTE)
+}
+
+/**
+ * Faturasız GELİR/GİDER sayımı için `where` parçası: virman bacakları VE çek/senet
+ * tahsil hareketleri dışlanır. `NOT_TRANSFER_WHERE` ile aynı NULL uyarısı geçerli;
+ * `AND` taşıdığı için zaten `AND` içeren bir `where`a spread edilmez.
+ */
+export const NOT_TRANSFER_OR_SETTLEMENT_WHERE = {
+  AND: [
+    NOT_TRANSFER_WHERE,
+    { OR: [{ reference: null }, { NOT: { reference: { startsWith: CHECK_SETTLEMENT_PREFIXES.CHECK } } }] },
+    { OR: [{ reference: null }, { NOT: { reference: { startsWith: CHECK_SETTLEMENT_PREFIXES.PROMISSORY_NOTE } } }] },
+  ],
+}
+
+// Ham SQL kullanan raporlar (gelir-gider, finansal-ozet) aynı üç öneki satır içi
+// yazar: `reference NOT LIKE 'TRANSFER:%' AND NOT LIKE 'CEK:%' AND NOT LIKE 'SENET:%'`.
+
 /** Bakiyeyi doğrudan değiştirmiş ESKİ fatura ödemeleri (Transaction'sız). */
 export const LEGACY_CASH_PAYMENT_WHERE = {
   transactionId: null,

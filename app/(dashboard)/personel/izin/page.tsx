@@ -108,11 +108,28 @@ export default function IzinDevamPage() {
     }
     setIsSaving(true)
     try {
-      const res = await fetch("/api/personel/leaves", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, companyId }),
-      })
+      const send = (allowOverdraft: boolean) =>
+        fetch("/api/personel/leaves", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...form, companyId, allowOverdraft }),
+        })
+      let res = await send(false)
+      // Yıllık izin bakiyesi aşılıyorsa sunucu 409 döner; avans izin bilerek
+      // verilebilir — sorulur, onaylanırsa `allowOverdraft` ile yeniden gönderilir.
+      // Çakışan izin (LEAVE_OVERLAP) sorulmaz: önce mevcut kayıt düzeltilmeli.
+      if (res.status === 409) {
+        const data = await res.clone().json().catch(() => ({}))
+        if (data.code === "ANNUAL_BALANCE_EXCEEDED") {
+          const ok = await confirm({
+            title: "Yıllık izin bakiyesi aşılıyor",
+            description: `${data.error} Yine de kaydedilsin mi?`,
+            confirmLabel: "Avans izin olarak kaydet",
+          })
+          if (!ok) return
+          res = await send(true)
+        }
+      }
       if (res.ok) {
         toast({ title: "İzin talebi oluşturuldu" })
         setCreateOpen(false)
@@ -133,17 +150,43 @@ export default function IzinDevamPage() {
    * çalışılmış saat sonradan onaylanan bir izin yüzünden kaybolmamalı).
    */
   async function setStatus(l: Leave, status: string) {
-    const send = (removeShifts: boolean) =>
+    const send = (removeShifts: boolean, allowOverdraft = false) =>
       fetch(`/api/personel/leaves/${l.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, removeShifts }),
+        body: JSON.stringify({ status, removeShifts, allowOverdraft }),
       })
 
     let res = await send(false)
     if (res.status === 409) {
       const data = await res.clone().json().catch(() => ({}))
-      if (data.code === "SHIFTS") {
+      // Onayda bakiye aşımı da sorulur (talep girildikten sonra başka izinler
+      // onaylanmış olabilir); çakışma sorulmaz.
+      if (data.code === "ANNUAL_BALANCE_EXCEEDED") {
+        const ok = await confirm({
+          title: "Yıllık izin bakiyesi aşılıyor",
+          description: `${data.error} Yine de onaylansın mı?`,
+          confirmLabel: "Avans izin olarak onayla",
+        })
+        if (!ok) return
+        res = await send(false, true)
+        if (res.status === 409) {
+          const again = await res.clone().json().catch(() => ({}))
+          if (again.code === "SHIFTS") {
+            const parts = [
+              again.planned > 0 ? `${again.planned} planlı vardiya silinecek` : null,
+              again.stamped > 0 ? `${again.stamped} damgalı vardiya korunacak` : null,
+            ].filter(Boolean)
+            const ok2 = await confirm({
+              title: again.error || "İzin günlerinde vardiya var",
+              description: `${parts.join(", ")}. İzin onaylansın mı?`,
+              confirmLabel: "Onayla",
+            })
+            if (!ok2) return
+            res = await send(true, true)
+          }
+        }
+      } else if (data.code === "SHIFTS") {
         const parts = [
           data.planned > 0 ? `${data.planned} planlı vardiya silinecek` : null,
           data.stamped > 0 ? `${data.stamped} damgalı vardiya korunacak` : null,

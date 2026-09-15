@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
 
 export const dynamic = "force-dynamic"
 
@@ -179,54 +180,21 @@ export const POST = withApiErrors(async function POST(request: Request) {
     })
 
     // Otomatik muhasebe fişi: yalnızca satış faturasında (fişler oluşturmamıştı).
-    if (isSales && netAmount > 0) {
+    // Tek yazım yeri lib/invoice/auto-entries.ts; tarih faturanın tarihidir.
+    if (isSales) {
       try {
-        const plans = await prisma.accountPlan.findMany({
-          where: { companyId, code: { in: ["120", "600", "391"] } },
-          select: { id: true, code: true },
+        await syncInvoiceAutoEntries(prisma, {
+          companyId,
+          invoiceId: invoice.id,
+          invoiceNo: invoice.invoiceNo,
+          date: invoice.date,
+          type: "SALES",
+          isReceipt: false,
+          netAmount,
+          vatAmount,
+          createdBy: user.id,
+          suffix: "(fişten dönüştürme)",
         })
-        const plan120 = plans.find((p) => p.code === "120")
-        const plan600 = plans.find((p) => p.code === "600")
-        const plan391 = plans.find((p) => p.code === "391")
-        if (plan120 && plan600) {
-          const last = await prisma.accountingEntry.findFirst({
-            where: { companyId },
-            orderBy: { createdAt: "desc" },
-            select: { entryNo: true },
-          })
-          const nextNo = (Number(last?.entryNo || 0) + 1).toString().padStart(6, "0")
-          await prisma.accountingEntry.create({
-            data: {
-              companyId,
-              entryNo: nextNo,
-              date: new Date(),
-              description: `${invoice.invoiceNo} satış faturası otomatik fişi (fişten dönüştürme)`,
-              debitAccountId: plan120.id,
-              creditAccountId: plan600.id,
-              amount: netAmount,
-              reference: invoice.id,
-              referenceType: "INVOICE_AUTO",
-              createdBy: user.id,
-            },
-          })
-          if (plan391 && vatAmount > 0) {
-            const vatNo = (Number(nextNo) + 1).toString().padStart(6, "0")
-            await prisma.accountingEntry.create({
-              data: {
-                companyId,
-                entryNo: vatNo,
-                date: new Date(),
-                description: `${invoice.invoiceNo} KDV otomatik fişi (fişten dönüştürme)`,
-                debitAccountId: plan120.id,
-                creditAccountId: plan391.id,
-                amount: vatAmount,
-                reference: invoice.id,
-                referenceType: "INVOICE_AUTO_VAT",
-                createdBy: user.id,
-              },
-            })
-          }
-        }
       } catch (e) {
         console.error("[Fiş dönüştürme] muhasebe fişi oluşturulamadı:", e)
       }

@@ -4,6 +4,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
+import { assertOwnedByCompany } from "@/lib/company/owned"
 
 export const dynamic = "force-dynamic"
 
@@ -132,6 +133,12 @@ export const POST = withApiErrors(async function POST(request: Request) {
   if (!normalized.length) {
     return NextResponse.json({ error: "En az bir geçerli kalem gerekli" }, { status: 400 })
   }
+  // Sahiplik: cari ve ürünler bu firmanın olmalı (bkz. lib/company/owned.ts).
+  await assertOwnedByCompany(companyId, {
+    customer: orderType === "SALES" ? customerId : null,
+    supplier: orderType === "PURCHASE" ? supplierId : null,
+    product: normalized.map((item) => item.productId),
+  })
 
   const buildData = (finalOrderNo: string) => ({
     companyId,

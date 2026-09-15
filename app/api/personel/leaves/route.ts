@@ -6,16 +6,11 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { dayToUtcDate } from "@/lib/personel/vardiya"
 import { DAY_RE } from "@/lib/personel/shift-api"
+import { assertLeaveAllowed, inclusiveDays, leaveRuleErrorResponse } from "@/lib/personel/izin"
 
 export const dynamic = "force-dynamic"
 
-const DAY_MS = 24 * 60 * 60 * 1000
 const VALID_TYPES = ["ANNUAL", "EXCUSE", "SICK", "UNPAID"]
-
-function inclusiveDays(start: Date, end: Date): number {
-  const d = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1
-  return d > 0 ? d : 1
-}
 
 /**
  * İzin listesi.
@@ -82,7 +77,27 @@ export const POST = withApiErrors(async function POST(request: Request) {
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
     return NextResponse.json({ error: "Geçersiz tarih aralığı" }, { status: 400 })
   }
-  const days = body.days != null && Number(body.days) > 0 ? Number(body.days) : inclusiveDays(start, end)
+  // Gün sayısı takvimden; istemcinin `days`ı OKUNMAZ (bkz. lib/personel/izin.ts).
+  const days = inclusiveDays(start, end)
+
+  // Çakışan izin → 409; yıllık bakiye aşımı → 409 (ekran sorar, `allowOverdraft`
+  // ile yeniden gönderir).
+  try {
+    await assertLeaveAllowed(prisma, {
+      companyId,
+      employeeId,
+      type,
+      start,
+      end,
+      days,
+      entitlement: employee.annualLeaveDays,
+      allowOverdraft: body.allowOverdraft === true,
+    })
+  } catch (ruleErr) {
+    const res = leaveRuleErrorResponse(ruleErr)
+    if (res) return NextResponse.json(res.body, { status: res.status })
+    throw ruleErr
+  }
 
   const leave = await prisma.leaveRecord.create({
     data: {

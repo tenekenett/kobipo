@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma"
 import { planOpeningStock } from "@/lib/stock/opening-stock"
+import { ForeignRecordError } from "@/lib/company/owned"
 
 // PrismaClient veya $transaction içindeki client — ikisi de model metodlarını taşır.
 type Db = Pick<typeof prisma, "warehouse" | "warehouseStock" | "product" | "stockMovement">
@@ -10,6 +11,27 @@ type Db = Pick<typeof prisma, "warehouse" | "warehouseStock" | "product" | "stoc
  * bakiyeye 0.30000000000000004 yazar ve "eşit mi" karşılaştırmaları bozulur.
  */
 const round4 = (n: number) => Math.round(n * 10000) / 10000
+
+/**
+ * Ürün ve (verildiyse) depoların `companyId`ye ait olduğunu doğrular; değilse
+ * `ForeignRecordError` (route'lar 403'e çevirir). Stok yazan her yol buradan geçer.
+ */
+async function assertStockOwnership(
+  db: Db,
+  companyId: string,
+  productId: string,
+  warehouseIds: string | string[] | null,
+): Promise<void> {
+  const product = await db.product.count({ where: { id: productId, companyId } })
+  if (product === 0) throw new ForeignRecordError("product", [productId])
+  const ids = [...new Set((Array.isArray(warehouseIds) ? warehouseIds : [warehouseIds]).filter((x): x is string => Boolean(x)))]
+  if (ids.length === 0) return
+  const owned = await db.warehouse.findMany({ where: { id: { in: ids }, companyId }, select: { id: true } })
+  if (owned.length !== ids.length) {
+    const ok = new Set(owned.map((w) => w.id))
+    throw new ForeignRecordError("warehouse", ids.filter((id) => !ok.has(id)))
+  }
+}
 
 /** Firmanın varsayılan deposunu döndürür; yoksa "Ana Depo" oluşturur. */
 export async function ensureDefaultWarehouseId(db: Db, companyId: string): Promise<string> {
@@ -92,17 +114,26 @@ export async function adjustWarehouseStock(
 ): Promise<void> {
   const warehouseId = args.warehouseId || (await ensureDefaultWarehouseId(db, args.companyId))
 
+  // İKİNCİ DUVAR — sahiplik. Uçlar gövdedeki id'leri `assertOwned` ile doğruluyor ama
+  // stok defteri yazılan TEK kapı burası; bir uç unutursa başka firmanın ürün
+  // kartına/deposuna yazılmasın. `materializeLegacyStock`tan ÖNCE: o adım yabancı
+  // ürünü bizim varsayılan depomuza materyalize ederdi.
+  await assertStockOwnership(db, args.companyId, args.productId, args.warehouseId ? warehouseId : null)
+
   await materializeLegacyStock(db, args.companyId, args.productId)
+
+  // Ürün kartı firma süzgeçli `updateMany` ile: yarışta (kontrol ile yazma arası
+  // firma değişmez ama) 0 satır = yabancı ürün, kemer-pantolon askısı.
+  const touched = await db.product.updateMany({
+    where: { id: args.productId, companyId: args.companyId },
+    data: { stockQuantity: { increment: args.delta } },
+  })
+  if (touched.count === 0) throw new ForeignRecordError("product", [args.productId])
 
   await db.warehouseStock.upsert({
     where: { warehouseId_productId: { warehouseId, productId: args.productId } },
     create: { warehouseId, productId: args.productId, quantity: args.delta },
     update: { quantity: { increment: args.delta } },
-  })
-
-  await db.product.update({
-    where: { id: args.productId },
-    data: { stockQuantity: { increment: args.delta } },
   })
 
   await db.stockMovement.create({
@@ -200,6 +231,9 @@ export async function transferWarehouseStock(
 ): Promise<void> {
   const qty = Math.abs(args.quantity)
   if (qty === 0 || args.fromWarehouseId === args.toWarehouseId) return
+
+  // Sahiplik: ürün de iki depo da bu firmanın olmalı (bkz. adjustWarehouseStock).
+  await assertStockOwnership(db, args.companyId, args.productId, [args.fromWarehouseId, args.toWarehouseId])
 
   await materializeLegacyStock(db, args.companyId, args.productId)
 

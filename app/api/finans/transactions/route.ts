@@ -167,6 +167,12 @@ export const POST = withApiErrors(async function POST(request: Request) {
     }
 
     const numericAmount = parseFloat(amount)
+    if (!["INCOME", "EXPENSE", "TRANSFER"].includes(String(type))) {
+      return NextResponse.json({ error: "Geçersiz işlem tipi" }, { status: 400 })
+    }
+    if (type === "TRANSFER" && transferAccountId === accountId) {
+      return NextResponse.json({ error: "Kaynak ve hedef hesap aynı olamaz" }, { status: 400 })
+    }
     const transactionDate = date ? new Date(date) : new Date()
 
     // Transfer hedefini işlemden önce doğrula (atomik blok içinde return edilemez).
@@ -246,21 +252,22 @@ export const POST = withApiErrors(async function POST(request: Request) {
         },
       })
 
-      // Kaynak hesap bakiyesi
-      let newBalance = Number(account.balance)
-      if (type === "INCOME") newBalance += numericAmount
-      else if (type === "EXPENSE") newBalance -= numericAmount
-      else if (type === "TRANSFER") newBalance -= numericAmount
+      // Kaynak hesap bakiyesi — ATOMİK `increment`. Oku-topla-yaz (eski hâl) aynı
+      // kasaya eşzamanlı iki işlemde birini kaybediyordu; `faturalar/odemeler`
+      // aynı sebeple `increment`e geçmişti, burası eski kalmıştı.
       await db.financialAccount.update({
         where: { id: accountId },
-        data: { balance: newBalance },
+        data: {
+          balance:
+            type === "INCOME" ? { increment: numericAmount } : { decrement: numericAmount },
+        },
       })
 
       // Transfer: hedef hesaba giriş + karşı işlem
       if (type === "TRANSFER" && targetAccount) {
         await db.financialAccount.update({
           where: { id: targetAccount.id },
-          data: { balance: Number(targetAccount.balance) + numericAmount },
+          data: { balance: { increment: numericAmount } },
         })
         await db.transaction.create({
           data: {

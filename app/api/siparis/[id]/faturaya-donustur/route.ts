@@ -4,7 +4,9 @@ import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
-import { adjustWarehouseStock } from "@/lib/stock/warehouse"
+import { ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
+import { prepareInvoiceStockOps, writeInvoiceStockOps } from "@/lib/stock/invoice-stock"
+import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
 
 export const dynamic = "force-dynamic"
 
@@ -76,20 +78,45 @@ export const POST = withApiErrors(async function POST(
       include: { items: true },
     })
 
-    // Stok hareketi: depo bazlı (varsayılan depo). Satış azaltır, alış artırır.
-    for (const item of order.items) {
-      if (!item.productId) continue
-      await adjustWarehouseStock(tx, {
-        companyId: order.companyId,
+    // STOK — fatura ucuyla AYNI yol (lib/stock/invoice-stock.ts): hizmet ürünü
+    // elenir, satışta reçete hammaddeye açılır, iskonto maliyete girer. Öncesinde
+    // burada ham `adjustWarehouseStock` çağrılıyor ve hizmet kalemi stoğa
+    // düşüyor, reçeteli mamül kendi stoğundan gidiyordu.
+    const ops = await prepareInvoiceStockOps(tx, {
+      companyId: order.companyId,
+      type: invoice.type,
+      invoiceNo,
+      lines: invoice.items.map((item) => ({
         productId: item.productId,
-        delta: isSales ? -Number(item.quantity) : Number(item.quantity),
-        type: isSales ? "OUT" : "IN",
+        quantity: Number(item.quantity),
         unitPrice: item.unitPrice != null ? Number(item.unitPrice) : null,
-        description: `${invoiceNo} - ${isSales ? "Satış" : "Alış"} faturası (siparişten)`,
-        reference: invoice.id,
-        createdBy: user.id,
-      })
-    }
+        discountAmount: item.discountAmount != null ? Number(item.discountAmount) : null,
+        order: Number(item.order) || 0,
+      })),
+    })
+    await writeInvoiceStockOps(tx, {
+      companyId: order.companyId,
+      invoiceId: invoice.id,
+      invoiceNo: `${invoiceNo} (siparişten)`,
+      type: invoice.type,
+      warehouseId: await ensureDefaultWarehouseId(tx, order.companyId),
+      ops,
+      createdBy: user.id,
+    })
+
+    // Otomatik muhasebe fişi — doğrudan kesilen faturayla aynı (tek yazım yeri).
+    await syncInvoiceAutoEntries(tx, {
+      companyId: order.companyId,
+      invoiceId: invoice.id,
+      invoiceNo,
+      date: invoice.date,
+      type: invoice.type,
+      isReceipt: false,
+      netAmount: invoice.netAmount,
+      vatAmount: invoice.vatAmount,
+      createdBy: user.id,
+      suffix: "(siparişten)",
+    })
 
     await tx.order.update({
       where: { id: order.id },
@@ -97,7 +124,7 @@ export const POST = withApiErrors(async function POST(
     })
 
     return invoice
-    })
+    }, { timeout: 20000 })
 
   // Fatura no üretimi transaction dışında olduğundan eşzamanlı isteklerde
   // mükerrer numara (P2002) oluşabilir; çakışmada yeni numara üretip yeniden dene.

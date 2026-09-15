@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
+import { assertOwnedByCompany } from "@/lib/company/owned"
 
 export const dynamic = "force-dynamic"
 
@@ -112,6 +113,13 @@ export const PUT = withApiErrors(async function PUT(
       create: normalized.map((item, index) => ({ ...item, order: index })),
     }
   }
+
+  // Sahiplik: değişen cari ve kalemlerin ürünleri bu firmanın olmalı.
+  await assertOwnedByCompany(existing.companyId, {
+    customer: data.customerId,
+    supplier: data.supplierId,
+    product: Array.isArray(items) ? (data.items.create as Array<{ productId: string | null }>).map((i) => i.productId) : [],
+  })
 
   const order = await prisma.order.update({
     where: { id },

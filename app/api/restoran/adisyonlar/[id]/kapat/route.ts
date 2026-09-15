@@ -208,7 +208,7 @@ export const POST = withApiErrors(async function POST(request: Request, { params
 
     const ticket = await prisma.restaurantTicket.findFirst({
       where: { id, companyId },
-      include: { items: { select: { status: true } } },
+      include: ticketInclude,
     })
     if (!ticket) return NextResponse.json({ error: "Adisyon bulunamadı" }, { status: 404 })
     if (ticket.status !== "OPEN") {
@@ -235,13 +235,35 @@ export const POST = withApiErrors(async function POST(request: Request, { params
     } else {
       const invoice = await prisma.invoice.findFirst({
         where: { id: invoiceId, companyId },
-        select: { id: true, invoiceNo: true, isReceipt: true, type: true },
+        select: { id: true, invoiceNo: true, isReceipt: true, type: true, status: true, totalAmount: true },
       })
       if (!invoice) return NextResponse.json({ error: "Fiş bulunamadı" }, { status: 404 })
       if (!invoice.isReceipt || invoice.type !== "SALES") {
         return NextResponse.json(
           { error: "Adisyon yalnızca satış fişine bağlanabilir" },
           { status: 400 },
+        )
+      }
+      if (invoice.status === "CANCELLED") {
+        return NextResponse.json({ error: "İptal edilmiş fişe bağlanamaz" }, { status: 400 })
+      }
+
+      // FİŞ TUTARI = HESAP TUTARI. Kapı yalnız "bu firmanın satış fişi" diye
+      // bakıyordu; 1 TL'lik bir fişle 500 TL'lik masa kapanabiliyordu — iskonto
+      // tavanı ve ikram/iptal gerekçesi (K2) bu yoldan atlanır, ciro sessizce
+      // kaybolurdu. GET'in ürettiği gövdeyle kesilen fiş kuruşu kuruşuna aynı
+      // toplamı verir; tolerans yalnız satır bazlı KDV yuvarlaması için.
+      const expected = serializeTicket(ticket).totals.total
+      const actual = Number(invoice.totalAmount)
+      if (Math.abs(actual - expected) > 0.1) {
+        return NextResponse.json(
+          {
+            error:
+              `Fiş tutarı (${actual.toFixed(2)} ₺) hesap tutarıyla (${expected.toFixed(2)} ₺) ` +
+              `eşleşmiyor. Hesap fiş kesildikten sonra değiştiyse yeni fiş kesin.`,
+            code: "TICKET_INVOICE_MISMATCH",
+          },
+          { status: 409 },
         )
       }
 

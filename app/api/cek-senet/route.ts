@@ -6,6 +6,8 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { Decimal } from "@prisma/client/runtime/library"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { assertOwnedByCompany } from "@/lib/company/owned"
+import { syncCheckSettlement, settlementAccountRequiredFrom } from "@/lib/cek-senet/tahsil"
 
 export const dynamic = 'force-dynamic'
 
@@ -100,6 +102,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
   }
 })
 
+const VALID_STATUSES = new Set(["PORTFÖYDE", "CİRO_EDİLDİ", "TAHSİL_EDİLDİ", "İADE_EDİLDİ", "PROTESTOLU"])
+
 export const POST = withApiErrors(async function POST(request: Request) {
   try {
     const user = await getCurrentUser()
@@ -128,6 +132,25 @@ export const POST = withApiErrors(async function POST(request: Request) {
 
     await ensureCompanyWrite(data.companyId)
 
+    // Sahiplik: cari ve bağlanan fatura bu firmanın olmalı (bkz. lib/company/owned.ts).
+    // Tutar da burada: negatif/NaN çek cari bakiyesini ters yönde oynatırdı.
+    await assertOwnedByCompany(data.companyId, {
+      customer: data.customerId,
+      supplier: data.supplierId,
+      invoice: data.invoiceId,
+    })
+    if (data.amount !== undefined && !(Number(data.amount) > 0)) {
+      return NextResponse.json({ error: "Tutar 0'dan büyük olmalı" }, { status: 400 })
+    }
+    if (data.status !== undefined && data.status !== "" && !VALID_STATUSES.has(String(data.status))) {
+      return NextResponse.json({ error: "Geçersiz durum" }, { status: 400 })
+    }
+    // Tahsil edilen kasa/banka (durum TAHSİL_EDİLDİ ise zorunlu) — bkz. lib/cek-senet/tahsil.ts
+    const settlementAccountId =
+      typeof data.settlementAccountId === "string" && data.settlementAccountId.trim()
+        ? data.settlementAccountId.trim()
+        : null
+
     if (type === "CHECK") {
       const {
         companyId,
@@ -153,7 +176,8 @@ export const POST = withApiErrors(async function POST(request: Request) {
         )
       }
 
-      const check = await prisma.check.create({
+      const check = await prisma.$transaction(async (tx) => {
+      const created = await tx.check.create({
         data: {
           companyId,
           checkNo,
@@ -186,6 +210,20 @@ export const POST = withApiErrors(async function POST(request: Request) {
           },
         },
       })
+      await syncCheckSettlement(tx, {
+        kind: "CHECK",
+        companyId,
+        id: created.id,
+        no: created.checkNo,
+        bankName: created.bankName,
+        amount: created.amount,
+        direction: created.direction,
+        status: created.status,
+        accountId: settlementAccountId,
+        createdBy: user.id,
+      })
+      return created
+      })
 
       return NextResponse.json(check, { status: 201 })
     } else {
@@ -210,7 +248,8 @@ export const POST = withApiErrors(async function POST(request: Request) {
         )
       }
 
-      const note = await prisma.promissoryNote.create({
+      const note = await prisma.$transaction(async (tx) => {
+      const created = await tx.promissoryNote.create({
         data: {
           companyId,
           noteNo,
@@ -240,10 +279,25 @@ export const POST = withApiErrors(async function POST(request: Request) {
           },
         },
       })
+      await syncCheckSettlement(tx, {
+        kind: "PROMISSORY_NOTE",
+        companyId,
+        id: created.id,
+        no: created.noteNo,
+        amount: created.amount,
+        direction: created.direction,
+        status: created.status,
+        accountId: settlementAccountId,
+        createdBy: user.id,
+      })
+      return created
+      })
 
       return NextResponse.json(note, { status: 201 })
     }
   } catch (error: any) {
+    const acc = settlementAccountRequiredFrom(error)
+    if (acc) return NextResponse.json({ error: acc.messageTr, code: acc.code }, { status: 400 })
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)
     }

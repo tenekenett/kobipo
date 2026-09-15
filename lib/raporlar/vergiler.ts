@@ -6,6 +6,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
 
 /** Muhtasar stopaj oranı — basit yaklaşım, gerçek hesap daha karmaşık. */
 const WITHHOLDING_RATE = 0.15
@@ -56,37 +57,58 @@ export async function computeVatDeclaration(args: {
   const period = args.period ?? "monthly"
   const { startDate, endDate } = resolveVatRange(period, args.year, args.month)
 
-  const [salesVAT, purchaseVAT] = await Promise.all([
+  // GEÇERLİ belge: iptal DEĞİL ve dönüştürülmüş fiş DEĞİL. `CONVERTED` fiş,
+  // kalemleri yeni faturaya kopyalanmış eski kayıttır; süzülmezse KDV'si hem fişte
+  // hem faturada sayılır (Reypo Medya'da 6 fiş / 8.616 TL fazladan ölçüldü).
+  // Diğer raporlar (kar-zarar, gelir-gider, cari) aynı iki durumu dışlıyor.
+  const posted = {
+    companyId: args.companyId,
+    status: { notIn: ["CANCELLED", "CONVERTED"] },
+    date: { gte: startDate, lte: endDate },
+  }
+  const byRate = (invoice: Record<string, unknown>) =>
+    prisma.invoiceItem.groupBy({
+      by: ["vatRate"],
+      where: { invoice: { ...posted, ...invoice } },
+      _sum: { vatAmount: true, totalAmount: true },
+    })
+
+  const [salesVAT, purchaseVAT, salesReturnVAT, purchaseReturnVAT] = await Promise.all([
     // Satış faturalarından KDV (Hesaplanan KDV)
-    prisma.invoiceItem.groupBy({
-      by: ["vatRate"],
-      where: {
-        invoice: {
-          companyId: args.companyId,
-          type: "SALES",
-          status: { not: "CANCELLED" },
-          date: { gte: startDate, lte: endDate },
-        },
-      },
-      _sum: { vatAmount: true, totalAmount: true },
-    }),
+    byRate({ type: "SALES" }),
     // Alış faturalarından KDV (İndirilecek KDV)
-    prisma.invoiceItem.groupBy({
-      by: ["vatRate"],
-      where: {
-        invoice: {
-          companyId: args.companyId,
-          type: "PURCHASE",
-          status: { not: "CANCELLED" },
-          date: { gte: startDate, lte: endDate },
-        },
-      },
-      _sum: { vatAmount: true, totalAmount: true },
-    }),
+    byRate({ type: "PURCHASE" }),
+    // İADELER: satış iadesi hesaplanan KDV'yi, alış iadesi indirilecek KDV'yi
+    // AZALTIR. Öncesinde iadeler hiç okunmuyordu — iade edilen malın KDV'si
+    // beyannameye ödenecek KDV olarak kalıyordu. (Resmî beyannamede satış iadesi
+    // "indirimler" satırına yazılır; net sonuç aynı, hazırlık raporunda oran
+    // kırılımı ilgili tarafta netlenir ki satış ve iade aynı satırda görünsün.)
+    byRate(SALES_RETURN_WHERE()),
+    byRate(PURCHASE_RETURN_WHERE()),
   ])
 
-  const calculatedVAT = salesVAT.reduce((sum, item) => sum + Number(item._sum.vatAmount || 0), 0)
-  const deductibleVAT = purchaseVAT.reduce((sum, item) => sum + Number(item._sum.vatAmount || 0), 0)
+  type RateRow = { vatRate: unknown; vatAmount: number; totalAmount: number }
+  /** Faturalar − iadeler, oran bazında; iade oranı faturada yoksa eksi satır olarak kalır. */
+  const netByRate = (invoices: typeof salesVAT, returns: typeof salesVAT): RateRow[] => {
+    const rows = new Map<string, RateRow>()
+    const add = (list: typeof salesVAT, sign: 1 | -1) => {
+      for (const item of list) {
+        const key = String(item.vatRate)
+        const row = rows.get(key) ?? { vatRate: item.vatRate, vatAmount: 0, totalAmount: 0 }
+        row.vatAmount += sign * Number(item._sum.vatAmount || 0)
+        row.totalAmount += sign * Number(item._sum.totalAmount || 0)
+        rows.set(key, row)
+      }
+    }
+    add(invoices, 1)
+    add(returns, -1)
+    return [...rows.values()].sort((a, b) => Number(a.vatRate) - Number(b.vatRate))
+  }
+
+  const sales = netByRate(salesVAT, salesReturnVAT)
+  const purchases = netByRate(purchaseVAT, purchaseReturnVAT)
+  const calculatedVAT = sales.reduce((sum, item) => sum + item.vatAmount, 0)
+  const deductibleVAT = purchases.reduce((sum, item) => sum + item.vatAmount, 0)
 
   return {
     period,
@@ -97,18 +119,7 @@ export async function computeVatDeclaration(args: {
     calculatedVAT,
     deductibleVAT,
     netVAT: calculatedVAT - deductibleVAT,
-    breakdown: {
-      sales: salesVAT.map((item) => ({
-        vatRate: item.vatRate,
-        vatAmount: Number(item._sum.vatAmount || 0),
-        totalAmount: Number(item._sum.totalAmount || 0),
-      })),
-      purchases: purchaseVAT.map((item) => ({
-        vatRate: item.vatRate,
-        vatAmount: Number(item._sum.vatAmount || 0),
-        totalAmount: Number(item._sum.totalAmount || 0),
-      })),
-    },
+    breakdown: { sales, purchases },
   }
 }
 

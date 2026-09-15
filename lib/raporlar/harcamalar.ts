@@ -16,7 +16,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { isPurchaseReturn } from "@/lib/cari/invoice-direction"
-import { NOT_TRANSFER_WHERE } from "@/lib/finans/nakit-hareket"
+import { NOT_TRANSFER_OR_SETTLEMENT_WHERE } from "@/lib/finans/nakit-hareket"
 import { periodWhere, resolvePeriodBounds } from "./date-range"
 import {
   buildBreakdowns,
@@ -163,7 +163,7 @@ export async function computeExpenseReport(args: {
         type: "EXPENSE",
         date,
         invoicePayments: { none: {} },
-        ...NOT_TRANSFER_WHERE,
+        ...NOT_TRANSFER_OR_SETTLEMENT_WHERE,
       },
       select: {
         id: true,
@@ -205,7 +205,7 @@ export async function computeExpenseReport(args: {
         type: "EXPENSE",
         date: { gte: previousStart, lt: bounds.start },
         invoicePayments: { none: {} },
-        ...NOT_TRANSFER_WHERE,
+        ...NOT_TRANSFER_OR_SETTLEMENT_WHERE,
       },
       _sum: { amount: true },
     }),

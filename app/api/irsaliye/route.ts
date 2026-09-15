@@ -4,6 +4,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
+import { assertOwnedByCompany } from "@/lib/company/owned"
 
 export const dynamic = "force-dynamic"
 
@@ -129,6 +130,15 @@ export const POST = withApiErrors(async function POST(request: Request) {
   if (!normalizedItems.length) {
     return NextResponse.json({ error: "En az bir geçerli kalem gerekli" }, { status: 400 })
   }
+
+  // Sahiplik: cari, kalem ürünleri ve bağlanan fatura bu firmanın olmalı
+  // (bkz. lib/company/owned.ts). `[id]` PUT ucu bunu zaten tek tek yapıyordu.
+  await assertOwnedByCompany(companyId, {
+    customer: waybillType === "SALES" ? customerId : null,
+    supplier: waybillType === "PURCHASE" ? supplierId : null,
+    product: normalizedItems.map((item: { productId: string | null }) => item.productId),
+    invoice: invoiceId,
+  })
 
   // Elle girilen no (alışta tedarikçinin kendi irsaliye numarası) öncelikli; boşsa üret.
   const manualWaybillNo = typeof waybillNo === "string" ? waybillNo.trim() : ""

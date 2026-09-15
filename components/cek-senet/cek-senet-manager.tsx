@@ -45,6 +45,7 @@ import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import { cekSenetStatusLabel, resolveCekSenetDirection } from "@/lib/cek-senet/labels"
 import { withCompanyHref } from "@/lib/company/href"
 import { toDateInput } from "@/lib/format"
+import { useAccounts } from "@/lib/swr/use-company-data"
 
 interface Check {
   id: string
@@ -135,6 +136,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
     customerId: "",
     supplierId: "",
     notes: "",
+    // Tahsil edildiğinde paranın girdiği kasa/banka (bkz. lib/cek-senet/tahsil.ts).
+    settlementAccountId: "",
   })
 
   const [noteForm, setNoteForm] = useState({
@@ -148,7 +151,11 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
     customerId: "",
     supplierId: "",
     notes: "",
+    settlementAccountId: "",
   })
+
+  // Kasa/banka listesi — yalnız "Tahsil Edildi" seçilince gerekir.
+  const { accounts } = useAccounts(companyId)
 
   useEffect(() => {
     if (companyId) {
@@ -301,6 +308,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
         customerId: (item as Check).customer?.id || "",
         supplierId: (item as Check).supplier?.id || "",
         notes: "",
+        settlementAccountId: "",
       })
     } else {
       setNoteForm({
@@ -314,6 +322,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
         customerId: (item as PromissoryNote).customer?.id || "",
         supplierId: (item as PromissoryNote).supplier?.id || "",
         notes: "",
+        settlementAccountId: "",
       })
     }
     setIsModalOpen(true)
@@ -334,6 +343,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
       customerId: "",
       supplierId: "",
       notes: "",
+      settlementAccountId: "",
     })
     setNoteForm({
       noteNo: "",
@@ -346,6 +356,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
       customerId: "",
       supplierId: "",
       notes: "",
+      settlementAccountId: "",
     })
   }
 
@@ -680,6 +691,15 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                       </Select>
                     </div>
                   </div>
+                  {checkForm.status === "TAHSİL_EDİLDİ" && (
+                    <SettlementAccountField
+                      accounts={accounts}
+                      value={checkForm.settlementAccountId}
+                      onChange={(v) => setCheckForm({ ...checkForm, settlementAccountId: v })}
+                      given={checkForm.direction === "GIVEN"}
+                      alreadySettled={editingItem?.status === "TAHSİL_EDİLDİ"}
+                    />
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="issueDate">Düzenleme Tarihi *</Label>
@@ -881,6 +901,15 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                       </Select>
                     </div>
                   </div>
+                  {noteForm.status === "TAHSİL_EDİLDİ" && (
+                    <SettlementAccountField
+                      accounts={accounts}
+                      value={noteForm.settlementAccountId}
+                      onChange={(v) => setNoteForm({ ...noteForm, settlementAccountId: v })}
+                      given={noteForm.direction === "GIVEN"}
+                      alreadySettled={editingItem?.status === "TAHSİL_EDİLDİ"}
+                    />
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="cariType">Cari Türü</Label>
@@ -1001,6 +1030,51 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
           </form>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+/**
+ * "Tahsil Edildi" seçilince görünen kasa/banka alanı. Sunucu hesabı zorunlu tutar
+ * (SETTLEMENT_ACCOUNT_REQUIRED); zaten tahsil edilmiş kayıtta boş bırakmak
+ * "mevcut hesapta kalsın" demektir.
+ */
+function SettlementAccountField({
+  accounts,
+  value,
+  onChange,
+  given,
+  alreadySettled,
+}: {
+  accounts: Array<{ id: string; name: string; type?: string }>
+  value: string
+  onChange: (v: string) => void
+  given: boolean
+  alreadySettled: boolean
+}) {
+  return (
+    <div className="space-y-2 rounded-md border border-dashed p-3">
+      <Label htmlFor="settlementAccountId">
+        {given ? "Ödemenin çıktığı kasa/banka" : "Paranın girdiği kasa/banka"}
+        {alreadySettled ? "" : " *"}
+      </Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger id="settlementAccountId">
+          <SelectValue placeholder={alreadySettled ? "Mevcut hesapta kalsın" : "Hesap seçin"} />
+        </SelectTrigger>
+        <SelectContent>
+          {accounts.map((a) => (
+            <SelectItem key={a.id} value={a.id}>
+              {a.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        Tahsil edildiğinde bu hesaba {given ? "gider" : "gelir"} hareketi yazılır; cari bakiye
+        çek/senet alındığında zaten düşmüştü, ikinci kez etkilenmez. Durum geri alınırsa
+        hareket de silinir.
+      </p>
     </div>
   )
 }

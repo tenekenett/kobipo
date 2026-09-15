@@ -16,7 +16,9 @@ import { resolveSlugId } from "@/lib/slug-resolve"
 import { Decimal } from "@prisma/client/runtime/library"
 import { normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
-import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
+import { assertOwnedByCompany } from "@/lib/company/owned"
+import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
 import {
   addLineTax,
   applyGlobalAdjustment,
@@ -292,6 +294,15 @@ export const PUT = withApiErrors(async function PUT(
         { status: 400 }
       )
     }
+
+    // SAHİPLİK — POST ile aynı kapı (bkz. lib/company/owned.ts). Gönderilmeyen alan
+    // (undefined) doğrulanmaz; null "temizle" demektir, o da doğrulanmaz.
+    await assertOwnedByCompany(invoice.companyId, {
+      customer: customerId,
+      supplier: supplierId,
+      product: normalizedItems?.map((item) => item.productId) ?? [],
+      invoice: returnOfInvoiceId,
+    })
 
     // Recalculate totals if items changed
     let netAmount: Decimal = invoice.netAmount
@@ -578,6 +589,21 @@ export const PUT = withApiErrors(async function PUT(
           createdBy: user.id,
         })
       }
+
+      // Otomatik muhasebe fişleri yeni tutar/tarihle hizalanır. Öncesinde PUT
+      // bunlara hiç dokunmuyordu: fatura 1.000'den 800'e inince yevmiye 1.000'de
+      // kalıyordu (bkz. lib/invoice/auto-entries.ts).
+      await syncInvoiceAutoEntries(tx, {
+        companyId: invoice.companyId,
+        invoiceId: resolvedParams.id,
+        invoiceNo: normalizedInvoiceNo || invoice.invoiceNo,
+        date: date ? new Date(date) : invoice.date,
+        type: invoice.type,
+        isReceipt: invoice.isReceipt,
+        netAmount,
+        vatAmount,
+        createdBy: user.id,
+      })
     }, { timeout: 20000 })
 
     // Pano "Son faturalar" ve sayaçları düzenlenmiş tutarla tazelensin (POST ile aynı).
@@ -772,6 +798,8 @@ export const DELETE = withApiErrors(async function DELETE(
 
     return NextResponse.json({ success: true, message: "Fatura ve stok hareketleri silindi/geri alındı." })
   } catch (error: any) {
+    // Kapı reddi (rol/arşiv/modül) 403 — 500 dönünce arayüz sebebi gösteremiyordu.
+    if (isAccessDeniedError(error)) return accessDeniedResponse(error)
     console.error("Error deleting invoice:", error)
     return NextResponse.json(
       { error: "Internal server error" },

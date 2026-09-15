@@ -26,6 +26,8 @@ import {
   normalizeDiscountLimit,
 } from "@/lib/restoran/discount-limit"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { assertOwnedByCompany } from "@/lib/company/owned"
+import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
 
 
 export const dynamic = 'force-dynamic'
@@ -372,6 +374,16 @@ const company = await prisma.company.findUnique({
       )
     }
 
+    // SAHİPLİK: cari, ürünler ve iade atfı BU firmanın olmalı. `connect` FK'yi global
+    // doğrular; başka firmanın ürünü bağlanır, stoğu o firmanın kartından düşerdi
+    // (bkz. lib/company/owned.ts). ForeignRecordError → catch → 403 FOREIGN_RECORD.
+    await assertOwnedByCompany(companyId, {
+      customer: customerId,
+      supplier: supplierId,
+      product: normalizedItems.map((item) => item.productId),
+      invoice: returnOfInvoiceId,
+    })
+
     // Satır iskonto hesaplaması: mod AMOUNT ise (negatif veya brütü aşan tutar
     // normalize edilir), aksi halde oran * brüt.
     const itemDiscountAmount = (item: typeof normalizedItems[number]) => {
@@ -450,10 +462,15 @@ const company = await prisma.company.findUnique({
       )
     }
 
-    const invoice = await prisma.invoice.create({
+    // Otomatik numarada YARIŞ: numara üretimiyle create arasına eşzamanlı başka bir
+    // fatura girerse (companyId, invoiceNo) tekil kısıtı patlar (P2002). Sipariş/teklif
+    // uçları gibi birkaç kez yeniden üretip dene; kullanıcı numarayı ELLE verdiyse
+    // tek deneme — çakışma o zaman gerçek bir kullanıcı hatasıdır (aşağıdaki catch).
+    const createInvoice = (invoiceNo: string) =>
+      prisma.invoice.create({
       data: {
         companyId,
-        invoiceNo: finalInvoiceNo,
+        invoiceNo,
         type,
         invoiceType,
         customerId: customerId || null,
@@ -541,7 +558,23 @@ const company = await prisma.company.findUnique({
         supplier: true,
         items: true,
       },
-    })
+      })
+    const maxAttempts = manualNo.value ? 1 : 5
+    let invoice!: Awaited<ReturnType<typeof createInvoice>>
+    for (let attempt = 0; ; attempt++) {
+      try {
+        invoice = await createInvoice(finalInvoiceNo)
+        break
+      } catch (createError: any) {
+        if (createError?.code !== "P2002" || attempt >= maxAttempts - 1) throw createError
+        finalInvoiceNo = await generateInvoiceNumber(
+          companyId,
+          type as "SALES" | "PURCHASE" | "RETURN",
+          date ? new Date(date) : undefined,
+          isReceipt,
+        )
+      }
+    }
 
     // Stok hareketi: depo bazlı. warehouseId verilmezse firmanın varsayılan deposu
     // kullanılır. Satış → çıkış (OUT, − miktar), Alış → giriş (IN, + miktar).
@@ -672,59 +705,20 @@ const company = await prisma.company.findUnique({
       }
     }
 
-    // Otomatik muhasebe fişi: Satış faturaları için temel kayıt. Fişlerde
-    // oluşturulmaz — muhasebe kaydı yalnızca resmî faturada (dönüştürmede) yapılır.
-    if (type === "SALES" && !isReceipt) {
-      const companyPlans = await prisma.accountPlan.findMany({
-        where: { companyId, code: { in: ["120", "600", "391"] } },
-        select: { id: true, code: true },
-      })
-      const plan120 = companyPlans.find((plan) => plan.code === "120")
-      const plan600 = companyPlans.find((plan) => plan.code === "600")
-      const plan391 = companyPlans.find((plan) => plan.code === "391")
-
-      if (plan120 && plan600 && Number(netAmount) > 0) {
-        const lastEntry = await prisma.accountingEntry.findFirst({
-          where: { companyId },
-          orderBy: { createdAt: "desc" },
-          select: { entryNo: true },
-        })
-        const nextNo = (Number(lastEntry?.entryNo || 0) + 1).toString().padStart(6, "0")
-
-        await prisma.accountingEntry.create({
-          data: {
-            companyId,
-            entryNo: nextNo,
-            date: new Date(date),
-            description: `${invoice.invoiceNo} satış faturası otomatik fişi`,
-            debitAccountId: plan120.id,
-            creditAccountId: plan600.id,
-            amount: Number(netAmount),
-            reference: invoice.id,
-            referenceType: "INVOICE_AUTO",
-            createdBy: user.id,
-          },
-        })
-
-        if (plan391 && Number(vatAmount) > 0) {
-          const vatNo = (Number(nextNo) + 1).toString().padStart(6, "0")
-          await prisma.accountingEntry.create({
-            data: {
-              companyId,
-              entryNo: vatNo,
-              date: new Date(date),
-              description: `${invoice.invoiceNo} KDV otomatik fişi`,
-              debitAccountId: plan120.id,
-              creditAccountId: plan391.id,
-              amount: Number(vatAmount),
-              reference: invoice.id,
-              referenceType: "INVOICE_AUTO_VAT",
-              createdBy: user.id,
-            },
-          })
-        }
-      }
-    }
+    // Otomatik muhasebe fişi (120→600 matrah, 120→391 KDV). Fişlerde oluşturulmaz —
+    // muhasebe kaydı yalnızca resmî faturada (dönüştürmede) yapılır. Tek yazım yeri
+    // lib/invoice/auto-entries.ts: düzenleme ve dönüşümler de oradan geçer.
+    await syncInvoiceAutoEntries(prisma, {
+      companyId,
+      invoiceId: invoice.id,
+      invoiceNo: invoice.invoiceNo,
+      date: new Date(date),
+      type,
+      isReceipt,
+      netAmount,
+      vatAmount,
+      createdBy: user.id,
+    })
 
     // Send invoice if requested. Fişler asla GİB'e gönderilmez (resmî belge değil).
     if (

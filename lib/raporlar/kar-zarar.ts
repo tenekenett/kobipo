@@ -15,7 +15,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
-import { NOT_TRANSFER_WHERE } from "@/lib/finans/nakit-hareket"
+import { NOT_TRANSFER_OR_SETTLEMENT_WHERE } from "@/lib/finans/nakit-hareket"
 import { periodWhere, resolvePeriodBounds } from "./date-range"
 
 export type ProfitLossResult = {
@@ -68,7 +68,7 @@ export async function computeProfitLoss(args: {
         type: "INCOME",
         date,
         invoicePayments: { none: {} },
-        ...NOT_TRANSFER_WHERE,
+        ...NOT_TRANSFER_OR_SETTLEMENT_WHERE,
       },
       _sum: { amount: true },
     }),
@@ -79,7 +79,7 @@ export async function computeProfitLoss(args: {
         type: "EXPENSE",
         date,
         invoicePayments: { none: {} },
-        ...NOT_TRANSFER_WHERE,
+        ...NOT_TRANSFER_OR_SETTLEMENT_WHERE,
       },
       _sum: { amount: true },
     }),

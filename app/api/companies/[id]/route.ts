@@ -5,6 +5,11 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { encryptSecret } from "@/lib/crypto/secrets"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import {
+  assertBranchIdentityLocked,
+  branchIdentityLockedFrom,
+  propagateIdentityToBranches,
+} from "@/lib/company/branch-identity"
 
 
 export const dynamic = 'force-dynamic'
@@ -118,6 +123,48 @@ export const PUT = withApiErrors(async function PUT(
     }
 
     const body = await request.json()
+
+    // ŞUBE KİMLİĞİ KİLİTLİ: VKN/vergi dairesi/e-Dönüşüm ana firmadan devralınır,
+    // şubede değiştirilemez (bkz. lib/company/branch-identity.ts). Formun her
+    // kaydetmede yolladığı DEĞİŞMEMİŞ alanlar hata değildir.
+    const current = await prisma.company.findUnique({
+      where: { id: resolvedParams.id },
+      select: {
+        parentCompanyId: true,
+        taxNumber: true,
+        taxOffice: true,
+        isEDonusumEnabled: true,
+        eDonusumIntegrator: true,
+        eDonusumProvider: true,
+        eDonusumApiUsername: true,
+        eDonusumAlias: true,
+        eDonusumApiUrl: true,
+        eDonusumTenantVkn: true,
+        eDonusumConnectorGuid: true,
+        eDonusumPkAlias: true,
+        eDonusumGbAlias: true,
+        eFaturaPrefix: true,
+        eArchivePrefix: true,
+        eFaturaBackdatePrefix: true,
+        eArchiveBackdatePrefix: true,
+      },
+    })
+    if (!current) {
+      return NextResponse.json({ error: "Company not found" }, { status: 404 })
+    }
+    try {
+      assertBranchIdentityLocked(current, body)
+    } catch (lockErr) {
+      const locked = branchIdentityLockedFrom(lockErr)
+      if (locked) {
+        return NextResponse.json(
+          { error: locked.messageTr, code: locked.code, fields: locked.fields },
+          { status: 400 },
+        )
+      }
+      throw lockErr
+    }
+
     const {
       name,
       branchName,
@@ -184,9 +231,7 @@ export const PUT = withApiErrors(async function PUT(
       }
     }
 
-    const company = await prisma.company.update({
-      where: { id: resolvedParams.id },
-      data: {
+    const updateData = {
         name,
         // Gönderilmediyse (undefined) dokunma; boş gönderildiyse temizle.
         branchName:
@@ -251,8 +296,18 @@ export const PUT = withApiErrors(async function PUT(
         usesEDonusumBefore:
           typeof usesEDonusumBefore === "boolean" ? usesEDonusumBefore : null,
         onboardingCompletedAt: onboardingCompletedAt ? new Date(onboardingCompletedAt) : undefined,
-      },
+    }
+
+    const company = await prisma.company.update({
+      where: { id: resolvedParams.id },
+      data: updateData,
     })
+
+    // Ana firmada değişen kimlik şubelere YAYILIR — devralma açılış anıyla sınırlı
+    // kalmasın (VKN düzeltmesi şubeye de ulaşsın). Şubede parent yok, döngü yok.
+    if (!current.parentCompanyId) {
+      await propagateIdentityToBranches(prisma, resolvedParams.id, updateData)
+    }
 
     return NextResponse.json(company)
   } catch (error: any) {

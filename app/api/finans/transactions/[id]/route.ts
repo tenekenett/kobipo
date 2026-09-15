@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
+import { isCheckSettlement } from "@/lib/finans/nakit-hareket"
 
 export const dynamic = "force-dynamic"
 
@@ -95,6 +96,18 @@ export const DELETE = withApiErrors(async function DELETE(
         { status: 400 },
       )
     }
+    // Çek/senet tahsil hareketi: sahibi çek/senet kaydıdır (durumu geri alınca
+    // kendiliğinden silinir). Buradan silinirse çek "tahsil edildi" kalır, para yok olur.
+    if (isCheckSettlement(transaction)) {
+      return NextResponse.json(
+        {
+          error:
+            "Bu hareket bir çek/senet tahsilinden doğdu. Silmek için Çek & Senet ekranından kaydın durumunu değiştirin.",
+          code: "TRANSACTION_LINKED_TO_CHECK",
+        },
+        { status: 409 },
+      )
+    }
 
     // Bordro ödemesinden doğan EXPENSE: silinirse PayrollRecord.transactionId
     // asılı kalır ve bordro hem "Ödendi" görünür hem finansal hareket yok olur.
@@ -116,21 +129,16 @@ export const DELETE = withApiErrors(async function DELETE(
     }
 
     await prisma.$transaction(async (db) => {
-      const account = await db.financialAccount.findUnique({
-        where: { id: transaction.accountId },
-        select: { id: true, balance: true },
-      })
-      if (account) {
-        const amount = Number(transaction.amount)
-        const newBalance =
-          transaction.type === "INCOME"
-            ? Number(account.balance) - amount
-            : transaction.type === "EXPENSE"
-              ? Number(account.balance) + amount
-              : Number(account.balance)
-        await db.financialAccount.update({
-          where: { id: account.id },
-          data: { balance: newBalance },
+      // Bakiye geri alma ATOMİK (`increment`/`decrement`): oku-topla-yaz eşzamanlı
+      // işlemde kaybettiriyordu (bkz. POST). TRANSFER buraya gelmez (yukarıda kesildi).
+      const amount = Number(transaction.amount)
+      if (transaction.type === "INCOME" || transaction.type === "EXPENSE") {
+        await db.financialAccount.updateMany({
+          where: { id: transaction.accountId },
+          data: {
+            balance:
+              transaction.type === "INCOME" ? { decrement: amount } : { increment: amount },
+          },
         })
       }
       // Bağlı InvoicePayment'lar Cascade ile silinir (fatura açık tutarı geri açılır).

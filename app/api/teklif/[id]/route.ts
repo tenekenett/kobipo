@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
+import { assertOwnedByCompany } from "@/lib/company/owned"
 
 export const dynamic = "force-dynamic"
 
@@ -110,6 +111,13 @@ export const PUT = withApiErrors(async function PUT(
     await prisma.quoteItem.deleteMany({ where: { quoteId: id } })
     payload.items = { create: normalized.map((item, index) => ({ ...item, order: index })) }
   }
+
+  // Sahiplik: cari ve kalemlerin ürünleri bu firmanın olmalı.
+  await assertOwnedByCompany(existing.companyId, {
+    customer: payload.customerId,
+    supplier: payload.supplierId,
+    product: payload.items ? (payload.items.create as Array<{ productId: string | null }>).map((i) => i.productId) : [],
+  })
 
   const updated = await prisma.quote.update({
     where: { id },

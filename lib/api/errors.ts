@@ -13,6 +13,7 @@ import {
   cariForbiddenFrom,
 } from "@/lib/cari/visibility"
 import { navPage } from "@/lib/nav/pages"
+import { FOREIGN_RECORD_CODE, foreignRecordFrom } from "@/lib/company/owned"
 
 /**
  * `ensureCompanyAccess` / `ensureCompanyWrite` "Access denied..." fırlatır; route'lar bunu
@@ -67,6 +68,17 @@ export function accessDeniedResponse(error: unknown, fallbackMessage: unknown = 
   if (cariForbiddenFrom(error)) {
     return NextResponse.json(
       { error: CARI_FORBIDDEN_MESSAGE_TR, code: CARI_FORBIDDEN_CODE },
+      { status: 403 },
+    )
+  }
+
+  // Sahiplik kapısı: gövdedeki ürün/cari/depo id'si BAŞKA firmanın. Kullanıcıya
+  // "yetkiniz yok" değil "bu firmaya ait değil, yeniden seçin" denir; id basılmaz
+  // (bkz. lib/company/owned.ts).
+  const foreign = foreignRecordFrom(error)
+  if (foreign) {
+    return NextResponse.json(
+      { error: foreign.messageTr, code: FOREIGN_RECORD_CODE, model: foreign.model },
       { status: 403 },
     )
   }

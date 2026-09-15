@@ -214,6 +214,9 @@ export default function FirmaAyarlariPage() {
     return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
   }
 
+  // Şube: kimlik alanları kilitli (bkz. lib/company/branch-identity.ts).
+  const isBranch = Boolean(company?.parentCompanyId)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!companyId) return
@@ -351,8 +354,15 @@ export default function FirmaAyarlariPage() {
                   id="taxNumber"
                   value={formData.taxNumber}
                   onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
-                  disabled={isLoading || !isEditing}
+                  disabled={isLoading || !isEditing || isBranch}
                 />
+                {isBranch && (
+                  <p className="text-xs text-muted-foreground">
+                    Şube aynı tüzel kişidir: Vergi No, Vergi Dairesi ve e-Dönüşüm bilgileri{" "}
+                    <span className="font-medium">ana firmadan devralınır</span>, burada
+                    değiştirilemez. Değişiklik ana firmanın ayarlarından yapılır ve şubelere yayılır.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="taxOffice">Vergi Dairesi</Label>
@@ -360,7 +370,7 @@ export default function FirmaAyarlariPage() {
                   id="taxOffice"
                   value={formData.taxOffice}
                   onChange={(e) => setFormData({ ...formData, taxOffice: e.target.value })}
-                  disabled={isLoading || !isEditing}
+                  disabled={isLoading || !isEditing || isBranch}
                 />
               </div>
               {/* İl/ilçe SABİT listeden seçilir (cari adresleriyle aynı bileşen):

@@ -4,6 +4,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { DEFAULT_ANNUAL_LEAVE_DAYS } from "@/lib/personel/izin"
 
 export const dynamic = "force-dynamic"
 
@@ -41,7 +42,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
   }
 
   const balances = employees.map((e) => {
-    const entitlement = e.annualLeaveDays ?? 14
+    const entitlement = e.annualLeaveDays ?? DEFAULT_ANNUAL_LEAVE_DAYS
     const used = usedByEmployee.get(e.id) || 0
     return {
       employeeId: e.id,

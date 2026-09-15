@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
+import { assertLeaveAllowed, leaveRuleErrorResponse } from "@/lib/personel/izin"
 
 export const dynamic = "force-dynamic"
 
@@ -43,6 +44,30 @@ export const PUT = withApiErrors(async function PUT(
    * silinemez (yarım gün çalışıp raporlu ayrılan personel olağandır).
    */
   if (data.status === "APPROVED" && existing.status !== "APPROVED") {
+    // Reddedilmiş/bekleyen talep onaylanırken de çakışma ve bakiye kapısından geçer:
+    // talep girildikten sonra araya başka bir izin girmiş olabilir.
+    const employee = await prisma.employee.findUnique({
+      where: { id: existing.employeeId },
+      select: { annualLeaveDays: true },
+    })
+    try {
+      await assertLeaveAllowed(prisma, {
+        companyId: existing.companyId,
+        employeeId: existing.employeeId,
+        type: existing.type,
+        start: existing.startDate,
+        end: existing.endDate,
+        days: Number(existing.days),
+        entitlement: employee?.annualLeaveDays ?? null,
+        excludeId: existing.id,
+        allowOverdraft: body.allowOverdraft === true,
+      })
+    } catch (ruleErr) {
+      const res = leaveRuleErrorResponse(ruleErr)
+      if (res) return NextResponse.json(res.body, { status: res.status })
+      throw ruleErr
+    }
+
     const clash = await prisma.workShift.findMany({
       where: {
         companyId: existing.companyId,

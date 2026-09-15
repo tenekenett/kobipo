@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { Decimal } from "@prisma/client/runtime/library"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { assertOwnedByCompany } from "@/lib/company/owned"
 
 export const dynamic = 'force-dynamic'
 
@@ -88,6 +89,9 @@ export const POST = withApiErrors(async function POST(request: Request) {
     }
 
     await ensureCompanyWrite(companyId)
+
+    // Sahiplik: borç/alacak hesabı bu firmanın hesap planından olmalı.
+    await assertOwnedByCompany(companyId, { accountPlan: [debitAccountId, creditAccountId] })
 
     const entry = await prisma.accountingEntry.create({
       data: {
