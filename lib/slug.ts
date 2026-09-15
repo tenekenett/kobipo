@@ -1,10 +1,48 @@
+import { trFold } from "@/lib/text/tr-fold"
+
 /**
  * Ortak slug yardımcıları — SEF (arama motoru dostu / okunabilir) URL'ler için.
  * `slugify` blog'dan buraya taşındı; blog modülü artık buradan re-export eder.
  */
 
-/** Türkçe karakterleri sadeleştirip URL-güvenli slug üretir. */
+/**
+ * Türkçe karakterleri sadeleştirip URL-güvenli slug üretir.
+ *
+ * KATLAMA KÜÇÜLTMEDEN ÖNCE GELİR. Önceki sürüm `toLowerCase()`i ilk sıraya koyup
+ * `İ → i` değişimini sonraya bırakıyordu ve o değişim HİÇ eşleşmiyordu:
+ * `"İ".toLowerCase()` Türkçe'de "i" değil, "i" + U+0307 (birleşen nokta) üretir.
+ * Nokta sonra `[^a-z0-9]` süzgecine takılıp TİREYE dönüşüyordu:
+ *
+ *     "Yıllık İzin Talep Formu" → yillik-i-zin-talep-formu
+ *     "İstifa Dilekçesi"        → i-stifa-dilekcesi
+ *
+ * Aynı işi yapan SQL trigger'ı (`set_entity_slug`, migrasyon 20260703000001) doğru
+ * sırayla çalışıyor: `LOWER(TRANSLATE(...))`. Yani iki taraf aynı ad için farklı
+ * slug üretiyordu; cari/ürün/personel kayıtları trigger'dan geçtiği için veri
+ * bozulmadı, ama blog yazısı, rol kalıbı anahtarı ve `issue-sales-invoice`'ın
+ * müşteri açma yolu TS tarafından besleniyor.
+ *
+ * Katlama artık tek kaynaktan gelir: `trFold` (bkz. CLAUDE.md → Türkçe duyarsız
+ * arama). Yan kazanç, düzeltmenin parçası değil: â/î/û da sadeleşir.
+ */
 export function slugify(input: string): string {
+  return trFold(input)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+}
+
+/**
+ * Düzeltmeden ÖNCEKİ (hatalı) slug — yalnız GERİYE UYUM eşleşmesi için.
+ *
+ * Blog kategori sayfalarının slug'ı saklanmaz, her istekte kategori adından
+ * hesaplanır. Bu yüzden `slugify`ı düzeltmek dışarıda paylaşılmış/dizine girmiş
+ * `/kategori/i-s-dunyasi` gibi adresleri 404'e düşürürdü. `getCategoryBySlug`
+ * önce doğru slug'ı, tutmazsa bunu dener.
+ *
+ * YENİ ADRES ÜRETMEK İÇİN KULLANILMAZ.
+ */
+export function legacySlugify(input: string): string {
   return (input || "")
     .toLowerCase()
     .replace(/ğ/g, "g")

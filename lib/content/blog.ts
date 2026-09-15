@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma"
-import { slugify } from "@/lib/blog/slug"
+import { legacySlugify, slugify } from "@/lib/slug"
 
 /**
  * Public blog içeriği — artık DB'den (BlogPost) okunur. Yalnız PUBLISHED yazılar döner.
@@ -112,10 +112,22 @@ export async function getPostsByCategory(category: string): Promise<BlogPost[]> 
   return rows.map(toBlogPost)
 }
 
-/** URL slug'ından (slugify eşleşmesi) gerçek kategori adını bulur. */
+/**
+ * URL slug'ından (slugify eşleşmesi) gerçek kategori adını bulur.
+ *
+ * Kategori slug'ı SAKLANMAZ, her istekte addan hesaplanır. `slugify`daki Türkçe
+ * "İ" hatası düzeltilince "İş Dünyası" kategorisinin adresi `i-s-dunyasi`den
+ * `is-dunyasi`ye döndü; dışarıda paylaşılmış ya da dizine girmiş eski adresler
+ * 404 olmasın diye ESKİ biçim de denenir. Yeni adresler yalnız `categoryPath`ten,
+ * yani düzeltilmiş `slugify`dan üretilir.
+ */
 export async function getCategoryBySlug(slug: string): Promise<string | null> {
   const categories = await getBlogCategories()
-  return categories.find((c) => slugify(c) === slug) ?? null
+  return (
+    categories.find((c) => slugify(c) === slug) ??
+    categories.find((c) => legacySlugify(c) === slug) ??
+    null
+  )
 }
 
 /**
