@@ -5,6 +5,7 @@ import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
@@ -241,10 +242,6 @@ export default function SatisIrsaliyePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
 
-  if (!companyId) {
-    return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
-  }
-
   const term = trFold(search)
   const filtered = waybills.filter((w) => {
     if (statusFilter !== "ALL" && w.status !== statusFilter) return false
@@ -254,6 +251,12 @@ export default function SatisIrsaliyePage() {
       trFold(w.customer?.name).includes(term)
     )
   })
+
+  const paged = usePagedRows(filtered, { resetKey: `${search}|${statusFilter}` })
+
+  if (!companyId) {
+    return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
+  }
 
   const pendingCount = waybills.filter((w) => w.status === "DRAFT" || w.status === "SENT").length
   const deliveredCount = waybills.filter((w) => w.status === "DELIVERED").length
@@ -536,62 +539,65 @@ export default function SatisIrsaliyePage() {
             <div className="text-sm text-muted-foreground">Aramayla eşleşen irsaliye yok.</div>
           )}
           {!isLoading && filtered.length > 0 && (
-            <StyledTableContainer>
-              <Table>
-                <TableHeader>
-                  <StyledTableHeaderRow>
-                    <StyledTableHead>No</StyledTableHead>
-                    <StyledTableHead>Tarih</StyledTableHead>
-                    <StyledTableHead>Müşteri</StyledTableHead>
-                    <StyledTableHead className="text-center">Kalem</StyledTableHead>
-                    <StyledTableHead>Taşıyıcı / Araç</StyledTableHead>
-                    <StyledTableHead className="w-[150px]">Durum</StyledTableHead>
-                    <StyledTableHead className="w-[60px] text-right">İşlem</StyledTableHead>
-                  </StyledTableHeaderRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((w, idx) => (
-                    <StyledTableRow key={w.id} index={idx}>
-                      <TableCell className="font-mono text-xs font-medium">{w.waybillNo}</TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">
-                        {new Date(w.date).toLocaleDateString("tr-TR")}
-                      </TableCell>
-                      <TableCell>
-                        <EntityCell name={w.customer?.name} />
-                      </TableCell>
-                      <TableCell className="text-center text-xs text-muted-foreground">
-                        {w._count?.items ?? 0}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                        {w.carrier || "—"}
-                        {w.vehicleNo ? ` · ${w.vehicleNo}` : ""}
-                      </TableCell>
-                      <TableCell>
-                        <Select value={w.status} onValueChange={(v) => updateStatus(w.id, v)}>
-                          <SelectTrigger className="h-8">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                              <SelectItem key={value} value={value}>
-                                {label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end">
-                          <WriteAction><Button size="sm" variant="ghost" onClick={() => removeWaybill(w.id)} title="Sil">
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button></WriteAction>
-                        </div>
-                      </TableCell>
-                    </StyledTableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </StyledTableContainer>
+            <>
+              <StyledTableContainer>
+                <Table>
+                  <TableHeader>
+                    <StyledTableHeaderRow>
+                      <StyledTableHead>No</StyledTableHead>
+                      <StyledTableHead>Tarih</StyledTableHead>
+                      <StyledTableHead>Müşteri</StyledTableHead>
+                      <StyledTableHead className="text-center">Kalem</StyledTableHead>
+                      <StyledTableHead>Taşıyıcı / Araç</StyledTableHead>
+                      <StyledTableHead className="w-[150px]">Durum</StyledTableHead>
+                      <StyledTableHead className="w-[60px] text-right">İşlem</StyledTableHead>
+                    </StyledTableHeaderRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paged.pageRows.map((w, idx) => (
+                      <StyledTableRow key={w.id} index={idx}>
+                        <TableCell className="font-mono text-xs font-medium">{w.waybillNo}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {new Date(w.date).toLocaleDateString("tr-TR")}
+                        </TableCell>
+                        <TableCell>
+                          <EntityCell name={w.customer?.name} />
+                        </TableCell>
+                        <TableCell className="text-center text-xs text-muted-foreground">
+                          {w._count?.items ?? 0}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                          {w.carrier || "—"}
+                          {w.vehicleNo ? ` · ${w.vehicleNo}` : ""}
+                        </TableCell>
+                        <TableCell>
+                          <Select value={w.status} onValueChange={(v) => updateStatus(w.id, v)}>
+                            <SelectTrigger className="h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                                <SelectItem key={value} value={value}>
+                                  {label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end">
+                            <WriteAction><Button size="sm" variant="ghost" onClick={() => removeWaybill(w.id)} title="Sil">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button></WriteAction>
+                          </div>
+                        </TableCell>
+                      </StyledTableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </StyledTableContainer>
+              <TablePagination {...paged} />
+            </>
           )}
         </CardContent>
       </Card>

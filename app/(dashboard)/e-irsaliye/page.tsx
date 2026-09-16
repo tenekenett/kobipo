@@ -4,6 +4,7 @@ import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -167,6 +168,8 @@ export default function EirsaliyePage() {
     return new Date(dateString).toLocaleDateString("tr-TR")
   }
 
+  const paged = usePagedRows(waybills)
+
   if (!companyId) {
     return (
       <Card>
@@ -257,73 +260,76 @@ export default function EirsaliyePage() {
               Henüz irsaliye bulunmuyor
             </div>
           ) : (
-            <StyledTableContainer>
-            <Table>
-              <TableHeader>
-                <StyledTableHeaderRow>
-                  <StyledTableHead>İrsaliye No</StyledTableHead>
-                  <StyledTableHead>Tip</StyledTableHead>
-                  <StyledTableHead>Müşteri/Tedarikçi</StyledTableHead>
-                  <StyledTableHead>Tarih</StyledTableHead>
-                  <StyledTableHead>Taşıyıcı</StyledTableHead>
-                  <StyledTableHead>Durum</StyledTableHead>
-                  <StyledTableHead>Entegrasyon</StyledTableHead>
-                  <StyledTableHead>İşlemler</StyledTableHead>
-                </StyledTableHeaderRow>
-              </TableHeader>
-              <TableBody>
-                {waybills.map((waybill, idx) => (
-                  <StyledTableRow key={waybill.id} index={idx}>
-                    <TableCell className="font-mono text-xs text-kobipo-blue font-medium">
-                      {waybill.waybillNo}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={waybill.type === "SALES" ? "default" : "secondary"}>
-                        {waybill.type === "SALES" ? "Satış" : "Alış"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <EntityCell name={waybill.customer?.name || waybill.supplier?.name} />
-                    </TableCell>
-                    <TableCell className="text-xs whitespace-nowrap">{formatDate(waybill.date)}</TableCell>
-                    <TableCell className="text-xs">{waybill.carrier || "-"}</TableCell>
-                    <TableCell>
-                      <Badge variant={
-                        waybill.status === "SENT" ? "default" :
-                        waybill.status === "DELIVERED" ? "default" :
-                        waybill.status === "CANCELLED" ? "destructive" : "secondary"
-                      }>
-                        {waybill.status === "SENT" ? "Gönderildi" :
-                         waybill.status === "DELIVERED" ? "Teslim Edildi" :
-                         waybill.status === "CANCELLED" ? "İptal" : "Taslak"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs">{waybill.integrationStatus || "-"}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <WriteAction><Button
-                          size="sm"
-                          variant="outline"
-                          disabled={waybill.status !== "DRAFT"}
-                          onClick={() => sendWaybill(waybill.id)}
-                        >
-                          Gönder
-                        </Button></WriteAction>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={!waybill.uuid}
-                          onClick={() => checkWaybillStatus(waybill.id)}
-                        >
-                          Durum
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </StyledTableRow>
-                ))}
-              </TableBody>
-            </Table>
-            </StyledTableContainer>
+            <>
+              <StyledTableContainer>
+              <Table>
+                <TableHeader>
+                  <StyledTableHeaderRow>
+                    <StyledTableHead>İrsaliye No</StyledTableHead>
+                    <StyledTableHead>Tip</StyledTableHead>
+                    <StyledTableHead>Müşteri/Tedarikçi</StyledTableHead>
+                    <StyledTableHead>Tarih</StyledTableHead>
+                    <StyledTableHead>Taşıyıcı</StyledTableHead>
+                    <StyledTableHead>Durum</StyledTableHead>
+                    <StyledTableHead>Entegrasyon</StyledTableHead>
+                    <StyledTableHead>İşlemler</StyledTableHead>
+                  </StyledTableHeaderRow>
+                </TableHeader>
+                <TableBody>
+                  {paged.pageRows.map((waybill, idx) => (
+                    <StyledTableRow key={waybill.id} index={idx}>
+                      <TableCell className="font-mono text-xs text-kobipo-blue font-medium">
+                        {waybill.waybillNo}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={waybill.type === "SALES" ? "default" : "secondary"}>
+                          {waybill.type === "SALES" ? "Satış" : "Alış"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <EntityCell name={waybill.customer?.name || waybill.supplier?.name} />
+                      </TableCell>
+                      <TableCell className="text-xs whitespace-nowrap">{formatDate(waybill.date)}</TableCell>
+                      <TableCell className="text-xs">{waybill.carrier || "-"}</TableCell>
+                      <TableCell>
+                        <Badge variant={
+                          waybill.status === "SENT" ? "default" :
+                          waybill.status === "DELIVERED" ? "default" :
+                          waybill.status === "CANCELLED" ? "destructive" : "secondary"
+                        }>
+                          {waybill.status === "SENT" ? "Gönderildi" :
+                           waybill.status === "DELIVERED" ? "Teslim Edildi" :
+                           waybill.status === "CANCELLED" ? "İptal" : "Taslak"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs">{waybill.integrationStatus || "-"}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <WriteAction><Button
+                            size="sm"
+                            variant="outline"
+                            disabled={waybill.status !== "DRAFT"}
+                            onClick={() => sendWaybill(waybill.id)}
+                          >
+                            Gönder
+                          </Button></WriteAction>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={!waybill.uuid}
+                            onClick={() => checkWaybillStatus(waybill.id)}
+                          >
+                            Durum
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </StyledTableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              </StyledTableContainer>
+              <TablePagination {...paged} />
+            </>
           )}
         </CardContent>
       </Card>

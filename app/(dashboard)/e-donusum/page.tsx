@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import {
   Table,
   TableBody,
@@ -141,6 +142,8 @@ export default function EDönüşümPage() {
       setIsLoading(false)
     }
   }
+
+  const paged = usePagedRows(invoices)
 
   if (!companyId) {
     return (
@@ -570,7 +573,7 @@ export default function EDönüşümPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                invoices.map((invoice, idx) => (
+                paged.pageRows.map((invoice, idx) => (
                   <StyledTableRow
                     key={invoice.id}
                     index={idx}
@@ -664,6 +667,7 @@ export default function EDönüşümPage() {
             </TableBody>
           </Table>
           </StyledTableContainer>
+          <TablePagination {...paged} />
         </CardContent>
       </Card>
     </div>

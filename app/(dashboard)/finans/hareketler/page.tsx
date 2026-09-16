@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   StyledTableContainer,
@@ -96,6 +97,8 @@ export default function FinansHareketlerPage() {
     }).format(amount)
   }
 
+  const paged = usePagedRows(transactions)
+
   if (!companyId) {
     return (
       <Card>
@@ -132,6 +135,7 @@ export default function FinansHareketlerPage() {
               Henüz hareket bulunmuyor
             </div>
           ) : (
+            <>
             <StyledTableContainer>
             <Table>
               <TableHeader>
@@ -144,7 +148,7 @@ export default function FinansHareketlerPage() {
                 </StyledTableHeaderRow>
               </TableHeader>
               <TableBody>
-                {transactions.map((tx, idx) => (
+                {paged.pageRows.map((tx, idx) => (
                   <StyledTableRow
                     key={tx.id}
                     index={idx}
@@ -178,6 +182,8 @@ export default function FinansHareketlerPage() {
               </TableBody>
             </Table>
             </StyledTableContainer>
+            <TablePagination {...paged} />
+            </>
           )}
         </CardContent>
       </Card>

@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 
 interface AccountingEntry {
   id: string
@@ -65,6 +66,8 @@ export default function YevmiyePage() {
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("tr-TR")
   }
+
+  const paged = usePagedRows(entries)
 
   if (!companyId) {
     return (
@@ -126,7 +129,7 @@ export default function YevmiyePage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                entries.map((entry) => (
+                paged.pageRows.map((entry) => (
                   <TableRow key={entry.id}>
                     <TableCell>{formatDate(entry.date)}</TableCell>
                     <TableCell className="font-medium">{entry.entryNo}</TableCell>
@@ -143,6 +146,7 @@ export default function YevmiyePage() {
               )}
             </TableBody>
           </Table>
+          <TablePagination {...paged} />
         </CardContent>
       </Card>
     </div>

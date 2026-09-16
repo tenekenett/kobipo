@@ -5,6 +5,7 @@ import { withCompanyHref } from "@/lib/company/href"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Input } from "@/components/ui/input"
 import { UnitCombobox } from "@/components/ui/unit-combobox"
 import {
@@ -518,14 +519,6 @@ export default function StokPage() {
     }
   }
 
-  if (!companyId) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-muted-foreground">Lütfen bir firma seçin</p>
-      </div>
-    )
-  }
-
   // Ürün başına depo dağılımı (0 dahil tüm kayıtlar — ürün hangi depoya kayıtlı).
   const stockByProduct = new Map<string, { warehouseId: string; warehouseName: string; quantity: number }[]>()
   for (const s of warehouseStocks) {
@@ -578,6 +571,19 @@ export default function StokPage() {
   const visibleProducts = kindFilter
     ? baseProducts.filter((p) => matchesKindFilter(p, kindFilter))
     : baseProducts
+
+  // Süzgeçler tüm kayıt üzerinde çalışır; yalnız çizilen dilim sayfalanır.
+  const paged = usePagedRows(visibleProducts, {
+    resetKey: `${debouncedSearch}|${kindFilter ?? ""}|${categoryFilter}|${warehouseFilter}|${onlyLowStock}`,
+  })
+
+  if (!companyId) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <p className="text-muted-foreground">Lütfen bir firma seçin</p>
+      </div>
+    )
+  }
 
   const activeFilterCount =
     (search ? 1 : 0) +
@@ -1195,7 +1201,7 @@ export default function StokPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                visibleProducts.map((product, idx) => (
+                paged.pageRows.map((product, idx) => (
                   <StyledTableRow
                     key={product.id}
                     index={idx}
@@ -1352,6 +1358,7 @@ export default function StokPage() {
             </TableBody>
           </Table>
           </StyledTableContainer>
+          <TablePagination {...paged} />
         </CardContent>
       </Card>
 

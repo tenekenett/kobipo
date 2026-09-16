@@ -40,17 +40,15 @@ export const GET = withApiErrors(async function GET(request: Request) {
       where.status = status
     }
 
+    // Liste ucu: başlık + karşı taraf/fatura adı. Kalemler (ve her kalemin tam
+    // ürün kaydı) listede okunmuyor; detay `[id]` ucundan alır.
     const waybills = await prisma.waybill.findMany({
       where,
       include: {
-        customer: true,
-        supplier: true,
-        invoice: true,
-        items: {
-          include: {
-            product: true,
-          },
-        },
+        customer: { select: { id: true, name: true } },
+        supplier: { select: { id: true, name: true } },
+        invoice: { select: { id: true, invoiceNo: true } },
+        _count: { select: { items: true } },
       },
       orderBy: { date: "desc" },
     })

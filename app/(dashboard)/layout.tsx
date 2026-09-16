@@ -113,7 +113,11 @@ export default async function DashboardLayout({
           <DashboardNav />
           <MainArea>
             <DashboardHeader />
-            <div className="w-full min-w-0 overflow-x-clip p-4 sm:p-6">
+            {/* Alt boşluk sabit konumlu Asistan düğmesini (bottom-5 + h-12 = 68px)
+                geçmeli: yoksa sayfanın en altındaki sağa yaslı kontrol (tablo
+                sayfalamasının "Sonraki"si) düğmenin altında kalıyor ve tıklama
+                asistanı açıyordu (Chrome'da ölçüldü, 2026-09-16). */}
+            <div className="w-full min-w-0 overflow-x-clip p-4 pb-24 sm:p-6 sm:pb-24">
               <SubscriptionNoticeBanner />
               {/* Kapalı ücretli modüllerin tanıtımı. Ücretsiz küme SUNUCUDA çözülür:
                   istemci hangi modülün satılabilir olduğunu bilmiyor ve yanlış bilirse

@@ -90,12 +90,14 @@ export const GET = withApiErrors(async function GET(request: Request) {
   if (party === "supplier") where.supplierId = { not: null }
   else if (party === "customer") where.supplierId = null
 
+  // Liste ucu: başlık + karşı taraf adı + kalem SAYISI. Kalemlerin kendisi (ve
+  // her kalemin tam ürün kaydı) yalnız detay/düzenleme ekranında gerekir ve
+  // `[id]` ucundan okunur; iki liste ekranı da `.items`a dokunmuyordu.
   const quotes = await prisma.quote.findMany({
     where,
     include: {
-      customer: true,
-      supplier: true,
-      items: { include: { product: true }, orderBy: { order: "asc" } },
+      customer: { select: { id: true, name: true } },
+      supplier: { select: { id: true, name: true } },
       _count: { select: { items: true } },
     },
     // Tarih (belge günü) çoğunlukla aynı gün olduğundan tek başına sıralama

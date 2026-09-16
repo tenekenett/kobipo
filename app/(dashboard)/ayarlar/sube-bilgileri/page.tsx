@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -50,6 +50,23 @@ interface Invoice {
   supplier?: { name?: string | null } | null
 }
 
+/** `/api/companies/[id]/ozet` yanıtı. */
+interface CompanySummary {
+  salesTotal: number
+  salesCount: number
+  customerCount: number
+  productCount: number
+  recent: Invoice[]
+}
+
+const EMPTY_SUMMARY: CompanySummary = {
+  salesTotal: 0,
+  salesCount: 0,
+  customerCount: 0,
+  productCount: 0,
+  recent: [],
+}
+
 const currency = (n: number) =>
   new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(n)
 const fmtDate = (iso?: string | null) =>
@@ -84,34 +101,25 @@ function Stat({
 export default function SubeBilgileriPage() {
   const companyId = useSearchParams().get("company")
   const [company, setCompany] = useState<CompanyDetail | null>(null)
-  const [invoices, setInvoices] = useState<Invoice[]>([])
-  const [customerCount, setCustomerCount] = useState(0)
-  const [productCount, setProductCount] = useState(0)
+  const [summary, setSummary] = useState<CompanySummary>(EMPTY_SUMMARY)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (!companyId) return
     let cancelled = false
     setLoading(true)
+    // Sayımlar ve son faturalar tek özet ucundan gelir; tam listeler çekilmez
+    // (bkz. app/api/companies/[id]/ozet/route.ts).
     Promise.all([
       fetch(`/api/companies/${companyId}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
-      fetch(`/api/e-donusum/invoices?companyId=${companyId}`, { cache: "no-store" }).then((r) =>
-        r.ok ? r.json() : [],
-      ),
-      fetch(`/api/cari/customers?companyId=${companyId}`, { cache: "no-store" }).then((r) =>
-        r.ok ? r.json() : [],
-      ),
-      fetch(`/api/stok/products?companyId=${companyId}`, { cache: "no-store" }).then((r) =>
-        r.ok ? r.json() : [],
+      fetch(`/api/companies/${companyId}/ozet`, { cache: "no-store" }).then((r) =>
+        r.ok ? r.json() : null,
       ),
     ])
-      .then(([comp, inv, cust, prod]) => {
+      .then(([comp, sum]) => {
         if (cancelled) return
         setCompany(comp)
-        setInvoices(Array.isArray(inv) ? inv : [])
-        const custArr = Array.isArray(cust) ? cust : cust?.items ?? []
-        setCustomerCount(custArr.length)
-        setProductCount(Array.isArray(prod) ? prod.length : 0)
+        setSummary(sum && typeof sum === "object" ? { ...EMPTY_SUMMARY, ...sum } : EMPTY_SUMMARY)
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -121,20 +129,10 @@ export default function SubeBilgileriPage() {
     }
   }, [companyId])
 
-  const stats = useMemo(() => {
-    const sales = invoices.filter((i) => i.type === "SALES")
-    const purchases = invoices.filter((i) => i.type === "PURCHASE")
-    const salesTotal = sales.reduce((s, i) => s + Number(i.totalAmount || 0), 0)
-    return { salesTotal, salesCount: sales.length, purchaseCount: purchases.length }
-  }, [invoices])
-
-  const recent = useMemo(
-    () =>
-      [...invoices]
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 8),
-    [invoices],
-  )
+  const stats = summary
+  const customerCount = summary.customerCount
+  const productCount = summary.productCount
+  const recent = summary.recent
 
   if (!companyId) {
     return (

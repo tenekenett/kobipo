@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SearchSelect } from "@/components/ui/search-select"
@@ -55,13 +56,7 @@ type Quote = {
   vatAmount: number
   currency?: string
   customer?: { name: string } | null
-  items: Array<{
-    description: string
-    quantity: number
-    unitPrice: number
-    vatRate: number
-    discountRate?: number | null
-  }>
+  _count?: { items: number }
 }
 
 function statusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
@@ -256,6 +251,8 @@ export default function TeklifPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
 
+  const paged = usePagedRows(quotes)
+
   if (!companyId) {
     return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
   }
@@ -402,76 +399,79 @@ export default function TeklifPage() {
             <div className="text-sm text-muted-foreground">Henüz teklif yok.</div>
           )}
           {!isLoading && quotes.length > 0 && (
-            <StyledTableContainer>
-            <Table>
-              <TableHeader>
-                <StyledTableHeaderRow>
-                  <StyledTableHead>No</StyledTableHead>
-                  <StyledTableHead>Tarih</StyledTableHead>
-                  <StyledTableHead>Geçerlilik</StyledTableHead>
-                  <StyledTableHead>Müşteri</StyledTableHead>
-                  <StyledTableHead>Durum</StyledTableHead>
-                  <StyledTableHead className="text-right">Toplam</StyledTableHead>
-                  <StyledTableHead className="w-[100px] text-right">İşlem</StyledTableHead>
-                </StyledTableHeaderRow>
-              </TableHeader>
-              <TableBody>
-                {quotes.map((quote, idx) => (
-                  <StyledTableRow
-                    key={quote.id}
-                    index={idx}
-                    className="cursor-pointer"
-                    onClick={() => router.push(`/teklif/${quote.slug || quote.id}${companyQs}`)}
-                  >
-                    <TableCell className="font-medium">
-                      <Link
-                        href={`/teklif/${quote.slug || quote.id}${companyQs}`}
-                        className="font-mono text-xs text-kobipo-blue hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {quote.quoteNo}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-xs">{new Date(quote.date).toLocaleDateString("tr-TR")}</TableCell>
-                    <TableCell className="whitespace-nowrap text-xs">
-                      {quote.validUntil ? new Date(quote.validUntil).toLocaleDateString("tr-TR") : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <EntityCell name={quote.customer?.name} />
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={statusBadgeVariant(quote.status)}>{statusLabel(quote.status)}</Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-semibold whitespace-nowrap">
-                      {Number(quote.totalAmount).toFixed(2)} {quote.currency || "TRY"}
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-end gap-1">
-                        <Button size="sm" variant="ghost" asChild title="Detayı aç">
-                          <Link href={`/teklif/${quote.slug || quote.id}${companyQs}`}>
-                            <Eye className="h-4 w-4" />
-                          </Link>
-                        </Button>
-                        <WriteAction><Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={quote.status === "CONVERTED"}
-                          onClick={() => removeQuote(quote.id)}
-                          title={
-                            quote.status === "CONVERTED"
-                              ? "Faturalanmış teklif silinemez"
-                              : "Sil"
-                          }
+            <>
+              <StyledTableContainer>
+              <Table>
+                <TableHeader>
+                  <StyledTableHeaderRow>
+                    <StyledTableHead>No</StyledTableHead>
+                    <StyledTableHead>Tarih</StyledTableHead>
+                    <StyledTableHead>Geçerlilik</StyledTableHead>
+                    <StyledTableHead>Müşteri</StyledTableHead>
+                    <StyledTableHead>Durum</StyledTableHead>
+                    <StyledTableHead className="text-right">Toplam</StyledTableHead>
+                    <StyledTableHead className="w-[100px] text-right">İşlem</StyledTableHead>
+                  </StyledTableHeaderRow>
+                </TableHeader>
+                <TableBody>
+                  {paged.pageRows.map((quote, idx) => (
+                    <StyledTableRow
+                      key={quote.id}
+                      index={idx}
+                      className="cursor-pointer"
+                      onClick={() => router.push(`/teklif/${quote.slug || quote.id}${companyQs}`)}
+                    >
+                      <TableCell className="font-medium">
+                        <Link
+                          href={`/teklif/${quote.slug || quote.id}${companyQs}`}
+                          className="font-mono text-xs text-kobipo-blue hover:underline"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button></WriteAction>
-                      </div>
-                    </TableCell>
-                  </StyledTableRow>
-                ))}
-              </TableBody>
-            </Table>
-            </StyledTableContainer>
+                          {quote.quoteNo}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">{new Date(quote.date).toLocaleDateString("tr-TR")}</TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {quote.validUntil ? new Date(quote.validUntil).toLocaleDateString("tr-TR") : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <EntityCell name={quote.customer?.name} />
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={statusBadgeVariant(quote.status)}>{statusLabel(quote.status)}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-semibold whitespace-nowrap">
+                        {Number(quote.totalAmount).toFixed(2)} {quote.currency || "TRY"}
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button size="sm" variant="ghost" asChild title="Detayı aç">
+                            <Link href={`/teklif/${quote.slug || quote.id}${companyQs}`}>
+                              <Eye className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                          <WriteAction><Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={quote.status === "CONVERTED"}
+                            onClick={() => removeQuote(quote.id)}
+                            title={
+                              quote.status === "CONVERTED"
+                                ? "Faturalanmış teklif silinemez"
+                                : "Sil"
+                            }
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button></WriteAction>
+                        </div>
+                      </TableCell>
+                    </StyledTableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              </StyledTableContainer>
+              <TablePagination {...paged} />
+            </>
           )}
         </CardContent>
       </Card>

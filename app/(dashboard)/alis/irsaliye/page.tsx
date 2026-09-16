@@ -5,6 +5,7 @@ import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
@@ -314,7 +315,10 @@ export default function AlisIrsaliyePage() {
     setMatchInvoiceId("")
     setMatchInvoices([])
     if (!companyId) return
-    const res = await fetch(`/api/e-donusum/invoices?companyId=${companyId}&type=PURCHASE`)
+    if (!w.supplierId) return
+    const res = await fetch(
+      `/api/e-donusum/invoices?companyId=${companyId}&type=PURCHASE&supplierId=${encodeURIComponent(w.supplierId)}`,
+    )
     if (!res.ok) {
       toast({ title: "Hata", description: "Faturalar yüklenemedi", variant: "destructive" })
       return
@@ -395,10 +399,6 @@ export default function AlisIrsaliyePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
 
-  if (!companyId) {
-    return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
-  }
-
   const term = trFold(search)
   const filtered = waybills.filter((w) => {
     if (statusFilter !== "ALL" && w.status !== statusFilter) return false
@@ -408,6 +408,12 @@ export default function AlisIrsaliyePage() {
       trFold(w.supplier?.name).includes(term)
     )
   })
+
+  const paged = usePagedRows(filtered, { resetKey: `${search}|${statusFilter}` })
+
+  if (!companyId) {
+    return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
+  }
 
   const pendingCount = waybills.filter((w) => w.status === "DRAFT" || w.status === "SENT").length
   const deliveredCount = waybills.filter((w) => w.status === "DELIVERED").length
@@ -709,134 +715,137 @@ export default function AlisIrsaliyePage() {
             <div className="text-sm text-muted-foreground">Aramayla eşleşen irsaliye yok.</div>
           )}
           {!isLoading && filtered.length > 0 && (
-            <StyledTableContainer>
-              <Table>
-                <TableHeader>
-                  <StyledTableHeaderRow>
-                    <StyledTableHead>No</StyledTableHead>
-                    <StyledTableHead>Tarih</StyledTableHead>
-                    <StyledTableHead>Tedarikçi</StyledTableHead>
-                    <StyledTableHead className="text-center">Kalem</StyledTableHead>
-                    <StyledTableHead>Taşıyıcı / Araç</StyledTableHead>
-                    <StyledTableHead>Fatura</StyledTableHead>
-                    <StyledTableHead className="w-[150px]">Durum</StyledTableHead>
-                    <StyledTableHead className="w-[170px] text-right">İşlem</StyledTableHead>
-                  </StyledTableHeaderRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((w, idx) => (
-                    <StyledTableRow key={w.id} index={idx}>
-                      <TableCell className="font-mono text-xs font-medium">{w.waybillNo}</TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">
-                        {new Date(w.date).toLocaleDateString("tr-TR")}
-                      </TableCell>
-                      <TableCell>
-                        <EntityCell name={w.supplier?.name} />
-                      </TableCell>
-                      <TableCell className="text-center text-xs text-muted-foreground">
-                        {w._count?.items ?? 0}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                        {w.carrier || "—"}
-                        {w.vehicleNo ? ` · ${w.vehicleNo}` : ""}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap font-mono text-xs">
-                        {w.invoice ? (
-                          <Link
-                            href={`/faturalar/${w.invoice.id}/onizleme?company=${encodeURIComponent(companyId)}`}
-                            className="text-kobipo-blue hover:underline dark:text-primary"
-                          >
-                            {w.invoice.invoiceNo}
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Select value={w.status} onValueChange={(v) => updateStatus(w.id, v)}>
-                          <SelectTrigger className="h-8">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                              <SelectItem key={value} value={value}>
-                                {label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-0.5">
-                          <WriteAction><Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => openEdit(w)}
-                            disabled={!!w.invoice}
-                            title={w.invoice ? "Faturaya bağlı — önce eşleştirmeyi kaldırın" : "Düzenle"}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button></WriteAction>
+            <>
+              <StyledTableContainer>
+                <Table>
+                  <TableHeader>
+                    <StyledTableHeaderRow>
+                      <StyledTableHead>No</StyledTableHead>
+                      <StyledTableHead>Tarih</StyledTableHead>
+                      <StyledTableHead>Tedarikçi</StyledTableHead>
+                      <StyledTableHead className="text-center">Kalem</StyledTableHead>
+                      <StyledTableHead>Taşıyıcı / Araç</StyledTableHead>
+                      <StyledTableHead>Fatura</StyledTableHead>
+                      <StyledTableHead className="w-[150px]">Durum</StyledTableHead>
+                      <StyledTableHead className="w-[170px] text-right">İşlem</StyledTableHead>
+                    </StyledTableHeaderRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paged.pageRows.map((w, idx) => (
+                      <StyledTableRow key={w.id} index={idx}>
+                        <TableCell className="font-mono text-xs font-medium">{w.waybillNo}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {new Date(w.date).toLocaleDateString("tr-TR")}
+                        </TableCell>
+                        <TableCell>
+                          <EntityCell name={w.supplier?.name} />
+                        </TableCell>
+                        <TableCell className="text-center text-xs text-muted-foreground">
+                          {w._count?.items ?? 0}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                          {w.carrier || "—"}
+                          {w.vehicleNo ? ` · ${w.vehicleNo}` : ""}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap font-mono text-xs">
                           {w.invoice ? (
-                            <Button
+                            <Link
+                              href={`/faturalar/${w.invoice.id}/onizleme?company=${encodeURIComponent(companyId)}`}
+                              className="text-kobipo-blue hover:underline dark:text-primary"
+                            >
+                              {w.invoice.invoiceNo}
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Select value={w.status} onValueChange={(v) => updateStatus(w.id, v)}>
+                            <SelectTrigger className="h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                                <SelectItem key={value} value={value}>
+                                  {label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-0.5">
+                            <WriteAction><Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => unlinkInvoice(w)}
-                              title="Fatura eşleştirmesini kaldır"
+                              onClick={() => openEdit(w)}
+                              disabled={!!w.invoice}
+                              title={w.invoice ? "Faturaya bağlı — önce eşleştirmeyi kaldırın" : "Düzenle"}
                             >
-                              <Unlink className="h-4 w-4" />
-                            </Button>
-                          ) : (
-                            <>
-                              {/* Faturaya dönüştür: fatura editörü irsaliye işaretli açılır,
-                                  kalemler dolar. Stoğa işlenmemiş irsaliye bağlanamaz. */}
-                              {w.stockProcessed ? (
-                                <Button size="sm" variant="ghost" asChild title="Faturaya dönüştür">
-                                  <Link
-                                    href={`/e-donusum/yeni?company=${encodeURIComponent(companyId)}&type=PURCHASE&supplierId=${encodeURIComponent(
-                                      w.supplierId || "",
-                                    )}&waybill=${encodeURIComponent(w.id)}&from=${encodeURIComponent("/alis/irsaliye")}`}
-                                  >
-                                    <FileText className="h-4 w-4" />
-                                  </Link>
-                                </Button>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  disabled
-                                  // "Teslim alındı" göründüğü halde stoğa işlenmemiş kayıtlar var
-                                  // (stok girişinden önce oluşmuş/başarısız olmuş). Kullanıcıya
-                                  // hangi durumda olduğunu ve çıkış yolunu ayrı ayrı söyle.
-                                  title={
-                                    w.status === "DELIVERED"
-                                      ? "Stok girişi işlenmemiş — durumu 'Taslak' yapıp tekrar 'Teslim alındı' seçin"
-                                      : "Faturaya dönüştürmek için durumu 'Teslim alındı' yapın"
-                                  }
-                                >
-                                  <FileText className="h-4 w-4" />
-                                </Button>
-                              )}
+                              <Pencil className="h-4 w-4" />
+                            </Button></WriteAction>
+                            {w.invoice ? (
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                onClick={() => openMatch(w)}
-                                title="Kesilmiş bir faturayla eşleştir"
+                                onClick={() => unlinkInvoice(w)}
+                                title="Fatura eşleştirmesini kaldır"
                               >
-                                <Link2 className="h-4 w-4" />
+                                <Unlink className="h-4 w-4" />
                               </Button>
-                            </>
-                          )}
-                          <WriteAction><Button size="sm" variant="ghost" onClick={() => removeWaybill(w.id)} title="Sil">
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button></WriteAction>
-                        </div>
-                      </TableCell>
-                    </StyledTableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </StyledTableContainer>
+                            ) : (
+                              <>
+                                {/* Faturaya dönüştür: fatura editörü irsaliye işaretli açılır,
+                                    kalemler dolar. Stoğa işlenmemiş irsaliye bağlanamaz. */}
+                                {w.stockProcessed ? (
+                                  <Button size="sm" variant="ghost" asChild title="Faturaya dönüştür">
+                                    <Link
+                                      href={`/e-donusum/yeni?company=${encodeURIComponent(companyId)}&type=PURCHASE&supplierId=${encodeURIComponent(
+                                        w.supplierId || "",
+                                      )}&waybill=${encodeURIComponent(w.id)}&from=${encodeURIComponent("/alis/irsaliye")}`}
+                                    >
+                                      <FileText className="h-4 w-4" />
+                                    </Link>
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled
+                                    // "Teslim alındı" göründüğü halde stoğa işlenmemiş kayıtlar var
+                                    // (stok girişinden önce oluşmuş/başarısız olmuş). Kullanıcıya
+                                    // hangi durumda olduğunu ve çıkış yolunu ayrı ayrı söyle.
+                                    title={
+                                      w.status === "DELIVERED"
+                                        ? "Stok girişi işlenmemiş — durumu 'Taslak' yapıp tekrar 'Teslim alındı' seçin"
+                                        : "Faturaya dönüştürmek için durumu 'Teslim alındı' yapın"
+                                    }
+                                  >
+                                    <FileText className="h-4 w-4" />
+                                  </Button>
+                                )}
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => openMatch(w)}
+                                  title="Kesilmiş bir faturayla eşleştir"
+                                >
+                                  <Link2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                            <WriteAction><Button size="sm" variant="ghost" onClick={() => removeWaybill(w.id)} title="Sil">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button></WriteAction>
+                          </div>
+                        </TableCell>
+                      </StyledTableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </StyledTableContainer>
+              <TablePagination {...paged} />
+            </>
           )}
         </CardContent>
       </Card>

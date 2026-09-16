@@ -5,6 +5,7 @@ import { useEffect, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductCombobox } from "@/components/ui/product-combobox"
@@ -304,10 +305,6 @@ export default function SatisSiparisPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
 
-  if (!companyId) {
-    return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
-  }
-
   const term = trFold(search)
   const filtered = orders.filter((o) => {
     if (statusFilter !== "ALL" && o.status !== statusFilter) return false
@@ -317,6 +314,12 @@ export default function SatisSiparisPage() {
       trFold(o.customer?.name).includes(term)
     )
   })
+
+  const paged = usePagedRows(filtered, { resetKey: `${search}|${statusFilter}` })
+
+  if (!companyId) {
+    return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
+  }
 
   const openAmount = orders
     .filter((o) => o.status === "OPEN" || o.status === "PARTIAL")
@@ -609,78 +612,81 @@ export default function SatisSiparisPage() {
             <div className="text-sm text-muted-foreground">Aramayla eşleşen sipariş yok.</div>
           )}
           {!isLoading && filtered.length > 0 && (
-            <StyledTableContainer>
-              <Table>
-                <TableHeader>
-                  <StyledTableHeaderRow>
-                    <StyledTableHead>No</StyledTableHead>
-                    <StyledTableHead>Tarih</StyledTableHead>
-                    <StyledTableHead>Teslim</StyledTableHead>
-                    <StyledTableHead>Müşteri</StyledTableHead>
-                    <StyledTableHead className="text-center">Kalem</StyledTableHead>
-                    <StyledTableHead>Durum</StyledTableHead>
-                    <StyledTableHead className="text-right">Toplam</StyledTableHead>
-                    <StyledTableHead className="w-[150px] text-right">İşlem</StyledTableHead>
-                  </StyledTableHeaderRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((order, idx) => (
-                    <StyledTableRow key={order.id} index={idx}>
-                      <TableCell className="font-mono text-xs font-medium">{order.orderNo}</TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">
-                        {new Date(order.date).toLocaleDateString("tr-TR")}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">
-                        {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString("tr-TR") : "—"}
-                      </TableCell>
-                      <TableCell>
-                        <EntityCell name={order.customer?.name} />
-                      </TableCell>
-                      <TableCell className="text-center text-xs text-muted-foreground">
-                        {order._count?.items ?? 0}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusBadgeVariant(order.status)}>{statusLabel(order.status)}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-semibold whitespace-nowrap">
-                        {Number(order.totalAmount).toFixed(2)} {order.currency || "TRY"}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={order.status === "CONVERTED" || order.status === "CANCELLED"}
-                            onClick={() => convertToInvoice(order.id)}
-                            title={order.status === "CONVERTED" ? "Zaten faturalandı" : "Faturaya dönüştür"}
-                          >
-                            <FileText className="h-4 w-4 text-kobipo-blue" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={order.status === "CONVERTED" || order.status === "CANCELLED"}
-                            onClick={() => cancelOrder(order.id)}
-                            title={order.status === "CANCELLED" ? "Zaten iptal" : "İptal et"}
-                          >
-                            <Ban className="h-4 w-4 text-amber-600" />
-                          </Button>
-                          <WriteAction><Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={order.status === "CONVERTED"}
-                            onClick={() => removeOrder(order.id)}
-                            title={order.status === "CONVERTED" ? "Faturalanmış sipariş silinemez" : "Sil"}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button></WriteAction>
-                        </div>
-                      </TableCell>
-                    </StyledTableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </StyledTableContainer>
+            <>
+              <StyledTableContainer>
+                <Table>
+                  <TableHeader>
+                    <StyledTableHeaderRow>
+                      <StyledTableHead>No</StyledTableHead>
+                      <StyledTableHead>Tarih</StyledTableHead>
+                      <StyledTableHead>Teslim</StyledTableHead>
+                      <StyledTableHead>Müşteri</StyledTableHead>
+                      <StyledTableHead className="text-center">Kalem</StyledTableHead>
+                      <StyledTableHead>Durum</StyledTableHead>
+                      <StyledTableHead className="text-right">Toplam</StyledTableHead>
+                      <StyledTableHead className="w-[150px] text-right">İşlem</StyledTableHead>
+                    </StyledTableHeaderRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paged.pageRows.map((order, idx) => (
+                      <StyledTableRow key={order.id} index={idx}>
+                        <TableCell className="font-mono text-xs font-medium">{order.orderNo}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {new Date(order.date).toLocaleDateString("tr-TR")}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString("tr-TR") : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <EntityCell name={order.customer?.name} />
+                        </TableCell>
+                        <TableCell className="text-center text-xs text-muted-foreground">
+                          {order._count?.items ?? 0}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={statusBadgeVariant(order.status)}>{statusLabel(order.status)}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-semibold whitespace-nowrap">
+                          {Number(order.totalAmount).toFixed(2)} {order.currency || "TRY"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={order.status === "CONVERTED" || order.status === "CANCELLED"}
+                              onClick={() => convertToInvoice(order.id)}
+                              title={order.status === "CONVERTED" ? "Zaten faturalandı" : "Faturaya dönüştür"}
+                            >
+                              <FileText className="h-4 w-4 text-kobipo-blue" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={order.status === "CONVERTED" || order.status === "CANCELLED"}
+                              onClick={() => cancelOrder(order.id)}
+                              title={order.status === "CANCELLED" ? "Zaten iptal" : "İptal et"}
+                            >
+                              <Ban className="h-4 w-4 text-amber-600" />
+                            </Button>
+                            <WriteAction><Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={order.status === "CONVERTED"}
+                              onClick={() => removeOrder(order.id)}
+                              title={order.status === "CONVERTED" ? "Faturalanmış sipariş silinemez" : "Sil"}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button></WriteAction>
+                          </div>
+                        </TableCell>
+                      </StyledTableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </StyledTableContainer>
+              <TablePagination {...paged} />
+            </>
           )}
         </CardContent>
       </Card>

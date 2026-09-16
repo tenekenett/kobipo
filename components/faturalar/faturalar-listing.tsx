@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import {
   Table,
   TableBody,
@@ -601,6 +602,22 @@ export default function FaturalarListing({
   const availableCategories = categories
   const visibleRows = rows
 
+  // Sunucu 500 satıra kadar döner; hepsi tek seferde çizilmesin. Süzgeç
+  // değişince (yeni sorgu) 1. sayfaya dönülür.
+  const paged = usePagedRows(visibleRows, {
+    resetKey: [
+      direction,
+      days,
+      range.startDate,
+      range.endDate,
+      statusFilter,
+      debouncedText.search,
+      debouncedText.counterparty,
+      categoryFilter,
+      includeInbox,
+    ].join("|"),
+  })
+
   if (!companyId) {
     return (
       <Card>
@@ -1084,7 +1101,7 @@ export default function FaturalarListing({
                   </TableCell>
                 </TableRow>
               ) : (
-                visibleRows.map((row, idx) => {
+                paged.pageRows.map((row, idx) => {
                   const rawId = row.id.split(":")[1]
                   const isInvoiceRow = row.id.startsWith("invoice:")
                   const isEDoc =
@@ -1314,6 +1331,7 @@ export default function FaturalarListing({
             </TableBody>
           </Table>
           </StyledTableContainer>
+          <TablePagination {...paged} />
         </CardContent>
       </Card>
 

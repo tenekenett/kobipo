@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "
 import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Badge } from "@/components/ui/badge"
 import {
   Table,
@@ -111,8 +112,20 @@ export default function FislerListing({
   const openDetail = (r: ReceiptRow) =>
     router.push(`/fisler/${r.slug || r.id}?company=${encodeURIComponent(companyId ?? "")}`)
 
+  // Sayfalama: yalnız çizilen dilim sınırlanır; süzgeç/yükleme aynı.
+  const paged = usePagedRows(rows)
+
+  // "Tümünü seç" GÖRÜNEN sayfayı seçer. Yüklenen 500 satırın tamamını seçseydi
+  // kullanıcı 50 satır görürken toplu dönüştürme görmediği fişlere de işlerdi.
+  const pageIds = paged.pageRows.map((r) => r.id)
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
   const toggleAll = () =>
-    setSelected((prev) => (prev.size === rows.length ? new Set() : new Set(rows.map((r) => r.id))))
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (allPageSelected) pageIds.forEach((id) => next.delete(id))
+      else pageIds.forEach((id) => next.add(id))
+      return next
+    })
 
   const selectedRows = useMemo(() => rows.filter((r) => selected.has(r.id)), [rows, selected])
 
@@ -251,6 +264,7 @@ export default function FislerListing({
               )}
             </div>
           ) : (
+            <>
             <div className="overflow-auto">
               <Table>
                 <TableHeader>
@@ -261,7 +275,7 @@ export default function FislerListing({
                           type="checkbox"
                           className="rounded"
                           aria-label="Tümünü seç"
-                          checked={rows.length > 0 && selected.size === rows.length}
+                          checked={allPageSelected}
                           onChange={toggleAll}
                         />
                       </TableHead>
@@ -275,7 +289,7 @@ export default function FislerListing({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((r) => {
+                  {paged.pageRows.map((r) => {
                     // Aktifte ödeme durumu, arşivde kapanma sebebi (iptal/dönüştürüldü) gösterilir.
                     const badge = isArchive
                       ? ARCHIVE_BADGE[r.status] ?? { label: r.status, variant: "secondary" as Variant }
@@ -321,6 +335,8 @@ export default function FislerListing({
                 </TableBody>
               </Table>
             </div>
+            <TablePagination {...paged} />
+            </>
           )}
         </CardContent>
       </Card>

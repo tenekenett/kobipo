@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SearchSelect } from "@/components/ui/search-select"
@@ -279,14 +280,6 @@ export default function SatinAlmaTeklifiPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
 
-  if (!companyId) {
-    return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
-  }
-
-  // Panel içi her gezinme seçili firmayı TAŞIMAK zorunda (bkz. CLAUDE.md):
-  // param'sız bir link bağlamı düşürür ve kullanıcı başka firmanın verisine geçer.
-  const companyQs = `?company=${encodeURIComponent(companyId)}`
-
   const term = trFold(search)
   const filtered = quotes.filter((q) => {
     if (statusFilter !== "ALL" && q.status !== statusFilter) return false
@@ -296,6 +289,16 @@ export default function SatinAlmaTeklifiPage() {
       trFold(q.supplier?.name).includes(term)
     )
   })
+
+  const paged = usePagedRows(filtered, { resetKey: `${search}|${statusFilter}` })
+
+  if (!companyId) {
+    return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
+  }
+
+  // Panel içi her gezinme seçili firmayı TAŞIMAK zorunda (bkz. CLAUDE.md):
+  // param'sız bir link bağlamı düşürür ve kullanıcı başka firmanın verisine geçer.
+  const companyQs = `?company=${encodeURIComponent(companyId)}`
 
   const openAmount = quotes
     .filter((q) => ["DRAFT", "SENT", "APPROVED"].includes(q.status))
@@ -503,102 +506,105 @@ export default function SatinAlmaTeklifiPage() {
             <div className="text-sm text-muted-foreground">Aramayla eşleşen teklif yok.</div>
           )}
           {!isLoading && filtered.length > 0 && (
-            <StyledTableContainer>
-              <Table>
-                <TableHeader>
-                  <StyledTableHeaderRow>
-                    <StyledTableHead>No</StyledTableHead>
-                    <StyledTableHead>Tarih</StyledTableHead>
-                    <StyledTableHead>Geçerlilik</StyledTableHead>
-                    <StyledTableHead>Tedarikçi</StyledTableHead>
-                    <StyledTableHead className="text-center">Kalem</StyledTableHead>
-                    <StyledTableHead className="w-[150px]">Durum</StyledTableHead>
-                    <StyledTableHead className="text-right">Toplam</StyledTableHead>
-                    <StyledTableHead className="w-[130px] text-right">İşlem</StyledTableHead>
-                  </StyledTableHeaderRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((quote, idx) => (
-                    <StyledTableRow
-                      key={quote.id}
-                      index={idx}
-                      className="cursor-pointer"
-                      onClick={() => router.push(`/teklif/${quote.slug || quote.id}${companyQs}`)}
-                    >
-                      <TableCell className="font-medium">
-                        <Link
-                          href={`/teklif/${quote.slug || quote.id}${companyQs}`}
-                          className="font-mono text-xs text-kobipo-blue hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {quote.quoteNo}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">
-                        {new Date(quote.date).toLocaleDateString("tr-TR")}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">
-                        {quote.validUntil ? new Date(quote.validUntil).toLocaleDateString("tr-TR") : "—"}
-                      </TableCell>
-                      <TableCell>
-                        <EntityCell name={quote.supplier?.name} />
-                      </TableCell>
-                      <TableCell className="text-center text-xs text-muted-foreground">
-                        {quote._count?.items ?? 0}
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        {quote.status === "CONVERTED" ? (
-                          <Badge variant="outline">Faturalandı</Badge>
-                        ) : (
-                          <Select value={quote.status} onValueChange={(v) => updateStatus(quote.id, v)}>
-                            <SelectTrigger className="h-8">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {Object.entries(EDITABLE_STATUSES).map(([value, label]) => (
-                                <SelectItem key={value} value={value}>
-                                  {label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold whitespace-nowrap">
-                        {Number(quote.totalAmount).toFixed(2)} {quote.currency || "TRY"}
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
-                          <Button size="sm" variant="ghost" asChild title="Detayı aç">
-                            <Link href={`/teklif/${quote.slug || quote.id}${companyQs}`}>
-                              <Eye className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={quote.status === "CONVERTED"}
-                            onClick={() => convertToInvoice(quote.id)}
-                            title={quote.status === "CONVERTED" ? "Zaten faturalandı" : "Faturaya dönüştür"}
+            <>
+              <StyledTableContainer>
+                <Table>
+                  <TableHeader>
+                    <StyledTableHeaderRow>
+                      <StyledTableHead>No</StyledTableHead>
+                      <StyledTableHead>Tarih</StyledTableHead>
+                      <StyledTableHead>Geçerlilik</StyledTableHead>
+                      <StyledTableHead>Tedarikçi</StyledTableHead>
+                      <StyledTableHead className="text-center">Kalem</StyledTableHead>
+                      <StyledTableHead className="w-[150px]">Durum</StyledTableHead>
+                      <StyledTableHead className="text-right">Toplam</StyledTableHead>
+                      <StyledTableHead className="w-[130px] text-right">İşlem</StyledTableHead>
+                    </StyledTableHeaderRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paged.pageRows.map((quote, idx) => (
+                      <StyledTableRow
+                        key={quote.id}
+                        index={idx}
+                        className="cursor-pointer"
+                        onClick={() => router.push(`/teklif/${quote.slug || quote.id}${companyQs}`)}
+                      >
+                        <TableCell className="font-medium">
+                          <Link
+                            href={`/teklif/${quote.slug || quote.id}${companyQs}`}
+                            className="font-mono text-xs text-kobipo-blue hover:underline"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            <FileText className="h-4 w-4 text-kobipo-blue" />
-                          </Button>
-                          <WriteAction><Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={quote.status === "CONVERTED"}
-                            onClick={() => removeQuote(quote.id)}
-                            title={quote.status === "CONVERTED" ? "Faturalanmış teklif silinemez" : "Sil"}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button></WriteAction>
-                        </div>
-                      </TableCell>
-                    </StyledTableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </StyledTableContainer>
+                            {quote.quoteNo}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {new Date(quote.date).toLocaleDateString("tr-TR")}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {quote.validUntil ? new Date(quote.validUntil).toLocaleDateString("tr-TR") : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <EntityCell name={quote.supplier?.name} />
+                        </TableCell>
+                        <TableCell className="text-center text-xs text-muted-foreground">
+                          {quote._count?.items ?? 0}
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          {quote.status === "CONVERTED" ? (
+                            <Badge variant="outline">Faturalandı</Badge>
+                          ) : (
+                            <Select value={quote.status} onValueChange={(v) => updateStatus(quote.id, v)}>
+                              <SelectTrigger className="h-8">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Object.entries(EDITABLE_STATUSES).map(([value, label]) => (
+                                  <SelectItem key={value} value={value}>
+                                    {label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold whitespace-nowrap">
+                          {Number(quote.totalAmount).toFixed(2)} {quote.currency || "TRY"}
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button size="sm" variant="ghost" asChild title="Detayı aç">
+                              <Link href={`/teklif/${quote.slug || quote.id}${companyQs}`}>
+                                <Eye className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={quote.status === "CONVERTED"}
+                              onClick={() => convertToInvoice(quote.id)}
+                              title={quote.status === "CONVERTED" ? "Zaten faturalandı" : "Faturaya dönüştür"}
+                            >
+                              <FileText className="h-4 w-4 text-kobipo-blue" />
+                            </Button>
+                            <WriteAction><Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={quote.status === "CONVERTED"}
+                              onClick={() => removeQuote(quote.id)}
+                              title={quote.status === "CONVERTED" ? "Faturalanmış teklif silinemez" : "Sil"}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button></WriteAction>
+                          </div>
+                        </TableCell>
+                      </StyledTableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </StyledTableContainer>
+              <TablePagination {...paged} />
+            </>
           )}
         </CardContent>
       </Card>

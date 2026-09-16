@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import {
   Table,
   TableBody,
@@ -420,6 +421,10 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
     return "secondary"
   }
 
+  // Hook'lar erken dönüşten ÖNCE: iki sekmenin kendi sayfası var.
+  const pagedChecks = usePagedRows(checks)
+  const pagedNotes = usePagedRows(notes)
+
   if (!companyId) {
     return (
       <Card>
@@ -450,6 +455,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
         </CardHeader>
         <CardContent>
           {mode === "CHECK" ? (
+            <>
             <StyledTableContainer>
               <Table>
                 <TableHeader>
@@ -472,7 +478,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    checks.map((check, idx) => (
+                    pagedChecks.pageRows.map((check, idx) => (
                       <StyledTableRow
                         key={check.id}
                         index={idx}
@@ -524,7 +530,10 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                 </TableBody>
               </Table>
             </StyledTableContainer>
+            <TablePagination {...pagedChecks} />
+            </>
           ) : (
+            <>
             <StyledTableContainer>
               <Table>
                 <TableHeader>
@@ -546,7 +555,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    notes.map((note, idx) => (
+                    pagedNotes.pageRows.map((note, idx) => (
                       <StyledTableRow
                         key={note.id}
                         index={idx}
@@ -596,6 +605,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                 </TableBody>
               </Table>
             </StyledTableContainer>
+            <TablePagination {...pagedNotes} />
+            </>
           )}
         </CardContent>
       </Card>

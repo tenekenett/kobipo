@@ -4,6 +4,7 @@ import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Input } from "@/components/ui/input"
 import {
   Table,
@@ -238,6 +239,8 @@ export default function FinansPage() {
       setIsLoading(false)
     }
   }
+
+  const pagedTx = usePagedRows(transactions)
 
   if (!companyId) {
     return (
@@ -643,7 +646,7 @@ export default function FinansPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    transactions.map((transaction, idx) => (
+                    pagedTx.pageRows.map((transaction, idx) => (
                       <StyledTableRow
                         key={transaction.id}
                         index={idx}
@@ -680,6 +683,7 @@ export default function FinansPage() {
                 </TableBody>
               </Table>
               </StyledTableContainer>
+              <TablePagination {...pagedTx} />
             </CardContent>
           </Card>
         </TabsContent>

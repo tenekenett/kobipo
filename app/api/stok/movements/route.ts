@@ -41,7 +41,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
     const movements = await prisma.stockMovement.findMany({
       where,
       include: {
-        product: true,
+        product: { select: { id: true, name: true, code: true, unit: true } },
       },
       orderBy: { createdAt: "desc" },
     })
