@@ -7,6 +7,7 @@ import { Decimal } from "@prisma/client/runtime/library"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
 import { isPurchaseReturn } from "@/lib/cari/invoice-direction"
+import { ensureDefaultCashAccount } from "@/lib/finans/varsayilan-kasa"
 
 export const dynamic = 'force-dynamic'
 
@@ -159,15 +160,21 @@ export const POST = withApiErrors(async function POST(request: Request) {
     // Kanal (kasa/banka) verildiyse firmaya ait olmalı. Eskiden doğrulanmıyordu:
     // başka firmanın hesap id'si ödemeye YAZILIYOR, bakiye ise sessizce
     // güncellenmiyordu — ortada sahibi belirsiz bir tahsilat kalıyordu.
-    const account = accountId
+    const chosen = accountId
       ? await prisma.financialAccount.findFirst({
           where: { id: accountId, companyId },
-          select: { id: true },
+          select: { id: true, name: true },
         })
       : null
-    if (accountId && !account) {
+    if (accountId && !chosen) {
       return NextResponse.json({ error: "Hesap bulunamadı" }, { status: 404 })
     }
+    // Hesap SEÇİLMEDİYSE varsayılan Kasa. Eskiden bu yol yalnız InvoicePayment
+    // yazıyordu: fatura "ödendi", cari borç düştü, para hiçbir kasaya girmedi
+    // (bkz. lib/finans/varsayilan-kasa.ts). Yanıt `accountDefaulted` ile söyler,
+    // ekran kullanıcıya "Kasa'ya yazıldı" der — sessiz geçilmez.
+    const account = chosen ?? (await ensureDefaultCashAccount(prisma, companyId))
+    const accountDefaulted = !chosen
 
     // PARA YÖNÜ: satış ve ALIŞ İADESİ tahsilattır (para bize gelir); alış ve SATIŞ
     // İADESİ ödemedir (para bizden çıkar). Eskiden yalnız `type === "SALES"`
@@ -193,35 +200,31 @@ export const POST = withApiErrors(async function POST(request: Request) {
      * kuralına göre yazılmış. Eksik olan tek şey bu yazma yoluydu.
      */
     const payment = await prisma.$transaction(async (db) => {
-      let transactionId: string | null = null
+      const trx = await db.transaction.create({
+        data: {
+          companyId,
+          accountId: account.id,
+          type: isSales ? "INCOME" : "EXPENSE",
+          amount: paidAmount,
+          currency: invoice.currency || "TRY",
+          description: `${isSales ? "Tahsilat" : "Ödeme"} — ${invoice.invoiceNo}`,
+          date: paidAt,
+          // Cari ekstrede faturanın borcunu KAPATAN satır budur; taraf
+          // yazılmazsa fiş "ödenmemiş borç" gibi asılı kalır.
+          customerId: invoice.customerId,
+          supplierId: invoice.supplierId,
+          reference: reference || null,
+          createdBy: user.id,
+        },
+      })
+      const transactionId = trx.id
 
-      if (account) {
-        const trx = await db.transaction.create({
-          data: {
-            companyId,
-            accountId: account.id,
-            type: isSales ? "INCOME" : "EXPENSE",
-            amount: paidAmount,
-            currency: invoice.currency || "TRY",
-            description: `${isSales ? "Tahsilat" : "Ödeme"} — ${invoice.invoiceNo}`,
-            date: paidAt,
-            // Cari ekstrede faturanın borcunu KAPATAN satır budur; taraf
-            // yazılmazsa fiş "ödenmemiş borç" gibi asılı kalır.
-            customerId: invoice.customerId,
-            supplierId: invoice.supplierId,
-            reference: reference || null,
-            createdBy: user.id,
-          },
-        })
-        transactionId = trx.id
-
-        // `increment`: oku-topla-yaz eski hâli, aynı kasaya aynı anda iki
-        // tahsilat girilirse birini kaybediyordu.
-        await db.financialAccount.update({
-          where: { id: account.id },
-          data: { balance: { increment: isSales ? paidAmount : paidAmount.negated() } },
-        })
-      }
+      // `increment`: oku-topla-yaz eski hâli, aynı kasaya aynı anda iki
+      // tahsilat girilirse birini kaybediyordu.
+      await db.financialAccount.update({
+        where: { id: account.id },
+        data: { balance: { increment: isSales ? paidAmount : paidAmount.negated() } },
+      })
 
       return db.invoicePayment.create({
         data: {
@@ -230,7 +233,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
           amount: paidAmount,
           paymentDate: paidAt,
           paymentMethod,
-          accountId: account?.id ?? null,
+          accountId: account.id,
           transactionId,
           reference: reference || null,
           notes: notes || null,
@@ -258,7 +261,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
     // Pano "satış yapıldığı anda" güncellensin: 20 sn'lik önbellek düşürülür.
     revalidateDashboard(companyId)
 
-    return NextResponse.json(payment, { status: 201 })
+    return NextResponse.json({ ...payment, accountDefaulted }, { status: 201 })
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)
