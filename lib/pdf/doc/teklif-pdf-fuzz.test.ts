@@ -56,6 +56,8 @@ function buildData(rand: () => number): TeklifPdfData {
     vatAmount: fuzzAmount(rand),
     totalAmount: fuzzAmount(rand),
     discountTotal: rand() < 0.5 ? fuzzAmount(rand) : 0,
+    globalDiscountAmount: rand() < 0.4 ? fuzzAmount(rand) : 0,
+    globalDiscountRate: rand() < 0.5 ? Math.round(rand() * 10000) / 100 : null,
     bankAccounts:
       rand() < 0.7
         ? [

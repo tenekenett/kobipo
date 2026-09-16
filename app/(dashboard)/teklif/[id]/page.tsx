@@ -17,14 +17,25 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ProductCombobox } from "@/components/ui/product-combobox"
 import { SearchSelect } from "@/components/ui/search-select"
 import { QuickCariDialog, useCanCreateCari } from "@/components/e-donusum/quick-cari-dialog"
-import { quickCreateProduct } from "@/lib/stock/quick-create-product"
+import {
+  QuoteLinesEditor,
+  QuoteTotalsSummary,
+  emptyGlobalDiscount,
+  emptyQuoteLine,
+  globalDiscountFromQuote,
+  globalDiscountPayload,
+  quoteLineFromItem,
+  quoteLinePayload,
+  type QuoteGlobalDiscount,
+  type QuoteLine,
+  type QuoteProduct,
+} from "@/components/teklif/quote-lines"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { ExportAction, WriteAction, useCanEditHere } from "@/components/dashboard/write-guard"
-import { ArrowLeft, Building2, Download, FileText, Landmark, Loader2, Minus, Plus, Save } from "lucide-react"
+import { ArrowLeft, Building2, Download, FileText, Landmark, Loader2, Save } from "lucide-react"
 import { looksLikeCuid } from "@/lib/slug"
 import { toDateInput } from "@/lib/format"
 
@@ -37,6 +48,8 @@ type QuoteItem = {
   unitPrice: number
   vatRate: number
   discountRate?: number | null
+  discountAmount?: number | null
+  totalAmount?: number | null
   product?: { id: string; name: string } | null
 }
 
@@ -66,6 +79,8 @@ type QuoteDetail = {
   netAmount: number
   vatAmount: number
   totalAmount: number
+  globalDiscountRate?: number | null
+  globalDiscountAmount?: number | null
   convertedInvoiceId?: string | null
   customer?: QuoteParty | null
   supplier?: QuoteParty | null
@@ -95,26 +110,6 @@ type BankAccount = {
   currency: string
   isActive: boolean
 }
-
-type ItemLine = {
-  productId: string
-  description: string
-  note: string // satır açıklaması — ürün adının altına basılır (PDF dahil), opsiyonel
-  quantity: string
-  unitPrice: string
-  vatRate: string
-  discountRate: string
-}
-
-const emptyLine = (): ItemLine => ({
-  productId: "",
-  description: "",
-  note: "",
-  quantity: "1",
-  unitPrice: "0",
-  vatRate: "20",
-  discountRate: "0",
-})
 
 function statusLabel(status: string) {
   const map: Record<string, string> = {
@@ -152,7 +147,7 @@ export default function TeklifDetailPage() {
   // (sunucu kapısı da aynı sahipliği uygular: lib/page-access.ts → /api/cari/*).
   const canCreateCari = useCanCreateCari().customer
   const [quickCari, setQuickCari] = useState({ open: false, name: "" })
-  const [products, setProducts] = useState<Array<{ id: string; name: string; salePrice?: number | null }>>([])
+  const [products, setProducts] = useState<QuoteProduct[]>([])
   const [company, setCompany] = useState<CompanyInfo | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
 
@@ -161,7 +156,8 @@ export default function TeklifDetailPage() {
   const [date, setDate] = useState("")
   const [validUntil, setValidUntil] = useState("")
   const [notes, setNotes] = useState("")
-  const [lines, setLines] = useState<ItemLine[]>([emptyLine()])
+  const [lines, setLines] = useState<QuoteLine[]>([emptyQuoteLine()])
+  const [globalDiscount, setGlobalDiscount] = useState<QuoteGlobalDiscount>(emptyGlobalDiscount)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -185,21 +181,8 @@ export default function TeklifDetailPage() {
       setDate(data.date ? toDateInput(new Date(data.date)) : "")
       setValidUntil(data.validUntil ? toDateInput(new Date(data.validUntil)) : "")
       setNotes(data.notes || "")
-      if (data.items?.length) {
-        setLines(
-          data.items.map((it) => ({
-            productId: it.productId || it.product?.id || "",
-            description: it.description || "",
-            note: it.note || "",
-            quantity: String(Number(it.quantity) || 0),
-            unitPrice: String(Number(it.unitPrice) || 0),
-            vatRate: String(Number(it.vatRate) ?? 20),
-            discountRate: String(Number(it.discountRate) ?? 0),
-          }))
-        )
-      } else {
-        setLines([emptyLine()])
-      }
+      setLines(data.items?.length ? data.items.map(quoteLineFromItem) : [emptyQuoteLine()])
+      setGlobalDiscount(globalDiscountFromQuote(data))
     } finally {
       setLoading(false)
     }
@@ -231,32 +214,9 @@ export default function TeklifDetailPage() {
   const canEdit = useCanEditHere()
   const editable = quote && quote.status !== "CONVERTED" && canEdit
 
-  function updateLine(index: number, patch: Partial<ItemLine>) {
-    setLines((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
-  }
-
-  function applyProductToLine(index: number, productId: string) {
-    const p = products.find((x) => x.id === productId)
-    updateLine(index, {
-      productId,
-      description: p?.name || "",
-      unitPrice: p?.salePrice != null ? String(Number(p.salePrice)) : lines[index]?.unitPrice || "0",
-    })
-  }
-
   async function save() {
     if (!quote || !editable) return
-    const items = lines
-      .map((row) => ({
-        productId: row.productId || null,
-        description: row.description.trim() || "Kalem",
-        note: row.note.trim() || null,
-        quantity: Number(row.quantity || 0),
-        unitPrice: Number(row.unitPrice || 0),
-        vatRate: Number(row.vatRate || 0),
-        discountRate: Number(row.discountRate || 0),
-      }))
-      .filter((row) => row.description.length > 0)
+    const items = lines.map(quoteLinePayload).filter((row) => row.description.length > 0)
 
     if (!items.length) {
       toast({ title: "Eksik bilgi", description: "En az bir geçerli kalem girin.", variant: "destructive" })
@@ -277,6 +237,7 @@ export default function TeklifDetailPage() {
           validUntil: validUntil || null,
           notes: notes || null,
           items,
+          globalDiscount: globalDiscountPayload(globalDiscount),
         }),
       })
       if (res.ok) {
@@ -611,132 +572,89 @@ export default function TeklifDetailPage() {
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Kalemler</CardTitle>
           {editable && (
-            <Button type="button" size="sm" variant="outline" onClick={() => setLines((l) => [...l, emptyLine()])}>
-              <Plus className="mr-1 h-4 w-4" />
-              Satır ekle
+            <Button onClick={save} variant="success" size="sm" disabled={saving}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Kaydet
             </Button>
           )}
         </CardHeader>
         <CardContent>
           {editable ? (
             <div className="space-y-3">
+              {/* Oluşturma penceresiyle AYNI düzenleyici: satır/genel iskonto modu,
+                  referans fiyat ve tutar hücresi burada da çalışır. */}
+              <QuoteLinesEditor
+                lines={lines}
+                onChange={setLines}
+                products={products}
+                onProductsChange={(updater) => setProducts(updater)}
+                companyId={companyId}
+                currency={currency}
+                priceMode={isPurchase ? "purchase" : "sale"}
+                hideLabel
+              />
+              <QuoteTotalsSummary
+                lines={lines}
+                currency={currency}
+                globalDiscount={globalDiscount}
+                onGlobalDiscountChange={setGlobalDiscount}
+              />
               <div className="flex justify-end">
                 <Button onClick={save} variant="success" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                   Kaydet
                 </Button>
               </div>
-              {lines.map((row, index) => (
-                <div key={index} className="grid gap-2 border-b pb-3 last:border-0 sm:grid-cols-12">
-                  <div className="space-y-1 sm:col-span-7">
-                    <Label className="text-xs text-muted-foreground">Ürün / Açıklama</Label>
-                    <ProductCombobox
-                      products={products}
-                      value={row.description}
-                      onTextChange={(text) => updateLine(index, { description: text, productId: "" })}
-                      onSelectProduct={(p) => applyProductToLine(index, p.id)}
-                      onCreateProduct={async (name) => {
-                        if (!companyId) return false
-                        try {
-                          const created = await quickCreateProduct({ companyId, name, salePrice: row.unitPrice, vatRate: row.vatRate })
-                          setProducts((prev) => [...prev, created])
-                          updateLine(index, {
-                            productId: created.id,
-                            description: created.name,
-                            unitPrice: created.salePrice != null ? String(created.salePrice) : row.unitPrice,
-                          })
-                          return true
-                        } catch (e) {
-                          toast({ title: "Hata", description: e instanceof Error ? e.message : "Ürün eklenemedi", variant: "destructive" })
-                          return false
-                        }
-                      }}
-                    />
-                    {/* Satır açıklaması — ürün adını kirletmeden teklif/PDF'te
-                        kalemin altına basılan serbest metin. */}
-                    <Input
-                      value={row.note}
-                      onChange={(e) => updateLine(index, { note: e.target.value })}
-                      placeholder="Satır açıklaması (opsiyonel)"
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 sm:col-span-5 sm:grid-cols-4">
-                    <div>
-                      <Label className="text-xs text-muted-foreground">Miktar</Label>
-                      <Input type="number" value={row.quantity} onChange={(e) => updateLine(index, { quantity: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground">Birim fiyat</Label>
-                      <Input type="number" value={row.unitPrice} onChange={(e) => updateLine(index, { unitPrice: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground">İsk. %</Label>
-                      <Input type="number" value={row.discountRate} onChange={(e) => updateLine(index, { discountRate: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground">KDV %</Label>
-                      <Input type="number" value={row.vatRate} onChange={(e) => updateLine(index, { vatRate: e.target.value })} />
-                    </div>
-                  </div>
-                  <div className="flex justify-end sm:col-span-12">
-                    <Button type="button" variant="ghost" size="icon" disabled={lines.length <= 1} onClick={() => setLines((l) => l.filter((_, i) => i !== index))}>
-                      <Minus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              <Button onClick={save} variant="success" disabled={saving}>
-                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Kaydet
-              </Button>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Açıklama</TableHead>
-                  <TableHead className="text-right">Miktar</TableHead>
-                  <TableHead className="text-right">Birim</TableHead>
-                  <TableHead className="text-right">KDV %</TableHead>
-                  <TableHead className="text-right">Satır toplamı</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {quote.items.map((it) => (
-                  <TableRow key={it.id || it.description}>
-                    <TableCell>
-                      <div>{it.description}</div>
-                      {it.note && (
-                        <div className="whitespace-pre-line text-xs text-muted-foreground">{it.note}</div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">{Number(it.quantity).toFixed(2)}</TableCell>
-                    <TableCell className="text-right">{Number(it.unitPrice).toFixed(2)}</TableCell>
-                    <TableCell className="text-right">{Number(it.vatRate).toFixed(0)}</TableCell>
-                    <TableCell className="text-right">{Number((it as any).totalAmount ?? 0).toFixed(2)}</TableCell>
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Açıklama</TableHead>
+                    <TableHead className="text-right">Miktar</TableHead>
+                    <TableHead className="text-right">Birim</TableHead>
+                    <TableHead className="text-right">İskonto</TableHead>
+                    <TableHead className="text-right">KDV %</TableHead>
+                    <TableHead className="text-right">Satır toplamı</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {quote.items.map((it) => {
+                    const discountAmount = Number(it.discountAmount || 0)
+                    const discountRate = Number(it.discountRate || 0)
+                    return (
+                      <TableRow key={it.id || it.description}>
+                        <TableCell>
+                          <div>{it.description}</div>
+                          {it.note && (
+                            <div className="whitespace-pre-line text-xs text-muted-foreground">{it.note}</div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">{Number(it.quantity).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">{Number(it.unitPrice).toFixed(2)}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {discountAmount > 0 ? (
+                            <>
+                              -{discountAmount.toFixed(2)}
+                              {discountRate > 0 && (
+                                <div className="text-xs text-muted-foreground">%{discountRate.toLocaleString("tr-TR")}</div>
+                              )}
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">{Number(it.vatRate).toFixed(0)}</TableCell>
+                        <TableCell className="text-right">{Number(it.totalAmount ?? 0).toFixed(2)}</TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+              <QuoteTotalsSummary lines={lines} currency={currency} globalDiscount={globalDiscount} />
+            </>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="flex flex-wrap gap-6 pt-6 text-sm">
-          <div>
-            <span className="text-muted-foreground">Net</span>
-            <div className="font-semibold">{Number(quote.netAmount).toFixed(2)} {quote.currency}</div>
-          </div>
-          <div>
-            <span className="text-muted-foreground">KDV</span>
-            <div className="font-semibold">{Number(quote.vatAmount).toFixed(2)} {quote.currency}</div>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Genel toplam</span>
-            <div className="text-lg font-bold">{Number(quote.totalAmount).toFixed(2)} {quote.currency}</div>
-          </div>
         </CardContent>
       </Card>
     </div>

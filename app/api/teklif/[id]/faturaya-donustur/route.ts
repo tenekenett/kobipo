@@ -7,6 +7,7 @@ import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 import { prepareInvoiceStockOps, writeInvoiceStockOps } from "@/lib/stock/invoice-stock"
 import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
+import { invoiceTotalsFromStoredItems } from "@/lib/invoice/document-totals"
 
 export const dynamic = "force-dynamic"
 
@@ -45,6 +46,13 @@ export const POST = withApiErrors(async function POST(
     )
   }
 
+  // Başlık toplamı kalemlerden RESMÎ BELGE kuralıyla kurulur (lib/invoice/document-totals.ts).
+  // Yeni teklif zaten bu kuralla kaydediliyor; kural gelmeden önce kaydedilmiş
+  // tekliflerin toplamı ise GİB'e gidecek belgeden 1–3 kuruş sapabiliyordu.
+  const totals = invoiceTotalsFromStoredItems(quote.items, {
+    globalDiscountAmount: quote.globalDiscountAmount,
+  })
+
   const buildInvoice = (invoiceNo: string) =>
     prisma.$transaction(async (tx) => {
       const invoice = await tx.invoice.create({
@@ -57,9 +65,11 @@ export const POST = withApiErrors(async function POST(
           supplierId: quote.supplierId,
           date: quote.date,
           dueDate: quote.validUntil,
-          totalAmount: quote.totalAmount,
-          vatAmount: quote.vatAmount,
-          netAmount: quote.netAmount,
+          totalAmount: totals.total,
+          vatAmount: totals.vat,
+          netAmount: totals.net,
+          // Genel iskonto faturada da fatura altı iskontodur (UBL AllowanceCharge).
+          globalDiscountAmount: totals.globalDiscount > 0 ? totals.globalDiscount : null,
           currency: quote.currency,
           notes: quote.notes,
           status: "DRAFT",

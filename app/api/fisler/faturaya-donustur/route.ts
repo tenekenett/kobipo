@@ -6,6 +6,7 @@ import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
+import { invoiceTotalsFromStoredItems } from "@/lib/invoice/document-totals"
 
 export const dynamic = "force-dynamic"
 
@@ -90,13 +91,26 @@ export const POST = withApiErrors(async function POST(request: Request) {
       )
     }
 
-    // Konsolide toplamlar (fişlerin sunucuda kayıtlı tutarlarının toplamı).
+    // Konsolide toplamlar. Fatura RESMÎ BELGEDİR: matrah/KDV kalemlerden GİB'e
+    // giden kuralla kurulur (lib/invoice/document-totals.ts). Fiş ise kasa toplamıdır
+    // ve farklı kuralla (yuvarlamasız) hesaplanmıştı; tahsilat o tutar üzerinden
+    // alındı ve bu faturaya taşınıyor. İkisi arasındaki kuruş farkı DİP TOPLAM
+    // YUVARLAMASI olarak yazılır: belge ödenecek tutarı tahsil edilenle aynı olur,
+    // KDV'ye dokunulmaz. (Fişlerin kendi yuvarlaması da tahsil edilen toplamın içinde.)
+    const round2 = (n: number) => Math.round(n * 100) / 100
     const sum = (pick: (r: (typeof receipts)[number]) => any) =>
       receipts.reduce((s, r) => s + Number(pick(r) || 0), 0)
-    const netAmount = sum((r) => r.netAmount)
-    const vatAmount = sum((r) => r.vatAmount)
-    const totalAmount = sum((r) => r.totalAmount)
-    const globalDiscountAmount = sum((r) => r.globalDiscountAmount)
+    const globalDiscountAmount = round2(sum((r) => r.globalDiscountAmount))
+    const globalChargeAmount = round2(sum((r) => r.globalChargeAmount))
+    const collectedTotal = round2(sum((r) => r.totalAmount))
+    const documentTotals = invoiceTotalsFromStoredItems(
+      receipts.flatMap((r) => r.items),
+      { globalDiscountAmount, globalChargeAmount },
+    )
+    const payableRoundingAmount = round2(collectedTotal - documentTotals.total)
+    const netAmount = documentTotals.net
+    const vatAmount = documentTotals.vat
+    const totalAmount = collectedTotal
 
     const invoiceNo = await generateInvoiceNumber(
       companyId,
@@ -156,7 +170,9 @@ export const POST = withApiErrors(async function POST(request: Request) {
           totalAmount,
           vatAmount,
           netAmount,
-          globalDiscountAmount: globalDiscountAmount > 0 ? globalDiscountAmount : null,
+          globalDiscountAmount: documentTotals.globalDiscount > 0 ? documentTotals.globalDiscount : null,
+          globalChargeAmount: documentTotals.globalCharge > 0 ? documentTotals.globalCharge : null,
+          payableRoundingAmount: payableRoundingAmount !== 0 ? payableRoundingAmount : null,
           notes: `${receipts.length} fişten toplu dönüştürüldü: ${receiptNos}`,
           createdBy: user.id,
           items: { create: items },

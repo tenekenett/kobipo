@@ -5,50 +5,9 @@ import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { assertOwnedByCompany } from "@/lib/company/owned"
+import { buildQuoteRecord, parseGlobalDiscount } from "@/lib/teklif/quote-record"
 
 export const dynamic = "force-dynamic"
-
-function calculateTotals(items: any[]) {
-  let netAmount = 0
-  let vatAmount = 0
-  let totalAmount = 0
-
-  const normalized = items
-    .filter((item) => item?.description && String(item.description).trim())
-    .map((item) => {
-      const quantity = Number(item.quantity || 0)
-      const unitPrice = Number(item.unitPrice || 0)
-      const discountRate = Number(item.discountRate || 0)
-      const vatRate = Number(item.vatRate || 0)
-
-      const gross = quantity * unitPrice
-      const discountAmount = gross * (discountRate / 100)
-      const net = gross - discountAmount
-      const vat = net * (vatRate / 100)
-      const total = net + vat
-
-      netAmount += net
-      vatAmount += vat
-      totalAmount += total
-
-      const note = item.note != null ? String(item.note).trim() : ""
-
-      return {
-        productId: item.productId || null,
-        description: String(item.description).trim(),
-        note: note || null,
-        quantity,
-        unitPrice,
-        discountRate,
-        discountAmount,
-        vatRate,
-        vatAmount: vat,
-        totalAmount: total,
-      }
-    })
-
-  return { normalized, netAmount, vatAmount, totalAmount }
-}
 
 async function generateQuoteNumber(companyId: string) {
   const year = new Date().getFullYear()
@@ -124,6 +83,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
     currency,
     notes,
     items = [],
+    globalDiscount,
   } = body
 
   if (!companyId || !items?.length) {
@@ -131,7 +91,8 @@ export const POST = withApiErrors(async function POST(request: Request) {
   }
   await ensureCompanyWrite(companyId)
 
-  const { normalized, netAmount, vatAmount, totalAmount } = calculateTotals(items)
+  const { normalized, netAmount, vatAmount, totalAmount, globalDiscountRate, globalDiscountAmount } =
+    buildQuoteRecord(items, parseGlobalDiscount(globalDiscount) ?? null)
   if (!normalized.length) {
     return NextResponse.json({ error: "At least one valid item is required" }, { status: 400 })
   }
@@ -154,6 +115,8 @@ export const POST = withApiErrors(async function POST(request: Request) {
     netAmount,
     vatAmount,
     totalAmount,
+    globalDiscountRate,
+    globalDiscountAmount,
     createdBy: user.id,
     items: {
       create: normalized.map((item, index) => ({

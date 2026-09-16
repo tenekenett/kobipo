@@ -21,6 +21,8 @@ export type TeklifPdfLine = {
   quantity: number
   unitPrice: number
   discountAmount: number
+  /** Yüzde girilmiş iskontonun oranı; tutar girildiyse null/yok. */
+  discountRate?: number | null
   vatRate: number
   totalAmount: number
 }
@@ -44,12 +46,21 @@ export type TeklifPdfData = {
   counterparty: PartyLike | null
   counterpartyLabel: string
   lines: TeklifPdfLine[]
+  /** KDV matrahı: satır ve genel iskonto düşülmüş. */
   netAmount: number
   vatAmount: number
   totalAmount: number
+  /** Σ satır iskontosu. */
   discountTotal: number
+  /** Genel (teklif altı) iskonto tutarı. */
+  globalDiscountAmount?: number
+  /** Genel iskonto yüzde girildiyse oranı (etikette gösterilir). */
+  globalDiscountRate?: number | null
   bankAccounts: TeklifPdfBankAccount[]
 }
+
+// "%20", "%7,5", "%12,25" — fmtNumber hep 2 ondalık basar, sondaki sıfırlar atılır.
+const pct = (n: number) => `%${fmtNumber(n).replace(/,00$/, "").replace(/(,\d)0$/, "$1")}`
 
 export function buildTeklifContent(data: TeklifPdfData): Content[] {
   const cur = data.currency || "TRY"
@@ -70,12 +81,14 @@ export function buildTeklifContent(data: TeklifPdfData): Content[] {
       width: 12,
       align: "right",
       cell: (r) => (r.discountAmount > 0 ? `-${fmtMoney(r.discountAmount, cur)}` : "-"),
+      // Yüzde girilen iskontoda oran tutarın altında: müşteri "%10" diye pazarlık eder.
+      sub: (r) => (r.discountAmount > 0 && r.discountRate && r.discountRate > 0 ? pct(r.discountRate) : null),
     },
     {
       header: "KDV",
       width: 7,
       align: "center",
-      cell: (r) => `%${fmtNumber(r.vatRate).replace(",00", "")}`,
+      cell: (r) => pct(r.vatRate),
     },
     { header: "Tutar", width: 14, align: "right", cell: (r) => fmtMoney(r.totalAmount, cur) },
   ]
@@ -102,14 +115,7 @@ export function buildTeklifContent(data: TeklifPdfData): Content[] {
     },
     section(null, partyBox(data.counterpartyLabel, data.counterparty), mm(6)),
     section(null, docTable({ columns, rows: data.lines }), mm(5)),
-    totalsBlock([
-      { label: "Ara Toplam", value: fmtMoney(data.netAmount, cur) },
-      ...(data.discountTotal > 0
-        ? [{ label: "İskonto", value: `-${fmtMoney(data.discountTotal, cur)}` }]
-        : []),
-      { label: "KDV Toplam", value: fmtMoney(data.vatAmount, cur) },
-      { label: "GENEL TOPLAM", value: fmtMoney(data.totalAmount, cur), emphasis: true },
-    ]),
+    totalsBlock(totalRows(data, cur)),
   ]
 
   if (data.bankAccounts.length > 0) {
@@ -144,6 +150,35 @@ export function buildTeklifContent(data: TeklifPdfData): Content[] {
   }
 
   return content
+}
+
+/**
+ * Dip toplam satırları. Ara toplam İSKONTOLAR ÖNCESİDİR ve iskonto varsa matrah
+ * ayrıca yazılır — satırlar yukarıdan aşağı toplanabilmeli. (Önceki sürüm ara
+ * toplama zaten iskontolu neti yazıp altına iskontoyu bir daha basıyordu.)
+ */
+function totalRows(data: TeklifPdfData, cur: string) {
+  const lineDiscount = data.discountTotal > 0 ? data.discountTotal : 0
+  const globalDiscount = (data.globalDiscountAmount ?? 0) > 0 ? data.globalDiscountAmount! : 0
+  const rows = [{ label: "Ara Toplam", value: fmtMoney(data.netAmount + lineDiscount + globalDiscount, cur) }]
+  if (lineDiscount > 0) {
+    rows.push({
+      label: globalDiscount > 0 ? "Satır İskontosu" : "İskonto",
+      value: `-${fmtMoney(lineDiscount, cur)}`,
+    })
+  }
+  if (globalDiscount > 0) {
+    const rate = data.globalDiscountRate && data.globalDiscountRate > 0 ? ` (${pct(data.globalDiscountRate)})` : ""
+    rows.push({ label: `Genel İskonto${rate}`, value: `-${fmtMoney(globalDiscount, cur)}` })
+  }
+  if (lineDiscount > 0 || globalDiscount > 0) {
+    rows.push({ label: "KDV Matrahı", value: fmtMoney(data.netAmount, cur) })
+  }
+  return [
+    ...rows,
+    { label: "KDV Toplam", value: fmtMoney(data.vatAmount, cur) },
+    { label: "GENEL TOPLAM", value: fmtMoney(data.totalAmount, cur), emphasis: true },
+  ]
 }
 
 /** Route'un çağırdığı tek giriş noktası: veri → PDF buffer. */

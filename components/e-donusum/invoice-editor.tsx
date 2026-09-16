@@ -48,11 +48,9 @@ import {
   isOtherTaxInVatBase,
   type GibTaxType,
 } from "@/lib/integrations/e-invoice/gib-tax-types"
+import { computeInvoiceTotals, documentColumnPrecision } from "@/lib/invoice/document-totals"
 import {
-  addLineTax,
-  applyGlobalAdjustment,
   computeLineTax,
-  emptyLineTaxSums,
   solveNetFromTotal,
 } from "@/lib/invoice/line-tax"
 import { returnRefError } from "@/lib/invoice/return-ref"
@@ -267,6 +265,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const [bootstrappingEdit, setBootstrappingEdit] = useState(mode === "edit")
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
+  // Düzenlenen kayıt FİŞ mi? Fiş dip toplamı resmî belgeden farklı kuralla
+  // hesaplanır (lib/invoice/document-totals.ts); ekran sunucunun kaydedeceği
+  // rakamı göstermeli. Yeni belge her zaman resmî faturadır.
+  const [isReceiptDoc, setIsReceiptDoc] = useState(false)
   // Hazır GİB tevkifat kodları (Mysoft'tan). E-dönüşüm açık firmalarda dolu döner;
   // boşsa tevkifat alanı serbest yüzde girişine geri düşer.
   const [withholdingTypes, setWithholdingTypes] = useState<Array<{ code: string; name: string; rate: number }>>([])
@@ -1157,6 +1159,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       }
 
       setEditingInvoiceId(id)
+      setIsReceiptDoc(data.isReceipt === true)
       setFormData({
         type: data.type || "SALES",
         // NULL returnKind = satış iadesi (sütun eklenmeden önce kesilmiş belgeler).
@@ -1790,62 +1793,69 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   const calculateTotals = () => {
     let grossAmount = 0, discountAmount = 0
-    // ÖTV/GEKAP KDV matrahına girer, tevkifat KDV üzerinden hesaplanır —
-    // formülün tamamı lib/invoice/line-tax.ts'te.
-    const sums = emptyLineTaxSums()
-    items.forEach((item) => {
-      const itemGross = item.quantity * item.unitPrice
-      const itemDiscount = computeItemDiscount(item, itemGross)
+    const lines = items.map((item) => {
+      // Kaydedilecek değerlerle hesapla: sunucu resmî belgede miktar/fiyat/iskontoyu
+      // kolon hassasiyetine yuvarlayıp toplamı onlardan kuruyor.
+      const quantity = documentColumnPrecision.quantity(Number(item.quantity) || 0, isReceiptDoc)
+      const unitPrice = documentColumnPrecision.unitPrice(Number(item.unitPrice) || 0, isReceiptDoc)
+      const itemGross = quantity * unitPrice
+      const itemDiscount = documentColumnPrecision.amount(
+        computeItemDiscount({ ...item, quantity, unitPrice }, itemGross),
+        isReceiptDoc,
+      )
       grossAmount += itemGross
       discountAmount += itemDiscount
-      const itemNet = itemGross - itemDiscount
-      addLineTax(sums, itemNet, computeLineTax(itemNet, item))
+      return { ...item, quantity, unitPrice, discountAmount: itemDiscount }
     })
-    const netAmount = sums.net
+    const lineNet = grossAmount - discountAmount
 
-    // Fatura altı iskonto: kullanıcının girdiği değeri tutara çevir, KDV matrahını
-    // oransal olarak düşür, vat/withholding/excise/diğer vergi'yi yeniden hesapla.
+    // Fatura altı iskonto: kullanıcının girdiği değeri tutara çevir (yüzde ise
+    // kuruşa yuvarlı — sunucuya giden ve kaydedilen tutar bu).
     const rawGlobal = parseFloat(globalDiscountInput) || 0
-    const globalDiscount = !globalDiscountEnabled || rawGlobal <= 0 || netAmount <= 0
+    const globalDiscount = !globalDiscountEnabled || rawGlobal <= 0 || lineNet <= 0
       ? 0
       : globalDiscountMode === "AMOUNT"
-        ? Math.max(0, Math.min(rawGlobal, netAmount))
-        : Math.max(0, Math.min(netAmount * (rawGlobal / 100), netAmount))
+        ? Math.max(0, Math.min(rawGlobal, lineNet))
+        : Math.max(0, Math.min(Math.round(lineNet * rawGlobal) / 100, lineNet))
 
     // Fatura altı İLAVE (masraf): iskontonun tersi, KDV matrahını ARTIRIR.
     // Ör. elektrik faturasında ETV/Enerji Fonu KDV matrahının içindedir.
     const rawCharge = parseFloat(globalChargeInput) || 0
     const globalCharge = !globalChargeEnabled || rawCharge <= 0 ? 0 : rawCharge
 
-    // Matrah hem iskonto hem ilave ile değişir; oransal vergiler aynı katsayıyla
-    // ölçeklenir, maktu GEKAP korunur — ayrımın tek kaynağı applyGlobalAdjustment.
-    const adj = applyGlobalAdjustment(sums, netAmount - globalDiscount + globalCharge)
-
     // Dip toplam yuvarlaması: KDV'ye GİRMEZ, yalnız ödenecek tutara eklenir.
     // Negatif olabilir (aşağı yuvarlama).
     const rounding = parseFloat(payableRoundingInput) || 0
 
+    // DİP TOPLAM — sunucuyla ve GİB'e giden belgeyle TEK kaynak
+    // (lib/invoice/document-totals.ts). Ekrandaki rakam kaydedilecek rakamdır.
+    const t = computeInvoiceTotals(
+      lines,
+      { globalDiscountAmount: globalDiscount, globalChargeAmount: globalCharge, payableRoundingAmount: rounding },
+      { receipt: isReceiptDoc },
+    )
+
     return {
-      netAmount: adj.net,
-      grossAmount, // satır iskontoları öncesi brüt ara toplam (Ara Toplam gösterimi)
-      grossNetAmount: netAmount, // global iskonto/ilave öncesi (satır iskontosu sonrası) ara toplam
-      discountAmount,
-      globalDiscount,
-      globalCharge,
-      rounding,
-      vatAmount: adj.vat,
+      netAmount: t.net,
+      grossAmount: t.gross, // satır iskontoları öncesi brüt ara toplam (Ara Toplam gösterimi)
+      grossNetAmount: t.subtotal, // global iskonto/ilave öncesi (satır iskontosu sonrası) ara toplam
+      discountAmount: t.lineDiscount,
+      globalDiscount: t.globalDiscount,
+      globalCharge: t.globalCharge,
+      rounding: t.rounding,
+      vatAmount: t.vat,
       // KDV'nin fiilen hesaplandığı matrah: net + ÖTV + GEKAP. ÖTV/GEKAP yoksa
       // netAmount ile aynıdır (o durumda ekranda ayrı satır gösterilmez).
-      vatBaseAmount: adj.vatBase,
-      withholdingAmount: adj.withholding,
-      exciseAmount: adj.excise,
-      otherTaxAmount: adj.otherTax,
+      vatBaseAmount: t.vatBase,
+      withholdingAmount: t.withholding,
+      exciseAmount: t.excise,
+      otherTaxAmount: t.otherTax,
       // Diğer verginin matraha GİREN kısmı (oransal GEKAP). Kalanı (Konaklama,
       // ÖİV…) matrahın üstünde durur; özet tablosu ikisini ayrı satırda gösterir.
-      otherTaxInBaseAmount: adj.otherTaxInBase,
+      otherTaxInBaseAmount: t.otherTaxInBase,
       // Maktu GEKAP — global iskonto/ilaveden etkilenmez.
-      gekapAmount: adj.gekap,
-      totalAmount: adj.total + rounding,
+      gekapAmount: t.gekap,
+      totalAmount: t.total,
     }
   }
 
