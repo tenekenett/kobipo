@@ -33,8 +33,13 @@ import {
 import {
   QuoteLinesEditor,
   QuoteTotalsSummary,
+  emptyGlobalDiscount,
   emptyQuoteLine,
+  globalDiscountPayload,
+  quoteLinePayload,
+  round2,
   round6,
+  type QuoteGlobalDiscount,
   type QuoteLine,
   type QuoteProduct,
 } from "@/components/teklif/quote-lines"
@@ -114,6 +119,7 @@ export default function TeklifPage() {
     notes: "",
   })
   const [lines, setLines] = useState<QuoteLine[]>([emptyQuoteLine()])
+  const [globalDiscount, setGlobalDiscount] = useState<QuoteGlobalDiscount>(emptyGlobalDiscount)
 
   async function fetchQuotes() {
     if (!companyId) return
@@ -171,8 +177,18 @@ export default function TeklifPage() {
           if (row.refPrice && row.refPrice.trim() !== "") {
             patch.refPrice = String(round6((Number(row.refPrice) || 0) * factor))
           }
+          // Tutar olarak girilmiş iskonto da para birimindedir; çevrilmezse
+          // 100 ₺ iskonto 100 $ olurdu. Yüzde iskonto kurdan bağımsızdır.
+          if (row.discountMode === "AMOUNT" && Number(row.discount) > 0) {
+            patch.discount = String(round2(Number(row.discount) * factor))
+          }
           return { ...row, ...patch }
         }),
+      )
+      setGlobalDiscount((prev) =>
+        prev.mode === "AMOUNT" && Number(prev.value) > 0
+          ? { ...prev, value: String(round2(Number(prev.value) * factor)) }
+          : prev,
       )
     }
     setForm((prev) => ({ ...prev, currency: newCur }))
@@ -180,17 +196,7 @@ export default function TeklifPage() {
 
   async function createQuote() {
     if (!companyId) return
-    const items = lines
-      .map((row) => ({
-        productId: row.productId || null,
-        description: row.description.trim() || "Kalem",
-        note: row.note.trim() || null,
-        quantity: Number(row.quantity || 0),
-        unitPrice: Number(row.unitPrice || 0),
-        vatRate: Number(row.vatRate || 0),
-        discountRate: Number(row.discountRate || 0),
-      }))
-      .filter((row) => row.description.length > 0)
+    const items = lines.map(quoteLinePayload).filter((row) => row.description.length > 0)
 
     if (!items.length) {
       toast({ title: "Eksik bilgi", description: "En az bir geçerli kalem girin.", variant: "destructive" })
@@ -208,6 +214,7 @@ export default function TeklifPage() {
         validUntil: form.validUntil || null,
         notes: form.notes || null,
         items,
+        globalDiscount: globalDiscountPayload(globalDiscount),
       }),
     })
     if (res.ok) {
@@ -220,6 +227,7 @@ export default function TeklifPage() {
         notes: "",
       })
       setLines([emptyQuoteLine()])
+      setGlobalDiscount(emptyGlobalDiscount())
       setIsCreateOpen(false)
       fetchQuotes()
     } else {
@@ -278,7 +286,7 @@ export default function TeklifPage() {
                     Yeni Teklif
                   </Button></WriteAction>
                 </DialogTrigger>
-                <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
+                <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
                   <DialogHeader>
                     <DialogTitle>Yeni Teklif</DialogTitle>
                   </DialogHeader>
@@ -347,7 +355,12 @@ export default function TeklifPage() {
                         priceMode="sale"
                         convert={convert}
                       />
-                      <QuoteTotalsSummary lines={lines} currency={form.currency} />
+                      <QuoteTotalsSummary
+                        lines={lines}
+                        currency={form.currency}
+                        globalDiscount={globalDiscount}
+                        onGlobalDiscountChange={setGlobalDiscount}
+                      />
                     </div>
                     <div>
                       <Label>Not</Label>

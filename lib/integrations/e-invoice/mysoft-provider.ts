@@ -1,7 +1,7 @@
 import { EInvoiceProvider } from "./types"
 import { resolveMysoftBaseUrl } from "./constants"
 import { normalizeUnitCode } from "@/lib/data/units"
-import { isOtherTaxCharge, isOtherTaxInVatBase } from "./gib-tax-types"
+import { computeDocumentTotals } from "@/lib/invoice/document-totals"
 import { istanbulDay } from "@/lib/format"
 import {
   isTemplateNotFoundError,
@@ -835,144 +835,31 @@ async sendInvoice(invoiceData: any): Promise<any> {
       const DEFAULT_EXEMPTION_CODE = "351"; // "Diğer İstisnalar" — kullanıcı kod girmediyse son çare
       const DEFAULT_EXEMPTION_REASON = "Vergiden istisna işlem";
 
-      // GİB şematron kuralı: tüm para alanları en fazla 2 ondalık (kuruş) içermeli.
-      // Pro-rata payı + KDV hesabında floating-point fazla hane üretebileceğinden
-      // gönderim öncesi tüm tutarları 2 ondalığa yuvarlıyoruz.
-      const round2 = (n: number) => Math.round(n * 100) / 100;
       // unitPriceTra için UBL standardı 6 ondalığa kadar izin verir (Türk e-Fatura
       // pratiği); 26 × 15384,615385 = 400.000 gibi tam toplama ulaşabilmek için.
       const round6 = (n: number) => Math.round(n * 1000000) / 1000000;
 
-      // 0 tutarlı kalemleri Mysoft'a göndermiyoruz. KDV matrahı (taxableAmtTra)
-      // = brüt − iskonto + ÖTV + GEKAP; KDV bu tutar üzerinden hesaplanır.
-      const lineData = (invoiceData.items as any[])
-        .map((item: any) => {
-          const qty = Number(item.quantity) || 0;
-          const unitPrice = Number(item.unitPrice) || 0;
-          const vatRate = Number(item.vatRate) || 0;
-          const rowTotal = qty * unitPrice; // brüt
-          // İskonto tutarı: helper'dan hesaplanmış geliyor. Negatif/aşan değer
-          // normalize edilir (brüt üzerinde kalmasın).
-          const rawDiscount = Number(item.discountAmount) || 0;
-          const lineDiscount = Math.max(0, Math.min(rawDiscount, rowTotal));
-          const discountRate = Number(item.discountRate) || 0;
-          const exemptionCode = typeof item.taxExemptionReasonCode === "string" && item.taxExemptionReasonCode.trim()
-            ? item.taxExemptionReasonCode.trim()
-            : null;
-          const exemptionReason = typeof item.taxExemptionReason === "string" && item.taxExemptionReason.trim()
-            ? item.taxExemptionReason.trim()
-            : null;
-          // KDV tevkifatı: kod + tevkif edilen KDV yüzdesi (matrah/tutar rowVat'tan hesaplanır).
-          const withholdingCode = typeof item.withholdingCode === "string" && item.withholdingCode.trim()
-            ? item.withholdingCode.trim()
-            : null;
-          const withholdingName = typeof item.withholdingName === "string" && item.withholdingName.trim()
-            ? item.withholdingName.trim()
-            : null;
-          const withholdingRate = Number(item.withholdingRate) || 0;
-          // ÖTV: oran + GİB liste kodu (0071/0073/0074...). Tutar iskonto sonrası
-          // matrah (l.taxable) üzerinden hesaplanır — KDV ile aynı taban.
-          const exciseRate = Number(item.exciseRate) || 0;
-          const exciseCode = typeof item.exciseCode === "string" && item.exciseCode.trim()
-            ? item.exciseCode.trim()
-            : null;
-          // Diğer Vergi (KDV/ÖTV dışı ek vergi): oran + serbest ad. Ad → GİB kodu
-          // resolveOtherTaxCode ile türetilir.
-          const otherTaxRate = Number(item.otherTaxRate) || 0;
-          const otherTaxName = typeof item.otherTaxName === "string" && item.otherTaxName.trim()
-            ? item.otherTaxName.trim()
-            : null;
-          const otherTaxCode = typeof item.otherTaxCode === "string" && item.otherTaxCode.trim()
-            ? item.otherTaxCode.trim()
-            : null;
-          // Diğer verginin KDV matrahına girip girmediği ve GİB'e vergi mi masraf
-          // mı olarak gideceği koda bağlıdır (GEKAP: matraha girer + masraf).
-          const otherTaxInVatBase = isOtherTaxInVatBase(otherTaxCode);
-          const otherTaxIsCharge = isOtherTaxCharge(otherTaxCode);
-          // MAKTU GEKAP: miktar × birim tutar. Net'ten türetilmediği için iskonto
-          // (satır ya da fatura altı) onu KÜÇÜLTMEZ — pro-rata dağıtımın dışında.
-          const gekapUnitAmount = Math.max(0, Number(item.gekapUnitAmount) || 0);
-          const gekap = round2(qty * gekapUnitAmount);
-          // Pro-rata global discount payı sonradan eklenecek.
-          return { item, qty, unitPrice, vatRate, rowTotal, lineDiscount, discountRate, exemptionCode, exemptionReason, withholdingCode, withholdingName, withholdingRate, exciseRate, exciseCode, otherTaxRate, otherTaxName, otherTaxCode, otherTaxInVatBase, otherTaxIsCharge, gekap, globalShare: 0, taxable: rowTotal - lineDiscount, vatBase: 0, rowVat: 0, excise: 0, otherTax: 0 };
-        })
-        .filter((l: any) => l.rowTotal > 0);
-
-      // Fatura altı (genel) iskontoyu satırlara PRO-RATA yay. Sebep: Mysoft'un
-      // header-level allowanceCharge bilgisi, kullanıcının seçtiği XSLT şablonuna
-      // göre GİB görselinde ÖRTÜK kalabiliyor; satır seviyesinde yayılan iskonto
-      // ise her UBL XSLT'inde standart olarak render edilir, KDV doğru çıkar.
-      const subtotalNetForGlobal = lineData.reduce((s: number, l: any) => s + (l.rowTotal - l.lineDiscount), 0);
-      const rawGlobalDiscount = Number(invoiceData.globalDiscountAmount) || 0;
-      const appliedGlobalDiscount = subtotalNetForGlobal > 0
-        ? Math.max(0, Math.min(rawGlobalDiscount, subtotalNetForGlobal))
-        : 0;
-
-      if (appliedGlobalDiscount > 0 && subtotalNetForGlobal > 0) {
-        // Yuvarlama hatası birikir — son satırda artığı düzelt.
-        let distributed = 0;
-        lineData.forEach((l: any, idx: number) => {
-          const lineNet = l.rowTotal - l.lineDiscount;
-          const isLast = idx === lineData.length - 1;
-          const share = isLast
-            ? round2(Math.max(0, appliedGlobalDiscount - distributed))
-            : round2((lineNet / subtotalNetForGlobal) * appliedGlobalDiscount);
-          l.globalShare = share;
-          distributed += share;
-        });
-      }
-
-      // Fatura altı İLAVE (masraf): iskontonun tersi, matrahı ARTIRIR. İskontoyla
-      // AYNI gerekçeyle satırlara pro-rata yayılır — header-level allowanceCharge
-      // bazı XSLT'lerde görünmediği için satıra yayılmış değer her şablonda doğru
-      // render edilir ve KDV doğru hesaplanır. globalShare NEGATİF pay olarak
-      // eklenir; aşağıdaki matrah hesabı (rowTotal - lineDiscount - globalShare)
-      // böylece ilaveyi kendiliğinden ekler.
-      const rawGlobalCharge = Math.max(0, Number(invoiceData.globalChargeAmount) || 0);
-      // Dip toplamlarda ayrıca raporlanacak (chargeTotalAmount / allowanceTotalAmount).
-      const appliedGlobalChargeTotal =
-        rawGlobalCharge > 0 && subtotalNetForGlobal > 0 ? round2(rawGlobalCharge) : 0;
-      const appliedRoundingAmount = round2(Number(invoiceData.payableRoundingAmount) || 0);
-      if (rawGlobalCharge > 0 && subtotalNetForGlobal > 0) {
-        let distributedCharge = 0;
-        lineData.forEach((l: any, idx: number) => {
-          const lineNet = l.rowTotal - l.lineDiscount;
-          const isLast = idx === lineData.length - 1;
-          const share = isLast
-            ? round2(Math.max(0, rawGlobalCharge - distributedCharge))
-            : round2((lineNet / subtotalNetForGlobal) * rawGlobalCharge);
-          l.globalShare = round2(l.globalShare - share);
-          distributedCharge += share;
-        });
-      }
-
-      // Yeni matrah ve KDV: lineDiscount + globalShare düşülmüş tutar üzerinden.
-      // GİB şematron 2-ondalık kuralı: TUTAR alanları (amtTra/taxableAmtTra/
-      // amtVatTra) 2 ondalığa yuvarlanır. unitPriceTra UBL standardında 6+
-      // ondalığa kadar geçerlidir — kullanıcı girdiği hassasiyeti koruyoruz
-      // (ör. 26 × 15384,615385 = 400.000,00 tam tutar elde etmek için gerekli).
-      lineData.forEach((l: any) => {
-        l.taxable = round2(l.rowTotal - l.lineDiscount - l.globalShare);
-        // ÖTV ve Diğer Vergi iskonto sonrası mal/hizmet matrahı (l.taxable) üzerinden.
-        l.excise = l.exciseRate > 0 ? round2((l.taxable * l.exciseRate) / 100) : 0;
-        // Maktu GEKAP girildiyse oransal GEKAP susar (line-tax.ts ile aynı kural).
-        if (l.gekap > 0 && l.otherTaxIsCharge) l.otherTaxRate = 0;
-        l.otherTax = l.otherTaxRate > 0 ? round2((l.taxable * l.otherTaxRate) / 100) : 0;
-        // KDV MATRAHI mal/hizmet bedelinin kendisi değildir: ÖTV ve GEKAP bedele
-        // eklenir, KDV bu toplam üzerinden hesaplanır (bkz. lib/invoice/line-tax.ts).
-        l.vatBase = round2(
-          l.taxable + l.excise + (l.otherTaxInVatBase ? l.otherTax : 0) + l.gekap,
-        );
-        l.rowVat = round2((l.vatBase * l.vatRate) / 100);
-        l.lineDiscount = round2(l.lineDiscount);
-        l.rowTotal = round2(l.rowTotal);
-        // l.unitPrice: round'lamadan orijinal hassasiyetle gönderilir.
+      // KALEM + DİP TOPLAM HESABI — tek kaynak lib/invoice/document-totals.ts.
+      // Kobipo editörü/uçları faturayı AYNI fonksiyonla kaydeder; burada ayrı bir
+      // kopya dururken Kobipo tutarı belgeden 1–3 kuruş sapıyordu (2026-09-16).
+      // Gönderime özgü iki kural seçenekle verilir: 0 tutarlı kalem gönderilmez,
+      // kodsuz tevkifat belgeye yazılamaz.
+      //
+      // Dip toplamlar invoiceCalculation ile BİZDEN gider: isManuelCalculation:false
+      // iken Mysoft başlığı Σ(miktar × birim fiyat)'tan kurar ve İSKONTOLARI HİÇ
+      // DÜŞMEZ → GİB görselinde "Ödenecek Tutar" iskonto kadar şişkin çıkıyordu
+      // (satır amtTra'sını net göndermek ya da isSubtractDiscountFromAmtTra başlığı
+      // DEĞİŞTİRMİYOR — draft UBL/şematron uçlarıyla doğrulandı).
+      const doc = computeDocumentTotals(invoiceData.items as any[], invoiceData, {
+        skipNonPositiveLines: true,
+        withholdingNeedsCode: true,
       });
+      const lineData: any[] = doc.lines;
 
       console.log("[Mysoft] discount distribution →", {
-        rawGlobalDiscount,
-        appliedGlobalDiscount,
-        subtotalNetForGlobal,
+        rawGlobalDiscount: Number(invoiceData.globalDiscountAmount) || 0,
+        appliedGlobalDiscount: doc.globalDiscount,
+        subtotalNetForGlobal: doc.subtotal,
         lines: lineData.map((l: any) => ({
           desc: l.item.description,
           rowTotal: l.rowTotal,
@@ -989,65 +876,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
         return { success: false, error: "Faturada sıfır tutarsız kalem bulunamadı (tüm kalemler 0)." };
       }
 
-      // --- BAŞLIK (LegalMonetaryTotal / "dip toplamlar") ---
-      // isManuelCalculation:false iken Mysoft başlığı Σ(miktar × birim fiyat)'tan
-      // kurar ve İSKONTOLARI HİÇ DÜŞMEZ → resmî GİB görselinde "Vergiler Dahil
-      // Toplam Tutar" ve "Ödenecek Tutar" toplam iskonto kadar şişkin çıkar.
-      // (Satır amtTra'sını net göndermek veya isSubtractDiscountFromAmtTra bayrağı
-      // başlığı DEĞİŞTİRMİYOR — draft UBL/şematron uçlarıyla doğrulandı.)
-      // Çözüm: dip toplamları invoiceCalculation ile kendimiz göndeririz
-      // (Swagger: "isManuelCalculation = true gönderilirse buradaki rakamlar
-      // kullanılır"). Eşitlikler kurgu gereği tutarlı: allowanceTotal brüt−matrah
-      // olarak TÜRETİLİR ki kuruş yuvarlama kaymasında bile denklem bozulmasın.
-      const totalGross = round2(lineData.reduce((s: number, l: any) => s + l.rowTotal, 0))
-      // GEKAP UBL'de VERGİ DEĞİL masraftır (vergi kodu yok): "vergiler hariç
-      // tutar"ın İÇİNDE durur ve chargeTotalAmount'a yazılır. ÖTV/ÖİV/konaklama
-      // ise vergidir → taxExclusive'in dışında, totalExtraTax'ın içinde.
-      const totalLineCharge = round2(
-        lineData.reduce(
-          (s: number, l: any) => s + l.gekap + (l.otherTaxIsCharge ? l.otherTax : 0),
-          0,
-        ),
-      )
-      const totalTaxable = round2(
-        lineData.reduce((s: number, l: any) => s + l.taxable, 0) + totalLineCharge,
-      )
-      const totalVat = round2(lineData.reduce((s: number, l: any) => s + l.rowVat, 0))
-      const totalExtraTax = round2(
-        lineData.reduce((s: number, l: any) => s + l.excise + (l.otherTaxIsCharge ? 0 : l.otherTax), 0),
-      )
-      // Satırlara yazılan tevkifat tutarlarının birebir toplamı (aynı koşul + aynı
-      // yuvarlama — detail.withholdingTaxAmount ile kuruşu kuruşuna aynı olmalı).
-      const totalWithholding = round2(
-        lineData.reduce(
-          (s: number, l: any) =>
-            s +
-            (l.withholdingCode && l.withholdingRate > 0 && l.rowVat > 0
-              ? round2((l.rowVat * l.withholdingRate) / 100)
-              : 0),
-          0,
-        ),
-      )
-      const taxInclusiveTotal = round2(totalTaxable + totalVat + totalExtraTax)
-      const invoiceCalculation = {
-        lineExtensionAmount: totalGross,          // Σ miktar × birim fiyat (brüt)
-        taxExclusiveAmount: totalTaxable,         // iskontolar düşülmüş net matrah + GEKAP
-        taxInclusiveAmount: taxInclusiveTotal,    // matrah + KDV + ek vergiler (ÖTV/ÖİV/diğer)
-        // İskonto ve İLAVE ayrı raporlanır. İlave satırlara pro-rata yayıldığı için
-        // totalTaxable'ın İÇİNDE; allowanceTotal'ı brüt farkından türetirken ilaveyi
-        // geri eklemezsek iskonto olduğundan AZ görünür (ör. ilave 21,31 varken
-        // allowance 21,31 eksik çıkar) ve GİB dip toplam kontrolü tutmaz. Satır
-        // masrafı (GEKAP) da aynı sebeple geri eklenir — o da totalTaxable'ın içinde.
-        allowanceTotalAmount: round2(
-          totalGross - totalTaxable + appliedGlobalChargeTotal + totalLineCharge,
-        ),
-        chargeTotalAmount: round2(appliedGlobalChargeTotal + totalLineCharge),
-        // Dip toplam yuvarlaması: KDV'ye girmez, yalnız ödenecek tutara eklenir.
-        // Önceden sabit 0 gönderiliyordu; yuvarlamalı fatura kesilirse GİB'e giden
-        // belge, uygulamada gördüğümüz tutardan farklı oluyordu.
-        payableRoundingAmount: appliedRoundingAmount,
-        payableAmount: round2(taxInclusiveTotal - totalWithholding + appliedRoundingAmount),
-      }
+      const invoiceCalculation = doc.calculation
 
       const isoDate = invoiceData.date instanceof Date ? invoiceData.date.toISOString() : new Date(invoiceData.date).toISOString();
 
@@ -1500,7 +1329,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
                 detail.withholdingTaxTypeCode = l.withholdingCode;
                 detail.withholdingTaxTypeName = l.withholdingName || l.withholdingCode;
                 detail.withholdingTaxableAmount = l.rowVat;
-                detail.withholdingTaxAmount = round2((l.rowVat * l.withholdingRate) / 100);
+                detail.withholdingTaxAmount = l.withholding;
                 // Yüzdeyi her kodda gönder: GİB şematronu UBL'de Percent alanının
                 // 0/boş olmasını reddediyor ("601 vergi tipinin yüzdesi 0 olamaz").
                 detail.withholdingTaxPercentage = l.withholdingRate;

@@ -88,6 +88,7 @@ export const GET = withApiErrors(async function GET(request: Request, { params }
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
         discountAmount: Number(item.discountAmount || 0),
+        discountRate: item.discountRate != null ? Number(item.discountRate) : null,
         vatRate: Number(item.vatRate),
         totalAmount: Number(item.totalAmount),
       })),
@@ -95,6 +96,8 @@ export const GET = withApiErrors(async function GET(request: Request, { params }
       vatAmount: Number(quote.vatAmount),
       totalAmount: Number(quote.totalAmount),
       discountTotal,
+      globalDiscountAmount: Number(quote.globalDiscountAmount || 0),
+      globalDiscountRate: quote.globalDiscountRate != null ? Number(quote.globalDiscountRate) : null,
       bankAccounts,
     })
 

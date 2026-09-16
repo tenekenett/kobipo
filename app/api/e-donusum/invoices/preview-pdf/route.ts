@@ -9,12 +9,12 @@ import {
   type GibDocKind,
 } from "@/lib/pdf/gib-invoice-pdf"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { computeLineTax } from "@/lib/invoice/line-tax"
 import {
-  addLineTax,
-  applyGlobalAdjustment,
-  computeLineTax,
-  emptyLineTaxSums,
-} from "@/lib/invoice/line-tax"
+  computeInvoiceTotals,
+  documentColumnPrecision,
+  resolveLineDiscount,
+} from "@/lib/invoice/document-totals"
 
 export const dynamic = "force-dynamic"
 
@@ -125,8 +125,9 @@ export const POST = withApiErrors(async function POST(request: Request) {
         // Satır açıklaması (kaydedilmemiş editör önizlemesinde de görünmeli).
         note: typeof item.note === "string" && item.note.trim() ? item.note.trim() : null,
         unit: typeof item.unit === "string" && item.unit.trim() ? item.unit.trim().toUpperCase() : "ADET",
-        quantity: parseFloat(item.quantity) || 0,
-        unitPrice: parseFloat(item.unitPrice) || 0,
+        // Kaydedilecek hassasiyette (bkz. POST ucu) — önizleme kayıtla aynı rakamı versin.
+        quantity: documentColumnPrecision.quantity(parseFloat(item.quantity) || 0),
+        unitPrice: documentColumnPrecision.unitPrice(parseFloat(item.unitPrice) || 0),
         discountRate: parseFloat(item.discountRate) || 0,
         discountAmount: parseFloat(item.discountAmount) || 0,
         discountMode,
@@ -144,27 +145,17 @@ export const POST = withApiErrors(async function POST(request: Request) {
       }
     })
 
-    const lineDiscountOf = (it: (typeof norm)[number]) => {
-      const gross = it.quantity * it.unitPrice
-      if (it.discountMode === "AMOUNT") return Math.max(0, Math.min(it.discountAmount, gross))
-      return gross * (it.discountRate / 100)
-    }
+    const lineDiscountOf = (it: (typeof norm)[number]) =>
+      documentColumnPrecision.amount(resolveLineDiscount(it))
 
-    let grossTotal = 0
-    let lineDiscountTotal = 0
     let otherTaxLabel: string | null = null
-    const sums = emptyLineTaxSums()
 
     const lines: GibInvoiceLine[] = norm.map((it) => {
       const gross = it.quantity * it.unitPrice
       const disc = lineDiscountOf(it)
       const net = gross - disc
-      // ÖTV/GEKAP KDV matrahına girer — tek kaynak lib/invoice/line-tax.ts.
+      // Satır görünümü: ÖTV/GEKAP KDV matrahına girer — lib/invoice/line-tax.ts.
       const tax = computeLineTax(net, it)
-
-      grossTotal += gross
-      lineDiscountTotal += disc
-      addLineTax(sums, net, tax)
       if (tax.otherTax > 0 && it.otherTaxName && !otherTaxLabel) otherTaxLabel = it.otherTaxName
 
       return {
@@ -182,20 +173,27 @@ export const POST = withApiErrors(async function POST(request: Request) {
       }
     })
 
-    // Fatura altı (genel) iskonto — oransal vergiler ölçeklenir, maktu GEKAP korunur.
-    const rawGlobal = Math.max(0, parseFloat(body.globalDiscountAmount) || 0)
-    const appliedGlobalDiscount = sums.net > 0 ? Math.min(rawGlobal, sums.net) : 0
-    const {
-      net: netAmount,
-      vat: vatAmount,
-      vatBase: vatBaseAmount,
-      withholding: withholdingAmount,
-      excise: exciseAmount,
-      otherTax: otherTaxAmount,
-      otherTaxInBase: otherTaxInBaseAmount,
-      gekap: gekapAmount,
-      total: totalAmount,
-    } = applyGlobalAdjustment(sums, sums.net - appliedGlobalDiscount)
+    // DİP TOPLAM — kayıt ve GİB belgesiyle tek kaynak (lib/invoice/document-totals.ts).
+    const totals = computeInvoiceTotals(
+      norm.map((it) => ({ ...it, discountAmount: lineDiscountOf(it) })),
+      {
+        globalDiscountAmount: Math.max(0, parseFloat(body.globalDiscountAmount) || 0),
+        globalChargeAmount: Math.max(0, parseFloat(body.globalChargeAmount) || 0),
+        payableRoundingAmount: parseFloat(body.payableRoundingAmount) || 0,
+      },
+    )
+    const grossTotal = totals.gross
+    const lineDiscountTotal = totals.lineDiscount
+    const appliedGlobalDiscount = totals.globalDiscount
+    const netAmount = totals.net
+    const vatAmount = totals.vat
+    const vatBaseAmount = totals.vatBase
+    const withholdingAmount = totals.withholding
+    const exciseAmount = totals.excise
+    const otherTaxAmount = totals.otherTax
+    const otherTaxInBaseAmount = totals.otherTaxInBase
+    const gekapAmount = totals.gekap
+    const totalAmount = totals.total
 
     const pdfBuffer = await generateGibInvoicePdfBuffer({
       invoiceNo: typeof body.invoiceNo === "string" ? body.invoiceNo.trim() : "",

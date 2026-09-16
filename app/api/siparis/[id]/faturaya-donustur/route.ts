@@ -7,6 +7,7 @@ import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 import { prepareInvoiceStockOps, writeInvoiceStockOps } from "@/lib/stock/invoice-stock"
 import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
+import { invoiceTotalsFromStoredItems } from "@/lib/invoice/document-totals"
 
 export const dynamic = "force-dynamic"
 
@@ -41,6 +42,11 @@ export const POST = withApiErrors(async function POST(
     return NextResponse.json({ error: "Alış faturası için siparişte tedarikçi olmalı" }, { status: 400 })
   }
 
+  // Başlık toplamı kalemlerden RESMÎ BELGE kuralıyla kurulur (lib/invoice/document-totals.ts).
+  // Siparişin kayıtlı toplamı kopyalanmaz: yuvarlamasız hesaplandığı için GİB'e
+  // gidecek belgeden 1–3 kuruş sapabiliyordu.
+  const totals = invoiceTotalsFromStoredItems(order.items)
+
   const buildInvoice = (invoiceNo: string) =>
     prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.create({
@@ -53,9 +59,9 @@ export const POST = withApiErrors(async function POST(
         supplierId: order.supplierId,
         date: order.date,
         dueDate: order.deliveryDate,
-        totalAmount: order.totalAmount,
-        vatAmount: order.vatAmount,
-        netAmount: order.netAmount,
+        totalAmount: totals.total,
+        vatAmount: totals.vat,
+        netAmount: totals.net,
         currency: order.currency,
         notes: order.notes,
         status: "DRAFT",

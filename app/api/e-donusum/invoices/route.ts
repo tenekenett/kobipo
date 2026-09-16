@@ -14,12 +14,12 @@ import { revalidateDashboard } from "@/lib/dashboard/cache"
 import { resolveCompanyWarehouseId } from "@/lib/stock/warehouse"
 import { prepareInvoiceStockOps, writeInvoiceStockOps } from "@/lib/stock/invoice-stock"
 import { parseRecipeEffects } from "@/lib/stock/recipe-expand"
+import { computeLineTax } from "@/lib/invoice/line-tax"
 import {
-  addLineTax,
-  applyGlobalAdjustment,
-  computeLineTax,
-  emptyLineTaxSums,
-} from "@/lib/invoice/line-tax"
+  computeInvoiceTotals,
+  documentColumnPrecision,
+  resolveLineDiscount,
+} from "@/lib/invoice/document-totals"
 import {
   amountExceedsLimit,
   discountLimitError,
@@ -318,8 +318,11 @@ const company = await prisma.company.findUnique({
         note:
           typeof item.note === "string" && item.note.trim() ? String(item.note).trim() : null,
         unit: typeof item.unit === "string" && item.unit.trim() ? String(item.unit).trim().toUpperCase() : "ADET",
-        quantity: parseFloat(item.quantity) || 0,
-        unitPrice: parseFloat(item.unitPrice) || 0,
+        // Resmî belgede miktar/fiyat KOLON hassasiyetine (2/6 ondalık) burada
+        // yuvarlanır: toplam, veritabanına yazılan ve sonra Mysoft'a giden AYNI
+        // değerlerden hesaplansın. Fiş eski kuralda kalır (bkz. document-totals.ts).
+        quantity: documentColumnPrecision.quantity(parseFloat(item.quantity) || 0, isReceipt),
+        unitPrice: documentColumnPrecision.unitPrice(parseFloat(item.unitPrice) || 0, isReceipt),
         // Alış faturasında ürünün satış fiyatını güncellemek için (opsiyonel).
         salePrice:
           item.salePrice != null && item.salePrice !== "" && !Number.isNaN(parseFloat(item.salePrice))
@@ -395,38 +398,25 @@ const company = await prisma.company.findUnique({
       invoice: returnOfInvoiceId,
     })
 
-    // Satır iskonto hesaplaması: mod AMOUNT ise (negatif veya brütü aşan tutar
-    // normalize edilir), aksi halde oran * brüt.
-    const itemDiscountAmount = (item: typeof normalizedItems[number]) => {
-      const gross = item.quantity * item.unitPrice
-      if (item.discountMode === "AMOUNT") {
-        return Math.max(0, Math.min(item.discountAmount, gross))
-      }
-      return gross * (item.discountRate / 100)
-    }
+    // Satır iskontosu TUTARI: mod AMOUNT ise brütle kırpılır, PERCENT ise oran ×
+    // brüt. Resmî belgede kuruşa yuvarlanır ve AYNI değer kaydedilir.
+    const itemDiscountAmount = (item: typeof normalizedItems[number]) =>
+      documentColumnPrecision.amount(resolveLineDiscount(item), isReceipt)
+    const totalsLines = normalizedItems.map((item) => ({ ...item, discountAmount: itemDiscountAmount(item) }))
 
-    // Calculate totals — ÖTV/GEKAP matraha girer, tevkifat KDV üzerinden kesilir.
-    // Tek kaynak lib/invoice/line-tax.ts (editör ve GİB payload'ı da aynısını kullanır).
-    const sums = emptyLineTaxSums()
-    normalizedItems.forEach((item) => {
-      const itemGross = item.quantity * item.unitPrice
-      const itemNet = itemGross - itemDiscountAmount(item)
-      addLineTax(sums, itemNet, computeLineTax(itemNet, item))
-    })
-    let netAmount = sums.net
-    let vatAmount = sums.vat
-    let totalAmount = sums.total
-
-    // Fatura altı (genel) iskonto: matrahtan oransal düşülür, KDV/tevkifat/ÖTV
-    // de aynı oranda azalır → totalAmount da aynı oranda düşer. Negatif veya
-    // matrahı aşan değer 0/matrah'a kırpılır.
-    const rawGlobalDiscount = Math.max(0, parseFloat(globalDiscountAmount) || 0)
-    const appliedGlobalDiscount = netAmount > 0 ? Math.min(rawGlobalDiscount, netAmount) : 0
-
-    // Fatura altı İLAVE (masraf): iskontonun tersi — KDV matrahını ARTIRIR.
-    // Elektrik/telekom faturasındaki ETV, Enerji Fonu gibi KDV matrahına dahil
-    // kalemler için (bkz. Invoice.globalChargeAmount yorumu).
-    const appliedGlobalCharge = Math.max(0, parseFloat(globalChargeAmount) || 0)
+    // DİP TOPLAM — tek kaynak lib/invoice/document-totals.ts. Resmî belgede GİB'e
+    // giden hesapla kuruşu kuruşuna aynı (satır yuvarlamalı, genel iskonto satırlara
+    // dağıtılır); FİŞTE eski yuvarlamasız toplam (KDV dahil fiyatlı kafe fişi ekrandaki
+    // rakamdan sapmasın). ÖTV/GEKAP matraha girer, tevkifat KDV'den kesilir, genel
+    // iskonto matrahı düşürür, ilave artırır, dip toplam yuvarlaması KDV'ye girmez.
+    const adjustments = { globalDiscountAmount, globalChargeAmount, payableRoundingAmount }
+    const totals = computeInvoiceTotals(totalsLines, adjustments, { receipt: isReceipt })
+    const netAmount = totals.net
+    const vatAmount = totals.vat
+    const totalAmount = totals.total
+    const appliedGlobalDiscount = totals.globalDiscount
+    const appliedGlobalCharge = totals.globalCharge
+    const appliedRounding = totals.rounding
 
     // KAFE/RESTORAN İSKONTO TAVANI — fiş yolunun kapısı.
     //
@@ -439,10 +429,13 @@ const company = await prisma.company.findUnique({
     // faturasındaki pazarlık iskontosunu bağlaması istenmez.
     if (isReceipt && type === "SALES" && appliedGlobalDiscount > 0) {
       const limit = normalizeDiscountLimit(company.restaurantMaxDiscountPercent)
-      // Ölçü KDV DAHİL tabana çevrilir: oran ikisinde de aynı çıkar ama hata
-      // metnindeki tutar, kasiyerin ekranda gördüğü rakamla aynı olmalı.
-      const grossBase = netAmount + vatAmount
-      const grossDiscount = netAmount > 0 ? appliedGlobalDiscount * (grossBase / netAmount) : 0
+      // Ölçü KDV DAHİL tabana, iskonto ÖNCESİ toplamlar üzerinden çevrilir: oran
+      // ikisinde de aynı çıkar ama hata metnindeki tutar, kasiyerin ekranda
+      // gördüğü rakamla aynı olmalı.
+      const beforeDiscount = computeInvoiceTotals(totalsLines, {}, { receipt: true })
+      const grossBase = beforeDiscount.net + beforeDiscount.vat
+      const grossDiscount =
+        beforeDiscount.net > 0 ? appliedGlobalDiscount * (grossBase / beforeDiscount.net) : 0
       if (amountExceedsLimit(grossDiscount, grossBase, limit)) {
         return NextResponse.json(
           { error: discountLimitError(limit, grossBase) },
@@ -450,19 +443,6 @@ const company = await prisma.company.findUnique({
         )
       }
     }
-
-    if (netAmount > 0 && (appliedGlobalDiscount > 0 || appliedGlobalCharge > 0)) {
-      // Oransal vergiler ölçeklenir, maktu GEKAP korunur.
-      const adj = applyGlobalAdjustment(sums, netAmount - appliedGlobalDiscount + appliedGlobalCharge)
-      netAmount = adj.net
-      vatAmount = adj.vat
-      totalAmount = adj.total
-    }
-
-    // Dip toplam yuvarlaması: KDV'ye GİRMEZ, yalnız ödenecek tutara eklenir.
-    // Negatif olabilir (aşağı yuvarlama).
-    const appliedRounding = parseFloat(payableRoundingAmount) || 0
-    totalAmount += appliedRounding
 
     try {
       await ensureUsageLimit(companyId, "invoices_monthly", 1)

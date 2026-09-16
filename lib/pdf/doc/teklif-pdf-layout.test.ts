@@ -149,6 +149,31 @@ describe("Teklif PDF yerleşimi", () => {
     expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(1)
   })
 
+  it("genel iskonto dip toplamda oranıyla yazılır ve satırlar yukarıdan aşağı toplanır", async () => {
+    // Ara 20.000 − satır 500 − genel %10 (1.950) = matrah 17.550
+    const buf = await renderTeklifPdf(
+      data({
+        netAmount: 17550,
+        vatAmount: 3510,
+        totalAmount: 21060,
+        discountTotal: 500,
+        globalDiscountAmount: 1950,
+        globalDiscountRate: 10,
+      }),
+    )
+    const runs = extractTextRuns(buf)
+    const packed = runs.map((r) => r.text).join(" ").replace(/\s/g, "")
+    expect(packed).toContain("Genelİskonto(%10)")
+    expect(packed).toContain("KDVMatrahı")
+
+    const rightEdge = 595.28 - PAGE.paddingHorizontal
+    for (const v of ["20.000,00", "₺500,00", "₺1.950,00", "17.550,00", "21.060,00"]) {
+      const run = [...runs].reverse().find((r) => r.text.replace(/\s/g, "").includes(v))
+      expect(run, `${v} bulunamadı`).toBeTruthy()
+      expect(Math.abs(run!.x + run!.width - rightEdge), `${v} sağ kenarda bitmiyor`).toBeLessThan(2)
+    }
+  })
+
   it("kalem tablosunun tutar kolonu tablo içinde kalır", async () => {
     const buf = await renderTeklifPdf(data())
     const runs = extractTextRuns(buf)

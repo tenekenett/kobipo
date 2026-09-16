@@ -19,13 +19,12 @@ import { revalidateDashboard } from "@/lib/dashboard/cache"
 import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { assertOwnedByCompany } from "@/lib/company/owned"
 import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
+import { computeLineTax } from "@/lib/invoice/line-tax"
 import {
-  addLineTax,
-  applyGlobalAdjustment,
-  computeLineTax,
-  emptyLineTaxSums,
-  type LineTaxSums,
-} from "@/lib/invoice/line-tax"
+  computeInvoiceTotals,
+  documentColumnPrecision,
+  resolveLineDiscount,
+} from "@/lib/invoice/document-totals"
 
 
 export const dynamic = 'force-dynamic'
@@ -39,7 +38,7 @@ function isMeaningfulInvoiceItem(item: any) {
   return hasProduct || quantity > 0 || unitPrice > 0 || hasDescription
 }
 
-function normalizeInvoiceItem(item: any) {
+function normalizeInvoiceItem(item: any, isReceipt: boolean) {
   return {
     productId: item.productId || null,
     description: typeof item.description === "string" ? String(item.description).trim() : "",
@@ -50,8 +49,10 @@ function normalizeInvoiceItem(item: any) {
       typeof item.unit === "string" && item.unit.trim()
         ? String(item.unit).trim().toUpperCase()
         : "ADET",
-    quantity: parseFloat(item.quantity) || 0,
-    unitPrice: parseFloat(item.unitPrice) || 0,
+    // Resmî belgede kolon hassasiyetine yuvarlanır (bkz. POST ucu ve
+    // lib/invoice/document-totals.ts → documentColumnPrecision); fiş olduğu gibi.
+    quantity: documentColumnPrecision.quantity(parseFloat(item.quantity) || 0, isReceipt),
+    unitPrice: documentColumnPrecision.unitPrice(parseFloat(item.unitPrice) || 0, isReceipt),
     discountRate: parseFloat(item.discountRate) || 0,
     discountAmount: parseFloat(item.discountAmount) || 0,
     discountMode:
@@ -285,7 +286,7 @@ export const PUT = withApiErrors(async function PUT(
 
     const normalizedItems =
       Array.isArray(items) && items.length > 0
-        ? items.filter((item: any) => isMeaningfulInvoiceItem(item)).map((item: any) => normalizeInvoiceItem(item))
+        ? items.filter((item: any) => isMeaningfulInvoiceItem(item)).map((item: any) => normalizeInvoiceItem(item, invoice.isReceipt))
         : null
 
     if (Array.isArray(items) && items.length > 0 && normalizedItems && normalizedItems.length === 0) {
@@ -304,76 +305,58 @@ export const PUT = withApiErrors(async function PUT(
       invoice: returnOfInvoiceId,
     })
 
-    // Recalculate totals if items changed
-    let netAmount: Decimal = invoice.netAmount
-    let vatAmount: Decimal = invoice.vatAmount
-    let totalAmount: Decimal = invoice.totalAmount
+    // Satır iskontosu TUTARI: mod AMOUNT ise brütle kırpılır, PERCENT ise oran ×
+    // brüt. Resmî belgede kuruşa yuvarlanır ve AYNI değer kaydedilir.
+    const itemDiscountAmount = (item: NonNullable<typeof normalizedItems>[number]) =>
+      documentColumnPrecision.amount(resolveLineDiscount(item), invoice.isReceipt)
 
-    // Satır iskonto: mod AMOUNT ise tutar (brüt-aşan/negatif normalize edilir),
-    // PERCENT ise oran. PUT yolunda Decimal kullanılır.
-    const itemDiscountDec = (item: { quantity: number; unitPrice: number; discountRate: number; discountAmount: number; discountMode: string }) => {
-      const gross = new Decimal(item.quantity).times(item.unitPrice)
-      if (item.discountMode === "AMOUNT") {
-        const raw = new Decimal(item.discountAmount || 0)
-        const clampedMax = raw.gt(gross) ? gross : raw
-        return clampedMax.lt(0) ? new Decimal(0) : clampedMax
-      }
-      return gross.times(new Decimal(item.discountRate || 0).div(100))
-    }
+    // DİP TOPLAM — POST ile aynı tek kaynak (lib/invoice/document-totals.ts): resmî
+    // belgede GİB'e giden satır yuvarlamalı hesap, fişte eski yuvarlamasız toplam.
+    //
+    // Kalem gönderilmediyse toplam KAYITLI kalemlerden yeniden kurulur. Öncesinde
+    // saklı başlık toplamı ölçekleniyordu; saklı net genel iskontoyu zaten içerdiği
+    // için iskonto ikinci kez düşülüyordu.
+    const totalsLines =
+      normalizedItems && normalizedItems.length > 0
+        ? normalizedItems.map((item) => ({ ...item, discountAmount: itemDiscountAmount(item) }))
+        : (
+            await prisma.invoiceItem.findMany({
+              where: { invoiceId: resolvedParams.id },
+              orderBy: { order: "asc" },
+            })
+          ).map((item) => ({
+            ...item,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            vatRate: Number(item.vatRate),
+            discountAmount: Number(item.discountAmount || 0),
+            discountRate: Number(item.discountRate || 0),
+            exciseRate: Number(item.exciseRate || 0),
+            otherTaxRate: Number(item.otherTaxRate || 0),
+            withholdingRate: Number(item.withholdingRate || 0),
+            gekapUnitAmount: Number(item.gekapUnitAmount || 0),
+          }))
 
-    // Kalem gönderildiyse toplamlar ORTAK modülden kurulur (ÖTV/GEKAP matraha
-    // girer). Matrah Decimal ile hesaplanır, vergi kırılımı number üzerinden —
-    // POST/editör/GİB ile kuruşu kuruşuna aynı sonucu vermesi için tek formül şart.
-    // Kalem gelmediyse `sums` null kalır ve saklı toplamlar üzerinden eski oransal
-    // ölçekleme sürer (davranış değişmesin).
-    let sums: LineTaxSums | null = null
-    if (normalizedItems && normalizedItems.length > 0) {
-      sums = emptyLineTaxSums()
-      normalizedItems.forEach((item) => {
-        const itemGross = new Decimal(item.quantity).times(item.unitPrice)
-        const itemNet = itemGross.minus(itemDiscountDec(item)).toNumber()
-        addLineTax(sums!, itemNet, computeLineTax(itemNet, item))
-      })
-      netAmount = new Decimal(sums.net)
-      vatAmount = new Decimal(sums.vat)
-      totalAmount = new Decimal(sums.total)
-    }
-
-    // Fatura altı (genel) iskonto: matrahtan oransal düşülür → KDV/total da aynı
-    // oranda azalır. body'de globalDiscountAmount yoksa mevcut faturadakini koru.
-    const incomingGlobalDiscount =
-      globalDiscountAmount !== undefined
-        ? new Decimal(Math.max(0, parseFloat(String(globalDiscountAmount)) || 0))
-        : invoice.globalDiscountAmount
-          ? new Decimal(invoice.globalDiscountAmount.toString())
-          : new Decimal(0)
-    const appliedGlobalDiscount = netAmount.gt(0)
-      ? incomingGlobalDiscount.gt(netAmount) ? netAmount : incomingGlobalDiscount
-      : new Decimal(0)
-    // Fatura altı İLAVE (masraf): iskontonun tersi — KDV matrahını ARTIRIR.
-    const appliedGlobalCharge = new Decimal(
-      Math.max(0, parseFloat(globalChargeAmount) || 0),
+    // body'de globalDiscountAmount yoksa mevcut faturadakini koru; ilave ve dip toplam
+    // yuvarlaması gönderilmezse sıfırlanır (editör her kayıtta ikisini de gönderiyor).
+    const totals = computeInvoiceTotals(
+      totalsLines,
+      {
+        globalDiscountAmount:
+          globalDiscountAmount !== undefined
+            ? Math.max(0, parseFloat(String(globalDiscountAmount)) || 0)
+            : Number(invoice.globalDiscountAmount || 0),
+        globalChargeAmount: Math.max(0, parseFloat(globalChargeAmount) || 0),
+        payableRoundingAmount: parseFloat(payableRoundingAmount) || 0,
+      },
+      { receipt: invoice.isReceipt },
     )
-    if (netAmount.gt(0) && (appliedGlobalDiscount.gt(0) || appliedGlobalCharge.gt(0))) {
-      const adjustedNet = netAmount.minus(appliedGlobalDiscount).plus(appliedGlobalCharge)
-      if (sums) {
-        // Oransal vergiler ölçeklenir, maktu GEKAP korunur.
-        const adj = applyGlobalAdjustment(sums, adjustedNet.toNumber())
-        netAmount = new Decimal(adj.net)
-        vatAmount = new Decimal(adj.vat)
-        totalAmount = new Decimal(adj.total)
-      } else {
-        // Kalem gelmedi: saklı toplamlar zaten kırılımsız, tek katsayı uygulanır.
-        const adjustment = adjustedNet.div(netAmount)
-        netAmount = adjustedNet
-        vatAmount = vatAmount.times(adjustment)
-        totalAmount = totalAmount.times(adjustment)
-      }
-    }
-
-    // Dip toplam yuvarlaması: KDV'ye GİRMEZ, yalnız ödenecek tutara eklenir.
-    const appliedRounding = new Decimal(parseFloat(payableRoundingAmount) || 0)
-    totalAmount = totalAmount.plus(appliedRounding)
+    const netAmount = new Decimal(totals.net)
+    const vatAmount = new Decimal(totals.vat)
+    const totalAmount = new Decimal(totals.total)
+    const appliedGlobalDiscount = new Decimal(totals.globalDiscount)
+    const appliedGlobalCharge = new Decimal(totals.globalCharge)
+    const appliedRounding = new Decimal(totals.rounding)
 
     // Tahsilat sınırı: ödeme ucu "kalan tutarı aşamaz" kuralını uyguluyor
     // (bkz. /api/faturalar/odemeler). Düzenleme toplamı tahsilatın ALTINA çekerse
@@ -530,7 +513,7 @@ export const PUT = withApiErrors(async function PUT(
         await tx.invoiceItem.createMany({
           data: normalizedItems.map((item, index: number) => {
             const gross = new Decimal(item.quantity).times(item.unitPrice)
-            const disc = itemDiscountDec(item)
+            const disc = new Decimal(itemDiscountAmount(item))
             const net = gross.minus(disc)
             const tax = computeLineTax(net.toNumber(), item)
             return {

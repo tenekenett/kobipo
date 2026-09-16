@@ -8,6 +8,16 @@ import { Label } from "@/components/ui/label"
 import { ProductCombobox } from "@/components/ui/product-combobox"
 import { useToast } from "@/components/ui/use-toast"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
+import {
+  calcQuoteLineTotals,
+  calcQuoteTotals as calcTotals,
+  globalDiscountFromRecord,
+  resolveDiscountMode,
+  round2,
+  type DiscountMode,
+} from "@/lib/teklif/quote-totals"
+
+export type { DiscountMode }
 
 /**
  * Teklif kalem ızgarası — SATIŞ ve SATIN ALMA teklifleri bunu paylaşır.
@@ -28,7 +38,10 @@ export type QuoteLine = {
   quantity: string
   unitPrice: string
   vatRate: string
-  discountRate: string
+  /** İskonto yüzde mi (satır brütünün oranı) tutar mı (SATIR toplamından düşülen). */
+  discountMode: DiscountMode
+  /** İskonto değeri — anlamı `discountMode`a göre. Mod değişince değer korunur, yorumu değişir. */
+  discount: string
   /**
    * Referans fiyat (salt okunur): satışta ürünün ortalama ALIŞ maliyeti, satın
    * almada ürün kartındaki kayıtlı alış fiyatı. Kâr/sapma kontrolü için.
@@ -43,9 +56,73 @@ export const emptyQuoteLine = (): QuoteLine => ({
   quantity: "1",
   unitPrice: "0",
   vatRate: "20",
-  discountRate: "0",
+  discountMode: "PERCENT",
+  discount: "0",
   refPrice: "",
 })
+
+/** Genel (teklif altı) iskonto — ekran durumu. Boş değer = iskonto yok. */
+export type QuoteGlobalDiscount = { mode: DiscountMode; value: string }
+
+export const emptyGlobalDiscount = (): QuoteGlobalDiscount => ({ mode: "PERCENT", value: "" })
+
+/** Kayıttan okunan kalem → düzenleyici satırı. */
+export function quoteLineFromItem(item: {
+  productId?: string | null
+  product?: { id: string } | null
+  description?: string | null
+  note?: string | null
+  quantity?: number | string | null
+  unitPrice?: number | string | null
+  vatRate?: number | string | null
+  discountRate?: number | string | null
+  discountAmount?: number | string | null
+}): QuoteLine {
+  const mode = resolveDiscountMode(null, item.discountRate, item.discountAmount)
+  const n = (v: number | string | null | undefined) => Number(v) || 0
+  return {
+    productId: item.productId || item.product?.id || "",
+    description: item.description || "",
+    note: item.note || "",
+    quantity: String(n(item.quantity)),
+    unitPrice: String(n(item.unitPrice)),
+    vatRate: String(n(item.vatRate)),
+    discountMode: mode,
+    discount: String(mode === "AMOUNT" ? n(item.discountAmount) : n(item.discountRate)),
+    refPrice: "",
+  }
+}
+
+/** Kayıttaki genel iskonto kolonları → ekran durumu. */
+export function globalDiscountFromQuote(quote: {
+  globalDiscountRate?: number | string | null
+  globalDiscountAmount?: number | string | null
+}): QuoteGlobalDiscount {
+  const d = globalDiscountFromRecord(quote)
+  return d ? { mode: d.mode, value: String(d.value) } : emptyGlobalDiscount()
+}
+
+/** Düzenleyici satırı → API kalemi. Üç teklif ekranı da bunu gönderir. */
+export function quoteLinePayload(row: QuoteLine) {
+  const value = Number(row.discount || 0)
+  return {
+    productId: row.productId || null,
+    description: row.description.trim() || "Kalem",
+    note: row.note.trim() || null,
+    quantity: Number(row.quantity || 0),
+    unitPrice: Number(row.unitPrice || 0),
+    vatRate: Number(row.vatRate || 0),
+    discountMode: row.discountMode,
+    discountRate: row.discountMode === "PERCENT" ? value : 0,
+    discountAmount: row.discountMode === "AMOUNT" ? value : 0,
+  }
+}
+
+/** Genel iskonto → API alanı (`null` = iskonto yok). */
+export function globalDiscountPayload(d: QuoteGlobalDiscount) {
+  const value = Number(d.value || 0)
+  return value > 0 ? { mode: d.mode, value } : null
+}
 
 export type QuoteProduct = {
   id: string
@@ -58,39 +135,30 @@ export type QuoteProduct = {
 }
 
 // Kalem grid kolon şablonu — başlık satırı ile input satırları aynı hizada olsun
-// diye TEK yerden yönetilir. (Ürün | Miktar | B.Fiyat | İsk% | KDV% | Ref | Tutar | Sil)
-const GRID_COLS = "md:grid-cols-[minmax(0,1fr)_60px_104px_58px_58px_90px_112px_32px]"
+// diye TEK yerden yönetilir. (Ürün | Miktar | B.Fiyat | İskonto | KDV% | Ref | Tutar | Sil)
+const GRID_COLS = "md:grid-cols-[minmax(0,1fr)_60px_104px_132px_58px_90px_112px_32px]"
 
 // Para (2 ondalık) ve birim fiyat (6 ondalık — e-Fatura hassasiyeti) yuvarlaması.
-export const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+export { round2 }
 export const round6 = (n: number) => Math.round((Number(n) || 0) * 1_000_000) / 1_000_000
 
-/** Bir kalemin brüt/iskonto/net/kdv/toplam değerleri. */
+const lineInput = (row: QuoteLine) => ({
+  quantity: row.quantity,
+  unitPrice: row.unitPrice,
+  vatRate: row.vatRate,
+  discountMode: row.discountMode,
+  discountRate: row.discountMode === "PERCENT" ? row.discount : 0,
+  discountAmount: row.discountMode === "AMOUNT" ? row.discount : 0,
+})
+
+/** Bir kalemin brüt/iskonto/net/kdv/toplam değerleri — hesap lib/teklif/quote-totals.ts. */
 export function calcQuoteLine(row: QuoteLine) {
-  const qty = Number(row.quantity) || 0
-  const price = Number(row.unitPrice) || 0
-  const disc = Number(row.discountRate) || 0
-  const vat = Number(row.vatRate) || 0
-  const gross = qty * price
-  const discount = gross * (disc / 100)
-  const net = gross - discount
-  const vatAmount = net * (vat / 100)
-  return { gross, discount, net, vatAmount, total: net + vatAmount }
+  return calcQuoteLineTotals(lineInput(row))
 }
 
-/** Tüm satırların toplamı (modal altındaki özet). */
-export function calcQuoteTotals(lines: QuoteLine[]) {
-  return lines.reduce(
-    (acc, row) => {
-      const c = calcQuoteLine(row)
-      acc.gross += c.gross
-      acc.discount += c.discount
-      acc.vat += c.vatAmount
-      acc.total += c.total
-      return acc
-    },
-    { gross: 0, discount: 0, vat: 0, total: 0 },
-  )
+/** Teklif toplamı (satır + genel iskonto) — sunucunun kaydedeceği rakamın aynısı. */
+export function calcQuoteTotals(lines: QuoteLine[], globalDiscount?: QuoteGlobalDiscount | null) {
+  return calcTotals(lines.map(lineInput), globalDiscount)
 }
 
 export const currencySymbol = (cur: string): string =>
@@ -98,6 +166,75 @@ export const currencySymbol = (cur: string): string =>
 
 const fmt = (n: number) =>
   n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+const NUMBER_INPUT_RESET =
+  "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+
+/**
+ * İskonto girişi: solda yüzde/tutar seçici, sağda değer. Satır ve genel iskonto
+ * aynı bileşeni kullanır. Mod değişince yazılan rakam KORUNUR, yalnız anlamı
+ * değişir — "10 yazdım ama % seçiliydi" düzeltmesi tek tıktır (fatura editörünün
+ * genel iskontosu da böyle davranır).
+ */
+export function DiscountInput({
+  mode,
+  value,
+  onModeChange,
+  onValueChange,
+  currencySymbol: sym,
+  disabled,
+  className = "",
+}: {
+  mode: DiscountMode
+  value: string
+  onModeChange: (mode: DiscountMode) => void
+  onValueChange: (value: string) => void
+  currencySymbol: string
+  disabled?: boolean
+  className?: string
+}) {
+  const options: Array<{ mode: DiscountMode; label: string; title: string }> = [
+    { mode: "PERCENT", label: "%", title: "Yüzde (%)" },
+    { mode: "AMOUNT", label: sym, title: `Tutar (${sym})` },
+  ]
+  return (
+    <div
+      className={`flex h-9 items-stretch overflow-hidden rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 ring-offset-background ${disabled ? "opacity-50" : ""} ${className}`}
+    >
+      <div role="group" aria-label="İskonto türü" className="flex shrink-0 border-r border-input">
+        {options.map((o) => (
+          <button
+            key={o.mode}
+            type="button"
+            disabled={disabled}
+            aria-pressed={mode === o.mode}
+            title={o.title}
+            onClick={() => onModeChange(o.mode)}
+            className={`w-6 text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
+              mode === o.mode
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <input
+        type="number"
+        inputMode="decimal"
+        min="0"
+        step={mode === "PERCENT" ? "1" : "0.01"}
+        disabled={disabled}
+        value={value}
+        onChange={(e) => onValueChange(e.target.value)}
+        placeholder={mode === "PERCENT" ? "0" : "0,00"}
+        aria-label={mode === "PERCENT" ? "İskonto oranı" : "İskonto tutarı"}
+        className={`w-full min-w-0 bg-transparent px-2 text-right text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed ${NUMBER_INPUT_RESET}`}
+      />
+    </div>
+  )
+}
 
 /** Grid içinde etiketli sayı girişi (etiket yalnızca mobilde; masaüstünde başlık satırı var). */
 function GridNumber({
@@ -143,6 +280,8 @@ export function QuoteLinesEditor({
   priceMode,
   /** Ürün başka para biriminde ise fiyatı belge para birimine çevirir; yoksa null. */
   convert,
+  /** Kapsayan kart zaten "Kalemler" başlığı taşıyorsa etiketi gizler. */
+  hideLabel,
 }: {
   lines: QuoteLine[]
   onChange: (lines: QuoteLine[]) => void
@@ -152,6 +291,7 @@ export function QuoteLinesEditor({
   currency: string
   priceMode: "sale" | "purchase"
   convert?: (value: number, from: string, to: string) => number | null
+  hideLabel?: boolean
 }) {
   const { toast } = useToast()
   // Tutar hücresi düzenlenirken kullanıcının ham girdisini tutar (recompute ile
@@ -217,7 +357,7 @@ export function QuoteLinesEditor({
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <Label>Kalemler</Label>
+        {hideLabel ? <span /> : <Label>Kalemler</Label>}
         <Button
           type="button"
           size="sm"
@@ -237,7 +377,7 @@ export function QuoteLinesEditor({
           <div>Ürün / Açıklama</div>
           <div className="text-right">Miktar</div>
           <div className="text-right">Birim Fiyat</div>
-          <div className="text-right">İsk %</div>
+          <div className="text-right">İskonto</div>
           <div className="text-right">KDV %</div>
           <div className="text-right">{refLabel}</div>
           <div className="text-right">Tutar</div>
@@ -313,11 +453,18 @@ export function QuoteLinesEditor({
                   onChange={(v) => updateLine(index, { unitPrice: v })}
                   prefix={curSym}
                 />
-                <GridNumber
-                  label="İsk %"
-                  value={row.discountRate}
-                  onChange={(v) => updateLine(index, { discountRate: v })}
-                />
+                <div>
+                  <span className="mb-1 block text-[11px] text-muted-foreground md:hidden">
+                    İskonto
+                  </span>
+                  <DiscountInput
+                    mode={row.discountMode}
+                    value={row.discount}
+                    onModeChange={(discountMode) => updateLine(index, { discountMode })}
+                    onValueChange={(discount) => updateLine(index, { discount })}
+                    currencySymbol={curSym}
+                  />
+                </div>
                 <GridNumber
                   label="KDV %"
                   value={row.vatRate}
@@ -388,15 +535,30 @@ export function QuoteLinesEditor({
   )
 }
 
-/** Modal altındaki toplam özeti (iki ekranda da aynı). */
+/**
+ * Toplam özeti + genel iskonto girişi (üç teklif ekranında da aynı).
+ *
+ * `onGlobalDiscountChange` verilmezse salt okunurdur (faturalanmış teklif,
+ * yazma yetkisi olmayan kullanıcı): genel iskonto varsa yalnız satır olarak basılır.
+ */
 export function QuoteTotalsSummary({
   lines,
   currency,
+  globalDiscount,
+  onGlobalDiscountChange,
 }: {
   lines: QuoteLine[]
   currency: string
+  globalDiscount?: QuoteGlobalDiscount
+  onGlobalDiscountChange?: (next: QuoteGlobalDiscount) => void
 }) {
-  const totals = calcQuoteTotals(lines)
+  const discount = globalDiscount ?? emptyGlobalDiscount()
+  const totals = calcQuoteTotals(lines, discount)
+  const editable = Boolean(onGlobalDiscountChange)
+  const hasAnyDiscount = totals.lineDiscount > 0 || totals.globalDiscount > 0
+  const rateLabel =
+    totals.globalDiscountRate != null ? ` (%${totals.globalDiscountRate.toLocaleString("tr-TR")})` : ""
+
   return (
     <div className="mt-3 flex justify-end">
       <div className="w-full max-w-xs space-y-1 rounded-lg bg-muted/50 p-3 text-sm">
@@ -406,13 +568,58 @@ export function QuoteTotalsSummary({
             {fmt(totals.gross)} {currency}
           </span>
         </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">İskonto</span>
-          <span className="tabular-nums">
-            {totals.discount > 0 ? "-" : ""}
-            {fmt(totals.discount)} {currency}
-          </span>
-        </div>
+        {totals.lineDiscount > 0 && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Satır İskontosu</span>
+            <span className="tabular-nums">
+              -{fmt(totals.lineDiscount)} {currency}
+            </span>
+          </div>
+        )}
+
+        {editable ? (
+          <div className="space-y-1 py-1">
+            <div className="flex items-center justify-between gap-3">
+              <span className="shrink-0 text-muted-foreground">Genel İskonto</span>
+              <DiscountInput
+                mode={discount.mode}
+                value={discount.value}
+                onModeChange={(mode) => onGlobalDiscountChange!({ ...discount, mode })}
+                onValueChange={(value) => onGlobalDiscountChange!({ ...discount, value })}
+                currencySymbol={currencySymbol(currency)}
+                className="w-36"
+              />
+            </div>
+            {totals.globalDiscount > 0 && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">
+                  Düşülen{discount.mode === "PERCENT" ? rateLabel : ""}
+                </span>
+                <span className="tabular-nums">
+                  -{fmt(totals.globalDiscount)} {currency}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          totals.globalDiscount > 0 && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Genel İskonto{rateLabel}</span>
+              <span className="tabular-nums">
+                -{fmt(totals.globalDiscount)} {currency}
+              </span>
+            </div>
+          )
+        )}
+
+        {hasAnyDiscount && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">KDV Matrahı</span>
+            <span className="tabular-nums">
+              {fmt(totals.net)} {currency}
+            </span>
+          </div>
+        )}
         <div className="flex justify-between">
           <span className="text-muted-foreground">KDV</span>
           <span className="tabular-nums">
