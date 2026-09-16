@@ -401,6 +401,11 @@ function receiptTotals(items: InvoiceTotalsLine[], adjustments: DocumentAdjustme
 /**
  * KAYITLI kalemlerden (Prisma satırları: Decimal/null alanlar) resmî belge toplamı.
  * Sipariş/teklif/fiş → fatura dönüşümleri başlığı kopyalamak yerine bunu kullanır.
+ *
+ * Satır iskontosu KAYITLI TUTARDIR: Mysoft sağlayıcısı belgeye `discountAmount`
+ * kolonunu yazar, orandan yeniden türetmez. Burada orandan türetmek .xx5'te
+ * (Postgres yukarı, JS aşağı yuvarlar) başlığı belgeden bir kuruş ayırırdı.
+ * Oran yalnız tutar kolonu boş olan eski kayıtlarda devreye girer.
  */
 export function invoiceTotalsFromStoredItems(
   items: Array<{
@@ -426,12 +431,14 @@ export function invoiceTotalsFromStoredItems(
       unitPrice: num(item.unitPrice),
       vatRate: num(item.vatRate),
       discountAmount: round2(
-        resolveLineDiscount({
-          quantity: num(item.quantity),
-          unitPrice: num(item.unitPrice),
-          discountRate: num(item.discountRate),
-          discountAmount: num(item.discountAmount),
-        }),
+        item.discountAmount == null
+          ? resolveLineDiscount({
+              quantity: num(item.quantity),
+              unitPrice: num(item.unitPrice),
+              discountMode: "PERCENT",
+              discountRate: num(item.discountRate),
+            })
+          : Math.max(0, Math.min(num(item.discountAmount), num(item.quantity) * num(item.unitPrice))),
       ),
       exciseRate: num(item.exciseRate),
       exciseCode: item.exciseCode ?? null,

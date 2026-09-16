@@ -337,6 +337,43 @@ faturalar ve bunların dışa aktarımı.
   kısıtlı çalışan yalnız kendi carilerine belge kesebilir — bu, ucun paylaşılmasının
   kaçınılmaz sonucudur, ayrı bir karar değildir.
 
+## Fatura dip toplamı YALNIZ `lib/invoice/document-totals.ts`ten gelir
+
+GİB'e giden belge her satırı kuruşa yuvarlar ve genel iskontoyu satırlara dağıtır;
+Kobipo ise toplamı yuvarlanmamış satır toplamından kurup en sonda yuvarlıyordu.
+2026-09-16 ölçümü: rastgele faturaların %38'inde 1–3 kuruş fark (Reypo taslak UBL:
+Kobipo 31.906,38 ↔ belge 31.906,39). Gönderimden sonra tutar Mysoft'tan geri
+okunmadığı için fark cari bakiyede kalıyordu. Karar tek yerde:
+
+```ts
+import { computeInvoiceTotals, invoiceTotalsFromStoredItems } from "@/lib/invoice/document-totals"
+const t = computeInvoiceTotals(lines, { globalDiscountAmount, globalChargeAmount, payableRoundingAmount }, { receipt: isReceipt })
+// t.net → Invoice.netAmount · t.vat → vatAmount · t.total → totalAmount
+```
+
+- Mysoft sağlayıcısı payload'ı AYNI fonksiyondan kurar (`computeDocumentTotals`);
+  fatura POST/PUT, editör, taslak PDF önizlemesi, teklif ve teklif/sipariş/fiş →
+  fatura dönüşümleri de. Başlığı kopyalamak ya da `line-tax.ts` toplamlarını doğrudan
+  yazmak YASAK: ekranda görünen ile belgeye giden yeniden ayrışır.
+- **FİŞ (`Invoice.isReceipt`) istisnadır** — `{ receipt: true }` eski yuvarlamasız
+  kuralda kalır. KDV dahil fiyatlı kafe fişinde satır yuvarlaması ekrandaki tutardan
+  sapıyordu (20.000 örnekte 2.318 fiş). Fişler faturaya birleşirken fark
+  `payableRoundingAmount`a yazılır: belgenin ödeneceği = tahsil edilen, KDV'ye dokunulmaz.
+- Resmî belgede miktar 2, birim fiyat 6, tutar 2 ondalığa **JS'te** yuvarlanıp AYNEN
+  yazılır (`documentColumnPrecision`) — Postgres .xx5'i JS'ten farklı yuvarlar; kayıt
+  ile hesap ayrışmasın.
+- Kayıtlı kalemden hesaplarken satır iskontosu **`discountAmount` kolonudur**, orandan
+  yeniden türetilmez: sağlayıcı belgeye o kolonu yazar.
+- PUT'ta kalem gelmezse toplam KAYITLI kalemlerden yeniden kurulur; saklı başlığı
+  ölçeklemek genel iskontoyu ikinci kez düşürüyordu.
+- Ölçüm: `npx vitest run lib/invoice/document-totals.test.ts` (kural),
+  `node scripts/test-fatura-kurus.mjs` (uçlar, dev sunucu açıkken),
+  `npx tsx scripts/kurus-farki-kontrol.ts --canli --test` (Mysoft taslak UBL'de
+  `PayableAmount` = Kobipo `totalAmount`; GİB'e belge gitmez).
+- Bilerek dokunulmayanlar: `app/api/import` (kaynak XML'in resmî toplamına zaten
+  tamamlıyor), hızlı satış/alış ve AI fiş okuma (fiş), `lib/invoicing/issue-sales-invoice.ts`
+  (Kobipo'nun kendi abonelik faturası).
+
 ## Arama Türkçe duyarsızdır: `ILIKE` / `insensitive` / `toLowerCase` KULLANMA
 
 `lower('I')` Türkçe'de `'ı'` değil `'i'`dir; `"İ".toLowerCase()` ise iki kod birimi

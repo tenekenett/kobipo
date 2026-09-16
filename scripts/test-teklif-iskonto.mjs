@@ -207,12 +207,23 @@ async function main() {
     const ib = inv.items.find((i) => i.description === "TEST İskonto B")
     check("tutar iskontolu kalem faturada da oran NULL + tutar 50", ib?.discountRate === null && near(ib?.discountAmount, 50), `${n(ib?.discountRate)} / ${n(ib?.discountAmount)}`)
 
-    // Fatura editörünün kuralıyla yeniden hesap (Σ satır neti − fatura altı iskonto,
-    // KDV oransal): tekliften gelen faturayı editörde açınca rakam kaymamalı.
-    const lineNet = inv.items.reduce((s, i) => s + Number(i.quantity) * Number(i.unitPrice) - Number(i.discountAmount || 0), 0)
-    const lineVat = inv.items.reduce((s, i) => s + Number(i.vatAmount), 0)
-    const factor = (lineNet - Number(inv.globalDiscountAmount)) / lineNet
-    check("editör formülüyle KDV aynı çıkıyor", near(lineVat * factor, Number(inv.vatAmount)), (lineVat * factor).toFixed(2))
+    // Fatura editörünün kuralıyla yeniden hesap (lib/invoice/document-totals.ts →
+    // resmî belge kuralı: fatura altı iskonto satırlara orantılı dağıtılır, artık son
+    // satıra; her satırın matrahı ve KDV'si kuruşa yuvarlanır): tekliften gelen
+    // faturayı editörde açınca rakam kaymamalı. .mjs TS modülünü içe alamadığı için
+    // kural burada tekrar yazıldı — modül değişirse burası da değişmeli.
+    const r2 = (x) => Math.round(x * 100) / 100
+    const nets = inv.items.map((i) => Number(i.quantity) * Number(i.unitPrice) - Number(i.discountAmount || 0))
+    const subtotal = nets.reduce((s, x) => s + x, 0)
+    const globalDisc = Math.min(Number(inv.globalDiscountAmount || 0), subtotal)
+    let distributed = 0
+    const editorVat = inv.items.reduce((s, i, idx) => {
+      const share = idx === inv.items.length - 1 ? r2(globalDisc - distributed) : r2((nets[idx] / subtotal) * globalDisc)
+      distributed += share
+      const taxable = r2(nets[idx] - share)
+      return s + r2((taxable * Number(i.vatRate)) / 100)
+    }, 0)
+    check("editör formülüyle KDV aynı çıkıyor", near(r2(editorVat), Number(inv.vatAmount)), r2(editorVat).toFixed(2))
 
     const invPdf = await fetch(`${BASE}/api/faturalar/${invoiceId}/pdf?companyId=${company.id}`, { headers: { cookie } })
     check("fatura PDF'i üretildi", invPdf.status === 200, invPdf.status)
