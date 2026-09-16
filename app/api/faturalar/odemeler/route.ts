@@ -173,7 +173,8 @@ export const POST = withApiErrors(async function POST(request: Request) {
     // yazıyordu: fatura "ödendi", cari borç düştü, para hiçbir kasaya girmedi
     // (bkz. lib/finans/varsayilan-kasa.ts). Yanıt `accountDefaulted` ile söyler,
     // ekran kullanıcıya "Kasa'ya yazıldı" der — sessiz geçilmez.
-    const account = chosen ?? (await ensureDefaultCashAccount(prisma, companyId))
+    const defaulted = chosen ? null : await ensureDefaultCashAccount(prisma, companyId)
+    const account = chosen ?? defaulted!
     const accountDefaulted = !chosen
 
     // PARA YÖNÜ: satış ve ALIŞ İADESİ tahsilattır (para bize gelir); alış ve SATIŞ
@@ -261,7 +262,11 @@ export const POST = withApiErrors(async function POST(request: Request) {
     // Pano "satış yapıldığı anda" güncellensin: 20 sn'lik önbellek düşürülür.
     revalidateDashboard(companyId)
 
-    return NextResponse.json({ ...payment, accountDefaulted }, { status: 201 })
+    // Sözleşme: lib/finans/hesapsiz-odeme.ts (ekranların okuduğu alanlar).
+    return NextResponse.json(
+      { ...payment, accountDefaulted, accountCreated: defaulted?.created ?? false },
+      { status: 201 },
+    )
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)

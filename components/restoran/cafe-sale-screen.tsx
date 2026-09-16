@@ -74,6 +74,7 @@ import { OptionDialog } from "@/components/restoran/option-dialog"
 import { DiscountDialog, type DiscountValue } from "@/components/restoran/discount-dialog"
 import { useDiscountLimit, useProductOptions } from "@/lib/swr/use-restoran"
 import { submitReceiptSale } from "@/lib/satis/submit-receipt-sale"
+import { withAccountNote } from "@/lib/finans/hesapsiz-odeme"
 import { describeExpandError, expandRecipeLines } from "@/lib/stock/recipe-expand"
 import {
   optionEffect,
@@ -172,7 +173,7 @@ export function CafeSaleScreen() {
     isService: false,
   })
   const { recipes, recipeMap, recipeNoteOf } = useRecipes(companyId)
-  const { accounts } = useAccounts(companyId)
+  const { accounts, mutate: mutateAccounts } = useAccounts(companyId)
   const { warehouses } = useWarehouses(companyId)
   const { employees } = useEmployees(companyId)
   const { customers } = useCustomers(companyId)
@@ -649,13 +650,19 @@ export function CafeSaleScreen() {
         })
       }
 
-      const { invoice, parts, paidSum, total: invoiceTotal } = result
+      const { invoice, parts, paidSum, total: invoiceTotal, accountNote } = result
       const done = paymentSummary(payment, invoiceTotal)
+      // Hesapsız tahsilat varsayılan Kasa'ya düştü: söylenir; kasa yeni açıldıysa
+      // liste tazelenir ki sonraki satış onu açıkça seçsin.
+      if (accountNote) void mutateAccounts()
       toast({
         title: "Satış tamamlandı",
-        description: `${invoice.invoiceNo ?? "Fiş"} oluşturuldu${
-          payment.isCredit ? " (veresiye)" : ` • ${currency(paidSum)} tahsil edildi`
-        }`,
+        description: withAccountNote(
+          `${invoice.invoiceNo ?? "Fiş"} oluşturuldu${
+            payment.isCredit ? " (veresiye)" : ` • ${currency(paidSum)} tahsil edildi`
+          }`,
+          accountNote,
+        ),
       })
 
       const receipt: ReceiptData = {
@@ -714,6 +721,7 @@ export function CafeSaleScreen() {
     note,
     payment,
     accounts,
+    mutateAccounts,
     customers,
     selectedCompany,
     receiptCompany,

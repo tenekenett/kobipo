@@ -45,6 +45,7 @@ import {
 } from "@/lib/swr/use-company-data"
 import { cn } from "@/lib/utils"
 import { parseAmount } from "@/lib/satis/payment"
+import { defaultedAccountNote, withAccountNote, type PaymentAccountResult } from "@/lib/finans/hesapsiz-odeme"
 import { formatMoney } from "@/lib/format"
 import { useTryPrice } from "@/lib/exchange/use-try-price"
 import {
@@ -153,7 +154,7 @@ export function QuickSaleScreen() {
   // mount'ta yeniden çekilmez (aynı anahtar 30 sn içinde dedupe edilir).
   const { products: refProducts } = useProducts(companyId, { isService: false })
   const { customers } = useCustomers(companyId)
-  const { accounts } = useAccounts(companyId)
+  const { accounts, mutate: mutateAccounts } = useAccounts(companyId)
   const { warehouses } = useWarehouses(companyId)
   const { categories: categoryOptions } = useProductCategories(companyId)
   const { stocks: warehouseStocks } = useWarehouseStocks(companyId)
@@ -476,6 +477,7 @@ export function QuickSaleScreen() {
       // Ödeme parçaları: parçalı modda yöntem başına; değilse tek yöntem tüm tutar.
       // Toplam ödeme faturanın totalAmount'ını aşmasın (nakit fazlası para üstü olur).
       const paymentParts: { method: PaymentMethod; amount: number; accountId?: string }[] = []
+      const paymentResults: (PaymentAccountResult | null)[] = []
       if (!isCredit && invoiceTotal > 0) {
         if (splitMode) {
           let remaining = invoiceTotal
@@ -521,15 +523,20 @@ export function QuickSaleScreen() {
             setIsSubmitting(false)
             return
           }
+          paymentResults.push(await payRes.json().catch(() => null))
         }
       }
 
       const paidSum = round2(paymentParts.reduce((s, p) => s + p.amount, 0))
+      // Hesap seçilmeden yazılan parça varsayılan Kasa'ya düştü: söyle, ve kasa
+      // yeni açıldıysa listeyi tazele ki sonraki satış onu AÇIKÇA seçsin.
+      const accountNote = defaultedAccountNote(paymentResults)
+      if (accountNote) void mutateAccounts()
       toast({
         title: "Satış tamamlandı",
-        description: `${invoice.invoiceNo ?? "Fiş"} oluşturuldu${
+        description: withAccountNote(`${invoice.invoiceNo ?? "Fiş"} oluşturuldu${
           isCredit ? " (veresiye)" : ` • ${currency(paidSum)} tahsil edildi`
-        }`,
+        }`, accountNote),
       })
 
       // Fiş için satışın anlık görüntüsü — sepet birazdan sıfırlanacağı için burada al.
@@ -602,6 +609,7 @@ export function QuickSaleScreen() {
     cashAccountId,
     bankAccountId,
     cardAccountId,
+    mutateAccounts,
   ])
 
   // F2 → satışı tamamla (POS benzeri hızlı kapatma).

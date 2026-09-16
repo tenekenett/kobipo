@@ -29,6 +29,7 @@ import { ExportButton } from "@/components/export/export-button"
 import { CariArchiveDeleteDialog } from "@/components/cari/cari-archive-delete-dialog"
 import { CariFislerSection } from "@/components/cari/cari-fisler-section"
 import { looksLikeCuid } from "@/lib/slug"
+import { withCompanyHref } from "@/lib/company/href"
 import { WriteAction } from "@/components/dashboard/write-guard"
 
 // İsimden baş harf(ler) üret: "Acme Ltd" → "AL", "Ahmet" → "AH"
@@ -49,6 +50,8 @@ interface Transaction {
   convertedToId?: string | null
   convertedToNo?: string | null
   receiptAmount?: number
+  /** INVOICE_PAYMENT satırında ödemenin işlendiği fatura. */
+  invoiceId?: string
   description: string
   debit: number
   credit: number
@@ -565,7 +568,13 @@ export default function CustomerSupplierDetailPage() {
                         ? `/cek-senet/senet/${tx.id}?company=${company}&from=${backTo}`
                         : tx.type === "INVOICE" && !tx.converted
                           ? `/faturalar/${tx.id}/onizleme?company=${company}&from=${backTo}`
-                          : undefined
+                          // Kasaya bağlanmamış fatura ödemesi Transaction değil:
+                          // faturanın ödemeler ekranında yaşar.
+                          : tx.type === "INVOICE_PAYMENT" && tx.invoiceId
+                            ? `/faturalar/${tx.invoiceId}/odemeler?company=${company}&return=${encodeURIComponent(
+                                withCompanyHref(`/cari/${type}/${id}`, companyId),
+                              )}`
+                            : undefined
                   return (
                   <LinkedTableRow
                     key={tx.id}
@@ -589,12 +598,13 @@ export default function CustomerSupplierDetailPage() {
                       <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                         tx.type === "INVOICE" && tx.isReceipt ? "bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-300" :
                         tx.type === "INVOICE" ? "bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300" :
-                        tx.type === "PAYMENT" ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" :
+                        tx.type === "PAYMENT" || tx.type === "INVOICE_PAYMENT" ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" :
                         tx.type === "OPENING" ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" :
                         "bg-gray-100 text-gray-800 dark:bg-gray-500/15 dark:text-gray-300"
                       }`}>
                         {tx.type === "INVOICE" ? (tx.isReceipt ? "Fiş" : "Fatura") :
                          tx.type === "PAYMENT" ? "Ödeme" :
+                         tx.type === "INVOICE_PAYMENT" ? "Fatura ödemesi" :
                          tx.type === "OPENING" ? "Açılış" :
                          tx.type === "EXPENSE" ? "Gider" :
                          tx.type === "INCOME" ? "Tahsilat" :

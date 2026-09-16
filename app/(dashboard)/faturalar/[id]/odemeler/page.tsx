@@ -38,6 +38,7 @@ import { PAYMENT_LINKS_ENABLED } from "@/lib/faturalar/payment-links"
 import { Plus, Trash2, ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { toDateInput } from "@/lib/format"
+import { defaultedAccountNote } from "@/lib/finans/hesapsiz-odeme"
 
 interface Invoice {
   id: string
@@ -190,10 +191,13 @@ export default function FaturaOdemelerPage() {
       })
 
       if (response.ok) {
+        // Hesap boş bırakıldıysa sunucu varsayılan Kasa'ya yazdı — söylenir.
+        const accountNote = defaultedAccountNote([await response.json().catch(() => null)])
         toast({
           title: "Başarılı",
-          description: "Ödeme kaydı oluşturuldu",
+          description: accountNote ? `Ödeme kaydı oluşturuldu. ${accountNote}` : "Ödeme kaydı oluşturuldu",
         })
+        if (accountNote) fetchAccounts()
         setIsModalOpen(false)
         setFormData({
           amount: "",
@@ -590,6 +594,9 @@ export default function FaturaOdemelerPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Boş bırakılırsa kasaya yazılır (kasa yoksa «Kasa» açılır).
+                  </p>
                 </div>
               </div>
               <div className="space-y-2">

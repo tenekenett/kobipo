@@ -1,6 +1,7 @@
-# Kasasız fatura ödemesi → varsayılan Kasa (DEVİR NOTU, 2026-09-16)
+# Kasasız fatura ödemesi → varsayılan Kasa (2026-09-16)
 
-Başka makinede devam etmek için yazıldı. Bağlam ve karar burada, kod yarım.
+İlk commit devir notu olarak yazıldı; kalan üç madde aynı gün tamamlandı
+(aşağıda "Tamamlandı").
 
 ## Sorun
 
@@ -30,32 +31,49 @@ olurdu). Hesap seçilmezse firmanın en eski aktif CASH hesabı, yoksa otomatik
 açılan "Kasa" (kod `KASA`) kullanılır; hareket oraya yazılır. Yanlış yerdeyse
 kullanıcı hareketi sonradan taşır. BANK'a düşülmez.
 
-## Yapıldı (bu commit)
+## Yapıldı (ilk commit)
 
 - `lib/finans/varsayilan-kasa.ts` → `ensureDefaultCashAccount(db, companyId)`
   (depodaki `ensureDefaultWarehouseId` deseni; slug P2002 yarışı ele alınır).
 - `app/api/faturalar/odemeler/route.ts` POST: hesap yoksa varsayılan Kasa;
-  Transaction + bakiye artışı artık HER ödemede; yanıt `accountDefaulted: true`
-  taşır. Tüm istemci yolları (hızlı satış/alış, fiş onay, Fatura Ödemeleri,
-  restoran) bu uçtan geçer. tsc temiz. **Tarayıcıda denenmedi.**
+  Transaction + bakiye artışı artık HER ödemede. Tüm istemci yolları (hızlı
+  satış/alış, fiş onay, Fatura Ödemeleri, restoran) bu uçtan geçer.
 
-## Kaldı
+## Tamamlandı
 
-1. **Ekrana söylet**: `app/(dashboard)/faturalar/[id]/odemeler/page.tsx` ve hızlı
-   satış/alış toast'ları `accountDefaulted` ise "Hesap seçilmedi, Kasa'ya
-   yazıldı" desin (sessiz geçilmez).
-2. **Geçmiş 7 kayıt için backfill**: `scripts/backfill-payment-transactions.mjs`
-   kanalsızları BİLEREK atlıyor ve bakiyeye dokunmuyor (para o zaman hesaba
-   işlenmişti). Kanalsızlar için YENİ betik gerekir ve FARKI şu: hesap hiç
-   dokunulmamış → `ensureDefaultCashAccount` ile Kasa bul/aç, Transaction yaz,
-   **Kasa bakiyesini de artır/azalt**, ödemeye `accountId + transactionId` yaz.
-   Yön: `type === "SALES" || isPurchaseReturn(inv)` → INCOME, aksi EXPENSE
-   (`lib/cari/invoice-direction.ts`). Önce `--apply`siz rapor; 199.999'luk test
-   alışı için kullanıcıya sor.
-3. Cari DETAY ekstresi (`app/api/cari/customers|suppliers/[id]`) kasasız fatura
-   ödemesini satır olarak göstermiyor; `/cari/ekstre` (`lib/cari/ekstre-query.ts`)
-   gösteriyor. Backfill sonrası bu 7 kayıt Transaction'a kavuşacağı için fark
-   kendiliğinden kapanır; kalıcı çözüm detayı `fetchEkstre`'ye bağlamak.
-4. Dokunulmayanlar (bilerek): `lib/invoicing/issue-sales-invoice.ts`
-   (Kobipo'nun kendi faturalandırması, env ile hesap seçer), `app/api/pay/[token]`
-   (ödeme linki pasif).
+1. **Ekran söylüyor.** Uç yanıtı `accountDefaulted` + `accountCreated` taşır;
+   not metni tek yerde: `lib/finans/hesapsiz-odeme.ts` → `defaultedAccountNote`.
+   Hızlı satış/alış, fiş onay kartı, kahveci satış ve adisyon kapanışı notu
+   mevcut başarı toast'ına EKLER (toast sınırı 1: ayrı toast ötekini ezerdi) ve
+   hesap listesini tazeler — sonraki satış yeni Kasa'yı açıkça seçer. Fatura
+   Ödemeleri ekranı hesap alanının altında "boş bırakılırsa kasaya yazılır" der.
+   **Tarayıcıda satış yapılarak denenmedi** (dev canlı DB'de; satış canlıya fiş
+   ve Kasa yazardı). Saf kısım testli: `hesapsiz-odeme.test.ts`.
+2. **Backfill uygulandı** — `npx tsx scripts/kasasiz-odeme-backfill.ts`
+   (`--uygula`, `--atla=<ödemeId>`, `--firma=<id>`). Eski `.mjs` betiğinden farkı
+   dosya başında: hesaba hiç dokunulmamıştı, bu yüzden bakiye de güncellenir.
+   6 ödeme işlendi; Demo Firma, Reypo, Materyon ve Eren Forklift'te "Kasa" açıldı
+   (Reypo'nun tek hesabı kasa değildi). Ölçüldü: dört Kasa'nın bakiyesi hareket
+   toplamına eşit (306 / 768 / 959,04 / 137,70).
+   **Bilerek atlanan:** ALI-2026-0007 test alışının 199.999 TL'lik ödemesi
+   (`cmransoya0001vqhplsepd9kl`). İşlenseydi Reypo Kasa'sı −199 bin açılırdı;
+   test faturası silinecek. Silinmezse aynı betik `--firma` ile işleyebilir.
+   Not: sanal POS tahsilatları da Kasa'ya düştü — karar (b) BANK'a düşmüyor;
+   yanlış yerdeyse hareket taşınır.
+3. **Cari detay tablosu ekstreyle aynı kurallardan geçiyor** —
+   `lib/cari/ekstre-query.ts` → `faturaSatirYonu` (fatura sütunu) ve
+   `faturaOdemesiSatirlari` (kasaya bağlanmamış ödeme satırı); `fetchEkstre` ve
+   iki detay ucu bunları kullanır. Bağlantısız ödeme hâlâ doğabilir: Kobipo'nun
+   kendi faturalandırması tahsilat hesabı tanımsızken bilerek yazıyor.
+   Yan bulgu da düzeldi: detay ucu faturayı yalnız kartın kendi tipine göre
+   yazıyordu, iade ve mahsup faturası tabloda 0/0 duruyordu. Ölçüldü: böyle
+   faturası olan 7 kartın 6'sında tablonun son bakiyesi karttan farklıydı
+   (earsin: kart −78.365, tablo +116.062); şimdi yedisi de tutuyor.
+   Tam `fetchEkstre`'ye bağlama YAPILMADI: detayda ekstrede olmayan şeyler var
+   (dönüştürülmüş fiş bilgi satırları, çek/senet `issueDate`, `createdAt` sırası)
+   — ayrı iş.
+
+## Dokunulmayanlar (bilerek)
+
+`lib/invoicing/issue-sales-invoice.ts` (Kobipo'nun kendi faturalandırması, env
+ile hesap seçer), `app/api/pay/[token]` (ödeme linki pasif).

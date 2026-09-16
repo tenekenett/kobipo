@@ -43,6 +43,7 @@ import {
   useWarehouses,
   type RefAccount,
 } from "@/lib/swr/use-company-data"
+import { defaultedAccountNote, withAccountNote } from "@/lib/finans/hesapsiz-odeme"
 import { denetle, type Denetim } from "@/lib/fis-ocr/validate"
 import { fisOdemeToMethod, fisToInvoiceBody } from "@/lib/fis-ocr/to-invoice"
 import type { Fis, FisKalem } from "@/lib/fis-ocr/schema"
@@ -187,7 +188,7 @@ export function FisOnayKarti({
 }) {
   const { toast } = useToast()
   const { suppliers, mutate: tedarikcileriTazele } = useSuppliers(companyId)
-  const { accounts } = useAccounts(companyId)
+  const { accounts, mutate: mutateAccounts } = useAccounts(companyId)
   const { warehouses } = useWarehouses(companyId)
   const { products } = useProducts(companyId)
 
@@ -353,6 +354,7 @@ export function FisOnayKarti({
 
       // 3) Tahsilat. Tutar FATURANIN SUNUCUDA KAYITLI toplamı: önizlemenin
       // yuvarlanmamış değeri kayıtlı toplamı aşarsa ödeme reddedilir.
+      let accountNote: string | null = null
       if (odemeSekli !== "ACIK_HESAP") {
         const tutar = inv?.totalAmount != null ? Number(inv.totalAmount) : donusum.beklenenToplam
         if (tutar > 0) {
@@ -380,12 +382,16 @@ export function FisOnayKarti({
             })
             return
           }
+          // Hesap seçilmediyse ödeme varsayılan Kasa'ya düştü — söylenir; kasa yeni
+          // açıldıysa seçici tazelenir ki sıradaki fiş onu açıkça seçsin.
+          accountNote = defaultedAccountNote([await payRes.json().catch(() => null)])
+          if (accountNote) void mutateAccounts()
         }
       }
 
       toast({
         title: "Alış fişi kaydedildi",
-        description: `${inv.invoiceNo} · ${tl(Number(inv.totalAmount))}`,
+        description: withAccountNote(`${inv.invoiceNo} · ${tl(Number(inv.totalAmount))}`, accountNote),
       })
     } catch (e: any) {
       setHata(e?.message || "Beklenmeyen hata")
@@ -403,6 +409,7 @@ export function FisOnayKarti({
     accountId,
     saglayici,
     toast,
+    mutateAccounts,
   ])
 
   // ------------------------------------------------------------ kaydedilmiş

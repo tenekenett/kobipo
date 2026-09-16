@@ -9,7 +9,12 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { cariRelationVisibilityWhere, cariVisibilityWhere, type CariVisibility } from "@/lib/cari/visibility"
-import { isPurchaseReturn, payableSign, receivableSign } from "@/lib/cari/invoice-direction"
+import {
+  isPurchaseReturn,
+  payableSign,
+  receivableSign,
+  type DirectionalInvoice,
+} from "@/lib/cari/invoice-direction"
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 import { AGING_BUCKETS, type AgingBucket } from "@/lib/raporlar/cari-yaslandirma-buckets"
 import { computeCariAging } from "@/lib/raporlar/cari-yaslandirma"
@@ -178,6 +183,93 @@ export function kiymetYonu(kiymet: {
   return { debit: Math.max(azaltan, 0), credit: Math.max(-azaltan, 0) }
 }
 
+/** Satış ailesi ve alış iadesi BORÇ sütununa yazılır (bkz. `faturaSatirYonu`). */
+const borcTarafinda = (inv: DirectionalInvoice) => receivableSign(inv) > 0 || payableSign(inv) < 0
+
+/**
+ * FATURANIN ekstredeki sütunu. Müşteride de tedarikçide de aynı eksen: satış
+ * ailesi BORÇ, alış ailesi ALACAK sütunudur; kartın türü yalnız yürüyen
+ * bakiyenin işaretini değiştirir.
+ *
+ * İADE, ait olduğu belgenin TERS TARAFINA yazılır: satış iadesi müşterinin
+ * borcunu azalttığı için ALACAK, alış iadesi bizim borcumuzu azalttığı için
+ * BORÇ olur. Önceden iade ekstreye 0/0 düşüyordu — müşteri geri verdiği malın
+ * borcunu taşımaya devam ediyordu.
+ *
+ * Cari DETAY uçları da buradan geçer. Onlar faturayı yalnız kartın "kendi"
+ * tipine göre yazıyordu (müşteride SALES borç, tedarikçide PURCHASE alacak):
+ * iade ve mahsup faturası (müşteri kartına işlenmiş alış) tabloda 0/0 duruyor,
+ * bakiye kartı ise onları sayıyordu. Ölçüldü (2026-09-16): böyle faturası olan
+ * 7 kartın 6'sında tablonun son bakiyesi karttan farklıydı (biri: kart −78.365,
+ * tablo +116.062); yedincisi eksik fatura ve eksik ödeme satırı birbirini
+ * götürdüğü için tesadüfen tutuyordu.
+ */
+export function faturaSatirYonu(inv: DirectionalInvoice & { totalAmount: unknown }): {
+  debit: number
+  credit: number
+} {
+  const tutar = Number(inv.totalAmount)
+  return {
+    debit: borcTarafinda(inv) ? tutar : 0,
+    credit: payableSign(inv) > 0 || receivableSign(inv) < 0 ? tutar : 0,
+  }
+}
+
+/**
+ * FATURAYA İŞLENEN ÖDEMELERİN ekstre satırları. Yalnız `transactionId` BOŞ
+ * olanlar: kasa hareketine bağlı ödeme zaten Transaction olarak ayrı satır,
+ * ikisi de yazılsaydı aynı ödeme iki kez düşerdi.
+ *
+ * Yön, faturanın yazıldığı tarafın TERSİDİR: satış faturası borç yazılır,
+ * ödemesi alacak; aynı karta işlenmiş alış faturası alacak yazılır, ödemesi
+ * borç. (Ölçüldü: bir caride 199.999 TL'lik alış faturası ekstreye alacak
+ * düşüyor ama 199.999 TL'lik ödemesi hiç görünmüyordu — bakiye −101.186 TL
+ * derken yaşlandırma +74.384 TL diyordu.)
+ *
+ * Cari DETAY uçları (`app/api/cari/customers|suppliers/[id]`) da buradan
+ * geçer. Onların bakiye kartı bağlantısız ödemeyi baştan düşüyordu ama satırını
+ * yazmıyordu; kasasız fatura ödemesi (docs/finans/KASASIZ-ODEME.md) kartta
+ * "ödendi", ekstre tablosunda borç olarak asılı görünüyordu. Bugün yeni yazılan
+ * her fatura ödemesi kasa hareketine bağlanıyor; bağlantısız ödeme yalnız Kobipo'nun
+ * kendi faturalandırmasında (tahsilat hesabı tanımsızken,
+ * lib/invoicing/issue-sales-invoice.ts) ve geçmiş kayıtlarda kalıyor.
+ */
+export function faturaOdemesiSatirlari<
+  P extends {
+    id: string
+    amount: unknown
+    paymentDate: Date
+    transactionId: string | null
+    reference: string | null
+  },
+>(
+  inv: DirectionalInvoice & { invoiceNo: string; eDocumentNo: string | null; payments: P[] },
+  startDate?: string | null,
+  endDate?: string | null,
+): Array<EkstreEntry & { type: "INVOICE_PAYMENT"; data: P }> {
+  const invoiceIsDebit = borcTarafinda(inv)
+  return inv.payments
+    .filter((p) => !p.transactionId)
+    .filter((p) => {
+      if (!startDate && !endDate) return true
+      const t = new Date(p.paymentDate).getTime()
+      if (startDate && t < new Date(startDate).getTime()) return false
+      if (endDate && t > new Date(endDate).getTime()) return false
+      return true
+    })
+    .map((p) => ({
+      type: "INVOICE_PAYMENT" as const,
+      id: p.id,
+      date: p.paymentDate,
+      description: `Fatura ödemesi ${inv.eDocumentNo || inv.invoiceNo}`,
+      debit: invoiceIsDebit ? 0 : Number(p.amount),
+      credit: invoiceIsDebit ? Number(p.amount) : 0,
+      balance: 0,
+      reference: p.reference ?? (inv.eDocumentNo || inv.invoiceNo),
+      data: p,
+    }))
+}
+
 export type EkstreOptions = {
   companyId: string
   customerId?: string | null
@@ -327,48 +419,12 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       description: `${
         inv.type === "RETURN" ? (isPurchaseReturn(inv) ? "Alış iadesi" : "Satış iadesi") : "Fatura"
       } ${inv.eDocumentNo || inv.invoiceNo}`,
-      // İADE, ait olduğu belgenin TERS TARAFINA yazılır: satış iadesi müşterinin
-      // borcunu azalttığı için ALACAK, alış iadesi bizim borcumuzu azalttığı için
-      // BORÇ olur. Önceden iade ekstreye 0/0 düşüyordu — müşteri geri verdiği malın
-      // borcunu taşımaya devam ediyordu.
-      debit: receivableSign(inv) > 0 || payableSign(inv) < 0 ? Number(inv.totalAmount) : 0,
-      credit: payableSign(inv) > 0 || receivableSign(inv) < 0 ? Number(inv.totalAmount) : 0,
+      ...faturaSatirYonu(inv),
       balance: 0,
       reference: inv.eDocumentNo || inv.invoiceNo,
       data: inv,
     })),
-    // FATURAYA İŞLENEN ÖDEMELER. Yalnız `transactionId` BOŞ olanlar: cari
-    // ekranından girilen tahsilat zaten Transaction olarak ayrı satır, ikisi de
-    // yazılsaydı aynı ödeme iki kez düşerdi.
-    //
-    // Yön, faturanın yazıldığı tarafın TERSİDİR: satış faturası borç yazılır,
-    // ödemesi alacak; aynı karta işlenmiş alış faturası alacak yazılır, ödemesi
-    // borç. (Ölçüldü: bir caride 199.999 TL'lik alış faturası ekstreye alacak
-    // düşüyor ama 199.999 TL'lik ödemesi hiç görünmüyordu — bakiye −101.186 TL
-    // derken yaşlandırma +74.384 TL diyordu.)
-    ...invoices.flatMap((inv) => {
-      const invoiceIsDebit = receivableSign(inv) > 0 || payableSign(inv) < 0
-      return inv.payments
-        .filter((p) => !p.transactionId)
-        .filter((p) => {
-          if (!startDate && !endDate) return true
-          const t = new Date(p.paymentDate).getTime()
-          if (startDate && t < new Date(startDate).getTime()) return false
-          if (endDate && t > new Date(endDate).getTime()) return false
-          return true
-        })
-        .map((p) => ({
-          type: "INVOICE_PAYMENT" as const,
-          id: p.id,
-          date: p.paymentDate,
-          description: `Fatura ödemesi ${inv.eDocumentNo || inv.invoiceNo}`,
-          debit: invoiceIsDebit ? 0 : Number(p.amount),
-          credit: invoiceIsDebit ? Number(p.amount) : 0,
-          balance: 0,
-          reference: p.reference ?? (inv.eDocumentNo || inv.invoiceNo),
-          data: p,
-        }))
-    }),
+    ...invoices.flatMap((inv) => faturaOdemesiSatirlari(inv, startDate, endDate)),
     ...transactions.map((trx) => ({
       type: "TRANSACTION" as const,
       id: trx.id,

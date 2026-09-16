@@ -12,6 +12,7 @@ import { assertCariVisible, resolveAuthorizedUserIdOnWrite } from "@/lib/cari/vi
 import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { payableSign, receivableSign } from "@/lib/cari/invoice-direction"
+import { faturaOdemesiSatirlari, faturaSatirYonu } from "@/lib/cari/ekstre-query"
 
 
 export const dynamic = 'force-dynamic'
@@ -103,11 +104,11 @@ export const GET = withApiErrors(async function GET(
         invoiceNo: true,
         eDocumentNo: true,
         totalAmount: true,
+        // Yalnız kasa hareketine BAĞLANMAMIŞ ödemeler: bağlı olan bakiyeye ve
+        // ekstreye işlemin kendisi üzerinden girer (aşağıda iki yerde de).
         payments: {
-          select: {
-            amount: true,
-            transactionId: true,
-          },
+          where: { transactionId: null },
+          select: { id: true, amount: true, paymentDate: true, createdAt: true, transactionId: true, reference: true },
         },
       },
     })
@@ -238,8 +239,9 @@ export const GET = withApiErrors(async function GET(
         isReceipt: inv.isReceipt,
         // Cari ekstrede resmi GİB belge no'yu göster; yoksa iç seri numarasına düş.
         description: `${inv.isReceipt ? "Fiş" : "Fatura"} ${inv.eDocumentNo || inv.invoiceNo}`,
-        debit: 0,
-        credit: inv.type === "PURCHASE" ? Number(inv.totalAmount) : 0,
+        // Yön ekstreyle ortak: iade ve mahsup faturası da kendi sütununa yazılır
+        // (bakiye kartı onları zaten sayıyor; 0/0 yazılınca tablo kartla tutmuyordu).
+        ...faturaSatirYonu(inv),
         balance: 0,
         invoiceNo: inv.eDocumentNo || inv.invoiceNo,
       })),
@@ -262,6 +264,25 @@ export const GET = withApiErrors(async function GET(
         balance: 0,
         invoiceNo: inv.eDocumentNo || inv.invoiceNo,
       })),
+      // Faturaya işlenmiş, kasa hareketine BAĞLANMAMIŞ ödeme. Bakiye kartı onu
+      // yukarıda düşüyor; satırı yazılmazsa fatura tabloda ödenmemiş gibi asılı
+      // kalır ve yürüyen bakiye kartla tutmaz. Kural ekstreyle ortak.
+      ...allInvoices.flatMap((inv) =>
+        faturaOdemesiSatirlari(inv).map((row) => ({
+          id: row.id,
+          date: row.date.toISOString(),
+          createdAt: row.data.createdAt.toISOString(),
+          type: "INVOICE_PAYMENT",
+          // Satır ödemenin kendi ekranına gider; Transaction olmadığı için
+          // /finans/hareketler'de karşılığı yok.
+          invoiceId: inv.id,
+          description: row.description,
+          debit: row.debit,
+          credit: row.credit,
+          balance: 0,
+          invoiceNo: inv.eDocumentNo || inv.invoiceNo,
+        })),
+      ),
       ...transactions.map((trx) => ({
         id: trx.id,
         date: trx.date.toISOString(),

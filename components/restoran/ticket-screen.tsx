@@ -106,6 +106,7 @@ import {
   type PaymentState,
 } from "@/lib/satis/payment"
 import { submitReceiptSale } from "@/lib/satis/submit-receipt-sale"
+import { withAccountNote } from "@/lib/finans/hesapsiz-odeme"
 import { describeExpandError, expandRecipeLines } from "@/lib/stock/recipe-expand"
 
 type Shortage = { productId: string; name: string; unit: string; need: number; stock: number; after: number }
@@ -133,7 +134,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     isService: false,
   })
   const { recipeMap, recipeNoteOf } = useRecipes(companyId)
-  const { accounts } = useAccounts(companyId)
+  const { accounts, mutate: mutateAccounts } = useAccounts(companyId)
   const { warehouses } = useWarehouses(companyId)
   const { employees } = useEmployees(companyId)
   const { template: receiptTemplate, company: receiptCompany } = useReceiptTemplate(companyId)
@@ -779,9 +780,15 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
       forceNewReceipt.current = false
       shortPayAcked.current = false
       setLastSale({ invoiceNo: result.invoice.invoiceNo, receipt })
+      // Hesapsız tahsilat varsayılan Kasa'ya düştü: söylenir; kasa yeni açıldıysa
+      // liste tazelenir ki sonraki kapanış onu açıkça seçsin.
+      if (result.accountNote) void mutateAccounts()
       toast({
         title: "Hesap kapatıldı",
-        description: `${result.invoice.invoiceNo ?? "Fiş"} · ${currency(result.paidSum)} tahsil edildi`,
+        description: withAccountNote(
+          `${result.invoice.invoiceNo ?? "Fiş"} · ${currency(result.paidSum)} tahsil edildi`,
+          result.accountNote,
+        ),
       })
     } catch (e: any) {
       toast({ title: "Hesap kapatılamadı", description: e.message, variant: "destructive" })
@@ -796,6 +803,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
     isOpen,
     leaveAfterClose,
     mutate,
+    mutateAccounts,
     payment,
     receiptCompany,
     selectedCompany,

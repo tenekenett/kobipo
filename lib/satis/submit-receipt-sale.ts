@@ -18,6 +18,7 @@ import {
   type PaymentState,
 } from "@/lib/satis/payment"
 import type { RefAccount } from "@/lib/swr/use-company-data"
+import { defaultedAccountNote, type PaymentAccountResult } from "@/lib/finans/hesapsiz-odeme"
 import type { RecipeEffect } from "@/lib/stock/recipe-expand"
 
 export type ReceiptSaleItem = {
@@ -39,7 +40,18 @@ export type ReceiptSaleItem = {
 }
 
 export type ReceiptSaleResult =
-  | { ok: true; invoice: any; parts: PaymentPart[]; paidSum: number; total: number }
+  | {
+      ok: true
+      invoice: any
+      parts: PaymentPart[]
+      paidSum: number
+      total: number
+      /**
+       * Hesap seçilmeden yazılan parça varsayılan Kasa'ya düştüyse ekrana
+       * söylenecek not (lib/finans/hesapsiz-odeme.ts); düşmediyse null.
+       */
+      accountNote: string | null
+    }
   /** Fiş hiç oluşmadı — hiçbir yan etki yok, kullanıcı tekrar deneyebilir. */
   | { ok: false; stage: "invoice"; error: string }
   /**
@@ -112,6 +124,7 @@ export async function submitReceiptSale(args: {
     args.accounts.find((a) => a.type !== "CASH")?.id
   const parts = buildPaymentParts(args.payment, { total, cashAccountId, bankAccountId, cardAccountId })
 
+  const paymentResults: (PaymentAccountResult | null)[] = []
   for (const part of parts) {
     const payRes = await fetch("/api/faturalar/odemeler", {
       method: "POST",
@@ -138,6 +151,7 @@ export async function submitReceiptSale(args: {
         invoice,
       }
     }
+    paymentResults.push(await payRes.json().catch(() => null))
   }
 
   return {
@@ -146,5 +160,6 @@ export async function submitReceiptSale(args: {
     parts,
     paidSum: round2(parts.reduce((s, p) => s + p.amount, 0)),
     total,
+    accountNote: defaultedAccountNote(paymentResults),
   }
 }
