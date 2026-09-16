@@ -74,15 +74,8 @@ export const GET = withApiErrors(async function GET(
         authorizedUser: {
           select: { id: true, name: true, email: true },
         },
-        invoices: {
-          where: { status: { notIn: ["CANCELLED", "CONVERTED"] } },
-          orderBy: { date: "desc" },
-          take: 10,
-        },
-        transactions: {
-          orderBy: { date: "desc" },
-          take: 10,
-        },
+        // `invoices`/`transactions` önizlemesi (son 10) BURADA ÇEKİLMEZ: ekran
+        // okumuyordu, `transactions` zaten aşağıda ekstreyle eziliyordu.
       },
     })
 
@@ -95,10 +88,21 @@ export const GET = withApiErrors(async function GET(
     // link ya da elle yazılan adres başkasının carisini açardı.
     assertCariVisible(supplier, await resolveCariVisibility(supplier.companyId))
 
-    // Get all invoices and payments
+    // Faturalar hem bakiye (payableSign/receivableSign → type + returnKind,
+    // ödemeler) hem ekstre satırı için; yalnız okunan alanlar çekilir — carinin
+    // tüm geçmişi geldiği için satır başına 47 sütun taşımak yıllarla büyüyordu.
     const allInvoices = await prisma.invoice.findMany({
       where: { supplierId: supplier.id, status: { notIn: ["CANCELLED", "CONVERTED"] } },
-      include: {
+      select: {
+        id: true,
+        date: true,
+        createdAt: true,
+        type: true,
+        returnKind: true,
+        isReceipt: true,
+        invoiceNo: true,
+        eDocumentNo: true,
+        totalAmount: true,
         payments: {
           select: {
             amount: true,
@@ -110,8 +114,14 @@ export const GET = withApiErrors(async function GET(
 
     const transactions = await prisma.transaction.findMany({
       where: { supplierId: supplier.id },
-      include: {
-        account: true,
+      select: {
+        id: true,
+        date: true,
+        createdAt: true,
+        type: true,
+        amount: true,
+        description: true,
+        account: { select: { name: true } },
       },
     })
 
@@ -119,10 +129,12 @@ export const GET = withApiErrors(async function GET(
     const [allChecks, allNotes, convertedReceipts] = await Promise.all([
       prisma.check.findMany({
         where: { supplierId: supplier.id, status: { notIn: [...CHECK_NOTE_NON_SETTLING] } },
+        select: { id: true, issueDate: true, createdAt: true, direction: true, amount: true, checkNo: true, bankName: true },
         orderBy: { issueDate: "asc" },
       }),
       prisma.promissoryNote.findMany({
         where: { supplierId: supplier.id, status: { notIn: [...CHECK_NOTE_NON_SETTLING] } },
+        select: { id: true, issueDate: true, createdAt: true, direction: true, amount: true, noteNo: true },
         orderBy: { issueDate: "asc" },
       }),
       // Faturaya dönüştürülmüş fişler: ekstrede bilgi amaçlı ("Fiş" olarak, hangi
@@ -130,7 +142,15 @@ export const GET = withApiErrors(async function GET(
       // ETKİ ETMEZ (borç/alacak = 0) — çift sayımı önler.
       prisma.invoice.findMany({
         where: { supplierId: supplier.id, isReceipt: true, status: "CONVERTED" },
-        include: { convertedInvoice: { select: { id: true, invoiceNo: true, eDocumentNo: true } } },
+        select: {
+          id: true,
+          date: true,
+          createdAt: true,
+          invoiceNo: true,
+          eDocumentNo: true,
+          totalAmount: true,
+          convertedInvoice: { select: { id: true, invoiceNo: true, eDocumentNo: true } },
+        },
         orderBy: { date: "asc" },
       }),
     ])

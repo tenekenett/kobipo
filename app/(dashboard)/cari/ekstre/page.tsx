@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft } from "lucide-react"
 import { ExportButton } from "@/components/export/export-button"
@@ -132,6 +133,9 @@ export default function EkstrePage() {
       setSuppliers(await supplierResponse.json())
     }
   }
+
+  // Cari ya da tarih değişince yeni ekstre gelir → 1. sayfa.
+  const paged = usePagedRows(entries, { resetKey: `${customerId}|${supplierId}|${startDate}|${endDate}` })
 
   if (!companyId) {
     return (
@@ -317,6 +321,7 @@ export default function EkstrePage() {
           {isLoading ? (
             <div className="text-center py-8 text-muted-foreground">Yükleniyor...</div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -337,7 +342,7 @@ export default function EkstrePage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  entries.map((entry) => {
+                  paged.pageRows.map((entry) => {
                     const badge = TYPE_BADGE[entry.type] || {
                       label: entry.type,
                       cls: "bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 border-slate-200 dark:border-border",
@@ -375,6 +380,8 @@ export default function EkstrePage() {
                 )}
               </TableBody>
             </Table>
+            <TablePagination {...paged} />
+            </>
           )}
         </CardContent>
       </Card>

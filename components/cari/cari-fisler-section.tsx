@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Badge } from "@/components/ui/badge"
 import {
   Table,
@@ -110,10 +111,22 @@ export function CariFislerSection({
   const convertedRows = useMemo(() => rows.filter((r) => r.status === "CONVERTED"), [rows])
   const displayRows = useMemo(() => [...activeRows, ...convertedRows], [activeRows, convertedRows])
 
+  const paged = usePagedRows(displayRows)
+
+  // "Tümünü seç" GÖRÜNEN sayfadaki aktif fişleri seçer (dönüştürülmüşler seçilemez).
+  // Yüklenen listenin tamamını seçseydi toplu dönüştürme görünmeyen fişlere de işlerdi.
+  const pageActiveIds = paged.pageRows
+    .filter((r) => r.status !== "CANCELLED" && r.status !== "CONVERTED")
+    .map((r) => r.id)
+  const allPageSelected =
+    pageActiveIds.length > 0 && pageActiveIds.every((id) => selected.has(id))
   const toggleAll = () =>
-    setSelected((prev) =>
-      prev.size === activeRows.length ? new Set() : new Set(activeRows.map((r) => r.id)),
-    )
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (allPageSelected) pageActiveIds.forEach((id) => next.delete(id))
+      else pageActiveIds.forEach((id) => next.add(id))
+      return next
+    })
 
   const detailHref = (r: ReceiptRow) =>
     `/fisler/${r.slug || r.id}?company=${encodeURIComponent(companyId)}`
@@ -186,6 +199,7 @@ export function CariFislerSection({
         ) : (
           // Sınırlı yükseklik + iç kaydırma: fiş listesi uzun olsa da ekstreyi
           // bastırmasın. Sticky başlık için yükseklik Table'ın kendi sarmalayıcısına.
+          <>
           <div className="[&>div]:max-h-[340px] [&>div]:rounded-md [&>div]:border">
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-muted">
@@ -195,7 +209,7 @@ export function CariFislerSection({
                       type="checkbox"
                       className="rounded"
                       aria-label="Tümünü seç"
-                      checked={activeRows.length > 0 && selected.size === activeRows.length}
+                      checked={allPageSelected}
                       onChange={toggleAll}
                     />
                   </TableHead>
@@ -207,7 +221,7 @@ export function CariFislerSection({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {displayRows.map((r) => {
+                {paged.pageRows.map((r) => {
                   const isConverted = r.status === "CONVERTED"
                   const badge = PAYMENT_BADGE[r.paymentStatus]
                   const rowHref = detailHref(r)
@@ -282,6 +296,8 @@ export function CariFislerSection({
               </TableBody>
             </Table>
           </div>
+          <TablePagination {...paged} />
+          </>
         )}
       </CardContent>
     </Card>

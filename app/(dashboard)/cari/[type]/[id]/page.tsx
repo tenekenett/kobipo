@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { LinkedTableRow } from "@/components/ui/styled-table"
 import { Button } from "@/components/ui/button"
+import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
@@ -226,6 +227,13 @@ export default function CustomerSupplierDetailPage() {
     }
   }
 
+  // API ekstreyi kronolojik (eski→yeni) ve kümülatif bakiyeli döndürür. Ekranda
+  // en yeni hareket en üstte olsun diye ters çeviriyoruz; her satırın yürüyen
+  // bakiyesi o hareket anındaki bakiyeyi gösterir (banka ekstresi mantığı).
+  // Yürüyen bakiye satırın kendi alanı olduğu için sayfalamak sırayı bozmaz.
+  const orderedTransactions = [...(data?.transactions ?? [])].reverse()
+  const pagedTx = usePagedRows(orderedTransactions)
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -248,11 +256,6 @@ export default function CustomerSupplierDetailPage() {
       currency: "TRY",
     }).format(amount)
   }
-
-  // API ekstreyi kronolojik (eski→yeni) ve kümülatif bakiyeli döndürür. Ekranda
-  // en yeni hareket en üstte olsun diye ters çeviriyoruz; her satırın yürüyen
-  // bakiyesi o hareket anındaki bakiyeyi gösterir (banka ekstresi mantığı).
-  const orderedTransactions = [...data.transactions].reverse()
 
   // Renk şirket gözünden ("lehimize mi?"). Müşteride pozitif bakiye = müşteri bize
   // borçlu = bizim alacağımız (lehimize, yeşil). Tedarikçide ise pozitif bakiye =
@@ -547,7 +550,7 @@ export default function CustomerSupplierDetailPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                orderedTransactions.map((tx) => {
+                pagedTx.pageRows.map((tx) => {
                   const isMovement = tx.type === "PAYMENT" || tx.type === "EXPENSE"
                   const backTo = encodeURIComponent(`/cari/${type}/${id}`)
                   const company = encodeURIComponent(companyId || "")
@@ -660,6 +663,7 @@ export default function CustomerSupplierDetailPage() {
             </TableBody>
           </Table>
           </div>
+          <TablePagination {...pagedTx} />
         </CardContent>
       </Card>
 

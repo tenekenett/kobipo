@@ -78,23 +78,8 @@ export const GET = withApiErrors(async function GET(
         authorizedUser: {
           select: { id: true, name: true, email: true },
         },
-        invoices: {
-          where: { status: { notIn: ["CANCELLED", "CONVERTED"] } },
-          orderBy: { date: "desc" },
-          take: 10,
-          include: {
-            payments: {
-              select: { amount: true },
-            },
-          },
-        },
-        transactions: {
-          orderBy: { date: "desc" },
-          take: 10,
-          include: {
-            account: true,
-          },
-        },
+        // `invoices`/`transactions` önizlemesi (son 10) BURADA ÇEKİLMEZ: ekran
+        // okumuyordu, `transactions` zaten aşağıda ekstreyle eziliyordu.
       },
     })
 
@@ -218,31 +203,47 @@ export const GET = withApiErrors(async function GET(
       ? -Number(customer.openingBalanceAmount || 0)
       : Number(customer.openingBalanceAmount || 0)
 
-    // Get all invoices and transactions for display (with payments included to avoid N+1)
+    // Ekstre satırları. Bakiye yukarıda aggregate ile hesaplandı; buradaki
+    // sorgular yalnız GÖSTERİM içindir ve formatlayıcının okuduğu alanlarla
+    // sınırlı tutulur — carinin tüm geçmişi çekildiği için satır başına 47
+    // sütunlu fatura + tam kasa kaydı taşımak yıllar geçtikçe büyüyordu.
     const [allInvoices, allTransactions, allChecks, allNotes, convertedReceipts] = await Promise.all([
       prisma.invoice.findMany({
         where: { customerId: customer.id, status: { notIn: ["CANCELLED", "CONVERTED"] } },
-        include: {
-          payments: {
-            select: { amount: true },
-          },
+        select: {
+          id: true,
+          date: true,
+          createdAt: true,
+          type: true,
+          isReceipt: true,
+          invoiceNo: true,
+          eDocumentNo: true,
+          totalAmount: true,
         },
         orderBy: { date: "asc" }, // For chronological order in formatted transactions
       }),
       prisma.transaction.findMany({
         where: { customerId: customer.id },
-        include: {
-          account: true,
+        select: {
+          id: true,
+          date: true,
+          createdAt: true,
+          type: true,
+          amount: true,
+          description: true,
+          account: { select: { name: true } },
         },
         orderBy: { date: "asc" },
       }),
       // Müşteriden alınan çek/senet (iade/protesto hariç) alacağı kapatır.
       prisma.check.findMany({
         where: { customerId: customer.id, status: { notIn: [...CHECK_NOTE_NON_SETTLING] } },
+        select: { id: true, issueDate: true, createdAt: true, direction: true, amount: true, checkNo: true, bankName: true },
         orderBy: { issueDate: "asc" },
       }),
       prisma.promissoryNote.findMany({
         where: { customerId: customer.id, status: { notIn: [...CHECK_NOTE_NON_SETTLING] } },
+        select: { id: true, issueDate: true, createdAt: true, direction: true, amount: true, noteNo: true },
         orderBy: { issueDate: "asc" },
       }),
       // Faturaya dönüştürülmüş fişler: ekstrede bilgi amaçlı gösterilir ("Fiş" olarak,
@@ -250,7 +251,15 @@ export const GET = withApiErrors(async function GET(
       // için bunlar bakiyeye ETKİ ETMEZ (borç/alacak = 0) — çift sayımı önler.
       prisma.invoice.findMany({
         where: { customerId: customer.id, isReceipt: true, status: "CONVERTED" },
-        include: { convertedInvoice: { select: { id: true, invoiceNo: true, eDocumentNo: true } } },
+        select: {
+          id: true,
+          date: true,
+          createdAt: true,
+          invoiceNo: true,
+          eDocumentNo: true,
+          totalAmount: true,
+          convertedInvoice: { select: { id: true, invoiceNo: true, eDocumentNo: true } },
+        },
         orderBy: { date: "asc" },
       }),
     ])

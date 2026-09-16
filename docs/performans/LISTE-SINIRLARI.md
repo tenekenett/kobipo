@@ -84,6 +84,31 @@ boşluğu 24 px, düğme 68 px kaplıyor; `/cari`'nin mevcut sayfalaması da ayn
 köşedeydi. Düzeltme layout'ta: `app/(dashboard)/layout.tsx` içerik kabına
 `pb-24`.
 
+## Cari altındaki tablolar (KAPANDI — ikinci tur)
+
+Cari detayı (`/cari/[type]/[id]`) ve ekstre sayfası ilk turda dışarıda kalmıştı.
+
+- **Ekstre tablosu** (detay sayfası): `usePagedRows` — yürüyen bakiye satırın
+  kendi alanı olduğu için sayfalamak sırayı bozmaz (sayfa 2'de bakiye
+  kronolojik devam eder, ölçüldü). Fişler bölümü de sayfalı; "Tümünü seç"
+  görünen sayfanın AKTİF fişlerini seçer.
+- `/cari/ekstre`: sayfalı; cari/tarih değişince 1. sayfa.
+- **`/api/cari/customers|suppliers/[id]`**: ekstre satırları için carinin TÜM
+  geçmişi çekiliyor (yıllarla büyür); artık yalnız formatlayıcının okuduğu
+  alanlar (`select`). Kart sorgusundaki okunmayan "son 10 fatura/işlem"
+  önizlemesi düştü (`transactions` zaten ekstreyle eziliyordu). Bakiye/toplamlar
+  eski kodla birebir aynı doğrulandı (Pusula Tekstil: 98.788,96 / 102.043,96 /
+  3.231). JSON 32 → 21 KB.
+- **`lib/cari/ekstre-query.ts`**: her faturaya tam cari + TÜM kalemler, her
+  işleme tam kasa + cari kayıtları ekleniyor ve `data` olarak istemciye
+  gidiyordu — hiçbir ekran okumuyordu. 84 satırlık ekstre **218 KB → 32 KB**;
+  toplamlar aynı (302.042,96 / 203.254,00 / 98.788,96). `data` alanı (uç
+  sözleşmesi) duruyor, artık yalın kayıt taşıyor.
+
+Bilinen, bu işten BAĞIMSIZ fark: Bakiye kartı ile ekstrenin en üst satırı
+arasında kasasız fatura ödemesi kadar fark var (bkz. hafıza notu "hesapsız ödeme
+& ekstre" — bilinçli ertelendi).
+
 ## 3. Sunucu sayfalaması + uzak arama (YAPILMADI — plan)
 
 Bugünkü boyutta gerekmiyor; 3–5 bin belge/ürüne ulaşan firmada gerekecek. İki iş:

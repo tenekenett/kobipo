@@ -256,15 +256,23 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       : null
 
   const [invoices, transactions, checks, promissoryNotes] = await Promise.all([
+    // Yalnız satır kurucunun okuduğu alanlar. Eskiden her faturaya tam cari
+    // kaydı + TÜM kalemler, her işleme tam kasa + cari kayıtları ekleniyordu ve
+    // satırla birlikte `data` olarak istemciye gidiyordu: 84 satırlık ekstre
+    // 218 KB (satır başına 2,6 KB) — hiçbir ekran okumuyordu.
     prisma.invoice.findMany({
       where,
-      // Ödemeler: faturanın üzerine doğrudan işlenenler (Faturalar → Ödemeler)
-      // cari işlemi ÜRETMEZ; ekstreye girmezlerse fatura tam tutarıyla borç
-      // yazılı kalır ve bakiye ödenmemiş gibi görünür.
-      include: {
-        customer: true,
-        supplier: true,
-        items: true,
+      select: {
+        id: true,
+        date: true,
+        type: true,
+        returnKind: true,
+        invoiceNo: true,
+        eDocumentNo: true,
+        totalAmount: true,
+        // Ödemeler: faturanın üzerine doğrudan işlenenler (Faturalar → Ödemeler)
+        // cari işlemi ÜRETMEZ; ekstreye girmezlerse fatura tam tutarıyla borç
+        // yazılı kalır ve bakiye ödenmemiş gibi görünür.
         payments: {
           select: { id: true, amount: true, paymentDate: true, transactionId: true, reference: true },
         },
@@ -273,7 +281,15 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
     }),
     prisma.transaction.findMany({
       where: { companyId, ...partyFilter, ...visibleParty, ...dateRange("date") },
-      include: { account: true, customer: true, supplier: true },
+      select: {
+        id: true,
+        date: true,
+        type: true,
+        amount: true,
+        description: true,
+        reference: true,
+        account: { select: { name: true } },
+      },
       orderBy: { date: "desc" },
     }),
     // İADE_EDİLDİ / PROTESTOLU kıymet cari pozisyonunu DEĞİŞTİRMEZ; cari
@@ -286,6 +302,7 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
         ...dateRange("dueDate"),
         status: { notIn: [...CHECK_NOTE_NON_SETTLING] },
       },
+      select: { id: true, dueDate: true, checkNo: true, amount: true, direction: true, customerId: true },
       orderBy: { dueDate: "desc" },
     }),
     prisma.promissoryNote.findMany({
@@ -296,6 +313,7 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
         ...dateRange("dueDate"),
         status: { notIn: [...CHECK_NOTE_NON_SETTLING] },
       },
+      select: { id: true, dueDate: true, noteNo: true, amount: true, direction: true, customerId: true },
       orderBy: { dueDate: "desc" },
     }),
   ])
