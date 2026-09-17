@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -189,7 +190,7 @@ export default function InsanKaynaklariPage() {
                       <TableCell className="font-medium">{d.employee.firstName} {d.employee.lastName}</TableCell>
                       <TableCell>
                         <div className="text-sm">{d.title}</div>
-                        {d.notes && <div className="text-xs text-muted-foreground">{d.notes}</div>}
+                        {d.notes && <div className="whitespace-pre-line text-xs text-muted-foreground">{d.notes}</div>}
                       </TableCell>
                       <TableCell className="text-xs">{d.category || "—"}</TableCell>
                       <TableCell className="whitespace-nowrap text-xs">{new Date(d.createdAt).toLocaleDateString("tr-TR")}</TableCell>
@@ -277,7 +278,7 @@ export default function InsanKaynaklariPage() {
               <Label>veya Dış Bağlantı (opsiyonel)</Label>
               <Input value={form.fileUrl} onChange={(e) => setForm((p) => ({ ...p, fileUrl: e.target.value }))} placeholder="https://…" disabled={files.length > 0} />
             </div>
-            <div><Label>Not</Label><Input value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></div>
+            <div><Label>Not</Label><Textarea rows={3} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></div>
             <WriteAction><Button className="w-full" onClick={save} disabled={isSaving}>{isSaving ? "Kaydediliyor…" : "Kaydet"}</Button></WriteAction>
           </div>
         </DialogContent>

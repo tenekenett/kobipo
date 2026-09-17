@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -379,7 +380,7 @@ export default function PersonellerPage() {
             <div><Label>IBAN</Label><Input value={form.iban} onChange={(e) => setForm((p) => ({ ...p, iban: e.target.value }))} /></div>
             <div><Label>Acil Durum İletişim</Label><Input value={form.emergencyContact} onChange={(e) => setForm((p) => ({ ...p, emergencyContact: e.target.value }))} /></div>
             <div className="sm:col-span-2"><Label>Adres</Label><Input value={form.address} onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))} /></div>
-            <div className="sm:col-span-2"><Label>Not</Label><Input value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></div>
+            <div className="sm:col-span-2"><Label>Not</Label><Textarea rows={3} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></div>
           </div>
           <WriteAction><Button className="w-full" onClick={save} disabled={isSaving}>
             {isSaving ? "Kaydediliyor…" : editingId ? "Güncelle" : "Kaydet"}

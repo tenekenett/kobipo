@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/styled-table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
@@ -476,7 +477,7 @@ export default function PersonelDetayPage() {
               {emp.notes && (
                 <CardContent className="border-t pt-4">
                   <p className="text-xs text-muted-foreground">Not</p>
-                  <p className="text-sm">{emp.notes}</p>
+                  <p className="whitespace-pre-line text-sm">{emp.notes}</p>
                 </CardContent>
               )}
             </Card>
@@ -763,7 +764,7 @@ export default function PersonelDetayPage() {
             <div><Label>IBAN</Label><Input value={editForm.iban} onChange={(e) => setEditForm((p) => ({ ...p, iban: e.target.value }))} /></div>
             <div><Label>Acil Durum</Label><Input value={editForm.emergencyContact} onChange={(e) => setEditForm((p) => ({ ...p, emergencyContact: e.target.value }))} /></div>
             <div className="sm:col-span-2"><Label>Adres</Label><Input value={editForm.address} onChange={(e) => setEditForm((p) => ({ ...p, address: e.target.value }))} /></div>
-            <div className="sm:col-span-2"><Label>Not</Label><Input value={editForm.notes} onChange={(e) => setEditForm((p) => ({ ...p, notes: e.target.value }))} /></div>
+            <div className="sm:col-span-2"><Label>Not</Label><Textarea rows={3} value={editForm.notes} onChange={(e) => setEditForm((p) => ({ ...p, notes: e.target.value }))} /></div>
           </div>
           <Button className="w-full" onClick={saveEdit} disabled={editSaving}>{editSaving ? "Kaydediliyor…" : "Güncelle"}</Button>
         </DialogContent>
@@ -802,7 +803,7 @@ export default function PersonelDetayPage() {
                 </ul>
               )}
             </div>
-            <div><Label>Not</Label><Input value={docForm.notes} onChange={(e) => setDocForm((p) => ({ ...p, notes: e.target.value }))} /></div>
+            <div><Label>Not</Label><Textarea rows={3} value={docForm.notes} onChange={(e) => setDocForm((p) => ({ ...p, notes: e.target.value }))} /></div>
             <Button className="w-full" onClick={saveDoc} disabled={docSaving}>{docSaving ? "Yükleniyor…" : "Kaydet"}</Button>
           </div>
         </DialogContent>
@@ -846,7 +847,7 @@ export default function PersonelDetayPage() {
                 <Calculator className="mr-1 h-4 w-4" /> Hesapla
               </Button>
             </div>
-            <div><Label>Not</Label><Input value={payForm.notes} onChange={(e) => setPayForm((p) => ({ ...p, notes: e.target.value }))} /></div>
+            <div><Label>Not</Label><Textarea rows={3} value={payForm.notes} onChange={(e) => setPayForm((p) => ({ ...p, notes: e.target.value }))} /></div>
             <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3"><span className="text-sm text-muted-foreground">Net Maaş</span><span className="text-lg font-bold">{money(payNet)}</span></div>
             <Button className="w-full" onClick={savePayroll} disabled={paySaving}>{paySaving ? "Kaydediliyor…" : "Kaydet"}</Button>
           </div>
@@ -869,7 +870,7 @@ export default function PersonelDetayPage() {
               <div><Label>Başlangıç</Label><Input type="date" value={leaveForm.startDate} onChange={(e) => setLeaveForm((p) => ({ ...p, startDate: e.target.value }))} /></div>
               <div><Label>Bitiş</Label><Input type="date" value={leaveForm.endDate} onChange={(e) => setLeaveForm((p) => ({ ...p, endDate: e.target.value }))} /></div>
             </div>
-            <div><Label>Açıklama</Label><Input value={leaveForm.reason} onChange={(e) => setLeaveForm((p) => ({ ...p, reason: e.target.value }))} /></div>
+            <div><Label>Açıklama</Label><Textarea rows={3} value={leaveForm.reason} onChange={(e) => setLeaveForm((p) => ({ ...p, reason: e.target.value }))} /></div>
             <Button className="w-full" onClick={saveLeave} disabled={leaveSaving}>{leaveSaving ? "Kaydediliyor…" : "Kaydet"}</Button>
           </div>
         </DialogContent>
@@ -887,7 +888,7 @@ export default function PersonelDetayPage() {
               <div><Label>Adet</Label><Input type="number" value={assetForm.quantity} onChange={(e) => setAssetForm((p) => ({ ...p, quantity: e.target.value }))} /></div>
               <div><Label>Zimmet Tarihi</Label><Input type="date" value={assetForm.assignedDate} onChange={(e) => setAssetForm((p) => ({ ...p, assignedDate: e.target.value }))} /></div>
             </div>
-            <div><Label>Not</Label><Input value={assetForm.notes} onChange={(e) => setAssetForm((p) => ({ ...p, notes: e.target.value }))} /></div>
+            <div><Label>Not</Label><Textarea rows={3} value={assetForm.notes} onChange={(e) => setAssetForm((p) => ({ ...p, notes: e.target.value }))} /></div>
             <Button className="w-full" onClick={saveAsset} disabled={assetSaving}>{assetSaving ? "Kaydediliyor…" : "Kaydet"}</Button>
           </div>
         </DialogContent>

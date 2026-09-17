@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -318,7 +319,7 @@ export default function IzinDevamPage() {
                     <StyledTableRow key={l.id} index={idx}>
                       <TableCell>
                         <div className="font-medium">{l.employee.firstName} {l.employee.lastName}</div>
-                        {l.reason && <div className="text-xs text-muted-foreground">{l.reason}</div>}
+                        {l.reason && <div className="whitespace-pre-line text-xs text-muted-foreground">{l.reason}</div>}
                       </TableCell>
                       <TableCell className="text-xs">{TYPE_LABELS[l.type] || l.type}</TableCell>
                       <TableCell className="whitespace-nowrap text-xs">
@@ -395,7 +396,7 @@ export default function IzinDevamPage() {
               <div><Label>Başlangıç</Label><Input type="date" value={form.startDate} onChange={(e) => setForm((p) => ({ ...p, startDate: e.target.value }))} /></div>
               <div><Label>Bitiş</Label><Input type="date" value={form.endDate} onChange={(e) => setForm((p) => ({ ...p, endDate: e.target.value }))} /></div>
             </div>
-            <div><Label>Açıklama</Label><Input value={form.reason} onChange={(e) => setForm((p) => ({ ...p, reason: e.target.value }))} /></div>
+            <div><Label>Açıklama</Label><Textarea rows={3} value={form.reason} onChange={(e) => setForm((p) => ({ ...p, reason: e.target.value }))} /></div>
             <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3">
               <span className="text-sm text-muted-foreground">Toplam gün</span>
               <span className="text-lg font-bold">{liveDays}</span>

@@ -629,7 +629,7 @@ export default function InvoiceDetailPage() {
             <CardTitle className="text-lg">Notlar</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">{invoice.notes}</p>
+            <p className="whitespace-pre-line text-sm text-muted-foreground">{invoice.notes}</p>
           </CardContent>
         </Card>
       )}

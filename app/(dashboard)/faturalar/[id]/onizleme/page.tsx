@@ -1564,7 +1564,7 @@ export default function FaturaOnizlemePage() {
           {invoice.notes && (
             <div className="mt-6 p-4 bg-muted rounded-lg">
               <p className="text-sm font-medium mb-2">Notlar:</p>
-              <p className="text-sm text-muted-foreground">{invoice.notes}</p>
+              <p className="whitespace-pre-line text-sm text-muted-foreground">{invoice.notes}</p>
             </div>
           )}
         </CardContent>

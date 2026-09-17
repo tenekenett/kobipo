@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -411,7 +412,7 @@ export default function MaasOdemelerPage() {
                 <Calculator className="mr-1 h-4 w-4" /> Hesapla
               </Button>
             </div>
-            <div><Label>Not</Label><Input value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></div>
+            <div><Label>Not</Label><Textarea rows={3} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></div>
             <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3">
               <span className="text-sm text-muted-foreground">Net Maaş</span>
               <span className="text-lg font-bold">{fmt(liveNet)} ₺</span>

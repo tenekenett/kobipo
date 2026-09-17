@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SearchSelect } from "@/components/ui/search-select"
 import { QuickCariDialog, useCanCreateCari } from "@/components/e-donusum/quick-cari-dialog"
@@ -364,8 +365,9 @@ export default function TeklifPage() {
                     </div>
                     <div>
                       <Label>Not</Label>
-                      <Input
-                        placeholder="Not"
+                      <Textarea
+                        placeholder="Belgeye yazılacak not — satır sonu için Enter"
+                        rows={3}
                         value={form.notes}
                         onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
                       />
