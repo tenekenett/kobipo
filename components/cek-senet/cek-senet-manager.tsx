@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { TablePagination, usePagedRows } from "@/components/ui/table-pagination"
@@ -44,6 +44,8 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Trash2, Edit, Printer } from "lucide-react"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import { cekSenetStatusLabel, resolveCekSenetDirection } from "@/lib/cek-senet/labels"
+import { cekSenetOzeti } from "@/lib/cek-senet/ozet"
+import { CekSenetOzetKartlari } from "./cek-senet-ozet"
 import { withCompanyHref } from "@/lib/company/href"
 import { toDateInput } from "@/lib/format"
 import { useAccounts } from "@/lib/swr/use-company-data"
@@ -122,6 +124,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
   const [isLoading, setIsLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Check | PromissoryNote | null>(null)
+  // Özet kartından seçilen durum; null = tüm liste.
+  const [statusFilter, setStatusFilter] = useState<string | null>(null)
 
   const [checkForm, setCheckForm] = useState({
     checkNo: "",
@@ -422,8 +426,23 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
   }
 
   // Hook'lar erken dönüşten ÖNCE: iki sekmenin kendi sayfası var.
-  const pagedChecks = usePagedRows(checks)
-  const pagedNotes = usePagedRows(notes)
+  // Özet TÜM listeden kurulur (liste ucu sayfalamaz), süzgeç yalnız tabloya uygulanır;
+  // kartlar süzgeçten etkilenseydi seçili durum dışındakiler sıfırlanırdı.
+  const items: readonly (Check | PromissoryNote)[] = mode === "CHECK" ? checks : notes
+  const ozet = useMemo(() => cekSenetOzeti(items), [items])
+  const filteredChecks = useMemo(
+    () => (statusFilter ? checks.filter((c) => c.status === statusFilter) : checks),
+    [checks, statusFilter],
+  )
+  const filteredNotes = useMemo(
+    () => (statusFilter ? notes.filter((n) => n.status === statusFilter) : notes),
+    [notes, statusFilter],
+  )
+  const pagedChecks = usePagedRows(filteredChecks, { resetKey: statusFilter ?? "" })
+  const pagedNotes = usePagedRows(filteredNotes, { resetKey: statusFilter ?? "" })
+  const emptyText = statusFilter
+    ? `${cekSenetStatusLabel(statusFilter)} durumunda kayıt yok`
+    : copy.empty
 
   if (!companyId) {
     return (
@@ -453,7 +472,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
             </WriteAction>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <CekSenetOzetKartlari ozet={ozet} mode={mode} active={statusFilter} onSelect={setStatusFilter} />
           {mode === "CHECK" ? (
             <>
             <StyledTableContainer>
@@ -471,10 +491,10 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                   </StyledTableHeaderRow>
                 </TableHeader>
                 <TableBody>
-                  {checks.length === 0 ? (
+                  {filteredChecks.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="text-center text-muted-foreground">
-                        {copy.empty}
+                        {emptyText}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -548,10 +568,10 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                   </StyledTableHeaderRow>
                 </TableHeader>
                 <TableBody>
-                  {notes.length === 0 ? (
+                  {filteredNotes.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center text-muted-foreground">
-                        {copy.empty}
+                        {emptyText}
                       </TableCell>
                     </TableRow>
                   ) : (
