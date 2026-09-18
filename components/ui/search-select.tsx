@@ -6,7 +6,16 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { trFold } from "@/lib/text/tr-fold"
 
-export type SearchOption = { id: string; name: string }
+export type SearchOption = {
+  id: string
+  name: string
+  /**
+   * İkincil aranabilir alan; satırda adın sağında soluk basılır. Cari için
+   * VKN/TCKN: "aynı adlı iki müşteri" ya da "sadece numarasını biliyorum"
+   * durumunda ad yetmiyor.
+   */
+  hint?: string | null
+}
 
 type SearchSelectProps = {
   id?: string
@@ -80,7 +89,9 @@ export function SearchSelect({
     const q = trFold(query)
     // Henüz yazılmadıysa (sorgu = seçili ad) ya da boşsa tüm listeyi göster.
     if (!q || query === selectedName) return options
-    return options.filter((o) => trFold(o.name).includes(q))
+    return options.filter(
+      (o) => trFold(o.name).includes(q) || (o.hint ? trFold(o.hint).includes(q) : false),
+    )
   }, [query, options, selectedName])
 
   // Seçili adı değil, KULLANICININ yazdığını taşı: yeni kayıt formuna ad olarak gider.
@@ -106,6 +117,13 @@ export function SearchSelect({
     setHighlight(-1)
   }
 
+  function openList() {
+    if (disabled || open) return
+    setQuery(selectedName)
+    setOpen(true)
+    setHighlight(-1)
+  }
+
   return (
     <div ref={containerRef} className="relative">
       <div className="relative">
@@ -123,13 +141,20 @@ export function SearchSelect({
             setOpen(true)
             setHighlight(-1)
           }}
-          onFocus={(e) => {
-            setOpen(true)
-            setQuery(selectedName)
-            e.currentTarget.select()
-          }}
+          // Odakta liste AÇILMAZ: Dialog açılışta ilk alana odak veriyor ve
+          // form daha görünmeden liste düşüyordu. Açılış kullanıcı eylemine
+          // bağlı — tıklama, yazma ya da ok tuşu. Odak yalnız metni seçer ki
+          // yazılan ilk harf seçili adın üstüne gelsin.
+          onFocus={(e) => e.currentTarget.select()}
+          onClick={openList}
           onKeyDown={(e) => {
-            if (!open) return
+            if (!open) {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault()
+                openList()
+              }
+              return
+            }
             if (e.key === "ArrowDown") {
               e.preventDefault()
               setHighlight((h) => Math.min(h + 1, matches.length - 1))
@@ -185,9 +210,14 @@ export function SearchSelect({
                   }`}
                 >
                   <span className="truncate">{opt.name}</span>
-                  {opt.id === value && (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-kobipo-blue" />
-                  )}
+                  <span className="flex shrink-0 items-center gap-2">
+                    {opt.hint && (
+                      <span className="text-xs tabular-nums text-muted-foreground">{opt.hint}</span>
+                    )}
+                    {opt.id === value && (
+                      <Check className="h-3.5 w-3.5 shrink-0 text-kobipo-blue" />
+                    )}
+                  </span>
                 </button>
               </li>
             ))

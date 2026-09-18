@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -142,7 +142,14 @@ export default function TeklifDetailPage() {
   // sayfadır, yalnız taraf ekseni değişir. Hangi eksende olduğumuzu kaydın
   // kendisi söyler (supplierId doluysa satın alma).
   const [isPurchase, setIsPurchase] = useState(false)
-  const [parties, setParties] = useState<Array<{ id: string; name: string }>>([])
+  const [parties, setParties] = useState<
+    Array<{ id: string; name: string; taxNumber?: string | null }>
+  >([])
+  // Seçici adın yanı sıra VKN/TCKN ile de arar.
+  const partyOptions = useMemo(
+    () => parties.map((p) => ({ id: p.id, name: p.name, hint: p.taxNumber ?? null })),
+    [parties],
+  )
   // Müşteri listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
   // Cari kartı yazma yetkisi yoksa "Yeni cari ekle" seçeneği hiç çizilmez
   // (sunucu kapısı da aynı sahipliği uygular: lib/page-access.ts → /api/cari/*).
@@ -504,7 +511,7 @@ export default function TeklifDetailPage() {
             <div>
               <Label>{isPurchase ? "Tedarikçi" : "Müşteri"}</Label>
               <SearchSelect
-                options={parties}
+                options={partyOptions}
                 value={partyId}
                 onChange={(v) => setPartyId(v)}
                 placeholder={isPurchase ? "Tedarikçi seçin veya arayın…" : "Müşteri seçin veya arayın…"}
@@ -533,7 +540,7 @@ export default function TeklifDetailPage() {
                     setParties((prev) =>
                       prev.some((c) => c.id === created.id)
                         ? prev
-                        : [...prev, { id: created.id, name: created.name }]
+                        : [...prev, { id: created.id, name: created.name, taxNumber: created.taxNumber }]
                     )
                     setPartyId(created.id)
                   }}

@@ -1,7 +1,7 @@
 "use client"
 
 import { WriteAction } from "@/components/dashboard/write-guard"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -104,7 +104,15 @@ export default function TeklifPage() {
   const { confirm } = useConfirm()
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([])
+  const [customers, setCustomers] = useState<
+    Array<{ id: string; name: string; taxNumber?: string | null }>
+  >([])
+  // Seçici adın yanı sıra VKN/TCKN ile de arar (aynı adlı iki müşteri, ya da
+  // elde yalnız numara varken).
+  const customerOptions = useMemo(
+    () => customers.map((c) => ({ id: c.id, name: c.name, hint: c.taxNumber ?? null })),
+    [customers],
+  )
   const [products, setProducts] = useState<QuoteProduct[]>([])
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   // Müşteri listede yoksa buradan eklenir; seçiciye yazılan ad forma taşınır.
@@ -296,7 +304,7 @@ export default function TeklifPage() {
                       <div>
                         <Label>Müşteri</Label>
                         <SearchSelect
-                          options={customers}
+                          options={customerOptions}
                           value={form.customerId}
                           onChange={(value) => setForm((prev) => ({ ...prev, customerId: value }))}
                           placeholder="Müşteri seçin veya arayın…"
@@ -396,7 +404,7 @@ export default function TeklifPage() {
                           setCustomers((prev) =>
                             prev.some((c) => c.id === created.id)
                               ? prev
-                              : [...prev, { id: created.id, name: created.name }]
+                              : [...prev, { id: created.id, name: created.name, taxNumber: created.taxNumber }]
                           )
                           setForm((prev) => ({ ...prev, customerId: created.id }))
                         }}
