@@ -16,6 +16,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { pageLinks } from "@/lib/ui/page-links"
 
 export const DEFAULT_PAGE_SIZE = 50
 
@@ -61,6 +62,11 @@ type TablePaginationProps = Pick<
   className?: string
 }
 
+const fmt = (n: number) => n.toLocaleString("tr-TR")
+
+// Çubuk: bilgi satırı + tek sırada Önceki · sayfa numaraları · Sonraki.
+// Hangi numaraların çizileceği `lib/ui/page-links.ts`te (saf kural, testli):
+// yalnız Önceki/Sonraki ile 15. sayfaya ulaşmak 14 tıklama istiyordu.
 export function TablePagination({
   page,
   setPage,
@@ -72,15 +78,31 @@ export function TablePagination({
   className,
 }: TablePaginationProps) {
   if (hideWhenSingle && pageCount <= 1) return null
+  const links = pageLinks(page, pageCount)
   return (
-    <div className={`mt-4 flex items-center justify-between gap-4 text-sm ${className ?? ""}`}>
-      <span className="text-muted-foreground">
-        {total === 0 ? "0 kayıt" : `${from}–${to} / ${total} kayıt`} · Sayfa {page}/{pageCount}
+    <div className={`mt-4 flex flex-col items-center gap-3 text-sm ${className ?? ""}`}>
+      <span className="text-center text-muted-foreground">
+        Toplam {fmt(pageCount)} sayfa içerisinde {fmt(page)}. sayfayı görmektesiniz.{" "}
+        <span className="whitespace-nowrap">
+          ({total === 0 ? "0 kayıt" : `${fmt(from)}–${fmt(to)} / ${fmt(total)} kayıt`})
+        </span>
       </span>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-1.5">
         <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
           Önceki
         </Button>
+        {links.map((n) => (
+          <Button
+            key={n}
+            variant={n === page ? "default" : "outline"}
+            size="sm"
+            aria-current={n === page ? "page" : undefined}
+            className="min-w-9 px-2"
+            onClick={() => setPage(n)}
+          >
+            {fmt(n)}
+          </Button>
+        ))}
         <Button
           variant="outline"
           size="sm"
