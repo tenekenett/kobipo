@@ -1,4 +1,6 @@
 import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
+import { parseYearParam, parseMonthParam } from "@/lib/http/query-params"
+
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -22,15 +24,15 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url)
   const companyId = await resolveCompanyId(searchParams.get("companyId"))
-  const year = searchParams.get("year")
-  const month = searchParams.get("month")
+  const year = parseYearParam(searchParams.get("year"))
+  const month = parseMonthParam(searchParams.get("month"))
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
 
   await ensureCompanyAccess(companyId)
 
   const where: any = { companyId }
-  if (year) where.periodYear = Number(year)
-  if (month) where.periodMonth = Number(month)
+  if (year) where.periodYear = year
+  if (month) where.periodMonth = month
 
   const records = await prisma.payrollRecord.findMany({
     where,

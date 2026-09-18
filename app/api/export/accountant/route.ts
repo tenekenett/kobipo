@@ -1,4 +1,6 @@
 import { withApiErrors } from "@/lib/api/errors"
+import { parseDateParam } from "@/lib/http/query-params"
+
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -23,8 +25,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url)
   const companyId = await resolveCompanyId(searchParams.get("companyId"))
-  const startDate = searchParams.get("startDate")
-  const endDate = searchParams.get("endDate")
+  const startDate = parseDateParam(searchParams.get("startDate"), "startDate")
+  const endDate = parseDateParam(searchParams.get("endDate"), "endDate")
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
 
   await ensureCompanyExport(companyId)

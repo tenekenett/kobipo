@@ -204,21 +204,26 @@ export async function resolveCompanyPlacement(
 
   // new-account: kota aranmadığı için KAPININ kendisi dar tutulur.
   if (!opts.allowAdditionalAccount) {
-    // Kendi hesabı olan kullanıcı buraya düşemez; ikinci firmasını ek firma olarak
-    // (hesaba bağlı, kotadan) açar. Aksi halde kota bedava atlanırdı.
+    // KURAL (2026-09-18): yeni bağımsız hesap = kullanıcının İLK firması. Halihazırda
+    // BİR FİRMAYA ÜYE olan hiç kimse buradan yeni hesap açamaz — ikinci firma ya şubedir
+    // ya ek firmadır (ikisi de hesaba bağlı, kotadan). Kayıt sonrası kullanıcı 0 üyelikle
+    // gelir, bu yüzden ilk firmasını açabilir; ikincisinden itibaren kapı kapanır.
     //
-    // Ölçü "kaç firmaya üyeyim" DEĞİL "kendi hesabım var mı": başkasının firmasında
-    // çalışan biri (hatta ADMIN'i olan bir mali müşavir) kendi ilk firmasını açabilmeli.
-    const ownedRoots = await prisma.userCompany.count({
-      where: {
-        userId: actorUserId,
-        role: "ADMIN",
-        company: { parentCompanyId: null, accountRootId: null },
-      },
+    // ÖNCESİNDE ölçü "kök firmanın ADMIN'i miyim" idi: salt-okur (VIEWER) ya da kısıtlı
+    // bir çalışan, üye olduğu firmanın YANINDA kendine ayrı bir hesap açabiliyordu
+    // (uçtan uca taramada bulundu). Kısıtlı bir çalışanın firma üretebilmesi rol
+    // tutarsızlığıydı; artık üyelik varsa yeni hesap yok.
+    //
+    // TERS ETKİ (bilerek): başka firmada çalışan biri (ör. müşterisinin firmasında
+    // ADMIN olan mali müşavir) kendi İLK firmasını artık bu uçtan açamaz; hesap sahibi
+    // onu ek firma olarak ekler ya da ayrı bir kayıtla (ayrı e-posta) açılır. Süper-admin
+    // muaftır (allowAdditionalAccount).
+    const existingMembership = await prisma.userCompany.count({
+      where: { userId: actorUserId },
     })
-    if (ownedRoots > 0) {
+    if (existingMembership > 0) {
       throw new CompanyCreationError(
-        "Zaten bir hesabınız var. Yeni firmayı mevcut hesabınıza ek firma olarak ekleyin.",
+        "Zaten bir firmaya bağlısınız. Yeni firmayı hesabınıza şube veya ek firma olarak ekleyin.",
         "ACCOUNT_REQUIRED",
         400,
       )

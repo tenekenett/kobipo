@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server"
+import { parseDateParam } from "@/lib/http/query-params"
+import { badRequestResponse } from "@/lib/api/errors"
+
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -31,12 +34,14 @@ export const GET = withApiErrors(async function GET(request: Request) {
     return NextResponse.json(
       await computeExpenseReport({
         companyId,
-        startDate: searchParams.get("startDate"),
-        endDate: searchParams.get("endDate"),
+        startDate: parseDateParam(searchParams.get("startDate"), "startDate"),
+        endDate: parseDateParam(searchParams.get("endDate"), "endDate"),
         category: searchParams.get("category"),
       }),
     )
   } catch (error: any) {
+    const __bad = badRequestResponse(error)
+    if (__bad) return __bad
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)
     }

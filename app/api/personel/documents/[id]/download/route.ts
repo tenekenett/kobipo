@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyExport } from "@/lib/middleware/company"
+import { normalizeExternalFileUrl } from "@/lib/personel/validation"
 
 export const dynamic = "force-dynamic"
 
@@ -50,9 +51,17 @@ export const GET = withApiErrors(async function GET(
     })
   }
 
-  // Harici bağlantı → yönlendir.
+  // Harici bağlantı → yönlendir. Kayıt doğrulamadan önce yazılmışsa (ör. "edasdadas")
+  // `redirect()` fırlatır ve uç 500 verirdi; geçersiz adres açıkça söylenir.
   if (doc.fileUrl) {
-    return NextResponse.redirect(doc.fileUrl)
+    const target = normalizeExternalFileUrl(doc.fileUrl)
+    if (!target) {
+      return NextResponse.json(
+        { error: "Belgenin bağlantısı geçerli bir adres değil; belgeyi düzenleyip bağlantıyı yeniden girin." },
+        { status: 422 },
+      )
+    }
+    return NextResponse.redirect(target)
   }
 
   return NextResponse.json({ error: "Bu belgeye ekli dosya yok" }, { status: 404 })

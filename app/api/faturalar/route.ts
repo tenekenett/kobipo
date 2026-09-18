@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server"
+import { parseDateParam, parseIntParam, badRequestFrom } from "@/lib/http/query-params"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { fetchInvoiceList } from "@/lib/faturalar/list-query"
 import { parseTrNumber } from "@/lib/format"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+
 
 export const dynamic = "force-dynamic"
 
@@ -60,9 +62,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
       companyId,
       direction: (url.searchParams.get("direction") || "all") as "all" | "incoming" | "outgoing",
       includeInbox: includeInboxParam === null ? true : includeInboxParam !== "false",
-      days: Number(url.searchParams.get("days") || "90"),
-      startDate: url.searchParams.get("startDate"),
-      endDate: url.searchParams.get("endDate"),
+      days: parseIntParam(url.searchParams.get("days"), "days", { min: 1, max: 3650 }) ?? 90,
+      startDate: parseDateParam(url.searchParams.get("startDate"), "startDate"),
+      endDate: parseDateParam(url.searchParams.get("endDate"), "endDate"),
       status: url.searchParams.get("status"),
       search: url.searchParams.get("search"),
       counterparty: url.searchParams.get("counterparty"),
@@ -85,9 +87,13 @@ export const GET = withApiErrors(async function GET(request: Request) {
     if (message.toLowerCase().includes("access denied")) {
       return accessDeniedResponse(error)
     }
+    // Geçersiz tarih/sayı parametresi → 400 (açıklayıcı, ama ham hata metnini basmadan).
+    const bad = badRequestFrom(error)
+    if (bad) return NextResponse.json({ error: bad.message, code: bad.code }, { status: 400 })
     console.error("faturalar route error:", error)
+    // Ham `error.message` GÖVDEYE YAZILMAZ: eskiden Prisma sorgu yapısını sızdırıyordu.
     return NextResponse.json(
-      { error: message || "Faturalar listesi alınırken hata oluştu." },
+      { error: "Faturalar listesi alınırken hata oluştu." },
       { status: 500 },
     )
   }

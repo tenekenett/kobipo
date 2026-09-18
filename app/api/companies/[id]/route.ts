@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { encryptSecret } from "@/lib/crypto/secrets"
+import { MysoftUrlError, resolveMysoftBaseUrl } from "@/lib/integrations/e-invoice/constants"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import {
   assertBranchIdentityLocked,
@@ -281,10 +282,12 @@ export const PUT = withApiErrors(async function PUT(
           eDonusumAlias === undefined
             ? undefined
             : (typeof eDonusumAlias === "string" && eDonusumAlias.trim() ? eDonusumAlias.trim() : null),
+        // Yalnız bilinen iki ortam yazılır (kanonik biçimde); yabancı adres yazma
+        // anında reddedilir ki gönderim yolu 400 ile karşılaşmasın (bkz. constants.ts).
         eDonusumApiUrl:
           eDonusumApiUrl === undefined
             ? undefined
-            : (typeof eDonusumApiUrl === "string" && eDonusumApiUrl.trim() ? eDonusumApiUrl.trim() : null),
+            : (typeof eDonusumApiUrl === "string" && eDonusumApiUrl.trim() ? resolveMysoftBaseUrl(eDonusumApiUrl) : null),
         eDonusumLastTestedAt: eDonusumLastTestedAt ? new Date(eDonusumLastTestedAt) : undefined,
         eDonusumLastTestSuccess:
           typeof eDonusumLastTestSuccess === "boolean" ? eDonusumLastTestSuccess : undefined,
@@ -313,6 +316,9 @@ export const PUT = withApiErrors(async function PUT(
   } catch (error: any) {
     if (error.message === "Unauthorized" || error.message.includes("Access denied")) {
       return accessDeniedResponse(error)
+    }
+    if (error instanceof MysoftUrlError) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
     }
     console.error("Error updating company:", error)
     return NextResponse.json(

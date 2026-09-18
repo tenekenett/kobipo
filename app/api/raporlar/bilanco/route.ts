@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
+import { parseDateParam } from "@/lib/http/query-params"
+import { badRequestResponse } from "@/lib/api/errors"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { computeBalanceSheet } from "@/lib/raporlar/bilanco"
@@ -31,9 +33,11 @@ export const GET = withApiErrors(async function GET(request: Request) {
     await ensureCompanyAccess(companyId)
 
     return NextResponse.json(
-      await computeBalanceSheet({ companyId, asOfDate: searchParams.get("asOfDate") }),
+      await computeBalanceSheet({ companyId, asOfDate: parseDateParam(searchParams.get("asOfDate"), "asOfDate") }),
     )
   } catch (error: any) {
+    const __bad = badRequestResponse(error)
+    if (__bad) return __bad
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)
     }

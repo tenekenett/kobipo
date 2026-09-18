@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { MysoftUrlError, resolveMysoftBaseUrl } from "@/lib/integrations/e-invoice/constants"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
@@ -100,7 +101,10 @@ export async function PUT(
     if (body.eDonusumProvider !== undefined) data.eDonusumProvider = clean(body.eDonusumProvider)
     if (body.eDonusumApiUsername !== undefined) data.eDonusumApiUsername = clean(body.eDonusumApiUsername)
     if (body.eDonusumAlias !== undefined) data.eDonusumAlias = clean(body.eDonusumAlias)
-    if (body.eDonusumApiUrl !== undefined) data.eDonusumApiUrl = clean(body.eDonusumApiUrl)
+    if (body.eDonusumApiUrl !== undefined) {
+      const url = clean(body.eDonusumApiUrl)
+      data.eDonusumApiUrl = url ? resolveMysoftBaseUrl(url) : null // yabancı adres → MysoftUrlError
+    }
 
     // Şifre: yalnızca yeni (boş olmayan, "***" maskesi olmayan) bir değer geldiyse şifrele ve kaydet.
     if (
@@ -201,6 +205,9 @@ export async function PUT(
 
     return NextResponse.json({ success: true, company, notice: moduleNotice })
   } catch (error) {
+    if (error instanceof MysoftUrlError) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
     console.error("Update company error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }

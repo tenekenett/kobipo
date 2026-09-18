@@ -26,7 +26,9 @@ export async function POST(request: Request) {
   if (file.size > MAX_IMAGE_SIZE) {
     return NextResponse.json({ error: "Görsel 5 MB sınırını aşıyor" }, { status: 400 })
   }
-  if (file.type && !ALLOWED_MIME.includes(file.type)) {
+  // Tür BOŞ gelirse de reddedilir: eski koşul (`file.type && ...`) türsüz dosyayı
+  // allowlist'e sokmadan octet-stream olarak depoluyordu.
+  if (!ALLOWED_MIME.includes(file.type)) {
     return NextResponse.json({ error: `Desteklenmeyen görsel türü: ${file.type}` }, { status: 400 })
   }
 

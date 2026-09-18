@@ -7,6 +7,7 @@
  * istediğiniz not bilgisidir. Tek satır açıklama girilecek ise bu alan
  * kullanılabilir.")
  */
+import { MYSOFT_TEST_URL } from "./constants"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { MysoftEInvoiceProvider } from "./mysoft-provider"
 
@@ -59,7 +60,7 @@ describe("Mysoft giden fatura — satır açıklaması", () => {
     const provider = new MysoftEInvoiceProvider({
       username: "u",
       passwordText: "p",
-      baseUrl: "https://mysoft.test.invalid",
+      baseUrl: MYSOFT_TEST_URL,
     })
 
     const res = await provider.sendInvoice({
@@ -99,7 +100,7 @@ describe("Mysoft giden fatura — satır açıklaması", () => {
     const provider = new MysoftEInvoiceProvider({
       username: "u",
       passwordText: "p",
-      baseUrl: "https://mysoft.test.invalid",
+      baseUrl: MYSOFT_TEST_URL,
     })
 
     await provider.sendInvoice({

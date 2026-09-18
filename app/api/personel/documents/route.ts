@@ -4,6 +4,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
+import { normalizeExternalFileUrl } from "@/lib/personel/validation"
 
 export const dynamic = "force-dynamic"
 
@@ -86,6 +87,13 @@ export const POST = withApiErrors(async function POST(request: Request) {
   if (files.length === 0 && !title.trim()) {
     return NextResponse.json({ error: "Belge başlığı veya en az bir dosya gerekli" }, { status: 400 })
   }
+  // Harici bağlantı yalnız mutlak http(s) olabilir: indirme ucu buna yönlendiriyor,
+  // "edasdadas" gibi bir değer belgeyi açan herkese 500 veriyordu.
+  const normalizedUrl = normalizeExternalFileUrl(externalUrl)
+  if (normalizedUrl === false) {
+    return NextResponse.json({ error: "Bağlantı geçerli bir http(s) adresi olmalı (örn. https://...)" }, { status: 400 })
+  }
+  externalUrl = normalizedUrl
   await ensureCompanyWrite(companyId)
 
   const employee = await prisma.employee.findFirst({ where: { id: employeeId, companyId } })

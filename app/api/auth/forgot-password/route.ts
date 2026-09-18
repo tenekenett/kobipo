@@ -15,6 +15,11 @@ const schema = z.object({
 
 // Token 1 saat geçerli.
 const TOKEN_TTL_MS = 60 * 60 * 1000
+// Aynı hesaba bu aralıkta ikinci e-posta GİTMEZ: uç oturumsuz ve hız sınırsızdı,
+// bir adres verilip döngüye alındığında sınırsız sıfırlama e-postası üretiyordu
+// (hem hedefe bombardıman hem gönderim kotası). Yanıt yine generic; istekçi
+// bastırıldığını göremez, önceki bağlantı bu sürede geçerli kalır.
+const RESEND_COOLDOWN_MS = 2 * 60 * 1000
 
 /**
  * Self-servis şifre sıfırlama talebi.
@@ -59,6 +64,12 @@ export async function POST(request: Request) {
     userId: user.id,
     email,
   })
+
+  const recent = await prisma.passwordResetToken.findFirst({
+    where: { userId: user.id, usedAt: null, createdAt: { gt: new Date(Date.now() - RESEND_COOLDOWN_MS) } },
+    select: { id: true },
+  })
+  if (recent) return genericResponse
 
   // Aynı kullanıcının önceki kullanılmamış token'larını geçersiz kıl.
   await prisma.passwordResetToken.deleteMany({

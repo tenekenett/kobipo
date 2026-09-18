@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { ensureCompanyWrite } from "@/lib/middleware/company";
 import { resolveCompanyId } from "@/lib/company/resolve-company";
 import { decryptSecret } from "@/lib/crypto/secrets";
-import { resolveMysoftBaseUrl } from "@/lib/integrations/e-invoice/constants";
+import { MysoftUrlError, resolveMysoftBaseUrl } from "@/lib/integrations/e-invoice/constants";
 
 export const POST = withApiErrors(async function POST(request: Request) {
   try {
@@ -128,6 +128,11 @@ export const POST = withApiErrors(async function POST(request: Request) {
     const message: string = typeof error?.message === "string" ? error.message : "";
     if (message.toLowerCase().includes("access denied")) {
       return NextResponse.json({ success: false, message: "Access denied" }, { status: 403 });
+    }
+    // Gövdedeki apiUrl bilinen iki ortamdan biri değil: kayıtlı şifre HİÇBİR yere
+    // gönderilmeden reddedilir (bkz. resolveMysoftBaseUrl).
+    if (error instanceof MysoftUrlError) {
+      return NextResponse.json({ success: false, message: error.message }, { status: 400 });
     }
     console.error("test-mysoft error:", error);
     // Ham Prisma/Turbopack/stack mesajını kullanıcıya gösterme — sabit, anlaşılır bir metin dön.

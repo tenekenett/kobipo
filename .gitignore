@@ -64,3 +64,10 @@ fis-test-sonuc*/
 
 # Yerel dev sunucusu çıktısı
 dev-server.log
+
+# uçtan uca tarama ham çıktısı (rapor docs/denetim altında)
+scripts/uctan-uca/sondalar.jsonl
+scripts/uctan-uca/sonuc.json
+scripts/uctan-uca/sorgu-sayim.json
+scripts/uctan-uca/envanter.json
+docs/denetim/UCTAN-UCA-TARAMA-SONUC.md

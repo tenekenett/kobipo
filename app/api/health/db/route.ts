@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
+import { getSession } from "@/lib/auth/session"
 
 export const dynamic = "force-dynamic"
 
-/** Vercel / Supabase bağlantısı için teşhis: şifre göstermez. Üretimde gerekirse route'u kaldırın veya koruyun. */
+/**
+ * Vercel / Supabase bağlantısı için teşhis: şifre göstermez.
+ *
+ * Uç herkese açık (izleme için "ayakta mı" cevabı yeter) ama ALTYAPI AYRINTISI
+ * (pooler host/port, pgbouncer, kullanıcı türü, Prisma hata metni) yalnız süper
+ * yöneticiye döner: oturumsuz istek bunları görüyordu (2026-09-18 taraması).
+ */
 function parseDatabaseUrl(url: string | undefined) {
   if (!url) {
     return { defined: false as const }
@@ -32,10 +39,12 @@ function parseDatabaseUrl(url: string | undefined) {
 
 export async function GET() {
   const parsed = parseDatabaseUrl(process.env.DATABASE_URL)
+  // JWT'den okunur (DB'ye gitmez): ayrıntı tam da veritabanı DÜŞTÜĞÜNDE lazım.
+  const detailed = Boolean((await getSession().catch(() => null))?.user?.isSuperAdmin)
 
   try {
     await prisma.$queryRaw`SELECT 1 AS ok`
-    return NextResponse.json({ status: "ok", databaseUrl: parsed })
+    return NextResponse.json(detailed ? { status: "ok", databaseUrl: parsed } : { status: "ok" })
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e)
     const host =
@@ -58,6 +67,7 @@ export async function GET() {
           ? "Supabase proje ayakta mı kontrol edin; Connect → Transaction veya Session pooler URI'yi kullanın. Gerekirse ?connect_timeout=30 ekleyin."
           : undefined
     const hint = hintTenant ?? hintReach
+    if (!detailed) return NextResponse.json({ status: "error" }, { status: 503 })
     return NextResponse.json(
       {
         status: "error",

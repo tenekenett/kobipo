@@ -1,4 +1,6 @@
 import { withApiErrors } from "@/lib/api/errors"
+import { parseYearParam } from "@/lib/http/query-params"
+
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -16,7 +18,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url)
   const companyId = await resolveCompanyId(searchParams.get("companyId"))
-  const year = Number(searchParams.get("year")) || new Date().getFullYear()
+  const year = parseYearParam(searchParams.get("year")) ?? new Date().getFullYear()
   if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 })
 
   await ensureCompanyAccess(companyId)

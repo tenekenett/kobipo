@@ -14,6 +14,9 @@ import {
 } from "@/lib/cari/visibility"
 import { navPage } from "@/lib/nav/pages"
 import { FOREIGN_RECORD_CODE, foreignRecordFrom } from "@/lib/company/owned"
+import { MysoftUrlError } from "@/lib/integrations/e-invoice/constants"
+import { badRequestFrom } from "@/lib/http/query-params"
+import { Prisma } from "@prisma/client"
 
 /**
  * `ensureCompanyAccess` / `ensureCompanyWrite` "Access denied..." fırlatır; route'lar bunu
@@ -24,6 +27,16 @@ import { FOREIGN_RECORD_CODE, foreignRecordFrom } from "@/lib/company/owned"
  * Rol/firma kaynaklı diğer "Access denied" hataları için davranış aynen korunur: çağıran
  * ne mesaj gösteriyorsa (`"Access denied"` sabiti ya da `error.message`) o basılır.
  */
+/**
+ * İç catch'i olan uçlar için kısa yol: hata geçersiz parametre (BadRequestError) ise
+ * 400 döner, değilse null (çağıran kendi 500'üne devam eder). `withApiErrors` zaten
+ * aynısını yapıyor ama kendi try/catch'i olan route withApiErrors'a ulaşmadan yakalar.
+ */
+export function badRequestResponse(error: unknown): NextResponse | null {
+  const bad = badRequestFrom(error)
+  return bad ? NextResponse.json({ error: bad.message, code: bad.code }, { status: 400 }) : null
+}
+
 export function accessDeniedResponse(error: unknown, fallbackMessage: unknown = "Access denied") {
   const locked = moduleLockedFrom(error)
   if (locked) {
@@ -132,6 +145,23 @@ export function withApiErrors<A extends unknown[], R extends Response>(
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
       }
       if (isAccessDeniedError(error)) return accessDeniedResponse(error)
+      // Firma kaydındaki Mysoft adresi bilinen ortamlardan değil: yapılandırma hatası,
+      // 500 değil — kullanıcı Ayarlar › e-Dönüşüm'de ortamı yeniden seçmeli.
+      if (error instanceof MysoftUrlError) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+      // Geçersiz query parametresi (tarih/sayı) → 400, açıklayıcı mesajla.
+      const bad = badRequestFrom(error)
+      if (bad) return NextResponse.json({ error: bad.message, code: bad.code }, { status: 400 })
+      // GÜVENLİK AĞI: geçersiz girdi ORM'e ulaşıp patladıysa (ör. `new Date("abc")` →
+      // Prisma validation) ham sorgu metni gövdeye SIZDIRILMAZ; 400 generic döner.
+      // Kök çözüm parametre doğrulamasıdır (lib/http/query-params.ts), bu son duvar.
+      if (
+        error instanceof Prisma.PrismaClientValidationError ||
+        (error instanceof RangeError && /invalid (time value|date)/i.test(error.message))
+      ) {
+        return NextResponse.json({ error: "Geçersiz istek parametresi." }, { status: 400 })
+      }
       console.error("API error:", error)
       return NextResponse.json({ error: "Internal server error" }, { status: 500 })
     }

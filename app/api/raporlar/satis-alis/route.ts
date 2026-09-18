@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server"
+import { parseDateParam } from "@/lib/http/query-params"
+import { badRequestResponse } from "@/lib/api/errors"
+
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
@@ -38,8 +41,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
       await computeSalesPurchaseReport({
         companyId,
         type,
-        startDate: searchParams.get("startDate"),
-        endDate: searchParams.get("endDate"),
+        startDate: parseDateParam(searchParams.get("startDate"), "startDate"),
+        endDate: parseDateParam(searchParams.get("endDate"), "endDate"),
         // Kalemler yalnız "Detaylı Faturalar" alt sayfası için çekilir: kalem
         // sorgusu fatura sayısıyla büyür, özet ekranını yavaşlatır.
         includeLines: searchParams.get("includeLines") === "1",
@@ -48,6 +51,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
       })
     )
   } catch (error: any) {
+    const __bad = badRequestResponse(error)
+    if (__bad) return __bad
     const message: string = typeof error?.message === "string" ? error.message : ""
     if (message.toLowerCase().includes("access denied")) {
       return accessDeniedResponse(error)

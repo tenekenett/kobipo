@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server"
+import { parseDateParam } from "@/lib/http/query-params"
+import { badRequestResponse } from "@/lib/api/errors"
+
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -25,8 +28,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
     const type = searchParams.get("type")
     const customerId = searchParams.get("customerId")
     const supplierId = searchParams.get("supplierId")
-    const startDate = searchParams.get("startDate")
-    const endDate = searchParams.get("endDate")
+    const startDate = parseDateParam(searchParams.get("startDate"), "startDate")
+    const endDate = parseDateParam(searchParams.get("endDate"), "endDate")
 
     if (!companyId) {
       return NextResponse.json(
@@ -89,6 +92,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     return NextResponse.json(transactions)
   } catch (error: any) {
+    const __bad = badRequestResponse(error)
+    if (__bad) return __bad
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)
     }

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
+import { parseYearParam, parseMonthParam } from "@/lib/http/query-params"
+import { badRequestResponse } from "@/lib/api/errors"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { computeWithholding } from "@/lib/raporlar/vergiler"
@@ -23,8 +25,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const companyId = await resolveCompanyId(searchParams.get("companyId"))
-    const year = Number(searchParams.get("year")) || new Date().getFullYear()
-    const month = Number(searchParams.get("month")) || new Date().getMonth() + 1
+    const year = parseYearParam(searchParams.get("year")) ?? new Date().getFullYear()
+    const month = parseMonthParam(searchParams.get("month")) ?? new Date().getMonth() + 1
 
     if (!companyId) {
       return NextResponse.json(
@@ -37,6 +39,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     return NextResponse.json(await computeWithholding({ companyId, year, month }))
   } catch (error: any) {
+    const __bad = badRequestResponse(error)
+    if (__bad) return __bad
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)
     }

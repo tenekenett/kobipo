@@ -20,3 +20,24 @@ export function isValidTcKimlik(value: string): boolean {
 
   return true
 }
+
+/**
+ * Belgeye "harici bağlantı" olarak girilen adres — yalnız mutlak http(s) URL.
+ *
+ * Alan doğrulanmadan yazılıyordu; indirme ucu `NextResponse.redirect(fileUrl)` ile
+ * yönlendirdiği için "edasdadas" gibi bir değer belgeyi açan HERKESE 500 döndürüyordu
+ * (2026-09-18 taramasında canlıda bulundu). `javascript:`/`data:` gibi şemalar da
+ * yönlendirme hedefi olamaz. Boş/whitespace → null ("bağlantı yok"); geçersiz → false
+ * (çağıran 400 döner, sessizce null'a düşürmez).
+ */
+export function normalizeExternalFileUrl(input: unknown): string | null | false {
+  const raw = typeof input === "string" ? input.trim() : ""
+  if (!raw) return null
+  try {
+    const u = new URL(raw)
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false
+    return u.toString()
+  } catch {
+    return false
+  }
+}

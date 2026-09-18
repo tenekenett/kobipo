@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server"
+import { parseDateParam } from "@/lib/http/query-params"
+import { badRequestResponse } from "@/lib/api/errors"
+
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -39,7 +42,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
     const reservations = await prisma.restaurantReservation.findMany({
       where: {
         companyId,
-        reservedAt: reservationDayRange(searchParams.get("from"), searchParams.get("to")),
+        reservedAt: reservationDayRange(parseDateParam(searchParams.get("from"), "from"), parseDateParam(searchParams.get("to"), "to")),
         ...(tableId ? { tableId } : {}),
       },
       orderBy: { reservedAt: "asc" },
@@ -48,6 +51,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     return NextResponse.json(reservations.map(serializeReservation))
   } catch (error: any) {
+    const __bad = badRequestResponse(error)
+    if (__bad) return __bad
     if (error.message?.includes("Access denied")) {
       return accessDeniedResponse(error, error.message)
     }

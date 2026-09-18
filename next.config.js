@@ -37,6 +37,29 @@ const nextConfig = {
   env: {
     ...(!nextAuthUrl && vercelUrl ? { NEXTAUTH_URL: `https://${vercelUrl}` } : {}),
   },
+  // Güvenlik başlıkları. 2026-09-18 taramasına kadar HİÇ yoktu: panel başka sitede
+  // iframe'e alınabiliyor (clickjacking), tarayıcı MIME tahmini açık, Referer tam
+  // URL'yi (`?company=<id>` dahil) dış sitelere taşıyordu.
+  //
+  // Bilerek eklenmeyen: Content-Security-Policy. Next inline script'leri, PayTR
+  // iframe'i, reCAPTCHA, Google Fonts ve pdfmake blob URL'leri için nonce/allowlist
+  // çalışması ister; körlemesine eklenirse ödeme ekranı sessizce kırılır. Önce
+  // `Content-Security-Policy-Report-Only` ile ölçülmeli.
+  //
+  // `frame-ancestors` yerine X-Frame-Options SAMEORIGIN: kendi önizleme iframe'leri
+  // (fatura/fiş tasarımı, PDF) aynı origin'den yüklenir, dış gömme yok.
+  async headers() {
+    const security = [
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "X-Frame-Options", value: "SAMEORIGIN" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      // `payment` kısıtlanmaz: PayTR iframe'i (www.paytr.com) kendi ödeme akışını yürütür.
+      { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
+      // Vercel özel alan adlarında HSTS'i kendisi eklemez; 6 ay, alt alanlar dahil.
+      { key: "Strict-Transport-Security", value: "max-age=15552000; includeSubDomains" },
+    ]
+    return [{ source: "/:path*", headers: security }]
+  },
 }
 
 module.exports = nextConfig

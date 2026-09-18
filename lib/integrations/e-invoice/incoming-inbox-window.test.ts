@@ -1,3 +1,4 @@
+import { MYSOFT_TEST_URL } from "./constants"
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 import { MysoftEInvoiceProvider } from "./mysoft-provider"
 
@@ -42,7 +43,7 @@ beforeEach(() => {
   provider = new MysoftEInvoiceProvider({
     username: "u",
     passwordText: "p",
-    baseUrl: "https://example.invalid",
+    baseUrl: MYSOFT_TEST_URL,
     vknTckn: "1111111114",
   })
   vi.spyOn(provider as any, "getToken").mockResolvedValue("tok")
