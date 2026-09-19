@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
 import bcrypt from "bcryptjs"
+import { generateTempPassword } from "@/lib/auth/temp-password"
 import { Role } from "@prisma/client"
 
 export const dynamic = "force-dynamic"
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     // Şifre verilmediyse geçici şifre üret ve response'da döndür.
     const providedPassword = String(body.password ?? "")
-    const tempPassword = providedPassword.length >= 6 ? null : Math.random().toString(36).slice(-10)
+    const tempPassword = providedPassword.length >= 6 ? null : generateTempPassword()
     const plainPassword = tempPassword ?? providedPassword
     const hashedPassword = await bcrypt.hash(plainPassword, 10)
 

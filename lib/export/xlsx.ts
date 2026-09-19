@@ -26,6 +26,39 @@ const NUMBER_FORMATS: Record<string, string> = {
 
 type Cell = XLSX.CellObject
 
+/** Excel'in gün sayacının sıfır noktası (1900 artık yıl hatası dahil). */
+const EXCEL_EPOCH_UTC = Date.UTC(1899, 11, 30)
+
+/**
+ * Tarih hücresi Excel SERİ NUMARASI olarak yazılır (1899-12-30'dan itibaren
+ * gün; kesir kısmı saat). Excel'in kendi gösterimi budur ve saat dilimi
+ * kavramı yoktur.
+ *
+ * NEDEN `t: "d"` + Date DEĞİL: SheetJS Date nesnesini ISO metnine çevirir ve
+ * çevrim sürüme göre değişti — 0.18 sunucunun YEREL duvar saatini, 0.20 UTC'yi
+ * yazar (0.20.3'e geçişte UTC+3 makinede ölçüldü: vade 17:45 ↔ 14:45). PDF ve
+ * CSV ise `formatCellText` → `Intl.DateTimeFormat` ile sunucu yerel saatini
+ * basar; xlsx UTC yazınca aynı rapor üç formatta iki ayrı saat gösteriyordu.
+ *
+ * Seri numarası, Intl'in de kullandığı YEREL bileşenlerden kurulur; böylece
+ * üç format sunucunun TZ ayarı ne olursa olsun aynı duvar saatini yazar.
+ * Sunucu TZ'sinin ne olması gerektiği (UTC mi Europe/Istanbul mu) ayrı bir
+ * karardır; burası yalnız formatlar arası tutarlılığı kurar. Intl
+ * biçimleyicilere `timeZone` eklenirse burası da aynı dilime alınmalı.
+ */
+export function excelDateSerial(date: Date): number {
+  const wall = Date.UTC(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    date.getHours(),
+    date.getMinutes(),
+    date.getSeconds(),
+    date.getMilliseconds(),
+  )
+  return (wall - EXCEL_EPOCH_UTC) / 86_400_000
+}
+
 function buildCell(value: unknown, column: ExportColumn): Cell | null {
   const type = column.type ?? "text"
   if (value === null || value === undefined || value === "") return null
@@ -39,7 +72,7 @@ function buildCell(value: unknown, column: ExportColumn): Cell | null {
   if (type === "date" || type === "datetime") {
     const date = toDate(value)
     if (!date) return null
-    return { t: "d", v: date, z: NUMBER_FORMATS[type] }
+    return { t: "n", v: excelDateSerial(date), z: NUMBER_FORMATS[type] }
   }
 
   if (type === "boolean") return { t: "s", v: value ? "Evet" : "Hayır" }
@@ -160,5 +193,6 @@ export function buildXlsx(dataset: ExportDataset): Buffer {
 
   XLSX.utils.book_append_sheet(workbook, buildInfoSheet(dataset), safeSheetName("Rapor Bilgisi", "Bilgi", used))
 
-  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx", cellDates: true }) as Buffer
+  // Tarihler seri numarası (t:"n") olarak yazılır, bkz. excelDateSerial — cellDates gerekmez.
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer
 }

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
 import bcrypt from "bcryptjs"
+import { generateTempPassword } from "@/lib/auth/temp-password"
 
 export async function POST(
   request: NextRequest,
@@ -27,7 +28,7 @@ export async function POST(
     }
 
     // Yeni geçici şifre oluştur
-    const tempPassword = Math.random().toString(36).slice(-8)
+    const tempPassword = generateTempPassword()
     const hashedPassword = await bcrypt.hash(tempPassword, 10)
 
     const user = await prisma.user.update({

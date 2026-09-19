@@ -26,13 +26,13 @@ export type BordroParam = {
   year: number
   /** Asgari ücret brüt (aylık). SGK tavanı ve asgari ücret istisnası buradan türer. */
   minGross: number
-  /** SGK matrah tavanı = asgari ücretin bu katı. */
+  /** SGK matrah tavanı = asgari ücretin bu katı (2025: 7,5 · 2026'dan itibaren 9). */
   ceilingFactor: number
   /** SGK işçi payı (%14). */
   sgkEmployeeRate: number
   /** İşsizlik sigortası işçi payı (%1). */
   unemploymentEmployeeRate: number
-  /** SGK işveren payı (%20,75) — bilgi amaçlı işveren maliyeti için. */
+  /** SGK işveren payı, teşviksiz taban oran (2025: %20,75 · 2026: %21,75) — bilgi amaçlı işveren maliyeti için. */
   sgkEmployerRate: number
   /** İşsizlik sigortası işveren payı (%2). */
   unemploymentEmployerRate: number
@@ -50,6 +50,29 @@ export type BordroParam = {
  * ile "hangi yıl" diye söyler; ekran bunu kullanıcıya yazar.
  */
 export const BORDRO_PARAMS: BordroParam[] = [
+  {
+    // 2026 — Asgari Ücret Tespit Komisyonu kararı, RG 26.12.2025 / 33119.
+    // Brüt 33.030,00 → net 28.075,50 (gelir + damga vergisi istisnayla sıfır).
+    // 7566 sayılı Kanun ile iki YAPISAL değişiklik: SGK tavanı 7,5 → 9 kat
+    // (297.270 TL) ve işveren MYÖ payı 1 puan arttı (%20,75 → %21,75). İşveren
+    // oranı teşviksiz taban orandır; 5 puan (imalat) / 2 puan (diğer) indirimi
+    // uygulanmaz — 2025 satırıyla aynı varsayım.
+    year: 2026,
+    minGross: 33030,
+    ceilingFactor: 9,
+    sgkEmployeeRate: 0.14,
+    unemploymentEmployeeRate: 0.01,
+    sgkEmployerRate: 0.2175,
+    unemploymentEmployerRate: 0.02,
+    stampRate: 0.00759,
+    brackets: [
+      { upTo: 190_000, rate: 0.15 },
+      { upTo: 400_000, rate: 0.2 },
+      { upTo: 1_500_000, rate: 0.27 },
+      { upTo: 5_300_000, rate: 0.35 },
+      { upTo: Infinity, rate: 0.4 },
+    ],
+  },
   {
     year: 2025,
     minGross: 26005.5,
@@ -148,7 +171,7 @@ export function brutenNete(gross: number, input: BordroInput = {}): BordroSonuc 
   const month = Math.min(12, Math.max(1, Math.round(input.month ?? 1)))
   const exemptionOn = input.minWageExemption !== false
 
-  // SGK matrahı tavanla sınırlıdır (asgari ücretin 7,5 katı); tavan üstü kazançtan
+  // SGK matrahı tavanla sınırlıdır (asgari ücretin `ceilingFactor` katı); tavan üstü kazançtan
   // prim alınmaz ama gelir vergisi matrahına tam girer.
   const ceiling = p.minGross * p.ceilingFactor
   const sgkBase = Math.min(g, ceiling)

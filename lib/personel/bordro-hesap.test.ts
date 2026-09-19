@@ -48,7 +48,53 @@ describe("brutenNete", () => {
   })
 
   it("tanımsız yıl istendiğinde bilinen en son parametreye düşer", () => {
-    expect(brutenNete(50_000, { year: 2099 }).paramYear).toBe(2025)
+    expect(brutenNete(50_000, { year: 2099 }).paramYear).toBe(2026)
+  })
+
+  it("yıl verilmezse de en son parametre kullanılır", () => {
+    expect(brutenNete(50_000).paramYear).toBe(2026)
+  })
+})
+
+describe("2026 parametreleri (RG 26.12.2025 / 33119)", () => {
+  const P26 = bordroParam(2026)
+
+  it("asgari ücret: brüt 33.030,00 → net 28.075,50, vergiler istisnayla sıfır", () => {
+    const r = brutenNete(P26.minGross, { year: 2026, month: 1 })
+    expect(r.paramYear).toBe(2026)
+    expect(r.incomeTax).toBe(0)
+    expect(r.stampTax).toBe(0)
+    expect(r.sgkEmployee).toBeCloseTo(4624.2, 2)
+    expect(r.unemploymentEmployee).toBeCloseTo(330.3, 2)
+    expect(r.net).toBeCloseTo(28075.5, 2)
+  })
+
+  it("işveren maliyeti TEŞVİKSİZ taban oranla (%21,75 + %2) hesaplanır", () => {
+    // Yayımlanan "işverene maliyet" 39.223,13 rakamı 5 puanlık teşvikli (%16,75)
+    // orandır; kod 2025'ten beri teşviksiz oranı kullanır (2025'te de yayımlanan
+    // 30.621,48'e bu yüzden denk düşmüyordu). Teşvik firmaya göre değişir
+    // (imalat 5 puan / diğer 2 puan / şartı kaçıran 0), o yüzden tabana bağlı.
+    const r = brutenNete(P26.minGross, { year: 2026, month: 1 })
+    expect(r.employerCost).toBeCloseTo(33030 * (1 + 0.2175 + 0.02), 2) // 40.874,63
+    expect(r.employerCost).toBeGreaterThan(39223.13)
+  })
+
+  it("SGK tavanı 9 kat = 297.270; 2025'teki 7,5 katın üstünde prim artık kesilir", () => {
+    expect(P26.minGross * P26.ceilingFactor).toBeCloseTo(297270, 2)
+    const eskiTavan = bordroParam(2025).minGross * 7.5 // 195.041,25
+    const r = brutenNete(250_000, { year: 2026, month: 1 })
+    expect(r.sgkEmployee).toBeCloseTo(250_000 * 0.14, 2)
+    expect(250_000).toBeGreaterThan(eskiTavan)
+  })
+
+  it("asgari ücretli Aralık'ta da net 28.075,50 alır (istisna kendi dilimini izler)", () => {
+    const r = brutenNete(P26.minGross, { year: 2026, month: 12 })
+    expect(r.net).toBeCloseTo(28075.5, 2)
+  })
+
+  it("Aralık 2025 hesabı 2025, Ocak 2026 hesabı 2026 tarifesini kullanır", () => {
+    expect(brutenNete(60_000, { year: 2025, month: 12 }).paramYear).toBe(2025)
+    expect(brutenNete(60_000, { year: 2026, month: 1 }).paramYear).toBe(2026)
   })
 })
 
