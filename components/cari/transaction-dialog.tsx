@@ -9,8 +9,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { ToastAction } from "@/components/ui/toast"
-import { Printer, Wallet } from "lucide-react"
+import { Printer, Scale, Wallet } from "lucide-react"
 import { toDateInput } from "@/lib/format"
+import { BAKIYE_KAPAMA_LABEL, BAKIYE_KAPAMA_METHOD } from "@/lib/cari/bakiye-kapama"
+import { acikToplam, odemeDagit } from "@/lib/cari/odeme-dagit"
 
 type FinancialAccount = {
   id: string
@@ -21,12 +23,14 @@ type FinancialAccount = {
 type OpenInvoice = {
   id: string
   invoiceNo: string
+  date?: string
   openAmount: number
 }
 
-type Method = "CASH_BANK" | "CHECK" | "NOTE"
-
-const NO_INVOICE = "none"
+// WRITE_OFF = Bakiye Kapama / İskonto: kasa/banka hareketi YOK, yalnız seçilen
+// faturanın açık tutarı ve cari bakiye kapanır (lib/cari/bakiye-kapama.ts).
+// Faturaya bağlı olduğu için yalnız cari bağlamında (customerId/supplierId) sunulur.
+type Method = "CASH_BANK" | "CHECK" | "NOTE" | typeof BAKIYE_KAPAMA_METHOD
 
 const formatTRY = (value: number) =>
   new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(value)
@@ -79,14 +83,17 @@ export function TransactionDialog({
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [openInvoices, setOpenInvoices] = useState<OpenInvoice[]>([])
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>(NO_INVOICE)
+  // Seçili faturalar (birden çok). Tutar seçime ESKİDEN YENİYE dağıtılır
+  // (lib/cari/odeme-dagit.ts). Çek/senette bağ bilgi amaçlıdır (bakiye çekin
+  // kendisinden düşer) ama yine çoklu yazılır — makbuz ve detay hepsini gösterir.
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([])
   const [method, setMethod] = useState<Method>("CASH_BANK")
   const [formData, setFormData] = useState(() => ({ ...emptyForm(), type: lockedType ?? "INCOME" }))
 
   useEffect(() => {
     if (!open) return
     setFormData({ ...emptyForm(), type: lockedType ?? "INCOME" })
-    setSelectedInvoiceId(NO_INVOICE)
+    setSelectedInvoiceIds([])
     setMethod("CASH_BANK")
   }, [open, lockedType])
 
@@ -131,6 +138,50 @@ export function TransactionDialog({
 
   const set = (patch: Partial<ReturnType<typeof emptyForm>>) =>
     setFormData((prev) => ({ ...prev, ...patch }))
+  const isWriteOff = method === BAKIYE_KAPAMA_METHOD
+  const hasParty = Boolean(customerId || supplierId)
+  // Kapama açık faturaya işlenir; cari yoksa ya da açık faturası yoksa kaydedilemez.
+  const writeOffBlocked = isWriteOff && (!hasParty || openInvoices.length === 0)
+  const writeOffNeedsInvoice = isWriteOff && selectedInvoiceIds.length === 0
+
+  // Seçim ve dağıtım önizlemesi — sunucuyla AYNI kural.
+  const selectedInvoices = useMemo(
+    () => openInvoices.filter((inv) => selectedInvoiceIds.includes(inv.id)),
+    [openInvoices, selectedInvoiceIds],
+  )
+  const selectedOpenTotal = useMemo(() => acikToplam(selectedInvoices), [selectedInvoices])
+  const allOpenTotal = useMemo(() => acikToplam(openInvoices), [openInvoices])
+  const allSelected = openInvoices.length > 0 && selectedInvoiceIds.length === openInvoices.length
+  const dagitim = useMemo(
+    () => odemeDagit(Number(formData.amount) || 0, selectedInvoices),
+    [formData.amount, selectedInvoices],
+  )
+  // Kapamanın avansı olmaz: tutar seçili açık toplamı aşamaz.
+  const writeOffExceeds = isWriteOff && dagitim.remainder > 0
+
+  // Seçim değişince tutar seçili açık toplama kurulur; kullanıcı sonra değiştirebilir.
+  const applySelection = (ids: string[]) => {
+    setSelectedInvoiceIds(ids)
+    const total = acikToplam(openInvoices.filter((inv) => ids.includes(inv.id)))
+    set({ amount: total > 0 ? String(total) : "" })
+  }
+  const toggleInvoice = (id: string) => {
+    applySelection(
+      selectedInvoiceIds.includes(id)
+        ? selectedInvoiceIds.filter((x) => x !== id)
+        : [...selectedInvoiceIds, id],
+    )
+  }
+  const toggleAll = () => applySelection(allSelected ? [] : openInvoices.map((inv) => inv.id))
+
+  // Tek açık fatura varsa kapama için onu seç ve açık tutarını öner; iki
+  // tıklamayı bire indirir, birden çok faturada seçim kullanıcıya kalır.
+  useEffect(() => {
+    if (!isWriteOff || selectedInvoiceIds.length > 0 || openInvoices.length !== 1) return
+    const only = openInvoices[0]
+    setSelectedInvoiceIds([only.id])
+    setFormData((prev) => ({ ...prev, amount: String(only.openAmount) }))
+  }, [isWriteOff, selectedInvoiceIds.length, openInvoices])
 
   // Çek/senet kaydedildiği anda müşteriye verilecek makbuz. Kasa/banka tahsilatının
   // makbuzu hareket detayından alınıyor; çek/senet Transaction yazmadığı için oraya
@@ -171,7 +222,24 @@ export function TransactionDialog({
     setIsSubmitting(true)
     try {
       let response: Response
-      if (method === "CASH_BANK") {
+      if (isWriteOff) {
+        if (writeOffNeedsInvoice) throw new Error("Kapatılacak faturaları seçin")
+        if (writeOffExceeds) throw new Error("Tutar seçili faturaların açık toplamını aşıyor")
+        response = await fetch("/api/cari/bakiye-kapama", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId,
+            customerId: customerId || null,
+            supplierId: supplierId || null,
+            invoiceIds: selectedInvoiceIds,
+            amount: Number(formData.amount),
+            date: formData.date,
+            reference: formData.reference || null,
+            notes: formData.description || null,
+          }),
+        })
+      } else if (method === "CASH_BANK") {
         response = await fetch("/api/finans/transactions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -185,7 +253,7 @@ export function TransactionDialog({
             reference: formData.reference,
             customerId: customerId || null,
             supplierId: supplierId || null,
-            invoiceId: selectedInvoiceId !== NO_INVOICE ? selectedInvoiceId : null,
+            invoiceIds: selectedInvoiceIds,
           }),
         })
       } else {
@@ -201,7 +269,7 @@ export function TransactionDialog({
             direction,
             customerId: customerId || null,
             supplierId: supplierId || null,
-            invoiceId: selectedInvoiceId !== NO_INVOICE ? selectedInvoiceId : null,
+            invoiceIds: selectedInvoiceIds,
             notes: formData.description || null,
             ...(method === "CHECK"
               ? {
@@ -220,8 +288,9 @@ export function TransactionDialog({
         throw new Error(data.error || "İşlem oluşturulamadı")
       }
 
-      const instrument = method === "CHECK" ? "Çek" : method === "NOTE" ? "Senet" : transactionLabel
-      if (method === "CASH_BANK") {
+      const instrument =
+        method === "CHECK" ? "Çek" : method === "NOTE" ? "Senet" : isWriteOff ? BAKIYE_KAPAMA_LABEL : transactionLabel
+      if (method === "CASH_BANK" || isWriteOff) {
         toast({ title: "Başarılı", description: `${instrument} kaydedildi` })
       } else {
         const created = await response.json().catch(() => null)
@@ -270,9 +339,30 @@ export function TransactionDialog({
                 <SelectItem value="CASH_BANK">Nakit / Banka</SelectItem>
                 <SelectItem value="CHECK">Çek</SelectItem>
                 <SelectItem value="NOTE">Senet</SelectItem>
+                {hasParty && <SelectItem value={BAKIYE_KAPAMA_METHOD}>{BAKIYE_KAPAMA_LABEL}</SelectItem>}
               </SelectContent>
             </Select>
           </div>
+
+          {/* Bakiye kapama / iskonto: kasa yok, fatura ZORUNLU */}
+          {isWriteOff &&
+            (openInvoices.length === 0 ? (
+              <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/40 dark:bg-amber-950/30">
+                <Scale className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+                <p className="text-amber-900 dark:text-amber-200">
+                  Bu carinin açık faturası yok. Bakiye kapama / iskonto yalnız açık bir faturaya
+                  işlenir; avans ya da açılış bakiyesi bu yolla kapatılamaz.
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm dark:border-rose-900/40 dark:bg-rose-950/30">
+                <Scale className="mt-0.5 h-5 w-5 shrink-0 text-rose-600 dark:text-rose-400" />
+                <p className="text-rose-900 dark:text-rose-200">
+                  Kasa/banka hareketi oluşmaz. Seçilen faturanın açık tutarı ve cari bakiye bu
+                  tutar kadar kapanır; kayıt ekstrede ve raporlarda ayrı gösterilir.
+                </p>
+              </div>
+            ))}
 
           {/* Nakit/Banka: hesap seçimi (hesap yoksa uyarı) */}
           {method === "CASH_BANK" &&
@@ -350,33 +440,66 @@ export function TransactionDialog({
 
           {openInvoices.length > 0 && (
             <div className="space-y-2">
-              <Label>Fatura (opsiyonel)</Label>
-              <Select
-                value={selectedInvoiceId}
-                onValueChange={(value) => {
-                  setSelectedInvoiceId(value)
-                  const inv = openInvoices.find((i) => i.id === value)
-                  if (inv) {
-                    // Seçilen faturanın açık tutarını öner (kullanıcı değiştirebilir).
-                    set({ amount: String(inv.openAmount) })
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_INVOICE}>Faturaya bağlama (avans)</SelectItem>
-                  {openInvoices.map((inv) => (
-                    <SelectItem key={inv.id} value={inv.id}>
-                      {inv.invoiceNo} · Açık: {formatTRY(inv.openAmount)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between gap-2">
+                <Label>{isWriteOff ? "Kapatılacak Faturalar *" : "Faturalar (opsiyonel)"}</Label>
+                {/* Tüm açık bakiyeyi tek tıkla: hepsini seçer, tutarı açık toplama kurar. */}
+                <label className="flex cursor-pointer items-center gap-2 text-xs">
+                  <input type="checkbox" className="rounded" checked={allSelected} onChange={toggleAll} />
+                  Tüm açık bakiyeyi kapat ({formatTRY(allOpenTotal)})
+                </label>
+              </div>
+              <div className="max-h-48 overflow-y-auto rounded-md border">
+                {openInvoices.map((inv) => {
+                  const checked = selectedInvoiceIds.includes(inv.id)
+                  const pay = dagitim.allocations.find((a) => a.invoiceId === inv.id)
+                  return (
+                    <label
+                      key={inv.id}
+                      className={`flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0 hover:bg-muted/50 ${
+                        checked ? "bg-muted/40" : ""
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded"
+                        checked={checked}
+                        onChange={() => toggleInvoice(inv.id)}
+                      />
+                      <span className="flex-1 truncate font-mono text-xs">{inv.invoiceNo}</span>
+                      {inv.date && (
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(inv.date).toLocaleDateString("tr-TR")}
+                        </span>
+                      )}
+                      <span className="whitespace-nowrap tabular-nums">
+                        {formatTRY(inv.openAmount)}
+                        {/* Dağıtım önizlemesi: bu faturaya düşen pay açık tutardan azsa. */}
+                        {checked && pay && pay.amount < inv.openAmount - 0.005 && (
+                          <span className="ml-1 text-xs text-amber-700 dark:text-amber-300">
+                            → {formatTRY(pay.amount)}
+                          </span>
+                        )}
+                        {checked && !pay && Number(formData.amount) > 0 && (
+                          <span className="ml-1 text-xs text-muted-foreground">→ 0</span>
+                        )}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
               <p className="text-xs text-muted-foreground">
-                Bir fatura seçerseniz tutarın açık kadarı o faturaya işlenir; fazlası avans olarak kalır.
+                {selectedInvoiceIds.length > 0 && (
+                  <>Seçili açık toplam: {formatTRY(selectedOpenTotal)}. </>
+                )}
+                {isWriteOff
+                  ? "Tutar seçili faturalara eskiden yeniye dağıtılır; açık toplamı aşamaz."
+                  : "Tutar seçili faturalara eskiden yeniye dağıtılır; fazlası avans olarak kalır."}
               </p>
+              {writeOffExceeds && (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  Tutar seçili faturaların açık toplamını {formatTRY(dagitim.remainder)} aşıyor.
+                </p>
+              )}
             </div>
           )}
 
@@ -410,7 +533,7 @@ export function TransactionDialog({
             />
           </div>
 
-          {method === "CASH_BANK" ? (
+          {method === "CASH_BANK" || isWriteOff ? (
             <div className="space-y-2">
               <Label>Tarih *</Label>
               <Input
@@ -444,15 +567,21 @@ export function TransactionDialog({
           )}
 
           <div className="space-y-2">
-            <Label>{method === "CASH_BANK" ? "Açıklama" : "Notlar"}</Label>
+            <Label>{method === "CASH_BANK" || isWriteOff ? "Açıklama" : "Notlar"}</Label>
             <Input
               value={formData.description}
               onChange={(event) => set({ description: event.target.value })}
-              placeholder={method === "CASH_BANK" ? "İşlem açıklaması" : "Çek/senet notu"}
+              placeholder={
+                method === "CASH_BANK"
+                  ? "İşlem açıklaması"
+                  : isWriteOff
+                    ? "Ör. Kuruş farkı, pazarlık iskontosu"
+                    : "Çek/senet notu"
+              }
             />
           </div>
 
-          {method === "CASH_BANK" && (
+          {(method === "CASH_BANK" || isWriteOff) && (
             <div className="space-y-2">
               <Label>Referans</Label>
               <Input
@@ -467,7 +596,10 @@ export function TransactionDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               İptal
             </Button>
-            <Button type="submit" disabled={isSubmitting || accountMissing}>
+            <Button
+              type="submit"
+              disabled={isSubmitting || accountMissing || writeOffBlocked || writeOffNeedsInvoice || writeOffExceeds}
+            >
               {isSubmitting ? "Kaydediliyor..." : "Kaydet"}
             </Button>
           </DialogFooter>

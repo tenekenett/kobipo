@@ -168,6 +168,13 @@ export const PAGE_API_RULES: PageApiRule[] = [
     writePages: [],
   },
   {
+    // Bakiye kapama / iskonto: kasaya dokunmaz, alacaktan/borçtan vazgeçer —
+    // cari kartını DÜZENLEYEBİLEN yazar (finans sayfası izni şart değil).
+    prefix: "/api/cari/bakiye-kapama",
+    pages: ["/cari/musteri", "/cari/tedarikci"],
+    writePages: ["/cari/musteri", "/cari/tedarikci"],
+  },
+  {
     prefix: "/api/cari/ekstre",
     pages: ["/cari/musteri", "/cari/tedarikci", "/raporlar/cari"],
     writePages: [],
@@ -405,6 +412,9 @@ export const PAGE_API_RULES: PageApiRule[] = [
   // İleriye dönük projeksiyon — geçmişe bakan tabloyla aynı ekranlarda yaşar.
   { prefix: "/api/raporlar/nakit-projeksiyon", pages: ["/raporlar/nakit-banka", "/raporlar/finansal"], writePages: [] },
   { prefix: "/api/raporlar/cari-yaslandirma", pages: ["/raporlar/cari"], writePages: [] },
+  // Bakiye kapama / iskonto: cari kayıtlarını cari adıyla listeler; kapısı
+  // yaşlandırmayla aynı (Cari Raporlar), finansal hub'dan da link veriliyor.
+  { prefix: "/api/raporlar/bakiye-kapama", pages: ["/raporlar/cari", "/raporlar/finansal"], writePages: [] },
   { prefix: "/api/raporlar/ba-bs", pages: ["/raporlar/vergi"], writePages: [] },
   { prefix: "/api/raporlar/kdv", pages: ["/raporlar/vergi"], writePages: [] },
   { prefix: "/api/raporlar/muhtasar", pages: ["/raporlar/vergi"], writePages: [] },
@@ -719,6 +729,7 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/raporlar/finansal", "/raporlar/nakit-banka"],
     writePages: [],
   },
+  { prefix: "/api/export/rapor-bakiye-kapama", pages: ["/raporlar/cari", "/raporlar/finansal"], writePages: [] },
   { prefix: "/api/export/rapor-", pages: REPORT_PAGES, writePages: [] },
   { prefix: "/api/export/personel-", pages: [...PERSONNEL_PAGES, "/raporlar/personel"], writePages: [] },
   {
@@ -1160,6 +1171,7 @@ const ROUTE_OWNERS: Record<string, string[]> = {
   // izni olan da açabilmeli — aynı veriyi zaten o rapordan görüyor.
   "/raporlar/harcamalar": ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi", "/raporlar/alis"],
   "/raporlar/cari-yaslandirma": ["/raporlar/cari"],
+  "/raporlar/bakiye-kapama": ["/raporlar/cari", "/raporlar/finansal"],
   "/raporlar/vergiler": ["/raporlar/vergi"],
   "/restoran/adisyon": TICKET_PAGES,
   "/restoran/gun-sonu": ["/restoran/raporlar"],

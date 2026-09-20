@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useSearchParams, useRouter, useParams } from "next/navigation"
+import { BAKIYE_KAPAMA_LABEL, BAKIYE_KAPAMA_METHOD, isBakiyeKapama } from "@/lib/cari/bakiye-kapama"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -187,6 +188,8 @@ export default function FaturaOdemelerPage() {
           invoiceId,
           companyId,
           ...formData,
+          // Bakiye kapama / iskonto hesaba yazılmaz; seçili kalmış hesap gönderilmez.
+          accountId: isBakiyeKapama(formData.paymentMethod) ? "" : formData.accountId,
         }),
       })
 
@@ -312,6 +315,7 @@ export default function FaturaOdemelerPage() {
       CREDIT_CARD: "Kredi Kartı",
       MEAL_CARD: "Yemek Kartı",
       OTHER: "Diğer",
+      [BAKIYE_KAPAMA_METHOD]: BAKIYE_KAPAMA_LABEL,
     }
     return methods[method] || method
   }
@@ -425,7 +429,13 @@ export default function FaturaOdemelerPage() {
                         {getPaymentMethodLabel(payment.paymentMethod)}
                       </Badge>
                     </TableCell>
-                    <TableCell>{payment.account?.name || "-"}</TableCell>
+                    <TableCell>
+                      {isBakiyeKapama(payment.paymentMethod) ? (
+                        <span className="text-xs text-muted-foreground">Kasa hareketi yok</span>
+                      ) : (
+                        payment.account?.name || "-"
+                      )}
+                    </TableCell>
                     <TableCell>{payment.reference || "-"}</TableCell>
                     <TableCell>{payment.notes || "-"}</TableCell>
                     <TableCell>
@@ -572,9 +582,20 @@ export default function FaturaOdemelerPage() {
                       <SelectItem value="CHECK">Çek</SelectItem>
                       <SelectItem value="CREDIT_CARD">Kredi Kartı</SelectItem>
                       <SelectItem value="OTHER">Diğer</SelectItem>
+                      <SelectItem value={BAKIYE_KAPAMA_METHOD}>{BAKIYE_KAPAMA_LABEL}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+                {/* Bakiye kapama / iskonto kasaya dokunmaz: hesap alanı yerine ne
+                    olacağı yazılır (lib/cari/bakiye-kapama.ts). */}
+                {isBakiyeKapama(formData.paymentMethod) ? (
+                  <div className="space-y-2">
+                    <Label>Hesap</Label>
+                    <p className="rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
+                      Kasa/banka hareketi oluşmaz; yalnız faturanın açık tutarı ve cari bakiye kapanır.
+                    </p>
+                  </div>
+                ) : (
                 <div className="space-y-2">
                   <Label htmlFor="accountId">Hesap</Label>
                   <Select
@@ -598,6 +619,7 @@ export default function FaturaOdemelerPage() {
                     Boş bırakılırsa kasaya yazılır (kasa yoksa «Kasa» açılır).
                   </p>
                 </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="reference">Referans</Label>

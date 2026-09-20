@@ -41,6 +41,7 @@ import { defaultUsesShifts, normalizeMode } from "@/lib/personel/kip"
 import { brutenNete } from "@/lib/personel/bordro-hesap"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import { toDateInput } from "@/lib/format"
+import { odenenTutar } from "@/lib/personel/bordro-odenen"
 
 type Employee = {
   id: string
@@ -68,7 +69,7 @@ type Employee = {
   /** Bağlı Kobipo hesabı; yetkiler burada DEĞİL, Ekip Yönetimi'nde yaşar. */
   userId?: string | null
   user?: { id: string; name?: string | null; email: string } | null
-  payrolls: Array<{ id: string; periodYear: number; periodMonth: number; grossSalary: number; netSalary: number; status: string; paymentDate?: string | null }>
+  payrolls: Array<{ id: string; periodYear: number; periodMonth: number; grossSalary: number; netSalary: number; paidAmount?: number | null; status: string; paymentDate?: string | null }>
   leaves: Array<{ id: string; type: string; startDate: string; endDate: string; days: number; status: string }>
   assets: Array<{ id: string; assetName: string; category?: string | null; serialNo?: string | null; quantity: number; assignedDate: string; status: string }>
   documents: Array<{ id: string; title: string; category?: string | null; storagePath?: string | null; fileUrl?: string | null; fileName?: string | null; fileSize?: number | null; createdAt: string }>
@@ -361,7 +362,8 @@ export default function PersonelDetayPage() {
   const lastPaid = [...paidPayrolls].sort(
     (a, b) => new Date(b.paymentDate || 0).getTime() - new Date(a.paymentDate || 0).getTime(),
   )[0]
-  const paidThisYear = paidPayrolls.filter((p) => p.periodYear === thisYear).reduce((s, p) => s + Number(p.netSalary), 0)
+  // Fiilen ödenen (paidAmount), net değil — bkz. lib/personel/bordro-odenen.ts.
+  const paidThisYear = paidPayrolls.filter((p) => p.periodYear === thisYear).reduce((s, p) => s + odenenTutar(p), 0)
   const pendingPayrolls = emp.payrolls.filter((p) => p.status === "PENDING").length
   const activeAssets = emp.assets.filter((a) => a.status === "ASSIGNED").length
   const pendingLeaves = emp.leaves.filter((l) => l.status === "PENDING").length

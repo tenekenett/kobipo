@@ -56,6 +56,8 @@ type CekSenetDetail = {
   customer?: { id: string; name: string; taxNumber?: string | null } | null
   supplier?: { id: string; name: string; taxNumber?: string | null } | null
   invoice?: { id: string; invoiceNo: string; eDocumentNo?: string | null } | null
+  /** Çoklu bağ (uç `invoices` döner; yoksa `invoice`e düşülür). */
+  invoices?: Array<{ id: string; invoiceNo: string; eDocumentNo?: string | null }>
 }
 
 const COPY: Record<Mode, { instrument: string; listHref: string; notFound: string }> = {
@@ -329,18 +331,25 @@ export function CekSenetDetail({ mode }: { mode: Mode }) {
                 <span className="text-muted-foreground">-</span>
               )}
             </Field>
-            <Field label="Bağlı Fatura">
-              {item.invoice ? (
-                <Link
-                  href={withCompanyHref(`/faturalar/${item.invoice.id}/onizleme`, hrefCompany)}
-                  className="inline-flex items-center gap-1.5 text-blue-600 hover:underline"
-                >
-                  <FileText className="h-4 w-4" />
-                  {item.invoice.eDocumentNo || item.invoice.invoiceNo}
-                </Link>
-              ) : (
-                <span className="text-muted-foreground">-</span>
-              )}
+            <Field label={(item.invoices?.length ?? 0) > 1 ? "Bağlı Faturalar" : "Bağlı Fatura"}>
+              {(() => {
+                const list = item.invoices?.length ? item.invoices : item.invoice ? [item.invoice] : []
+                if (list.length === 0) return <span className="text-muted-foreground">-</span>
+                return (
+                  <span className="flex flex-wrap gap-x-3 gap-y-1">
+                    {list.map((inv) => (
+                      <Link
+                        key={inv.id}
+                        href={withCompanyHref(`/faturalar/${inv.id}/onizleme`, hrefCompany)}
+                        className="inline-flex items-center gap-1.5 text-blue-600 hover:underline"
+                      >
+                        <FileText className="h-4 w-4" />
+                        {inv.eDocumentNo || inv.invoiceNo}
+                      </Link>
+                    ))}
+                  </span>
+                )
+              })()}
             </Field>
             <Field label="Durum">
               <WriteAction

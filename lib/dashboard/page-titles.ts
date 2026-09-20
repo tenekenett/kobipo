@@ -120,6 +120,7 @@ const STATIC_TITLES: Record<string, string> = {
   "/raporlar/satis-alis": "Satışlar - Alışlar",
   "/raporlar/cari": "Cari Yaşlandırma",
   "/raporlar/cari-yaslandirma": "Cari Yaşlandırma",
+  "/raporlar/bakiye-kapama": "Bakiye Kapama / İskonto",
   "/raporlar/musteri": "Müşteri Raporları",
   "/raporlar/vergi": "Vergi Beyannameleri",
   "/raporlar/vergiler": "Vergi Beyannameleri",

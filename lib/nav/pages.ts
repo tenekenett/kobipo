@@ -295,6 +295,7 @@ export const NAV_HREF_REDIRECT_ALIASES: Record<string, string[]> = {
   "/banka/mutabakat": ["/finans/mutabakat"],
   "/raporlar/nakit-akisi": ["/raporlar/nakit-banka"],
   "/raporlar/cari-yaslandirma": ["/raporlar/cari"],
+  "/raporlar/bakiye-kapama": ["/raporlar/cari"],
   "/raporlar/vergiler": ["/raporlar/vergi"],
 }
 

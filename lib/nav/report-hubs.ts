@@ -94,6 +94,11 @@ const FINANSAL_LINKS: ReportHubLink[] = [
     href: "/cari/ekstre",
   },
   {
+    title: "Bakiye Kapama / İskonto",
+    description: "Kasa hareketi olmadan kapatılan cari tutarlar: verilen ve alınan iskontolar.",
+    href: "/raporlar/bakiye-kapama",
+  },
+  {
     title: "Cari Hesaplar",
     description: "Müşteri ve tedarikçi listelerine hızlı erişim sağlar.",
     href: "/cari",

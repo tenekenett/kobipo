@@ -8,6 +8,7 @@ import { Decimal } from "@prisma/client/runtime/library"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { assertOwnedByCompany } from "@/lib/company/owned"
 import { syncCheckSettlement, settlementAccountRequiredFrom } from "@/lib/cek-senet/tahsil"
+import { invoiceLinkData, normalizeInvoiceLinks } from "@/lib/cek-senet/fatura-bagi"
 
 export const dynamic = 'force-dynamic'
 
@@ -134,10 +135,12 @@ export const POST = withApiErrors(async function POST(request: Request) {
 
     // Sahiplik: cari ve bağlanan fatura bu firmanın olmalı (bkz. lib/company/owned.ts).
     // Tutar da burada: negatif/NaN çek cari bakiyesini ters yönde oynatırdı.
+    // Fatura bağı çoklu (bkz. lib/cek-senet/fatura-bagi.ts); hepsi bu firmanın olmalı.
+    const invoiceLinks = normalizeInvoiceLinks(data)
     await assertOwnedByCompany(data.companyId, {
       customer: data.customerId,
       supplier: data.supplierId,
-      invoice: data.invoiceId,
+      invoice: invoiceLinks,
     })
     if (data.amount !== undefined && !(Number(data.amount) > 0)) {
       return NextResponse.json({ error: "Tutar 0'dan büyük olmalı" }, { status: 400 })
@@ -165,7 +168,6 @@ export const POST = withApiErrors(async function POST(request: Request) {
         direction,
         customerId,
         supplierId,
-        invoiceId,
         notes,
       } = data
 
@@ -191,7 +193,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
           direction: direction || null,
           customerId: customerId || null,
           supplierId: supplierId || null,
-          invoiceId: invoiceId || null,
+          ...invoiceLinkData(invoiceLinks),
           notes: notes || null,
           createdBy: user.id,
         },
@@ -237,7 +239,6 @@ export const POST = withApiErrors(async function POST(request: Request) {
         direction,
         customerId,
         supplierId,
-        invoiceId,
         notes,
       } = data
 
@@ -260,7 +261,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
           direction: direction || null,
           customerId: customerId || null,
           supplierId: supplierId || null,
-          invoiceId: invoiceId || null,
+          ...invoiceLinkData(invoiceLinks),
           notes: notes || null,
           createdBy: user.id,
         },

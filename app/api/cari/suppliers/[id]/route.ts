@@ -108,7 +108,7 @@ export const GET = withApiErrors(async function GET(
         // ekstreye işlemin kendisi üzerinden girer (aşağıda iki yerde de).
         payments: {
           where: { transactionId: null },
-          select: { id: true, amount: true, paymentDate: true, createdAt: true, transactionId: true, reference: true },
+          select: { id: true, amount: true, paymentDate: true, createdAt: true, transactionId: true, reference: true, paymentMethod: true },
         },
       },
     })
@@ -272,9 +272,10 @@ export const GET = withApiErrors(async function GET(
           id: row.id,
           date: row.date.toISOString(),
           createdAt: row.data.createdAt.toISOString(),
-          type: "INVOICE_PAYMENT",
-          // Satır ödemenin kendi ekranına gider; Transaction olmadığı için
-          // /finans/hareketler'de karşılığı yok.
+          // INVOICE_PAYMENT ya da WRITE_OFF (bakiye kapama / iskonto) — kural
+          // ekstreyle ortak. Satır ödemenin kendi ekranına gider; Transaction
+          // olmadığı için /finans/hareketler'de karşılığı yok.
+          type: row.type,
           invoiceId: inv.id,
           description: row.description,
           debit: row.debit,

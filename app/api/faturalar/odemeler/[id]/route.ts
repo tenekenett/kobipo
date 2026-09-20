@@ -115,7 +115,9 @@ export const DELETE = withApiErrors(async function DELETE(
       return NextResponse.json({ success: true })
     }
 
-    // Klasik fatura ödemesi: ödeme kasayı güncellemişti, geri al.
+    // Klasik fatura ödemesi: ödeme kasayı güncellemişti, geri al. Bakiye
+    // kapama / iskonto (accountId null, bkz. lib/cari/bakiye-kapama.ts) hiçbir
+    // kasaya dokunmamıştı; geri alınacak bir şey yok, kayıt düz silinir.
     if (payment.accountId && payment.account) {
       const account = payment.account
       const adjustment =

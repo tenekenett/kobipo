@@ -8,6 +8,7 @@ import { computeBalanceSheet } from "@/lib/raporlar/bilanco"
 import { computeCashFlow } from "@/lib/raporlar/nakit-akisi"
 import { computeIncomeExpense } from "@/lib/raporlar/gelir-gider"
 import { computeExpenseReport } from "@/lib/raporlar/harcamalar"
+import { computeBakiyeKapama } from "@/lib/raporlar/bakiye-kapama"
 import type { BreakdownRow } from "@/lib/raporlar/gelir-gider-kirilim"
 import type { ExportColumn, ExportDataset } from "../types"
 import { loadExportCompany, describeDateRange, describeFilters } from "./context"
@@ -321,6 +322,71 @@ export async function buildExpenseReportDataset(params: {
           tags: row.tags.join(", "),
           amount: row.amount,
         })),
+      },
+    ],
+    generatedAt: new Date(),
+  }
+}
+
+// --------------------------- BAKİYE KAPAMA / İSKONTO ---------------------------
+
+const BAKIYE_KAPAMA_COLUMNS: ExportColumn[] = [
+  { key: "date", label: "Tarih", type: "date", width: 24 },
+  { key: "sideLabel", label: "Taraf", width: 40 },
+  { key: "cariName", label: "Cari" },
+  { key: "invoiceNo", label: "Fatura No", width: 40 },
+  { key: "amount", label: "Tutar", type: "money", width: 32, total: true },
+  { key: "notes", label: "Açıklama" },
+  { key: "reference", label: "Referans", width: 30 },
+]
+
+/**
+ * Kasaya girmeden kapatılan cari tutarlar — ekranla AYNI sorgu
+ * (lib/raporlar/bakiye-kapama.ts). Nakit akışına girmez; buradaki toplam
+ * "vazgeçilen alacak / düşülen borç"tur, para değil.
+ */
+export async function buildBakiyeKapamaDataset(params: {
+  companyId: string
+  startDate?: string | null
+  endDate?: string | null
+}): Promise<ExportDataset> {
+  const [company, report] = await Promise.all([
+    loadExportCompany(params.companyId),
+    computeBakiyeKapama(params),
+  ])
+
+  return {
+    title: "Bakiye Kapama / İskonto",
+    company,
+    filters: describeFilters([
+      ["Dönem", describeDateRange(report.period.startDate, report.period.endDate)],
+      ["Kayıt sayısı", report.totals.count],
+    ]),
+    sections: [
+      {
+        title: "Kayıtlar",
+        sheetName: "Kayıtlar",
+        columns: BAKIYE_KAPAMA_COLUMNS,
+        rows: report.rows.map((row) => ({
+          date: new Date(row.date),
+          sideLabel: row.side === "customer" ? "Müşteri — verilen iskonto" : "Tedarikçi — alınan iskonto",
+          cariName: row.cariName,
+          invoiceNo: row.invoiceNo,
+          amount: row.amount,
+          notes: row.notes,
+          reference: row.reference,
+        })),
+      },
+      {
+        title: "Özet",
+        sheetName: "Özet",
+        columns: STATEMENT_COLUMNS,
+        totals: null,
+        rows: [
+          { label: "Müşterilere verilen iskonto / silinen alacak", amount: report.totals.customer },
+          { label: "Tedarikçilerden alınan iskonto / silinen borç", amount: report.totals.supplier },
+          { label: "Net etki (alınan − verilen)", amount: report.totals.supplier - report.totals.customer },
+        ],
       },
     ],
     generatedAt: new Date(),

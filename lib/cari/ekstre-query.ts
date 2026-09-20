@@ -18,11 +18,14 @@ import {
 import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check-credit"
 import { AGING_BUCKETS, type AgingBucket } from "@/lib/raporlar/cari-yaslandirma-buckets"
 import { computeCariAging } from "@/lib/raporlar/cari-yaslandirma"
+import { isBakiyeKapama } from "@/lib/cari/bakiye-kapama"
 
 export type EkstreEntryType =
   | "OPENING"
   | "INVOICE"
   | "INVOICE_PAYMENT"
+  /** Kasa hareketi olmayan kapama — bkz. lib/cari/bakiye-kapama.ts. */
+  | "WRITE_OFF"
   | "TRANSACTION"
   | "CHECK"
   | "PROMISSORY_NOTE"
@@ -241,12 +244,13 @@ export function faturaOdemesiSatirlari<
     paymentDate: Date
     transactionId: string | null
     reference: string | null
+    paymentMethod: string
   },
 >(
   inv: DirectionalInvoice & { invoiceNo: string; eDocumentNo: string | null; payments: P[] },
   startDate?: string | null,
   endDate?: string | null,
-): Array<EkstreEntry & { type: "INVOICE_PAYMENT"; data: P }> {
+): Array<EkstreEntry & { type: "INVOICE_PAYMENT" | "WRITE_OFF"; data: P }> {
   const invoiceIsDebit = borcTarafinda(inv)
   return inv.payments
     .filter((p) => !p.transactionId)
@@ -257,17 +261,22 @@ export function faturaOdemesiSatirlari<
       if (endDate && t > new Date(endDate).getTime()) return false
       return true
     })
-    .map((p) => ({
-      type: "INVOICE_PAYMENT" as const,
-      id: p.id,
-      date: p.paymentDate,
-      description: `Fatura ödemesi ${inv.eDocumentNo || inv.invoiceNo}`,
-      debit: invoiceIsDebit ? 0 : Number(p.amount),
-      credit: invoiceIsDebit ? Number(p.amount) : 0,
-      balance: 0,
-      reference: p.reference ?? (inv.eDocumentNo || inv.invoiceNo),
-      data: p,
-    }))
+    .map((p) => {
+      // Bakiye kapama / iskonto aynı yönde düşer ama AYRI TÜRDÜR: ekranda ve
+      // dosyada "ödeme" diye okunmamalı — para gelmedi, alacaktan vazgeçildi.
+      const kapama = isBakiyeKapama(p.paymentMethod)
+      return {
+        type: kapama ? ("WRITE_OFF" as const) : ("INVOICE_PAYMENT" as const),
+        id: p.id,
+        date: p.paymentDate,
+        description: `${kapama ? "Bakiye kapama / iskonto" : "Fatura ödemesi"} ${inv.eDocumentNo || inv.invoiceNo}`,
+        debit: invoiceIsDebit ? 0 : Number(p.amount),
+        credit: invoiceIsDebit ? Number(p.amount) : 0,
+        balance: 0,
+        reference: p.reference ?? (inv.eDocumentNo || inv.invoiceNo),
+        data: p,
+      }
+    })
 }
 
 export type EkstreOptions = {
@@ -366,7 +375,7 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
         // cari işlemi ÜRETMEZ; ekstreye girmezlerse fatura tam tutarıyla borç
         // yazılı kalır ve bakiye ödenmemiş gibi görünür.
         payments: {
-          select: { id: true, amount: true, paymentDate: true, transactionId: true, reference: true },
+          select: { id: true, amount: true, paymentDate: true, transactionId: true, reference: true, paymentMethod: true },
         },
       },
       orderBy: { date: "desc" },

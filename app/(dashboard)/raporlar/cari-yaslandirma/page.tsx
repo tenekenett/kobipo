@@ -313,18 +313,26 @@ export default function CariYaslandirmaPage() {
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          {/* Dosya her iki sekmeyi de içerir (Alacaklar + Borçlar); rapor
-              zaten tek hesaplamadan çıkıyor, ikiye bölmek anlamsız olurdu. */}
-          <ExportButton
-            dataset="rapor-cari-yaslandirma"
-            companyId={companyId}
-            disabled={!data}
-            params={{
-              includeDrafts: includeDrafts ? "1" : "",
-              // Dosyadaki plan sayfaları ekranda seçili AYI böler.
-              planMonth: formatPlanMonth(planMonth),
-            }}
-          />
+          <div className="flex items-center gap-2">
+            {/* "Cari Raporlar" menüsü buraya iner; kardeş raporun tek girişi bu. */}
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/raporlar/bakiye-kapama?company=${encodeURIComponent(companyId)}`}>
+                Bakiye Kapama / İskonto
+              </Link>
+            </Button>
+            {/* Dosya her iki sekmeyi de içerir (Alacaklar + Borçlar); rapor
+                zaten tek hesaplamadan çıkıyor, ikiye bölmek anlamsız olurdu. */}
+            <ExportButton
+              dataset="rapor-cari-yaslandirma"
+              companyId={companyId}
+              disabled={!data}
+              params={{
+                includeDrafts: includeDrafts ? "1" : "",
+                // Dosyadaki plan sayfaları ekranda seçili AYI böler.
+                planMonth: formatPlanMonth(planMonth),
+              }}
+            />
+          </div>
           {data?.asOf ? (
             <div className="text-xs text-muted-foreground">
               Hesaplama tarihi: {new Date(data.asOf).toLocaleString("tr-TR")}

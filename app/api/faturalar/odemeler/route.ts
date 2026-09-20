@@ -8,6 +8,7 @@ import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
 import { isPurchaseReturn } from "@/lib/cari/invoice-direction"
 import { ensureDefaultCashAccount } from "@/lib/finans/varsayilan-kasa"
+import { isBakiyeKapama } from "@/lib/cari/bakiye-kapama"
 
 export const dynamic = 'force-dynamic'
 
@@ -154,6 +155,41 @@ export const POST = withApiErrors(async function POST(request: Request) {
       return NextResponse.json(
         { error: "Payment amount exceeds remaining invoice amount" },
         { status: 400 }
+      )
+    }
+
+    // BAKİYE KAPAMA / İSKONTO: para hareketi yok. Kasa seçilmez, varsayılan
+    // Kasa açılmaz, Transaction yazılmaz; yalnız fatura kapanır ve cari bakiye
+    // düşer (bkz. lib/cari/bakiye-kapama.ts). Hesap gönderilmişse reddedilir —
+    // sessizce yok saymak kullanıcıya "kasaya yazıldı" dedirtirdi.
+    if (isBakiyeKapama(paymentMethod)) {
+      if (accountId) {
+        return NextResponse.json(
+          { error: "Bakiye kapama / iskonto bir kasa veya banka hesabına yazılmaz" },
+          { status: 400 },
+        )
+      }
+      const writeOff = await prisma.invoicePayment.create({
+        data: {
+          invoiceId,
+          companyId,
+          amount: new Decimal(amount),
+          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          paymentMethod,
+          accountId: null,
+          transactionId: null,
+          reference: reference || null,
+          notes: notes || null,
+          createdBy: user.id,
+        },
+        include: {
+          invoice: { select: { id: true, invoiceNo: true, totalAmount: true } },
+        },
+      })
+      revalidateDashboard(companyId)
+      return NextResponse.json(
+        { ...writeOff, account: null, accountDefaulted: false, accountCreated: false },
+        { status: 201 },
       )
     }
 

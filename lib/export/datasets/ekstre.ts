@@ -30,6 +30,7 @@ const TYPE_LABELS: Record<string, string> = {
   OPENING: "Açılış",
   INVOICE: "Fatura",
   INVOICE_PAYMENT: "Fatura Ödemesi",
+  WRITE_OFF: "Bakiye Kapama / İskonto",
   TRANSACTION: "Tahsilat/Ödeme",
   CHECK: "Çek",
   PROMISSORY_NOTE: "Senet",

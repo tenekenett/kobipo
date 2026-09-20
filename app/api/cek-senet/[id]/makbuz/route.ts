@@ -5,6 +5,8 @@ import { ensureCompanyExport } from "@/lib/middleware/company"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { cekSenetStatusLabel, resolveCekSenetDirection } from "@/lib/cek-senet/labels"
 import { renderMakbuzPdf } from "@/lib/pdf/documents/makbuz-document"
+import { linkedInvoiceIds } from "@/lib/cek-senet/fatura-bagi"
+import { odemeDagit } from "@/lib/cari/odeme-dagit"
 
 export const dynamic = "force-dynamic"
 
@@ -81,13 +83,38 @@ export const GET = withApiErrors(async function GET(
       { label: "Durum", value: cekSenetStatusLabel(record.status) },
     )
 
-    // Faturaya bağlıysa makbuzda hangi faturayı kapattığı görünsün.
-    const invoice = record.invoiceId
-      ? await prisma.invoice.findUnique({
-          where: { id: record.invoiceId },
-          select: { invoiceNo: true, eDocumentNo: true },
+    // Faturalara bağlıysa makbuzda hangilerini kapattığı görünsün. Tutar
+    // faturalara ESKİDEN YENİYE, açık tutarları kadar dağıtılır (pencerede
+    // gösterilen önizlemeyle aynı kural — lib/cari/odeme-dagit.ts).
+    const linkIds = linkedInvoiceIds(record)
+    const linked = linkIds.length
+      ? await prisma.invoice.findMany({
+          where: { id: { in: linkIds } },
+          select: {
+            id: true,
+            invoiceNo: true,
+            eDocumentNo: true,
+            date: true,
+            totalAmount: true,
+            payments: { select: { amount: true } },
+          },
+          orderBy: { date: "asc" },
         })
-      : null
+      : []
+    const dagitim = odemeDagit(
+      Number(record.amount),
+      linked.map((inv) => ({
+        id: inv.id,
+        openAmount: Number(inv.totalAmount) - inv.payments.reduce((sum, p) => sum + Number(p.amount), 0),
+      })),
+    )
+    const makbuzInvoices = linked.map((inv) => ({
+      invoiceNo: inv.eDocumentNo || inv.invoiceNo,
+      amount:
+        linked.length === 1
+          ? Number(record.amount)
+          : dagitim.allocations.find((a) => a.invoiceId === inv.id)?.amount ?? 0,
+    }))
 
     const pdfBuffer = await renderMakbuzPdf({
       kind,
@@ -107,9 +134,7 @@ export const GET = withApiErrors(async function GET(
         : record.supplier
           ? { label: "TEDARİKÇİ", name: record.supplier.name, taxNumber: record.supplier.taxNumber }
           : null,
-      invoices: invoice
-        ? [{ invoiceNo: invoice.eDocumentNo || invoice.invoiceNo, amount: Number(record.amount) }]
-        : [],
+      invoices: makbuzInvoices,
     })
 
     // Dosya adında Türkçe karakter var (Çek/Ödeme); başlık ASCII olmak zorunda, bu

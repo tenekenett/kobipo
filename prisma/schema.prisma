@@ -1957,7 +1957,11 @@ model Check {
   direction  String? // RECEIVED (alınan) | GIVEN (verilen). null = eski kayıt: müşteri=alınan, tedarikçi=verilen.
   customerId String?
   supplierId String?
+  // Kapattığı faturalar (BİLGİ amaçlı: bakiye çekin kendisinden düşer, fatura
+  // açık tutarına dokunmaz). Çoklu bağ `invoiceIds`; `invoiceId` = listenin ilki,
+  // eski okuyucular için tutulur. Düz string, ilişki yok (bkz. cek-senet/[id]).
   invoiceId  String?
+  invoiceIds String[] @default([])
   notes      String?  @db.Text
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -1984,7 +1988,9 @@ model PromissoryNote {
   direction  String? // RECEIVED (alınan) | GIVEN (verilen). null = eski kayıt: müşteri=alınan, tedarikçi=verilen.
   customerId String?
   supplierId String?
+  // Çekle aynı: çoklu bağ `invoiceIds`, `invoiceId` = ilki (geriye dönük).
   invoiceId  String?
+  invoiceIds String[] @default([])
   notes      String?  @db.Text
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -2913,6 +2919,10 @@ model PayrollRecord {
   netSalary      Decimal   @db.Decimal(12, 2)
   status         String    @default("PENDING") // PENDING, PAID
   paymentDate    DateTime?
+  // FİİLEN ödenen tutar — netten farklı olabilir (avans mahsubu, elden eksik/fazla).
+  // Bordronun neti değişmez; kasa hareketi ve "ödenen" toplamları bu alanı okur.
+  // NULL = eski kayıt, net kadar ödendi sayılır (lib/personel/bordro-odenen.ts).
+  paidAmount     Decimal?  @db.Decimal(12, 2)
   accountId      String? // ödendiği finansal hesap
   transactionId  String? // ödeme (EXPENSE) işlemi bağı
   notes          String?   @db.Text

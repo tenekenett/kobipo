@@ -5,6 +5,8 @@
 // KARTI" adlı bir POS hesabı zorunlu olarak BANK açılıyor, makbuzda da "Havale /
 // EFT" yazıyordu. Kredi kartı / POS bu yüzden ayrı bir kanal türü.
 
+import { BAKIYE_KAPAMA_LABEL, BAKIYE_KAPAMA_METHOD } from "@/lib/cari/bakiye-kapama"
+
 export type FinancialAccountType = "CASH" | "BANK" | "CREDIT_CARD"
 
 export const FINANCIAL_ACCOUNT_TYPES: Array<{ value: FinancialAccountType; label: string }> = [
@@ -55,6 +57,8 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   MEAL_CARD: "Yemek Kartı",
   CHECK: "Çek",
   OTHER: "Diğer",
+  // Kasa hareketi olmayan kapama (bkz. lib/cari/bakiye-kapama.ts).
+  [BAKIYE_KAPAMA_METHOD]: BAKIYE_KAPAMA_LABEL,
 }
 
 export const paymentMethodLabel = (method: string) => PAYMENT_METHOD_LABELS[method] ?? method

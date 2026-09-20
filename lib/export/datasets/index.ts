@@ -18,6 +18,7 @@ import {
   buildStockReportDataset,
 } from "./reports"
 import {
+  buildBakiyeKapamaDataset,
   buildBalanceSheetDataset,
   buildCashFlowDataset,
   buildExpenseReportDataset,
@@ -129,6 +130,13 @@ export const DATASETS: Record<string, DatasetBuilder> = {
 
   "rapor-nakit-akisi": (companyId, params) =>
     buildCashFlowDataset({
+      companyId,
+      startDate: params.get("startDate"),
+      endDate: params.get("endDate"),
+    }),
+
+  "rapor-bakiye-kapama": (companyId, params) =>
+    buildBakiyeKapamaDataset({
       companyId,
       startDate: params.get("startDate"),
       endDate: params.get("endDate"),

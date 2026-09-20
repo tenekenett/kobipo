@@ -24,6 +24,7 @@ import Link from "next/link"
 import { Calculator, Plus, RefreshCcw, Trash2, Wallet, DollarSign, Users, FileText, Download, Pencil } from "lucide-react"
 import { toDateInput } from "@/lib/format"
 import { brutenNete } from "@/lib/personel/bordro-hesap"
+import { odenenNettenFarkli, odenenTutar } from "@/lib/personel/bordro-odenen"
 
 type Employee = { id: string; firstName: string; lastName: string; grossSalary?: number | null; status: string }
 type Account = { id: string; name: string; type: string }
@@ -37,6 +38,8 @@ type Payroll = {
   taxDeduction: number
   otherDeduction: number
   netSalary: number
+  /** Fiilen ödenen; null = net kadar (bkz. lib/personel/bordro-odenen.ts). */
+  paidAmount?: number | null
   status: string
   paymentDate?: string | null
 }
@@ -80,6 +83,8 @@ export default function MaasOdemelerPage() {
   const [payTarget, setPayTarget] = useState<Payroll | null>(null)
   const [payAccountId, setPayAccountId] = useState("")
   const [payDate, setPayDate] = useState(toDateInput(new Date()))
+  // Ödenen tutar: netle açılır, elle değiştirilebilir (avans mahsubu, elden eksik/fazla).
+  const [payAmount, setPayAmount] = useState("")
 
   const fetchRecords = useCallback(async () => {
     if (!companyId) return
@@ -223,12 +228,22 @@ export default function MaasOdemelerPage() {
     }
   }
 
+  function openPay(p: Payroll) {
+    setPayAmount(String(Number(p.netSalary)))
+    setPayTarget(p)
+  }
+
   async function confirmPay() {
     if (!payTarget) return
+    const amount = Number(payAmount)
+    if (!(amount > 0)) {
+      toast({ title: "Tutar geçersiz", description: "Ödenen tutar 0'dan büyük olmalı", variant: "destructive" })
+      return
+    }
     const res = await fetch(`/api/personel/payroll/${payTarget.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "pay", accountId: payAccountId || null, paymentDate: payDate }),
+      body: JSON.stringify({ action: "pay", accountId: payAccountId || null, paymentDate: payDate, amount }),
     })
     if (res.ok) {
       toast({ title: "Maaş ödendi", description: payAccountId ? "Kasa/banka hesabından düşüldü" : "Ödeme işaretlendi" })
@@ -255,7 +270,8 @@ export default function MaasOdemelerPage() {
   if (!companyId) return <div className="p-6 text-sm text-muted-foreground">Lütfen firma seçin.</div>
 
   const totalNet = records.reduce((s, r) => s + Number(r.netSalary), 0)
-  const paidNet = records.filter((r) => r.status === "PAID").reduce((s, r) => s + Number(r.netSalary), 0)
+  // Ödenen = fiilen ödenen tutar (paidAmount), net değil — ikisi ayrışabilir.
+  const paidNet = records.reduce((s, r) => s + odenenTutar(r), 0)
   const years = [now.getFullYear() + 1, now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2]
 
   // Bu dönemde zaten bordrosu olanlar dropdown'dan çıkarılır (mükerrer-hatası önlenir).
@@ -327,7 +343,15 @@ export default function MaasOdemelerPage() {
                         <TableCell className="text-right whitespace-nowrap text-xs">{fmt(Number(r.grossSalary))}</TableCell>
                         <TableCell className="text-right whitespace-nowrap text-xs">{fmt(Number(r.bonus))}</TableCell>
                         <TableCell className="text-right whitespace-nowrap text-xs text-destructive">{fmt(deductions)}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap font-semibold">{fmt(Number(r.netSalary))} ₺</TableCell>
+                        <TableCell className="text-right whitespace-nowrap font-semibold">
+                          {fmt(Number(r.netSalary))} ₺
+                          {/* Net ile ödenen ayrıştıysa sessiz geçilmez. */}
+                          {odenenNettenFarkli(r) && (
+                            <div className="text-xs font-normal text-amber-700 dark:text-amber-300">
+                              Ödenen: {fmt(odenenTutar(r))} ₺
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Badge variant={r.status === "PAID" ? "default" : "secondary"}>{r.status === "PAID" ? "Ödendi" : "Bekliyor"}</Badge>
                         </TableCell>
@@ -346,7 +370,7 @@ export default function MaasOdemelerPage() {
                               </Button></WriteAction>
                             )}
                             {r.status !== "PAID" && (
-                              <Button size="sm" variant="ghost" onClick={() => setPayTarget(r)} title="Öde">
+                              <Button size="sm" variant="ghost" onClick={() => openPay(r)} title="Öde">
                                 <Wallet className="h-4 w-4 text-emerald-600" />
                               </Button>
                             )}
@@ -432,7 +456,23 @@ export default function MaasOdemelerPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3">
                 <span className="text-sm">{payTarget.employee.firstName} {payTarget.employee.lastName}</span>
-                <span className="text-lg font-bold">{fmt(Number(payTarget.netSalary))} ₺</span>
+                <span className="text-sm text-muted-foreground">Net: <span className="font-semibold text-foreground">{fmt(Number(payTarget.netSalary))} ₺</span></span>
+              </div>
+              <div>
+                <Label>Ödenen Tutar</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                />
+                {Math.abs(Number(payAmount) - Number(payTarget.netSalary)) >= 0.005 && Number(payAmount) > 0 && (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    Netten {Number(payAmount) > Number(payTarget.netSalary) ? "fazla" : "eksik"}:{" "}
+                    {fmt(Math.abs(Number(payAmount) - Number(payTarget.netSalary)))} ₺. Bordronun neti değişmez; fark tabloda gösterilir.
+                  </p>
+                )}
               </div>
               <div>
                 <Label>Kasa / Banka Hesabı</Label>
@@ -448,7 +488,7 @@ export default function MaasOdemelerPage() {
                 )}
               </div>
               <div><Label>Ödeme Tarihi</Label><Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} /></div>
-              <WriteAction><Button className="w-full" onClick={confirmPay}>Ödemeyi Onayla</Button></WriteAction>
+              <WriteAction><Button className="w-full" onClick={confirmPay} disabled={!(Number(payAmount) > 0)}>Ödemeyi Onayla</Button></WriteAction>
             </div>
           )}
         </DialogContent>

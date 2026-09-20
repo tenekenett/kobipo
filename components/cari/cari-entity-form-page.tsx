@@ -206,10 +206,17 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
     }
   }
 
+  // Düzenlemede geri/kaydet DETAY sayfasına döner: kullanıcı karttan gelir ve
+  // kaydettikten sonra o kartta kalmalı; listeye düşmek bağlamı kaybettiriyordu.
+  // Yeni kayıtta liste (kart henüz yoktu). `entityId` slug ya da cuid olabilir,
+  // detay sayfası ikisini de çözer.
   const backHref = useMemo(() => {
     if (!companyId) return "/cari"
+    if (mode === "edit" && entityId) {
+      return `/cari/${entityType}/${entityId}?company=${encodeURIComponent(companyId)}`
+    }
     return `/cari?company=${companyId}&tab=${entityType}`
-  }, [companyId, entityType])
+  }, [companyId, entityType, mode, entityId])
 
   useEffect(() => {
     if (mode !== "edit" || !entityId || !companyId) return
@@ -722,6 +729,42 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
               </TabsContent>
 
               <TabsContent value="other" className="space-y-4 pt-4">
+                {/* İkiz kart anahtarı EN ÜSTTE: sekmenin sonunda, banka notunun altında
+                    kayboluyordu; "Fatura Oluştur" menüsü karşı yönlü belge için buraya
+                    yönlendiriyor, kullanıcı gelince ilk bakışta görmeli. */}
+                <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="linked-role-switch" className="text-base">
+                      {isCustomer ? "Aynı zamanda Tedarikçi" : "Aynı zamanda Müşteri"}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {isCustomer
+                        ? "Bu müşteriden alış da yapıyorsanız açın: bağlı bir tedarikçi kartı açılır, alış fiş/faturası ona kesilir ve iki kart birlikte güncellenir."
+                        : "Bu tedarikçiye satış da yapıyorsanız açın: bağlı bir müşteri kartı açılır, satış faturası ona kesilir ve iki kart birlikte güncellenir."}
+                    </p>
+                    {!canEditMirror && (
+                      <p className="text-xs text-muted-foreground">
+                        Bu anahtar {isCustomer ? "bir tedarikçi" : "bir müşteri"} kartı
+                        oluşturur ya da siler; bunun için{" "}
+                        <strong>{isCustomer ? "Tedarikçi" : "Müşteri"}</strong> sayfasında
+                        düzenleme yetkisi gerekir. Yetki için firma yöneticinize başvurun.
+                      </p>
+                    )}
+                  </div>
+                  <Switch
+                    id="linked-role-switch"
+                    className="mt-1 shrink-0"
+                    checked={isCustomer ? formData.isAlsoSupplier : formData.isAlsoCustomer}
+                    onCheckedChange={(checked) =>
+                      setFormData({
+                        ...formData,
+                        isAlsoSupplier: isCustomer ? checked : false,
+                        isAlsoCustomer: isCustomer ? false : checked,
+                      })
+                    }
+                    disabled={isLoading || !canEditMirror}
+                  />
+                </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
@@ -812,33 +855,6 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                       disabled={isLoading}
                       rows={3}
                     />
-                  </div>
-                  <div className="space-y-3 md:col-span-2 rounded-md border p-3">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="linked-role-switch">
-                        {isCustomer ? "Aynı zamanda Tedarikçi" : "Aynı zamanda Müşteri"}
-                      </Label>
-                      <Switch
-                        id="linked-role-switch"
-                        checked={isCustomer ? formData.isAlsoSupplier : formData.isAlsoCustomer}
-                        onCheckedChange={(checked) =>
-                          setFormData({
-                            ...formData,
-                            isAlsoSupplier: isCustomer ? checked : false,
-                            isAlsoCustomer: isCustomer ? false : checked,
-                          })
-                        }
-                        disabled={isLoading || !canEditMirror}
-                      />
-                    </div>
-                    {!canEditMirror && (
-                      <p className="text-xs text-muted-foreground">
-                        Bu anahtar {isCustomer ? "bir tedarikçi" : "bir müşteri"} kartı
-                        oluşturur ya da siler; bunun için{" "}
-                        <strong>{isCustomer ? "Tedarikçi" : "Müşteri"}</strong> sayfasında
-                        düzenleme yetkisi gerekir. Yetki için firma yöneticinize başvurun.
-                      </p>
-                    )}
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="note">Not</Label>

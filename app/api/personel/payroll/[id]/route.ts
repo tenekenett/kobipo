@@ -35,7 +35,15 @@ export const PUT = withApiErrors(async function PUT(
     }
     const paymentDate = body.paymentDate ? new Date(body.paymentDate) : new Date()
     const accountId: string | null = body.accountId || null
-    const net = Number(existing.netSalary)
+    // ÖDENEN tutar netten farklı olabilir (avans mahsubu, elden eksik/fazla);
+    // verilmezse net. Bordronun neti değişmez — kasa hareketi ve "ödenen"
+    // toplamları paidAmount'ı okur (lib/personel/bordro-odenen.ts).
+    const net = body.amount === undefined || body.amount === null || body.amount === ""
+      ? Number(existing.netSalary)
+      : num(body.amount)
+    if (!(net > 0)) {
+      return NextResponse.json({ error: "Ödenen tutar 0'dan büyük olmalı" }, { status: 400 })
+    }
 
     const updated = await prisma.$transaction(async (tx) => {
       let transactionId: string | null = null
@@ -65,7 +73,7 @@ export const PUT = withApiErrors(async function PUT(
       }
       return tx.payrollRecord.update({
         where: { id },
-        data: { status: "PAID", paymentDate, accountId, transactionId },
+        data: { status: "PAID", paymentDate, accountId, transactionId, paidAmount: net },
         include: { employee: { select: { id: true, firstName: true, lastName: true, department: true } } },
       })
     }).catch((e) => {

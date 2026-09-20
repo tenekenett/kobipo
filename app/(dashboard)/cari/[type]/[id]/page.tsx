@@ -28,6 +28,7 @@ import { TransactionDialog } from "@/components/cari/transaction-dialog"
 import { ExportButton } from "@/components/export/export-button"
 import { CariArchiveDeleteDialog } from "@/components/cari/cari-archive-delete-dialog"
 import { CariFislerSection } from "@/components/cari/cari-fisler-section"
+import { FaturaOlusturMenu } from "@/components/cari/fatura-olustur-menu"
 import { looksLikeCuid } from "@/lib/slug"
 import { withCompanyHref } from "@/lib/company/href"
 import { WriteAction } from "@/components/dashboard/write-guard"
@@ -50,7 +51,7 @@ interface Transaction {
   convertedToId?: string | null
   convertedToNo?: string | null
   receiptAmount?: number
-  /** INVOICE_PAYMENT satırında ödemenin işlendiği fatura. */
+  /** INVOICE_PAYMENT / WRITE_OFF satırında ödemenin işlendiği fatura. */
   invoiceId?: string
   description: string
   debit: number
@@ -87,6 +88,9 @@ interface CustomerSupplierDetail {
   transactions: Transaction[]
   archivedAt?: string | null
   deletability?: Deletability
+  /** İkiz kart ("Aynı zamanda tedarikçi/müşteri"): karşı yönlü faturanın carisi. */
+  linkedSupplierId?: string | null
+  linkedCustomerId?: string | null
 }
 
 interface FinancialAccount {
@@ -322,14 +326,13 @@ export default function CustomerSupplierDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           <WriteAction>
-            <Link
-              href={`/e-donusum/yeni?company=${companyId}&type=${isCustomer ? "SALES" : "PURCHASE"}&${isCustomer ? "customerId" : "supplierId"}=${data.id}&from=${encodeURIComponent(`/cari/${type}/${id}`)}`}
-            >
-              <Button variant="default" size="sm">
-                <FileText className="mr-2 h-4 w-4" />
-                Fatura Kes
-              </Button>
-            </Link>
+            <FaturaOlusturMenu
+              companyId={companyId ?? ""}
+              kind={isCustomer ? "customer" : "supplier"}
+              cariId={data.id}
+              linkedId={isCustomer ? data.linkedSupplierId : data.linkedCustomerId}
+              from={`/cari/${type}/${id}`}
+            />
             <Button variant="outline" size="sm" onClick={() => setIsTransactionDialogOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               {isCustomer ? "Tahsilat Ekle" : "Ödeme Ekle"}
@@ -570,7 +573,7 @@ export default function CustomerSupplierDetailPage() {
                           ? `/faturalar/${tx.id}/onizleme?company=${company}&from=${backTo}`
                           // Kasaya bağlanmamış fatura ödemesi Transaction değil:
                           // faturanın ödemeler ekranında yaşar.
-                          : tx.type === "INVOICE_PAYMENT" && tx.invoiceId
+                          : (tx.type === "INVOICE_PAYMENT" || tx.type === "WRITE_OFF") && tx.invoiceId
                             ? `/faturalar/${tx.invoiceId}/odemeler?company=${company}&return=${encodeURIComponent(
                                 withCompanyHref(`/cari/${type}/${id}`, companyId),
                               )}`
@@ -599,12 +602,14 @@ export default function CustomerSupplierDetailPage() {
                         tx.type === "INVOICE" && tx.isReceipt ? "bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-300" :
                         tx.type === "INVOICE" ? "bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300" :
                         tx.type === "PAYMENT" || tx.type === "INVOICE_PAYMENT" ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" :
+                        tx.type === "WRITE_OFF" ? "bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300" :
                         tx.type === "OPENING" ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" :
                         "bg-gray-100 text-gray-800 dark:bg-gray-500/15 dark:text-gray-300"
                       }`}>
                         {tx.type === "INVOICE" ? (tx.isReceipt ? "Fiş" : "Fatura") :
                          tx.type === "PAYMENT" ? "Ödeme" :
                          tx.type === "INVOICE_PAYMENT" ? "Fatura ödemesi" :
+                         tx.type === "WRITE_OFF" ? "Bakiye kapama / iskonto" :
                          tx.type === "OPENING" ? "Açılış" :
                          tx.type === "EXPENSE" ? "Gider" :
                          tx.type === "INCOME" ? "Tahsilat" :

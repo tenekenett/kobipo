@@ -51,6 +51,8 @@ const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   OPENING: { label: "Açılış", cls: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-500/15 dark:text-slate-200 dark:border-slate-500/40" },
   INVOICE: { label: "Fatura", cls: "bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300 border-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:border-sky-500/40" },
   INVOICE_PAYMENT: { label: "Fatura Ödemesi", cls: "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-500/15 dark:text-teal-200 dark:border-teal-500/40" },
+  // Kasa hareketi olmayan kapama; ödemeyle karışmasın diye ayrı renk.
+  WRITE_OFF: { label: "Bakiye Kapama / İskonto", cls: "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/15 dark:text-rose-200 dark:border-rose-500/40" },
   TRANSACTION: { label: "Tahsilat/Ödeme", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/40" },
   CHECK: { label: "Çek", cls: "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/40" },
   PROMISSORY_NOTE: { label: "Senet", cls: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-500/15 dark:text-purple-200 dark:border-purple-500/40" },

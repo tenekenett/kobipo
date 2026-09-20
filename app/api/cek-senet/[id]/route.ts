@@ -6,20 +6,26 @@ import { Decimal } from "@prisma/client/runtime/library"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { assertOwnedByCompany } from "@/lib/company/owned"
 import { revertCheckSettlement, settlementAccountRequiredFrom, syncCheckSettlement } from "@/lib/cek-senet/tahsil"
+import { hasInvoiceLinkField, invoiceLinkData, linkedInvoiceIds, normalizeInvoiceLinks } from "@/lib/cek-senet/fatura-bagi"
 
 export const dynamic = 'force-dynamic'
 
 /**
- * Çekin/senedin kapattığı fatura. Şemada ilişki YOK (`invoiceId` düz string), bu
- * yüzden `include` ile gelmez; detay ekranı faturaya link verebilsin diye ayrıca
- * okunur.
+ * Çekin/senedin kapattığı faturalar. Şemada ilişki YOK (`invoiceIds` düz dizi),
+ * bu yüzden `include` ile gelmez; detay ekranı faturalara link verebilsin diye
+ * ayrıca okunur. Yanıtta `invoices` (liste) ve `invoice` (ilki — eski okuyucular).
  */
-async function linkedInvoice(invoiceId: string | null) {
-  if (!invoiceId) return null
-  return prisma.invoice.findUnique({
-    where: { id: invoiceId },
+async function linkedInvoices(record: { invoiceIds?: string[] | null; invoiceId?: string | null }) {
+  const ids = linkedInvoiceIds(record)
+  if (ids.length === 0) return { invoices: [], invoice: null }
+  const rows = await prisma.invoice.findMany({
+    where: { id: { in: ids } },
     select: { id: true, invoiceNo: true, eDocumentNo: true },
   })
+  // Kayıttaki sırayı koru (dağıtım sırası).
+  const byId = new Map(rows.map((r) => [r.id, r]))
+  const invoices = ids.map((id) => byId.get(id)).filter((r): r is NonNullable<typeof r> => Boolean(r))
+  return { invoices, invoice: invoices[0] ?? null }
 }
 
 export const GET = withApiErrors(async function GET(
@@ -61,7 +67,7 @@ export const GET = withApiErrors(async function GET(
 
       await ensureCompanyAccess(check.companyId)
 
-      return NextResponse.json({ ...check, invoice: await linkedInvoice(check.invoiceId) })
+      return NextResponse.json({ ...check, ...(await linkedInvoices(check)) })
     } else {
       const note = await prisma.promissoryNote.findUnique({
         where: { id: resolvedParams.id },
@@ -80,7 +86,7 @@ export const GET = withApiErrors(async function GET(
 
       await ensureCompanyAccess(note.companyId)
 
-      return NextResponse.json({ ...note, invoice: await linkedInvoice(note.invoiceId) })
+      return NextResponse.json({ ...note, ...(await linkedInvoices(note)) })
     }
   } catch (error: any) {
     if (error.message.includes("Access denied")) {
@@ -140,10 +146,11 @@ export const PUT = withApiErrors(async function PUT(
 
       await ensureCompanyWrite(check.companyId)
       // Sahiplik + tutar (bkz. POST).
+      const checkLinks = hasInvoiceLinkField(data) ? normalizeInvoiceLinks(data) : null
       await assertOwnedByCompany(check.companyId, {
         customer: data.customerId,
         supplier: data.supplierId,
-        invoice: data.invoiceId,
+        invoice: checkLinks ?? [],
       })
       if (data.amount !== undefined && !(Number(data.amount) > 0)) {
         return NextResponse.json({ error: "Tutar 0'dan büyük olmalı" }, { status: 400 })
@@ -161,7 +168,7 @@ export const PUT = withApiErrors(async function PUT(
       if (data.direction !== undefined) updateData.direction = data.direction || null
       if (data.customerId !== undefined) updateData.customerId = data.customerId || null
       if (data.supplierId !== undefined) updateData.supplierId = data.supplierId || null
-      if (data.invoiceId !== undefined) updateData.invoiceId = data.invoiceId || null
+      if (checkLinks) Object.assign(updateData, invoiceLinkData(checkLinks))
       if (data.notes !== undefined) updateData.notes = data.notes || null
 
       const updated = await prisma.$transaction(async (tx) => {
@@ -212,10 +219,11 @@ export const PUT = withApiErrors(async function PUT(
       }
 
       await ensureCompanyWrite(note.companyId)
+      const noteLinks = hasInvoiceLinkField(data) ? normalizeInvoiceLinks(data) : null
       await assertOwnedByCompany(note.companyId, {
         customer: data.customerId,
         supplier: data.supplierId,
-        invoice: data.invoiceId,
+        invoice: noteLinks ?? [],
       })
       if (data.amount !== undefined && !(Number(data.amount) > 0)) {
         return NextResponse.json({ error: "Tutar 0'dan büyük olmalı" }, { status: 400 })
@@ -230,7 +238,7 @@ export const PUT = withApiErrors(async function PUT(
       if (data.direction !== undefined) updateData.direction = data.direction || null
       if (data.customerId !== undefined) updateData.customerId = data.customerId || null
       if (data.supplierId !== undefined) updateData.supplierId = data.supplierId || null
-      if (data.invoiceId !== undefined) updateData.invoiceId = data.invoiceId || null
+      if (noteLinks) Object.assign(updateData, invoiceLinkData(noteLinks))
       if (data.notes !== undefined) updateData.notes = data.notes || null
 
       const updated = await prisma.$transaction(async (tx) => {

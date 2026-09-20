@@ -11,6 +11,7 @@ import { resolveSlugId } from "@/lib/slug-resolve"
 import { accountPaymentMethod } from "@/lib/finans/account-types"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
+import { odemeDagit } from "@/lib/cari/odeme-dagit"
 
 export const dynamic = 'force-dynamic'
 
@@ -127,6 +128,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       customerId,
       supplierId,
       invoiceId,
+      invoiceIds,
       category,
       tags,
     } = body
@@ -192,43 +194,63 @@ export const POST = withApiErrors(async function POST(request: Request) {
       targetAccount = { id: found.id, balance: found.balance }
     }
 
-    // Opsiyonel fatura eşleştirmesi (yalnızca INCOME/EXPENSE). Tahsilat/ödeme
-    // tutarının açık fatura kadarı InvoicePayment olarak da yazılır; fazlası
-    // avans olarak yalnızca işlemde (Transaction) kalır.
-    let invoiceAllocation: { invoiceId: string; allocated: number } | null = null
-    if (invoiceId && (type === "INCOME" || type === "EXPENSE")) {
-      const inv = await prisma.invoice.findUnique({
-        where: { id: invoiceId },
+    // Opsiyonel fatura eşleştirmesi (yalnızca INCOME/EXPENSE). Birden çok fatura
+    // seçilebilir (`invoiceIds`; tek `invoiceId` eski istemciler için kalıyor).
+    // Tutar faturalara ESKİDEN YENİYE dağıtılır (lib/cari/odeme-dagit.ts): her
+    // biri açık tutarı kadar InvoicePayment alır, fazlası avans olarak yalnızca
+    // işlemde (Transaction) kalır.
+    const requestedInvoiceIds: string[] = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(invoiceIds) ? invoiceIds : []),
+          ...(invoiceId ? [invoiceId] : []),
+        ].filter((id): id is string => typeof id === "string" && id.length > 0),
+      ),
+    )
+    let invoiceAllocations: Array<{ invoiceId: string; allocated: number }> = []
+    if (requestedInvoiceIds.length > 0 && (type === "INCOME" || type === "EXPENSE")) {
+      const found = await prisma.invoice.findMany({
+        where: { id: { in: requestedInvoiceIds } },
         include: { payments: { select: { amount: true } } },
+        orderBy: { date: "asc" },
       })
-      if (!inv || inv.companyId !== companyId) {
+      if (found.length !== requestedInvoiceIds.length || found.some((inv) => inv.companyId !== companyId)) {
         return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
       }
-      if (inv.status === "CANCELLED") {
+      for (const inv of found) {
+        if (inv.status === "CANCELLED") {
+          return NextResponse.json(
+            { error: "İptal edilmiş faturaya ödeme eşleştirilemez" },
+            { status: 400 },
+          )
+        }
+        const partyOk =
+          type === "INCOME"
+            ? inv.type === "SALES" && (!resolvedCustomerId || inv.customerId === resolvedCustomerId)
+            : inv.type === "PURCHASE" && (!resolvedSupplierId || inv.supplierId === resolvedSupplierId)
+        if (!partyOk) {
+          return NextResponse.json(
+            { error: "Seçilen fatura bu cari veya işlem tipiyle eşleşmiyor" },
+            { status: 400 },
+          )
+        }
+      }
+      const openInvoices = found
+        .map((inv) => ({
+          id: inv.id,
+          openAmount: Number(inv.totalAmount) - inv.payments.reduce((sum, p) => sum + Number(p.amount), 0),
+        }))
+        .filter((inv) => inv.openAmount > 0.005)
+      if (openInvoices.length === 0) {
         return NextResponse.json(
-          { error: "İptal edilmiş faturaya ödeme eşleştirilemez" },
+          { error: "Seçilen faturaların açık tutarı yok" },
           { status: 400 },
         )
       }
-      const partyOk =
-        type === "INCOME"
-          ? inv.type === "SALES" && (!resolvedCustomerId || inv.customerId === resolvedCustomerId)
-          : inv.type === "PURCHASE" && (!resolvedSupplierId || inv.supplierId === resolvedSupplierId)
-      if (!partyOk) {
-        return NextResponse.json(
-          { error: "Seçilen fatura bu cari veya işlem tipiyle eşleşmiyor" },
-          { status: 400 },
-        )
-      }
-      const paid = inv.payments.reduce((sum, p) => sum + Number(p.amount), 0)
-      const open = Number(inv.totalAmount) - paid
-      if (open <= 0) {
-        return NextResponse.json(
-          { error: "Seçilen faturanın açık tutarı yok" },
-          { status: 400 },
-        )
-      }
-      invoiceAllocation = { invoiceId: inv.id, allocated: Math.min(numericAmount, open) }
+      invoiceAllocations = odemeDagit(numericAmount, openInvoices).allocations.map((a) => ({
+        invoiceId: a.invoiceId,
+        allocated: a.amount,
+      }))
     }
 
     // Ödeme yöntemi kanalın türünden okunur: kredi kartı/POS kanalı BANK_TRANSFER
@@ -289,13 +311,15 @@ export const POST = withApiErrors(async function POST(request: Request) {
         })
       }
 
-      // Faturaya bağlı ödeme (kasa bakiyesini TEKRAR güncellemez — işlem güncelledi).
-      if (invoiceAllocation && invoiceAllocation.allocated > 0) {
+      // Faturaya bağlı ödemeler (kasa bakiyesini TEKRAR güncellemez — işlem
+      // güncelledi). Her fatura kendi payını alır, hepsi aynı işleme bağlıdır.
+      for (const allocation of invoiceAllocations) {
+        if (allocation.allocated <= 0) continue
         await db.invoicePayment.create({
           data: {
-            invoiceId: invoiceAllocation.invoiceId,
+            invoiceId: allocation.invoiceId,
             companyId,
-            amount: invoiceAllocation.allocated,
+            amount: allocation.allocated,
             paymentDate: transactionDate,
             paymentMethod,
             accountId,
