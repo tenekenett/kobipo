@@ -22,6 +22,11 @@
  * faturaya taşınır ve belge bu hesapla GİB'e gider. Ayrı bir formül (ör. KDV'yi
  * toplamda oransal düşürmek) tekliften gelen faturayı 1–3 kuruş kaydırıyordu.
  *
+ * BÖLÜM AYIRICI (`kind: "SECTION"`) hesabın DIŞINDADIR: satır sıfır sayılır ve
+ * belge hesabına hiç verilmez. Sıfır satır olarak geçirmek bile yanlış olurdu —
+ * genel iskontonun kuruş artığı SON satıra yazılıyor, son satır bir bölüm
+ * başlığıysa o kuruş toplamdan düşerdi.
+ *
  * Saf modüldür; istemcide de çalışır.
  */
 
@@ -29,6 +34,21 @@ import { computeLineTax } from "@/lib/invoice/line-tax"
 import { computeInvoiceTotals, documentColumnPrecision } from "@/lib/invoice/document-totals"
 
 export type DiscountMode = "PERCENT" | "AMOUNT"
+
+/**
+ * Satır tipi: fiyatlı kalem ya da BÖLÜM AYIRICI (başlık + açıklama taşıyan,
+ * fiyatsız gruplama satırı).
+ */
+export type QuoteLineKind = "ITEM" | "SECTION"
+
+/**
+ * Bölüm ayırıcı mı? Tek ölçü budur — kalem okuyan her katman (hesap, editör,
+ * PDF, faturaya dönüşüm) aynı soruyu buradan sorar. Eski kayıtlarda kolon
+ * yoktur; `null`/boş değer fiyatlı kalem sayılır.
+ */
+export function isSectionLine(kind: unknown): boolean {
+  return typeof kind === "string" && kind.toUpperCase() === "SECTION"
+}
 
 // Prisma Decimal da kabul edilir (kayıttan okunan değerler) — Number() onu çevirir.
 type Num = number | string | null | undefined | { toString(): string }
@@ -50,6 +70,8 @@ export type QuoteLineInput = {
   discountMode?: string | null
   discountRate?: Num
   discountAmount?: Num
+  /** "SECTION" → bölüm ayırıcı: hesaba hiç girmez. Verilmezse fiyatlı kalem. */
+  kind?: string | null
 }
 
 export type QuoteGlobalDiscountInput = {
@@ -83,7 +105,22 @@ export type QuoteLineCalc = {
   discountRate: number | null
 }
 
+/** Bölüm ayırıcının hesaptaki karşılığı: her ölçü sıfır, iskonto modu yok sayılır. */
+const SECTION_CALC: QuoteLineCalc = {
+  mode: "PERCENT",
+  gross: 0,
+  discount: 0,
+  net: 0,
+  vat: 0,
+  total: 0,
+  discountRate: null,
+}
+
 export function calcQuoteLineTotals(line: QuoteLineInput): QuoteLineCalc {
+  // Bölüm ayırıcı fiyat taşımaz: kullanıcı eski bir kalemi bölüme çevirse bile
+  // kalan miktar/fiyat değerleri toplama sızmasın diye BURADA sıfırlanır.
+  if (isSectionLine(line.kind)) return SECTION_CALC
+
   // Kaydedilecek hassasiyette: miktar 2, birim fiyat 6, iskonto 2 ondalık.
   const gross =
     documentColumnPrecision.quantity(num(line.quantity)) * documentColumnPrecision.unitPrice(num(line.unitPrice))
@@ -147,13 +184,22 @@ export function calcQuoteTotals(
       ? Math.min(round2(mode === "AMOUNT" ? clamp(raw, 0, subtotal) : subtotal * ((rate ?? 0) / 100)), subtotal)
       : 0
 
+  // Bölüm ayırıcılar belgeye HİÇ verilmez (sıfır satır olarak da değil): genel
+  // iskonto satırlara dağıtılırken kuruş artığı SON satıra yazılır ve son satır
+  // bir bölüm başlığıysa o artık toplamdan sessizce düşerdi.
   const totals = computeInvoiceTotals(
-    lines.map((line, i) => ({
-      quantity: documentColumnPrecision.quantity(num(line.quantity)),
-      unitPrice: documentColumnPrecision.unitPrice(num(line.unitPrice)),
-      vatRate: num(line.vatRate),
-      discountAmount: calcs[i].discount,
-    })),
+    lines.flatMap((line, i) =>
+      isSectionLine(line.kind)
+        ? []
+        : [
+            {
+              quantity: documentColumnPrecision.quantity(num(line.quantity)),
+              unitPrice: documentColumnPrecision.unitPrice(num(line.unitPrice)),
+              vatRate: num(line.vatRate),
+              discountAmount: calcs[i].discount,
+            },
+          ],
+    ),
     { globalDiscountAmount: requested },
   )
 

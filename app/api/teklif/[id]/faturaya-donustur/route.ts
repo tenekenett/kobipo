@@ -8,6 +8,7 @@ import { ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 import { prepareInvoiceStockOps, writeInvoiceStockOps } from "@/lib/stock/invoice-stock"
 import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
 import { invoiceTotalsFromStoredItems } from "@/lib/invoice/document-totals"
+import { isSectionLine } from "@/lib/teklif/quote-totals"
 
 export const dynamic = "force-dynamic"
 
@@ -31,8 +32,12 @@ export const POST = withApiErrors(async function POST(
     return NextResponse.json({ error: "Quote already converted" }, { status: 400 })
   }
 
-  // Müşterili teklif → satış faturası; tedarikçili teklif → alış faturası.
-  const isSales = Boolean(quote.customerId)
+  // Satış/alış ekseni LİSTE ile aynı: tedarikçisi olan teklif alıştır,
+  // olmayan satıştır (müşterisiz taslak da satış listesinde durur).
+  // Önceki ölçü `Boolean(customerId)` idi: müşteri seçilip kaydedilmemiş
+  // satış teklifi alış sayılıp "tedarikçi seçin" diyordu — ekranda müşteri
+  // dururken.
+  const isSales = quote.supplierId == null
   if (isSales && !quote.customerId) {
     return NextResponse.json(
       { error: "Satış faturası için teklifte müşteri seçilmelidir." },
@@ -46,10 +51,21 @@ export const POST = withApiErrors(async function POST(
     )
   }
 
+  // BÖLÜM AYIRICILAR faturaya GEÇMEZ: fiyatsız gruplama satırı teklifin sunum
+  // aracıdır, GİB belgesinde karşılığı yoktur ve sıfır tutarlı kalem olarak
+  // yazılsa hem belgeyi kirletir hem stok/muhasebe yollarına sızardı.
+  const priced = quote.items.filter((item) => !isSectionLine(item.kind))
+  if (!priced.length) {
+    return NextResponse.json(
+      { error: "Teklifte faturalanacak kalem yok (yalnız bölüm başlıkları var)." },
+      { status: 400 },
+    )
+  }
+
   // Başlık toplamı kalemlerden RESMÎ BELGE kuralıyla kurulur (lib/invoice/document-totals.ts).
   // Yeni teklif zaten bu kuralla kaydediliyor; kural gelmeden önce kaydedilmiş
   // tekliflerin toplamı ise GİB'e gidecek belgeden 1–3 kuruş sapabiliyordu.
-  const totals = invoiceTotalsFromStoredItems(quote.items, {
+  const totals = invoiceTotalsFromStoredItems(priced, {
     globalDiscountAmount: quote.globalDiscountAmount,
   })
 
@@ -75,7 +91,7 @@ export const POST = withApiErrors(async function POST(
           status: "DRAFT",
           createdBy: user.id,
           items: {
-            create: quote.items.map((item, index) => ({
+            create: priced.map((item, index) => ({
               ...(item.productId ? { product: { connect: { id: item.productId } } } : {}),
               description: item.description,
               // Satır açıklaması faturaya AYNI alanda taşınır (description'a

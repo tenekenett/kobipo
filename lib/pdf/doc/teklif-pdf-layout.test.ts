@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest"
 import { renderTeklifPdf, type TeklifPdfData } from "@/lib/pdf/documents/teklif-document"
 import { extractTextRuns, findOverflows, ptToMm } from "@/lib/pdf/doc/extract-text-runs"
+import { CONTENT_WIDTH } from "@/lib/pdf/doc/page-frame"
 import { PAGE, mm } from "@/lib/pdf/doc/theme"
 
 const LONG_ADDRESS =
@@ -172,6 +173,48 @@ describe("Teklif PDF yerleşimi", () => {
       expect(run, `${v} bulunamadı`).toBeTruthy()
       expect(Math.abs(run!.x + run!.width - rightEdge), `${v} sağ kenarda bitmiyor`).toBeLessThan(2)
     }
+  })
+
+  it("bölüm ayırıcı tabloda başlık+açıklama olarak basılır, kalem numarası kaymaz", async () => {
+    const base = data()
+    const buf = await renderTeklifPdf({
+      ...base,
+      lines: [
+        { ...base.lines[0], isSection: true, description: "MUTFAK BÖLÜMÜ", note: "Zemin kattaki üretim alanı" },
+        base.lines[0],
+        { ...base.lines[0], isSection: true, description: "SALON BÖLÜMÜ", note: null },
+        base.lines[1],
+      ],
+    })
+    const runs = extractTextRuns(buf)
+    const packed = runs.map((r) => r.text).join(" ").replace(/\s/g, "")
+
+    expect(packed).toContain("MUTFAKBÖLÜMÜ")
+    expect(packed).toContain("SALONBÖLÜMÜ")
+    expect(packed).toContain("Zeminkattakiüretimalanı")
+
+    // Sıra numarası KALEMLERİ sayar: iki kalem var, numaralar 1 ve 2 olmalı.
+    // Bölüm de sayılsaydı kalemler 2 ve 4 olurdu. "#" hücreleri tablonun İLK
+    // kolonundadır; rakam başka yerlerde de geçtiği için (adres, tarih) arama o
+    // kolonun x aralığıyla sınırlanır.
+    const firstColEnd = PAGE.paddingHorizontal + (CONTENT_WIDTH * 5) / 101
+    const numbers = runs
+      .filter(
+        (r) =>
+          r.x >= PAGE.paddingHorizontal &&
+          r.x + r.width <= firstColEnd &&
+          /^\d+$/.test(r.text.trim()),
+      )
+      .map((r) => r.text.trim())
+    expect(numbers).toEqual(["1", "2"])
+
+    // Birleşik satır tablonun içinde kalmalı (kolonları aşan metin yok).
+    const overflows = findOverflows(runs, {
+      marginLeft: PAGE.paddingHorizontal,
+      marginRight: PAGE.paddingHorizontal,
+      tolerance: 2,
+    })
+    expect(overflows).toHaveLength(0)
   })
 
   it("kalem tablosunun tutar kolonu tablo içinde kalır", async () => {

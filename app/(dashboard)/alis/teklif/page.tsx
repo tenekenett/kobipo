@@ -34,7 +34,8 @@ import {
   emptyGlobalDiscount,
   emptyQuoteLine,
   globalDiscountPayload,
-  quoteLinePayload,
+  hasPricedItem,
+  quoteItemsPayload,
   round2,
   round6,
   type QuoteGlobalDiscount,
@@ -183,9 +184,9 @@ export default function SatinAlmaTeklifiPage() {
       toast({ title: "Eksik bilgi", description: "Tedarikçi seçin.", variant: "destructive" })
       return
     }
-    const items = lines.map(quoteLinePayload).filter((row) => row.description.length > 0)
+    const items = quoteItemsPayload(lines)
 
-    if (!items.length) {
+    if (!hasPricedItem(items)) {
       toast({ title: "Eksik bilgi", description: "En az bir geçerli kalem girin.", variant: "destructive" })
       return
     }

@@ -57,7 +57,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
     include: {
       customer: { select: { id: true, name: true } },
       supplier: { select: { id: true, name: true } },
-      _count: { select: { items: true } },
+      // "Kalem" sütunu FİYATLI satırları sayar: bölüm ayırıcı gruplama aracıdır,
+      // teklifin kaç kalemden oluştuğu sorusunun cevabı değildir.
+      _count: { select: { items: { where: { kind: { not: "SECTION" } } } } },
     },
     // Tarih (belge günü) çoğunlukla aynı gün olduğundan tek başına sıralama
     // aynı-gün kayıtlarını belirsiz bırakır; ikincil anahtar createdAt (saat dahil)
@@ -91,10 +93,12 @@ export const POST = withApiErrors(async function POST(request: Request) {
   }
   await ensureCompanyWrite(companyId)
 
-  const { normalized, netAmount, vatAmount, totalAmount, globalDiscountRate, globalDiscountAmount } =
+  const { normalized, itemCount, netAmount, vatAmount, totalAmount, globalDiscountRate, globalDiscountAmount } =
     buildQuoteRecord(items, parseGlobalDiscount(globalDiscount) ?? null)
-  if (!normalized.length) {
-    return NextResponse.json({ error: "At least one valid item is required" }, { status: 400 })
+  // Ölçü BÖLÜM AYIRICI DEĞİL, fiyatlı kalemdir: yalnız başlıklardan oluşan bir
+  // teklif tutarsız (0,00) bir belge üretirdi.
+  if (!itemCount) {
+    return NextResponse.json({ error: "En az bir geçerli kalem girin." }, { status: 400 })
   }
   // Sahiplik: cari ve ürünler bu firmanın olmalı (bkz. lib/company/owned.ts).
   await assertOwnedByCompany(companyId, {

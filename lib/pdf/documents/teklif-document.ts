@@ -1,5 +1,5 @@
 import type { Content } from "pdfmake/interfaces"
-import { docTable, type Column } from "@/lib/pdf/doc/items-table"
+import { docTable, type BandRow, type Column } from "@/lib/pdf/doc/items-table"
 import { buildDocDefinition, renderPdf, section } from "@/lib/pdf/doc/page-frame"
 import { partyBox, partyHeader, type PartyLike } from "@/lib/pdf/doc/party-box"
 import { totalsBlock } from "@/lib/pdf/doc/totals"
@@ -16,6 +16,12 @@ import { FS, mm } from "@/lib/pdf/doc/theme"
  */
 
 export type TeklifPdfLine = {
+  /**
+   * BÖLÜM AYIRICI: kalemleri gruplayan başlık satırı. Fiyat kolonları yoktur,
+   * tabloda kolonları birleştiren tek şerit olarak basılır. `description`
+   * başlık, `note` açıklamadır; diğer alanlar okunmaz.
+   */
+  isSection?: boolean
   description: string
   note?: string | null
   quantity: number
@@ -62,11 +68,29 @@ export type TeklifPdfData = {
 // "%20", "%7,5", "%12,25" — fmtNumber hep 2 ondalık basar, sondaki sıfırlar atılır.
 const pct = (n: number) => `%${fmtNumber(n).replace(/,00$/, "").replace(/(,\d)0$/, "$1")}`
 
+/**
+ * Bölüm ayırıcının tablo karşılığı: kolonları birleştiren tek şerit.
+ * Başlıksız bölüm (yalnız açıklama) geçerlidir — o durumda metin açıklamadan
+ * gelir, yoksa belgede boş bir kalın satır kalırdı.
+ */
+function sectionBand(line: TeklifPdfLine): BandRow | null {
+  if (!line.isSection) return null
+  const title = (line.description || "").trim()
+  const note = (line.note || "").trim()
+  return title ? { text: title, sub: note || null } : { text: note }
+}
+
 export function buildTeklifContent(data: TeklifPdfData): Content[] {
   const cur = data.currency || "TRY"
 
+  // Sıra numarası KALEMLERİ sayar: bölüm ayırıcı numara almaz, altındaki kalem
+  // sayacı kaldığı yerden devam eder (aksi halde müşteri "3. kalem" derken
+  // belgede başlığı sayardı).
+  let itemNo = 0
+  const rowNo = data.lines.map((line) => (line.isSection ? "" : String(++itemNo)))
+
   const columns: Column<TeklifPdfLine>[] = [
-    { header: "#", width: 5, align: "center", cell: (_r, i) => String(i + 1) },
+    { header: "#", width: 5, align: "center", cell: (_r, i) => rowNo[i] ?? "" },
     {
       header: "Açıklama",
       width: 38,
@@ -114,7 +138,7 @@ export function buildTeklifContent(data: TeklifPdfData): Content[] {
       columnGap: mm(6),
     },
     section(null, partyBox(data.counterpartyLabel, data.counterparty), mm(6)),
-    section(null, docTable({ columns, rows: data.lines }), mm(5)),
+    section(null, docTable({ columns, rows: data.lines, band: sectionBand }), mm(5)),
     totalsBlock(totalRows(data, cur)),
   ]
 

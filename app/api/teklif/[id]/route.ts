@@ -86,6 +86,11 @@ export const PUT = withApiErrors(async function PUT(
           discountAmount: it.discountAmount != null ? Number(it.discountAmount) : null,
         }))
     const record = buildQuoteRecord(sourceItems, discount)
+    // POST ile aynı ölçü: bölüm ayırıcı kalem SAYILMAZ, yalnız başlıklardan
+    // oluşan bir teklif 0,00 tutarlı bir belgeye dönerdi.
+    if (items?.length && !record.itemCount) {
+      return NextResponse.json({ error: "En az bir geçerli kalem girin." }, { status: 400 })
+    }
     payload = {
       ...payload,
       netAmount: record.netAmount,

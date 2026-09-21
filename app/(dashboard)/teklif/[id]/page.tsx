@@ -27,8 +27,10 @@ import {
   emptyQuoteLine,
   globalDiscountFromQuote,
   globalDiscountPayload,
+  hasPricedItem,
+  isSectionLine,
+  quoteItemsPayload,
   quoteLineFromItem,
-  quoteLinePayload,
   type QuoteGlobalDiscount,
   type QuoteLine,
   type QuoteProduct,
@@ -42,6 +44,8 @@ import { toDateInput } from "@/lib/format"
 
 type QuoteItem = {
   id?: string
+  /** "SECTION" → bölüm ayırıcı (fiyatsız başlık satırı). */
+  kind?: string | null
   productId?: string | null
   description: string
   note?: string | null
@@ -222,13 +226,13 @@ export default function TeklifDetailPage() {
   const canEdit = useCanEditHere()
   const editable = quote && quote.status !== "CONVERTED" && canEdit
 
-  async function save() {
-    if (!quote || !editable) return
-    const items = lines.map(quoteLinePayload).filter((row) => row.description.length > 0)
+  async function save(opts: { silent?: boolean } = {}): Promise<boolean> {
+    if (!quote || !editable) return false
+    const items = quoteItemsPayload(lines)
 
-    if (!items.length) {
+    if (!hasPricedItem(items)) {
       toast({ title: "Eksik bilgi", description: "En az bir geçerli kalem girin.", variant: "destructive" })
-      return
+      return false
     }
 
     setSaving(true)
@@ -249,18 +253,19 @@ export default function TeklifDetailPage() {
         }),
       })
       if (res.ok) {
-        toast({ title: "Kaydedildi" })
+        if (!opts.silent) toast({ title: "Kaydedildi" })
         await load()
-      } else {
-        let message = "Kaydedilemedi"
-        try {
-          const data = await res.json()
-          if (typeof data?.error === "string") message = data.error
-        } catch {
-          /* ignore */
-        }
-        toast({ title: "Hata", description: message, variant: "destructive" })
+        return true
       }
+      let message = "Kaydedilemedi"
+      try {
+        const data = await res.json()
+        if (typeof data?.error === "string") message = data.error
+      } catch {
+        /* ignore */
+      }
+      toast({ title: "Hata", description: message, variant: "destructive" })
+      return false
     } finally {
       setSaving(false)
     }
@@ -273,9 +278,23 @@ export default function TeklifDetailPage() {
 
   async function handleConvertToInvoice() {
     if (!quote || !companyId) return
+    if (!partyId) {
+      toast({
+        title: "Eksik bilgi",
+        description: isPurchase
+          ? "Alış faturası için tedarikçi seçin."
+          : "Satış faturası için müşteri seçin.",
+        variant: "destructive",
+      })
+      return
+    }
     if (!(await confirm({ title: "Faturaya dönüştür", description: "Bu teklifi faturaya dönüştürmek istediğinize emin misiniz? Bu işlem geri alınamaz.", confirmLabel: "Dönüştür" }))) return
     setConverting(true)
     try {
+      // Formdaki müşteri/tedarikçi (ve kalemler) kayda yazılmadan dönüşürse
+      // uç eski kaydı okur: satış teklifinde müşteri seçili görünürken
+      // "tedarikçi seçin" derdi. Dönüşüm geri alınamaz, bu yüzden önce kaydet.
+      if (editable && !(await save({ silent: true }))) return
       const res = await fetch(`/api/teklif/${quote.id}/faturaya-donustur`, { method: "POST" })
       if (!res.ok) {
         let message = "Dönüştürülemedi"
@@ -629,6 +648,20 @@ export default function TeklifDetailPage() {
                 </TableHeader>
                 <TableBody>
                   {quote.items.map((it) => {
+                    // Bölüm ayırıcı: fiyat hücreleri yok, satır tek şerit olur
+                    // (PDF'teki birleşik satırın ekran karşılığı).
+                    if (isSectionLine(it.kind)) {
+                      return (
+                        <TableRow key={it.id || it.description} className="bg-muted/50">
+                          <TableCell colSpan={6}>
+                            <div className="font-semibold">{it.description}</div>
+                            {it.note && (
+                              <div className="whitespace-pre-line text-xs text-muted-foreground">{it.note}</div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    }
                     const discountAmount = Number(it.discountAmount || 0)
                     const discountRate = Number(it.discountRate || 0)
                     return (

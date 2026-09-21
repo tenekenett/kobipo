@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Plus, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Heading, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,12 +12,15 @@ import {
   calcQuoteLineTotals,
   calcQuoteTotals as calcTotals,
   globalDiscountFromRecord,
+  isSectionLine,
   resolveDiscountMode,
   round2,
   type DiscountMode,
+  type QuoteLineKind,
 } from "@/lib/teklif/quote-totals"
 
-export type { DiscountMode }
+export type { DiscountMode, QuoteLineKind }
+export { isSectionLine }
 
 /**
  * Teklif kalem ızgarası — SATIŞ ve SATIN ALMA teklifleri bunu paylaşır.
@@ -28,9 +31,21 @@ export type { DiscountMode }
  * TEK bir başlık satırı var ve satırlar onunla aynı grid şablonunu kullanıyor —
  * etiket sarması hizayı bozamaz. Mobilde başlık gizlenir, her hücre kendi küçük
  * etiketini taşır.
+ *
+ * Izgarada iki tür satır var: fiyatlı KALEM ve BÖLÜM AYIRICI (`kind`). Bölüm
+ * şablonun dışında tek şerit olarak çizilir, yalnız başlık + açıklama taşır ve
+ * toplama girmez. Konumlandırmanın tek yolu bölümdeki yukarı/aşağı düğmeleridir:
+ * düğmeler satırı sona ekler, gruplama ancak taşımayla kurulur.
  */
 
 export type QuoteLine = {
+  /**
+   * "ITEM" → fiyatlı kalem. "SECTION" → BÖLÜM AYIRICI: teklifi gruplayan
+   * başlık satırı. Bölümde `description` başlık, `note` açıklamadır; fiyat
+   * alanları taşınır ama hiçbir yerde okunmaz (hesap `quote-totals.ts`te
+   * sıfırlar, kayıt `quote-record.ts`te sıfır yazar).
+   */
+  kind: QuoteLineKind
   productId: string
   description: string
   /** Satır açıklaması — ürün adının altına basılır (PDF dahil), opsiyonel. */
@@ -50,6 +65,7 @@ export type QuoteLine = {
 }
 
 export const emptyQuoteLine = (): QuoteLine => ({
+  kind: "ITEM",
   productId: "",
   description: "",
   note: "",
@@ -61,6 +77,15 @@ export const emptyQuoteLine = (): QuoteLine => ({
   refPrice: "",
 })
 
+/** Bölüm ayırıcı satırı — fiyat alanları sıfırdır, hiçbiri ekranda gösterilmez. */
+export const emptySectionLine = (): QuoteLine => ({
+  ...emptyQuoteLine(),
+  kind: "SECTION",
+  quantity: "0",
+  unitPrice: "0",
+  vatRate: "0",
+})
+
 /** Genel (teklif altı) iskonto — ekran durumu. Boş değer = iskonto yok. */
 export type QuoteGlobalDiscount = { mode: DiscountMode; value: string }
 
@@ -68,6 +93,7 @@ export const emptyGlobalDiscount = (): QuoteGlobalDiscount => ({ mode: "PERCENT"
 
 /** Kayıttan okunan kalem → düzenleyici satırı. */
 export function quoteLineFromItem(item: {
+  kind?: string | null
   productId?: string | null
   product?: { id: string } | null
   description?: string | null
@@ -81,6 +107,7 @@ export function quoteLineFromItem(item: {
   const mode = resolveDiscountMode(null, item.discountRate, item.discountAmount)
   const n = (v: number | string | null | undefined) => Number(v) || 0
   return {
+    kind: isSectionLine(item.kind) ? "SECTION" : "ITEM",
     productId: item.productId || item.product?.id || "",
     description: item.description || "",
     note: item.note || "",
@@ -102,10 +129,27 @@ export function globalDiscountFromQuote(quote: {
   return d ? { mode: d.mode, value: String(d.value) } : emptyGlobalDiscount()
 }
 
-/** Düzenleyici satırı → API kalemi. Üç teklif ekranı da bunu gönderir. */
+/** Düzenleyici satırı → API kalemi. */
 export function quoteLinePayload(row: QuoteLine) {
+  if (row.kind === "SECTION") {
+    // Başlıksız ("Kalem") geri düşme YOK: bölüm yalnız açıklamadan da ibaret
+    // olabilir ve uydurulmuş bir başlık belgeye o hâliyle basılırdı.
+    return {
+      kind: "SECTION" as const,
+      productId: null,
+      description: row.description.trim(),
+      note: row.note.trim() || null,
+      quantity: 0,
+      unitPrice: 0,
+      vatRate: 0,
+      discountMode: "PERCENT" as DiscountMode,
+      discountRate: 0,
+      discountAmount: 0,
+    }
+  }
   const value = Number(row.discount || 0)
   return {
+    kind: "ITEM" as const,
     productId: row.productId || null,
     description: row.description.trim() || "Kalem",
     note: row.note.trim() || null,
@@ -116,6 +160,25 @@ export function quoteLinePayload(row: QuoteLine) {
     discountRate: row.discountMode === "PERCENT" ? value : 0,
     discountAmount: row.discountMode === "AMOUNT" ? value : 0,
   }
+}
+
+/**
+ * Düzenleyici satırları → API kalem dizisi. Üç teklif ekranı da bunu gönderir.
+ *
+ * Boş satır ELEME KURALI burada: fiyatlı kalem adsız olamaz (düzenleyicide her
+ * zaman duran boş satır kaydedilmesin), bölüm ayırıcıda başlık ya da açıklamadan
+ * biri yeterlidir. Üç ekran da bu süzgeci ayrı ayrı `description.length > 0`
+ * olarak yazıyordu; bölüm satırı o kuralla sessizce düşerdi.
+ */
+export function quoteItemsPayload(lines: QuoteLine[]) {
+  return lines
+    .map(quoteLinePayload)
+    .filter((row) => (row.kind === "SECTION" ? Boolean(row.description || row.note) : row.description.length > 0))
+}
+
+/** Kaydedilecek FİYATLI kalem var mı — bölüm başlığı tek başına teklif yapmaz. */
+export function hasPricedItem(items: ReturnType<typeof quoteItemsPayload>) {
+  return items.some((row) => row.kind === "ITEM")
 }
 
 /** Genel iskonto → API alanı (`null` = iskonto yok). */
@@ -143,6 +206,7 @@ export { round2 }
 export const round6 = (n: number) => Math.round((Number(n) || 0) * 1_000_000) / 1_000_000
 
 const lineInput = (row: QuoteLine) => ({
+  kind: row.kind,
   quantity: row.quantity,
   unitPrice: row.unitPrice,
   vatRate: row.vatRate,
@@ -306,8 +370,28 @@ export function QuoteLinesEditor({
       ? "Birim maliyet (ortalama alış)"
       : "Ürün kartındaki kayıtlı alış fiyatı"
 
+  // Bölüm ayırıcı silinince altındaki kalemler bir üstteki bölüme geçmeli, bu
+  // yüzden "son satır silinemez" kuralı yalnız FİYATLI kalemler için geçerli:
+  // teklifte her zaman en az bir kalem kalır, bölüm sayısı serbesttir.
+  const itemCount = lines.filter((row) => row.kind !== "SECTION").length
+
   const updateLine = (index: number, patch: Partial<QuoteLine>) => {
     onChange(lines.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  }
+
+  const removeLine = (index: number) => onChange(lines.filter((_, i) => i !== index))
+
+  /**
+   * Satırı bir sıra yukarı/aşağı taşır. Bölüm ayırıcının tek konumlandırma
+   * aracı budur: düğmeler satırı sona ekler, bölüm de kalemlerin arasına ancak
+   * taşınarak girer.
+   */
+  const moveLine = (index: number, delta: -1 | 1) => {
+    const target = index + delta
+    if (target < 0 || target >= lines.length) return
+    const next = [...lines]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    onChange(next)
   }
 
   const applyProductToLine = (index: number, productId: string) => {
@@ -356,17 +440,29 @@ export function QuoteLinesEditor({
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-2">
         {hideLabel ? <span /> : <Label>Kalemler</Label>}
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => onChange([...lines, emptyQuoteLine()])}
-        >
-          <Plus className="mr-1 h-3 w-3" />
-          Satır
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onChange([...lines, emptySectionLine()])}
+            title="Bölüm ayırıcı: altındaki kalemleri gruplayan başlık satırı (fiyatı yoktur)"
+          >
+            <Heading className="mr-1 h-3 w-3" />
+            Bölüm
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onChange([...lines, emptyQuoteLine()])}
+          >
+            <Plus className="mr-1 h-3 w-3" />
+            Satır
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-md border p-3">
@@ -386,6 +482,72 @@ export function QuoteLinesEditor({
 
         <div className="space-y-3 md:space-y-2">
           {lines.map((row, index) => {
+            // BÖLÜM AYIRICI: ızgara şablonunun tamamen dışında, tek şerit
+            // hâlinde çizilir. Fiyat hücreleri hiç gösterilmez — boş bırakılmış
+            // miktar/KDV kutuları "doldurmam mı gerek?" sorusu doğururdu.
+            if (row.kind === "SECTION") {
+              return (
+                <div
+                  key={index}
+                  className="rounded-md border border-dashed border-primary/40 bg-muted/50 p-2"
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="mt-2.5 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Bölüm
+                    </span>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <Input
+                        value={row.description}
+                        onChange={(e) => updateLine(index, { description: e.target.value })}
+                        placeholder="Bölüm başlığı"
+                        className="h-9 font-medium"
+                      />
+                      <Input
+                        value={row.note}
+                        onChange={(e) => updateLine(index, { note: e.target.value })}
+                        placeholder="Bölüm açıklaması (opsiyonel)"
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="flex shrink-0 items-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-8 text-muted-foreground"
+                        disabled={index === 0}
+                        onClick={() => moveLine(index, -1)}
+                        title="Bölümü yukarı taşı"
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-8 text-muted-foreground"
+                        disabled={index === lines.length - 1}
+                        onClick={() => moveLine(index, 1)}
+                        title="Bölümü aşağı taşı"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-muted-foreground hover:text-destructive"
+                        onClick={() => removeLine(index)}
+                        title="Bölümü sil"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+
             const c = calcQuoteLine(row)
             return (
               <div
@@ -519,8 +681,8 @@ export function QuoteLinesEditor({
                     variant="ghost"
                     size="icon"
                     className="h-9 w-9 text-muted-foreground hover:text-destructive"
-                    disabled={lines.length <= 1}
-                    onClick={() => onChange(lines.filter((_, i) => i !== index))}
+                    disabled={itemCount <= 1}
+                    onClick={() => removeLine(index)}
                     title="Satırı sil"
                   >
                     <Trash2 className="h-4 w-4" />

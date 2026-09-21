@@ -5,6 +5,7 @@ import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyExport } from "@/lib/middleware/company"
 import { renderTeklifPdf } from "@/lib/pdf/documents/teklif-document"
+import { isSectionLine } from "@/lib/teklif/quote-totals"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -83,6 +84,10 @@ export const GET = withApiErrors(async function GET(request: Request, { params }
       counterparty: recipient,
       counterpartyLabel: quote.customer ? "MÜŞTERİ BİLGİLERİ" : "ALICI BİLGİLERİ",
       lines: quote.items.map((item) => ({
+        // Bölüm ayırıcı belgede fiyat hücreleri olmayan tek şerit olarak basılır
+        // (bkz. teklif-document.ts). Belge katmanı teklif alan adlarını bilmesin
+        // diye tip burada boole'a indirgenir.
+        isSection: isSectionLine(item.kind),
         description: item.description,
         note: item.note,
         quantity: Number(item.quantity),

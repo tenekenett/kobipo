@@ -1708,6 +1708,14 @@ model Quote {
 model QuoteItem {
   id             String   @id @default(cuid())
   quoteId        String
+  // SATIR TİPİ. "ITEM" = fiyatlı kalem. "SECTION" = bölüm ayırıcı: teklifi
+  // gruplayan başlık satırı (description = başlık, note = açıklama), fiyatı
+  // YOKTUR ve toplama girmez (lib/teklif/quote-totals.ts → isSectionLine).
+  // Ayrı tabloya alınmadı: sıra kalemlerle İÇ İÇEDİR ve tek `order` ekseninden
+  // okunur; iki tabloya bölünse sıralama iki kaynaktan birleştirilmek zorunda
+  // kalırdı. Faturaya dönüşümde bölüm satırları ATLANIR — GİB belgesinde
+  // fiyatsız kalem yoktur.
+  kind           String   @default("ITEM")
   productId      String?
   description    String
   // Satır açıklaması: ürün adının ALTINA basılan serbest metin (ölçü, teslim
