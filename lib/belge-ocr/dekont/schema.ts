@@ -1,7 +1,8 @@
 /**
  * DEKONT çıkarımı — banka dekontu, havale/EFT/FAST makbuzu, hesap hareketi.
- * Kayıt hedefi: fatura ödemesi (`/api/faturalar/odemeler`); eşleşen açık
- * fatura yoksa kart bunu söyler (faturasız cari tahsilat = C1 kararı, açık).
+ * Kayıt hedefi TEK kasa/banka hareketidir (`/api/finans/transactions`): tutar
+ * seçilen açık faturalara dağıtılır, artan cariye AVANS kalır (C1 kararı,
+ * 2026-09-21). Bkz. `to-payment.ts`.
  */
 
 export type Dekont = {

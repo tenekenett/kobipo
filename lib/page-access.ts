@@ -377,8 +377,13 @@ export const PAGE_API_RULES: PageApiRule[] = [
     // DEĞİL, filtresiz çağrılırsa firmanın tüm hareketlerini döndürür. Sayfa izniyle
     // çözülemez; uç seviyesinde kapsam (ör. zorunlu cariId) gerekir. Kaldırmak yanlış
     // olur: cari detayı kırılır ve kısıt daha da yanıltıcı hâle gelir.
-    pages: ["/finans/hareketler", "/finans/kanallar", "/cari/musteri", "/cari/tedarikci"],
-    writePages: ["/finans/hareketler", "/finans/kanallar"],
+    //
+    // Belge tarama YAZAR: taranan dekont buraya TEK hareket olarak girer ve açık
+    // faturalara dağıtılır (bir dekont = bir banka hareketi; bkz.
+    // lib/belge-ocr/dekont/to-payment.ts). Eskiden fatura başına
+    // /api/faturalar/odemeler çağrılıyordu, o yüzden burada yoktu.
+    pages: ["/finans/hareketler", "/finans/kanallar", "/cari/musteri", "/cari/tedarikci", "/alis/fis-tarama"],
+    writePages: ["/finans/hareketler", "/finans/kanallar", "/alis/fis-tarama"],
   },
   {
     // Jenerik ön ek: finans yazmalarının tamamı /accounts ve /transactions altında,

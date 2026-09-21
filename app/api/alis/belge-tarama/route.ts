@@ -7,7 +7,8 @@
  *
  * KAYIT BURADA YAPILMAZ: onay kartı her türün kendi ucuna gider (fatura →
  * /api/e-donusum/invoices, irsaliye → /api/irsaliye, ödeme →
- * /api/faturalar/odemeler, çek/senet → /api/cek-senet). Bkz. plan §2.
+ * /api/finans/transactions (tek hareket + fatura dağıtımı), çek/senet →
+ * /api/cek-senet). Bkz. plan §2.
  *
  * POST yazma yetkisi + beyaz liste + sayfa sayacı arıyor (fişteki üçlü): her
  * çağrı PARA HARCIYOR. Dosya SAKLANMAZ; `fileSha256` mükerrer izidir.

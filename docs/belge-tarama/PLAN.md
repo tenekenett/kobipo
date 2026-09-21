@@ -24,7 +24,7 @@
 | Kâğıt sevk irsaliyesi | foto | alış irsaliyesi (`Waybill PURCHASE`) → "Teslim alındı" ile stok | yok | 2 |
 | e-Fatura | Mysoft gelen kutusu | alış faturası | **var** (Gelen E-Faturalar) | — |
 | e-İrsaliye (tedarikçiden) | Mysoft | alış irsaliyesi | yok — `/api/e-irsaliye` yalnız GİDEN | sonra |
-| Banka dekontu / havale makbuzu | PDF, foto | fatura ödemesi (`/api/faturalar/odemeler`) | yok | 4 |
+| Banka dekontu / havale makbuzu | PDF, foto | kasa/banka hareketi (`/api/finans/transactions`) + fatura dağıtımı | yok | 4 |
 | Çek / senet | foto | `Check` (`/api/cek-senet`) | model **hazır**, okuma yok | 4 |
 | e-SMM (avukat, mali müşavir, doktor) | PDF | alış faturası + **gelir vergisi stopajı** | model boşluğu: `Invoice` yalnız KDV tevkifatı taşır | 5 |
 | Banka / kredi kartı ekstresi | PDF, Excel | mutabakat / çoklu gider | `/finans/mutabakat` var; okuma yolu incelenmedi | sonra |
@@ -56,7 +56,7 @@ yarısı olarak yazılır (alış oturduktan sonra, aynı şema/kart, farklı he
    şartı ölçüm eşitliğidir.
 2. **Kayıt tek kapıdan.** Belge tarama kendi yazma ucunu AÇMAZ: fatura
    `/api/e-donusum/invoices`, irsaliye `/api/irsaliye`, ödeme
-   `/api/faturalar/odemeler`, çek `/api/cek-senet`. Numara serisi, stok, cari, kota,
+   `/api/finans/transactions`, çek `/api/cek-senet`. Numara serisi, stok, cari, kota,
    muhasebe mantığının ikinci kopyası yok (bkz. `docs/fis-tarama/KAYIT-AKISI.md`).
 3. **Dip toplam yalnız `lib/invoice/document-totals.ts`ten** (`computeInvoiceTotals`);
    fiş `{ receipt: true }` kuralında kalır (CLAUDE.md).
@@ -232,7 +232,7 @@ karşılaştırmada kullanılır.
 |---|---|---|
 | Fatura | `POST /api/e-donusum/invoices` | `type: PURCHASE`, `invoiceType: MANUAL`, `isReceipt: false`, `invoiceNo` belgeden, `dueDate`, kalemler KDV hariç + `discountAmount`, `globalDiscountAmount`, `globalChargeAmount`, `payableRoundingAmount`, `waybillIds` (eşleşen irsaliye), `notes`: ETTN + kaynak. Status DRAFT = ekranda "Kayıtlı". Ödeme fişteki akışla opsiyonel. |
 | İrsaliye | `POST /api/irsaliye` | `type: PURCHASE`, `supplierId` zorunlu, `waybillNo` belgeden, `date`, `deliveryDate`, `carrier`, `vehicleNo`, `driverName`, `deliveryAddress`, kalemler `{productId?, description, quantity, unit}` → DRAFT. Kartta "Teslim alındı" anahtarı → `PUT status: DELIVERED` (stok girer, `stockProcessed`). |
-| Dekont | `POST /api/faturalar/odemeler` | fatura seçiliyse; faturasız cari ödeme **C1 kararına bağlı** (genel denetim 2026-09). |
+| Dekont | `POST /api/finans/transactions` | TEK hareket (dekont bankada tek satırdır); tutar seçilen açık faturalara `lib/cari/odeme-dagit.ts` ile dağıtılır, artan cariye **avans** kalır (C1, 2026-09-21). |
 | Çek | `POST /api/cek-senet` | `direction: GIVEN/RECEIVED` yönden; uç gövdesi Faz 4'te okunur. |
 
 ### 3.9 Ekran
@@ -320,8 +320,11 @@ Migrasyon canlıya `scripts/apply-migration.js` ile, komutu kullanıcı çalış
 
 ### Faz 1 — Alış faturası (kâğıt + e-Arşiv PDF)
 - [x] `fatura/schema.ts` + prompt; **korpus ölçümü bekliyor**
-- [x] `fatura/validate.ts` (§3.7) — birim test YOK (UBL/karekod/pdf/normalize testli)
-- [x] `fatura/to-invoice.ts` (`computeInvoiceTotals`, `payableRoundingAmount`) — birim test YOK
+- [x] `fatura/validate.ts` (§3.7) — birim testli (`validate.test.ts`: taraf, checksum,
+      satır aritmetiği, genel iskontonun KDV'ye dağılımı, dip toplam, karekod çaprazı)
+- [x] `fatura/to-invoice.ts` (`computeInvoiceTotals`, `payableRoundingAmount`) — birim testli
+      (`to-invoice.test.ts`: yön, birim fiyat türetme, %0 KDV uyarısı, KDV'siz ek satırı,
+      kuruş farkı ↔ 50 kuruş eşiği, birim kodu çevrimi)
 - [x] Karekod/XML başlık önceliği; model yalnız kalem
 - [x] `cari_product_aliases` (tedarikçi VE müşteri) + eşleştirme + öğrenme (kartta yapılan eşleme kayıtta yazılır)
 - [x] İrsaliye no → `waybillIds` bağlama
@@ -333,7 +336,8 @@ Migrasyon canlıya `scripts/apply-migration.js` ile, komutu kullanıcı çalış
 
 ### Faz 2 — Alış irsaliyesi
 - [x] `irsaliye/schema.ts` + prompt; **korpus ölçümü bekliyor**
-- [x] `irsaliye/validate.ts`, `to-waybill.ts` — birim test YOK
+- [x] `irsaliye/validate.ts`, `to-waybill.ts` — birim testli (miktarsız satır yazılmaz,
+      ürünle eşleşmeyen satır kaydı kilitlemez, cari zorunlu)
 - [x] `IrsaliyeOnayKarti`; tedarikçi zorunlu kilidi; "Teslim alındı" anahtarı → PUT DELIVERED
 - [x] Ürün eşleşmesi: alias + `trFold`; eşleşmeyen satır uyarısı
 - [x] Page-access: `/api/irsaliye` write += `/alis/fis-tarama`
@@ -346,9 +350,15 @@ Migrasyon canlıya `scripts/apply-migration.js` ile, komutu kullanıcı çalış
 - [x] `docs/fis-tarama/KAYIT-AKISI.md` güncelle (kuyruk kararı değişti)
 
 ### Faz 4 — Dekont → ödeme, çek
-- [ ] C1 kararı (faturasız cari tahsilat) — bu faz ona bağlı
-- [x] `dekont/` şema, denetim (IBAN mod-97, bizim hesap), açık fatura eşleştirme (en eskiden dağıtım); faturasız tahsilat YOK (C1 açık)
+- [x] C1 kararı (faturasız cari tahsilat) — **verildi 2026-09-21: artan tutar cariye AVANS**
+      (var olan yol; `/api/finans/transactions` fazlayı yalnız işlemde bırakıyor)
+- [x] `dekont/` şema, denetim (IBAN mod-97, bizim hesap), açık fatura eşleştirme (en eskiden
+      dağıtım, `lib/cari/odeme-dagit.ts`); açık fatura yoksa tutar avans olarak yazılır
+- [x] Dekont TEK kasa/banka hareketi yazar (önceden fatura başına ayrı ödeme → tek havale
+      N harekete bölünüyordu); page-access `/api/finans/transactions` write += `/alis/fis-tarama`
 - [x] Çek/senet → `/api/cek-senet` (CHECK/PROMISSORY_NOTE, direction keşideci/lehtar'dan)
+- [x] Dekont/çek birim testleri: IBAN mod-97, "bizim hesap" yönü, en eskiden dağıtım ve
+      artan tutar; çekte lehtar VKN'si BASILMAMIŞ alınan çek patlamaz (ölçülmüş regresyon)
 
 ### Faz 5 — Sonrası (her biri ayrı karar)
 - [ ] e-SMM: gelir vergisi stopajı modeli
@@ -434,8 +444,8 @@ bölüm güncellenir.
   (`/api/alis/belge-tarama/saglik`), gerçek e-Arşiv PDF'inde karekod alan adları,
   sınıflandırıcı/fatura/irsaliye/dekont/çek prompt'ları GERÇEK korpusta —
   bugüne kadar yalnız 3 fiş fotoğrafı ve iki üretilmiş PDF ile koştu.
-  Bilerek yapılmayan: fatura/irsaliye validate ve to-* birim testleri; satış
-  tarafı için "yön" seçimi kartta (aynı şema, farklı hedef).
+  Bilerek yapılmayan: satış tarafı için "yön" seçimi kartta (aynı şema, farklı
+  hedef). (Birim testler 2026-09-21 akşamı yazıldı — aşağı bak.)
 - **2026-09-21 (akşam)** — Migrasyonlar canlıya uygulandı (doğrulandı: RLS açık,
   kısmi tekil indeksler yerinde). Chrome'dan Reypo Medya Ajansı (demo, beyaz
   liste) ile uçtan uca test: sistem kontrolü 5/5 ✓ (yerel); fiş fotoğrafı →
@@ -452,3 +462,35 @@ bölüm güncellenir.
   kayıt sonrası gelen kutusu tazeleme ve dekontta "n/N yazıldı" ilerlemesi.
   Sağlık ucu beyaz listeye bağlandı (süper admin şart değil). Gerçek belgeyle
   hâlâ koşmadı; Vercel ölçümü bekliyor.
+
+- **2026-09-21 (geç)** — Saf kural katmanının birim testleri yazıldı; `npm test`
+  1411 test yeşil. Sekiz dosya: `fatura/validate` + `to-invoice`,
+  `irsaliye/validate` + `to-waybill`, `dekont/validate` + `to-payment`,
+  `cek/validate`, `eslestir/alias`. Testler DAVRANIŞI değil KARARI çiviliyor:
+  genel iskonto KDV matrahına dağıtılır, 50 kuruşun altındaki fark
+  `payableRoundingAmount`a yazılır (üstü ağır uyarıdır), KDV oranı okunamayınca
+  %20 TAHMİN EDİLMEZ (%0 + ağır uyarı), miktarsız irsaliye satırı yazılmaz,
+  ürünle eşleşmeyen satır kaydı KİLİTLEMEZ, dekont en eski faturadan dağıtılır ve
+  artan kaydedilmez, lehtar VKN'si basılmamış alınan çek patlamaz, ürün
+  eşleşmesinde bulanık eşleşme yoktur. Kod DEĞİŞMEDİ — testler mevcut davranışı
+  doğruladı, hata çıkmadı.
+
+- **2026-09-21 (geç, 2)** — **C1 kararı verildi: artan tutar cariye AVANS.** Testleri
+  yazarken çıkan bulgu: dekont kartı seçilen her fatura için ayrı bir
+  `/api/faturalar/odemeler` POST'u atıyordu, yani TEK banka havalesi N kasa hareketine
+  bölünüyordu (uçtan uca testte 28 faturaya dağıtılan dekont 28 hareket yazardı) ve
+  dağıtım kuralının ikinci bir kopyası vardı. Oysa `/api/finans/transactions` tek
+  işlem + çoklu fatura dağıtımını (`lib/cari/odeme-dagit.ts`) zaten yapıyor ve fazlayı
+  işlemde bırakıyor — yani C1'in cevabı ZATEN VAR OLAN yol. Yapılanlar:
+  `dekont/to-payment.ts` → `dekontToIslem` (tek gövde + önizleme dağıtımı + avans),
+  kart tek istek atıyor, kasa/banka seçimi ZORUNLU oldu (uç `accountId` istiyor;
+  "varsayılan Kasa" düşüşü kalktı — dekont banka belgesidir), page-access
+  `/api/finans/transactions` write += `/alis/fis-tarama`, `npm test` 1414 yeşil.
+  **AÇIK KALAN (denetim C1'in raporlama ayağı):** hiç fatura seçilmeyen saf avans
+  işlemi `kar-zarar.ts`/`gelir-gider.ts`'te "diğer gelir" sayılır (`invoicePayments:
+  { none: {} }`), fatura sonradan kesilince çift gelir olur. Kısmi dağıtımda sorun
+  YOK (işlemin bağlı ödemesi var → tamamı hariç tutuluyor). Bu, cari ekranından
+  girilen avansta da aynı; karar ve düzeltme raporlama tarafında.
+
+- Hâlâ açık: Vercel'de raster ölçümü (`/api/alis/belge-tarama/saglik`), gerçek belge
+  korpusu, denetim C1'in raporlama ayağı (yukarı bak).

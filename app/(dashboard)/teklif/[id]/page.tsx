@@ -599,7 +599,7 @@ export default function TeklifDetailPage() {
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Kalemler</CardTitle>
           {editable && (
-            <Button onClick={save} variant="success" size="sm" disabled={saving}>
+            <Button onClick={() => save()} variant="success" size="sm" disabled={saving}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Kaydet
             </Button>
@@ -627,7 +627,7 @@ export default function TeklifDetailPage() {
                 onGlobalDiscountChange={setGlobalDiscount}
               />
               <div className="flex justify-end">
-                <Button onClick={save} variant="success" disabled={saving}>
+                <Button onClick={() => save()} variant="success" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                   Kaydet
                 </Button>

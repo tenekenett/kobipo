@@ -2,11 +2,13 @@
 
 /**
  * Taranan DEKONTUN onay + kayıt kartı — para bize geldiyse TAHSİLAT (müşteri),
- * bizden çıktıysa ÖDEME (tedarikçi). Kayıt `/api/faturalar/odemeler`e, seçilen
- * açık faturalara EN ESKİDEN dağıtılarak gider (dekont/to-payment.ts).
+ * bizden çıktıysa ÖDEME (tedarikçi).
  *
- * Faturasız cari tahsilat BİLEREK yok (C1 kararı açık, genel denetim 2026-09):
- * eşleşen açık fatura yoksa kart bunu söyler ve kayıt yapmaz.
+ * Kayıt TEK istektir: `/api/finans/transactions` bir kasa/banka hareketi yazar
+ * ve seçilen açık faturalara EN ESKİDEN dağıtır (dekont/to-payment.ts →
+ * lib/cari/odeme-dagit.ts). Dekont bankada tek satır olduğu için burada da tek
+ * hareket olmalı; faturalara sığmayan tutar cariye AVANS olarak kalır
+ * (C1 kararı, 2026-09-21).
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react"
@@ -16,11 +18,10 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/use-toast"
 import { WriteAction } from "@/components/dashboard/write-guard"
 import { useAccounts } from "@/lib/swr/use-company-data"
-import { defaultedAccountNote, withAccountNote } from "@/lib/finans/hesapsiz-odeme"
 import { parseTrNumber } from "@/lib/format"
 import type { Dekont } from "@/lib/belge-ocr/dekont/schema"
 import { dekontDenetle, dekontYonu, ibanSade } from "@/lib/belge-ocr/dekont/validate"
-import { dekontToPayments, type AcikFatura } from "@/lib/belge-ocr/dekont/to-payment"
+import { dekontToIslem, type AcikFatura } from "@/lib/belge-ocr/dekont/to-payment"
 import type { NormalBelge } from "@/lib/belge-ocr/sinif/normalize"
 import { Alan, CariSecici, DenetimSeridi, EngelKutusu, KaydedildiKarti, KaynakRozeti, UyariListesi, hedefYaz, metin, mukerrerSor, tl, type MukerrerDurumu } from "./kabuk"
 import { Loader2 } from "lucide-react"
@@ -70,8 +71,7 @@ export function DekontOnayKarti({ scanId, index, dekont, yol, companyId }: { sca
   const [ragmen, setRagmen] = useState(false)
   const [mukerrer, setMukerrer] = useState<MukerrerDurumu | null>(null)
   const [kaydediliyor, setKaydediliyor] = useState(false)
-  const [ilerleme, setIlerleme] = useState<{ yazilan: number; toplam: number } | null>(null)
-  const [kayit, setKayit] = useState<{ adet: number; toplam: number } | null>(null)
+  const [kayit, setKayit] = useState<{ adet: number; toplam: number; avans: number } | null>(null)
   const [hata, setHata] = useState<string | null>(null)
 
   const denetimler = useMemo(() => dekontDenetle(d, { bizimIbanlar }), [d, bizimIbanlar])
@@ -123,12 +123,15 @@ export function DekontOnayKarti({ scanId, index, dekont, yol, companyId }: { sca
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cariId, companyId, yon])
 
-  const donusum = useMemo(() => dekontToPayments(d, { companyId, faturalar: acikFaturalar.filter((f) => secili.has(f.id)), accountId }), [d, companyId, acikFaturalar, secili, accountId])
+  const donusum = useMemo(
+    () => dekontToIslem(d, { companyId, yon, cariId, accountId, faturalar: acikFaturalar.filter((f) => secili.has(f.id)) }),
+    [d, companyId, yon, cariId, accountId, acikFaturalar, secili]
+  )
   const patlayan = denetimler.filter((x) => x.durum === "patladi")
   const agir = donusum.uyarilar.filter((u) => u.agir)
   const mukerrerAnahtari = `${d.referansNo}|${d.islemTarihi}|${d.tutar}`
   const gecerliMukerrer = mukerrer?.sorgu === mukerrerAnahtari ? mukerrer.kayit : null
-  const kaydedilebilir = donusum.odemeler.length > 0 && (!(patlayan.length || agir.length || gecerliMukerrer) || ragmen) && !kaydediliyor
+  const kaydedilebilir = !!donusum.body && (!(patlayan.length || agir.length || gecerliMukerrer) || ragmen) && !kaydediliyor
 
   const kaydet = useCallback(async () => {
     setKaydediliyor(true)
@@ -143,38 +146,34 @@ export function DekontOnayKarti({ scanId, index, dekont, yol, companyId }: { sca
           return
         }
       }
-      let adet = 0
-      let toplam = 0
-      let sonId: string | null = null
-      const notlar: string[] = []
-      setIlerleme({ yazilan: 0, toplam: donusum.odemeler.length })
-      for (const o of donusum.odemeler) {
-        const r = await fetch("/api/faturalar/odemeler", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(o) })
-        const j = await r.json().catch(() => ({}))
-        if (!r.ok) {
-          // Yarım kalan dağıtım GİZLENMEZ: kaç fatura yazıldı, hangisi reddedildi söylenir.
-          throw new Error(`${adet} ödeme yazıldı, sonraki reddedildi: ${j?.error || "bilinmeyen hata"}`)
-        }
-        adet++
-        toplam += o.amount
-        sonId = j?.id ?? sonId
-        setIlerleme({ yazilan: adet, toplam: donusum.odemeler.length })
-        const n = defaultedAccountNote([j])
-        if (n) notlar.push(n)
-      }
-      setKayit({ adet, toplam })
-      if (sonId) await hedefYaz(scanId, index, "PAYMENT", sonId, d.referansNo)
-      if (notlar.length) void mutateAccounts()
-      toast({ title: yon === "TAHSILAT" ? "Tahsilat kaydedildi" : "Ödeme kaydedildi", description: withAccountNote(`${adet} fatura · ${tl(toplam)}`, notlar[0] ?? null) })
+      if (!donusum.body) throw new Error("Kayıt için eksik bilgi var")
+      // TEK istek: bir dekont = bir kasa/banka hareketi. Faturalara dağıtımı ve
+      // artan tutarın avans kalmasını uç yapar (lib/cari/odeme-dagit.ts).
+      const r = await fetch("/api/finans/transactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(donusum.body) })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(j?.error || "Kayıt reddedildi")
+      const adet = donusum.dagitim.length
+      setKayit({ adet, toplam: donusum.body.amount, avans: donusum.avans })
+      if (j?.id) await hedefYaz(scanId, index, "PAYMENT", String(j.id), d.referansNo)
+      void mutateAccounts()
+      toast({
+        title: yon === "TAHSILAT" ? "Tahsilat kaydedildi" : "Ödeme kaydedildi",
+        description: `${adet ? `${adet} fatura · ` : ""}${tl(donusum.body.amount)}${donusum.avans > 0 ? ` · ${tl(donusum.avans)} avans` : ""}`,
+      })
     } catch (e: any) {
       setHata(e?.message || "Beklenmeyen hata")
     } finally {
       setKaydediliyor(false)
-      setIlerleme(null)
     }
-  }, [gecerliMukerrer, ragmen, companyId, d, mukerrerAnahtari, donusum.odemeler, scanId, index, mutateAccounts, toast, yon])
+  }, [gecerliMukerrer, ragmen, companyId, d, mukerrerAnahtari, donusum.body, donusum.dagitim.length, donusum.avans, scanId, index, mutateAccounts, toast, yon])
 
-  if (kayit) return <KaydedildiKarti baslik={`${index + 1}. Dekont · ${karsiAd || ""}`} aciklama={`${kayit.adet} faturaya ${yon === "TAHSILAT" ? "tahsilat" : "ödeme"} yazıldı — ${tl(kayit.toplam)}`} />
+  if (kayit)
+    return (
+      <KaydedildiKarti
+        baslik={`${index + 1}. Dekont · ${karsiAd || ""}`}
+        aciklama={`${tl(kayit.toplam)} ${yon === "TAHSILAT" ? "tahsilat" : "ödeme"} yazıldı${kayit.adet ? ` — ${kayit.adet} faturaya dağıtıldı` : ""}${kayit.avans > 0 ? `, ${tl(kayit.avans)} cariye avans kaldı` : ""}`}
+      />
+    )
 
   const engelVar = patlayan.length > 0 || agir.length > 0 || !!gecerliMukerrer
   return (
@@ -218,7 +217,7 @@ export function DekontOnayKarti({ scanId, index, dekont, yol, companyId }: { sca
           <div className="rounded-md border border-kobipo-border p-3 text-sm">
             <div className="mb-1 text-xs font-medium text-muted-foreground">Açık faturalar — dekont seçilenlere en eskiden dağıtılır</div>
             {acikFaturalar.length === 0 ? (
-              <p className="text-xs text-amber-800">Bu carinin açık faturası yok. Faturasız cari tahsilatı bu ekrandan yazılmıyor; kaydı Cari ekranından yapın.</p>
+              <p className="text-xs text-muted-foreground">Bu carinin açık faturası yok — tutarın tamamı cariye <strong>avans</strong> olarak yazılır.</p>
             ) : (
               acikFaturalar.map((f) => (
                 <label key={f.id} className="flex items-center justify-between gap-2 py-0.5 text-xs">
@@ -230,18 +229,18 @@ export function DekontOnayKarti({ scanId, index, dekont, yol, companyId }: { sca
                 </label>
               ))
             )}
-            {donusum.odemeler.length > 0 && (
+            {donusum.dagitim.length > 0 && (
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Dağıtım: {donusum.odemeler.map((o) => `${acikFaturalar.find((f) => f.id === o.invoiceId)?.invoiceNo ?? "?"} ${tl(o.amount)}`).join(" · ")}
-                {donusum.artan > 0 ? ` · artan ${tl(donusum.artan)}` : ""}
+                Dağıtım: {donusum.dagitim.map((o) => `${o.invoiceNo || "?"} ${tl(o.amount)}`).join(" · ")}
+                {donusum.avans > 0 ? ` · avans ${tl(donusum.avans)}` : ""}
               </p>
             )}
           </div>
         )}
 
-        <Alan etiket="Kasa / banka" className="w-64">
+        <Alan etiket="Kasa / banka (zorunlu)" className="w-64">
           <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="h-9 w-full rounded-md border border-kobipo-border bg-background px-2 text-sm">
-            <option value="">— varsayılan —</option>
+            <option value="">— seçin —</option>
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>{a.name}</option>
             ))}
@@ -251,11 +250,11 @@ export function DekontOnayKarti({ scanId, index, dekont, yol, companyId }: { sca
         <UyariListesi uyarilar={donusum.uyarilar} />
         {hata && <p className="rounded-md bg-red-50 p-2 text-sm text-red-700 dark:bg-red-500/15 dark:text-red-300">{hata}</p>}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
-          <EngelKutusu patlayan={patlayan.length} agir={agir.length} mukerrer={gecerliMukerrer ? <>Aynı ödeme kayıtlı görünüyor ({gecerliMukerrer.anahtar}): {gecerliMukerrer.no ?? gecerliMukerrer.id} · {tl(gecerliMukerrer.total)}</> : null} ragmen={ragmen} onRagmen={setRagmen} aciklama={<>Denetimler tutuyor. {donusum.odemeler.length} faturaya <strong>{yon === "TAHSILAT" ? "tahsilat" : "ödeme"}</strong> yazılır.</>} />
+          <EngelKutusu patlayan={patlayan.length} agir={agir.length} mukerrer={gecerliMukerrer ? <>Aynı ödeme kayıtlı görünüyor ({gecerliMukerrer.anahtar}): {gecerliMukerrer.no ?? gecerliMukerrer.id} · {tl(gecerliMukerrer.total)}</> : null} ragmen={ragmen} onRagmen={setRagmen} aciklama={<>Denetimler tutuyor. Tek {yon === "TAHSILAT" ? "tahsilat" : "ödeme"} hareketi yazılır{donusum.dagitim.length ? <>, <strong>{donusum.dagitim.length}</strong> faturaya dağıtılır</> : null}{donusum.avans > 0 ? <>, {tl(donusum.avans)} cariye <strong>avans</strong> kalır</> : null}.</>} />
           <WriteAction>
             <Button onClick={kaydet} disabled={!kaydedilebilir}>
               {kaydediliyor && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {ilerleme ? `${ilerleme.yazilan}/${ilerleme.toplam} yazıldı…` : yon === "TAHSILAT" ? "Tahsilat olarak kaydet" : "Ödeme olarak kaydet"}
+              {yon === "TAHSILAT" ? "Tahsilat olarak kaydet" : "Ödeme olarak kaydet"}
             </Button>
           </WriteAction>
         </div>
