@@ -98,6 +98,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/restoran/adisyonlar": ClipboardList,
   "/restoran/satis": CupSoda,
   "/restoran/menu": ChefHat,
+  "/restoran/menu-tarama": ScanLine,
   "/restoran/kontrol-listesi": ListChecks,
   "/restoran/raporlar": BarChart3,
 

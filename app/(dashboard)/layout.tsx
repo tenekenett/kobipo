@@ -1,4 +1,5 @@
 import { fisTaramaAcikMi } from "@/lib/fis-ocr/access"
+import { menuTaramaAcikMi } from "@/lib/menu-ocr/access"
 import { asistanAcikMi } from "@/lib/asistan/erisim"
 import { AsistanPanel } from "@/components/asistan/asistan-panel"
 import { redirect } from "next/navigation"
@@ -80,6 +81,8 @@ export default async function DashboardLayout({
     isFisTaramaEnabled: fisTaramaAcikMi({ id: entry.companyId, slug: entry.companySlug }),
     // Asistan da aynı desende: beyaz liste SUNUCUDA çözülür, istemciye yalnız boolean gider.
     isAsistanEnabled: asistanAcikMi({ id: entry.companyId, slug: entry.companySlug }),
+    // Menü tarama: belge taramadan AYRI beyaz liste (kafe ≠ e-fatura müşterisi).
+    isMenuTaramaEnabled: menuTaramaAcikMi({ id: entry.companyId, slug: entry.companySlug }),
     disabledModules: entry.disabledModules,
     // Çalışma düzeni menüyü etkiler; ilk render'da da doğru olsun diye sunucudan gelir.
     workScheduleMode: entry.workScheduleMode ?? null,

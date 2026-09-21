@@ -775,6 +775,37 @@ describe("belge tarama → finans/transactions yazma kapısı", () => {
   })
 })
 
+describe("menü tarama → ürün ve seçenek grubu yazma kapısı", () => {
+  // Menü tarama ürünü /api/stok/products'a, varyantı /api/restoran/urun-secenekleri'ne
+  // yazar (docs/menu-tarama/PLAN.md §2 madde 3: ürün oluşturma mantığının ikinci
+  // kopyası yok). Uçlar başka sayfaların olduğu için İZİN de buraya bağlanmalıydı;
+  // bağlanmasaydı sayfası açık olan kısıtlı çalışan menüyü okur, kaydedemez, 403 yerdi.
+  const MENU = "/restoran/menu-tarama"
+
+  it("menü tarama yazma izni olan kısıtlı üye ürün, seçenek grubu ve oturum izi yazabilir", () => {
+    const perms = restricted("CUSTOM", [MENU], [MENU])
+    expect(isApiPathAllowedForUser("/api/stok/products", "POST", perms)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/stok/products/abc", "PATCH", perms)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/restoran/urun-secenekleri", "POST", perms)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/restoran/menu-tarama", "POST", perms)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/restoran/menu-tarama/oturum/x", "PATCH", perms)).toBe(true)
+  })
+
+  it("sayfayı yalnız GÖREN üye okur ama yazamaz (para harcayan POST dahil)", () => {
+    const perms = restricted("CUSTOM", [MENU], [])
+    expect(isApiPathAllowedForUser("/api/restoran/menu-tarama", "GET", perms)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/restoran/menu-tarama", "POST", perms)).toBe(false)
+    expect(isApiPathAllowedForUser("/api/stok/products", "POST", perms)).toBe(false)
+    expect(isApiPathAllowedForUser("/api/restoran/urun-secenekleri", "POST", perms)).toBe(false)
+  })
+
+  it("menü tarama izni OLMAYAN üye bu uçlardan yazamaz", () => {
+    const perms = restricted("CUSTOM", ["/restoran/satis"], ["/restoran/satis"])
+    expect(isApiPathAllowedForUser("/api/restoran/menu-tarama", "POST", perms)).toBe(false)
+    expect(isApiPathAllowedForUser("/api/stok/products", "POST", perms)).toBe(false)
+  })
+})
+
 describe("sanitizePagePermissions — kaydetme", () => {
   it("rolde olmayan sayfayı yazmaz (arayüz atlansa bile)", () => {
     const result = sanitizePagePermissions("SALES", ["/cari/musteri", "/personel/maas"], [])

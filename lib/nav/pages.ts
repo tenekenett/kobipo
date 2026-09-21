@@ -83,6 +83,9 @@ export const NAV_PAGES: NavPageDef[] = [
   { href: "/restoran/adisyonlar", label: "Adisyonlar", roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/restoran/satis", label: "Kahveci Satış", roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/restoran/menu", label: "Menü & Reçeteler", roles: ["ADMIN", BM, "STOCK", "ACCOUNTANT"] },
+  // Basılı menünün fotoğrafı/PDF'i → satılabilir ürün (docs/menu-tarama/PLAN.md).
+  // DENEME sayfası: MENU_TARAMA_COMPANIES beyaz listesi (belge taramadan AYRI).
+  { href: "/restoran/menu-tarama", label: "Menü Tarama", roles: ["ADMIN", BM, "STOCK", "ACCOUNTANT"] },
   // Açılış/kapanış listesini KURAN ve uyumu ÖLÇEN ekran → patron/müdür. Personel
   // maddeleri buradan değil, satış ekranındaki uyarı şeridinden onaylar; o yüzden
   // SALES bu sayfayı görmez ama tik atmaya devam eder.
@@ -213,6 +216,7 @@ export const NAV_GROUPS: Array<{ title: string; hrefs: string[] }> = [
       "/restoran/adisyon",
       "/restoran/satis",
       "/restoran/menu",
+      "/restoran/menu-tarama",
       "/restoran/kontrol-listesi",
       "/restoran/raporlar",
     ],
@@ -405,7 +409,30 @@ export function navPage(href: string): NavPageDef | undefined {
  *
  * Buradaki gizleme KOZMETİK: gerçek kapı, parayı harcayan uçta.
  */
-export const DENEME_PAGES: string[] = ["/alis/fis-tarama"]
+export const DENEME_PAGES: string[] = ["/alis/fis-tarama", "/restoran/menu-tarama"]
+
+/**
+ * Deneme sayfası → firmanın hangi bayrağı onu açar. Her denemenin KENDİ beyaz
+ * listesi var (belge tarama ≠ menü tarama: kafe müşterisi ile e-fatura müşterisi
+ * aynı küme değil — plan §3.12, karar G). Kenar çubuğu ve menü araması aynı
+ * fonksiyondan geçer; biri bayrağı karıştırırsa sayfa yanlış firmada görünür.
+ */
+export type DenemeBayragi = "isFisTaramaEnabled" | "isMenuTaramaEnabled"
+export const DENEME_PAGE_FLAG: Record<string, DenemeBayragi> = {
+  "/alis/fis-tarama": "isFisTaramaEnabled",
+  "/restoran/menu-tarama": "isMenuTaramaEnabled",
+}
+
+/** Deneme sayfası mı ve bu firmada açık mı? Deneme değilse `true` (süzmez). */
+export function denemeSayfasiAcikMi(
+  href: string,
+  company: Partial<Record<DenemeBayragi, boolean>> | null | undefined
+): boolean {
+  const bayrak = DENEME_PAGE_FLAG[href]
+  if (!bayrak) return true
+  // Bayrak AÇIKÇA true değilse gizli (firma seçilmemişken de) — fail-closed.
+  return company?.[bayrak] === true
+}
 
 /**
  * Vardiya takvimi sayfaları — firma SHIFT ya da MIXED düzenindeyse görünür.

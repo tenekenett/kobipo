@@ -14,7 +14,7 @@ import { useDashboardCompany, useVisiblePages } from "@/components/dashboard/das
 import { withCompanyHref } from "@/lib/company/href"
 import { useSidebar } from "@/components/dashboard/sidebar-provider"
 import { landingPathFor } from "@/lib/page-access"
-import { DENEME_PAGES, E_DONUSUM_PAGES, hiddenByShiftMode, moduleKeyForPath } from "@/lib/nav/pages"
+import { E_DONUSUM_PAGES, denemeSayfasiAcikMi, hiddenByShiftMode, moduleKeyForPath } from "@/lib/nav/pages"
 export function DashboardNav() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -51,7 +51,9 @@ export function DashboardNav() {
   // `visibleHrefs` zaten rol matrisinin izin listesiyle kesişimi (lib/page-access.ts),
   // yani rol kontrolü burada ikinci kez yapılmaz.
   const eDonusumEnabled = Boolean(selectedCompany?.isEDonusumEnabled)
-  const denemeAcik = selectedCompany?.isFisTaramaEnabled === true
+  // Deneme sayfaları (belge tarama, menü tarama): her birinin kendi bayrağı var.
+  const fisTaramaAcik = selectedCompany?.isFisTaramaEnabled
+  const menuTaramaAcik = selectedCompany?.isMenuTaramaEnabled
   // Vardiya ↔ devam takvimi: firmanın çalışma düzeni hangisinin (karma işletmede
   // ikisinin birden) çizileceğini belirler.
   const workScheduleMode = selectedCompany?.workScheduleMode ?? null
@@ -66,14 +68,14 @@ export function DashboardNav() {
       // kapalıyken de menüde duruyordu. Liste artık tek kaynaktan geliyor.
       if (!eDonusumEnabled && E_DONUSUM_PAGES.includes(item.href)) return false
       // Deneme sayfası: bayrak AÇIKÇA true değilse gizli (firma seçilmemişken de).
-      if (DENEME_PAGES.includes(item.href) && !denemeAcik) return false
+      if (!denemeSayfasiAcikMi(item.href, { isFisTaramaEnabled: fisTaramaAcik, isMenuTaramaEnabled: menuTaramaAcik })) return false
       // Çalışma düzeni: tek düze firmada vardiya takvimi, vardiyalı firmada devam
       // takvimi menüden düşer; KARMA firmada ikisi de kalır. Cevap verilmemişse
       // (null) bugünkü davranış korunur — kurulum penceresi soruyu zaten sorar.
       if (hiddenByShiftMode(item.href, workScheduleMode)) return false
       return visible.has(item.href)
     })
-  }, [denemeAcik, eDonusumEnabled, workScheduleMode, visibleHrefs])
+  }, [fisTaramaAcik, menuTaramaAcik, eDonusumEnabled, workScheduleMode, visibleHrefs])
 
   // Firma için kapalı modüllerin nav gruplarını gizle.
   //

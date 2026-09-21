@@ -2414,6 +2414,11 @@ model DocumentScan {
   companyId      String
   /// UPLOAD (ekrandan). EMAIL Faz 5.
   source         String   @default("UPLOAD")
+  /// BELGE (alış gelen kutusu) | MENU (kafe menüsü → ürün; lib/menu-ocr). Süzülmezse
+  /// menü taramaları alış kutusunda görünür.
+  kind           String   @default("BELGE")
+  /// Çok dosyalı menü oturumu: aynı menünün sayfaları tek sessionId taşır.
+  sessionId      String?
   fileName       String
   mimeType       String
   pageCount      Int      @default(1)
@@ -2438,6 +2443,8 @@ model DocumentScan {
 
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, fileSha256])
+  @@index([companyId, kind, createdAt(sort: Desc)])
+  @@index([sessionId])
   @@map("document_scans")
 }
 

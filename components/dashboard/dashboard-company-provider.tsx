@@ -24,6 +24,8 @@ export type DashboardCompany = {
   isFisTaramaEnabled?: boolean
   /** İşletme asistanı denemesine dahil mi? Sunucuda ASISTAN_COMPANIES'ten çözülür. */
   isAsistanEnabled?: boolean
+  /** Menü Tarama denemesine dahil mi? Sunucuda MENU_TARAMA_COMPANIES'ten çözülür. */
+  isMenuTaramaEnabled?: boolean
   disabledModules?: string[]
   /**
    * Çalışma düzeni: SHIFT | FLAT | MIXED. null = personel modülünün ilk açılışında

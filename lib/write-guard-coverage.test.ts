@@ -47,6 +47,8 @@ const GESTURE_SURFACES: Record<string, string | null> = {
   // Fiş fotoğrafını sürükleyip bırakmak modele çağrı yapar, yani PARA HARCAR.
   // Kapı ekranın kendisinde: useWriteGuard hem sürüklemeyi hem seçmeyi süzer.
   "components/alis/fis-tarama-screen.tsx": "components/alis/fis-tarama-screen.tsx",
+  // Menü sayfasını sürükleyip bırakmak da modele çağrı yapar (para harcar); aynı kapı.
+  "components/restoran/menu-tarama/menu-tarama-screen.tsx": "components/restoran/menu-tarama/menu-tarama-screen.tsx",
 }
 
 /**

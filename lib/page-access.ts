@@ -301,11 +301,14 @@ export const PAGE_API_RULES: PageApiRule[] = [
       ...PURCHASE_DOC_PAGES,
       "/restoran/menu",
       "/restoran/satis",
+      // Menü tarama ürünü BU uçtan yazar (POST yeni ürün, PATCH fiyat / menüden
+      // kaldır) — ürün oluşturma mantığının ikinci kopyası yok (plan §2/3).
+      "/restoran/menu-tarama",
       ...TICKET_PAGES,
       "/raporlar/stok",
       "/ayarlar/sube-bilgileri",
     ],
-    writePages: ["/stok/urunler", "/stok/hizmetler"],
+    writePages: ["/stok/urunler", "/stok/hizmetler", "/restoran/menu-tarama"],
   },
   {
     prefix: "/api/depolar/transfer",
@@ -628,8 +631,16 @@ export const PAGE_API_RULES: PageApiRule[] = [
   },
   {
     prefix: "/api/restoran/urun-secenekleri",
-    pages: ["/restoran/menu", "/restoran/satis", ...TICKET_PAGES],
-    writePages: ["/restoran/menu"],
+    // Menü tarama çok fiyatlı satırı "Boy" seçenek grubuna çevirir (karar A).
+    pages: ["/restoran/menu", "/restoran/satis", "/restoran/menu-tarama", ...TICKET_PAGES],
+    writePages: ["/restoran/menu", "/restoran/menu-tarama"],
+  },
+  {
+    // Menü tarama: POST dosyayı modele okutur (para harcar), GET gelen kutusu,
+    // oturum ucu fark listesi + hedef izi + geri alma. Ürün kaydı /api/stok/products.
+    prefix: "/api/restoran/menu-tarama",
+    pages: ["/restoran/menu-tarama"],
+    writePages: ["/restoran/menu-tarama"],
   },
   {
     prefix: "/api/restoran/recipes",

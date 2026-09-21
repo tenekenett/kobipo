@@ -60,13 +60,15 @@ export const GET = withApiErrors(async function GET(request: Request) {
   // kimse yok). Kutu "okunuyor" diye yalan söylemesin: 3 dk'dan eski READING
   // satırları FAILED'e çekilir, sebep yazılır; kullanıcı dosyayı yeniden yükler.
   await prisma.documentScan.updateMany({
-    where: { companyId, status: "READING", createdAt: { lt: new Date(Date.now() - 3 * 60 * 1000) } },
+    where: { companyId, kind: "BELGE", status: "READING", createdAt: { lt: new Date(Date.now() - 3 * 60 * 1000) } },
     data: { status: "FAILED", error: "Zaman aşımı: okuma 60 sn içinde bitmedi. Dosyayı yeniden yükleyin (büyükse bölün)." },
   })
 
   const durum = sp.get("status")
+  // kind süzgeci: menü taramaları (lib/menu-ocr) aynı tabloda; süzülmezse
+  // kafenin menüsü alış gelen kutusunda "Diğer" diye görünür.
   const rows = await prisma.documentScan.findMany({
-    where: { companyId, ...(durum ? { status: durum } : {}) },
+    where: { companyId, kind: "BELGE", ...(durum ? { status: durum } : {}) },
     orderBy: { createdAt: "desc" },
     take: 100,
     select: {
@@ -137,7 +139,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
     const zorlaTur = typeof zorlaTurHam === "string" && zorlaTurHam ? turNormalize(zorlaTurHam) : null
     if (!force) {
       const onceki = await prisma.documentScan.findFirst({
-        where: { companyId, fileSha256: sha256, status: { in: ["AWAITING_APPROVAL", "SAVED"] } },
+        where: { companyId, kind: "BELGE", fileSha256: sha256, status: { in: ["AWAITING_APPROVAL", "SAVED"] } },
         select: { id: true, status: true, createdAt: true, fileName: true },
         orderBy: { createdAt: "desc" },
       })

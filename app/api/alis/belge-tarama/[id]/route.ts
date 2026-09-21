@@ -25,7 +25,7 @@ export const GET = withApiErrors(async function GET(_request: Request, { params 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { id } = await params
   const row = await prisma.documentScan.findUnique({ where: { id } })
-  if (!row) return NextResponse.json({ error: "Tarama bulunamadı" }, { status: 404 })
+  if (!row || row.kind !== "BELGE") return NextResponse.json({ error: "Tarama bulunamadı" }, { status: 404 })
   await ensureCompanyAccess(row.companyId)
   return NextResponse.json({ ...row, costUsd: row.costUsd == null ? null : Number(row.costUsd) })
 })
@@ -35,7 +35,7 @@ export const PATCH = withApiErrors(async function PATCH(request: Request, { para
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { id } = await params
   const row = await prisma.documentScan.findUnique({ where: { id } })
-  if (!row) return NextResponse.json({ error: "Tarama bulunamadı" }, { status: 404 })
+  if (!row || row.kind !== "BELGE") return NextResponse.json({ error: "Tarama bulunamadı" }, { status: 404 })
   await ensureCompanyWrite(row.companyId)
 
   const body = await request.json().catch(() => ({}))

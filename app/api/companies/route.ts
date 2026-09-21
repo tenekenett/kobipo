@@ -1,4 +1,5 @@
 import { fisTaramaAcikMi } from "@/lib/fis-ocr/access"
+import { menuTaramaAcikMi } from "@/lib/menu-ocr/access"
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { getUserContext } from "@/lib/auth/user-context"
@@ -46,6 +47,7 @@ export async function GET() {
         isEDonusumEnabled: c.isEDonusumEnabled,
         // İstemci listesi ile layout yükü aynı alanları taşımalı.
         isFisTaramaEnabled: fisTaramaAcikMi({ id: c.companyId, slug: c.companySlug }),
+        isMenuTaramaEnabled: menuTaramaAcikMi({ id: c.companyId, slug: c.companySlug }),
         disabledModules: c.disabledModules,
         // Çalışma düzeni: menüde vardiya takvimi mi, devam takvimi mi, ikisi mi
         // duracak. null = personel modülünün ilk açılışında sorulacak.

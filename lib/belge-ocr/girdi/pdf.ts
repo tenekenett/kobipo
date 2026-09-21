@@ -117,15 +117,33 @@ export async function pdfSayfaRaster(
   return sharp(Buffer.from(png as ArrayBuffer)).jpeg({ quality: 85 }).toBuffer()
 }
 
-export async function pdfOku(dosya: Buffer): Promise<PdfOkuma> {
+export type PdfMetin = Pick<PdfOkuma, "sayfaSayisi" | "metin" | "metinKatmaniVar" | "metinKarakter">
+
+/**
+ * Yalnız sayfa sayısı + metin katmanı — ek dosya ve karekod ARANMAZ. Menü
+ * tarama (lib/menu-ocr) bunu kullanır: menüde UBL eki de GİB karekodu da yoktur,
+ * 1. sayfayı 2000 px rasterleyip karekod aramak boşa süre ve bellek olurdu.
+ * `pdfOku` aynı okumayı yapıp üstüne ek/karekod merdivenini ekler.
+ */
+export async function pdfMetinOku(dosya: Buffer): Promise<PdfMetin> {
   const u = await unpdfHazirla()
   const pdf = await u.getDocumentProxy(new Uint8Array(dosya))
-  const sayfaSayisi = pdf.numPages
+  return metinKatmani(u, pdf)
+}
 
+async function metinKatmani(u: Awaited<ReturnType<typeof unpdfHazirla>>, pdf: any): Promise<PdfMetin> {
+  const sayfaSayisi: number = pdf.numPages
   const { text } = await u.extractText(pdf, { mergePages: false })
   const metin = (Array.isArray(text) ? text : [text]).map((t) => String(t ?? ""))
   const metinKarakter = metin.reduce((a, t) => a + anlamliKarakter(t), 0)
   const metinKatmaniVar = sayfaSayisi > 0 && metinKarakter / sayfaSayisi >= METIN_ESIGI
+  return { sayfaSayisi, metin, metinKatmaniVar, metinKarakter }
+}
+
+export async function pdfOku(dosya: Buffer): Promise<PdfOkuma> {
+  const u = await unpdfHazirla()
+  const pdf = await u.getDocumentProxy(new Uint8Array(dosya))
+  const { sayfaSayisi, metin, metinKatmaniVar, metinKarakter } = await metinKatmani(u, pdf)
 
   // pdfjs 6: getAttachments() bir Map döner ve İÇERİK TAŞIMAZ (yalnız ad);
   // bayt için getAttachmentContent(id). Eski paketler nesne + `content` verirdi;

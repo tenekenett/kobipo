@@ -532,13 +532,45 @@ export const PATCH = withApiErrors(async function PATCH(
 
     // Tür bayrakları (lib/stock/product-kind.ts). Menü & Reçeteler ekranındaki
     // tür seçici üçünü BİRLİKTE gönderir — tek tek yazılsaydı ara adımda ürün
-    // hiçbir listede görünmeyen bir duruma düşebilirdi. Fiyat/stok alanlarına
-    // dokunulmaz.
+    // hiçbir listede görünmeyen bir duruma düşebilirdi. Stok alanlarına
+    // dokunulmaz; fiyat yalnız açıkça gönderilirse (aşağıda) yazılır.
     //
     // `isService` de kabul edilmeli: aksi halde "hizmete çevir" isteği sessizce
     // yutulur ve istemci başarılı sanır (yanıt 200, alan değişmemiş).
     for (const field of ["isService", "isSellable", "isIngredient"] as const) {
       if (field in body) data[field] = Boolean(body[field])
+    }
+
+    // Satış fiyatı — Menü Tarama'nın "fiyat değişmiş" satırı buradan yazar
+    // (docs/menu-tarama/PLAN.md §3.9.1): PUT gövdede gelmeyen alış fiyatını,
+    // stoğu ve KDV'yi SIFIRLAR, "yalnız fiyatı güncelle" için uygun değil.
+    // Kısmi güncelleme sözü bozulmaz: yalnız gönderilen alan yazılır.
+    //
+    // `salePriceVatIncluded=true` ise gelen rakam KDV DAHİLDİR ve ürünün oranıyla
+    // (ya da aynı gövdede gelen `vatRate` ile) net'e çevrilir — DB daima net saklar.
+    // Oran DEĞİŞTİRİLMEDEN fiyat gönderilirse ürünün kendi oranı kullanılır: zam
+    // menüsü %20'lik birayı %10 ile net'leyemez (karar B).
+    if ("vatRate" in body) {
+      const oran = Number(body.vatRate)
+      if (!Number.isFinite(oran) || oran < 0 || oran > 100) {
+        return NextResponse.json({ error: "vatRate 0-100 arasında olmalı" }, { status: 400 })
+      }
+      data.vatRate = oran
+    }
+    if ("salePrice" in body) {
+      const raw = body.salePrice
+      if (raw == null || raw === "") {
+        data.salePrice = null
+      } else {
+        const v = Number(raw)
+        if (!Number.isFinite(v) || v < 0) {
+          return NextResponse.json({ error: "salePrice geçersiz" }, { status: 400 })
+        }
+        const dahil = body.salePriceVatIncluded === true
+        const oran = typeof data.vatRate === "number" ? data.vatRate : Number(product.vatRate)
+        data.salePrice = dahil && oran > 0 ? v / (1 + oran / 100) : v
+        data.salePriceVatIncluded = dahil
+      }
     }
 
     // Fotoğraf — Menü & Reçeteler ekranındaki fotoğraf diyaloğu buradan yazar.

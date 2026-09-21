@@ -5,7 +5,8 @@ okunan kalemler onaydan geçerek Restoran & Kafe satış ekranında satılabilir
 ürüne (`Product`, `isSellable=true`) dönüşür. Reçete bu işin parçası DEĞİLDİR;
 kullanıcı sonra kurar (§2, §3.6).
 
-Kod yok. Kararlar §6'da; fazlar §4'te.
+Kararlar §6'da; fazlar §4'te; uygulama sırasında verilen kararlar §6.1'de.
+**Faz 0–3 koda girdi (2026-09-22).** Faz 4 ayrı karar.
 
 ---
 
@@ -293,29 +294,43 @@ fiyat saklanmıyor; kullanıcı menü ekranından düzeltir.
 
 ## 4. Fazlar
 
-### Faz 0 — Zemin
-- [ ] `lib/menu-ocr/` iskeleti; `saglayici`/`girdi` belge-ocr'dan İÇE AKTARILIR
-- [ ] `document_scans` migrasyonu (`kind`, `sessionId`) + indeks + RLS kontrolü
-- [ ] Beyaz liste (`lib/menu-ocr/access.ts`) + nav + `DENEME_PAGES` + page-access
-- [ ] Ölçüm tezgâhı `scripts/ai-menu-test.ts` (şema ikizi YOK, uygulama modülünü import eder)
+### Faz 0 — Zemin ✅ 2026-09-22
+- [x] `lib/menu-ocr/` iskeleti; `saglayici`/`girdi` belge-ocr'dan İÇE AKTARILIR
+      (`girdi/pdf.ts`e hafif `pdfMetinOku` eklendi: menüde karekod/ek aranmaz)
+- [x] `document_scans` migrasyonu `20260922000001_document_scans_menu_kind.sql`
+      (`kind`, `sessionId`, iki indeks; RLS zaten açık). Belge tarama uçları
+      `kind='BELGE'` süzer.
+- [x] Beyaz liste `lib/menu-ocr/access.ts` (`MENU_TARAMA_COMPANIES`); üç deneme
+      listesinin ortak kuralı `lib/deneme/beyaz-liste.ts`e alındı. Nav
+      `/restoran/menu-tarama`, `DENEME_PAGE_FLAG` (sayfa → bayrak), page-access
+      kuralları (`/api/restoran/menu-tarama`; `/api/stok` ve
+      `/api/restoran/urun-secenekleri` write listesine sayfa eklendi).
+- [x] Ölçüm tezgâhı `scripts/ai-menu-test.ts` (uygulama modülünü import eder;
+      `dogru.json` ile kalem+fiyat doğruluğu)
 
-### Faz 1 — Okuma
-- [ ] `menu/schema.ts` + prompt (bölüm/kalem/fiyat/açıklama/KDV notu)
-- [ ] Çok dosyalı oturum, sayfa sayfa okuma, oturum içi tekilleştirme
-- [ ] `menu/validate.ts` (§3.7) + birim testleri — fiş/belge taramada testler
-      sonradan yazıldı; burada BAŞTAN yazılır
+### Faz 1 — Okuma ✅ 2026-09-22
+- [x] `schema.ts` + prompt (bölüm/kalem/fiyat(lar)/açıklama/KDV notu/para birimi)
+- [x] `boru.ts`: dosya → sayfa parçaları → sayfa başına model çağrısı (3 eşzamanlı)
+- [x] `tekillestir.ts`: çok dosyalı oturum, `trFold(ad)` tekilleştirme, bölüm devri
+- [x] `validate.ts` (§3.7) + birim testleri (normalize, tekillestir, validate — 36 test)
 
-### Faz 2 — Eşleştirme ve fark listesi
-- [ ] `trFold` ile mevcut ürün eşleştirme (`lib/import` kuralıyla aynı)
-- [ ] Üç kova + "menüde yok" (yalnız "tamamı" işaretliyse)
-- [ ] KDV/fiyat çevrimi (§3.5) saf modülde + birim testleri
+### Faz 2 — Eşleştirme ve fark listesi ✅ 2026-09-22
+- [x] `eslestir.ts`: `pickMatch` + `trFold` (lib/import kuralıyla AYNI)
+- [x] Dört kova; "menüde yok" yalnız `tamMenu`; hizmet/pasif/gizli ürün sayılmaz
+- [x] `fiyat.ts`: net↔brüt, alkol sözlüğü, varyant → seçenek grubu + testler
+- [x] `GET /api/restoran/menu-tarama/oturum/[sessionId]` fark listesini
+      O ANKİ ürünlere karşı kurar (`?kdv=&tamami=` ile yeniden)
 
-### Faz 3 — Kayıt
-- [ ] Ürün oluşturma (`/api/stok/products`) ve fiyat güncelleme, satır satır onay
-- [ ] Varyant → seçenek grubu (`/api/restoran/urun-secenekleri`)
-- [ ] "Menüden kaldır" (isSellable=false)
-- [ ] Reçetesizlik uyarısı + menü ekranına bağlantı
-- [ ] Geri alma (§3.13)
+### Faz 3 — Kayıt ✅ 2026-09-22
+- [x] Ekran `/restoran/menu-tarama` (`components/restoran/menu-tarama/*`):
+      yükleme kartı, oturum kutusu, fark listesi; satır satır kayıt, n/N ilerleme
+- [x] Ürün oluşturma `POST /api/stok/products` (KDV dahil + `salePriceVatIncluded`)
+- [x] Fiyat güncelleme: §3.9.1'de 1. yol seçildi — `PATCH /api/stok/products/[id]`
+      artık `salePrice` (+`salePriceVatIncluded`) ve `vatRate` kabul ediyor
+- [x] Varyant → `POST /api/restoran/urun-secenekleri` (grup/şık adları kartta düzenlenir)
+- [x] "Menüden kaldır" (`isSellable=false`), varsayılan SEÇİLİ DEĞİL
+- [x] Reçetesizlik uyarısı + Menü & Reçeteler bağlantısı (CompanyLink)
+- [x] Geri alma `POST .../oturum/[sessionId]/geri-al` (§3.13)
 
 ### Faz 4 — Sonrası (ayrı karar)
 - [ ] Menüden ürün görseli kırpma (karar F: şimdilik hayır)
@@ -356,6 +371,21 @@ fiyat saklanmıyor; kullanıcı menü ekranından düzeltir.
 | H | Menüde olmayan ürünler | **Sor + listele** | "tamamı mı?" sorusu; satır satır `isSellable=false` (§3.8) |
 | — | Reçete | **kapsam dışı** | menüden gelen ürün reçetesiz doğar; kart bunu söyler |
 
+### 6.1 Uygulama sırasında verilen kararlar — 2026-09-22
+
+| Konu | Karar | Neden |
+|---|---|---|
+| Hedef izi anahtarı | `trFold(ad)` (menüde-yok için `urun:<id>`), İNDEKS DEĞİL | Oturuma sonradan dosya eklenirse birleşik liste yeniden sıralanır; ad anahtarı değişmez |
+| Hedef izlerinin yeri | Oturumun BAŞ satırı (`createdAt`, sonra `id`) | Oturum düzeyi bilgi tek yerde; `kayit.ts → oturumBasi` |
+| Fark listesi nerede kurulur | SUNUCUDA, her `GET oturum`da | Ürünler değişmiş olabilir; kaydedilenler bir sonraki açılışta AYNI kovasına düşer |
+| Bölüm devri | Başlıksız başlayan sayfa önceki sayfanın son bölümünü alır | Model sayfayı tek görür; "SICAK İÇECEKLER" 2. sayfaya taşar (ölçüldü) |
+| Etiketsiz varyant | Şık adı fiyattan ("110 ₺"), "Orta" UYDURULMAZ; kart "adları düzeltin" der | Veri uydurmayan taraf güvenli taraftır |
+| Sütun kayması sinyali | Aynı fiyat ≥8 ardışık → `olcelemedi` (patlamaz) | Tüm çaylar 40 ₺ de olabilir; zayıf sinyal, insan bakar |
+| "Menüde yok" varsayılanı | SEÇİLİ DEĞİL; yeni/fiyat SEÇİLİ | Kapatmak gerçek hasar, açmak/güncellemek geri alınabilir |
+| Geri almada "kullanılmış" | fatura/adisyon/teklif/sipariş/irsaliye kalemi, stok hareketi, reçete bileşeni | Biri varsa silmek geçmişi koparır; `isSellable=false` yeter |
+| Fiyat güncelleme ucu | §3.9.1 **1. yol**: PATCH'e `salePrice` + `vatRate` | PUT sıfırlıyordu; oran yalnız kullanıcı DEĞİŞTİRDİYSE gider (karar B) |
+| Beyaz liste kodu | `lib/deneme/beyaz-liste.ts` ortak; fiş/asistan/menü env adını bağlar | Üçüncü kopya yazmak yerine kural teke indi; testler yerinde |
+
 ## 7. İlerleme Günlüğü
 
 - **2026-09-21** — Kapsam analizi ve plan yazıldı. Kod yok. Mevcut yapı okundu:
@@ -366,3 +396,38 @@ fiyat saklanmıyor; kullanıcı menü ekranından düzeltir.
   alındı. Plan yazılırken bulunan tuzak: ürün güncellemenin `PUT`'u eksik
   alanları sıfırlıyor, `PATCH`'i fiyatı kabul etmiyor (§3.9.1) — fiyat
   güncellemesinin ucu Faz 3'te seçilecek.
+
+- **2026-09-22** — Faz 0–3 koda girdi (tek oturumda). Ölçüm (`scripts/ai-menu-test.ts`,
+  sentetik 2 sayfalık kafe menüsü, Gemini 3.7 Flash): **15/15 kalem+fiyat doğru**,
+  $0,009, 8,6 sn. Boy grubu (Küçük/Orta/Büyük, 33cl/50cl), alkolde %20 önerisi,
+  sayfalar arası "Çay" tekilleştirmesi, iki kolonlu sayfa ve "120.-"/"₺95"/"180,00"
+  fiyat biçimleri doğru okundu. Bölüm devri ölçüldü: başlıksız 2. sayfa 1. sayfanın
+  son bölümünü aldı (kullanıcı kartta düzeltir). 36 birim testi + guardrail testleri
+  (page-access, write-guard, route-owner, page-api-coverage) geçti. **Canlıya çıkmadan
+  ÖNCE migrasyon uygulanmalı**: `document_scans.kind/sessionId` olmadan belge
+  taramanın `findUnique`i "column does not exist" ile düşer (Prisma tüm kolonları
+  seçer). Gerçek fotoğraf korpusu (eğik/yansımalı/tahta menü) henüz ölçülmedi.
+- **2026-09-22 (gece)** — Migrasyon canlıya uygulandı. Uçlar dev sunucuda GERÇEK DB'ye
+  karşı uçtan uca sınandı (`scripts/test-menu-tarama.mjs --kaydet --geri-al`, reypo):
+  2 dosya → tek oturum, alış kutusuna sızmıyor, 15 YENİ → 15 ürün + 4 Boy grubu
+  (Küçük/Orta/Büyük, 33cl/50cl), net çevrimler ±0,000002, mükerrer hedef 409,
+  tamamla → SAVED, ikinci okumada 15 AYNI, geri-al 15 sildi. Fiyatı bozulan iki
+  ürünle ikinci tur: Latte 77→90 (%10), Çay ürünün KENDİ %20'siyle net 33,33
+  (karar B), geri-al PRICE'a dokunmadı. **Bulunan hata:** oturum GET'te ve POST'ta
+  `Number(sp.get("kdv"))` — param yokken `Number(null)`=0 ve 0 geçerli oran →
+  tüm yeni ürünler %0 ile net=brüt kuruluyordu. `kdvOraniOku` (fiyat.ts) ile
+  düzeltildi, regresyon testi eklendi. Ekran (Chrome) henüz gezilmedi.
+- **2026-09-22 (Chrome turu)** — Ekran gerçek tarayıcıda gezildi (reypo, dev sunucu):
+  menü + sidebar bayrağı, yükleme kartı, mükerrer dosya ("daha önce okunmuş · aç ·
+  yine de oku"), 2 dosya → tek oturum, kart (denetim rozetleri, KDV/tamamı, kova
+  bölümleri, seçenek grubu düzenleme), satır satır kayıt n/N, kaydedilen satırların
+  AYNI kovasına düşüp "Ürün oluşturuldu + Seçenek grubu" rozeti alması, "menüde
+  yok" → isSellable=false, geri alma (ürün silme + menüye geri açma). Kartta yapılan
+  düzenlemeler DB'de doğrulandı: şık adı "Orta Boy", satır bazlı %1 (net 94,059406),
+  işareti kaldırılan Kola yazılmadı. **İki ekran hatası bulunup düzeltildi:**
+  (1) "yine de oku" dosyayı kutudan açık ESKİ oturuma ekliyordu → kuyruğun kendi
+  oturumu (`kuyrukOturumu`) ayrıldı, "listeyi temizle · yeni menü" eklendi;
+  (2) aynı oturuma 2. dosya eklenince açık kart yenilenmiyordu (id aynı) →
+  `yenilemeAnahtari`. Ölçüm notu: dev'de her uç ~2–3 sn (TR → eu-central Supabase);
+  satır başına 2–4 istek olduğu için 14 satır ~80 sn sürdü; canlıda (aynı bölge)
+  beklenen çok daha kısa. Satır başına hedef izi kasıtlı (yarıda kesilirse iz kalır).
