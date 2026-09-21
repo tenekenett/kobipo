@@ -107,8 +107,11 @@ export async function buildCashFlowDataset(params: {
         rows: [
           { label: "Faturalardan tahsilat", amount: report.operatingActivities.collections },
           { label: "Faturalara ödeme (−)", amount: -report.operatingActivities.payments },
-          { label: "Diğer gelirler (faturasız)", amount: report.operatingActivities.otherIncome },
-          { label: "Diğer giderler (faturasız) (−)", amount: -report.operatingActivities.otherExpense },
+          // "avans dahil" EKRANLA aynı: nakit akışı cari avanslarını sayar,
+          // kâr/zarar saymaz (lib/finans/nakit-hareket.ts). Aynı adı taşısalardı
+          // iki dosyada iki farklı rakam açıklamasız kalırdı.
+          { label: "Diğer gelirler (faturasız, avans dahil)", amount: report.operatingActivities.otherIncome },
+          { label: "Diğer giderler (faturasız, avans dahil) (−)", amount: -report.operatingActivities.otherExpense },
         ],
       },
       {

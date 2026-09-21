@@ -453,6 +453,24 @@ export async function buildProfitLossDataset(params: ProfitLossExportParams): Pr
           { label: "NET KÂR / ZARAR", amount: report.netProfit },
         ],
       },
+      // Avanslar EKRANDA da ayrı satır: hiçbir toplama girmez (faturası
+      // kesilince gelir/gider fatura tarafından sayılır), ama dosyada hiç
+      // görünmezse "kasaya giren para raporda yok" sorusu doğar. Yalnız varsa
+      // basılır — avansı olmayan firmaya boş sayfa eklemek gürültüdür.
+      ...(report.advances.income > 0 || report.advances.expense > 0
+        ? [
+            {
+              title: "Cari avansları (toplamlara dahil değil)",
+              sheetName: "Avanslar",
+              columns,
+              totals: null,
+              rows: [
+                { label: "Faturaya bağlanmamış tahsilat", amount: report.advances.income },
+                { label: "Faturaya bağlanmamış ödeme", amount: report.advances.expense },
+              ],
+            },
+          ]
+        : []),
     ],
     generatedAt: new Date(),
   }

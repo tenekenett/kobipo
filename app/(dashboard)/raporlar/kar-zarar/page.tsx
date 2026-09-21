@@ -185,6 +185,24 @@ export default function KarZararPage() {
                     {formatCurrency(report.netProfit)}
                   </TableCell>
                 </TableRow>
+                {/* AVANSLAR — hiçbir toplamda YOK. Cariye bağlı ama faturaya
+                    bağlanmamış tahsilat/ödeme bir avanstır; gelir sayılsaydı
+                    faturası kesildiğinde ciro iki kez sayılırdı. Rakam yine de
+                    yazılır: "diğer gelirim neden düştü" sorusunun cevabı burası. */}
+                {(report.advances?.income > 0 || report.advances?.expense > 0) && (
+                  <TableRow className="border-t-2">
+                    <TableCell className="text-muted-foreground">
+                      Cari avansları
+                      <span className="block text-xs">
+                        Faturaya bağlanmamış tahsilat/ödeme — gelire ve gidere sayılmadı, faturası kesilince sayılır
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground tabular-nums">
+                      {report.advances.income > 0 && <span className="block">tahsilat {formatCurrency(report.advances.income)}</span>}
+                      {report.advances.expense > 0 && <span className="block">ödeme {formatCurrency(report.advances.expense)}</span>}
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           )}

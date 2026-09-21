@@ -93,6 +93,9 @@ async function uninvoicedGroups(
       AND NOT EXISTS (
         SELECT 1 FROM "invoice_payments" p WHERE p."transactionId" = t.id
       )
+      -- Cariye bağlı faturasız hareket AVANStır, gelir/gider değildir
+      -- (lib/finans/nakit-hareket.ts → NO_CARI_WHERE; kâr/zarar ile aynı süzgeç).
+      AND t."customerId" IS NULL AND t."supplierId" IS NULL
     GROUP BY 1, 2
     ORDER BY 1 ASC
   `

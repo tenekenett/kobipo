@@ -100,8 +100,35 @@ export const NOT_TRANSFER_OR_SETTLEMENT_WHERE = {
   ],
 }
 
-// Ham SQL kullanan raporlar (gelir-gider, finansal-ozet) aynı üç öneki satır içi
-// yazar: `reference NOT LIKE 'TRANSFER:%' AND NOT LIKE 'CEK:%' AND NOT LIKE 'SENET:%'`.
+/**
+ * CARİYE BAĞLI ama faturaya bağlanmamış hareket = AVANS / mahsup edilmemiş
+ * tahsilat-ödeme. KASAYA girer, GELİR/GİDER DEĞİLDİR — çek/senet tahsiliyle
+ * (yukarı bak) aynı gerekçe: karşılığı olan fatura kesildiğinde gelir zaten
+ * satış faturasından sayılıyor, burada ikinci kez sayılırsa ciro şişer.
+ *
+ * Canlı ölçüm (2026-09-21, son 12 ay): cariye bağlı faturasız 156 INCOME =
+ * 3.665.025 ₺ ve 33 EXPENSE = 3.079.692 ₺ "Diğer Gelir/Gider" sayılıyordu; tek
+ * bir firmada 2.472.580 ₺ ciro fazlası. Denetim maddesi C1
+ * (`docs/denetim/2026-09-15-GENEL-DENETIM.md`).
+ *
+ * NEREDE DIŞLANIR: kâr/zarar, gelir-gider, harcamalar, finansal özet — yani
+ * KÂRI kuran her rapor. NEREDE SAYILIR: nakit akışı ve kasa bakiyesi; para
+ * gerçekten girip çıkmıştır. Kâr/zarar avans toplamını `advances` alanında
+ * AYRI döndürür: rakam ekrandan kaybolmaz, "gelire sayılmadı" diye yazılır.
+ *
+ * İkisi TAM tümleyendir (biri diğerinin NOT'u): bir hareket ya serbest
+ * gelir/giderdir ya da cari avansıdır. Düz anahtar taşırlar, `OR`/`AND`
+ * taşıyan parçalarla birlikte spread edilebilirler.
+ */
+export const NO_CARI_WHERE = { customerId: null, supplierId: null } as const
+
+/** Yukarıdakinin tümleyeni: cariye bağlı (müşteri VEYA tedarikçi yazılı). */
+export const CARI_ADVANCE_WHERE = { NOT: { customerId: null, supplierId: null } } as const
+
+// Ham SQL kullanan raporlar (gelir-gider, finansal-ozet) aynı üç öneki VE cari
+// koşulunu satır içi yazar: `reference NOT LIKE 'TRANSFER:%' AND NOT LIKE
+// 'CEK:%' AND NOT LIKE 'SENET:%'` + `t."customerId" IS NULL AND t."supplierId"
+// IS NULL`.
 
 /** Bakiyeyi doğrudan değiştirmiş ESKİ fatura ödemeleri (Transaction'sız). */
 export const LEGACY_CASH_PAYMENT_WHERE = {

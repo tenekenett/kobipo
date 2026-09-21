@@ -15,7 +15,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
-import { NOT_TRANSFER_OR_SETTLEMENT_WHERE } from "@/lib/finans/nakit-hareket"
+import { CARI_ADVANCE_WHERE, NOT_TRANSFER_OR_SETTLEMENT_WHERE, NO_CARI_WHERE } from "@/lib/finans/nakit-hareket"
 import { periodWhere, resolvePeriodBounds } from "./date-range"
 
 export type ProfitLossResult = {
@@ -32,6 +32,13 @@ export type ProfitLossResult = {
   /** Faturaya bağlı OLMAYAN gider işlemleri — virman bacakları hariç. */
   otherExpenses: number
   netProfit: number
+  /**
+   * CARİYE bağlı ama faturaya bağlanmamış tahsilat/ödemeler = AVANS. Hiçbir
+   * toplama DAHİL DEĞİLDİR (gelir de gider de sayılmaz); ekranda "gelire
+   * sayılmadı" bilgi satırı olarak gösterilir ki rakam kaybolmasın.
+   * Gerekçe: lib/finans/nakit-hareket.ts → NO_CARI_WHERE.
+   */
+  advances: { income: number; expense: number }
 }
 
 export async function computeProfitLoss(args: {
@@ -44,7 +51,7 @@ export async function computeProfitLoss(args: {
   const date = periodWhere(bounds)
   const postedInvoice = { status: { notIn: ["CANCELLED", "CONVERTED"] }, date }
 
-  const [salesInvoices, purchaseInvoices, otherIncome, otherExpense, salesReturns, purchaseReturns] =
+  const [salesInvoices, purchaseInvoices, otherIncome, otherExpense, cariAdvances, salesReturns, purchaseReturns] =
     await Promise.all([
     // Gelirler (Satış faturaları)
     prisma.invoice.aggregate({
@@ -62,6 +69,10 @@ export async function computeProfitLoss(args: {
     //
     // VİRMAN da hariç: hesaplar arası aktarımın hedef bacağı `type=INCOME`
     // yazılıyor, yani kasadan bankaya para taşımak ciro üretiyordu.
+    //
+    // CARİYE BAĞLI olan da hariç (`NO_CARI_WHERE`): faturaya bağlanmamış ama
+    // müşterisi/tedarikçisi yazılı hareket bir AVANStır, faturası kesilince
+    // ciro ikinci kez sayılırdı. Aşağıda ayrı toplanır.
     prisma.transaction.aggregate({
       where: {
         companyId,
@@ -69,6 +80,7 @@ export async function computeProfitLoss(args: {
         date,
         invoicePayments: { none: {} },
         ...NOT_TRANSFER_OR_SETTLEMENT_WHERE,
+        ...NO_CARI_WHERE,
       },
       _sum: { amount: true },
     }),
@@ -80,6 +92,21 @@ export async function computeProfitLoss(args: {
         date,
         invoicePayments: { none: {} },
         ...NOT_TRANSFER_OR_SETTLEMENT_WHERE,
+        ...NO_CARI_WHERE,
+      },
+      _sum: { amount: true },
+    }),
+    // Cari AVANSLARI — yukarıdaki iki sorgunun tümleyeni. Toplamlara girmez,
+    // yalnız ekranda "gelire sayılmadı" diye gösterilir.
+    prisma.transaction.groupBy({
+      by: ["type"],
+      where: {
+        companyId,
+        type: { in: ["INCOME", "EXPENSE"] },
+        date,
+        invoicePayments: { none: {} },
+        ...NOT_TRANSFER_OR_SETTLEMENT_WHERE,
+        ...CARI_ADVANCE_WHERE,
       },
       _sum: { amount: true },
     }),
@@ -112,6 +139,10 @@ export async function computeProfitLoss(args: {
 
   const grossProfit = revenue.total - purchases.total
   const otherExpenses = Number(otherExpense._sum.amount || 0)
+  const advances = {
+    income: Number(cariAdvances.find((r) => r.type === "INCOME")?._sum.amount || 0),
+    expense: Number(cariAdvances.find((r) => r.type === "EXPENSE")?._sum.amount || 0),
+  }
 
   return {
     // Dönem sonu EKRANDA kapsayıcı gösterilir (sınır dışlayıcıdır).
@@ -124,5 +155,6 @@ export async function computeProfitLoss(args: {
     grossProfit,
     otherExpenses,
     netProfit: grossProfit - otherExpenses,
+    advances,
   }
 }

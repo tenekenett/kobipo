@@ -16,7 +16,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { isPurchaseReturn } from "@/lib/cari/invoice-direction"
-import { NOT_TRANSFER_OR_SETTLEMENT_WHERE } from "@/lib/finans/nakit-hareket"
+import { NOT_TRANSFER_OR_SETTLEMENT_WHERE, NO_CARI_WHERE } from "@/lib/finans/nakit-hareket"
 import { periodWhere, resolvePeriodBounds } from "./date-range"
 import {
   buildBreakdowns,
@@ -156,7 +156,8 @@ export async function computeExpenseReport(args: {
 
     // Faturasız (serbest) giderler. Süzgeç kâr/zarardaki "Diğer Giderler" ile
     // birebir aynı: faturaya bağlı ödeme elenir (çift sayım), virman bacağı
-    // elenir (kendi cebinden cebine para gider değildir).
+    // elenir (kendi cebinden cebine para gider değildir), TEDARİKÇİYE bağlı
+    // ama faturasız ödeme elenir (avans — lib/finans/nakit-hareket.ts).
     prisma.transaction.findMany({
       where: {
         companyId,
@@ -164,6 +165,7 @@ export async function computeExpenseReport(args: {
         date,
         invoicePayments: { none: {} },
         ...NOT_TRANSFER_OR_SETTLEMENT_WHERE,
+        ...NO_CARI_WHERE,
       },
       select: {
         id: true,
@@ -206,6 +208,7 @@ export async function computeExpenseReport(args: {
         date: { gte: previousStart, lt: bounds.start },
         invoicePayments: { none: {} },
         ...NOT_TRANSFER_OR_SETTLEMENT_WHERE,
+        ...NO_CARI_WHERE,
       },
       _sum: { amount: true },
     }),

@@ -165,6 +165,8 @@ async function monthlySeries(companyId: string, until: Date): Promise<OverviewMo
         AND NOT EXISTS (
           SELECT 1 FROM "invoice_payments" p WHERE p."transactionId" = t.id
         )
+        -- Cariye bağlı faturasız hareket AVANStır (bkz. kâr/zarar, gelir-gider).
+        AND t."customerId" IS NULL AND t."supplierId" IS NULL
       GROUP BY 1
       ORDER BY 1 ASC
     `,

@@ -31,7 +31,7 @@ Aşağıdakiler bunun DIŞINDA kalan bulgular. Sıra: önem.
 | C2 çek tahsili | **düzeltildi** — `lib/cek-senet/tahsil.ts`: TAHSİL_EDİLDİ → seçilen kasaya INCOME/EXPENSE (`reference CEK:/SENET:`), cari taşımaz; durum geri alınınca/silinince geri sarılır; kâr-zarar/gelir-gider/harcamalar bu hareketi gelir saymaz; hareket Finans'tan silinemez (409) | tarayıcı: kasa +1500 → geri alınca eski; kâr/zarar "diğer gelir" 0 kaldı; formda hesap alanı |
 | C5 izin | **düzeltildi** — `lib/personel/izin.ts`: çakışan bekleyen/onaylı izin 409 `LEAVE_OVERLAP`; yıllık bakiye aşımı 409 `ANNUAL_BALANCE_EXCEEDED` (ekran sorar, `allowOverdraft`); `days` sunucudan | tarayıcı: days=99 gönderildi → 3; çakışma 409; 2 kalanken 3 gün → 409, onayla → 201 |
 | C9 şube VKN | **düzeltildi** — `lib/company/branch-identity.ts`: şubede VKN/vergi dairesi/e-Dönüşüm alanları 400 `BRANCH_IDENTITY_LOCKED`; ana firmada değişince şubelere yayılır; Firma Bilgileri'nde alanlar kilitli, e-Dönüşüm sayfası ana firmaya yönlendirir | tarayıcı: şube VKN PUT → 400; arayüz kilitli |
-| C1 faturasız tahsilat = gelir | **karar bekliyor** | — |
+| C1 faturasız tahsilat = gelir | **düzeltildi 2026-09-21** — cariye bağlı ama faturaya bağlanmamış hareket AVANS sayılır: `lib/finans/nakit-hareket.ts` → `NO_CARI_WHERE` / `CARI_ADVANCE_WHERE`; kâr-zarar, gelir-gider, harcamalar ve finansal özet gelir/gider saymaz, nakit akışı sayar; kâr/zarar avans toplamını `advances` ile ayrı döndürür, ekran ve dışa aktarım "gelire sayılmadı" satırı basar. Nöbetçi: `lib/raporlar/avans-kapsam.test.ts` | canlı ölçüm: son 12 ayda 156 INCOME = 3.665.025 ₺ + 33 EXPENSE = 3.079.692 ₺ yanlış taraftaydı (tek firmada 2.472.580 ₺ fazla ciro) |
 | C6 bordro 2026 parametreleri | **kullanıcıya bırakıldı** (rakamlar bilinmiyor) | — |
 
 Test verisi Reypo Medya Ajansı'nda oluşturulup silindi; kalan tek iz: 120/600/391
@@ -133,6 +133,14 @@ CANCELLED'ı reddediyor — tutarsız).
   `customerId`li ama faturaya bağlı olmayan INCOME "diğer gelir". Aynı satış için sonra
   fatura kesilince satış da sayılır → **çift gelir**. Avans kavramı yok; en azından
   cari bağlı işlemler "diğer gelir"den dışlanmalı ya da ekranda ayrı satır.
+  → **2026-09-21: ikisi birden yapıldı.** Kâr kuran dört rapor (kâr-zarar, gelir-gider,
+  harcamalar, finansal özet) cari bağlı faturasız hareketi saymaz; nakit akışı ve kasa
+  sayar (para gerçekten girdi). Kâr/zarar avans toplamını `advances` alanında ayrı
+  döndürür, ekranda ve Excel'de "gelire ve gidere sayılmadı" satırı olarak basılır.
+  NOT: bilançonun `netReceivables`ı bu hareketleri hâlâ görmüyor (yalnız fatura −
+  InvoicePayment okuyor), yani avans cari ekstrede bakiyeyi düşürürken bilançoda
+  "alınan avans" yükümlülüğüne DÖNMÜYOR; denge kimliği bozulmuyor (fark öz sermayenin
+  "düzeltmeler" satırında duruyor) ama sınıflandırma eksik — ayrı madde.
 - **C2. Çek/senet tahsili kasaya girmiyor** — `TAHSİL_EDİLDİ`ye geçiş `Transaction`
   yazmaz; banka bakiyesi çeki görmez. Kullanıcı elle yazarsa (cari seçerek) cariye
   ikinci alacak düşer (çek zaten PORTFÖYDE'yken düşmüştü). `status` serbest metin,

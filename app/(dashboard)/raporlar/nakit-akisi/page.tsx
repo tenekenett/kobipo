@@ -154,12 +154,17 @@ export default function NakitAkisiPage() {
                       <TableCell className="pl-8">Faturalara Ödeme</TableCell>
                       <TableCell className="text-right">({formatCurrency(report.operatingActivities.payments)})</TableCell>
                     </TableRow>
+                    {/* ETİKET KÂR/ZARARDAN AYRI: oradaki "Diğer Gelirler" cari
+                        avanslarını DIŞLAR (faturası kesilince ciro iki kez
+                        sayılırdı), burası sayar — para gerçekten girdi. İki
+                        ekranda aynı ada sahip iki farklı rakam, "hangisi doğru"
+                        sorusunu doğurur; ad farkı cevabı satırda verir. */}
                     <TableRow>
-                      <TableCell className="pl-8">Diğer Gelirler (faturasız)</TableCell>
+                      <TableCell className="pl-8">Diğer Gelirler (faturasız, avans dahil)</TableCell>
                       <TableCell className="text-right">{formatCurrency(report.operatingActivities.otherIncome)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell className="pl-8">Diğer Giderler (faturasız)</TableCell>
+                      <TableCell className="pl-8">Diğer Giderler (faturasız, avans dahil)</TableCell>
                       <TableCell className="text-right">({formatCurrency(report.operatingActivities.otherExpense)})</TableCell>
                     </TableRow>
                     <TableRow className="bg-muted/50">
