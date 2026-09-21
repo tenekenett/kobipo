@@ -15,6 +15,7 @@ import { isTestPurchase } from "@/lib/invoicing/config"
 import { evaluateDiscountCode } from "@/lib/billing/discount"
 import { isFreeAmount, settleFreeKontorOrder } from "@/lib/billing/free-order"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { checkKontorEligibility, resolveKontorTargetVkn } from "@/lib/kontor/dealer-eligibility"
 
 export const dynamic = "force-dynamic"
 
@@ -99,9 +100,22 @@ export const POST = withApiErrors(async function POST(request: Request) {
     })
     // VKN doğrulama akışı kaldırıldı — eDonusumTenantVkn boşsa firmanın kendi
     // VKN/TCKN'sine fallback yap. Yalnız hiçbir yerde VKN tanımlı değilse engelle.
-    const targetVkn = (company?.eDonusumTenantVkn || company?.taxNumber || "").replace(/\D/g, "")
-    if (targetVkn.length !== 10 && targetVkn.length !== 11) {
+    const targetVkn = resolveKontorTargetVkn(company)
+    if (!targetVkn) {
       return NextResponse.json({ error: ERR_NO_VERIFIED_VKN }, { status: 412 })
+    }
+
+    // BAYİ KAPISI — ödeme ALINMADAN önce. Kontör bayi kimliğiyle yalnız Kobipo
+    // bayiliği altındaki mükellefe yüklenebilir; listede olmayan VKN için sipariş
+    // hiç açılmaz (kart, havale ve tam indirimli yol aynı kapıdan geçer). Aksi halde
+    // para önce alınıp yükleme sonra reddediliyordu ([[lib/kontor/dealer-eligibility.ts]]).
+    // `code` alanı istemciye: 412 burada fatura-bilgisi eksikliği DEĞİLDİR.
+    const eligibility = await checkKontorEligibility(targetVkn)
+    if (!eligibility.ok) {
+      return NextResponse.json(
+        { error: eligibility.message, code: eligibility.code, targetVkn },
+        { status: eligibility.status },
+      )
     }
 
     // FATURA BİLGİSİ — ödeme ÖNCESİ zorunlu. Eksikse sipariş hiç açılmaz: tahsilattan

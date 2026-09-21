@@ -71,6 +71,10 @@ export function KontorPurchaseDialog({
   const [packages, setPackages] = useState<KontorPackage[]>([])
   const [orders, setOrders] = useState<KontorOrder[]>([])
   const [paytrEnabled, setPaytrEnabled] = useState(false)
+  // BAYİ ÖN KONTROLÜ: kontör yalnız Kobipo bayiliği altındaki mükellefe yüklenebilir.
+  // "Hayır" ise paketler hiç gösterilmez; kullanıcı ödeme adımına yürütülmez. Asıl kapı
+  // sipariş ucunda ([[lib/kontor/dealer-eligibility.ts]]) — burası yalnız ön bilgi.
+  const [eligibility, setEligibility] = useState<{ eligible: boolean; code: string | null; message: string | null } | null>(null)
   const [loading, setLoading] = useState(false)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   // FATURA BİLGİSİ: satış faturası ödeme sonrası otomatik kesilir, o yüzden bilgi
@@ -88,11 +92,19 @@ export function KontorPurchaseDialog({
   const load = async () => {
     setLoading(true)
     try {
-      const [pRes, oRes, bRes] = await Promise.all([
+      const [pRes, oRes, bRes, eRes] = await Promise.all([
         fetch("/api/kontor/packages"),
         fetch(`/api/kontor/orders?companyId=${companyId}`),
         fetch(`/api/invoicing/billing-info?companyId=${encodeURIComponent(companyId)}`),
+        fetch(`/api/kontor/eligibility?companyId=${encodeURIComponent(companyId)}`),
       ])
+      const eData = await eRes.json().catch(() => ({}))
+      // Uç cevap veremediyse (5xx) bu "yüklenemez" değildir; sunucu kapısı yine çalışır.
+      setEligibility(
+        eRes.ok && typeof eData?.eligible === "boolean"
+          ? { eligible: eData.eligible, code: eData.code ?? null, message: eData.message ?? null }
+          : null,
+      )
       const pData = await pRes.json().catch(() => ({}))
       setPackages(pRes.ok && Array.isArray(pData?.data) ? pData.data : [])
       setPaytrEnabled(pRes.ok && Boolean(pData?.paytrEnabled))
@@ -118,6 +130,14 @@ export function KontorPurchaseDialog({
   }, [open])
 
   const buy = async (pkg: KontorPackage, paymentMethod: "CARD" | "HAVALE") => {
+    if (eligibility && !eligibility.eligible) {
+      toast({
+        title: "Kontör yüklenemiyor",
+        description: eligibility.message || "Bu firmaya Kobipo üzerinden kontör yüklenemiyor.",
+        variant: "destructive",
+      })
+      return
+    }
     // Ödemeye gitmeden önce eksikleri göster — sunucu zaten 412 döner, ama kullanıcıyı
     // hataya çarptırmaktansa formu açıp işaretlemek daha doğru.
     const missing = missingBillingFields(billing)
@@ -155,9 +175,14 @@ export function KontorPurchaseDialog({
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (res.status === 412) {
-        setInvalidFields(Array.isArray(data?.fields) ? data.fields : [])
+      // 412 iki anlama gelir: fatura bilgisi eksik (`fields` gelir → formu aç) ya da
+      // bayi kapısı (`code` gelir → yalnız mesaj; formu açmak kullanıcıyı yanıltır).
+      if (res.status === 412 && Array.isArray(data?.fields)) {
+        setInvalidFields(data.fields)
         setBillingOpen(true)
+      }
+      if (data?.code === "NOT_LISTED" || data?.code === "UNAVAILABLE" || data?.code === "NOT_CONFIGURED") {
+        setEligibility({ eligible: false, code: data.code, message: data?.error ?? null })
       }
       // 422 + field=discountCode: kod arada geçersizleşmiş (süresi doldu, hak bitti).
       // Kutuyu temizleriz ki kullanıcı indirim beklerken listeden ödeme yapmasın.
@@ -230,6 +255,18 @@ export function KontorPurchaseDialog({
         {loading ? (
           <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Yükleniyor…
+          </div>
+        ) : eligibility && !eligibility.eligible ? (
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="space-y-1">
+              <p className="font-semibold">
+                {eligibility.code === "NOT_LISTED"
+                  ? "Bu firmaya Kobipo üzerinden kontör yüklenemiyor"
+                  : "Kontör satın alma şu an kullanılamıyor"}
+              </p>
+              <p className="text-xs">{eligibility.message}</p>
+            </div>
           </div>
         ) : (
           <div className="space-y-5">

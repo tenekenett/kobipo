@@ -142,7 +142,12 @@ export class MysoftEInvoiceProvider implements EInvoiceProvider {
 
   /**
    * Mysoft kullanıcısının yetkili olduğu tüm mükellefleri döndürür (Firma Listesi).
-   * Swagger v8: GET /api/Tenant/getTenant
+   * Swagger v8: GET /api/Tenant/getTenant?afterValue=&limit=
+   *
+   * Sayfalıdır: yanıt `afterValue` taşır, bir sonraki sayfa onunla istenir. Bayi
+   * kimliğiyle çağrıldığında liste "kontör yüklenebilecek mükellefler" listesidir
+   * ([[lib/kontor/dealer-eligibility.ts]]); yarım liste "bayi altında değil" diye
+   * yanlış ret doğururdu, o yüzden sayfalar sonuna kadar okunur (tavan 20 sayfa).
    */
   async listTenants(): Promise<{
     success: boolean
@@ -152,18 +157,42 @@ export class MysoftEInvoiceProvider implements EInvoiceProvider {
     try {
       const token = await this.getToken()
       if (!token) return { success: false, error: "Mysoft token alınamadı." }
-      const res = await fetch(`${this.baseUrl}/api/Tenant/getTenant?limit=50`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      })
-      const data = await res.json()
-      if (!data?.succeed) {
-        return { success: false, error: data?.message || "Firma listesi alınamadı." }
+      const LIMIT = 50
+      const MAX_PAGES = 20
+      const all: Array<{ tenantName: string; shortName: string; vknTckn: string; isPassive?: boolean }> = []
+      let afterValue: number | null = null
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const qs = new URLSearchParams({ limit: String(LIMIT) })
+        if (afterValue != null) qs.set("afterValue", String(afterValue))
+        const res = await fetch(`${this.baseUrl}/api/Tenant/getTenant?${qs.toString()}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        })
+        const data = await res.json()
+        if (!data?.succeed) {
+          return { success: false, error: data?.message || "Firma listesi alınamadı." }
+        }
+        const rows: any[] = Array.isArray(data?.data) ? data.data : []
+        all.push(...rows)
+        // Son sayfa: eksik sayfa ya da ilerlemeyen imleç (aynı sayfayı ikinci kez
+        // istemeyelim). İmleç anlamı Mysoft'a ait; biz yalnız geri veririz.
+        const next = typeof data?.afterValue === "number" ? data.afterValue : null
+        if (rows.length < LIMIT || next == null) break
+        if (afterValue != null && next <= afterValue) break
+        afterValue = next
       }
-      return { success: true, data: Array.isArray(data?.data) ? data.data : [] }
+      // Sayfa sınırında tekrar gelen satır olursa tek düşsün.
+      const seen = new Set<string>()
+      const unique = all.filter((t) => {
+        const key = `${String(t?.vknTckn ?? "").trim()}|${t?.tenantName ?? ""}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      return { success: true, data: unique }
     } catch (error: any) {
       return { success: false, error: error?.message || "Bilinmeyen bir hata oluştu." }
     }

@@ -126,6 +126,34 @@ kapatan iş budur. O güne kadar portal adımı bayi (Reypo) tarafında yapılı
 (bayi kimliği yalnız Kobipo bayiliğindeki mükellefleri görür; `--firma=<id>` için
 canlının `NEXTAUTH_SECRET`i gerekir — `vercel env pull --environment=production`).
 
+## Kontör YALNIZ Kobipo bayiliği altındaki mükellefe yüklenir
+
+Kontör yüklemesi (`insertDocumentCredit`) bayi (İş Ortağı) kimliğiyle yapılır ve Mysoft
+yalnız bayinin altına tanımlı mükellefe yükler; başkasına *"firması sizin hesabınızda
+tanımlı olan firmalar arasında yer almamaktadır"* der. Kobipo'dan ÖNCE kendi Mysoft
+hesabını açmış müşteri bu listede DEĞİLDİR (Eren Forklift 3531285187, 2026-09-21: 375 TL
+kart ödemesi alındı, yükleme reddedildi). Bayi API'sinde mevcut mükellefi bayiye bağlayan
+uç YOK — `addTenant` yalnız yeni mükellef açar, aynı VKN'yle denenmez (ikinci tenant
+riski); bağlama Mysoft'un idari işidir. Yani ret sonradan düzeltilemez, sipariş
+AÇILMADAN önce sorulur. Karar tek yerde: `lib/kontor/dealer-eligibility.ts` →
+`checkKontorEligibility(vkn)`.
+
+- `POST /api/kontor/orders` bu kapıdan geçmeden sipariş yazmaz: kart, havale ve tam
+  indirimli yol aynı kapı. Listede yoksa 412 + `code: "NOT_LISTED"`, liste alınamazsa
+  503 + `UNAVAILABLE` — **sessiz geçilmez**; "ödeme alınmadı" mesajda yazar.
+- İstemcide 412 iki anlama gelir: `fields` gelirse fatura bilgisi eksik (form açılır),
+  `code` gelirse bayi kapısı (yalnız mesaj). Karıştırılırsa kullanıcı fatura formunu
+  doldurup yine ret yer.
+- Satın alma penceresi açılırken `GET /api/kontor/eligibility` ile aynı soru sorulur;
+  "hayır" ise paketler hiç gösterilmez. Bu ön bilgidir, kapı değil.
+- Bayi listesi (`listTenants`) SAYFALIDIR (`afterValue`); yarım liste yanlış ret doğurur,
+  sağlayıcı sonuna kadar okur. Sonuç 2 dk önbelleklenir (pencere + sipariş = tek giriş).
+- Bugüne kadar yüklenen tek iki VKN (Reypo 7352344835, EREN VİNÇ 3530589517) bayi
+  altındaydı; sorun ilk "dışarıdan gelen" müşteride çıktı. Belge gönderimi bu kapıdan
+  GEÇMEZ — firma kendi Mysoft kimliğiyle fatura kesmeye devam eder.
+- Ölçüm: `npx tsx scripts/kontor-siparis-kontrol.ts --vkn=<vkn>` (salt okur: firma
+  kayıtları, siparişler, tüm-zamanlar LOADED, bayi listesi, kapının cevabı).
+
 ## Abonelik FİRMA bazındadır — yetki devretmez
 
 2026-09-04'te değişti: her firma (kök, şube, ek firma) kendi aboneliğini satın alır.
