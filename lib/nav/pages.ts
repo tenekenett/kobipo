@@ -58,7 +58,7 @@ export const NAV_PAGES: NavPageDef[] = [
   { href: "/alis/siparis", label: "Alış Siparişi", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/alis/hizli", label: "Hızlı Alış", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/alis/fisler", label: "Alış Fişleri", roles: ["ADMIN", BM, "ACCOUNTANT"] },
-  { href: "/alis/fis-tarama", label: "Fiş Tarama", roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/alis/fis-tarama", label: "Belge Tarama", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/alis/teklif", label: "Satın Alma Teklifi", roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // Stok

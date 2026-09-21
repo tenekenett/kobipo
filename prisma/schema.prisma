@@ -420,6 +420,8 @@ model Company {
   shiftTemplates          ShiftTemplate[]
   shiftPublications       ShiftPublication[]
   documentTemplates       DocumentTemplate[]
+  documentScans           DocumentScan[]
+  cariProductAliases      CariProductAlias[]
   holidays                CompanyHoliday[]
 
   @@index([parentCompanyId])
@@ -828,6 +830,7 @@ model Product {
 
   company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   stockMovements   StockMovement[]
+  cariProductAliases CariProductAlias[]
   invoiceItems     InvoiceItem[]
   quoteItems       QuoteItem[]
   orderItems       OrderItem[]
@@ -1642,7 +1645,11 @@ model Invoice {
   kontorOrder         KontorOrder?
   packageOrder        PackageOrder?
 
-  @@unique([companyId, invoiceNo])
+  /// Tekillik DB'de KISMİ indekslerle (migrasyon 20260921000003): satış/iade
+  /// (type <> PURCHASE) firma içinde tekil; alış (type = PURCHASE) tedarikçi
+  /// bazında tekil (companyId, supplierId, invoiceNo — NULLS NOT DISTINCT).
+  /// Prisma kısmi indeks ifade edemediği için burada düz indeks görünür.
+  @@index([companyId, invoiceNo])
   @@unique([companyId, slug])
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, status])
@@ -1919,7 +1926,9 @@ model Waybill {
   invoice  Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   items    WaybillItem[]
 
-  @@unique([companyId, waybillNo])
+  /// Tekillik DB'de KISMİ indekslerle (migrasyon 20260921000003): satış firma
+  /// içinde, alış tedarikçi bazında (companyId, supplierId, waybillNo).
+  @@index([companyId, waybillNo])
   @@index([companyId])
   @@index([date])
   @@index([status])
@@ -2387,6 +2396,67 @@ model PackageOrder {
   @@index([companyId, status])
   @@index([status])
   @@map("package_orders")
+}
+
+/// Belge tarama gelen kutusu — okunmuş ama onaylanmamış belge kaybolmaz.
+/// Dosya SAKLANMAZ (karar B, 2026-09-21); `fileSha256` yalnız mükerrer izidir.
+/// İşleme istek içinde, kuyruk yok (docs/belge-tarama/PLAN.md §3.4).
+model DocumentScan {
+  id             String   @id @default(cuid())
+  companyId      String
+  /// UPLOAD (ekrandan). EMAIL Faz 5.
+  source         String   @default("UPLOAD")
+  fileName       String
+  mimeType       String
+  pageCount      Int      @default(1)
+  fileSha256     String
+  /// PENDING | READING | AWAITING_APPROVAL | SAVED | REJECTED | FAILED (lib/belge-ocr/turler.ts)
+  status         String   @default("PENDING")
+  /// Geçiş A: sinif/normalize.ts → NormalBelge[]
+  classification Json?
+  /// Geçiş B: belge başına türe özel çıkarım + denetimler + okuma yolu
+  extraction     Json?
+  error          String?
+  /// [{ index, type, id, no }] — bir dosyada birden çok belge olabilir
+  targets        Json?
+  model          String?
+  costUsd        Decimal? @db.Decimal(10, 6)
+  durationMs     Int?
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([companyId, fileSha256])
+  @@map("document_scans")
+}
+
+/// Belge taramanın öğrenen ürün haritası: cari (tedarikçi/müşteri) + satıcı kodu
+/// ya da katlanmış kalem adı → ürün. İlk faturada kullanıcı eşler, sonra otomatik.
+/// `cariId` supplier ya da customer id'si (cuid çakışmaz), `cariKind` hangisi.
+model CariProductAlias {
+  id         String   @id @default(cuid())
+  companyId  String
+  cariId     String
+  /// SUPPLIER | CUSTOMER
+  cariKind   String   @default("SUPPLIER")
+  /// trFold(satıcı kodu) ya da trFold(kalem adı) — lib/belge-ocr/eslestir/alias.ts
+  key        String
+  label      String?
+  productId  String
+  lastSeenAt DateTime @default(now())
+  hitCount   Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, cariId, key])
+  @@index([productId])
+  @@map("cari_product_aliases")
 }
 
 model UsageLimit {

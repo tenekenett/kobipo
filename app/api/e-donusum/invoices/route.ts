@@ -145,13 +145,15 @@ export const GET = withApiErrors(async function GET(request: Request) {
 })
 
 export const POST = withApiErrors(async function POST(request: Request) {
+  // catch bloğundaki P2002 mesajı belge tipine bakıyor; gövde try dışında tutulur.
+  let body: any = null
   try {
     const user = await getCurrentUser()
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const body = await request.json()
+    body = await request.json()
     body.companyId = await resolveCompanyId(body.companyId)
     const {
       companyId,
@@ -915,12 +917,18 @@ const invoiceData = {
     if (error.message.includes("Access denied")) {
       return accessDeniedResponse(error)
     }
-    // Aynı firmada aynı Fatura No: @@unique([companyId, invoiceNo]) ihlali. Kullanıcı
-    // alış faturasında tedarikçi numarasını elle girdiğinde (aynı numarayı iki kez)
-    // oluşabilir → net mesajla dön (generic 500 yerine).
+    // Aynı Fatura No: satışta firma içinde, ALIŞTA TEDARİKÇİ BAZINDA tekil (kısmi
+    // indeksler, migrasyon 20260921000003 — iki tedarikçi aynı e-Arşiv numarasını
+    // üretebilir). Kullanıcı aynı tedarikçinin numarasını iki kez girdiğinde
+    // oluşur → net mesajla dön (generic 500 yerine).
     if (error?.code === "P2002") {
       return NextResponse.json(
-        { error: "Bu Fatura No bu firmada zaten kayıtlı. Farklı bir numara girin veya boş bırakıp otomatik atanmasına izin verin." },
+        {
+          error:
+            String(body?.type || "").toUpperCase() === "PURCHASE"
+              ? "Bu Fatura No bu tedarikçi için zaten kayıtlı. Farklı bir numara girin veya boş bırakıp otomatik atanmasına izin verin."
+              : "Bu Fatura No bu firmada zaten kayıtlı. Farklı bir numara girin veya boş bırakıp otomatik atanmasına izin verin.",
+        },
         { status: 409 }
       )
     }

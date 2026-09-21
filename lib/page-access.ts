@@ -133,6 +133,9 @@ export const PAGE_API_RULES: PageApiRule[] = [
       "/cari/musteri",
       ...SALES_DOC_PAGES,
       "/alis/hizli",
+      // Belge tarama satış tarafını da okur (matbu satış faturası, alınan çek,
+      // tahsilat dekontu): müşteri VKN eşleşmesi için liste gerekir.
+      "/alis/fis-tarama",
       "/cek-senet/cek",
       "/cek-senet/senet",
       "/finans/hareketler",
@@ -163,7 +166,8 @@ export const PAGE_API_RULES: PageApiRule[] = [
   },
   {
     prefix: "/api/cari/open-invoices",
-    pages: ["/cari/musteri", "/cari/tedarikci", "/finans/hareketler", "/finans/kanallar"],
+    // Belge tarama dekontu carinin açık faturalarına bağlar (Faz 4).
+    pages: ["/cari/musteri", "/cari/tedarikci", "/finans/hareketler", "/finans/kanallar", "/alis/fis-tarama"],
     // Salt okuma ucu (yalnız GET var).
     writePages: [],
   },
@@ -228,8 +232,10 @@ export const PAGE_API_RULES: PageApiRule[] = [
   },
   {
     prefix: "/api/irsaliye",
-    pages: ["/satis/irsaliye", "/alis/irsaliye"],
-    writePages: ["/satis/irsaliye", "/alis/irsaliye"],
+    // Belge tarama okunan irsaliyeyi BU uçtan kaydeder (alış + satış) ve
+    // "Teslim alındı" için PUT atar; kendi yazma kapısı yok (plan §2).
+    pages: ["/satis/irsaliye", "/alis/irsaliye", "/alis/fis-tarama"],
+    writePages: ["/satis/irsaliye", "/alis/irsaliye", "/alis/fis-tarama"],
   },
   {
     // e-İrsaliye GİDEN belgedir: alış irsaliyesi ekranı listeyi okur ama göndermez.
@@ -258,6 +264,14 @@ export const PAGE_API_RULES: PageApiRule[] = [
     // denetimi yapar. Yalnız kendi ekranı kullanır — başka bir sayfanın bu uca
     // ihtiyacı yok. Kaydı bu uç DEĞİL, /api/e-donusum/invoices yazıyor.
     prefix: "/api/alis/fis-tarama",
+    pages: ["/alis/fis-tarama"],
+    writePages: ["/alis/fis-tarama"],
+  },
+  {
+    // Belge tarama (aynı sayfa, URL /alis/fis-tarama kalır — plan §3.9): POST
+    // dosyayı boru hattından geçirir (para harcar), GET gelen kutusu, [id] kart,
+    // mukerrer/alias yardımcı uçlar. Kayıt yine türün kendi ucundan.
+    prefix: "/api/alis/belge-tarama",
     pages: ["/alis/fis-tarama"],
     writePages: ["/alis/fis-tarama"],
   },
@@ -394,8 +408,10 @@ export const PAGE_API_RULES: PageApiRule[] = [
       "/cari/tedarikci",
       "/finans/hareketler",
       "/finans/kanallar",
+      // Taranan çek/senet fotoğrafı buradan kaydedilir (belge tarama).
+      "/alis/fis-tarama",
     ],
-    writePages: ["/cek-senet/cek", "/cek-senet/senet"],
+    writePages: ["/cek-senet/cek", "/cek-senet/senet", "/alis/fis-tarama"],
   },
 
   // ---- Raporlar ----------------------------------------------------------

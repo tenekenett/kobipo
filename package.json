@@ -42,6 +42,7 @@
     "vercel:env:push": "vercel env push"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.9",
     "@prisma/client": "^5.7.1",
     "@radix-ui/react-accordion": "^1.1.2",
     "@radix-ui/react-alert-dialog": "^1.0.5",
@@ -68,10 +69,12 @@
     "jsbarcode": "^3.12.3",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
+    "jsqr": "^1.4.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.303.0",
     "next": "^16.3.5",
     "next-auth": "^4.24.15",
+    "pdfjs-dist": "^6.3.289",
     "pdfmake": "^0.2.20",
     "qrcode": "^1.5.4",
     "react": "^18.2.0",
@@ -85,6 +88,7 @@
     "swr": "^2.4.2",
     "tailwind-merge": "^2.2.0",
     "tailwindcss-animate": "^1.0.7",
+    "unpdf": "^1.8.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.22.4"
   },

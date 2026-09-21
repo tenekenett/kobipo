@@ -39,7 +39,7 @@ const STATIC_TITLES: Record<string, string> = {
   // Alış
   "/alis/fatura": "Alış Faturaları",
   "/alis/fisler": "Alış Fişleri",
-  "/alis/fis-tarama": "Fiş Tarama",
+  "/alis/fis-tarama": "Belge Tarama",
   "/alis/gelen-e-faturalar": "Gelen E-Faturalar",
   "/alis/hizli": "Hızlı Alış",
   "/alis/irsaliye": "Alış İrsaliyeleri",

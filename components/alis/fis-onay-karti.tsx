@@ -181,10 +181,17 @@ export function FisOnayKarti({
   sonuc,
   sira,
   companyId,
+  onKaydedildi,
 }: {
   sonuc: { fis: Fis; denetimler: Denetim[] }
   sira: number
   companyId: string
+  /**
+   * Belge tarama gelen kutusu için iz: fiş kesildikten sonra çağrılır, tarama
+   * satırına "i. belge şu kayda dönüştü" yazılır. Kartın davranışını DEĞİŞTİRMEZ
+   * (plan §2); fiş yolunda verilmez.
+   */
+  onKaydedildi?: (kayit: { id: string; invoiceNo: string; slug: string }) => void
 }) {
   const { toast } = useToast()
   const { suppliers, mutate: tedarikcileriTazele } = useSuppliers(companyId)
@@ -351,6 +358,7 @@ export function FisOnayKarti({
         // ekran kaydedilmemiş bir rakamı doğrulanmış gibi gösterirdi.
         toplam: inv?.totalAmount != null ? Number(inv.totalAmount) : donusum.beklenenToplam,
       })
+      onKaydedildi?.({ id: inv.id, invoiceNo: inv.invoiceNo, slug: inv.slug || inv.id })
 
       // 3) Tahsilat. Tutar FATURANIN SUNUCUDA KAYITLI toplamı: önizlemenin
       // yuvarlanmamış değeri kayıtlı toplamı aşarsa ödeme reddedilir.
@@ -410,6 +418,7 @@ export function FisOnayKarti({
     saglayici,
     toast,
     mutateAccounts,
+    onKaydedildi,
   ])
 
   // ------------------------------------------------------------ kaydedilmiş

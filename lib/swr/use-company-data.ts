@@ -51,7 +51,7 @@ export type RefCounterparty = {
   nickname?: string | null
   taxNumber?: string | null
 }
-export type RefAccount = { id: string; name: string; type: string }
+export type RefAccount = { id: string; name: string; type: string; iban?: string | null }
 /** İK kartı — restoran ekranlarında "iskontoyu uygulayan personel" seçimi için. */
 export type RefEmployee = { id: string; name: string; position: string | null }
 export type RefWarehouse = { id: string; name: string; isDefault?: boolean }
@@ -123,7 +123,7 @@ export function useAccounts(companyId: string | null) {
   const key = companyKey(companyId, "/api/finans/accounts")
   const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
   const accounts = useMemo<RefAccount[]>(
-    () => (Array.isArray(data) ? data : []).map((a) => ({ id: a.id, name: a.name, type: a.type })),
+    () => (Array.isArray(data) ? data : []).map((a) => ({ id: a.id, name: a.name, type: a.type, iban: a.iban ?? null })),
     [data]
   )
   return { accounts, isLoading, error, mutate }

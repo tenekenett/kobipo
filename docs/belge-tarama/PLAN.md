@@ -6,8 +6,8 @@
 > kutunun tek türlü ilk hâlidir ve **olduğu gibi korunur**.
 
 > **Bu dosya oturumlar arası hafızadır.** Devam etmeden önce "İlerleme Günlüğü"ne
-> ve §9 açık kararlara bak. Kod henüz YOK (2026-09-19): plan yazıldı, kararlar
-> bekliyor. Her anlamlı adımda checkbox işaretle, günlüğe satır ekle.
+> ve §9 kararlara bak. Kararlar 2026-09-21'de verildi (§9), Faz 0 aynı gün başladı.
+> Her anlamlı adımda checkbox işaretle, günlüğe satır ekle.
 
 ---
 
@@ -35,11 +35,13 @@
 
 Üç doğal katman: **(a)** kayıt modeli hazır, yalnız okuma katmanı eksik (fatura,
 e-Arşiv PDF, irsaliye, dekont, çek) → Faz 1–4; **(b)** veri modelinde boşluk olanlar
-(SMM stopajı, tahakkuk, kart ekstresi) → Faz 5+; **(c)** satış tarafı → ayrı karar.
+(SMM stopajı, tahakkuk, kart ekstresi) → Faz 5+; **(c)** satış tarafı → **kapsamda**
+(karar F, 2026-09-21): "kâğıt ne varsa" — her türün iki yönü var, yön VKN'den
+türetilir (§3.2). Satış hedefleri §3.8'de; satış kayıtları Faz 1–2'nin ikinci
+yarısı olarak yazılır (alış oturduktan sonra, aynı şema/kart, farklı hedef).
 
 ### 1.2 Kapsam dışı (bilerek, şimdilik)
 
-- Satış tarafı belgeleri (sipariş, elle kesilmiş satış belgesi kopyası).
 - Tahakkuk fişleri, kart ekstresi, poliçe — kayıt modeli olmadan okuma anlamsız.
 - e-İrsaliye gelen kutusu (Mysoft ucu ayrı iş).
 - Otomatik (onaysız) kayıt — hiçbir fazda yok. Bkz. §2.
@@ -307,46 +309,46 @@ Migrasyon canlıya `scripts/apply-migration.js` ile, komutu kullanıcı çalış
 ## 5. Fazlar
 
 ### Faz 0 — Zemin (kod yazmadan önce ölçülecekler dahil)
-- [ ] `saglayici.ts`: OpenRouter çağrısını `extract.ts`ten taşı; fiş tezgâhı aynı sayıları veriyor mu (ölçüm eşitliği)
-- [ ] PDF metin katmanı çıkarma — kütüphane seçimi, Vercel'de çalışma ölçümü
-- [ ] PDF raster — kütüphane seçimi (yerel ikili gerektirmeyen tercih), Vercel'de ölçüm; olmuyorsa Gemini'ye PDF'i doğrudan verme (OpenRouter file içeriği) yedek yol
-- [ ] Karekod çözümü; gerçek e-Arşiv PDF'inde alan adlarını DOĞRULA, sonra koda yaz
-- [ ] PDF/A-3 XML eki okuma; `parseUblInvoices` yeniden kullanımı
-- [ ] Sınıflandırıcı şema + prompt; karışık korpusta ölçüm; model seçimi
-- [ ] `document_scans` migrasyonu + RLS
-- [ ] Tezgâh `scripts/ai-belge-test.mjs` (fiş tezgâhından türetilir)
+- [x] `saglayici.ts`: OpenRouter çağrısını `extract.ts`ten taşı; fiş tezgâhı aynı sayıları veriyor mu (ölçüm eşitliği)
+- [x] PDF metin katmanı çıkarma — kütüphane seçimi, Vercel'de çalışma ölçümü → `unpdf` (saf JS); yerelde ölçüldü, **Vercel ölçümü dağıtımdan sonra** `GET /api/alis/belge-tarama/saglik` (süper admin)
+- [x] PDF raster — `pdfjs-dist` legacy + `@napi-rs/canvas` (platform ikilisi, sharp gibi); yerelde ölçüldü, **Vercel ölçümü saglik ucuyla**. Yedek yol (OpenRouter `file` + `engine: native`) yazılmadı; raster düşerse uç açık hata verir
+- [x] Karekod çözümü (jsQR: gömülü görsel › raster); alan adları kılavuzdan yazıldı, **gerçek e-Arşiv PDF'inde HENÜZ doğrulanmadı** (korpus yok) — tanınmayan anahtarlar `diger`e düşer, düzeltme tek yerde (`girdi/karekod.ts` + test)
+- [x] PDF/A-3 XML eki okuma (pdfjs `getAttachmentContent`); `parseUblInvoices` BİLEREK kullanılmadı, ayrı UBL-TR okuyucu `lib/belge-ocr/ubl.ts` (ETTN, satır iskontosu, irsaliye atfı, tevkifat)
+- [x] Sınıflandırıcı şema + prompt; **korpus ölçümü yapılmadı** (örnek yok), model = fişin ölçülmüş modeli (`BELGE_SINIF_MODEL` env ile değişir)
+- [x] `document_scans` migrasyonu + RLS
+- [x] Tezgâh `scripts/ai-belge-test.ts` (tsx; şema ikizi YOK, uygulama modüllerini import eder) — `--tur fis` 3 örnekte %100 (taşıma sonrası eşitlik ölçüldü)
 
 ### Faz 1 — Alış faturası (kâğıt + e-Arşiv PDF)
-- [ ] `fatura/schema.ts` + prompt; korpusta ölçüm
-- [ ] `fatura/validate.ts` (§3.7) + test
-- [ ] `fatura/to-invoice.ts` (`computeInvoiceTotals`, `payableRoundingAmount`) + test
-- [ ] Karekod/XML başlık önceliği; model yalnız kalem
-- [ ] `supplier_product_aliases` + eşleştirme + öğrenme (kartta yapılan eşleme yazılır)
-- [ ] İrsaliye no → `waybillIds` bağlama
-- [ ] Mükerrer: ETTN, VKN+no, `IncomingInvoice.uuid` çakışması, sha256
-- [ ] `POST/GET /api/alis/belge-tarama`, `[id]`
-- [ ] `FaturaOnayKarti` + ortak kabuk (fiş kartı davranışı korunarak)
-- [ ] Page-access + testler
-- [ ] Alıcı VKN ≠ firma → çok firmalı hesapta doğru firmayı öner (yazmaz, önerir)
+- [x] `fatura/schema.ts` + prompt; **korpus ölçümü bekliyor**
+- [x] `fatura/validate.ts` (§3.7) — birim test YOK (UBL/karekod/pdf/normalize testli)
+- [x] `fatura/to-invoice.ts` (`computeInvoiceTotals`, `payableRoundingAmount`) — birim test YOK
+- [x] Karekod/XML başlık önceliği; model yalnız kalem
+- [x] `cari_product_aliases` (tedarikçi VE müşteri) + eşleştirme + öğrenme (kartta yapılan eşleme kayıtta yazılır)
+- [x] İrsaliye no → `waybillIds` bağlama
+- [x] Mükerrer: ETTN, VKN+no, `IncomingInvoice.uuid` çakışması, sha256
+- [x] `POST/GET /api/alis/belge-tarama`, `[id]`
+- [x] `FaturaOnayKarti` + ortak kabuk (fiş kartı davranışı korunarak)
+- [x] Page-access + testler
+- [x] Alıcı VKN ≠ firma → kart "başka firmaya kesilmiş olabilir" der; **doğru firmayı ÖNERMEZ** (istemcide firma VKN listesi yok)
 
 ### Faz 2 — Alış irsaliyesi
-- [ ] `irsaliye/schema.ts` + prompt; ölçüm
-- [ ] `irsaliye/validate.ts`, `to-waybill.ts` + test
-- [ ] `IrsaliyeOnayKarti`; tedarikçi zorunlu kilidi; "Teslim alındı" anahtarı → PUT DELIVERED
-- [ ] Ürün eşleşmesi: alias + `trFold`; eşleşmeyen satır uyarısı
-- [ ] Page-access: `/api/irsaliye` write += `/alis/fis-tarama`
+- [x] `irsaliye/schema.ts` + prompt; **korpus ölçümü bekliyor**
+- [x] `irsaliye/validate.ts`, `to-waybill.ts` — birim test YOK
+- [x] `IrsaliyeOnayKarti`; tedarikçi zorunlu kilidi; "Teslim alındı" anahtarı → PUT DELIVERED
+- [x] Ürün eşleşmesi: alias + `trFold`; eşleşmeyen satır uyarısı
+- [x] Page-access: `/api/irsaliye` write += `/alis/fis-tarama`
 
 ### Faz 3 — Gelen kutusu ve fiş yolunun taşınması
-- [ ] Gelen kutusu listesi + çoklu yükleme (sıra sıra istek)
-- [ ] Menü etiketi "Belge Tarama", sayfa başlığı, `DENEME_PAGES`
-- [ ] Fiş POST'unu boru hattına al; **ölçüm eşitliği** şart (aynı korpus, aynı sayılar)
-- [ ] Sayaç birleştirme (sayfa bazlı), tavan
-- [ ] `docs/fis-tarama/KAYIT-AKISI.md` güncelle (kuyruk kararı değişti)
+- [x] Gelen kutusu listesi + çoklu yükleme (sıra sıra istek)
+- [x] Menü etiketi "Belge Tarama", sayfa başlığı, `DENEME_PAGES`
+- [x] Fiş yolu boru hattında (sınıf FIS → `fisTaraHazir`); üç örnekte alanlar birebir (VKN, tarih, toplam, KDV, kalem). Eski `POST /api/alis/fis-tarama` duruyor, ekran çağırmıyor
+- [x] Sayaç: ekran `belge_tarama_sayfa_monthly` (sayfa); `fis_tarama_monthly` yalnız eski POST'ta. Tavan `ensureUsageLimit` varsayılanı (1000/ay), firmaya göre elle
+- [x] `docs/fis-tarama/KAYIT-AKISI.md` güncelle (kuyruk kararı değişti)
 
 ### Faz 4 — Dekont → ödeme, çek
 - [ ] C1 kararı (faturasız cari tahsilat) — bu faz ona bağlı
-- [ ] `dekont/` şema, denetim; açık fatura eşleştirme; `/api/faturalar/odemeler`
-- [ ] Çek fotoğrafı → `/api/cek-senet`; uç gövdesi okunacak
+- [x] `dekont/` şema, denetim (IBAN mod-97, bizim hesap), açık fatura eşleştirme (en eskiden dağıtım); faturasız tahsilat YOK (C1 açık)
+- [x] Çek/senet → `/api/cek-senet` (CHECK/PROMISSORY_NOTE, direction keşideci/lehtar'dan)
 
 ### Faz 5 — Sonrası (her biri ayrı karar)
 - [ ] e-SMM: gelir vergisi stopajı modeli
@@ -354,7 +356,7 @@ Migrasyon canlıya `scripts/apply-migration.js` ile, komutu kullanıcı çalış
 - [ ] Dosya saklama — depolama kararı; `Attachment` modeli/`/api/attachments` bugün
   yalnız satır yazıyor (dosya yüklemiyor, taslak); gerçek soyutlama `object-store.ts`
 - [ ] Asistan bağı: "N belge onay bekliyor", tedarikçi fiyat sapması uyarısı
-- [ ] Satış tarafı
+- [x] Satış tarafı — karar F ile kapsama girdi; fatura/irsaliye/çek kartlarında yön seçici (SATIS → müşteri + SALES/GIVEN hedefi)
 
 ---
 
@@ -394,7 +396,7 @@ bölüm güncellenir.
 | # | Karar | Seçenekler | Plan varsayımı |
 |---|---|---|---|
 | 1 | Tür tespiti | kullanıcı seçer / model tespit eder | **model tespit eder**, kullanıcı kartta düzeltir (§3.2) |
-| 2 | Kapsam | alış / + satış | **yalnız alış** (Faz 1–4), satış §1.2 |
+| 2 | Kapsam | alış / + satış | ~~yalnız alış~~ → **alış + satış** (karar F, 2026-09-21) |
 | 3 | PDF girişi | yalnız foto / + PDF + XML | **PDF + XML dahil** (§3.1) |
 | 4 | Ekran | aynı sayfa / ayrı sayfalar | **aynı sayfa**, etiket "Belge Tarama" (§3.9) |
 | 5 | Kuyruk | yok / tablo + istek içi / gerçek işçi | **tablo + istek içi** (§3.4) |
@@ -402,19 +404,18 @@ bölüm güncellenir.
 
 ---
 
-## 9. Açık kararlar — kullanıcının
+## 9. Kararlar — 2026-09-21'de verildi
 
-| # | Soru | Neden önemli | Öneri |
+| # | Soru | Karar | Sonuç |
 |---|---|---|---|
-| A | PDF'ler yalnız yükleme ile mi, e-posta iletme de mi? | e-posta = gelen posta sağlayıcısı kararı (altyapı) | Faz 5, sağlayıcı sorulacak |
-| B | Dosya saklanacak mı? Hangi depolama? | arşiv değeri, KVKK/mali veri, maliyet (egress) | Faz 5; `object-store.ts` kanalı; sağlayıcıyı kullanıcı seçer |
-| C | Alış faturası no tekilliği tedarikçi bazlı mı olmalı? | iki tedarikçi aynı no'yu üretebilir; bugün yanlış 409 | tedarikçi bazlı (`companyId, supplierId, invoiceNo`) — ayrı migrasyon, mevcut kayıtlar etkilenmez |
-| D | e-SMM stopajı modellenecek mi? | `Invoice` yalnız KDV tevkifatı taşır | Faz 5, ayrı tasarım |
-| E | Deneme mi ürün mü? | beyaz liste vs `PricingItem` + kota | deneme; fiş ürünleşince birlikte |
-| F | Satış tarafı? | kapsam ~%40 büyür | sonra, ayrı plan |
-| G | Kayıt → tarama izi (`sourceScanId`)? | fişte bilerek iz yok; dosya saklanırsa anlamlı | B ile birlikte |
-
----
+| A | PDF'ler yalnız yükleme ile mi, e-posta iletme de mi? | **yalnız yükleme** | e-posta Faz 5, sağlayıcı o zaman sorulur |
+| B | Dosya saklanacak mı? Hangi depolama? | **şimdilik yok** | mükerrer `dosyaSha256` ile; saklama Faz 5'te sağlayıcıyla birlikte |
+| C | Alış faturası no tekilliği tedarikçi bazlı mı? | **evet** | `@@unique([companyId, supplierId, invoiceNo])` — Faz 1'de ayrı migrasyon; aynı sorun `Waybill @@unique([companyId, waybillNo])`ta da var, Faz 2'de aynı çözüm |
+| D | e-SMM stopajı modellenecek mi? | **sonra** | Faz 5, ayrı tasarım (kullanıcı: "sonra bakarız") |
+| E | Deneme mi ürün mü? | **deneme** | beyaz liste + sayfa sayacı; ürünleşme fişle birlikte |
+| F | Satış tarafı? | **EVET — "kâğıt ne varsa, çek/senet dahil"** | §1.1 (c), §3.8 satış hedefleri; her tür iki yönlü |
+| G | Kayıt → tarama izi (`sourceScanId`)? | **B ile birlikte: yok** | `document_scans.hedefId` tek yönlü iz olarak yeter |
+| — | Korpus | **şimdilik yok, korpussuz başla** | Faz 0 kütüphane/Vercel ölçümleri korpussuz; şema/prompt ölçümü örnek gelince. Karekod/XML ölçümü için Mysoft test ortamından taslak PDF ya da gelen kutusu PDF'i kullanılabilir (gerçek düzen) |
 
 ## 10. İlerleme Günlüğü
 
@@ -422,3 +423,32 @@ bölüm güncellenir.
   (`lib/fis-ocr`, `docs/fis-tarama/KAYIT-AKISI.md`) referans alındı. Yan bulgular:
   `/api/attachments` POST dosya yüklemiyor (satır yazıyor); alış fatura no tekilliği
   tedarikçiler arası çakışabilir (§3.6). Açık kararlar §9'da bekliyor.
+- **2026-09-21** — §9 kararları alındı (A yükleme, B saklama yok, C tedarikçi
+  bazlı no, D sonra, E deneme, F **satış dahil**, G yok, korpus yok). Faz 0 başladı.
+- **2026-09-21 (devam)** — Faz 0–4 kodu yazıldı, `next build` temiz, testler
+  geçiyor. Kütüphane: `unpdf` + `jsqr` (saf JS), raster için `pdfjs-dist`
+  legacy + `@napi-rs/canvas`. Üç migrasyon canlıya UYGULANMADI (kullanıcı
+  çalıştırır): `20260921000001_document_scans`, `20260921000002_cari_product_aliases`,
+  `20260921000003_purchase_doc_no_per_counterparty` (fatura + irsaliye no
+  tedarikçi bazında tekil, kısmi indeksler). Açık ölçümler: Vercel'de raster
+  (`/api/alis/belge-tarama/saglik`), gerçek e-Arşiv PDF'inde karekod alan adları,
+  sınıflandırıcı/fatura/irsaliye/dekont/çek prompt'ları GERÇEK korpusta —
+  bugüne kadar yalnız 3 fiş fotoğrafı ve iki üretilmiş PDF ile koştu.
+  Bilerek yapılmayan: fatura/irsaliye validate ve to-* birim testleri; satış
+  tarafı için "yön" seçimi kartta (aynı şema, farklı hedef).
+- **2026-09-21 (akşam)** — Migrasyonlar canlıya uygulandı (doğrulandı: RLS açık,
+  kısmi tekil indeksler yerinde). Chrome'dan Reypo Medya Ajansı (demo, beyaz
+  liste) ile uçtan uca test: sistem kontrolü 5/5 ✓ (yerel); fiş fotoğrafı →
+  fiş kartı %100; üretilmiş e-Arşiv PDF (karekod + metin katmanı, 3 kalem, genel
+  iskonto) → fatura kartı tüm denetimler ✓, VKN'den tedarikçi hızlı kart, 2/3
+  kalem ürünle eşleşti, kayıt: fatura 461,17 + stok girişi + 2 alias öğrenildi +
+  satır SAVED; irsaliye fotoğrafı → kart ✓, alias'tan "öğrenilmiş" eşleşme,
+  kayıt + DELIVERED; dekont PDF → IBAN mod-97 sahte IBAN'ı yakaladı, ünvan
+  benzerliğinden müşteri, 28 açık faturaya dağıtım yazıldı; çek fotoğrafı →
+  portföye alındı. Test sırasında düzeltilen üç hata: (1) `[yon]` effect'i
+  mount'ta cari eşleşmesini siliyordu → yön değiştirme olayına taşındı;
+  (2) çek "Taraf" denetimi lehtar VKN basılmamışken patlıyordu; (3) VKN'siz
+  belgede (dekont/çek) cari önerisi yoktu → ünvan benzerliği eklendi. Ayrıca
+  kayıt sonrası gelen kutusu tazeleme ve dekontta "n/N yazıldı" ilerlemesi.
+  Sağlık ucu beyaz listeye bağlandı (süper admin şart değil). Gerçek belgeyle
+  hâlâ koşmadı; Vercel ölçümü bekliyor.

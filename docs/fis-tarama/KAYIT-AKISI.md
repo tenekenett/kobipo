@@ -56,8 +56,16 @@ olarak kaydın fiş taramadan geldiğine dair **hiçbir iz kalmıyor** (fotoğra
 saklanmadığına göre); bilinçli tercih. `to-invoice.test.ts` model adının nota
 geri sızmasını bekçilik ediyor.
 
-**Kuyruk yok, akış anında.** Tarama sonucu kaydedilmezse kaybolur. Bu yüzden
-kalıcı bir `ReceiptScan` tablosu, migrasyon ve RLS işi de yok.
+**Kuyruk yok, akış anında.** ~~Tarama sonucu kaydedilmezse kaybolur.~~
+**2026-09-21'de değişti:** fiş taraması belge tarama boru hattına taşındı
+(`docs/belge-tarama/PLAN.md`). Her okuma artık bir `document_scans` satırıdır
+(gelen kutusu): kaydedilmeyen sonuç kaybolmaz, kutudan geri açılır. Dosya yine
+saklanmıyor; satır yalnız çıkarımı taşır. Fiş şeması/prompt'u ve `FisOnayKarti`
+değişmedi; ekran (`fis-tarama-screen.tsx`) belge tarama ekranı oldu, fiş kartını
+sınıflandırıcı "FIS" dediğinde çizer. Eski `POST /api/alis/fis-tarama` ucu duruyor
+ama ekran onu çağırmıyor; GET (mükerrer) fiş kartı tarafından kullanılmaya devam
+ediyor. Sayaç: ekran artık `belge_tarama_sayfa_monthly` (sayfa) sayacından düşer,
+`fis_tarama_monthly` yalnız eski POST için.
 
 **Ödeme şekli fişten okunuyor.** Prompt'a `odeme` alanı eklendi
 (`NAKIT · KREDI_KARTI · YEMEK_KARTI · HAVALE`). Bunun için POS slipi kuralı
@@ -67,8 +75,10 @@ oradan da okunabiliyor. Küme şemaya `enum` olarak YAZILAMIYOR (strict
 `normalizeOdeme` içinde.
 
 **Fatura numarası FS- serisinde kalır.** Fişin kendi numarası `invoiceNo`'ya
-YAZILMAZ: `@@unique([companyId, invoiceNo])` yüzünden iki farklı marketin aynı
-fiş numarası çakışır ve fiş serisini bozar. Fiş no notlara düşer.
+YAZILMAZ: iki farklı marketin aynı fiş numarası çakışır ve fiş serisini bozar.
+Fiş no notlara düşer. (Not: 2026-09-21'den beri alış belgesi numarası tedarikçi
+bazında tekil — migrasyon 20260921000003 — ama fiş çoğu zaman tedarikçisiz
+kesildiği için kural aynı kalıyor.)
 
 ## Aritmetiğin çapası: `tutar`
 

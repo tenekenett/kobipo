@@ -12,7 +12,12 @@ const nextConfig = {
   //
   // pdfmake da harici: CommonJS ve fontlarını çalışma anında fs ile okuyor;
   // sunucu paketine gömülürse font yolları bozuluyor.
-  serverExternalPackages: ["@prisma/client", "prisma", "pdfmake"],
+  //
+  // Belge tarama PDF katmanı da harici: `pdfjs-dist` legacy paketi worker'ını
+  // çalışma anında dinamik import ediyor, `@napi-rs/canvas` platform ikilisi
+  // (sharp gibi), `unpdf` ikisini dinamik yüklüyor. Paketlenirse worker yolu ve
+  // ikili çözümlemesi bozulur.
+  serverExternalPackages: ["@prisma/client", "prisma", "pdfmake", "unpdf", "pdfjs-dist", "@napi-rs/canvas"],
   // Bundled örnek XSLT şablonları çalışma anında fs ile okunuyor; Vercel'in
   // serverless fonksiyon paketine dahil edilmeleri için trace'e ekliyoruz.
   //
@@ -33,6 +38,14 @@ const nextConfig = {
     // PDF fontları fs ile okunuyor (lib/pdf/doc/font.ts); Next'in izleyicisi
     // dinamik yolu göremediği için fonksiyon paketine açıkça eklenir.
     "/api/**": ["./node_modules/dejavu-fonts-ttf/ttf/**", "./public/fonts/**"],
+    // PDF raster (belge tarama): pdfjs standart 14 fontu ve CJK haritalarını
+    // dosya sisteminden okur (unpdf `standardFontDataUrl`i yerel paketten çözer).
+    // İzleyici bu dinamik yolu göremez; Vercel paketine açıkça eklenir.
+    "/api/alis/belge-tarama/**": [
+      "./node_modules/pdfjs-dist/standard_fonts/**",
+      "./node_modules/pdfjs-dist/cmaps/**",
+      "./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs",
+    ],
   },
   env: {
     ...(!nextAuthUrl && vercelUrl ? { NEXTAUTH_URL: `https://${vercelUrl}` } : {}),
