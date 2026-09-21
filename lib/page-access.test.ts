@@ -743,6 +743,38 @@ describe("kural haritasının bütünlüğü", () => {
   })
 })
 
+describe("belge tarama → finans/transactions yazma kapısı", () => {
+  // Dekont kaydı 2026-09-21'de `/api/faturalar/odemeler`ten TEK kasa/banka
+  // hareketine taşındı (bir dekont = bir banka satırı). Uç değişince İZİN de
+  // değişmeliydi: taşınmasaydı belge tarama sayfası açık olan kısıtlı çalışan
+  // dekontu okuyup kaydedemez, 403 yerdi. Bu blok o bağı çivileyip yanlışlıkla
+  // geri alınmasını engelliyor.
+  const BELGE = "/alis/fis-tarama"
+
+  it("belge tarama yazma izni olan kısıtlı üye işlem yazabilir", () => {
+    const perms = restricted("CUSTOM", [BELGE], [BELGE])
+    expect(isApiPathAllowedForUser("/api/finans/transactions", "POST", perms)).toBe(true)
+  })
+
+  it("sayfayı yalnız GÖREN üye işlem YAZAMAZ", () => {
+    const perms = restricted("CUSTOM", [BELGE], [])
+    expect(isApiPathAllowedForUser("/api/finans/transactions", "POST", perms)).toBe(false)
+    // Okuma tarafı açık kalır: kart açık faturaları ve hesapları çeker.
+    expect(isApiPathAllowedForUser("/api/finans/transactions", "GET", perms)).toBe(true)
+  })
+
+  it("belge tarama izni OLMAYAN üye bu uçtan yazamaz", () => {
+    const perms = restricted("CUSTOM", ["/cari/musteri"], ["/cari/musteri"])
+    expect(isApiPathAllowedForUser("/api/finans/transactions", "POST", perms)).toBe(false)
+  })
+
+  it("dekontun okuduğu yardımcı uçlar da açık: açık faturalar ve kasa/banka listesi", () => {
+    const perms = restricted("CUSTOM", [BELGE], [BELGE])
+    expect(isApiPathAllowedForUser("/api/cari/open-invoices", "GET", perms)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/finans/accounts", "GET", perms)).toBe(true)
+  })
+})
+
 describe("sanitizePagePermissions — kaydetme", () => {
   it("rolde olmayan sayfayı yazmaz (arayüz atlansa bile)", () => {
     const result = sanitizePagePermissions("SALES", ["/cari/musteri", "/personel/maas"], [])
