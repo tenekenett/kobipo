@@ -223,7 +223,11 @@ export default function SubelerPage() {
                 return (
                   <div
                     key={c.id}
-                    className="group relative flex items-start justify-between gap-3 rounded-xl border p-4 transition-colors hover:border-primary/40 hover:bg-muted/30"
+                    // `min-w-0`: ızgara öğesinin varsayılan `min-width:auto`'su, içindeki
+                    // `truncate` (nowrap) ünvanın TAM genişliğini kartın tabanı yapıyordu;
+                    // kart 390px'te +217px taşıp kırpılınca "firmaya geç" bağlantısı ve
+                    // "Detay" düğmesi mobilde hiç tıklanamıyordu.
+                    className="group relative flex min-w-0 items-start justify-between gap-3 rounded-xl border p-4 transition-colors hover:border-primary/40 hover:bg-muted/30"
                   >
                     {/* Kartın TAMAMI "bu firmaya geç" bağlantısıdır (stretched link):
                         yalnız köşedeki küçük ok tıklanabilirken kullanıcı kartın
@@ -241,8 +245,10 @@ export default function SubelerPage() {
                         <Building2 className="h-5 w-5" />
                       </span>
                       <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <p className="truncate font-semibold">{companyDisplayName(c)}</p>
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          <p className="min-w-0 max-w-full truncate font-semibold">
+                            {companyDisplayName(c)}
+                          </p>
                           {isActive && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                               <CheckCircle2 className="h-2.5 w-2.5" />

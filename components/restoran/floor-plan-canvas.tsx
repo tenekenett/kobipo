@@ -208,6 +208,17 @@ export function FloorPlanCanvas({
   const rows = editMode ? editRows(base) : base
   const width = cell * cols
   const height = cell * rows
+  // ZOOM-TO-FIT. `cell` zaten kutuya göre küçülüyor ama tabanı var (`MIN_CELL`):
+  // zorunlu ızgara dar bir telefona sığmadığında tuval kutudan taşıyordu ve panel
+  // gövdesi `overflow-x-clip` olduğu için taşan kısım kaydırılamadan KIRPILIYORDU
+  // (390px'te ölçüldü: tuval 1058px, M5/M7/M8/M2 masaları hiç tıklanamıyordu).
+  //
+  // Ölçek yalnız GÖRÜNTÜDEDİR: ızgara, masa koordinatları ve kaydedilen geometri
+  // hücre cinsinden aynı kalır. Bedeli, istemci→hücre çeviren her hesabın `cell`
+  // yerine `step`i kullanmak zorunda olmasıdır (getBoundingClientRect dönüşümü
+  // görsel piksel olarak döndürür).
+  const fitScale = width > boxWidth ? boxWidth / width : 1
+  const step = cell * fitScale
   const font = (mult: number) => Math.max(8, Math.round(cell * mult))
   const dense = cell < 34
 
@@ -216,11 +227,11 @@ export function FloorPlanCanvas({
       const box = surfaceRef.current?.getBoundingClientRect()
       if (!box) return { x: 0, y: 0 }
       return {
-        x: Math.min(cols - 1, Math.max(0, Math.floor((clientX - box.left) / cell))),
-        y: Math.min(rows - 1, Math.max(0, Math.floor((clientY - box.top) / cell))),
+        x: Math.min(cols - 1, Math.max(0, Math.floor((clientX - box.left) / step))),
+        y: Math.min(rows - 1, Math.max(0, Math.floor((clientY - box.top) / step))),
       }
     },
-    [cell, cols, rows],
+    [step, cols, rows],
   )
 
   const capture = (e: React.PointerEvent) => {
@@ -304,7 +315,7 @@ export function FloorPlanCanvas({
       if (!g.table.openTicket) return
       const dx = e.clientX - g.cx
       const dy = e.clientY - g.cy
-      if (Math.abs(dx) > cell * DRAG_THRESHOLD || Math.abs(dy) > cell * DRAG_THRESHOLD) {
+      if (Math.abs(dx) > step * DRAG_THRESHOLD || Math.abs(dy) > step * DRAG_THRESHOLD) {
         g.moved = true
       }
       const c = cellAt(e.clientX, e.clientY)
@@ -312,12 +323,14 @@ export function FloorPlanCanvas({
         (t) => t.id !== g.table.id && containsCell({ x: t.x, y: t.y, width: t.width, height: t.height }, c.x, c.y),
       )
       g.overId = over?.id ?? null
-      setCarry({ id: g.table.id, dx, dy, overId: g.overId })
+      // Sürüklenen masa ÖLÇEKLİ tuvalin içinde duruyor: istemci pikselini olduğu
+      // gibi verirsek parmaktan 1/ölçek kadar hızlı kayar.
+      setCarry({ id: g.table.id, dx: dx / fitScale, dy: dy / fitScale, overId: g.overId })
       return
     }
 
-    const dxc = (e.clientX - g.cx) / cell
-    const dyc = (e.clientY - g.cy) / cell
+    const dxc = (e.clientX - g.cx) / step
+    const dyc = (e.clientY - g.cy) / step
     if (Math.abs(dxc) > DRAG_THRESHOLD || Math.abs(dyc) > DRAG_THRESHOLD) g.moved = true
     if (!g.moved) return
 
@@ -437,7 +450,19 @@ export function FloorPlanCanvas({
     })
 
   return (
-    <div ref={wrapRef} className="overflow-auto">
+    // `w-full min-w-0`: ölçüm kutusu budur. Kısıtsız bırakılınca esnek/ızgara
+    // ebeveyninin `min-width:auto`'su yüzünden içeriğe göre genişliyor, dolayısıyla
+    // `wrapWidth` gerçek boşluktan büyük okunuyor ve tuval hiç küçülmüyordu.
+    <div ref={wrapRef} className="w-full min-w-0 overflow-auto">
+      {/* Ölçeklenmiş tuvalin YER kaplayan kutusu: `transform` düzeni etkilemediği
+          için bu olmadan altta ölçek kadar boşluk kalırdı. */}
+      <div
+        style={
+          fitScale < 1
+            ? { width: Math.floor(width * fitScale), height: Math.ceil(height * fitScale) }
+            : undefined
+        }
+      >
       <div
         ref={surfaceRef}
         tabIndex={editMode ? 0 : -1}
@@ -456,6 +481,9 @@ export function FloorPlanCanvas({
         style={{
           width,
           height,
+          ...(fitScale < 1
+            ? { transform: `scale(${fitScale})`, transformOrigin: "top left" as const }
+            : null),
           // Izgara zemindir, desen değil: kullanım kipinde masaların önüne
           // geçmesin diye çizgiler soluk. Kalın çizgi 4 hücrede bir.
           backgroundImage: `
@@ -687,6 +715,7 @@ export function FloorPlanCanvas({
             </span>
           </div>
         )}
+      </div>
       </div>
     </div>
   )

@@ -241,7 +241,7 @@ export function TicketPanel({
   const grossOf = (item: PanelItem) => item.unitPrice * (1 + item.vatRate / 100)
 
   return (
-    <Card className={cn("xl:sticky xl:top-4", className)}>
+    <Card className={cn("min-w-0 xl:sticky xl:top-4", className)}>
       <CardContent className="space-y-3 p-3">
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-2 text-sm font-semibold">

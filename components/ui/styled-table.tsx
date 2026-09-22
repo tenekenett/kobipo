@@ -184,12 +184,26 @@ export function EntityCell({
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <Icon className="h-4 w-4 shrink-0 text-kobipo-blue/70 dark:text-kobipo-mid/80" />
+      {/*
+        Mobilde ad KAPAĞI ekranın ~üçte birini geçmemeli. Sebep `maxWidth` değil
+        `StyledTableContainer`ın yalnız-mobil SABİT ilk sütunu: sabit hücre
+        viewport'tan genişse sağa kaydırırken ekranın tamamını kaplar (z-20) ve
+        arkadaki İŞLEM sütununu KALICI olarak örter. Cari listesinde ölçüldü
+        (390px): ad sütunu 256px, kap 287px → Detay ve Düzenle 0px görünür,
+        erişilebilen tek düğme Sil'di; kalem ikonuna basınca satır kaplaması
+        yakalayıp düzenleme yerine detaya götürüyordu.
+
+        `maxWidth` md+ ekranda aynen geçerli; mobilde yalnız TAVAN düşüyor, kısa
+        değerli sütunlar (KOD, fatura no) zaten bu sınırın altında olduğu için
+        etkilenmez.
+      */}
       <span
         className={cn(
           "truncate font-semibold",
+          "max-w-[30vw] md:max-w-[var(--entity-cell-max)]",
           hasName ? "text-foreground" : "text-muted-foreground",
         )}
-        style={{ maxWidth: `${maxWidth}px` }}
+        style={{ "--entity-cell-max": `${maxWidth}px` } as React.CSSProperties}
         title={name ?? ""}
       >
         {hasName ? name : "-"}

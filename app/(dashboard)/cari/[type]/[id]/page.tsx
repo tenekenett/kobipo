@@ -324,7 +324,11 @@ export default function CustomerSupplierDetailPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        {/* SARMALI olmalı: panel gövdesi `overflow-x-clip` (bkz. (dashboard)/layout.tsx),
+            yani taşan düğme kaydırılamaz, KIRPILIR. Tek satırda bu dört kontrol 390px'te
+            ~460px tuttuğu için ⋮ menüsü (Düzenle/Arşivle/Sil) tamamen ekran dışında
+            kalıyordu — ölçüldü: "Ekstre" +39px, ⋮ +65px. */}
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <WriteAction>
             <FaturaOlusturMenu
               companyId={companyId ?? ""}

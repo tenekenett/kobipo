@@ -126,7 +126,7 @@ export default function VergilerPage() {
           <CardDescription>KDV, Muhtasar ve Ba-Bs formu hazırlık raporları</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4 mb-6">
+          <div className="mb-6 flex flex-wrap items-end gap-4">
             <div className="space-y-2">
               <Label>Yıl</Label>
               <Input

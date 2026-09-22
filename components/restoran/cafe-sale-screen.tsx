@@ -822,7 +822,7 @@ export function CafeSaleScreen() {
 
       <div className="grid items-start gap-4 xl:grid-cols-[1fr_400px]">
         {/* === SOL: menü === */}
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           {/* Izgara Adisyon ekranıyla ORTAK (components/restoran/menu-grid.tsx):
               "menüde ne görünür" sorusunun iki ekranda ayrışmaması için. */}
           <MenuGrid
@@ -865,7 +865,7 @@ export function CafeSaleScreen() {
         </div>
 
         {/* === SAĞ: sepet + ödeme === */}
-        <div className="space-y-3 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
+        <div className="min-w-0 space-y-3 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
           {/* Sepet paneli Adisyon ekranıyla ORTAK (components/restoran/ticket-panel.tsx):
               kalem satırında tek kontrol (⋮), toplam bloğunda tek satır. */}
           <TicketPanel

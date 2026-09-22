@@ -98,7 +98,7 @@ export default function NakitAkisiPage() {
               <CardDescription>Nakit giriş ve çıkış analizi</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex gap-4 mb-6">
+              <div className="mb-6 flex flex-wrap items-end gap-4">
                 <div className="space-y-2">
                   <Label>Başlangıç Tarihi</Label>
                   <Input

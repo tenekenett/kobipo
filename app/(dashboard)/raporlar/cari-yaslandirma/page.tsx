@@ -305,15 +305,15 @@ export default function CariYaslandirmaPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
         <div>
           <h1 className="text-3xl font-bold">Cari Yaşlandırma</h1>
           <p className="text-muted-foreground">
             Açık faturalardan üretilen, vadeye göre yaşlandırma raporu
           </p>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 sm:items-end">
+          <div className="flex flex-wrap items-center gap-2">
             {/* "Cari Raporlar" menüsü buraya iner; kardeş raporun tek girişi bu. */}
             <Button variant="outline" size="sm" asChild>
               <Link href={`/raporlar/bakiye-kapama?company=${encodeURIComponent(companyId)}`}>

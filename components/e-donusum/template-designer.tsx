@@ -564,7 +564,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.82fr)]">
+        <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.82fr)]">
           {/* SOL — sekmeli kontroller */}
           <Tabs defaultValue="tema" className="min-w-0">
             <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
@@ -787,7 +787,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
           </Tabs>
 
           {/* SAĞ — önizleme (yapışkan): yaklaşık şema veya gerçek PDF */}
-          <div className="space-y-2 lg:sticky lg:top-4 lg:self-start">
+          <div className="min-w-0 space-y-2 lg:sticky lg:top-4 lg:self-start">
             <div className="flex items-center justify-between gap-2">
               <Label>Önizleme</Label>
               <div className="inline-flex rounded-lg border bg-muted/40 p-0.5 text-xs">

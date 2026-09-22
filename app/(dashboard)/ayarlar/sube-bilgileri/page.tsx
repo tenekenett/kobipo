@@ -267,9 +267,9 @@ export default function SubeBilgileriPage() {
                     <Link
                       key={b.id}
                       href={`/ayarlar/sube-bilgileri?company=${b.id}`}
-                      className="flex items-center justify-between gap-2 rounded-lg border p-3 text-sm transition-colors hover:border-primary/40 hover:bg-muted/40"
+                      className="flex min-w-0 items-center justify-between gap-2 rounded-lg border p-3 text-sm transition-colors hover:border-primary/40 hover:bg-muted/40"
                     >
-                      <span className="flex items-center gap-2 truncate">
+                      <span className="flex min-w-0 items-center gap-2 truncate">
                         <GitBranch className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <span className="truncate font-medium">{companyDisplayName(b)}</span>
                       </span>

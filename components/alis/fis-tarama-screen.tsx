@@ -225,7 +225,7 @@ export function BelgeTaramaScreen() {
       <ReadOnlyBanner />
 
       <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Belgeler</CardTitle>
@@ -312,7 +312,7 @@ export function BelgeTaramaScreen() {
           {selectedCompanyId && <GelenKutusu companyId={selectedCompanyId} seciliId={seciliId} onSec={satirAc} yenilemeAnahtari={kutuAnahtari} />}
         </div>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {AYIKLAMA && secili?.extraction && (
             <Card>
               <CardContent className="grid grid-cols-2 gap-2 p-4 text-xs sm:grid-cols-4">

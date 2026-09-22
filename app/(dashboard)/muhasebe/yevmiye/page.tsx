@@ -88,7 +88,7 @@ export default function YevmiyePage() {
           <CardDescription>Muhasebe fişlerini görüntüleyin</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4 mb-4">
+          <div className="mb-4 flex flex-wrap items-end gap-4">
             <div className="space-y-2">
               <Label>Başlangıç Tarihi</Label>
               <Input

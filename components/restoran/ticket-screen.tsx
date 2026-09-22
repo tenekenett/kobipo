@@ -982,7 +982,7 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
 
       <div className="grid items-start gap-4 xl:grid-cols-[1fr_400px]">
         {/* SOL: menü */}
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           {isOpen ? (
             <MenuGrid
               products={products}

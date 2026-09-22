@@ -361,7 +361,7 @@ export default function CariPage() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <CardTitle>
                 {activeTab === "customers" ? "Müşteriler" : "Tedarikçiler"}
@@ -370,14 +370,16 @@ export default function CariPage() {
                 Toplam {currentData.length} kayıt
               </CardDescription>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="relative">
+            <div className="flex w-full items-center space-x-2 sm:w-auto">
+              {/* Sabit `w-64` mobilde başlıkla aynı satıra sığmıyor ve kutunun sağı
+                  kırpılıyordu (ölçüldü: 390px'te +31px). */}
+              <div className="relative w-full sm:w-64">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Ara..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-8 pr-8 w-64"
+                  className="w-full pl-8 pr-8"
                 />
                 {(isPending || search !== debouncedSearch) && (
                   <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
