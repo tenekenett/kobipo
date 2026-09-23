@@ -193,6 +193,15 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
         ) cn
         INNER JOIN paged_customers pc ON pc.id = cn."customerId"
         GROUP BY cn."customerId"
+      ),
+      virman_totals AS (
+        -- Cari virman fişi (lib/cari/virman.ts): borç − alacak, ekstre ekseni.
+        -- Müşteride bakiyeye aynen eklenir.
+        SELECT l."customerId", SUM(CASE WHEN l.side = 'DEBIT' THEN v.amount ELSE -v.amount END) AS amount_sum
+        FROM cari_virman_legs l
+        INNER JOIN cari_virman v ON v.id = l."virmanId"
+        INNER JOIN paged_customers pc ON pc.id = l."customerId"
+        GROUP BY l."customerId"
       )
       SELECT
         pc.id,
@@ -229,7 +238,8 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
         COALESCE(CAST(t_ex.amount_sum AS NUMERIC), 0) AS "expenseTotal",
         COALESCE(CAST(cn.amount_sum AS NUMERIC), 0) AS "checkNoteTotal",
         COALESCE(CAST(pu.total_amount_sum AS NUMERIC), 0) AS "purchaseTotal",
-        COALESCE(CAST(pup.payment_amount_sum AS NUMERIC), 0) AS "purchasePaymentTotal"
+        COALESCE(CAST(pup.payment_amount_sum AS NUMERIC), 0) AS "purchasePaymentTotal",
+        COALESCE(CAST(vt.amount_sum AS NUMERIC), 0) AS "virmanNet"
       FROM paged_customers pc
       LEFT JOIN invoice_totals i ON i."customerId" = pc.id
       LEFT JOIN payment_totals p ON p."customerId" = pc.id
@@ -238,6 +248,7 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
       LEFT JOIN income_totals t_in ON t_in."customerId" = pc.id
       LEFT JOIN expense_totals t_ex ON t_ex."customerId" = pc.id
       LEFT JOIN check_note_totals cn ON cn."customerId" = pc.id
+      LEFT JOIN virman_totals vt ON vt."customerId" = pc.id
       ORDER BY pc.name ASC
     `),
     paginate
@@ -267,6 +278,8 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
       Number(row.incomeTotal || 0) -
       // Müşteriden alınan çek/senet (iade/protesto hariç) alacağı azaltır.
       Number(row.checkNoteTotal || 0) +
+      // Virman fişi (borç − alacak): müşteride aynen eklenir.
+      Number(row.virmanNet || 0) +
       (row.openingBalanceType === "CREDIT"
         ? -Number(row.openingBalanceAmount || 0)
         : Number(row.openingBalanceAmount || 0))
@@ -279,6 +292,7 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
       checkNoteTotal,
       purchaseTotal,
       purchasePaymentTotal,
+      virmanNet,
       ...customer
     } = row
     return { ...customer, balance } as CariListRow
@@ -392,6 +406,15 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
         ) cn
         INNER JOIN paged_suppliers ps ON ps.id = cn."supplierId"
         GROUP BY cn."supplierId"
+      ),
+      virman_totals AS (
+        -- Cari virman fişi (lib/cari/virman.ts): borç − alacak, ekstre ekseni.
+        -- Tedarikçi bakiyesi aynalı olduğu için aşağıda ÇIKARILIR.
+        SELECT l."supplierId", SUM(CASE WHEN l.side = 'DEBIT' THEN v.amount ELSE -v.amount END) AS amount_sum
+        FROM cari_virman_legs l
+        INNER JOIN cari_virman v ON v.id = l."virmanId"
+        INNER JOIN paged_suppliers ps ON ps.id = l."supplierId"
+        GROUP BY l."supplierId"
       )
       SELECT
         ps.id,
@@ -429,7 +452,8 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
         COALESCE(CAST(t_ex.amount_sum AS NUMERIC), 0) AS "expenseTotal",
         COALESCE(CAST(cn.amount_sum AS NUMERIC), 0) AS "checkNoteTotal",
         COALESCE(CAST(sa.total_amount_sum AS NUMERIC), 0) AS "salesTotal",
-        COALESCE(CAST(sap.payment_amount_sum AS NUMERIC), 0) AS "salesPaymentTotal"
+        COALESCE(CAST(sap.payment_amount_sum AS NUMERIC), 0) AS "salesPaymentTotal",
+        COALESCE(CAST(vt.amount_sum AS NUMERIC), 0) AS "virmanNet"
       FROM paged_suppliers ps
       LEFT JOIN invoice_totals i ON i."supplierId" = ps.id
       LEFT JOIN payment_totals p ON p."supplierId" = ps.id
@@ -438,6 +462,7 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
       LEFT JOIN income_totals t_in ON t_in."supplierId" = ps.id
       LEFT JOIN expense_totals t_ex ON t_ex."supplierId" = ps.id
       LEFT JOIN check_note_totals cn ON cn."supplierId" = ps.id
+      LEFT JOIN virman_totals vt ON vt."supplierId" = ps.id
       ORDER BY ps.name ASC
     `),
     paginate
@@ -468,7 +493,10 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
       Number(row.expenseTotal || 0) +
       Number(row.incomeTotal || 0) -
       // Tedarikçiye verilen çek/senet (iade/protesto hariç) borcumuzu azaltır.
-      Number(row.checkNoteTotal || 0) +
+      Number(row.checkNoteTotal || 0) -
+      // Virman fişi (borç − alacak): tedarikçide aynalı, yani ÇIKARILIR —
+      // "Virman Borç" bizim ona borcumuzu azaltır.
+      Number(row.virmanNet || 0) +
       // Aynalı işaret (bkz. suppliers/[id]/route.ts): CREDIT (Alacak) bakiyeyi
       // artırır, DEBIT (Borç/avans) azaltır.
       (row.openingBalanceType === "CREDIT"
@@ -483,6 +511,7 @@ export async function fetchSupplierList(options: CariListOptions): Promise<CariL
       checkNoteTotal,
       salesTotal,
       salesPaymentTotal,
+      virmanNet,
       ...supplier
     } = row
     return { ...supplier, balance } as CariListRow

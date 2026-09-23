@@ -45,6 +45,7 @@ export async function buildBalanceSheetDataset(params: {
         rows: [
           { label: "Nakit ve banka hesapları", amount: report.assets.cashAndBanks },
           { label: "Ticari alacaklar (tahsil edilmemiş)", amount: report.assets.receivables },
+          { label: "Alınan çek ve senetler (portföy)", amount: report.assets.checksReceived },
           { label: "Tedarikçilere verilen avanslar", amount: report.assets.supplierAdvances },
           { label: "Stoklar", amount: report.assets.inventory },
         ],
@@ -56,6 +57,7 @@ export async function buildBalanceSheetDataset(params: {
         totals: { label: "Toplam Pasif + Öz Kaynak", amount: report.totalLiabilitiesAndEquity },
         rows: [
           { label: "Ticari borçlar (ödenmemiş)", amount: report.liabilities.payables },
+          { label: "Verilen çek ve senetler (ödenmemiş)", amount: report.liabilities.checksGiven },
           { label: "Müşterilerden alınan avanslar", amount: report.liabilities.customerAdvances },
           { label: "Geçmiş dönem + dönem kârı", amount: report.equity.retainedEarnings },
           { label: "Sermaye ve diğer düzeltmeler", amount: report.equity.adjustments },

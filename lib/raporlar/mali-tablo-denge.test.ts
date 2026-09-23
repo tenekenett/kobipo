@@ -60,11 +60,14 @@ describe("nakit akışı dengesi", () => {
 })
 
 describe("bilanço dengesi", () => {
+  const bos = { customerBalances: [], supplierBalances: [], checksReceived: 0, checksGiven: 0 }
+
   it("aktif = yükümlülük + öz sermaye", () => {
     const sheet = composeBalanceSheet({
+      ...bos,
       cashAndBanks: 25_000,
-      netReceivables: 60_000,
-      netPayables: 40_000,
+      customerBalances: [60_000],
+      supplierBalances: [40_000],
       inventory: 15_000,
       retainedEarnings: 35_000,
     })
@@ -77,9 +80,8 @@ describe("bilanço dengesi", () => {
 
   it("kârla açıklanamayan kısım düzeltme satırında görünür", () => {
     const sheet = composeBalanceSheet({
+      ...bos,
       cashAndBanks: 50_000,
-      netReceivables: 0,
-      netPayables: 0,
       inventory: 0,
       retainedEarnings: 20_000,
     })
@@ -95,9 +97,9 @@ describe("bilanço dengesi", () => {
    */
   it("müşterinin fazla ödemesi alacaktan silinmez, avans olarak pasife geçer", () => {
     const sheet = composeBalanceSheet({
+      ...bos,
       cashAndBanks: 5_000,
-      netReceivables: -5_000,
-      netPayables: 0,
+      customerBalances: [-5_000],
       inventory: 0,
       retainedEarnings: 0,
     })
@@ -110,15 +112,55 @@ describe("bilanço dengesi", () => {
 
   it("tedarikçiye fazla ödeme borçtan silinmez, avans olarak aktife geçer", () => {
     const sheet = composeBalanceSheet({
+      ...bos,
       cashAndBanks: 0,
-      netReceivables: 0,
-      netPayables: -8_000,
+      supplierBalances: [-8_000],
       inventory: 0,
       retainedEarnings: 0,
     })
 
     expect(sheet.liabilities.payables).toBe(0)
     expect(sheet.assets.supplierAdvances).toBe(8_000)
+    expect(sheet.total).toBe(sheet.totalLiabilitiesAndEquity)
+  })
+
+  /**
+   * 2026-09-23'e kadar bütün müşteriler tek NET rakamda toplanıyordu: A'nın
+   * 5.000 fazla ödemesi B'nin 12.000 alacağını 7.000'e indiriyor, avans hiç
+   * görünmüyordu.
+   */
+  it("ayrım CARİ BAŞINADIR — bir müşterinin avansı başkasının alacağını örtmez", () => {
+    const sheet = composeBalanceSheet({
+      ...bos,
+      cashAndBanks: 0,
+      customerBalances: [12_000, -5_000],
+      supplierBalances: [3_000, -1_000],
+      inventory: 0,
+      retainedEarnings: 0,
+    })
+
+    expect(sheet.assets.receivables).toBe(12_000)
+    expect(sheet.liabilities.customerAdvances).toBe(5_000)
+    expect(sheet.liabilities.payables).toBe(3_000)
+    expect(sheet.assets.supplierAdvances).toBe(1_000)
+    expect(sheet.total).toBe(sheet.totalLiabilitiesAndEquity)
+  })
+
+  it("portföydeki çek varlıkta, verilen çek borçta durur — cariden düşen tutar kaybolmaz", () => {
+    // Müşteri 10.000'lik faturanın 4.000'ini çekle ödedi: cari 6.000, portföy 4.000.
+    const sheet = composeBalanceSheet({
+      ...bos,
+      cashAndBanks: 0,
+      customerBalances: [6_000],
+      checksReceived: 4_000,
+      checksGiven: 2_500,
+      inventory: 0,
+      retainedEarnings: 7_500,
+    })
+
+    expect(sheet.assets.total).toBe(10_000)
+    expect(sheet.liabilities.total).toBe(2_500)
+    expect(sheet.equity.adjustments).toBe(0)
     expect(sheet.total).toBe(sheet.totalLiabilitiesAndEquity)
   })
 })

@@ -477,6 +477,16 @@ describe("yazma daraltması — gören yazamaz", () => {
     expect(isApiPathAllowedForUser("/api/cari", "DELETE", perms)).toBe(false)
   })
 
+  it("virman fişi: cari sayfasını yazabilen girer/siler, rapor ekranı ve salt-okur giremez", () => {
+    // Jenerik `/api/cari` kuralı yazmaya kapalı; virmanın kendi kuralı olmasaydı
+    // ADMIN dahil kimse fiş giremezdi.
+    expect(isApiPathAllowedForUser("/api/cari/virman", "POST", w("ADMIN", "/cari/musteri"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/cari/virman/abc", "DELETE", w("ADMIN", "/cari/tedarikci"))).toBe(true)
+    expect(isApiPathAllowedForUser("/api/cari/virman", "POST", w("ACCOUNTANT", "/raporlar/cari"))).toBe(false)
+    const saltOkur = restricted("SALES", ["/cari/musteri"], [])
+    expect(isApiPathAllowedForUser("/api/cari/virman", "POST", saltOkur)).toBe(false)
+  })
+
   it("restoran raporu adisyona yazamaz ama kasiyer yazar", () => {
     const raporcu = w("ADMIN", "/restoran/raporlar")
     expect(isApiPathAllowedForUser("/api/restoran/adisyonlar", "GET", raporcu)).toBe(true)

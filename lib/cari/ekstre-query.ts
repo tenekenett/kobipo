@@ -19,6 +19,7 @@ import { CHECK_NOTE_NON_SETTLING, checkNoteSignedCredit } from "@/lib/cari/check
 import { AGING_BUCKETS, type AgingBucket } from "@/lib/raporlar/cari-yaslandirma-buckets"
 import { computeCariAging } from "@/lib/raporlar/cari-yaslandirma"
 import { isBakiyeKapama } from "@/lib/cari/bakiye-kapama"
+import { VIRMAN_LEG_SELECT, virmanLegRow } from "@/lib/cari/virman-db"
 
 export type EkstreEntryType =
   | "OPENING"
@@ -29,6 +30,8 @@ export type EkstreEntryType =
   | "TRANSACTION"
   | "CHECK"
   | "PROMISSORY_NOTE"
+  /** Cari virman fişi bacağı — bkz. lib/cari/virman.ts. */
+  | "VIRMAN"
 
 export type EkstreEntry = {
   type: EkstreEntryType
@@ -293,10 +296,16 @@ export type EkstreOptions = {
    * BÜTÜN hareketlerini (ve bakiyesini) okuyabilirdi.
    */
   visibility: CariVisibility
+  /**
+   * `false` → yaşlandırma kutuları hesaplanmaz (`aging: null`). Yaşlandırma
+   * firmanın bütün çek/senet haritasını kurar; yalnız bakiyeyi isteyen toplu
+   * ölçüm (bakiye-tutarlilik.canli.test.ts) bunu her cari için tekrarlamasın.
+   */
+  withAging?: boolean
 }
 
 export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult> {
-  const { companyId, customerId, supplierId, startDate, endDate, visibility } = options
+  const { companyId, customerId, supplierId, startDate, endDate, visibility, withAging = true } = options
 
   // Cariye BAĞLI kayıtların (fatura/işlem/çek/senet) süzgeci. "all"da boş nesne,
   // yani sorgular bugünküyle birebir aynı kalır.
@@ -356,7 +365,7 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
         })
       : null
 
-  const [invoices, transactions, checks, promissoryNotes] = await Promise.all([
+  const [invoices, transactions, checks, promissoryNotes, virmanLegs] = await Promise.all([
     // Yalnız satır kurucunun okuduğu alanlar. Eskiden her faturaya tam cari
     // kaydı + TÜM kalemler, her işleme tam kasa + cari kayıtları ekleniyordu ve
     // satırla birlikte `data` olarak istemciye gidiyordu: 84 satırlık ekstre
@@ -417,6 +426,17 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       select: { id: true, dueDate: true, noteNo: true, amount: true, direction: true, customerId: true },
       orderBy: { dueDate: "desc" },
     }),
+    // Cari virman fişi bacakları: tarih başlıkta durur. Görünürlük süzgeci
+    // bacağın kendi carisine uygulanır (`customer`/`supplier` ilişkisi aynı adlı).
+    prisma.cariVirmanLeg.findMany({
+      where: {
+        companyId,
+        ...partyFilter,
+        ...visibleParty,
+        ...(startDate || endDate ? { virman: dateRange("date") } : {}),
+      },
+      select: VIRMAN_LEG_SELECT,
+    }),
   ])
 
   const entries: EkstreEntry[] = [
@@ -476,6 +496,18 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
       reference: note.noteNo,
       data: note,
     })),
+    // Virman: sütun kuralı kart tablosuyla ortak (virmanSatirYonu).
+    ...virmanLegs.map(virmanLegRow).map((row) => ({
+      type: "VIRMAN" as const,
+      id: row.id,
+      date: row.date,
+      description: row.description,
+      debit: row.debit,
+      credit: row.credit,
+      balance: 0,
+      reference: row.virmanNo,
+      data: row,
+    })),
   ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
   // AÇILIŞ SATIRI SIRALAMADAN SONRA, EN BAŞA eklenir — tarihine bakılmadan.
@@ -492,11 +524,9 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
     entry.balance = runningBalance
   })
 
-  const { aging, excludedDrafts: agingExcludedDrafts } = await computePartyAging(
-    companyId,
-    customerId,
-    supplierId
-  )
+  const { aging, excludedDrafts: agingExcludedDrafts } = withAging
+    ? await computePartyAging(companyId, customerId, supplierId)
+    : { aging: null, excludedDrafts: null }
 
   return {
     entries,

@@ -422,6 +422,8 @@ model Company {
   documentTemplates       DocumentTemplate[]
   documentScans           DocumentScan[]
   cariProductAliases      CariProductAlias[]
+  cariVirmans             CariVirman[]
+  cariVirmanLegs          CariVirmanLeg[]
   holidays                CompanyHoliday[]
 
   @@index([parentCompanyId])
@@ -662,6 +664,7 @@ model Customer {
   classification2   CompanyDefinition? @relation("CustomerClassification2", fields: [classification2Id], references: [id], onDelete: SetNull)
   authorizedUser    User?              @relation("AuthorizedCustomerUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
   restaurantTickets RestaurantTicket[]
+  virmanLegs        CariVirmanLeg[]
 
   @@unique([linkedSupplierId])
   @@unique([companyId, slug])
@@ -721,6 +724,7 @@ model Supplier {
   classification1 CompanyDefinition? @relation("SupplierClassification1", fields: [classification1Id], references: [id], onDelete: SetNull)
   classification2 CompanyDefinition? @relation("SupplierClassification2", fields: [classification2Id], references: [id], onDelete: SetNull)
   authorizedUser  User?              @relation("AuthorizedSupplierUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
+  virmanLegs      CariVirmanLeg[]
 
   @@unique([companyId, slug])
   @@index([companyId])
@@ -2472,6 +2476,55 @@ model CariProductAlias {
   @@unique([companyId, cariId, key])
   @@index([productId])
   @@map("cari_product_aliases")
+}
+
+/// CARİ VİRMAN FİŞİ — kasaya dokunmadan cari bakiyesi aktarır (lib/cari/virman.ts).
+///
+/// Bir fiş EN FAZLA iki bacaktır: bir cari "Virman Borç", öbürü "Virman Alacak".
+/// Karşı cari İSTEĞE BAĞLIDIR; tek bacaklı fiş karşılıksız borç/alacak dekontudur.
+/// Tutar ve tarih YALNIZ başlıkta durur (bacakta kopyası yok): düzenleme yok,
+/// yanlış fiş silinip yeniden girilir — iki bacak birlikte silinir.
+model CariVirman {
+  id          String   @id @default(cuid())
+  companyId   String
+  /// Firma içinde sıralı: VRM-000001 (lib/cari/virman-db.ts → nextVirmanNo)
+  virmanNo    String
+  date        DateTime
+  amount      Decimal  @db.Decimal(15, 2)
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  createdBy   String?
+
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  legs    CariVirmanLeg[]
+
+  @@unique([companyId, virmanNo])
+  @@index([companyId, date])
+  @@map("cari_virman")
+}
+
+/// Virman fişinin bir bacağı: TEK cari (müşteri YA DA tedarikçi) + yön.
+/// Cariye bağ NO ACTION: bacağı olan cari tek başına silinemez (karşı tarafın
+/// bakiyesi sessizce bozulurdu); firma silinirken zincirleme silme takılmaz.
+model CariVirmanLeg {
+  id         String  @id @default(cuid())
+  virmanId   String
+  companyId  String
+  /// DEBIT ("Virman Borç") | CREDIT ("Virman Alacak") — ekstre sütunu
+  side       String
+  customerId String?
+  supplierId String?
+
+  virman   CariVirman @relation(fields: [virmanId], references: [id], onDelete: Cascade)
+  company  Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer Customer?  @relation(fields: [customerId], references: [id], onDelete: NoAction)
+  supplier Supplier?  @relation(fields: [supplierId], references: [id], onDelete: NoAction)
+
+  @@unique([virmanId, side])
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([companyId])
+  @@map("cari_virman_legs")
 }
 
 model UsageLimit {

@@ -8,6 +8,7 @@ export async function supplierHasBusinessReferences(tx: TransactionClient, suppl
     checks,
     notes,
     waybills,
+    virmans,
   ] = await Promise.all([
     tx.invoice.count({ where: { supplierId } }),
     tx.transaction.count({ where: { supplierId } }),
@@ -15,18 +16,22 @@ export async function supplierHasBusinessReferences(tx: TransactionClient, suppl
     tx.check.count({ where: { supplierId } }),
     tx.promissoryNote.count({ where: { supplierId } }),
     tx.waybill.count({ where: { supplierId } }),
+    // Virman bacağı olan kart silinemez (FK NO ACTION, lib/cari/virman.ts):
+    // sayılmasaydı ikiz kartı kaldırmak 500 ile patlardı.
+    tx.cariVirmanLeg.count({ where: { supplierId } }),
   ])
-  return inv + trx + quotes + checks + notes + waybills > 0
+  return inv + trx + quotes + checks + notes + waybills + virmans > 0
 }
 
 export async function customerHasBusinessReferences(tx: TransactionClient, customerId: string): Promise<boolean> {
-  const [inv, trx, quotes, checks, notes, waybills] = await Promise.all([
+  const [inv, trx, quotes, checks, notes, waybills, virmans] = await Promise.all([
     tx.invoice.count({ where: { customerId } }),
     tx.transaction.count({ where: { customerId } }),
     tx.quote.count({ where: { customerId } }),
     tx.check.count({ where: { customerId } }),
     tx.promissoryNote.count({ where: { customerId } }),
     tx.waybill.count({ where: { customerId } }),
+    tx.cariVirmanLeg.count({ where: { customerId } }),
   ])
-  return inv + trx + quotes + checks + notes + waybills > 0
+  return inv + trx + quotes + checks + notes + waybills + virmans > 0
 }

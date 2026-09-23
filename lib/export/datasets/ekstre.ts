@@ -8,6 +8,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { fetchEkstre } from "@/lib/cari/ekstre-query"
+import { VIRMAN_SIDE_LABEL } from "@/lib/cari/virman"
 import { cariVisibilityWhere, type CariVisibility } from "@/lib/cari/visibility"
 import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import type { ExportColumn, ExportDataset, ExportSection } from "../types"
@@ -34,6 +35,8 @@ const TYPE_LABELS: Record<string, string> = {
   TRANSACTION: "Tahsilat/Ödeme",
   CHECK: "Çek",
   PROMISSORY_NOTE: "Senet",
+  // Yön satırda eklenir ("Virman Borç/Alacak") — bkz. typeLabelOf.
+  VIRMAN: "Virman",
 }
 
 const COLUMNS: ExportColumn[] = [
@@ -93,7 +96,10 @@ export async function buildEkstreDataset(params: EkstreExportParams): Promise<Ex
 
   const rows = result.entries.map((entry) => ({
     date: entry.date,
-    typeLabel: TYPE_LABELS[entry.type] ?? entry.type,
+    typeLabel:
+      entry.type === "VIRMAN"
+        ? VIRMAN_SIDE_LABEL[entry.debit > 0 ? "DEBIT" : "CREDIT"]
+        : (TYPE_LABELS[entry.type] ?? entry.type),
     description: entry.description,
     reference: entry.reference,
     debit: entry.debit || null,

@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db/prisma"
 import { getCariCheckNoteCredit } from "@/lib/cari/check-credit"
+import { invoiceBalanceEffect } from "@/lib/cari/invoice-direction"
+import { virmanNetForParty } from "@/lib/cari/virman-db"
+import { computeCariAging } from "@/lib/raporlar/cari-yaslandirma"
 
 /**
  * Bir cari (müşteri/tedarikçi) kaydının silinebilir / arşivlenebilir olup
@@ -12,6 +15,24 @@ import { getCariCheckNoteCredit } from "@/lib/cari/check-credit"
  *
  * Yani temiz (bakiyesiz, açık faturasız, geçmişsiz) kayıt silinebilir;
  * geçmişi olan ama bakiyesi/açık faturası olmayan kayıt arşivlenebilir.
+ *
+ * ── Kendi formülü YOK (2026-09-23) ──────────────────────────────────────────
+ * Burası bakiyeyi ayrı bir formülle kuruyordu ve listeden ayrışmıştı. Canlı
+ * ölçümde (lib/cari/bakiye-tutarlilik.canli.test.ts, 464 cari) 4 cari listede
+ * 0 bakiyeli olduğu halde "açık bakiye var" diye ARŞİVLENEMİYORDU:
+ *   - iptal edilmiş fatura sayılıyordu (durum süzgeci yoktu) — 3 cari,
+ *     7.200 / 8.400 / 12,60 TL;
+ *   - kartın karşı yönlü (mahsup) faturası ve iadeler hiç sayılmıyordu —
+ *     tedarikçi kartına işlenmiş 3.231 TL'lik satış, aynı tutardaki alışı
+ *     kapatmıyordu.
+ * Artık:
+ *   - BAKİYE kart uçlarıyla aynı formül: iptal/dönüşmüş hariç her fatura
+ *     kendi yönüyle (`receivableSign`/`payableSign`), kasaya bağlanmamış
+ *     ödemesi düşülerek; cariye bağlı işlem, çek/senet, açılış ve virman.
+ *   - AÇIK FATURA sorusunu yaşlandırma raporu cevaplar (taslaklar dahil):
+ *     serbest tahsilat, çek, iade, mahsup ve virman kredilerini açık
+ *     kalemlere eskiden yeniye o uygular. Burada ikinci bir kopyası
+ *     tutulsaydı iki ekran yine ayrışırdı.
  */
 export interface CariDeletability {
   hasOpenBalance: boolean
@@ -28,73 +49,66 @@ export interface CariDeletability {
 export const REASON_OPEN_BALANCE = "Hesabın açık bakiyesi var."
 export const REASON_OPEN_INVOICES = "Hesaba ait açık faturalar var."
 export const REASON_HISTORY =
-  "Hesaba ait geçmiş faturalar veya ödeme/tahsilat kayıtları var."
+  "Hesaba ait geçmiş faturalar, ödeme/tahsilat ya da virman kayıtları var."
 
 const EPSILON = 0.01
+
+/** Bakiyeye giren faturalar — liste ve kart uçlarıyla aynı durum süzgeci. */
+const POSTED_INVOICE_STATUS = { notIn: ["CANCELLED", "CONVERTED"] }
 
 async function computeDeletability(
   kind: "customer" | "supplier",
   id: string,
 ): Promise<CariDeletability> {
-  const invoiceType = kind === "customer" ? "SALES" : "PURCHASE"
   const idField = kind === "customer" ? "customerId" : "supplierId"
 
   const entity =
     kind === "customer"
       ? await prisma.customer.findUnique({
           where: { id },
-          select: { openingBalanceAmount: true, openingBalanceType: true },
+          select: { companyId: true, openingBalanceAmount: true, openingBalanceType: true },
         })
       : await prisma.supplier.findUnique({
           where: { id },
-          select: { openingBalanceAmount: true, openingBalanceType: true },
+          select: { companyId: true, openingBalanceAmount: true, openingBalanceType: true },
         })
 
-  const [
-    invoiceAgg,
-    paymentAgg,
-    linkedPaymentAgg,
-    incomeAgg,
-    expenseAgg,
-    invoiceCount,
-    transactionCount,
-    openInvoices,
-  ] = await Promise.all([
-    prisma.invoice.aggregate({
-      where: { [idField]: id, type: invoiceType },
-      _sum: { totalAmount: true },
-    }),
-    // Bakiye için: işleme bağlı OLMAYAN ödemeler (bağlı olanlar zaten Transaction
-    // üzerinden bakiyeye yansıyor → çift sayım önlenir).
-    prisma.invoicePayment.aggregate({
-      where: { transactionId: null, invoice: { [idField]: id, type: invoiceType } },
-      _sum: { amount: true },
-    }),
-    // İşleme bağlı ödemelerin toplamı: serbest tahsilat havuzundan düşülecek.
-    prisma.invoicePayment.aggregate({
-      where: { transactionId: { not: null }, invoice: { [idField]: id, type: invoiceType } },
-      _sum: { amount: true },
-    }),
-    prisma.transaction.aggregate({
-      where: { [idField]: id, type: "INCOME" },
-      _sum: { amount: true },
-    }),
-    prisma.transaction.aggregate({
-      where: { [idField]: id, type: "EXPENSE" },
-      _sum: { amount: true },
-    }),
-    prisma.invoice.count({ where: { [idField]: id } }),
-    prisma.transaction.count({ where: { [idField]: id } }),
-    prisma.invoice.findMany({
-      where: { [idField]: id, type: invoiceType, status: { not: "CANCELLED" } },
-      select: { totalAmount: true, payments: { select: { amount: true } } },
-    }),
-  ])
+  const [invoices, incomeAgg, expenseAgg, invoiceCount, transactionCount, checkNoteCredit, virman, aging] =
+    await Promise.all([
+      prisma.invoice.findMany({
+        where: { [idField]: id, status: POSTED_INVOICE_STATUS },
+        select: {
+          type: true,
+          returnKind: true,
+          totalAmount: true,
+          payments: { select: { amount: true, transactionId: true } },
+        },
+      }),
+      prisma.transaction.aggregate({
+        where: { [idField]: id, type: "INCOME" },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: { [idField]: id, type: "EXPENSE" },
+        _sum: { amount: true },
+      }),
+      prisma.invoice.count({ where: { [idField]: id } }),
+      prisma.transaction.count({ where: { [idField]: id } }),
+      // Geçerli çek/senet (iade/protesto hariç).
+      getCariCheckNoteCredit(kind, id),
+      // Cari virman fişi (lib/cari/virman.ts): borç − alacak, ekstre ekseni.
+      virmanNetForParty(kind, id),
+      entity
+        ? computeCariAging(entity.companyId, {
+            ...(kind === "customer" ? { customerId: id } : { supplierId: id }),
+            // Silme/arşiv sorusunda taslak da AÇIK belgedir.
+            includeDrafts: true,
+          })
+        : null,
+    ])
 
-  // Müşteride CREDIT (Alacak) bakiyeyi azaltır; tedarikçide işaretler aynalı
-  // olduğundan tersi geçerlidir (bkz. suppliers/[id]/route.ts). Bu fonksiyon
-  // yalnızca |bakiye|≈0 kontrolü yaptığından sonucu değiştirmez, ama diğer
-  // route'larla tutarlı kalsın diye kind'e göre işaretliyoruz.
+  // Açılış: müşteride DEBIT bakiyeyi artırır; tedarikçide aynalı — CREDIT
+  // (biz ona borçluyuz) artırır (bkz. suppliers/[id]/route.ts).
   const openingMagnitude = Number(entity?.openingBalanceAmount || 0)
   const openingIsCredit = entity?.openingBalanceType === "CREDIT"
   const openingSigned =
@@ -104,40 +118,35 @@ async function computeDeletability(
 
   const incomeSum = Number(incomeAgg._sum.amount || 0)
   const expenseSum = Number(expenseAgg._sum.amount || 0)
-  // Geçerli çek/senet (iade/protesto hariç) hem bakiyeyi kapatır hem açık faturayı.
-  const checkNoteCredit = await getCariCheckNoteCredit(kind, id)
-
   // Müşteride EXPENSE (ör. iade) bakiyeyi ARTIRIR / INCOME (tahsilat) AZALTIR.
   // Tedarikçide simetrik tersi: EXPENSE (ödeme) borcu AZALTIR / INCOME ARTIRIR.
-  // (Eskiden her iki cari için müşteri işareti kullanılıyordu; tedarikçide ödeme
-  // bakiyeyi yanlışça artırıyordu — bkz. collectionPool zaten doğru terslemişti.)
   const transactionSigned =
     kind === "customer" ? expenseSum - incomeSum : incomeSum - expenseSum
+  const virmanSigned = kind === "customer" ? virman.debitMinusCredit : -virman.debitMinusCredit
 
   const balance =
-    Number(invoiceAgg._sum.totalAmount || 0) -
-    Number(paymentAgg._sum.amount || 0) +
+    invoiceBalanceEffect(kind, invoices) +
     transactionSigned +
     openingSigned -
-    checkNoteCredit
+    checkNoteCredit +
+    virmanSigned
 
   const hasOpenBalance = Math.abs(balance) >= EPSILON
-  // Açık fatura: faturaya bağlı ödemeler (InvoicePayment) DIŞINDA, cari ekranından
-  // girilen serbest tahsilat/ödeme işlemleri (INCOME/EXPENSE) de açık faturaları
-  // kapatabilir. Yaşlandırma raporu ve görünen bakiye ile tutarlı olmak için bu
-  // serbest tahsilatları da düşüyoruz; aksi halde bakiyesi 0 olan hesap "açık
-  // faturası var" diye yanlışça engellenir.
-  const invoiceOpenSum = openInvoices.reduce((sum, inv) => {
-    const paid = inv.payments.reduce((s, p) => s + Number(p.amount), 0)
-    return sum + Math.max(0, Number(inv.totalAmount) - paid)
-  }, 0)
-  // Serbest (faturaya bağlanmamış) tahsilat havuzu. İşleme bağlı ödemeler hem
-  // invoiceOpenSum'dan düşüldüğü için havuzdan da çıkarılır (çift düşmeyi önler).
-  const linkedPaymentSum = Number(linkedPaymentAgg._sum.amount || 0)
-  const collectionPool =
-    (kind === "customer" ? incomeSum - expenseSum : expenseSum - incomeSum) - linkedPaymentSum + checkNoteCredit
-  const hasOpenInvoices = invoiceOpenSum - Math.max(0, collectionPool) >= EPSILON
-  const hasHistory = invoiceCount > 0 || transactionCount > 0
+
+  // Açık fatura = yaşlandırmada hâlâ açık kalan BELGE kalemi. Açılış bakiyesi
+  // ve virman kalemleri de yaşlandırmada durur ama fatura değildir (belge türü
+  // yok); onlar yukarıdaki bakiye sorusunun konusudur.
+  const account = aging
+    ? (kind === "customer" ? aging.customers.accounts : aging.suppliers.accounts)[0]
+    : undefined
+  const invoiceOpenSum = (account?.invoices ?? [])
+    .filter((item) => item.documentKind !== null)
+    .reduce((sum, item) => sum + item.openAmount, 0)
+  const hasOpenInvoices = invoiceOpenSum >= EPSILON
+
+  // Virman bacağı olan cari SİLİNEMEZ (FK NO ACTION): silinseydi fişin karşı
+  // tarafındaki bakiye karşılıksız kalırdı. Arşivlemeye yönlendirilir.
+  const hasHistory = invoiceCount > 0 || transactionCount > 0 || virman.count > 0
 
   const archiveBlockReasons: string[] = []
   if (hasOpenBalance) archiveBlockReasons.push(REASON_OPEN_BALANCE)

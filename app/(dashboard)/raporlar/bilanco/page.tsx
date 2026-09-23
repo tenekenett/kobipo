@@ -119,6 +119,16 @@ export default function BilancoPage() {
                       <TableCell>Ticari Alacaklar</TableCell>
                       <TableCell className="text-right">{formatCurrency(report.assets.receivables)}</TableCell>
                     </TableRow>
+                    {/* Portföydeki çek/senet: cariden düşmüş, kasaya henüz girmemiş. */}
+                    {report.assets.checksReceived > 0 && (
+                      <TableRow>
+                        <TableCell>
+                          Alınan Çek ve Senetler
+                          <span className="block text-xs text-muted-foreground">Portföyde, tahsil edilmemiş</span>
+                        </TableCell>
+                        <TableCell className="text-right">{formatCurrency(report.assets.checksReceived)}</TableCell>
+                      </TableRow>
+                    )}
                     {/* Avans satırları yalnız VARSA çizilir: fazla ödeme olmayan
                         firmada her bilançoya sıfırlı satır eklemek gürültüdür. */}
                     {report.assets.supplierAdvances > 0 && (
@@ -146,6 +156,15 @@ export default function BilancoPage() {
                       <TableCell>Ticari Borçlar</TableCell>
                       <TableCell className="text-right">{formatCurrency(report.liabilities.payables)}</TableCell>
                     </TableRow>
+                    {report.liabilities.checksGiven > 0 && (
+                      <TableRow>
+                        <TableCell>
+                          Verilen Çek ve Senetler
+                          <span className="block text-xs text-muted-foreground">Henüz ödenmemiş</span>
+                        </TableCell>
+                        <TableCell className="text-right">{formatCurrency(report.liabilities.checksGiven)}</TableCell>
+                      </TableRow>
+                    )}
                     {report.liabilities.customerAdvances > 0 && (
                       <TableRow>
                         <TableCell>Müşterilerden Alınan Avanslar</TableCell>
@@ -180,6 +199,13 @@ export default function BilancoPage() {
                   </TableBody>
                 </Table>
               </div>
+              {/* Kaynak ve bilinen yaklaşıklık — kullanıcı rakamın nereden geldiğini
+                  ve neyin bugünkü durumdan okunduğunu görmeli (bkz. bilanco-kiymet.ts). */}
+              <p className="text-xs text-muted-foreground md:col-span-2">
+                Alacak ve borçlar cari bakiyelerinden, cari başına kurulur: fazla ödeme karşı tarafta avans
+                olarak görünür. Çek/senet portföyünde tahsil tarihi kasa hareketinden okunur; iade, protesto
+                ve ciro edilen evrak geçmiş tarihli bilançoda da bugünkü durumuyla sayılır.
+              </p>
             </div>
           )}
         </CardContent>

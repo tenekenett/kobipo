@@ -15,7 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil, Archive, Trash2, Wallet, MoreVertical, User, ChevronRight } from "lucide-react"
+import { ArrowLeft, ArrowLeftRight, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil, Archive, Trash2, Wallet, MoreVertical, User, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import {
   DropdownMenu,
@@ -25,6 +25,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { TransactionDialog } from "@/components/cari/transaction-dialog"
+import { VirmanDialog } from "@/components/cari/virman-dialog"
+import { useConfirm } from "@/components/ui/confirm-dialog-provider"
+import { VIRMAN_SIDE_LABEL, type VirmanSide } from "@/lib/cari/virman"
 import { ExportButton } from "@/components/export/export-button"
 import { CariArchiveDeleteDialog } from "@/components/cari/cari-archive-delete-dialog"
 import { CariFislerSection } from "@/components/cari/cari-fisler-section"
@@ -53,6 +56,10 @@ interface Transaction {
   receiptAmount?: number
   /** INVOICE_PAYMENT / WRITE_OFF satırında ödemenin işlendiği fatura. */
   invoiceId?: string
+  /** VIRMAN satırı: fiş (iki bacak birlikte silinir), bu carinin yönü, karşı cari. */
+  virmanId?: string
+  virmanSide?: VirmanSide
+  counterparty?: { kind: "customer" | "supplier"; id: string; name: string; slug: string | null } | null
   description: string
   debit: number
   credit: number
@@ -126,6 +133,8 @@ export default function CustomerSupplierDetailPage() {
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isTransactionDialogOpen, setIsTransactionDialogOpen] = useState(false)
+  const [isVirmanDialogOpen, setIsVirmanDialogOpen] = useState(false)
+  const { confirm } = useConfirm()
   const [cariAction, setCariAction] = useState<"archive" | "delete" | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
 
@@ -180,6 +189,30 @@ export default function CustomerSupplierDetailPage() {
       toast({ title: "Hata", description: e?.message || "Silme sırasında hata", variant: "destructive" })
     } finally {
       setIsProcessing(false)
+    }
+  }
+
+  // Virman fişi İKİ bacağıyla birlikte silinir: karşı carinin satırı da düşer,
+  // bu yüzden onay metni karşı cariyi adıyla söyler.
+  const deleteVirman = async (tx: Transaction) => {
+    if (!tx.virmanId) return
+    const ok = await confirm({
+      title: "Virman fişi silinsin mi?",
+      description: tx.counterparty
+        ? `Fiş iki taraflıdır: "${tx.counterparty.name}" hesabındaki karşı satır da silinir ve iki carinin bakiyesi geri döner.`
+        : "Fiş tek taraflıdır; silinince bu carinin bakiyesi geri döner.",
+      confirmLabel: "Sil",
+      variant: "destructive",
+    })
+    if (!ok) return
+    try {
+      const res = await fetch(`/api/cari/virman/${tx.virmanId}`, { method: "DELETE" })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || "Virman fişi silinemedi")
+      toast({ title: "Virman fişi silindi", description: body.virmanNo })
+      await fetchData()
+    } catch (e: any) {
+      toast({ title: "Hata", description: e?.message || "Virman fişi silinemedi", variant: "destructive" })
     }
   }
 
@@ -341,6 +374,13 @@ export default function CustomerSupplierDetailPage() {
               <Plus className="mr-2 h-4 w-4" />
               {isCustomer ? "Tahsilat Ekle" : "Ödeme Ekle"}
             </Button>
+            {/* Arşivdeki cariye virman girilmez (uç 400 döner) — düğme hiç çıkmaz. */}
+            {!data.archivedAt && (
+              <Button variant="outline" size="sm" onClick={() => setIsVirmanDialogOpen(true)}>
+                <ArrowLeftRight className="mr-2 h-4 w-4" />
+                Virman Fişi
+              </Button>
+            )}
           </WriteAction>
           {/* Bu carinin ekstresi — hareketler + yaşlandırma özeti. URL'deki `id`
               slug olabildiği için çözülmüş `data.id` gönderiliyor. */}
@@ -608,6 +648,7 @@ export default function CustomerSupplierDetailPage() {
                         tx.type === "PAYMENT" || tx.type === "INVOICE_PAYMENT" ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" :
                         tx.type === "WRITE_OFF" ? "bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300" :
                         tx.type === "OPENING" ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" :
+                        tx.type === "VIRMAN" ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-300" :
                         "bg-gray-100 text-gray-800 dark:bg-gray-500/15 dark:text-gray-300"
                       }`}>
                         {tx.type === "INVOICE" ? (tx.isReceipt ? "Fiş" : "Fatura") :
@@ -619,11 +660,25 @@ export default function CustomerSupplierDetailPage() {
                          tx.type === "INCOME" ? "Tahsilat" :
                          tx.type === "CHECK" ? "Çek" :
                          tx.type === "NOTE" ? "Senet" :
+                         tx.type === "VIRMAN" ? VIRMAN_SIDE_LABEL[tx.virmanSide ?? (tx.debit > 0 ? "DEBIT" : "CREDIT")] :
                          tx.type}
                       </span>
                     </TableCell>
                     <TableCell>
                       {tx.description}
+                      {/* Virman: karşı cari kendi kartına bağlanır (virmanın ayrı detay
+                          ekranı yok; satırın kendisi bağlantısızdır). */}
+                      {tx.type === "VIRMAN" && tx.counterparty && (
+                        <Link
+                          href={withCompanyHref(
+                            `/cari/${tx.counterparty.kind === "customer" ? "customers" : "suppliers"}/${tx.counterparty.slug || tx.counterparty.id}`,
+                            companyId,
+                          )}
+                          className="ml-1 text-xs text-blue-600 hover:underline"
+                        >
+                          Karşı cariye git
+                        </Link>
+                      )}
                       {tx.converted && tx.convertedToNo && (
                         <span className="ml-1 text-xs text-muted-foreground">
                           →{" "}
@@ -673,6 +728,19 @@ export default function CustomerSupplierDetailPage() {
                     <TableCell className="text-right">
                       {rowHref ? (
                         <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
+                      ) : tx.type === "VIRMAN" && tx.virmanId && !data.archivedAt ? (
+                        <WriteAction>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-300"
+                            aria-label="Virman fişini sil"
+                            title="Virman fişini sil (iki taraf birlikte)"
+                            onClick={() => deleteVirman(tx)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </WriteAction>
                       ) : null}
                     </TableCell>
                   </LinkedTableRow>
@@ -712,6 +780,16 @@ export default function CustomerSupplierDetailPage() {
           customerId={isCustomer ? id : null}
           supplierId={isCustomer ? null : id}
           accounts={accounts}
+          onSuccess={fetchData}
+        />
+      )}
+      {companyId && (
+        <VirmanDialog
+          open={isVirmanDialogOpen}
+          onOpenChange={setIsVirmanDialogOpen}
+          companyId={companyId}
+          party={{ kind: isCustomer ? "customer" : "supplier", id: data.id, name: data.name }}
+          currentBalance={data.balance}
           onSuccess={fetchData}
         />
       )}

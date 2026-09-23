@@ -4,7 +4,7 @@
  * Ayrı dosya çünkü `bilanco.ts` en üstte Prisma'yı içe aktarıyor; testin tek
  * derdi olan `aktif = pasif` kimliği ise veritabanına ihtiyaç duymuyor.
  *
- * İKİ KURAL:
+ * ÜÇ KURAL:
  *  1. Öz sermaye TANIMDAN gelir: net varlık = aktif − yükümlülük. Böylece tablo
  *     her zaman denk kapanır; kümülatif kârla açıklanamayan kısım gizlenmez,
  *     "sermaye ve diğer düzeltmeler" satırında görünür.
@@ -12,14 +12,21 @@
  *     bu bir alacak değil iade edilecek AVANSTIR (yükümlülük); tedarikçiye fazla
  *     ödediysek borç değil VARLIKTIR. Eskiden `> 0 ? : 0` ile sıfırlanıyor ve
  *     para sessizce kayboluyordu.
+ *  3. Ayrım CARİ BAŞINADIR (2026-09-23): A müşterisinin avansı B müşterisinin
+ *     borcundan düşülmez. Eskiden tüm müşteriler tek net rakamda toplanıyordu;
+ *     bir müşterinin fazla ödemesi başkasının alacağını görünmez kılıyordu.
  */
 
 export type BalanceSheetInputs = {
   cashAndBanks: number
-  /** Müşteri tarafı net bakiye — EKSİ olabilir (alınan avans). */
-  netReceivables: number
-  /** Tedarikçi tarafı net bakiye — EKSİ olabilir (verilen avans). */
-  netPayables: number
+  /** Müşteri başına bakiye — + alacak, − alınan avans (lib/cari/bakiye-asof.ts). */
+  customerBalances: number[]
+  /** Tedarikçi başına bakiye — + borç, − verilen avans. */
+  supplierBalances: number[]
+  /** Portföydeki alınan çek/senet (lib/raporlar/bilanco-kiymet.ts). */
+  checksReceived: number
+  /** Henüz ödenmemiş verilen çek/senet. */
+  checksGiven: number
   inventory: number
   /** Başlangıçtan bugüne kümülatif net kâr/zarar. */
   retainedEarnings: number
@@ -29,12 +36,14 @@ export type BalanceSheetSummary = {
   assets: {
     cashAndBanks: number
     receivables: number
+    checksReceived: number
     supplierAdvances: number
     inventory: number
     total: number
   }
   liabilities: {
     payables: number
+    checksGiven: number
     customerAdvances: number
     total: number
   }
@@ -47,35 +56,46 @@ export type BalanceSheetSummary = {
   totalLiabilitiesAndEquity: number
 }
 
+const round2 = (n: number) => Math.round(n * 100) / 100
+const positives = (xs: number[]) => round2(xs.reduce((s, x) => s + Math.max(x, 0), 0))
+const negatives = (xs: number[]) => round2(xs.reduce((s, x) => s + Math.max(-x, 0), 0))
+
 export function composeBalanceSheet(input: BalanceSheetInputs): BalanceSheetSummary {
   const assets = {
     cashAndBanks: input.cashAndBanks,
-    receivables: Math.max(input.netReceivables, 0),
-    supplierAdvances: Math.max(-input.netPayables, 0),
+    receivables: positives(input.customerBalances),
+    checksReceived: input.checksReceived,
+    supplierAdvances: negatives(input.supplierBalances),
     inventory: input.inventory,
     total: 0,
   }
-  assets.total =
-    assets.cashAndBanks + assets.receivables + assets.supplierAdvances + assets.inventory
+  assets.total = round2(
+    assets.cashAndBanks +
+      assets.receivables +
+      assets.checksReceived +
+      assets.supplierAdvances +
+      assets.inventory,
+  )
 
   const liabilities = {
-    payables: Math.max(input.netPayables, 0),
-    customerAdvances: Math.max(-input.netReceivables, 0),
+    payables: positives(input.supplierBalances),
+    checksGiven: input.checksGiven,
+    customerAdvances: negatives(input.customerBalances),
     total: 0,
   }
-  liabilities.total = liabilities.payables + liabilities.customerAdvances
+  liabilities.total = round2(liabilities.payables + liabilities.checksGiven + liabilities.customerAdvances)
 
-  const equityTotal = assets.total - liabilities.total
+  const equityTotal = round2(assets.total - liabilities.total)
 
   return {
     assets,
     liabilities,
     equity: {
       retainedEarnings: input.retainedEarnings,
-      adjustments: equityTotal - input.retainedEarnings,
+      adjustments: round2(equityTotal - input.retainedEarnings),
       total: equityTotal,
     },
     total: assets.total,
-    totalLiabilitiesAndEquity: liabilities.total + equityTotal,
+    totalLiabilitiesAndEquity: round2(liabilities.total + equityTotal),
   }
 }

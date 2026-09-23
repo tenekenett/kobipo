@@ -55,6 +55,32 @@ export function payableSign(inv: DirectionalInvoice): 1 | 0 | -1 {
   return 0
 }
 
+/**
+ * Faturaların carinin KENDİ bakiye işaretindeki net etkisi — kasaya bağlanmamış
+ * ödemesi düşülmüş (kasaya bağlı ödeme bakiyeye işlemin kendisi üzerinden
+ * girer). Müşteride alacak ailesi +, borç ailesi (mahsup) −; tedarikçide tersi.
+ * Kart uçlarının fatura formülüyle aynıdır; arşiv kapısı bunu kullanır.
+ */
+export function invoiceBalanceEffect(
+  kind: "customer" | "supplier",
+  invoices: Array<
+    DirectionalInvoice & {
+      totalAmount: unknown
+      payments: Array<{ amount: unknown; transactionId?: string | null }>
+    }
+  >,
+): number {
+  return invoices.reduce((sum, inv) => {
+    const paidWithoutCash = inv.payments.reduce(
+      (s, p) => s + (p.transactionId ? 0 : Number(p.amount)),
+      0,
+    )
+    const net = Number(inv.totalAmount) - paidWithoutCash
+    const customerAxis = (receivableSign(inv) - payableSign(inv)) * net
+    return sum + (kind === "customer" ? customerAxis : -customerAxis)
+  }, 0)
+}
+
 // --- Prisma `where` parçaları -------------------------------------------------
 //
 // DİKKAT: `{ returnKind: { not: "PURCHASE" } }` TEK BAŞINA yetmez — SQL'de

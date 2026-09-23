@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   PURCHASE_RETURN_WHERE,
   SALES_RETURN_WHERE,
+  invoiceBalanceEffect,
   isPurchaseReturn,
   isSalesReturn,
   payableSign,
@@ -71,5 +72,32 @@ describe("Prisma where parçaları", () => {
   it("her çağrı taze nesne döndürür", () => {
     expect(SALES_RETURN_WHERE()).not.toBe(SALES_RETURN_WHERE())
     expect(PURCHASE_RETURN_WHERE()).toEqual({ type: "RETURN", returnKind: "PURCHASE" })
+  })
+})
+
+describe("invoiceBalanceEffect — arşiv kapısının fatura formülü", () => {
+  const inv = (base: object, totalAmount: number, payments: Array<{ amount: number; transactionId?: string | null }> = []) => ({
+    ...(base as { type: string }),
+    totalAmount,
+    payments,
+  })
+
+  it("mahsup: tedarikçi kartındaki satış, aynı tutardaki alışı kapatır (canlıda 3.231 TL)", () => {
+    const faturalar = [inv(purchase, 3231), inv(sales, 3231)]
+    expect(invoiceBalanceEffect("supplier", faturalar)).toBe(0)
+    expect(invoiceBalanceEffect("customer", faturalar)).toBe(0)
+  })
+
+  it("müşteride satış +, satış iadesi −; tedarikçide alış +, alış iadesi −", () => {
+    expect(invoiceBalanceEffect("customer", [inv(sales, 1000), inv(salesReturn, 200)])).toBe(800)
+    expect(invoiceBalanceEffect("supplier", [inv(purchase, 1000), inv(purchaseReturn, 300)])).toBe(700)
+  })
+
+  it("yalnız KASAYA BAĞLANMAMIŞ ödeme düşülür — bağlı olan işlem üzerinden girer", () => {
+    const f = inv(sales, 1000, [
+      { amount: 300, transactionId: null },
+      { amount: 500, transactionId: "trx-1" },
+    ])
+    expect(invoiceBalanceEffect("customer", [f])).toBe(700)
   })
 })

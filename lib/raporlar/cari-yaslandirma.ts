@@ -27,6 +27,7 @@ import {
   payableSign,
   receivableSign,
 } from "@/lib/cari/invoice-direction"
+import { isVirmanSide, virmanBakiyeEtkisi, type CariKind } from "@/lib/cari/virman"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -250,7 +251,21 @@ function bucketize(invoice: any, paymentDueDays: number | null, today: number): 
   }
 }
 
-function openingBalanceToAgingItem(
+/**
+ * AÇILIŞ BAKİYESİ yaşlandırmada — yön carinin KENDİ bakiye işaretinden gelir.
+ *
+ * Kart ve liste uçlarında açılış aynalıdır: müşteride DEBIT (bize borçlu)
+ * bakiyeyi artırır, tedarikçide CREDIT (biz ona borçluyuz) artırır. Burası
+ * eskiden iki cari için de "DEBIT = açık kalem" diyordu ve CREDIT'i hiç
+ * okumuyordu; ölçüldü (2026-09-23, demo firmada):
+ *   - tedarikçiye 250 TL CREDIT açılış (borcumuz): listede 250, yaşlandırmada YOK;
+ *   - tedarikçiye 400 TL DEBIT açılış (verilen avans): yaşlandırmada "ödenecek 400";
+ *   - müşteriye 300 TL CREDIT açılış (alınan avans): liste 2.000, rapor 2.300.
+ * Artık bakiyeyi ARTIRAN açılış vadeli kalemdir, AZALTAN açılış serbest kredi
+ * gibi açık kalemleri eskiden yeniye kapatır (virman ve tahsilatla aynı kural).
+ */
+function openingBalanceAging(
+  kind: CariKind,
   account: {
     id: string
     createdAt: Date
@@ -259,12 +274,24 @@ function openingBalanceToAgingItem(
     paymentDueDays: number | null
   },
   today: number
-): AgingInvoice | null {
+): { item: AgingInvoice | null; credit: number } {
   const openingAmount = Number(account.openingBalanceAmount || 0)
-  if (!Number.isFinite(openingAmount) || openingAmount <= 0) return null
-  // Current balance conventions treat DEBIT as positive receivable/payable exposure.
-  if (String(account.openingBalanceType || "DEBIT").toUpperCase() !== "DEBIT") return null
+  if (!Number.isFinite(openingAmount) || openingAmount <= 0) return { item: null, credit: 0 }
+  const isDebit = String(account.openingBalanceType || "DEBIT").toUpperCase() === "DEBIT"
+  const increasesBalance = kind === "customer" ? isDebit : !isDebit
+  if (!increasesBalance) return { item: null, credit: round2(openingAmount) }
+  return { item: openingBalanceToAgingItem(account, openingAmount, today), credit: 0 }
+}
 
+function openingBalanceToAgingItem(
+  account: {
+    id: string
+    createdAt: Date
+    paymentDueDays: number | null
+  },
+  openingAmount: number,
+  today: number
+): AgingInvoice {
   const baseDate = new Date(account.createdAt)
   // Açılış bakiyesinin vadesi ancak cari kartında vade günü varsa bilinir; yoksa
   // "vade tanımsız"dır — hesabın açıldığı gün vadesi dolmuş sayılamaz.
@@ -295,6 +322,76 @@ function openingBalanceToAgingItem(
     performanceDays: overdueDays,
     openPerformanceDays: overdueDays,
   }
+}
+
+/** Yaşlandırmanın virman bacağından okuduğu alanlar. */
+const VIRMAN_AGING_SELECT = {
+  id: true,
+  side: true,
+  virman: { select: { virmanNo: true, date: true, amount: true } },
+} as const
+
+/**
+ * CARİ VİRMAN FİŞİ yaşlandırmada (lib/cari/virman.ts).
+ *
+ * Bacağın carinin bakiyesine etkisi yönünü söyler:
+ *  - bakiyeyi ARTIRAN bacak (müşteride "Virman Borç", tedarikçide "Virman
+ *    Alacak") yeni bir açık kalemdir — açılış bakiyesi gibi fişin tarihinden,
+ *    cari kartındaki vade gününe göre yaşlanır. Kredi havuzundan eksi olarak
+ *    düşülseydi (kasadan müşteriye yapılan EXPENSE gibi), faturası olmayan
+ *    caride bakiye açık görünüp yaşlandırmada hiç görünmezdi.
+ *  - bakiyeyi AZALTAN bacak serbest tahsilat gibidir: kredi havuzuna girer ve
+ *    açık kalemleri eskiden yeniye kapatır.
+ *
+ * Ödeme davranışı ölçüsüne GİRMEZ: virman fiili bir tahsilat değildir.
+ */
+function virmanYaslandirma(
+  kind: CariKind,
+  account: {
+    paymentDueDays: number | null
+    virmanLegs: Array<{ id: string; side: string; virman: { virmanNo: string; date: Date; amount: unknown } }>
+  },
+  today: number,
+): { items: AgingInvoice[]; credit: number } {
+  const items: AgingInvoice[] = []
+  let credit = 0
+  for (const leg of account.virmanLegs) {
+    if (!isVirmanSide(leg.side)) continue
+    const effect = virmanBakiyeEtkisi(kind, leg.side, Number(leg.virman.amount))
+    if (effect < 0) {
+      credit += -effect
+      continue
+    }
+    if (!(effect > 0)) continue
+    const baseDate = new Date(leg.virman.date)
+    const hasDueDate = typeof account.paymentDueDays === "number" && account.paymentDueDays > 0
+    const dueMs = hasDueDate
+      ? baseDate.getTime() + (account.paymentDueDays as number) * DAY_MS
+      : baseDate.getTime()
+    const overdueDays = Math.floor((today - dueMs) / DAY_MS)
+    const amount = round2(effect)
+    const bucket = bucketOf(overdueDays, hasDueDate)
+    const daysUntilDue = Math.max(0, -overdueDays)
+    items.push({
+      id: `virman-${leg.id}`,
+      invoiceNo: `Virman ${leg.virman.virmanNo}`,
+      documentKind: null,
+      date: baseDate,
+      effectiveDueDate: new Date(dueMs),
+      hasDueDate,
+      totalAmount: amount,
+      paidAmount: 0,
+      openAmount: amount,
+      lastPaymentDate: null,
+      overdueDays: Math.max(0, overdueDays),
+      daysUntilDue,
+      bucket,
+      dueWindow: bucket === "not_due" ? dueWindowOf(daysUntilDue) : null,
+      performanceDays: overdueDays,
+      openPerformanceDays: overdueDays,
+    })
+  }
+  return { items, credit: round2(credit) }
 }
 
 /**
@@ -466,6 +563,8 @@ export async function computeCariAging(
       // Faturaya bağlanmamış serbest tahsilat/ödeme işlemleri (Tahsilat Ekle →
       // INCOME). Açık faturaları kapatmak için kullanılır.
       transactions: { select: { type: true, amount: true, date: true } },
+      // Cari virman fişi bacakları (lib/cari/virman.ts) — bkz. `virmanYaslandirma`.
+      virmanLegs: { select: VIRMAN_AGING_SELECT },
     },
     orderBy: { name: "asc" },
   })
@@ -506,6 +605,7 @@ export async function computeCariAging(
       },
       // Faturaya bağlanmamış serbest ödeme işlemleri (Ödeme Ekle → EXPENSE).
       transactions: { select: { type: true, amount: true, date: true } },
+      virmanLegs: { select: VIRMAN_AGING_SELECT },
     },
     orderBy: { name: "asc" },
   })
@@ -595,8 +695,10 @@ export async function computeCariAging(
         .filter((inv) => receivableSign(inv) > 0 && salesCounts(inv))
         .map((inv) => bucketize(inv, c.paymentDueDays, today))
         .filter((x): x is AgingInvoice => Boolean(x))
-      const openingItem = openingBalanceToAgingItem(c, today)
-      if (openingItem) analyzed.push(openingItem)
+      const opening = openingBalanceAging("customer", c, today)
+      if (opening.item) analyzed.push(opening.item)
+      const virman = virmanYaslandirma("customer", c, today)
+      analyzed.push(...virman.items)
       // Müşteride INCOME tahsilatları alacağı azaltır, EXPENSE artırır.
       const incomeSum = c.transactions
         .filter((t) => t.type === "INCOME")
@@ -618,7 +720,7 @@ export async function computeCariAging(
       const checkCredit = customerCheckCredit.get(c.id) || 0
       applyUnallocatedCredits(
         analyzed,
-        round2(incomeSum - expenseSum - linkedSum + checkCredit + returnCredit + offsetCredit)
+        round2(incomeSum - expenseSum - linkedSum + checkCredit + returnCredit + offsetCredit + virman.credit + opening.credit)
       )
       const invoices = analyzed.filter((inv) => inv.openAmount > 0)
       const totals = summarize(analyzed)
@@ -675,8 +777,10 @@ export async function computeCariAging(
         .filter((inv) => payableSign(inv) > 0)
         .map((inv) => bucketize(inv, s.paymentDueDays, today))
         .filter((x): x is AgingInvoice => Boolean(x))
-      const openingItem = openingBalanceToAgingItem(s, today)
-      if (openingItem) analyzed.push(openingItem)
+      const opening = openingBalanceAging("supplier", s, today)
+      if (opening.item) analyzed.push(opening.item)
+      const virman = virmanYaslandirma("supplier", s, today)
+      analyzed.push(...virman.items)
       // Tedarikçide EXPENSE ödemeleri borcu azaltır, INCOME artırır.
       const incomeSum = s.transactions
         .filter((t) => t.type === "INCOME")
@@ -696,7 +800,7 @@ export async function computeCariAging(
       const checkCredit = supplierCheckCredit.get(s.id) || 0
       applyUnallocatedCredits(
         analyzed,
-        round2(expenseSum - incomeSum - linkedSum + checkCredit + returnCredit + offsetCredit)
+        round2(expenseSum - incomeSum - linkedSum + checkCredit + returnCredit + offsetCredit + virman.credit + opening.credit)
       )
       const invoices = analyzed.filter((inv) => inv.openAmount > 0)
       const totals = summarize(analyzed)

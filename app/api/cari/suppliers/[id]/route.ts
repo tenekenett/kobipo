@@ -13,6 +13,8 @@ import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { payableSign, receivableSign } from "@/lib/cari/invoice-direction"
 import { faturaOdemesiSatirlari, faturaSatirYonu } from "@/lib/cari/ekstre-query"
+import { virmanBakiyeEtkisi, VIRMAN_ENTRY_TYPE } from "@/lib/cari/virman"
+import { fetchVirmanLegsForParty } from "@/lib/cari/virman-db"
 
 
 export const dynamic = 'force-dynamic'
@@ -127,7 +129,7 @@ export const GET = withApiErrors(async function GET(
     })
 
     // Tedarikçiye verilen çek/senet (iade/protesto hariç) borcumuzu kapatır.
-    const [allChecks, allNotes, convertedReceipts] = await Promise.all([
+    const [allChecks, allNotes, convertedReceipts, virmanLegs] = await Promise.all([
       prisma.check.findMany({
         where: { supplierId: supplier.id, status: { notIn: [...CHECK_NOTE_NON_SETTLING] } },
         select: { id: true, issueDate: true, createdAt: true, direction: true, amount: true, checkNo: true, bankName: true },
@@ -154,6 +156,8 @@ export const GET = withApiErrors(async function GET(
         },
         orderBy: { date: "asc" },
       }),
+      // Cari virman fişi bacakları (lib/cari/virman.ts) — bakiyeye VE tabloya girer.
+      fetchVirmanLegsForParty("supplier", supplier.id),
     ])
     // Tedarikçide verilen çek borcu azaltır; alınan çek (iade) artırır.
     const checkNoteCredit =
@@ -205,6 +209,9 @@ export const GET = withApiErrors(async function GET(
 
     // Tedarikçiye verilen çek/senet ödeme gibidir → borcumuzu (pozitif bakiye) azaltır.
     balance -= checkNoteCredit
+
+    // Virman: tedarikçide "Virman Borç" borcumuzu azaltır, "Virman Alacak" artırır.
+    balance += virmanLegs.reduce((s, leg) => s + virmanBakiyeEtkisi("supplier", leg.side, leg.amount), 0)
 
     // Format transactions for display
     const openingAmount = Number(supplier.openingBalanceAmount || 0)
@@ -333,6 +340,21 @@ export const GET = withApiErrors(async function GET(
           invoiceNo: null,
         }
       }),
+      // Virman: sütun kuralı ekstreyle ortak (virmanSatirYonu).
+      ...virmanLegs.map((leg) => ({
+        id: leg.id,
+        date: leg.date.toISOString(),
+        createdAt: leg.createdAt.toISOString(),
+        type: VIRMAN_ENTRY_TYPE,
+        virmanId: leg.virmanId,
+        virmanSide: leg.side,
+        counterparty: leg.counterparty,
+        description: leg.description,
+        debit: leg.debit,
+        credit: leg.credit,
+        balance: 0,
+        invoiceNo: null,
+      })),
       // İş tarihine göre kronolojik; aynı gün içinde kayıt saatine (createdAt) göre
       // dengele ki yürüyen bakiye kararlı olsun ve saatler doğru sırada görünsün.
     ].sort((a, b) => {

@@ -25,6 +25,7 @@ import {
   OVERDUE_BUCKETS,
   type AgingBucket,
 } from "@/lib/raporlar/cari-yaslandirma-buckets"
+import { VIRMAN_SIDE_LABEL } from "@/lib/cari/virman"
 
 interface EkstreEntry {
   type: string
@@ -56,6 +57,9 @@ const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   TRANSACTION: { label: "Tahsilat/Ödeme", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/40" },
   CHECK: { label: "Çek", cls: "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/40" },
   PROMISSORY_NOTE: { label: "Senet", cls: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-500/15 dark:text-purple-200 dark:border-purple-500/40" },
+  // Cari virman fişi: kasa hareketi yok. Etiket yöne göre "Virman Borç/Alacak"
+  // olarak satırda kurulur (bkz. lib/cari/virman.ts → VIRMAN_SIDE_LABEL).
+  VIRMAN: { label: "Virman", cls: "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-200 dark:border-indigo-500/40" },
 }
 
 export default function EkstrePage() {
@@ -345,10 +349,14 @@ export default function EkstrePage() {
                   </TableRow>
                 ) : (
                   paged.pageRows.map((entry) => {
-                    const badge = TYPE_BADGE[entry.type] || {
+                    const base = TYPE_BADGE[entry.type] || {
                       label: entry.type,
                       cls: "bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 border-slate-200 dark:border-border",
                     }
+                    const badge =
+                      entry.type === "VIRMAN"
+                        ? { ...base, label: VIRMAN_SIDE_LABEL[entry.debit > 0 ? "DEBIT" : "CREDIT"] }
+                        : base
                     return (
                       <TableRow key={`${entry.type}-${entry.id}`}>
                         <TableCell className="whitespace-nowrap tabular-nums">

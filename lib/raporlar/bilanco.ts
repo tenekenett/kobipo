@@ -19,9 +19,11 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
-import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
-import { cashBalanceBefore } from "@/lib/finans/nakit-hareket"
+import { cariBalancesAsOf } from "@/lib/cari/bakiye-asof"
+import { settlementReference } from "@/lib/cek-senet/tahsil"
+import { CHECK_SETTLEMENT_PREFIXES, cashBalanceBefore } from "@/lib/finans/nakit-hareket"
 import { composeBalanceSheet, type BalanceSheetSummary } from "./bilanco-ozet"
+import { kiymetPortfoyu, PORTFOY_DURUMU, TAHSIL_DURUMU } from "./bilanco-kiymet"
 import { resolvePeriodBounds } from "./date-range"
 import { computeProfitLoss } from "./kar-zarar"
 
@@ -46,37 +48,44 @@ export async function computeBalanceSheet(args: {
   // Tarih GÜN SONUNU kapsar: `lte: new Date("2026-09-05")` gece yarısını
   // gösterip o günün bütün belgelerini bilançodan düşürüyordu.
   const bounds = resolvePeriodBounds(EPOCH, args.asOfDate ?? null)
-  const until = { lt: bounds.endExclusive }
-  const posted = { status: { notIn: ["CANCELLED", "CONVERTED"] }, date: until }
+  const end = bounds.endExclusive
 
-  const [
-    cashAndBanks,
-    profitLoss,
-    receivableInvoices,
-    receivablePayments,
-    inventory,
-    payableInvoices,
-    payablePayments,
-    salesReturns,
-    salesReturnRefunds,
-    purchaseReturns,
-    purchaseReturnRefunds,
-  ] = await Promise.all([
+  const [cashAndBanks, profitLoss, cari, kiymetler, tahsiller, inventory] = await Promise.all([
     // Nakit ve banka — TARİHE GÖRE. Eskiden hesapların bugünkü bakiyesiydi:
     // geçmiş bir güne bakan bilanço bugünkü parayı gösteriyordu.
-    cashBalanceBefore(companyId, bounds.endExclusive),
+    cashBalanceBefore(companyId, end),
 
     // Geçmiş dönem + cari dönem kârı, kümülatif.
     computeProfitLoss({ companyId, startDate: EPOCH, endDate: args.asOfDate ?? null }),
 
-    // Alacaklar (müşteri bakiyeleri — ödenmemiş faturalar)
-    prisma.invoice.aggregate({
-      where: { companyId, type: "SALES", ...posted },
-      _sum: { totalAmount: true },
-    }),
-    prisma.invoicePayment.aggregate({
-      where: { companyId, invoice: { type: "SALES", date: until }, paymentDate: until },
-      _sum: { amount: true },
+    // ALACAK / BORÇ — cari bakiyelerinden, tarih itibarıyla (2026-09-23).
+    // Eskiden yalnız faturadan kuruluyordu: faturaya bağlanmamış tahsilat
+    // (avans) kasaya girip alacaktan düşmüyor, tahsil edilen çek hem kasada hem
+    // alacakta kalıyor, açılış bakiyesi ve virman hiç görünmüyordu (HİDROEREN:
+    // bilanço 35.200 TL alacak, cari bakiyeleri toplamı 200 TL).
+    cariBalancesAsOf(companyId, end),
+
+    // Çek/senet portföyü — cariden düştüğü gün portföye girer, tahsil
+    // hareketinin günü kasaya geçer (lib/raporlar/bilanco-kiymet.ts).
+    Promise.all([
+      prisma.check.findMany({
+        where: { companyId, issueDate: { lt: end }, status: { in: [PORTFOY_DURUMU, TAHSIL_DURUMU] } },
+        select: { id: true, amount: true, status: true, issueDate: true, direction: true, supplierId: true },
+      }),
+      prisma.promissoryNote.findMany({
+        where: { companyId, issueDate: { lt: end }, status: { in: [PORTFOY_DURUMU, TAHSIL_DURUMU] } },
+        select: { id: true, amount: true, status: true, issueDate: true, direction: true, supplierId: true },
+      }),
+    ]),
+    prisma.transaction.findMany({
+      where: {
+        companyId,
+        OR: [
+          { reference: { startsWith: CHECK_SETTLEMENT_PREFIXES.CHECK } },
+          { reference: { startsWith: CHECK_SETTLEMENT_PREFIXES.PROMISSORY_NOTE } },
+        ],
+      },
+      select: { reference: true, date: true },
     }),
 
     // Stok değeri
@@ -84,54 +93,21 @@ export async function computeBalanceSheet(args: {
       where: { companyId, isActive: true },
       select: { stockQuantity: true, purchasePrice: true },
     }),
-
-    // Borçlar (tedarikçi bakiyeleri — ödenmemiş faturalar)
-    prisma.invoice.aggregate({
-      where: { companyId, type: "PURCHASE", ...posted },
-      _sum: { totalAmount: true },
-    }),
-    prisma.invoicePayment.aggregate({
-      where: { companyId, invoice: { type: "PURCHASE", date: until }, paymentDate: until },
-      _sum: { amount: true },
-    }),
-
-    // İADELER: satış iadesi ALACAĞI, alış iadesi BORCU azaltır. Geri ödemeleri
-    // de düşülür — iade geri ödendiyse alacak o kadar azalmış sayılmaz.
-    prisma.invoice.aggregate({
-      where: { companyId, ...SALES_RETURN_WHERE(), ...posted },
-      _sum: { totalAmount: true },
-    }),
-    prisma.invoicePayment.aggregate({
-      where: {
-        companyId,
-        invoice: { ...SALES_RETURN_WHERE(), date: until },
-        paymentDate: until,
-      },
-      _sum: { amount: true },
-    }),
-    prisma.invoice.aggregate({
-      where: { companyId, ...PURCHASE_RETURN_WHERE(), ...posted },
-      _sum: { totalAmount: true },
-    }),
-    prisma.invoicePayment.aggregate({
-      where: {
-        companyId,
-        invoice: { ...PURCHASE_RETURN_WHERE(), date: until },
-        paymentDate: until,
-      },
-      _sum: { amount: true },
-    }),
   ])
 
-  const netReceivables =
-    Number(receivableInvoices._sum.totalAmount || 0) -
-    Number(receivablePayments._sum.amount || 0) -
-    (Number(salesReturns._sum.totalAmount || 0) - Number(salesReturnRefunds._sum.amount || 0))
-
-  const netPayables =
-    Number(payableInvoices._sum.totalAmount || 0) -
-    Number(payablePayments._sum.amount || 0) -
-    (Number(purchaseReturns._sum.totalAmount || 0) - Number(purchaseReturnRefunds._sum.amount || 0))
+  const tahsilTarihi = new Map<string, Date>()
+  for (const t of tahsiller) if (t.reference) tahsilTarihi.set(t.reference, t.date)
+  const [cekler, senetler] = kiymetler
+  const portfoy = kiymetPortfoyu(
+    [
+      ...cekler.map((c) => ({ ...c, settledAt: tahsilTarihi.get(settlementReference("CHECK", c.id)) ?? null })),
+      ...senetler.map((n) => ({
+        ...n,
+        settledAt: tahsilTarihi.get(settlementReference("PROMISSORY_NOTE", n.id)) ?? null,
+      })),
+    ],
+    end,
+  )
 
   // Stok maliyeti YALNIZCA alış fiyatından. Eskiden alış fiyatı yoksa SATIŞ
   // fiyatına düşülüyordu; kâr marjı maliyet sayılınca stok (ve dolayısıyla öz
@@ -141,11 +117,13 @@ export async function computeBalanceSheet(args: {
   }, 0)
 
   return {
-    asOfDate: new Date(bounds.endExclusive.getTime() - 1).toISOString(),
+    asOfDate: new Date(end.getTime() - 1).toISOString(),
     ...composeBalanceSheet({
       cashAndBanks,
-      netReceivables,
-      netPayables,
+      customerBalances: cari.customers.map((c) => c.balance),
+      supplierBalances: cari.suppliers.map((s) => s.balance),
+      checksReceived: portfoy.received,
+      checksGiven: portfoy.given,
       inventory: inventoryValue,
       retainedEarnings: profitLoss.netProfit,
     }),

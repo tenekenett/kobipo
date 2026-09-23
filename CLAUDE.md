@@ -365,6 +365,43 @@ faturalar ve bunların dışa aktarımı.
   kısıtlı çalışan yalnız kendi carilerine belge kesebilir — bu, ucun paylaşılmasının
   kaçınılmaz sonucudur, ayrı bir karar değildir.
 
+## Cari bakiyesi ALTI yerde kurulur — yeni kaynak hepsine girer
+
+Tek bir "cari bakiye" fonksiyonu YOK. Aynı rakamı şu yerler ayrı ayrı kurar: liste
+(`lib/cari/list-query.ts`, ham SQL), kart uçları (`app/api/cari/{customers,suppliers}/[id]`),
+ekstre (`lib/cari/ekstre-query.ts`), yaşlandırma (`lib/raporlar/cari-yaslandirma.ts`)
+ve arşiv/silme kapısı (`lib/cari/archive-guard.ts`). "Liste bir rakam, ekstre başka
+rakam" hatalarının hepsi yeni bir kaynağın bunlardan BİRİNE eklenmesinin unutulmasından
+çıktı (açılış bakiyesi, çek yönü, iade/mahsup).
+
+Kaynaklar: fatura, kasaya bağlanmamış fatura ödemesi (bakiye kapama dahil), cariye bağlı
+Transaction, çek/senet, açılış bakiyesi ve **cari virman fişi** (`lib/cari/virman.ts`,
+2026-09-23). İşaret: müşteri bakiyesi borç − alacak, tedarikçi bakiyesi alacak − borç
+(aynalı); ekstre her ikisinde borç − alacak yürütür.
+
+- Virman kasaya dokunmaz; kâr/zarar, nakit akışı ve gelir-gidere BİLEREK girmez.
+  Karşı cari isteğe bağlıdır (tek taraflı fiş = karşılıksız dekont). Düzenleme yok;
+  fiş iki bacağıyla birlikte silinir. Bacağı olan cari silinemez (FK NO ACTION,
+  `hasHistory`); ikiz kart kaldırılırken de sayılır (`lib/cari/dual-role.ts`).
+- Yeni kaynak eklerken altı yerin hepsine girin ve ölçün:
+  `npm run test:canli -- lib/cari/bakiye-tutarlilik` (salt okur, ~4 dk; liste =
+  ekstre, liste ≈ arşiv kapısı, yaşlandırma (taslak dahil) = max(bakiye, 0)).
+  Kart uçları route içinde hesapladığı için bu testte YOK.
+- Arşiv kapısının kendi "açık fatura" hesabı YOK: yaşlandırmayı sorar. Bakiyesi
+  faturayı `invoiceBalanceEffect` (lib/cari/invoice-direction.ts) ile kurar — iptal
+  ve dönüşmüş hariç, iade ve mahsup dahil (2026-09-23'e kadar iptal faturayı
+  sayıyor, mahsubu görmüyordu; 4 cari arşivlenemiyordu).
+- Yaşlandırmada açılış ve virman AYNI kuralla girer: carinin bakiyesini artıran
+  kayıt vadeli kalemdir, azaltan kayıt açık kalemleri eskiden yeniye kapatan
+  kredidir. Açılışın yönü kartın işaretinden okunur (tedarikçide CREDIT artırır).
+- **Bilanço alacak/borcu faturadan DEĞİL cari bakiyesinden kurar**
+  (`lib/cari/bakiye-asof.ts`, tarih itibarıyla; formül listeyle aynı, canlı test
+  eşitliği ölçer). Ayrım CARİ BAŞINADIR: pozitif müşteri = alacak, negatif =
+  alınan avans (tedarikçide aynası). Cariden düşen çek/senet "Alınan/Verilen çek ve
+  senetler" satırına AYNI tarihle (`issueDate`) girer, tahsil kasa hareketinin
+  günü kasaya geçer (`lib/raporlar/bilanco-kiymet.ts`). İade/protesto/ciro tarihi
+  tutulmadığı için geçmiş tarihli bilançoda bugünkü durumla sayılır — ekran yazar.
+
 ## Fatura dip toplamı YALNIZ `lib/invoice/document-totals.ts`ten gelir
 
 GİB'e giden belge her satırı kuruşa yuvarlar ve genel iskontoyu satırlara dağıtır;

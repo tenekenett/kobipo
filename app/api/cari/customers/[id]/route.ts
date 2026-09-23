@@ -13,6 +13,8 @@ import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
 import { faturaOdemesiSatirlari, faturaSatirYonu } from "@/lib/cari/ekstre-query"
+import { virmanBakiyeEtkisi, VIRMAN_ENTRY_TYPE } from "@/lib/cari/virman"
+import { fetchVirmanLegsForParty } from "@/lib/cari/virman-db"
 
 
 export const dynamic = 'force-dynamic'
@@ -208,7 +210,7 @@ export const GET = withApiErrors(async function GET(
     // sorgular yalnız GÖSTERİM içindir ve formatlayıcının okuduğu alanlarla
     // sınırlı tutulur — carinin tüm geçmişi çekildiği için satır başına 47
     // sütunlu fatura + tam kasa kaydı taşımak yıllar geçtikçe büyüyordu.
-    const [allInvoices, allTransactions, allChecks, allNotes, convertedReceipts] = await Promise.all([
+    const [allInvoices, allTransactions, allChecks, allNotes, convertedReceipts, virmanLegs] = await Promise.all([
       prisma.invoice.findMany({
         where: { customerId: customer.id, status: { notIn: ["CANCELLED", "CONVERTED"] } },
         select: {
@@ -268,7 +270,12 @@ export const GET = withApiErrors(async function GET(
         },
         orderBy: { date: "asc" },
       }),
+      // Cari virman fişi bacakları (lib/cari/virman.ts) — bakiyeye VE tabloya girer.
+      fetchVirmanLegsForParty("customer", customer.id),
     ])
+
+    // Virman: müşteride "Virman Borç" bakiyeyi artırır, "Virman Alacak" azaltır.
+    balance += virmanLegs.reduce((s, leg) => s + virmanBakiyeEtkisi("customer", leg.side, leg.amount), 0)
 
     // Çek/senet net etkisi (yön + iade/protesto hariç) bakiyeyi azaltır/artırır.
     // Müşteride alınan çek alacağı azaltır; verilen çek (iade) artırır.
@@ -403,6 +410,21 @@ export const GET = withApiErrors(async function GET(
           invoiceNo: null,
         }
       }),
+      // Virman: sütun kuralı ekstreyle ortak (virmanSatirYonu).
+      ...virmanLegs.map((leg) => ({
+        id: leg.id,
+        date: leg.date.toISOString(),
+        createdAt: leg.createdAt.toISOString(),
+        type: VIRMAN_ENTRY_TYPE,
+        virmanId: leg.virmanId,
+        virmanSide: leg.side,
+        counterparty: leg.counterparty,
+        description: leg.description,
+        debit: leg.debit,
+        credit: leg.credit,
+        balance: 0,
+        invoiceNo: null,
+      })),
       // İş tarihine göre kronolojik; aynı gün içinde kayıt saatine (createdAt) göre
       // dengele ki yürüyen bakiye kararlı olsun ve saatler doğru sırada görünsün.
     ].sort((a, b) => {

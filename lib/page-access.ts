@@ -179,6 +179,15 @@ export const PAGE_API_RULES: PageApiRule[] = [
     writePages: ["/cari/musteri", "/cari/tedarikci"],
   },
   {
+    // Cari virman fişi: kasaya dokunmaz, cari bakiyesi aktarır. Kapı "iki cari
+    // sayfasından BİRİ"; bacağın türüne özgü yazma izni uçta ayrıca sorulur
+    // (assertCariMirrorWrite) — yalnız müşteri yazabilen çalışan, tedarikçiye
+    // bacak açamasın.
+    prefix: "/api/cari/virman",
+    pages: ["/cari/musteri", "/cari/tedarikci"],
+    writePages: ["/cari/musteri", "/cari/tedarikci"],
+  },
+  {
     prefix: "/api/cari/ekstre",
     pages: ["/cari/musteri", "/cari/tedarikci", "/raporlar/cari"],
     writePages: [],
