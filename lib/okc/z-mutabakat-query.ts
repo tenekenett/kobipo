@@ -79,7 +79,7 @@ function lineNet(item: { quantity: unknown; unitPrice: unknown; discountAmount: 
   return gross - Math.max(0, discount)
 }
 
-async function previousZTakenAt(z: ZReportRecord): Promise<Date | null> {
+async function previousZTakenAt(z: Pick<ZReportRecord, "id" | "deviceId" | "takenAt">): Promise<Date | null> {
   const prev = await prisma.okcZReport.findFirst({
     where: { deviceId: z.deviceId, takenAt: { lt: z.takenAt }, id: { not: z.id } },
     orderBy: { takenAt: "desc" },
@@ -120,6 +120,50 @@ async function loadReceipts(z: ZReportRecord, window: ZWindow) {
       payments: { select: { paymentMethod: true, amount: true, paymentDate: true } },
     },
   })
+}
+
+/**
+ * Fişi kapsayan GİRİLMİŞ Z raporunun numarası (yoksa null) — fiş iptal kapısı için
+ * (lib/okc/receipt-okc.ts → receiptCancelVerdict). Seçim `loadReceipts` ile aynı
+ * kuraldır: Z no'lu fiş o Z'ye, Z no'suz fiş cihazının (cihazsızsa herhangi bir
+ * cihazın) önceki Z → bu Z penceresine düşer. Ayrışırsa kapı, mutabakatın saydığı
+ * fişi serbest bırakır ya da saymadığını kilitler.
+ */
+export async function findCoveringZNo(receipt: {
+  companyId: string
+  date: Date
+  okcDeviceId: string | null
+  okcZNo: number | null
+}): Promise<number | null> {
+  if (receipt.okcZNo !== null) {
+    if (!receipt.okcDeviceId) return null
+    const z = await prisma.okcZReport.findFirst({
+      where: { deviceId: receipt.okcDeviceId, zNo: receipt.okcZNo },
+      select: { zNo: true },
+    })
+    return z?.zNo ?? null
+  }
+
+  const later = await prisma.okcZReport.findMany({
+    where: {
+      companyId: receipt.companyId,
+      takenAt: { gte: receipt.date },
+      ...(receipt.okcDeviceId ? { deviceId: receipt.okcDeviceId } : {}),
+    },
+    orderBy: { takenAt: "asc" },
+    take: 50,
+    select: { id: true, deviceId: true, zNo: true, takenAt: true },
+  })
+  // Her cihazın fişten sonraki İLK Z'si fişi kapsayabilecek tek Z'dir.
+  const seen = new Set<string>()
+  for (const z of later) {
+    if (seen.has(z.deviceId)) continue
+    seen.add(z.deviceId)
+    const window = resolveZWindow(z.takenAt, await previousZTakenAt(z))
+    const afterStart = window.first ? receipt.date >= window.start : receipt.date > window.start
+    if (afterStart && receipt.date <= window.end) return z.zNo
+  }
+  return null
 }
 
 /** Bir Z raporunun Kobipo fişleriyle karşılaştırması. */

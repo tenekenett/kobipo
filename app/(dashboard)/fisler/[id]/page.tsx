@@ -231,12 +231,18 @@ export default function FisDetayPage() {
 
   const cancel = async () => {
     if (!fis || !companyId) return
+    // Yazarkasada basılmış fiş: Kobipo'daki iptal cihazdaki fişi iptal ETMEZ; kullanıcı
+    // orada da iptal ettiğini onaylar (uç `okcConfirmed` olmadan 409 döner).
+    const okcDevice = fis.okc?.deviceId ? fis.okc : null
     if (
       !(await confirm({
         title: "Fişi iptal et",
-        description:
-          "Fiş iptal edilecek; stok ve kasa etkisi geri alınacak. Bu işlem geri alınamaz.",
-        confirmLabel: "İptal et",
+        description: okcDevice
+          ? `Bu fiş yazarkasada basıldı (${okcDevice.deviceName ?? "yazarkasa"}${
+              okcDevice.receiptNo ? ` · ÖKC fiş no ${okcDevice.receiptNo}` : ""
+            }). Kobipo'daki iptal yazarkasadaki fişi iptal etmez — önce yazarkasada iptal edin, yoksa Z raporu Kobipo'yla tutmaz. Stok ve kasa etkisi geri alınacak; bu işlem geri alınamaz.`
+          : "Fiş iptal edilecek; stok ve kasa etkisi geri alınacak. Bu işlem geri alınamaz.",
+        confirmLabel: okcDevice ? "Yazarkasada da iptal ettim" : "İptal et",
       }))
     )
       return
@@ -246,7 +252,7 @@ export default function FisDetayPage() {
       const res = await fetch(`/api/fisler/${encodeURIComponent(fis.id)}/iptal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId }),
+        body: JSON.stringify({ companyId, okcConfirmed: Boolean(okcDevice) }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || "İptal başarısız")

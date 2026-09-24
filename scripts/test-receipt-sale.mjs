@@ -14,7 +14,7 @@
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { pathToFileURL } from "node:url"
 
 const out = mkdtempSync(join(tmpdir(), "kobipo-sale-"))
@@ -34,6 +34,10 @@ try {
       tsc,
       "lib/satis/payment.ts",
       "lib/satis/submit-receipt-sale.ts",
+      // Takma adla (@/lib/...) içe aktarılan çalışma zamanı bağımlılıkları: tsc
+      // alias'ı çözemediği için kendiliğinden derlemez, burada açıkça verilir.
+      "lib/format.ts",
+      "lib/finans/hesapsiz-odeme.ts",
       "--outDir", out,
       "--rootDir", "lib",
       "--module", "es2020",
@@ -53,10 +57,16 @@ if (!existsSync(modPath)) {
   process.exit(1)
 }
 
-writeFileSync(
-  modPath,
-  readFileSync(modPath, "utf8").replace(/["']@\/lib\/satis\/payment["']/, '"./payment.js"'),
-)
+// "@/lib/x/y" → üretilen dosyaya göreli "./…/y.js". Tip importları tsc'de zaten düşer.
+for (const file of ["satis/submit-receipt-sale.js", "satis/payment.js"]) {
+  const path = join(out, file)
+  const rewritten = readFileSync(path, "utf8").replace(/(["'])@\/lib\/([^"']+)\1/g, (_, q, target) => {
+    let rel = relative(dirname(path), join(out, `${target}.js`)).replaceAll("\\", "/")
+    if (!rel.startsWith(".")) rel = `./${rel}`
+    return `${q}${rel}${q}`
+  })
+  writeFileSync(path, rewritten)
+}
 writeFileSync(join(out, "package.json"), '{"type":"module"}')
 
 const { submitReceiptSale } = await import(pathToFileURL(modPath).href)

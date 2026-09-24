@@ -8,6 +8,8 @@ import { resolveSlugId } from "@/lib/slug-resolve"
 import { revertInvoiceStock } from "@/lib/stock/warehouse"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
+import { receiptCancelVerdict } from "@/lib/okc/receipt-okc"
+import { findCoveringZNo } from "@/lib/okc/z-mutabakat-query"
 
 export const dynamic = "force-dynamic"
 
@@ -26,6 +28,10 @@ export const dynamic = "force-dynamic"
  *    Fişler hızlı satışın nakit akışıyla doğrudan bağlı olduğundan, geri alınmazsa
  *    iptal edilen fişin parası kasada kalır.
  *  - Cari bakiye: ayrıca bir şey gerekmez; sorgular CANCELLED'ı zaten hariç tutar.
+ *
+ * Yazarkasa kapısı (lib/okc/receipt-okc.ts → receiptCancelVerdict): girilmiş Z'nin
+ * kapsadığı fiş iptal edilmez; yazarkasa bilgili fiş gövdede `okcConfirmed: true`
+ * ister (409 + `code: "OKC_CONFIRM"` → istemci onay sorup yeniden gönderir).
  */
 export const POST = withApiErrors(async function POST(
   request: Request,
@@ -51,6 +57,11 @@ export const POST = withApiErrors(async function POST(
         invoiceNo: true,
         status: true,
         type: true,
+        date: true,
+        okcDeviceId: true,
+        okcReceiptNo: true,
+        okcZNo: true,
+        okcSource: true,
         payments: { select: { id: true, amount: true, accountId: true, transactionId: true } },
       },
     })
@@ -68,6 +79,20 @@ export const POST = withApiErrors(async function POST(
         },
         { status: 400 },
       )
+    }
+
+    if (receipt.type === "SALES") {
+      const verdict = receiptCancelVerdict({
+        okcDeviceId: receipt.okcDeviceId,
+        okcReceiptNo: receipt.okcReceiptNo,
+        okcZNo: receipt.okcZNo,
+        okcSource: receipt.okcSource,
+        coveringZNo: await findCoveringZNo({ companyId, ...receipt }),
+        confirmed: body?.okcConfirmed === true,
+      })
+      if (!verdict.ok) {
+        return NextResponse.json({ error: verdict.error, code: verdict.code }, { status: 409 })
+      }
     }
 
     // Tahsilatın kasa hareketi (`Transaction`) İKİ farklı yoldan doğabilir ve

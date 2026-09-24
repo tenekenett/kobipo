@@ -71,6 +71,8 @@ export default function ZRaporlariPage() {
   const { toast } = useToast()
 
   const [devices, setDevices] = useState<OkcDeviceView[]>([])
+  // Liste gelmeden "cihaz yok" boş durumu basılmasın.
+  const [devicesLoaded, setDevicesLoaded] = useState(false)
   const [rows, setRows] = useState<ZRow[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [deviceFilter, setDeviceFilter] = useState(ALL)
@@ -85,6 +87,7 @@ export default function ZRaporlariPage() {
     if (!companyId) return
     const res = await fetch(`/api/okc/devices?companyId=${encodeURIComponent(companyId)}`, { cache: "no-store" })
     if (res.ok) setDevices(await res.json())
+    setDevicesLoaded(true)
   }, [companyId])
 
   const fetchReports = useCallback(async () => {
@@ -153,7 +156,11 @@ export default function ZRaporlariPage() {
         )}
       </div>
 
-      {devices.length === 0 ? (
+      {!devicesLoaded ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">Yükleniyor…</CardContent>
+        </Card>
+      ) : devices.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center">
             <FileCheck className="mx-auto h-8 w-8 text-muted-foreground" />

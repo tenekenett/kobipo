@@ -33,3 +33,56 @@ export function normalizeReceiptOkcInput(body: Record<string, unknown>): Receipt
   }
   return { ok: true, data: { okcDeviceId: deviceId, okcReceiptNo: receiptNo, okcZNo: zNo } }
 }
+
+// ── Fiş iptali ──────────────────────────────────────────────────────────────
+//
+// Kobipo'da iptal edilen fiş Z mutabakatının Kobipo tarafından düşer. Mali fiş
+// yazarkasada da iptal edilmediyse Z ile Kobipo sessizce ayrışır. Bu yüzden:
+//  - Fişi kapsayan Z raporu GİRİLMİŞSE iptal yok: Z kapanmış, cihazda iptal
+//    artık mümkün değil; girilmiş Z'nin rakamı geriye dönük bozulmasın.
+//  - Cihazdan gelen fiş (DEVICE) elle iptal edilmez; iptal cihazdan gelir (Aşama 2).
+//  - Yazarkasa bilgisi girilmiş fiş, kullanıcı "yazarkasada da iptal ettim"
+//    demeden iptal edilmez (`confirmed`).
+// Yazarkasa bilgisi olmayan fiş yalnız ilk kurala tabidir (Z penceresi onu da sayar).
+
+export type ReceiptCancelInput = {
+  okcDeviceId: string | null
+  okcReceiptNo: number | null
+  okcZNo: number | null
+  okcSource: string | null
+  /** Fişi kapsayan Z raporu girilmiş mi (z-mutabakat penceresiyle aynı kural). */
+  coveringZNo: number | null
+  confirmed: boolean
+}
+
+export type ReceiptCancelVerdict =
+  | { ok: true }
+  | { ok: false; code: "OKC_Z_TAKEN" | "OKC_DEVICE" | "OKC_CONFIRM"; error: string }
+
+export function receiptCancelVerdict(input: ReceiptCancelInput): ReceiptCancelVerdict {
+  if (input.coveringZNo !== null) {
+    return {
+      ok: false,
+      code: "OKC_Z_TAKEN",
+      error:
+        `Bu fiş Z ${input.coveringZNo} raporuna girdi; Z alındıktan sonra fiş iptal edilemez. ` +
+        "Z raporu ya da fişin yazarkasa bilgisi yanlış girildiyse önce onu düzeltin.",
+    }
+  }
+  if (input.okcSource === "DEVICE") {
+    return {
+      ok: false,
+      code: "OKC_DEVICE",
+      error: "Bu fiş yazarkasadan geldi; iptali yazarkasada yapılır ve Kobipo'ya oradan düşer.",
+    }
+  }
+  if (input.okcDeviceId && !input.confirmed) {
+    const no = input.okcReceiptNo !== null ? ` (ÖKC fiş no ${input.okcReceiptNo})` : ""
+    return {
+      ok: false,
+      code: "OKC_CONFIRM",
+      error: `Bu fiş yazarkasada basıldı${no}. Kobipo'da iptal etmeden önce yazarkasada da iptal edin.`,
+    }
+  }
+  return { ok: true }
+}

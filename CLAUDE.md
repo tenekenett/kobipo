@@ -529,6 +529,12 @@ kalemleri (adet bölünebilir) yeni adisyona TAŞIR; parça `splitFromId` taşı
 kimliğidir (Aşama 2'deki sepet kaydı yalnız taşımadır). Z raporu ↔ Kobipo karşılaştırması
 TEK yerde: `lib/okc/z-mutabakat.ts` (saf) + `z-mutabakat-query.ts` (seçim). Gün sınırı
 Z'dir (önceki Z → bu Z), takvim günü değil. Plan ve araştırma: `docs/okc/`.
+- **Fiş iptali yazarkasa kapısından geçer** (`receiptCancelVerdict`, kapsayan Z'yi
+  `findCoveringZNo` bulur — mutabakatla AYNI pencere kuralı): girilmiş Z'nin kapsadığı
+  fiş iptal edilmez (409 `OKC_Z_TAKEN`); yazarkasa bilgili fiş `okcConfirmed` ister
+  (409 `OKC_CONFIRM`). Kobipo'daki iptal cihazdaki mali fişi iptal ETMEZ; kapı olmazsa
+  Z ile Kobipo sessizce ayrışır. Fiziksel silme (`DELETE /api/e-donusum/invoices`) bu
+  kapıdan geçmez — test temizliği onu kullanır, ekranda fiş silme yok.
 Ölçüm: `node scripts/test-okc-asama1.mjs` (dev sunucu açık).
 
 ## Yeni tablo → RLS açılacak

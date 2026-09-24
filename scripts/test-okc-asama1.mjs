@@ -275,6 +275,20 @@ async function main() {
     const fisDetail = await api("GET", `/api/fisler/${a.inv.body.id}?companyId=${company.id}`)
     check("fiş detayında yazarkasa adı", fisDetail.body?.okc?.deviceName === `TEST Kasa ${stamp}`)
 
+    // ── 4b. Fiş iptali: yazarkasa kapısı (lib/okc/receipt-okc.ts) ──────────
+    console.log("\n4b) Fiş iptali — yazarkasa kapısı")
+    const cancelA = await api("POST", `/api/fisler/${a.inv.body.id}/iptal`, { companyId: company.id, okcConfirmed: true })
+    check("Z no'su girilmiş Z'yi gösteren fiş iptal edilemez", cancelA.status === 409 && cancelA.body?.code === "OKC_Z_TAKEN", `HTTP ${cancelA.status} ${cancelA.body?.code ?? cancelA.body?.error ?? ""}`)
+    const cancelB = await api("POST", `/api/fisler/${b.inv.body.id}/iptal`, { companyId: company.id })
+    check("Z penceresindeki (ÖKC bilgisiz) fiş iptal edilemez", cancelB.status === 409 && cancelB.body?.code === "OKC_Z_TAKEN", `HTTP ${cancelB.status} ${cancelB.body?.code ?? cancelB.body?.error ?? ""}`)
+    const c = await receipt(10, 50, "CASH")
+    check("fiş C (Z2'den sonra) kesildi", c.inv.status < 300 && c.pay?.status < 300, `HTTP ${c.inv.status}/${c.pay?.status}`)
+    await api("PATCH", `/api/fisler/${c.inv.body.id}/okc`, { companyId: company.id, deviceId: device.id, receiptNo: 1002 })
+    const cancelC1 = await api("POST", `/api/fisler/${c.inv.body.id}/iptal`, { companyId: company.id })
+    check("yazarkasa bilgili fiş onaysız iptal edilmez", cancelC1.status === 409 && cancelC1.body?.code === "OKC_CONFIRM", `HTTP ${cancelC1.status} ${cancelC1.body?.code ?? ""}`)
+    const cancelC2 = await api("POST", `/api/fisler/${c.inv.body.id}/iptal`, { companyId: company.id, okcConfirmed: true })
+    check("onayla iptal edilir", cancelC2.status === 200, `HTTP ${cancelC2.status} ${cancelC2.body?.error ?? ""}`)
+
     // ── 5. Kasiyer: girer ama düzeltemez ────────────────────────────────────
     console.log("\n5) Kasiyer (SALES) yetkisi")
     const tempUser = await prisma.user.create({

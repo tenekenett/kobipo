@@ -41,6 +41,14 @@ ekranlar ve bölme hazır olsun. Cihaz yokken de işe yarasın (Z raporu elle gi
     hesap sekmeleri) TARAYICIDA GÖZLE doğrulanmadı — tip kontrolü + uç testleri var.
   - Not (bu işten bağımsız, önceden bozuk): `scripts/test-receipt-sale.mjs` `@/lib/format`
     takma adını çözemiyor (`payment.ts` importu 708c91d'den).
+- **2026-09-24 (tarayıcı turu)** — A6 ekranları tarayıcıda gözle doğrulandı (yazarkasa ayarı,
+  Z girişi + mutabakat, bölme penceresi, hesap sekmeleri, masa planı/listesi, fiş ÖKC alanı,
+  gün sonu Z kartı). Çıkanlar düzeltildi: Z sayfası cihaz listesi gelmeden "yazarkasa
+  tanımlayın" basıyordu; masa planında "N hesap" 2×2 masada kırılıyordu; ÖKC'li / Z'si
+  girilmiş fiş serbestçe iptal edilebiliyordu → `receiptCancelVerdict` + `findCoveringZNo`
+  (test-okc-asama1 → 58/58). `scripts/test-receipt-sale.mjs` alias sorunu giderildi (23/23).
+  Yavaşlık ölçüldü: yerelden Supabase'e `SELECT 1` 400–850 ms (ağ); fiş POST ~30 sorgu →
+  ~16 sn. Kod kaynaklı değil; POS hız ölçümü (Faz 0) canlı ortamda yapılmalı.
 - **Sırada: Aşama 2 (POS).** Kullanıcı test cihazını getirecek; önce `PLAN.md` B (Token başvurusu).
 
 ## Kararlar (2026-09-24'te onaylandı)

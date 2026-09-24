@@ -634,12 +634,15 @@ export function FloorPlanCanvas({
 
                   {table.openTicket ? (
                     <>
-                      <span className="font-semibold" style={{ fontSize: font(0.26) }}>
+                      <span className="whitespace-nowrap font-semibold" style={{ fontSize: font(0.26) }}>
                         {currency(table.openTicket.total)}
-                        {table.openTicketCount > 1 && (
-                          <span className="font-normal opacity-70"> · {table.openTicketCount} hesap</span>
-                        )}
                       </span>
+                      {/* Tutarla aynı satırda 2×2 masada kırılıyordu; ayrı satır, dense'te de görünür. */}
+                      {table.openTicketCount > 1 && (
+                        <span className="line-clamp-1 font-semibold opacity-80" style={{ fontSize: font(0.22) }}>
+                          {table.openTicketCount} hesap
+                        </span>
+                      )}
                       {!dense && (
                         <span className="opacity-70" style={{ fontSize: font(0.22) }}>
                           {elapsedLabel(table.openTicket.openedAt, now)} ·{" "}
