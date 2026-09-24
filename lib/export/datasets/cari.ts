@@ -8,6 +8,7 @@
  */
 
 import { fetchCustomerList, fetchSupplierList } from "@/lib/cari/list-query"
+import { parseCariListSort } from "@/lib/cari/list-sort"
 import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import type { ExportColumn, ExportDataset, ExportSection } from "../types"
 import { loadExportCompany, describeFilters } from "./context"
@@ -17,6 +18,8 @@ export type CariExportParams = {
   search?: string | null
   /** "customers" | "suppliers" | "all" */
   tab?: string | null
+  /** Ekrandaki sıralama (lib/cari/list-sort.ts) — dosya aynı sırayla iner. */
+  sort?: string | null
 }
 
 function columnsFor(kind: "customers" | "suppliers"): ExportColumn[] {
@@ -54,6 +57,7 @@ export async function buildCariDataset(params: CariExportParams): Promise<Export
     const { items } = await fetchCustomerList({
       companyId: params.companyId,
       search: params.search,
+      sort: parseCariListSort(params.sort),
       visibility,
     })
     sections.push({
@@ -68,6 +72,7 @@ export async function buildCariDataset(params: CariExportParams): Promise<Export
     const { items } = await fetchSupplierList({
       companyId: params.companyId,
       search: params.search,
+      sort: parseCariListSort(params.sort),
       visibility,
     })
     sections.push({
@@ -84,7 +89,15 @@ export async function buildCariDataset(params: CariExportParams): Promise<Export
   return {
     title,
     company,
-    filters: describeFilters([["Arama", params.search]]),
+    filters: describeFilters([
+      ["Arama", params.search],
+      [
+        "Sıralama",
+        { balance_desc: "Bakiye (çoktan aza)", balance_asc: "Bakiye (azdan çoka)", name: null }[
+          parseCariListSort(params.sort)
+        ],
+      ],
+    ]),
     sections,
     generatedAt: new Date(),
   }

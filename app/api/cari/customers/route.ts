@@ -6,6 +6,7 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import { toBool } from "@/lib/cari/repair-dual-role"
 import { assertCariMirrorWrite } from "@/lib/cari/dual-role-access"
 import { fetchCustomerList } from "@/lib/cari/list-query"
+import { parseCariListSort } from "@/lib/cari/list-sort"
 import { resolveAuthorizedUserIdOnWrite } from "@/lib/cari/visibility"
 import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
@@ -60,6 +61,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
       page,
       pageSize,
       paginate: usePagination,
+      sort: parseCariListSort(searchParams.get("sort")),
       // Yetkili çalışan kısıtı: yönetici olmayan üye yalnız kendine atanan
       // carileri görür (bkz. lib/cari/visibility.ts).
       visibility: await resolveCariVisibility(companyId),

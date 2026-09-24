@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { fetchSupplierList } from "@/lib/cari/list-query"
+import { parseCariListSort } from "@/lib/cari/list-sort"
 import { resolveAuthorizedUserIdOnWrite } from "@/lib/cari/visibility"
 import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import { assertCariMirrorWrite } from "@/lib/cari/dual-role-access"
@@ -69,6 +70,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
       page,
       pageSize,
       paginate: usePagination,
+      sort: parseCariListSort(searchParams.get("sort")),
       // Yetkili çalışan kısıtı: yönetici olmayan üye yalnız kendine atanan
       // carileri görür (bkz. lib/cari/visibility.ts).
       visibility: await resolveCariVisibility(companyId),

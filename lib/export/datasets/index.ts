@@ -57,7 +57,12 @@ export const DATASETS: Record<string, DatasetBuilder> = {
     }),
 
   cari: (companyId, params) =>
-    buildCariDataset({ companyId, search: params.get("search"), tab: params.get("tab") }),
+    buildCariDataset({
+      companyId,
+      search: params.get("search"),
+      tab: params.get("tab"),
+      sort: params.get("sort"),
+    }),
 
   ekstre: (companyId, params) =>
     buildEkstreDataset({

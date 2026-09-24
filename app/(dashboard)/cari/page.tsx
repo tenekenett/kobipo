@@ -23,13 +23,14 @@ import {
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Search, Eye, Pencil, Trash2, Loader2 } from "lucide-react"
+import { Plus, Search, Eye, Pencil, Trash2, Loader2, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
 import Link from "next/link"
 import {
   CariArchiveDeleteDialog,
   type CariDeletability,
 } from "@/components/cari/cari-archive-delete-dialog"
 import { ExportButton } from "@/components/export/export-button"
+import { nextCariListSort, type CariListSort } from "@/lib/cari/list-sort"
 import { WriteAction } from "@/components/dashboard/write-guard"
 
 function TableSkeleton({ rows = 8 }: { rows?: number }) {
@@ -107,6 +108,10 @@ export default function CariPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [page, setPage] = useState(1)
   const [pageSize] = useState(50)
+  // Bakiye başlığına basınca: ada göre → çoktan aza → azdan çoka (lib/cari/list-sort.ts).
+  // Sıralama SUNUCUDA, sayfalamadan önce yapılır — sayfa içinde sıralamak en
+  // büyük bakiyeyi yalnız o 50 kaydın içinde bulurdu.
+  const [sort, setSort] = useState<CariListSort>("name")
   const [totalCount, setTotalCount] = useState<number | null>(null)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
@@ -134,7 +139,7 @@ export default function CariPage() {
       try {
         const endpoint = activeTab === "customers" ? "customers" : "suppliers"
         const response = await fetch(
-          `/api/cari/${endpoint}?companyId=${companyId}&search=${encodeURIComponent(debouncedSearch)}&page=${page}&pageSize=${pageSize}`,
+          `/api/cari/${endpoint}?companyId=${companyId}&search=${encodeURIComponent(debouncedSearch)}&page=${page}&pageSize=${pageSize}&sort=${sort}`,
           { signal, cache: "no-store" }
         )
         if (response.ok) {
@@ -164,13 +169,13 @@ export default function CariPage() {
         }
       }
     },
-    [companyId, activeTab, debouncedSearch, page, pageSize]
+    [companyId, activeTab, debouncedSearch, page, pageSize, sort]
   )
 
   useEffect(() => {
     if (!companyId) return
     setPage(1)
-  }, [companyId, activeTab, debouncedSearch])
+  }, [companyId, activeTab, debouncedSearch, sort])
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -311,7 +316,7 @@ export default function CariPage() {
           <ExportButton
             dataset="cari"
             companyId={companyId}
-            params={{ tab: activeTab, search: debouncedSearch }}
+            params={{ tab: activeTab, search: debouncedSearch, sort }}
             size="default"
           />
           <WriteAction>
@@ -398,7 +403,32 @@ export default function CariPage() {
                 <StyledTableHeaderRow>
                   <StyledTableHead>Ad</StyledTableHead>
                   <StyledTableHead>Vergi No</StyledTableHead>
-                  <StyledTableHead className="text-right">Bakiye</StyledTableHead>
+                  <StyledTableHead
+                    className="text-right"
+                    aria-sort={sort === "balance_desc" ? "descending" : sort === "balance_asc" ? "ascending" : "none"}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSort(nextCariListSort)}
+                      className="ml-auto inline-flex items-center gap-1 rounded-sm uppercase hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                      title={
+                        sort === "name"
+                          ? "Bakiyeye göre sırala (çoktan aza)"
+                          : sort === "balance_desc"
+                            ? "Azdan çoka sırala"
+                            : "Ada göre sıralamaya dön"
+                      }
+                    >
+                      Bakiye
+                      {sort === "balance_desc" ? (
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      ) : sort === "balance_asc" ? (
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      ) : (
+                        <ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
+                      )}
+                    </button>
+                  </StyledTableHead>
                   <StyledTableHead className="text-right">İşlem</StyledTableHead>
                 </StyledTableHeaderRow>
               </TableHeader>

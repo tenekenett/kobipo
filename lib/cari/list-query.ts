@@ -14,6 +14,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { trFoldAnyLike, trLikePattern } from "@/lib/db/tr-search"
 import type { CariVisibility } from "@/lib/cari/visibility"
+import { sortCariRows, type CariListSort } from "@/lib/cari/list-sort"
 
 /**
  * Görünürlük kısıtının ham SQL karşılığı. Kural `lib/cari/visibility.ts`te;
@@ -49,6 +50,11 @@ export type CariListOptions = {
    * derleyici niyeti sorar. Sistem işleri `CARI_VISIBILITY_ALL` geçer.
    */
   visibility: CariVisibility
+  /**
+   * Sıralama (lib/cari/list-sort.ts). Verilmezse ada göre. Bakiyeye göre
+   * sıralamada sayfa, TÜM süzülmüş cariler sıralandıktan sonra kesilir.
+   */
+  sort?: CariListSort
 }
 
 export type CariListResult = {
@@ -85,7 +91,40 @@ function normalize(options: CariListOptions) {
   }
 }
 
-export async function fetchCustomerList(options: CariListOptions): Promise<CariListResult> {
+/**
+ * Bakiyeye göre sıralama: bakiye SQL'de değil aşağıdaki TS formülünde kurulur
+ * (liste, kart, ekstre… altı yerin biri; ikinci bir SQL kopyası ayrışırdı).
+ * Bu yüzden süzülmüş carilerin HEPSİ aynı fonksiyonla hesaplanır, sonra
+ * sıralanıp sayfa kesilir. Sayfasız sonuç önbellekte durur; sayfa geçişleri
+ * yeniden sorgu atmaz.
+ */
+async function withSort(
+  options: CariListOptions,
+  query: (options: CariListOptions) => Promise<CariListResult>,
+): Promise<CariListResult> {
+  const sort = options.sort ?? "name"
+  if (sort === "name") return query(options)
+  const all = await query({ ...options, paginate: false })
+  const sorted = sortCariRows(all.items, sort)
+  const { paginate, safePage, safePageSize, offset } = normalize(options)
+  if (!paginate) return { items: sorted, totalCount: null, page: safePage, pageSize: safePageSize }
+  return {
+    items: sorted.slice(offset, offset + safePageSize),
+    totalCount: sorted.length,
+    page: safePage,
+    pageSize: safePageSize,
+  }
+}
+
+export function fetchCustomerList(options: CariListOptions): Promise<CariListResult> {
+  return withSort(options, queryCustomerList)
+}
+
+export function fetchSupplierList(options: CariListOptions): Promise<CariListResult> {
+  return withSort(options, querySupplierList)
+}
+
+async function queryCustomerList(options: CariListOptions): Promise<CariListResult> {
   const { paginate, safePage, safePageSize, offset, hasSearch, searchPattern, visibilityKey } =
     normalize(options)
   const cacheKey = `customers|${options.companyId}|${visibilityKey}|${searchPattern ?? ""}|${safePage}|${safePageSize}|${paginate ? "1" : "0"}`
@@ -303,7 +342,7 @@ export async function fetchCustomerList(options: CariListOptions): Promise<CariL
   return { items, totalCount, page: safePage, pageSize: safePageSize }
 }
 
-export async function fetchSupplierList(options: CariListOptions): Promise<CariListResult> {
+async function querySupplierList(options: CariListOptions): Promise<CariListResult> {
   const { paginate, safePage, safePageSize, offset, hasSearch, searchPattern, visibilityKey } =
     normalize(options)
   const cacheKey = `suppliers|${options.companyId}|${visibilityKey}|${searchPattern ?? ""}|${safePage}|${safePageSize}|${paginate ? "1" : "0"}`
