@@ -31,6 +31,7 @@ const STATIC_TITLES: Record<string, string> = {
   // Satış
   "/satis/fatura": "Satış Faturaları",
   "/satis/fisler": "Satış Fişleri",
+  "/satis/z-raporlari": "Z Raporları",
   "/satis/hizli": "Hızlı Satış",
   "/satis/irsaliye": "Satış İrsaliyeleri",
   "/satis/siparis": "Satış Siparişleri",
@@ -166,6 +167,7 @@ const STATIC_TITLES: Record<string, string> = {
   "/ayarlar/subeler": "Şube Yönetimi",
   "/ayarlar/sube-mudurleri": "Şube Müdürleri",
   "/ayarlar/tanimlar": "Tanımlar",
+  "/ayarlar/yazarkasa": "Yazarkasa",
   "/ayarlar/veri-aktarim": "Veri Aktarımı",
 }
 

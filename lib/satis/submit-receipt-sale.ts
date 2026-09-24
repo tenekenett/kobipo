@@ -13,6 +13,7 @@
 
 import {
   buildPaymentParts,
+  defaultPaymentAccounts,
   round2,
   type PaymentPart,
   type PaymentState,
@@ -115,14 +116,8 @@ export async function submitReceiptSale(args: {
   const total =
     invoice?.totalAmount != null ? Number(invoice.totalAmount) : round2(args.fallbackTotal)
 
-  const cashAccountId = args.accounts.find((a) => a.type === "CASH")?.id
-  const cardAccountId = args.accounts.find((a) => a.type === "CREDIT_CARD" || a.type === "POS")?.id
-  // Banka kanalı önce açıkça BANK'tan seçilir: POS kanalı da "nakit değil" olduğu
-  // için ilk sıraya düşüp havale tahsilatını yanlış kanala yazabilirdi.
-  const bankAccountId =
-    args.accounts.find((a) => a.type === "BANK")?.id ??
-    args.accounts.find((a) => a.type !== "CASH")?.id
-  const parts = buildPaymentParts(args.payment, { total, cashAccountId, bankAccountId, cardAccountId })
+  // Kanal kuralı ortak (lib/satis/payment.ts): sunucu tarafı kapanış da aynısını kullanır.
+  const parts = buildPaymentParts(args.payment, { total, ...defaultPaymentAccounts(args.accounts) })
 
   const paymentResults: (PaymentAccountResult | null)[] = []
   for (const part of parts) {

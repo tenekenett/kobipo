@@ -486,6 +486,51 @@ if (ids) where.id = { in: ids }             // null = "arama yok"; [] = "eşleş
 - Ekran ve dışa aktarım aynı süzgeci kullanır (ürün listesi, stok raporu, gelen
   e-faturalar): biri katlar öteki katlamazsa "listede 42, Excel'de 47" doğar.
 
+## Fiş, tahsilat, adisyon kapanışı: mantık `lib/`'de, uç ince sarmalayıcı
+
+2026-09-24'ten beri üç yazma ucunun iş mantığı uçta DEĞİL, çekirdek fonksiyonda
+(ÖKC yazarkasa webhook'u oturumsuz çağırabilsin diye — `docs/okc/ASAMA1-KOBIPO.md` A5):
+
+| Uç | Çekirdek |
+|---|---|
+| `POST /api/e-donusum/invoices` | `lib/invoice/create-invoice.ts` → `createInvoiceFromBody` |
+| `POST /api/faturalar/odemeler` | `lib/finans/create-invoice-payment.ts` → `createInvoicePayment` |
+| `GET/POST /api/restoran/adisyonlar/[id]/kapat` | `lib/restoran/close-ticket.ts` → `prepareTicketClose` / `closeTicket` |
+
+- Kural değişikliği ÇEKİRDEĞE yazılır; uca yazılan kural oturumsuz yolu (webhook) atlar.
+- Kim/yetki dışarıdan gelir: `WriteActor` (`lib/api/write-actor.ts`). Uç
+  `sessionWriteActor(user.id)` verir (`lib/api/session-actor.ts`) (= `ensureCompanyWrite`, AYNI noktada çağrılır);
+  sistem `trustedSystemActor("system:…")` verir — kullanıcı yetkisi sormaz, firma
+  var/aktif/arşivde değil ve modül durumu yine sorulur. Onu yalnız kaynağını KENDİSİ
+  doğrulamış (imzalı webhook) ve `companyId`yi kendi kaydından alan kod kullanır.
+- Sunucuda uçtan uca kapanış: `lib/restoran/close-with-receipt.ts` → `closeTicketWithReceipt`
+  (hazırlık → fiş → tahsilat → kapanış; yarım kalan denemenin sahipsiz fişini YENİDEN
+  kullanır, ikinci fiş kesmez). Tahsilat kanalı ekranla ortak: `defaultPaymentAccounts`.
+- Kapsam nöbetçisi (`lib/page-api-coverage.test.ts`) `sessionWriteActor`/`sessionReadAuthorize`i
+  kapı çağrısı sayar.
+- Ölçüm: `npx tsx scripts/test-sunucu-kapanis.ts` (dev sunucu açık; temizlik HTTP ile).
+
+## Masada birden çok açık hesap YALNIZ bölmeyle doğar
+
+"Masada tek açık adisyon" kuralı YENİ adisyon açarken durur (`POST /api/restoran/adisyonlar`
+409 + mevcut hesap). "Ayrı hesaplara ayır" (`POST .../[id]/bol`, kural `lib/restoran/split.ts`)
+kalemleri (adet bölünebilir) yeni adisyona TAŞIR; parça `splitFromId` taşır. Sonuçları:
+
+- Masa listesi `openTicket`i MASA ÖZETİdir (toplam tutar, ilk hesap); hesaplar tek tek
+  `openTickets`te. Masaya bakan yeni kod tek hesap VARSAYMAZ.
+- Kapanışta masa "temizlenecek" damgası ancak SON açık hesap kapanınca basılır.
+- Sürükle-bırak birden çok hesaplı masayı taşımaz (yalnız ilk hesabı taşırdı).
+- İskonto: yüzde her parçaya aynen; tutar brüt oranında, kuruş kalanı kaynakta.
+- Ölçüm: `node scripts/test-hesap-bolme.mjs` (dev sunucu açık).
+
+## Yazarkasa (ÖKC): fişin mali kimliği fişte, Z mutabakatı tek fonksiyonda
+
+`OkcDevice` şube bazlıdır; `Invoice.okcDeviceId/okcReceiptNo/okcZNo/okcSource` fişin mali
+kimliğidir (Aşama 2'deki sepet kaydı yalnız taşımadır). Z raporu ↔ Kobipo karşılaştırması
+TEK yerde: `lib/okc/z-mutabakat.ts` (saf) + `z-mutabakat-query.ts` (seçim). Gün sınırı
+Z'dir (önceki Z → bu Z), takvim günü değil. Plan ve araştırma: `docs/okc/`.
+Ölçüm: `node scripts/test-okc-asama1.mjs` (dev sunucu açık).
+
 ## Yeni tablo → RLS açılacak
 
 `public` şemadaki her tablo RLS **açık ve policy'siz** (default deny) tutulur; veriye

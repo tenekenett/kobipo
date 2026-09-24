@@ -554,7 +554,7 @@ tekrarlanacak.
 | **F1** | **Hesap fişi** · **İskonto** · **İkram/Zayi/İptal + sebep + stok düzeltmesi** | Günlük acıyı kesen üçlü; F1 tek başına işletmeye verilebilir hale getiriyor |
 | **F2** | **Açık adisyon listesi** + **paket/gel-al adisyonu** · **ödemede hesap bölme** · **yemek kartı ödeme tipleri** | Hepsi küçük; birlikte gün sonu mutabakatını da düzeltiyor |
 | **F3** | **Seçenek/porsiyon sistemi**: model + menü kurulumu + seçim diyaloğu → sonra reçete etkisi | En büyük iş; F0'ın panelini hazır bulmalı |
-| **F4** | Gerçek adisyon bölme (ayrı fiş), masa birleştirme, kalem transferi | "Bir masada tek adisyon" kuralını gevşetme kararı gerekiyor |
+| **F4** | Gerçek adisyon bölme (ayrı fiş), masa birleştirme, kalem transferi | **Bölme yapıldı 2026-09-24** ("Ayrı hesaplara ayır", `lib/restoran/split.ts`, docs/okc/ASAMA1-KOBIPO.md A4). Kural: yeni adisyon açarken tek hesap kuralı durur, birden çok hesap yalnız bölmeyle doğar |
 
 **Öneri:** F0+F1 tek oturumda, F2 ikinci oturumda, F3 ayrı planla (kendi belgesi olmalı).
 

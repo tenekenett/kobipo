@@ -234,6 +234,9 @@ export function TableListScreen() {
                       <span className="flex flex-col gap-0.5 text-xs">
                         <span className="font-semibold text-kobipo-blue tabular-nums dark:text-primary">
                           {currency(ticket.total)}
+                          {table.openTicketCount > 1 && (
+                            <span className="ml-1 font-normal text-muted-foreground">· {table.openTicketCount} hesap</span>
+                          )}
                         </span>
                         <span className="flex items-center gap-1 text-muted-foreground">
                           <Clock className="h-3 w-3 shrink-0" />

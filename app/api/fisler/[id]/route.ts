@@ -65,6 +65,7 @@ export const GET = withApiErrors(async function GET(
           include: { account: { select: { id: true, name: true } } },
         },
         convertedInvoice: { select: { id: true, slug: true, invoiceNo: true } },
+        okcDevice: { select: { name: true } },
       },
     })
 
@@ -104,6 +105,17 @@ export const GET = withApiErrors(async function GET(
       // Liste ile aynı kural (app/api/fisler/route.ts): tam / kısmî / açık.
       paymentStatus: paid <= 0 ? "OPEN" : paid + 0.01 >= total ? "PAID" : "PARTIAL",
       notes: receipt.notes,
+      // Yazarkasa (ÖKC) mali kimliği — yalnız satış fişinde anlamlı (docs/okc/ASAMA1-KOBIPO.md).
+      okc:
+        direction === "outgoing"
+          ? {
+              deviceId: receipt.okcDeviceId,
+              deviceName: receipt.okcDevice?.name ?? null,
+              receiptNo: receipt.okcReceiptNo,
+              zNo: receipt.okcZNo,
+              source: receipt.okcSource,
+            }
+          : null,
       // Dönüştürüldüyse hangi resmî faturaya gittiği — detaydan o faturaya geçilir.
       convertedInvoice: receipt.convertedInvoice
         ? {

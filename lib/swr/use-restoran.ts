@@ -37,6 +37,17 @@ export type PlanTable = {
     /** Müşteri hesap istedi — adisyon hâlâ açık, masa planda ayrı renkte. */
     billRequestedAt: string | null
   } | null
+  /**
+   * Masanın AÇIK HESAPLARI tek tek. Normalde bir tane; "ayrı hesaplara ayır" ile
+   * birden çok olur. `openTicket` bunların özetidir (toplam tutar, ilk hesap).
+   */
+  openTickets?: Array<{
+    id: string
+    code: string
+    itemCount: number
+    total: number
+    billRequestedAt: string | null
+  }>
   /** Masanın YAKLAŞAN rezervasyonu (yalnız bekleyen ve zaman penceresindeki). */
   reservation: {
     id: string
@@ -86,6 +97,11 @@ export type Ticket = {
   invoiceNo: string | null
   /** Doluysa adisyon iptal DEĞİL, başka adisyona birleştirildi — cirosu orada. */
   mergedIntoId: string | null
+  /** Bu hesap başka bir hesaptan AYRILDIYSA kaynağın id'si ve kodu. */
+  splitFromId?: string | null
+  splitFromCode?: string | null
+  /** Aynı masadaki diğer AÇIK hesaplar (yalnız tekil adisyon ucu döndürür). */
+  siblings?: Array<{ id: string; code: string; total: number }>
   cancelReasonCode: string | null
   cancelReason: string | null
   cancelReasonLabel: string | null

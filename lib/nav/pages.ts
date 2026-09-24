@@ -48,6 +48,9 @@ export const NAV_PAGES: NavPageDef[] = [
   { href: "/satis/siparis", label: "Satış Siparişi", roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/satis/hizli", label: "Hızlı Satış", roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/satis/fisler", label: "Satış Fişleri", roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
+  // Yazarkasa Z raporu + Kobipo fişleriyle mutabakat. Kasiyer (SALES) GİRER ama
+  // düzeltemez — o ayrım sayfada değil uçta (lib/okc/access.ts).
+  { href: "/satis/z-raporlari", label: "Z Raporları", roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
   { href: "/teklif", label: "Teklif", roles: ["ADMIN", BM, "ACCOUNTANT", "SALES"] },
 
   // Alış
@@ -150,6 +153,8 @@ export const NAV_PAGES: NavPageDef[] = [
   { href: "/ayarlar/firma", label: "Firma Bilgileri", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/ayarlar/fis-tasarim", label: "Fiş Tasarımı", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/ayarlar/tanimlar", label: "Tanımlar", roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  // Yazarkasa (ÖKC) tanımı şube bazlıdır; şubeyi işleten tanımlar.
+  { href: "/ayarlar/yazarkasa", label: "Yazarkasa", roles: ["ADMIN", BM] },
   // KISITLI: yalnız ADMIN
   // Etiket sayfanın kendi başlığıyla aynı olmalı: menüde "Kullanıcı Yönetimi",
   // içeride "Ekip Yönetimi" yazıyordu ve sayfa aranırken bulunamıyordu.
@@ -184,6 +189,7 @@ export const NAV_GROUPS: Array<{ title: string; hrefs: string[] }> = [
       "/satis/siparis",
       "/satis/hizli",
       "/satis/fisler",
+      "/satis/z-raporlari",
       "/teklif",
     ],
   },
@@ -268,6 +274,7 @@ export const NAV_GROUPS: Array<{ title: string; hrefs: string[] }> = [
       "/ayarlar/firma",
       "/ayarlar/fis-tasarim",
       "/ayarlar/tanimlar",
+      "/ayarlar/yazarkasa",
       "/ayarlar/ekip",
       "/ayarlar/roller",
       "/ayarlar/sube-mudurleri",

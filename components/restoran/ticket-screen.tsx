@@ -64,6 +64,7 @@ import { TicketPanel } from "@/components/restoran/ticket-panel"
 import { OptionDialog } from "@/components/restoran/option-dialog"
 import { DiscountDialog, type DiscountValue } from "@/components/restoran/discount-dialog"
 import { SplitDialog } from "@/components/restoran/split-dialog"
+import { SeparateBillDialog } from "@/components/restoran/separate-bill-dialog"
 import { PaymentPanel } from "@/components/satis/payment-panel"
 import { useToast } from "@/components/ui/use-toast"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
@@ -155,6 +156,9 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   const [noteDialog, setNoteDialog] = useState<{ itemId: string; note: string } | null>(null)
   const [discountOpen, setDiscountOpen] = useState(false)
   const [splitOpen, setSplitOpen] = useState(false)
+  /** "Ayrı hesaplara ayır" — kalemler yeni adisyona taşınır (lib/restoran/split.ts). */
+  const [separateOpen, setSeparateOpen] = useState(false)
+  const [separating, setSeparating] = useState(false)
   const [optionFor, setOptionFor] = useState<RefProduct | null>(null)
   /** İptal sebebi ZORUNLU (uç 400 veriyor): dolu bir hesabı tek tıkla silmek
       kaçağın en klasik yoluydu. Kalem iptalindeki desenin aynısı. */
@@ -370,15 +374,52 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
    * Hedef masaya göre: masalı hesap salon planına döner (bir sonraki iş orada),
    * paket/gel-al ise salon planında hiç görünmediği için adisyon listesine.
    */
+  // Masada AYRILMIŞ başka hesap açıksa kapanıştan sonra ona geçilir: masa daha
+  // boşalmadı, garsonun sıradaki işi o hesap.
+  const nextSibling = ticket?.siblings?.[0] ?? null
   const leaveAfterClose = useCallback(() => {
     setLastSale(null)
     router.push(
       withCompanyHref(
-        ticket?.tableId ? "/restoran/masalar" : "/restoran/adisyonlar",
+        nextSibling
+          ? `/restoran/adisyon/${nextSibling.id}`
+          : ticket?.tableId
+            ? "/restoran/masalar"
+            : "/restoran/adisyonlar",
         companyId,
       ),
     )
-  }, [router, companyId, ticket?.tableId])
+  }, [router, companyId, ticket?.tableId, nextSibling])
+
+  /** Seçilen kalemleri yeni bir hesaba ayırır ve o hesaba geçer. */
+  const separateItems = useCallback(
+    async (moves: Array<{ itemId: string; quantity: number }>) => {
+      setSeparating(true)
+      try {
+        const res = await fetch(`/api/restoran/adisyonlar/${ticketId}/bol`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId, parts: [{ items: moves }] }),
+        })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body?.error || "Hesap ayrılamadı")
+        const part = body.parts?.[0]
+        setSeparateOpen(false)
+        void mutate(body.source, { revalidate: false })
+        void mutateTables()
+        toast({
+          title: `Ayrı hesap açıldı: ${part?.code ?? ""}`,
+          description: `${body.source?.code} hesabında kalanlar masada açık duruyor.`,
+        })
+        if (part?.id) router.push(withCompanyHref(`/restoran/adisyon/${part.id}`, companyId))
+      } catch (e: any) {
+        toast({ title: "Hesap ayrılamadı", description: e.message, variant: "destructive" })
+      } finally {
+        setSeparating(false)
+      }
+    },
+    [companyId, mutate, mutateTables, router, ticketId, toast],
+  )
 
   /** İkram / zayi / iptal — kalem SİLİNMEZ, işaretlenir (SATIS-EKRANI.md K2). */
   const setItemStatus = useCallback(
@@ -933,7 +974,11 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
   const totals = ticket.totals
   const hasBillable = ticket.items.some((i) => i.status === "NORMAL")
 
-  const afterCloseLabel = ticket.tableId ? "Masalara dön" : "Adisyonlara dön"
+  const afterCloseLabel = nextSibling
+    ? `Masadaki diğer hesaba geç (${nextSibling.code})`
+    : ticket.tableId
+      ? "Masalara dön"
+      : "Adisyonlara dön"
 
   return (
     <div className="space-y-4">
@@ -942,8 +987,38 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
         <h1 className="text-3xl font-bold">
           {ticket.tableName ? `Masa ${ticket.tableName}` : "Paket / Gel-al"}
         </h1>
+        {/* Masa ayrı hesaplara bölündüyse hesaplar arasında sekme. */}
+        {ticket.siblings && ticket.siblings.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1" role="tablist" aria-label="Masadaki hesaplar">
+            {[
+              { id: ticket.id, code: ticket.code, total: ticket.totals.total },
+              ...ticket.siblings,
+            ]
+              .sort((a, b) => a.code.localeCompare(b.code))
+              .map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={t.id === ticket.id}
+                  onClick={() =>
+                    t.id !== ticket.id && router.push(withCompanyHref(`/restoran/adisyon/${t.id}`, companyId))
+                  }
+                  className={cn(
+                    "rounded-lg border px-3 py-1.5 text-sm transition-colors",
+                    t.id === ticket.id
+                      ? "border-primary bg-primary/10 font-semibold text-primary"
+                      : "hover:bg-muted",
+                  )}
+                >
+                  {t.code} · <span className="tabular-nums">{currency(t.total)}</span>
+                </button>
+              ))}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
           <span>{ticket.code}</span>
+          {ticket.splitFromCode && <span>{ticket.splitFromCode} hesabından ayrıldı</span>}
           <span className="flex items-center gap-1">
             <Clock className="h-3.5 w-3.5" />
             {elapsedLabel(ticket.openedAt, now)}
@@ -1296,6 +1371,10 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
             lineGross: i.quantity * i.unitPrice * (1 + i.vatRate / 100),
           }))}
         onClose={() => setSplitOpen(false)}
+        onSeparate={() => {
+          setSplitOpen(false)
+          setSeparateOpen(true)
+        }}
         onConfirm={(amounts) => {
           setSplitOpen(false)
           setPayment((p) => ({
@@ -1306,6 +1385,23 @@ export function TicketScreen({ ticketId }: { ticketId: string }) {
           }))
           setPayOpen(true)
         }}
+      />
+
+      {/* Ayrı hesaplara ayır — her parça kendi fişiyle kapanır */}
+      <SeparateBillDialog
+        open={separateOpen}
+        busy={separating}
+        factor={totals.gross > 0 ? totals.total / totals.gross : 1}
+        items={ticket.items
+          .filter((i) => i.status === "NORMAL")
+          .map((i) => ({
+            id: i.id,
+            description: [i.description, i.options.map((o) => o.optionName).join(" · ")].filter(Boolean).join(" — "),
+            quantity: i.quantity,
+            unitGross: i.unitPrice * (1 + i.vatRate / 100),
+          }))}
+        onClose={() => setSeparateOpen(false)}
+        onConfirm={(moves) => void separateItems(moves)}
       />
 
       {/* Kalem notu */}

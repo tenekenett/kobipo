@@ -564,7 +564,7 @@ export function FloorPlanCanvas({
             style.label,
             table.capacity ? `${table.capacity} kişilik` : null,
             table.openTicket
-              ? `${currency(table.openTicket.total)} · ${table.openTicket.itemCount} kalem · ${elapsedLabel(table.openTicket.openedAt, now)}`
+              ? `${currency(table.openTicket.total)} · ${table.openTicket.itemCount} kalem · ${elapsedLabel(table.openTicket.openedAt, now)}${table.openTicketCount > 1 ? ` · ${table.openTicketCount} ayrı hesap` : ""}`
               : null,
             table.reservation
               ? `${table.reservation.guestName} — ${new Date(table.reservation.reservedAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}`
@@ -636,6 +636,9 @@ export function FloorPlanCanvas({
                     <>
                       <span className="font-semibold" style={{ fontSize: font(0.26) }}>
                         {currency(table.openTicket.total)}
+                        {table.openTicketCount > 1 && (
+                          <span className="font-normal opacity-70"> · {table.openTicketCount} hesap</span>
+                        )}
                       </span>
                       {!dense && (
                         <span className="opacity-70" style={{ fontSize: font(0.22) }}>

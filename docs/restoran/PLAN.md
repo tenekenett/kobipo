@@ -341,6 +341,10 @@ Sütü 0,1 LT'ye düşür, 3 Latte sepete ekle → kırmızı uyarı çıkmalı 
 
 ## Açık riskler
 
+> **2026-09-24: KARAR (b) — entegrasyon.** Bulut (TSM) yolu, önce Kobipo tarafı (Aşama 1:
+> yazarkasa tanımı, Z raporu mutabakatı, ayrı hesap, sunucu tarafı kapanış), sonra cihaz
+> (Aşama 2). Belgeler: `docs/okc/ARASTIRMA.md`, `PLAN.md`, `ASAMA1-KOBIPO.md`.
+
 **1. ÖKC / yazarkasa — ticari olarak en kritik açık.** Türkiye'de kafe/restoranda perakende satış yasal olarak ÖKC fişi gerektiriyor; Kobipo'nun `isReceipt` fişi **mali değer taşımıyor**. İki yoldan biri: (a) "adisyon takibi + ön muhasebe, mali fiş ÖKC'den" konumlandırması, (b) yol haritasına ÖKC entegrasyonu. Planı etkilemiyor ama **satıştan önce netleşmeli.**
 
 **2. Modifier / seçenek sistemi yok.** "Soya sütü", "ekstra shot", "şekersiz" — kahvecide sık. Boy sorunu "her boy ayrı ürün" + çok seviyeli reçete ile çözüldü ama seçenekler için ölçeklenmiyor. Aşama 2'de değerlendirilmeli.

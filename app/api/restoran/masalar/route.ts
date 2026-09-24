@@ -73,9 +73,19 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     return NextResponse.json(
       tables.map((table) => {
-        // Bir masada normalde tek açık adisyon olur; yine de ilk açılanı esas
-        // alıp sayıyı da veriyoruz (birleştirme/yarış durumu görünsün).
+        // Bir masada normalde tek açık adisyon olur; "ayrı hesaplara ayır" ile
+        // birden çok olabilir (lib/restoran/split.ts). `openTicket` MASANIN
+        // özetidir: ilk açılan hesaba gider ama tutar/kalem TÜM açık hesapların
+        // toplamıdır, hesap istendi işareti herhangi birinden gelir — planda masa
+        // tek kart, doğru toplamla görünsün. Hesaplar tek tek `openTickets`te.
         const open = table.tickets[0]
+        const openTickets = table.tickets.map((t) => ({
+          id: t.id,
+          code: t.code,
+          itemCount: t.items.filter((i) => isBillableItem(i.status)).length,
+          total: ticketTotals(t.items, ticketDiscountOf(t)).total,
+          billRequestedAt: t.billRequestedAt,
+        }))
         const reservation = table.reservations[0]
         return {
           id: table.id,
@@ -97,11 +107,13 @@ export const GET = withApiErrors(async function GET(request: Request) {
                 code: open.code,
                 openedAt: open.openedAt,
                 guestCount: open.guestCount,
-                itemCount: open.items.filter((i) => isBillableItem(i.status)).length,
-                total: ticketTotals(open.items, ticketDiscountOf(open)).total,
-                billRequestedAt: open.billRequestedAt,
+                itemCount: openTickets.reduce((s, t) => s + t.itemCount, 0),
+                total: Math.round(openTickets.reduce((s, t) => s + t.total, 0) * 100) / 100,
+                billRequestedAt:
+                  openTickets.map((t) => t.billRequestedAt).find((at) => at != null) ?? null,
               }
             : null,
+          openTickets,
           reservation: reservation
             ? {
                 id: reservation.id,

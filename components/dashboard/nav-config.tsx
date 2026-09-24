@@ -75,6 +75,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/satis/siparis": ClipboardList,
   "/satis/hizli": Zap,
   "/satis/fisler": Receipt,
+  "/satis/z-raporlari": FileCheck,
   "/teklif": ScrollText,
 
   "/alis/fatura": Receipt,
@@ -135,6 +136,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/ayarlar/firma": Building2,
   "/ayarlar/fis-tasarim": Receipt,
   "/ayarlar/tanimlar": Tags,
+  "/ayarlar/yazarkasa": Store,
   "/ayarlar/ekip": UserCog,
   "/ayarlar/roller": ShieldCheck,
   "/ayarlar/sube-mudurleri": UserCog,

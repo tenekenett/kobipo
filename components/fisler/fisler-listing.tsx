@@ -27,6 +27,9 @@ type ReceiptRow = {
   convertedInvoiceId: string | null
   convertedInvoiceNo: string | null
   receiptNo: string
+  /** Yazarkasa kimliği (yalnız satış fişi; çoğu fişte boş). */
+  okcReceiptNo?: number | null
+  okcZNo?: number | null
   date: string
   counterpartyId: string | null
   counterpartyName: string | null
@@ -317,6 +320,16 @@ export default function FislerListing({
                           {isArchive && r.convertedInvoiceNo && (
                             <span className="ml-2 font-sans text-xs font-normal text-muted-foreground">
                               → {r.convertedInvoiceNo}
+                            </span>
+                          )}
+                          {(r.okcReceiptNo != null || r.okcZNo != null) && (
+                            <span className="block font-sans text-xs font-normal text-muted-foreground">
+                              {[
+                                r.okcReceiptNo != null ? `ÖKC ${r.okcReceiptNo}` : null,
+                                r.okcZNo != null ? `Z ${r.okcZNo}` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
                             </span>
                           )}
                         </TableCell>

@@ -82,7 +82,11 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 const METHOD_RE = /export\s+(?:async\s+)?(?:function|const)\s+(GET|POST|PUT|PATCH|DELETE)\b/g
-const GATE_RE = /ensureCompanyAccess|ensureCompanyWrite|ensureCompanyExport|assertPagePath/
+// `sessionWriteActor` / `sessionReadAuthorize` (lib/api/write-actor.ts) kapının
+// sarmalayıcılarıdır: iş mantığı lib'e taşınan uçlar (fiş, tahsilat, adisyon
+// kapanışı — ÖKC webhook'u oturumsuz çağırabilsin diye) kapıyı bunlarla verir.
+const GATE_RE =
+  /ensureCompanyAccess|ensureCompanyWrite|ensureCompanyExport|assertPagePath|sessionWriteActor|sessionReadAuthorize/
 
 /** Kapıyı çağıran uçlar — kapının gerçek yüzeyi budur. */
 function gatedRoutes(): Route[] {

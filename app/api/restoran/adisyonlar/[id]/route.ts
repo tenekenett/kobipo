@@ -6,6 +6,7 @@ import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/compan
 import {
   assertRestaurantModule,
   serializeTicket,
+  ticketDiscountOf,
   ticketInclude,
   ticketTotals,
   TICKET_CANCEL_REASONS,
@@ -43,7 +44,30 @@ export const GET = withApiErrors(async function GET(request: Request, { params }
     })
     if (!ticket) return NextResponse.json({ error: "Adisyon bulunamadı" }, { status: 404 })
 
-    const base = serializeTicket(ticket)
+    // Aynı masadaki DİĞER açık hesaplar ("ayrı hesaplara ayır" ile doğanlar) —
+    // adisyon ekranı bunları sekme olarak gösterir. Bölme izi (kaynağın kodu) da
+    // burada çözülür: serializeTicket yalnız id taşır.
+    const [siblingRows, splitFrom] = await Promise.all([
+      ticket.tableId && ticket.status === "OPEN"
+        ? prisma.restaurantTicket.findMany({
+            where: { companyId, tableId: ticket.tableId, status: "OPEN", id: { not: ticket.id } },
+            orderBy: [{ openedAt: "asc" }, { code: "asc" }],
+            include: { items: { select: { quantity: true, unitPrice: true, vatRate: true, status: true } } },
+          })
+        : Promise.resolve([]),
+      ticket.splitFromId
+        ? prisma.restaurantTicket.findUnique({ where: { id: ticket.splitFromId }, select: { code: true } })
+        : Promise.resolve(null),
+    ])
+    const base = {
+      ...serializeTicket(ticket),
+      splitFromCode: splitFrom?.code ?? null,
+      siblings: siblingRows.map((s) => ({
+        id: s.id,
+        code: s.code,
+        total: ticketTotals(s.items, ticketDiscountOf(s)).total,
+      })),
+    }
 
     // Denetim alanları YALNIZ istendiğinde hesaplanır: canlı satış ekranı bu ucu
     // her kalem eklemede yeniden çekiyor, personel/ödeme sorguları oraya yük

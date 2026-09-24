@@ -267,6 +267,19 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/satis/fisler", "/alis/fisler", "/cari/musteri", "/cari/tedarikci"],
     writePages: ["/satis/fisler", "/alis/fisler"],
   },
+  {
+    // Yazarkasa tanımı: Z raporu formu (cihaz seçici), fiş detayı (ÖKC no) ve
+    // restoran gün sonu okur; YAZAN yalnız yazarkasa ayarı.
+    prefix: "/api/okc/devices",
+    pages: ["/ayarlar/yazarkasa", "/satis/z-raporlari", "/satis/fisler", "/restoran/raporlar"],
+    writePages: ["/ayarlar/yazarkasa"],
+  },
+  {
+    // Z raporu: girişi kasiyer de yapar; düzeltme/silme rol kuralı uçta (lib/okc/access.ts).
+    prefix: "/api/okc/z-raporlari",
+    pages: ["/satis/z-raporlari", "/restoran/raporlar"],
+    writePages: ["/satis/z-raporlari"],
+  },
 
   {
     // Fiş tarama: POST fotoğrafı modele okutur (para harcar), GET mükerrer

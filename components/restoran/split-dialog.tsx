@@ -46,12 +46,15 @@ export function SplitDialog({
   factor,
   onClose,
   onConfirm,
+  onSeparate,
 }: {
   open: boolean
   items: SplitItem[]
   factor: number
   onClose: () => void
   onConfirm: (amounts: number[]) => void
+  /** "Herkes ayrı fiş istiyor" yolu — ayrı hesaplara ayır (separate-bill-dialog.tsx). */
+  onSeparate?: () => void
 }) {
   const [parts, setParts] = useState(2)
   const [assign, setAssign] = useState<Record<string, number>>({})
@@ -80,6 +83,7 @@ export function SplitDialog({
           <DialogTitle>Hesabı böl</DialogTitle>
           <DialogDescription>
             Kalem seçmezseniz tutar eşit bölünür. Fiş tek kesilir, ödeme parçalı yazılır.
+            {onSeparate ? " Herkes kendi fişini istiyorsa ya da biri erken kalkıyorsa hesabı ayırın." : ""}
           </DialogDescription>
         </DialogHeader>
 
@@ -154,11 +158,20 @@ export function SplitDialog({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Vazgeç
-          </Button>
-          <Button onClick={() => onConfirm(totals)}>Ödemeye geç</Button>
+        <DialogFooter className="gap-2 sm:justify-between">
+          {onSeparate ? (
+            <Button variant="ghost" onClick={onSeparate}>
+              Ayrı hesaplara ayır…
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>
+              Vazgeç
+            </Button>
+            <Button onClick={() => onConfirm(totals)}>Ödemeye geç</Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -95,6 +95,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
           ? r.convertedInvoice.eDocumentNo || r.convertedInvoice.invoiceNo
           : null,
         receiptNo: r.invoiceNo,
+        // Yazarkasa kimliği (varsa) fiş no'nun altında gösterilir.
+        okcReceiptNo: r.okcReceiptNo,
+        okcZNo: r.okcZNo,
         date: r.date.toISOString(),
         createdAt: r.createdAt.toISOString(),
         counterpartyId: direction === "incoming" ? r.supplierId : r.customerId,

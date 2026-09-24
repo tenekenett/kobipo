@@ -31,6 +31,8 @@ import {
   type ReportProps,
 } from "@/components/restoran/report-ui"
 import { PAYMENT_METHOD_LABELS } from "@/lib/satis/payment"
+import { ZDaySummaryCard } from "@/components/okc/z-day-summary"
+import type { ZDaySummary } from "@/lib/okc/z-mutabakat-query"
 
 type Receipt = {
   id: string
@@ -85,6 +87,8 @@ type Data = {
     isApproved: boolean
     notes: string | null
   }[]
+  /** Yazarkasa Z özeti (şubede yazarkasa yoksa deviceCount 0). */
+  okc?: ZDaySummary
 }
 
 /** Ödeme yöntemi etiketi — fiş/fatura tarafında CHECK ve OTHER de kullanılabiliyor. */
@@ -246,6 +250,8 @@ export function GunSonuReport({ range }: ReportProps) {
           </CardContent>
         </Card>
       )}
+
+      <ZDaySummaryCard summary={data?.okc} receiptCount={receipts.filter((r) => r.isReceipt).length} />
 
       {(payments.length > 0 || (data?.cashCounts.length ?? 0) > 0) && (
         <div className="grid gap-4 lg:grid-cols-2">

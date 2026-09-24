@@ -25,6 +25,7 @@ import {
 import { DEFAULT_RECEIPT_TEMPLATE, type ReceiptTemplate } from "@/lib/fis/receipt-template"
 import { ArrowLeft, FileText, Loader2, Printer, Receipt, Wallet, XCircle } from "lucide-react"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
+import { ReceiptOkcEditor, type ReceiptOkc } from "@/components/okc/receipt-okc-editor"
 
 type FisDetail = {
   id: string
@@ -66,6 +67,8 @@ type FisDetail = {
     paymentMethodLabel: string
     accountName: string | null
   }[]
+  /** Yazarkasa kimliği — yalnız satış fişinde (alışta null). */
+  okc: ReceiptOkc | null
 }
 
 type Variant = ComponentProps<typeof Badge>["variant"]
@@ -397,6 +400,17 @@ export default function FisDetayPage() {
               <p className="text-muted-foreground">Fiş No</p>
               <p className="mt-1 font-mono font-medium">{fis.receiptNo}</p>
             </div>
+            {fis.okc && companyId && (
+              <div className="sm:col-span-2">
+                <ReceiptOkcEditor
+                  companyId={companyId}
+                  receiptId={fis.id}
+                  value={fis.okc}
+                  disabled={fis.status === "CANCELLED"}
+                  onChange={(okc) => setFis((prev) => (prev ? { ...prev, okc } : prev))}
+                />
+              </div>
+            )}
             {fis.notes && (
               <div className="sm:col-span-2">
                 <p className="text-muted-foreground">Not</p>

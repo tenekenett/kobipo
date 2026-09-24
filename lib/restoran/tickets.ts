@@ -132,6 +132,8 @@ export function serializeTicket(ticket: TicketWithRelations) {
     // İptal edildiyse NEDEN — ve iptal mi gerçekten? Birleştirilen adisyon da
     // `CANCELLED` görünür ama cirosu kaybolmadı, hedefe geçti.
     mergedIntoId: ticket.mergedIntoId,
+    // Bu hesap başka bir hesaptan AYRILDIYSA kaynağın id'si (lib/restoran/split.ts).
+    splitFromId: ticket.splitFromId,
     cancelReasonCode: ticket.cancelReasonCode,
     cancelReason: ticket.cancelReason,
     cancelReasonLabel: cancelReasonLabel(ticket.cancelReasonCode),

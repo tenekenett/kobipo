@@ -13,6 +13,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { docCostCte, loadOpenTickets, num, parseRange, reportScope } from "@/lib/restoran/reports"
 import { assertRestaurantModule } from "@/lib/restoran/tickets"
+import { loadZDaySummary } from "@/lib/okc/z-mutabakat-query"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = "force-dynamic"
@@ -106,6 +107,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
       loadOpenTickets(prisma, companyId, end),
     ])
 
+    // Yazarkasa Z özeti (docs/okc/ASAMA1-KOBIPO.md A3). Şubede yazarkasa yoksa boş döner.
+    const okc = await loadZDaySummary(companyId, start, end)
+
     const receipts = receiptRows.map((r) => ({
       id: r.id,
       invoiceNo: r.invoiceNo,
@@ -155,6 +159,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
       receipts,
       payments,
       openTickets,
+      okc,
       cashCounts: cashCounts.map((c) => ({
         id: c.id,
         accountName: c.account?.name ?? "",

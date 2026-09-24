@@ -175,24 +175,45 @@ export function paymentSummary(state: PaymentState, total: number): PaymentSumma
  * gerçekte çekilmiş tutar eksik kaydedilirdi). Nakit dışı parçalar kullanıcının
  * girdiği SIRAYLA kalır — iki kredi kartı iki ayrı tahsilat satırı olur.
  */
+export type DefaultPaymentAccounts = { cashAccountId?: string; bankAccountId?: string; cardAccountId?: string }
+
+/**
+ * Tahsilatın düşeceği varsayılan kanallar — İSTEMCİ (submit-receipt-sale) ve
+ * SUNUCU (lib/restoran/close-with-receipt.ts, ÖKC webhook'u) AYNI kuralı kullanır;
+ * ayrı yazılsaydı aynı kart ödemesi ekrandan POS'a, cihazdan kasaya düşebilirdi.
+ * `accounts` aktif kanallardır, ada göre sıralı (/api/finans/accounts ile aynı).
+ */
+export function defaultPaymentAccounts(accounts: Array<{ id: string; type: string }>): DefaultPaymentAccounts {
+  return {
+    cashAccountId: accounts.find((a) => a.type === "CASH")?.id,
+    cardAccountId: accounts.find((a) => a.type === "CREDIT_CARD" || a.type === "POS")?.id,
+    // Banka kanalı önce açıkça BANK'tan seçilir: POS kanalı da "nakit değil" olduğu
+    // için ilk sıraya düşüp havale tahsilatını yanlış kanala yazabilirdi.
+    bankAccountId:
+      accounts.find((a) => a.type === "BANK")?.id ?? accounts.find((a) => a.type !== "CASH")?.id,
+  }
+}
+
+/**
+ * Yönteme göre kanal. Kart tahsilatı ayrı bir "Kredi Kartı / POS" kanalı varsa
+ * oraya düşer; yoksa bankaya. Yemek kartı/havale banka kanalını kullanır.
+ */
+export function accountForMethod(method: string, ids: DefaultPaymentAccounts): string | undefined {
+  return method === "CASH"
+    ? ids.cashAccountId
+    : method === "CREDIT_CARD"
+      ? (ids.cardAccountId ?? ids.bankAccountId)
+      : ids.bankAccountId
+}
+
 export function buildPaymentParts(
   state: PaymentState,
-  args: { total: number; cashAccountId?: string; bankAccountId?: string; cardAccountId?: string }
+  args: { total: number } & DefaultPaymentAccounts
 ): PaymentPart[] {
   const total = round2(args.total)
   if (state.isCredit || total <= 0) return []
 
-  // Kart tahsilatı ayrı bir "Kredi Kartı / POS" kanalı varsa oraya düşer; yoksa
-  // eskisi gibi bankaya. Yemek kartı/havale banka kanalını kullanır.
-  const accountFor = (m: PaymentMethod) => {
-    const preferred =
-      m === "CASH"
-        ? args.cashAccountId
-        : m === "CREDIT_CARD"
-          ? (args.cardAccountId ?? args.bankAccountId)
-          : args.bankAccountId
-    return (preferred ?? state.accountId) || undefined
-  }
+  const accountFor = (m: PaymentMethod) => (accountForMethod(m, args) ?? state.accountId) || undefined
 
   if (!state.splitMode) {
     return [

@@ -515,6 +515,17 @@ export function FloorPlanScreen() {
     const target = drop?.target
     const sourceTicket = source?.openTicket
     if (!source || !target || !sourceTicket) return
+    // Masa ayrı hesaplara bölünmüşse sürükle-bırak YALNIZ ilk hesabı taşırdı;
+    // diğerleri eski masada sessizce kalırdı. Hesaplar adisyon ekranından tek tek taşınır.
+    if (source.openTicketCount > 1) {
+      toast({
+        title: "Bu masada ayrı hesaplar var",
+        description: `${source.name} masasında ${source.openTicketCount} hesap açık. Hesapları adisyon ekranından "Masayı değiştir" ile tek tek taşıyın.`,
+        variant: "destructive",
+      })
+      setDrop(null)
+      return
+    }
     setSaving(true)
     try {
       if (target.openTicket) {
