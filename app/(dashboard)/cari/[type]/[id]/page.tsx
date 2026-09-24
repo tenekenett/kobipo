@@ -15,7 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, ArrowLeftRight, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil, Archive, Trash2, Wallet, MoreVertical, User, ChevronRight } from "lucide-react"
+import { ArrowLeft, ArrowLeftRight, Mail, Phone, MapPin, Building2, FileText, TrendingUp, TrendingDown, Plus, Pencil, Archive, Trash2, Printer, Wallet, MoreVertical, User, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import {
   DropdownMenu,
@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { TransactionDialog } from "@/components/cari/transaction-dialog"
 import { VirmanDialog } from "@/components/cari/virman-dialog"
+import { downloadVirmanMakbuz } from "@/components/cari/virman-makbuz"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { VIRMAN_SIDE_LABEL, type VirmanSide } from "@/lib/cari/virman"
 import { ExportButton } from "@/components/export/export-button"
@@ -728,19 +729,38 @@ export default function CustomerSupplierDetailPage() {
                     <TableCell className="text-right">
                       {rowHref ? (
                         <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
-                      ) : tx.type === "VIRMAN" && tx.virmanId && !data.archivedAt ? (
-                        <WriteAction>
+                      ) : tx.type === "VIRMAN" && tx.virmanId ? (
+                        <div className="flex items-center justify-end gap-0.5">
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-300"
-                            aria-label="Virman fişini sil"
-                            title="Virman fişini sil (iki taraf birlikte)"
-                            onClick={() => deleteVirman(tx)}
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                            aria-label="Virman makbuzu"
+                            title="Virman makbuzu (PDF)"
+                            onClick={() =>
+                              downloadVirmanMakbuz(tx.virmanId!).catch((e) =>
+                                toast({ title: "Makbuz oluşturulamadı", description: e?.message, variant: "destructive" }),
+                              )
+                            }
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Printer className="h-4 w-4" />
                           </Button>
-                        </WriteAction>
+                          {/* Arşivdeki carinin virmanı silinemez (uç 409) — makbuz yine alınır. */}
+                          {!data.archivedAt && (
+                            <WriteAction>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-300"
+                                aria-label="Virman fişini sil"
+                                title="Virman fişini sil (iki taraf birlikte)"
+                                onClick={() => deleteVirman(tx)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </WriteAction>
+                          )}
+                        </div>
                       ) : null}
                     </TableCell>
                   </LinkedTableRow>

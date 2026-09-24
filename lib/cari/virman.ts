@@ -81,6 +81,34 @@ export function virmanBakiyeEtkisi(kind: CariKind, side: VirmanSide, amount: num
   return kind === "customer" ? debitMinusCredit : -debitMinusCredit
 }
 
+/**
+ * Bacağın o cari için ne demek olduğu — kullanıcı "borç/alacak"ı carinin kendi
+ * ekstresindeki sütun olarak okur, etkisini ise cümleyle görmelidir. Virman
+ * penceresi ve virman makbuzu aynı cümleyi basar.
+ */
+export function virmanEtkiCumlesi(kind: CariKind, side: VirmanSide): string {
+  const artar = virmanBakiyeEtkisi(kind, side, 1) > 0
+  return kind === "customer"
+    ? artar
+      ? "Müşterinin bize borcu artar"
+      : "Müşterinin bize borcu azalır"
+    : artar
+      ? "Bizim tedarikçiye borcumuz artar"
+      : "Bizim tedarikçiye borcumuz azalır"
+}
+
+/**
+ * Aynı etkinin BELGE dili — virman makbuzu için. Pencere kullanıcıya konuşur
+ * ("bizim borcumuz azalır"); makbuz karşı tarafa verilen resmî evraktır ve
+ * hesabın kendisini anlatır: müşteri hesabı borç, tedarikçi hesabı alacak
+ * bakiyesi taşır. Geçmiş zaman: makbuz yapılmış kaydı belgeler.
+ */
+export function virmanEtkiBelgeMetni(kind: CariKind, side: VirmanSide): string {
+  const artar = virmanBakiyeEtkisi(kind, side, 1) > 0
+  const bakiye = kind === "customer" ? "Borç bakiyesi" : "Alacak bakiyesi"
+  return `${bakiye} ${artar ? "artmıştır" : "azalmıştır"}`
+}
+
 // ── Girdi doğrulama ─────────────────────────────────────────────────────────
 
 export type VirmanParty = { kind: CariKind; id: string }

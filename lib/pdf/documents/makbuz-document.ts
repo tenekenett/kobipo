@@ -51,6 +51,55 @@ const makbuzTitle = (data: Pick<MakbuzPdfData, "kind" | "instrument">) =>
 const money = (amount: number, currency = "TRY") =>
   new Intl.NumberFormat("tr-TR", { style: "currency", currency }).format(Number(amount) || 0)
 
+/**
+ * Makbuz başlığı: solda firma künyesi, sağda belge adı + numara + tarih. Kasa,
+ * çek/senet ve virman makbuzu aynı başlığı basar.
+ */
+export function makbuzHeader(company: PartyLike, title: string, numberLine: string, date: string | Date): Content {
+  return {
+    columns: [
+      { width: "*", ...(partyHeader(company) as any) },
+      {
+        width: mm(62),
+        stack: [
+          { text: title.toLocaleUpperCase("tr-TR"), style: "docTitle", alignment: "right" },
+          { text: softBreak(numberLine), alignment: "right", margin: [0, mm(1), 0, 0] },
+          { text: `Tarih: ${fmtDate(date)}`, alignment: "right", margin: [0, mm(1), 0, 0] },
+        ],
+      },
+    ],
+    columnGap: mm(6),
+  }
+}
+
+/**
+ * İmza alanları — akışın sonunda; çizgi tablo kenarlığından gelir, mutlak
+ * koordinatlı `doc.line()` çağrısı yok.
+ */
+export function makbuzSignatures(left: string, right: string): Content {
+  const signatureCell = (label: string) => ({
+    table: { widths: ["*"], body: [[{ text: " ", margin: [0, mm(10), 0, 0] }], [{ text: label, alignment: "center" as const, fontSize: FS.small, margin: [0, mm(1.5), 0, 0] }]] },
+    layout: {
+      hLineWidth: (i: number) => (i === 1 ? 0.5 : 0),
+      vLineWidth: () => 0,
+      hLineColor: () => COLORS.line,
+      paddingLeft: () => 0,
+      paddingRight: () => 0,
+      paddingTop: () => 0,
+      paddingBottom: () => 0,
+    },
+  })
+
+  return {
+    columns: [
+      { width: "*", ...signatureCell(left) },
+      { width: "*", ...signatureCell(right) },
+    ],
+    columnGap: mm(14),
+    margin: [0, mm(18), 0, 0],
+  } as unknown as Content
+}
+
 export function buildMakbuzContent(data: MakbuzPdfData): Content[] {
   const isIncome = data.kind === "Tahsilat" || data.kind === "Gelir"
   const cur = data.currency || "TRY"
@@ -73,28 +122,7 @@ export function buildMakbuzContent(data: MakbuzPdfData): Content[] {
   }
 
   const content: Content[] = [
-    {
-      columns: [
-        { width: "*", ...(partyHeader(data.company) as any) },
-        {
-          width: mm(62),
-          stack: [
-            {
-              text: makbuzTitle(data).toLocaleUpperCase("tr-TR"),
-              style: "docTitle",
-              alignment: "right",
-            },
-            {
-              text: softBreak(`Makbuz No: ${data.makbuzNo}`),
-              alignment: "right",
-              margin: [0, mm(1), 0, 0],
-            },
-            { text: `Tarih: ${fmtDate(data.date)}`, alignment: "right", margin: [0, mm(1), 0, 0] },
-          ],
-        },
-      ],
-      columnGap: mm(6),
-    },
+    makbuzHeader(data.company, makbuzTitle(data), `Makbuz No: ${data.makbuzNo}`, data.date),
   ]
 
   // Cari kutusu (varsa) — ad ve VKN iki sütunda, ikisi de kendi genişliğinde sarılır.
@@ -189,29 +217,7 @@ export function buildMakbuzContent(data: MakbuzPdfData): Content[] {
     )
   }
 
-  // İmza alanları — akışın sonunda; çizgi tablo kenarlığından gelir, mutlak
-  // koordinatlı `doc.line()` çağrısı yok.
-  const signatureCell = (label: string) => ({
-    table: { widths: ["*"], body: [[{ text: " ", margin: [0, mm(10), 0, 0] }], [{ text: label, alignment: "center" as const, fontSize: FS.small, margin: [0, mm(1.5), 0, 0] }]] },
-    layout: {
-      hLineWidth: (i: number) => (i === 1 ? 0.5 : 0),
-      vLineWidth: () => 0,
-      hLineColor: () => COLORS.line,
-      paddingLeft: () => 0,
-      paddingRight: () => 0,
-      paddingTop: () => 0,
-      paddingBottom: () => 0,
-    },
-  })
-
-  content.push({
-    columns: [
-      { width: "*", ...signatureCell("Teslim Eden") },
-      { width: "*", ...signatureCell("Teslim Alan") },
-    ],
-    columnGap: mm(14),
-    margin: [0, mm(18), 0, 0],
-  } as unknown as Content)
+  content.push(makbuzSignatures("Teslim Eden", "Teslim Alan"))
 
   return content
 }

@@ -485,6 +485,8 @@ describe("yazma daraltması — gören yazamaz", () => {
     expect(isApiPathAllowedForUser("/api/cari/virman", "POST", w("ACCOUNTANT", "/raporlar/cari"))).toBe(false)
     const saltOkur = restricted("SALES", ["/cari/musteri"], [])
     expect(isApiPathAllowedForUser("/api/cari/virman", "POST", saltOkur)).toBe(false)
+    // Makbuz okumadır: cari sayfasını yalnız GÖREN de alır.
+    expect(isApiPathAllowedForUser("/api/cari/virman/abc/makbuz", "GET", saltOkur)).toBe(true)
   })
 
   it("restoran raporu adisyona yazamaz ama kasiyer yazar", () => {

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeftRight, Info } from "lucide-react"
+import { ArrowLeftRight, Info, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -9,33 +9,21 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SearchSelect } from "@/components/ui/search-select"
 import { useToast } from "@/components/ui/use-toast"
+import { ToastAction } from "@/components/ui/toast"
+import { downloadVirmanMakbuz } from "@/components/cari/virman-makbuz"
 import { toDateInput } from "@/lib/format"
 import { useCustomers, useSuppliers } from "@/lib/swr/use-company-data"
 import {
   VIRMAN_SIDE_LABEL,
   oppositeSide,
   virmanBakiyeEtkisi,
+  virmanEtkiCumlesi,
   type CariKind,
   type VirmanSide,
 } from "@/lib/cari/virman"
 
 const formatTRY = (value: number) =>
   new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(value)
-
-/**
- * Bacağın o cari için ne demek olduğu — kullanıcı "borç/alacak"ı carinin kendi
- * ekstresindeki sütun olarak okur, etkisini ise cümleyle görmelidir.
- */
-function etkiCumlesi(kind: CariKind, side: VirmanSide): string {
-  const artar = virmanBakiyeEtkisi(kind, side, 1) > 0
-  return kind === "customer"
-    ? artar
-      ? "Müşterinin bize borcu artar"
-      : "Müşterinin bize borcu azalır"
-    : artar
-      ? "Bizim tedarikçiye borcumuz artar"
-      : "Bizim tedarikçiye borcumuz azalır"
-}
 
 type VirmanDialogProps = {
   open: boolean
@@ -130,6 +118,19 @@ export function VirmanDialog({ open, onOpenChange, companyId, party, currentBala
         description: `${data.virmanNo ?? ""} · ${formatTRY(numericAmount)}${
           karsiSecili ? "" : " · tek taraflı"
         }`,
+        action: data.id ? (
+          <ToastAction
+            altText="Makbuz indir"
+            onClick={() =>
+              downloadVirmanMakbuz(data.id).catch((e) =>
+                toast({ title: "Makbuz oluşturulamadı", description: e?.message, variant: "destructive" }),
+              )
+            }
+          >
+            <Printer className="mr-1 h-3.5 w-3.5" />
+            Makbuz
+          </ToastAction>
+        ) : undefined,
       })
       onOpenChange(false)
       await onSuccess?.()
@@ -156,7 +157,7 @@ export function VirmanDialog({ open, onOpenChange, companyId, party, currentBala
       }`}
     >
       <div className="font-medium">{VIRMAN_SIDE_LABEL[value]}</div>
-      <div className="text-xs text-muted-foreground">{etkiCumlesi(party.kind, value)}</div>
+      <div className="text-xs text-muted-foreground">{virmanEtkiCumlesi(party.kind, value)}</div>
     </button>
   )
 
@@ -219,7 +220,7 @@ export function VirmanDialog({ open, onOpenChange, companyId, party, currentBala
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <ArrowLeftRight className="h-3.5 w-3.5" />
                 {karsiAdi ?? "Karşı cari"} → <strong>{VIRMAN_SIDE_LABEL[karsiSide]}</strong> (
-                {etkiCumlesi(karsiTur, karsiSide).toLocaleLowerCase("tr-TR")})
+                {virmanEtkiCumlesi(karsiTur, karsiSide).toLocaleLowerCase("tr-TR")})
               </p>
             ) : null}
           </div>
