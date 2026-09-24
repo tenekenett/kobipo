@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
+import { STOCK_OUT_REASON_SHORT, isStockOutReason } from "@/lib/stock/movement-reason"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -29,6 +30,8 @@ interface StockMovement {
   id: string
   date: string
   type: "IN" | "OUT" | "ADJUSTMENT" | "TRANSFER"
+  /** Elle çıkışın nedeni (lib/stock/movement-reason.ts); belgeli harekette null. */
+  reason?: string | null
   quantity: number
   unitPrice: number
   totalAmount: number
@@ -122,6 +125,9 @@ function movementLabel(movement: StockMovement): string {
   if (movement.type === "TRANSFER") return "Transfer"
   if (movement.type === "ADJUSTMENT") return "Düzeltme"
   const tone = movementTone(movement.quantity)
+  if (tone === "out" && isStockOutReason(movement.reason)) {
+    return `Çıkış · ${STOCK_OUT_REASON_SHORT[movement.reason]}`
+  }
   return tone === "in" ? "Giriş" : tone === "out" ? "Çıkış" : "—"
 }
 

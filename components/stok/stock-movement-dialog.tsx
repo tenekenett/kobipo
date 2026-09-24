@@ -13,10 +13,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useWarehouses } from "@/lib/swr/use-company-data"
 import { toDateInputValue } from "@/lib/stock/movement-date"
 import { cn } from "@/lib/utils"
+import {
+  STOCK_OUT_REASONS,
+  STOCK_OUT_REASON_LABEL,
+  isStockOutReason,
+  type StockOutReason,
+} from "@/lib/stock/movement-reason"
 import { ArrowDownToLine, ArrowUpFromLine, ClipboardCheck, Flag } from "lucide-react"
 
 /**
@@ -26,7 +33,8 @@ import { ArrowDownToLine, ArrowUpFromLine, ClipboardCheck, Flag } from "lucide-r
  * alanına sığmıyor:
  *
  *  • Giriş  — "50 adet mal geldi"        → bakiyeye EKLER (IN)
- *  • Çıkış  — "3 adet kırıldı/zayi"      → bakiyeden DÜŞER (OUT)
+ *  • Çıkış  — "3 adet kırıldı/zayi"      → bakiyeden DÜŞER (OUT); NEDENİ sorulur
+ *              (satış/fire/numune…) — stok raporu satışı fireden buradan ayırır
  *  • Sayım  — "rafta 47 adet var"        → seçili depoyu HEDEFE çeker (ADJUSTMENT)
  *  • Açılış — "başlangıç stoğu yanlıştı" → ilk hareketi düzeltir (yeni hareket YAZMAZ)
  *
@@ -97,6 +105,7 @@ export function StockMovementDialog({
   const [unitPrice, setUnitPrice] = useState("")
   const [date, setDate] = useState("")
   const [description, setDescription] = useState("")
+  const [reason, setReason] = useState<StockOutReason | "">("")
   const [isLoading, setIsLoading] = useState(false)
 
   const [rows, setRows] = useState<WarehouseRow[]>([])
@@ -170,6 +179,7 @@ export function StockMovementDialog({
     setQuantity("")
     setUnitPrice("")
     setDescription("")
+    setReason("")
     setDate("")
     setOpening(null)
     setRows([])
@@ -274,6 +284,11 @@ export function StockMovementDialog({
       toast({ title: "Depo bakiyesi henüz okunmadı", description: "Bir saniye bekleyin." })
       return
     }
+    // Neden zorunlu: boş bırakılan çıkış raporda satış mı fire mi okunamaz.
+    if (mode === "OUT" && !reason) {
+      toast({ title: "Çıkış nedenini seçin", variant: "destructive" })
+      return
+    }
     if ((mode === "IN" || mode === "OUT") && typed === 0) {
       toast({ title: "Miktar sıfır olamaz", variant: "destructive" })
       return
@@ -311,7 +326,10 @@ export function StockMovementDialog({
                 unitPrice: mode === "IN" && unitPrice !== "" ? unitPrice : undefined,
                 warehouseId,
                 date: date || undefined,
-                description: description.trim() || defaultDescription(mode),
+                reason: mode === "OUT" && reason ? reason : undefined,
+                description:
+                  description.trim() ||
+                  (mode === "OUT" && reason ? STOCK_OUT_REASON_LABEL[reason] : defaultDescription(mode)),
               }),
             })
 
@@ -456,6 +474,33 @@ export function StockMovementDialog({
               </div>
             )}
 
+            {mode === "OUT" && (
+              <div className="space-y-2">
+                <Label htmlFor="sm-reason">Çıkış nedeni</Label>
+                <Select
+                  value={reason}
+                  onValueChange={(v) => setReason(isStockOutReason(v) ? v : "")}
+                  disabled={isLoading}
+                >
+                  <SelectTrigger id="sm-reason">
+                    <SelectValue placeholder="Seçin" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STOCK_OUT_REASONS.map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {STOCK_OUT_REASON_LABEL[r]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {reason === "SALE"
+                    ? "Stok raporunda satış adedine girer. Faturası kesilecekse çıkışı buradan değil faturadan yapın — iki kez düşer."
+                    : "Stok raporunda satış adedini fireden ayırmak için."}
+                </p>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="sm-date">
                 {mode === "OPENING" ? "Açılış tarihi" : "Hareket tarihi"}
@@ -497,7 +542,7 @@ export function StockMovementDialog({
             >
               İptal
             </Button>
-            <Button type="submit" disabled={isLoading || !typedValid}>
+            <Button type="submit" disabled={isLoading || !typedValid || (mode === "OUT" && !reason)}>
               {isLoading ? "Kaydediliyor..." : `${MODE_LABELS[mode]} kaydet`}
             </Button>
           </div>
@@ -515,7 +560,7 @@ function defaultDescription(mode: StockMovementMode): string {
 
 function modeHint(mode: StockMovementMode, opening: OpeningInfo | null): string {
   if (mode === "IN") return "Girilen miktar mevcut stoğa EKLENİR."
-  if (mode === "OUT") return "Girilen miktar mevcut stoktan DÜŞÜLÜR (fire, zayi, numune)."
+  if (mode === "OUT") return "Girilen miktar mevcut stoktan DÜŞÜLÜR (faturasız satış, fire, numune…)."
   if (mode === "COUNT") {
     return "Seçili depoda sayılan miktarı yazın; aradaki fark düzeltme hareketi olarak işlenir."
   }

@@ -769,7 +769,9 @@ export const DELETE = withApiErrors(async function DELETE(
 
         // Son olarak faturayı sil (bağlı kayıtlar cascade ile temizlenir).
         await tx.invoice.delete({ where: { id: invoiceId } })
-      })
+        // PUT ile aynı süre: stok geri alma kalem başına birkaç sorgu yapar ve
+        // varsayılan 5 sn'de iki kalemli bir fiş bile P2028 ile düşüyordu.
+      }, { timeout: 20000 })
     } catch (deleteError: any) {
       if (deleteError?.code === "P2025") {
         // Fatura zaten silinmiş (çift tıklama / yarış durumu): başarı say.

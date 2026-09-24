@@ -208,6 +208,7 @@ export const GET = withApiErrors(async function GET(
           "TRY",
         date: movement.createdAt.toISOString(),
         type: movement.type,
+        reason: movement.reason,
         // İŞARETLİ miktar: ekran yönü buradan okuyor (+ giriş, − çıkış) ve mutlak
         // değeri kendisi basıyor. Burası `Math.abs` döndürdüğü sürece ekrandaki
         // "miktar > 0 ise Giriş" kuralı HER satırı giriş sanıyordu — satışlar bile

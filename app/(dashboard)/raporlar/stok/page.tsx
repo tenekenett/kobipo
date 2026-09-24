@@ -26,6 +26,8 @@ import { ExportButton } from "@/components/export/export-button"
 import { ProductLink } from "@/components/raporlar/rapor-link"
 import Link from "next/link"
 import { trMatcher } from "@/lib/text/tr-fold"
+import { defaultReportRange } from "@/lib/raporlar/date-range"
+import { emptyFlow, type ProductFlow } from "@/lib/raporlar/stok-donem-kural"
 
 interface Product {
   id: string
@@ -64,6 +66,8 @@ function unitCostOf(p: Product): number {
 
 type FilterType = "ALL" | "PRODUCT" | "SERVICE"
 type StockFilter = "ALL" | "LOW" | "OUT" | "NORMAL"
+/** "NAME" = ada göre; "SOLD" = dönemde en çok satılan üstte. Dışa aktarım da okur. */
+type SortKey = "NAME" | "SOLD"
 
 export default function StokRaporlariPage() {
   const searchParams = useSearchParams()
@@ -74,6 +78,12 @@ export default function StokRaporlariPage() {
   const [search, setSearch] = useState("")
   const [typeFilter, setTypeFilter] = useState<FilterType>("ALL")
   const [stockFilter, setStockFilter] = useState<StockFilter>("ALL")
+  const [sort, setSort] = useState<SortKey>("NAME")
+  // Dönem sütunları (giriş/satış/reçete/diğer) — kural lib/raporlar/stok-donem-kural.ts.
+  const [startDate, setStartDate] = useState(() => defaultReportRange().startDate)
+  const [endDate, setEndDate] = useState(() => defaultReportRange().endDate)
+  const [flows, setFlows] = useState<Record<string, ProductFlow>>({})
+  const [flowsLoading, setFlowsLoading] = useState(false)
 
   const currencyFormatter = useMemo(
     () =>
@@ -96,6 +106,32 @@ export default function StokRaporlariPage() {
     if (!companyId) return
     void fetchData()
   }, [companyId])
+
+  useEffect(() => {
+    if (!companyId || !startDate || !endDate) return
+    // Tarih kutusu yazılırken ara değerler de tetikler; eski isteğin cevabı
+    // yenisinin üstüne yazılmasın.
+    let cancelled = false
+    setFlowsLoading(true)
+    const params = new URLSearchParams({ companyId, startDate, endDate })
+    fetch(`/api/raporlar/stok-donem?${params}`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled) setFlows(data?.flows ?? {})
+      })
+      .catch((error) => console.error("Stok dönem hareketleri alınamadı:", error))
+      .finally(() => {
+        if (!cancelled) setFlowsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, startDate, endDate])
+
+  const flowOf = (id: string): ProductFlow => flows[id] ?? emptyFlow()
+  // Reçete sütunu yalnız reçeteyle tüketim olan firmada çıkar — kafede anlamlı,
+  // toptancıda boş bir sütun.
+  const hasRecipe = useMemo(() => Object.values(flows).some((f) => f.recipe !== 0), [flows])
 
   const fetchData = async () => {
     if (!companyId) return
@@ -162,6 +198,14 @@ export default function StokRaporlariPage() {
     })
   }, [products, typeFilter, stockFilter, search])
 
+  // Uç ürünleri ada göre döndürür; "en çok satılan" sıralaması dönem akışından.
+  const sortedProducts = useMemo(() => {
+    if (sort !== "SOLD") return filteredProducts
+    return [...filteredProducts].sort(
+      (a, b) => (flows[b.id]?.sold ?? 0) - (flows[a.id]?.sold ?? 0) || a.name.localeCompare(b.name, "tr"),
+    )
+  }, [filteredProducts, flows, sort])
+
   const stockStatus = (p: Product) => {
     const qty = Number(p.stockQuantity || 0)
     const min = Number(p.minStockLevel || 0)
@@ -195,7 +239,7 @@ export default function StokRaporlariPage() {
           <ExportButton
             dataset="rapor-stok"
             companyId={companyId}
-            params={{ search, type: typeFilter, stock: stockFilter }}
+            params={{ search, type: typeFilter, stock: stockFilter, sort, startDate, endDate }}
           />
           {/* Hareket listesi bu sayfadan ÇIKARILDI: tarih/cari/tanım süzgeçleriyle
               kendi sayfasında yaşıyor. Kapısı sayfanın DİBİNDE bir kart olarak
@@ -280,10 +324,36 @@ export default function StokRaporlariPage() {
             <div>
               <CardTitle>Stok Durumu</CardTitle>
               <CardDescription>
-                {filteredProducts.length} kayıt listeleniyor
+                {filteredProducts.length} kayıt listeleniyor · Giriş, satılan ve diğer sütunları
+                seçilen dönemi, mevcut stok bugünü gösterir
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="date"
+                aria-label="Dönem başlangıcı"
+                value={startDate}
+                max={endDate || undefined}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-[150px]"
+              />
+              <Input
+                type="date"
+                aria-label="Dönem bitişi"
+                value={endDate}
+                min={startDate || undefined}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-[150px]"
+              />
+              <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+                <SelectTrigger className="w-[170px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NAME">Ada göre</SelectItem>
+                  <SelectItem value="SOLD">En çok satılan</SelectItem>
+                </SelectContent>
+              </Select>
               <div className="relative">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -324,10 +394,16 @@ export default function StokRaporlariPage() {
                 <TableHead>Kod</TableHead>
                 <TableHead>Ad</TableHead>
                 <TableHead>Birim</TableHead>
+                <TableHead className="text-right" title="Alış, irsaliye, elle giriş, açılış">Giriş</TableHead>
+                <TableHead className="text-right" title="Fatura, fiş ve faturasız satış; iadeler düşülmüş">Satılan</TableHead>
+                {hasRecipe && (
+                  <TableHead className="text-right" title="Reçeteli ürün satışında bileşen olarak düşen">Reçete</TableHead>
+                )}
+                <TableHead className="text-right" title="Fire, zayi, ikram, numune, sayım farkı">Diğer</TableHead>
                 <TableHead className="text-right">Mevcut</TableHead>
                 <TableHead className="text-right">Min.</TableHead>
-                <TableHead className="text-right">Alış</TableHead>
-                <TableHead className="text-right">Satış</TableHead>
+                <TableHead className="text-right">Alış Fiyatı</TableHead>
+                <TableHead className="text-right">Satış Fiyatı</TableHead>
                 <TableHead className="text-right">Stok Değeri</TableHead>
                 <TableHead>Durum</TableHead>
               </TableRow>
@@ -335,13 +411,16 @@ export default function StokRaporlariPage() {
             <TableBody>
               {filteredProducts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground">
+                  <TableCell colSpan={hasRecipe ? 13 : 12} className="text-center text-muted-foreground">
                     {isLoading ? "Yükleniyor..." : "Kayıt bulunamadı"}
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredProducts.map((p) => {
+                sortedProducts.map((p) => {
                   const qty = Number(p.stockQuantity || 0)
+                  const flow = flowOf(p.id)
+                  const flowCell = (value: number, signed = false) =>
+                    flowsLoading ? "…" : value === 0 ? "-" : `${signed && value > 0 ? "+" : ""}${numberFormatter.format(value)}`
                   const purchase = unitCostOf(p)
                   const sale = Number(p.salePrice || 0)
                   const status = stockStatus(p)
@@ -362,6 +441,12 @@ export default function StokRaporlariPage() {
                         </ProductLink>
                       </TableCell>
                       <TableCell>{p.unit}</TableCell>
+                      <TableCell className="text-right tabular-nums">{p.isService ? "-" : flowCell(flow.inbound)}</TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">{flowCell(flow.sold)}</TableCell>
+                      {hasRecipe && (
+                        <TableCell className="text-right tabular-nums">{p.isService ? "-" : flowCell(flow.recipe)}</TableCell>
+                      )}
+                      <TableCell className="text-right tabular-nums">{p.isService ? "-" : flowCell(flow.other, true)}</TableCell>
                       <TableCell className="text-right">
                         {p.isService ? "-" : numberFormatter.format(qty)}
                       </TableCell>

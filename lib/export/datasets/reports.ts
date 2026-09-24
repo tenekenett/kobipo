@@ -9,6 +9,8 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { resolveAllUnitCosts } from "@/lib/stock/cost"
+import { computeStockPeriodFlows } from "@/lib/raporlar/stok-donem"
+import { emptyFlow } from "@/lib/raporlar/stok-donem-kural"
 import { computeCariAging, type AgingAccount } from "@/lib/raporlar/cari-yaslandirma"
 import { buildPaymentPlan, resolvePlanMonth } from "@/lib/raporlar/cari-yaslandirma-plan"
 import { computeProfitLoss } from "@/lib/raporlar/kar-zarar"
@@ -39,7 +41,12 @@ const STOCK_COLUMNS: ExportColumn[] = [
   { key: "name", label: "Ürün Adı" },
   { key: "barcode", label: "Barkod", width: 26 },
   { key: "unit", label: "Birim", width: 14, align: "center" },
-  { key: "stockQuantity", label: "Stok", type: "qty", width: 20 },
+  // Dönem sütunları — ekranla aynı hesap (lib/raporlar/stok-donem.ts).
+  { key: "periodInbound", label: "Giriş", type: "qty", width: 18 },
+  { key: "periodSold", label: "Satılan", type: "qty", width: 18 },
+  { key: "periodRecipe", label: "Reçete", type: "qty", width: 18 },
+  { key: "periodOther", label: "Diğer", type: "qty", width: 18 },
+  { key: "stockQuantity", label: "Mevcut", type: "qty", width: 20 },
   { key: "minStockLevel", label: "Min.", type: "qty", width: 16 },
   { key: "statusLabel", label: "Durum", width: 20 },
   { key: "purchasePrice", label: "Alış", type: "money", width: 20 },
@@ -55,6 +62,11 @@ export type StockReportParams = {
   type?: string | null
   /** "ALL" | "LOW" | "OUT" | "NORMAL" */
   stock?: string | null
+  /** "NAME" | "SOLD" — ekrandaki sıralama. */
+  sort?: string | null
+  /** Giriş/satılan/diğer sütunlarının dönemi; mevcut stok her zaman bugündür. */
+  startDate?: string | null
+  endDate?: string | null
 }
 
 /** `/raporlar/stok` ekranındaki `stockStatus` ile birebir aynı kural. */
@@ -66,11 +78,17 @@ function stockStatusLabel(isService: boolean, quantity: number, minimum: number)
 }
 
 export async function buildStockReportDataset(params: StockReportParams): Promise<ExportDataset> {
-  const [company, products, costByProduct] = await Promise.all([
+  const [company, products, costByProduct, periodFlows] = await Promise.all([
     loadExportCompany(params.companyId),
     prisma.product.findMany({ where: { companyId: params.companyId }, orderBy: { name: "asc" } }),
     resolveAllUnitCosts(params.companyId),
+    computeStockPeriodFlows({
+      companyId: params.companyId,
+      startDate: params.startDate,
+      endDate: params.endDate,
+    }),
   ])
+  const flowOf = (id: string) => periodFlows.byProduct.get(id) ?? emptyFlow()
 
   const typeFilter = params.type || "ALL"
   const stockFilter = params.stock || "ALL"
@@ -95,6 +113,12 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
     return true
   })
 
+  if (params.sort === "SOLD") {
+    filtered.sort(
+      (a, b) => flowOf(b.id).sold - flowOf(a.id).sold || a.name.localeCompare(b.name, "tr"),
+    )
+  }
+
   const rows: ExportRow[] = filtered.map((product) => {
     const quantity = Number(product.stockQuantity || 0)
     const minimum = Number(product.minStockLevel || 0)
@@ -106,10 +130,17 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
       name: product.name,
       barcode: product.barcode,
       unit: product.unit,
+      periodInbound: product.isService ? null : flowOf(product.id).inbound,
+      periodSold: flowOf(product.id).sold,
+      periodRecipe: product.isService ? null : flowOf(product.id).recipe,
+      periodOther: product.isService ? null : flowOf(product.id).other,
       stockQuantity: product.isService ? null : quantity,
       minStockLevel: product.minStockLevel,
       statusLabel: stockStatusLabel(product.isService, quantity, minimum),
-      purchasePrice: purchase,
+      // Ekranla AYNI birim maliyet (ortalama, yoksa kart fiyatı). Eskiden kartın
+      // elle girilen fiyatı basılıyordu: aynı satırda ekran 8.282,59, dosya
+      // 13.451,39 diyordu; stok maliyeti sütunu ise zaten ortalamadan geliyordu.
+      purchasePrice: unitCost,
       salePrice: sale,
       stockValue: product.isService || unitCost === null ? null : quantity * unitCost,
       saleValue: product.isService || sale === null ? null : quantity * sale,
@@ -165,6 +196,9 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
     title: "Stok Raporu",
     company,
     filters: describeFilters([
+      // Tarihsiz istek (eski link) yılbaşından bugüne sayar — resolvePeriodBounds.
+      ["Hareket dönemi", describeDateRange(params.startDate, params.endDate) ?? "Yılbaşından bugüne"],
+      ["Sıralama", params.sort === "SOLD" ? "En çok satılan" : null],
       ["Arama", params.search],
       ["Tür", typeFilter === "PRODUCT" ? "Ürün" : typeFilter === "SERVICE" ? "Hizmet" : null],
       [

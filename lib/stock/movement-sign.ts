@@ -16,7 +16,9 @@ export const OUTBOUND_MOVEMENT_TYPES = ["OUT", "SALE", "PURCHASE_CANCEL", "RETUR
 /** Fiyat yedeği (alış/satış) seçilirken "bu bir giriş mi" sorusunun tip tarafı. */
 export const INBOUND_MOVEMENT_TYPES = ["IN", "PURCHASE", "SALE_CANCEL", "RETURN"]
 
-type MovementLike = { type: string; quantity: unknown }
+import { STOCK_OUT_REASON_SHORT, isStockOutReason } from "./movement-reason"
+
+type MovementLike = { type: string; quantity: unknown; reason?: string | null }
 
 /** İşaretli miktar: + giriş, − çıkış. */
 export function signedMovementQuantity(movement: MovementLike): number {
@@ -33,5 +35,8 @@ export function isInboundMovement(movement: MovementLike): boolean {
 export function movementTypeLabel(movement: MovementLike): string {
   if (movement.type === "TRANSFER") return "Transfer"
   if (movement.type === "ADJUSTMENT") return "Düzeltme"
-  return signedMovementQuantity(movement) < 0 ? "Çıkış" : "Giriş"
+  if (signedMovementQuantity(movement) >= 0) return "Giriş"
+  // Elle çıkışın nedeni etikette görünür: "Çıkış · Fire" — satış ile fire listede
+  // de ayırt edilebilsin (lib/stock/movement-reason.ts).
+  return isStockOutReason(movement.reason) ? `Çıkış · ${STOCK_OUT_REASON_SHORT[movement.reason]}` : "Çıkış"
 }

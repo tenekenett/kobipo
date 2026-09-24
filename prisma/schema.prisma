@@ -1340,6 +1340,9 @@ model StockMovement {
   unitPrice   Decimal? @db.Decimal(15, 6) // 6 ondalık: UBL e-Fatura birim fiyat hassasiyeti
   description String?  @db.Text
   reference   String? // Invoice ID, etc.
+  /// Elle ÇIKIŞIN nedeni: SALE | WASTE | SAMPLE | INTERNAL_USE | OTHER; null =
+  /// belgeye bağlı ya da nedeni sorulmamış (lib/stock/movement-reason.ts)
+  reason      String?
   createdAt   DateTime @default(now())
   createdBy   String?
   // Hareketten SORUMLU personel (İK kartı). Bugün yalnız ikram/zayi düzeltmesi

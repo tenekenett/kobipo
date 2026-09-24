@@ -96,6 +96,9 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       search: params.get("search"),
       type: params.get("type"),
       stock: params.get("stock"),
+      sort: params.get("sort"),
+      startDate: params.get("startDate"),
+      endDate: params.get("endDate"),
     }),
 
   "rapor-stok-hareket": (companyId, params) =>

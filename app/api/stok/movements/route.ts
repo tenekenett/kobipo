@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { adjustWarehouseStock, ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
+import { isStockOutReason } from "@/lib/stock/movement-reason"
 import { parseMovementDate } from "@/lib/stock/movement-date"
 
 export const dynamic = 'force-dynamic'
@@ -113,6 +114,14 @@ export const POST = withApiErrors(async function POST(request: Request) {
         { error: "companyId, productId, type, and quantity are required" },
         { status: 400 }
       )
+    }
+
+    // Çıkış nedeni yalnız elle ÇIKIŞTA anlamlıdır (lib/stock/movement-reason.ts).
+    // Verilmezse null kalır (eski istemci / fatura ekranındaki hızlı düzeltme);
+    // verildiyse sözlükte olmalı — yanlış yazılmış neden raporu sessizce kaydırır.
+    const reason = body.reason ?? null
+    if (reason !== null && (type !== "OUT" || !isStockOutReason(reason))) {
+      return NextResponse.json({ error: "Geçersiz çıkış nedeni" }, { status: 400 })
     }
 
     await ensureCompanyWrite(companyId)
@@ -241,6 +250,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       unitPrice: unitPrice ? parseFloat(unitPrice) : null,
       description,
       reference,
+      reason,
       createdBy: user.id,
       date: parsedDate.date,
     })

@@ -98,6 +98,8 @@ export async function adjustWarehouseStock(
     unitPrice?: number | null
     description?: string | null
     reference?: string | null
+    /** Elle çıkışın nedeni (lib/stock/movement-reason.ts); belgeli harekette boş. */
+    reason?: string | null
     createdBy?: string | null
     /** Hareketten sorumlu İK kartı — bugün yalnız ikram düzeltmesi doldurur. */
     employeeId?: string | null
@@ -146,6 +148,7 @@ export async function adjustWarehouseStock(
       unitPrice: args.unitPrice ?? null,
       description: args.description ?? null,
       reference: args.reference ?? null,
+      reason: args.reason ?? null,
       createdBy: args.createdBy ?? null,
       employeeId: args.employeeId ?? null,
       // undefined → şema varsayılanı (now). null yazmak sütunu bozardı.
