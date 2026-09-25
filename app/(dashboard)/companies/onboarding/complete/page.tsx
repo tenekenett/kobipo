@@ -9,9 +9,9 @@ const REDIRECT_SECONDS = 5
 
 /**
  * Onboarding sihirbazının son adımı. Yeni firma TÜM modüller kapalı doğduğu için
- * (modül = satın alınan şey, bkz. docs/paket-abonelik/MODUL-KILIDI.md) buradan
- * dashboard'a atmak kullanıcıyı boş bir ekrana bırakırdı; varsayılan hedef modül
- * seçimidir. Dashboard ikincil buton olarak durur.
+ * (modül = alınan şey; 2026-09-25'ten beri ücretsiz modüller de abonelik ekranından
+ * ücretsiz paketle alınır) buradan dashboard'a atmak kullanıcıyı boş bir ekrana
+ * bırakırdı; varsayılan hedef modül seçimidir. Dashboard ikincil buton olarak durur.
  */
 export default function OnboardingCompletePage() {
   const searchParams = useSearchParams()
@@ -45,8 +45,9 @@ export default function OnboardingCompletePage() {
         <CardHeader>
           <CardTitle>Firmanız hazır — şimdi modüllerinizi seçin</CardTitle>
           <CardDescription>
-            Kobipo modüllerden oluşur; yalnızca ihtiyacınız olanların bedelini ödersiniz. Bir
-            paket ya da tek tek modül seçtiğinizde ilgili menüler anında açılır.
+            Kobipo modüllerden oluşur; yalnızca ihtiyacınız olanların bedelini ödersiniz.
+            Ücretsiz modüller de bu ekrandan etkinleştirilir. Bir paket ya da tek tek modül
+            seçtiğinizde ilgili menüler anında açılır.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

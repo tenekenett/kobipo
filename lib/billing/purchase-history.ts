@@ -17,6 +17,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { resolveAccountRootId, getAccountCompanyIds } from "@/lib/billing/entitlements"
+import { FREE_PACKAGE_PROVIDER } from "@/lib/billing/free-order"
 import {
   deriveContentLines,
   parsePriceLines,
@@ -140,9 +141,19 @@ const num = (v: unknown): number => Number(v ?? 0)
 const iso = (d: Date | null | undefined): string | null => d?.toISOString() ?? null
 const round2 = (n: number): number => Number(n.toFixed(2))
 
-/** Paket siparişi parayı gerçekten getirdi mi? */
-function isPackagePaid(o: { status: string; isTest: boolean }): boolean {
-  return o.status === "ACTIVE" && !o.isTest
+/**
+ * Paket siparişi parayı gerçekten getirdi mi?
+ *
+ * ÜCRETSİZ PAKET siparişi (2026-09-25, `paymentProvider: "FREE"`) ACTIVE'dir ama ödeme
+ * değildir: "ödenmiş sipariş" sayısına girseydi yeni kayıt olan her firma bir satış gibi
+ * görünürdü.
+ */
+function isPackagePaid(o: {
+  status: string
+  isTest: boolean
+  paymentProvider?: string | null
+}): boolean {
+  return o.status === "ACTIVE" && !o.isTest && o.paymentProvider !== FREE_PACKAGE_PROVIDER
 }
 
 /**

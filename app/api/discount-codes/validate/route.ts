@@ -101,6 +101,13 @@ export const POST = withApiErrors(async function POST(request: Request) {
       if (!priced.ok) {
         return NextResponse.json({ error: priced.error }, { status: priced.status })
       }
+      // Ücretsiz paket ödeme yoluna girmez; indirilecek bir tutar da yok.
+      if (priced.freeClaim) {
+        return NextResponse.json(
+          { error: "Ücretsiz pakete indirim kodu uygulanmaz." },
+          { status: 422 },
+        )
+      }
       amount = priced.computed.amount
     }
 

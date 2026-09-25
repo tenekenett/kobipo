@@ -164,7 +164,8 @@ geçiş: `docs/paket-abonelik/FIRMA-BAZLI-ABONELIK.md`.
   `getAccountSubscription` yalnız KOTA içindir, modül sorusuna cevap vermez.
 - `applyEntitlements(companyId, granted)` **tek firmaya** yazar; elle modül verme
   `setCompanyModules()`. (Eski adları hesap kapsamlıydı: `setAccountModules`.)
-- Yeni şube/ek firma **kilitli doğar** (`defaultDisabledModules(free)`) — modül devri yok.
+- Yeni firma (kök, şube, ek firma) **TÜM modüller kapalı doğar** — ücretsizler dahil,
+  modül devri yok (aşağıda "ücretsiz paket").
 - **Kota yalnız hesap kökünden satın alınır** (şube kendi şubesini açamaz: sonsuz döngü).
   Kapı üç yerde: uç 400, ekranda kart gizli, tutar hesabında kota 0.
 - **Satın almayı hesap yöneticisi yapar** — şubeye atanmış ADMIN ödeyemez (uç 403).
@@ -195,7 +196,28 @@ Kurallar:
   `getFreeModuleKeys()` ile okunur; `applyEntitlements` her uygulamada ekler, yani
   ücretsiz modül hiçbir yeniden hesaplamada kapanmaz — TEK istisna aşağıdaki elle
   kapatmadır. Sonuçları:
-  - Yeni firma `defaultDisabledModules(free)` ile doğar (ücretsizler açık).
+  - **Ücretsiz modül KENDİLİĞİNDEN AÇILMAZ — ücretsiz paket alınır** (2026-09-25).
+    Firma abonelik ekranından 0 TL'lik siparişle paketi alır; damga
+    `Company.freeModulesClaimedAt`. Damga yoksa `applyEntitlements` ücretsizleri
+    açmaz — `granted` içinde gelseler bile (yalnız ücretli bir modülün gereksinimiyse,
+    ör. Restoran → Stok). Kural tek yerde, saf: `lib/modules.ts` → `resolveOpenModules`
+    (`applyEntitlements`, ücretsiz hizalama ve abonelik ekranının "açık modüller"
+    listesi hep oradan). Paketin süresi YOKTUR: abonelik satırına yazılmaz, bitiş/kilit/
+    arşiv akışına girmez; modül ücretliye çevrilirse satın alınması gerekir.
+    - Karşılama `lib/billing/free-order.ts` → `claimFreePackage`: sipariş ACTIVE,
+      `amount 0`, `paymentProvider "FREE"`, `paidAt null` (fatura yeniden deneme işi
+      `paidAt` dolu siparişleri taradığı için FATURA KESİLMEZ), fatura bilgisi istenmez.
+      Kapı dar: `isFreeClaimSelection` (tutar 0, ücretli modül/kota yok) — 0 TL'ye
+      çekilmiş ücretli paket bu yoldan geçemez.
+    - Damgayı basan diğer yollar (`claimFreeModules`): modül içeren her tamamlanmış
+      satın alma (ekranda ücretsizler seçimden çıkarılamıyor), elle süre verme,
+      "deneme" sıfırlaması, sistem-admin kartındaki "Ücretsiz paket" anahtarı.
+    - Sistem-admin kartında paket alınmamış firmanın kapalı ücretsiz modülü elle
+      kapatma DEĞİLDİR — `suppressedModules`a yazılmaz; yazılsaydı firma paketi
+      aldığında temel modüller sessizce kapalı kalırdı.
+    - Mevcut firmalar migrasyonla damgalanır
+      (`20260925000001_company_free_modules_claimed.sql`, ölçü "en az bir modül açık";
+      tekrar çalıştırılabilir — deploy'dan önce VE hemen sonra bir kez uygulanır).
   - **`isAccountLocked(disabled)` ücretsiz kümeyi OKUMAZ** (2026-09-05'te değişti):
     ölçü "firmanın hiç açık modülü yok mu". Eski ölçü yalnız ücretli modüllere bakıyordu
     ve 2026-08-31'de yedi modülün altısı temel yapılınca sessizce başka bir soruya
@@ -209,7 +231,8 @@ Kurallar:
     `LockedAccount` yalnız gerçekten sıfır modüllü firmada çıkar.
   - Gereksinimi ücretli olan modül ücretsiz YAPILAMAZ (restoran → stok); yoksa
     bağımlılık tamamlama ücretli modülü bedavaya açar.
-  - Küme değişince mevcut hesaplar `syncFreeModuleGrants()` ile hizalanır; satın alınmış
+  - Küme değişince mevcut hesaplar `syncFreeModuleGrants()` ile hizalanır (yeni ücretsiz
+    modül yalnız ücretsiz paketi almış firmalarda açılır); satın alınmış
     modül kapatılmaz. Ayrıntı: `docs/paket-abonelik/TEMEL-MODULLER.md`.
 - **Ücretli modülü satın alma OLMADAN açmanın yeri `Company.grantedModules`tır**
   (firma bazında, sistem-admin modül kartı). Ölçü `setCompanyModules` içindeki saf

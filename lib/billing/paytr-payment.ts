@@ -17,6 +17,7 @@ import { parsePriceLines } from "@/lib/billing/order-lines"
 import { checkPaidAmount } from "@/lib/billing/paid-amount"
 import {
   applyEntitlements,
+  claimFreeModules,
   periodEndFor,
   resolveAccountRootId,
 } from "@/lib/billing/entitlements"
@@ -457,6 +458,12 @@ export async function activateSubscription(order: PackageOrder, card: SavedCard 
       ).id
 
   if (write.applyEntitlements) {
+    // ÜCRETSİZ PAKET de bu satın almayla alınmış sayılır: abonelik ekranında temel
+    // modüller seçimden çıkarılamıyor, yani modül içeren her sipariş onları da kapsar.
+    // Damga yoksa Restoran alan yeni firma Satış'ı açık görmezdi (bkz.
+    // [[lib/billing/entitlements.ts]] → `claimFreeModules`). Yalnız-kota takviyesi
+    // yukarıda döndü; modülsüz bir sipariş paketi almış sayılmaz.
+    await claimFreeModules(order.companyId)
     await applyEntitlements(order.companyId, write.purchasedModules)
   }
 

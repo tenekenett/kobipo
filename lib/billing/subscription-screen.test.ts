@@ -84,6 +84,16 @@ describe("resolvePayButton", () => {
     expect(pay({ resolvedModules: [], amount: 0 }).blockedBy).toBe("empty-selection")
   })
 
+  it("ücretsiz paket: tutar 0 ve seçim boş olsa da AÇIK, sanal POS gerekmez", () => {
+    expect(
+      pay({ freeClaim: true, amount: 0, resolvedModules: [], paytrEnabled: false }),
+    ).toEqual({ enabled: true, blockedBy: null })
+  })
+
+  it("ücretsiz paket de satın alma yetkisine bağlı", () => {
+    expect(pay({ freeClaim: true, amount: 0, canPurchase: false }).blockedBy).toBe("authority")
+  })
+
   it("tutar sıfırsa modül seçili olsa bile kapalı", () => {
     // Ücretsiz modüller tutar üretmez; "bedava sipariş" ancak %100 kuponla olur ve o
     // yolda tutar indirim UYGULANMADAN önce pozitiftir.

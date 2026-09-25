@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma"
 import { MODULE_KEYS } from "@/lib/modules"
 import {
   applyEntitlements,
+  claimFreeModules,
   countAccountBranches,
   countAccountCompanies,
   getAccountCompanyIds,
@@ -92,9 +93,9 @@ async function upsertTrialPlan() {
  *
  * - "trial"  → taze 1 yıllık deneme (TÜM modüller açık; satın alma ekranı denenebilir).
  * - "locked" → deneme/abonelik EXPIRED, ÜCRETLİ modüller kilitli (satın al → açılma akışı
- *              denenebilir). Sistem yöneticisinin TEMEL yaptığı ücretsiz modüller açık
- *              kalır — `applyEntitlements` onları her uygulamada geri koyar; bu doğru
- *              davranıştır, ücretsizlik abonelikten bağımsızdır.
+ *              denenebilir). Sistem yöneticisinin TEMEL yaptığı ücretsiz modüller, firma
+ *              ücretsiz paketi almışsa açık kalır — `applyEntitlements` onları her
+ *              uygulamada geri koyar; ücretsiz paket abonelikten bağımsızdır.
  *
  * reconcile'ın ürettiği gerçek durumla tutarlıdır ([[lib/billing/entitlements.ts]]).
  */
@@ -159,6 +160,9 @@ export async function resetAccountBilling(companyId: string, mode: ResetMode) {
       })
       // Süper-admin override: modülleri elle açar. Deneme durumu KENDİLİĞİNDEN modül
       // vermez (bkz. resolveGrantedModules) — bu satır bilinçli bir demo/destek açmasıdır.
+      // "TÜM modüller açılacak" vaadi temel modülleri de kapsar: paket alınmamış firmada
+      // `applyEntitlements` onları açmazdı, bu yüzden damga da basılır.
+      await claimFreeModules(id)
       await applyEntitlements(id, [...MODULE_KEYS])
     }
   } else {
@@ -169,7 +173,8 @@ export async function resetAccountBilling(companyId: string, mode: ResetMode) {
       data: { status: "EXPIRED", trialEndsAt: past, periodEnd: past },
     })
     // Satın alınmış hiçbir modül yok → ücretli modüller kilitlenir. Ücretsiz (temel)
-    // modülleri `applyEntitlements` kendisi geri açar.
+    // modülleri `applyEntitlements` kendisi geri açar — firma ücretsiz paketi aldıysa.
+    // Damgaya dokunulmaz: paket aboneliğe bağlı değildir, abonelik bitince düşmez.
     for (const id of scopeIds) await applyEntitlements(id, [])
   }
 
@@ -457,6 +462,12 @@ export async function grantAccountPeriod(input: GrantPeriodInput) {
   // `purchasedModules` hem `disabledModules` yazar — yalnız birini yazmak yetkiyi ilk
   // yeniden hesaplamada sildirir, bu projede iki kez oldu). Verilmediyse aboneliğin
   // mevcut setiyle kilit AÇILIR.
+  //
+  // Elle verilen süre, satın almanın sistem yöneticisi eliyle yapılmış hâlidir: ücretsiz
+  // paket de verilmiş sayılır (satın alma callback'iyle aynı kural, bkz.
+  // lib/billing/paytr-payment.ts). Damga yoksa süre verilen firma temel modülleri
+  // kapalı görürdü.
+  await claimFreeModules(targetId)
   if (input.modules != null) {
     await setCompanyModules(targetId, input.modules)
   } else {

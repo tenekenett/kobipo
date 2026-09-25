@@ -6,18 +6,19 @@
 // dosya ikisinin de üstünde durur.
 
 import { prisma } from "@/lib/db/prisma"
-import {
-  MODULE_KEYS,
-  applySuppression,
-  sanitizeFreeModules,
-  withModuleDependencies,
-} from "@/lib/modules"
+import { MODULE_KEYS, resolveOpenModules, sanitizeFreeModules } from "@/lib/modules"
 import { resolveGrantedModules } from "@/lib/billing/entitlements"
 
 /** Hizalamada okunan firma alanları. */
 export type SyncCompanyView = {
   id: string
   disabledModules: string[]
+  /**
+   * Firma ücretsiz paketi aldı mı (`Company.freeModulesClaimedAt` dolu mu). Almamış
+   * firmada ücretsiz modül AÇILMAZ ve "yönetilen satır" şekline girmez — o firmanın
+   * açık kümesini `applyEntitlements` ücretsizler OLMADAN yazar.
+   */
+  freeModulesClaimed: boolean
   /** Sistem yöneticisinin bu firmada elle kapattığı temel modüller. */
   suppressedModules?: string[]
   /**
@@ -29,7 +30,7 @@ export type SyncCompanyView = {
 }
 
 export type FreeModuleDelta = {
-  /** Ücretsiz OLAN modüller — her firmada açılır. */
+  /** Ücretsiz OLAN modüller — ücretsiz paketi almış her firmada açılır. */
   opened: string[]
   /** Ücretsizliği KALKAN modüller — YÖNETİLEN firmalarda kapanır (aşağıdaki kurala bak). */
   closed: string[]
@@ -58,8 +59,13 @@ function managedDisabledShape(
   granted: Set<string>,
   free: string[],
   suppressed: string[] = [],
+  freeClaimed = true,
 ): Set<string> {
-  const open = new Set(applySuppression(withModuleDependencies([...granted, ...free]), suppressed))
+  // `applyEntitlements` ile AYNI kural — ayrışırsa hiçbir satır "yönetilen" sayılmaz ve
+  // ücretliye dönen modül hiçbir firmada kapanmaz.
+  const open = new Set(
+    resolveOpenModules({ granted: [...granted], free, freeClaimed, suppressed }),
+  )
   return new Set(MODULE_KEYS.filter((k) => !open.has(k)))
 }
 
@@ -78,7 +84,9 @@ function sameSet(a: Set<string>, b: Set<string>): boolean {
  * ve deneme hesaplarını sessizce kilitlerdi (yetki `purchasedModules` + ücretli-aktiflik
  * şartından üretilir, bkz. `resolveGrantedModules`).
  *
- * AÇMA herkese işler — "temel modül" tanımı bu.
+ * AÇMA ücretsiz paketi almış herkese işler — "temel modül" tanımı bu. Paketi almamış
+ * firmada (2026-09-25'ten beri yeni firmaların hepsi böyle doğar) hiçbir şey açılmaz:
+ * paketi aldığı an `applyEntitlements` o günün kümesini zaten açar.
  *
  * KAPATMA yalnız YÖNETİLEN satırlara işler: firmanın bugünkü `disabledModules`'ı, önceki
  * ücretsiz kümeyle `applyEntitlements`in yazacağı listeyle birebir aynıysa o satırı bu
@@ -115,12 +123,15 @@ export function planFreeModuleSync(
     // Satırı bu sistem mi yazmış? Ölçü DEĞİŞİKLİKTEN ÖNCEKİ hâle bakılarak alınır.
     const managed = sameSet(
       disabled,
-      managedDisabledShape(granted, delta.previousFree, [...suppressed]),
+      managedDisabledShape(granted, delta.previousFree, [...suppressed], company.freeModulesClaimed),
     )
     let changed = false
     let suppressionChanged = false
 
     for (const key of delta.opened) {
+      // Ücretsiz paketi almamış firma: temel modüller bu firmada kapalıdır, paket
+      // alındığında açılır. Burada açmak, paketi almadan kullandırmak olurdu.
+      if (!company.freeModulesClaimed) continue
       // Sistem yöneticisi bu firmada bilerek kapatmış: ücretsiz olması onu açmaz.
       // Kapatmanın tüm anlamı budur, aksi halde ilk fiyat düzenlemesinde geri açılırdı.
       if (suppressed.has(key)) continue
@@ -157,8 +168,8 @@ export function planFreeModuleSync(
 /**
  * Ücretsiz küme değiştiğinde mevcut hesapları hizalar (okuma → karar → yazma).
  *
- * - Ücretsiz OLAN modül  → her firmada `disabledModules`tan çıkarılır (açılır); ELLE
- *                          KAPATILMIŞ firmalar hariç.
+ * - Ücretsiz OLAN modül  → ücretsiz paketi almış her firmada `disabledModules`tan
+ *                          çıkarılır (açılır); ELLE KAPATILMIŞ firmalar hariç.
  * - Ücretsizliği KALKAN  → hesabın aboneliği o modülü hâlâ veriyorsa dokunulmaz;
  *                          vermiyorsa `disabledModules`a geri eklenir (kapanır). Modül
  *                          ücretliye döndüğü için elle kapatma kaydı da düşer.
@@ -181,6 +192,7 @@ export async function syncFreeModuleGrants(
         disabledModules: true,
         suppressedModules: true,
         grantedModules: true,
+        freeModulesClaimedAt: true,
       },
     }),
     prisma.subscription.findMany({
@@ -204,7 +216,14 @@ export async function syncFreeModuleGrants(
     grantedByCompany.set(sub.companyId, new Set(resolveGrantedModules(sub)))
   }
 
-  const updates = planFreeModuleSync(companies, grantedByCompany, delta)
+  const updates = planFreeModuleSync(
+    companies.map(({ freeModulesClaimedAt, ...c }) => ({
+      ...c,
+      freeModulesClaimed: freeModulesClaimedAt != null,
+    })),
+    grantedByCompany,
+    delta,
+  )
 
   // Parçalı transaction: tek seferde binlerce update'i tek işleme sokmak bağlantıyı uzun
   // süre kilitler. Hesap sayısı bugün küçük, yarın büyüyebilir.

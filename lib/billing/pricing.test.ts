@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest"
-import { computeOrder } from "./pricing"
+import { computeOrder, isFreeClaimSelection } from "./pricing"
 import type { PricingMap } from "./pricing"
 
 const pricing: PricingMap = {
@@ -180,5 +180,61 @@ describe("computeOrder — paket dahili şube/firma kotası", () => {
     expect(out.includedBranches).toBe(0)
     expect(out.extraBranches).toBe(2)
     expect(out.amount).toBe(100)
+  })
+})
+
+// Ücretsiz paket siparişi (2026-09-25) ödeme yoluna girmez — kapı dar olmalı: bu yoldan
+// ücretli bir modül ya da kota bedavaya geçmemeli.
+describe("isFreeClaimSelection", () => {
+  const FREE = ["sales", "stock"]
+  const zeroPlan = {
+    id: "esnaf",
+    name: "Esnaf",
+    monthlyPrice: 0,
+    yearlyPrice: 0,
+    includedModules: ["sales", "stock"],
+    includedBranches: 0,
+    includedCompanies: 0,
+  }
+
+  it("hiçbir şey seçilmemiş + ücretsiz küme var → ücretsiz paket", () => {
+    expect(isFreeClaimSelection(computeOrder({ ...base, chosenModules: [], freeModules: FREE }))).toBe(true)
+  })
+
+  it("0 TL'lik, yalnız ücretsiz modül içeren paket → ücretsiz paket", () => {
+    const out = computeOrder({ ...base, plan: zeroPlan, chosenModules: [], freeModules: FREE })
+    expect(out.amount).toBe(0)
+    expect(isFreeClaimSelection(out)).toBe(true)
+  })
+
+  it("ücretli modül seçildiyse değil", () => {
+    expect(
+      isFreeClaimSelection(computeOrder({ ...base, chosenModules: ["restaurant"], freeModules: FREE })),
+    ).toBe(false)
+  })
+
+  it("fiyatı 0 girilmiş ama ÜCRETLİ modül içeren paket ücretsiz paket sayılmaz", () => {
+    const out = computeOrder({
+      ...base,
+      plan: { ...zeroPlan, includedModules: ["sales", "restaurant"] },
+      chosenModules: [],
+      freeModules: FREE,
+    })
+    expect(out.amount).toBe(0)
+    expect(isFreeClaimSelection(out)).toBe(false)
+  })
+
+  it("0 TL'lik paket kota içeriyorsa değil (kota bedavaya geçmesin)", () => {
+    const out = computeOrder({
+      ...base,
+      plan: { ...zeroPlan, includedBranches: 2 },
+      chosenModules: [],
+      freeModules: FREE,
+    })
+    expect(isFreeClaimSelection(out)).toBe(false)
+  })
+
+  it("ücretsiz küme boşsa değil", () => {
+    expect(isFreeClaimSelection(computeOrder({ ...base, chosenModules: [], freeModules: [] }))).toBe(false)
   })
 })

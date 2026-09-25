@@ -10,6 +10,10 @@
  *      dolduğunda ana firma kapanmaz.
  *   2. ELLE KAPATMA: ücretsiz modül firma bazında kapatılabilir ve yetki her yeniden
  *      hesaplandığında (reconcile, yenileme) KAPALI kalır.
+ *   3. ÜCRETSİZ PAKET (2026-09-25): yeni firma TÜM modüller kapalı doğar; temel modüller
+ *      ancak `Company.freeModulesClaimedAt` damgasıyla (abonelik ekranında 0 TL'lik
+ *      sipariş) açılır. Adım 1–8'deki kök ve şube paketi ALMIŞ firmalardır; doğuş ve
+ *      paket alma 9. adımda sınanır.
  *
  * Neden betik: saf kısım vitest'te (lib/modules.test.ts, lib/billing/free-modules-sync.test.ts)
  * ama asıl soru DB'de cevaplanıyor — yazma yolunun kendisi doğru mu.
@@ -22,6 +26,7 @@ import { prisma } from "@/lib/db/prisma"
 import { MODULE_KEYS, defaultDisabledModules, planCompanyModuleUpdate } from "@/lib/modules"
 import {
   applyEntitlements,
+  claimFreeModules,
   resolveGrantedModules,
   setCompanyModules,
 } from "@/lib/billing/entitlements"
@@ -93,7 +98,8 @@ async function fingerprint() {
 async function main() {
   const free = await getFreeModuleKeys()
   const paid = MODULE_KEYS.filter((k) => !free.includes(k))
-  const lockedAtBirth = sorted(defaultDisabledModules(free))
+  // Ücretsiz paketi ALMIŞ ama hiçbir şey satın almamış firmanın kapalı listesi.
+  const freeOnly = sorted(defaultDisabledModules(free))
   console.log(`ücretsiz modüller: [${free.join(", ")}]`)
   console.log(`ücretli modüller : [${paid.join(", ")}]\n`)
   if (!free.includes("hr") || !free.includes("stock") || !paid.includes("restaurant")) {
@@ -118,12 +124,14 @@ async function main() {
       slug: `zz-e2e-${STAMP}-kok`,
       taxNumber: `9${STAMP}9`,
       disabledModules: defaultDisabledModules(free),
+      freeModulesClaimedAt: new Date(),
     },
     select: { id: true },
   })
   ids.companies.push(root.id)
 
-  // Şube `createCompany` ile aynı şekilde doğar: ücretsizler açık, ücretliler kilitli.
+  // Şube ücretsiz paketi ALMIŞ hâlde kurulur: ücretsizler açık, ücretliler kilitli.
+  // (`createCompany`in kilitli doğuşu ve paketin alınması 9. adımda ayrıca sınanır.)
   const branch = await prisma.company.create({
     data: {
       name: "ZZ-E2E KÖK FİRMA",
@@ -132,6 +140,7 @@ async function main() {
       parentCompanyId: root.id,
       accountRootId: root.id,
       disabledModules: defaultDisabledModules(free),
+      freeModulesClaimedAt: new Date(),
     },
     select: { id: true },
   })
@@ -151,8 +160,8 @@ async function main() {
   await recompute(root.id)
   await recompute(branch.id)
   check("kök: hiçbir modül kapalı değil", (await state(root.id)).disabled, [])
-  check("ŞUBE: yetki GEÇMEDİ — ücretliler kapalı", (await state(branch.id)).disabled, lockedAtBirth)
-  check("şube: ücretsizler yine de açık", lockedAtBirth.includes("hr"), false)
+  check("ŞUBE: yetki GEÇMEDİ — ücretliler kapalı", (await state(branch.id)).disabled, freeOnly)
+  check("şube: ücretsizler yine de açık", freeOnly.includes("hr"), false)
   check("şube: kendi aboneliği yok", await purchased(branch.id), null)
 
   console.log("\n2) Şube KENDİ aboneliğini alır (Restoran)")
@@ -171,7 +180,7 @@ async function main() {
   })
   await recompute(branch.id)
   await recompute(root.id)
-  check("şube: ücretli modüller kapandı", (await state(branch.id)).disabled, lockedAtBirth)
+  check("şube: ücretli modüller kapandı", (await state(branch.id)).disabled, freeOnly)
   check("kök: hâlâ açık", (await state(root.id)).disabled, [])
 
   // Şube yeniden abone olur; kalan adımlar onun üstünde yürüyor.
@@ -238,8 +247,9 @@ async function main() {
     ])
   }
 
-  console.log("\n9) Yeni şube KİLİTLİ doğar (createCompany deseni)")
+  console.log("\n9) Yeni şube TÜM modüller kapalı doğar; ücretsiz paketle temel modüller açılır")
   {
+    // `createCompany` deseni: tüm modüller kapalı, damga yok.
     const child = await prisma.company.create({
       data: {
         name: "ZZ-E2E KÖK FİRMA",
@@ -247,13 +257,48 @@ async function main() {
         slug: `zz-e2e-${STAMP}-yeni`,
         parentCompanyId: root.id,
         accountRootId: root.id,
-        disabledModules: defaultDisabledModules(free),
+        disabledModules: [...MODULE_KEYS],
       },
       select: { id: true },
     })
     ids.companies.push(child.id)
     await recompute(child.id)
-    check("yeni şube: ücretliler kapalı, ücretsizler açık", (await state(child.id)).disabled, lockedAtBirth)
+    check("yeni şube: yeniden hesaplamada da HER ŞEY kapalı", (await state(child.id)).disabled, sorted(MODULE_KEYS))
+
+    // Sistem-admin kartı / elle süre verme tüm seçimi (ücretsizler dahil) geçirir;
+    // paket alınmadan ücretsizler yine açılmamalı.
+    await applyEntitlements(child.id, [...free])
+    check("paket alınmadan ücretsizler granted'de gelse de kapalı", (await state(child.id)).disabled, sorted(MODULE_KEYS))
+
+    check("damga ilk kez basıldı", await claimFreeModules(child.id), true)
+    check("damga ikinci kez basılmaz", await claimFreeModules(child.id), false)
+    await recompute(child.id)
+    check("paket alındı: ücretsizler açık, ücretliler kapalı", (await state(child.id)).disabled, freeOnly)
+  }
+
+  console.log("\n9b) Paketi ALMAMIŞ firma Restoran satın alırsa gereksinimi Stok açılır, gerisi kapalı")
+  {
+    const child = await prisma.company.create({
+      data: {
+        name: "ZZ-E2E KÖK FİRMA",
+        branchName: "RESTORAN ŞUBE",
+        slug: `zz-e2e-${STAMP}-restoran`,
+        parentCompanyId: root.id,
+        accountRootId: root.id,
+        disabledModules: [...MODULE_KEYS],
+      },
+      select: { id: true },
+    })
+    ids.companies.push(child.id)
+    await prisma.subscription.create({
+      data: { userId: user.id, companyId: child.id, purchasedModules: ["restaurant"], branchQuota: 0, ...activePeriod },
+    })
+    await recompute(child.id)
+    check(
+      "yalnız restoran + stok açık",
+      (await state(child.id)).disabled,
+      sorted(MODULE_KEYS.filter((k) => k !== "restaurant" && k !== "stock")),
+    )
   }
 
   console.log("\n10) Gerçek firmalara dokunulmadı mı?")

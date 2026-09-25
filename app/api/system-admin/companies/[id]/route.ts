@@ -7,11 +7,16 @@ import { encryptSecret } from "@/lib/crypto/secrets"
 import { EDonusumIntegrator, Prisma } from "@prisma/client"
 import {
   MODULE_KEYS,
-  applySuppression,
   planCompanyModuleUpdate,
+  resolveOpenModules,
   sanitizeDisabledModules,
 } from "@/lib/modules"
-import { setCompanyModules } from "@/lib/billing/entitlements"
+import {
+  applyEntitlements,
+  getCompanySubscription,
+  resolveGrantedModules,
+  setCompanyModules,
+} from "@/lib/billing/entitlements"
 import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 
 export const dynamic = "force-dynamic"
@@ -150,6 +155,29 @@ export async function PUT(
     // Kaydetme sonrası kullanıcıya söylenecek not (uyarı DEĞİL: işlem başarılı).
     let moduleNotice: string | null = null
     let moduleLog = ""
+
+    // ÜCRETSİZ PAKET (2026-09-25): firma temel modülleri abonelik ekranından alır; kart
+    // bunu firma adına verebilir ya da geri alabilir. Damga modül setinden ÖNCE yazılır,
+    // çünkü aşağıdaki `setCompanyModules` → `applyEntitlements` onu okuyor.
+    let freeClaimed = company.freeModulesClaimedAt != null
+    const wantClaim =
+      typeof body.freeModulesClaimed === "boolean" ? body.freeModulesClaimed : freeClaimed
+    if (wantClaim !== freeClaimed) {
+      await prisma.company.update({
+        where: { id: company.id },
+        data: { freeModulesClaimedAt: wantClaim ? new Date() : null },
+      })
+      freeClaimed = wantClaim
+      moduleLog += wantClaim
+        ? " · ücretsiz paket firma adına ETKİNLEŞTİRİLDİ"
+        : " · ücretsiz paket GERİ ALINDI"
+      // Modül seti gelmediyse yetki burada yeniden uygulanır; geldiyse aşağıda uygulanıyor.
+      if (!desiredOff) {
+        const sub = await getCompanySubscription(company.id)
+        await applyEntitlements(company.id, resolveGrantedModules(sub))
+      }
+    }
+
     if (desiredOff) {
       const free = await getFreeModuleKeys()
 
@@ -159,22 +187,32 @@ export async function PUT(
 
       const scope = body.applyModulesToAccount === true ? "account" : "company"
 
-      const result = await setCompanyModules(company.id, granted, {
-        modules: suppressed,
-        scope,
-      })
+      // Paketi ALINMAMIŞ firmada ücretsiz modülün kapalılığı elle kapatma DEĞİLDİR —
+      // paket alınmadığı içindir. Kapatma olarak yazılsaydı firma paketi aldığında temel
+      // modülleri sessizce kapalı kalırdı. Bu yüzden kapatma kaydına dokunulmaz.
+      const result = await setCompanyModules(
+        company.id,
+        granted,
+        freeClaimed ? { modules: suppressed, scope } : undefined,
+      )
 
       // Modül değişikliği loga AYRINTISIYLA yazılır: "kim neyi kapattı" sorusu destek
       // tarafında en çok sorulan şey ve genel "bilgileri güncellendi" satırı bunu
       // taşımıyordu (aynı ünvanlı firmalarda hangi kayda dokunulduğu da böyle izleniyor).
-      // Yazılan şey BU FİRMANIN sonucu: hesap yetkisinden elle kapatmalar düşülmüş hâli.
-      const open = applySuppression(result.granted, suppressed)
+      // Yazılan şey BU FİRMANIN sonucu — `applyEntitlements`in yazdığı kural ile aynı.
+      const open = resolveOpenModules({
+        granted: result.granted,
+        gifted: result.gifted,
+        free,
+        freeClaimed,
+        suppressed: freeClaimed ? suppressed : company.suppressedModules,
+      })
       const off = MODULE_KEYS.filter((k) => !open.includes(k))
-      moduleLog =
+      moduleLog +=
         ` · modüller: açık [${open.join(", ") || "—"}]` +
         ` / kapalı [${off.join(", ") || "—"}]` +
         (result.gifted.length ? ` · bedelsiz verilen [${result.gifted.join(", ")}]` : "") +
-        (suppressed.length
+        (freeClaimed && suppressed.length
           ? ` · elle kapatılan temel modüller [${suppressed.join(", ")}] (kapsam: ${
               scope === "account" ? "hesabın tümü" : "yalnız bu firma"
             })`

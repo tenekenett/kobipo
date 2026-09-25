@@ -21,10 +21,20 @@
 
 import type { Company, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
-import { defaultDisabledModules } from "@/lib/modules"
-import { getFreeModuleKeys } from "@/lib/billing/free-modules"
+import { MODULE_KEYS } from "@/lib/modules"
 import { getAccountQuotas, isPaidActive, isTrialActive } from "@/lib/billing/entitlements"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+
+/**
+ * Yeni firmanın doğacağı `disabledModules`: TÜM modüller kapalı — ücretsizler dahil.
+ *
+ * 2026-09-25 kararı: temel (ücretsiz) modüller de abonelik ekranından alınır. Firma
+ * 0 TL'lik ücretsiz paketi aldığında `Company.freeModulesClaimedAt` damgalanır ve
+ * `applyEntitlements` onları açar ([[lib/billing/free-order.ts]] → `claimFreePackage`).
+ * Öncesinde firma `defaultDisabledModules(free)` ile, temel modüller AÇIK doğuyordu.
+ * Kural şube ve ek firmada da aynıdır (abonelik firma bazındadır).
+ */
+const LOCKED_AT_BIRTH = (): string[] => [...MODULE_KEYS]
 
 export type CompanyPlacement =
   | { kind: "branch"; parentCompanyId: string }
@@ -67,9 +77,9 @@ export type ResolvedPlacement = {
   /** Hesap (faturalama) kökü; yeni hesapta null (firma kendi köküdür). */
   accountRootId: string | null
   /**
-   * Yeni firmanın doğacağı modül kümesi: temel (ücretsiz) modüller açık, ücretliler
-   * kapalı. Şube ve ek firma da böyle doğar — abonelik firma bazındadır, ana firmadan
-   * modül DEVRALINMAZ.
+   * Yeni firmanın doğacağı modül kümesi: HEPSİ kapalı (`LOCKED_AT_BIRTH`). Temel
+   * modüller de ücretsiz paket alınınca açılır. Şube ve ek firma da böyle doğar —
+   * abonelik firma bazındadır, ana firmadan modül DEVRALINMAZ.
    */
   disabledModules: string[]
   /**
@@ -157,7 +167,7 @@ export async function resolveCompanyPlacement(
     return {
       parentCompanyId: parentId,
       accountRootId,
-      disabledModules: defaultDisabledModules(await getFreeModuleKeys()),
+      disabledModules: LOCKED_AT_BIRTH(),
       suppressedModules: [],
       inherited: parent,
     }
@@ -192,11 +202,11 @@ export async function resolveCompanyPlacement(
 
     // MODÜL DEVRİ YOK: ek firma ayrı bir tüzel kişidir ve kendi aboneliğini satın alır.
     // Hesaptan devraldığı tek şey KOTA hakkıdır (bu firmayı açabilmiş olması).
-    // Temel (ücretsiz) modüller açık, ücretliler kilitli doğar.
+    // Tüm modüller kapalı doğar; temel modüller ücretsiz paketle açılır.
     return {
       parentCompanyId: null,
       accountRootId: rootCompanyId,
-      disabledModules: defaultDisabledModules(await getFreeModuleKeys()),
+      disabledModules: LOCKED_AT_BIRTH(),
       suppressedModules: [],
       inherited: null,
     }
@@ -230,13 +240,13 @@ export async function resolveCompanyPlacement(
     }
   }
 
-  // Yeni hesap yalnız TEMEL (ücretsiz) modüller açık doğar; ücretlisi satın almayla
-  // açılır ([[lib/billing/entitlements.ts]] → applyEntitlements). Ücretsiz küme boşsa
-  // sonuç eski davranışın aynısı: tam kilit.
+  // Yeni hesap TÜM modüller kapalı doğar: temel modüller ücretsiz paketle, ücretliler
+  // satın almayla açılır ([[lib/billing/entitlements.ts]] → applyEntitlements). Onboarding
+  // son adımı kullanıcıyı abonelik ekranına yollar.
   return {
     parentCompanyId: null,
     accountRootId: null,
-    disabledModules: defaultDisabledModules(await getFreeModuleKeys()),
+    disabledModules: LOCKED_AT_BIRTH(),
     suppressedModules: [],
     inherited: null,
   }

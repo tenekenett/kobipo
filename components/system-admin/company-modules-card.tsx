@@ -10,8 +10,8 @@ import { LayoutGrid, Save, Loader2 } from "lucide-react"
 import {
   MANAGEABLE_MODULES,
   MODULE_KEYS,
-  applySuppression,
   moduleLabel,
+  resolveOpenModules,
   sanitizeFreeModules,
   withModuleDependencies,
 } from "@/lib/modules"
@@ -28,6 +28,11 @@ function explicitOff(
   disabled: string[],
   suppressed: string[],
   purchased: string[],
+  /**
+   * Ücretsiz paket alınmadıysa temel modüller o yüzden kapalıdır — elle kapatılmış
+   * DEĞİLDİR. Karar olarak sayılsaydı paket alındığında kapalı kalırlardı.
+   */
+  unclaimedFree: Set<string> = new Set(),
 ): Set<string> {
   const off = new Set(disabled)
   const suppressedSet = new Set(suppressed)
@@ -35,6 +40,7 @@ function explicitOff(
   return new Set(
     MANAGEABLE_MODULES.filter((m) => {
       if (!off.has(m.key)) return false
+      if (unclaimedFree.has(m.key) && !suppressedSet.has(m.key)) return false
       const chained =
         purchasedSet.has(m.key) && (m.requires ?? []).some((dep) => suppressedSet.has(dep))
       return !chained
@@ -49,6 +55,7 @@ export function CompanyModulesCard({
   initialSuppressed = [],
   initialPurchased = [],
   initialGranted = [],
+  initialFreeClaimed = true,
   accountName,
   accountCompanyCount = 1,
 }: {
@@ -71,6 +78,12 @@ export function CompanyModulesCard({
    * nedenini ayırt etmek ve rozet basmak), o yüzden ölçüye birlikte girerler.
    */
   initialGranted?: string[]
+  /**
+   * Firma ücretsiz paketi aldı mı (`Company.freeModulesClaimedAt`). Almadıysa temel
+   * modüller kapalıdır ve kartta anahtarları kilitlidir; "Ücretsiz paket" anahtarı paketi
+   * firma adına verir ya da geri alır.
+   */
+  initialFreeClaimed?: boolean
   /** Hesap kökünün adı — değişikliğin hangi hesabı etkileyeceği yazıyla söylenir. */
   accountName?: string
   /** Hesaptaki firma sayısı (kök + şubeler + ek firmalar). */
@@ -92,33 +105,45 @@ export function CompanyModulesCard({
     () => [...new Set([...initialPurchased, ...initialGranted])],
     [initialPurchased, initialGranted],
   )
-  const [off, setOff] = useState<Set<string>>(() =>
-    explicitOff(initialDisabled, initialSuppressed, [...initialPurchased, ...initialGranted]),
+  const freeSet = useMemo(() => new Set(sanitizeFreeModules(freeModules)), [freeModules])
+  const initialUnclaimedFree = useMemo(
+    () => (initialFreeClaimed ? new Set<string>() : freeSet),
+    [initialFreeClaimed, freeSet],
   )
+  const [off, setOff] = useState<Set<string>>(() =>
+    explicitOff(initialDisabled, initialSuppressed, held, initialUnclaimedFree),
+  )
+  const [freeClaimed, setFreeClaimed] = useState(initialFreeClaimed)
   const [applyToAccount, setApplyToAccount] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  const freeSet = useMemo(() => new Set(sanitizeFreeModules(freeModules)), [freeModules])
   const initialSet = useMemo(
-    () => explicitOff(initialDisabled, initialSuppressed, held),
-    [initialDisabled, initialSuppressed, held],
+    () => explicitOff(initialDisabled, initialSuppressed, held, initialUnclaimedFree),
+    [initialDisabled, initialSuppressed, held, initialUnclaimedFree],
   )
   const giftedSet = useMemo(() => new Set(initialGranted), [initialGranted])
   const dirty = useMemo(() => {
+    if (freeClaimed !== initialFreeClaimed) return true
     if (off.size !== initialSet.size) return true
     return Array.from(off).some((k) => !initialSet.has(k))
-  }, [off, initialSet])
+  }, [off, initialSet, freeClaimed, initialFreeClaimed])
 
-  /** Kapatma kararının SONUCU: kapatılanlar ve onlara bağımlı olanlar düşülmüş küme. */
+  /**
+   * Kapatma kararının SONUCU — sunucudaki kuralla aynı (`resolveOpenModules`): paket
+   * alınmamışsa temel modüller açılmaz (ücretli bir modülün gereksinimi değilse),
+   * kapatılanlar ve onlara bağımlı olanlar düşülür.
+   */
   const openSet = useMemo(
     () =>
       new Set(
-        applySuppression(
-          withModuleDependencies(MODULE_KEYS.filter((k) => !off.has(k))),
-          [...off],
-        ),
+        resolveOpenModules({
+          granted: MODULE_KEYS.filter((k) => !off.has(k)),
+          free: [...freeSet],
+          freeClaimed,
+          suppressed: [...off],
+        }),
       ),
-    [off],
+    [off, freeSet, freeClaimed],
   )
 
   /**
@@ -139,8 +164,8 @@ export function CompanyModulesCard({
   // Elle kapatılan TEMEL modüller: kapsam seçimi (ve kalıcı kapatma) yalnız bunlar için
   // anlamlı — ücretli modülün kapatılması satın alma yetkisini kaldırır.
   const suppressed = useMemo(
-    () => MODULE_KEYS.filter((k) => freeSet.has(k) && off.has(k)),
-    [freeSet, off],
+    () => (freeClaimed ? MODULE_KEYS.filter((k) => freeSet.has(k) && off.has(k)) : []),
+    [freeSet, off, freeClaimed],
   )
 
   const handleSave = async () => {
@@ -152,6 +177,7 @@ export function CompanyModulesCard({
         body: JSON.stringify({
           // AÇIKÇA kapatılanlar; bağımlılık sonucu kapananları sunucu türetir.
           disabledModules: Array.from(off),
+          freeModulesClaimed: freeClaimed,
           applyModulesToAccount: applyToAccount,
         }),
       })
@@ -211,6 +237,27 @@ export function CompanyModulesCard({
         </div>
       </CardHeader>
       <CardContent>
+        {/* ÜCRETSİZ PAKET (2026-09-25): temel modüller firmaya kendiliğinden açılmaz;
+            firma abonelik ekranından 0 TL'lik paketi alır. Buradan firma adına verilebilir
+            ya da geri alınabilir. Kapalıyken temel modüllerin anahtarları kilitli: onları
+            "kapatmak" anlamsız, açmak ise paketi vermekle olur. */}
+        {freeSet.size > 0 && (
+          <div className="mb-3 flex items-start justify-between gap-3 rounded-lg border border-emerald-900/40 bg-emerald-950/20 p-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white">Ücretsiz paket</p>
+              <p className="mt-0.5 text-xs text-slate-400">
+                {freeClaimed
+                  ? "Firma ücretsiz paketi almış: temel modüller açık (elle kapatılanlar hariç)."
+                  : "Firma ücretsiz paketi henüz almadı: temel modüller kapalı. Firma abonelik ekranından 0 TL ile alır; buradan açarsanız firma adına verilir."}
+              </p>
+            </div>
+            <Switch
+              checked={freeClaimed}
+              onCheckedChange={setFreeClaimed}
+              className="shrink-0"
+            />
+          </div>
+        )}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {MANAGEABLE_MODULES.map((m) => {
             const isFree = freeSet.has(m.key)
@@ -236,6 +283,11 @@ export function CompanyModulesCard({
                         ücretsiz
                       </span>
                     )}
+                    {isFree && !freeClaimed && !off.has(m.key) && !isEnabled && (
+                      <span className="rounded bg-slate-600/30 px-1.5 py-0.5 text-[10px] font-normal text-slate-300">
+                        paket alınmadı
+                      </span>
+                    )}
                     {isFree && off.has(m.key) && (
                       <span className="rounded bg-amber-600/20 px-1.5 py-0.5 text-[10px] font-normal text-amber-300">
                         elle kapatıldı
@@ -257,6 +309,9 @@ export function CompanyModulesCard({
                 <Switch
                   checked={isEnabled}
                   onCheckedChange={(v) => toggle(m.key, v)}
+                  // Paket alınmamışken temel modülün anahtarı kilitli: açmak paketi
+                  // vermekle olur (yukarıdaki anahtar).
+                  disabled={isFree && !freeClaimed}
                   className="shrink-0"
                 />
               </div>
@@ -290,8 +345,9 @@ export function CompanyModulesCard({
           erişimleri her zaman açıktır. Modül yetkisi <span className="font-medium text-slate-300">
           firma bazındadır</span>: burada açtığınız modül şubelere ya da ek firmalara GEÇMEZ,
           onların kendi abonelikleri vardır.{" "}
-          <span className="text-emerald-400">Ücretsiz</span> işaretli modüller satın alma
-          gerektirmez; kapatılırsa bu karar kalıcıdır ve müşterinin abonelik ekranında da
+          <span className="text-emerald-400">Ücretsiz</span> işaretli modüller bedel
+          gerektirmez ama firmanın ücretsiz paketi alması gerekir (üstteki anahtar); paket
+          alınmışken kapatılırsa bu karar kalıcıdır ve müşterinin abonelik ekranında da
           görünmez. Ücretli bir modülü burada açarsanız ve firmanın o modülü kapsayan aktif
           bir satın alması yoksa modül{" "}
           <span className="text-sky-400">bedelsiz</span> verilir: kalıcıdır, faturalanmaz ve

@@ -23,7 +23,7 @@
 import { prisma } from "@/lib/db/prisma"
 import {
   MODULE_KEYS,
-  applySuppression,
+  resolveOpenModules,
   sanitizeDisabledModules,
   sanitizeSuppressedModules,
   withModuleDependencies,
@@ -62,7 +62,8 @@ export async function getAccountCompanyIds(rootCompanyId: string): Promise<strin
  * FİRMANIN kendi en güncel aboneliği — yetkinin tek kaynağı.
  *
  * Modül soran her yer bunu okur: şube ana firmanın aboneliğinden yararlanmaz, kendi
- * satırı yoksa ücretli modülü yoktur (ücretsizler `applyEntitlements` ile yine açık).
+ * satırı yoksa ücretli modülü yoktur (ücretsizler, firma ücretsiz paketi aldıysa
+ * `applyEntitlements` ile yine açık — abonelik satırı gerekmez).
  */
 export async function getCompanySubscription(companyId: string) {
   return prisma.subscription.findFirst({
@@ -227,10 +228,15 @@ export function planModuleRecords(input: {
  * TEMEL (ücretsiz) modüller BURADA eklenir — çağıranların hiçbiri onları taşımak zorunda
  * değildir. Bu, `disabledModules` yazan TEK yol olduğu için ücretsizliğin de tek kapısıdır:
  * reconcile, yinelenen ödeme, satın alma callback'i, süper-admin "kilitle/sıfırla" ve
- * `setCompanyModules` — hepsi buradan geçer, yani ücretsiz modül hiçbir yeniden
- * hesaplamada kapanmaz. Küme `PricingItem.isFree`ten okunur (lib/billing/free-modules.ts).
+ * `setCompanyModules` — hepsi buradan geçer. Küme `PricingItem.isFree`ten okunur
+ * (lib/billing/free-modules.ts).
  *
- * TEK İSTİSNA firmanın `suppressedModules` alanıdır: sistem yöneticisinin o firmada
+ * ŞART (2026-09-25): firma ücretsiz paketi ALMIŞ olmalı (`Company.freeModulesClaimedAt`).
+ * Almamışsa ücretsiz modüller — `grantedModules` içinde gelseler bile — açılmaz; yalnız
+ * ücretli bir modülün gereksinimiyse açılır. Paketi almış firmada ise hiçbir yeniden
+ * hesaplamada kapanmazlar. Kural saf: lib/modules.ts → `resolveOpenModules`.
+ *
+ * İSTİSNA firmanın `suppressedModules` alanıdır: sistem yöneticisinin o firmada
  * bilerek kapattığı temel modüller açık kümeden (bağımlılarıyla birlikte) düşülür.
  *
  * ARŞİV: ücretli modül açıldığında firmanın `archivedAt` damgası da SİLİNİR — yeniden
@@ -243,32 +249,54 @@ export async function applyEntitlements(companyId: string, grantedModules: strin
 
   const company = await prisma.company.findUnique({
     where: { id: companyId },
-    select: { suppressedModules: true, grantedModules: true },
+    select: { suppressedModules: true, grantedModules: true, freeModulesClaimedAt: true },
   })
   if (!company) return
 
-  // Bağımlılıklar burada da tamamlanır: arayüz atlanıp bu fonksiyon doğrudan
+  // Bağımlılıklar kuralın içinde tamamlanır: arayüz atlanıp bu fonksiyon doğrudan
   // çağrılsa bile DB'ye tutarsız bir küme (ör. restaurant açık, stock kapalı) yazılmasın.
-  const granted = new Set(
-    withModuleDependencies([
-      ...sanitizeDisabledModules(grantedModules),
-      ...free,
-      // BEDELSİZ verilenler ücretsizlerle aynı yerde: ikisi de abonelikten bağımsız ve
-      // hiçbir yeniden hesaplamada kapanmaz. Fark, ücretsizliğin küresel (PricingItem),
-      // bunun firma bazında bir karar olması.
-      ...sanitizeDisabledModules(company.grantedModules),
-    ]),
-  )
+  // BEDELSİZ verilenler (`Company.grantedModules`) ücretsizlerle aynı yerde: ikisi de
+  // abonelikten bağımsız ve hiçbir yeniden hesaplamada kapanmaz.
+  const rule = {
+    granted: grantedModules,
+    gifted: company.grantedModules,
+    free,
+    freeClaimed: company.freeModulesClaimedAt != null,
+  }
 
   // Arşiv ölçüsüne ücretsizler girmez ama BEDELSİZ verilenler girer: sistem yöneticisi
   // ücretli bir modülü açtıysa firma o modülü kullanabilmeli, arşiv yazmayı kapatıyor.
-  const unarchive = shouldUnarchive(granted, free) ? { archivedAt: null } : {}
+  // Ölçü elle kapatmadan ÖNCEKİ küme üzerinden alınır (eski davranışla aynı).
+  const unarchive = shouldUnarchive(resolveOpenModules(rule), free) ? { archivedAt: null } : {}
 
-  const open = new Set(applySuppression([...granted], company.suppressedModules ?? []))
+  const open = new Set(
+    resolveOpenModules({ ...rule, suppressed: company.suppressedModules ?? [] }),
+  )
   await prisma.company.update({
     where: { id: companyId },
     data: { disabledModules: MODULE_KEYS.filter((k) => !open.has(k)), ...unarchive },
   })
+}
+
+/**
+ * Firmaya "ücretsiz paketi aldı" damgasını basar. Damga zaten varsa DOKUNMAZ (ilk alış
+ * anı korunur) ve `false` döner; ilk kez basıldıysa `true`.
+ *
+ * Yetkiyi UYGULAMAZ — çağıran ardından `applyEntitlements`i kendi kümesiyle çağırır
+ * (satın alma callback'i satın alınan modüllerle, ücretsiz sipariş aboneliğin mevcut
+ * kümesiyle). Koşullu `updateMany`: aynı anda gelen iki istek ikinci bir damga yazmaz.
+ *
+ * Damgayı basan yollar: ücretsiz paket siparişi ([[lib/billing/free-order.ts]]), modül
+ * içeren her tamamlanmış satın alma (ekranda ücretsiz modüller seçimden çıkarılamıyor,
+ * yani her sipariş paketi de kapsar), sistem yöneticisinin elle süre vermesi ve
+ * "deneme" sıfırlaması, sistem-admin modül kartındaki "Ücretsiz paket" anahtarı.
+ */
+export async function claimFreeModules(companyId: string): Promise<boolean> {
+  const res = await prisma.company.updateMany({
+    where: { id: companyId, freeModulesClaimedAt: null },
+    data: { freeModulesClaimedAt: new Date() },
+  })
+  return res.count > 0
 }
 
 /**

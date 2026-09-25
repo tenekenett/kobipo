@@ -493,6 +493,7 @@ export default async function CompanyDetailPage({
           initialSuppressed={company.suppressedModules ?? []}
           initialPurchased={accountSubscription?.purchasedModules ?? []}
           initialGranted={company.grantedModules ?? []}
+          initialFreeClaimed={company.freeModulesClaimedAt != null}
           accountName={accountRootName}
           accountCompanyCount={accountCompanyCount}
         />

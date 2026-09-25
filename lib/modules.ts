@@ -5,14 +5,16 @@
 // Boş dizi = tüm modüller açık.
 //
 // DİKKAT — bu bir RED listesidir: burada olmayan her anahtar AÇIK sayılır. Bu yüzden
-// yeni firma `defaultDisabledModules(free)` ile (ücretsizler hariç kilitli) yaratılır ve
-// listeye YENİ bir modül eklendiğinde mevcut kayıtlarda o anahtar bulunmadığı için
-// herkese açık düşer. Yeni modül eklerken mevcut satırları da kapatan bir migration yazın.
+// yeni firma TÜM modüller kapalı yaratılır (lib/company/create-company.ts) ve listeye
+// YENİ bir modül eklendiğinde mevcut kayıtlarda o anahtar bulunmadığı için herkese açık
+// düşer. Yeni modül eklerken mevcut satırları da kapatan bir migration yazın.
 //
 // TEMEL (ÜCRETSİZ) MODÜL: hangi modülün ücretsiz olduğu bu dosyada SABİT DEĞİLDİR —
-// sistem yöneticisi belirler ve `PricingItem.isFree` alanında durur. Bu dosya yalnızca
-// saf kuralları verir (`sanitizeFreeModules`, `defaultDisabledModules`, `isAccountLocked`);
-// kümenin kendisini okuyan yer: lib/billing/free-modules.ts → `getFreeModuleKeys()`.
+// sistem yöneticisi belirler ve `PricingItem.isFree` alanında durur. Ücretsiz modül
+// KENDİLİĞİNDEN açılmaz: firma abonelik ekranından ücretsiz paketi (0 TL) almalıdır,
+// damga `Company.freeModulesClaimedAt` (2026-09-25). Bu dosya yalnızca saf kuralları verir
+// (`sanitizeFreeModules`, `resolveOpenModules`, `isAccountLocked`); kümenin kendisini
+// okuyan yer: lib/billing/free-modules.ts → `getFreeModuleKeys()`.
 
 export interface ModuleDef {
   /** DB'de saklanan kararlı anahtar */
@@ -154,12 +156,55 @@ export function sanitizeFreeModules(input: unknown): string[] {
 }
 
 /**
- * Yeni bir hesabın/firmanın doğacağı `disabledModules` listesi: ücretsiz modüller AÇIK,
- * kalan her şey KAPALI. Ücretsiz küme boşsa sonuç eski davranışın aynısıdır (tam kilit).
+ * Ücretsiz paketi ALMIŞ ama hiçbir şey satın almamış firmanın `disabledModules` listesi:
+ * ücretsiz modüller AÇIK, kalan her şey KAPALI. Ücretsiz küme boşsa sonuç tam kilittir.
+ *
+ * Yeni firma bununla DOĞMAZ (2026-09-25'ten beri tüm modüller kapalı doğar, ücretsiz paket
+ * abonelik ekranından alınır); fonksiyon betiklerde ve testlerde "temel paketli firma"
+ * şeklini kurmak için duruyor.
  */
 export function defaultDisabledModules(freeModuleKeys: string[] = []): string[] {
   const free = new Set(sanitizeFreeModules(freeModuleKeys))
   return MODULE_KEYS.filter((k) => !free.has(k))
+}
+
+/**
+ * Firmanın AÇIK modül kümesi — yetki hesabının tek saf kuralı. `applyEntitlements`
+ * `disabledModules`u bundan yazar; abonelik ekranının "açık modüller" listesi de bundan
+ * okur (ayrı hesaplarlarsa ekran bir şey, menü başka şey gösterir).
+ *
+ *   açık = bağımlılıklarıyla( satın alınan ∪ bedelsiz verilen ∪ [ücretsiz, paket alındıysa] )
+ *          − elle kapatılanlar (ve onlara bağımlı olanlar)
+ *
+ * ÜCRETSİZ PAKET ALINMAMIŞSA (`freeClaimed: false`) ücretsiz anahtarlar `granted`
+ * içinden de ayıklanır: sistem-admin kartı ve elle süre verme `granted`e tüm seçimi
+ * (ücretsizler dahil) geçiriyor, ayıklanmasa paket alınmadan açılırlardı. Ayıklanan
+ * anahtar ücretli bir modülün GEREKSİNİMİ ise yine açılır (Restoran → Stok): ödenmiş
+ * modül çalışmak zorunda.
+ */
+export function resolveOpenModules(input: {
+  /** Aboneliğin verdikleri (`resolveGrantedModules`) ya da elle seçilen küme. */
+  granted: string[]
+  /** Bedelsiz verilen ücretli modüller (`Company.grantedModules`). */
+  gifted?: string[]
+  /** `PricingItem.isFree` kümesi. */
+  free: string[]
+  /** Firma ücretsiz paketi aldı mı (`Company.freeModulesClaimedAt` dolu mu). */
+  freeClaimed: boolean
+  /** Elle kapatılan temel modüller (`Company.suppressedModules`). */
+  suppressed?: string[]
+}): string[] {
+  const free = sanitizeFreeModules(input.free)
+  const freeSet = new Set(free)
+  const granted = sanitizeDisabledModules(input.granted).filter(
+    (k) => input.freeClaimed || !freeSet.has(k),
+  )
+  const open = withModuleDependencies([
+    ...granted,
+    ...sanitizeDisabledModules(input.gifted ?? []),
+    ...(input.freeClaimed ? free : []),
+  ])
+  return applySuppression(open, input.suppressed ?? [])
 }
 
 /**
@@ -177,9 +222,10 @@ export function defaultDisabledModules(freeModuleKeys: string[] = []): string[] 
  *   kartı ise (doğru biçimde) 6/7 açık gösteriyordu. Çelişkinin kaynağı buydu.
  *
  * Bugünkü ölçü ücretli/ücretsiz ayrımı YAPMAZ, "açık modül var mı" diye sorar. Yeni
- * firmanın modül seçim ekranına düşmesi artık bu ölçüye değil, onboarding'in son adımına
- * bağlıdır (app/(dashboard)/companies/onboarding/complete/page.tsx); firma zaten temel
- * modülleri açık doğduğu için "boş panel" sorunu da yok.
+ * firma tüm modüller kapalı doğar (ücretsiz paket de abonelik ekranından alınır,
+ * 2026-09-25), yani paketini almamış yeni firma BİLEREK bu ekrana düşer; onboarding'in
+ * son adımı da onu abonelik ekranına yollar
+ * (app/(dashboard)/companies/onboarding/complete/page.tsx).
  *
  * Kontrol altı panel sayfasının HEPSİNDE durmalı — giriş sonrası kullanıcı rolüne göre
  * `/dashboard/admin`, `/dashboard/sales`... sayfalarından birine düşüyor. Tekrarı

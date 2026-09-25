@@ -12,7 +12,8 @@
  * Kurulan ağaç:
  *
  *   zz-deneme-ana   (kök)   ACTIVE abonelik · restaurant satın alınmış · kota 3 şube / 1 firma
- *     └ zz-deneme-sube (şube)  ABONELİĞİ YOK → ücretli modüller kilitli doğar
+ *     └ zz-deneme-sube (şube)  ABONELİĞİ YOK, ücretsiz paket ALINMAMIŞ → tüm modüller
+ *                              kilitli doğar (createCompany ile aynı, 2026-09-25)
  *
  * Kullanıcılar (hepsi @kobipo.test — gerçek posta kutusu değil, e-posta gitmez):
  *
@@ -30,8 +31,7 @@
  */
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/db/prisma"
-import { getFreeModuleKeys } from "@/lib/billing/free-modules"
-import { defaultDisabledModules } from "@/lib/modules"
+import { MODULE_KEYS } from "@/lib/modules"
 import { periodEndFor } from "@/lib/billing/period"
 
 const SIL = process.argv.includes("--sil")
@@ -75,8 +75,8 @@ async function sil() {
 }
 
 async function olustur() {
-  const free = await getFreeModuleKeys()
-  const kilitli = defaultDisabledModules(free)
+  // Yeni firma TÜM modüller kapalı doğar; temel modüller ücretsiz paketle açılır.
+  const kilitli = [...MODULE_KEYS]
   const hash = await bcrypt.hash(SIFRE, 10)
 
   // 1) KÖK FİRMA — kendi aboneliği ve kotası var.
@@ -94,6 +94,8 @@ async function olustur() {
         // Kökte ücretli modül satın alınmış sayılıyor; aşağıdaki abonelik onu taşıyor.
         disabledModules: [],
         suppressedModules: [],
+        // Kök ücretsiz paketi de almış sayılır (modül içeren her satın alma paketi kapsar).
+        freeModulesClaimedAt: new Date(),
         onboardingCompletedAt: new Date(),
       },
     })
@@ -102,7 +104,8 @@ async function olustur() {
     })
   }
 
-  // 2) ŞUBE — aboneliği YOK, ücretli modüller kilitli doğar (yetki devretmez kuralı).
+  // 2) ŞUBE — aboneliği YOK, ücretsiz paket de alınmamış: tüm modüller kilitli doğar
+  //    (yetki devretmez kuralı + 2026-09-25 ücretsiz paket kuralı).
   let sube = await prisma.company.findUnique({ where: { slug: SUBE_SLUG } })
   if (!sube) {
     sube = await prisma.company.create({
@@ -178,7 +181,7 @@ async function olustur() {
 
   console.log("Kurulan ağaç:")
   console.log(`  kök  : ${ANA_SLUG}   (ACTIVE abonelik · restaurant · kota 3 şube / 1 firma)`)
-  console.log(`  şube : ${SUBE_SLUG}  (abonelik YOK → ücretli modüller kilitli)`)
+  console.log(`  şube : ${SUBE_SLUG}  (abonelik YOK, ücretsiz paket alınmadı → tüm modüller kilitli)`)
   console.log("")
   console.log(`Şifre (hepsi): ${SIFRE}`)
   for (const u of KULLANICILAR) console.log(`  ${u.email}`)

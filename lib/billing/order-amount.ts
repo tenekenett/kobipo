@@ -9,7 +9,12 @@
 // alınır, fiyat sunucudaki katalogdan yeniden hesaplanır.
 
 import { prisma } from "@/lib/db/prisma"
-import { computeOrder, type PlanPricing, type ComputedOrder } from "@/lib/billing/pricing"
+import {
+  computeOrder,
+  isFreeClaimSelection,
+  type PlanPricing,
+  type ComputedOrder,
+} from "@/lib/billing/pricing"
 import { toPricingMap, TRIAL_PLAN_CODE } from "@/lib/billing/catalog"
 import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 import { isBillingCycle } from "@/lib/billing/constants"
@@ -23,7 +28,18 @@ export type PackageSelectionInput = {
 }
 
 export type PackageAmountResult =
-  | { ok: true; computed: ComputedOrder; planId: string | null; planName: string | null }
+  | {
+      ok: true
+      computed: ComputedOrder
+      planId: string | null
+      planName: string | null
+      /**
+       * Seçim YALNIZ ücretsiz paketi alıyor (tutar 0, ücretli hiçbir şey yok). Ödeme
+       * yoluna girmez; sipariş ucu onu `claimFreePackage` ile karşılar. Bkz.
+       * [[lib/billing/pricing.ts]] → `isFreeClaimSelection`.
+       */
+      freeClaim: boolean
+    }
   | { ok: false; status: number; error: string }
 
 /** Seçimden fiyatı çözer. Hata durumları çağıranın döneceği HTTP durumunu taşır. */
@@ -73,14 +89,16 @@ export async function resolvePackageOrderAmount(
   })
 
   if (computed.amount <= 0) {
-    // Yalnız ücretsiz modül seçilmiş olabilir: onlar zaten açık, sipariş gerekmiyor.
+    // ÜCRETSİZ PAKET: temel modüller 2026-09-25'ten beri kendiliğinden açılmıyor, 0 TL'lik
+    // bu sipariş onları açar. "Firma paketi zaten almış mı" sorusu firmaya bağlı olduğu
+    // için burada değil sipariş ucunda sorulur.
+    if (isFreeClaimSelection(computed)) {
+      return { ok: true, computed, planId, planName, freeClaim: true }
+    }
     return {
       ok: false,
       status: 400,
-      error:
-        computed.freeModules.length > 0 && computed.resolvedModules.length === 0
-          ? "Seçtiğiniz modüller ücretsiz — hesabınızda zaten açık. Ödeme gerekmiyor."
-          : "Seçiminiz için ödenecek tutar yok. Lütfen bir paket veya modül seçin.",
+      error: "Seçiminiz için ödenecek tutar yok. Lütfen bir paket veya modül seçin.",
     }
   }
   if (
@@ -91,5 +109,5 @@ export async function resolvePackageOrderAmount(
     return { ok: false, status: 400, error: "Lütfen en az bir modül seçin." }
   }
 
-  return { ok: true, computed, planId, planName }
+  return { ok: true, computed, planId, planName, freeClaim: false }
 }

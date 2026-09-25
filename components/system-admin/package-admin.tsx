@@ -29,7 +29,7 @@ interface PricingItem {
   monthlyPrice: string | number
   yearlyPrice: string | number
   isActive: boolean
-  /** TEMEL modül: satın alınmadan her hesapta açık gelir, siparişte ücretlendirilmez. */
+  /** TEMEL modül: bedelsiz; ücretsiz paketi alan firmada açılır, siparişte ücretlendirilmez. */
   isFree: boolean
   sortOrder: number
 }
@@ -345,8 +345,10 @@ function PricingSection({ items, onChanged }: { items: PricingItem[]; onChanged:
           <h2 className="text-lg font-semibold text-white">Tekil Fiyatlar</h2>
           <p className="text-sm text-slate-500">
             Paket dışı tekil modül ekleme ve ek şube birim fiyatları. <strong className="text-slate-300">Ücretsiz</strong>{" "}
-            işaretlenen modül satın alınmadan TÜM hesaplarda açık gelir — mevcut firmalar da
-            kaydettiğinizde hemen hizalanır.
+            işaretlenen modül bedelsizdir ve ücretsiz pakete girer: firma abonelik ekranından
+            ücretsiz paketi etkinleştirdiğinde açılır. Paketi almış mevcut firmalar
+            kaydettiğinizde hemen hizalanır; ücretliye çevrilen modül, satın almamış
+            firmalarda kapanır.
           </p>
         </div>
         <button
@@ -366,7 +368,7 @@ function PricingSection({ items, onChanged }: { items: PricingItem[]; onChanged:
               <th className="py-2 pr-4">Öğe</th>
               <th className="py-2 pr-4">Aylık (₺)</th>
               <th className="py-2 pr-4">Yıllık (₺)</th>
-              <th className="py-2 pr-4" title="Satın alınmadan herkeste açık gelir">
+              <th className="py-2 pr-4" title="Bedelsiz — ücretsiz paketi alan her firmada açılır">
                 Ücretsiz
               </th>
               <th className="py-2 pr-4">Aktif</th>

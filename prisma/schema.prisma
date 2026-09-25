@@ -307,7 +307,17 @@ model Company {
   // ikisini ayırmak şart, yoksa bedelsiz verilen modül abonelik yenilemesinde
   // faturalanmaya başlardı.
   grantedModules               String[]           @default([])
-  // ARŞİV — abonelik süresi dolduktan sonra veri salt-okunur hâle geçtiğinde yazılır.
+  // ÜCRETSİZ PAKET ALINDI MI — firmanın abonelik ekranından ücretsiz (temel) paketi
+  // etkinleştirdiği an. NULL = alınmadı: temel modüller (`PricingItem.isFree`) bu firmada
+  // KAPALIDIR, abonelik ekranından 0 TL'lik siparişle açılır (2026-09-25 kararı; öncesinde
+  // yeni firma temel modüller açık doğuyordu).
+  //
+  // Damga KÜMEYİ değil hakkı tutar: hangi modüllerin ücretsiz olduğu yine her uygulamada
+  // `PricingItem.isFree`ten okunur. Modül ücretliye çevrilirse bu firmada da kapanır
+  // (satın alınması gerekir); yeni bir modül ücretsiz yapılırsa damgalı firmada açılır.
+  // Süresi yoktur — abonelik satırına yazılmaz, bitiş/kilit/arşiv akışına girmez.
+  freeModulesClaimedAt         DateTime?
+  // ARŞİV —abonelik süresi dolduktan sonra veri salt-okunur hâle geçtiğinde yazılır.
   // NULL = normal. Dolu = hesap arşivde: okuma ve DIŞA AKTARMA açık, yazma uçları 403.
   //
   // Neden Company üzerinde (Subscription'da değil): kapı istek başına çalışıyor ve firma

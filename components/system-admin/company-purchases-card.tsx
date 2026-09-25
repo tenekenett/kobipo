@@ -218,7 +218,12 @@ function PriceLines({ order }: { order: PackagePurchase }) {
 
 function PackageRow({ order }: { order: PackagePurchase }) {
   const [open, setOpen] = useState(false)
-  const status = PACKAGE_STATUS[order.status] ?? { label: order.status, cls: undefined }
+  // Ücretsiz paket siparişi ACTIVE'dir ama ödeme değildir (paymentProvider "FREE",
+  // bkz. lib/billing/free-order.ts) — "Ödendi" yazmak yanıltıcı olurdu.
+  const status =
+    order.status === "ACTIVE" && order.paymentProvider === "FREE"
+      ? { label: "Ücretsiz paket", cls: "bg-slate-500/15 text-slate-300 border-slate-600/40" }
+      : (PACKAGE_STATUS[order.status] ?? { label: order.status, cls: undefined })
 
   return (
     <div className="border-b border-slate-800 last:border-0">

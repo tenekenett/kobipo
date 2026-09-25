@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { useSWRConfig } from "swr"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -12,7 +13,12 @@ import {
   sanitizeFreeModules,
   withModuleDependencies,
 } from "@/lib/modules"
-import { computeOrder, type PricingMap, type PlanPricing } from "@/lib/billing/pricing"
+import {
+  computeOrder,
+  isFreeClaimSelection,
+  type PricingMap,
+  type PlanPricing,
+} from "@/lib/billing/pricing"
 import {
   purchaseNoticeFor,
   resolvePayButton,
@@ -26,7 +32,7 @@ import {
   type BillingCycle,
 } from "@/lib/billing/constants"
 import { periodEndFor } from "@/lib/billing/period"
-import { Check, Loader2, AlertTriangle, Sparkles, Receipt } from "lucide-react"
+import { Check, CheckCircle2, Loader2, AlertTriangle, Sparkles, Receipt } from "lucide-react"
 import {
   DiscountCodeField,
   type AppliedDiscount,
@@ -82,10 +88,16 @@ type Catalog = {
   plans: CatalogPlan[]
   pricing: CatalogPricingItem[]
   /**
-   * TEMEL modüller — sistem yöneticisi ücretsiz işaretlemiş. Hesapta zaten AÇIK gelirler;
-   * seçimden çıkarılamazlar ve tutara girmezler. Küme sunucudan gelir, istemcide türetilmez.
+   * TEMEL modüller — sistem yöneticisi ücretsiz işaretlemiş. Bedelsizdir ama firma
+   * ücretsiz paketi almadıkça AÇILMAZ (`freeModulesClaimed`); seçimden çıkarılamazlar ve
+   * tutara girmezler. Küme sunucudan gelir, istemcide türetilmez.
    */
   freeModules: string[]
+  /**
+   * Firma ücretsiz paketi aldı mı? Almadıysa 0 TL'lik seçim "Ücretsiz paketi etkinleştir"
+   * olur ve modül içeren her sipariş paketi de kapsar (2026-09-25).
+   */
+  freeModulesClaimed: boolean
   /**
    * Sistem yöneticisinin bu firmada KAPATTIĞI temel modüller. Ekranda hiç görünmezler:
    * satın alınacak bir şey değiller (ücretsizler) ve hesapta kapalılar — listede
@@ -137,6 +149,7 @@ function toPlanPricing(p: CatalogPlan): PlanPricing {
 export default function AbonelikPage() {
   const router = useRouter()
   const companySlug = useSearchParams().get("company") || ""
+  const { mutate: mutateSWR } = useSWRConfig()
 
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [loading, setLoading] = useState(true)
@@ -158,6 +171,9 @@ export default function AbonelikPage() {
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  // Ücretsiz paket az önce etkinleştirildi: ödeme sayfasına gidilmez (ödeme yok), sonuç
+  // burada söylenir.
+  const [claimDone, setClaimDone] = useState(false)
 
   // FATURA BİLGİSİ — ödeme sonrası satış faturası otomatik kesilir. Alıcı SATIN ALAN
   // firmadır (sipariş ucu da öyle yazar): abonelik firma bazında olduğu için ek firma
@@ -255,8 +271,10 @@ export default function AbonelikPage() {
     () => new Set(selectedPlan?.includedModules ?? []),
     [selectedPlan],
   )
-  // Ücretsiz modüller: hesapta zaten açıklar. Seçim mantığında "pakete dahil" ile aynı
-  // muameleyi görürler — kaldırılamaz, ekstra listesine yazılmaz, ücretlendirilmez.
+  // Ücretsiz modüller: seçim mantığında "pakete dahil" ile aynı muameleyi görürler —
+  // kaldırılamaz, ekstra listesine yazılmaz, ücretlendirilmez. Firmada açılmaları ise
+  // ücretsiz paketin alınmasına bağlı (`catalog.freeModulesClaimed`); her sipariş paketi
+  // de kapsar.
   const freeModuleSet = useMemo(
     () => new Set(sanitizeFreeModules(catalog?.freeModules ?? [])),
     [catalog],
@@ -315,7 +333,7 @@ export default function AbonelikPage() {
   }
 
   function toggleExtra(key: string) {
-    // Ücretsiz modül açılıp kapanmaz: bedeli yok, hesapta zaten açık.
+    // Ücretsiz modül açılıp kapanmaz: bedeli yok, her sipariş onu da kapsar.
     if (freeModuleSet.has(key)) return
     setExtras((prev) => {
       const next = new Set(prev)
@@ -475,7 +493,26 @@ export default function AbonelikPage() {
   // Düğmenin açık/kapalı olması ve SEBEBİ ortak modülden — sunucunun reddedeceği bir
   // seçimde kullanıcıyı formu doldurtup duvara çarptırmamak için
   // ([[lib/billing/subscription-screen.ts]]).
+  /**
+   * Bu seçim yalnız ÜCRETSİZ PAKETİ mi alıyor ve firma onu henüz almamış mı? Öyleyse
+   * düğme "Ücretsiz paketi etkinleştir" olur: PayTR, fatura ve dönem yok (sunucuda
+   * `claimFreePackage`). Kural sunucuyla ortak: `isFreeClaimSelection`.
+   */
+  const freeClaim = !catalog?.freeModulesClaimed && isFreeClaimSelection(computed)
+  /**
+   * Seçimde ödenecek hiçbir şey yok (yalnız ücretsiz paket / 0 TL'lik paket). Paket
+   * alınmışsa bu seçim "zaten etkin"dir: fatura bilgisi, indirim kodu ve otomatik
+   * yenileme anlamsızdır ve gösterilmez — yoksa paketi yeni alan kullanıcı kendiliğinden
+   * açılan kırmızı "fatura bilgisi eksik" formuyla karşılaşıyordu (Chrome testinde görüldü).
+   */
+  const nothingToPay = isFreeClaimSelection(computed)
+  /** Paketi almamış firmada siparişle birlikte açılacak temel modüller (gösterim). */
+  const pendingFreeModules = catalog?.freeModulesClaimed
+    ? []
+    : visibleModules.filter((m) => freeModuleSet.has(m.key))
+
   const payButton = resolvePayButton({
+    freeClaim,
     quotaTopUpBlocked: Boolean(topUp?.blocked),
     paytrEnabled: Boolean(catalog?.paytrEnabled),
     canPurchase: catalog?.canPurchase !== false,
@@ -498,8 +535,55 @@ export default function AbonelikPage() {
     .sort()
     .join(",")}|${computed.branchQuota}|${computed.companyQuota}|${cycle}`
 
+  /**
+   * ÜCRETSİZ PAKET — ödeme yok, fatura yok: fatura bilgisi ve indirim kodu sorulmaz.
+   * Sunucu siparişi hemen karşılar; sonuç bu ekranda söylenir ve menü (sunucuda basılan
+   * layout) tazelenir ki açılan modüller hemen görünsün.
+   */
+  async function handleFreeClaim() {
+    if (!companySlug || submitting) return
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      const res = await fetch("/api/billing/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId: companySlug,
+          planId: selectedPlan?.id ?? null,
+          chosenModules: Array.from(extras),
+          branchQuota: 0,
+          companyQuota: 0,
+          billingCycle: cycle,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Ücretsiz paket etkinleştirilemedi")
+      // Fiyatlar ekran açıkken değiştiyse sunucu bunu ücretli sipariş olarak açmış olabilir
+      // (tutarı daima sunucu belirler): o durumda normal ödeme sayfasına geçilir, "etkin"
+      // denmez.
+      if (!data?.freeClaim) {
+        router.push(`/ayarlar/abonelik/odeme/${data.id}?company=${encodeURIComponent(companySlug)}`)
+        return
+      }
+      setClaimDone(true)
+      // "Aboneliğim" kartı kendi SWR anahtarından beslenir; tazelenmezse paket alındıktan
+      // sonra da "abonelik yok" yazmaya devam ederdi.
+      await Promise.all([
+        loadCatalog(),
+        mutateSWR(`/api/billing/subscription?companyId=${encodeURIComponent(companySlug)}`),
+      ])
+      router.refresh()
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "Ücretsiz paket etkinleştirilemedi")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   async function handlePay() {
     if (!companySlug || submitting) return
+    if (freeClaim) return handleFreeClaim()
 
     // Ödeme sonrası satış faturası otomatik kesilir; bilgi eksikse ödemeye hiç
     // gitmeden formu aç ve eksikleri işaretle (sunucu da 412 ile aynı kapıyı tutar).
@@ -694,6 +778,16 @@ export default function AbonelikPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Modüller</CardTitle>
+          {/* Temel modüller bedelsizdir ama kendiliğinden açılmaz (2026-09-25): firma
+              ücretsiz paketi bu ekrandan alır. Durum burada söylenmezse "Ücretsiz ✓"
+              yazan bir modülün menüde neden olmadığı cevapsız kalır. */}
+          {freeModuleSet.size > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {catalog.freeModulesClaimed
+                ? "Ücretsiz modüller bu firmada etkin."
+                : "Ücretsiz modüller bedelsizdir ancak henüz etkin değil — siparişi tamamladığınızda (tutar 0 TL olsa da) açılır."}
+            </p>
+          )}
         </CardHeader>
         <CardContent className="grid gap-2 sm:grid-cols-2">
           {visibleModules.map((m) => {
@@ -825,8 +919,22 @@ export default function AbonelikPage() {
           <CardTitle className="text-base">Sipariş özeti</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* ÜCRETSİZ PAKET satırı — paketi almamış firmada her sipariş temel modülleri de
+              açar; kalemlere (ve fiyat dökümüne) girmez çünkü bedeli yoktur. */}
+          {pendingFreeModules.length > 0 && (
+            <div className="flex items-start justify-between gap-2 text-sm">
+              <span className="text-muted-foreground">
+                Ücretsiz paket: {pendingFreeModules.map((m) => m.label).join(", ")}
+              </span>
+              <span className="shrink-0 font-medium text-emerald-600 dark:text-emerald-400">
+                Ücretsiz
+              </span>
+            </div>
+          )}
           {computed.lines.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Henüz bir seçim yapmadınız.</p>
+            pendingFreeModules.length === 0 && (
+              <p className="text-sm text-muted-foreground">Henüz bir seçim yapmadınız.</p>
+            )
           ) : (
             <ul className="space-y-1.5 text-sm">
               {computed.lines.map((l) => (
@@ -865,7 +973,7 @@ export default function AbonelikPage() {
           </div>
 
           {/* İndirim kodu — tutarı sunucu hesaplar, kutu yalnız ön izleme yapar. */}
-          {companySlug && canPay && (
+          {companySlug && canPay && !nothingToPay && (
             <DiscountCodeField
               companyId={companySlug}
               scope="PACKAGE"
@@ -884,10 +992,31 @@ export default function AbonelikPage() {
             />
           )}
 
-          <label className="flex items-center gap-2 pt-1 text-sm">
-            <Switch checked={autoRenew} onCheckedChange={setAutoRenew} />
-            <span>Dönem sonunda otomatik yenile</span>
-          </label>
+          {!nothingToPay && (
+            <label className="flex items-center gap-2 pt-1 text-sm">
+              <Switch checked={autoRenew} onCheckedChange={setAutoRenew} />
+              <span>Dönem sonunda otomatik yenile</span>
+            </label>
+          )}
+
+          {/* Ücretsiz paketin sözü: süresi yok, fatura yok, ücretliye dönen modül satın
+              alınır. Kullanıcının verdiği karar (2026-09-25) buraya yazıldığı gibi. */}
+          {freeClaim && (
+            <p className="rounded-md bg-muted/60 p-2.5 text-xs text-muted-foreground">
+              Ücretsiz paket bir kez etkinleştirilir ve süresi yoktur: modüller ücretsiz
+              kaldığı sürece açık kalır. İleride bir modül ücretli hâle gelirse onu kullanmaya
+              devam etmek için satın almanız gerekir. Ödeme alınmaz, fatura kesilmez.
+            </p>
+          )}
+          {claimDone && (
+            <p className="flex items-start gap-2 rounded-md bg-emerald-50 p-2.5 text-xs text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300">
+              <CheckCircle2 className="mt-px h-4 w-4 shrink-0" />
+              <span>
+                Ücretsiz paket etkinleştirildi. Temel modüller menüde açıldı; ücretli
+                modülleri istediğiniz zaman bu ekrandan ekleyebilirsiniz.
+              </span>
+            </p>
+          )}
 
           {/* NE SATIN ALDIĞIN, NE ALMADIĞIN. Paket seçiliyken tek bir ek şube almak da
               aboneliğin tamamını yeniden yazar ve dönemi bir periyot uzatır; bu cümle
@@ -967,14 +1096,15 @@ export default function AbonelikPage() {
               </span>
             </p>
           )}
-          {!catalog.paytrEnabled && (
+          {!catalog.paytrEnabled && !nothingToPay && (
             <p className="flex items-center gap-2 rounded-md bg-amber-50 p-2.5 text-xs text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               Online ödeme şu an yapılandırılmamış. Lütfen daha sonra tekrar deneyin veya destekle iletişime geçin.
             </p>
           )}
           {/* Fatura bilgileri: ödeme sonrası satış faturası otomatik kesilir. Alıcı bu
-              ekranın firmasıdır — hesap kökü değil. */}
+              ekranın firmasıdır — hesap kökü değil. Ücretsiz pakette fatura yok, sorulmaz. */}
+          {!nothingToPay && (
           <div className="space-y-2 rounded-lg border p-3">
             <button
               type="button"
@@ -1005,6 +1135,7 @@ export default function AbonelikPage() {
               </p>
             )}
           </div>
+          )}
 
           {submitError && (
             <p className="flex items-center gap-2 rounded-md bg-destructive/10 p-2.5 text-xs text-destructive">
@@ -1022,8 +1153,14 @@ export default function AbonelikPage() {
             {submitting ? (
               <>
                 <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                Yönlendiriliyor…
+                {freeClaim ? "Etkinleştiriliyor…" : "Yönlendiriliyor…"}
               </>
+            ) : freeClaim ? (
+              "Ücretsiz paketi etkinleştir"
+            ) : nothingToPay && catalog.freeModulesClaimed ? (
+              // Paket alınmış, seçimde ödenecek bir şey yok: düğme kapalıdır
+              // (`resolvePayButton` → empty-selection); "Öde · ₺0" yazmak yanıltıcıydı.
+              "Ücretsiz paket etkin"
             ) : (
               // Düğme TAHSİL EDİLECEK tutarı yazar: indirim uygulandığında liste
               // tutarını göstermek, ekranda görünen ile ödenecek tutarı ayrıştırırdı.

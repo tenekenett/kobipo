@@ -42,9 +42,10 @@ export interface ComputeOrderInput {
   billingCycle: BillingCycle
   pricing: PricingMap
   /**
-   * TEMEL (ücretsiz) modüller — `PricingItem.isFree`. Hesapta zaten açık oldukları için
-   * siparişte ÜCRETLENDİRİLMEZ ve satır üretmezler; `resolvedModules`a yine girerler ki
-   * abonelik snapshot'ı gerçeği göstersin. Verilmezse hiçbiri ücretsiz sayılmaz.
+   * TEMEL (ücretsiz) modüller — `PricingItem.isFree`. Siparişte ÜCRETLENDİRİLMEZ ve satır
+   * üretmezler; `resolvedModules`a da girmezler (aşağıdaki açıklama). Firmada açılmaları
+   * ücretsiz paketin alınmasına bağlıdır (`Company.freeModulesClaimedAt`), fiyata değil.
+   * Verilmezse hiçbiri ücretsiz sayılmaz.
    */
   freeModules?: string[]
 }
@@ -91,6 +92,29 @@ export interface ComputedOrder {
   /** Ücretlendirilen ek firma sayısı (toplam kota − paket dahili). */
   extraCompanies: number
   lines: OrderLine[]
+}
+
+/**
+ * Bu seçim YALNIZ ücretsiz paketi mi alıyor? (2026-09-25)
+ *
+ * Temel modüller artık kendiliğinden açılmıyor; firma abonelik ekranından 0 TL'lik bir
+ * siparişle ücretsiz paketi alır ([[lib/billing/free-order.ts]] → `claimFreePackage`).
+ * Bu sipariş ödeme yoluna (PayTR, fatura, abonelik dönemi) GİRMEZ, o yüzden kapısı dar:
+ *
+ *   - liste tutarı sıfır,
+ *   - ücretlendirilen ekstra modül, ek şube, ek firma YOK (kota da sıfır — 0 TL'lik bir
+ *     paket kota içeriyorsa bu yoldan kota bedavaya verilmesin),
+ *   - satın alınan kümedeki her modül (0 TL'lik bir paketin içindekiler) ücretsiz.
+ *
+ * Son şart, fiyatı 0 girilmiş ama ÜCRETLİ modül içeren bir paketi dışarıda bırakır: o
+ * durumda satılan şey ücretsiz paket değildir ve eskisi gibi reddedilir.
+ */
+export function isFreeClaimSelection(computed: ComputedOrder): boolean {
+  if (computed.amount > 0 || computed.freeModules.length === 0) return false
+  if (computed.extraModules.length > 0) return false
+  if (computed.branchQuota > 0 || computed.companyQuota > 0) return false
+  const free = new Set(computed.freeModules)
+  return computed.resolvedModules.every((m) => free.has(m))
 }
 
 function cyclePrice(

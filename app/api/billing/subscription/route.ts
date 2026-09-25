@@ -5,7 +5,8 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isRecurringEnabled } from "@/lib/integrations/paytr/client"
 import { freeModulesFromPricingItems } from "@/lib/billing/free-modules"
-import { applySuppression } from "@/lib/modules"
+import { resolveOpenModules } from "@/lib/modules"
+import { FREE_PACKAGE_PROVIDER } from "@/lib/billing/free-order"
 import { EVENT_LABELS, getSubscriptionEvents, type SubscriptionEventType } from "@/lib/billing/events"
 import { isAutoRenewActive, subscriptionNotice } from "@/lib/billing/notice"
 import {
@@ -77,6 +78,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
           currency: true,
           paidAt: true,
           paymentError: true,
+          paymentProvider: true,
           createdAt: true,
           // Fatura indirme kapısı: uç yalnız GİB'e GÖNDERİLMİŞ faturayı verir
           // (invoice-pdf → 409). Butonu ancak o hâlde göstermek için durum da lazım.
@@ -92,12 +94,11 @@ export const GET = withApiErrors(async function GET(request: Request) {
     // ELLE KAPATMA firma bazındadır: abonelik hesabın olsa da "açık modüller" listesi
     // EKRANIN AÇIK OLDUĞU firmanın gerçeğini söylemeli. Düşülmezse sistem yöneticisinin
     // kapattığı modül burada "açık" görünür — şikâyetin ta kendisi.
-    const suppressed = (
-      await prisma.company.findUnique({
-        where: { id: companyId },
-        select: { suppressedModules: true },
-      })
-    )?.suppressedModules ?? []
+    const companyModules = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { suppressedModules: true, grantedModules: true, freeModulesClaimedAt: true },
+    })
+    const freeClaimed = companyModules?.freeModulesClaimedAt != null
 
     const notice = subscriptionNotice(
       sub && { ...sub, autoRenewActive: isAutoRenewActive(sub, recurringEnabled) },
@@ -148,11 +149,19 @@ export const GET = withApiErrors(async function GET(request: Request) {
             cancelling: notice.cancelling,
           }
         : null,
-      // AÇIK modüller = aboneliğin verdikleri ∪ TEMEL (ücretsiz) olanlar. İkinci küme
-      // abonelikten bağımsızdır (`applyEntitlements` her uygulamada geri açar), bu yüzden
-      // "modülleriniz" listesinde satın alınmışlarla birlikte görünmeleri doğru.
+      // AÇIK modüller — `applyEntitlements`in yazdığı kuralın AYNISI (`resolveOpenModules`):
+      // aboneliğin verdikleri ∪ bedelsiz verilenler ∪ TEMEL (ücretsiz) olanlar, sonuncusu
+      // yalnız firma ücretsiz paketi aldıysa. Ayrı hesaplansaydı ekran menünün
+      // göstermediği bir modülü "açık" diye listelerdi.
       freeModules: free,
-      openModules: applySuppression([...granted, ...free], suppressed),
+      freeModulesClaimed: freeClaimed,
+      openModules: resolveOpenModules({
+        granted,
+        gifted: companyModules?.grantedModules ?? [],
+        free,
+        freeClaimed,
+        suppressed: companyModules?.suppressedModules ?? [],
+      }),
       quotas,
       orders: orders.map((o) => ({
         id: o.id,
@@ -165,6 +174,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
         currency: o.currency,
         paidAt: o.paidAt,
         paymentError: o.paymentError,
+        // ÜCRETSİZ PAKET siparişi: ödeme ve fatura YOK. Ekran "Ödendi" / "Hazırlanıyor"
+        // yazmamalı — bu siparişe hiçbir zaman fatura kesilmez (lib/billing/free-order.ts).
+        freePackage: o.paymentProvider === FREE_PACKAGE_PROVIDER,
         createdAt: o.createdAt,
         invoiceNo: o.invoice?.eDocumentNo || o.invoice?.invoiceNo || null,
         invoiceReady: Boolean(o.invoiceId) && o.invoice?.status === "SENT",

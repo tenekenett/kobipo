@@ -23,6 +23,7 @@ import {
   isModuleEnabled,
   planCompanyModuleUpdate,
   modulesRequiring,
+  resolveOpenModules,
   sanitizeDisabledModules,
   sanitizeFreeModules,
   sanitizeSuppressedModules,
@@ -256,5 +257,58 @@ describe("planCompanyModuleUpdate", () => {
 
   it("bilinmeyen anahtar elenir", () => {
     expect(planCompanyModuleUpdate(["yok"], FREE).granted).toEqual(MODULE_KEYS)
+  })
+})
+
+// 2026-09-25: temel modüller ücretsiz paket ALINMADAN açılmaz. Hata yönü yine para:
+// paket alınmadan açılırsa karar delinir; ödenmiş modülün gereksinimi kapanırsa müşteri
+// parasını verdiği modülü kullanamaz.
+describe("resolveOpenModules", () => {
+  const FREE = ["sales", "purchase", "stock", "finance", "reports", "hr"]
+  const sorted = (a: string[]) => [...a].sort()
+
+  it("paket alınmışsa ücretsizler açık, ücretli kapalı", () => {
+    expect(sorted(resolveOpenModules({ granted: [], free: FREE, freeClaimed: true }))).toEqual(
+      sorted(FREE),
+    )
+  })
+
+  it("paket alınmamışsa HİÇBİR modül açık değil", () => {
+    expect(resolveOpenModules({ granted: [], free: FREE, freeClaimed: false })).toEqual([])
+  })
+
+  it("paket alınmamışken granted içinde gelen ücretsizler de açılmaz", () => {
+    // Sistem-admin kartı ve elle süre verme tüm seçimi (ücretsizler dahil) geçiriyor.
+    expect(
+      resolveOpenModules({ granted: [...MODULE_KEYS].filter((k) => k !== "restaurant"), free: FREE, freeClaimed: false }),
+    ).toEqual([])
+  })
+
+  it("paket alınmamış ama Restoran satın alınmış: gereksinimi Stok yine açılır", () => {
+    expect(
+      sorted(resolveOpenModules({ granted: ["restaurant"], free: FREE, freeClaimed: false })),
+    ).toEqual(["restaurant", "stock"])
+  })
+
+  it("bedelsiz verilen ücretli modül paketten bağımsız açıktır", () => {
+    expect(
+      resolveOpenModules({ granted: [], gifted: ["restaurant"], free: FREE, freeClaimed: false }),
+    ).toEqual(["stock", "restaurant"])
+  })
+
+  it("elle kapatılan temel modül ve bağımlıları düşer", () => {
+    const open = resolveOpenModules({
+      granted: ["restaurant"],
+      free: FREE,
+      freeClaimed: true,
+      suppressed: ["stock"],
+    })
+    expect(open).not.toContain("stock")
+    expect(open).not.toContain("restaurant")
+    expect(open).toContain("sales")
+  })
+
+  it("ücretsiz küme boşsa paket damgası bir şey açmaz", () => {
+    expect(resolveOpenModules({ granted: [], free: [], freeClaimed: true })).toEqual([])
   })
 })

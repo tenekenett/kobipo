@@ -157,3 +157,113 @@ Canlıda yedi modülün altısı ücretsiz işaretli olduğundan kart pratikte d
   düzeltmek istenirse `computeOrder` "hâlihazırda satın alınmış" kümeyi de girdi almalı.
 - **Ücretsiz modülün fiyat alanı korunur.** Kaydederken alan kilitleniyor ama eski değer
   DB'de duruyor; ücretsizlik kalkınca aynı fiyat geri gelir.
+
+---
+
+# Ek (2026-09-25) — ücretsiz paket ALINARAK açılır
+
+**İstek:** "Yeni bir hesap oluştuğunda ücretsiz modüller abonelik ekranından satın
+alınmadan da geliyor. Abonelik ücretsiz olsa da abonelik ekranından ücretsiz paketi satın
+alması lazım."
+
+## Kararlar (kullanıcıyla netleşti)
+
+| Soru | Karar |
+|---|---|
+| Süre | **Fiyat girilene kadar kullanılır.** Paket bir kez alınır, süresi yoktur; modül ücretliye çevrilirse satın alınması gerekir. |
+| Kapsam | **Tüm yeni firmalar** — kök, şube, ek firma. Firma bazlı abonelikle aynı; şubede paketi hesap yöneticisi alır. |
+| Fatura | **Kesilmez.** Satılan bir bedel yok; fatura bilgisi de istenmez. %100 kuponlu (liste fiyatlı) sipariş eskisi gibi faturalanır. |
+| Mevcut firmalar | Dokunulmaz: migrasyon hepsini "paketi almış" damgalar. |
+
+## Model
+
+```
+Company.freeModulesClaimedAt   NULL = ücretsiz paket alınmadı → temel modüller KAPALI
+                               dolu = alındı → temel modüller açık (ücretsiz kaldıkça)
+
+açık = bağımlılıklarıyla( satın alınan ∪ bedelsiz ∪ [ücretsiz, damga varsa] ) − elle kapatılan
+       └─ lib/modules.ts → resolveOpenModules (applyEntitlements, hizalama, abonelik ekranı)
+```
+
+Damga KÜMEYİ değil hakkı tutar: hangi modülün ücretsiz olduğu yine `PricingItem.isFree`ten
+okunur. Bu yüzden "fiyat girilirse satın alınmalı" kendiliğinden işler — modül ücretliye
+çevrildiğinde `syncFreeModuleGrants` onu satın almamış firmalarda kapatır.
+
+**Neden abonelik satırı değil:** 0 TL'lik sipariş eski yolla (`settleFreePackageOrder`)
+karşılansaydı süreli bir `ACTIVE` abonelik açılırdı; dönem bitince `EXPIRED` → 30 gün
+sonra **arşiv (salt-okunur)**. Ücretsiz kullanıcı bir yıl sonra kilitlenirdi.
+
+## Akış
+
+```
+yeni firma → createCompany → disabledModules = TÜM modüller (damga yok)
+   → pano: LockedAccount ("Ücretsiz paketi etkinleştir")
+   → /ayarlar/abonelik: temel modüller "Ücretsiz", düğme "Ücretsiz paketi etkinleştir"
+   → POST /api/billing/orders
+        resolvePackageOrderAmount → isFreeClaimSelection (tutar 0, ücretli modül/kota yok)
+        → claimFreePackage: [tx] damga (koşullu) + PackageOrder(ACTIVE, 0 TL, "FREE", paidAt null)
+                            → applyEntitlements(aboneliğin verdikleri) → olay kaydı
+```
+
+Damgayı basan diğer yollar (`claimFreeModules`, koşullu — ilk alış anı korunur):
+
+- modül içeren her tamamlanmış satın alma (`activateSubscription`) — ekranda temel
+  modüller seçimden çıkarılamaz, yani her sipariş paketi de kapsar,
+- elle süre verme (`grantAccountPeriod`) ve "deneme" sıfırlaması,
+- sistem-admin firma kartındaki **Ücretsiz paket** anahtarı (geri de alınabilir).
+
+## Tuzaklar
+
+- **Sistem-admin kartında paket alınmamış firmanın kapalı temel modülü elle kapatma
+  değildir.** Kart onu "kapalı" listesine koymaz ve uç `suppressedModules`a yazmaz;
+  yazılsaydı firma paketi aldığında temel modüller sessizce kapalı kalırdı.
+- **`granted` içinde gelen ücretsizler de ayıklanır.** Kart ve elle süre verme tüm seçimi
+  geçiriyor; ayıklanmasa paket alınmadan açılırlardı. Tek istisna ücretli modülün
+  gereksinimi (Restoran → Stok): ödenmiş modül çalışmak zorunda.
+- **Ücretsiz paket siparişi `paidAt: null`.** Fatura yeniden deneme işi `paidAt` dolu
+  `ACTIVE` siparişleri tarıyor; dolu yazılsaydı her yeni kullanıcıya 0 TL fatura kesilirdi.
+- **0 TL'ye çekilmiş ücretli paket** (ör. fiyatı 0 girilmiş ama Restoran içeren paket)
+  ücretsiz paket SAYILMAZ, eskisi gibi reddedilir (`isFreeClaimSelection`).
+
+## Dağıtım sırası
+
+1. Migrasyon (kullanıcı çalıştırır) — kolonu ekler, mevcut firmaları damgalar:
+   ```bash
+   node scripts/apply-migration.js supabase/migrations/20260925000001_company_free_modules_claimed.sql
+   ```
+2. Kodu dağıt.
+3. Migrasyonu **bir kez daha** çalıştır: aradaki pencerede ESKİ kodla açılmış (temel
+   modülleri açık) firma varsa damgalanır. Ölçü duruma bakar ("en az bir modül açık"),
+   yeni kodla açılan kilitli firmaya dokunmaz.
+
+Migrasyon kod dağıtımından ÖNCE uygulanmalı: Prisma `companies` satırını okurken yeni
+kolonu da seçer, kolon yoksa firma okuyan her uç düşer.
+
+## Doğrulama
+
+```bash
+npx tsc --noEmit
+npx vitest run                          # resolveOpenModules, isFreeClaimSelection, hizalama, düğme
+npx tsx scripts/test-modul-kapatma.ts   # canlı DB, geçici kayıtlar — MİGRASYONDAN SONRA
+npx tsx scripts/test-ucretsiz-paket.ts  # HTTP uçtan uca (dev sunucu açık): yeni hesap/şube/ödemeli yol
+```
+
+### 2026-09-25 sonuçları
+
+- Migrasyon canlıda: 39/39 firma damgalı, damgasız firma yok.
+- `test-modul-kapatma.ts` 32/32, `test-ucretsiz-paket.ts` 40/40 (geçici kayıt kalmadı).
+- Chrome, gerçek kayıt (`test-ucretsiz@kobipo.test`): firma 7/7 kapalı doğdu → kilit ekranı
+  ("Ücretsiz" rozetleri, "Ücretsiz paketi etkinleştir") → abonelik ekranında Esnaf (0 TL)
+  → etkinleştir → menü açıldı, pano normal, Cari açık, Restoran "modül kapalı". Konsol temiz.
+- Chrome'da yakalanıp düzeltilen üç ekran hatası: (1) paket alındıktan sonra 0 TL'lik
+  seçimde kırmızı "fatura bilgisi eksik" formu kendiliğinden açılıyordu → ödenecek bir şey
+  yokken fatura/yenileme/indirim alanları gizli, düğme "Ücretsiz paket etkin";
+  (2) "Aboneliğim" kartı "abonelik yok" diyordu → "Ücretsiz paket etkin" + açık modüller;
+  (3) ödeme geçmişinde 0 TL sipariş "Ödendi / Hazırlanıyor" görünüyordu → "Ücretsiz / —".
+- Sistem-admin kartı (Chrome, süper-admin): "Ücretsiz paket" kapatıldı → 0/7, "paket
+  alınmadı" rozetleri, kayıtta damga silindi ve `suppressedModules` BOŞ kaldı (elle
+  kapatma yazılmadı); açıldı → 6/7, damga basıldı; paketli firmada Personel elle
+  kapatıldı → `suppressedModules: [hr]` (eski davranış korunuyor), geri açıldı. SystemLog
+  satırları "ücretsiz paket GERİ ALINDI / firma adına ETKİNLEŞTİRİLDİ" yazıyor.
+- Yönetim paneli satın alma geçmişi 0 TL paketi "Ödendi" sayıyordu → "Ücretsiz paket",
+  "Ödenmiş sipariş" sayısına girmiyor (`lib/billing/purchase-history.ts` → `isPackagePaid`).

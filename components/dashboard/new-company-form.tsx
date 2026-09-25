@@ -275,7 +275,8 @@ export function NewCompanyForm() {
                   e-Dönüşüm ayarları</span> ana firmadan devralınır — şubeyi ayırt etmek için{" "}
                   <span className="font-semibold">Şube İsmi</span> ve adres bilgilerini girin.{" "}
                   <span className="font-semibold">Abonelik devralınmaz</span>: şube açıldıktan
-                  sonra kendi modüllerini satın alır (temel modüller açık gelir).
+                  sonra kendi modüllerini alır (temel modüller ücretsizdir; şubenin abonelik
+                  ekranından ücretsiz paket etkinleştirilir).
                 </p>
               </div>
             )}
@@ -288,7 +289,8 @@ export function NewCompanyForm() {
                   <span className="font-semibold">{accountName || "Mevcut hesabınızın"}</span>{" "}
                   hesabına bağlanır ve firma kotanızdan bir hak düşer;{" "}
                   <span className="font-semibold">aboneliği ayrıdır</span> — modüllerini
-                  açıldıktan sonra kendisi satın alır (temel modüller açık gelir).
+                  açıldıktan sonra kendisi alır (temel modüller ücretsizdir; firmanın abonelik
+                  ekranından ücretsiz paket etkinleştirilir).
                 </p>
               </div>
             )}

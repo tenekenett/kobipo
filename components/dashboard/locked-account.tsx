@@ -1,7 +1,8 @@
 import Link from "next/link"
 import { Archive, Download, Lock, ShoppingCart } from "lucide-react"
-import { MANAGEABLE_MODULES } from "@/lib/modules"
+import { MANAGEABLE_MODULES, sanitizeFreeModules } from "@/lib/modules"
 import { withCompanyHref } from "@/lib/company/href"
+import { getFreeModuleKeys } from "@/lib/billing/free-modules"
 
 /**
  * Panoda rakam basılamayan iki durumun ekranı. Hangisinin geçerli olduğunu çağıran
@@ -19,8 +20,12 @@ import { withCompanyHref } from "@/lib/company/href"
  *
  * Aynı bileşende durmalarının sebebi, altı pano sayfasının hepsinin bu dalı zaten
  * çağırıyor olması: ayrı bir ekran altı çağrı yerinde de kontrol isterdi.
+ *
+ * 2026-09-25'ten beri YENİ FİRMA bu ekranla karşılanır: temel modüller de ücretsiz
+ * paket alınınca açılıyor. Bu yüzden ekran ücretsiz modülleri ayrı işaretler ve ilk
+ * adımı ("ücretsiz paketi etkinleştir") söyler. Küme sunucuda okunur (sunucu bileşeni).
  */
-export function LockedAccount({
+export async function LockedAccount({
   companyId,
   canPurchase,
   isArchived = false,
@@ -35,9 +40,15 @@ export function LockedAccount({
   isArchived?: boolean
 }) {
   // Ekran yalnız HİÇ açık modül kalmadığında basılıyor, dolayısıyla listelenecek şey
-  // modüllerin tamamıdır. Eskiden burada "ücretsizler zaten açık" ayrımı yapılıyordu;
-  // ölçü değişince o dal tanım gereği erişilemez oldu (açık modül varsa ekran çıkmaz).
-  const purchasable = MANAGEABLE_MODULES
+  // modüllerin tamamıdır. Ücretsiz olanlar "Ücretsiz" rozetiyle öne alınır: paketini
+  // almamış yeni firmanın ilk adımı onları açmaktır.
+  const freeSet = isArchived
+    ? new Set<string>()
+    : new Set(sanitizeFreeModules(await getFreeModuleKeys()))
+  const purchasable = [
+    ...MANAGEABLE_MODULES.filter((m) => freeSet.has(m.key)),
+    ...MANAGEABLE_MODULES.filter((m) => !freeSet.has(m.key)),
+  ]
 
   if (isArchived) {
     return (
@@ -108,7 +119,9 @@ export function LockedAccount({
         </h1>
         <p className="mt-2 text-sm text-kobipo-gray dark:text-muted-foreground">
           {canPurchase
-            ? "Kobipo modüllerden oluşur; yalnızca ihtiyacınız olanların bedelini ödersiniz. Bir paket ya da tek tek modül seçtiğinizde ilgili menüler anında açılır."
+            ? freeSet.size > 0
+              ? "Kobipo modüllerden oluşur. Ücretsiz modüller için abonelik ekranından ücretsiz paketi etkinleştirmeniz yeterli; diğer modüllerin yalnızca bedelini ödersiniz. Seçtiğiniz modüllerin menüleri anında açılır."
+              : "Kobipo modüllerden oluşur; yalnızca ihtiyacınız olanların bedelini ödersiniz. Bir paket ya da tek tek modül seçtiğinizde ilgili menüler anında açılır."
             : "Firmanızda açık modül yok. Modül satın alma yetkisi firma yöneticisindedir; lütfen yöneticinizle iletişime geçin."}
         </p>
 
@@ -118,8 +131,13 @@ export function LockedAccount({
               key={module.key}
               className="rounded-xl border border-kobipo-border bg-kobipo-pale/40 p-4 dark:border-border dark:bg-muted/30"
             >
-              <p className="text-sm font-semibold text-kobipo-navy dark:text-foreground">
+              <p className="flex items-center gap-2 text-sm font-semibold text-kobipo-navy dark:text-foreground">
                 {module.label}
+                {freeSet.has(module.key) && (
+                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                    Ücretsiz
+                  </span>
+                )}
               </p>
               <p className="mt-1 text-xs text-kobipo-gray dark:text-muted-foreground">
                 {module.description}
@@ -134,7 +152,7 @@ export function LockedAccount({
             className="mt-7 inline-flex items-center gap-2 rounded-lg bg-kobipo-blue px-5 py-2.5 text-sm font-medium text-white hover:opacity-90"
           >
             <ShoppingCart className="h-4 w-4" />
-            Paket ve modülleri incele
+            {freeSet.size > 0 ? "Ücretsiz paketi etkinleştir" : "Paket ve modülleri incele"}
           </Link>
         )}
       </div>

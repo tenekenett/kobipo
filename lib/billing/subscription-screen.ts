@@ -67,7 +67,19 @@ export function resolvePayButton(input: {
   resolvedModules: readonly string[]
   branchQuota: number
   companyQuota: number
+  /**
+   * Seçim ÜCRETSİZ PAKETİ alıyor ve firma onu henüz almamış (2026-09-25). Tutar 0 olsa
+   * da seçim boş DEĞİLDİR — temel modüller bu siparişle açılır. Ödeme yoluna girmediği
+   * için sanal POS'a bağlı değildir; satın alma yetkisi yine sorulur (uç aynı kapıdan
+   * geçiriyor). Kural: [[lib/billing/pricing.ts]] → `isFreeClaimSelection`.
+   */
+  freeClaim?: boolean
 }): { enabled: boolean; blockedBy: PayBlockedBy | null } {
+  if (input.freeClaim) {
+    return input.canPurchase
+      ? { enabled: true, blockedBy: null }
+      : { enabled: false, blockedBy: "authority" }
+  }
   if (input.quotaTopUpBlocked) return { enabled: false, blockedBy: "quota-top-up" }
   if (!input.paytrEnabled) return { enabled: false, blockedBy: "paytr" }
   if (!input.canPurchase) return { enabled: false, blockedBy: "authority" }

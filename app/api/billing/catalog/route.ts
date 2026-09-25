@@ -67,7 +67,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
     // ekranın açık olduğu firmanın satırı okunur.
     prisma.company.findUnique({
       where: { id: companyId },
-      select: { suppressedModules: true },
+      select: { suppressedModules: true, freeModulesClaimedAt: true },
     }),
     // Kök firmanın adı: şubede "kotayı ana firmadan alın" cümlesi adıyla yazılır.
     prisma.company.findUnique({
@@ -100,10 +100,15 @@ export const GET = withApiErrors(async function GET(request: Request) {
     currency: "TRY",
     plans,
     pricing: pricing.filter((p) => p.isActive || p.isFree),
-    // TEMEL modüller: satın alınmadan açık gelirler. Ekran bunları "Ücretsiz" olarak
-    // işaretler ve seçimden çıkarılamaz yapar; tutar hesabı da bunları atlar
-    // (lib/billing/pricing.ts → computeOrder). Sunucu bu kümenin tek kaynağıdır.
+    // TEMEL modüller: bedelsizdir ama firma ücretsiz paketi almadıkça açılmaz
+    // (2026-09-25). Ekran bunları "Ücretsiz" olarak işaretler ve seçimden çıkarılamaz
+    // yapar; tutar hesabı da bunları atlar (lib/billing/pricing.ts → computeOrder).
+    // Sunucu bu kümenin tek kaynağıdır.
     freeModules: freeModulesFromPricingItems(pricing),
+    // Firma ücretsiz paketi aldı mı? Almadıysa ekran 0 TL'lik seçimi "Ücretsiz paketi
+    // etkinleştir" olarak sunar (sipariş ucu `claimFreePackage`); aldıysa aynı seçim
+    // "ödenecek bir şey yok"tur.
+    freeModulesClaimed: company?.freeModulesClaimedAt != null,
     // Sistem yöneticisinin bu firmada kapattığı temel modüller: ekranda hiç
     // görünmezler. `freeModules`tan DÜŞÜLMEZ — o küme tutar hesabının girdisi ve
     // sunucudaki fiyatlamayla (lib/billing/pricing.ts) birebir aynı kalmalı.

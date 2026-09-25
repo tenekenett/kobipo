@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation"
 import { ShoppingCart, X } from "lucide-react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { CompanyLink } from "@/components/dashboard/company-link"
-import { MANAGEABLE_MODULES, sanitizeFreeModules } from "@/lib/modules"
+import { MANAGEABLE_MODULES, isAccountLocked, sanitizeFreeModules } from "@/lib/modules"
 
 /**
  * KAPALI ÜCRETLİ MODÜLLERİN TANITIMI — satın alma akışının panodaki tek girişi.
@@ -55,6 +55,10 @@ export function ModuleUpsellBanner({ freeModules = [] }: { freeModules?: string[
   const onDashboard = pathname === "/dashboard" || pathname.startsWith("/dashboard/")
   if (!onDashboard || dismissed || !selectedCompany || userRole !== "ADMIN") return null
   if (closedPaid.length === 0) return null
+  // Hiç açık modülü olmayan firmada pano yerine `LockedAccount` çıkıyor ve ilk adımı
+  // (ücretsiz paket) o söylüyor; şeridin "Restoran kapalı" cümlesi onunla yarışırdı.
+  // Paketini almamış YENİ firma tam olarak bu durumdadır (2026-09-25).
+  if (isAccountLocked(selectedCompany.disabledModules)) return null
 
   const close = () => {
     setDismissed(true)

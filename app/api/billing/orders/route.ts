@@ -10,7 +10,7 @@ import { checkQuotaOnlyOrder } from "@/lib/billing/quota-order"
 import { resolvePackageOrderAmount } from "@/lib/billing/order-amount"
 import { toJsonPriceLines } from "@/lib/billing/order-lines"
 import { evaluateDiscountCode } from "@/lib/billing/discount"
-import { isFreeAmount, settleFreePackageOrder } from "@/lib/billing/free-order"
+import { claimFreePackage, isFreeAmount, settleFreePackageOrder } from "@/lib/billing/free-order"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import {
   billingSnapshot,
@@ -103,6 +103,46 @@ export const POST = withApiErrors(async function POST(request: Request) {
       return NextResponse.json({ error: priced.error }, { status: priced.status })
     }
     const { computed, planId, planName } = priced
+
+    // ÜCRETSİZ PAKET (2026-09-25): temel modüller kendiliğinden açılmıyor, firma bu 0 TL'lik
+    // siparişle alır. Ödeme yoluna GİRMEZ: PayTR yok, fatura yok (satılan bir bedel yok,
+    // dolayısıyla fatura bilgisi de istenmez), abonelik dönemi yok — modüller ücretsiz
+    // kaldıkları sürece açıktır. Karşılama [[lib/billing/free-order.ts]] → `claimFreePackage`.
+    if (priced.freeClaim) {
+      if (String(body?.discountCode ?? "").trim()) {
+        return NextResponse.json(
+          { error: "Ücretsiz pakete indirim kodu uygulanmaz.", field: "discountCode" },
+          { status: 422 },
+        )
+      }
+      const claim = await claimFreePackage({
+        companyId,
+        userId: user.id,
+        planId,
+        planName,
+        billingCycle,
+        priceLines: computed.lines.length > 0 ? toJsonPriceLines(computed.lines) : null,
+      })
+      if (!claim.ok) {
+        return NextResponse.json(
+          { error: "Ücretsiz paket bu firmada zaten etkin." },
+          { status: 400 },
+        )
+      }
+      return NextResponse.json({
+        id: claim.orderId,
+        free: true,
+        freeClaim: true,
+        amount: 0,
+        listAmount: 0,
+        discountCode: null,
+        discountAmount: 0,
+        resolvedModules: computed.resolvedModules,
+        branchQuota: 0,
+        companyQuota: 0,
+        lines: computed.lines,
+      })
+    }
 
     // MODÜLSÜZ ("yalnız kota") SİPARİŞ KAPISI. Bu sipariş ödeme sonrası "kota takviyesi"
     // olarak işlenir: dönem uzamaz, modüller değişmez, kota düşmez. Dolayısıyla kotayı da

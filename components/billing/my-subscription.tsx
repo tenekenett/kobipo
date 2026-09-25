@@ -59,6 +59,8 @@ type MySubscription = {
     cancelling: boolean
   } | null
   freeModules: string[]
+  /** Firma ücretsiz paketi aldı mı (`Company.freeModulesClaimedAt`). Süresi yoktur. */
+  freeModulesClaimed: boolean
   openModules: string[]
   quotas: { branch: QuotaStatus; company: QuotaStatus }
   orders: Array<{
@@ -71,6 +73,8 @@ type MySubscription = {
     discountAmount: number
     paidAt: string | null
     paymentError: string | null
+    /** Ücretsiz paket siparişi — ödeme ve fatura yok. */
+    freePackage: boolean
     createdAt: string
     invoiceNo: string | null
     invoiceReady: boolean
@@ -237,9 +241,35 @@ export function MySubscription({
 
         <CardContent className="space-y-5">
           {!s ? (
-            <p className="text-sm text-muted-foreground">
-              Hesabınızda henüz bir abonelik yok. Aşağıdan bir paket seçerek başlayabilirsiniz.
-            </p>
+            // Abonelik satırı yok. Ücretsiz paket abonelik DEĞİLDİR (süresi yok, satırı
+            // yok) ama alındıysa "abonelik yok" demek firmayı boşta gösterirdi.
+            data.freeModulesClaimed ? (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">Ücretsiz paket etkin.</span>{" "}
+                  Süresi yoktur: temel modüller ücretsiz kaldıkça açık kalır. Ücretli modülleri
+                  aşağıdan ekleyebilirsiniz.
+                </p>
+                {data.openModules.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {data.openModules.map((k) => (
+                      <span
+                        key={k}
+                        className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
+                      >
+                        <CheckCircle2 className="h-3 w-3" />
+                        {moduleLabel(k)}
+                        {data.freeModules.includes(k) && <span className="opacity-70">· Temel</span>}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Hesabınızda henüz bir abonelik yok. Aşağıdan bir paket seçerek başlayabilirsiniz.
+              </p>
+            )
           ) : (
             <>
               {/* Dönem / periyot / tutar */}
@@ -471,7 +501,9 @@ export function MySubscription({
                           }
                         >
                           {o.status === "ACTIVE"
-                            ? "Ödendi"
+                            ? o.freePackage
+                              ? "Ücretsiz"
+                              : "Ödendi"
                             : o.status === "FAILED"
                               ? "Başarısız"
                               : "İptal"}
@@ -492,7 +524,7 @@ export function MySubscription({
                           </a>
                         ) : (
                           <span className="text-xs text-muted-foreground">
-                            {o.status === "ACTIVE" ? "Hazırlanıyor" : "—"}
+                            {o.status === "ACTIVE" && !o.freePackage ? "Hazırlanıyor" : "—"}
                           </span>
                         )}
                       </td>
