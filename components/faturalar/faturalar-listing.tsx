@@ -77,10 +77,12 @@ interface FaturaRow {
   meta: Record<string, any>
 }
 
+/** Döviz başına toplam — farklı dövizler kur çevrilmeden toplanmaz (list-query). */
+type TotalByCurrency = { count: number; sums: { currency: string; amount: number }[] }
 interface Totals {
-  all: { count: number; sum: number }
-  incoming: { count: number; sum: number }
-  outgoing: { count: number; sum: number }
+  all: TotalByCurrency
+  incoming: TotalByCurrency
+  outgoing: TotalByCurrency
 }
 
 interface Company {
@@ -161,9 +163,9 @@ export default function FaturalarListing({
 
   const [rows, setRows] = useState<FaturaRow[]>([])
   const [totals, setTotals] = useState<Totals>({
-    all: { count: 0, sum: 0 },
-    incoming: { count: 0, sum: 0 },
-    outgoing: { count: 0, sum: 0 },
+    all: { count: 0, sums: [] },
+    incoming: { count: 0, sums: [] },
+    outgoing: { count: 0, sums: [] },
   })
   const [company, setCompany] = useState<Company | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -635,6 +637,10 @@ export default function FaturalarListing({
       ? "-"
       : new Intl.NumberFormat("tr-TR", { style: "currency", currency: ccy }).format(Number(v))
 
+  // "₺300 · €1.100 · $1.080" — hiç satır yoksa ₺0
+  const fmtSums = (t: TotalByCurrency) =>
+    t.sums.length === 0 ? fmt(0) : t.sums.map((s) => fmt(s.amount, s.currency)).join(" · ")
+
   const formatDate = (d: string | null) =>
     d ? new Date(d).toLocaleDateString("tr-TR") : "-"
 
@@ -835,7 +841,7 @@ export default function FaturalarListing({
               <div>
                 <p className="text-xs text-muted-foreground">Toplam</p>
                 <p className="text-2xl font-bold">{totals.all.count}</p>
-                <p className="text-xs text-muted-foreground">{fmt(totals.all.sum)}</p>
+                <p className="text-xs text-muted-foreground">{fmtSums(totals.all)}</p>
               </div>
               <FileText className="h-8 w-8 text-muted-foreground/30" />
             </CardContent>
@@ -847,7 +853,7 @@ export default function FaturalarListing({
                 <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
                   {totals.incoming.count}
                 </p>
-                <p className="text-xs text-muted-foreground">{fmt(totals.incoming.sum)}</p>
+                <p className="text-xs text-muted-foreground">{fmtSums(totals.incoming)}</p>
               </div>
               <ArrowDownToLine className="h-8 w-8 text-emerald-300 dark:text-emerald-500/70" />
             </CardContent>
@@ -859,7 +865,7 @@ export default function FaturalarListing({
                 <p className="text-2xl font-bold text-sky-700 dark:text-sky-300">
                   {totals.outgoing.count}
                 </p>
-                <p className="text-xs text-muted-foreground">{fmt(totals.outgoing.sum)}</p>
+                <p className="text-xs text-muted-foreground">{fmtSums(totals.outgoing)}</p>
               </div>
               <ArrowUpFromLine className="h-8 w-8 text-sky-300 dark:text-sky-500/70" />
             </CardContent>
@@ -876,9 +882,7 @@ export default function FaturalarListing({
                 {fixedDirection === "incoming" ? totals.incoming.count : totals.outgoing.count}
               </p>
               <p className="text-xs text-muted-foreground">
-                {fmt(
-                  fixedDirection === "incoming" ? totals.incoming.sum : totals.outgoing.sum,
-                )}
+                {fmtSums(fixedDirection === "incoming" ? totals.incoming : totals.outgoing)}
               </p>
             </div>
             {fixedDirection === "incoming" ? (

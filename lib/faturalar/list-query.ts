@@ -75,12 +75,20 @@ export type InvoiceListOptions = {
   limit?: number
 }
 
+/**
+ * Para birimi başına toplam. Satırlarda kur tutulmadığı için farklı dövizler
+ * TL'ye ÇEVRİLMEZ ve birbiriyle toplanmaz (€1.100 + $1.080 + ₺300 "₺2.480"
+ * değildir). Sıra: TRY önce, sonra tutar azalan.
+ */
+export type CurrencySum = { currency: string; amount: number }
+export type InvoiceListTotal = { count: number; sums: CurrencySum[] }
+
 export type InvoiceListResult = {
   dateRange: { startDate: string; endDate: string }
   totals: {
-    all: { count: number; sum: number }
-    incoming: { count: number; sum: number }
-    outgoing: { count: number; sum: number }
+    all: InvoiceListTotal
+    incoming: InvoiceListTotal
+    outgoing: InvoiceListTotal
   }
   count: number
   data: InvoiceListRow[]
@@ -452,17 +460,11 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
     return cb - ca
   })
 
-  // Toplam metrikler
+  // Toplam metrikler — döviz başına (bkz. CurrencySum)
   const totals = {
-    all: { count: out.length, sum: 0 },
-    incoming: { count: 0, sum: 0 },
-    outgoing: { count: 0, sum: 0 },
-  }
-  for (const r of out) {
-    const amt = r.totalAmount || 0
-    totals.all.sum += amt
-    totals[r.direction].count += 1
-    totals[r.direction].sum += amt
+    all: sumByCurrency(out),
+    incoming: sumByCurrency(out.filter((r) => r.direction === "incoming")),
+    outgoing: sumByCurrency(out.filter((r) => r.direction === "outgoing")),
   }
 
   // Kategori seçenekleri: aralıktaki TÜM kategoriler, kategori filtresinden
@@ -495,4 +497,21 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
     truncated,
     categories,
   }
+}
+
+/** Boş/"TL" para birimi TRY sayılır; kod büyük harfe çekilir. */
+export function normalizeCurrency(c: string | null | undefined): string {
+  const code = (c || "").trim().toUpperCase()
+  return !code || code === "TL" ? "TRY" : code
+}
+
+export function sumByCurrency(rows: Pick<InvoiceListRow, "currency" | "totalAmount">[]): InvoiceListTotal {
+  const map = new Map<string, number>()
+  for (const r of rows) {
+    const ccy = normalizeCurrency(r.currency)
+    map.set(ccy, (map.get(ccy) ?? 0) + (r.totalAmount || 0))
+  }
+  const sums = [...map].map(([currency, amount]) => ({ currency, amount: Math.round(amount * 100) / 100 }))
+  sums.sort((a, b) => (a.currency === "TRY" ? -1 : b.currency === "TRY" ? 1 : b.amount - a.amount))
+  return { count: rows.length, sums }
 }
