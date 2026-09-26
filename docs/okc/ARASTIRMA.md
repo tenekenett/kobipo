@@ -110,6 +110,66 @@ Token blogu). Token 680.000+ cihaz yönetiyor, Pavo 250.000 cihazlık ağ. Marka
   üzerinden kestiği belgeyle çakışma riski; hangi tarafın belge keseceği netleşmeli.
 - İade yok; iptal yalnız gün sonundan önce ("batch malileştiyse iptal edilemez").
 
+### Kullanıcının cihazı: Ingenico iDE280 (2026-09-25)
+
+İşletici Worldline (eski Ingenico Türkiye, mağaza/lisans: iKasa). Masaüstü, Ethernet + GPRS.
+
+- **Bulut (kablosuz) desteği kaynaklarda ÇELİŞKİLİ:** SambaPOS "IDE 280 yalnız kablolu" (ikisi
+  birden: Move5000, IWE280; yalnız kablosuz: PAX A910SF); BenimPOS "IDE280, IWE280, Move/5000F
+  kablolu ve kablosuz"; AKINSOFT "TSM özelliği bulunmaktadır". DİA yalnız USB/Ethernet GMP3
+  anlatıyor. Kesin cevap Worldline'dan / o cihazın seri no'suyla iKasa'dan alınacak.
+- **Bulut desteklense de LİSTE kipi:** "kablosuz (bulut) entegrasyonda satışlar doğrudan cihaza
+  otomatik olarak gönderilemez, kullanıcı cihazdan işlemi çağırır" (scmedya). Akış (BenimPOS):
+  cihazda "restoran uygulaması" → "Açık Çekler" → satış seçilir → mali fiş. Token Mod 0'ın
+  karşılığı; kasa için **anında kip (Mod 1) yok** → hız şartına uzak, masa senaryosuna uygun.
+- **Kablolu yol:** cihaza sabit IP + PC'de üretici kütüphaneli masaüstü uygulama ("IP eşleşmesi")
+  ya da USB sürücüsü → kurulumsuz şartını karşılamaz (§3.3).
+- **Ücret:** işletme cihaz başına **yıllık GMP3 entegrasyon lisansı** öder (online.ikasa.com.tr →
+  Sanal Market → Katma Değerli Servis; 24 saatte uzaktan tanımlanır). Yazılımcılar ayrıca kendi
+  lisansını alıyor (SambaPOS 165 $ + KDV/yıl). Rakam iKasa'da görünmüyor.
+- **Doküman kapalı:** API/SDK ancak entegrasyon hizmeti satın alındıktan sonra iKasa teknik
+  ekibinden. Bulut ucunun REST mi, webhook var mı, sonuç (fiş no, Z no) nasıl döner — bilinmiyor.
+#### Rakipler Ingenico'yu nasıl bağlıyor (2026-09-25 incelemesi)
+
+Hepsinde AYNI iki yol var; Worldline dışında üçüncü yol yok:
+
+| Yol | Nasıl | Kasiyer | Kurulum |
+|---|---|---|---|
+| **Kablolu (GMP3)** | Cihaz yerel ağda sabit IP; PC'deki köprü uygulama satışı cihaza İTER | Tutar cihazda hemen çıkar (anında) | PC'de köprü + sabit IP |
+| **Kablosuz (TSM)** | Worldline'ın TSM sunucusu **entegratörün sunucusuna bağlanıp açık adisyon listesini ÇEKER** | Cihazda Restoran uyg. → "Açık Çekler" → masayı seç → öde | İşletmede YOK (entegratör bulutta proxy tutuyorsa) |
+
+- **Adisyo** (web tabanlı, en yakın rakip): kablolu yolda PC'ye kendi uygulamasını kurduruyor —
+  `C:\ProgramData\Adisyo\Adisyoprint\gmp.xml` içine cihazın IP'si yazılıyor (IP'yi ipscanner'la
+  buluyorlar). Yani Adisyo da kasada kurulumsuz DEĞİL. Bayide "Adisyo & Ingenico GMP3–TSM 1 yıl" 6.780 ₺.
+- **Ritapos / SambaPOS / BenimPOS:** iKasa'da işletme "GMP3 Hizmet Bedeli (1 Yıllık)" alır, cihaz
+  seçimi **Kablolu | Kablosuz**, entegrasyon firması listesinden kablosuzda **"Ritapos Proxy" /
+  "SambaPOS Proxy"** seçer ve entegratörün verdiği kullanıcı adı/şifreyi girer (Ritapos: herkes
+  için aynı). 24 saatte cihaza "Restoran" uygulaması gelir, cihazda parametre yüklenir.
+  Kablolu kasa yolu için Ritapos "Ritapos x Worldline" köprü uygulaması kurduruyor.
+- **AKINSOFT** (masaüstü) kablosuzda işletmenin PC'sini TSM sunucusu yapıyor: sabit IP (NoIP
+  domain'i de olur) + açık port + AKINSOFT'un verdiği kullanıcı/şifre. "TSM sunucuları işletmenizden
+  fiş listesini alabilmek için sabit IP adresinize ihtiyaç duyarlar." → **bağlantıyı TSM başlatır.**
+- Sonuç: **Kobipo zaten bulutta olduğu için "Kobipo Proxy" olur**; TSM doğrudan Kobipo'ya bağlanır,
+  işletmede kurulum yok. Kasada anında itme Ingenico'da yalnız kablolu yolda var.
+- **iDE280 kablosuz mu?** SambaPOS "yalnız kablolu", Adisyo "TSM mobilde (IWE280)", AKINSOFT TSM
+  makalesi yalnız iWE280/Move5000 sayıyor; BenimPOS "üçü de". Cevabı iKasa'daki "Cihaz seçimi"
+  alanı verir (cihaz seri no + telefonla giriş → Sanal Market → Katma Değerli Servis → GMP3 Hizmet
+  Bedeli; satın almadan görülür).
+- **Entegratör maliyeti:** geliştirici forumunda (delphican, tarihsiz) "SDK'dan cihaz hurdaya kadar her
+  adım ücretli, geliştirici ücreti 1.000 € + KDV, test cihazı ~10.000 ₺" — ESKİ ve doğrulanmamış.
+
+Worldline'a (entegratör başvurusu) sorulacaklar:
+1. Kobipo'yu kablosuz (TSM) **entegrasyon firması** listesine almak için süreç, sözleşme, ücret.
+2. TSM ↔ entegratör protokolü: HTTP(S) mi, ham TCP mi? Hangi port, kimlik doğrulama, kaynak IP'ler.
+   **HTTP değilse Vercel barındıramaz** → küçük, sürekli açık bir sunucu gerekir (Fly/VPS).
+3. Yoklama sıklığı: cihazda "Açık Çekler"e basınca liste anlık mı çekiliyor, önbellek mi?
+4. Ödeme sonucu dönüşü: fiş no, Z no, EKÜ no, ödeme kırılımı (kart/nakit/yemek kartı), çok ödeme.
+5. Kilit: çek cihazda açılınca kilitleniyor mu, Kobipo'dan kalem eklenirse ne olur (SambaPOS'ta
+   "adisyon kilitleme" sorunu var).
+6. iDE280 kablosuz destekliyor mu; test ortamı/simülatör var mı.
+7. İşletmenin yıllık GMP3 Hizmet Bedeli ne kadar (kablolu/kablosuz farklı mı).
+8. Aşama 1 ile aynı: iptal/iade, fatura bilgi fişi.
+
 ## Kobipo'ya etkisi (tasarım notları, karar değil)
 
 - **Akış tersine döner:** bugün fiş Kobipo'da kesilip tahsilat yazılıyor
@@ -146,4 +206,13 @@ Token blogu). Token 680.000+ cihaz yönetiyor, Pavo 250.000 cihazlık ağ. Marka
 - Pavo tipleri (Ritapos): https://ritapos.com/pavoya-entegre-pos-sistemi/
 - iKasa bulut: https://www.scmedya.com/en/ikasa-move5000-f-entegrasyon-altyapisi-ve-web-entegrasyonu
 - Beko TSM (yerel sunuculu eski yol, Akınsoft): https://akinsoftteknikdestek.com/yardim-merkezi/beko-x30tr-token-kablosuz-entegrasyonu/
+- Worldline / iDE280: https://sambapos.com/tr/ingenico-yazarkasa-entegrasyonu/ ·
+  https://fiyatbu.com.tr/bdesk/knowledge-base/article/ingenico-yazarkasa-okc-gmp3-entegrasyonu ·
+  https://www.akinsoft.com.tr/okc-entegrasyonu/ingenico · https://www.diaakademi.com/bilgi-bankasi/ingenico-entegrasyon-islemleri/
+- Rakiplerin Ingenico akışı: https://ritapos.com/lessons/7-7-4-ingenico-cihaz-entegrasyonu/ ·
+  https://kb.sambapos.com/6-24-ikasadan-ingenico-gmp3-tsm-satin-alimi-adimlari/ ·
+  https://adisyodestek.zendesk.com/hc/tr/articles/27017964902290 ·
+  https://bilgibankasi.akinsoft.net/tr/home/makale/3263 · https://bilgibankasi.akinsoft.net/tr/home/makale/3261 ·
+  https://www.melipos.com/urun/ingenico-yazarkasa-pos-entegrasyonu-gmp3-1-yil/ ·
+  https://www.delphican.com/archive/index.php/thread-7989.html
 - Rakip fiyatı (Drive): kafe_restoran_yazilim_fiyat_analizi — Adisyo ÖKC modülü 565 ₺/ay

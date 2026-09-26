@@ -140,3 +140,23 @@ Bugün (docs/restoran/SATIS-EKRANI.md K5): "Hesabı böl" = **ödemede bölme** 
 B1 Token başvurusu ──► Faz 0 ölçüm ──► (hız tutuyorsa) ──► Faz 4-5-6 ──► pilot
 Faz 1 + Faz 2 (mock) + Faz 3 ── başvuruyu BEKLEMEZ, hemen başlanabilir ──┘
 ```
+
+---
+
+## Worldline (Ingenico) yol haritası — 2026-09-25
+
+Kullanıcının cihazı Ingenico iDE280 → ilk entegre marka Worldline, kablosuz (TSM) yolu:
+Worldline'ın TSM sunucusu Kobipo'dan açık adisyonları çeker, işletmede kurulum yok.
+Gerekçe ve rakip incelemesi: `ARASTIRMA.md` → "Kullanıcının cihazı: Ingenico iDE280".
+Diğer markalar yalnız müşteri talebiyle; o zamana kadar hepsi Aşama 1 elle akışıyla çalışır.
+
+| # | Adım | Kim | Çıktı |
+|---|---|---|---|
+| W0 | iKasa'ya cihaz seri no + telefonla gir; GMP3 Hizmet Bedeli ekranında "Kablosuz" var mı, fiyat ne (satın alma yok). Worldline'ı ara (0 850 250 40 30), entegrasyon ekibine ulaş | Kullanıcı | iDE280 kablosuz cevabı, entegrasyon ekibi kişisi |
+| W1 | Entegratör başvurusu + sözleşme (muhtemelen Reypo Bilişim adına). Sorular ARASTIRMA.md'deki 8 madde + **bayi modeli**: lisansı Kobipo içinden satıp müşteri adına tanımlatabilir miyiz | Kullanıcı | Doküman, test imkânı, iKasa listesinde "Kobipo" |
+| W2 | Kobipo Proxy ucu + Ayarlar → Yazarkasa kurulum sihirbazı (adım adım rehber, "bağlandı" göstergesi) | Claude | Kod; protokol HTTP değilse küçük sunucu kararı (kullanıcının) |
+| W3 | Kendi cihazıyla test: iKasa'dan lisans (Kablosuz, "Kobipo"), 24 sa, cihazda parametre yükle, gerçek fiş + Z mutabakatı. iDE280 kablosuz değilse Worldline'dan test cihazı | Kullanıcı + Claude | Uçtan uca doğrulama |
+| W4 | 1–2 pilot restoran, kurulumda yanında ol; nerede takıldıklarını not et | Kullanıcı | Rehberin düzeltilmesi |
+| W5 | Kendi kendine kurulum: müşteri lisansı alır (ya da Kobipo'dan, W1 bayi cevabına göre) → parametre yükler → Kobipo'da seri no girer → ilk TSM çağrısında "bağlandı" | Müşteri | Kullanıcı yalnız destekte |
+
+Müşterinin tek dış adımı lisans alımı; bayi modeli olursa o da Kobipo içine girer.
