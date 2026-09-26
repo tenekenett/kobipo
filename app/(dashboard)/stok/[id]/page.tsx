@@ -16,6 +16,7 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { ArrowLeft, Package, TrendingUp, TrendingDown, BarChart3, Pencil, ArrowDownToLine, ArrowUpFromLine } from "lucide-react"
 import Link from "next/link"
+import { withCompanyHref } from "@/lib/company/href"
 import { looksLikeCuid } from "@/lib/slug"
 import { formatMoney } from "@/lib/format"
 import { ProductEditDialog } from "@/components/stok/product-edit-dialog"
@@ -355,7 +356,7 @@ export default function ProductDetailPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <Link href={`/stok?company=${companyId}`}>
+          <Link href={withCompanyHref(product.isService ? "/stok/hizmetler" : "/stok", companyId)}>
             <Button variant="ghost" size="icon">
               <ArrowLeft className="h-5 w-5" />
             </Button>
@@ -430,7 +431,8 @@ export default function ProductDetailPage() {
         </Card>
       )}
 
-      {/* Summary Cards */}
+      {/* Summary Cards — hizmette stok/değer anlamsız (bakiye hep 0). */}
+      {!product.isService && (
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -516,6 +518,7 @@ export default function ProductDetailPage() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Product Details */}
       {/*
@@ -741,6 +744,8 @@ export default function ProductDetailPage() {
       </div>
 
       {/* Stock Movements */}
+      {/* Hizmette stok tutulmaz: hareket listesi hep boş kalır. */}
+      {!product.isService && (
       <Card>
         <CardHeader>
           <CardTitle>Stok Hareketleri</CardTitle>
@@ -826,6 +831,7 @@ export default function ProductDetailPage() {
           </Table>
         </CardContent>
       </Card>
+      )}
 
       {companyId && canMoveStock && (
         <StockMovementDialog
