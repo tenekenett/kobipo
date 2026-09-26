@@ -1,6 +1,7 @@
 "use client"
 
 import { WriteAction } from "@/components/dashboard/write-guard"
+import { CompanyLink } from "@/components/dashboard/company-link"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -51,8 +52,6 @@ export default function DepolarPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null)
   const [stockSummary, setStockSummary] = useState<Record<string, { productCount: number; totalQuantity: number }>>({})
-  const [allStocks, setAllStocks] = useState<Array<{ warehouseId: string; productName: string; productCode?: string | null; unit: string; quantity: number }>>([])
-  const [stockWh, setStockWh] = useState<Warehouse | null>(null)
 
   const [formData, setFormData] = useState({
     code: "",
@@ -85,7 +84,6 @@ export default function DepolarPage() {
           map[w.id] = { productCount: w.productCount, totalQuantity: w.totalQuantity }
         }
         setStockSummary(map)
-        setAllStocks(sd.stocks || [])
       }
     } catch (error) {
       console.error("Error fetching warehouses:", error)
@@ -229,7 +227,11 @@ export default function DepolarPage() {
                 warehouses.map((warehouse) => (
                   <TableRow key={warehouse.id}>
                     <TableCell>{warehouse.code || "-"}</TableCell>
-                    <TableCell className="font-medium">{warehouse.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <CompanyLink href={`/depolar/${warehouse.id}`} className="hover:underline underline-offset-2">
+                        {warehouse.name}
+                      </CompanyLink>
+                    </TableCell>
                     <TableCell>{warehouse.address || "-"}</TableCell>
                     <TableCell>{warehouse.city || "-"}</TableCell>
                     <TableCell>
@@ -250,14 +252,11 @@ export default function DepolarPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setStockWh(warehouse)}
-                          title="Depo stoğu"
-                        >
-                          <Package className="h-4 w-4" />
-                        </Button>
+                        <CompanyLink href={`/depolar/${warehouse.id}`}>
+                          <Button variant="ghost" size="sm" title="Depo detayı: stok ve hareketler">
+                            <Package className="h-4 w-4" />
+                          </Button>
+                        </CompanyLink>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -358,46 +357,6 @@ export default function DepolarPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Depo stoğu */}
-      <Dialog open={!!stockWh} onOpenChange={(o) => !o && setStockWh(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{stockWh?.name} — Stok</DialogTitle>
-            <DialogDescription>Bu depodaki ürün stokları</DialogDescription>
-          </DialogHeader>
-          {(() => {
-            const rows = allStocks.filter((s) => s.warehouseId === stockWh?.id && s.quantity !== 0)
-            if (rows.length === 0) {
-              return <p className="py-4 text-sm text-muted-foreground">Bu depoda stok kaydı yok.</p>
-            }
-            return (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Ürün</TableHead>
-                    <TableHead className="text-right">Miktar</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows
-                    .sort((a, b) => a.productName.localeCompare(b.productName, "tr"))
-                    .map((s) => (
-                      <TableRow key={`${s.warehouseId}-${s.productName}`}>
-                        <TableCell>
-                          <div className="font-medium">{s.productName}</div>
-                          {s.productCode && <div className="text-xs text-muted-foreground">{s.productCode}</div>}
-                        </TableCell>
-                        <TableCell className="text-right whitespace-nowrap font-semibold">
-                          {fmtQty(s.quantity)} {s.unit}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
-            )
-          })()}
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
