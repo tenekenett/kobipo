@@ -232,6 +232,21 @@ export const PAGE_API_RULES: PageApiRule[] = [
     ],
   },
   {
+    // Alış Faturaları "İşlem Yap" menüsü: şablondan içe aktarma (yazar) ve e-Fatura
+    // arşivi listesi (okur). Genel `/api/faturalar`dan farklı olarak YÖN yolda: uç
+    // yalnız alış faturası yazar, satış ekranının izni onu açmamalı.
+    prefix: "/api/faturalar/alis",
+    pages: ["/alis/fatura"],
+    writePages: ["/alis/fatura"],
+  },
+  {
+    // Satış Faturaları "İşlem Yap" menüsünün eşi (satış + ihracat içe aktarma,
+    // giden e-belge arşivi listesi). Alış ekranının izni onu açmamalı.
+    prefix: "/api/faturalar/satis",
+    pages: ["/satis/fatura"],
+    writePages: ["/satis/fatura"],
+  },
+  {
     prefix: "/api/faturalar",
     // Rapor ekranları BURAYI okumaz — kendi uçları var (/api/raporlar/*, /api/export/rapor-*)
     // ve fatura listesini `/api/e-donusum/invoices` üzerinden alırlar. Rapor sayfalarını
@@ -796,6 +811,9 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/satis/fatura", "/alis/fatura", "/ayarlar/veri-aktarim"],
     writePages: [],
   },
+  // Kalem bazlı fatura dökümü + boş şablon: yalnız ilgili fatura ekranının menüsünde.
+  { prefix: "/api/export/alis-fatura-sablon", pages: ["/alis/fatura"], writePages: [] },
+  { prefix: "/api/export/satis-fatura-sablon", pages: ["/satis/fatura"], writePages: [] },
   {
     prefix: "/api/export/cari",
     pages: ["/cari/musteri", "/cari/tedarikci", "/ayarlar/veri-aktarim"],

@@ -42,6 +42,9 @@ export const API_MODULE_RULES: ApiModuleRule[] = [
   // query ile ayrışır), bu yüzden ikisinden biri açıksa geçer. Yön bazında ayrım
   // istenirse kural query'ye değil, ayrı route'lara bağlanmalı.
   { prefix: "/api/faturalar/odemeler", read: [...SALES_PURCHASE, "finance"] },
+  // Yönü yolda taşıyan alış uçları (şablondan içe aktarma, e-Fatura arşivi).
+  { prefix: "/api/faturalar/alis", read: ["purchase"] },
+  { prefix: "/api/faturalar/satis", read: ["sales"] },
   { prefix: "/api/faturalar", read: SALES_PURCHASE },
   { prefix: "/api/irsaliye", read: SALES_PURCHASE },
   { prefix: "/api/e-irsaliye", read: SALES_PURCHASE },
@@ -85,6 +88,8 @@ export const API_MODULE_RULES: ApiModuleRule[] = [
   { prefix: "/api/export/accountant", read: ["reports"] },
   { prefix: "/api/export/products", read: ["stock", "sales", "purchase"] },
   { prefix: "/api/export/invoices", read: SALES_PURCHASE },
+  { prefix: "/api/export/alis-fatura-sablon", read: ["purchase"] },
+  { prefix: "/api/export/satis-fatura-sablon", read: ["sales"] },
   // Gelen e-faturalar alış tarafının gelen kutusu; listeleme ucu
   // (/api/e-donusum/inbox) da aynı kapıdan geçiyor.
   { prefix: "/api/export/gelen-e-faturalar", read: SALES_PURCHASE },

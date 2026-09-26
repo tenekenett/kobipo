@@ -52,6 +52,7 @@ import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { filenameFromContentDisposition } from "@/lib/utils"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { ExportButton } from "@/components/export/export-button"
+import { FaturaIslemMenu } from "@/components/faturalar/fatura-islem-menu"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 
 interface FaturaRow {
@@ -703,6 +704,21 @@ export default function FaturalarListing({
     return <span className={`rounded px-2 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>
   }
 
+  // Dışa aktarımlara giden süzgeçler — ekrandakiyle AYNI küme. Durum süzgeci
+  // (`?durum=`) de gider: gitmezse "yalnız taslaklar" listesinin dosyası tüm
+  // faturaları taşırdı.
+  const exportFilterParams = {
+    // Aralık ekranla aynı: özel aralık seçiliyse gün sayısı değil tarihler gider.
+    ...(range.startDate ? { startDate: range.startDate, endDate: range.endDate } : { days }),
+    status: statusFilter,
+    search: debouncedText.search,
+    category: categoryFilter,
+    counterparty: debouncedText.counterparty,
+    taxNumber: debouncedText.taxNumber,
+    minAmount: debouncedText.minAmount,
+    maxAmount: debouncedText.maxAmount,
+  }
+
   const resolvedTitle = pageTitle ?? "Faturalar"
   const resolvedDescription =
     pageDescription ?? "Tüm gelen ve giden faturalarınızı tek ekrandan yönetin"
@@ -782,26 +798,27 @@ export default function FaturalarListing({
           </Button>
           {/* Ekrandaki yön/tarih/arama/kategori filtreleri sunucuya taşınır.
               Liste kaynak başına 500 satırda kesiliyor; dışa aktarma 10.000'e
-              çıkar ve yine dolarsa belgeye uyarı yazar. */}
-          <ExportButton
-            dataset="invoices"
-            companyId={companyId ?? ""}
-            size="default"
-            params={{
-              direction,
-              // Aralık ekranla aynı: özel aralık seçiliyse gün sayısı değil tarihler gider.
-              ...(range.startDate
-                ? { startDate: range.startDate, endDate: range.endDate }
-                : { days }),
-              search: debouncedText.search,
-              category: categoryFilter,
-              counterparty: debouncedText.counterparty,
-              taxNumber: debouncedText.taxNumber,
-              minAmount: debouncedText.minAmount,
-              maxAmount: debouncedText.maxAmount,
-              includeInbox: includeInbox ? null : "false",
-            }}
-          />
+              çıkar ve yine dolarsa belgeye uyarı yazar. Alış ve Satış ekranlarında
+              düğme "İşlem Yap" menüsüdür (içe aktarma + şablon + e-Fatura arşivi). */}
+          {fixedDirection ? (
+            <FaturaIslemMenu
+              yon={fixedDirection === "incoming" ? "alis" : "satis"}
+              companyId={companyId ?? ""}
+              filterParams={exportFilterParams}
+              onImported={fetchList}
+            />
+          ) : (
+            <ExportButton
+              dataset="invoices"
+              companyId={companyId ?? ""}
+              size="default"
+              params={{
+                ...exportFilterParams,
+                direction,
+                includeInbox: includeInbox ? null : "false",
+              }}
+            />
+          )}
           <WriteAction>
             <Button onClick={handleCreateInvoice}>
               <Plus className="mr-2 h-4 w-4" />

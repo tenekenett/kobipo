@@ -24,7 +24,7 @@ import { toDateInput } from "@/lib/format"
  * çağrılır; sunucu filtreye uyan TÜM satırları üretir.
  */
 
-type ExportFormat = "xlsx" | "pdf" | "csv"
+export type ExportFormat = "xlsx" | "pdf" | "csv"
 
 const FORMATS: Array<{ format: ExportFormat; label: string; hint: string; Icon: typeof FileSpreadsheet }> = [
   { format: "xlsx", label: "Excel (.xlsx)", hint: "Tutarlar hesaplanabilir sayı", Icon: FileSpreadsheet },
@@ -64,6 +64,61 @@ function fileNameFrom(disposition: string | null, dataset: string, format: strin
   return `${dataset}-${toDateInput(new Date())}.${format}`
 }
 
+/**
+ * Dışa aktarma dosyasını sunucudan üretip indirir. Düğmesi olmayan yerler (ör. Alış
+ * Faturaları "İşlem Yap" menüsü) de AYNI yoldan geçsin diye ayrı: ucu, hata okumayı
+ * ve dosya adını tek yerde tutar.
+ */
+export async function downloadExport({
+  dataset,
+  companyId,
+  format,
+  params,
+}: {
+  dataset: string
+  companyId: string
+  format: ExportFormat
+  params?: ExportButtonProps["params"]
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!companyId) return { ok: false, error: "Önce bir firma seçin." }
+  try {
+    const query = new URLSearchParams({ companyId, format })
+    for (const [key, value] of Object.entries(params ?? {})) {
+      if (value === null || value === undefined || value === "") continue
+      query.set(key, String(value))
+    }
+
+    const response = await fetch(`/api/export/${dataset}?${query.toString()}`)
+
+    if (!response.ok) {
+      // Sunucu hatayı JSON olarak açıklıyor (ör. PDF satır sınırı); kullanıcıya
+      // "bir hata oluştu" yerine gerçek sebebi göster.
+      let message = "Dışa aktarma başarısız oldu."
+      try {
+        const payload = await response.json()
+        if (payload?.error) message = payload.error
+      } catch {
+        /* JSON değilse genel mesajla devam */
+      }
+      return { ok: false, error: message }
+    }
+
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = fileNameFrom(response.headers.get("Content-Disposition"), dataset, format)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    return { ok: true }
+  } catch (error) {
+    console.error("Export failed:", error)
+    return { ok: false, error: "Bağlantı hatası. Lütfen tekrar deneyin." }
+  }
+}
+
 export function ExportButton({
   dataset,
   companyId,
@@ -92,44 +147,10 @@ export function ExportButton({
 
     setBusyFormat(format)
     try {
-      const query = new URLSearchParams({ companyId, format })
-      for (const [key, value] of Object.entries(params ?? {})) {
-        if (value === null || value === undefined || value === "") continue
-        query.set(key, String(value))
+      const result = await downloadExport({ dataset, companyId, format, params })
+      if (!result.ok) {
+        toast({ title: "Dışa aktarılamadı", description: result.error, variant: "destructive" })
       }
-
-      const response = await fetch(`/api/export/${dataset}?${query.toString()}`)
-
-      if (!response.ok) {
-        // Sunucu hatayı JSON olarak açıklıyor (ör. PDF satır sınırı); kullanıcıya
-        // "bir hata oluştu" yerine gerçek sebebi göster.
-        let message = "Dışa aktarma başarısız oldu."
-        try {
-          const payload = await response.json()
-          if (payload?.error) message = payload.error
-        } catch {
-          /* JSON değilse genel mesajla devam */
-        }
-        toast({ title: "Dışa aktarılamadı", description: message, variant: "destructive" })
-        return
-      }
-
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = url
-      link.download = fileNameFrom(response.headers.get("Content-Disposition"), dataset, format)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(url)
-    } catch (error) {
-      console.error("Export failed:", error)
-      toast({
-        title: "Dışa aktarılamadı",
-        description: "Bağlantı hatası. Lütfen tekrar deneyin.",
-        variant: "destructive",
-      })
     } finally {
       setBusyFormat(null)
     }

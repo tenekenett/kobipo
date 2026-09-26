@@ -11,6 +11,7 @@ import { buildCariDataset } from "./cari"
 import { buildEkstreDataset } from "./ekstre"
 import { buildInvoicesDataset } from "./invoices"
 import { buildIncomingInvoicesDataset } from "./gelen-e-faturalar"
+import { buildFaturaSablonDataset } from "./fatura-sablon"
 import {
   buildAgingReportDataset,
   buildProfitLossDataset,
@@ -39,6 +40,25 @@ function num(params: URLSearchParams, key: string, fallback: number): number {
 }
 
 type Params = URLSearchParams
+
+function sablonParams(companyId: string, params: Params, yon: "alis" | "satis") {
+  return {
+    companyId,
+    yon,
+    empty: params.get("bos") === "1",
+    tur: params.get("tur"),
+    days: params.get("days"),
+    startDate: params.get("startDate"),
+    endDate: params.get("endDate"),
+    status: params.get("status"),
+    search: params.get("search"),
+    category: params.get("category"),
+    counterparty: params.get("counterparty"),
+    taxNumber: params.get("taxNumber"),
+    minAmount: params.get("minAmount"),
+    maxAmount: params.get("maxAmount"),
+  }
+}
 
 export type DatasetBuilder = (companyId: string, params: Params) => Promise<ExportDataset>
 
@@ -89,6 +109,12 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       minAmount: params.get("minAmount"),
       maxAmount: params.get("maxAmount"),
     }),
+
+  // Faturalar KALEM bazında, İçeri Aktar'ın okuduğu şablonla (bkz.
+  // lib/faturalar/fatura-sablon.ts). `bos=1` → yalnız başlıklar (boş şablon);
+  // satışta `tur=ihracat` boş şablonun örneğini ihracat faturasıyla kurar.
+  "alis-fatura-sablon": (companyId, params) => buildFaturaSablonDataset(sablonParams(companyId, params, "alis")),
+  "satis-fatura-sablon": (companyId, params) => buildFaturaSablonDataset(sablonParams(companyId, params, "satis")),
 
   // Filtreler listenin query paramlarıyla birebir aynı; ortak sorgu modülü
   // (incoming-list-query.ts) ikisini de okuduğu için paramları olduğu gibi geçiyoruz.

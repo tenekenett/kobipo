@@ -3041,6 +3041,78 @@ async sendInvoice(invoiceData: any): Promise<any> {
     }
   }
 
+  /**
+   * Gelen e-faturanın UBL XML'i (GİB'den gelen belgenin kendisi).
+   * Swagger v8: GET /api/InvoiceInbox/getInvoiceInboxUBLXMLAsZip?invoiceETTN={uuid}
+   * Uç, ETTN'nin firmanın gelen kutusunda olduğunu ayrıca doğrular.
+   */
+  async getIncomingInvoiceUblXml(uuid: string) {
+    return this.fetchUblXmlZip("/api/InvoiceInbox/getInvoiceInboxUBLXMLAsZip", uuid)
+  }
+
+  /**
+   * Giden (GİB'e gönderilmiş) e-Fatura / e-Arşiv'in UBL XML'i.
+   * Swagger v8: GET /api/InvoiceOutbox/getInvoiceOutboxXMLAsZip?invoiceETTN={uuid}
+   */
+  async getOutgoingInvoiceUblXml(uuid: string) {
+    return this.fetchUblXmlZip("/api/InvoiceOutbox/getInvoiceOutboxXMLAsZip", uuid)
+  }
+
+  /**
+   * "…XMLAsZip" uçlarının ortak okuyucusu. Yanıt: StringResultModel { data: base64-zip }
+   * — zip içinde .xml dosyası.
+   *
+   * Tenant, gelen fatura modelindeki gibi ADAYLARLA denenir: önce firmanın VKN'si
+   * (bayi kimliğinde zorunlu — parametresiz çağrı bayinin KENDİ mükellefine gider),
+   * yalnız Mysoft "firma kullanıcı kaydı bulunamadı" derse parametresiz (kendi
+   * kimliğiyle giren firmada login'in varsayılan mükellefi). Başka bir hatada
+   * adaylar denenmez.
+   */
+  private async fetchUblXmlZip(
+    path: string,
+    uuid: string,
+  ): Promise<{ success: true; xml: string; filename: string } | { success: false; error: string }> {
+    try {
+      const token = await this.getToken()
+      if (!token) return { success: false, error: "Mysoft token alınamadı." }
+
+      const candidates: string[] = []
+      const tenant = await this.resolveTenantVkn()
+      if (tenant) candidates.push(tenant)
+      candidates.push("")
+
+      let lastError = "UBL alınamadı."
+      for (const candidate of candidates) {
+        const url = new URL(`${this.baseUrl}${path}`)
+        url.searchParams.set("invoiceETTN", uuid)
+        if (candidate) url.searchParams.set("tenantIdentifierNumber", candidate)
+
+        const res = await fetch(url.toString(), {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        })
+        const result = await res.json().catch(() => null)
+        if (result?.succeed && result?.data) {
+          const JSZip = (await import("jszip")).default
+          const zip = await JSZip.loadAsync(Buffer.from(result.data, "base64"))
+          const entry = Object.values(zip.files).find((f) => !f.dir && f.name.toLowerCase().endsWith(".xml"))
+          if (!entry) return { success: false, error: "Zip içinde XML bulunamadı." }
+          return {
+            success: true,
+            xml: await entry.async("string"),
+            filename: entry.name.split("/").pop() || entry.name,
+          }
+        }
+        lastError = result?.message || `HTTP ${res.status}`
+        const low = String(lastError).toLowerCase()
+        if (!(low.includes("firma kullanıcı") || low.includes("kullanıcı bilgileri"))) break
+      }
+      return { success: false, error: lastError }
+    } catch (error: any) {
+      return { success: false, error: error?.message || "UBL indirilirken hata oluştu." }
+    }
+  }
+
   // base64-zip → içindeki ilk PDF'i Buffer olarak çıkarır. Resmî (getInvoicePdf) ve
   // taslak (getDraftInvoicePdf) PDF'leri ortak kullanır — GİB PDF'leri hep zip içinde döner.
   /** Base64 zip içindeki ilk `ext` uzantılı dosyayı metin olarak döner (taslak XML ölçümü). */
