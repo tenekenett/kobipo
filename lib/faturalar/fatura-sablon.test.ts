@@ -205,6 +205,14 @@ describe("parseFaturaSablonu — satış ve ihracat", () => {
     expect(ok.invoices[0].lines[0].exemptionCode).toBe("351")
   })
 
+  it("istisna kodu GİB listesinden olmalı; başka fatura tipinin kodu nedeniyle reddedilir", () => {
+    const parse = (code: string) =>
+      parseFaturaSablonu([header("satis"), srow("satis", { ...sale, "KDV %": 0, "KDV İstisna Kodu": code })], "satis")
+    expect(parse("233").invoices[0].errors).toEqual([])
+    expect(parse("701").invoices[0].errors.join(" ")).toContain("İhraç kayıtlı")
+    expect(parse("999").invoices[0].errors.join(" ")).toContain("GİB listesinde yok")
+  })
+
   it("ihracat: KDV boşsa 0, istisna boşsa 301; yabancı vergi no kabul", () => {
     const parsed = parseFaturaSablonu(
       [

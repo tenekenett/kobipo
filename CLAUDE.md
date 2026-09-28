@@ -462,6 +462,24 @@ const t = computeInvoiceTotals(lines, { globalDiscountAmount, globalChargeAmount
   tamamlıyor), hızlı satış/alış ve AI fiş okuma (fiş), `lib/invoicing/issue-sales-invoice.ts`
   (Kobipo'nun kendi abonelik faturası).
 
+## KDV istisna kodları: kaynak GİB kod listesidir, Mysoft'un listesi DEĞİL
+
+KDV %0'lı kalemde seçilebilen kodlar TEK yerde: `lib/integrations/e-invoice/gib-exemption-codes.ts`
+(editör seçicisi + Excel içe aktarım doğrulaması). 2026-09-28'e kadar editörde elle yazılmış
+5 kod vardı ve üçünün etiketi yanlıştı ("325 - Sağlık hizmetleri" → 325 aslında Yem Teslimleri).
+
+- Mysoft'un `GET /api/GeneralCard/taxExemptionReason` listesi GİB'in GERİSİNDE kalabilir:
+  UBL-TR v1.43 ile eklenen 233'ü içermiyor, GİB'in reddettiği 308/339'u (Yatırım Teşvik'e
+  taşındı) hâlâ veriyor. Liste canlıdan çekilip seçiciye basılmaz.
+- Seçici = GİB `istisnaTaxExemptionReasonCodeType` içindeki 2xx/3xx + 351. GİB listesinde
+  olup seçicide OLMAYAN her kodun nedeni yazılıdır (`kdvExemptionCodeError`): ÖTV kodları
+  (1xx), 501/555, YTB (308/339), ihraç kayıtlı (701–704), özel matrah (801–812). Son ikisi
+  ayrı fatura tipi ister ve Kobipo bu tipleri henüz KESMİYOR — koda eklemek belgeyi GİB'den
+  döndürür. Test (`gib-exemption-codes.test.ts`) "nedensiz boşluk yok" kuralını ölçer.
+- GİB kod listesini güncelleyince: test dosyasındaki GİB kod kümesi yeni paketten kopyalanır,
+  sonra `npx tsx scripts/istisna-kodu-kontrol.ts --bosluk` (salt okur: Mysoft listesiyle
+  fark + her kod canlı GİB şematronundan ISTISNA tipinde + 200–399 boşluk taraması).
+
 ## Arama Türkçe duyarsızdır: `ILIKE` / `insensitive` / `toLowerCase` KULLANMA
 
 `lower('I')` Türkçe'de `'ı'` değil `'i'`dir; `"İ".toLowerCase()` ise iki kod birimi

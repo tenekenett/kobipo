@@ -861,7 +861,9 @@ async sendInvoice(invoiceData: any): Promise<any> {
       //   ('tax' yalnızca ÖİV/ÖTV gibi ek vergiler için.)
       // - İstisna alanları satırın kendisindedir: taxExemptionReasonCode + taxExemptionReasonName
       // - Root 'tax' alanı boş bırakılırsa Mysoft detaylardan otomatik hesaplar — kullanıyoruz.
-      const DEFAULT_EXEMPTION_CODE = "351"; // "Diğer İstisnalar" — kullanıcı kod girmediyse son çare
+      // 351 = "KDV - İstisna Olmayan Diğer" — kullanıcı kod girmediyse son çare. Seçilebilir
+      // kodların tam listesi: gib-exemption-codes.ts.
+      const DEFAULT_EXEMPTION_CODE = "351";
       const DEFAULT_EXEMPTION_REASON = "Vergiden istisna işlem";
 
       // unitPriceTra için UBL standardı 6 ondalığa kadar izin verir (Türk e-Fatura

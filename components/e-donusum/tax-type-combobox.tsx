@@ -16,6 +16,8 @@ type Props = {
   onChange: (code: string) => void
   disabled?: boolean
   placeholder?: string
+  /** Seçimi temizleyen düğmenin ipucu. */
+  clearTitle?: string
 }
 
 const MAX_RESULTS = 100
@@ -26,6 +28,8 @@ const MAX_RESULTS = 100
  * ara, seç → kod (ve çağıran tarafında ad/oran) otomatik dolar. Açılır liste
  * `document.body`'ye portal ile `position: fixed` render edilir ki kalem kartının
  * overflow'u tarafından kırpılmasın.
+ *
+ * KDV istisna kodu seçicisi de bunu kullanır (kod + ad listesi, oran yok).
  */
 export function TaxTypeCombobox({
   types,
@@ -33,6 +37,7 @@ export function TaxTypeCombobox({
   onChange,
   disabled,
   placeholder = "Vergi türü ara (kod veya isim)…",
+  clearTitle = "Vergi türünü kaldır",
 }: Props) {
   const listId = useId()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -209,7 +214,7 @@ export function TaxTypeCombobox({
             variant="ghost"
             size="icon"
             className="h-9 w-9 shrink-0"
-            title="Vergi türünü kaldır"
+            title={clearTitle}
             onClick={() => {
               onChange("")
               close()

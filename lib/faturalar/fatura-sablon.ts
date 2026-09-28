@@ -40,6 +40,7 @@ import {
 import { normalizeHeader, parseAmountCell } from "@/lib/import/rows"
 import { normalizeManualInvoiceNo } from "@/lib/utils/invoice-number-format"
 import { trFold } from "@/lib/text/tr-fold"
+import { kdvExemptionCodeError } from "@/lib/integrations/e-invoice/gib-exemption-codes"
 
 export type SablonTuru = "alis" | "satis" | "ihracat"
 
@@ -85,14 +86,6 @@ export type SablonKolonu = {
 /** Karşı tarafın adı: alışta tedarikçi, satış/ihracatta müşteri. */
 export function cariEtiketi(tur: SablonTuru): "Tedarikçi" | "Müşteri" {
   return tur === "alis" ? "Tedarikçi" : "Müşteri"
-}
-
-/** Bilinen KDV istisna kodlarının belgeye yazılan gerekçesi. */
-export const ISTISNA_GEREKCELERI: Record<string, string> = {
-  "301": "11/1-a Mal ihracatı",
-  "302": "11/1-b Hizmet ihracatı",
-  "350": "Diğer İstisnalar",
-  "351": "KDV - İstisna Olmayan Diğer",
 }
 
 /** İhracat faturasında istisna kodu boşsa kullanılan kod — mal ihracatı. */
@@ -664,6 +657,10 @@ export function parseFaturaSablonu(sheetRows: Cell[][], tur: SablonTuru): Sablon
         rowErrors.push(`KDV İstisna Kodu 3 haneli olmalı ("${exemptionCode}").`)
       } else if (vatRate !== undefined && vatRate !== 0) {
         rowErrors.push(`KDV İstisna Kodu yalnız %0 KDV'li kalemde yazılır (kalemde %${vatRate}).`)
+      } else {
+        // Editörle aynı liste: GİB'in bu tipte reddedeceği kod içe aktarımda da durur.
+        const codeError = kdvExemptionCodeError(exemptionCode)
+        if (codeError) rowErrors.push(codeError)
       }
     }
     if (discountRate !== undefined && (discountRate < 0 || discountRate > 100)) {

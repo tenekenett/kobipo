@@ -33,6 +33,7 @@ import { filenameFromContentDisposition } from "@/lib/utils"
 import { looksLikeCuid } from "@/lib/slug"
 import { buildInvoiceLabelItems } from "@/lib/labels/invoice-label-items"
 import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
+import { kdvExemption } from "@/lib/integrations/e-invoice/gib-exemption-codes"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 
 const PROFILE_LABELS: Record<string, string> = {
@@ -1329,6 +1330,8 @@ export default function FaturaOnizlemePage() {
                   const lineGross = Number(item.quantity || 0) * Number(item.unitPrice || 0)
                   const lineGlobalShare =
                     (lineGross - Number(item.discountAmount || 0)) * (1 - globalFactor)
+                  const exemptionReason =
+                    item.taxExemptionReason?.trim() || kdvExemption(item.taxExemptionReasonCode)?.name
                   return (
                   <TableRow key={item.id || index}>
                     <TableCell>{index + 1}</TableCell>
@@ -1376,6 +1379,14 @@ export default function FaturaOnizlemePage() {
                           {/* KDV %0 (istisna) → tevkif edilecek KDV yok; kod kayıtlı ama etkisiz.
                               Rozet kafa karıştırmasın diye açıkça belirtilir. */}
                           {Number(item.vatRate) === 0 && <span className="font-semibold"> · KDV %0 — uygulanmadı</span>}
+                        </div>
+                      )}
+                      {/* KDV %0 kalemin istisna kodu/sebebi: GİB belgesinde "Vergi İstisna Muafiyet
+                          Sebebi" olarak basılır; burada da görünmeli. */}
+                      {Number(item.vatRate) === 0 && item.taxExemptionReasonCode && (
+                        <div className="mt-1 inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-500/15 dark:text-slate-300">
+                          KDV İstisna {item.taxExemptionReasonCode}
+                          {exemptionReason ? ` · ${exemptionReason}` : ""}
                         </div>
                       )}
                       {Number((item as any).otherTaxAmount || 0) > 0 && (

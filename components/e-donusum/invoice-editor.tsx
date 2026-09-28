@@ -36,6 +36,7 @@ import { INVOICE_NO_MAX_LENGTH, normalizeManualInvoiceNo } from "@/lib/utils/inv
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 import { WithholdingCombobox } from "@/components/e-donusum/withholding-combobox"
 import { TaxTypeCombobox } from "@/components/e-donusum/tax-type-combobox"
+import { KDV_EXEMPTION_CODES, kdvExemption } from "@/lib/integrations/e-invoice/gib-exemption-codes"
 import { UnitCombobox } from "@/components/ui/unit-combobox"
 import { CityDistrictSelect } from "@/components/address/city-district-select"
 import { quickCreateProduct } from "@/lib/stock/quick-create-product"
@@ -94,16 +95,6 @@ const LINE_EXTRA_ORDER: LineExtraKey[] = [
 
 const E_DOC_TYPES = new Set(["E_INVOICE", "E_ARCHIVE"])
 const BRAND_COLOR = "#143d6b"
-
-// GİB KDV İstisna Kodları (yaygın olanlar). 0% KDV seçildiğinde zorunlu.
-// Tam liste için: https://efatura.gov.tr (KDV istisna kodları)
-const TAX_EXEMPTION_CODES: { code: string; label: string }[] = [
-  { code: "351", label: "351 - Diğer istisnalar (genel)" },
-  { code: "350", label: "350 - KDV Kanunu kapsamında istisna" },
-  { code: "319", label: "319 - Eğitim / öğretim hizmetleri" },
-  { code: "325", label: "325 - Sağlık hizmetleri" },
-  { code: "301", label: "301 - İhracat (uyarı: IHRACAT profili + gümrük alanları gerekir)" },
-]
 
 // GİB vergi türü listeleri (ÖTV + diğer vergiler) artık paylaşılan modülden gelir
 // (lib/integrations/e-invoice/gib-tax-types) — /api/e-donusum/tax-types ucuyla
@@ -1880,6 +1871,14 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     return t || "MANUAL"
   }, [formData.invoiceType, isEDonusumActive])
 
+  // KDV %0 istisna alanı: belge GİB'e GİDEBİLECEKSE gösterilir. Belge türü cari seçilince
+  // VKN sorgusuyla belirlenir; o ana kadar tür "Manuel" görünür ve alan cari seçmeden
+  // açılmıyordu. Cari yokken e-Dönüşüm açık firmanın satış/iade belgesi e-belge adayıdır;
+  // tür kesin Manuel çıkarsa (alış, e-Dönüşüm kapalı) alan gizlenir.
+  const exemptionFieldVisible =
+    E_DOC_TYPES.has(effectiveInvoiceType) ||
+    (isEDonusumActive && formData.type !== "PURCHASE" && !formData.customerId && !formData.supplierId)
+
   // Geçmiş tarihli e-belge uyarısı: bir seride belge numaraları tarih sırasını
   // bozamaz, bu yüzden seride daha yeni tarihli bir fatura varsa Mysoft geçmiş
   // tarihli belgeyi reddediyor. Firma geçmiş tarih serisi tanımladıysa gönderim
@@ -3157,7 +3156,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                       </div>
 
                       {/* --- KDV %0 İSTİSNA SEBEBİ (zorunlu, e-belge ise) --- */}
-                      {Number(item.vatRate) === 0 && E_DOC_TYPES.has(effectiveInvoiceType) && (
+                      {Number(item.vatRate) === 0 && exemptionFieldVisible && (
                         <div
                           className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4 pt-4 border-t -mx-4 md:-mx-3 px-4 md:px-3 pb-3 rounded-b-xl md:rounded-b-none"
                           style={{ borderTopColor: BRAND_COLOR, backgroundColor: "rgba(20,61,107,0.05)" }}
@@ -3166,17 +3165,34 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                             <Label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: BRAND_COLOR }}>
                               KDV İstisna Kodu <span className="text-red-500">*</span>
                             </Label>
-                            <Select
+                            {/* Tam GİB listesi (lib/integrations/e-invoice/gib-exemption-codes). Kayıtlı
+                                kod listede yoksa (eski içe aktarım) boş görünmesin diye ayrıca eklenir. */}
+                            <TaxTypeCombobox
+                              types={
+                                item.taxExemptionReasonCode && !kdvExemption(item.taxExemptionReasonCode)
+                                  ? [{ code: item.taxExemptionReasonCode, name: "GİB listesinde yok — değiştirin" }, ...KDV_EXEMPTION_CODES]
+                                  : KDV_EXEMPTION_CODES
+                              }
                               value={item.taxExemptionReasonCode || ""}
-                              onValueChange={(v) => updateItem(index, "taxExemptionReasonCode", v)}
-                            >
-                              <SelectTrigger className="h-9 bg-white"><SelectValue placeholder="Seçiniz..." /></SelectTrigger>
-                              <SelectContent>
-                                {TAX_EXEMPTION_CODES.map((opt) => (
-                                  <SelectItem key={opt.code} value={opt.code}>{opt.label}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                              onChange={(code) => {
+                                setItems((prev) =>
+                                  prev.map((it, i) => {
+                                    if (i !== index) return it
+                                    // Sebep boşsa ya da önceki kodun resmî adıysa (elle yazılmamış)
+                                    // yeni kodun adıyla doldurulur; elle yazılan sebep korunur.
+                                    const reason = it.taxExemptionReason?.trim() ?? ""
+                                    const autoFilled = !reason || reason === kdvExemption(it.taxExemptionReasonCode)?.name
+                                    return {
+                                      ...it,
+                                      taxExemptionReasonCode: code || undefined,
+                                      taxExemptionReason: autoFilled ? kdvExemption(code)?.name : it.taxExemptionReason,
+                                    }
+                                  }),
+                                )
+                              }}
+                              placeholder="Kod veya ad ara (ör. 301, ihracat)…"
+                              clearTitle="İstisna kodunu kaldır"
+                            />
                           </div>
                           <div className="md:col-span-2 space-y-1.5">
                             <Label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: BRAND_COLOR }}>

@@ -34,8 +34,8 @@ import {
 import { vadeTarihiTuret } from "@/lib/cari/vade"
 import { createInvoiceFromBody } from "@/lib/invoice/create-invoice"
 import type { WriteActor } from "@/lib/api/write-actor"
+import { kdvExemption } from "@/lib/integrations/e-invoice/gib-exemption-codes"
 import {
-  ISTISNA_GEREKCELERI,
   canonicalTaxNumber,
   cariEtiketi,
   expectedTotalMismatch,
@@ -571,7 +571,7 @@ export async function runFaturaImport(
         discountAmount: line.discountAmount,
         vatRate: line.vatRate,
         taxExemptionReasonCode: line.exemptionCode || null,
-        taxExemptionReason: line.exemptionCode ? ISTISNA_GEREKCELERI[line.exemptionCode] ?? null : null,
+        taxExemptionReason: line.exemptionCode ? kdvExemption(line.exemptionCode)?.name ?? null : null,
       })),
     }
 
