@@ -50,6 +50,42 @@ ekranlar ve bölme hazır olsun. Cihaz yokken de işe yarasın (Z raporu elle gi
   Yavaşlık ölçüldü: yerelden Supabase'e `SELECT 1` 400–850 ms (ağ); fiş POST ~30 sorgu →
   ~16 sn. Kod kaynaklı değil; POS hız ölçümü (Faz 0) canlı ortamda yapılmalı.
 - **Sırada: Aşama 2 (POS).** Kullanıcı test cihazını getirecek; önce `PLAN.md` B (Token başvurusu).
+- **2026-09-28 — gerçek Z fişi incelendi (iDE280, market kasası).** K1 "alanlar gerçek Z'ye
+  göre kesinleşir" demişti; form bu Z'yi doğru giremiyordu. Bulgular (1–5 aynı gün DÜZELTİLDİ,
+  kullanıcı onayıyla; birim testleri 43/43, tsc temiz; canlı API betiği ve tarayıcı turu koşulmadı):
+  1. **KDV satırı:** Z her oran için `KDV %x` (KDV tutarı) + `TOPLAM` (**KDV DAHİL** brüt) basıyor;
+     form "Matrah + KDV" istiyor. Z'deki TOPLAM'ı matraha yazan kullanıcı sahte VAT_SUM/VAT_RATE
+     uyarısı görür, matrahı elle çıkarmak zorunda kalır. Öneri: form "Toplam (KDV dahil) + KDV"
+     alır, kayıt `{rate, base = toplam − KDV, vat}` kalır (migrasyon yok). Mutabakat zaten brütü
+     karşılaştırıyor, etkilenmez.
+  2. **%0 satırı yok:** form 1/10/20 hazır; bu Z'de günün yarısından fazlası `KDV %00.00`
+     (TEKEL departmanı). Girilemiyor → toplam tutmuyor. Öneri: 0/1/10/20.
+  3. **KDV sağlaması 2 kuruş payla:** cihaz KDV'yi fiş fiş yuvarlayıp topluyor; bu Z'de %1'de
+     KDV toplamdan hesaplanandan 3 kuruş eksik. Sapma fiş sayısıyla büyür → sahte uyarı. Öneri:
+     pay = fiş başına yarım kuruş (en az 2 kuruş).
+  4. **Ödeme tipleri:** Z `NAKİT`, `KREDİ`, **`KAREKOD KART`**, **`KAREKOD FAST`** (her birinin
+     üstünde adet) basıyor; formda karekod yok. Kobipo QR'lı kartı ayırmıyor → Z "KREDİ"yi Kobipo
+     kartıyla birebir karşılaştırmak sahte fark üretir. Öneri: form Z'deki gibi girer (kayıt aslına
+     sadık), karşılaştırma gruplar: **Kart = KREDİ + KAREKOD KART ↔ CREDIT_CARD**,
+     **KAREKOD FAST ↔ BANK_TRANSFER** (bugün "Diğer"e düşüyor). "BELGE TİPLERİ" bölümündeki
+     KREDİ = kredi + karekod kart + FAST toplamıdır, ödeme ekseni oradan girilmez.
+  5. **Etiketler Z'deki adlarla değil:** Z no = `RAPOR NO` (üstteki `FİŞ NO` Z'nin kendi fiş no'su,
+     karışır); toplam = `GÜNLÜK FİŞ DÖKÜMÜ → TOPLAM` (`MALİ BELLEK TOPLAMI` kümülatiftir);
+     fiş adedi = `MÜŞTERİ FİŞİ ADETİ` / `ÖKC FİŞLERİ` (`MALİ FİŞ ADET` 2 fazla — rapor fişleri
+     dahil); iptal = `SATIŞ İPTAL` / `SATIŞ İPTAL TUTAR`.
+  6. EKÜ no Z'nin EN ALTINDA: `EKÜ NO:nnnn` — cihaz içi sıra no (4 hane), küresel seri değil; yanında
+     `Z NO:` (= RAPOR NO) ve `Tic.SicilNo`. Alan isteğe bağlı, karşılaştırmada kullanılmıyor;
+     form etiketi "EKÜ no (fişin altında)".
+  - Yapılan: `Z_DEFAULT_VAT_RATES` 0/1/10/20; KDV satırı `gross` (KDV dahil) alır, `base` eski
+    istemci için kalır (`normalizeZInput`); pay `vatTolerance`; ödeme tipleri `QR_CARD`/`QR_FAST`,
+    karşılaştırma grupları `zMethodGroup` / `kobipoMethodToGroup` (`pay:CREDIT_CARD` = kredi +
+    karekod kart, `pay:TRANSFER` = FAST ↔ BANK_TRANSFER — eskiden havale "Diğer"e düşüyordu);
+    form etiketleri Z'deki adlarla.
+  - Kaydedilmeyen ama görülen: `DEPARTMAN BİLGİLERİ` (ad + KDV + toplam + miktar; TEMEL GIDA ve
+    UNLU MAM. ikisi de %1) → Aşama 2'de **KDV → kısım eşlemesi tek başına yetmez**, iki departman
+    aynı oranda. `SAYAÇLAR`da artırım/indirim/düzeltme adet-tutar, `KASİYER BİLGİ`.
+  - Cihaz bir MARKET kasası (Tekel, Temel Gıda): kasada anında satış → kablolu (anında itme)
+    bu işletmeye kablosuz liste kipinden daha uygun.
 
 ## Kararlar (2026-09-24'te onaylandı)
 

@@ -10,7 +10,6 @@
 // pencere o günün (İstanbul) başından açılır ve ekran bunu söyler.
 
 import type { ZPaymentLine, ZPaymentMethod, ZVatLine } from "@/lib/okc/z-report"
-import { Z_PAYMENT_LABELS } from "@/lib/okc/z-report"
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 
@@ -64,11 +63,41 @@ export type MutabakatReceipt = {
 }
 
 /**
- * Kobipo tahsilat yöntemi → Z ödeme tipi. Bakiye kapama (WRITE_OFF) tahsilat
+ * Ödeme ekseninin satırları. Z'nin ödeme tipleri Kobipo'nun AYIRT EDEBİLDİĞİ gruplara
+ * toplanır: Kobipo karekodla alınan kartı ayrı kaydetmez — Z'deki "KREDİ" ile
+ * "KAREKOD KART" ayrı karşılaştırılsaydı karekodlu her gün sahte fark çıkardı.
+ * Karekod FAST anlık havaledir, Kobipo'da havale ile karşılaştırılır.
+ */
+export const Z_PAYMENT_GROUPS = ["CASH", "CREDIT_CARD", "TRANSFER", "MEAL_CARD", "OPEN_ACCOUNT", "OTHER"] as const
+export type ZPaymentGroup = (typeof Z_PAYMENT_GROUPS)[number]
+
+export const Z_PAYMENT_GROUP_LABELS: Record<ZPaymentGroup, string> = {
+  CASH: "Nakit",
+  CREDIT_CARD: "Kart (kredi + karekod kart)",
+  TRANSFER: "Havale / karekod FAST",
+  MEAL_CARD: "Yemek kartı",
+  OPEN_ACCOUNT: "Açık hesap",
+  OTHER: "Diğer",
+}
+
+/** Z fişindeki ödeme tipi → karşılaştırma grubu. */
+export function zMethodGroup(method: ZPaymentMethod): ZPaymentGroup {
+  switch (method) {
+    case "QR_CARD":
+      return "CREDIT_CARD"
+    case "QR_FAST":
+      return "TRANSFER"
+    default:
+      return method
+  }
+}
+
+/**
+ * Kobipo tahsilat yöntemi → karşılaştırma grubu. Bakiye kapama (WRITE_OFF) tahsilat
  * değildir, null döner: fişin kapatılan kısmı açık hesapta kalmış sayılır —
  * cihazda da öyle görünmüştür.
  */
-export function kobipoMethodToZ(method: string): ZPaymentMethod | null {
+export function kobipoMethodToGroup(method: string): ZPaymentGroup | null {
   switch (method) {
     case "CASH":
       return "CASH"
@@ -76,6 +105,8 @@ export function kobipoMethodToZ(method: string): ZPaymentMethod | null {
       return "CREDIT_CARD"
     case "MEAL_CARD":
       return "MEAL_CARD"
+    case "BANK_TRANSFER":
+      return "TRANSFER"
     case "WRITE_OFF":
       return null
     default:
@@ -113,21 +144,21 @@ export function receiptGrossByRate(receipt: MutabakatReceipt): Map<number, numbe
 }
 
 /**
- * Fişin Z anına kadarki tahsilatı, Z ödeme tiplerine göre. Z'den SONRA yapılan
+ * Fişin Z anına kadarki tahsilatı, karşılaştırma gruplarına göre. Z'den SONRA yapılan
  * tahsilat (dünkü veresiyenin bugün ödenmesi) bu Z'de açık hesaptır — cihaz da
  * satışı o gün açık hesap olarak kaydetmiştir. Ödenmeyen kalan AÇIK HESAP'tır.
  */
-export function receiptPaymentsByMethod(
+export function receiptPaymentsByGroup(
   receipt: MutabakatReceipt,
   until: Date,
-): Map<ZPaymentMethod, number> {
-  const result = new Map<ZPaymentMethod, number>()
+): Map<ZPaymentGroup, number> {
+  const result = new Map<ZPaymentGroup, number>()
   let paid = 0
   for (const payment of receipt.payments) {
     if (payment.date > until) continue
-    const method = kobipoMethodToZ(payment.method)
-    if (!method) continue
-    result.set(method, (result.get(method) ?? 0) + payment.amount)
+    const group = kobipoMethodToGroup(payment.method)
+    if (!group) continue
+    result.set(group, (result.get(group) ?? 0) + payment.amount)
     paid += payment.amount
   }
   const open = round2(receipt.total - paid)
@@ -182,15 +213,15 @@ export function compareZ(z: ZSide, receipts: MutabakatReceipt[], until: Date): M
   const kobipoTotal = receipts.reduce((s, r) => s + r.total, 0)
 
   const grossByRate = new Map<number, number>()
-  const byMethod = new Map<ZPaymentMethod, number>()
+  const byGroup = new Map<ZPaymentGroup, number>()
   let hasAllocatedDiscount = false
   for (const receipt of receipts) {
     if (receipt.globalDiscount > 0 || receipt.globalCharge > 0) hasAllocatedDiscount = true
     for (const [rate, gross] of receiptGrossByRate(receipt)) {
       grossByRate.set(rate, (grossByRate.get(rate) ?? 0) + gross)
     }
-    for (const [method, amount] of receiptPaymentsByMethod(receipt, until)) {
-      byMethod.set(method, (byMethod.get(method) ?? 0) + amount)
+    for (const [group, amount] of receiptPaymentsByGroup(receipt, until)) {
+      byGroup.set(group, (byGroup.get(group) ?? 0) + amount)
     }
   }
 
@@ -202,15 +233,18 @@ export function compareZ(z: ZSide, receipts: MutabakatReceipt[], until: Date): M
   )
 
   const paymentsEntered = z.paymentLines.length > 0
-  const zPay = new Map(z.paymentLines.map((l) => [l.method, l.amount]))
-  const methodOrder: ZPaymentMethod[] = ["CASH", "CREDIT_CARD", "MEAL_CARD", "OPEN_ACCOUNT", "OTHER"]
-  const methods = methodOrder.filter((m) => byMethod.has(m) || zPay.has(m))
-  const payments = methods.map((method) =>
+  const zPay = new Map<ZPaymentGroup, number>()
+  for (const line of z.paymentLines) {
+    const group = zMethodGroup(line.method)
+    zPay.set(group, (zPay.get(group) ?? 0) + line.amount)
+  }
+  const groups = Z_PAYMENT_GROUPS.filter((g) => byGroup.has(g) || zPay.has(g))
+  const payments = groups.map((group) =>
     row(
-      `pay:${method}`,
-      Z_PAYMENT_LABELS[method],
-      paymentsEntered ? (zPay.get(method) ?? 0) : null,
-      byMethod.get(method) ?? 0,
+      `pay:${group}`,
+      Z_PAYMENT_GROUP_LABELS[group],
+      paymentsEntered ? (zPay.get(group) ?? 0) : null,
+      byGroup.get(group) ?? 0,
     ),
   )
 

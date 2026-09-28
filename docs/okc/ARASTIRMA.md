@@ -118,6 +118,25 @@ Token blogu). Token 680.000+ cihaz yönetiyor, Pavo 250.000 cihazlık ağ. Marka
   birden: Move5000, IWE280; yalnız kablosuz: PAX A910SF); BenimPOS "IDE280, IWE280, Move/5000F
   kablolu ve kablosuz"; AKINSOFT "TSM özelliği bulunmaktadır". DİA yalnız USB/Ethernet GMP3
   anlatıyor. Kesin cevap Worldline'dan / o cihazın seri no'suyla iKasa'dan alınacak.
+- **iKasa'da görülen (2026-09-28, kullanıcının iDE280'i):** cihaz hiçbir
+  yazılıma bağlı değil, kasiyer tutarı elle giriyor; yüklü uygulamalar yalnız banka uygulamaları. "GMP3 Lisans Yönetimi → Lisans Listeleme"de cihaz için **hem Kablolu hem
+  Kablosuz** satırı var (ikisi de "Yok"). **"Kablosuz Lisans Yenileme"de iDE280 seçilebiliyor →
+  W0 CEVAPLANDI: iDE280 kablosuz (TSM) lisans alabiliyor.** Satın alma ekranı:
+  - Ürün: **"GMP3 + Z Raporu Hizmet Bedeli (1 Yıllık)" — 7.702,00 TL (KDV dahil), cihaz başına.**
+    Tek ürün, Z Raporu'suz seçenek YOK. **Kablolu da aynı fiyat** (7.702 TL).
+  - Kablolu ekranı: "Bağlantı Tipi" **RS232 / USB / TCP-IP** + **"Dış Firma"** listesi (entegratör, ör.
+    BenimPOS) → kablolu yolda da Kobipo'nun listede olması gerekiyor (Worldline anlaşması şart).
+  - **"Restoran Profili"** = kablosuz entegratör listesi, hepsi "X Proxy": 5A Bilgisayar, AdamPosTSM,
+    AdımSoft, **Adisyo iResto**, Akinsoft, Benim POS, … (liste uzun; Adisyo da kablosuz sunuyor).
+  - **"Restoran Kurulum Bilgileri": Kullanıcı Adı + Şifre** — entegratörün işletmeye verdiği kimlik;
+    TSM entegratörün proxy'sine bununla bağlanıyor olmalı. Kobipo için: şube/cihaz başına kimlik
+    Kobipo'da üretilir (Ayarlar → Yazarkasa'da gösterilir), işletme iKasa'da bu alana yapıştırır —
+    TSM'nin hangi firmayı sorduğunu bu kimlikten anlarız.
+  Aynı menüde **"Entegrasyon Yetkileri (Z Raporum)"** ve **"Entegratör Firma Yetkilerim"** sekmeleri
+  var: işletme bir entegratöre yetki veriyor. Lisanssız cihazda "Z Raporum" açılmıyor: *"Bilgi dışa
+  aktarım hizmet lisansınız yok"* → Z verisinin entegratöre aktarımı lisanslı bir hizmet; büyük
+  ihtimalle paketin "Z Raporu" kısmı. Öyleyse Aşama 1'deki Z mutabakatı elle girişsiz olabilir —
+  nasıl aktarıldığı (API / dosya) Worldline'a sorulacak (soru 14).
 - **Bulut desteklense de LİSTE kipi:** "kablosuz (bulut) entegrasyonda satışlar doğrudan cihaza
   otomatik olarak gönderilemez, kullanıcı cihazdan işlemi çağırır" (scmedya). Akış (BenimPOS):
   cihazda "restoran uygulaması" → "Açık Çekler" → satış seçilir → mali fiş. Token Mod 0'ın
@@ -158,17 +177,42 @@ Hepsinde AYNI iki yol var; Worldline dışında üçüncü yol yok:
 - **Entegratör maliyeti:** geliştirici forumunda (delphican, tarihsiz) "SDK'dan cihaz hurdaya kadar her
   adım ücretli, geliştirici ücreti 1.000 € + KDV, test cihazı ~10.000 ₺" — ESKİ ve doğrulanmamış.
 
-Worldline'a (entegratör başvurusu) sorulacaklar:
-1. Kobipo'yu kablosuz (TSM) **entegrasyon firması** listesine almak için süreç, sözleşme, ücret.
-2. TSM ↔ entegratör protokolü: HTTP(S) mi, ham TCP mi? Hangi port, kimlik doğrulama, kaynak IP'ler.
+Worldline'a (entegratör başvurusu) sorulacaklar — **kablolu + kablosuz tek başvuruda**
+(2026-09-28 kararı, bkz. PLAN.md):
+
+*Sözleşme ve kapsam*
+1. Kobipo'yu hem kablolu (GMP-3 SDK) hem kablosuz (TSM **entegrasyon firması** listesi) yola almak
+   için süreç, sözleşme, ücret. Tek sözleşme ikisini kapsıyor mu, ücret ayrı mı? Forumdaki
+   "geliştirici ücreti 1.000 € + test cihazı ~10.000 ₺" bugün geçerli mi?
+2. Kapsam: sözleşme Worldline'ın işlettiği bütün cihazları kapsıyor mu — Ingenico (iDE280, iWE280,
+   Move/5000F) ve **PAX** (A910SF)? Aynı SDK / aynı TSM ucu mu, model başına ayrı mı?
+3. **Bayi modeli:** işletmenin GMP3 lisansını Kobipo içinden satıp müşteri adına tanımlatabilir miyiz?
+4. Test ortamı / simülatör / test cihazı. (iDE280 kablosuz destekliyor — iKasa'da görüldü, 2026-09-28.)
+5. İşletmenin yıllık bedeli biliniyor: "GMP3 + Z Raporu" 7.702 TL, kablolu = kablosuz, Z'siz seçenek yok. Lisans cihaz başına
+   TEK seçim mi (iKasa'da "Kablolu | Kablosuz") — aynı cihaz iki yolda birden çalışabilir mi?
+
+*Kablosuz (TSM)*
+6. TSM ↔ entegratör protokolü: HTTP(S) mi, ham TCP mi? Hangi port, kimlik doğrulama, kaynak IP'ler.
    **HTTP değilse Vercel barındıramaz** → küçük, sürekli açık bir sunucu gerekir (Fly/VPS).
-3. Yoklama sıklığı: cihazda "Açık Çekler"e basınca liste anlık mı çekiliyor, önbellek mi?
-4. Ödeme sonucu dönüşü: fiş no, Z no, EKÜ no, ödeme kırılımı (kart/nakit/yemek kartı), çok ödeme.
-5. Kilit: çek cihazda açılınca kilitleniyor mu, Kobipo'dan kalem eklenirse ne olur (SambaPOS'ta
+   iKasa'daki "Restoran Kurulum Bilgileri" kullanıcı adı/şifresi işletme başına bizim kimliğimiz mi?
+7. Yoklama sıklığı: cihazda "Açık Çekler"e basınca liste anlık mı çekiliyor, önbellek mi?
+   Kablosuzda satışı cihaz ekranına doğrudan itme (anında kip) imkânı var mı?
+8. Kilit: çek cihazda açılınca kilitleniyor mu, Kobipo'dan kalem eklenirse ne olur (SambaPOS'ta
    "adisyon kilitleme" sorunu var).
-6. iDE280 kablosuz destekliyor mu; test ortamı/simülatör var mı.
-7. İşletmenin yıllık GMP3 Hizmet Bedeli ne kadar (kablolu/kablosuz farklı mı).
-8. Aşama 1 ile aynı: iptal/iade, fatura bilgi fişi.
+
+*Kablolu (GMP-3)*
+9. SDK'nın biçimi: Windows DLL mi, .NET mi, başka mı? Hangi Windows sürümleri? **Android kütüphanesi**
+   var mı (yalnız tabletle çalışan kasalar için)?
+10. Bağlantı: Ethernet (sabit IP) ve USB ikisi de destekleniyor mu? Bir PC birden çok cihaza
+    bağlanabilir mi?
+11. **Eşleştirme** (GMP-3 §3.3): yetkili servis mi yapar, uzaktan ya da işletmenin kendisi yapabilir
+    mi? Ücreti ve süresi.
+
+*İkisi için ortak*
+12. Ödeme sonucu dönüşü: fiş no, Z no, EKÜ no, ödeme kırılımı (kart/nakit/yemek kartı), çok ödeme.
+13. Aşama 1 ile aynı: iptal/iade, fatura bilgi fişi.
+14. iKasa'daki "Entegrasyon Yetkileri (Z Raporum)": işletme yetki verince entegratör Z raporu
+    verisine (API ile) erişebiliyor mu? GMP3 lisansı gerektiriyor mu?
 
 ## Kobipo'ya etkisi (tasarım notları, karar değil)
 

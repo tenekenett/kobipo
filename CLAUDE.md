@@ -552,6 +552,10 @@ kalemleri (adet bölünebilir) yeni adisyona TAŞIR; parça `splitFromId` taşı
 kimliğidir (Aşama 2'deki sepet kaydı yalnız taşımadır). Z raporu ↔ Kobipo karşılaştırması
 TEK yerde: `lib/okc/z-mutabakat.ts` (saf) + `z-mutabakat-query.ts` (seçim). Gün sınırı
 Z'dir (önceki Z → bu Z), takvim günü değil. Plan ve araştırma: `docs/okc/`.
+- **Z ödeme tipleri Kobipo'nun ayırt edebildiği GRUPLARLA karşılaştırılır** (`zMethodGroup` /
+  `kobipoMethodToGroup`): Z'de KREDİ + KAREKOD KART = Kobipo kartı (Kobipo QR'lı kartı ayırmaz),
+  KAREKOD FAST = havale. Z tipini Kobipo yöntemiyle birebir eşlemek her gün sahte fark üretir.
+  Form Z'nin basılı alanlarını alır (KDV satırında KDV DAHİL toplam; matrah türetilir).
 - **Fiş iptali yazarkasa kapısından geçer** (`receiptCancelVerdict`, kapsayan Z'yi
   `findCoveringZNo` bulur — mutabakatla AYNI pencere kuralı): girilmiş Z'nin kapsadığı
   fiş iptal edilmez (409 `OKC_Z_TAKEN`); yazarkasa bilgili fiş `okcConfirmed` ister

@@ -2,10 +2,12 @@
 
 // Z raporu giriş / düzeltme penceresi. Plan: docs/okc/ASAMA1-KOBIPO.md A3.
 //
-// Form Z fişinin sırasını izler: cihaz → Z no → an → toplam → KDV kırılımı →
-// ödeme kırılımı. Z'nin KENDİ içindeki tutarlılık (satırlar toplamı = toplam)
-// yazarken canlı gösterilir (zInternalChecks): yazım hatası kaydedilmeden görünsün,
-// sonra "Kobipo farkı" sanılmasın.
+// Form Z fişinin sırasını izler: cihaz → Z no → an → toplam → KDV bilgileri →
+// ödeme bilgileri. Etiketler Z'de basılan adları söyler (RAPOR NO, GÜNLÜK FİŞ
+// DÖKÜMÜ…): yanındaki benzer satırı (FİŞ NO, MALİ BELLEK TOPLAMI) yazmak en kolay
+// hatadır. Z'nin KENDİ içindeki tutarlılık (satırlar toplamı = toplam) yazarken
+// canlı gösterilir (zInternalChecks): yazım hatası kaydedilmeden görünsün, sonra
+// "Kobipo farkı" sanılmasın.
 
 import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle } from "lucide-react"
@@ -51,7 +53,8 @@ export type ZReportEditable = {
   note: string | null
 }
 
-type VatRow = { rate: number; base: string; vat: string }
+/** `gross` = Z'deki KDV DAHİL toplam; matrah sunucuda türetilir (normalizeZInput). */
+type VatRow = { rate: number; gross: string; vat: string }
 type Form = {
   deviceId: string
   zNo: string
@@ -93,7 +96,7 @@ function initialForm(devices: OkcDeviceView[], existing: ZReportEditable | null)
       receiptCount: existing.receiptCount == null ? "" : String(existing.receiptCount),
       vat: rates.map((rate) => {
         const line = existing.vatLines.find((l) => l.rate === rate)
-        return { rate, base: moneyText(line?.base), vat: moneyText(line?.vat) }
+        return { rate, gross: moneyText(line ? line.base + line.vat : null), vat: moneyText(line?.vat) }
       }),
       payments,
       cancelCount: existing.cancelCount == null ? "" : String(existing.cancelCount),
@@ -111,7 +114,7 @@ function initialForm(devices: OkcDeviceView[], existing: ZReportEditable | null)
     ekuNo: device?.ekuNo ?? "",
     grossTotal: "",
     receiptCount: "",
-    vat: Z_DEFAULT_VAT_RATES.map((rate) => ({ rate, base: "", vat: "" })),
+    vat: Z_DEFAULT_VAT_RATES.map((rate) => ({ rate, gross: "", vat: "" })),
     payments: emptyPayments(),
     cancelCount: "",
     cancelTotal: "",
@@ -160,8 +163,11 @@ export function ZReportFormDialog({
     () =>
       zInternalChecks({
         grossTotal: n(form.grossTotal),
-        vatLines: form.vat.filter((l) => n(l.base) || n(l.vat)).map((l) => ({ rate: l.rate, base: n(l.base), vat: n(l.vat) })),
+        vatLines: form.vat
+          .filter((l) => n(l.gross) || n(l.vat))
+          .map((l) => ({ rate: l.rate, base: n(l.gross) - n(l.vat), vat: n(l.vat) })),
         paymentLines: Z_PAYMENT_METHODS.filter((m) => n(form.payments[m])).map((m) => ({ method: m, amount: n(form.payments[m]) })),
+        receiptCount: form.receiptCount === "" ? null : Number(form.receiptCount),
       }),
     [form],
   )
@@ -180,7 +186,7 @@ export function ZReportFormDialog({
         ekuNo: form.ekuNo,
         grossTotal: form.grossTotal,
         receiptCount: form.receiptCount === "" ? null : Number(form.receiptCount),
-        vatLines: form.vat.map((l) => ({ rate: l.rate, base: l.base, vat: l.vat })),
+        vatLines: form.vat.map((l) => ({ rate: l.rate, gross: l.gross, vat: l.vat })),
         paymentLines: Z_PAYMENT_METHODS.map((m) => ({ method: m, amount: form.payments[m] })),
         cancelCount: form.cancelCount === "" ? null : Number(form.cancelCount),
         cancelTotal: form.cancelTotal,
@@ -209,7 +215,8 @@ export function ZReportFormDialog({
         <DialogHeader>
           <DialogTitle>{existing ? `Z ${existing.zNo} — düzelt` : "Z raporu gir"}</DialogTitle>
           <DialogDescription>
-            Rakamları yazarkasadan aldığınız Z fişinden girin. Boş bıraktığınız KDV ve ödeme satırları karşılaştırılmaz.
+            Rakamları yazarkasadan aldığınız Z fişinden girin; alanlarda Z'de basılan adlar yazar. Boş bıraktığınız KDV
+            ve ödeme bölümleri karşılaştırılmaz.
           </DialogDescription>
         </DialogHeader>
 
@@ -231,7 +238,7 @@ export function ZReportFormDialog({
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="z-no">Z no *</Label>
+              <Label htmlFor="z-no">Z no * (RAPOR NO)</Label>
               <Input
                 id="z-no"
                 inputMode="numeric"
@@ -244,7 +251,7 @@ export function ZReportFormDialog({
 
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="grid gap-2 sm:col-span-2">
-              <Label htmlFor="z-at">Z'nin alındığı tarih ve saat *</Label>
+              <Label htmlFor="z-at">Z'nin tarihi ve saati *</Label>
               <Input
                 id="z-at"
                 type="datetime-local"
@@ -253,7 +260,7 @@ export function ZReportFormDialog({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="z-eku">EKÜ no</Label>
+              <Label htmlFor="z-eku">EKÜ no (fişin altında)</Label>
               <Input
                 id="z-eku"
                 className="font-mono"
@@ -274,27 +281,35 @@ export function ZReportFormDialog({
                 value={form.grossTotal}
                 onChange={(e) => setForm({ ...form, grossTotal: e.target.value })}
               />
+              <p className="text-xs text-muted-foreground">
+                GÜNLÜK FİŞ DÖKÜMÜ altındaki TOPLAM — MALİ BELLEK TOPLAMI değil
+              </p>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="z-count">Fiş adedi</Label>
+              <Label htmlFor="z-count">Müşteri fişi adedi</Label>
               <Input
                 id="z-count"
                 inputMode="numeric"
                 value={form.receiptCount}
                 onChange={(e) => setForm({ ...form, receiptCount: e.target.value.replace(/\D/g, "") })}
               />
+              <p className="text-xs text-muted-foreground">MÜŞTERİ FİŞİ ADETİ — MALİ FİŞ ADET değil</p>
             </div>
           </div>
 
           <fieldset className="grid gap-2 rounded-lg border p-3">
-            <legend className="px-1 text-sm font-medium">KDV kırılımı</legend>
+            <legend className="px-1 text-sm font-medium">KDV bilgileri</legend>
+            <p className="text-xs text-muted-foreground">
+              Z'deki her "KDV %…" satırının tutarı KDV'ye, altındaki TOPLAM toplama yazılır.
+            </p>
             <div className="grid grid-cols-[4rem_1fr_1fr] gap-2 text-xs text-muted-foreground">
               <span>Oran</span>
-              <span>Matrah</span>
+              <span>Toplam (KDV dahil)</span>
               <span>KDV</span>
             </div>
             {form.vat.map((row, index) => {
-              const suggested = n(row.base) ? moneyText(Math.round(n(row.base) * row.rate) / 100) : "0,00"
+              const gross = n(row.gross)
+              const suggested = gross ? moneyText(Math.round((gross * row.rate * 100) / (100 + row.rate)) / 100) : ""
               return (
                 <div key={row.rate} className="grid grid-cols-[4rem_1fr_1fr] items-center gap-2">
                   <span className="font-mono text-sm">%{row.rate}</span>
@@ -302,13 +317,14 @@ export function ZReportFormDialog({
                     inputMode="decimal"
                     className="font-mono"
                     placeholder="0,00"
-                    value={row.base}
-                    onChange={(e) => setVat(index, { base: e.target.value })}
+                    value={row.gross}
+                    onChange={(e) => setVat(index, { gross: e.target.value })}
                   />
                   <Input
                     inputMode="decimal"
                     className="font-mono"
-                    placeholder={suggested}
+                    placeholder={suggested || "0,00"}
+                    disabled={row.rate === 0}
                     value={row.vat}
                     onChange={(e) => setVat(index, { vat: e.target.value })}
                   />
@@ -318,7 +334,10 @@ export function ZReportFormDialog({
           </fieldset>
 
           <fieldset className="grid gap-2 rounded-lg border p-3">
-            <legend className="px-1 text-sm font-medium">Ödeme kırılımı</legend>
+            <legend className="px-1 text-sm font-medium">Ödeme bilgileri</legend>
+            <p className="text-xs text-muted-foreground">
+              Z'deki ÖDEME BİLGİLERİ bölümünden. BELGE TİPLERİ altındaki KREDİ yazılmaz: karekodları da içerir.
+            </p>
             <div className="grid gap-2 sm:grid-cols-2">
               {Z_PAYMENT_METHODS.map((method) => (
                 <div key={method} className="grid grid-cols-[7rem_1fr] items-center gap-2">
@@ -337,7 +356,7 @@ export function ZReportFormDialog({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="z-cancel-count">İptal fiş adedi</Label>
+              <Label htmlFor="z-cancel-count">Satış iptal adedi</Label>
               <Input
                 id="z-cancel-count"
                 inputMode="numeric"
@@ -346,7 +365,7 @@ export function ZReportFormDialog({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="z-cancel-total">İptal tutarı</Label>
+              <Label htmlFor="z-cancel-total">Satış iptal tutarı</Label>
               <Input
                 id="z-cancel-total"
                 inputMode="decimal"

@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest"
 import {
   compareZ,
   istanbulDayStart,
-  kobipoMethodToZ,
+  kobipoMethodToGroup,
   receiptGrossByRate,
-  receiptPaymentsByMethod,
+  receiptPaymentsByGroup,
+  zMethodGroup,
   resolveZWindow,
   zBusinessRange,
   type MutabakatReceipt,
@@ -92,12 +93,20 @@ describe("receiptGrossByRate", () => {
   })
 })
 
-describe("kobipoMethodToZ / receiptPaymentsByMethod", () => {
-  it("yöntemleri eşler; bakiye kapama tahsilat sayılmaz", () => {
-    expect(kobipoMethodToZ("CASH")).toBe("CASH")
-    expect(kobipoMethodToZ("MEAL_CARD")).toBe("MEAL_CARD")
-    expect(kobipoMethodToZ("BANK_TRANSFER")).toBe("OTHER")
-    expect(kobipoMethodToZ("WRITE_OFF")).toBeNull()
+describe("ödeme grupları / receiptPaymentsByGroup", () => {
+  it("Kobipo yöntemlerini gruplar; bakiye kapama tahsilat sayılmaz", () => {
+    expect(kobipoMethodToGroup("CASH")).toBe("CASH")
+    expect(kobipoMethodToGroup("MEAL_CARD")).toBe("MEAL_CARD")
+    expect(kobipoMethodToGroup("BANK_TRANSFER")).toBe("TRANSFER")
+    expect(kobipoMethodToGroup("CHECK")).toBe("OTHER")
+    expect(kobipoMethodToGroup("WRITE_OFF")).toBeNull()
+  })
+
+  it("Z'de karekod kart kart grubuna, karekod FAST havale grubuna girer", () => {
+    expect(zMethodGroup("CREDIT_CARD")).toBe("CREDIT_CARD")
+    expect(zMethodGroup("QR_CARD")).toBe("CREDIT_CARD")
+    expect(zMethodGroup("QR_FAST")).toBe("TRANSFER")
+    expect(zMethodGroup("OPEN_ACCOUNT")).toBe("OPEN_ACCOUNT")
   })
 
   it("ödenmeyen kalan ve Z'den sonraki tahsilat açık hesaptır", () => {
@@ -110,7 +119,7 @@ describe("kobipoMethodToZ / receiptPaymentsByMethod", () => {
         { method: "CASH", amount: 50, date: at("2026-09-25T09:00:00+03:00") },
       ],
     })
-    const p = receiptPaymentsByMethod(r, z)
+    const p = receiptPaymentsByGroup(r, z)
     expect(p.get("CREDIT_CARD")).toBe(100)
     expect(p.get("CASH")).toBeUndefined()
     expect(p.get("OPEN_ACCOUNT")).toBe(200)
@@ -205,6 +214,40 @@ describe("compareZ", () => {
     const m = compareZ({ grossTotal: 230, receiptCount: 3, vatLines: [], paymentLines: [] }, receipts, until)
     expect(m.receiptCount.diff).toBe(1)
     expect(m.ok).toBe(false)
+  })
+
+  it("Z'deki KREDİ + KAREKOD KART, Kobipo'nun kartıyla; KAREKOD FAST havaleyle karşılaştırılır", () => {
+    const withQr = [
+      ...receipts,
+      receipt({
+        id: "c",
+        total: 30,
+        lines: [{ vatRate: 20, net: 25 }],
+        payments: [{ method: "BANK_TRANSFER", amount: 30, date: at("2026-09-24T14:00:00+03:00") }],
+      }),
+    ]
+    // Kobipo: nakit 110, kart 120 (karekodla alınan 20'si dahil), havale 30
+    const m = compareZ(
+      {
+        grossTotal: 260,
+        receiptCount: 3,
+        vatLines: [],
+        paymentLines: [
+          { method: "CASH", amount: 110 },
+          { method: "CREDIT_CARD", amount: 100 },
+          { method: "QR_CARD", amount: 20 },
+          { method: "QR_FAST", amount: 30 },
+        ],
+      },
+      withQr,
+      until,
+    )
+    expect(m.payments.map((r) => [r.key, r.z, r.kobipo])).toEqual([
+      ["pay:CASH", 110, 110],
+      ["pay:CREDIT_CARD", 120, 120],
+      ["pay:TRANSFER", 30, 30],
+    ])
+    expect(m.ok).toBe(true)
   })
 
   it("genel iskontolu fiş varsa bayrak kalkar", () => {

@@ -9,22 +9,29 @@
 import { parseTrNumber } from "@/lib/format"
 
 /**
- * Z fişindeki ödeme tipleri. Kobipo tahsilat yöntemleri buraya eşlenir
- * (`kobipoMethodToZ`). Veresiye cihazda "açık hesap" olarak görünür.
+ * Z fişinin "ÖDEME BİLGİLERİ" bölümündeki tipler — kayıt Z'de yazdığı gibi tutulur.
+ * Karşılaştırma bunları Kobipo'nun ayırt edebildiği gruplara toplar (`zMethodGroup`,
+ * lib/okc/z-mutabakat.ts): Kobipo karekodla alınan kartı ayrı kaydetmez. Karekodlar
+ * gerçek iDE280 Z'sinde görüldü (2026-09). Veresiye cihazda "açık hesap" olarak görünür.
  */
-export const Z_PAYMENT_METHODS = ["CASH", "CREDIT_CARD", "MEAL_CARD", "OPEN_ACCOUNT", "OTHER"] as const
+export const Z_PAYMENT_METHODS = ["CASH", "CREDIT_CARD", "QR_CARD", "QR_FAST", "MEAL_CARD", "OPEN_ACCOUNT", "OTHER"] as const
 export type ZPaymentMethod = (typeof Z_PAYMENT_METHODS)[number]
 
 export const Z_PAYMENT_LABELS: Record<ZPaymentMethod, string> = {
   CASH: "Nakit",
-  CREDIT_CARD: "Kredi kartı",
+  CREDIT_CARD: "Kredi (kart)",
+  QR_CARD: "Karekod kart",
+  QR_FAST: "Karekod FAST",
   MEAL_CARD: "Yemek kartı",
   OPEN_ACCOUNT: "Açık hesap",
   OTHER: "Diğer",
 }
 
-/** Türkiye'de geçerli KDV oranları; formda satırlar bunlarla önceden dolar. */
-export const Z_DEFAULT_VAT_RATES = [1, 10, 20] as const
+/**
+ * Formda hazır gelen KDV oranları. %0 şart: markette tekel ürünleri Z'de "KDV %00.00"
+ * grubunda basılır ve günün büyük kısmı olabilir.
+ */
+export const Z_DEFAULT_VAT_RATES = [0, 1, 10, 20] as const
 
 export type ZVatLine = { rate: number; base: number; vat: number }
 export type ZPaymentLine = { method: ZPaymentMethod; amount: number }
@@ -60,8 +67,11 @@ function count(value: unknown): number | null {
 export type ZInputResult = { ok: true; data: ZReportFields } | { ok: false; error: string }
 
 /**
- * Gövdeyi doğrular. Boş KDV / ödeme satırı (tutar 0 ya da boş) atılır: form üç
- * oranı ve beş ödeme tipini hazır gösterir, kullanıcı yalnız dolu olanları yazar.
+ * Gövdeyi doğrular. Boş KDV / ödeme satırı (tutar 0 ya da boş) atılır: form oranları
+ * ve ödeme tiplerini hazır gösterir, kullanıcı yalnız dolu olanları yazar.
+ *
+ * KDV satırı: Z her oran için KDV tutarını ve KDV DAHİL toplamı basar; form bu
+ * toplamı (`gross`) alır, matrah burada türetilir. `base` yalnız eski istemciler için.
  */
 export function normalizeZInput(body: Record<string, unknown>): ZInputResult {
   const deviceId = String(body.deviceId ?? "").trim()
@@ -93,13 +103,17 @@ export function normalizeZInput(body: Record<string, unknown>): ZInputResult {
   const seenRates = new Set<number>()
   for (const raw of Array.isArray(body.vatLines) ? body.vatLines : []) {
     const line = (raw ?? {}) as Record<string, unknown>
-    const base = money(line.base)
+    const gross = money(line.gross)
     const vat = money(line.vat)
+    const base = gross !== null ? round2(gross - (vat ?? 0)) : money(line.base)
     if ((base ?? 0) === 0 && (vat ?? 0) === 0) continue
     const rate = Number(line.rate)
     if (!Number.isFinite(rate) || rate < 0 || rate > 100) return { ok: false, error: "KDV oranı geçersiz" }
     if (seenRates.has(rate)) return { ok: false, error: `%${rate} KDV satırı iki kez girilmiş` }
-    if ((base ?? 0) < 0 || (vat ?? 0) < 0) return { ok: false, error: "KDV satırında negatif tutar olamaz" }
+    if ((gross ?? 0) < 0 || (vat ?? 0) < 0 || (gross === null && (base ?? 0) < 0)) {
+      return { ok: false, error: "KDV satırında negatif tutar olamaz" }
+    }
+    if ((base ?? 0) < 0) return { ok: false, error: `%${rate} satırında KDV, KDV dahil toplamdan büyük olamaz` }
     seenRates.add(rate)
     vatLines.push({ rate, base: base ?? 0, vat: vat ?? 0 })
   }
@@ -148,9 +162,12 @@ export type ZInternalIssue = { code: "VAT_SUM" | "PAYMENT_SUM" | "VAT_RATE"; mes
  *
  * - Σ(matrah + KDV) = toplam — KDV satırı hiç girilmediyse sorulmaz.
  * - Σ ödeme = toplam — ödeme satırı hiç girilmediyse sorulmaz.
- * - Her satırda KDV ≈ matrah × oran (cihaz satır satır yuvarlar; 2 kuruş pay).
+ * - Her satırda KDV ≈ matrah × oran. Cihaz KDV'yi FİŞ FİŞ yuvarlayıp toplar; sapma
+ *   fiş sayısıyla büyür (gerçek Z'de %1 grubunda 3 kuruş). Pay: `vatTolerance`.
  */
-export function zInternalChecks(z: Pick<ZReportFields, "grossTotal" | "vatLines" | "paymentLines">): ZInternalIssue[] {
+export function zInternalChecks(
+  z: Pick<ZReportFields, "grossTotal" | "vatLines" | "paymentLines"> & { receiptCount?: number | null },
+): ZInternalIssue[] {
   const issues: ZInternalIssue[] = []
   const fmt = (n: number) => n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -164,10 +181,10 @@ export function zInternalChecks(z: Pick<ZReportFields, "grossTotal" | "vatLines"
     }
     for (const line of z.vatLines) {
       const expected = round2((line.base * line.rate) / 100)
-      if (Math.abs(expected - line.vat) > 0.02) {
+      if (Math.abs(expected - line.vat) > vatTolerance(line.vat, z.receiptCount ?? null)) {
         issues.push({
           code: "VAT_RATE",
-          message: `%${line.rate} satırında KDV ${fmt(line.vat)} ₺ yazılmış; matraha göre ${fmt(expected)} ₺ olmalı`,
+          message: `%${line.rate} satırında KDV ${fmt(line.vat)} ₺ yazılmış; toplama göre yaklaşık ${fmt(expected)} ₺ olmalı`,
         })
       }
     }
@@ -184,6 +201,16 @@ export function zInternalChecks(z: Pick<ZReportFields, "grossTotal" | "vatLines"
   }
 
   return issues
+}
+
+/**
+ * KDV satırı sağlamasının payı: fiş başına yarım kuruş (her fiş KDV'yi bir kez
+ * yuvarlar), en az 2 kuruş. Fiş adedi girilmediyse satır KDV'sinin %1'i. Yazım
+ * hatası (49,47 yerine 94,47) bu paydan çok büyüktür, yine yakalanır.
+ */
+export function vatTolerance(vat: number, receiptCount: number | null): number {
+  const spread = receiptCount ? receiptCount * 0.005 : Math.abs(vat) * 0.01
+  return Math.max(0.02, spread)
 }
 
 /** Veritabanındaki JSON sütunlarını güvenle okur (eski/bozuk kayıt ekranı düşürmesin). */

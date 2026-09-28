@@ -150,12 +150,21 @@ Worldline'ın TSM sunucusu Kobipo'dan açık adisyonları çeker, işletmede kur
 Gerekçe ve rakip incelemesi: `ARASTIRMA.md` → "Kullanıcının cihazı: Ingenico iDE280".
 Diğer markalar yalnız müşteri talebiyle; o zamana kadar hepsi Aşama 1 elle akışıyla çalışır.
 
+> **2026-09-28 kararı:** kullanıcı kurulumu engel saymadı → Worldline ile **kablolu + kablosuz
+> birlikte** anlaşılacak. Kablolu: kasada anında itme (hız şartı), PC'de "Kobipo Köprü" (Windows,
+> Worldline'ın GMP-3 kütüphanesiyle) + eşleştirme. Kablosuz: kurulumsuz, liste kipi. İşletme cihaz
+> başına birini seçer; Kobipo tarafı (Aşama 1 + `closeTicketWithReceipt`) ikisinde ortak.
+> Anlaşma **yalnız Worldline'ın işlettiği cihazları** (Ingenico + PAX) kapsar; her marka (Token,
+> Pavo, Ödeal, Hugin, inPOS…) ayrı anlaşma + ayrı sürücü ister — köprünün kabuğu ortak, cihaz
+> sürücüsü marka başına.
+
 | # | Adım | Kim | Çıktı |
 |---|---|---|---|
-| W0 | iKasa'ya cihaz seri no + telefonla gir; GMP3 Hizmet Bedeli ekranında "Kablosuz" var mı, fiyat ne (satın alma yok). Worldline'ı ara (0 850 250 40 30), entegrasyon ekibine ulaş | Kullanıcı | iDE280 kablosuz cevabı, entegrasyon ekibi kişisi |
-| W1 | Entegratör başvurusu + sözleşme (muhtemelen Reypo Bilişim adına). Sorular ARASTIRMA.md'deki 8 madde + **bayi modeli**: lisansı Kobipo içinden satıp müşteri adına tanımlatabilir miyiz | Kullanıcı | Doküman, test imkânı, iKasa listesinde "Kobipo" |
+| W0 | iKasa'ya cihaz seri no + telefonla gir; GMP3 Hizmet Bedeli ekranında "Kablosuz" var mı, fiyat ne (satın alma yok). Worldline'ı ara (0 850 250 40 30), entegrasyon ekibine ulaş | Kullanıcı | **2026-09-28 cevaplandı:** iDE280 kablosuz lisans alabiliyor; "GMP3 + Z Raporu" 7.702 TL/yıl (KDV dahil), kablolu da aynı, Z'siz seçenek yok. 0850 yalnız cihaz desteği, santral operatöre bağlamadı → web formu / KEP (`worldline@hs01.kep.tr`) / LinkedIn |
+| W1 | Entegratör başvurusu + sözleşme (muhtemelen Reypo Bilişim adına), **kablolu + kablosuz tek başvuruda**. Sorular ARASTIRMA.md → "Worldline'a sorulacaklar" (13 madde; bayi modeli dahil); e-posta taslağı `WORLDLINE-EPOSTA.md` | Kullanıcı | GMP-3 SDK + TSM dokümanı, test imkânı, iKasa listesinde "Kobipo" |
 | W2 | Kobipo Proxy ucu + Ayarlar → Yazarkasa kurulum sihirbazı (adım adım rehber, "bağlandı" göstergesi) | Claude | Kod; protokol HTTP değilse küçük sunucu kararı (kullanıcının) |
-| W3 | Kendi cihazıyla test: iKasa'dan lisans (Kablosuz, "Kobipo"), 24 sa, cihazda parametre yükle, gerçek fiş + Z mutabakatı. iDE280 kablosuz değilse Worldline'dan test cihazı | Kullanıcı + Claude | Uçtan uca doğrulama |
+| W2b | Kobipo Köprü (kablolu): Windows uygulaması, Worldline GMP-3 kütüphanesiyle; Kobipo'ya dışarıdan bağlanır (işletmede port açma yok); kurulum paketi, otomatik güncelleme, kod imzalama | Claude | Teknoloji SDK biçimine göre seçilir; Kobipo↔köprü hattı (yoklama / Realtime) kullanıcıya sorulur |
+| W3 | Test cihazı: kullanıcının iDE280'i (çalışan bir market kasası). **2026-09-28: işletme gerçek satışlar arasında test fişi basılmasına onay verdi** (test fişi gerçek mali fiştir, Z'ye girer). iKasa'dan lisans (Kablolu ya da Kablosuz, "Kobipo"), 24 sa, cihazda parametre yükle, gerçek fiş + Z mutabakatı | Kullanıcı + Claude | Uçtan uca doğrulama |
 | W4 | 1–2 pilot restoran, kurulumda yanında ol; nerede takıldıklarını not et | Kullanıcı | Rehberin düzeltilmesi |
 | W5 | Kendi kendine kurulum: müşteri lisansı alır (ya da Kobipo'dan, W1 bayi cevabına göre) → parametre yükler → Kobipo'da seri no girer → ilk TSM çağrısında "bağlandı" | Müşteri | Kullanıcı yalnız destekte |
 
