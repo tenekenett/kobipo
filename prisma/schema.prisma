@@ -434,6 +434,7 @@ model Company {
   cariProductAliases      CariProductAlias[]
   cariVirmans             CariVirman[]
   cariVirmanLegs          CariVirmanLeg[]
+  employeeLedgerEntries   EmployeeLedgerEntry[]
   holidays                CompanyHoliday[]
   okcDevices              OkcDevice[]
   okcZReports             OkcZReport[]
@@ -1543,6 +1544,8 @@ model Transaction {
   customer        Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
   supplier        Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   invoicePayments InvoicePayment[]
+  // Çalışana masraf iadesiyse defter satırı (bkz. EmployeeLedgerEntry).
+  employeeLedger  EmployeeLedgerEntry?
 
   @@index([companyId, date])
   @@index([companyId, type, date])
@@ -1642,6 +1645,12 @@ model Invoice {
   // ZORUNLUDUR. Şekli ve doğrulaması: lib/invoice/internet-sales.ts.
   // NULL = normal satış; payload'a hiçbir internet satış alanı eklenmez.
   internetSalesInfo     Json?
+  // STOK GİRİŞİ YAPILMASIN (yalnız alış faturası). true → fatura stoğa HİÇ
+  // işlenmez: mal irsaliyeyle sonra girecek ya da takip dışı tutulacak. Kayıtta
+  // durmak zorunda: düzenleme ucu stoğu kalemlerden yeniden kurar (PUT stok
+  // mutabakatı) ve seçimi bilmeseydi ilk düzenlemede stoğu sessizce yazardı.
+  // Faturaya sonradan irsaliye bağlanması bu bayraktan bağımsızdır.
+  skipStock             Boolean   @default(false)
   // ÖKC (yazarkasa) MALİ KİMLİĞİ — yalnız fişte anlamlı. Kimlik FİŞİN ÜSTÜNDE durur;
   // Aşama 2'deki sepet kaydı yalnız taşımadır, rapor ve Z mutabakatı buradan okur
   // (lib/okc/z-mutabakat.ts). Aşama 1'de numaralar isteğe bağlı elle girilir.
@@ -1976,6 +1985,8 @@ model InvoicePayment {
   company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   account     FinancialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
   transaction Transaction?      @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  // paymentMethod = "EMPLOYEE" ise ödemeyi yapan çalışan (bkz. EmployeeLedgerEntry).
+  employeeLedger EmployeeLedgerEntry?
 
   @@index([invoiceId])
   @@index([companyId])
@@ -2965,6 +2976,8 @@ model Employee {
   // Bu personel adına atılmış açılış/kapanış tikleri. Seçim listeden yapıldığı
   // için "bu maddeyi o yaptı" kanıtı değil, yalnız beyandır.
   checklistEntries ChecklistEntry[]
+  // Çalışanın firma adına cebinden ödedikleri ve geri ödemeleri (masraf defteri).
+  ledgerEntries    EmployeeLedgerEntry[]
 
   // Bir hesap aynı firmada iki personel kartına bağlanamaz (kimin vardiyası, kimin
   // bordrosu sorusu belirsizleşirdi). Farklı firmalarda aynı hesap serbesttir.
@@ -3171,6 +3184,40 @@ model PayrollRecord {
   @@index([companyId, periodYear, periodMonth])
   @@index([employeeId])
   @@map("payroll_records")
+}
+
+// ÇALIŞAN MASRAF DEFTERİ — firmanın çalışana borcu (lib/personel/masraf-defteri.ts).
+//
+// Çalışan bir alış faturasını KENDİ cebinden öderse tedarikçi borcu kapanır ama
+// firma bu kez çalışana borçlanır; "Çalışana öde" o borcu kasadan/bankadan kapatır.
+// Defter iki tür satırdan oluşur ve TUTAR TUTMAZ — tutar ve tarih bağlı olduğu para
+// kaydında durur, iki kopyası ayrışamasın diye:
+//
+//   EXPENSE        → invoicePaymentId (paymentMethod "EMPLOYEE", kasasız ödeme):
+//                    bakiye + (firma borçlandı)
+//   REIMBURSEMENT  → transactionId (EXPENSE, reference "CALISAN:<employeeId>"):
+//                    bakiye − (firma ödedi)
+//
+// Para kaydı silinince satır da düşer (Cascade). Satırı olan çalışan silinemez
+// (NO ACTION — firma silinirken aynı ifadede satır da düştüğü için zincir takılmaz).
+model EmployeeLedgerEntry {
+  id               String   @id @default(cuid())
+  companyId        String
+  employeeId       String
+  kind             String // EXPENSE | REIMBURSEMENT
+  invoicePaymentId String?  @unique
+  transactionId    String?  @unique
+  createdAt        DateTime @default(now())
+  createdBy        String?
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee       Employee        @relation(fields: [employeeId], references: [id], onDelete: NoAction)
+  invoicePayment InvoicePayment? @relation(fields: [invoicePaymentId], references: [id], onDelete: Cascade)
+  transaction    Transaction?    @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([employeeId])
+  @@map("employee_ledger_entries")
 }
 
 model LeaveRecord {

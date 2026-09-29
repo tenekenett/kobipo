@@ -26,6 +26,7 @@ import { composeBalanceSheet, type BalanceSheetSummary } from "./bilanco-ozet"
 import { kiymetPortfoyu, PORTFOY_DURUMU, TAHSIL_DURUMU } from "./bilanco-kiymet"
 import { resolvePeriodBounds } from "./date-range"
 import { computeProfitLoss } from "./kar-zarar"
+import { employeeBalances } from "@/lib/personel/masraf-defteri"
 
 /**
  * Aritmetik ve alan tanımları `bilanco-ozet.ts`te (saf, testli); burası yalnız
@@ -50,7 +51,7 @@ export async function computeBalanceSheet(args: {
   const bounds = resolvePeriodBounds(EPOCH, args.asOfDate ?? null)
   const end = bounds.endExclusive
 
-  const [cashAndBanks, profitLoss, cari, kiymetler, tahsiller, inventory] = await Promise.all([
+  const [cashAndBanks, profitLoss, cari, kiymetler, tahsiller, inventory, calisanlar] = await Promise.all([
     // Nakit ve banka — TARİHE GÖRE. Eskiden hesapların bugünkü bakiyesiydi:
     // geçmiş bir güne bakan bilanço bugünkü parayı gösteriyordu.
     cashBalanceBefore(companyId, end),
@@ -93,6 +94,11 @@ export async function computeBalanceSheet(args: {
       where: { companyId, isActive: true },
       select: { stockQuantity: true, purchasePrice: true },
     }),
+
+    // ÇALIŞAN MASRAF DEFTERİ — tarih itibarıyla. Çalışanın cebinden ödediği fatura
+    // tedarikçi borcunu kapatır ama kasadan para çıkmaz; firma çalışana borçlanır.
+    // Burada sayılmasaydı yükümlülük sessizce düşer, öz sermaye şişerdi.
+    employeeBalances(companyId, end),
   ])
 
   const tahsilTarihi = new Map<string, Date>()
@@ -124,6 +130,7 @@ export async function computeBalanceSheet(args: {
       supplierBalances: cari.suppliers.map((s) => s.balance),
       checksReceived: portfoy.received,
       checksGiven: portfoy.given,
+      employeeBalances: calisanlar.map((c) => c.balance),
       inventory: inventoryValue,
       retainedEarnings: profitLoss.netProfit,
     }),

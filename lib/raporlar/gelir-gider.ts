@@ -89,7 +89,7 @@ async function uninvoicedGroups(
     WHERE t."companyId" = ${companyId}
       AND t."type" = ${type}
       AND t."date" >= ${start} AND t."date" < ${endExclusive}
-      AND (t."reference" IS NULL OR (t."reference" NOT LIKE 'TRANSFER:%' AND t."reference" NOT LIKE 'CEK:%' AND t."reference" NOT LIKE 'SENET:%'))
+      AND (t."reference" IS NULL OR (t."reference" NOT LIKE 'TRANSFER:%' AND t."reference" NOT LIKE 'CEK:%' AND t."reference" NOT LIKE 'SENET:%' AND t."reference" NOT LIKE 'CALISAN:%'))
       AND NOT EXISTS (
         SELECT 1 FROM "invoice_payments" p WHERE p."transactionId" = t.id
       )

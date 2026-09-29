@@ -6,6 +6,7 @@
 // EFT" yazıyordu. Kredi kartı / POS bu yüzden ayrı bir kanal türü.
 
 import { BAKIYE_KAPAMA_LABEL, BAKIYE_KAPAMA_METHOD } from "@/lib/cari/bakiye-kapama"
+import { CALISAN_ODEMESI_LABEL, CALISAN_ODEMESI_METHOD } from "@/lib/personel/calisan-odemesi"
 
 export type FinancialAccountType = "CASH" | "BANK" | "CREDIT_CARD"
 
@@ -59,6 +60,8 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   OTHER: "Diğer",
   // Kasa hareketi olmayan kapama (bkz. lib/cari/bakiye-kapama.ts).
   [BAKIYE_KAPAMA_METHOD]: BAKIYE_KAPAMA_LABEL,
+  // Kasasız: çalışan kendi parasıyla ödedi (bkz. lib/personel/calisan-odemesi.ts).
+  [CALISAN_ODEMESI_METHOD]: CALISAN_ODEMESI_LABEL,
 }
 
 export const paymentMethodLabel = (method: string) => PAYMENT_METHOD_LABELS[method] ?? method

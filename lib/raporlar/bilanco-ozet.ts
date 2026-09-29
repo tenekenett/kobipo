@@ -27,6 +27,12 @@ export type BalanceSheetInputs = {
   checksReceived: number
   /** Henüz ödenmemiş verilen çek/senet. */
   checksGiven: number
+  /**
+   * Çalışan başına masraf defteri bakiyesi — + firmanın çalışana borcu (cebinden
+   * ödenen fatura), − çalışanın firmaya borcu (lib/personel/masraf-defteri.ts).
+   * Cari gibi KİŞİ BAŞINA ayrılır; verilmezse boş sayılır.
+   */
+  employeeBalances?: number[]
   inventory: number
   /** Başlangıçtan bugüne kümülatif net kâr/zarar. */
   retainedEarnings: number
@@ -38,6 +44,7 @@ export type BalanceSheetSummary = {
     receivables: number
     checksReceived: number
     supplierAdvances: number
+    employeeReceivables: number
     inventory: number
     total: number
   }
@@ -45,6 +52,7 @@ export type BalanceSheetSummary = {
     payables: number
     checksGiven: number
     customerAdvances: number
+    employeePayables: number
     total: number
   }
   equity: {
@@ -61,11 +69,13 @@ const positives = (xs: number[]) => round2(xs.reduce((s, x) => s + Math.max(x, 0
 const negatives = (xs: number[]) => round2(xs.reduce((s, x) => s + Math.max(-x, 0), 0))
 
 export function composeBalanceSheet(input: BalanceSheetInputs): BalanceSheetSummary {
+  const employeeBalances = input.employeeBalances ?? []
   const assets = {
     cashAndBanks: input.cashAndBanks,
     receivables: positives(input.customerBalances),
     checksReceived: input.checksReceived,
     supplierAdvances: negatives(input.supplierBalances),
+    employeeReceivables: negatives(employeeBalances),
     inventory: input.inventory,
     total: 0,
   }
@@ -74,6 +84,7 @@ export function composeBalanceSheet(input: BalanceSheetInputs): BalanceSheetSumm
       assets.receivables +
       assets.checksReceived +
       assets.supplierAdvances +
+      assets.employeeReceivables +
       assets.inventory,
   )
 
@@ -81,9 +92,12 @@ export function composeBalanceSheet(input: BalanceSheetInputs): BalanceSheetSumm
     payables: positives(input.supplierBalances),
     checksGiven: input.checksGiven,
     customerAdvances: negatives(input.customerBalances),
+    employeePayables: positives(employeeBalances),
     total: 0,
   }
-  liabilities.total = round2(liabilities.payables + liabilities.checksGiven + liabilities.customerAdvances)
+  liabilities.total = round2(
+    liabilities.payables + liabilities.checksGiven + liabilities.customerAdvances + liabilities.employeePayables,
+  )
 
   const equityTotal = round2(assets.total - liabilities.total)
 

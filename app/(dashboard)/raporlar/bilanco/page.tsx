@@ -137,6 +137,15 @@ export default function BilancoPage() {
                         <TableCell className="text-right">{formatCurrency(report.assets.supplierAdvances)}</TableCell>
                       </TableRow>
                     )}
+                    {report.assets.employeeReceivables > 0 && (
+                      <TableRow>
+                        <TableCell>
+                          Personelden Alacaklar
+                          <span className="block text-xs text-muted-foreground">Masraf defterinde fazla ödenen</span>
+                        </TableCell>
+                        <TableCell className="text-right">{formatCurrency(report.assets.employeeReceivables)}</TableCell>
+                      </TableRow>
+                    )}
                     <TableRow>
                       <TableCell>Stoklar</TableCell>
                       <TableCell className="text-right">{formatCurrency(report.assets.inventory)}</TableCell>
@@ -169,6 +178,15 @@ export default function BilancoPage() {
                       <TableRow>
                         <TableCell>Müşterilerden Alınan Avanslar</TableCell>
                         <TableCell className="text-right">{formatCurrency(report.liabilities.customerAdvances)}</TableCell>
+                      </TableRow>
+                    )}
+                    {report.liabilities.employeePayables > 0 && (
+                      <TableRow>
+                        <TableCell>
+                          Personele Borçlar
+                          <span className="block text-xs text-muted-foreground">Çalışanların cebinden ödediği masraflar</span>
+                        </TableCell>
+                        <TableCell className="text-right">{formatCurrency(report.liabilities.employeePayables)}</TableCell>
                       </TableRow>
                     )}
                     <TableRow className="bg-muted/50">

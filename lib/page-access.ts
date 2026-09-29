@@ -616,6 +616,14 @@ export const PAGE_API_RULES: PageApiRule[] = [
     writePages: ["/personel/belge-sablonlari"],
   },
   {
+    // Çalışan masraf defteri (cebinden ödenen faturalar + "Çalışana öde"). Okuma
+    // personel kartında; YAZMA kasadan çalışana para çıkarır — bordro ödemesiyle
+    // aynı yetki (`/personel/maas`), "kartı düzenleyen maaş öder" olmasın.
+    prefix: "/api/personel/masraf",
+    pages: ["/personel", "/personel/maas"],
+    writePages: ["/personel/maas"],
+  },
+  {
     prefix: "/api/personel/employees",
     // Restoran tarafı personel listesini ikram/iskonto sorumlusu seçmek için okur.
     pages: [...PERSONNEL_PAGES, "/restoran/satis", ...TICKET_PAGES],

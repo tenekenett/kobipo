@@ -57,6 +57,10 @@ import {
 import { returnRefError } from "@/lib/invoice/return-ref"
 import { toDateInput } from "@/lib/format"
 import { vadeTarihiTuret } from "@/lib/cari/vade"
+import { AlisOdemeStok } from "@/components/e-donusum/alis-odeme-stok"
+import type { PurchasePaymentStatus } from "@/lib/personel/calisan-odemesi"
+import { defaultedAccountNote } from "@/lib/finans/hesapsiz-odeme"
+import { defaultLineUnitPrice, priceSideFor } from "@/lib/invoice/line-default-price"
 
 
 // description = kalemin ADI (faturada mal/hizmet adı olarak basılır, ürün seçilmediyse
@@ -105,7 +109,7 @@ const BRAND_COLOR = "#143d6b"
 // döndürüyor (lib/cari/list-query.ts); fatura vadesi bundan türetilir.
 interface Customer { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null; paymentDueDays?: number | null }
 interface Supplier { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null; paymentDueDays?: number | null }
-interface Product { id: string; name: string; code?: string; barcode?: string | null; salePrice?: number; vatRate: number; unit?: string; stockQuantity?: number | string; minStockLevel?: number | string | null; isService?: boolean }
+interface Product { id: string; name: string; code?: string; barcode?: string | null; salePrice?: number; purchasePrice?: number | string | null; avgPurchasePrice?: number | null; vatRate: number; unit?: string; stockQuantity?: number | string; minStockLevel?: number | string | null; isService?: boolean }
 // Faturaya bağlanabilir alış irsaliyesi (stoğa işlenmiş + henüz bağlanmamış).
 interface LinkableWaybillItem {
   productId?: string | null
@@ -260,6 +264,20 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   // hesaplanır (lib/invoice/document-totals.ts); ekran sunucunun kaydedeceği
   // rakamı göstermeli. Yeni belge her zaman resmî faturadır.
   const [isReceiptDoc, setIsReceiptDoc] = useState(false)
+  // ALIŞ: ödeme durumu + stok takibi (components/e-donusum/alis-odeme-stok.tsx).
+  // formData DIŞINDA tutulur: formData birçok yerde baştan kuruluyor ve ödeme seçimi
+  // yalnız oluşturmada anlamlı (düzenlemede ödemeler Ödemeler ekranındadır).
+  const [paymentStatus, setPaymentStatus] = useState<PurchasePaymentStatus>("UNPAID")
+  const [payAccountId, setPayAccountId] = useState("")
+  const [payEmployeeId, setPayEmployeeId] = useState("")
+  /** Boş = fatura tarihi. */
+  const [payDate, setPayDate] = useState("")
+  const [skipStock, setSkipStock] = useState(false)
+  // Düzenlemede: stoğa işlenmiş irsaliye bağlı mı (o zaman stoğun sahibi irsaliye).
+  const [editWaybillOwnsStock, setEditWaybillOwnsStock] = useState(false)
+  // Düzenlenen faturanın GERÇEK id'si. `editingInvoiceId` adresten gelir ve slug
+  // olabilir; Ödemeler ekranı ise adresteki değeri id olarak kullanıyor.
+  const [editRawInvoiceId, setEditRawInvoiceId] = useState<string | null>(null)
   // Hazır GİB tevkifat kodları (Mysoft'tan). E-dönüşüm açık firmalarda dolu döner;
   // boşsa tevkifat alanı serbest yüzde girişine geri düşer.
   const [withholdingTypes, setWithholdingTypes] = useState<Array<{ code: string; name: string; rate: number }>>([])
@@ -365,6 +383,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     deliveryDistrict: "",
     deliveryCity: "",
   })
+
+  // Alış faturası (fiş değil): ödeme durumu + stok takibi bölümü yalnız bunda.
+  const isPurchaseDoc = formData.type === "PURCHASE" && !isReceiptDoc
 
   // Sınıflandırma: daha önce kullanılmış kategori/etiketler öneri olarak sunulur.
   const [classificationOptions, setClassificationOptions] = useState<{
@@ -1151,6 +1172,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
       setEditingInvoiceId(id)
       setIsReceiptDoc(data.isReceipt === true)
+      setSkipStock(data.skipStock === true)
+      setEditRawInvoiceId(typeof data.id === "string" ? data.id : null)
+      setEditWaybillOwnsStock(
+        Array.isArray(data.waybills) && data.waybills.some((w: { stockProcessed?: boolean }) => w.stockProcessed),
+      )
       setFormData({
         type: data.type || "SALES",
         // NULL returnKind = satış iadesi (sütun eklenmeden önce kesilmiş belgeler).
@@ -1557,7 +1583,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       productId: product.id,
       description: isPreviousAutoName ? product.name : prev.description,
       unit: (product.unit || "ADET").toUpperCase(),
-      unitPrice: Number(product.salePrice) || 0,
+      // Alışta ALIŞ fiyatı (bkz. lib/invoice/line-default-price.ts); eskiden her tipte
+      // satış fiyatı dolduruluyordu ve alış maliyeti şişiyordu.
+      unitPrice: defaultLineUnitPrice(product, priceSideFor(formData.type, formData.returnKind)),
       discountRate: 0,
       vatRate: Number(product.vatRate) || 20,
       withholdingRate: 0,
@@ -1862,6 +1890,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     setGlobalChargeInput("")
     setPayableRoundingInput("")
     setGlobalDiscountMode("PERCENT")
+    setPaymentStatus("UNPAID")
+    setPayAccountId("")
+    setPayEmployeeId("")
+    setPayDate("")
+    setSkipStock(false)
+    setEditWaybillOwnsStock(false)
+    setEditRawInvoiceId(null)
   }
 
   const isEDonusumActive = Boolean(companySettings?.isEDonusumEnabled)
@@ -2047,6 +2082,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     if (items.length === 0) return toast({ title: "Hata", description: "En az bir kalem ekleyin", variant: "destructive" })
     if (!formData.customerId && !formData.supplierId) return toast({ title: "Hata", description: "Müşteri veya tedarikçi seçin", variant: "destructive" })
     if (invoiceNoError) return toast({ title: "Fatura No geçersiz", description: invoiceNoError, variant: "destructive" })
+    if (isPurchaseDoc && !editingInvoiceId && paymentStatus === "EMPLOYEE" && !payEmployeeId) {
+      return toast({ title: "Çalışan seçin", description: "Faturayı cebinden ödeyen çalışanı seçin", variant: "destructive" })
+    }
     if (isEDonusumActive && E_DOC_TYPES.has(effectiveInvoiceType) && eInvoiceMissingMessages.length > 0) return toast({ title: "E-fatura için eksik bilgi", description: eInvoiceMissingMessages.join(" · "), variant: "destructive" })
 
     // KDV %0 olan kalemlerde istisna sebebi zorunlu (Şematron kuralı)
@@ -2111,6 +2149,19 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           ...(fromIncomingUuid && !isEditing ? { fromIncomingUuid } : {}),
           // İrsaliye bağlama yalnız oluşturmada (POST): seçili irsaliyeler faturaya bağlanır.
           ...(!isEditing && selectedWaybillIds.length > 0 ? { waybillIds: selectedWaybillIds } : {}),
+          // ALIŞ: stok takibi (düzenlemede de) + ödeme durumu (yalnız oluşturmada;
+          // faturayla aynı istekte tam tutarlık ödeme yazılır).
+          ...(isPurchaseDoc ? { skipStock } : {}),
+          ...(isPurchaseDoc && !isEditing && paymentStatus !== "UNPAID"
+            ? {
+                purchasePayment: {
+                  status: paymentStatus,
+                  paymentDate: payDate || formData.date,
+                  ...(paymentStatus === "PAID" ? { accountId: payAccountId || null } : {}),
+                  ...(paymentStatus === "EMPLOYEE" ? { employeeId: payEmployeeId } : {}),
+                },
+              }
+            : {}),
         }),
       })
 
@@ -2122,14 +2173,33 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         const savedId: string | undefined = saved?.id || editingInvoiceId || (isEditing ? invoiceId : undefined)
         // Fatura kaydedildi ama stok yazılamadıysa sunucu uyarı döner; başarı
         // mesajının altında kalmasın diye ayrı ve kırmızı gösterilir.
-        if (saved?.stockWarning) {
+        // Fatura kaydedildi ama stok ya da ("Ödendi / Çalışan cebinden") ödeme
+        // yazılamadıysa TEK kırmızı toast'ta söylenir. Toast sınırı 1'dir
+        // (components/ui/use-toast.ts): ayrı bir uyarının ardından gelen "Başarılı"
+        // onu eziyordu ve stok uyarısı hiç görünmüyordu.
+        const warnings = [saved?.stockWarning, saved?.paymentWarning].filter(Boolean).map(String)
+        const paymentNote = saved?.payment
+          ? saved.payment.employee
+            ? `Ödeme ${saved.payment.employee.name} adına çalışan borcu olarak yazıldı`
+            : defaultedAccountNote([saved.payment]) ||
+              (saved.payment.account?.name
+                ? `Ödeme «${saved.payment.account.name}» hesabından yazıldı`
+                : "Ödeme kaydedildi")
+          : null
+        const doneText = isEditing
+          ? "Fatura güncellendi"
+          : paymentNote
+            ? `Fatura oluşturuldu. ${paymentNote}`
+            : "Fatura oluşturuldu"
+        if (warnings.length > 0) {
           toast({
-            title: "Stok güncellenemedi",
-            description: String(saved.stockWarning),
+            title: `${doneText.split(".")[0]} — eksik kalan var`,
+            description: warnings.join(" · "),
             variant: "destructive",
           })
+        } else {
+          toast({ title: "Başarılı", description: doneText })
         }
-        toast({ title: "Başarılı", description: isEditing ? "Fatura güncellendi" : "Fatura oluşturuldu" })
         resetForm()
         if (savedId) {
           router.push(`/faturalar/${savedId}/onizleme?company=${encodeURIComponent(companyId)}`)
@@ -2225,6 +2295,25 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   const totals = calculateTotals()
   const isEditMode = mode === "edit" && editingInvoiceId
+
+  // Vade kutusu satışta başlıkta, alışta "Ödeneceği Tarih" satırında — kural aynı.
+  const onDueDateInput = (value: string) => {
+    // Kutuya dokunulduğu an türetme susar: kullanıcının yazdığı
+    // vade, cari kartından gelen öneriyi her zaman yener.
+    setVadeKaynagi("elle")
+    setFormData((prev) => ({ ...prev, dueDate: value }))
+  }
+  const dueDateHint =
+    vadeKaynagi === "gelen" && formData.dueDate ? (
+      <p className="text-xs text-muted-foreground">
+        Gelen faturadaki vade tarihinden dolduruldu — değiştirebilirsiniz.
+      </p>
+    ) : vadeKaynagi === "oneri" && formData.dueDate && selectedCari?.paymentDueDays ? (
+      <p className="text-xs text-muted-foreground">
+        {selectedCari.name} kartındaki {selectedCari.paymentDueDays} günlük vadeden
+        dolduruldu — değiştirebilirsiniz.
+      </p>
+    ) : null
 
   if (bootstrappingEdit) return <div className="flex items-center justify-center p-12 text-muted-foreground">Fatura yükleniyor…</div>
 
@@ -2668,29 +2757,19 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   </p>
                 )}
               </div>
+              {/* Alışta vade "Ödeneceği Tarih" olarak ödeme durumunun yanında durur
+                  (aşağıdaki AlisOdemeStok); aynı alan iki yerde gösterilmez. */}
+              {!isPurchaseDoc && (
               <div className="space-y-2">
                 <Label>Vade Tarihi</Label>
                 <Input
                   type="date"
                   value={formData.dueDate}
-                  onChange={(e) => {
-                    // Kutuya dokunulduğu an türetme susar: kullanıcının yazdığı
-                    // vade, cari kartından gelen öneriyi her zaman yener.
-                    setVadeKaynagi("elle")
-                    setFormData({ ...formData, dueDate: e.target.value })
-                  }}
+                  onChange={(e) => onDueDateInput(e.target.value)}
                 />
-                {vadeKaynagi === "gelen" && formData.dueDate ? (
-                  <p className="text-xs text-muted-foreground">
-                    Gelen faturadaki vade tarihinden dolduruldu — değiştirebilirsiniz.
-                  </p>
-                ) : vadeKaynagi === "oneri" && formData.dueDate && selectedCari?.paymentDueDays ? (
-                  <p className="text-xs text-muted-foreground">
-                    {selectedCari.name} kartındaki {selectedCari.paymentDueDays} günlük vadeden
-                    dolduruldu — değiştirebilirsiniz.
-                  </p>
-                ) : null}
+                {dueDateHint}
               </div>
+              )}
             </div>
           </div>
 
@@ -2803,20 +2882,50 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             </div>
           </div>
 
+          {/* --- ALIŞ: ÖDEME DURUMU + ÖDENECEĞİ TARİH + STOK TAKİBİ --- */}
+          {isPurchaseDoc && (
+            <AlisOdemeStok
+              companyId={companyId}
+              mode={isEditMode ? "edit" : "create"}
+              editingInvoiceId={editRawInvoiceId}
+              currency={formData.currency || "TRY"}
+              status={paymentStatus}
+              onStatusChange={setPaymentStatus}
+              dueDate={formData.dueDate}
+              onDueDateChange={onDueDateInput}
+              dueDateHint={dueDateHint}
+              accountId={payAccountId}
+              onAccountIdChange={setPayAccountId}
+              employeeId={payEmployeeId}
+              onEmployeeIdChange={setPayEmployeeId}
+              paymentDate={payDate || formData.date}
+              onPaymentDateChange={setPayDate}
+              skipStock={skipStock}
+              onSkipStockChange={setSkipStock}
+              waybillOwnsStock={
+                isEditMode
+                  ? editWaybillOwnsStock
+                  : selectedWaybillIds.some((id) => availableWaybills.find((w) => w.id === id)?.stockProcessed)
+              }
+            />
+          )}
+
           {/* --- İRSALİYE BAĞLA (yalnız alış faturası + tedarikçi seçili + oluşturma) --- */}
           {mode === "create" && formData.type === "PURCHASE" && formData.supplierId && (
-            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+            // Koyu tema: sınıflandırma kutusuyla aynı yüzey. Eskiden yalnız açık tema
+            // sınıfları vardı; koyu zeminde açık gri bir kutu ve okunmayan metin kalıyordu.
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-border dark:bg-muted/20">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <Label className="flex items-center gap-2 text-base font-semibold">
-                    <Truck className="h-4 w-4 text-kobipo-navy" /> İrsaliye Bağla
+                    <Truck className="h-4 w-4 text-kobipo-navy dark:text-foreground" /> İrsaliye Bağla
                   </Label>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     Bu tedarikçinin <span className="font-medium">stoğa işlenmiş</span> ve henüz faturaya bağlanmamış irsaliyeleri. Seçince <span className="font-medium">kalemleri faturaya otomatik gelir</span> (fiyatı sen girersin) ve fatura bağlanır; mal zaten girdiği için <span className="font-medium">stok tekrar işlenmez</span>.
                   </p>
                 </div>
                 {selectedWaybillIds.length > 0 && (
-                  <span className="rounded-full bg-kobipo-navy/10 px-2.5 py-1 text-xs font-semibold text-kobipo-navy">
+                  <span className="rounded-full bg-kobipo-navy/10 px-2.5 py-1 text-xs font-semibold text-kobipo-navy dark:bg-primary/15 dark:text-foreground">
                     {selectedWaybillIds.length} seçili
                   </span>
                 )}
@@ -2832,7 +2941,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                     return (
                       <label
                         key={w.id}
-                        className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${checked ? "border-kobipo-blue bg-kobipo-pale/50" : "border-slate-200 bg-white hover:bg-slate-50"}`}
+                        className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${checked ? "border-kobipo-blue bg-kobipo-pale/50 dark:border-primary dark:bg-primary/10" : "border-slate-200 bg-white hover:bg-slate-50 dark:border-border dark:bg-card dark:hover:bg-muted/40"}`}
                       >
                         <input
                           type="checkbox"
@@ -2870,7 +2979,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           <div className="space-y-3">
             <Label className="text-base font-semibold">Fatura Kalemleri</Label>
 
-            <div className="w-full min-w-0 rounded-xl border border-slate-200 overflow-hidden shadow-sm bg-slate-50/30">
+            <div className="w-full min-w-0 rounded-xl border border-slate-200 overflow-hidden shadow-sm bg-slate-50/30 dark:border-border dark:bg-card">
               
               {/* --- MASAÜSTÜ BAŞLIKLAR (Mobilde tamamen gizlenir) --- */}
               <div
@@ -2890,7 +2999,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               </div>
 
               {/* --- TÜM SATIRLARA TOPLU UYGULA --- */}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 border-b border-slate-200 bg-slate-100/70 px-4 py-3 dark:bg-muted/40">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 border-b border-slate-200 bg-slate-100/70 px-4 py-3 dark:border-border dark:bg-muted/40">
                 <div className="flex items-center gap-1.5 text-kobipo-navy dark:text-kobipo-blue">
                   <Wand2 className="h-3.5 w-3.5" />
                   <span className="text-xs font-bold uppercase tracking-wide">Tümüne uygula</span>
@@ -2912,7 +3021,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   </Select>
                 </div>
 
-                <div className="hidden h-6 w-px bg-slate-300/70 sm:block" />
+                <div className="hidden h-6 w-px bg-slate-300/70 sm:block dark:bg-border" />
 
                 {/* Toplu İskonto */}
                 <div className="flex items-center gap-2">
@@ -2920,7 +3029,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   <div className="flex h-9 items-stretch overflow-hidden rounded-md border-2 border-kobipo-blue/25 bg-white shadow-sm focus-within:border-kobipo-blue/60 dark:bg-card">
                     <button
                       type="button"
-                      className={`flex w-9 shrink-0 items-center justify-center text-sm font-bold transition-all ${bulkDiscountMode === "PERCENT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                      className={`flex w-9 shrink-0 items-center justify-center text-sm font-bold transition-all ${bulkDiscountMode === "PERCENT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale dark:bg-muted dark:text-foreground dark:hover:bg-muted/70"}`}
                       aria-pressed={bulkDiscountMode === "PERCENT"}
                       onClick={() => { setBulkDiscountMode("PERCENT"); applyBulkDiscount(bulkDiscountInput, "PERCENT") }}
                       title="Oran (%)"
@@ -2929,7 +3038,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                     </button>
                     <button
                       type="button"
-                      className={`flex w-9 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-xs font-bold tracking-wide transition-all ${bulkDiscountMode === "AMOUNT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                      className={`flex w-9 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-xs font-bold tracking-wide transition-all ${bulkDiscountMode === "AMOUNT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale dark:bg-muted dark:text-foreground dark:hover:bg-muted/70"}`}
                       aria-pressed={bulkDiscountMode === "AMOUNT"}
                       onClick={() => { setBulkDiscountMode("AMOUNT"); applyBulkDiscount(bulkDiscountInput, "AMOUNT") }}
                       title="Tutar (TL)"
@@ -2950,7 +3059,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               </div>
 
               {/* --- KALEMLER LİSTESİ --- */}
-              <div className="flex flex-col md:divide-y md:divide-gray-200 p-2 md:p-0 gap-3 md:gap-0">
+              <div className="flex flex-col md:divide-y md:divide-gray-200 p-2 md:p-0 gap-3 md:gap-0 dark:md:divide-border">
                 {items.map((item, index) => {
                   const extras = getLineExtras(index)
                   const available = LINE_EXTRA_ORDER.filter((k) => !extras.includes(k))
@@ -2959,7 +3068,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                     <div 
                       key={index} 
                       // Mobilde: Gölgesi olan şık bir KART. Masaüstünde: Gölgesiz, kenarlıksız düz bir SATIR.
-                      className="p-4 md:p-3 bg-white hover:bg-slate-50/80 transition-all rounded-xl md:rounded-none border border-slate-200 md:border-0 shadow-sm md:shadow-none"
+                      className="p-4 md:p-3 bg-white hover:bg-slate-50/80 transition-all rounded-xl md:rounded-none border border-slate-200 md:border-0 shadow-sm md:shadow-none dark:border-border dark:bg-card dark:hover:bg-muted/30"
                     >
                       {/* ANA GRID — mobilde 12 kolon (stack), masaüstünde 16 kolon */}
                       <div className="grid grid-cols-12 md:grid-cols-[repeat(16,minmax(0,1fr))] gap-y-4 gap-x-3 md:gap-x-2 md:items-start">
@@ -2987,12 +3096,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                         <div className="col-span-6 md:col-span-2">
                           <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Barkod</Label>
                           {item.productId ? (
-                            <div className="flex h-10 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 focus-within:border-[#48c79c] focus-within:ring-2 focus-within:ring-[#48c79c]/30 transition-colors">
+                            <div className="flex h-10 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 focus-within:border-[#48c79c] focus-within:ring-2 focus-within:ring-[#48c79c]/30 transition-colors dark:border-input dark:bg-background">
                               <Barcode className="h-4 w-4 shrink-0 text-slate-400" />
                               <input
                                 type="text"
                                 inputMode="numeric"
-                                className="min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold tracking-wide tabular-nums text-slate-700 outline-none placeholder:font-sans placeholder:font-normal placeholder:text-slate-300"
+                                className="min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold tracking-wide tabular-nums text-slate-700 outline-none placeholder:font-sans placeholder:font-normal placeholder:text-slate-300 dark:text-foreground dark:placeholder:text-muted-foreground"
                                 placeholder="Barkod"
                                 value={barcodeDrafts[item.productId] ?? (getLineBarcode(item.productId) ?? "")}
                                 title="Ürünün barkodunu düzenle — kaydedince ürün kartına işlenir"
@@ -3006,7 +3115,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                               />
                             </div>
                           ) : (
-                            <div className="flex h-10 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3">
+                            <div className="flex h-10 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 dark:border-input dark:bg-muted/40">
                               <Barcode className="h-4 w-4 shrink-0 text-slate-400" />
                               <span className="text-slate-300">—</span>
                             </div>
@@ -3020,19 +3129,19 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                             const s = getLineStock(item.productId)
                             if (!s) {
                               return (
-                                <div className="flex h-10 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2">
+                                <div className="flex h-10 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2 dark:border-input dark:bg-muted/40">
                                   <span className="text-slate-300">—</span>
                                 </div>
                               )
                             }
                             const pid = item.productId!
                             return (
-                              <div className={`flex h-10 items-center gap-1 rounded-md border bg-white px-2 focus-within:border-[#48c79c] focus-within:ring-2 focus-within:ring-[#48c79c]/30 transition-colors ${s.low ? "border-red-300" : "border-slate-200"}`}>
+                              <div className={`flex h-10 items-center gap-1 rounded-md border bg-white px-2 focus-within:border-[#48c79c] focus-within:ring-2 focus-within:ring-[#48c79c]/30 transition-colors dark:bg-background ${s.low ? "border-red-300 dark:border-red-500/60" : "border-slate-200 dark:border-input"}`}>
                                 <input
                                   type="number"
                                   min="0"
                                   step="0.01"
-                                  className={`min-w-0 flex-1 bg-transparent text-center text-sm font-semibold tabular-nums outline-none ${s.low ? "text-red-600" : "text-slate-700"}`}
+                                  className={`min-w-0 flex-1 bg-transparent text-center text-sm font-semibold tabular-nums outline-none ${s.low ? "text-red-600 dark:text-red-400" : "text-slate-700 dark:text-foreground"}`}
                                   value={stockDrafts[pid] ?? String(s.qty)}
                                   title={s.low ? "Stok kritik seviyede veya tükendi — düzeltmek için değeri değiştirin" : "Güncel stok miktarı — değiştirip stoğu düzeltebilirsiniz"}
                                   onChange={(e) => {
@@ -3109,8 +3218,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                           <Label className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Toplam Tutar (KDV dahil)</Label>
                           <div className="relative">
                             <span
-                              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm font-bold"
-                              style={{ color: BRAND_COLOR }}
+                              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm font-bold text-[#143d6b] dark:text-kobipo-blue"
                             >
                               ₺
                             </span>
@@ -3119,8 +3227,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                               min="0"
                               step="any"
                               inputMode="decimal"
-                              className="h-10 pl-6 text-right font-bold tabular-nums text-[15px] md:text-sm"
-                              style={{ color: BRAND_COLOR }}
+                              className="h-10 pl-6 text-right font-bold tabular-nums text-[15px] md:text-sm text-[#143d6b] dark:text-kobipo-blue"
                               value={
                                 editingTotalIndex === index
                                   ? editingTotalValue
@@ -3142,11 +3249,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                         </div>
 
                         {/* 7. İŞLEMLER */}
-                        <div className="col-span-12 md:col-span-1 flex items-center justify-between md:justify-center pt-3 md:pt-0 border-t md:border-0 mt-1 md:mt-0 border-slate-100">
+                        <div className="col-span-12 md:col-span-1 flex items-center justify-between md:justify-center pt-3 md:pt-0 border-t md:border-0 mt-1 md:mt-0 border-slate-100 dark:border-border">
                           <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest">İşlemler</span>
                           <div className="flex gap-2 md:gap-1">
                             <DropdownMenu>
-                              <DropdownMenuTrigger asChild><Button type="button" variant="outline" size="icon" className="h-9 w-9 border-slate-200" disabled={available.length === 0} title="Satır Eklentisi (İskonto, ÖTV vb)"><Plus className="h-4 w-4 text-slate-500" /></Button></DropdownMenuTrigger>
+                              <DropdownMenuTrigger asChild><Button type="button" variant="outline" size="icon" className="h-9 w-9 border-slate-200 dark:border-input" disabled={available.length === 0} title="Satır Eklentisi (İskonto, ÖTV vb)"><Plus className="h-4 w-4 text-slate-500" /></Button></DropdownMenuTrigger>
                               <DropdownMenuContent align="end">{available.map((key) => (<DropdownMenuItem key={key} onSelect={(e) => { e.preventDefault(); addLineExtra(index, key) }}>{LINE_EXTRA_LABEL[key]}</DropdownMenuItem>))}</DropdownMenuContent>
                             </DropdownMenu>
                             <Button type="button" variant="outline" size="icon" className="h-9 w-9 border-red-100 bg-red-50 hover:bg-red-100" onClick={() => removeItem(index)} disabled={items.length === 1} title="Satırı Sil"><Trash2 className="h-4 w-4 text-red-500" /></Button>
@@ -3162,7 +3269,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                           style={{ borderTopColor: BRAND_COLOR, backgroundColor: "rgba(20,61,107,0.05)" }}
                         >
                           <div className="space-y-1.5">
-                            <Label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: BRAND_COLOR }}>
+                            <Label className="text-[10px] font-bold uppercase tracking-widest text-[#143d6b] dark:text-kobipo-blue">
                               KDV İstisna Kodu <span className="text-red-500">*</span>
                             </Label>
                             {/* Tam GİB listesi (lib/integrations/e-invoice/gib-exemption-codes). Kayıtlı
@@ -3195,11 +3302,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                             />
                           </div>
                           <div className="md:col-span-2 space-y-1.5">
-                            <Label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: BRAND_COLOR }}>
+                            <Label className="text-[10px] font-bold uppercase tracking-widest text-[#143d6b] dark:text-kobipo-blue">
                               İstisna Sebebi (açıklama) <span className="text-red-500">*</span>
                             </Label>
                             <Input
-                              className="h-9 bg-white text-sm"
+                              className="h-9 bg-white text-sm dark:bg-background"
                               value={item.taxExemptionReason || ""}
                               onChange={(e) => updateItem(index, "taxExemptionReason", e.target.value)}
                               placeholder="Örn: KDV Kanunu 17/2-b kapsamında istisna"
@@ -3210,9 +3317,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
                       {/* --- SATIR EKLENTİLERİ (İskonto, Açıklama vb.) --- */}
                       {extras.length > 0 && (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-100 bg-slate-50/50 -mx-4 md:-mx-3 px-4 md:px-3 pb-3 rounded-b-xl md:rounded-b-none">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-100 bg-slate-50/50 -mx-4 md:-mx-3 px-4 md:px-3 pb-3 rounded-b-xl md:rounded-b-none dark:border-border dark:bg-muted/20">
                           {LINE_EXTRA_ORDER.filter((k) => extras.includes(k)).map((key) => {
-                            const removable = (<button type="button" className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors" onClick={() => removeLineExtra(index, key)}><X className="h-3.5 w-3.5" /></button>)
+                            const removable = (<button type="button" className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors dark:hover:bg-muted dark:hover:text-foreground" onClick={() => removeLineExtra(index, key)}><X className="h-3.5 w-3.5" /></button>)
                             
                             if (key === "description") {
                               return (
@@ -3244,7 +3351,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                   <div className="flex h-10 items-stretch overflow-hidden rounded-lg border-2 border-kobipo-blue/25 bg-white shadow-sm focus-within:border-kobipo-blue/60 dark:bg-card">
                                     <button
                                       type="button"
-                                      className={`flex w-11 shrink-0 items-center justify-center text-base font-bold transition-all ${isPercent ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                                      className={`flex w-11 shrink-0 items-center justify-center text-base font-bold transition-all ${isPercent ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale dark:bg-muted dark:text-foreground dark:hover:bg-muted/70"}`}
                                       aria-pressed={isPercent}
                                       onClick={() => setDiscountMode(index, "PERCENT")}
                                       title="Oran (%)"
@@ -3253,7 +3360,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                     </button>
                                     <button
                                       type="button"
-                                      className={`flex w-11 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-sm font-bold tracking-wide transition-all ${!isPercent ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                                      className={`flex w-11 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-sm font-bold tracking-wide transition-all ${!isPercent ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale dark:bg-muted dark:text-foreground dark:hover:bg-muted/70"}`}
                                       aria-pressed={!isPercent}
                                       onClick={() => setDiscountMode(index, "AMOUNT")}
                                       title="Tutar (TL)"
@@ -3555,8 +3662,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               </div>
 
               {/* YENİ SATIR EKLE BUTONU */}
-              <div className="bg-slate-50 p-2 md:border-t flex justify-start border-slate-200">
-                <Button type="button" variant="ghost" size="sm" onClick={addItem} style={{ color: BRAND_COLOR }} className="hover:bg-blue-50 font-semibold tracking-wide">
+              <div className="bg-slate-50 p-2 md:border-t flex justify-start border-slate-200 dark:border-border dark:bg-muted/30">
+                <Button type="button" variant="ghost" size="sm" onClick={addItem} className="hover:bg-blue-50 font-semibold tracking-wide text-[#143d6b] dark:text-kobipo-blue dark:hover:bg-muted/40">
                   <Plus className="mr-1.5 h-4 w-4" /> YENİ SATIR EKLE
                 </Button>
               </div>
@@ -3609,7 +3716,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
               </div>
             </div>
 
-            <div className="w-full md:w-80 bg-slate-50 rounded-lg p-4 border space-y-2">
+            <div className="w-full md:w-80 bg-slate-50 rounded-lg p-4 border space-y-2 dark:bg-card">
               <div className="flex justify-between text-sm"><span className="text-muted-foreground">Ara Toplam:</span><span className="font-medium">₺{totals.grossAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
               {totals.discountAmount > 0 && <div className="flex justify-between text-sm text-red-600"><span>Satır İskontoları:</span><span>- ₺{totals.discountAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>}
 
@@ -3618,17 +3725,17 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 <button
                   type="button"
                   onClick={() => setGlobalDiscountEnabled(true)}
-                  className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-400 hover:bg-white"
+                  className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-400 hover:bg-white dark:border-border dark:text-muted-foreground dark:hover:border-muted-foreground dark:hover:bg-muted/40"
                 >
                   <Plus className="h-3.5 w-3.5" /> Fatura İskontosu Ekle
                 </button>
               ) : (
-                <div className="rounded-lg border-2 border-kobipo-blue/25 bg-kobipo-pale/40 p-2.5 space-y-2">
+                <div className="rounded-lg border-2 border-kobipo-blue/25 bg-kobipo-pale/40 p-2.5 space-y-2 dark:border-primary/30 dark:bg-primary/5">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-kobipo-navy">Fatura İskontosu</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-kobipo-navy dark:text-foreground">Fatura İskontosu</span>
                     <button
                       type="button"
-                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-kobipo-navy/50 hover:bg-kobipo-pale hover:text-kobipo-navy"
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-kobipo-navy/50 hover:bg-kobipo-pale hover:text-kobipo-navy dark:text-foreground/60 dark:hover:bg-muted dark:hover:text-foreground"
                       onClick={() => {
                         setGlobalDiscountEnabled(false)
                         setGlobalDiscountInput("")
@@ -3641,7 +3748,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   <div className="flex h-10 items-stretch overflow-hidden rounded-lg border-2 border-kobipo-blue/25 bg-white shadow-sm focus-within:border-kobipo-blue/60 dark:bg-card">
                     <button
                       type="button"
-                      className={`flex w-11 shrink-0 items-center justify-center text-base font-bold transition-all ${globalDiscountMode === "PERCENT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                      className={`flex w-11 shrink-0 items-center justify-center text-base font-bold transition-all ${globalDiscountMode === "PERCENT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale dark:bg-muted dark:text-foreground dark:hover:bg-muted/70"}`}
                       aria-pressed={globalDiscountMode === "PERCENT"}
                       onClick={() => setGlobalDiscountMode("PERCENT")}
                       title="Oran (%)"
@@ -3650,7 +3757,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                     </button>
                     <button
                       type="button"
-                      className={`flex w-11 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-sm font-bold tracking-wide transition-all ${globalDiscountMode === "AMOUNT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale"}`}
+                      className={`flex w-11 shrink-0 items-center justify-center border-l-2 border-kobipo-blue/25 text-sm font-bold tracking-wide transition-all ${globalDiscountMode === "AMOUNT" ? "bg-kobipo-navy text-white shadow-inner dark:bg-kobipo-blue" : "bg-kobipo-pale/60 text-kobipo-navy hover:bg-kobipo-pale dark:bg-muted dark:text-foreground dark:hover:bg-muted/70"}`}
                       aria-pressed={globalDiscountMode === "AMOUNT"}
                       onClick={() => setGlobalDiscountMode("AMOUNT")}
                       title="Tutar (TL)"
@@ -3668,7 +3775,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                     />
                   </div>
                   {totals.globalDiscount > 0 && (
-                    <div className="flex justify-between text-xs text-kobipo-navy">
+                    <div className="flex justify-between text-xs text-kobipo-navy dark:text-foreground">
                       <span>Düşülen:</span>
                       <span className="font-semibold">- ₺{totals.globalDiscount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span>
                     </div>
@@ -3682,7 +3789,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 <button
                   type="button"
                   onClick={() => setGlobalChargeEnabled(true)}
-                  className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-400 hover:bg-white"
+                  className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-400 hover:bg-white dark:border-border dark:text-muted-foreground dark:hover:border-muted-foreground dark:hover:bg-muted/40"
                 >
                   <Plus className="h-3.5 w-3.5" /> Fatura Altı İlave Ekle
                 </button>
@@ -3726,7 +3833,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                 </div>
               )}
 
-              <div className="border-t border-slate-200 pt-2">
+              <div className="border-t border-slate-200 pt-2 dark:border-border">
                 <div className="flex items-center justify-between gap-2 text-sm">
                   <span className="flex items-center gap-1 text-muted-foreground">
                     Net Matrah:
@@ -3876,7 +3983,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                   />
                 </div>
               </div>
-              <div className="flex justify-between border-t border-slate-200 pt-3 mt-2 text-lg font-bold"><span>Genel Toplam:</span><span style={{ color: BRAND_COLOR }}>₺{totals.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
+              <div className="flex justify-between border-t border-slate-200 pt-3 mt-2 text-lg font-bold dark:border-border"><span>Genel Toplam:</span><span className="text-[#143d6b] dark:text-kobipo-blue">₺{totals.totalAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</span></div>
             </div>
           </div>
 

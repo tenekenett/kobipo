@@ -88,15 +88,44 @@ export function isCheckSettlement(tx: MaybeTransferLeg): boolean {
 }
 
 /**
- * Faturasız GELİR/GİDER sayımı için `where` parçası: virman bacakları VE çek/senet
- * tahsil hareketleri dışlanır. `NOT_TRANSFER_WHERE` ile aynı NULL uyarısı geçerli;
- * `AND` taşıdığı için zaten `AND` içeren bir `where`a spread edilmez.
+ * ÇALIŞANA MASRAF İADESİ hareketinin `reference` öneki (lib/personel/masraf-defteri.ts).
+ *
+ * Çalışan bir alış faturasını cebinden ödedi, firma ona sonradan kasadan geri
+ * ödüyor. Hareket KASADAN çıkar ama GİDER DEĞİLDİR: gider alış faturasında zaten
+ * sayıldı (çek/senet tahsiliyle aynı gerekçe). Kâr/zarar, gelir-gider, harcamalar
+ * ve finansal özet dışlar; nakit akışı fatura ödemesi olarak sayar.
+ *
+ * Ham SQL kullanan raporlar öneki satır içi yazar: `NOT LIKE 'CALISAN:%'`
+ * (lib/raporlar/gelir-gider.ts, lib/raporlar/finansal-ozet.ts). Değişirse ikisi de.
+ */
+export const EMPLOYEE_REIMBURSEMENT_PREFIX = "CALISAN:"
+
+export function isEmployeeReimbursement(tx: MaybeTransferLeg): boolean {
+  return Boolean(tx.reference?.startsWith(EMPLOYEE_REIMBURSEMENT_PREFIX))
+}
+
+/** Prisma `where` parçası: masraf iadesi hareketleri. */
+export const EMPLOYEE_REIMBURSEMENT_WHERE = {
+  reference: { startsWith: EMPLOYEE_REIMBURSEMENT_PREFIX },
+}
+
+/** Yukarıdakinin NULL-güvenli tümleyeni (bkz. NOT_TRANSFER_WHERE notu). */
+export const NOT_EMPLOYEE_REIMBURSEMENT_WHERE = {
+  OR: [{ reference: null }, { NOT: { reference: { startsWith: EMPLOYEE_REIMBURSEMENT_PREFIX } } }],
+}
+
+/**
+ * Faturasız GELİR/GİDER sayımı için `where` parçası: virman bacakları, çek/senet
+ * tahsil hareketleri ve çalışana masraf iadeleri dışlanır. `NOT_TRANSFER_WHERE` ile
+ * aynı NULL uyarısı geçerli; `AND` taşıdığı için zaten `AND` içeren bir `where`a
+ * spread edilmez.
  */
 export const NOT_TRANSFER_OR_SETTLEMENT_WHERE = {
   AND: [
     NOT_TRANSFER_WHERE,
     { OR: [{ reference: null }, { NOT: { reference: { startsWith: CHECK_SETTLEMENT_PREFIXES.CHECK } } }] },
     { OR: [{ reference: null }, { NOT: { reference: { startsWith: CHECK_SETTLEMENT_PREFIXES.PROMISSORY_NOTE } } }] },
+    NOT_EMPLOYEE_REIMBURSEMENT_WHERE,
   ],
 }
 
@@ -125,10 +154,10 @@ export const NO_CARI_WHERE = { customerId: null, supplierId: null } as const
 /** Yukarıdakinin tümleyeni: cariye bağlı (müşteri VEYA tedarikçi yazılı). */
 export const CARI_ADVANCE_WHERE = { NOT: { customerId: null, supplierId: null } } as const
 
-// Ham SQL kullanan raporlar (gelir-gider, finansal-ozet) aynı üç öneki VE cari
+// Ham SQL kullanan raporlar (gelir-gider, finansal-ozet) aynı dört öneki VE cari
 // koşulunu satır içi yazar: `reference NOT LIKE 'TRANSFER:%' AND NOT LIKE
-// 'CEK:%' AND NOT LIKE 'SENET:%'` + `t."customerId" IS NULL AND t."supplierId"
-// IS NULL`.
+// 'CEK:%' AND NOT LIKE 'SENET:%' AND NOT LIKE 'CALISAN:%'` + `t."customerId" IS
+// NULL AND t."supplierId" IS NULL`.
 
 /** Bakiyeyi doğrudan değiştirmiş ESKİ fatura ödemeleri (Transaction'sız). */
 export const LEGACY_CASH_PAYMENT_WHERE = {

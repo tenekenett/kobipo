@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useSearchParams, useRouter, useParams } from "next/navigation"
 import { BAKIYE_KAPAMA_LABEL, BAKIYE_KAPAMA_METHOD, isBakiyeKapama } from "@/lib/cari/bakiye-kapama"
+import { CALISAN_ODEMESI_LABEL, CALISAN_ODEMESI_METHOD, isCalisanOdemesi } from "@/lib/personel/calisan-odemesi"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -48,6 +49,8 @@ interface Invoice {
   totalAmount: number
   date: string
   dueDate?: string
+  currency?: string
+  isReceipt?: boolean
   customer?: { name: string }
   supplier?: { name: string }
 }
@@ -64,6 +67,7 @@ interface Payment {
     name: string
     type: string
   }
+  employeeLedger?: { employee: { id: string; firstName: string; lastName: string } } | null
 }
 
 interface FinancialAccount {
@@ -86,7 +90,11 @@ export default function FaturaOdemelerPage() {
   const params = useParams()
   const searchParams = useSearchParams()
   const router = useRouter()
-  const invoiceId = params.id as string
+  // Adresteki değer SLUG olabilir (SEF adresler); yalnız faturayı çekmek için
+  // kullanılır — o uç slug'ı çözer. Ödeme listesi, kayıt ve ödeme linki faturanın
+  // GERÇEK id'siyle çağrılır: slug'la çağrıldıklarında liste boş dönüyor, kayıt
+  // "Invoice not found" veriyordu.
+  const routeId = params.id as string
   const companyId = searchParams.get("company")
   const { toast } = useToast()
   const { confirm } = useConfirm()
@@ -101,6 +109,8 @@ export default function FaturaOdemelerPage() {
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [payments, setPayments] = useState<Payment[]>([])
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
+  // "Çalışan cebinden" seçicisi — yalnız ad (bkz. /api/faturalar/odemeler/calisanlar).
+  const [employees, setEmployees] = useState<Array<{ id: string; name: string }>>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [paymentLinks, setPaymentLinks] = useState<PaymentLink[]>([])
@@ -112,23 +122,43 @@ export default function FaturaOdemelerPage() {
     paymentDate: toDateInput(new Date()),
     paymentMethod: "CASH",
     accountId: "",
+    employeeId: "",
     reference: "",
     notes: "",
   })
 
+  // Çalışan cebinden ödeme yalnız TL alış faturasında (sunucu da aynı kuralı uygular).
+  const canEmployeePay =
+    invoice?.type === "PURCHASE" && !invoice?.isReceipt && (invoice?.currency || "TRY") === "TRY"
+
+  useEffect(() => {
+    if (!canEmployeePay || !companyId) return
+    fetch(`/api/faturalar/odemeler/calisanlar?companyId=${encodeURIComponent(companyId)}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => setEmployees(Array.isArray(list) ? list : []))
+      .catch(() => setEmployees([]))
+  }, [canEmployeePay, companyId])
+
+  useEffect(() => {
+    if (routeId && companyId) {
+      fetchInvoice()
+      fetchAccounts()
+    }
+  }, [routeId, companyId])
+
+  // Gerçek id fatura gelince belli olur; ödemeler ondan sonra çekilir.
+  const invoiceId = invoice?.id ?? null
   useEffect(() => {
     if (invoiceId && companyId) {
-      fetchInvoice()
       fetchPayments()
-      fetchAccounts()
       if (PAYMENT_LINKS_ENABLED) fetchPaymentLinks()
     }
   }, [invoiceId, companyId])
 
   const fetchInvoice = async () => {
-    if (!companyId || !invoiceId) return
+    if (!companyId || !routeId) return
     try {
-      const response = await fetch(`/api/e-donusum/invoices/${invoiceId}?companyId=${companyId}`)
+      const response = await fetch(`/api/e-donusum/invoices/${routeId}?companyId=${companyId}`)
       if (response.ok) {
         const data = await response.json()
         setInvoice(data)
@@ -188,8 +218,13 @@ export default function FaturaOdemelerPage() {
           invoiceId,
           companyId,
           ...formData,
-          // Bakiye kapama / iskonto hesaba yazılmaz; seçili kalmış hesap gönderilmez.
-          accountId: isBakiyeKapama(formData.paymentMethod) ? "" : formData.accountId,
+          // Bakiye kapama / iskonto ve çalışan cebinden ödeme hesaba yazılmaz;
+          // seçili kalmış hesap gönderilmez.
+          accountId:
+            isBakiyeKapama(formData.paymentMethod) || isCalisanOdemesi(formData.paymentMethod)
+              ? ""
+              : formData.accountId,
+          employeeId: isCalisanOdemesi(formData.paymentMethod) ? formData.employeeId : undefined,
         }),
       })
 
@@ -207,6 +242,7 @@ export default function FaturaOdemelerPage() {
           paymentDate: toDateInput(new Date()),
           paymentMethod: "CASH",
           accountId: "",
+          employeeId: "",
           reference: "",
           notes: "",
         })
@@ -263,6 +299,7 @@ export default function FaturaOdemelerPage() {
   }
 
   const createPaymentLink = async () => {
+    if (!invoiceId) return
     const response = await fetch(`/api/faturalar/${invoiceId}/payment-link`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -316,6 +353,7 @@ export default function FaturaOdemelerPage() {
       MEAL_CARD: "Yemek Kartı",
       OTHER: "Diğer",
       [BAKIYE_KAPAMA_METHOD]: BAKIYE_KAPAMA_LABEL,
+      [CALISAN_ODEMESI_METHOD]: CALISAN_ODEMESI_LABEL,
     }
     return methods[method] || method
   }
@@ -432,6 +470,13 @@ export default function FaturaOdemelerPage() {
                     <TableCell>
                       {isBakiyeKapama(payment.paymentMethod) ? (
                         <span className="text-xs text-muted-foreground">Kasa hareketi yok</span>
+                      ) : isCalisanOdemesi(payment.paymentMethod) ? (
+                        <span className="text-xs">
+                          Çalışan:{" "}
+                          {payment.employeeLedger
+                            ? `${payment.employeeLedger.employee.firstName} ${payment.employeeLedger.employee.lastName}`
+                            : "—"}
+                        </span>
                       ) : (
                         payment.account?.name || "-"
                       )}
@@ -583,12 +628,44 @@ export default function FaturaOdemelerPage() {
                       <SelectItem value="CREDIT_CARD">Kredi Kartı</SelectItem>
                       <SelectItem value="OTHER">Diğer</SelectItem>
                       <SelectItem value={BAKIYE_KAPAMA_METHOD}>{BAKIYE_KAPAMA_LABEL}</SelectItem>
+                      {canEmployeePay && (
+                        <SelectItem value={CALISAN_ODEMESI_METHOD}>{CALISAN_ODEMESI_LABEL}</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
                 {/* Bakiye kapama / iskonto kasaya dokunmaz: hesap alanı yerine ne
                     olacağı yazılır (lib/cari/bakiye-kapama.ts). */}
-                {isBakiyeKapama(formData.paymentMethod) ? (
+                {isCalisanOdemesi(formData.paymentMethod) ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="employeeId">Ödeyen çalışan *</Label>
+                    {employees.length === 0 ? (
+                      <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                        Kayıtlı çalışan yok. Önce Personel ekranından çalışan kartı açın.
+                      </p>
+                    ) : (
+                      <Select
+                        value={formData.employeeId}
+                        onValueChange={(value) => setFormData({ ...formData, employeeId: value })}
+                      >
+                        <SelectTrigger id="employeeId">
+                          <SelectValue placeholder="Çalışan seçin" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {employees.map((e) => (
+                            <SelectItem key={e.id} value={e.id}>
+                              {e.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Kasadan para çıkmaz; fatura kapanır ve tutar çalışanın masraf hesabına borç yazılır.
+                      Geri ödeme personel kartından yapılır.
+                    </p>
+                  </div>
+                ) : isBakiyeKapama(formData.paymentMethod) ? (
                   <div className="space-y-2">
                     <Label>Hesap</Label>
                     <p className="rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">

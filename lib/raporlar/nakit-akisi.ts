@@ -19,7 +19,9 @@
 
 import { prisma } from "@/lib/db/prisma"
 import {
+  EMPLOYEE_REIMBURSEMENT_WHERE,
   LEGACY_CASH_PAYMENT_WHERE,
+  NOT_EMPLOYEE_REIMBURSEMENT_WHERE,
   NOT_TRANSFER_WHERE,
   cashBalanceBefore,
 } from "@/lib/finans/nakit-hareket"
@@ -52,6 +54,7 @@ export async function computeCashFlow(args: {
     legacyCashOut,
     otherIncome,
     otherExpense,
+    employeeReimbursements,
   ] = await Promise.all([
     cashBalanceBefore(companyId, bounds.start),
     cashBalanceBefore(companyId, bounds.endExclusive),
@@ -107,8 +110,17 @@ export async function computeCashFlow(args: {
         type: "EXPENSE",
         date,
         invoicePayments: { none: {} },
-        ...NOT_TRANSFER_WHERE,
+        // İki `OR` taşıyan parça: spread birini ezerdi (bkz. NOT_TRANSFER_WHERE notu).
+        AND: [NOT_TRANSFER_WHERE, NOT_EMPLOYEE_REIMBURSEMENT_WHERE],
       },
+      _sum: { amount: true },
+    }),
+
+    // ÇALIŞANA MASRAF İADESİ: çalışanın cebinden ödediği faturanın parası o gün
+    // kasadan çıkar — serbest gider değil, fatura ödemesidir (bkz.
+    // lib/personel/calisan-odemesi.ts).
+    prisma.transaction.aggregate({
+      where: { companyId, type: "EXPENSE", date, ...EMPLOYEE_REIMBURSEMENT_WHERE },
       _sum: { amount: true },
     }),
   ])
@@ -126,7 +138,9 @@ export async function computeCashFlow(args: {
       collections:
         Number(invoiceCashIn._sum.amount || 0) + Number(legacyCashIn._sum.amount || 0),
       payments:
-        Number(invoiceCashOut._sum.amount || 0) + Number(legacyCashOut._sum.amount || 0),
+        Number(invoiceCashOut._sum.amount || 0) +
+        Number(legacyCashOut._sum.amount || 0) +
+        Number(employeeReimbursements._sum.amount || 0),
       otherIncome: Number(otherIncome._sum.amount || 0),
       otherExpense: Number(otherExpense._sum.amount || 0),
     }),

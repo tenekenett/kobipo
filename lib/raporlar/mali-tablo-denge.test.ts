@@ -110,6 +110,28 @@ describe("bilanço dengesi", () => {
     expect(sheet.equity.total).toBe(0)
   })
 
+  /**
+   * Çalışan 10.000'lik alış faturasını cebinden ödedi: tedarikçi borcu kapandı,
+   * kasadan para çıkmadı. Firma artık ÇALIŞANA borçlu — defter bilançoya girmeseydi
+   * yükümlülük sessizce düşer, öz sermaye 10.000 şişerdi.
+   */
+  it("çalışanın cebinden ödediği masraf personele borç olarak pasifte durur", () => {
+    const sheet = composeBalanceSheet({
+      ...bos,
+      cashAndBanks: 10_000,
+      supplierBalances: [0],
+      employeeBalances: [10_000, -1_500],
+      inventory: 0,
+      retainedEarnings: 0,
+    })
+
+    expect(sheet.liabilities.employeePayables).toBe(10_000)
+    // Fazla geri ödenen çalışan kişi başına ayrılır: borçtan düşülmez, alacak olur.
+    expect(sheet.assets.employeeReceivables).toBe(1_500)
+    expect(sheet.total).toBe(sheet.totalLiabilitiesAndEquity)
+    expect(sheet.equity.total).toBe(1_500)
+  })
+
   it("tedarikçiye fazla ödeme borçtan silinmez, avans olarak aktife geçer", () => {
     const sheet = composeBalanceSheet({
       ...bos,

@@ -6,6 +6,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { createInvoicePayment } from "@/lib/finans/create-invoice-payment"
 import { sessionWriteActor } from "@/lib/api/session-actor"
+import { resolveSlugId } from "@/lib/slug-resolve"
 
 export const dynamic = 'force-dynamic'
 
@@ -34,7 +35,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
     }
 
     if (invoiceId) {
-      where.invoiceId = invoiceId
+      // Slug gelebilir (SEF adresler); firma içinde çözülür. Çözülmeden yazılsaydı
+      // liste SESSİZCE boş dönerdi — fatura ödenmemiş görünürdü.
+      where.invoiceId = await resolveSlugId("invoice", invoiceId, companyId)
     }
 
     const payments = await prisma.invoicePayment.findMany({
@@ -53,6 +56,10 @@ export const GET = withApiErrors(async function GET(request: Request) {
             name: true,
             type: true,
           },
+        },
+        // "Çalışan cebinden" ödemede hesap yoktur; satırda kimin ödediği yazar.
+        employeeLedger: {
+          select: { employee: { select: { id: true, firstName: true, lastName: true } } },
         },
       },
       orderBy: {

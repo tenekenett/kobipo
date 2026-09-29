@@ -23,6 +23,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { cashBalanceBefore } from "@/lib/finans/nakit-hareket"
+import { employeeBalances } from "@/lib/personel/masraf-defteri"
 import { computeCariAging, type AgingAccount } from "./cari-yaslandirma"
 import { PROJEKSIYONA_GIREN_DURUM, kiymetleriKalemeCevir } from "./nakit-kiymet"
 import {
@@ -79,13 +80,17 @@ export async function computeCashProjection(args: {
     supplierId: true,
   } as const
 
-  const [aging, openingBalance, cekler, senetler] = await Promise.all([
+  const [aging, openingBalance, cekler, senetler, calisanBakiyeleri] = await Promise.all([
     computeCariAging(companyId),
     // Bugünün SONUNA kadar olan bakiye: projeksiyon yarından itibaren ilerler,
     // bugün girmiş bir tahsilat açılış bakiyesinde olmalı.
     cashBalanceBefore(companyId, new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)),
     prisma.check.findMany({ where: kiymetKosulu, select: kiymetAlanlari }),
     prisma.promissoryNote.findMany({ where: kiymetKosulu, select: kiymetAlanlari }),
+    // Çalışan cebinden ödenen fatura yaşlandırmadan DÜŞER (fatura kapandı) ama para
+    // henüz kasadan çıkmadı: firma çalışana borçlu. Vadesi yoktur; eklenmeseydi
+    // "Çalışan cebinden ödedi" demek eğriden bir borcu sessizce silmek olurdu.
+    employeeBalances(companyId),
   ])
 
   const projection = buildCashProjection({
@@ -97,6 +102,9 @@ export async function computeCashProjection(args: {
       ...toItems(aging.customers.accounts, "in"),
       ...toItems(aging.suppliers.accounts, "out"),
       ...kiymetleriKalemeCevir([...cekler, ...senetler], now),
+      ...calisanBakiyeleri
+        .filter((c) => c.balance > 0)
+        .map((c) => ({ dueDate: null, amount: c.balance, direction: "out" as const, hasDueDate: false })),
     ],
   })
 

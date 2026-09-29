@@ -28,6 +28,7 @@ import {
   useRestoranActivity,
 } from "@/components/personel/employee-restoran-tab"
 import { EmployeeVardiyaTab } from "@/components/personel/employee-vardiya-tab"
+import { EmployeeMasrafTab } from "@/components/personel/employee-masraf-tab"
 import { ArrowLeft, Calculator, FileText, FileDown, ExternalLink, Plus, Pencil, Trash2, Wallet, CalendarCheck, BadgeCheck, FolderOpen } from "lucide-react"
 import { MaasAlanlari, type MaasBasis } from "@/components/personel/maas-alanlari"
 import {
@@ -427,6 +428,8 @@ export default function PersonelDetayPage() {
           <TabsTrigger value="izin">İzin ({emp.leaves.length})</TabsTrigger>
           <TabsTrigger value="zimmet">Zimmet ({emp.assets.length})</TabsTrigger>
           <TabsTrigger value="belge">Belgeler ({emp.documents.length})</TabsTrigger>
+          {/* Sayaç yok: defter sekme açılınca çekilir (vardiya sekmesiyle aynı). */}
+          <TabsTrigger value="masraf">Masraflar</TabsTrigger>
           {/* Restoran modülü kapalıysa sekme hiç çizilmez — İK ekranı
               kullanılmayan bir modülün boş tablosunu göstermemeli. */}
           {restoran?.enabled && (
@@ -731,6 +734,15 @@ export default function PersonelDetayPage() {
             hangi ayı sayacağı belirsiz olurdu. */}
         <TabsContent value="vardiya">
           <EmployeeVardiyaTab employeeId={emp.id} companyId={companyId} />
+        </TabsContent>
+
+        {/* MASRAFLAR — çalışanın cebinden ödediği faturalar ve geri ödemeler */}
+        <TabsContent value="masraf">
+          <EmployeeMasrafTab
+            employeeId={emp.id}
+            employeeName={`${emp.firstName} ${emp.lastName}`.trim()}
+            companyId={companyId}
+          />
         </TabsContent>
 
         {restoran?.enabled && (

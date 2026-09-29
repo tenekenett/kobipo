@@ -6,6 +6,7 @@
 
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
+import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
 import { Decimal } from "@prisma/client/runtime/library"
 import { accessDeniedResponse } from "@/lib/api/errors"
@@ -13,6 +14,7 @@ import { revalidateDashboard } from "@/lib/dashboard/cache"
 import { isPurchaseReturn } from "@/lib/cari/invoice-direction"
 import { ensureDefaultCashAccount } from "@/lib/finans/varsayilan-kasa"
 import { isBakiyeKapama } from "@/lib/cari/bakiye-kapama"
+import { CALISAN_ODEMESI_METHOD, LEDGER_EXPENSE, isCalisanOdemesi } from "@/lib/personel/calisan-odemesi"
 import type { WriteActor } from "@/lib/api/write-actor"
 
 /** Tahsilat/ödeme yazar ve HTTP yanıtını döndürür (uç aynen iletir). */
@@ -23,6 +25,10 @@ export async function createInvoicePayment(
   try {
     const body = await readBody()
     body.companyId = await resolveCompanyId(body.companyId)
+    // Fatura slug'la gelebilir (SEF adresli ekranlar); firma içinde çözülür.
+    if (typeof body.invoiceId === "string" && body.invoiceId) {
+      body.invoiceId = await resolveSlugId("invoice", body.invoiceId, body.companyId)
+    }
     const {
       invoiceId,
       companyId,
@@ -127,6 +133,84 @@ export async function createInvoicePayment(
       revalidateDashboard(companyId)
       return NextResponse.json(
         { ...writeOff, account: null, accountDefaulted: false, accountCreated: false },
+        { status: 201 },
+      )
+    }
+
+    // ÇALIŞAN CEBİNDEN ÖDEDİ: kasadan para çıkmaz, fatura kapanır ve firma çalışana
+    // borçlanır — ödeme + defter satırı TEK işlemde (bkz. lib/personel/calisan-odemesi.ts).
+    // Hesap gönderilmişse reddedilir: bakiye kapamayla aynı gerekçe, sessizce yok
+    // saymak "kasadan ödendi" izlenimi bırakırdı.
+    if (isCalisanOdemesi(paymentMethod)) {
+      if (accountId) {
+        return NextResponse.json(
+          { error: "Çalışan cebinden ödeme bir kasa veya banka hesabına yazılmaz" },
+          { status: 400 },
+        )
+      }
+      if (invoice.type !== "PURCHASE" || invoice.isReceipt) {
+        return NextResponse.json(
+          { error: "Çalışan cebinden ödeme yalnız alış faturasına yazılır" },
+          { status: 400 },
+        )
+      }
+      if ((invoice.currency || "TRY") !== "TRY") {
+        return NextResponse.json(
+          { error: "Döviz faturası çalışan cebinden ödendi olarak işaretlenemez; çalışan borcu TL tutulur" },
+          { status: 400 },
+        )
+      }
+      const employeeId = typeof body.employeeId === "string" ? body.employeeId.trim() : ""
+      const employee = employeeId
+        ? await prisma.employee.findFirst({
+            where: { id: employeeId, companyId },
+            select: { id: true, firstName: true, lastName: true },
+          })
+        : null
+      if (!employee) {
+        return NextResponse.json(
+          { error: employeeId ? "Çalışan bulunamadı" : "Ödemeyi yapan çalışanı seçin" },
+          { status: employeeId ? 404 : 400 },
+        )
+      }
+      const employeePaid = await prisma.$transaction(async (db) => {
+        const created = await db.invoicePayment.create({
+          data: {
+            invoiceId,
+            companyId,
+            amount: new Decimal(amount),
+            paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+            paymentMethod: CALISAN_ODEMESI_METHOD,
+            accountId: null,
+            transactionId: null,
+            reference: reference || null,
+            notes: notes || null,
+            createdBy: actor.userId,
+          },
+          include: {
+            invoice: { select: { id: true, invoiceNo: true, totalAmount: true } },
+          },
+        })
+        await db.employeeLedgerEntry.create({
+          data: {
+            companyId,
+            employeeId: employee.id,
+            kind: LEDGER_EXPENSE,
+            invoicePaymentId: created.id,
+            createdBy: actor.userId,
+          },
+        })
+        return created
+      })
+      revalidateDashboard(companyId)
+      return NextResponse.json(
+        {
+          ...employeePaid,
+          account: null,
+          employee: { id: employee.id, name: `${employee.firstName} ${employee.lastName}`.trim() },
+          accountDefaulted: false,
+          accountCreated: false,
+        },
         { status: 201 },
       )
     }

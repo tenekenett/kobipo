@@ -425,6 +425,33 @@ Transaction, çek/senet, açılış bakiyesi ve **cari virman fişi** (`lib/cari
   günü kasaya geçer (`lib/raporlar/bilanco-kiymet.ts`). İade/protesto/ciro tarihi
   tutulmadığı için geçmiş tarihli bilançoda bugünkü durumla sayılır — ekran yazar.
 
+## Alış faturası: ödeme durumu + "çalışan cebinden ödedi" defteri
+
+Alış editöründe (Paraşüt düzeni, `components/e-donusum/alis-odeme-stok.tsx`) üç seçenek:
+**Ödenecek** (fatura açık, vade = `dueDate`), **Ödendi** ve **Çalışan Cebinden Ödedi**.
+Son ikisi faturayla AYNI istekte tam tutarlık ödeme yazar (`purchasePayment` gövdesi →
+`createInvoiceFromBody` → `createInvoicePayment`). Seçim fatura AÇILMADAN doğrulanır;
+yazma yine düşerse fatura kalır ve yanıt `paymentWarning` taşır — sessiz geçilmez.
+
+```
+Çalışan öder   → InvoicePayment "EMPLOYEE" (kasasız) + EmployeeLedgerEntry EXPENSE
+                 tedarikçi bakiyesi düşer, kasa değişmez, firma çalışana borçlanır
+Çalışana öde   → Transaction EXPENSE reference "CALISAN:<employeeId>" + Ledger REIMBURSEMENT
+                 (personel kartı → Masraflar; yazma yetkisi bordro ile aynı: /personel/maas)
+```
+
+- **Gider BİR KEZ sayılır:** gider alış faturasıdır. `CALISAN:` önekli hareket kâr/zarar,
+  gelir-gider, harcamalar ve finansal özette DIŞLANIR (`NOT_TRANSFER_OR_SETTLEMENT_WHERE`
+  + ham SQL'de satır içi `NOT LIKE 'CALISAN:%'`); nakit akışı onu fatura ödemesi sayar.
+  Yeni bir kâr raporu yazan bu öneki de dışlar (`lib/personel/calisan-odemesi.test.ts` ölçer).
+- Defter TUTAR TUTMAZ: tutar/tarih bağlı para kaydındadır; kayıt silinince satır Cascade
+  düşer. Bakiye tek yerden: `lib/personel/masraf-defteri.ts` (kart, bilanço "Personele
+  borçlar / Personelden alacaklar" kişi başına, nakit projeksiyonu vadesiz çıkış).
+- Yalnız TL alış faturası (defter tek para birimi). Defterde satırı olan çalışan silinemez.
+- **Stok takibi:** `Invoice.skipStock` ("Stok girişi yapılmasın") KAYITTA durur — PUT stok
+  mutabakatı onu okur; açılınca faturanın stok etkisi geri alınır, kapanınca yazılır.
+  Stoğa işlenmiş irsaliye bağlıysa stoğun sahibi irsaliyedir, bayrak etkisizdir.
+
 ## Fatura dip toplamı YALNIZ `lib/invoice/document-totals.ts`ten gelir
 
 GİB'e giden belge her satırı kuruşa yuvarlar ve genel iskontoyu satırlara dağıtır;

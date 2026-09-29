@@ -151,6 +151,9 @@ export const GET = withApiErrors(async function GET(
             paymentDate: "desc",
           },
         },
+        // Editör "Stok takibi" satırı: stoğa işlenmiş irsaliye bağlıysa stoğun
+        // sahibi irsaliyedir ve seçim gösterilmez (PUT'taki waybillOwnsStock ile aynı).
+        waybills: { select: { id: true, waybillNo: true, stockProcessed: true } },
       },
     })
 
@@ -237,7 +240,9 @@ export const PUT = withApiErrors(async function PUT(
       // ödemeler ise tutarın tahsilatın altına düşürülmesini engellemek için.
       include: {
         items: {
-          select: { productId: true, quantity: true, unitPrice: true },
+          // discountAmount: "stok girişi yapılsın"a dönülünce kayıtlı kalemlerden
+          // yazılan hareketin maliyeti iskontolu fiyattan çıkar (POST ile aynı).
+          select: { productId: true, quantity: true, unitPrice: true, discountAmount: true },
           orderBy: { order: "asc" },
         },
         payments: { select: { amount: true } },
@@ -389,34 +394,58 @@ export const PUT = withApiErrors(async function PUT(
         where: { invoiceId: resolvedParams.id, stockProcessed: true },
       })) > 0
 
+    // STOK GİRİŞİ YAPILMASIN (Invoice.skipStock, yalnız alış) düzenlemede de
+    // değiştirilebilir: açılınca faturanın stok etkisi geri alınır, kapanınca
+    // kalemlerden (gelmediyse kayıtlı kalemlerden) yeniden yazılır. Açıkken kalem
+    // değişikliği deftere hiç dokunmaz — fatura stoğun sahibi değildir.
+    const nextSkipStock =
+      isPurchase && !invoice.isReceipt && body.skipStock !== undefined
+        ? body.skipStock === true
+        : invoice.skipStock
+    const skipStockChanged = nextSkipStock !== invoice.skipStock
+
     // Ürün/miktar/birim fiyat üçlüsü birebir aynıysa deftere DOKUNMA: her kaydetmede
     // geri alma + yeniden yazma çifti üretmek hareket listesini şişirir ve AVCO
     // ortalamasını eski fiyatla harmanlar (bkz. lib/stock/cost.ts AVG_COST_SELECT).
-    const needsStockReconcile =
+    const linesChanged =
       normalizedItems !== null &&
       normalizedItems.length > 0 &&
-      !waybillOwnsStock &&
       !sameStockLines(invoice.items, normalizedItems)
+    const needsStockReconcile =
+      !waybillOwnsStock && (skipStockChanged || (!nextSkipStock && linesChanged))
 
-    // Reçete/maliyet okumaları transaction DIŞINDA: kilit süresi kısa kalsın.
-    const newStockOps = needsStockReconcile
-      ? await prepareInvoiceStockOps(prisma, {
-          companyId: invoice.companyId,
-          type: invoice.type,
-          // Yön kayıttan okunur: tip düzenlemede kilitli (editör de kilitliyor),
-          // dolayısıyla iadenin yönü de kesildiği gibi kalır.
-          returnKind: invoice.returnKind,
-          invoiceNo: normalizedInvoiceNo || invoice.invoiceNo,
-          lines: (normalizedItems || []).map((item, index) => ({
+    const stockLines =
+      normalizedItems && normalizedItems.length > 0
+        ? normalizedItems.map((item, index) => ({
             productId: item.productId,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             // Bkz. POST ucu: maliyet iskontolu fiyattan hesaplanır.
             discountAmount: item.discountAmount ?? null,
             order: index,
-          })),
-        })
-      : []
+          }))
+        : invoice.items.map((item, index) => ({
+            productId: item.productId,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            discountAmount: item.discountAmount != null ? Number(item.discountAmount) : null,
+            order: index,
+          }))
+
+    // Reçete/maliyet okumaları transaction DIŞINDA: kilit süresi kısa kalsın.
+    // Stok kapalıysa hareket hazırlanmaz: mutabakat yalnız eski etkiyi geri alır.
+    const newStockOps =
+      needsStockReconcile && !nextSkipStock
+        ? await prepareInvoiceStockOps(prisma, {
+            companyId: invoice.companyId,
+            type: invoice.type,
+            // Yön kayıttan okunur: tip düzenlemede kilitli (editör de kilitliyor),
+            // dolayısıyla iadenin yönü de kesildiği gibi kalır.
+            returnKind: invoice.returnKind,
+            invoiceNo: normalizedInvoiceNo || invoice.invoiceNo,
+            lines: stockLines,
+          })
+        : []
     // Stok, oluşturmanın düştüğü depoya geri yazılır; faturada depo alanı yok.
     const stockWarehouseId = needsStockReconcile
       ? (await resolveInvoiceWarehouseId(prisma, {
@@ -440,6 +469,7 @@ export const PUT = withApiErrors(async function PUT(
           supplierId: supplierId !== undefined ? (supplierId || null) : invoice.supplierId,
           date: date ? new Date(date) : invoice.date,
           dueDate: dueDate !== undefined ? (dueDate ? new Date(dueDate) : null) : invoice.dueDate,
+          ...(skipStockChanged ? { skipStock: nextSkipStock } : {}),
           totalAmount: totalAmount,
           vatAmount: vatAmount,
           netAmount: netAmount,

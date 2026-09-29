@@ -31,6 +31,13 @@ import { amountExceedsLimit, discountLimitError, normalizeDiscountLimit } from "
 import { accessDeniedResponse } from "@/lib/api/errors"
 import { assertOwnedByCompany } from "@/lib/company/owned"
 import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
+import { createInvoicePayment } from "@/lib/finans/create-invoice-payment"
+import { accountPaymentMethod } from "@/lib/finans/account-types"
+import {
+  CALISAN_ODEMESI_METHOD,
+  parsePurchasePayment,
+  purchasePaymentBlocker,
+} from "@/lib/personel/calisan-odemesi"
 import type { WriteActor } from "@/lib/api/write-actor"
 
 /** Serbest metin alanı: boş/whitespace ise NULL yaz (boş string saklama). */
@@ -197,6 +204,42 @@ const company = await prisma.company.findUnique({
         { status: 400 }
       )
     }
+
+    // ALIŞ: ÖDEME DURUMU ("Ödendi" / "Çalışan cebinden ödedi") faturayla AYNI
+    // istekte tam tutarlık bir ödeme yazar. Seçim ve bağlı kayıtlar fatura AÇILMADAN
+    // doğrulanır: önce fatura açılıp ödeme sonra reddedilseydi kullanıcının "ödendi"
+    // dediği belge açık kalırdı. (Yazma anındaki beklenmedik hata aşağıda uyarıya döner.)
+    const parsedPayment = parsePurchasePayment(body.purchasePayment)
+    if (!parsedPayment.ok) {
+      return NextResponse.json({ error: parsedPayment.error }, { status: 400 })
+    }
+    const purchasePayment = parsedPayment.value
+    let purchasePaymentMethod: string | null = null
+    if (purchasePayment) {
+      const blocker = purchasePaymentBlocker(purchasePayment, { type, currency, isReceipt })
+      if (blocker) return NextResponse.json({ error: blocker }, { status: 400 })
+      if (purchasePayment.status === "EMPLOYEE") {
+        const employee = await prisma.employee.findFirst({
+          where: { id: purchasePayment.employeeId, companyId },
+          select: { id: true },
+        })
+        if (!employee) return NextResponse.json({ error: "Ödemeyi yapan çalışan bulunamadı" }, { status: 404 })
+        purchasePaymentMethod = CALISAN_ODEMESI_METHOD
+      } else if (purchasePayment.accountId) {
+        const account = await prisma.financialAccount.findFirst({
+          where: { id: purchasePayment.accountId, companyId },
+          select: { type: true },
+        })
+        if (!account) return NextResponse.json({ error: "Ödeme hesabı bulunamadı" }, { status: 404 })
+        purchasePaymentMethod = accountPaymentMethod(account.type)
+      } else {
+        // Hesap seçilmedi → ödeme ucu varsayılan Kasa'ya yazar ve bunu söyler.
+        purchasePaymentMethod = "CASH"
+      }
+    }
+
+    // STOK GİRİŞİ YAPILMASIN — yalnız alış faturasında anlamlı (Invoice.skipStock).
+    const skipStock = type === "PURCHASE" && !isReceipt && body.skipStock === true
 
     // Elle girilen numarayı normalize et + doğrula (kırpma, uzunluk, karakter kümesi).
     // Önceden ham değer olduğu gibi kaydediliyordu: " ALI-1 " ile "ALI-1" ayrı kayıt
@@ -405,6 +448,7 @@ const company = await prisma.company.findUnique({
           : [],
         status: "DRAFT",
         isReceipt,
+        skipStock,
         returnKind,
         // Atıf alanları yalnız iadede anlamlı; başka tipte gövdede gelse bile yazılmaz.
         returnOfInvoiceId: returnKind ? returnOfInvoiceId : null,
@@ -480,7 +524,8 @@ const company = await prisma.company.findUnique({
     // Reçete genişletme (yalnız satış) ve hizmet ürünü elemesi ORTAK katmanda:
     // lib/stock/invoice-stock.ts — aynı kural fatura düzenlemede de çalışsın diye.
     const safeType = String(type || "").trim().toUpperCase()
-    const stockableItems = await prepareInvoiceStockOps(prisma, {
+    // "Stok girişi yapılmasın" seçildiyse hiç hareket hazırlanmaz.
+    const stockableItems = skipStock ? [] : await prepareInvoiceStockOps(prisma, {
       companyId,
       type: safeType,
       returnKind,
@@ -600,6 +645,46 @@ const company = await prisma.company.findUnique({
         })
       } catch (linkErr) {
         console.error("[IncomingInvoice link/auto-approve hatası]", linkErr)
+      }
+    }
+
+    // ALIŞ ÖDEMESİ — faturanın TAM tutarı, ödeme ucuyla AYNI çekirdekten
+    // (kasa hareketi, varsayılan Kasa, çalışan defteri kuralları orada). Seçim
+    // yukarıda doğrulandı; burada düşerse fatura yine kaydedilmiştir ve bu
+    // SESSİZ geçilmez: yanıt `paymentWarning` taşır, ekran kırmızı gösterir.
+    let paymentWarning: string | null = null
+    let paymentResult: Record<string, unknown> | null = null
+    if (purchasePayment && purchasePaymentMethod && Number(invoice.totalAmount) > 0) {
+      try {
+        const res = await createInvoicePayment(
+          async () => ({
+            invoiceId: invoice.id,
+            companyId,
+            amount: String(invoice.totalAmount),
+            paymentDate: purchasePayment.paymentDate || date || undefined,
+            paymentMethod: purchasePaymentMethod,
+            accountId: purchasePayment.status === "PAID" ? purchasePayment.accountId || undefined : undefined,
+            employeeId: purchasePayment.status === "EMPLOYEE" ? purchasePayment.employeeId : undefined,
+          }),
+          actor,
+        )
+        const data = await res.json().catch(() => null)
+        if (res.status === 201) {
+          paymentResult = {
+            accountDefaulted: Boolean(data?.accountDefaulted),
+            accountCreated: Boolean(data?.accountCreated),
+            account: data?.account ? { name: data.account.name ?? null } : null,
+            employee: data?.employee ?? null,
+          }
+        } else {
+          paymentWarning =
+            `${invoice.invoiceNo} kaydedildi ama ödemesi yazılamadı` +
+            (data?.error ? `: ${data.error}` : "") +
+            ". Ödemeyi faturanın Ödemeler ekranından girin."
+        }
+      } catch (payErr) {
+        console.error("[Alış ödemesi yazılamadı]", payErr)
+        paymentWarning = `${invoice.invoiceNo} kaydedildi ama ödemesi yazılamadı. Ödemeyi faturanın Ödemeler ekranından girin.`
       }
     }
 
@@ -815,7 +900,12 @@ const invoiceData = {
     revalidateDashboard(companyId)
 
     return NextResponse.json(
-      stockWarning ? { ...invoice, stockWarning } : invoice,
+      {
+        ...invoice,
+        ...(stockWarning ? { stockWarning } : {}),
+        ...(paymentWarning ? { paymentWarning } : {}),
+        ...(paymentResult ? { payment: paymentResult } : {}),
+      },
       { status: 201 }
     )
   } catch (error: any) {

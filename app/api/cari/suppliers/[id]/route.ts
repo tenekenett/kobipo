@@ -110,7 +110,16 @@ export const GET = withApiErrors(async function GET(
         // ekstreye işlemin kendisi üzerinden girer (aşağıda iki yerde de).
         payments: {
           where: { transactionId: null },
-          select: { id: true, amount: true, paymentDate: true, createdAt: true, transactionId: true, reference: true, paymentMethod: true },
+          select: {
+            id: true,
+            amount: true,
+            paymentDate: true,
+            createdAt: true,
+            transactionId: true,
+            reference: true,
+            paymentMethod: true,
+            employeeLedger: { select: { employee: { select: { firstName: true, lastName: true } } } },
+          },
         },
       },
     })

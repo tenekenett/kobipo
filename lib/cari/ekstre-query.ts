@@ -248,6 +248,8 @@ export function faturaOdemesiSatirlari<
     transactionId: string | null
     reference: string | null
     paymentMethod: string
+    /** "Çalışan cebinden" ödemede kimin ödediği (lib/personel/calisan-odemesi.ts). */
+    employeeLedger?: { employee: { firstName: string; lastName: string } } | null
   },
 >(
   inv: DirectionalInvoice & { invoiceNo: string; eDocumentNo: string | null; payments: P[] },
@@ -268,11 +270,15 @@ export function faturaOdemesiSatirlari<
       // Bakiye kapama / iskonto aynı yönde düşer ama AYRI TÜRDÜR: ekranda ve
       // dosyada "ödeme" diye okunmamalı — para gelmedi, alacaktan vazgeçildi.
       const kapama = isBakiyeKapama(p.paymentMethod)
+      // Çalışan cebinden ödemede tedarikçi borcu kapanır ama para kasadan çıkmadı;
+      // satır kimin ödediğini söyler (kasa hareketi olmadığı için başka ipucu yok).
+      const calisan = p.employeeLedger?.employee
+      const kimOdedi = calisan ? ` — çalışan: ${`${calisan.firstName} ${calisan.lastName}`.trim()}` : ""
       return {
         type: kapama ? ("WRITE_OFF" as const) : ("INVOICE_PAYMENT" as const),
         id: p.id,
         date: p.paymentDate,
-        description: `${kapama ? "Bakiye kapama / iskonto" : "Fatura ödemesi"} ${inv.eDocumentNo || inv.invoiceNo}`,
+        description: `${kapama ? "Bakiye kapama / iskonto" : "Fatura ödemesi"} ${inv.eDocumentNo || inv.invoiceNo}${kimOdedi}`,
         debit: invoiceIsDebit ? 0 : Number(p.amount),
         credit: invoiceIsDebit ? Number(p.amount) : 0,
         balance: 0,
@@ -384,7 +390,15 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
         // cari işlemi ÜRETMEZ; ekstreye girmezlerse fatura tam tutarıyla borç
         // yazılı kalır ve bakiye ödenmemiş gibi görünür.
         payments: {
-          select: { id: true, amount: true, paymentDate: true, transactionId: true, reference: true, paymentMethod: true },
+          select: {
+            id: true,
+            amount: true,
+            paymentDate: true,
+            transactionId: true,
+            reference: true,
+            paymentMethod: true,
+            employeeLedger: { select: { employee: { select: { firstName: true, lastName: true } } } },
+          },
         },
       },
       orderBy: { date: "desc" },

@@ -35,6 +35,8 @@
 import { prisma } from "@/lib/db/prisma"
 import { ensureDefaultCashAccount, DEFAULT_CASH_ACCOUNT } from "@/lib/finans/varsayilan-kasa"
 import { isPurchaseReturn } from "@/lib/cari/invoice-direction"
+import { BAKIYE_KAPAMA_METHOD } from "@/lib/cari/bakiye-kapama"
+import { CALISAN_ODEMESI_METHOD } from "@/lib/personel/calisan-odemesi"
 
 const args = process.argv.slice(2)
 const APPLY = args.includes("--uygula")
@@ -51,6 +53,10 @@ async function main() {
     where: {
       transactionId: null,
       accountId: null,
+      // BİLEREK kasasız olan iki kayıt ASLA kasaya taşınmaz: bakiye kapama (para
+      // hareketi yok) ve çalışan cebinden ödeme (para çalışanın cebinden çıktı;
+      // firmanın kasası geri ödemede değişir — lib/personel/calisan-odemesi.ts).
+      paymentMethod: { notIn: [BAKIYE_KAPAMA_METHOD, CALISAN_ODEMESI_METHOD] },
       ...(onlyCompany ? { companyId: onlyCompany } : {}),
       invoice: { status: { notIn: ["CANCELLED", "CONVERTED"] } },
     },
