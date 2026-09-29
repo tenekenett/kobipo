@@ -214,6 +214,84 @@ Worldline'a (entegratör başvurusu) sorulacaklar — **kablolu + kablosuz tek b
 14. iKasa'daki "Entegrasyon Yetkileri (Z Raporum)": işletme yetki verince entegratör Z raporu
     verisine (API ile) erişebiliyor mu? GMP3 lisansı gerektiriyor mu?
 
+**Worldline cevabı (2026-09-28, satış ekibi e-postası — kullanıcı çağrı merkezine talep bıraktı,
+geri arandı):**
+- **Tek seferlik "GMP3 & TSM Entegrasyon Destek Bedeli" 1.000 € + KDV** — eğitim, teknik destek,
+  workshop, canlıya geçiş dahil. Kablolu + kablosuz TEK sözleşme ("GMP3 & TSM Sözleşmesi") → soru 1 cevaplandı.
+- **Mühürsüz test cihazı ZORUNLU; mühürlü (malileşmiş) cihaz test cihazı olamaz** → kullanıcının
+  iDE280'i test cihazı DEĞİL, yalnız pilot. Worldline'ın sattığı test cihazları (KDV hariç):
+  PAX A910SF Android 7.458,33 ₺ (+ B910SF şarj/iletişim ünitesi 2.562,50 ₺), Move 5000 F mobil
+  12.375,00 ₺. Masaüstü (iDE280) test cihazı listede yok. Hazırlık + sevk 10–14 iş günü.
+- Sözleşmenin her sayfası kaşe + imza, **kargoyla** gönderilir; s. 7 "Firma Sistemi" doldurulur.
+- Fatura için vergi levhası (PDF/JPEG) + cari bilgileri; ödeme yalnız IBAN, fatura sonrası, dekont iletilir.
+- Destek **Redmine** üzerinden; kullanıcılar Excel ile bildirilir, **kurumsal kişisel e-posta
+  zorunlu** (info@, Gmail vb. kabul edilmez). Onaydan sonra Redmine'da **tüm teknik doküman ve DLL
+  kütüphanesi** açılır → kablolu SDK Windows DLL (soru 9 kısmen).
+- Entegrasyon bitince işletme İKASA'dan cihaz başına paket alır; "tüm müşterilere standart
+  ücretlendirme" — bayi modeli (soru 3) cevaplanmadı, indirimli/bayi fiyatı ima edilmiyor.
+- Cevaplanmayanlar: 2 (kapsam PAX/Ingenico ortak SDK? — "Pax & Ingenico" dendi), 4 (test cihazı hangisi
+  iki yolu da destekler), 5–8, 10–14.
+
+**Worldline belge paketi incelendi (2026-09-28; sözleşme 2025_10, fiyat teklifi, SSS, DLL ve Restoran
+ön bilgilendirme, proje süreçleri, Redmine kılavuzu, iKasa satın alma):**
+
+*Teknik*
+- **Kablosuz = bizim yazdığımız web servisi.** TSM "İResto" (restoran) ve "Retail" (market/perakende)
+  uygulamaları cihazdan firmanın web servisine bağlanır; **REST ya da SOAP** serbest. 4 fonksiyon:
+  açık adisyon özeti, adisyon detayı (ürün/tutar/KDV), ödeme bilgisi gönderme, durum güncelleme.
+  Ödeme tipleri standart yapıda (nakit, kart, yemek çeki). Parametre ayrıntısı ayrı teknik dokümanda
+  (Redmine). → Vercel'de API ucu olarak yazılabilir görünüyor. AÇIK: sözleşmedeki "Gateway —
+  Worldline'ın firmaya özel sunucu yazılımı" nerede çalışıyor.
+- **Kablolu = GMP3 DLL**, Windows 32/64 (XP sonrası) ve **Linux (Ubuntu, .so)**; Android/iOS yok
+  (tablette ara katman önerisi). C# örnekleri + simülatör (paket GDP_v16r42). Cihaza TCP/IP **port
+  7500** / USB / RS232; tek DLL ağdaki birden çok cihaza konuşur; yapılandırma GMP.XML. DLL cihaza
+  ULAŞABİLMELİ — bulutta tek DLL ancak VPN'le; pratikte mağaza başına ara katman.
+- Kablolu desteklenen cihazlar: **iWE280, iDE280, Move5000F, PAX A910SF** (A910SF de kablolu).
+  SSS: "GMP3 (Kablolu) Masaüstü, TSM (Kablosuz) Mobil — 2 farklı hizmet".
+- **Hash:** cihaz yalnız TSM'de kayıtlı yazılım+DLL özetinden komut alır; kodda en ufak değişiklik
+  → hash değişir → sahadaki tüm cihazlarda bağlantı kopar → yeniden hash testi. Yılda 2 test ücretsiz,
+  sonrası 500 USD + KDV. Worldline önerisi: **ÖKC ile konuşan exe'yi ayır** → Kobipo'nun kendi
+  değişiklikleri hash'e dokunmaz. Hash testi uzaktan (Teams + Ethernet, Worldline'daki test ÖKC);
+  öncesinde kendi test cihazımızda `GMP3_test_cases` Excel'i işletilir (olumsuz senaryolar, dinamik
+  KDV, kağıt bitme dahil).
+- **KDV ve departman listesi cihazdan dinamik okunmalı (yasal)**, Z sonrası yeniden. Fiş mali limiti
+  aşılırsa (ör. 12.000 TL) cihaz hata verir → faturaya dönüştürme (Kobipo'da e-Arşiv yolu). Mali
+  hafızaya yazma komutundan sonra fiş iptal edilemez; kopma/zaman aşımında fişin son durumu sorgulanır.
+  Yemek çeki yalnız "Yemek Çeki Geçerli" departmanların tutarı kadar.
+- Geliştirme tahmini 1–3 ay (Worldline). Banka test kartları işyerinin bankasından; yemek çeki test
+  kartı Worldline destekten. Adresler: destek `dl-tr.support@worldline.com`, test cihazı satış
+  `dl-tr.int.sales@worldline.com`; Redmine `redmine.tr.worldline-solutions.com` (giriş ext.ad.soyad).
+
+*Ticari*
+- 1.000 € + KDV kapsamı: GMP3 lisansı / DLL / workshop / hash testi / proje yönetimi — **yalnız 2 saat
+  uzaktan workshop + toplam 4 saat uzaktan destek**; sonrası ek geliştirme 500 USD + KDV adam/gün.
+  Teklif 1 hafta geçerli, kabulden sonra 1 hafta içinde faturalanır.
+- Entegratörden yıllık ücret YOK (SSS); işletme iKasa'dan cihaz başına öder (1 yıllık ya da 6 aylık
+  "GMP3 + Z Raporu"). Entegratör müşteri adına iKasa'ya girip ödeyebilir (cihaz sicili + cep no).
+  Sözleşme uzatması ücretsiz. Sözleşmeyle birlikte **imza sirküleri** de istenir (SSS).
+- Çelişki: sözleşme Md. 6 "Z raporu için ÖKC başına aylık 1 USD + KDV, harici printer 1 USD, gecikmeye
+  aylık %2 faiz" diyor — kimden alındığı yazmıyor; SSS "yazılım firmasından ek ücret yok" diyor.
+
+*Sözleşme riskleri (hukuki görüş değil)*
+- Md. 10: Worldline **1 ay önceden, gerekçesiz, tazminatsız fesih** edebilir; Md. 3: sözleşme sona
+  erince bağlı TÜM ÖKC'lerin lisansı uzaktan kapatılır → müşteri sürekliliği riski (yedek: elle akış).
+- Md. 4.2-III: onay verileceği ya da zamanı taahhüt edilmez; ret/gecikmede iptal-iade istenemez.
+- Md. 1: yalnız 1. grup (haberleşme/eşleşme) + 2. grup (mali satış, faturalı satış) taahhüt edilir;
+  **3. grup (Z Rapor Verileri, yemek kartları, fiş bilgileri, işlem detay kayıtları, fatura tahsilatı…)
+  ayrı ticari sözleşme konusu** — DLL dokümanı yemek çekini standart akışta sayıyor, çelişki.
+- Md. 5.6–5.7, EK-3: Kobipo kaynaklı ceza/zararı Worldline'ın **ilk yazılı talebiyle, mahkeme kararı
+  aranmadan** öder; Worldline'ın sorumluluğu kesinleşmiş kararla doğrudan zararla sınırlı (Md. 9).
+- Md. 8: Worldline, Kobipo'nun ve **üye işyerlerinin** bilgilerini pazarlama/kampanya dahil amaçlarla
+  tedarikçi, çözüm ortağı, banka ve Worldline Global ile paylaşabilir; Kobipo ticari ileti izni verir.
+  Md. 5.8: TSM fiş verisini (ürün, barkod, fiyat, KDV) en az 5 yıl saklar → Kobipo aydınlatma metni.
+- Md. 4.2-II: SİSTEM kaynaklı değişiklik yılda en çok 2 (hash tasarımıyla yönetilir). Md. 4.5.2:
+  eşleşmede Worldline teknisyeni + FİRMA SERVİSİ yerinde — DLL dokümanı yazılımdan başlatılan
+  eşleştirme anlatıyor; sahaya adam gerekip gerekmediği sorulacak.
+- Md. 5.4 "Worldline iş ortağı" tanıtımı ve logo yazılı onaysız yok; Md. 11 devir Worldline onayına
+  bağlı (Kobipo başka tüzel kişiye geçerse); yetkili mahkeme İstanbul Çağlayan; damga vergisi yarı yarıya.
+- EK-1 "Firma Sistemi": kod, marka, model, donanım/yazılım sürümü, yazılım özet değeri (hash), tanım —
+  her sistem için ayrı tablo; bilinmeyen alan boş bırakılabilir.
+
 ## Kobipo'ya etkisi (tasarım notları, karar değil)
 
 - **Akış tersine döner:** bugün fiş Kobipo'da kesilip tahsilat yazılıyor
