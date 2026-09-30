@@ -319,7 +319,7 @@ export async function computeSalesPurchaseReport(args: {
       invoiceNo: invoice.invoiceNo,
       date: invoice.date.toISOString(),
       status: invoice.status,
-      statusLabel: invoiceStatusLabel(invoice.status, { isPurchase: !isSales }),
+      statusLabel: invoiceStatusLabel(invoice.status, { isPurchase: !isSales, invoiceType: invoice.invoiceType }),
       isReceipt: invoice.isReceipt,
       isReturn,
       counterpartyName: name,

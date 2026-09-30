@@ -32,6 +32,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { LINE_NET } from "@/lib/stock/sale-price"
 import { sayi, gunOnce } from "@/lib/asistan/veri/temel"
+import { kesilmisBelgeSql } from "@/lib/raporlar/kdv-kural"
 
 /** Karşılaştırma penceresi. */
 export const PENCERE_GUN = 90
@@ -90,7 +91,9 @@ export async function musteriFiyatFarki(
         -- Hizmette birim fiyat = işin bedeli; müşteriler arası kıyas anlamsız.
         AND p."isService" = false
         AND i.type = 'SALES'
-        AND i.status NOT IN ('CANCELLED', 'CONVERTED', 'DRAFT')
+        -- Kesilmiş satış (gönderilmiş e-belge ya da kaydedilmiş Manuel fatura).
+        -- Önceden GİB taslağı sayılıyor, kâğıt fatura sayılmıyordu.
+        AND ${kesilmisBelgeSql("i")}
         AND ii."productId" IS NOT NULL
         AND ii.quantity > 0
         AND ii."unitPrice" > 0

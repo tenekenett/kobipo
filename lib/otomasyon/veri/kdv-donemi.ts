@@ -8,6 +8,8 @@
  *
  *   hesaplanan KDV  = dönemin satış faturalarındaki KDV (iade ters işaretle)
  *   indirilecek KDV = dönemin ALIŞ FATURASINA DÖNÜŞMÜŞ belgelerindeki KDV
+ *   (ikisi de vergi raporunun `computeVatDeclaration`ından; hangi belgenin
+ *   KDV'ye girdiği lib/raporlar/kdv-kural.ts'te — 2026-09-30'dan beri)
  *   kaçan indirim   = aynı döneme ait, kabul edilmiş ama AKTARILMAMIŞ gelen
  *                     faturalardaki KDV
  *
@@ -55,6 +57,7 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { sayi } from "@/lib/asistan/veri/temel"
+import { computeVatDeclaration } from "@/lib/raporlar/vergiler"
 
 /** Aylık KDV beyannamesinin verilme/ödeme günü (izleyen ay). */
 export const BEYAN_GUNU = 28
@@ -141,6 +144,58 @@ export function beyanPenceresi(simdi: Date = new Date()): BeyanPenceresi | null 
   }
 }
 
+export type SiradakiBeyan = {
+  /** Beyana konu dönemin yılı ve ayı (1–12). */
+  yil: number
+  ay: number
+  /** "2026-09" */
+  donem: string
+  /** "Eylül 2026" */
+  donemAdi: string
+  /** "28 Ekim" */
+  beyanTarihi: string
+  /** Beyana kalan gün (0 = bugün son gün). */
+  kalanGun: number
+  /** Dönem henüz kapanmadı: rakam ay sonuna kadar değişir. */
+  devamEdiyor: boolean
+  /** İçinde bulunulan ay — dönem geçen aysa ikinci satır olarak gösterilir. */
+  buAy: { yil: number; ay: number; adi: string }
+}
+
+/**
+ * SIRADAKİ beyan — panodaki KDV kartının dönemi. SAF fonksiyon.
+ *
+ * `beyanPenceresi`nden farkı: o yalnız beyana 12 gün kala açılan uyarının
+ * penceresidir ve dışında `null` döner; bu ise her gün bir dönem gösterir.
+ * Ayın 1–28'i arası konu GEÇEN aydır (beyanı bu ayın 28'inde); 28'i geçince
+ * geçen ayın süresi dolmuştur ve sıra içinde bulunulan aya geçer (beyanı
+ * gelecek ayın 28'inde). Takvim varsayımı aynı: aylık beyan, `BEYAN_GUNU`.
+ */
+export function siradakiBeyan(simdi: Date = new Date()): SiradakiBeyan {
+  const { yil, ay, gun } = istanbulParcalari(simdi)
+  const bugun = Date.UTC(yil, ay - 1, gun)
+  const gecmisAy = gun <= BEYAN_GUNU
+
+  // Ay/yıl taşmasını Date'e bırak: `Date.UTC(yil, -1, 1)` geçen yılın Aralık'ıdır.
+  const donemBas = new Date(Date.UTC(yil, gecmisAy ? ay - 2 : ay - 1, 1))
+  const beyan = new Date(Date.UTC(yil, gecmisAy ? ay - 1 : ay, BEYAN_GUNU))
+
+  return {
+    yil: donemBas.getUTCFullYear(),
+    ay: donemBas.getUTCMonth() + 1,
+    donem: `${donemBas.getUTCFullYear()}-${String(donemBas.getUTCMonth() + 1).padStart(2, "0")}`,
+    donemAdi: `${AY_ADLARI[donemBas.getUTCMonth()]} ${donemBas.getUTCFullYear()}`,
+    beyanTarihi: new Intl.DateTimeFormat("tr-TR", {
+      day: "numeric",
+      month: "long",
+      timeZone: "UTC",
+    }).format(beyan),
+    kalanGun: Math.round((beyan.getTime() - bugun) / 864e5),
+    devamEdiyor: !gecmisAy,
+    buAy: { yil, ay, adi: `${AY_ADLARI[ay - 1]} ${yil}` },
+  }
+}
+
 export async function kdvDonemiOzeti(
   companyId: string,
   simdi: Date = new Date()
@@ -149,32 +204,16 @@ export async function kdvDonemiOzeti(
   if (!pencere) return null
   const { kalanGun, donemBas, donemSon, donem, donemAdi } = pencere
 
-  const [satis, alis, kacan] = await Promise.all([
-    prisma.$queryRaw<Array<{ kdv: unknown; adet: bigint }>>(Prisma.sql`
-      SELECT COALESCE(SUM(CASE WHEN i.type = 'RETURN' THEN -i."vatAmount"
-                               ELSE i."vatAmount" END), 0) AS kdv,
-             COUNT(*) AS adet
-      FROM invoices i
-      WHERE i."companyId" = ${companyId}
-        AND (i.type = 'SALES'
-             OR (i.type = 'RETURN' AND COALESCE(i."returnKind", 'SALES') <> 'PURCHASE'))
-        -- Beyana yalnız KESİLMİŞ belge girer: taslak fatura henüz yoktur.
-        AND i.status = 'SENT'
-        AND COALESCE(i.currency, 'TRY') = 'TRY'
-        AND i.date >= ${donemBas} AND i.date < ${donemSon}
-    `),
-    prisma.$queryRaw<Array<{ kdv: unknown; adet: bigint }>>(Prisma.sql`
-      SELECT COALESCE(SUM(CASE WHEN i.type = 'RETURN' THEN -i."vatAmount"
-                               ELSE i."vatAmount" END), 0) AS kdv,
-             COUNT(*) AS adet
-      FROM invoices i
-      WHERE i."companyId" = ${companyId}
-        AND (i.type = 'PURCHASE'
-             OR (i.type = 'RETURN' AND COALESCE(i."returnKind", 'SALES') = 'PURCHASE'))
-        AND i.status NOT IN ('CANCELLED', 'CONVERTED')
-        AND COALESCE(i.currency, 'TRY') = 'TRY'
-        AND i.date >= ${donemBas} AND i.date < ${donemSon}
-    `),
+  // Hesaplanan ve indirilecek KDV VERGİ RAPORUNUN fonksiyonundan: hangi belgenin
+  // KDV'ye girdiği tek yerde (lib/raporlar/kdv-kural.ts). Kartın kendi sorgusu
+  // vardı ve yalnız GÖNDERİLMİŞ satışı sayıyordu; matbu faturalar ve fişler hep
+  // taslakta kaldığı için kart onların KDV'sini hiç görmüyordu.
+  const [beyanname, kacan] = await Promise.all([
+    computeVatDeclaration({
+      companyId,
+      year: donemBas.getUTCFullYear(),
+      month: donemBas.getUTCMonth() + 1,
+    }),
     prisma.$queryRaw<Array<{ kdv: unknown; adet: bigint; en_buyuk: unknown }>>(Prisma.sql`
       SELECT COALESCE(SUM(ii."vatAmount"), 0) AS kdv,
              COUNT(*) AS adet,
@@ -189,10 +228,10 @@ export async function kdvDonemiOzeti(
     `),
   ])
 
-  const hesaplananKdv = sayi(satis[0]?.kdv)
-  const indirilecekKdv = sayi(alis[0]?.kdv)
-  const satisAdet = Number(satis[0]?.adet ?? 0)
-  const alisAdet = Number(alis[0]?.adet ?? 0)
+  const hesaplananKdv = beyanname.calculatedVAT
+  const indirilecekKdv = beyanname.deductibleVAT
+  const satisAdet = beyanname.documentCounts.sales
+  const alisAdet = beyanname.documentCounts.purchases
   const kacanAdet = Number(kacan[0]?.adet ?? 0)
   const kacanKdv = sayi(kacan[0]?.kdv)
 

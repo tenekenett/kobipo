@@ -8,7 +8,7 @@
 // Sınanan üç şey: pencerenin iki ucu, dönemin GEÇEN ay olması ve yıl geçişi.
 
 import { describe, expect, it } from "vitest"
-import { beyanPenceresi, BEYAN_GUNU, UYARI_PENCERESI_GUN } from "./kdv-donemi"
+import { beyanPenceresi, BEYAN_GUNU, siradakiBeyan, UYARI_PENCERESI_GUN } from "./kdv-donemi"
 
 /** İstanbul saatiyle o günün öğlesi — UTC kayması testi bozmasın diye. */
 const gun = (iso: string) => new Date(`${iso}T09:00:00Z`)
@@ -51,5 +51,54 @@ describe("KDV beyan penceresi", () => {
 
   it("beyan günü sabiti tek yerde durur (mevzuat değişirse tek satır)", () => {
     expect(BEYAN_GUNU).toBe(28)
+  })
+})
+
+// Panodaki KDV kartının dönemi. Pencereden farkı: her gün bir dönem gösterir.
+describe("Sıradaki KDV beyanı (pano kartı)", () => {
+  it("ayın 1–28'i arası dönem GEÇEN aydır, beyanı bu ayın 28'inde", () => {
+    const b = siradakiBeyan(gun("2026-09-07"))
+    expect(b.donem).toBe("2026-08")
+    expect(b.donemAdi).toBe("Ağustos 2026")
+    expect(b.beyanTarihi).toBe("28 Eylül")
+    expect(b.kalanGun).toBe(21)
+    expect(b.devamEdiyor).toBe(false)
+    expect(b.buAy).toEqual({ yil: 2026, ay: 9, adi: "Eylül 2026" })
+  })
+
+  it("28'i son gündür: kalan 0, dönem hâlâ geçen ay", () => {
+    const b = siradakiBeyan(gun("2026-09-28"))
+    expect(b.donem).toBe("2026-08")
+    expect(b.kalanGun).toBe(0)
+  })
+
+  it("28'i geçince sıra içinde bulunulan aya geçer, beyanı gelecek ayın 28'inde", () => {
+    const b = siradakiBeyan(gun("2026-09-30"))
+    expect(b.donem).toBe("2026-09")
+    expect(b.donemAdi).toBe("Eylül 2026")
+    expect(b.beyanTarihi).toBe("28 Ekim")
+    expect(b.kalanGun).toBe(28)
+    expect(b.devamEdiyor).toBe(true)
+  })
+
+  it("Aralık'ın 29'undan sonra beyan yeni yılın Ocak'ına düşer", () => {
+    const b = siradakiBeyan(gun("2026-12-30"))
+    expect(b.donem).toBe("2026-12")
+    expect(b.beyanTarihi).toBe("28 Ocak")
+    expect(b.kalanGun).toBe(29)
+  })
+
+  it("Ocak'ın ilk günlerinde dönem geçen yılın Aralık'ıdır", () => {
+    const b = siradakiBeyan(gun("2027-01-05"))
+    expect(b.yil).toBe(2026)
+    expect(b.ay).toBe(12)
+    expect(b.donemAdi).toBe("Aralık 2026")
+    expect(b.buAy.adi).toBe("Ocak 2027")
+  })
+
+  it("İstanbul gece yarısını UTC'den önce geçer: 28'ini 29'una bağlayan gece dönem değişir", () => {
+    // 28 Eylül 21:30 UTC = 29 Eylül 00:30 İstanbul → sıra Eylül dönemine geçmiş olmalı.
+    expect(siradakiBeyan(new Date("2026-09-28T21:30:00Z")).donem).toBe("2026-09")
+    expect(siradakiBeyan(new Date("2026-09-28T20:30:00Z")).donem).toBe("2026-08")
   })
 })

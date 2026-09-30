@@ -59,6 +59,14 @@ export async function buildTaxReportDataset(params: {
           label: vat.netVAT >= 0 ? "ÖDENECEK KDV" : "DEVREDEN KDV",
           amount: Math.abs(vat.netVAT),
         },
+        // Kuru girilmemiş dövizli fatura TL'ye çevrilemez ve toplama girmez;
+        // dosyayı alan muhasebeci bunu ekrandaki kullanıcı gibi görmeli.
+        ...(vat.unconvertedForeign > 0
+          ? [{
+              label: `UYARI: ${vat.unconvertedForeign} dövizli faturanın kuru girilmemiş — yukarıdaki toplamlara dahil değil`,
+              amount: null,
+            }]
+          : []),
       ],
     },
     {

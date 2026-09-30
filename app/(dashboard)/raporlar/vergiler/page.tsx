@@ -18,6 +18,7 @@ interface VATDeclaration {
   calculatedVAT: number
   deductibleVAT: number
   netVAT: number
+  unconvertedForeign: number
   breakdown: {
     sales: Array<{ vatRate: number; vatAmount: number; totalAmount: number }>
     purchases: Array<{ vatRate: number; vatAmount: number; totalAmount: number }>
@@ -59,8 +60,16 @@ export default function VergilerPage() {
   const [vatDeclaration, setVatDeclaration] = useState<VATDeclaration | null>(null)
   const [withholdingTax, setWithholdingTax] = useState<WithholdingTax | null>(null)
   const [baBsForm, setBaBsForm] = useState<BaBsForm | null>(null)
-  const [year, setYear] = useState(new Date().getFullYear().toString())
-  const [month, setMonth] = useState((new Date().getMonth() + 1).toString())
+  // Dönem URL'den gelebilir (panodaki KDV kartı `?year=&month=` ile açar);
+  // geçersiz ya da yoksa bugünün ayı.
+  const [year, setYear] = useState(() => {
+    const y = Number(searchParams.get("year"))
+    return (Number.isInteger(y) && y >= 2000 && y <= 2100 ? y : new Date().getFullYear()).toString()
+  })
+  const [month, setMonth] = useState(() => {
+    const m = Number(searchParams.get("month"))
+    return (Number.isInteger(m) && m >= 1 && m <= 12 ? m : new Date().getMonth() + 1).toString()
+  })
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
@@ -196,13 +205,29 @@ export default function VergilerPage() {
                           <TableCell className="text-right">{formatCurrency(vatDeclaration.deductibleVAT)}</TableCell>
                         </TableRow>
                         <TableRow className="bg-primary/10">
-                          <TableCell className="font-bold text-lg">Ödenecek KDV</TableCell>
+                          {/* Eksi fark ödenecek değil, sonraki döneme devreden KDV'dir
+                              (dışa aktarım da aynı ayrımı yapıyor). */}
+                          <TableCell className="font-bold text-lg">
+                            {vatDeclaration.netVAT >= 0 ? "Ödenecek KDV" : "Sonraki döneme devreden KDV"}
+                          </TableCell>
                           <TableCell className="text-right font-bold text-lg">
-                            {formatCurrency(vatDeclaration.netVAT)}
+                            {formatCurrency(Math.abs(vatDeclaration.netVAT))}
                           </TableCell>
                         </TableRow>
                       </TableBody>
                     </Table>
+                    {vatDeclaration.unconvertedForeign > 0 && (
+                      <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                        {vatDeclaration.unconvertedForeign} dövizli faturanın kuru girilmemiş; TL&apos;ye
+                        çevrilemediği için yukarıdaki rakamlara dahil değil.
+                      </p>
+                    )}
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Satışta matbu fatura ve fiş kaydedildiği an, e-Fatura/e-Arşiv yalnız GİB&apos;e gönderildiyse
+                      sayılır; alışta kayıtlı her fatura sayılır. İptal edilenler ve faturaya dönüşmüş fişler
+                      girmez, dövizli faturalar faturadaki kurla TL&apos;ye çevrilir. Önceki dönemden devreden
+                      KDV, tevkifat ve istisnalar bu hazırlık raporuna dahil değildir.
+                    </p>
                   </CardContent>
                 </Card>
               )}

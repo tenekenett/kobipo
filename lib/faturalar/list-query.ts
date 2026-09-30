@@ -385,6 +385,13 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
         ...(category ? { category } : {}),
         ...amountFilter("totalAmount"),
         AND: [
+          // "Taslak" süzgeci Manuel (kâğıt/matbu) belgeyi GETİRMEZ: o belge
+          // kaydedildiği an kesilmiştir ve rozeti "Kayıtlı"dır
+          // (lib/invoice/status-label.ts). K-BLG-04 kartı aynı kümeyi sayar; biri
+          // daralıp öteki daralmasa kart "N taslak" derken liste fazlasını gösterirdi.
+          ...(statusList.includes("DRAFT")
+            ? [{ OR: [{ status: { not: "DRAFT" } }, { invoiceType: { not: "MANUAL" } }] }]
+            : []),
           ...(search
             ? [
                 {

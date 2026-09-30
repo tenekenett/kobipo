@@ -13,6 +13,14 @@
  * resmileştirme akışının içindedir (DRAFT → GIB_DRAFT → SENT, bkz. GİB taslak
  * akışı) ama kullanıcı açısından sonuç aynı — belge müşteriye gitmemiştir.
  *
+ * MANUEL BELGE SAYILMAZ (`invoiceType <> 'MANUAL'`, karar 2026-09-30). Kâğıt/
+ * matbu fatura ve belge taramayla okutulan fatura kaydedildiği an kesilmiştir;
+ * ekranda "Kayıtlı" görünür ve KDV'ye girer (lib/invoice/status-label.ts →
+ * `kaydedildigindeKesinlesir`). Sayılırken kart, müşteriye çoktan verilmiş
+ * kâğıt faturaya "hiç faturalanmadı" diyordu (son 12 ayda 32 belge). Taslak
+ * yalnız GİB'e gitmemiş e-Fatura/e-Arşiv'dir. Liste süzgeci aynı kümeyi verir
+ * (lib/faturalar/list-query.ts) — kartın saydığı, açtığı ekranda görünür.
+ *
  * SATIŞ FİŞİ SAYILMAZ (`isReceipt = false`). Fiş faturanın taslağı değil, AYRI
  * bir belgedir ve ayrı ekranda durur ("Satış Fişleri"); fatura listesi onları
  * `isReceipt: false` ile dışarıda bırakıyor (`lib/faturalar/list-query.ts`).
@@ -68,6 +76,7 @@ export async function bekleyenTaslakOzeti(
     WHERE "companyId" = ${companyId}
       AND type = 'SALES'
       AND "isReceipt" = false
+      AND "invoiceType" <> 'MANUAL'
       AND status IN ('DRAFT', 'GIB_DRAFT')
       AND date <= ${sinir}
     ORDER BY "totalAmount" DESC

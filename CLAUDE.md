@@ -452,6 +452,31 @@ yazma yine düşerse fatura kalır ve yanıt `paymentWarning` taşır — sessiz
   mutabakatı onu okur; açılınca faturanın stok etkisi geri alınır, kapanınca yazılır.
   Stoğa işlenmiş irsaliye bağlıysa stoğun sahibi irsaliyedir, bayrak etkisizdir.
 
+## "Taslak" yalnız GİB'e gitmemiş e-belgedir; Manuel ve alış belgesi "Kayıtlı"dır
+
+`Invoice.status = DRAFT` üç farklı anlama geliyor ve karıştırıldığında rakamlar ayrışıyor.
+Karar (2026-09-30) tek yerde: `lib/invoice/status-label.ts` → `kaydedildigindeKesinlesir`.
+
+```
+ALIŞ ailesi (alış, alış iadesi)        DRAFT = "Kayıtlı"  — alınan belge, onay akışı yok
+MANUEL belge (kâğıt/matbu, belge       DRAFT = "Kayıtlı"  — kaydedildiği an kesilmiştir;
+  taramayla okutulan, e-Dönüşüm kapalı)                     "Onayla" (DRAFT→SENT) adımı YOK
+e-Fatura / e-Arşiv SATIŞ               DRAFT, GIB_DRAFT = "Taslak" — GİB'e gitmedi, kesilmedi
+```
+
+Ölçüm: son 12 ayda 32 matbu satış faturasının ve 54 fişin HEPSİ DRAFT'taydı, yalnız 4 matbu
+fatura onaylanmıştı. "Taslak = kesilmemiş" varsayan her yer bunları yanlış dışarıda bırakıyordu
+(KDV otomasyon kartı, "taslakta kalmış" kartı, pano taslak sayısı, yaşlandırma, asistan).
+
+- **KDV'ye giren belge TEK YERDE:** `lib/raporlar/kdv-kural.ts` (aynı tanım + iptal/CONVERTED
+  hariç + döviz faturadaki kurla TL; kursuz dövizli belge toplama girmez, SAYISI ekrana yazılır).
+  Vergi raporu, KDV otomasyon kartı ve pano KDV kartı aynı `computeVatDeclaration`ı çağırır.
+- "Kesilmiş satış" soran yeni sorgu durum listesini ELLE yazmaz: SQL'de `kesilmisBelgeSql("i")`,
+  TS'te `kaydedildigindeKesinlesir`. `status NOT IN ('DRAFT', ...)` yazmak kâğıt faturayı düşürür.
+- Yaşlandırma (`cari-yaslandirma.ts`) yalnız kesilmemiş e-belge taslağını ayıklar; liste
+  süzgeci "taslak" (`lib/faturalar/list-query.ts`), K-BLG-04 kartı ve pano sayısı aynı kümedir.
+- **Bilerek dokunulmayan:** Ba-Bs formu (`computeBaBs`) kendi durum kuralıyla kalıyor.
+
 ## Fatura dip toplamı YALNIZ `lib/invoice/document-totals.ts`ten gelir
 
 GİB'e giden belge her satırı kuruşa yuvarlar ve genel iskontoyu satırlara dağıtır;

@@ -35,6 +35,7 @@ import { buildInvoiceLabelItems } from "@/lib/labels/invoice-label-items"
 import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
 import { kdvExemption } from "@/lib/integrations/e-invoice/gib-exemption-codes"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
+import { kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
 
 const PROFILE_LABELS: Record<string, string> = {
   TICARIFATURA: "Ticari",
@@ -150,7 +151,6 @@ export default function FaturaOnizlemePage() {
   const [isDownloadingPreviewPdf, setIsDownloadingPreviewPdf] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [isSendingToProvider, setIsSendingToProvider] = useState(false)
-  const [isApproving, setIsApproving] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
@@ -292,7 +292,9 @@ export default function FaturaOnizlemePage() {
     toast(
       invoice.type === "PURCHASE"
         ? { title: "Fatura kaydedildi", description: "Alış faturası kaydedildi." }
-        : { title: "Taslak kaydedildi", description: "Fatura taslak olarak kaydedildi." }
+        : kaydedildigindeKesinlesir({ invoiceType: invoice.invoiceType })
+          ? { title: "Fatura kaydedildi", description: "Fatura kaydedildi." }
+          : { title: "Taslak kaydedildi", description: "Fatura taslak olarak kaydedildi." }
     )
     const target =
       invoice.type === "PURCHASE"
@@ -374,36 +376,6 @@ export default function FaturaOnizlemePage() {
       toast({ title: "Hata", description: error?.message || "PDF indirilirken hata oluştu", variant: "destructive" })
     } finally {
       setIsDownloadingGibPdf(false)
-    }
-  }
-
-  const handleApproveManual = async () => {
-    if (!invoice) return
-    if (!(await confirm({ title: "Faturayı kesinleştir", description: "Bu faturayı kesinleştirmek istediğinize emin misiniz?", confirmLabel: "Kesinleştir" }))) return
-    setIsApproving(true)
-    try {
-      const res = await fetch(`/api/e-donusum/invoices/${invoice.id}/approve`, {
-        method: "POST",
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        toast({
-          title: "Onaylanamadı",
-          description: data.error || "Bilinmeyen hata",
-          variant: "destructive",
-        })
-        return
-      }
-      toast({ title: "Fatura onaylandı", description: "Durum: Kesinleşmiş" })
-      fetchInvoice()
-    } catch (e: any) {
-      toast({
-        title: "Hata",
-        description: e?.message || "Onaylama sırasında hata",
-        variant: "destructive",
-      })
-    } finally {
-      setIsApproving(false)
     }
   }
 
@@ -725,13 +697,14 @@ export default function FaturaOnizlemePage() {
   // editör ekranı açar. Kaydedilene kadar hiçbir şey oluşmaz / gönderilmez.
   const duplicateHref = `/e-donusum/yeni?company=${encodeURIComponent(companyId || "")}&duplicate=${invoiceId}&from=${encodeURIComponent(`/faturalar/${invoiceId}/onizleme`)}`
 
-  // Alış faturası bir "ALINAN belge"dir: taslak → onayla → GİB'e gönder akışı yoktur;
-  // kaydedildiği an kesinleşmiş bir kayıttır. Bu yüzden alışta "Taslak/Önizleme"
-  // ve "Onayla" göstermeyiz — DRAFT durumunu "Kayıtlı" olarak sunarız. (İç status
-  // DRAFT kalır; bakiye/raporlar zaten DRAFT'ı sayar, yalnız etiketleme değişir.)
+  // Kaydedildiği an kesinleşen belge (alış ya da Manuel/kâğıt fatura): taslak →
+  // onayla → GİB'e gönder akışı yoktur. "Taslak/Önizleme" ve "Onayla" göstermeyiz;
+  // DRAFT durumu "Kayıtlı" sunulur. (İç status DRAFT kalır; kural tek yerde:
+  // lib/invoice/status-label.ts → kaydedildigindeKesinlesir, KDV kuralı da onu okur.)
   const isPurchase = invoice.type === "PURCHASE"
+  const isRecorded = kaydedildigindeKesinlesir({ isPurchase, invoiceType: invoice.invoiceType })
   const headerTitle =
-    !isPurchase && (invoice.status === "DRAFT" || invoice.status === "GIB_DRAFT")
+    !isRecorded && (invoice.status === "DRAFT" || invoice.status === "GIB_DRAFT")
       ? "Fatura Önizleme"
       : "Fatura Detayı"
   // GİB tarafında hata/red varsa faturayı "Onaylandı" diye sunma: belge alıcıya
@@ -740,7 +713,8 @@ export default function FaturaOnizlemePage() {
   // ile kırmızı "GİB: Hata" yan yana çıkıyordu.
   const gibFailed = parseGibStatus(invoice.integrationStatus)?.bucket === "rejected"
   const headerBadge: { label: string; cls: string } =
-    isPurchase && (invoice.status === "DRAFT" || invoice.status === "SENT")
+    (isPurchase && (invoice.status === "DRAFT" || invoice.status === "SENT")) ||
+    (isRecorded && invoice.status === "DRAFT")
       ? { label: "Kayıtlı", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" }
       : invoice.status === "SENT" && gibFailed
         ? { label: "GİB'de Hatalı", cls: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" }
@@ -860,24 +834,8 @@ export default function FaturaOnizlemePage() {
               </Button>
             </WriteAction>
           )}
-          {/* "Onayla" yalnız kesilen (giden) manuel belgeler içindir. Alış faturası
-              alınan bir belgedir; onaylanacak/gönderilecek bir şey yoktur → gizle. */}
-          {invoice.status === "DRAFT" && invoice.invoiceType === "MANUAL" && !isPurchase && (
-            <WriteAction>
-              <Button
-                onClick={handleApproveManual}
-                disabled={isApproving}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                {isApproving ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                )}
-                Onayla
-              </Button>
-            </WriteAction>
-          )}
+          {/* Manuel belgede "Onayla" (DRAFT → SENT) YOK — 2026-09-30 kararı: kâğıt/
+              matbu fatura kaydedildiği an kesilmiştir (lib/invoice/status-label.ts). */}
 
           {/* Çıktı aksiyonları: resmî GİB PDF veya yerel PDF */}
           {invoice.status === "SENT" && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (

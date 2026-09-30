@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -34,6 +34,8 @@ import { ProductCombobox } from "@/components/e-donusum/product-combobox"
 import { CategoryCombobox } from "@/components/e-donusum/category-combobox"
 import { INVOICE_NO_MAX_LENGTH, normalizeManualInvoiceNo } from "@/lib/utils/invoice-number-format"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
+import { CariOzetPaneli } from "@/components/e-donusum/cari-ozet-paneli"
+import { useFaturaTaslagi } from "@/components/e-donusum/use-fatura-taslagi"
 import { WithholdingCombobox } from "@/components/e-donusum/withholding-combobox"
 import { TaxTypeCombobox } from "@/components/e-donusum/tax-type-combobox"
 import { KDV_EXEMPTION_CODES, kdvExemption } from "@/lib/integrations/e-invoice/gib-exemption-codes"
@@ -1899,6 +1901,80 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     setEditRawInvoiceId(null)
   }
 
+  // ── Tarayıcıda korunan taslak (use-fatura-taslagi.ts) ─────────────────────
+  // Saklanan küme `resetForm`un sıfırladığı durumun aynısı: biri eklenir de
+  // öteki unutulursa geri yüklenen fatura eksik alanla açılır.
+  // Yalnız düz "yeni fatura" ekranında: cari kartından, kopyadan, irsaliyeden
+  // ya da gelen e-faturadan gelen form başka kaynaktan dolar.
+  const taslakEtkin =
+    mode === "create" &&
+    !duplicateFromId &&
+    !fromIncomingUuid &&
+    !defaultWaybillId &&
+    !defaultCustomerId &&
+    !defaultSupplierId
+  const taslakVeri = useMemo(
+    () => ({
+      formData,
+      items,
+      lineExtras,
+      globalDiscountEnabled,
+      globalDiscountInput,
+      globalDiscountMode,
+      globalChargeEnabled,
+      globalChargeInput,
+      payableRoundingInput,
+      paymentStatus,
+      payAccountId,
+      payEmployeeId,
+      payDate,
+      skipStock,
+    }),
+    [
+      formData, items, lineExtras, globalDiscountEnabled, globalDiscountInput, globalDiscountMode,
+      globalChargeEnabled, globalChargeInput, payableRoundingInput, paymentStatus, payAccountId,
+      payEmployeeId, payDate, skipStock,
+    ],
+  )
+  // İrsaliye bağlanan faturanın kalemleri irsaliyeden gelir; bağ olmadan geri
+  // yüklenirse stok iki kez düşebilir — o form taslak olarak TUTULMAZ.
+  const taslakKirli =
+    selectedWaybillIds.length === 0 &&
+    Boolean(
+      formData.customerId ||
+        formData.supplierId ||
+        items.some((it) => it.productId || it.description?.trim()),
+    )
+  const taslakGeriYukle = useCallback((d: typeof taslakVeri) => {
+    setFormData(d.formData)
+    const kalemler = d.items?.length
+      ? d.items
+      : [{ description: "", unit: "ADET", quantity: 1, unitPrice: 0, discountRate: 0, vatRate: 20, withholdingRate: 0, exciseRate: 0 }]
+    setItems(kalemler)
+    setLineExtras(d.lineExtras?.length === kalemler.length ? d.lineExtras : kalemler.map(() => []))
+    setGlobalDiscountEnabled(d.globalDiscountEnabled)
+    setGlobalDiscountInput(d.globalDiscountInput)
+    setGlobalDiscountMode(d.globalDiscountMode)
+    setGlobalChargeEnabled(d.globalChargeEnabled)
+    setGlobalChargeInput(d.globalChargeInput)
+    setPayableRoundingInput(d.payableRoundingInput)
+    setPaymentStatus(d.paymentStatus)
+    setPayAccountId(d.payAccountId)
+    setPayEmployeeId(d.payEmployeeId)
+    setPayDate(d.payDate)
+    setSkipStock(d.skipStock)
+    // Saklanan vade kullanıcının gördüğü tarihtir; cari kartından yeniden
+    // türetilip ezilmesin (vadeKaynagi başlığı: "elle girilene dokunulmaz").
+    if (d.formData?.dueDate) setVadeKaynagi("elle")
+  }, [])
+  const taslak = useFaturaTaslagi({
+    etkin: taslakEtkin,
+    anahtar: `kobipo:fatura-taslagi:v1:${companyId}:${defaultType || "SALES"}`,
+    veri: taslakVeri,
+    kirli: taslakKirli,
+    geriYukleyici: taslakGeriYukle,
+  })
+
   const isEDonusumActive = Boolean(companySettings?.isEDonusumEnabled)
   const effectiveInvoiceType = useMemo(() => {
     const t = String(formData.invoiceType || "").toUpperCase()
@@ -2200,6 +2276,9 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         } else {
           toast({ title: "Başarılı", description: doneText })
         }
+        // Fatura kaydedildi: tarayıcıdaki taslak artık eski — silinir ve form
+        // sıfırlanırken yeniden yazılmaz.
+        if (!isEditing) taslak.temizle()
         resetForm()
         if (savedId) {
           router.push(`/faturalar/${savedId}/onizleme?company=${encodeURIComponent(companyId)}`)
@@ -2456,6 +2535,33 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
             </Button>
           </div>
 
+          {/* KAYDEDİLMEMİŞ TASLAK — otomatik doldurulmaz, sorulur (use-fatura-taslagi.ts). */}
+          {taslak.teklif && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+              <p>
+                <span className="font-semibold">Kaydedilmemiş bir fatura taslağınız var</span>
+                <span className="text-amber-900/80 dark:text-amber-300/80">
+                  {" "}·{" "}
+                  {new Date(taslak.teklif.savedAt).toLocaleString("tr-TR", {
+                    day: "numeric",
+                    month: "long",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}{" "}
+                  — bu tarayıcıda saklandı
+                </span>
+              </p>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" onClick={taslak.geriYukle}>
+                  Geri yükle
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={taslak.vazgec}>
+                  Sil
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* GELEN E-FATURADAN DÖNÜŞTÜRME BANNER'I */}
           {fromIncomingUuid && (
             <div className="rounded-md border border-sky-300 bg-sky-50 p-4 text-sm text-sky-950">
@@ -2711,6 +2817,13 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                       setFormData({ ...formData, customerId: "", supplierId: sel.id })
                     }
                   }}
+                />
+                {/* Seçili carinin bakiyesi, vadesi geçmiş tutarı ve son hareketleri —
+                    fatura keserken "bu müşterinin durumu ne?" sorusu ekran değiştirmeden. */}
+                <CariOzetPaneli
+                  companyId={companyId}
+                  customerId={formData.customerId || undefined}
+                  supplierId={formData.supplierId || undefined}
                 />
               </div>
             </div>

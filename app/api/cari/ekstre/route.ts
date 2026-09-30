@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { parseDateParam } from "@/lib/http/query-params"
+import { parseDateParam, parseIntParam } from "@/lib/http/query-params"
 import { badRequestResponse } from "@/lib/api/errors"
 
 import { resolveCompanyId } from "@/lib/company/resolve-company"
@@ -34,17 +34,24 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
+    // `last=N` → yalnız SON N hareket döner (fatura editöründeki cari özeti).
+    // Bakiye, toplamlar ve yaşlandırma yine TÜM hareketlerden hesaplanır; kırpılan
+    // yalnız listedir. Aynı ekstre, yedinci bir bakiye hesabı yazmadan.
+    const last = parseIntParam(searchParams.get("last"), "last", { min: 1, max: 50 })
+
+    const result = await fetchEkstre({
+      companyId,
+      customerId: searchParams.get("customerId"),
+      supplierId: searchParams.get("supplierId"),
+      startDate: parseDateParam(searchParams.get("startDate"), "startDate"),
+      endDate: parseDateParam(searchParams.get("endDate"), "endDate"),
+      // Yetkili çalışan kısıtı. Cari SEÇİLMEDİĞİNDE ("Tümü") kısıt tek koruma:
+      // sorgu firmanın bütün hareketlerini toplar, süzgeç oraya iner.
+      visibility: await resolveCariVisibility(companyId),
+    })
+
     return NextResponse.json(
-      await fetchEkstre({
-        companyId,
-        customerId: searchParams.get("customerId"),
-        supplierId: searchParams.get("supplierId"),
-        startDate: parseDateParam(searchParams.get("startDate"), "startDate"),
-        endDate: parseDateParam(searchParams.get("endDate"), "endDate"),
-        // Yetkili çalışan kısıtı. Cari SEÇİLMEDİĞİNDE ("Tümü") kısıt tek koruma:
-        // sorgu firmanın bütün hareketlerini toplar, süzgeç oraya iner.
-        visibility: await resolveCariVisibility(companyId),
-      }),
+      last == null ? result : { ...result, entries: result.entries.slice(-last), totalEntries: result.entries.length },
     )
   } catch (error: any) {
     const __bad = badRequestResponse(error)

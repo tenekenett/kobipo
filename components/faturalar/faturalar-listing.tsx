@@ -28,6 +28,7 @@ import {
   toDateInput,
 } from "@/lib/format"
 import { useToast } from "@/components/ui/use-toast"
+import { kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -670,6 +671,7 @@ export default function FaturalarListing({
     status: string | null,
     source?: FaturaRow["source"],
     integrationStatus?: string | null,
+    invoiceType?: string | null,
   ) => {
     if (!status) return <span className="text-xs text-muted-foreground">-</span>
     const s = status.toUpperCase()
@@ -691,10 +693,14 @@ export default function FaturalarListing({
       )
     }
 
-    // Alış faturası (manuel girilmiş veya gelen e-faturadan dönüştürülmüş) bir ALINAN
-    // belgedir; taslak/onay akışı yoktur → DRAFT'ı "Taslak/DRAFT" değil "Kayıtlı" göster.
+    // Kaydedildiği an kesinleşen belge (alış ya da Manuel/kâğıt fatura) için DRAFT
+    // "Taslak" değil "Kayıtlı"dır — kural tek yerde: lib/invoice/status-label.ts.
     const isRecordedPurchase =
-      s === "DRAFT" && (source === "manual_purchase" || source === "converted_inbox")
+      s === "DRAFT" &&
+      kaydedildigindeKesinlesir({
+        isPurchase: source === "manual_purchase" || source === "converted_inbox",
+        invoiceType,
+      })
     const cls =
       isRecordedPurchase || s === "KABUL" || s === "APPROVED" || s === "SENT"
         ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200"
@@ -1230,7 +1236,7 @@ export default function FaturalarListing({
                         )}
                       </TableCell>
                       <TableCell>
-                        {statusBadge(row.status, row.source, row.meta?.integrationStatus)}
+                        {statusBadge(row.status, row.source, row.meta?.integrationStatus, row.invoiceType)}
                       </TableCell>
                       {/* Aksiyon hücresi bağlantı kaplamasının dışında kalmalı,
                           yoksa butonlar tıklanamaz olur. */}

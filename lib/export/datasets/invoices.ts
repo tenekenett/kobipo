@@ -8,6 +8,7 @@
  */
 
 import { fetchInvoiceList } from "@/lib/faturalar/list-query"
+import { kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
 import { parseTrNumber } from "@/lib/format"
 import type { ExportColumn, ExportDataset } from "../types"
 import { loadExportCompany, describeDateRange, describeFilters } from "./context"
@@ -57,13 +58,20 @@ const INVOICE_TYPE_LABELS: Record<string, string> = {
 }
 
 /**
- * Ekrandaki rozetle aynı okuma. Alış faturası ALINAN bir belgedir, taslak/onay
- * akışı yoktur → DRAFT'ı "Taslak" değil "Kayıtlı" göster (faturalar-listing.tsx
- * ile birebir aynı kural).
+ * Ekrandaki rozetle aynı okuma: kaydedildiği an kesinleşen belgede (alış, Manuel
+ * fatura) DRAFT "Kayıtlı"dır — kural lib/invoice/status-label.ts'te, liste
+ * rozeti (faturalar-listing.tsx) de oradan okur.
  */
-function statusLabel(status: string | null, source: string): string {
+function statusLabel(status: string | null, source: string, invoiceType: string | null): string {
   if (!status) return ""
-  if (status === "DRAFT" && (source === "manual_purchase" || source === "converted_inbox")) return "Kayıtlı"
+  if (
+    status === "DRAFT" &&
+    kaydedildigindeKesinlesir({
+      isPurchase: source === "manual_purchase" || source === "converted_inbox",
+      invoiceType,
+    })
+  )
+    return "Kayıtlı"
   if (status === "GIB_DRAFT") return "GİB Taslağı"
   return status
 }
@@ -104,7 +112,7 @@ export async function buildInvoicesDataset(params: InvoiceExportParams): Promise
     counterpartyName: row.counterparty.name,
     counterpartyTaxNumber: row.counterparty.taxNumber,
     invoiceTypeLabel: row.invoiceType ? INVOICE_TYPE_LABELS[row.invoiceType] ?? row.invoiceType : "",
-    statusLabel: statusLabel(row.status, row.source),
+    statusLabel: statusLabel(row.status, row.source, row.invoiceType),
     category: row.category ?? "",
     currency: row.currency,
     netAmount: row.netAmount,

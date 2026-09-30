@@ -6,6 +6,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
 import {
   AGING_BUCKETS,
   DUE_WINDOWS,
@@ -125,8 +126,13 @@ export type CariAgingOptions = {
   /**
    * Satış TASLAKLARI da alacak sayılsın mı (varsayılan hayır). Taslak/GİB
    * taslağı henüz kesilmemiş belgedir; ölçümde bir firmada 118 taslak
-   * 187.121 TL'lik "vadesi geçmiş alacak" üretiyordu. ALIŞ tarafında DRAFT
-   * "Kayıtlı" anlamına geldiği için orada ayıklama YAPILMAZ.
+   * 187.121 TL'lik "vadesi geçmiş alacak" üretiyordu.
+   *
+   * "Taslak" yalnız GİB'e gitmemiş e-Fatura/e-Arşiv'dir. ALIŞ ve MANUEL
+   * (kâğıt/matbu, taranmış) belgede DRAFT "Kayıtlı" demektir ve her zaman sayılır
+   * — kural lib/invoice/status-label.ts → `kaydedildigindeKesinlesir`. (2026-09-30'a
+   * kadar Manuel satış da dışarıda kalıyordu: 5 firmada 26 belge, ~220 bin TL açık
+   * tutar cari bakiyesinde vardı, yaşlandırmada yoktu.)
    */
   includeDrafts?: boolean
   /**
@@ -508,14 +514,19 @@ export type CariAgingResult = {
 const SALES_EXCLUDED_STATUSES = ["CANCELLED", "CONVERTED", "DRAFT", "GIB_DRAFT"]
 const ALWAYS_EXCLUDED_STATUSES = ["CANCELLED", "CONVERTED"]
 
+/**
+ * Satış belgesi henüz KESİLMEMİŞ mi (taslak)? Manuel belge DRAFT'ta dursa da
+ * kesilmiştir ("Kayıtlı") — bkz. `CariAgingOptions.includeDrafts`.
+ */
+function kesilmemisSatisTaslagi(inv: { status: string; invoiceType: string | null }): boolean {
+  return SALES_EXCLUDED_STATUSES.includes(inv.status) && !kaydedildigindeKesinlesir({ invoiceType: inv.invoiceType })
+}
+
 export async function computeCariAging(
   companyId: string,
   options: CariAgingOptions = {}
 ): Promise<CariAgingResult> {
   const today = Date.now()
-  const salesStatusFilter = {
-    notIn: options.includeDrafts ? ALWAYS_EXCLUDED_STATUSES : SALES_EXCLUDED_STATUSES,
-  }
 
   // Tek cariye daraltıldıysa KARŞI taraf hiç sorgulanmaz.
   const onlyParty = Boolean(options.customerId || options.supplierId)
@@ -554,6 +565,7 @@ export async function computeCariAging(
           type: true,
           returnKind: true,
           status: true,
+          invoiceType: true,
           date: true,
           dueDate: true,
           totalAmount: true,
@@ -597,6 +609,7 @@ export async function computeCariAging(
           type: true,
           returnKind: true,
           status: true,
+          invoiceType: true,
           date: true,
           dueDate: true,
           totalAmount: true,
@@ -651,9 +664,9 @@ export async function computeCariAging(
     ...(customerCheckEvents.get(cari.id) ?? []).map((e) => ({ tarih: e.tarih, tutar: e.tutar })),
   ]
 
-  /** Satış tarafında taslak belgeler istenmedikçe sayılmaz. */
-  const salesCounts = (inv: { status: string }) =>
-    options.includeDrafts || !SALES_EXCLUDED_STATUSES.includes(inv.status)
+  /** Satış tarafında taslak (kesilmemiş e-belge) istenmedikçe sayılmaz. */
+  const salesCounts = (inv: { status: string; invoiceType: string | null }) =>
+    options.includeDrafts || !kesilmemisSatisTaslagi(inv)
 
   // Sayılmayan taslakların TUTARI: ekranda ve dosyada açıkça yazılır.
   const excludedDrafts = { count: 0, amount: 0 }
@@ -662,7 +675,7 @@ export async function computeCariAging(
     // caride borcu mahsup ederlerdi); uyarı iki sekmede de doğru olsun.
     for (const party of [...customers, ...suppliers]) {
       for (const inv of party.invoices) {
-        if (receivableSign(inv) > 0 && SALES_EXCLUDED_STATUSES.includes(inv.status)) {
+        if (receivableSign(inv) > 0 && kesilmemisSatisTaslagi(inv)) {
           excludedDrafts.count += 1
           excludedDrafts.amount += Number(inv.totalAmount || 0)
         }

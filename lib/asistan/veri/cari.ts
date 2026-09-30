@@ -17,6 +17,7 @@ import { computeCariAging, type AgingAccount } from "@/lib/raporlar/cari-yasland
 import { bugunBasi, gunFarki, gunOnce, sayi } from "./temel"
 import { hatirla, type IstekOnbellegi } from "./onbellek"
 import { trFold } from "@/lib/text/tr-fold"
+import { kesilmisBelgeSql } from "@/lib/raporlar/kdv-kural"
 
 /**
  * Yaşlandırmayı istek başına BİR KEZ hesaplar. Aşağıdaki üç fonksiyon da bunu
@@ -130,7 +131,8 @@ export async function kaybolanMusteriler(
       AND c."archivedAt" IS NULL
       AND i."companyId" = ${companyId}
       AND i.type = 'SALES'
-      AND i.status NOT IN ('CANCELLED', 'CONVERTED', 'DRAFT', 'GIB_DRAFT')
+      -- Kesilmiş satış: gönderilmiş e-belge ya da kaydedilmiş Manuel (kâğıt) fatura.
+      AND ${kesilmisBelgeSql("i")}
     GROUP BY c.id, c.name, c.code
     HAVING COUNT(i.id) >= 3
     ORDER BY SUM(i."totalAmount") DESC

@@ -28,6 +28,11 @@ import { cn } from "@/lib/utils"
 import { DashboardCashflowChart, type CashflowPoint } from "@/components/dashboard/dashboard-cashflow-chart"
 import { dashboardTag } from "@/lib/dashboard/cache"
 import { OtomasyonKartlari } from "@/components/otomasyon/otomasyon-kartlari"
+import { KdvDurumuKarti, type KdvTutarlari } from "@/components/dashboard/kdv-durumu-karti"
+import { computeVatDeclaration } from "@/lib/raporlar/vergiler"
+import { siradakiBeyan } from "@/lib/otomasyon/veri/kdv-donemi"
+import { moduleKeyForPath } from "@/lib/nav/pages"
+import { withCompanyHref } from "@/lib/company/href"
 
 export const dynamic = "force-dynamic"
 
@@ -118,7 +123,17 @@ const getDashboardDataCached = (tagCompanyId: string) => unstable_cache(
           (SELECT COUNT(*)::INT FROM suppliers s WHERE s."companyId" = ${companyId}) AS supplier_count,
           (SELECT COUNT(*)::INT FROM products p WHERE p."companyId" = ${companyId}) AS product_count,
           (SELECT COUNT(*)::INT FROM invoices i WHERE i."companyId" = ${companyId}) AS invoice_count,
-          (SELECT COUNT(*)::INT FROM invoices i WHERE i."companyId" = ${companyId} AND i.status = 'DRAFT') AS draft_count,
+          -- Taslak = GİB'e gitmemiş satış e-belgesi. Alış ve Manuel (kâğıt/matbu)
+          -- belge DRAFT'ta dursa da "Kayıtlı"dır (lib/invoice/status-label.ts);
+          -- "Taslaklara git" satış listesini aynı süzgeçle açar.
+          (
+            SELECT COUNT(*)::INT FROM invoices i
+            WHERE i."companyId" = ${companyId}
+              AND i.type IN ('SALES', 'RETURN')
+              AND i."isReceipt" = false
+              AND i."invoiceType" <> 'MANUAL'
+              AND i.status IN ('DRAFT', 'GIB_DRAFT')
+          ) AS draft_count,
           (SELECT COUNT(*)::INT FROM invoices i WHERE i."companyId" = ${companyId} AND i.status = 'SENT') AS sent_count,
           (
             SELECT COUNT(*)::INT FROM quotes q
@@ -168,7 +183,26 @@ const getDashboardDataCached = (tagCompanyId: string) => unstable_cache(
 
     return { statsRows, recentInvoices, cashflowRows }
   },
-  ["dashboard-data-v2"],
+  ["dashboard-data-v3"],
+  { revalidate: 20, tags: [dashboardTag(tagCompanyId)] }
+)
+
+/**
+ * Pano KDV kartının tutarları — vergi raporunun fonksiyonundan (`computeVatDeclaration`),
+ * kendi sorgusu YOK: kart raporu aynı dönemle açıyor, iki ekran aynı rakamı basmalı.
+ * Pano verisiyle aynı etiket: fatura yazan uç panoyu düşürünce bu da düşer.
+ */
+const getKdvTutarlariCached = (tagCompanyId: string) => unstable_cache(
+  async (companyId: string, yil: number, ay: number): Promise<KdvTutarlari> => {
+    const r = await computeVatDeclaration({ companyId, year: yil, month: ay })
+    return {
+      hesaplanan: r.calculatedVAT,
+      indirilecek: r.deductibleVAT,
+      net: r.netVAT,
+      kursuzDovizli: r.unconvertedForeign,
+    }
+  },
+  ["dashboard-kdv-v2"],
   { revalidate: 20, tags: [dashboardTag(tagCompanyId)] }
 )
 
@@ -231,10 +265,21 @@ export default async function DashboardIndexPage({
   chartStart.setUTCHours(0, 0, 0, 0)
   chartStart.setUTCDate(chartStart.getUTCDate() - DAYS_CHART)
 
-  const { statsRows, recentInvoices, cashflowRows } = await getDashboardDataCached(companyId)(
-    companyId,
-    chartStart.toISOString()
-  )
+  // KDV kartı vergi raporunu görebilen ve raporlar modülü açık olan kullanıcıya çizilir;
+  // kart o rapora götürüyor, açamayacağı ekranın rakamını panoda görmemeli.
+  const vergiRaporu = "/raporlar/vergi"
+  const vergiModulu = moduleKeyForPath(vergiRaporu)
+  const showKdv =
+    canOpen(vergiRaporu) && !(vergiModulu && (selectedCompany.disabledModules ?? []).includes(vergiModulu))
+  const beyan = siradakiBeyan()
+
+  const kdvCache = getKdvTutarlariCached(companyId)
+  const [{ statsRows, recentInvoices, cashflowRows }, kdvDonem, kdvBuAy] = await Promise.all([
+    getDashboardDataCached(companyId)(companyId, chartStart.toISOString()),
+    showKdv ? kdvCache(companyId, beyan.yil, beyan.ay) : null,
+    showKdv && !beyan.devamEdiyor ? kdvCache(companyId, beyan.buAy.yil, beyan.buAy.ay) : null,
+  ])
+  const kdvRaporHref = withCompanyHref(`/raporlar/vergiler?year=${beyan.yil}&month=${beyan.ay}`, companyId)
 
   const stats = statsRows[0]
   const customerCount = Number(stats?.customer_count || 0)
@@ -496,6 +541,9 @@ export default async function DashboardIndexPage({
         </div>
 
         <div className="flex flex-col gap-4 lg:col-span-4">
+          {kdvDonem && (
+            <KdvDurumuKarti beyan={beyan} donem={kdvDonem} buAy={kdvBuAy} raporHref={kdvRaporHref} />
+          )}
           <div
             className={cn(
               "flex flex-1 flex-col justify-between rounded-3xl border p-6 shadow-card animate-fade-up [animation-delay:160ms]",
@@ -531,7 +579,7 @@ export default async function DashboardIndexPage({
             </ul>
             {draftCount > 0 && canOpenInvoices && (
               <Link
-                href={`/satis/fatura${companyQuery}`}
+                href={withCompanyHref("/satis/fatura?durum=DRAFT,GIB_DRAFT", companyId)}
                 className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-kobipo-navy px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-kobipo-blue dark:bg-kobipo-blue dark:hover:bg-kobipo-mid"
               >
                 Taslaklara git

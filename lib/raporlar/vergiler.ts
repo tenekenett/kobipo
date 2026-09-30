@@ -5,8 +5,15 @@
  * dışa aktarma ucu da aynı fonksiyonları çağırır.
  */
 
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
-import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
+import {
+  alisAilesiSql,
+  kdvIsaretSql,
+  kdvKurSql,
+  kdvyeGirerSql,
+  satisAilesiSql,
+} from "@/lib/raporlar/kdv-kural"
 
 /** Muhtasar stopaj oranı — basit yaklaşım, gerçek hesap daha karmaşık. */
 const WITHHOLDING_RATE = 0.15
@@ -23,9 +30,16 @@ export type VatDeclarationResult = {
   deductibleVAT: number
   netVAT: number
   breakdown: {
-    sales: Array<{ vatRate: any; vatAmount: number; totalAmount: number }>
-    purchases: Array<{ vatRate: any; vatAmount: number; totalAmount: number }>
+    sales: Array<{ vatRate: number; vatAmount: number; totalAmount: number }>
+    purchases: Array<{ vatRate: number; vatAmount: number; totalAmount: number }>
   }
+  /** KDV'ye giren belge sayısı (iadeler dahil) — kart metinleri okur. */
+  documentCounts: { sales: number; purchases: number }
+  /**
+   * Kuru girilmemiş dövizli belge: TL'ye çevrilemediği için toplama GİRMEDİ.
+   * Sıfır değilse ekran bunu yazar — sessizce düşmez (bkz. kdv-kural.ts).
+   */
+  unconvertedForeign: number
 }
 
 export function resolveVatRange(period: VatPeriod, year: number, month: number) {
@@ -57,58 +71,55 @@ export async function computeVatDeclaration(args: {
   const period = args.period ?? "monthly"
   const { startDate, endDate } = resolveVatRange(period, args.year, args.month)
 
-  // GEÇERLİ belge: iptal DEĞİL ve dönüştürülmüş fiş DEĞİL. `CONVERTED` fiş,
-  // kalemleri yeni faturaya kopyalanmış eski kayıttır; süzülmezse KDV'si hem fişte
-  // hem faturada sayılır (Reypo Medya'da 6 fiş / 8.616 TL fazladan ölçüldü).
-  // Diğer raporlar (kar-zarar, gelir-gider, cari) aynı iki durumu dışlıyor.
-  const posted = {
-    companyId: args.companyId,
-    status: { notIn: ["CANCELLED", "CONVERTED"] },
-    date: { gte: startDate, lte: endDate },
-  }
-  const byRate = (invoice: Record<string, unknown>) =>
-    prisma.invoiceItem.groupBy({
-      by: ["vatRate"],
-      where: { invoice: { ...posted, ...invoice } },
-      _sum: { vatAmount: true, totalAmount: true },
-    })
-
-  const [salesVAT, purchaseVAT, salesReturnVAT, purchaseReturnVAT] = await Promise.all([
-    // Satış faturalarından KDV (Hesaplanan KDV)
-    byRate({ type: "SALES" }),
-    // Alış faturalarından KDV (İndirilecek KDV)
-    byRate({ type: "PURCHASE" }),
-    // İADELER: satış iadesi hesaplanan KDV'yi, alış iadesi indirilecek KDV'yi
-    // AZALTIR. Öncesinde iadeler hiç okunmuyordu — iade edilen malın KDV'si
-    // beyannameye ödenecek KDV olarak kalıyordu. (Resmî beyannamede satış iadesi
-    // "indirimler" satırına yazılır; net sonuç aynı, hazırlık raporunda oran
-    // kırılımı ilgili tarafta netlenir ki satış ve iade aynı satırda görünsün.)
-    byRate(SALES_RETURN_WHERE()),
-    byRate(PURCHASE_RETURN_WHERE()),
+  // Hangi belgenin KDV'ye girdiği ve dövizin TL'ye çevrimi TEK YERDE:
+  // lib/raporlar/kdv-kural.ts. (İptal ve faturaya dönüşmüş fiş girmez —
+  // CONVERTED fiş süzülmezse KDV'si hem fişte hem faturada sayılırdı; Reypo
+  // Medya'da 6 fiş / 8.616 TL fazladan ölçülmüştü.)
+  //
+  // İADELER kendi ailesinin toplamını AZALTIR (satış iadesi hesaplananı, alış
+  // iadesi indirilecek KDV'yi). Oran kırılımı ilgili tarafta netlenir ki satış
+  // ve iade aynı satırda görünsün; iade oranı faturada yoksa eksi satır kalır.
+  const where = Prisma.sql`
+    i."companyId" = ${args.companyId}
+    AND i.date >= ${startDate} AND i.date <= ${endDate}
+    AND ${kdvyeGirerSql("i")}
+  `
+  const [rateRows, countRows] = await Promise.all([
+    prisma.$queryRaw<Array<{ aile: string; vatRate: unknown; vat: unknown; total: unknown }>>(Prisma.sql`
+      SELECT CASE WHEN ${satisAilesiSql("i")} THEN 'S' ELSE 'P' END AS aile,
+             ii."vatRate" AS "vatRate",
+             COALESCE(SUM(${kdvIsaretSql("i")} * ii."vatAmount" * ${kdvKurSql("i")}), 0) AS vat,
+             COALESCE(SUM(${kdvIsaretSql("i")} * ii."totalAmount" * ${kdvKurSql("i")}), 0) AS total
+      FROM invoice_items ii
+      JOIN invoices i ON i.id = ii."invoiceId"
+      WHERE ${where} AND ${kdvKurSql("i")} IS NOT NULL
+      GROUP BY 1, 2
+      ORDER BY 2
+    `),
+    prisma.$queryRaw<Array<{ satis: bigint; alis: bigint; kursuz: bigint }>>(Prisma.sql`
+      SELECT COUNT(*) FILTER (WHERE ${satisAilesiSql("i")} AND ${kdvKurSql("i")} IS NOT NULL) AS satis,
+             COUNT(*) FILTER (WHERE ${alisAilesiSql("i")} AND ${kdvKurSql("i")} IS NOT NULL) AS alis,
+             COUNT(*) FILTER (WHERE ${kdvKurSql("i")} IS NULL) AS kursuz
+      FROM invoices i
+      WHERE ${where}
+    `),
   ])
 
-  type RateRow = { vatRate: unknown; vatAmount: number; totalAmount: number }
-  /** Faturalar − iadeler, oran bazında; iade oranı faturada yoksa eksi satır olarak kalır. */
-  const netByRate = (invoices: typeof salesVAT, returns: typeof salesVAT): RateRow[] => {
-    const rows = new Map<string, RateRow>()
-    const add = (list: typeof salesVAT, sign: 1 | -1) => {
-      for (const item of list) {
-        const key = String(item.vatRate)
-        const row = rows.get(key) ?? { vatRate: item.vatRate, vatAmount: 0, totalAmount: 0 }
-        row.vatAmount += sign * Number(item._sum.vatAmount || 0)
-        row.totalAmount += sign * Number(item._sum.totalAmount || 0)
-        rows.set(key, row)
-      }
-    }
-    add(invoices, 1)
-    add(returns, -1)
-    return [...rows.values()].sort((a, b) => Number(a.vatRate) - Number(b.vatRate))
-  }
+  type RateRow = { vatRate: number; vatAmount: number; totalAmount: number }
+  // Kuruş: TL karşılığı çarpımı kuruş altı basamak üretebilir; oran satırı
+  // ekranda ve Excel'de toplanacağı için satır kuruşa yuvarlanır.
+  const kurus = (n: unknown) => Math.round(Number(n ?? 0) * 100) / 100
+  const toRows = (aile: string): RateRow[] =>
+    rateRows
+      .filter((r) => r.aile === aile)
+      .map((r) => ({ vatRate: Number(r.vatRate), vatAmount: kurus(r.vat), totalAmount: kurus(r.total) }))
+      .sort((a, b) => a.vatRate - b.vatRate)
 
-  const sales = netByRate(salesVAT, salesReturnVAT)
-  const purchases = netByRate(purchaseVAT, purchaseReturnVAT)
-  const calculatedVAT = sales.reduce((sum, item) => sum + item.vatAmount, 0)
-  const deductibleVAT = purchases.reduce((sum, item) => sum + item.vatAmount, 0)
+  const sales = toRows("S")
+  const purchases = toRows("P")
+  const calculatedVAT = kurus(sales.reduce((sum, item) => sum + item.vatAmount, 0))
+  const deductibleVAT = kurus(purchases.reduce((sum, item) => sum + item.vatAmount, 0))
+  const counts = countRows[0]
 
   return {
     period,
@@ -118,8 +129,10 @@ export async function computeVatDeclaration(args: {
     endDate: endDate.toISOString(),
     calculatedVAT,
     deductibleVAT,
-    netVAT: calculatedVAT - deductibleVAT,
+    netVAT: kurus(calculatedVAT - deductibleVAT),
     breakdown: { sales, purchases },
+    documentCounts: { sales: Number(counts?.satis ?? 0), purchases: Number(counts?.alis ?? 0) },
+    unconvertedForeign: Number(counts?.kursuz ?? 0),
   }
 }
 
