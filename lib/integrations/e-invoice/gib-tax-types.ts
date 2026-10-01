@@ -89,6 +89,9 @@ export const GIB_OTHER_TAX_TYPES: GibTaxType[] = [
 
 const OTHER_TAX_BY_CODE = new Map(GIB_OTHER_TAX_TYPES.map((t) => [t.code, t] as const))
 
+/** KDV matrahına giren "Diğer Vergi" kodları — `isOtherTaxInVatBase`in SQL'e taşınacak listesi. */
+export const OTHER_TAX_CODES_IN_VAT_BASE: string[] = GIB_OTHER_TAX_TYPES.filter((t) => t.vatBase).map((t) => t.code)
+
 /**
  * Satıra girilen "Diğer Vergi" KDV matrahına dahil mi? Kod bilinmiyorsa (Mysoft'un
  * canlı listesinden gelen ya da içe aktarımdan türetilmiş bir kod) HAYIR — matrahı

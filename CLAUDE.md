@@ -476,7 +476,12 @@ fatura onaylanmıştı. "Taslak = kesilmemiş" varsayan her yer bunları yanlı�
   hesaplanandan DÜŞER — satıcı KDV-1'de yalnız kalan kısmı beyan eder. Alışta indirilecek KDV
   faturadaki KDV'nin TAMAMIdır; bizim tevkif ettiğimiz kısım ayrıca KDV-2 ile ödenir
   (`withholding.purchases`, ekran ayrı satır yazar). Matrah kalemden: `totalAmount − vatAmount +
-  withholdingAmount` (`totalAmount` KDV dahil, tevkifat düşülmüş tutardır).
+  withholdingAmount − matraha girmeyen diğer vergi` (`totalAmount` KDV dahil, tevkifat düşülmüş
+  tutardır; ÖİV ve Konaklama Vergisi kendi kanunlarıyla KDV matrahı DIŞINDADIR ama toplamda
+  durur — liste `OTHER_TAX_CODES_IN_VAT_BASE`, ÖTV/GEKAP matrahta kalır).
+- **Tarih ekseni:** `invoices.date` 00:00 UTC, `incoming_invoices.docDate` ise İstanbul gece
+  yarısı (21:00 UTC). Gelen faturayı ay sınırıyla süzerken gün İstanbul takvimine çevrilir
+  (`aktarilmamisGelenFaturalar`); ham karşılaştırma ayın 1'ini önceki aya yazar.
 - **Muhtasar bordrodan** (`computeMuhtasar`, `PayrollRecord`): gelir + damga (`taxDeduction`) ve
   SGK işçi payı. Kişi başı döküm yalnız `/personel/maas`ı açabilene (uç ve Excel aynı
   `canViewPage` kuralı). Beyan son günleri saf modülde: `lib/raporlar/beyan-takvimi.ts`

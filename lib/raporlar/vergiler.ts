@@ -11,6 +11,7 @@
 
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
+import { OTHER_TAX_CODES_IN_VAT_BASE } from "@/lib/integrations/e-invoice/gib-tax-types"
 import {
   alisAilesiSql,
   kdvIsaretSql,
@@ -64,29 +65,35 @@ export type VatDeclarationResult = {
   unconvertedForeign: number
 }
 
+/**
+ * Dönemin sınırları — UTC gece yarısı ekseninde (`invoices.date` öyle saklanıyor;
+ * canlıda 2026-10-01: 651 kaydın hepsi 00:00 UTC). `endDate` dönemin SON
+ * milisaniyesidir. (2026-10-01'e kadar yerel saatle kuruluyordu: sunucu UTC'de
+ * fark etmiyordu, TSİ'de çalışan geliştirme ortamında ay 3 saat kayıyordu.)
+ */
 export function resolveVatRange(period: VatPeriod, year: number, month: number) {
-  if (period === "monthly") {
-    return {
-      startDate: new Date(year, month - 1, 1),
-      endDate: new Date(year, month, 0, 23, 59, 59),
-    }
-  }
-  if (period === "quarterly") {
-    const quarter = month // 1, 2, 3, 4
-    return {
-      startDate: new Date(year, (quarter - 1) * 3, 1),
-      endDate: new Date(year, quarter * 3, 0, 23, 59, 59),
-    }
-  }
-  return {
-    startDate: new Date(year, 0, 1),
-    endDate: new Date(year, 11, 31, 23, 59, 59),
-  }
+  const ay = (y: number, m0: number) => new Date(Date.UTC(y, m0, 1))
+  const [bas, sonHaric] =
+    period === "monthly"
+      ? [ay(year, month - 1), ay(year, month)]
+      : period === "quarterly"
+        ? [ay(year, (month - 1) * 3), ay(year, month * 3)] // month = çeyrek (1–4)
+        : [ay(year, 0), ay(year + 1, 0)]
+  return { startDate: bas, endDate: new Date(sonHaric.getTime() - 1) }
 }
 
 // Kuruş: TL karşılığı çarpımı kuruş altı basamak üretebilir; satırlar ekranda ve
 // Excel'de toplanacağı için kuruşa yuvarlanır.
 const kurus = (n: unknown) => Math.round(Number(n ?? 0) * 100) / 100
+
+/**
+ * Kalemin toplamında duran ama KDV matrahına girmeyen "diğer vergi" tutarı.
+ * Kod listesi tek yerden (`OTHER_TAX_CODES_IN_VAT_BASE`); kodu bilinmeyen vergi
+ * matraha girmez sayılır — `isOtherTaxInVatBase` ile aynı varsayım.
+ */
+const matrahDisiVergiSql = Prisma.sql`(CASE WHEN TRIM(COALESCE(ii."otherTaxCode", '')) IN (${Prisma.join(
+  OTHER_TAX_CODES_IN_VAT_BASE,
+)}) THEN 0 ELSE COALESCE(ii."otherTaxAmount", 0) END)`
 
 export async function computeVatDeclaration(args: {
   companyId: string
@@ -109,7 +116,13 @@ export async function computeVatDeclaration(args: {
   // MATRAH kalemden türetilir: `totalAmount` KDV dahil ve tevkifat DÜŞÜLMÜŞ
   // ödenecek tutardır (lib/invoice/line-tax.ts), KDV'siz tutar ona KDV'yi çıkarıp
   // tevkifatı geri ekleyerek bulunur. (2026-10-01'e kadar oran tablosunun
-  // "Tutar" sütunu bu KDV dahil rakamı gösteriyordu.)
+  // "Tutar" sütunu bu KDV dahil rakamı gösteriyordu.) Kısmi tevkifatta da matrah
+  // KDV hariç bedelin TAMAMIdır — tevkif edilen KDV matrahı küçültmez.
+  //
+  // Toplamda KDV matrahına GİRMEYEN "diğer vergi" de durur: ÖİV (6802 s. K.) ve
+  // Konaklama Vergisi kendi kanunlarıyla matrah dışıdır, ayrı kalem olarak
+  // eklenir. Matrah sütunundan düşülür; kural `isOtherTaxInVatBase` ile aynı
+  // liste (ÖTV ve GEKAP matraha girer, kalır).
   const where = Prisma.sql`
     i."companyId" = ${args.companyId}
     AND i.date >= ${startDate} AND i.date <= ${endDate}
@@ -124,7 +137,9 @@ export async function computeVatDeclaration(args: {
              ii."vatRate" AS "vatRate",
              COALESCE(SUM(${isaretKur} * ii."vatAmount"), 0) AS vat,
              COALESCE(SUM(${isaretKur} * COALESCE(ii."withholdingAmount", 0)), 0) AS withheld,
-             COALESCE(SUM(${isaretKur} * (ii."totalAmount" - ii."vatAmount" + COALESCE(ii."withholdingAmount", 0))), 0) AS base
+             COALESCE(SUM(${isaretKur} * (
+               ii."totalAmount" - ii."vatAmount" + COALESCE(ii."withholdingAmount", 0) - ${matrahDisiVergiSql}
+             )), 0) AS base
       FROM invoice_items ii
       JOIN invoices i ON i.id = ii."invoiceId"
       WHERE ${where} AND ${kdvKurSql("i")} IS NOT NULL
@@ -191,8 +206,21 @@ export type AktarilmamisGelen = {
 
 /**
  * Aktarılmamış gelen e-faturalar — beyan öncesi en sık kaçan indirim.
- * K-BLG-07 kartı ile vergi raporu AYNI sorguyu kullanır; aralık `[bas, sonHaric)`.
+ * K-BLG-07 kartı ile vergi raporu AYNI sorguyu kullanır; aralık `[bas, sonHaric)`,
+ * ikisi de bir TAKVİM GÜNÜNÜN UTC gece yarısı (`Date.UTC(y, m, 1)`).
+ *
+ * `docDate` İstanbul gece yarısı olarak saklanıyor (21:00 UTC — canlıda
+ * 2026-10-01: 2.386 kaydın hepsi), faturaların `date`i ise 00:00 UTC. Ham
+ * karşılaştırma ayın 1'indeki gelen faturayı ÖNCEKİ aya yazıyordu; gün bu
+ * yüzden İstanbul takvimine çevrilip karşılaştırılır.
  */
+/** İstanbul takvim günü — `lib/restoran/reports.ts` → `localDay` ile aynı dönüşüm. */
+const istanbulGunuSql = (col: Prisma.Sql) =>
+  Prisma.sql`((${col}) AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Istanbul')::date`
+
+/** UTC gece yarısı Date → "YYYY-MM-DD" (SQL'de `::date` ile karşılaştırılır). */
+const gunMetni = (d: Date) => d.toISOString().slice(0, 10)
+
 export async function aktarilmamisGelenFaturalar(args: {
   companyId: string
   bas: Date
@@ -210,7 +238,8 @@ export async function aktarilmamisGelenFaturalar(args: {
       AND ii.status = 'KABUL'
       AND ii."isLinkedToPurchase" = false
       AND ii."isArchived" = false
-      AND ii."docDate" >= ${args.bas} AND ii."docDate" < ${args.sonHaric}
+      AND ${istanbulGunuSql(Prisma.sql`ii."docDate"`)} >= ${gunMetni(args.bas)}::date
+      AND ${istanbulGunuSql(Prisma.sql`ii."docDate"`)} < ${gunMetni(args.sonHaric)}::date
   `)
   const r = rows[0]
   return {
@@ -226,7 +255,10 @@ export type VatChecklist = {
   /**
    * Dönemde düzenlenmiş ama GİB'e gönderilmemiş e-belge (satış, iade): KDV
    * kuralının tam TÜMLEYENİ — iptal/dönüşmüş değil, ama KDV'ye de girmiyor.
-   * `kdv`: satış ailesinin KDV'si (iade eksi); gönderilince hesaplanana eklenir.
+   * `kdv`: gönderilince HESAPLANAN KDV'ye eklenecek tutar — satış ailesinin
+   * kalem KDV'si, alıcının tevkif edeceği kısım düşülmüş (iade eksi). Beyan
+   * hesabıyla aynı tanım (`computeVatDeclaration`); başlıktaki KDV'yi toplamak
+   * tevkifatlı taslakta fazlasını gösteriyordu.
    */
   gonderilmemis: { adet: number; kdv: number }
 }
@@ -238,15 +270,20 @@ export async function computeVatChecklist(args: {
   month: number
 }): Promise<VatChecklist> {
   const { startDate, endDate } = resolveVatRange("monthly", args.year, args.month)
-  const sonHaric = new Date(args.year, args.month, 1)
+  const sonHaric = new Date(endDate.getTime() + 1)
 
   const [aktarilmamis, taslak] = await Promise.all([
     aktarilmamisGelenFaturalar({ companyId: args.companyId, bas: startDate, sonHaric }),
     prisma.$queryRaw<Array<{ adet: bigint; kdv: unknown }>>(Prisma.sql`
       SELECT COUNT(*) AS adet,
-             COALESCE(SUM(i."vatAmount" * ${kdvIsaretSql("i")} * ${kdvKurSql("i")})
+             COALESCE(SUM(k.kdv * ${kdvIsaretSql("i")} * ${kdvKurSql("i")})
                       FILTER (WHERE ${satisAilesiSql("i")}), 0) AS kdv
       FROM invoices i
+      LEFT JOIN LATERAL (
+        SELECT SUM(ii."vatAmount" - COALESCE(ii."withholdingAmount", 0)) AS kdv
+        FROM invoice_items ii
+        WHERE ii."invoiceId" = i.id
+      ) k ON true
       WHERE i."companyId" = ${args.companyId}
         AND i.date >= ${startDate} AND i.date <= ${endDate}
         AND i.status NOT IN ('CANCELLED', 'CONVERTED')
@@ -352,6 +389,9 @@ export async function computeMuhtasar(args: {
 
   // Dönemde çalışıyor mu: işe giriş ay sonundan önce, çıkış ay başından sonra.
   // Çıkış tarihi olmayan "TERMINATED" kayıt bilinemez → sayılmaz (dürtmeyiz).
+  // İZİNLİ (ON_LEAVE) çalışan BİLEREK sayılır: ücretsiz izindeki sigortalı da
+  // MPHB'de yer alır, eksik gün nedeniyle (kod 21 "diğer ücretsiz izin") — ay boyu
+  // izinli kişinin de o ay bir bordro satırı olmalı.
   const bordrosuOlan = new Set(bordrolar.map((p) => p.employeeId))
   const bordrosuz = personel.filter((e) => {
     if (bordrosuOlan.has(e.id)) return false

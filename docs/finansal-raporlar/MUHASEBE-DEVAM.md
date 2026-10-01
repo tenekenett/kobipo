@@ -16,6 +16,14 @@ muhasebe motoru. Rakip incelemesi ve karşılaştırma Claude Docs'ta:
   yalnız Maaş yetkisine. Ba-Bs kaldırıldı (VUK GT 565, Eylül 2024'ten beri yok).
   Kurallar CLAUDE.md'de ("Taslak yalnız GİB'e gitmemiş e-belgedir" bölümü).
 
+- Vergi raporu inceleme düzeltmeleri (2026-10-01, ikinci tur): oran tablosunun
+  matrahı ÖİV/Konaklama'yı içermiyor; "GİB'e gönderilmemiş" uyarısının KDV'si
+  tevkifat düşülmüş kalem KDV'si; dönem sınırları UTC; gelen faturalar İstanbul
+  gününe göre aya düşüyor (ayın 1'i önceki aya kayıyordu). İzinli çalışanın
+  "bordrosu girilmemiş" uyarısı bilerek kaldı (MPHB'de eksik gün kodu 21 ile yer alır).
+  Canlıda Temmuz'daki ÖTV'li test faturalarında (SAT-2026-0153/0166/0167/0172,
+  ALI-2026-0011) KDV ÖTV'siz matrahtan hesaplanmış — ÖTV kuralından önceki kayıtlar.
+
 ## Açık — karar bekliyor
 
 **Fatura altı iskontolu belgede KDV kalemden fazla.** Son 12 ayda iskontolu ~30
