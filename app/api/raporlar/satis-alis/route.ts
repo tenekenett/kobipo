@@ -48,6 +48,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
         includeLines: searchParams.get("includeLines") === "1",
         class1Id: searchParams.get("class1Id"),
         class2Id: searchParams.get("class2Id"),
+        partyId: searchParams.get("partyId"),
       })
     )
   } catch (error: any) {

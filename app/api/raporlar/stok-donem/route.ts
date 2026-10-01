@@ -30,6 +30,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
     companyId,
     startDate: parseDateParam(searchParams.get("startDate"), "startDate"),
     endDate: parseDateParam(searchParams.get("endDate"), "endDate"),
+    customerId: searchParams.get("customerId"),
   })
 
   return NextResponse.json({

@@ -91,6 +91,8 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
   // Sınıflandırma süzgeci de karttan taşınır; alt sayfa aynı kesiti gösterir.
   const class1Id = searchParams.get("class1Id") ?? ""
   const class2Id = searchParams.get("class2Id") ?? ""
+  // Tek cari (satışta müşteri, alışta tedarikçi) — üst rapordaki seçiciden.
+  const partyId = searchParams.get("partyId") ?? ""
 
   const fetchReport = useCallback(async () => {
     if (!companyId) return
@@ -102,6 +104,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
       if (section.needsLines) params.set("includeLines", "1")
       if (class1Id) params.set("class1Id", class1Id)
       if (class2Id) params.set("class2Id", class2Id)
+      if (partyId) params.set("partyId", partyId)
       const res = await fetch(`/api/raporlar/satis-alis?${params}`, { cache: "no-store" })
       if (!res.ok) throw new Error(await res.text())
       setReport(await res.json())
@@ -111,7 +114,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
     } finally {
       setIsLoading(false)
     }
-  }, [companyId, kind, startDate, endDate, section.needsLines, class1Id, class2Id])
+  }, [companyId, kind, startDate, endDate, section.needsLines, class1Id, class2Id, partyId])
 
   useEffect(() => {
     void fetchReport()
@@ -378,6 +381,13 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
           <p className="text-sm text-muted-foreground">
             {isSales ? "Satış raporu" : "Alış raporu"} · {section.description}
           </p>
+          {/* Sayfa tek cariye süzülmüşse söylenir: "neden bu kadar az fatura var" sorusu
+              doğmasın. Ad rapordan okunur (süzülmüş raporun tek carisi). */}
+          {partyId && report?.topCounterparties[0] && (
+            <p className="mt-1 text-sm font-medium">
+              {isSales ? "Müşteri" : "Tedarikçi"}: {report.topCounterparties[0].name}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Dosya EKRANDAKİ bölümü taşır: `section` olmadan dört bölümlük tam rapor
@@ -387,7 +397,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
             dataset={isSales ? "rapor-satis" : "rapor-alis"}
             companyId={companyId}
             size="default"
-            params={{ startDate, endDate, section: section.key, class1Id, class2Id }}
+            params={{ startDate, endDate, section: section.key, class1Id, class2Id, partyId }}
           />
           <Link href={withCompanyHref(reportBasePath(kind), companyId)}>
             <Button variant="outline">

@@ -168,6 +168,12 @@ export async function computeSalesPurchaseReport(args: {
    */
   class1Id?: string | null
   class2Id?: string | null
+  /**
+   * Tek CARİYE daralt: satışta müşteri, alışta tedarikçi kartının id'si. Rapor
+   * "en çok işlem yapılan cariler"i gösteriyordu ama tek carinin dökümü için
+   * fatura listesine geçmek gerekiyordu.
+   */
+  partyId?: string | null
 }): Promise<SalesPurchaseResult> {
   const isSales = args.type === "SALES"
   const dateFilter = resolveReportDateFilter(args.startDate, args.endDate)
@@ -180,6 +186,7 @@ export async function computeSalesPurchaseReport(args: {
   const partyWhere: Record<string, unknown> = {}
   if (args.class1Id) partyWhere.classification1Id = args.class1Id
   if (args.class2Id) partyWhere.classification2Id = args.class2Id
+  if (args.partyId) partyWhere.id = args.partyId
   const classFilter =
     Object.keys(partyWhere).length > 0
       ? isSales

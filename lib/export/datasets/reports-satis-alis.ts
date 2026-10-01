@@ -5,6 +5,7 @@
  * kurucusu iki kayıt olarak sunuluyor.
  */
 
+import { prisma } from "@/lib/db/prisma"
 import { computeSalesPurchaseReport, type SalesPurchaseKind } from "@/lib/raporlar/satis-alis"
 import { describeLineTotalGap } from "@/lib/raporlar/satis-alis-shared"
 import {
@@ -117,6 +118,8 @@ export async function buildSalesPurchaseDataset(params: {
   /** Ekrandaki sınıflandırma süzgeci — dosya da aynı kesiti üretir. */
   class1Id?: string | null
   class2Id?: string | null
+  /** Ekrandaki cari süzgeci (satışta müşteri, alışta tedarikçi id'si). */
+  partyId?: string | null
 }): Promise<ExportDataset> {
   const isSales = params.type === "SALES"
 
@@ -129,7 +132,7 @@ export async function buildSalesPurchaseDataset(params: {
   // gerektiriyorsa çekilir.
   const includeLines = only ? only.needsLines : true
 
-  const [company, labels, report] = await Promise.all([
+  const [company, labels, report, party] = await Promise.all([
     loadExportCompany(params.companyId),
     loadClassificationLabels(params.companyId),
     computeSalesPurchaseReport({
@@ -140,7 +143,14 @@ export async function buildSalesPurchaseDataset(params: {
       includeLines,
       class1Id: params.class1Id,
       class2Id: params.class2Id,
+      partyId: params.partyId,
     }),
+    // Künyede carinin ADI yazılsın: dönemde faturası yoksa rapordan çıkarılamaz.
+    params.partyId
+      ? isSales
+        ? prisma.customer.findFirst({ where: { id: params.partyId, companyId: params.companyId }, select: { name: true } })
+        : prisma.supplier.findFirst({ where: { id: params.partyId, companyId: params.companyId }, select: { name: true } })
+      : null,
   ])
 
   // Kalem sayfasının toplamı fatura sayfasınınkini tutmayabilir (fatura geneli
@@ -199,6 +209,7 @@ export async function buildSalesPurchaseDataset(params: {
     company,
     filters: describeFilters([
       ["Dönem", describeDateRange(params.startDate, params.endDate) ?? "Tüm kayıtlar"],
+      [isSales ? "Müşteri" : "Tedarikçi", party?.name ?? null],
       ["Fatura adedi", report.count],
       ["İade adedi", report.invoices.filter((i) => i.isReturn).length],
       // Kalem adedi yalnız kalemler ÇEKİLDİYSE yazılır; çekilmemişken "0" basmak

@@ -22,7 +22,13 @@ import {
 import { ExportButton } from "@/components/export/export-button"
 import { CariLink } from "@/components/raporlar/rapor-link"
 import { withCompanyHref } from "@/lib/company/href"
-import { useClassificationLabels, useCompanyDefinitions } from "@/lib/swr/use-company-data"
+import {
+  useClassificationLabels,
+  useCompanyDefinitions,
+  useCustomers,
+  useSuppliers,
+} from "@/lib/swr/use-company-data"
+import { SearchSelect } from "@/components/ui/search-select"
 import type { SalesPurchaseKind, SalesPurchaseResult } from "@/lib/raporlar/satis-alis"
 import { defaultReportRange } from "@/lib/raporlar/date-range"
 import {
@@ -107,6 +113,17 @@ export function SatisAlisReport({ kind, companyId }: Props) {
   const { labels: classLabels } = useClassificationLabels(companyId)
   const { definitions: class1Options } = useCompanyDefinitions(companyId, "CLASS_1")
   const { definitions: class2Options } = useCompanyDefinitions(companyId, "CLASS_2")
+  // Tek cari: satışta müşteri, alışta tedarikçi. Seçim bölüm sayfalarına ve
+  // dosyaya da taşınır (hrefOf / ExportButton).
+  const [partyId, setPartyId] = useState("")
+  const { customers } = useCustomers(isSales ? companyId : null)
+  const { suppliers } = useSuppliers(isSales ? null : companyId)
+  const partyOptions = useMemo(
+    () => (isSales ? customers : suppliers).map((c) => ({ id: c.id, name: c.name })),
+    [isSales, customers, suppliers]
+  )
+  const partyLabel = isSales ? "Müşteri" : "Tedarikçi"
+  const partyAll = isSales ? "Tüm müşteriler" : "Tüm tedarikçiler"
 
   const fetchReport = useCallback(async () => {
     if (!companyId) return
@@ -117,6 +134,7 @@ export function SatisAlisReport({ kind, companyId }: Props) {
       if (endDate) params.set("endDate", endDate)
       if (class1Id) params.set("class1Id", class1Id)
       if (class2Id) params.set("class2Id", class2Id)
+      if (partyId) params.set("partyId", partyId)
       const res = await fetch(`/api/raporlar/satis-alis?${params}`, { cache: "no-store" })
       if (!res.ok) throw new Error(await res.text())
       setReport(await res.json())
@@ -126,7 +144,7 @@ export function SatisAlisReport({ kind, companyId }: Props) {
     } finally {
       setIsLoading(false)
     }
-  }, [companyId, kind, startDate, endDate, class1Id, class2Id])
+  }, [companyId, kind, startDate, endDate, class1Id, class2Id, partyId])
 
   useEffect(() => {
     void fetchReport()
@@ -152,6 +170,7 @@ export function SatisAlisReport({ kind, companyId }: Props) {
     if (endDate) query.set("endDate", endDate)
     if (class1Id) query.set("class1Id", class1Id)
     if (class2Id) query.set("class2Id", class2Id)
+    if (partyId) query.set("partyId", partyId)
     const suffix = query.toString()
     return withCompanyHref(
       `${sectionPath(kind, sectionOf(key))}${suffix ? `?${suffix}` : ""}`,
@@ -177,7 +196,7 @@ export function SatisAlisReport({ kind, companyId }: Props) {
             dataset={isSales ? "rapor-satis" : "rapor-alis"}
             companyId={companyId}
             size="default"
-            params={{ startDate, endDate, class1Id, class2Id }}
+            params={{ startDate, endDate, class1Id, class2Id, partyId }}
           />
           {/* "Detaylı Faturalar" şeritten ALINDI: beşinci kutu tek başına alt
               satıra düşüyordu. Kalem dökümü zaten dosya/detay tarafına ait bir
@@ -220,6 +239,20 @@ export function SatisAlisReport({ kind, companyId }: Props) {
               min={startDate || undefined}
               onChange={(e) => setEndDate(e.target.value)}
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="rapor-cari">{partyLabel}</Label>
+            <div className="w-[240px]">
+              <SearchSelect
+                id="rapor-cari"
+                options={partyOptions}
+                value={partyId}
+                onChange={setPartyId}
+                placeholder={partyAll}
+                allowClear
+                clearLabel={partyAll}
+              />
+            </div>
           </div>
           {/* Sınıflandırma süzgeçleri: eksen adları firmadan gelir (Ayarlar → Tanımlar). */}
           <div className="space-y-1.5">
@@ -266,8 +299,9 @@ export function SatisAlisReport({ kind, companyId }: Props) {
               setEndDate("")
               setClass1Id("")
               setClass2Id("")
+              setPartyId("")
             }}
-            disabled={isLoading || (!startDate && !endDate && !class1Id && !class2Id)}
+            disabled={isLoading || (!startDate && !endDate && !class1Id && !class2Id && !partyId)}
           >
             Tüm kayıtlar
           </Button>

@@ -55,6 +55,9 @@ const STOCK_COLUMNS: ExportColumn[] = [
   { key: "saleValue", label: "Stok Satış Değeri", type: "money", width: 26, total: true },
 ]
 
+/** Müşteri kesitinde anlamı olmayan dönem sütunları (bkz. `StockReportParams.customerId`). */
+const CUSTOMER_HIDDEN = new Set(["periodInbound", "periodRecipe", "periodOther"])
+
 export type StockReportParams = {
   companyId: string
   search?: string | null
@@ -67,6 +70,12 @@ export type StockReportParams = {
   /** Giriş/satılan/diğer sütunlarının dönemi; mevcut stok her zaman bugündür. */
   startDate?: string | null
   endDate?: string | null
+  /**
+   * Müşteri kesiti: yalnız bu müşterinin dönemde ALDIĞI ürünler, "Satılan" o
+   * müşteriye satılan adet. Giriş/Reçete/Diğer sütunları müşteriye ait değildir,
+   * dosyadan da çıkar (ekranla aynı).
+   */
+  customerId?: string | null
 }
 
 /** `/raporlar/stok` ekranındaki `stockStatus` ile birebir aynı kural. */
@@ -78,7 +87,7 @@ function stockStatusLabel(isService: boolean, quantity: number, minimum: number)
 }
 
 export async function buildStockReportDataset(params: StockReportParams): Promise<ExportDataset> {
-  const [company, products, costByProduct, periodFlows] = await Promise.all([
+  const [company, products, costByProduct, periodFlows, customer] = await Promise.all([
     loadExportCompany(params.companyId),
     prisma.product.findMany({ where: { companyId: params.companyId }, orderBy: { name: "asc" } }),
     resolveAllUnitCosts(params.companyId),
@@ -86,8 +95,16 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
       companyId: params.companyId,
       startDate: params.startDate,
       endDate: params.endDate,
+      customerId: params.customerId,
     }),
+    params.customerId
+      ? prisma.customer.findFirst({
+          where: { id: params.customerId, companyId: params.companyId },
+          select: { name: true },
+        })
+      : null,
   ])
+  const byCustomer = Boolean(params.customerId)
   const flowOf = (id: string) => periodFlows.byProduct.get(id) ?? emptyFlow()
 
   const typeFilter = params.type || "ALL"
@@ -97,6 +114,8 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
   const searchMatches = trMatcher(search)
 
   const filtered = products.filter((product) => {
+    // Müşteri kesitinde yalnız o müşterinin dönemde aldığı (ya da iade ettiği) ürünler.
+    if (byCustomer && flowOf(product.id).sold === 0) return false
     if (typeFilter === "PRODUCT" && product.isService) return false
     if (typeFilter === "SERVICE" && !product.isService) return false
 
@@ -198,6 +217,7 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
     filters: describeFilters([
       // Tarihsiz istek (eski link) yılbaşından bugüne sayar — resolvePeriodBounds.
       ["Hareket dönemi", describeDateRange(params.startDate, params.endDate) ?? "Yılbaşından bugüne"],
+      ["Müşteri", customer?.name ?? null],
       ["Sıralama", params.sort === "SOLD" ? "En çok satılan" : null],
       ["Arama", params.search],
       ["Tür", typeFilter === "PRODUCT" ? "Ürün" : typeFilter === "SERVICE" ? "Hizmet" : null],
@@ -212,7 +232,15 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
               : null,
       ],
     ]),
-    sections: [summary, { title: "Ürünler", sheetName: "Ürünler", columns: STOCK_COLUMNS, rows }],
+    sections: [
+      summary,
+      {
+        title: byCustomer ? "Müşterinin aldığı ürünler" : "Ürünler",
+        sheetName: "Ürünler",
+        columns: byCustomer ? STOCK_COLUMNS.filter((c) => !CUSTOMER_HIDDEN.has(c.key)) : STOCK_COLUMNS,
+        rows,
+      },
+    ],
     generatedAt: new Date(),
   }
 }

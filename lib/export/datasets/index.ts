@@ -141,6 +141,7 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       sort: params.get("sort"),
       startDate: params.get("startDate"),
       endDate: params.get("endDate"),
+      customerId: params.get("customerId"),
     }),
 
   "rapor-stok-hareket": (companyId, params) =>
@@ -213,6 +214,7 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       section: params.get("section"),
       class1Id: params.get("class1Id"),
       class2Id: params.get("class2Id"),
+      partyId: params.get("partyId"),
     }),
 
   "rapor-alis": (companyId, params) =>
@@ -224,6 +226,7 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       section: params.get("section"),
       class1Id: params.get("class1Id"),
       class2Id: params.get("class2Id"),
+      partyId: params.get("partyId"),
     }),
 
   "rapor-personel": (companyId, params) =>

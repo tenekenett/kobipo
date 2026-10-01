@@ -28,6 +28,8 @@ import Link from "next/link"
 import { trMatcher } from "@/lib/text/tr-fold"
 import { defaultReportRange } from "@/lib/raporlar/date-range"
 import { emptyFlow, type ProductFlow } from "@/lib/raporlar/stok-donem-kural"
+import { SearchSelect } from "@/components/ui/search-select"
+import { useCustomers } from "@/lib/swr/use-company-data"
 
 interface Product {
   id: string
@@ -84,6 +86,12 @@ export default function StokRaporlariPage() {
   const [endDate, setEndDate] = useState(() => defaultReportRange().endDate)
   const [flows, setFlows] = useState<Record<string, ProductFlow>>({})
   const [flowsLoading, setFlowsLoading] = useState(false)
+  // Müşteri kesiti: tablo o müşterinin dönemde ALDIĞI ürünlere daralır, "Satılan"
+  // ona satılan adettir. Giriş/Reçete/Diğer müşteriye ait değildir, gizlenir.
+  // Kural lib/raporlar/stok-donem.ts başlığında.
+  const [customerId, setCustomerId] = useState("")
+  const { customers } = useCustomers(companyId)
+  const byCustomer = Boolean(customerId)
 
   const currencyFormatter = useMemo(
     () =>
@@ -114,6 +122,7 @@ export default function StokRaporlariPage() {
     let cancelled = false
     setFlowsLoading(true)
     const params = new URLSearchParams({ companyId, startDate, endDate })
+    if (customerId) params.set("customerId", customerId)
     fetch(`/api/raporlar/stok-donem?${params}`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -126,12 +135,13 @@ export default function StokRaporlariPage() {
     return () => {
       cancelled = true
     }
-  }, [companyId, startDate, endDate])
+  }, [companyId, startDate, endDate, customerId])
 
   const flowOf = (id: string): ProductFlow => flows[id] ?? emptyFlow()
   // Reçete sütunu yalnız reçeteyle tüketim olan firmada çıkar — kafede anlamlı,
   // toptancıda boş bir sütun.
   const hasRecipe = useMemo(() => Object.values(flows).some((f) => f.recipe !== 0), [flows])
+  const showRecipe = hasRecipe && !byCustomer
 
   const fetchData = async () => {
     if (!companyId) return
@@ -184,6 +194,8 @@ export default function StokRaporlariPage() {
     // (lib/export/datasets/reports.ts) — ekran ile Excel aynı satırları versin.
     const searchMatches = trMatcher(search)
     return products.filter((p) => {
+      // Müşteri kesitinde yalnız o müşterinin dönemde aldığı (ya da iade ettiği) ürünler.
+      if (byCustomer && (flows[p.id]?.sold ?? 0) === 0) return false
       if (typeFilter === "PRODUCT" && p.isService) return false
       if (typeFilter === "SERVICE" && !p.isService) return false
 
@@ -196,7 +208,7 @@ export default function StokRaporlariPage() {
       if (search && !searchMatches(p.name, p.code, p.barcode)) return false
       return true
     })
-  }, [products, typeFilter, stockFilter, search])
+  }, [products, typeFilter, stockFilter, search, byCustomer, flows])
 
   // Uç ürünleri ada göre döndürür; "en çok satılan" sıralaması dönem akışından.
   const sortedProducts = useMemo(() => {
@@ -239,7 +251,7 @@ export default function StokRaporlariPage() {
           <ExportButton
             dataset="rapor-stok"
             companyId={companyId}
-            params={{ search, type: typeFilter, stock: stockFilter, sort, startDate, endDate }}
+            params={{ search, type: typeFilter, stock: stockFilter, sort, startDate, endDate, customerId }}
           />
           {/* Hareket listesi bu sayfadan ÇIKARILDI: tarih/cari/tanım süzgeçleriyle
               kendi sayfasında yaşıyor. Kapısı sayfanın DİBİNDE bir kart olarak
@@ -324,8 +336,9 @@ export default function StokRaporlariPage() {
             <div>
               <CardTitle>Stok Durumu</CardTitle>
               <CardDescription>
-                {filteredProducts.length} kayıt listeleniyor · Giriş, satılan ve diğer sütunları
-                seçilen dönemi, mevcut stok bugünü gösterir
+                {byCustomer
+                  ? `${filteredProducts.length} ürün · seçilen müşterinin dönemde aldığı ürünler; satılan o müşteriye satılan adettir, mevcut stok bugünü gösterir`
+                  : `${filteredProducts.length} kayıt listeleniyor · Giriş, satılan ve diğer sütunları seçilen dönemi, mevcut stok bugünü gösterir`}
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -345,6 +358,17 @@ export default function StokRaporlariPage() {
                 onChange={(e) => setEndDate(e.target.value)}
                 className="w-[150px]"
               />
+              <div className="w-[220px]">
+                <SearchSelect
+                  id="stok-musteri"
+                  options={customers.map((c) => ({ id: c.id, name: c.name }))}
+                  value={customerId}
+                  onChange={setCustomerId}
+                  placeholder="Tüm müşteriler"
+                  allowClear
+                  clearLabel="Tüm müşteriler"
+                />
+              </div>
               <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
                 <SelectTrigger className="w-[170px]">
                   <SelectValue />
@@ -394,12 +418,21 @@ export default function StokRaporlariPage() {
                 <TableHead>Kod</TableHead>
                 <TableHead>Ad</TableHead>
                 <TableHead>Birim</TableHead>
-                <TableHead className="text-right" title="Alış, irsaliye, elle giriş, açılış">Giriş</TableHead>
-                <TableHead className="text-right" title="Fatura, fiş ve faturasız satış; iadeler düşülmüş">Satılan</TableHead>
-                {hasRecipe && (
+                {!byCustomer && (
+                  <TableHead className="text-right" title="Alış, irsaliye, elle giriş, açılış">Giriş</TableHead>
+                )}
+                <TableHead
+                  className="text-right"
+                  title={byCustomer ? "Bu müşteriye satılan; iadeler düşülmüş" : "Fatura, fiş ve faturasız satış; iadeler düşülmüş"}
+                >
+                  Satılan
+                </TableHead>
+                {showRecipe && (
                   <TableHead className="text-right" title="Reçeteli ürün satışında bileşen olarak düşen">Reçete</TableHead>
                 )}
-                <TableHead className="text-right" title="Fire, zayi, ikram, numune, sayım farkı">Diğer</TableHead>
+                {!byCustomer && (
+                  <TableHead className="text-right" title="Fire, zayi, ikram, numune, sayım farkı">Diğer</TableHead>
+                )}
                 <TableHead className="text-right">Mevcut</TableHead>
                 <TableHead className="text-right">Min.</TableHead>
                 <TableHead className="text-right">Alış Fiyatı</TableHead>
@@ -411,8 +444,12 @@ export default function StokRaporlariPage() {
             <TableBody>
               {filteredProducts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={hasRecipe ? 13 : 12} className="text-center text-muted-foreground">
-                    {isLoading ? "Yükleniyor..." : "Kayıt bulunamadı"}
+                  <TableCell colSpan={byCustomer ? 10 : hasRecipe ? 13 : 12} className="text-center text-muted-foreground">
+                    {isLoading || (byCustomer && flowsLoading)
+                      ? "Yükleniyor..."
+                      : byCustomer
+                        ? "Bu müşteri seçilen dönemde ürün almamış"
+                        : "Kayıt bulunamadı"}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -441,12 +478,16 @@ export default function StokRaporlariPage() {
                         </ProductLink>
                       </TableCell>
                       <TableCell>{p.unit}</TableCell>
-                      <TableCell className="text-right tabular-nums">{p.isService ? "-" : flowCell(flow.inbound)}</TableCell>
+                      {!byCustomer && (
+                        <TableCell className="text-right tabular-nums">{p.isService ? "-" : flowCell(flow.inbound)}</TableCell>
+                      )}
                       <TableCell className="text-right font-medium tabular-nums">{flowCell(flow.sold)}</TableCell>
-                      {hasRecipe && (
+                      {showRecipe && (
                         <TableCell className="text-right tabular-nums">{p.isService ? "-" : flowCell(flow.recipe)}</TableCell>
                       )}
-                      <TableCell className="text-right tabular-nums">{p.isService ? "-" : flowCell(flow.other, true)}</TableCell>
+                      {!byCustomer && (
+                        <TableCell className="text-right tabular-nums">{p.isService ? "-" : flowCell(flow.other, true)}</TableCell>
+                      )}
                       <TableCell className="text-right">
                         {p.isService ? "-" : numberFormatter.format(qty)}
                       </TableCell>
