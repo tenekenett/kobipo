@@ -26,11 +26,13 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
   await ensureCompanyAccess(companyId)
 
+  // Cari kesiti tek yönlüdür; ikisi birden gelirse hesap 400 (BadRequestError) atar.
   const result = await computeStockPeriodFlows({
     companyId,
     startDate: parseDateParam(searchParams.get("startDate"), "startDate"),
     endDate: parseDateParam(searchParams.get("endDate"), "endDate"),
     customerId: searchParams.get("customerId"),
+    supplierId: searchParams.get("supplierId"),
   })
 
   return NextResponse.json({

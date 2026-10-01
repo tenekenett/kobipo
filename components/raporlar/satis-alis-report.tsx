@@ -2,15 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   ArrowUpRight,
+  Boxes,
   CalendarRange,
   ChevronRight,
+  Divide,
   ListTree,
+  Package,
   Receipt,
   Tags,
   TrendingDown,
@@ -21,6 +24,7 @@ import {
 } from "lucide-react"
 import { ExportButton } from "@/components/export/export-button"
 import { CariLink } from "@/components/raporlar/rapor-link"
+import { AlinanUrunlerKarti } from "@/components/raporlar/alinan-urunler-karti"
 import { withCompanyHref } from "@/lib/company/href"
 import {
   useClassificationLabels,
@@ -28,7 +32,15 @@ import {
   useCustomers,
   useSuppliers,
 } from "@/lib/swr/use-company-data"
-import { SearchSelect } from "@/components/ui/search-select"
+import {
+  CariFilterSelect,
+  CariFocusBanner,
+  FILTER_LABEL_ROW,
+  PeriodFilter,
+  ReportFilterPanel,
+} from "@/components/raporlar/cari-filtre"
+import { useRouteAccess } from "@/components/dashboard/dashboard-company-provider"
+import { cn } from "@/lib/utils"
 import type { SalesPurchaseKind, SalesPurchaseResult } from "@/lib/raporlar/satis-alis"
 import { defaultReportRange } from "@/lib/raporlar/date-range"
 import {
@@ -60,6 +72,7 @@ const classText = (class1: string, class2: string) => [class1, class2].filter(Bo
 
 /** Bölüm kapılarının ikonu. Anahtarlar bölüm listesinden gelir, kart eklenirse burası da uyarır. */
 const sectionIcons: Record<SalesPurchaseSectionKey, LucideIcon> = {
+  urunler: Package,
   aylik: CalendarRange,
   cariler: Users,
   siniflandirma: Tags,
@@ -100,12 +113,20 @@ function SectionCardHeader({
 
 export function SatisAlisReport({ kind, companyId }: Props) {
   const isSales = kind === "SALES"
+  const searchParams = useSearchParams()
+  const canOpen = useRouteAccess()
   const [report, setReport] = useState<SalesPurchaseResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   // Dönem varsayılanı SON 30 GÜN: başlangıç bitişten 30 gün geride açılır.
   // Yılbaşı → bugün varsayılanıyla Eylül'de açılan rapor sekiz ayı çekiyordu.
-  const [startDate, setStartDate] = useState(() => defaultReportRange().startDate)
-  const [endDate, setEndDate] = useState(() => defaultReportRange().endDate)
+  // Başka ekrandan (stok raporunun müşteri şeridi) gelinmişse dönem ve cari
+  // URL'den okunur; boş değer "tüm zamanlar" demektir, varsayılana düşmez.
+  const [startDate, setStartDate] = useState(
+    () => searchParams.get("startDate") ?? defaultReportRange().startDate
+  )
+  const [endDate, setEndDate] = useState(
+    () => searchParams.get("endDate") ?? defaultReportRange().endDate
+  )
   // Cari sınıflandırması: rapor bu eksenleri yalnız sütun olarak gösteriyordu,
   // "bayilere ne sattım" ancak Excel'e indirip süzerek cevaplanabiliyordu.
   const [class1Id, setClass1Id] = useState("")
@@ -115,15 +136,21 @@ export function SatisAlisReport({ kind, companyId }: Props) {
   const { definitions: class2Options } = useCompanyDefinitions(companyId, "CLASS_2")
   // Tek cari: satışta müşteri, alışta tedarikçi. Seçim bölüm sayfalarına ve
   // dosyaya da taşınır (hrefOf / ExportButton).
-  const [partyId, setPartyId] = useState("")
+  const [partyId, setPartyId] = useState(() => searchParams.get("partyId") ?? "")
   const { customers } = useCustomers(isSales ? companyId : null)
   const { suppliers } = useSuppliers(isSales ? null : companyId)
-  const partyOptions = useMemo(
-    () => (isSales ? customers : suppliers).map((c) => ({ id: c.id, name: c.name })),
-    [isSales, customers, suppliers]
+  const partyOptions = isSales ? customers : suppliers
+  const partyKind = isSales ? "customer" : "supplier"
+  const partyName = useMemo(
+    () => partyOptions.find((c) => c.id === partyId)?.name ?? null,
+    [partyOptions, partyId]
   )
-  const partyLabel = isSales ? "Müşteri" : "Tedarikçi"
-  const partyAll = isSales ? "Tüm müşteriler" : "Tüm tedarikçiler"
+  const activeFilterCount = (partyId ? 1 : 0) + (class1Id ? 1 : 0) + (class2Id ? 1 : 0)
+  const clearFilters = () => {
+    setPartyId("")
+    setClass1Id("")
+    setClass2Id("")
+  }
 
   const fetchReport = useCallback(async () => {
     if (!companyId) return
@@ -135,6 +162,8 @@ export function SatisAlisReport({ kind, companyId }: Props) {
       if (class1Id) params.set("class1Id", class1Id)
       if (class2Id) params.set("class2Id", class2Id)
       if (partyId) params.set("partyId", partyId)
+      // Alışın ana listesi ürünlerdir: kalemler sunucuda ürün bazında toplanır.
+      if (!isSales) params.set("includeProducts", "1")
       const res = await fetch(`/api/raporlar/satis-alis?${params}`, { cache: "no-store" })
       if (!res.ok) throw new Error(await res.text())
       setReport(await res.json())
@@ -144,7 +173,7 @@ export function SatisAlisReport({ kind, companyId }: Props) {
     } finally {
       setIsLoading(false)
     }
-  }, [companyId, kind, startDate, endDate, class1Id, class2Id, partyId])
+  }, [companyId, kind, isSales, startDate, endDate, class1Id, class2Id, partyId])
 
   useEffect(() => {
     void fetchReport()
@@ -160,14 +189,21 @@ export function SatisAlisReport({ kind, companyId }: Props) {
   const sections = useMemo(() => salesPurchaseSections(kind), [kind])
   // Şerit DÖRT kutu: beşincisi (kalem dökümü) tek başına alt satıra düşüyordu;
   // o başlıktaki düğmeye taşındı.
-  const stripSections = useMemo(() => sections.filter((s) => s.key !== "kalemler"), [sections])
+  // "Alınan Ürünler" de şeritte yok: alışta kendi büyük kartıyla KPI'ların hemen altında durur.
+  const stripSections = useMemo(
+    () => sections.filter((s) => s.key !== "kalemler" && s.key !== "urunler"),
+    [sections]
+  )
   const sectionOf = (key: SalesPurchaseSectionKey) => sections.find((s) => s.key === key)!
   // Kart linki o an seçili dönemi de taşır; alt sayfa aynı aralıkla açılır ve
   // kullanıcı filtreyi ikinci kez kurmak zorunda kalmaz.
   const hrefOf = (key: SalesPurchaseSectionKey) => {
     const query = new URLSearchParams()
-    if (startDate) query.set("startDate", startDate)
-    if (endDate) query.set("endDate", endDate)
+    // Dönem BOŞKEN de yazılır: alt sayfa eksik parametreyi "son 30 gün" sayar,
+    // "Tüm zamanlar" seçiliyken bölüme geçen kullanıcı sessizce başka bir
+    // aralık görüyordu.
+    query.set("startDate", startDate)
+    query.set("endDate", endDate)
     if (class1Id) query.set("class1Id", class1Id)
     if (class2Id) query.set("class2Id", class2Id)
     if (partyId) query.set("partyId", partyId)
@@ -216,99 +252,108 @@ export function SatisAlisReport({ kind, companyId }: Props) {
         </div>
       </div>
 
-      <Card>
-        <CardContent className="flex flex-wrap items-end gap-3 p-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="rapor-baslangic">Başlangıç tarihi</Label>
-            <Input
-              id="rapor-baslangic"
-              type="date"
-              className="w-[170px]"
-              value={startDate}
-              max={endDate || undefined}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="rapor-bitis">Bitiş tarihi</Label>
-            <Input
-              id="rapor-bitis"
-              type="date"
-              className="w-[170px]"
-              value={endDate}
-              min={startDate || undefined}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="rapor-cari">{partyLabel}</Label>
-            <div className="w-[240px]">
-              <SearchSelect
-                id="rapor-cari"
-                options={partyOptions}
-                value={partyId}
-                onChange={setPartyId}
-                placeholder={partyAll}
-                allowClear
-                clearLabel={partyAll}
-              />
-            </div>
-          </div>
-          {/* Sınıflandırma süzgeçleri: eksen adları firmadan gelir (Ayarlar → Tanımlar). */}
-          <div className="space-y-1.5">
-            <Label htmlFor="rapor-sinif1">{classLabels.class1}</Label>
-            <select
-              id="rapor-sinif1"
-              className="flex h-10 w-[190px] rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={class1Id}
-              onChange={(e) => setClass1Id(e.target.value)}
-            >
-              <option value="">Tümü</option>
-              {class1Options.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="rapor-sinif2">{classLabels.class2}</Label>
-            <select
-              id="rapor-sinif2"
-              className="flex h-10 w-[190px] rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={class2Id}
-              onChange={(e) => setClass2Id(e.target.value)}
-            >
-              <option value="">Tümü</option>
-              {class2Options.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <Button variant="outline" onClick={fetchReport} disabled={isLoading}>
-            {isLoading ? "Yükleniyor…" : "Raporu getir"}
-          </Button>
-          {/* Dönemi tamamen kaldırmak: "tüm kayıtlar" görünümü. Dosya da aynı
-              boş aralıkla üretilir, ekranla dosya ayrışmaz. */}
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setStartDate("")
-              setEndDate("")
-              setClass1Id("")
-              setClass2Id("")
-              setPartyId("")
+      {/* Süzgeç kartı: cari EN ÖNDE ve etiketli (bkz. components/raporlar/cari-filtre.tsx).
+          Rapor her değişiklikte kendiliğinden yenilenir; "Raporu getir" düğmesi
+          yalnız yenile işi görüyordu, başlıktaki simgeye indi. "Tüm kayıtlar"
+          dönem kısayollarına "Tüm zamanlar" olarak taşındı — dosya da aynı boş
+          aralıkla üretilir, ekranla dosya ayrışmaz. */}
+      <ReportFilterPanel
+        activeCount={activeFilterCount}
+        onClear={clearFilters}
+        onRefresh={fetchReport}
+        refreshing={isLoading}
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(240px,1.15fr)_minmax(300px,1.35fr)_minmax(150px,0.75fr)_minmax(150px,0.75fr)] xl:items-start">
+          <CariFilterSelect
+            id="rapor-cari"
+            kind={partyKind}
+            options={partyOptions}
+            value={partyId}
+            onChange={setPartyId}
+          />
+          <PeriodFilter
+            idPrefix="rapor"
+            startDate={startDate}
+            endDate={endDate}
+            onChange={(range) => {
+              setStartDate(range.startDate)
+              setEndDate(range.endDate)
             }}
-            disabled={isLoading || (!startDate && !endDate && !class1Id && !class2Id && !partyId)}
-          >
-            Tüm kayıtlar
-          </Button>
-        </CardContent>
-      </Card>
+            allowAll
+          />
+          {/* Sınıflandırma süzgeçleri: eksen adları firmadan gelir (Ayarlar → Tanımlar). */}
+          {(
+            [
+              { id: "rapor-sinif1", label: classLabels.class1, value: class1Id, set: setClass1Id, options: class1Options },
+              { id: "rapor-sinif2", label: classLabels.class2, value: class2Id, set: setClass2Id, options: class2Options },
+            ] as const
+          ).map((field) => (
+            <div key={field.id} className="space-y-1.5">
+              <Label htmlFor={field.id} className={FILTER_LABEL_ROW}>
+                <Tags className="h-3.5 w-3.5 text-muted-foreground" />
+                {field.label}
+              </Label>
+              <select
+                id={field.id}
+                className={cn(
+                  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
+                  field.value &&
+                    "border-kobipo-blue bg-kobipo-blue/5 font-medium ring-1 ring-kobipo-blue/20 dark:border-primary dark:bg-primary/10"
+                )}
+                value={field.value}
+                onChange={(e) => field.set(e.target.value)}
+              >
+                <option value="">Tümü</option>
+                {field.options.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      </ReportFilterPanel>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      {partyId && (
+        <CariFocusBanner
+          companyId={companyId}
+          kind={partyKind}
+          cariId={partyId}
+          name={partyName}
+          from={isSales ? "/raporlar/satis" : "/raporlar/alis"}
+          description={
+            isSales
+              ? "Özet, rapor bölümleri ve Excel yalnız bu müşterinin satış ve iade belgelerinden kurulur."
+              : "Özet, rapor bölümleri ve Excel yalnız bu tedarikçinin alış ve iade belgelerinden kurulur."
+          }
+          actions={
+            // Ürün kırılımı stok raporunda: "bu müşteri hangi üründen kaç adet aldı" /
+            // "bu tedarikçiden hangi üründen kaç adet aldık". Stok raporu dönem ister;
+            // "tüm zamanlar"da link basılmaz.
+            startDate && endDate && canOpen("/raporlar/stok") ? (
+              <Button variant="outline" size="sm" asChild>
+                <Link
+                  href={withCompanyHref(
+                    `/raporlar/stok?${new URLSearchParams({
+                      [isSales ? "customerId" : "supplierId"]: partyId,
+                      startDate,
+                      endDate,
+                    })}`,
+                    companyId
+                  )}
+                >
+                  <Boxes className="mr-2 h-4 w-4" />
+                  {isSales ? "Aldığı ürünler" : "Alınan ürünler"}
+                </Link>
+              </Button>
+            ) : null
+          }
+          onClear={() => setPartyId("")}
+        />
+      )}
+
+      <div className={cn("grid gap-3", isSales ? "sm:grid-cols-3" : "sm:grid-cols-2 lg:grid-cols-4")}>
         <Card>
           <CardContent className="flex items-start justify-between gap-3 p-5">
             <div>
@@ -337,20 +382,64 @@ export function SatisAlisReport({ kind, companyId }: Props) {
         </Card>
         <Card>
           <CardContent className="flex items-start justify-between gap-3 p-5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {isSales ? "Aktif Müşteri" : "Aktif Tedarikçi"}
-              </p>
-              <p className="mt-1 font-mono text-2xl font-bold tabular-nums">
-                {report?.topCounterparties.length ?? 0}
-              </p>
-            </div>
+            {/* Tek cariye süzülmüşken "aktif müşteri" hep 1'dir; yerine ortalama belge
+                tutarı basılır (iadeler eksi sayıldığı için NET ortalamadır). */}
+            {partyId ? (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Ortalama Belge
+                </p>
+                <p className="mt-1 font-mono text-2xl font-bold tabular-nums">
+                  {TL(report && report.count > 0 ? report.totalAmount / report.count : 0)}
+                </p>
+              </div>
+            ) : (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {isSales ? "Aktif Müşteri" : "Aktif Tedarikçi"}
+                </p>
+                <p className="mt-1 font-mono text-2xl font-bold tabular-nums">
+                  {report?.topCounterparties.length ?? 0}
+                </p>
+              </div>
+            )}
             <span className="rounded-xl bg-kobipo-green/10 p-2.5 text-kobipo-green-dark dark:bg-emerald-900/30 dark:text-emerald-300">
-              {isSales ? <Users className="h-5 w-5" /> : <UserRound className="h-5 w-5" />}
+              {partyId ? (
+                <Divide className="h-5 w-5" />
+              ) : isSales ? (
+                <Users className="h-5 w-5" />
+              ) : (
+                <UserRound className="h-5 w-5" />
+              )}
             </span>
           </CardContent>
         </Card>
+        {!isSales && (
+          <Card>
+            <CardContent className="flex items-start justify-between gap-3 p-5">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Ürün Çeşidi
+                </p>
+                <p className="mt-1 font-mono text-2xl font-bold tabular-nums">{report?.products.length ?? 0}</p>
+              </div>
+              <span className="rounded-xl bg-sky-100 p-2.5 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
+                <Package className="h-5 w-5" />
+              </span>
+            </CardContent>
+          </Card>
+        )}
       </div>
+
+      {!isSales && (
+        <AlinanUrunlerKarti
+          companyId={companyId}
+          products={report?.products ?? []}
+          isLoading={isLoading}
+          href={hrefOf("urunler")}
+          byParty={Boolean(partyId)}
+        />
+      )}
 
       {/* Bölüm kapıları. Dört bölüm de (Excel'in dört sayfası) ÖZETİN ÜSTÜNDE tek
           şeritte duruyor: "Detaylı Faturalar" en altta, kalem özeti olmayan boş bir

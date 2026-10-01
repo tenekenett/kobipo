@@ -16,6 +16,7 @@
 import { prisma } from "@/lib/db/prisma"
 import { invoiceStatusLabel } from "@/lib/invoice/status-label"
 import { resolveReportDateFilter } from "./satis-alis-shared"
+import { aggregateProductLines, type ProductLineInput, type SalesPurchaseProduct } from "./satis-alis-urunler"
 import {
   PURCHASE_RETURN_WHERE,
   SALES_RETURN_WHERE,
@@ -27,6 +28,7 @@ import {
 // buradan yeniden dışa veriliyor ki çağıranlar tek adres bilsin.
 export { describeLineTotalGap, resolveReportDateFilter } from "./satis-alis-shared"
 export type { LineTotalGap } from "./satis-alis-shared"
+export type { SalesPurchaseProduct } from "./satis-alis-urunler"
 
 export type SalesPurchaseKind = "SALES" | "PURCHASE"
 
@@ -130,7 +132,12 @@ export type SalesPurchaseResult = {
   invoices: SalesPurchaseInvoice[]
   /** Yalnız `includeLines` istendiğinde dolar (dışa aktarma); ekran kullanmaz. */
   lines: SalesPurchaseInvoiceLine[]
-  /** Kalem satırlarının toplamı. `includeLines` yoksa 0. */
+  /**
+   * Kalemlerin ÜRÜN bazında toplamı ("Alınan Ürünler"); tutara göre azalan.
+   * Yalnız `includeProducts` istendiğinde dolar. Kural: `satis-alis-urunler.ts`.
+   */
+  products: SalesPurchaseProduct[]
+  /** Kalem satırlarının toplamı. Kalem çekilmediyse (`includeLines`/`includeProducts` yok) 0. */
   linesTotal: number
   /**
    * Fatura GENELİNE uygulanan iskontonun toplamı. Kalem satırlarında GÖRÜNMEZ:
@@ -161,6 +168,11 @@ export async function computeSalesPurchaseReport(args: {
    * istemez: kalem sorgusu fatura sayısıyla büyür, özet ekranı yavaşlatır.
    */
   includeLines?: boolean
+  /**
+   * Kalemleri ÜRÜN bazında topla ("Alınan Ürünler"). Kalemler sunucuda çekilir ama
+   * istemciye satır satır GİTMEZ — yalnız ürün başına bir satır döner.
+   */
+  includeProducts?: boolean
   /**
    * Cari SINIFLANDIRMASINA göre daralt (Ayarlar → Tanımlar'daki tanımın id'si).
    * Rapor bu eksenleri yalnız sütun olarak gösteriyordu; "bayilere ne sattım"
@@ -221,7 +233,7 @@ export async function computeSalesPurchaseReport(args: {
           classification2: { select: { label: true } },
         },
       },
-      ...(args.includeLines
+      ...(args.includeLines || args.includeProducts
         ? {
             items: {
               orderBy: { order: "asc" as const },
@@ -234,7 +246,7 @@ export async function computeSalesPurchaseReport(args: {
                 vatRate: true,
                 vatAmount: true,
                 totalAmount: true,
-                product: { select: { id: true, slug: true, code: true, isService: true } },
+                product: { select: { id: true, slug: true, code: true, name: true, isService: true } },
               },
             },
           }
@@ -244,6 +256,7 @@ export async function computeSalesPurchaseReport(args: {
   })
 
   const lines: SalesPurchaseInvoiceLine[] = []
+  const productLines: ProductLineInput[] = []
   const monthlyMap = new Map<string, { label: string; sortKey: string; amount: number; count: number }>()
   const counterpartyMap = new Map<
     string,
@@ -296,6 +309,31 @@ export async function computeSalesPurchaseReport(args: {
     // fatura sayfasınınkiyle tutmalı.
     for (const item of (invoice as { items?: any[] }).items ?? []) {
       linesTotal += sign * Number(item.totalAmount || 0)
+      if (args.includeProducts) {
+        productLines.push({
+          invoiceId: invoice.id,
+          date: invoice.date.toISOString(),
+          sign,
+          counterpartyName: name,
+          product: item.product
+            ? {
+                id: item.product.id,
+                slug: item.product.slug ?? null,
+                code: item.product.code ?? null,
+                name: item.product.name,
+                isService: item.product.isService,
+              }
+            : null,
+          description: item.description,
+          unit: item.unit,
+          quantity: Number(item.quantity || 0),
+          unitPrice: Number(item.unitPrice || 0),
+          discountAmount: Number(item.discountAmount || 0),
+          vatAmount: Number(item.vatAmount || 0),
+          totalAmount: Number(item.totalAmount || 0),
+        })
+      }
+      if (!args.includeLines) continue
       lines.push({
         invoiceId: invoice.id,
         invoiceNo: invoice.invoiceNo,
@@ -355,6 +393,7 @@ export async function computeSalesPurchaseReport(args: {
       .slice(0, args.topCount ?? Number.MAX_SAFE_INTEGER),
     invoices: rows,
     lines,
+    products: args.includeProducts ? aggregateProductLines(productLines) : [],
     linesTotal,
     globalDiscountTotal,
   }

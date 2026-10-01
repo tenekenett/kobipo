@@ -12,6 +12,7 @@
 import type { SalesPurchaseKind } from "./satis-alis"
 
 export type SalesPurchaseSectionKey =
+  | "urunler"
   | "aylik"
   | "cariler"
   | "siniflandirma"
@@ -29,6 +30,8 @@ export type SalesPurchaseSection = {
   sheetName: string
   /** Fatura KALEMLERİ gerekiyor mu (uçta `includeLines`). */
   needsLines: boolean
+  /** Kalemlerin ÜRÜN bazında toplamı gerekiyor mu (uçta `includeProducts`). */
+  needsProducts: boolean
 }
 
 /** `/raporlar/satis` | `/raporlar/alis` — alt sayfalar bunun altında yaşar. */
@@ -39,6 +42,21 @@ export function reportBasePath(kind: SalesPurchaseKind): string {
 export function salesPurchaseSections(kind: SalesPurchaseKind): SalesPurchaseSection[] {
   const isSales = kind === "SALES"
   return [
+    // Alış raporunun ANA listesi: "hangi üründen ne kadar, kaça, kimden aldık".
+    // Excel'de de ilk sayfa. Satışta (henüz) yok — istenen alış tarafıydı.
+    ...(isSales
+      ? []
+      : [
+          {
+            key: "urunler" as const,
+            slug: "urunler",
+            title: "Alınan Ürünler",
+            description: "Ürün bazında miktar, tutar, ortalama ve son alış fiyatı; iadeler düşülmüş",
+            sheetName: "Ürünler",
+            needsLines: false,
+            needsProducts: true,
+          },
+        ]),
     {
       key: "aylik",
       slug: "aylik",
@@ -46,6 +64,7 @@ export function salesPurchaseSections(kind: SalesPurchaseKind): SalesPurchaseSec
       description: "Fatura tarihine göre ay ay toplam ve fatura adedi",
       sheetName: "Aylık",
       needsLines: false,
+      needsProducts: false,
     },
     {
       key: "cariler",
@@ -54,6 +73,7 @@ export function salesPurchaseSections(kind: SalesPurchaseKind): SalesPurchaseSec
       description: "Sınıflandırmalarıyla birlikte, tutara göre sıralı",
       sheetName: isSales ? "Müşteriler" : "Tedarikçiler",
       needsLines: false,
+      needsProducts: false,
     },
     {
       key: "siniflandirma",
@@ -62,6 +82,7 @@ export function salesPurchaseSections(kind: SalesPurchaseKind): SalesPurchaseSec
       description: "Cari tanımlarına göre kırılım — hangi gruba ne kadar",
       sheetName: "Sınıflandırma",
       needsLines: false,
+      needsProducts: false,
     },
     {
       key: "faturalar",
@@ -70,6 +91,7 @@ export function salesPurchaseSections(kind: SalesPurchaseKind): SalesPurchaseSec
       description: "Dönemdeki tüm faturalar; iadeler eksi tutarla",
       sheetName: "Faturalar",
       needsLines: false,
+      needsProducts: false,
     },
     {
       key: "kalemler",
@@ -78,6 +100,7 @@ export function salesPurchaseSections(kind: SalesPurchaseKind): SalesPurchaseSec
       description: "Her satır bir fatura kalemi — stok/hizmet kırılımı",
       sheetName: "Detaylı Faturalar",
       needsLines: true,
+      needsProducts: false,
     },
   ]
 }

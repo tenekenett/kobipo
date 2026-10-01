@@ -17,16 +17,12 @@ import {
 const KINDS = ["SALES", "PURCHASE"] as const
 
 describe("bölüm listesi", () => {
-  it("her iki tarafta beş bölüm ve aynı anahtarlar vardır", () => {
-    for (const kind of KINDS) {
-      expect(salesPurchaseSections(kind).map((s) => s.key)).toEqual([
-        "aylik",
-        "cariler",
-        "siniflandirma",
-        "faturalar",
-        "kalemler",
-      ])
-    }
+  it("ortak beş bölüm iki tarafta aynıdır; alışta 'Alınan Ürünler' en başta durur", () => {
+    const common = ["aylik", "cariler", "siniflandirma", "faturalar", "kalemler"]
+    expect(salesPurchaseSections("SALES").map((s) => s.key)).toEqual(common)
+    // Alış raporunun ana listesi ürünlerdir — Excel'de de ilk sayfa.
+    expect(salesPurchaseSections("PURCHASE").map((s) => s.key)).toEqual(["urunler", ...common])
+    expect(findSalesPurchaseSection("SALES", "urunler")).toBeNull()
   })
 
   it("slug'lar tarafın içinde tekildir", () => {
@@ -56,6 +52,15 @@ describe("bölüm listesi", () => {
     for (const kind of KINDS) {
       for (const section of salesPurchaseSections(kind)) {
         expect(section.needsLines, section.key).toBe(section.key === "kalemler")
+      }
+    }
+  })
+
+  it("ürün toplamını yalnız ürün bölümü ister", () => {
+    // `needsProducts` uçtaki `includeProducts`: kalemleri sunucuda çeker.
+    for (const kind of KINDS) {
+      for (const section of salesPurchaseSections(kind)) {
+        expect(section.needsProducts, section.key).toBe(section.key === "urunler")
       }
     }
   })

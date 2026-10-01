@@ -129,3 +129,24 @@ export function applyDocumentSales(
   }
   return flows
 }
+
+/**
+ * TEDARİKÇİ kesitinde alınan hizmeti akışa yazar (`applyDocumentSales`in alış
+ * aynası). Hizmetin stok hareketi yoktur; hareketten gelmiş giriş varsa EZİLİR
+ * — iki kaynak toplanmaz.
+ */
+export function applyDocumentInbound(
+  flows: Map<string, ProductFlow>,
+  documentProductIds: Set<string>,
+  documentInbound: Map<string, number>,
+): Map<string, ProductFlow> {
+  for (const productId of documentProductIds) {
+    const quantity = documentInbound.get(productId) ?? 0
+    // Kesitte hiç alınmamış hizmet akışa boş satır olarak girmesin.
+    if (quantity === 0 && !flows.has(productId)) continue
+    const flow = flows.get(productId) ?? emptyFlow()
+    flow.inbound = round4(quantity)
+    flows.set(productId, flow)
+  }
+  return flows
+}

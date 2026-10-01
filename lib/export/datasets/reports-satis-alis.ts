@@ -101,6 +101,34 @@ function invoiceLineColumns(isSales: boolean, labels: ClassificationLabels): Exp
   ]
 }
 
+/**
+ * "Alınan Ürünler": ürün başına tek satır (kural lib/raporlar/satis-alis-urunler.ts).
+ * Tek tedarikçiye süzülmüşken "son tedarikçi" ve "tedarikçi sayısı" hep aynı
+ * cevabı verir; sütunlar o zaman düşer (ekranla aynı).
+ */
+function productColumns(byParty: boolean): ExportColumn[] {
+  return [
+    { key: "productCode", label: "Stok Kodu", width: 24 },
+    { key: "name", label: "Ürün / Hizmet" },
+    { key: "kind", label: "Tür", width: 18 },
+    { key: "quantity", label: "Miktar", type: "qty", width: 18 },
+    { key: "unit", label: "Birim", width: 14, align: "center" },
+    { key: "avgUnitPrice", label: "Ort. Birim Fiyat", type: "money", width: 24 },
+    { key: "lastUnitPrice", label: "Son Alış Fiyatı", type: "money", width: 24 },
+    { key: "lastDate", label: "Son Alış", type: "date", width: 20 },
+    ...(byParty
+      ? []
+      : ([
+          { key: "lastCounterpartyName", label: "Son Tedarikçi" },
+          { key: "counterpartyCount", label: "Tedarikçi Sayısı", type: "number", width: 20 },
+        ] satisfies ExportColumn[])),
+    { key: "invoiceCount", label: "Belge Adedi", type: "number", width: 18 },
+    { key: "netAmount", label: "Tutar (KDV Hariç)", type: "money", width: 28, total: true },
+    { key: "vatAmount", label: "KDV", type: "money", width: 22, total: true },
+    { key: "totalAmount", label: "Toplam (KDV Dahil)", type: "money", width: 28, total: true },
+  ]
+}
+
 export async function buildSalesPurchaseDataset(params: {
   companyId: string
   type: SalesPurchaseKind
@@ -131,6 +159,7 @@ export async function buildSalesPurchaseDataset(params: {
   // Kalem sorgusu fatura sayısıyla büyür; tek bölüm isteniyorsa yalnız o bölüm
   // gerektiriyorsa çekilir.
   const includeLines = only ? only.needsLines : true
+  const includeProducts = only ? only.needsProducts : sections.some((s) => s.needsProducts)
 
   const [company, labels, report, party] = await Promise.all([
     loadExportCompany(params.companyId),
@@ -141,6 +170,7 @@ export async function buildSalesPurchaseDataset(params: {
       startDate: params.startDate,
       endDate: params.endDate,
       includeLines,
+      includeProducts,
       class1Id: params.class1Id,
       class2Id: params.class2Id,
       partyId: params.partyId,
@@ -157,7 +187,9 @@ export async function buildSalesPurchaseDataset(params: {
   // iskonto kalem satırlarında görünmez). Sessiz bırakmak "rakamlar tutmuyor"
   // sorusunu doğurduğu için dosyaya not olarak yazılır — künye sayfasında ve
   // PDF'in altında görünür.
-  const gap = includeLines ? describeLineTotalGap(report) : null
+  const gap = includeLines || includeProducts ? describeLineTotalGap(report) : null
+  // Notun hangi sayfaya ait olduğu: ürün sayfası da kalem toplamından kurulur.
+  const gapLabel = only?.key === "urunler" ? "Alınan Ürünler" : includeProducts ? "Alınan Ürünler ve Detaylı Faturalar" : "Detaylı Faturalar"
 
   const reportTitle = isSales ? "Satış Raporu" : "Alış Raporu"
   // Tek bölümlük dosyanın ADI da bölümü söyler: indirilen dosya
@@ -168,6 +200,8 @@ export async function buildSalesPurchaseDataset(params: {
     const section = sections.find((s) => s.key === key)!
     const meta = { title: section.title, sheetName: section.sheetName }
     switch (key) {
+      case "urunler":
+        return { ...meta, columns: productColumns(Boolean(params.partyId)), rows: report.products }
       case "aylik":
         return { ...meta, columns: MONTHLY_COLUMNS, rows: report.monthly }
       case "cariler":
@@ -215,13 +249,14 @@ export async function buildSalesPurchaseDataset(params: {
       // Kalem adedi yalnız kalemler ÇEKİLDİYSE yazılır; çekilmemişken "0" basmak
       // dosyayı okuyan kişiye "hiç kalem yok" dedirtirdi.
       ["Kalem adedi", includeLines ? report.lines.length : null],
+      ["Ürün çeşidi", includeProducts ? report.products.length : null],
       [isSales ? "Toplam ciro" : "Toplam alış", report.totalAmount.toLocaleString("tr-TR", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })],
     ]),
     sections: (only ? [only.key] : sections.map((s) => s.key)).map(buildSection),
-    note: gap ? `Detaylı Faturalar: ${gap.text}` : undefined,
+    note: gap ? `${gapLabel}: ${gap.text}` : undefined,
     generatedAt: new Date(),
   }
 }

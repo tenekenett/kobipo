@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { toDateInput } from "@/lib/format"
-import { defaultReportRange } from "./date-range"
+import { defaultReportRange, reportRangePresets } from "./date-range"
 
 describe("varsayılan rapor dönemi", () => {
   it("başlangıç bitişten 30 gün geride", () => {
@@ -23,5 +23,22 @@ describe("varsayılan rapor dönemi", () => {
   it("yerel günü verir, UTC'ye kaymaz", () => {
     expect(toDateInput(new Date(2026, 0, 1))).toBe("2026-01-01")
     expect(toDateInput(new Date(2026, 8, 2, 1, 30))).toBe("2026-09-02")
+  })
+})
+
+describe("dönem kısayolları", () => {
+  it("ilk kısayol açılış varsayılanıdır — ekran açılınca seçili görünür", () => {
+    const today = new Date(2026, 9, 1)
+    const [first] = reportRangePresets(today)
+    expect(first.key).toBe("son-30")
+    expect({ startDate: first.startDate, endDate: first.endDate }).toEqual(defaultReportRange(today))
+  })
+
+  it("takvim dönemleri ay/yıl sınırına oturur", () => {
+    const byKey = Object.fromEntries(reportRangePresets(new Date(2026, 0, 15)).map((p) => [p.key, p]))
+    expect(byKey["bu-ay"]).toMatchObject({ startDate: "2026-01-01", endDate: "2026-01-31" })
+    // Ocak'ta "geçen ay" önceki yılın Aralık'ıdır.
+    expect(byKey["gecen-ay"]).toMatchObject({ startDate: "2025-12-01", endDate: "2025-12-31" })
+    expect(byKey["bu-yil"]).toMatchObject({ startDate: "2026-01-01", endDate: "2026-12-31" })
   })
 })

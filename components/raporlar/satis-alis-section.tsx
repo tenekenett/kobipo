@@ -6,8 +6,14 @@ import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { useClassificationLabels } from "@/lib/swr/use-company-data"
+import { trMatcher } from "@/lib/text/tr-fold"
+import { useClassificationLabels, useCustomers, useSuppliers } from "@/lib/swr/use-company-data"
+import {
+  CariFilterSelect,
+  CariFocusBanner,
+  PeriodFilter,
+  ReportFilterPanel,
+} from "@/components/raporlar/cari-filtre"
 import {
   Table,
   TableBody,
@@ -19,7 +25,7 @@ import {
 } from "@/components/ui/table"
 import { ExportButton } from "@/components/export/export-button"
 import { BelgeLink, CariLink, ProductLink } from "@/components/raporlar/rapor-link"
-import { AlertTriangle, ArrowLeft } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Search } from "lucide-react"
 import { withCompanyHref } from "@/lib/company/href"
 import { describeLineTotalGap } from "@/lib/raporlar/satis-alis-shared"
 import { defaultReportRange } from "@/lib/raporlar/date-range"
@@ -27,6 +33,7 @@ import type {
   SalesPurchaseInvoice,
   SalesPurchaseInvoiceLine,
   SalesPurchaseKind,
+  SalesPurchaseProduct,
   SalesPurchaseResult,
 } from "@/lib/raporlar/satis-alis"
 import { reportBasePath, type SalesPurchaseSection } from "@/lib/raporlar/satis-alis-sections"
@@ -58,7 +65,7 @@ const classText = (class1: string, class2: string) => [class1, class2].filter(Bo
  * yerine görünen satır sayısı sınırlanır; ÖZET rakamlar tüm veriden hesaplanır ve
  * kullanıcı kırpmayı açıkça görür.
  */
-const ROW_CAP: Record<string, number> = { faturalar: 500, kalemler: 1000 }
+const ROW_CAP: Record<string, number> = { faturalar: 500, kalemler: 1000, urunler: 1000 }
 
 type Col<T> = {
   header: string
@@ -91,8 +98,17 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
   // Sınıflandırma süzgeci de karttan taşınır; alt sayfa aynı kesiti gösterir.
   const class1Id = searchParams.get("class1Id") ?? ""
   const class2Id = searchParams.get("class2Id") ?? ""
-  // Tek cari (satışta müşteri, alışta tedarikçi) — üst rapordaki seçiciden.
-  const partyId = searchParams.get("partyId") ?? ""
+  // Tek cari (satışta müşteri, alışta tedarikçi) — üst rapordaki seçiciden
+  // gelir, burada da değiştirilebilir (dönem gibi: URL yalnız açılış değeridir).
+  const [partyId, setPartyId] = useState(() => searchParams.get("partyId") ?? "")
+  const { customers } = useCustomers(isSales ? companyId : null)
+  const { suppliers } = useSuppliers(isSales ? null : companyId)
+  const partyOptions = isSales ? customers : suppliers
+  const partyKind = isSales ? "customer" : "supplier"
+  const partyName = useMemo(
+    () => partyOptions.find((c) => c.id === partyId)?.name ?? null,
+    [partyOptions, partyId]
+  )
 
   const fetchReport = useCallback(async () => {
     if (!companyId) return
@@ -102,6 +118,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
       if (startDate) params.set("startDate", startDate)
       if (endDate) params.set("endDate", endDate)
       if (section.needsLines) params.set("includeLines", "1")
+      if (section.needsProducts) params.set("includeProducts", "1")
       if (class1Id) params.set("class1Id", class1Id)
       if (class2Id) params.set("class2Id", class2Id)
       if (partyId) params.set("partyId", partyId)
@@ -114,7 +131,7 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
     } finally {
       setIsLoading(false)
     }
-  }, [companyId, kind, startDate, endDate, section.needsLines, class1Id, class2Id, partyId])
+  }, [companyId, kind, startDate, endDate, section.needsLines, section.needsProducts, class1Id, class2Id, partyId])
 
   useEffect(() => {
     void fetchReport()
@@ -346,8 +363,90 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
     [isSales, classLabels, companyId, cariKind, backTo]
   )
 
+  const productColumns: Col<SalesPurchaseProduct>[] = useMemo(
+    () => [
+      {
+        header: "Stok Kodu",
+        cell: (row) =>
+          row.productCode ? (
+            <ProductLink companyId={companyId} productRef={row.productRef}>
+              {row.productCode}
+            </ProductLink>
+          ) : (
+            "—"
+          ),
+        total: () => "Toplam",
+      },
+      {
+        // Serbest kalem bir ürün kartına bağlı değildir: adı düz metin kalır.
+        header: "Ürün / Hizmet",
+        cell: (row) => (
+          <ProductLink companyId={companyId} productRef={row.productRef}>
+            {row.name}
+          </ProductLink>
+        ),
+      },
+      { header: "Tür", cell: (row) => row.kind },
+      // Miktarın toplamı YOK: farklı birimler (kg, adet) toplanamaz.
+      { header: "Miktar", align: "right", cell: (row) => `${fmtQty(row.quantity)} ${row.unit}` },
+      {
+        header: "Ort. Birim Fiyat",
+        align: "right",
+        cell: (row) => (row.avgUnitPrice == null ? "—" : TL(row.avgUnitPrice)),
+      },
+      {
+        header: "Son Alış Fiyatı",
+        align: "right",
+        cell: (row) => (row.lastUnitPrice == null ? "—" : TL(row.lastUnitPrice)),
+      },
+      {
+        header: "Son Alış",
+        cell: (row) => (row.lastDate ? new Date(row.lastDate).toLocaleDateString("tr-TR") : "—"),
+      },
+      // Tek tedarikçiye süzülmüşken iki sütun da hep aynı cevabı verir.
+      ...(partyId
+        ? []
+        : ([
+            { header: "Son Tedarikçi", cell: (row) => row.lastCounterpartyName || "—" },
+            { header: "Tedarikçi Sayısı", align: "right", cell: (row) => row.counterpartyCount },
+          ] satisfies Col<SalesPurchaseProduct>[])),
+      { header: "Belge", align: "right", cell: (row) => row.invoiceCount },
+      {
+        header: "Tutar (KDV Hariç)",
+        align: "right",
+        cell: (row) => TL(row.netAmount),
+        total: (rows) => TL(rows.reduce((sum, row) => sum + row.netAmount, 0)),
+      },
+      {
+        header: "KDV",
+        align: "right",
+        cell: (row) => TL(row.vatAmount),
+        total: (rows) => TL(rows.reduce((sum, row) => sum + row.vatAmount, 0)),
+      },
+      {
+        header: "Toplam (KDV Dahil)",
+        align: "right",
+        cell: (row) => TL(row.totalAmount),
+        total: (rows) => TL(rows.reduce((sum, row) => sum + row.totalAmount, 0)),
+      },
+    ],
+    [companyId, partyId]
+  )
+
+  // Ürün listesi uzun olabilir: ad/kod araması (Türkçe duyarsız). Toplam satırı
+  // ARANAN satırların toplamıdır — "bu ürünlere ne ödedim" sorusu.
+  const [productSearch, setProductSearch] = useState("")
+  const productRows = useMemo(() => {
+    const rows = report?.products ?? []
+    if (!productSearch.trim()) return rows
+    const matches = trMatcher(productSearch)
+    return rows.filter((row) => matches(row.name, row.productCode))
+  }, [report, productSearch])
+
   const table = (() => {
     switch (section.key) {
+      case "urunler":
+        return { columns: productColumns, rows: productRows }
       case "aylik":
         return { columns: monthlyColumns, rows: report?.monthly ?? [] }
       case "cariler":
@@ -365,8 +464,11 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
   // uygulanan iskonto kalem satırlarında görünmez, söylenmezse "rakamlar tutmuyor"
   // denir. Yalnız kalemlerin ÇEKİLDİĞİ bölümde anlamlı; fark yoksa hiç basılmaz.
   const totalGap = useMemo(
-    () => (report && section.needsLines ? describeLineTotalGap(report) : null),
-    [report, section.needsLines]
+    () =>
+      report && (section.needsLines || (section.needsProducts && !productSearch.trim()))
+        ? describeLineTotalGap(report)
+        : null,
+    [report, section.needsLines, section.needsProducts, productSearch]
   )
 
   const cap = ROW_CAP[section.key]
@@ -381,13 +483,6 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
           <p className="text-sm text-muted-foreground">
             {isSales ? "Satış raporu" : "Alış raporu"} · {section.description}
           </p>
-          {/* Sayfa tek cariye süzülmüşse söylenir: "neden bu kadar az fatura var" sorusu
-              doğmasın. Ad rapordan okunur (süzülmüş raporun tek carisi). */}
-          {partyId && report?.topCounterparties[0] && (
-            <p className="mt-1 text-sm font-medium">
-              {isSales ? "Müşteri" : "Tedarikçi"}: {report.topCounterparties[0].name}
-            </p>
-          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Dosya EKRANDAKİ bölümü taşır: `section` olmadan dört bölümlük tam rapor
@@ -408,45 +503,46 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
         </div>
       </div>
 
-      <Card>
-        <CardContent className="flex flex-wrap items-end gap-3 p-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="bolum-baslangic">Başlangıç tarihi</Label>
-            <Input
-              id="bolum-baslangic"
-              type="date"
-              className="w-[170px]"
-              value={startDate}
-              max={endDate || undefined}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="bolum-bitis">Bitiş tarihi</Label>
-            <Input
-              id="bolum-bitis"
-              type="date"
-              className="w-[170px]"
-              value={endDate}
-              min={startDate || undefined}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </div>
-          <Button variant="outline" onClick={fetchReport} disabled={isLoading}>
-            {isLoading ? "Yükleniyor…" : "Raporu getir"}
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setStartDate("")
-              setEndDate("")
+      <ReportFilterPanel
+        activeCount={partyId ? 1 : 0}
+        onClear={() => setPartyId("")}
+        onRefresh={fetchReport}
+        refreshing={isLoading}
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:max-w-4xl xl:items-start">
+          <CariFilterSelect
+            id="bolum-cari"
+            kind={partyKind}
+            options={partyOptions}
+            value={partyId}
+            onChange={setPartyId}
+          />
+          <PeriodFilter
+            idPrefix="bolum"
+            startDate={startDate}
+            endDate={endDate}
+            onChange={(range) => {
+              setStartDate(range.startDate)
+              setEndDate(range.endDate)
             }}
-            disabled={isLoading || (!startDate && !endDate)}
-          >
-            Tüm kayıtlar
-          </Button>
-        </CardContent>
-      </Card>
+            allowAll
+          />
+        </div>
+      </ReportFilterPanel>
+
+      {/* Sayfa tek cariye süzülmüşse söylenir: "neden bu kadar az fatura var"
+          sorusu doğmasın. */}
+      {partyId && (
+        <CariFocusBanner
+          companyId={companyId}
+          kind={partyKind}
+          cariId={partyId}
+          name={partyName}
+          from={isSales ? "/raporlar/satis" : "/raporlar/alis"}
+          description="Bu bölüm ve dosyası yalnız bu carinin belgelerinden kurulur."
+          onClear={() => setPartyId("")}
+        />
+      )}
 
       {totalGap ? (
         <div className="flex gap-2.5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
@@ -459,13 +555,26 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
       ) : null}
 
       <Card>
-        <CardHeader>
-          <CardTitle>{section.title}</CardTitle>
-          <CardDescription>
-            {isTruncated
-              ? `${table.rows.length} satırın ilk ${visibleRows.length} tanesi listeleniyor — dönemi daraltın ya da dosyaya aktarın. Alttaki toplam TÜM satırları kapsar.`
-              : `${table.rows.length} satır`}
-          </CardDescription>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+          <div>
+            <CardTitle>{section.title}</CardTitle>
+            <CardDescription>
+              {isTruncated
+                ? `${table.rows.length} satırın ilk ${visibleRows.length} tanesi listeleniyor — dönemi daraltın ya da dosyaya aktarın. Alttaki toplam TÜM satırları kapsar.`
+                : `${table.rows.length} satır`}
+            </CardDescription>
+          </div>
+          {section.key === "urunler" && (
+            <div className="relative w-full sm:w-64">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Ürün adı veya kodu ara…"
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">

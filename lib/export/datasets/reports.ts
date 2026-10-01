@@ -57,6 +57,19 @@ const STOCK_COLUMNS: ExportColumn[] = [
 
 /** Müşteri kesitinde anlamı olmayan dönem sütunları (bkz. `StockReportParams.customerId`). */
 const CUSTOMER_HIDDEN = new Set(["periodInbound", "periodRecipe", "periodOther"])
+/** Tedarikçi kesitinde yalnız giriş ("Alınan") anlamlıdır (bkz. `StockReportParams.supplierId`). */
+const SUPPLIER_HIDDEN = new Set(["periodSold", "periodRecipe", "periodOther"])
+
+/** Kesite göre sütunlar — ekrandaki `/raporlar/stok` tablosuyla aynı seçim. */
+function stockColumnsFor(slice: "customer" | "supplier" | null): ExportColumn[] {
+  if (slice === "customer") return STOCK_COLUMNS.filter((c) => !CUSTOMER_HIDDEN.has(c.key))
+  if (slice === "supplier") {
+    return STOCK_COLUMNS.filter((c) => !SUPPLIER_HIDDEN.has(c.key)).map((c) =>
+      c.key === "periodInbound" ? { ...c, label: "Alınan" } : c,
+    )
+  }
+  return STOCK_COLUMNS
+}
 
 export type StockReportParams = {
   companyId: string
@@ -76,6 +89,12 @@ export type StockReportParams = {
    * dosyadan da çıkar (ekranla aynı).
    */
   customerId?: string | null
+  /**
+   * Tedarikçi kesiti: yalnız bu tedarikçiden dönemde ALINAN ürünler (alış
+   * faturası, irsaliye, iade düşülmüş), "Alınan" sütunuyla. Satılan/Reçete/Diğer
+   * tedarikçiye ait değildir, dosyadan çıkar. `customerId` ile birlikte verilmez.
+   */
+  supplierId?: string | null
 }
 
 /** `/raporlar/stok` ekranındaki `stockStatus` ile birebir aynı kural. */
@@ -87,7 +106,7 @@ function stockStatusLabel(isService: boolean, quantity: number, minimum: number)
 }
 
 export async function buildStockReportDataset(params: StockReportParams): Promise<ExportDataset> {
-  const [company, products, costByProduct, periodFlows, customer] = await Promise.all([
+  const [company, products, costByProduct, periodFlows, customer, supplier] = await Promise.all([
     loadExportCompany(params.companyId),
     prisma.product.findMany({ where: { companyId: params.companyId }, orderBy: { name: "asc" } }),
     resolveAllUnitCosts(params.companyId),
@@ -96,6 +115,7 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
       startDate: params.startDate,
       endDate: params.endDate,
       customerId: params.customerId,
+      supplierId: params.supplierId,
     }),
     params.customerId
       ? prisma.customer.findFirst({
@@ -103,8 +123,16 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
           select: { name: true },
         })
       : null,
+    params.supplierId
+      ? prisma.supplier.findFirst({
+          where: { id: params.supplierId, companyId: params.companyId },
+          select: { name: true },
+        })
+      : null,
   ])
   const byCustomer = Boolean(params.customerId)
+  const bySupplier = Boolean(params.supplierId)
+  const slice = byCustomer ? "customer" : bySupplier ? "supplier" : null
   const flowOf = (id: string) => periodFlows.byProduct.get(id) ?? emptyFlow()
 
   const typeFilter = params.type || "ALL"
@@ -116,6 +144,8 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
   const filtered = products.filter((product) => {
     // Müşteri kesitinde yalnız o müşterinin dönemde aldığı (ya da iade ettiği) ürünler.
     if (byCustomer && flowOf(product.id).sold === 0) return false
+    // Tedarikçi kesitinde yalnız o tedarikçiden dönemde alınan (ya da iade edilen) ürünler.
+    if (bySupplier && flowOf(product.id).inbound === 0) return false
     if (typeFilter === "PRODUCT" && product.isService) return false
     if (typeFilter === "SERVICE" && !product.isService) return false
 
@@ -133,9 +163,9 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
   })
 
   if (params.sort === "SOLD") {
-    filtered.sort(
-      (a, b) => flowOf(b.id).sold - flowOf(a.id).sold || a.name.localeCompare(b.name, "tr"),
-    )
+    // Tedarikçi kesitinde "en çok" = en çok alınan (ekranla aynı).
+    const measure = (id: string) => (bySupplier ? flowOf(id).inbound : flowOf(id).sold)
+    filtered.sort((a, b) => measure(b.id) - measure(a.id) || a.name.localeCompare(b.name, "tr"))
   }
 
   const rows: ExportRow[] = filtered.map((product) => {
@@ -149,7 +179,8 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
       name: product.name,
       barcode: product.barcode,
       unit: product.unit,
-      periodInbound: product.isService ? null : flowOf(product.id).inbound,
+      // Tedarikçi kesitinde alınan hizmet de sayılır (alış kaleminden).
+      periodInbound: product.isService && !bySupplier ? null : flowOf(product.id).inbound,
       periodSold: flowOf(product.id).sold,
       periodRecipe: product.isService ? null : flowOf(product.id).recipe,
       periodOther: product.isService ? null : flowOf(product.id).other,
@@ -218,7 +249,8 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
       // Tarihsiz istek (eski link) yılbaşından bugüne sayar — resolvePeriodBounds.
       ["Hareket dönemi", describeDateRange(params.startDate, params.endDate) ?? "Yılbaşından bugüne"],
       ["Müşteri", customer?.name ?? null],
-      ["Sıralama", params.sort === "SOLD" ? "En çok satılan" : null],
+      ["Tedarikçi", supplier?.name ?? null],
+      ["Sıralama", params.sort === "SOLD" ? (bySupplier ? "En çok alınan" : "En çok satılan") : null],
       ["Arama", params.search],
       ["Tür", typeFilter === "PRODUCT" ? "Ürün" : typeFilter === "SERVICE" ? "Hizmet" : null],
       [
@@ -235,9 +267,13 @@ export async function buildStockReportDataset(params: StockReportParams): Promis
     sections: [
       summary,
       {
-        title: byCustomer ? "Müşterinin aldığı ürünler" : "Ürünler",
+        title: byCustomer
+          ? "Müşterinin aldığı ürünler"
+          : bySupplier
+            ? "Tedarikçiden alınan ürünler"
+            : "Ürünler",
         sheetName: "Ürünler",
-        columns: byCustomer ? STOCK_COLUMNS.filter((c) => !CUSTOMER_HIDDEN.has(c.key)) : STOCK_COLUMNS,
+        columns: stockColumnsFor(slice),
         rows,
       },
     ],

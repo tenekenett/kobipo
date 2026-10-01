@@ -142,6 +142,7 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       startDate: params.get("startDate"),
       endDate: params.get("endDate"),
       customerId: params.get("customerId"),
+      supplierId: params.get("supplierId"),
     }),
 
   "rapor-stok-hareket": (companyId, params) =>

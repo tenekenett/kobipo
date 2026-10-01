@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  applyDocumentInbound,
   applyDocumentSales,
   classifyStockFlows,
   type DocFamily,
@@ -109,5 +110,24 @@ describe("applyDocumentSales", () => {
     applyDocumentSales(flows, new Set(["latte", "hizmet"]), new Map([["latte", 7]]))
     expect(flows.get("latte")!.sold).toBe(7)
     expect(flows.get("hizmet")!.sold).toBe(0)
+  })
+})
+
+describe("applyDocumentInbound", () => {
+  it("tedarikçiden alınan hizmet alış kaleminden gelir, alınmayan hizmet satır açmaz", () => {
+    const flows = classifyStockFlows([mv({ productId: "un", quantity: 10, reference: "alis" })], familyOf)
+    applyDocumentInbound(flows, new Set(["nakliye", "kurulum"]), new Map([["nakliye", 2]]))
+    expect(flows.get("nakliye")!.inbound).toBe(2)
+    expect(flows.has("kurulum")).toBe(false)
+    // Stoklu ürünün hareketten gelen girişine dokunulmaz.
+    expect(flows.get("un")!.inbound).toBe(10)
+  })
+
+  it("alış iadesi girişten düşer (eksi miktar)", () => {
+    const flows = classifyStockFlows(
+      [mv({ productId: "un", quantity: 10, reference: "alis" }), mv({ productId: "un", quantity: -3, reference: "alis" })],
+      familyOf,
+    )
+    expect(flows.get("un")!.inbound).toBe(7)
   })
 })

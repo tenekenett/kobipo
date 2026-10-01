@@ -8,6 +8,7 @@
  */
 
 import { addDays, toDateInput } from "@/lib/format"
+import { resolvePeriod } from "@/lib/raporlar/donem"
 
 /** Varsayılan dönem kaç günlük. */
 export const DEFAULT_REPORT_RANGE_DAYS = 30
@@ -24,6 +25,29 @@ export function defaultReportRange(today: Date = new Date()): { startDate: strin
     startDate: toDateInput(addDays(today, -DEFAULT_REPORT_RANGE_DAYS)),
     endDate: toDateInput(today),
   }
+}
+
+export type ReportRangePreset = {
+  key: "son-30" | "bu-ay" | "gecen-ay" | "bu-yil"
+  label: string
+  startDate: string
+  endDate: string
+}
+
+/**
+ * Süzgeç kartındaki dönem kısayolları (`components/raporlar/cari-filtre.tsx`).
+ *
+ * "Son 30 Gün" açılış varsayılanıdır (`defaultReportRange`) ve İLK sırada
+ * durur ki ekran açıldığında seçili görünsün. Takvim dönemleri finansal
+ * panonun hesabından (`resolvePeriod`) gelir — iki ekran "Bu Ay"a farklı
+ * aralık demesin.
+ */
+export function reportRangePresets(today: Date = new Date()): ReportRangePreset[] {
+  const calendar = (["bu-ay", "gecen-ay", "bu-yil"] as const).map((key) => {
+    const period = resolvePeriod(key, today)
+    return { key, label: period.label, startDate: period.startDate, endDate: period.endDate }
+  })
+  return [{ key: "son-30", label: "Son 30 Gün", ...defaultReportRange(today) }, ...calendar]
 }
 
 const DAY_ONLY = /^\d{4}-\d{2}-\d{2}$/
