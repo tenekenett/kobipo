@@ -8,6 +8,7 @@
 import type { ExportDataset } from "../types"
 import { canViewPage, type PagePermissions } from "@/lib/page-access"
 import { buildProductsDataset } from "./products"
+import { buildProductTransactionsDataset } from "./urun-islemleri"
 import { buildCariDataset } from "./cari"
 import { buildEkstreDataset } from "./ekstre"
 import { buildInvoicesDataset } from "./invoices"
@@ -85,6 +86,16 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       isService: params.get("isService"),
       isSellable: params.get("isSellable"),
       isIngredient: params.get("isIngredient"),
+    }),
+
+  // Ürün kartının "Ürüne Ait Son 100 İşlem" tablosu (lib/stock/urun-islemleri.ts).
+  "urun-islemleri": (companyId, params) =>
+    buildProductTransactionsDataset({
+      companyId,
+      productId: params.get("productId"),
+      search: params.get("search"),
+      sort: params.get("sort"),
+      dir: params.get("dir"),
     }),
 
   cari: (companyId, params) =>

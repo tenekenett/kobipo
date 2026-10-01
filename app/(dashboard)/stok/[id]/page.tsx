@@ -26,6 +26,7 @@ import {
 } from "@/components/stok/stock-movement-dialog"
 import { useRecipes } from "@/lib/swr/use-company-data"
 import { WriteAction } from "@/components/dashboard/write-guard"
+import { UrunIslemleriTablosu } from "@/components/stok/urun-islemleri-tablosu"
 
 interface StockMovement {
   id: string
@@ -742,6 +743,17 @@ export default function ProductDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Belge bazlı geçmiş: fatura/fiş/iade/irsaliye — kime, kaça, nasıl ödendi.
+          Stok Hareketleri'nden farkı lib/stock/urun-islemleri-kural.ts başlığında;
+          hizmette de dolar, o yüzden hizmet kartında da durur. */}
+      {companyId && (
+        <UrunIslemleriTablosu
+          companyId={companyId}
+          productId={product.id}
+          backTo={`/stok/${product.slug || product.id}`}
+        />
+      )}
 
       {/* Stock Movements */}
       {/* Hizmette stok tutulmaz: hareket listesi hep boş kalır. */}

@@ -58,6 +58,9 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   MEAL_CARD: "Yemek Kartı",
   CHECK: "Çek",
   OTHER: "Diğer",
+  // Ödeme bağlantısıyla (app/api/pay/[token]) alınan tahsilat. Etiketi yoktu ve
+  // listelerde ham "VIRTUAL_POS" kodu görünüyordu.
+  VIRTUAL_POS: "Sanal POS",
   // Kasa hareketi olmayan kapama (bkz. lib/cari/bakiye-kapama.ts).
   [BAKIYE_KAPAMA_METHOD]: BAKIYE_KAPAMA_LABEL,
   // Kasasız: çalışan kendi parasıyla ödedi (bkz. lib/personel/calisan-odemesi.ts).

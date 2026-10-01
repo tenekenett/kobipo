@@ -87,6 +87,8 @@ export const API_MODULE_RULES: ApiModuleRule[] = [
   { prefix: "/api/export/personel-", read: ["hr"] },
   { prefix: "/api/export/accountant", read: ["reports"] },
   { prefix: "/api/export/products", read: ["stock", "sales", "purchase"] },
+  // Ürün kartının "Son 100 İşlem" tablosu — kartın kendisi (/api/stok) ile aynı kural.
+  { prefix: "/api/export/urun-islemleri", read: ["stock", "sales", "purchase", "restaurant"] },
   { prefix: "/api/export/invoices", read: SALES_PURCHASE },
   { prefix: "/api/export/alis-fatura-sablon", read: ["purchase"] },
   { prefix: "/api/export/satis-fatura-sablon", read: ["sales"] },

@@ -64,22 +64,23 @@ function fileNameFrom(disposition: string | null, dataset: string, format: strin
   return `${dataset}-${toDateInput(new Date())}.${format}`
 }
 
-/**
- * Dışa aktarma dosyasını sunucudan üretip indirir. Düğmesi olmayan yerler (ör. Alış
- * Faturaları "İşlem Yap" menüsü) de AYNI yoldan geçsin diye ayrı: ucu, hata okumayı
- * ve dosya adını tek yerde tutar.
- */
-export async function downloadExport({
-  dataset,
-  companyId,
-  format,
-  params,
-}: {
+type ExportRequest = {
   dataset: string
   companyId: string
   format: ExportFormat
   params?: ExportButtonProps["params"]
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}
+
+/**
+ * Dışa aktarma dosyasını sunucudan üretir ama İNDİRMEZ — dosyayı döndürür.
+ * "Yazdır" gibi dosyayı tarayıcıda açan yerler için; indirme de bunun üstünde.
+ */
+export async function fetchExportFile({
+  dataset,
+  companyId,
+  format,
+  params,
+}: ExportRequest): Promise<{ ok: true; blob: Blob; fileName: string } | { ok: false; error: string }> {
   if (!companyId) return { ok: false, error: "Önce bir firma seçin." }
   try {
     const query = new URLSearchParams({ companyId, format })
@@ -103,20 +104,34 @@ export async function downloadExport({
       return { ok: false, error: message }
     }
 
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = fileNameFrom(response.headers.get("Content-Disposition"), dataset, format)
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-    return { ok: true }
+    return {
+      ok: true,
+      blob: await response.blob(),
+      fileName: fileNameFrom(response.headers.get("Content-Disposition"), dataset, format),
+    }
   } catch (error) {
     console.error("Export failed:", error)
     return { ok: false, error: "Bağlantı hatası. Lütfen tekrar deneyin." }
   }
+}
+
+/**
+ * Dışa aktarma dosyasını sunucudan üretip indirir. Düğmesi olmayan yerler (ör. Alış
+ * Faturaları "İşlem Yap" menüsü) de AYNI yoldan geçsin diye ayrı: ucu, hata okumayı
+ * ve dosya adını tek yerde tutar.
+ */
+export async function downloadExport(request: ExportRequest): Promise<{ ok: true } | { ok: false; error: string }> {
+  const file = await fetchExportFile(request)
+  if (!file.ok) return file
+  const url = URL.createObjectURL(file.blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = file.fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+  return { ok: true }
 }
 
 export function ExportButton({
