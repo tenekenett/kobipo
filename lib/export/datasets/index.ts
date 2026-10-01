@@ -6,6 +6,7 @@
  */
 
 import type { ExportDataset } from "../types"
+import { canViewPage, type PagePermissions } from "@/lib/page-access"
 import { buildProductsDataset } from "./products"
 import { buildCariDataset } from "./cari"
 import { buildEkstreDataset } from "./ekstre"
@@ -60,7 +61,17 @@ function sablonParams(companyId: string, params: Params, yon: "alis" | "satis") 
   }
 }
 
-export type DatasetBuilder = (companyId: string, params: Params) => Promise<ExportDataset>
+/**
+ * İsteği yapanın sayfa izinleri — yalnız içeriği izne göre DARALAN veri kümeleri
+ * okur (ör. vergi raporunda kişi başı maaş). Kapı (`ensureCompanyExport`) uçta.
+ */
+export type DatasetContext = { izinler: PagePermissions }
+
+export type DatasetBuilder = (
+  companyId: string,
+  params: Params,
+  ctx: DatasetContext,
+) => Promise<ExportDataset>
 
 export const DATASETS: Record<string, DatasetBuilder> = {
   products: (companyId, params) =>
@@ -243,9 +254,11 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       weekStart: weekStartIso(params.get("weekStart") || todayIso()),
     }),
 
-  "rapor-vergiler": (companyId, params) =>
+  "rapor-vergiler": (companyId, params, ctx) =>
     buildTaxReportDataset({
       companyId,
+      // Kişi başı maaş yalnız Maaş sayfasını açabilene (ekrandaki uçla aynı kural).
+      calisanDetayi: canViewPage(ctx.izinler, "/personel/maas"),
       year: num(params, "year", new Date().getFullYear()),
       month: num(params, "month", new Date().getMonth() + 1),
     }),

@@ -12,8 +12,10 @@
  * ── Kural (karar: 2026-09-30) ───────────────────────────────────────────────
  * İptal (CANCELLED) ve faturaya dönüşmüş fiş (CONVERTED) hiçbir zaman girmez.
  * Kalanlar:
- *   - ALIŞ ailesi (alış, alış iadesi): kayıtlı her belge girer. Alış faturası
- *     ekranda "Kayıtlı" görünür ama iç durumu DRAFT'tır.
+ *   - ALIŞ FATURASI: kayıtlı her belge girer (ALINAN belge). Ekranda "Kayıtlı"
+ *     görünür ama iç durumu DRAFT'tır. İADE faturaları (satış ve alış iadesi)
+ *     bizim DÜZENLEDİĞİMİZ belgedir ve aşağıdaki satış kuralına tabidir
+ *     (2026-10-01 düzeltmesi: alış iadesi önce alış gibi her zaman sayılıyordu).
  *   - MATBU (MANUAL) satış faturası ve FİŞ: kaydedildiği an kesilmiştir, girer.
  *     "Onayla" (DRAFT → SENT) yalnız bir onay adımıdır; ölçüm (son 12 ay,
  *     canlı): 32 matbu fatura ve 54 fişin HEPSİ taslakta, yalnız 4 matbu
@@ -64,8 +66,11 @@ export function alisAilesindenMi(b: Pick<KdvBelgesi, "type" | "returnKind">): bo
 export function kdvyeGirerMi(b: KdvBelgesi): boolean {
   const status = String(b.status || "").toUpperCase()
   if (status === "CANCELLED" || status === "CONVERTED") return false
-  if (alisAilesindenMi(b)) return true
-  if (!satisAilesindenMi(b)) return false
+  if (!alisAilesindenMi(b) && !satisAilesindenMi(b)) return false
+  // ALIŞ FATURASI ALINAN belgedir: kaydı yeter. İADE ise (iki yönde de) bizim
+  // düzenlediğimiz belgedir — satış gibi: Manuel ise kayıtla, e-belge ise ancak
+  // GİB'e gidince kesilir. (Liste rozeti de alış iadesini böyle okur.)
+  if (String(b.type || "").toUpperCase() === "PURCHASE") return true
   if (kaydedildigindeKesinlesir({ invoiceType: b.invoiceType })) return true
   return status === "SENT"
 }
@@ -96,10 +101,8 @@ export function kdvyeGirerSql(alias: string): Prisma.Sql {
   const t = a(alias)
   return Prisma.sql`(
     ${t}.status NOT IN ('CANCELLED', 'CONVERTED')
-    AND (
-      ${alisAilesiSql(alias)}
-      OR (${satisAilesiSql(alias)} AND (${t}."invoiceType" = 'MANUAL' OR ${t}.status = 'SENT'))
-    )
+    AND (${alisAilesiSql(alias)} OR ${satisAilesiSql(alias)})
+    AND (${t}.type = 'PURCHASE' OR ${t}."invoiceType" = 'MANUAL' OR ${t}.status = 'SENT')
   )`
 }
 

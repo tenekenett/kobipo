@@ -8,7 +8,7 @@
  */
 
 import { fetchInvoiceList } from "@/lib/faturalar/list-query"
-import { kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
+import { invoiceStatusLabel, kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
 import { parseTrNumber } from "@/lib/format"
 import type { ExportColumn, ExportDataset } from "../types"
 import { loadExportCompany, describeDateRange, describeFilters } from "./context"
@@ -72,8 +72,7 @@ function statusLabel(status: string | null, source: string, invoiceType: string 
     })
   )
     return "Kayıtlı"
-  if (status === "GIB_DRAFT") return "GİB Taslağı"
-  return status
+  return invoiceStatusLabel(status)
 }
 
 export async function buildInvoicesDataset(params: InvoiceExportParams): Promise<ExportDataset> {

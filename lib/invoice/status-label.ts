@@ -12,7 +12,8 @@
 /**
  * Belge KAYDEDİLDİĞİ AN kesinleşir mi? Öyleyse `DRAFT` durumu "Kayıtlı" okunur.
  *
- *   - ALIŞ ailesi: alış faturası ALINAN bir belgedir, taslak/onay akışı yoktur.
+ *   - ALIŞ FATURASI: ALINAN bir belgedir, taslak/onay akışı yoktur. (İade
+ *     faturaları bizim düzenlediğimiz belgedir; `isPurchase` onlar için verilmez.)
  *   - MANUEL belge (kâğıt/matbu fatura, belge taramayla okutulan fatura,
  *     e-Dönüşümü kapalı firmanın faturası): GİB'e Kobipo üzerinden gitmez;
  *     kaydedildiğinde müşteriye verilmiş bir belgedir. Karar 2026-09-30: "Onayla"

@@ -85,7 +85,7 @@ Proje Vercel'de canlı: https://saas-puce-nine.vercel.app
 ### 4.2 Vergi Raporları
 - [ ] KDV beyanname hazırlık
 - [ ] Muhtasar beyanname
-- [ ] Ba-Bs formu
+- ~~Ba-Bs formu~~ — Eylül 2024'ten beri verilmiyor (VUK GT 565); yapılmayacak
 
 ### 4.3 İş Zekası
 - [ ] Dashboard grafikleri

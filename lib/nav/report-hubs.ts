@@ -36,8 +36,8 @@ export type ReportHub = ReportHubLink & {
 
 const SATIS_ALIS_LINKS: ReportHubLink[] = [
   {
-    title: "Vergi Beyannameleri",
-    description: "KDV, Muhtasar ve Ba-Bs hazırlık raporlarını açar.",
+    title: "Vergi Raporları",
+    description: "KDV ve Muhtasar beyannamesi öncesi kontrol raporları.",
     href: "/raporlar/vergiler",
   },
   {

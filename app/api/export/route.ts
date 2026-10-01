@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
-import { assertModulePath, assertPagePath, ensureCompanyExport } from "@/lib/middleware/company"
+import { assertModulePath, assertPagePath, ensureCompanyExport, pagePermissionsOf } from "@/lib/middleware/company"
 import { XMLBuilder } from "fast-xml-parser"
 import { DATASETS } from "@/lib/export/datasets"
 import { exportResponse } from "@/lib/export/response"
@@ -125,7 +125,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
       params.set("days", "3650")
     }
 
-    const dataset = await DATASETS[mapping.dataset](companyId, params)
+    const dataset = await DATASETS[mapping.dataset](companyId, params, { izinler: pagePermissionsOf(context) })
     return await exportResponse(dataset, format === "xlsx" ? "xlsx" : "csv")
   } catch (error: any) {
     const message: string = typeof error?.message === "string" ? error.message : ""

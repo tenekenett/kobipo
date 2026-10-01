@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
-import { ensureCompanyExport } from "@/lib/middleware/company"
+import { ensureCompanyExport, pagePermissionsOf } from "@/lib/middleware/company"
 import { DATASETS, isKnownDataset, listDatasets } from "@/lib/export/datasets"
 import { exportResponse } from "@/lib/export/response"
 import { isExportFormat } from "@/lib/export/types"
@@ -60,9 +60,9 @@ export const GET = withApiErrors(async function GET(
       return NextResponse.json({ error: "companyId zorunlu" }, { status: 400 })
     }
 
-    await ensureCompanyExport(companyId)
+    const uyelik = await ensureCompanyExport(companyId)
 
-    const built = await DATASETS[dataset](companyId, searchParams)
+    const built = await DATASETS[dataset](companyId, searchParams, { izinler: pagePermissionsOf(uyelik) })
 
     if (formatParam === "pdf") {
       const rowCount = built.sections.reduce((sum, section) => sum + section.rows.length, 0)

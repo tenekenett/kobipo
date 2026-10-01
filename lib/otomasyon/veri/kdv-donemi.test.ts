@@ -49,6 +49,17 @@ describe("KDV beyan penceresi", () => {
     expect(p?.donemSon.toISOString()).toBe("2027-01-01T00:00:00.000Z")
   })
 
+  it("hafta sonu kayması pencereyi de öteler: 28'i Cumartesi olan ayın 29'unda kart açık", () => {
+    const p = beyanPenceresi(gun("2026-11-29"))
+    expect(p?.donem).toBe("2026-10")
+    expect(p?.kalanGun).toBe(1)
+    expect(p?.beyanTarihi).toBe("30 Kasım")
+    // Pencere son günden 12 gün önce açılır — 28'inden değil.
+    expect(beyanPenceresi(gun("2026-11-18"))?.kalanGun).toBe(UYARI_PENCERESI_GUN)
+    expect(beyanPenceresi(gun("2026-11-17"))).toBeNull()
+    expect(beyanPenceresi(gun("2026-12-01"))).toBeNull()
+  })
+
   it("beyan günü sabiti tek yerde durur (mevzuat değişirse tek satır)", () => {
     expect(BEYAN_GUNU).toBe(28)
   })
@@ -94,6 +105,34 @@ describe("Sıradaki KDV beyanı (pano kartı)", () => {
     expect(b.ay).toBe(12)
     expect(b.donemAdi).toBe("Aralık 2026")
     expect(b.buAy.adi).toBe("Ocak 2027")
+  })
+
+  it("28'i Cumartesi ise son gün Pazartesi'dir; 29'unda dönem hâlâ geçen ay", () => {
+    // 28 Kasım 2026 Cumartesi → 30 Kasım Pazartesi.
+    const b = siradakiBeyan(gun("2026-11-29"))
+    expect(b.donem).toBe("2026-10")
+    expect(b.beyanTarihi).toBe("30 Kasım")
+    expect(b.kaydirildi).toBe(true)
+    expect(b.kalanGun).toBe(1)
+    expect(b.devamEdiyor).toBe(false)
+    expect(siradakiBeyan(gun("2026-11-30")).kalanGun).toBe(0)
+    // Pazartesi geçince sıra Kasım'a geçer.
+    const sonra = siradakiBeyan(gun("2026-12-01"))
+    expect(sonra.donem).toBe("2026-11")
+    expect(sonra.beyanTarihi).toBe("28 Aralık")
+    expect(sonra.kaydirildi).toBe(false)
+  })
+
+  it("28 Şubat Pazar ise Ocak'ın son günü Mart'a taşar — 1 Mart'ta dönem hâlâ Ocak", () => {
+    const b = siradakiBeyan(gun("2027-03-01"))
+    expect(b.donem).toBe("2027-01")
+    expect(b.beyanTarihi).toBe("1 Mart")
+    expect(b.kalanGun).toBe(0)
+    expect(b.devamEdiyor).toBe(false)
+    // Ertesi gün Şubat'ın sırası: 28 Mart 2027 de Pazar → 29 Mart.
+    const sonra = siradakiBeyan(gun("2027-03-02"))
+    expect(sonra.donem).toBe("2027-02")
+    expect(sonra.beyanTarihi).toBe("29 Mart")
   })
 
   it("İstanbul gece yarısını UTC'den önce geçer: 28'ini 29'una bağlayan gece dönem değişir", () => {

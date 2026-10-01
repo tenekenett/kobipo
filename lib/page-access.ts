@@ -476,7 +476,6 @@ export const PAGE_API_RULES: PageApiRule[] = [
   // Bakiye kapama / iskonto: cari kayıtlarını cari adıyla listeler; kapısı
   // yaşlandırmayla aynı (Cari Raporlar), finansal hub'dan da link veriliyor.
   { prefix: "/api/raporlar/bakiye-kapama", pages: ["/raporlar/cari", "/raporlar/finansal"], writePages: [] },
-  { prefix: "/api/raporlar/ba-bs", pages: ["/raporlar/vergi"], writePages: [] },
   { prefix: "/api/raporlar/kdv", pages: ["/raporlar/vergi"], writePages: [] },
   { prefix: "/api/raporlar/muhtasar", pages: ["/raporlar/vergi"], writePages: [] },
   // Mali tablolar. Menüde kendi öğeleri yok (/raporlar/bilanco, /raporlar/kar-zarar

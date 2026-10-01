@@ -4,14 +4,16 @@ import { parseYearParam, parseMonthParam } from "@/lib/http/query-params"
 import { badRequestResponse } from "@/lib/api/errors"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
-import { computeVatDeclaration, type VatPeriod } from "@/lib/raporlar/vergiler"
+import { computeVatChecklist, computeVatDeclaration, type VatPeriod } from "@/lib/raporlar/vergiler"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 
 export const dynamic = 'force-dynamic'
 
 /**
  * KDV beyanname hazırlık raporu. Hesabın kendisi `lib/raporlar/vergiler.ts`te —
- * dışa aktarma ucu da aynı fonksiyonu çağırır.
+ * dışa aktarma ucu da aynı fonksiyonu çağırır. Aylık dönemde beyan öncesi
+ * kontrol listesi (`kontrol`: aktarılmamış gelen fatura, gönderilmemiş e-belge)
+ * de döner.
  */
 export const GET = withApiErrors(async function GET(request: Request) {
   try {
@@ -35,7 +37,11 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     await ensureCompanyAccess(companyId)
 
-    return NextResponse.json(await computeVatDeclaration({ companyId, period, year, month }))
+    const [beyan, kontrol] = await Promise.all([
+      computeVatDeclaration({ companyId, period, year, month }),
+      period === "monthly" ? computeVatChecklist({ companyId, year, month }) : null,
+    ])
+    return NextResponse.json({ ...beyan, kontrol })
   } catch (error: any) {
     const __bad = badRequestResponse(error)
     if (__bad) return __bad

@@ -458,10 +458,11 @@ yazma yine düşerse fatura kalır ve yanıt `paymentWarning` taşır — sessiz
 Karar (2026-09-30) tek yerde: `lib/invoice/status-label.ts` → `kaydedildigindeKesinlesir`.
 
 ```
-ALIŞ ailesi (alış, alış iadesi)        DRAFT = "Kayıtlı"  — alınan belge, onay akışı yok
+ALIŞ FATURASI                          DRAFT = "Kayıtlı"  — alınan belge, onay akışı yok
 MANUEL belge (kâğıt/matbu, belge       DRAFT = "Kayıtlı"  — kaydedildiği an kesilmiştir;
   taramayla okutulan, e-Dönüşüm kapalı)                     "Onayla" (DRAFT→SENT) adımı YOK
-e-Fatura / e-Arşiv SATIŞ               DRAFT, GIB_DRAFT = "Taslak" — GİB'e gitmedi, kesilmedi
+e-Fatura / e-Arşiv SATIŞ ve İADE       DRAFT, GIB_DRAFT = "Taslak" — GİB'e gitmedi, kesilmedi
+  (alış iadesi de bizim DÜZENLEDİĞİMİZ belgedir; alış faturası gibi okunmaz)
 ```
 
 Ölçüm: son 12 ayda 32 matbu satış faturasının ve 54 fişin HEPSİ DRAFT'taydı, yalnız 4 matbu
@@ -471,11 +472,21 @@ fatura onaylanmıştı. "Taslak = kesilmemiş" varsayan her yer bunları yanlı�
 - **KDV'ye giren belge TEK YERDE:** `lib/raporlar/kdv-kural.ts` (aynı tanım + iptal/CONVERTED
   hariç + döviz faturadaki kurla TL; kursuz dövizli belge toplama girmez, SAYISI ekrana yazılır).
   Vergi raporu, KDV otomasyon kartı ve pano KDV kartı aynı `computeVatDeclaration`ı çağırır.
+- **Tevkifat (2026-10-01):** satışta alıcının tevkif ettiği KDV (`InvoiceItem.withholdingAmount`)
+  hesaplanandan DÜŞER — satıcı KDV-1'de yalnız kalan kısmı beyan eder. Alışta indirilecek KDV
+  faturadaki KDV'nin TAMAMIdır; bizim tevkif ettiğimiz kısım ayrıca KDV-2 ile ödenir
+  (`withholding.purchases`, ekran ayrı satır yazar). Matrah kalemden: `totalAmount − vatAmount +
+  withholdingAmount` (`totalAmount` KDV dahil, tevkifat düşülmüş tutardır).
+- **Muhtasar bordrodan** (`computeMuhtasar`, `PayrollRecord`): gelir + damga (`taxDeduction`) ve
+  SGK işçi payı. Kişi başı döküm yalnız `/personel/maas`ı açabilene (uç ve Excel aynı
+  `canViewPage` kuralı). Beyan son günleri saf modülde: `lib/raporlar/beyan-takvimi.ts`
+  (KDV 28, MPHB 26, hafta sonu → Pazartesi; bayram/süre uzatması bilinmez).
 - "Kesilmiş satış" soran yeni sorgu durum listesini ELLE yazmaz: SQL'de `kesilmisBelgeSql("i")`,
   TS'te `kaydedildigindeKesinlesir`. `status NOT IN ('DRAFT', ...)` yazmak kâğıt faturayı düşürür.
 - Yaşlandırma (`cari-yaslandirma.ts`) yalnız kesilmemiş e-belge taslağını ayıklar; liste
   süzgeci "taslak" (`lib/faturalar/list-query.ts`), K-BLG-04 kartı ve pano sayısı aynı kümedir.
-- **Bilerek dokunulmayan:** Ba-Bs formu (`computeBaBs`) kendi durum kuralıyla kalıyor.
+- **Ba-Bs formu YOK ve eklenmez:** VUK Genel Tebliği 565 (RG 25.09.2024) Eylül 2024
+  döneminden itibaren bildirimi kaldırdı. Eski "Ba-Bs" sekmesi 2026-10-01'de silindi.
 
 ## Fatura dip toplamı YALNIZ `lib/invoice/document-totals.ts`ten gelir
 

@@ -10,7 +10,7 @@ import type { SiradakiBeyan } from "@/lib/otomasyon/veri/kdv-donemi"
  * tıklanınca o raporu aynı dönemle açar, iki ekran iki rakam göstermemeli.
  * Bu yüzden kartın kendi sorgusu yok; sayfa sonucu hazır verir.
  *
- * Kart bir beyanname DEĞİLDİR: önceki dönemden devreden KDV, tevkifat ve
+ * Kart bir beyanname DEĞİLDİR: önceki dönemden devreden KDV ve
  * istisna hesaba girmez. Bu kartın kendi cümlesinde yazılı — "ödenecek KDV"
  * diye çıplak bir rakam beyanname yerine konabilirdi.
  */
@@ -83,6 +83,9 @@ export function KdvDurumuKarti({
       >
         Son beyan ve ödeme {beyan.beyanTarihi} · {kalanMetni(beyan.kalanGun)}
       </p>
+      {beyan.kaydirildi && (
+        <p className="mt-1.5 text-xs text-kobipo-gray">Ayın 28&apos;i hafta sonuna denk geldiği için son gün Pazartesi.</p>
+      )}
 
       <div className="mt-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-kobipo-gray">{fark.etiket}</p>
@@ -120,7 +123,8 @@ export function KdvDurumuKarti({
       ) : null}
 
       <p className="mt-3 border-t border-kobipo-border/60 pt-3 text-[11px] leading-snug text-kobipo-gray">
-        Faturalardan hesaplanır; önceki dönemden devreden KDV, tevkifat ve istisnalar dahil değildir. Beyanname yerine geçmez.
+        Faturalardan hesaplanır, satıştaki tevkifat düşülür; önceki dönemden devreden KDV ve istisnalar dahil değildir. Beyanname yerine geçmez.
+        Son gün hafta sonuna göre kaydırılır; bayram tatilleri ve süre uzatmaları ayrıca kontrol edilmelidir.
       </p>
     </div>
   )

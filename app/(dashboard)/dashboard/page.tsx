@@ -202,7 +202,7 @@ const getKdvTutarlariCached = (tagCompanyId: string) => unstable_cache(
       kursuzDovizli: r.unconvertedForeign,
     }
   },
-  ["dashboard-kdv-v2"],
+  ["dashboard-kdv-v3"],
   { revalidate: 20, tags: [dashboardTag(tagCompanyId)] }
 )
 

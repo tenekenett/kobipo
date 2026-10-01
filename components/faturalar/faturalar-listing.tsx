@@ -28,7 +28,7 @@ import {
   toDateInput,
 } from "@/lib/format"
 import { useToast } from "@/components/ui/use-toast"
-import { kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
+import { invoiceStatusLabel, kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -711,8 +711,8 @@ export default function FaturalarListing({
             : s === "DRAFT"
               ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-200"
               : "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-200"
-    // GİB taslağı ham "GIB_DRAFT" yerine okunur etiket göster.
-    const label = isRecordedPurchase ? "Kayıtlı" : s === "GIB_DRAFT" ? "GİB Taslağı" : status
+    // Ham kod ("DRAFT", "SENT") değil Türkçe etiket — tek sözlük: lib/invoice/status-label.ts.
+    const label = isRecordedPurchase ? "Kayıtlı" : invoiceStatusLabel(status)
     return <span className={`rounded px-2 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>
   }
 

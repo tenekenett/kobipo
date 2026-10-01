@@ -1,8 +1,12 @@
 /**
- * Vergi beyanname hazırlık raporları: KDV, Muhtasar, Ba-Bs.
+ * Vergi beyanname hazırlık raporları: KDV, Muhtasar.
  *
- * `app/api/raporlar/{kdv-beyanname,muhtasar,ba-bs}/route.ts`ten ayıklandı —
- * dışa aktarma ucu da aynı fonksiyonları çağırır.
+ * `app/api/raporlar/{kdv-beyanname,muhtasar}/route.ts`ten ayıklandı — dışa
+ * aktarma ucu da aynı fonksiyonları çağırır.
+ *
+ * Ba-Bs formu YOK: VUK Genel Tebliği 565 (RG 25.09.2024) ile Eylül 2024
+ * döneminden itibaren bildirim kaldırıldı. Rapor 2026-10-01'de silindi; geri
+ * eklemeyin — verilmeyen bir formu hazırlatmak kullanıcıyı yanıltır.
  */
 
 import { Prisma } from "@prisma/client"
@@ -15,10 +19,18 @@ import {
   satisAilesiSql,
 } from "@/lib/raporlar/kdv-kural"
 
-/** Muhtasar stopaj oranı — basit yaklaşım, gerçek hesap daha karmaşık. */
-const WITHHOLDING_RATE = 0.15
-
 export type VatPeriod = "monthly" | "quarterly" | "yearly"
+
+/** Bir KDV oranının satırı. */
+export type VatRateRow = {
+  vatRate: number
+  /** KDV matrahı (TL): kalemin KDV'siz tutarı. */
+  base: number
+  /** Faturada yazan KDV'nin tamamı (TL). */
+  vatAmount: number
+  /** Tevkif edilen kısım (TL) — karşı taraf KDV-2 ile öder. */
+  withheld: number
+}
 
 export type VatDeclarationResult = {
   period: VatPeriod
@@ -26,13 +38,23 @@ export type VatDeclarationResult = {
   month?: number
   startDate: string
   endDate: string
+  /**
+   * Beyana giren HESAPLANAN KDV: satışlardaki KDV − alıcının tevkif ettiği kısım.
+   * (Kısmi tevkifatta satıcı KDV'nin yalnız tevkif edilmeyen kısmını beyan eder.)
+   */
   calculatedVAT: number
+  /** İndirilecek KDV: alış faturalarındaki KDV'nin TAMAMI (tevkifatlı alış dahil). */
   deductibleVAT: number
+  /** 1 No.lu beyanın farkı: hesaplanan − indirilecek. Eksi = sonraki aya devreden. */
   netVAT: number
-  breakdown: {
-    sales: Array<{ vatRate: number; vatAmount: number; totalAmount: number }>
-    purchases: Array<{ vatRate: number; vatAmount: number; totalAmount: number }>
-  }
+  /**
+   * Tevkifat (TL):
+   *   sales     → satışlarımızda alıcının tevkif ettiği KDV; hesaplanandan DÜŞÜLDÜ.
+   *   purchases → alışlarımızda BİZİM tevkif ettiğimiz KDV: 2 No.lu beyanla
+   *               ödenir; indirilecek KDV'nin içinde zaten var (aynı ay indirilir).
+   */
+  withholding: { sales: number; purchases: number }
+  breakdown: { sales: VatRateRow[]; purchases: VatRateRow[] }
   /** KDV'ye giren belge sayısı (iadeler dahil) — kart metinleri okur. */
   documentCounts: { sales: number; purchases: number }
   /**
@@ -62,6 +84,10 @@ export function resolveVatRange(period: VatPeriod, year: number, month: number) 
   }
 }
 
+// Kuruş: TL karşılığı çarpımı kuruş altı basamak üretebilir; satırlar ekranda ve
+// Excel'de toplanacağı için kuruşa yuvarlanır.
+const kurus = (n: unknown) => Math.round(Number(n ?? 0) * 100) / 100
+
 export async function computeVatDeclaration(args: {
   companyId: string
   period?: VatPeriod
@@ -79,17 +105,26 @@ export async function computeVatDeclaration(args: {
   // İADELER kendi ailesinin toplamını AZALTIR (satış iadesi hesaplananı, alış
   // iadesi indirilecek KDV'yi). Oran kırılımı ilgili tarafta netlenir ki satış
   // ve iade aynı satırda görünsün; iade oranı faturada yoksa eksi satır kalır.
+  //
+  // MATRAH kalemden türetilir: `totalAmount` KDV dahil ve tevkifat DÜŞÜLMÜŞ
+  // ödenecek tutardır (lib/invoice/line-tax.ts), KDV'siz tutar ona KDV'yi çıkarıp
+  // tevkifatı geri ekleyerek bulunur. (2026-10-01'e kadar oran tablosunun
+  // "Tutar" sütunu bu KDV dahil rakamı gösteriyordu.)
   const where = Prisma.sql`
     i."companyId" = ${args.companyId}
     AND i.date >= ${startDate} AND i.date <= ${endDate}
     AND ${kdvyeGirerSql("i")}
   `
+  const isaretKur = Prisma.sql`${kdvIsaretSql("i")} * ${kdvKurSql("i")}`
   const [rateRows, countRows] = await Promise.all([
-    prisma.$queryRaw<Array<{ aile: string; vatRate: unknown; vat: unknown; total: unknown }>>(Prisma.sql`
+    prisma.$queryRaw<
+      Array<{ aile: string; vatRate: unknown; vat: unknown; withheld: unknown; base: unknown }>
+    >(Prisma.sql`
       SELECT CASE WHEN ${satisAilesiSql("i")} THEN 'S' ELSE 'P' END AS aile,
              ii."vatRate" AS "vatRate",
-             COALESCE(SUM(${kdvIsaretSql("i")} * ii."vatAmount" * ${kdvKurSql("i")}), 0) AS vat,
-             COALESCE(SUM(${kdvIsaretSql("i")} * ii."totalAmount" * ${kdvKurSql("i")}), 0) AS total
+             COALESCE(SUM(${isaretKur} * ii."vatAmount"), 0) AS vat,
+             COALESCE(SUM(${isaretKur} * COALESCE(ii."withholdingAmount", 0)), 0) AS withheld,
+             COALESCE(SUM(${isaretKur} * (ii."totalAmount" - ii."vatAmount" + COALESCE(ii."withholdingAmount", 0))), 0) AS base
       FROM invoice_items ii
       JOIN invoices i ON i.id = ii."invoiceId"
       WHERE ${where} AND ${kdvKurSql("i")} IS NOT NULL
@@ -105,20 +140,25 @@ export async function computeVatDeclaration(args: {
     `),
   ])
 
-  type RateRow = { vatRate: number; vatAmount: number; totalAmount: number }
-  // Kuruş: TL karşılığı çarpımı kuruş altı basamak üretebilir; oran satırı
-  // ekranda ve Excel'de toplanacağı için satır kuruşa yuvarlanır.
-  const kurus = (n: unknown) => Math.round(Number(n ?? 0) * 100) / 100
-  const toRows = (aile: string): RateRow[] =>
+  const toRows = (aile: string): VatRateRow[] =>
     rateRows
       .filter((r) => r.aile === aile)
-      .map((r) => ({ vatRate: Number(r.vatRate), vatAmount: kurus(r.vat), totalAmount: kurus(r.total) }))
+      .map((r) => ({
+        vatRate: Number(r.vatRate),
+        base: kurus(r.base),
+        vatAmount: kurus(r.vat),
+        withheld: kurus(r.withheld),
+      }))
       .sort((a, b) => a.vatRate - b.vatRate)
 
   const sales = toRows("S")
   const purchases = toRows("P")
-  const calculatedVAT = kurus(sales.reduce((sum, item) => sum + item.vatAmount, 0))
-  const deductibleVAT = kurus(purchases.reduce((sum, item) => sum + item.vatAmount, 0))
+  const sum = (rows: VatRateRow[], key: "vatAmount" | "withheld") =>
+    kurus(rows.reduce((t, r) => t + r[key], 0))
+
+  const withheldOnSales = sum(sales, "withheld")
+  const calculatedVAT = kurus(sum(sales, "vatAmount") - withheldOnSales)
+  const deductibleVAT = sum(purchases, "vatAmount")
   const counts = countRows[0]
 
   return {
@@ -130,177 +170,213 @@ export async function computeVatDeclaration(args: {
     calculatedVAT,
     deductibleVAT,
     netVAT: kurus(calculatedVAT - deductibleVAT),
+    withholding: { sales: withheldOnSales, purchases: sum(purchases, "withheld") },
     breakdown: { sales, purchases },
     documentCounts: { sales: Number(counts?.satis ?? 0), purchases: Number(counts?.alis ?? 0) },
     unconvertedForeign: Number(counts?.kursuz ?? 0),
   }
 }
 
-export type WithholdingResult = {
-  period: { year: number; month: number; startDate: string; endDate: string }
-  payments: Array<{
-    id: string
-    date: string
-    amount: number
-    description: string | null
-    /** `ref`: tedarikçi kartının adresi (slug ya da id) — ekran adı karta bağlar. */
-    supplier: { ref: string; name: string; taxNumber: string | null } | null
-  }>
-  totalWithholding: number
-  totalPayments: number
+// ── Beyan öncesi kontrol listesi ───────────────────────────────────────────
+
+export type AktarilmamisGelen = {
+  /** Kabul edilmiş, alış faturasına AKTARILMAMIŞ gelen e-fatura (TL). */
+  adet: number
+  kdv: number
+  /** İçlerindeki en büyük tek KDV — çöp kayıt toplamı ele geçirirse görünsün. */
+  enBuyuk: number
+  /** Dövizli olanlar: KDV'leri toplamda YOK (kur gelen kayıtta tutulmuyor). */
+  dovizli: number
 }
 
-export async function computeWithholding(args: {
+/**
+ * Aktarılmamış gelen e-faturalar — beyan öncesi en sık kaçan indirim.
+ * K-BLG-07 kartı ile vergi raporu AYNI sorguyu kullanır; aralık `[bas, sonHaric)`.
+ */
+export async function aktarilmamisGelenFaturalar(args: {
+  companyId: string
+  bas: Date
+  sonHaric: Date
+}): Promise<AktarilmamisGelen> {
+  const rows = await prisma.$queryRaw<
+    Array<{ adet: bigint; kdv: unknown; en_buyuk: unknown; dovizli: bigint }>
+  >(Prisma.sql`
+    SELECT COUNT(*) FILTER (WHERE COALESCE(ii."currencyCode", 'TRY') = 'TRY') AS adet,
+           COALESCE(SUM(ii."vatAmount") FILTER (WHERE COALESCE(ii."currencyCode", 'TRY') = 'TRY'), 0) AS kdv,
+           COALESCE(MAX(ii."vatAmount") FILTER (WHERE COALESCE(ii."currencyCode", 'TRY') = 'TRY'), 0) AS en_buyuk,
+           COUNT(*) FILTER (WHERE COALESCE(ii."currencyCode", 'TRY') <> 'TRY') AS dovizli
+    FROM incoming_invoices ii
+    WHERE ii."companyId" = ${args.companyId}
+      AND ii.status = 'KABUL'
+      AND ii."isLinkedToPurchase" = false
+      AND ii."isArchived" = false
+      AND ii."docDate" >= ${args.bas} AND ii."docDate" < ${args.sonHaric}
+  `)
+  const r = rows[0]
+  return {
+    adet: Number(r?.adet ?? 0),
+    kdv: kurus(r?.kdv),
+    enBuyuk: kurus(r?.en_buyuk),
+    dovizli: Number(r?.dovizli ?? 0),
+  }
+}
+
+export type VatChecklist = {
+  aktarilmamis: AktarilmamisGelen
+  /**
+   * Dönemde düzenlenmiş ama GİB'e gönderilmemiş e-belge (satış, iade): KDV
+   * kuralının tam TÜMLEYENİ — iptal/dönüşmüş değil, ama KDV'ye de girmiyor.
+   * `kdv`: satış ailesinin KDV'si (iade eksi); gönderilince hesaplanana eklenir.
+   */
+  gonderilmemis: { adet: number; kdv: number }
+}
+
+/** Beyandan önce yapılması gerekenler — vergi raporu sayfasının uyarıları. */
+export async function computeVatChecklist(args: {
   companyId: string
   year: number
   month: number
-}): Promise<WithholdingResult> {
-  const startDate = new Date(args.year, args.month - 1, 1)
-  const endDate = new Date(args.year, args.month, 0, 23, 59, 59)
+}): Promise<VatChecklist> {
+  const { startDate, endDate } = resolveVatRange("monthly", args.year, args.month)
+  const sonHaric = new Date(args.year, args.month, 1)
 
-  // Muhtasar beyanname için ödemeler (maaş, hizmet alımları vb.)
-  // Şimdilik sadece temel yapı, daha sonra detaylandırılabilir.
-  const payments = await prisma.transaction.findMany({
-    where: {
-      companyId: args.companyId,
-      type: "EXPENSE",
-      date: { gte: startDate, lte: endDate },
-      description: { contains: "maaş" },
-    },
-    include: { supplier: true },
-  })
+  const [aktarilmamis, taslak] = await Promise.all([
+    aktarilmamisGelenFaturalar({ companyId: args.companyId, bas: startDate, sonHaric }),
+    prisma.$queryRaw<Array<{ adet: bigint; kdv: unknown }>>(Prisma.sql`
+      SELECT COUNT(*) AS adet,
+             COALESCE(SUM(i."vatAmount" * ${kdvIsaretSql("i")} * ${kdvKurSql("i")})
+                      FILTER (WHERE ${satisAilesiSql("i")}), 0) AS kdv
+      FROM invoices i
+      WHERE i."companyId" = ${args.companyId}
+        AND i.date >= ${startDate} AND i.date <= ${endDate}
+        AND i.status NOT IN ('CANCELLED', 'CONVERTED')
+        AND (${satisAilesiSql("i")} OR ${alisAilesiSql("i")})
+        AND NOT ${kdvyeGirerSql("i")}
+    `),
+  ])
 
   return {
-    period: {
-      year: args.year,
-      month: args.month,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-    },
-    payments: payments.map((p) => ({
-      id: p.id,
-      date: p.date.toISOString(),
-      amount: Number(p.amount),
-      description: p.description,
-      supplier: p.supplier
-        ? {
-            ref: p.supplier.slug || p.supplier.id,
-            name: p.supplier.name,
-            taxNumber: p.supplier.taxNumber,
-          }
-        : null,
-    })),
-    // Basit örnek: %15 stopaj (gerçek hesaplama daha karmaşık).
-    totalWithholding: payments.reduce((sum, p) => sum + Number(p.amount) * WITHHOLDING_RATE, 0),
-    totalPayments: payments.reduce((sum, p) => sum + Number(p.amount), 0),
+    aktarilmamis,
+    gonderilmemis: { adet: Number(taslak[0]?.adet ?? 0), kdv: kurus(taslak[0]?.kdv) },
   }
 }
 
-export type BaBsInvoice = {
-  invoiceNo: string
-  date: string
-  counterparty: { name: string; taxNumber: string | null } | null
-  netAmount: number
-  vatAmount: number
-  totalAmount: number
+// ── Muhtasar (bordrodan) ───────────────────────────────────────────────────
+
+export type MuhtasarCalisani = {
+  /** Personel kartının adresi (slug ya da id). */
+  ref: string
+  ad: string
+  /** Brüt ücret + prim/ek ödeme. */
+  brut: number
+  /** SGK + işsizlik, işçi payı. */
+  sgkIsci: number
+  /** Gelir vergisi + damga vergisi (bordroda tek alan). */
+  gelirDamga: number
+  net: number
+  odendi: boolean
 }
 
-export type BaBsResult = {
-  period: { year: number; month: number; startDate: string; endDate: string }
-  sales: {
-    count: number
-    netAmount: number
-    vatAmount: number
-    totalAmount: number
-    invoices: BaBsInvoice[]
-  }
-  purchases: {
-    count: number
-    netAmount: number
-    vatAmount: number
-    totalAmount: number
-    invoices: BaBsInvoice[]
-  }
+export type MuhtasarResult = {
+  period: { year: number; month: number }
+  bordroSayisi: number
+  brut: number
+  sgkIsci: number
+  gelirDamga: number
+  net: number
+  /** Henüz "ödendi" işaretlenmemiş bordro. */
+  odenmemis: number
+  /**
+   * Dönemde çalışan ama bordrosu girilmemiş personel: muhtasar rakamı onlar
+   * OLMADAN hesaplandı. `adlar` yalnız çalışan dökümünü görebilene doludur.
+   */
+  bordrosuz: { sayi: number; adlar: string[] | null }
+  /** Çalışan bazında döküm; maaş yetkisi yoksa null (yalnız toplamlar). */
+  calisanlar: MuhtasarCalisani[] | null
 }
 
-export async function computeBaBs(args: {
+/**
+ * Muhtasar ve Prim Hizmet Beyannamesi hazırlığı — Personel → Maaş'ta girilen
+ * bordrolardan (`PayrollRecord`): çalışandan kesilen gelir + damga vergisi ve
+ * SGK işçi payı.
+ *
+ * 2026-10-01'e kadar bu rapor açıklamasında "maaş" geçen gider hareketlerinin
+ * %15'ini "stopaj" diye gösteriyordu: ücret stopajı %15 değildir (dilimli gelir
+ * vergisi + damga) ve canlıda son 12 ayda tek firmada tek kayıt eşleşmemişti.
+ *
+ * BİLEREK yok (ekran yazar): işveren SGK payı ve teşvikler (bordroda
+ * tutulmuyor), kira/serbest meslek stopajı (Kobipo'da belgesi yok).
+ *
+ * `calisanDetayi`: kişi başı maaş, vergi raporunu görebilen herkese açılmaz —
+ * yalnız Maaş sayfasını açabilene (uç `canViewPage(..., "/personel/maas")` ile
+ * karar verir; Personel Raporları da diğer rollere yalnız toplam gösteriyor).
+ */
+export async function computeMuhtasar(args: {
   companyId: string
   year: number
   month: number
-}): Promise<BaBsResult> {
-  const startDate = new Date(args.year, args.month - 1, 1)
-  const endDate = new Date(args.year, args.month, 0, 23, 59, 59)
+  calisanDetayi: boolean
+}): Promise<MuhtasarResult> {
+  const ayBas = new Date(Date.UTC(args.year, args.month - 1, 1))
+  const aySon = new Date(Date.UTC(args.year, args.month, 0, 23, 59, 59))
 
-  const [salesInvoices, purchaseInvoices] = await Promise.all([
-    prisma.invoice.findMany({
-      where: {
-        companyId: args.companyId,
-        type: "SALES",
-        isReceipt: false, // Ba/Bs yalnızca resmî faturalar; fişler dâhil değil
-        status: { not: "CANCELLED" },
-        date: { gte: startDate, lte: endDate },
-      },
-      include: { customer: true },
-      orderBy: { date: "asc" },
+  const [bordrolar, personel] = await Promise.all([
+    prisma.payrollRecord.findMany({
+      where: { companyId: args.companyId, periodYear: args.year, periodMonth: args.month },
+      include: { employee: { select: { firstName: true, lastName: true, slug: true, id: true } } },
     }),
-    prisma.invoice.findMany({
-      where: {
-        companyId: args.companyId,
-        type: "PURCHASE",
-        isReceipt: false, // Ba/Bs yalnızca resmî faturalar; fişler dâhil değil
-        status: { not: "CANCELLED" },
-        date: { gte: startDate, lte: endDate },
+    prisma.employee.findMany({
+      where: { companyId: args.companyId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        hireDate: true,
+        terminationDate: true,
+        status: true,
       },
-      include: { supplier: true },
-      orderBy: { date: "asc" },
     }),
   ])
 
-  // Satış ve alış kayıtları farklı ilişki taşıyor (customer / supplier); yardımcı
-  // yalnızca tutar alanlarına bakar.
-  const sum = (
-    rows: Array<Record<"netAmount" | "vatAmount" | "totalAmount", unknown>>,
-    key: "netAmount" | "vatAmount" | "totalAmount",
-  ) => rows.reduce((total, row) => total + Number(row[key] || 0), 0)
+  const calisanlar: MuhtasarCalisani[] = bordrolar
+    .map((p) => ({
+      ref: p.employee.slug || p.employee.id,
+      ad: `${p.employee.firstName} ${p.employee.lastName}`.trim(),
+      brut: kurus(Number(p.grossSalary) + Number(p.bonus)),
+      sgkIsci: kurus(p.sgkDeduction),
+      gelirDamga: kurus(p.taxDeduction),
+      net: kurus(p.netSalary),
+      odendi: p.status === "PAID",
+    }))
+    .sort((a, b) => a.ad.localeCompare(b.ad, "tr"))
+
+  // Dönemde çalışıyor mu: işe giriş ay sonundan önce, çıkış ay başından sonra.
+  // Çıkış tarihi olmayan "TERMINATED" kayıt bilinemez → sayılmaz (dürtmeyiz).
+  const bordrosuOlan = new Set(bordrolar.map((p) => p.employeeId))
+  const bordrosuz = personel.filter((e) => {
+    if (bordrosuOlan.has(e.id)) return false
+    if (e.hireDate && e.hireDate > aySon) return false
+    if (e.terminationDate) return e.terminationDate >= ayBas
+    return e.status !== "TERMINATED"
+  })
+
+  const topla = (key: "brut" | "sgkIsci" | "gelirDamga" | "net") =>
+    kurus(calisanlar.reduce((t, c) => t + c[key], 0))
 
   return {
-    period: {
-      year: args.year,
-      month: args.month,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
+    period: { year: args.year, month: args.month },
+    bordroSayisi: calisanlar.length,
+    brut: topla("brut"),
+    sgkIsci: topla("sgkIsci"),
+    gelirDamga: topla("gelirDamga"),
+    net: topla("net"),
+    odenmemis: calisanlar.filter((c) => !c.odendi).length,
+    bordrosuz: {
+      sayi: bordrosuz.length,
+      adlar: args.calisanDetayi
+        ? bordrosuz.map((e) => `${e.firstName} ${e.lastName}`.trim()).sort((a, b) => a.localeCompare(b, "tr"))
+        : null,
     },
-    sales: {
-      count: salesInvoices.length,
-      netAmount: sum(salesInvoices, "netAmount"),
-      vatAmount: sum(salesInvoices, "vatAmount"),
-      totalAmount: sum(salesInvoices, "totalAmount"),
-      invoices: salesInvoices.map((inv) => ({
-        invoiceNo: inv.invoiceNo,
-        date: inv.date.toISOString(),
-        counterparty: inv.customer
-          ? { name: inv.customer.name, taxNumber: inv.customer.taxNumber }
-          : null,
-        netAmount: Number(inv.netAmount),
-        vatAmount: Number(inv.vatAmount),
-        totalAmount: Number(inv.totalAmount),
-      })),
-    },
-    purchases: {
-      count: purchaseInvoices.length,
-      netAmount: sum(purchaseInvoices, "netAmount"),
-      vatAmount: sum(purchaseInvoices, "vatAmount"),
-      totalAmount: sum(purchaseInvoices, "totalAmount"),
-      invoices: purchaseInvoices.map((inv) => ({
-        invoiceNo: inv.invoiceNo,
-        date: inv.date.toISOString(),
-        counterparty: inv.supplier
-          ? { name: inv.supplier.name, taxNumber: inv.supplier.taxNumber }
-          : null,
-        netAmount: Number(inv.netAmount),
-        vatAmount: Number(inv.vatAmount),
-        totalAmount: Number(inv.totalAmount),
-      })),
-    },
+    calisanlar: args.calisanDetayi ? calisanlar : null,
   }
 }

@@ -47,8 +47,11 @@ describe("KDV'ye giren belge", () => {
     expect(kdvyeGirerMi(belge("RETURN", "E_INVOICE", "DRAFT", "SALES"))).toBe(false)
     expect(kdvyeGirerMi(belge("RETURN", "E_INVOICE", "SENT", null))).toBe(true)
     expect(kdvyeGirerMi(belge("RETURN", "MANUAL", "DRAFT", null))).toBe(true)
-    // Alış iadesi alış ailesindedir: kayıtlı olması yeter.
-    expect(kdvyeGirerMi(belge("RETURN", "E_INVOICE", "DRAFT", "PURCHASE"))).toBe(true)
+    // Alış iadesini tedarikçiye BİZ düzenleriz: e-belge ancak GİB'e gidince kesilir,
+    // Manuel olan kaydedildiği an. (Alış faturası gibi "her zaman" sayılmaz.)
+    expect(kdvyeGirerMi(belge("RETURN", "E_INVOICE", "DRAFT", "PURCHASE"))).toBe(false)
+    expect(kdvyeGirerMi(belge("RETURN", "E_INVOICE", "SENT", "PURCHASE"))).toBe(true)
+    expect(kdvyeGirerMi(belge("RETURN", "MANUAL", "DRAFT", "PURCHASE"))).toBe(true)
   })
 })
 
@@ -61,6 +64,8 @@ describe("SQL karşılığı", () => {
     expect(sql).toContain(`"invoiceType" = 'MANUAL'`)
     expect(sql).toContain("status = 'SENT'")
     expect(sql).toContain("type = 'PURCHASE'")
+    // Alınan belge yalnız ALIŞ FATURASI: ayrım ailede değil, belge tipinde.
+    expect(sql).toContain("i.type = 'PURCHASE' OR i.\"invoiceType\" = 'MANUAL' OR i.status = 'SENT'")
   })
 
   it("dövizde kuru sıfır ya da boş olan belge NULL çarpan alır (toplama girmez, sayılır)", () => {

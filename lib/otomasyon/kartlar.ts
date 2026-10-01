@@ -1395,7 +1395,7 @@ const K_BLG_07_SURUM = 1
  * K-BLG-07 · KDV beyan dönemi + o döneme ait kaçan indirim.
  *
  * Kart bir BEYANNAME DEĞİL, beyan öncesi kontrol listesidir ve bunu cümle içinde
- * söyler: devreden KDV, tevkifat, istisna ve iade hesaba girmiyor. Rakamı
+ * söyler: devreden KDV, istisna ve KDV iadesi hesaba girmiyor. Rakamı
  * beyanname yerine koyduran bir cümle, bu kartın yapabileceği en zararlı şey
  * olurdu (gerekçe `veri/kdv-donemi.ts` başlığında).
  *
@@ -1457,9 +1457,11 @@ export function kdvDonemiKarti(companyId: string, o: KdvDonemi): Kart {
           `dönüştürülmemiş; içindeki ${money0(o.kacanKdv)} KDV, aktarılmadığı sürece bu ` +
           `dönemin indirimine giremez.${enBuyukNotu} `
         : "") +
-      `Bu bir beyanname değildir: devreden KDV, tevkifat, istisna ve iade hesaba ` +
+      `Bu bir beyanname değildir: devreden KDV, istisna ve KDV iadesi hesaba ` +
       `katılmadı — buradaki rakamlar yalnız sistemdeki belgelerden görüneni söyler.`,
-    sonTarih: `Beyan ve ödeme ${o.beyanTarihi} (aylık mükellefiyet varsayıldı).`,
+    sonTarih:
+      `Beyan ve ödeme ${o.beyanTarihi} (aylık mükellefiyet varsayıldı; hafta sonu kaydırıldı, ` +
+      `bayram tatili ve süre uzatması hesaba katılmadı).`,
     // Parasal ağırlık KAÇAN İNDİRİMDİR: kartın aksiyonla geri kazandırdığı tutar.
     etki: o.kacanKdv,
     aksiyonlar: [

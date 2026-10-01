@@ -6,7 +6,8 @@
  * Kart bir BEYANNAME DEĞİL, beyan öncesi bir KONTROL LİSTESİDİR. Sistemdeki
  * belgelerden şunu çıkarır:
  *
- *   hesaplanan KDV  = dönemin satış faturalarındaki KDV (iade ters işaretle)
+ *   hesaplanan KDV  = dönemin satış faturalarındaki KDV (iade ters işaretle),
+ *                     alıcının tevkif ettiği kısım düşülmüş
  *   indirilecek KDV = dönemin ALIŞ FATURASINA DÖNÜŞMÜŞ belgelerindeki KDV
  *   (ikisi de vergi raporunun `computeVatDeclaration`ından; hangi belgenin
  *   KDV'ye girdiği lib/raporlar/kdv-kural.ts'te — 2026-09-30'dan beri)
@@ -18,13 +19,18 @@
  * kuyruk olarak; bu kart onları BEYAN TAKVİMİNE bağlar — "sırada duruyor" ile
  * "bu ayın indirimi kaçıyor" farklı iki cümledir.
  *
- * HESAPLAMADIKLARI (kart bunu açıkça söyler): devreden KDV, tevkifat, istisna,
- * iade, KDV-2, indirimli oran mahsubu. Bu yüzden çıkan sayı "ödenecek KDV"
+ * HESAPLAMADIKLARI (kart bunu açıkça söyler): devreden KDV, istisna, KDV iadesi,
+ * KDV-2, indirimli oran mahsubu. (Satıştaki tevkifat 2026-10-01'den beri
+ * hesaplananda düşülü — vergi raporuyla aynı fonksiyon.) Bu yüzden çıkan sayı "ödenecek KDV"
  * değil, "bu belgelerden görünen fark"tır. Rakamı beyanname yerine koyan bir
  * cümle, kartın yapabileceği en zararlı şey olurdu.
  *
  * ── Takvim varsayımı ────────────────────────────────────────────────────────
  * Aylık KDV beyannamesi izleyen ayın 28'inde verilir ve ödenir (`BEYAN_GUNU`).
+ * 28'i Cumartesi ya da Pazar'a düşerse süre izleyen Pazartesi biter (VUK md. 18:
+ * süre resmî tatile rastlarsa tatili izleyen ilk iş günü; ör. 28 Temmuz 2024
+ * Pazar → 29 Temmuz). Bayramlar ve GİB'in ek süre uzatmaları BİLİNMİYOR; tarih
+ * bu yüzden ancak ERKEN gösterilebilir, geç değil — kartlar bunu yazar.
  * ÜÇ AYLIK beyan veren mükellef bu üründe ayırt edilemiyor — böyle bir alan yok
  * ve kart aylık varsayıyor. Yanlış olduğu hesapta kullanıcı kartı yok sayacak;
  * bu yüzden tarih kartın kendi cümlesinde açıkça yazılı, gizli varsayım değil.
@@ -54,13 +60,12 @@
  * FATURAYI da yazar: tek kayıt toplamı ele geçirdiğinde okuyan kişi bunu görür.
  */
 
-import { Prisma } from "@prisma/client"
-import { prisma } from "@/lib/db/prisma"
-import { sayi } from "@/lib/asistan/veri/temel"
-import { computeVatDeclaration } from "@/lib/raporlar/vergiler"
+import { aktarilmamisGelenFaturalar, computeVatDeclaration } from "@/lib/raporlar/vergiler"
+import { siradakiBeyan } from "@/lib/raporlar/beyan-takvimi"
 
-/** Aylık KDV beyannamesinin verilme/ödeme günü (izleyen ay). */
-export const BEYAN_GUNU = 28
+// Takvim saf modülde (vergi raporu sayfası istemcide de okuyor); eski içe
+// aktarmalar için buradan da verilir.
+export { BEYAN_GUNU, siradakiBeyan, type SiradakiBeyan } from "@/lib/raporlar/beyan-takvimi"
 
 /** Beyana bu kadar gün kala kart açılır. */
 export const UYARI_PENCERESI_GUN = 12
@@ -86,18 +91,6 @@ export type KdvDonemi = {
   kacanEnBuyuk: number
 }
 
-const AY_ADLARI = [
-  "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
-  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
-]
-
-/** İstanbul takvimine göre bugünün yıl/ay/gün üçlüsü. */
-function istanbulParcalari(simdi: Date): { yil: number; ay: number; gun: number } {
-  const s = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(simdi)
-  const [yil, ay, gun] = s.split("-").map(Number)
-  return { yil, ay, gun }
-}
-
 export type BeyanPenceresi = {
   kalanGun: number
   donemBas: Date
@@ -110,89 +103,28 @@ export type BeyanPenceresi = {
 /**
  * Beyan penceresi — SAF fonksiyon, dışa açık çünkü TARAYICIDA SINANAMIYOR.
  *
- * Kart yalnız ayın 16–28'i arasında görünüyor; ölçüm günü (7 Eylül) ekranda
- * hiç çıkmadı. Takvim mantığının doğruluğu bu yüzden testle korunuyor: yıl
- * geçişi (Ocak → Aralık dönemi), son gün (28) ve pencere sınırları orada
- * sınanıyor. Kart kodunun geri kalanı bu üçlüyü hazır alıyor.
+ * Kart yalnız beyana `UYARI_PENCERESI_GUN` gün kala görünüyor; ölçüm günü
+ * (7 Eylül) ekranda hiç çıkmadı. Takvim mantığının doğruluğu bu yüzden testle
+ * korunuyor: yıl geçişi (Ocak → Aralık dönemi), son gün, hafta sonu kayması ve
+ * pencere sınırları orada sınanıyor. Dönem ve son gün `siradakiBeyan`dan gelir:
+ * pano kartı ile bu uyarı aynı takvimi okur.
  */
 export function beyanPenceresi(simdi: Date = new Date()): BeyanPenceresi | null {
-  const { yil, ay, gun } = istanbulParcalari(simdi)
+  const b = siradakiBeyan(simdi)
 
-  // Beyan bu ayın 28'inde; konusu GEÇEN aydır. 28'i geçtiyse o dönemin süresi
-  // dolmuştur ve gelecek ayınki henüz aksiyon değil — kart susar.
-  const kalanGun = BEYAN_GUNU - gun
-  if (kalanGun < 0 || kalanGun > UYARI_PENCERESI_GUN) return null
+  // Sıra içinde bulunulan aya geçtiyse geçen ayın süresi dolmuştur ve bu ayınki
+  // henüz aksiyon değil — kart susar.
+  if (b.devamEdiyor || b.kalanGun > UYARI_PENCERESI_GUN) return null
 
-  // Geçen ayın sınırları (UTC 00:00 ekseni — kod tabanının her yerindeki eksen).
-  // `Date.UTC(yil, -1, 1)` Ocak'ta geçen yılın Aralık'ına düşer; ay/yıl taşmasını
-  // elle hesaplamak yerine Date'e bırakmak bu yüzden bilinçli.
-  const donemBas = new Date(Date.UTC(yil, ay - 2, 1))
-  const donemSon = new Date(Date.UTC(yil, ay - 1, 1))
-  const beyan = new Date(Date.UTC(yil, ay - 1, BEYAN_GUNU))
-
+  // Dönem sınırları UTC 00:00 ekseninde (kod tabanının her yerindeki eksen);
+  // üst sınır DIŞLAYICI.
   return {
-    kalanGun,
-    donemBas,
-    donemSon,
-    donem: `${donemBas.getUTCFullYear()}-${String(donemBas.getUTCMonth() + 1).padStart(2, "0")}`,
-    donemAdi: `${AY_ADLARI[donemBas.getUTCMonth()]} ${donemBas.getUTCFullYear()}`,
-    beyanTarihi: new Intl.DateTimeFormat("tr-TR", {
-      day: "numeric",
-      month: "long",
-      timeZone: "UTC",
-    }).format(beyan),
-  }
-}
-
-export type SiradakiBeyan = {
-  /** Beyana konu dönemin yılı ve ayı (1–12). */
-  yil: number
-  ay: number
-  /** "2026-09" */
-  donem: string
-  /** "Eylül 2026" */
-  donemAdi: string
-  /** "28 Ekim" */
-  beyanTarihi: string
-  /** Beyana kalan gün (0 = bugün son gün). */
-  kalanGun: number
-  /** Dönem henüz kapanmadı: rakam ay sonuna kadar değişir. */
-  devamEdiyor: boolean
-  /** İçinde bulunulan ay — dönem geçen aysa ikinci satır olarak gösterilir. */
-  buAy: { yil: number; ay: number; adi: string }
-}
-
-/**
- * SIRADAKİ beyan — panodaki KDV kartının dönemi. SAF fonksiyon.
- *
- * `beyanPenceresi`nden farkı: o yalnız beyana 12 gün kala açılan uyarının
- * penceresidir ve dışında `null` döner; bu ise her gün bir dönem gösterir.
- * Ayın 1–28'i arası konu GEÇEN aydır (beyanı bu ayın 28'inde); 28'i geçince
- * geçen ayın süresi dolmuştur ve sıra içinde bulunulan aya geçer (beyanı
- * gelecek ayın 28'inde). Takvim varsayımı aynı: aylık beyan, `BEYAN_GUNU`.
- */
-export function siradakiBeyan(simdi: Date = new Date()): SiradakiBeyan {
-  const { yil, ay, gun } = istanbulParcalari(simdi)
-  const bugun = Date.UTC(yil, ay - 1, gun)
-  const gecmisAy = gun <= BEYAN_GUNU
-
-  // Ay/yıl taşmasını Date'e bırak: `Date.UTC(yil, -1, 1)` geçen yılın Aralık'ıdır.
-  const donemBas = new Date(Date.UTC(yil, gecmisAy ? ay - 2 : ay - 1, 1))
-  const beyan = new Date(Date.UTC(yil, gecmisAy ? ay - 1 : ay, BEYAN_GUNU))
-
-  return {
-    yil: donemBas.getUTCFullYear(),
-    ay: donemBas.getUTCMonth() + 1,
-    donem: `${donemBas.getUTCFullYear()}-${String(donemBas.getUTCMonth() + 1).padStart(2, "0")}`,
-    donemAdi: `${AY_ADLARI[donemBas.getUTCMonth()]} ${donemBas.getUTCFullYear()}`,
-    beyanTarihi: new Intl.DateTimeFormat("tr-TR", {
-      day: "numeric",
-      month: "long",
-      timeZone: "UTC",
-    }).format(beyan),
-    kalanGun: Math.round((beyan.getTime() - bugun) / 864e5),
-    devamEdiyor: !gecmisAy,
-    buAy: { yil, ay, adi: `${AY_ADLARI[ay - 1]} ${yil}` },
+    kalanGun: b.kalanGun,
+    donemBas: new Date(Date.UTC(b.yil, b.ay - 1, 1)),
+    donemSon: new Date(Date.UTC(b.yil, b.ay, 1)),
+    donem: b.donem,
+    donemAdi: b.donemAdi,
+    beyanTarihi: b.beyanTarihi,
   }
 }
 
@@ -214,26 +146,16 @@ export async function kdvDonemiOzeti(
       year: donemBas.getUTCFullYear(),
       month: donemBas.getUTCMonth() + 1,
     }),
-    prisma.$queryRaw<Array<{ kdv: unknown; adet: bigint; en_buyuk: unknown }>>(Prisma.sql`
-      SELECT COALESCE(SUM(ii."vatAmount"), 0) AS kdv,
-             COUNT(*) AS adet,
-             COALESCE(MAX(ii."vatAmount"), 0) AS en_buyuk
-      FROM incoming_invoices ii
-      WHERE ii."companyId" = ${companyId}
-        AND ii.status = 'KABUL'
-        AND ii."isLinkedToPurchase" = false
-        AND ii."isArchived" = false
-        AND COALESCE(ii."currencyCode", 'TRY') = 'TRY'
-        AND ii."docDate" >= ${donemBas} AND ii."docDate" < ${donemSon}
-    `),
+    // Vergi raporunun "aktarılmamış gelen fatura" uyarısıyla AYNI sorgu.
+    aktarilmamisGelenFaturalar({ companyId, bas: donemBas, sonHaric: donemSon }),
   ])
 
   const hesaplananKdv = beyanname.calculatedVAT
   const indirilecekKdv = beyanname.deductibleVAT
   const satisAdet = beyanname.documentCounts.sales
   const alisAdet = beyanname.documentCounts.purchases
-  const kacanAdet = Number(kacan[0]?.adet ?? 0)
-  const kacanKdv = sayi(kacan[0]?.kdv)
+  const kacanAdet = kacan.adet
+  const kacanKdv = kacan.kdv
 
   // Dönemde hiç hareket yoksa beyan hatırlatması gürültüdür.
   if (satisAdet === 0 && alisAdet === 0 && kacanAdet === 0) return null
@@ -250,6 +172,6 @@ export async function kdvDonemiOzeti(
     alisAdet,
     kacanAdet,
     kacanKdv,
-    kacanEnBuyuk: sayi(kacan[0]?.en_buyuk),
+    kacanEnBuyuk: kacan.enBuyuk,
   }
 }

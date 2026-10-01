@@ -35,7 +35,7 @@ import { buildInvoiceLabelItems } from "@/lib/labels/invoice-label-items"
 import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
 import { kdvExemption } from "@/lib/integrations/e-invoice/gib-exemption-codes"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
-import { kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
+import { invoiceStatusLabel, kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
 
 const PROFILE_LABELS: Record<string, string> = {
   TICARIFATURA: "Ticari",
@@ -1214,13 +1214,9 @@ export default function FaturaOnizlemePage() {
             <div className="rounded-lg border p-3">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Durum</p>
               <p className="font-medium">
-                {isPurchase
+                {isPurchase || isRecorded
                   ? headerBadge.label
-                  : invoice.status === "SENT"
-                    ? "Gönderildi"
-                    : invoice.status === "DRAFT"
-                      ? "Taslak"
-                      : invoice.status}
+                  : invoiceStatusLabel(invoice.status, { invoiceType: invoice.invoiceType })}
                 {(() => {
                   const profileLabel = formatProfileLabel(invoice.profile)
                   return profileLabel ? (
