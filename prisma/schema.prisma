@@ -2070,6 +2070,9 @@ model WaybillItem {
   waybill Waybill  @relation(fields: [waybillId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
+  // Migrasyon 20261001000001 — öncesinde tabloda birincil anahtardan başka indeks yoktu.
+  @@index([waybillId])
+  @@index([productId])
   @@map("waybill_items")
 }
 
