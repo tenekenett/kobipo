@@ -29,7 +29,9 @@ import { DashboardCashflowChart, type CashflowPoint } from "@/components/dashboa
 import { dashboardTag } from "@/lib/dashboard/cache"
 import { OtomasyonKartlari } from "@/components/otomasyon/otomasyon-kartlari"
 import { KdvDurumuKarti, type KdvTutarlari } from "@/components/dashboard/kdv-durumu-karti"
+import { NakitYeterlilikKarti } from "@/components/dashboard/nakit-yeterlilik-karti"
 import { computeVatDeclaration } from "@/lib/raporlar/vergiler"
+import { computeNakitYeterlilik } from "@/lib/raporlar/nakit-yeterlilik"
 import { siradakiBeyan } from "@/lib/otomasyon/veri/kdv-donemi"
 import { moduleKeyForPath } from "@/lib/nav/pages"
 import { withCompanyHref } from "@/lib/company/href"
@@ -206,6 +208,17 @@ const getKdvTutarlariCached = (tagCompanyId: string) => unstable_cache(
   { revalidate: 20, tags: [dashboardTag(tagCompanyId)] }
 )
 
+/**
+ * "Nakit kaç gün yeter" — Nakit Akışı raporunun hesabından (`computeNakitYeterlilik`
+ * → `computeCashFlow`), kendi sorgusu YOK. Para yazan uçlar panoyu düşürünce bu da
+ * düşer (aynı etiket).
+ */
+const getNakitYeterlilikCached = (tagCompanyId: string) => unstable_cache(
+  async (companyId: string) => computeNakitYeterlilik(companyId),
+  ["dashboard-nakit-yeterlilik-v1"],
+  { revalidate: 20, tags: [dashboardTag(tagCompanyId)] }
+)
+
 export default async function DashboardIndexPage({
   searchParams,
 }: {
@@ -273,13 +286,21 @@ export default async function DashboardIndexPage({
     canOpen(vergiRaporu) && !(vergiModulu && (selectedCompany.disabledModules ?? []).includes(vergiModulu))
   const beyan = siradakiBeyan()
 
+  // Nakit kartı da aynı kuralla: götürdüğü Nakit & Banka raporunu açabilene çizilir.
+  const nakitRaporu = "/raporlar/nakit-banka"
+  const nakitModulu = moduleKeyForPath(nakitRaporu)
+  const showNakit =
+    canOpen(nakitRaporu) && !(nakitModulu && (selectedCompany.disabledModules ?? []).includes(nakitModulu))
+
   const kdvCache = getKdvTutarlariCached(companyId)
-  const [{ statsRows, recentInvoices, cashflowRows }, kdvDonem, kdvBuAy] = await Promise.all([
+  const [{ statsRows, recentInvoices, cashflowRows }, kdvDonem, kdvBuAy, nakitYeterlilik] = await Promise.all([
     getDashboardDataCached(companyId)(companyId, chartStart.toISOString()),
     showKdv ? kdvCache(companyId, beyan.yil, beyan.ay) : null,
     showKdv && !beyan.devamEdiyor ? kdvCache(companyId, beyan.buAy.yil, beyan.buAy.ay) : null,
+    showNakit ? getNakitYeterlilikCached(companyId)(companyId) : null,
   ])
   const kdvRaporHref = withCompanyHref(`/raporlar/vergiler?year=${beyan.yil}&month=${beyan.ay}`, companyId)
+  const nakitRaporHref = withCompanyHref("/raporlar/nakit-akisi", companyId)
 
   const stats = statsRows[0]
   const customerCount = Number(stats?.customer_count || 0)
@@ -544,6 +565,7 @@ export default async function DashboardIndexPage({
           {kdvDonem && (
             <KdvDurumuKarti beyan={beyan} donem={kdvDonem} buAy={kdvBuAy} raporHref={kdvRaporHref} />
           )}
+          {nakitYeterlilik && <NakitYeterlilikKarti veri={nakitYeterlilik} raporHref={nakitRaporHref} />}
           <div
             className={cn(
               "flex flex-1 flex-col justify-between rounded-3xl border p-6 shadow-card animate-fade-up [animation-delay:160ms]",

@@ -43,11 +43,20 @@ muhasebe motoru. Rakip incelemesi ve karşılaştırma Claude Docs'ta:
   (≤ 6 kuruş; Reypo alışındaki 122.227 TL test belgelerinin yuvarlaması). Ölçüm:
   `npm run test:canli -- lib/raporlar` (üç dosya, salt okur, ~30 sn).
 
+- Panoda "Nakit kaç gün yeter" kartı (2026-10-02): `components/dashboard/nakit-yeterlilik-karti.tsx`.
+  Rakam Nakit Akışı raporunun hesabından (`computeCashFlow`, son 90 gün; geçmiş
+  kısaysa ilk hareketten): nakit = kasa + banka + kredi kartı, çıkış = fatura
+  ödemeleri + faturasız gider (virman hariç), BRÜT — "hiç tahsilat gelmezse".
+  Gün yazılmayan durumlar saf modülde (`nakit-yeterlilik-hesap.ts`): nakit ≤ 0,
+  30 günden kısa geçmiş, 90 günde 3'ten az çıkış kaydı (Eren ana firma: 3,2 M
+  nakit, tek 580 TL çıkış → "1.300 yıl" derdi). > 365 gün "1 yıldan uzun".
+  Kart Nakit & Banka raporunu açabilene çizilir. Canlıda: EREN VİNÇ 218 gün;
+  kasası eksi 4 firma "Nakit yok".
+
 ## Sırada
 
-1. Nakit "kaç gün yeter" göstergesi (panoda).
-2. Genel kayıt araması.
-3. Muhasebe motoru: belge → öğrenen taslak yevmiye fişi → onay (Aposkal'ın güçlü
+1. Genel kayıt araması.
+2. Muhasebe motoru: belge → öğrenen taslak yevmiye fişi → onay (Aposkal'ın güçlü
    yanı; ayrıntı yukarıdaki dokümanlarda, "Kobipo için çıkarımlar").
 
 ## Ölçüm yolları
