@@ -397,6 +397,9 @@ model Company {
   warehouses              Warehouse[]
   accountPlans            AccountPlan[]
   accountingEntries       AccountingEntry[]
+  journalVouchers         JournalVoucher[]
+  journalVoucherLines     JournalVoucherLine[]
+  accountMappingRules     AccountMappingRule[]
   waybills                Waybill[]
   bankStatements          BankStatement[]
   cashCounts              CashCount[]
@@ -697,6 +700,7 @@ model Customer {
   authorizedUser    User?              @relation("AuthorizedCustomerUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
   restaurantTickets RestaurantTicket[]
   virmanLegs        CariVirmanLeg[]
+  ledgerAccount     AccountPlan? @relation("AccountPlanCustomer")
 
   @@unique([linkedSupplierId])
   @@unique([companyId, slug])
@@ -757,6 +761,7 @@ model Supplier {
   classification2 CompanyDefinition? @relation("SupplierClassification2", fields: [classification2Id], references: [id], onDelete: SetNull)
   authorizedUser  User?              @relation("AuthorizedSupplierUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
   virmanLegs      CariVirmanLeg[]
+  ledgerAccount   AccountPlan? @relation("AccountPlanSupplier")
 
   @@unique([companyId, slug])
   @@index([companyId])
@@ -2176,6 +2181,15 @@ model AccountPlan {
   debitEntries  AccountingEntry[] @relation("DebitEntries")
   creditEntries AccountingEntry[] @relation("CreditEntries")
 
+  // Muhasebe motoru (2026-10-02, docs/muhasebe/MOTOR-PLAN.md): cari alt hesabı
+  // (120.… / 320.…) hangi cariye ait. Cari başına tek alt hesap.
+  customerId   String?              @unique
+  supplierId   String?              @unique
+  customer     Customer?            @relation("AccountPlanCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  supplier     Supplier?            @relation("AccountPlanSupplier", fields: [supplierId], references: [id], onDelete: SetNull)
+  voucherLines JournalVoucherLine[]
+  mappingRules AccountMappingRule[]
+
   @@unique([companyId, code])
   @@index([companyId])
   @@index([parentId])
@@ -2205,6 +2219,90 @@ model AccountingEntry {
   @@index([debitAccountId])
   @@index([creditAccountId])
   @@map("accounting_entries")
+}
+
+/// Yevmiye fişi (çok satırlı mahsup) — muhasebe motoru, docs/muhasebe/MOTOR-PLAN.md.
+/// Belgeden kendiliğinden TASLAK doğar (lib/muhasebe/fis-kurallari.ts), kullanıcı
+/// eksik hesabı seçip ONAYLAR. `AccountingEntry` (tek borç–tek alacak) bunun yerini
+/// alacak eski modeldir.
+model JournalVoucher {
+  id              String    @id @default(cuid())
+  companyId       String
+  voucherNo       String
+  date            DateTime
+  description     String?   @db.Text
+  /// DRAFT (taslak) | POSTED (onaylı, deftere işlenmiş)
+  status          String    @default("DRAFT")
+  /// Kaynak: INVOICE | PAYMENT | TRANSACTION | MANUAL. Belge başına tek fiş.
+  sourceType      String
+  sourceId        String?
+  /// Motorun "emin" kararı: toplu onaya uygun.
+  isConfident     Boolean   @default(false)
+  /// Kaynak belge onaydan SONRA değişti — fiş yeniden üretilip gözden geçirilmeli.
+  sourceChangedAt DateTime?
+  approvedAt      DateTime?
+  approvedBy      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       String?
+
+  company Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines   JournalVoucherLine[]
+
+  @@unique([companyId, voucherNo])
+  @@unique([companyId, sourceType, sourceId])
+  @@index([companyId, status, date])
+  @@map("journal_vouchers")
+}
+
+/// Yevmiye fişi satırı. `accountId` boşsa hesap seçilmemiştir; fiş onaylanamaz.
+model JournalVoucherLine {
+  id            String   @id @default(cuid())
+  voucherId     String
+  companyId     String
+  order         Int
+  /// DEBIT | CREDIT
+  side          String
+  amount        Decimal  @db.Decimal(15, 2)
+  accountId     String?
+  /// Hesap seçilirken önerilecek ana hesap (ör. "391").
+  suggestedCode String
+  /// Satırın rolü: CARI, SATIS, ALIS, KDV_HESAPLANAN … (fis-kurallari.ts SatirRolu)
+  role          String
+  /// Hesap nereden geldi: LEARNED | CARI | DEFAULT | NONE
+  accountSource String
+  /// Hesap değiştirilirse öğrenilecek anahtarlar (account_mapping_rules.key).
+  learnKeys     String[] @default([])
+  description   String?
+
+  voucher JournalVoucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  account AccountPlan?   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([voucherId])
+  @@index([companyId, accountId])
+  @@map("journal_voucher_lines")
+}
+
+/// Öğrenilen hesap eşleşmesi: kullanıcı bir fiş satırının hesabını değiştirdiğinde
+/// satırın anahtarı (ör. "alis:cari-kdv:<tedarikçi>:20") o hesaba bağlanır; sonraki
+/// belgelerde motor bunu varsayılanın önüne koyar.
+model AccountMappingRule {
+  id        String   @id @default(cuid())
+  companyId String
+  key       String
+  accountId String
+  /// Kaç onayda kullanıldı/teyit edildi.
+  hits      Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  company Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  account AccountPlan @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key])
+  @@map("account_mapping_rules")
 }
 
 // Sistem logları - Super Admin için

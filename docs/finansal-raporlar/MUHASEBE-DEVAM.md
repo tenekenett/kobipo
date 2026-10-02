@@ -53,11 +53,28 @@ muhasebe motoru. Rakip incelemesi ve karşılaştırma Claude Docs'ta:
   Kart Nakit & Banka raporunu açabilene çizilir. Canlıda: EREN VİNÇ 218 gün;
   kasası eksi 4 firma "Nakit yok".
 
+- Genel kayıt araması (2026-10-02): üst çubuktaki arama kutusu menü sayfalarının
+  yanında cari (ad/kod/VKN/telefon/e-posta), belge no (fatura/fiş/iade + e-belge
+  no), ürün (ad/kod/barkod), teklif no, çek/senet no ve personel bulur. Uç
+  `GET /api/arama`, sorgu `lib/arama/kayit-arama.ts`, kurallar
+  `kayit-arama-kural.ts` (testli). Yetki: kaydın LİSTE sayfası (rol + kısıt +
+  modül) VE detay sayfası (`canAccessRoute`) — fatura önizlemesinin sahibi satış
+  ve alış listesi ortak olduğu için yalnız detaya bakmak yetmezdi. Cari
+  görünürlüğü sorguda. Türkçe duyarsız (`trFoldAnyLike`); tam eşleşme > başlayan
+  > içeren. Hesap kodu BİLEREK yok: hesap planını canlıda tek firma kullanıyor
+  (3 hesap) ve Kebir hesap parametresi almıyor — muhasebe motoruyla gelecek.
+
+- Muhasebe motoru 1. faz (2026-10-02): plan `docs/muhasebe/MOTOR-PLAN.md`. Tekdüzen
+  hesap planı verisi (`lib/muhasebe/tekduzen.ts`), belge → dengeli taslak fiş kural
+  motoru (`lib/muhasebe/fis-kurallari.ts`, 22 test, canlıda 630/630 belge tutuyor),
+  şema + migrasyon `20261002000002_muhasebe_motoru.sql` (UYGULANMADI).
+
 ## Sırada
 
-1. Genel kayıt araması.
-2. Muhasebe motoru: belge → öğrenen taslak yevmiye fişi → onay (Aposkal'ın güçlü
-   yanı; ayrıntı yukarıdaki dokümanlarda, "Kobipo için çıkarımlar").
+1. Muhasebe motoru 2. faz: taslak fişleri üret/kaydet + Taslak Fişler ekranı + onay
+   + mizan. Plan tamam (`docs/muhasebe/MOTOR-PLAN.md`); kararlar alındı (2026-10-02):
+   ayrı Muhasebe modülü, sıralı cari alt hesap (120.01.0001), seçilen başlangıç
+   tarihinden fiş üretimi. Kullanıcı "şimdilik işleme geçmeyelim" dedi — başlamadan sor.
 
 ## Ölçüm yolları
 
