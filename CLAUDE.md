@@ -126,6 +126,26 @@ kapatan iş budur. O güne kadar portal adımı bayi (Reypo) tarafında yapılı
 (bayi kimliği yalnız Kobipo bayiliğindeki mükellefleri görür; `--firma=<id>` için
 canlının `NEXTAUTH_SECRET`i gerekir — `vercel env pull --environment=production`).
 
+## Makbuz kaşesi: iki kaynak, seçim tek yerde
+
+Tahsilat/ödeme/çek-senet ve virman makbuzlarında firmanın imza alanına (virmanda
+"Düzenleyen", tahsilatta "Teslim Alan", ödemede "Teslim Eden") firmanın kaşesi basılır.
+Kaynaklar: Ayarlar → Firma Bilgileri (`CompanyStamp`, ayrı tablo `company_stamps`) ve
+e-Dönüşüm şablon tasarımcısı (`EInvoiceTemplate.options.stampDataUri`). Sıra: firmanın
+ayar kaşesi → aktif/en yeni şablon kaşesi → (yalnız ŞUBEDE) ana firmanın aynı ikilisi;
+ek firma devralmaz. Karar `lib/company/stamp.ts` (saf), okuma/yazma `stamp.server.ts`,
+görsel hazırlığı `stamp-image.ts` (PNG'ye çevirir; pdfmake WebP/GIF basamaz).
+
+- Kaşe `Company` kolonu DEĞİLDİR: select'siz firma okumaları 100 KB'lık görseli her
+  isteğe taşırdı. Tablo okunamazsa makbuz şablon kaşesine düşer, sebep loglanır.
+- "Şablondan al" şablonun firmaya (şubede ana firmaya) ait olduğunu denetler; id istemciden gelir.
+- TERS YÖN: tasarımcıdaki "Ayarlardaki firma kaşesini kullan" yalnız FORMU doldurur
+  (`templateBoxFromSettings`: mm → px kutu). Mevcut şablonlar kendiliğinden güncellenmez —
+  her yükleme e-Arşiv onayına girer (yukarıya bak); kaydetmek kullanıcının elindedir.
+- Uç `/api/firma-kasesi`: Firma Bilgileri yazar, Belge Şablonları yalnız okur (page-access).
+- Ölçüm: `TEST_BASE_URL=… node scripts/test-firma-kasesi.mjs` (Reypo Medya; başta ayar
+  kaşesi varsa durur, açtığı her şeyi siler).
+
 ## Kontör YALNIZ Kobipo bayiliği altındaki mükellefe yüklenir
 
 Kontör yüklemesi (`insertDocumentCredit`) bayi (İş Ortağı) kimliğiyle yapılır ve Mysoft

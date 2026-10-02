@@ -7,7 +7,7 @@ import {
 } from "@/lib/pdf/documents/virman-makbuz-document"
 import { virmanEtkiBelgeMetni } from "@/lib/cari/virman"
 import { checkPdf } from "@/lib/pdf/doc/layout-invariants"
-import { fuzzAmount, fuzzField, rng, token } from "@/lib/pdf/doc/fuzz"
+import { fuzzAmount, fuzzField, fuzzStamp, rng, token } from "@/lib/pdf/doc/fuzz"
 
 describe("virmanOzetCumlesi", () => {
   it("iki taraflı: alacaklanan → borçlanan", () => {
@@ -48,6 +48,7 @@ function buildData(rand: () => number): VirmanMakbuzPdfData {
       city: fuzzField(rand, 40),
       phone: token(rand, 11),
     },
+    stamp: fuzzStamp(rand),
     legs: rand() < 0.8 ? [leg("CREDIT"), leg("DEBIT")] : [leg(rand() < 0.5 ? "DEBIT" : "CREDIT")],
   }
 }

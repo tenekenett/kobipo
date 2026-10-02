@@ -414,6 +414,7 @@ model Company {
   packageOrders           PackageOrder[]
   discountRedemptions     DiscountCodeRedemption[]
   eInvoiceTemplates       EInvoiceTemplate[]
+  stamp                   CompanyStamp?
   eInvoiceSeriesTemplates EInvoiceSeriesTemplate[]
   labelTemplates          LabelTemplate[]
   productRecipes          ProductRecipe[]
@@ -474,6 +475,24 @@ model EInvoiceTemplate {
   @@unique([companyId, eDocumentType, xsltName])
   @@index([companyId, eDocumentType])
   @@map("einvoice_templates")
+}
+
+// FİRMA KAŞESİ — makbuzlarda firmanın imza alanına basılan kaşe/imza (Ayarlar → Firma
+// Bilgileri). Yoksa makbuz e-Dönüşüm şablonundaki kaşeyi basar; seçim kuralı
+// lib/company/stamp.ts. Ayrı tablo, çünkü görsel büyük ve Company her istekte okunuyor.
+// Migrasyon: supabase/migrations/20261002000001_company_stamps.sql
+model CompanyStamp {
+  companyId String   @id
+  /// PNG data URI — sunucuda normalleştirilir (kenar boşluğu kırpılır, uzun kenar sınırlı).
+  dataUri   String   @db.Text
+  /// Makbuzdaki basım genişliği (mm); yükseklik görselin oranından gelir.
+  widthMm   Int      @default(40)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("company_stamps")
 }
 
 // Seri no (prefix) → belge şablonu eşlemesi. Bir prefix'e (ör. "ERA") belirli bir

@@ -8,6 +8,8 @@
  * üretilebilir (aynı tohum → aynı içerik).
  */
 
+import { settingsStampBox, templateStampBox, type CompanyStamp } from "@/lib/company/stamp"
+
 /** mulberry32 — küçük, hızlı, tekrarlanabilir PRNG. */
 export function rng(seed: number) {
   let a = seed >>> 0
@@ -82,4 +84,26 @@ export function fuzzAmount(rand: () => number): number {
   if (roll < 0.6) return Math.round(rand() * 1_000_000_00) / 100
   if (roll < 0.85) return Math.round(rand() * 100_000_000_000) / 100
   return rand() * 1_000_000
+}
+
+/** 1×1 saydam PNG — basılan ölçü görselden değil `stampDrawSize`dan gelir. */
+const TINY_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+
+/**
+ * Rastgele firma kaşesi (ya da kaşesiz): ayar kaşesinin 25–60 mm genişliği ya da
+ * tasarımcının 40–240 px kutusu, uç en-boy oranları.
+ */
+export function fuzzStamp(rand: () => number): CompanyStamp | null {
+  if (rand() < 0.3) return null
+  const box =
+    rand() < 0.5
+      ? settingsStampBox(25 + Math.floor(rand() * 36))
+      : templateStampBox(40 + Math.floor(rand() * 201), 40 + Math.floor(rand() * 201))
+  return {
+    dataUri: TINY_PNG,
+    pixelWidth: 20 + Math.floor(rand() * 1200),
+    pixelHeight: 20 + Math.floor(rand() * 1200),
+    ...box,
+  }
 }

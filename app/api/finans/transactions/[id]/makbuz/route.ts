@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyExport } from "@/lib/middleware/company"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { accountPaymentMethodLabel } from "@/lib/finans/account-types"
+import { loadCompanyStamp } from "@/lib/company/stamp.server"
 import { renderMakbuzPdf } from "@/lib/pdf/documents/makbuz-document"
 
 export const dynamic = "force-dynamic"
@@ -69,6 +70,7 @@ export const GET = withApiErrors(async function GET(request: Request, { params }
       paymentMethod: accountPaymentMethodLabel(tx.account.type),
       account: { name: tx.account.name, bankName: tx.account.bankName },
       company: tx.company || {},
+      stamp: await loadCompanyStamp(tx.companyId),
       cari: tx.customer
         ? { label: "MÜŞTERİ", name: tx.customer.name, taxNumber: tx.customer.taxNumber }
         : tx.supplier

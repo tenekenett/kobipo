@@ -1,6 +1,7 @@
 import type { Content } from "pdfmake/interfaces"
 import { docTable } from "@/lib/pdf/doc/items-table"
-import { buildDocDefinition, renderPdf, section } from "@/lib/pdf/doc/page-frame"
+import { CONTENT_WIDTH, buildDocDefinition, renderPdf, section } from "@/lib/pdf/doc/page-frame"
+import { STAMP_MAX_HEIGHT_MM, type CompanyStamp } from "@/lib/company/stamp"
 import { partyHeader, type PartyLike } from "@/lib/pdf/doc/party-box"
 import { fmtDate } from "@/lib/pdf/doc/money"
 import { softBreak } from "@/lib/pdf/doc/safe-text"
@@ -40,6 +41,8 @@ export type MakbuzPdfData = {
   /** Araca özgü ek bilgi satırları (çek no, banka, vade, durum…). */
   extraRows?: Array<{ label: string; value: string }>
   company: PartyLike
+  /** Firmanın kaşesi (`loadCompanyStamp`); yoksa imza alanı boş basılır. */
+  stamp?: CompanyStamp | null
   cari?: { label: string; name: string; taxNumber?: string | null } | null
   invoices: Array<{ invoiceNo: string; amount: number }>
 }
@@ -72,31 +75,84 @@ export function makbuzHeader(company: PartyLike, title: string, numberLine: stri
   }
 }
 
+const SIGNATURE_GAP = mm(14)
+
 /**
- * İmza alanları — akışın sonunda; çizgi tablo kenarlığından gelir, mutlak
- * koordinatlı `doc.line()` çağrısı yok.
+ * Kaşenin basılacağı ölçü (pt): kaşenin kutusuna en-boy oranı korunarak sığar
+ * (faturadaki `object-fit: contain` ile aynı), imza sütunundan ve yükseklik üst
+ * sınırından (`STAMP_MAX_HEIGHT_MM`) taşmaz.
  */
-export function makbuzSignatures(left: string, right: string): Content {
-  const signatureCell = (label: string) => ({
-    table: { widths: ["*"], body: [[{ text: " ", margin: [0, mm(10), 0, 0] }], [{ text: label, alignment: "center" as const, fontSize: FS.small, margin: [0, mm(1.5), 0, 0] }]] },
-    layout: {
-      hLineWidth: (i: number) => (i === 1 ? 0.5 : 0),
-      vLineWidth: () => 0,
-      hLineColor: () => COLORS.line,
-      paddingLeft: () => 0,
-      paddingRight: () => 0,
-      paddingTop: () => 0,
-      paddingBottom: () => 0,
-    },
+export function stampDrawSize(stamp: CompanyStamp, maxWidth: number): { width: number; height: number } {
+  const boxW = Math.min(stamp.boxWidthPt, maxWidth)
+  const boxH = Math.min(stamp.boxHeightPt, mm(STAMP_MAX_HEIGHT_MM))
+  const scale = Math.min(boxW / stamp.pixelWidth, boxH / stamp.pixelHeight)
+  return { width: stamp.pixelWidth * scale, height: stamp.pixelHeight * scale }
+}
+
+/**
+ * İmza alanları — akışın sonunda; çizgi hücre kenarlığından gelir, mutlak
+ * koordinatlı `doc.line()` çağrısı yok.
+ *
+ * İki imza TEK tablonun satırlarıdır: kaşe bir tarafı uzatsa da satır yüksekliği
+ * ortak olduğu için iki çizgi aynı hizada kalır. `stamp` verilirse firmanın kaşesi
+ * o tarafın çizgisinin üstüne basılır (bkz. `lib/company/stamp.ts`).
+ */
+export function makbuzSignatures(
+  left: string,
+  right: string,
+  stamp?: { image: CompanyStamp; side: "left" | "right" } | null,
+): Content {
+  const lineBelow = [false, false, false, true]
+  const noBorder = [false, false, false, false]
+  const columnWidth = (CONTENT_WIDTH - SIGNATURE_GAP) / 2
+
+  const top = (side: "left" | "right") => {
+    if (stamp?.side === side) {
+      const size = stampDrawSize(stamp.image, columnWidth)
+      return {
+        image: stamp.image.dataUri,
+        width: size.width,
+        height: size.height,
+        alignment: "center" as const,
+        margin: [0, 0, 0, mm(1)],
+        border: lineBelow,
+      }
+    }
+    return { text: " ", margin: [0, mm(10), 0, 0], border: lineBelow }
+  }
+  const label = (text: string) => ({
+    text,
+    alignment: "center" as const,
+    fontSize: FS.small,
+    margin: [0, mm(1.5), 0, 0],
+    border: noBorder,
   })
+  const gap = { text: "", border: noBorder }
 
   return {
-    columns: [
-      { width: "*", ...signatureCell(left) },
-      { width: "*", ...signatureCell(right) },
-    ],
-    columnGap: mm(14),
+    // Kaşe bir sayfada, etiketi öbür sayfada kalmasın.
+    unbreakable: true,
     margin: [0, mm(18), 0, 0],
+    stack: [
+      {
+        table: {
+          widths: ["*", SIGNATURE_GAP, "*"],
+          body: [
+            [top("left"), gap, top("right")],
+            [label(left), gap, label(right)],
+          ],
+        },
+        layout: {
+          hLineWidth: () => 0.5,
+          vLineWidth: () => 0,
+          hLineColor: () => COLORS.line,
+          paddingLeft: () => 0,
+          paddingRight: () => 0,
+          paddingTop: () => 0,
+          paddingBottom: () => 0,
+        },
+      },
+    ],
   } as unknown as Content
 }
 
@@ -217,7 +273,15 @@ export function buildMakbuzContent(data: MakbuzPdfData): Content[] {
     )
   }
 
-  content.push(makbuzSignatures("Teslim Eden", "Teslim Alan"))
+  // Makbuzu firma düzenler; kaşe firmanın tarafına basılır: tahsilatta parayı/evrakı
+  // TESLİM ALAN, ödemede TESLİM EDEN firmadır.
+  content.push(
+    makbuzSignatures(
+      "Teslim Eden",
+      "Teslim Alan",
+      data.stamp ? { image: data.stamp, side: isIncome ? "right" : "left" } : null,
+    ),
+  )
 
   return content
 }

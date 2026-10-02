@@ -878,6 +878,10 @@ export const PAGE_API_RULES: PageApiRule[] = [
     pages: ["/ayarlar/sube-mudurleri"],
     writePages: ["/ayarlar/sube-mudurleri"],
   },
+  // Firma kaşesi: ayarı Firma Bilgileri yazar; Belge Şablonları tasarımcısı "ayarlardaki
+  // kaşeyi kullan" için OKUR. Şablon sayfasına yetkili ama firma kartına yetkisiz bir
+  // çalışan, kaşeyi şablona alabilmeli ama ayarı değiştirememeli.
+  { prefix: "/api/firma-kasesi", pages: ["/ayarlar/firma", "/e-donusum/sablon"], writePages: ["/ayarlar/firma"] },
   {
     prefix: "/api/fis-tasarim",
     pages: ["/ayarlar/fis-tasarim", "/satis/hizli", "/alis/hizli", "/restoran/satis", ...TICKET_PAGES],

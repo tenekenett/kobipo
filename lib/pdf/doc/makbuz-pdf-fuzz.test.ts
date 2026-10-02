@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { renderMakbuzPdf, type MakbuzPdfData } from "@/lib/pdf/documents/makbuz-document"
 import { checkPdf } from "@/lib/pdf/doc/layout-invariants"
-import { fuzzAmount, fuzzField, rng, token, words } from "@/lib/pdf/doc/fuzz"
+import { fuzzAmount, fuzzField, fuzzStamp, rng, token, words } from "@/lib/pdf/doc/fuzz"
 
 function buildData(rand: () => number): MakbuzPdfData {
   return {
@@ -22,6 +22,7 @@ function buildData(rand: () => number): MakbuzPdfData {
       city: fuzzField(rand, 40),
       phone: token(rand, 11),
     },
+    stamp: fuzzStamp(rand),
     cari:
       rand() < 0.8
         ? {

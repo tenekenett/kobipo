@@ -7,6 +7,7 @@ import { cekSenetStatusLabel, resolveCekSenetDirection } from "@/lib/cek-senet/l
 import { renderMakbuzPdf } from "@/lib/pdf/documents/makbuz-document"
 import { linkedInvoiceIds } from "@/lib/cek-senet/fatura-bagi"
 import { odemeDagit } from "@/lib/cari/odeme-dagit"
+import { loadCompanyStamp } from "@/lib/company/stamp.server"
 
 export const dynamic = "force-dynamic"
 
@@ -129,6 +130,7 @@ export const GET = withApiErrors(async function GET(
       account: null,
       extraRows,
       company: record.company || {},
+      stamp: await loadCompanyStamp(record.companyId),
       cari: record.customer
         ? { label: "MÜŞTERİ", name: record.customer.name, taxNumber: record.customer.taxNumber }
         : record.supplier

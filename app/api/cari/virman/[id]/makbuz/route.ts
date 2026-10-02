@@ -6,6 +6,7 @@ import { withApiErrors } from "@/lib/api/errors"
 import { CariForbiddenError, isCariVisible } from "@/lib/cari/visibility"
 import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import { isVirmanSide } from "@/lib/cari/virman"
+import { loadCompanyStamp } from "@/lib/company/stamp.server"
 import { renderVirmanMakbuzPdf, type VirmanMakbuzLeg } from "@/lib/pdf/documents/virman-makbuz-document"
 
 export const dynamic = "force-dynamic"
@@ -87,6 +88,7 @@ export const GET = withApiErrors(async function GET(
     amount: Number(virman.amount),
     description: virman.description,
     company: virman.company,
+    stamp: await loadCompanyStamp(virman.companyId),
     legs: legs.map(({ visible: _visible, ...leg }) => leg),
   })
 

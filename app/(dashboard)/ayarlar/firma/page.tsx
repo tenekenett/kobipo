@@ -14,6 +14,7 @@ import { getFirstAccessibleCompanyId } from "@/lib/company/client-selection"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { CityDistrictSelect } from "@/components/address/city-district-select"
 import { VardiyaModuKarti } from "@/components/personel/vardiya-modu-karti"
+import { FirmaKaseKarti } from "@/components/ayarlar/firma-kase-karti"
 import { isModuleEnabled } from "@/lib/modules"
 
 interface Company {
@@ -683,6 +684,8 @@ export default function FirmaAyarlariPage() {
           </form>
         </CardContent>
       </Card>
+
+      <FirmaKaseKarti companyId={company.id} />
 
       {/* Personel modülü kapalıyken kart çizilmez: kapalı bir modülün ayarını
           sormak kullanıcıya olmayan bir ekranın kipini seçtirirdi. */}

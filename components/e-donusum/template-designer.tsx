@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { MYSOFT_APPROVAL_STEP } from "@/lib/integrations/e-invoice/template-approval"
+import { templateBoxFromSettings } from "@/lib/company/stamp"
 import {
   DESIGN_FONTS,
   DENSITY_OPTIONS,
@@ -59,23 +60,32 @@ function downscaleImage(file: File, maxDim = 360): Promise<string> {
     const reader = new FileReader()
     reader.onerror = () => reject(new Error("Dosya okunamadı"))
     reader.onload = () => {
-      const img = new Image()
-      img.onerror = () => reject(new Error("Görsel çözümlenemedi"))
-      img.onload = () => {
-        const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
-        const w = Math.max(1, Math.round(img.width * scale))
-        const h = Math.max(1, Math.round(img.height * scale))
-        const canvas = document.createElement("canvas")
-        canvas.width = w
-        canvas.height = h
-        const ctx = canvas.getContext("2d")
-        if (!ctx) return reject(new Error("Canvas desteklenmiyor"))
-        ctx.drawImage(img, 0, 0, w, h)
-        resolve(canvas.toDataURL("image/png"))
-      }
-      img.src = typeof reader.result === "string" ? reader.result : ""
+      downscaleSrc(typeof reader.result === "string" ? reader.result : "", maxDim)
+        .then((r) => resolve(r.dataUri))
+        .catch(reject)
     }
     reader.readAsDataURL(file)
+  })
+}
+
+/** Görsel kaynağını (data URI) en çok `maxDim` piksele küçültüp PNG'ye çevirir. */
+function downscaleSrc(src: string, maxDim = 360): Promise<{ dataUri: string; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onerror = () => reject(new Error("Görsel çözümlenemedi"))
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+      const w = Math.max(1, Math.round(img.width * scale))
+      const h = Math.max(1, Math.round(img.height * scale))
+      const canvas = document.createElement("canvas")
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext("2d")
+      if (!ctx) return reject(new Error("Canvas desteklenmiyor"))
+      ctx.drawImage(img, 0, 0, w, h)
+      resolve({ dataUri: canvas.toDataURL("image/png"), width: w, height: h })
+    }
+    img.src = src
   })
 }
 
@@ -273,6 +283,47 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
       toast({ title: "Yüklenemedi", description: err instanceof Error ? err.message : "Hata", variant: "destructive" })
     } finally {
       if (ref.current) ref.current.value = ""
+    }
+  }
+
+  /**
+   * Ayarlar → Firma Bilgileri'ndeki kaşeyi şablona alır (ters yön; makbuz kaşesiyle
+   * aynı görsel). Yalnız formu doldurur — Mysoft'a gitmesi kullanıcının "Kaydet"iyle
+   * olur, mevcut şablonlar kendiliğinden değişmez (her yükleme e-Arşiv onayına girer).
+   */
+  const [isPullingStamp, setIsPullingStamp] = useState(false)
+  const applyCompanyStamp = async () => {
+    setIsPullingStamp(true)
+    try {
+      const res = await fetch(`/api/firma-kasesi?companyId=${encodeURIComponent(companyId)}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Firma kaşesi okunamadı")
+      if (!data?.stamp?.dataUri) {
+        toast({
+          title: "Ayarlarda kaşe yok",
+          description: "Önce Ayarlar → Firma Bilgileri → Kaşe ve İmza bölümünden kaşe yükleyin.",
+          variant: "destructive",
+        })
+        return
+      }
+      const image = await downscaleSrc(data.stamp.dataUri)
+      if (image.dataUri.length > MAX_LOGO_DATA_URI_LEN) {
+        throw new Error("Kaşe görseli şablon için çok büyük.")
+      }
+      const box = templateBoxFromSettings(data.stamp.widthMm, image.width, image.height)
+      setOpts((prev) => ({ ...prev, stampDataUri: image.dataUri, ...box }))
+      toast({
+        title: "Firma kaşesi eklendi",
+        description: "Şablonu kaydettiğinizde faturaya da basılır.",
+      })
+    } catch (err) {
+      toast({
+        title: "Firma kaşesi alınamadı",
+        description: err instanceof Error ? err.message : "Hata",
+        variant: "destructive",
+      })
+    } finally {
+      setIsPullingStamp(false)
     }
   }
 
@@ -687,7 +738,7 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <p>
                     <span className="font-semibold">E-Arşiv zorunluluğu:</span> Faturada imza/kaşe görseli
-                    bulunmalıdır. Aşağıdan bir kaşe/imza görseli yükleyin.
+                    bulunmalıdır. Aşağıdan bir kaşe/imza görseli yükleyin ya da ayarlardaki firma kaşesini kullanın.
                     {!opts.stampDataUri && (
                       <span className="font-semibold"> (Şu an eksik — kaydedilemez.)</span>
                     )}
@@ -710,6 +761,16 @@ export function TemplateDesigner({ companyId, docType, docLabel, activePrefix, o
                 hint="Şeffaf PNG önerilir"
                 disabled={busy}
               />
+
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed p-3">
+                <Button type="button" variant="outline" size="sm" onClick={applyCompanyStamp} disabled={busy || isPullingStamp}>
+                  {isPullingStamp ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Stamp className="mr-2 h-4 w-4" />}
+                  Ayarlardaki firma kaşesini kullan
+                </Button>
+                <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+                  Ayarlar → Firma Bilgileri&apos;nde yüklediğiniz kaşe (makbuzlara basılan) bu şablona eklenir.
+                </p>
+              </div>
 
             </TabsContent>
 

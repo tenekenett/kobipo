@@ -5,6 +5,7 @@ import type { PartyLike } from "@/lib/pdf/doc/party-box"
 import { softBreak } from "@/lib/pdf/doc/safe-text"
 import { COLORS, FS, mm } from "@/lib/pdf/doc/theme"
 import { makbuzHeader, makbuzSignatures } from "@/lib/pdf/documents/makbuz-document"
+import type { CompanyStamp } from "@/lib/company/stamp"
 import { VIRMAN_SIDE_LABEL, virmanEtkiBelgeMetni, type CariKind, type VirmanSide } from "@/lib/cari/virman"
 
 /**
@@ -30,6 +31,8 @@ export type VirmanMakbuzPdfData = {
   amount: number
   description?: string | null
   company: PartyLike
+  /** Firmanın kaşesi (`loadCompanyStamp`) — "Düzenleyen" alanına basılır. */
+  stamp?: CompanyStamp | null
   /** 1 bacak = tek taraflı dekont, 2 bacak = iki cari arası aktarım. */
   legs: VirmanMakbuzLeg[]
 }
@@ -124,7 +127,9 @@ export function buildVirmanMakbuzContent(data: VirmanMakbuzPdfData): Content[] {
     margin: [0, mm(6), 0, 0],
   })
 
-  content.push(makbuzSignatures("Düzenleyen", "Onaylayan"))
+  content.push(
+    makbuzSignatures("Düzenleyen", "Onaylayan", data.stamp ? { image: data.stamp, side: "left" } : null),
+  )
 
   return content
 }
