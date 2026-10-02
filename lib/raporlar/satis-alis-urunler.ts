@@ -12,13 +12,17 @@
  *    gruplanır ("Nakliye" ile "NAKLİYE" tek satır).
  *  - İadeler EKSİ girer (miktar ve tutar): satırlar net alıştır, Faturalar
  *    sayfasıyla aynı işaret.
- *  - Tutar (KDV hariç) = miktar × birim fiyat − satır iskontosu. Toplam (KDV
- *    dahil) satırın kayıtlı toplamıdır; sütunun toplamı "Detaylı Faturalar"ın
- *    toplamına eşittir. Fatura GENELİ iskontosu kalemlere dağıtılmadığı için
- *    Faturalar sayfasından farkı ekran ayrıca açıklar (`describeLineTotalGap`).
+ *  - Tutar (KDV hariç) = miktar × birim fiyat − satır iskontosu − fatura altı
+ *    iskontodan satıra düşen pay. KDV ve toplam da BELGEDEKİ karşılıktır
+ *    (`fatura-alti.ts`; çağıran hazırlar). 2026-10-02'ye kadar fatura altı
+ *    iskonto kalemlere yansımıyordu: iskontolu belgede ürünün tutarı ve KDV'si
+ *    belgedekinden fazla görünüyordu.
  *  - Ortalama birim fiyat = net tutar ÷ net miktar; net miktar sıfırsa (tamamı
  *    iade) tanımsızdır, null döner — sıfıra bölüp "∞" basmayız.
- *  - "Son alış" İADE OLMAYAN en yeni kalemdir: iade faturası alış fiyatı değildir.
+ *  - "Son alış fiyatı" İADE OLMAYAN en yeni kalemin ÖDENEN birim fiyatıdır: satır
+ *    ve fatura altı iskonto düşülmüş net ÷ miktar. Ortalamayla aynı ölçüde olmalı;
+ *    liste fiyatı yazılsaydı iskontolu tek alış bile "son fiyat ortalamadan
+ *    yüksek" uyarısı üretirdi (`priceDrift`). İade faturası alış fiyatı değildir.
  */
 
 import { trFold } from "@/lib/text/tr-fold"
@@ -35,7 +39,11 @@ export type ProductLineInput = {
   unit: string
   quantity: number
   unitPrice: number
+  /** Satırın kendi iskontosu. */
   discountAmount: number
+  /** Fatura altı iskontodan bu satıra düşen pay; ilavede eksi (`fatura-alti.ts`). */
+  globalDiscountShare: number
+  /** Belgedeki KDV ve toplam — fatura altı iskonto dağıtılmış hâli. */
   vatAmount: number
   totalAmount: number
 }
@@ -58,7 +66,7 @@ export type SalesPurchaseProduct = {
   totalAmount: number
   /** KDV hariç ortalama birim fiyat; net miktar 0 ise null. */
   avgUnitPrice: number | null
-  /** İade olmayan en yeni kalemin birim fiyatı, tarihi ve carisi. */
+  /** İade olmayan en yeni kalemin ÖDENEN (iskontolar düşülmüş) birim fiyatı, tarihi ve carisi. */
   lastUnitPrice: number | null
   lastDate: string | null
   lastCounterpartyName: string
@@ -108,7 +116,7 @@ export function aggregateProductLines(lines: ProductLineInput[]): SalesPurchaseP
       map.set(key, acc)
     }
 
-    const lineNet = round2(line.quantity * line.unitPrice) - line.discountAmount
+    const lineNet = round2(line.quantity * line.unitPrice) - line.discountAmount - line.globalDiscountShare
     acc.quantity += line.sign * line.quantity
     acc.netAmount += line.sign * lineNet
     acc.vatAmount += line.sign * line.vatAmount
@@ -119,7 +127,7 @@ export function aggregateProductLines(lines: ProductLineInput[]): SalesPurchaseP
     const time = new Date(line.date).getTime()
     if (line.sign > 0 && time >= acc.lastTime) {
       acc.lastTime = time
-      acc.lastUnitPrice = line.unitPrice
+      acc.lastUnitPrice = line.quantity !== 0 ? round4(lineNet / line.quantity) : line.unitPrice
       acc.lastDate = line.date
       acc.lastCounterpartyName = line.counterpartyName
       // Birim en yeni alıştan: kart birimi sonradan değiştiyse güncel olan görünür.

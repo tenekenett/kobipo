@@ -24,16 +24,24 @@ muhasebe motoru. Rakip incelemesi ve karşılaştırma Claude Docs'ta:
   Canlıda Temmuz'daki ÖTV'li test faturalarında (SAT-2026-0153/0166/0167/0172,
   ALI-2026-0011) KDV ÖTV'siz matrahtan hesaplanmış — ÖTV kuralından önceki kayıtlar.
 
-## Açık — karar bekliyor
-
-**Fatura altı iskontolu belgede KDV kalemden fazla.** Son 12 ayda iskontolu ~30
-belgede `SUM(invoice_items.vatAmount)` başlıktaki `invoices.vatAmount`tan büyük
-(toplam ~5.250 TL); ayrıca iskontosuz bir faturada 8.350 TL açıklanamayan fark var.
-`computeVatDeclaration` kalemleri topladığı için bu belgelerde KDV fazla çıkıyor.
-Önerilen düzeltme: her belgenin kalem KDV'sini başlık oranına ölçekle (başlık
-`document-totals` kaynağıdır; genel iskonto satırları eşit oranda küçültür). Ölçüm
-sorgusu: invoices × invoice_items, `abs(i."vatAmount" - SUM(ii."vatAmount")) > 0.05`,
-`globalDiscountAmount > 0` kırılımıyla. Düzeltmeden önce kullanıcıya sorulacak.
+- Fatura altı iskonto/ilave KDV'si (2026-10-02): kalem iskontoyu düşmeden
+  saklıyor, rapor artık kalemi belgedeki karşılığına çeviriyor
+  (`faturaAltiCarpanSql`, kural CLAUDE.md'de). İskontolu 27 belge ~5.250 TL fazla
+  sayılıyordu; "iskontosuz 8.350 TL fark" sanılan ALI-2026-0020 aslında fatura altı
+  İLAVELİ belgeydi (aynı hata, ters yön). Gerçek müşteride: Eren Forklift Eylül alışı
+  ORS2026000000886 → indirilecek KDV 83,04 TL fazlaydı (Eylül beyanı 28 Ekim'de).
+  Kayıtlı kalemler bilerek düzeltilmedi (kullanıcı kararı). Ölçüm:
+  `npm run test:canli -- lib/raporlar/kdv-kural` (salt okur; eski kodda düştüğü görüldü).
+- Satış/alış raporunun kalem ve ürün bölümleri de aynı kurala bağlandı
+  (2026-10-02): kuralın TS karşılığı `lib/raporlar/fatura-alti.ts` (birim testte
+  document-totals ile karşılaştırılıyor). "Detaylı Faturalar"da yeni sütun
+  "Fatura Altı İsk."; ürünlerde tutar/KDV belgedeki hâliyle, "Son Alış Fiyatı"
+  artık ÖDENEN birim fiyat (iskontolar düşülmüş — ortalamayla aynı ölçü). Fark
+  uyarısı yeniden yazıldı: eskisi iskontonun KDV'sini "uyuşmayan belge" diye
+  yazıyordu; şimdi belge yuvarlaması / uyuşmayan belge (belge belge sayılıyor) /
+  kuruş ayrı. Canlıda düzeltme sonrası tüm firmalarda kalem = fatura sayfası
+  (≤ 6 kuruş; Reypo alışındaki 122.227 TL test belgelerinin yuvarlaması). Ölçüm:
+  `npm run test:canli -- lib/raporlar` (üç dosya, salt okur, ~30 sn).
 
 ## Sırada
 

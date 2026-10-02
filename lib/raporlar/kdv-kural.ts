@@ -128,3 +128,75 @@ export function kdvIsaretSql(alias: string): Prisma.Sql {
   const t = a(alias)
   return Prisma.sql`(CASE WHEN ${t}.type = 'RETURN' THEN -1 ELSE 1 END)`
 }
+
+// ── Fatura altı iskonto / ilave ────────────────────────────────────────────
+
+/**
+ * Kalem tutarını BELGEDEKİ karşılığına çeviren katsayı (fatura altı iskonto ve
+ * ilave). KALEMDEN KDV TOPLAYAN HER SORGU bunu kullanır.
+ *
+ * Kalem satırı (`invoice_items`) KDV'sini, tevkifatını ve toplamını fatura altı
+ * iskonto DÜŞÜLMEDEN saklar (`createInvoiceFromBody` → `computeLineTax(net)`).
+ * Faturanın başlığı ve GİB'e giden belge ise iskontoyu satırlara dağıtıp vergiyi
+ * ondan sonra hesaplar (`lib/invoice/document-totals.ts`). Kalemi düz toplayan
+ * KDV raporu bu yüzden iskontolu belgede FAZLA, ilaveli belgede EKSİK KDV
+ * gösteriyordu (2026-10-02: SAT-2026-0120'de belge 393,11, kalem 538,50; son
+ * 12 ayda 27 belgede kalem KDV'si başlıktan ~5.250 TL fazla. Gerçek müşteride:
+ * Eren Forklift Eylül 2026 alış faturası ORS2026000000886 → indirilecek KDV
+ * 83,04 TL fazla, yani beyan edilecek KDV o kadar EKSİK görünüyordu).
+ *
+ * Dağıtım satır tutarıyla ORANTILI olduğu için her satır aynı katsayıyla küçülür:
+ *   f = (ara toplam − iskonto + ilave) / ara toplam
+ *   ara toplam = Σ(miktar × birim fiyat − satır iskontosu)
+ * Kırpma document-totals ile aynı: iskonto [0, ara toplam] aralığına çekilir,
+ * ilave eksi olamaz, ara toplam sıfır ya da eksiyse belge ölçeklenmez. Fiş kuralı
+ * (`receiptTotals` → `applyGlobalAdjustment`) da aynı katsayıyı kullanır. Maktu
+ * GEKAP ve ondan doğan KDV/tevkifat katsayıdan MUAFTIR: `belgedekiTutarSql`.
+ *
+ * Kalemlerde saklı tutarlar DÜZELTİLMEDİ (karar 2026-10-02): belgeler ve PDF'ler
+ * doğru, yanlış olan yalnız kalemi toplayan rapordu.
+ *
+ * TS karşılığı `lib/raporlar/fatura-alti.ts` (satış/alış raporunun kalem ve ürün
+ * bölümleri); birini değiştiren ötekini de değiştirir. TS tarafı belgenin kendi
+ * hesabıyla (document-totals) birim testte karşılaştırılır.
+ *
+ * Ölçüm (canlı, 2026-10-02): fatura altı iskontolu ya da ilaveli 31 belgenin
+ * 31'inde Σ kalem KDV × f başlıktaki KDV'yi 5 kuruş içinde tutturuyor
+ * (`kdv-kural.canli.test.ts`).
+ */
+export function faturaAltiCarpanSql(alias: string): Prisma.Sql {
+  const t = a(alias)
+  const iskonto = Prisma.sql`COALESCE(${t}."globalDiscountAmount", 0)`
+  const ilave = Prisma.sql`COALESCE(${t}."globalChargeAmount", 0)`
+  const brut = Prisma.sql`fa_kalem.quantity * fa_kalem."unitPrice"`
+  return Prisma.sql`(CASE WHEN ${iskonto} <= 0 AND ${ilave} <= 0 THEN 1 ELSE COALESCE((
+    SELECT CASE WHEN fa_toplam.ara > 0
+                THEN (fa_toplam.ara - LEAST(GREATEST(${iskonto}, 0), fa_toplam.ara) + GREATEST(${ilave}, 0)) / fa_toplam.ara
+           END
+    FROM (
+      SELECT SUM(${brut} - GREATEST(0, LEAST(COALESCE(fa_kalem."discountAmount", 0), ${brut}))) AS ara
+      FROM invoice_items fa_kalem
+      WHERE fa_kalem."invoiceId" = ${t}.id
+    ) fa_toplam
+  ), 1) END)`
+}
+
+/**
+ * Kalemde saklı bir tutarın belgedeki karşılığı: `(tutar − sabit) × f + sabit`.
+ * `sabit`, katsayıdan muaf kısımdır (maktu GEKAP'ın kendisi, KDV'si ya da
+ * tevkifatı: `kalemGekapSql`). `applyGlobalAdjustment` ile aynı ayrım.
+ */
+export function belgedekiTutarSql(tutar: Prisma.Sql, sabit: Prisma.Sql, carpan: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`(((${tutar}) - (${sabit})) * ${carpan} + (${sabit}))`
+}
+
+/**
+ * Kalemin maktu GEKAP'ı ve ondan doğan KDV/tevkifat: fatura altı iskonto bunları
+ * küçültmez. Formül `computeLineTax`ın `gekap`/`gekapVat`/`gekapWithholding`u.
+ */
+export function kalemGekapSql(alias: string): { gekap: Prisma.Sql; kdv: Prisma.Sql; tevkifat: Prisma.Sql } {
+  const k = a(alias)
+  const gekap = Prisma.sql`COALESCE(${k}."gekapAmount", 0)`
+  const kdv = Prisma.sql`(${gekap} * COALESCE(${k}."vatRate", 0) / 100)`
+  return { gekap, kdv, tevkifat: Prisma.sql`(${kdv} * COALESCE(${k}."withholdingRate", 0) / 100)` }
+}

@@ -14,6 +14,7 @@ const line = (over: Partial<ProductLineInput>): ProductLineInput => ({
   quantity: 10,
   unitPrice: 100,
   discountAmount: 0,
+  globalDiscountShare: 0,
   vatAmount: 10,
   totalAmount: 1010,
   ...over,
@@ -65,6 +66,22 @@ describe("aggregateProductLines", () => {
     const [row] = aggregateProductLines([line({ quantity: 3, unitPrice: 33.335, discountAmount: 10 })])
     // 3 × 33,335 = 100,005 → kuruşa 100,01; − 10 iskonto
     expect(row.netAmount).toBe(90.01)
+  })
+
+  it("fatura altı iskonto payı da düşer; son fiyat ÖDENEN birim fiyattır", () => {
+    // Tek alış: liste 100, satır iskontosu 50, fatura altı payı 95 → 10 adet 855 TL.
+    const [row] = aggregateProductLines([
+      line({ quantity: 10, unitPrice: 100, discountAmount: 50, globalDiscountShare: 95 }),
+    ])
+    expect(row.netAmount).toBe(855)
+    expect(row.avgUnitPrice).toBe(85.5)
+    // Liste fiyatı (100) yazılsaydı tek alış "son fiyat ortalamadan %17 yüksek" görünürdü.
+    expect(row.lastUnitPrice).toBe(85.5)
+  })
+
+  it("fatura altı İLAVE payı (eksi) tutarı büyütür", () => {
+    const [row] = aggregateProductLines([line({ quantity: 2, unitPrice: 100, globalDiscountShare: -20 })])
+    expect(row.netAmount).toBe(220)
   })
 
   it("serbest kalem ad + birimle, Türkçe duyarsız gruplanır", () => {

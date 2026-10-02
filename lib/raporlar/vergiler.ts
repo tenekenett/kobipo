@@ -14,6 +14,9 @@ import { prisma } from "@/lib/db/prisma"
 import { OTHER_TAX_CODES_IN_VAT_BASE } from "@/lib/integrations/e-invoice/gib-tax-types"
 import {
   alisAilesiSql,
+  belgedekiTutarSql,
+  faturaAltiCarpanSql,
+  kalemGekapSql,
   kdvIsaretSql,
   kdvKurSql,
   kdvyeGirerSql,
@@ -95,6 +98,27 @@ const matrahDisiVergiSql = Prisma.sql`(CASE WHEN TRIM(COALESCE(ii."otherTaxCode"
   OTHER_TAX_CODES_IN_VAT_BASE,
 )}) THEN 0 ELSE COALESCE(ii."otherTaxAmount", 0) END)`
 
+/**
+ * Kalemin BELGEDEKİ KDV'si, tevkifatı ve KDV matrahı: kalem bunları fatura altı
+ * iskonto/ilave dağıtılmadan saklar, belge dağıtılmış hâliyle (bkz.
+ * `faturaAltiCarpanSql`). `fa.f` belge başına BİR KEZ hesaplanan katsayıdır;
+ * kalemi okuyan sorgu `faturaAltiJoin`i `invoices i`nin hemen ardına koyar.
+ */
+const faturaAltiJoin = Prisma.sql`CROSS JOIN LATERAL (SELECT ${faturaAltiCarpanSql("i")} AS f) fa`
+const carpan = Prisma.sql`fa.f`
+const kalemGekap = kalemGekapSql("ii")
+const belgeKdvSql = belgedekiTutarSql(Prisma.sql`ii."vatAmount"`, kalemGekap.kdv, carpan)
+const belgeTevkifatSql = belgedekiTutarSql(
+  Prisma.sql`COALESCE(ii."withholdingAmount", 0)`,
+  kalemGekap.tevkifat,
+  carpan,
+)
+const belgeMatrahSql = belgedekiTutarSql(
+  Prisma.sql`ii."totalAmount" - ii."vatAmount" + COALESCE(ii."withholdingAmount", 0) - ${matrahDisiVergiSql}`,
+  kalemGekap.gekap,
+  carpan,
+)
+
 export async function computeVatDeclaration(args: {
   companyId: string
   period?: VatPeriod
@@ -123,6 +147,10 @@ export async function computeVatDeclaration(args: {
   // Konaklama Vergisi kendi kanunlarıyla matrah dışıdır, ayrı kalem olarak
   // eklenir. Matrah sütunundan düşülür; kural `isOtherTaxInVatBase` ile aynı
   // liste (ÖTV ve GEKAP matraha girer, kalır).
+  //
+  // FATURA ALTI İSKONTO: kalemin KDV'si, tevkifatı ve matrahı belgedeki
+  // karşılığıyla okunur (`belgeKdvSql` vb.). Kalem iskontoyu düşmeden saklar;
+  // 2026-10-02'ye kadar iskontolu belgenin KDV'si fazla sayılıyordu.
   const where = Prisma.sql`
     i."companyId" = ${args.companyId}
     AND i.date >= ${startDate} AND i.date <= ${endDate}
@@ -135,13 +163,12 @@ export async function computeVatDeclaration(args: {
     >(Prisma.sql`
       SELECT CASE WHEN ${satisAilesiSql("i")} THEN 'S' ELSE 'P' END AS aile,
              ii."vatRate" AS "vatRate",
-             COALESCE(SUM(${isaretKur} * ii."vatAmount"), 0) AS vat,
-             COALESCE(SUM(${isaretKur} * COALESCE(ii."withholdingAmount", 0)), 0) AS withheld,
-             COALESCE(SUM(${isaretKur} * (
-               ii."totalAmount" - ii."vatAmount" + COALESCE(ii."withholdingAmount", 0) - ${matrahDisiVergiSql}
-             )), 0) AS base
-      FROM invoice_items ii
-      JOIN invoices i ON i.id = ii."invoiceId"
+             COALESCE(SUM(${isaretKur} * ${belgeKdvSql}), 0) AS vat,
+             COALESCE(SUM(${isaretKur} * ${belgeTevkifatSql}), 0) AS withheld,
+             COALESCE(SUM(${isaretKur} * ${belgeMatrahSql}), 0) AS base
+      FROM invoices i
+      ${faturaAltiJoin}
+      JOIN invoice_items ii ON ii."invoiceId" = i.id
       WHERE ${where} AND ${kdvKurSql("i")} IS NOT NULL
       GROUP BY 1, 2
       ORDER BY 2
@@ -279,8 +306,9 @@ export async function computeVatChecklist(args: {
              COALESCE(SUM(k.kdv * ${kdvIsaretSql("i")} * ${kdvKurSql("i")})
                       FILTER (WHERE ${satisAilesiSql("i")}), 0) AS kdv
       FROM invoices i
+      ${faturaAltiJoin}
       LEFT JOIN LATERAL (
-        SELECT SUM(ii."vatAmount" - COALESCE(ii."withholdingAmount", 0)) AS kdv
+        SELECT SUM(${belgeKdvSql} - ${belgeTevkifatSql}) AS kdv
         FROM invoice_items ii
         WHERE ii."invoiceId" = i.id
       ) k ON true

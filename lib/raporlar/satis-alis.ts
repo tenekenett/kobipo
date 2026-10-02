@@ -15,6 +15,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import { invoiceStatusLabel } from "@/lib/invoice/status-label"
+import { belgedekiKalem, faturaAltiCarpani } from "./fatura-alti"
 import { resolveReportDateFilter } from "./satis-alis-shared"
 import { aggregateProductLines, type ProductLineInput, type SalesPurchaseProduct } from "./satis-alis-urunler"
 import {
@@ -95,7 +96,13 @@ export type SalesPurchaseInvoiceLine = {
   unit: string
   quantity: number
   unitPrice: number
+  /** Satırın kendi iskontosu. */
   discountAmount: number
+  /**
+   * Fatura altı iskontodan bu satıra düşen pay (ilavede eksi). KDV ve satır
+   * toplamı bu pay düşülmüş BELGEDEKİ tutarlardır (`fatura-alti.ts`).
+   */
+  globalDiscountShare: number
   vatRate: number
   vatAmount: number
   totalAmount: number
@@ -140,12 +147,19 @@ export type SalesPurchaseResult = {
   /** Kalem satırlarının toplamı. Kalem çekilmediyse (`includeLines`/`includeProducts` yok) 0. */
   linesTotal: number
   /**
-   * Fatura GENELİNE uygulanan iskontonun toplamı. Kalem satırlarında GÖRÜNMEZ:
-   * "Detaylı Faturalar" toplamının "Faturalar" toplamından yüksek çıkmasının
-   * başlıca sebebi budur (bkz. `describeLineTotalGap`).
+   * Belge yuvarlamalarının toplamı (`payableRoundingAmount`, fişler faturaya
+   * birleşirken yazılır). Başlıkta durur, hiçbir kaleme düşmez — kalem ile
+   * fatura toplamı arasındaki farkın bilinen kaynağıdır (`describeLineTotalGap`).
    */
-  globalDiscountTotal: number
+  roundingTotal: number
+  /**
+   * Kayıtlı toplamı kalemlerinin belgedeki toplamını TUTMAYAN belgeler (kalemsiz
+   * belge dahil); yuvarlama ve kuruş farkı ayıklanmış. Kalem çekilmediyse 0.
+   */
+  mismatch: { count: number; amount: number }
 }
+
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 const monthLabel = (date: Date) =>
   date.toLocaleDateString("tr-TR", { month: "short", year: "2-digit" })
@@ -246,6 +260,10 @@ export async function computeSalesPurchaseReport(args: {
                 vatRate: true,
                 vatAmount: true,
                 totalAmount: true,
+                // Fatura altı iskontonun belgedeki karşılığı için (`belgedekiKalem`).
+                withholdingRate: true,
+                withholdingAmount: true,
+                gekapAmount: true,
                 product: { select: { id: true, slug: true, code: true, name: true, isService: true } },
               },
             },
@@ -265,14 +283,17 @@ export async function computeSalesPurchaseReport(args: {
   const classMap = new Map<string, SalesPurchaseClassGroup>()
   let totalAmount = 0
   let linesTotal = 0
-  let globalDiscountTotal = 0
+  let roundingTotal = 0
+  const mismatch = { count: 0, amount: 0 }
+  const withItems = Boolean(args.includeLines || args.includeProducts)
 
   const rows: SalesPurchaseInvoice[] = invoices.map((invoice) => {
     const sign = isSales ? receivableSign(invoice) : payableSign(invoice)
     const isReturn = sign < 0
     const amount = sign * Number(invoice.totalAmount || 0)
+    const rounding = Number(invoice.payableRoundingAmount || 0)
     totalAmount += amount
-    globalDiscountTotal += sign * Number(invoice.globalDiscountAmount || 0)
+    roundingTotal += sign * rounding
 
     const date = new Date(invoice.date)
     const sortKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
@@ -306,9 +327,18 @@ export async function computeSalesPurchaseReport(args: {
     classMap.set(classKey, group)
 
     // İADE satırlarının tutarları da EKSİ yazılır: kalem sayfasının toplamı
-    // fatura sayfasınınkiyle tutmalı.
-    for (const item of (invoice as { items?: any[] }).items ?? []) {
-      linesTotal += sign * Number(item.totalAmount || 0)
+    // fatura sayfasınınkiyle tutmalı. Kalem fatura altı iskontoyu DÜŞMEDEN
+    // saklar; tutarlar belgedeki karşılığıyla okunur (`fatura-alti.ts`).
+    const items = (invoice as { items?: any[] }).items ?? []
+    const carpan = faturaAltiCarpani(items, invoice)
+    let belgeKalemToplami = 0
+    for (const item of items) {
+      const belge = belgedekiKalem(item, carpan)
+      // Ekranın ve Excel'in toplam satırı yuvarlı satırları toplar; fark
+      // açıklaması da aynı rakamdan kurulur.
+      const satirToplami = round2(belge.toplam)
+      belgeKalemToplami += satirToplami
+      linesTotal += sign * satirToplami
       if (args.includeProducts) {
         productLines.push({
           invoiceId: invoice.id,
@@ -329,8 +359,9 @@ export async function computeSalesPurchaseReport(args: {
           quantity: Number(item.quantity || 0),
           unitPrice: Number(item.unitPrice || 0),
           discountAmount: Number(item.discountAmount || 0),
-          vatAmount: Number(item.vatAmount || 0),
-          totalAmount: Number(item.totalAmount || 0),
+          globalDiscountShare: belge.faturaAltiPay,
+          vatAmount: belge.kdv,
+          totalAmount: belge.toplam,
         })
       }
       if (!args.includeLines) continue
@@ -353,10 +384,21 @@ export async function computeSalesPurchaseReport(args: {
         quantity: sign * Number(item.quantity || 0),
         unitPrice: Number(item.unitPrice || 0),
         discountAmount: sign * Number(item.discountAmount || 0),
+        globalDiscountShare: sign * round2(belge.faturaAltiPay),
         vatRate: Number(item.vatRate || 0),
-        vatAmount: sign * Number(item.vatAmount || 0),
-        totalAmount: sign * Number(item.totalAmount || 0),
+        vatAmount: sign * round2(belge.kdv),
+        totalAmount: sign * satirToplami,
       })
+    }
+
+    // Belge kalemleriyle tutuyor mu? Satır başı kuruş yuvarlaması (fatura altı
+    // payın dağıtımı) gürültüdür; tavanı satır başına 1 kuruş, en az 5 kuruş.
+    if (withItems) {
+      const belgeFarki = Number(invoice.totalAmount || 0) - rounding - belgeKalemToplami
+      if (Math.abs(belgeFarki) > Math.max(0.05, items.length * 0.01)) {
+        mismatch.count += 1
+        mismatch.amount += sign * belgeFarki
+      }
     }
 
     return {
@@ -395,6 +437,7 @@ export async function computeSalesPurchaseReport(args: {
     lines,
     products: args.includeProducts ? aggregateProductLines(productLines) : [],
     linesTotal,
-    globalDiscountTotal,
+    roundingTotal,
+    mismatch,
   }
 }

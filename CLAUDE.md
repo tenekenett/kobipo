@@ -499,6 +499,15 @@ fatura onaylanmıştı. "Taslak = kesilmemiş" varsayan her yer bunları yanlı�
   withholdingAmount − matraha girmeyen diğer vergi` (`totalAmount` KDV dahil, tevkifat düşülmüş
   tutardır; ÖİV ve Konaklama Vergisi kendi kanunlarıyla KDV matrahı DIŞINDADIR ama toplamda
   durur — liste `OTHER_TAX_CODES_IN_VAT_BASE`, ÖTV/GEKAP matrahta kalır).
+- **Kalem fatura altı iskontoyu/ilaveyi DÜŞMEDEN saklar (2026-10-02):** `invoice_items`
+  KDV/tevkifat/toplam satırın kendi iskontosuyla kurulur; belge (başlık + GİB) genel iskontoyu
+  satırlara orantılı dağıtıp vergiyi sonra hesaplar. Kalemden TUTAR okuyan her rapor kalemi
+  belgedeki karşılığına çevirir: SQL'de `faturaAltiCarpanSql` + `belgedekiTutarSql` (KDV
+  raporu), TS'te `lib/raporlar/fatura-alti.ts` (satış/alış raporunun kalem ve ürün
+  bölümleri) — aynı kural, maktu GEKAP muaf. Düz `SUM(ii."vatAmount")` iskontolu belgede
+  fazla, ilaveli belgede eksik sayar (~5.250 TL / 27 belge; Eren'in Eylül alışında
+  indirilecek 83 TL fazla). Kayıtlı kalemler bilerek düzeltilmedi. Ölçüm:
+  `npm run test:canli -- lib/raporlar` (salt okur).
 - **Tarih ekseni:** `invoices.date` 00:00 UTC, `incoming_invoices.docDate` ise İstanbul gece
   yarısı (21:00 UTC). Gelen faturayı ay sınırıyla süzerken gün İstanbul takvimine çevrilir
   (`aktarilmamisGelenFaturalar`); ham karşılaştırma ayın 1'ini önceki aya yazar.

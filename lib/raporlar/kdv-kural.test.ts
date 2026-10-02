@@ -5,7 +5,15 @@
 // aynı metni söylediğini de kaba bir biçimde denetler.
 
 import { describe, expect, it } from "vitest"
-import { kdvyeGirerMi, kdvyeGirerSql, kdvKurSql } from "./kdv-kural"
+import { Prisma } from "@prisma/client"
+import {
+  belgedekiTutarSql,
+  faturaAltiCarpanSql,
+  kalemGekapSql,
+  kdvyeGirerMi,
+  kdvyeGirerSql,
+  kdvKurSql,
+} from "./kdv-kural"
 
 const belge = (type: string, invoiceType: string, status: string, returnKind: string | null = null) => ({
   type,
@@ -74,5 +82,38 @@ describe("SQL karşılığı", () => {
 
   it("tablo takma adı yalnız sabit tanımlayıcı olabilir", () => {
     expect(() => kdvyeGirerSql("i; DROP TABLE invoices")).toThrow()
+    expect(() => faturaAltiCarpanSql("i; DROP TABLE invoices")).toThrow()
+    expect(() => kalemGekapSql("ii; --")).toThrow()
+  })
+})
+
+// Fatura altı iskonto/ilave: katsayının SAYISAL doğruluğu canlıda ölçülür
+// (kdv-kural.canli.test.ts — başlık KDV'si ↔ kalemin belgedeki KDV'si). Burada
+// yalnız SQL'in document-totals ile aynı kırpma kurallarını söylediği denetlenir.
+describe("fatura altı katsayısı (SQL)", () => {
+  const metin = (s: { strings: readonly string[] }) => s.strings.join("?").replace(/\s+/g, " ")
+  const sql = metin(faturaAltiCarpanSql("i"))
+
+  it("iskontosuz ve ilavesiz belge ölçeklenmez", () => {
+    expect(sql).toMatch(/^\(CASE WHEN .* <= 0 AND .* <= 0 THEN 1 ELSE/)
+  })
+
+  it("ara toplam satır iskontosu düşülmüş brüttür; iskonto ara toplamla sınırlıdır", () => {
+    expect(sql).toContain(`fa_kalem.quantity * fa_kalem."unitPrice"`)
+    expect(sql).toContain(`GREATEST(0, LEAST(COALESCE(fa_kalem."discountAmount", 0)`)
+    expect(sql).toContain("LEAST(GREATEST(")
+    // Ara toplam sıfır/eksi → katsayı yok → 1 (document-totals da dağıtmaz).
+    expect(sql).toContain("WHEN fa_toplam.ara > 0")
+    expect(sql).toContain("), 1) END)")
+  })
+
+  it("maktu GEKAP ve ondan doğan KDV/tevkifat katsayıdan muaftır", () => {
+    const g = kalemGekapSql("ii")
+    expect(metin(g.gekap)).toBe(`COALESCE(ii."gekapAmount", 0)`)
+    expect(metin(g.kdv)).toContain(`COALESCE(ii."vatRate", 0) / 100`)
+    expect(metin(g.tevkifat)).toContain(`COALESCE(ii."withholdingRate", 0) / 100`)
+    // (tutar − sabit) × f + sabit
+    const t = metin(belgedekiTutarSql(Prisma.sql`A`, Prisma.sql`B`, Prisma.sql`F`))
+    expect(t).toBe("(((A) - (B)) * F + (B))")
   })
 })

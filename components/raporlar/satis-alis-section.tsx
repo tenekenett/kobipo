@@ -341,10 +341,18 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
       },
       { header: "Birim Fiyat", align: "right", cell: (row) => TL(row.unitPrice) },
       {
-        header: "İskonto",
+        header: "Satır İskontosu",
         align: "right",
         cell: (row) => TL(row.discountAmount),
         total: (rows) => TL(rows.reduce((sum, row) => sum + row.discountAmount, 0)),
+      },
+      {
+        // Fatura altı iskontonun bu satıra düşen payı (ilavede eksi). KDV ve satır
+        // toplamı bu pay düşülmüş belgedeki tutarlardır (lib/raporlar/fatura-alti.ts).
+        header: "Fatura Altı İsk.",
+        align: "right",
+        cell: (row) => TL(row.globalDiscountShare),
+        total: (rows) => TL(rows.reduce((sum, row) => sum + row.globalDiscountShare, 0)),
       },
       { header: "KDV %", align: "right", cell: (row) => row.vatRate },
       {
@@ -460,9 +468,9 @@ export function SatisAlisSection({ kind, companyId, section }: Props) {
     }
   })() as { columns: Col<unknown>[]; rows: unknown[] }
 
-  // Kalem toplamı ile fatura toplamı arasındaki fark AÇIKLANIR: fatura geneline
-  // uygulanan iskonto kalem satırlarında görünmez, söylenmezse "rakamlar tutmuyor"
-  // denir. Yalnız kalemlerin ÇEKİLDİĞİ bölümde anlamlı; fark yoksa hiç basılmaz.
+  // Kalem toplamı ile fatura toplamı arasındaki fark AÇIKLANIR (belge yuvarlaması,
+  // kalemleriyle uyuşmayan belge, kuruş); söylenmezse "rakamlar tutmuyor" denir.
+  // Yalnız kalemlerin ÇEKİLDİĞİ bölümde anlamlı; fark yoksa hiç basılmaz.
   const totalGap = useMemo(
     () =>
       report && (section.needsLines || (section.needsProducts && !productSearch.trim()))

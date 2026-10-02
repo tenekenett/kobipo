@@ -47,9 +47,12 @@ export type LineTotalGap = {
   difference: number
   linesTotal: number
   invoiceTotal: number
-  globalDiscountTotal: number
-  /** Genel iskontoyla AÇIKLANAMAYAN kalan (kayıtlı toplamı bozuk belgeler). */
-  unexplained: number
+  /** Belge yuvarlaması: başlıkta durur, kaleme düşmez. */
+  roundingTotal: number
+  /** Kayıtlı toplamı kalemleriyle uyuşmayan belgeler (kalemsiz belge dahil). */
+  mismatch: { count: number; amount: number }
+  /** Kalan: satır başı kuruş yuvarlaması (fatura altı payın dağıtımı dahil). */
+  kurus: number
   /** Ekranda ve dosyada aynen basılan açıklama. */
   text: string
 }
@@ -57,43 +60,50 @@ export type LineTotalGap = {
 /**
  * "Detaylı Faturalar" toplamı neden "Faturalar" toplamını tutmuyor.
  *
- * İki sayfa aynı belgeleri sayar ama farklı seviyeden: kalem sayfası satırların,
- * fatura sayfası belgenin kayıtlı toplamının toplamıdır. Fatura GENELİNE uygulanan
- * iskonto kalem satırlarına dağıtılmadığı için fark normaldir — ama söylenmezse
- * kullanıcı "rakamlar tutmuyor" der. Kalanı (varsa) kayıtlı toplamı kalemleriyle
- * uyuşmayan belgelerden gelir; onu da saklamak yerine ayrıca yazarız.
+ * İki sayfa aynı belgeleri sayar ama farklı seviyeden: kalem sayfası satırların
+ * belgedeki tutarının, fatura sayfası belgenin kayıtlı toplamının toplamıdır.
+ * Fatura altı iskonto 2026-10-02'den beri satırlara dağıtılmış okunuyor
+ * (`fatura-alti.ts`) ve farkın kaynağı olmaktan çıktı; kalan kaynaklar ayrı ayrı
+ * söylenir: belge yuvarlaması, kayıtlı toplamı kalemleriyle uyuşmayan belgeler
+ * (rapor belge belge sayar) ve satır başı kuruş yuvarlaması. (Öncesinde farkın
+ * "genel iskonto" ile açıklanamayan kısmı uyuşmayan belgelere yazılıyordu; oysa
+ * kalemler iskontonun KDV'sini de taşıyordu — Reypo'da 1.982 TL böyle yanlış
+ * etiketlenmişti.)
  *
  * Fark yoksa `null`: temiz veride ne ekrana ne dosyaya uyarı basılır.
  */
 export function describeLineTotalGap(totals: {
   totalAmount: number
   linesTotal: number
-  globalDiscountTotal: number
+  roundingTotal: number
+  mismatch: { count: number; amount: number }
 }): LineTotalGap | null {
   const difference = totals.totalAmount - totals.linesTotal
   if (Math.abs(difference) < 0.01) return null
 
-  const unexplained = difference + totals.globalDiscountTotal
+  const kurus = difference - totals.roundingTotal - totals.mismatch.amount
   const parts = [
     `Kalem toplamı ${TL(totals.linesTotal)}, Faturalar sayfasının toplamı ${TL(totals.totalAmount)} — fark ${TL(Math.abs(difference))}.`,
   ]
-  if (Math.abs(totals.globalDiscountTotal) >= 0.01) {
+  if (Math.abs(totals.roundingTotal) >= 0.01) {
+    parts.push(`${TL(Math.abs(totals.roundingTotal))} belge yuvarlamasıdır; kalemlere dağıtılmaz.`)
+  }
+  if (totals.mismatch.count > 0) {
     parts.push(
-      `Bunun ${TL(Math.abs(totals.globalDiscountTotal))} kadarı fatura geneline uygulanan iskontodur; kalem satırlarına dağıtılmaz.`
+      `${TL(Math.abs(totals.mismatch.amount))} kayıtlı toplamı kalemleriyle uyuşmayan ${totals.mismatch.count} belgeden gelir (fatura kayıtları kontrol edilmeli).`
     )
   }
-  if (Math.abs(unexplained) >= 0.01) {
-    parts.push(
-      `Kalan ${TL(Math.abs(unexplained))} ise kayıtlı toplamı kalemleriyle uyuşmayan belgelerden gelir (fatura kayıtları kontrol edilmeli).`
-    )
+  if (Math.abs(kurus) >= 0.01) {
+    parts.push(`${TL(Math.abs(kurus))} satır başı kuruş yuvarlamasıdır.`)
   }
 
   return {
     difference,
     linesTotal: totals.linesTotal,
     invoiceTotal: totals.totalAmount,
-    globalDiscountTotal: totals.globalDiscountTotal,
-    unexplained,
+    roundingTotal: totals.roundingTotal,
+    mismatch: totals.mismatch,
+    kurus,
     text: parts.join(" "),
   }
 }

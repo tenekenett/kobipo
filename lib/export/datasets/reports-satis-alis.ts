@@ -94,7 +94,10 @@ function invoiceLineColumns(isSales: boolean, labels: ClassificationLabels): Exp
     { key: "quantity", label: "Miktar", type: "qty", width: 18, total: true },
     { key: "unit", label: "Birim", width: 14, align: "center" },
     { key: "unitPrice", label: "Birim Fiyat", type: "money", width: 24 },
-    { key: "discountAmount", label: "İskonto", type: "money", width: 22, total: true },
+    { key: "discountAmount", label: "Satır İskontosu", type: "money", width: 24, total: true },
+    // Fatura altı iskontonun satıra düşen payı (ilavede eksi); KDV ve satır
+    // toplamı bu pay düşülmüş belgedeki tutarlardır — ekranla aynı sütun.
+    { key: "globalDiscountShare", label: "Fatura Altı İsk.", type: "money", width: 24, total: true },
     { key: "vatRate", label: "KDV %", type: "number", width: 16 },
     { key: "vatAmount", label: "KDV", type: "money", width: 22, total: true },
     { key: "totalAmount", label: "Satır Toplamı", type: "money", width: 26, total: true },
@@ -183,10 +186,10 @@ export async function buildSalesPurchaseDataset(params: {
       : null,
   ])
 
-  // Kalem sayfasının toplamı fatura sayfasınınkini tutmayabilir (fatura geneli
-  // iskonto kalem satırlarında görünmez). Sessiz bırakmak "rakamlar tutmuyor"
-  // sorusunu doğurduğu için dosyaya not olarak yazılır — künye sayfasında ve
-  // PDF'in altında görünür.
+  // Kalem sayfasının toplamı fatura sayfasınınkini tutmayabilir (belge
+  // yuvarlaması, kalemleriyle uyuşmayan belge). Sessiz bırakmak "rakamlar
+  // tutmuyor" sorusunu doğurduğu için dosyaya not olarak yazılır — künye
+  // sayfasında ve PDF'in altında görünür.
   const gap = includeLines || includeProducts ? describeLineTotalGap(report) : null
   // Notun hangi sayfaya ait olduğu: ürün sayfası da kalem toplamından kurulur.
   const gapLabel = only?.key === "urunler" ? "Alınan Ürünler" : includeProducts ? "Alınan Ürünler ve Detaylı Faturalar" : "Detaylı Faturalar"

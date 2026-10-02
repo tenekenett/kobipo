@@ -36,34 +36,37 @@ describe("resolveReportDateFilter", () => {
 })
 
 describe("describeLineTotalGap", () => {
+  const temiz = { roundingTotal: 0, mismatch: { count: 0, amount: 0 } }
+
   it("fark yoksa uyarı da yok", () => {
-    expect(
-      describeLineTotalGap({ totalAmount: 1000, linesTotal: 1000, globalDiscountTotal: 0 })
-    ).toBeNull()
+    expect(describeLineTotalGap({ totalAmount: 1000, linesTotal: 1000, ...temiz })).toBeNull()
     // Kuruş altı sapma gürültüdür.
-    expect(
-      describeLineTotalGap({ totalAmount: 1000, linesTotal: 1000.004, globalDiscountTotal: 0 })
-    ).toBeNull()
+    expect(describeLineTotalGap({ totalAmount: 1000, linesTotal: 1000.004, ...temiz })).toBeNull()
   })
 
-  it("farkın tamamı genel iskontoysa 'kalan' cümlesi yazılmaz", () => {
+  it("farkın tamamı belge yuvarlamasıysa yalnız onu söyler", () => {
+    // Ölçülen gerçek durum (Reypo Medya alış, 2026-10-02): fark 122.227 TL, tamamı yuvarlama.
     const gap = describeLineTotalGap({
-      totalAmount: 9000, linesTotal: 10000, globalDiscountTotal: 1000,
+      totalAmount: 930214.9, linesTotal: 807987.9, roundingTotal: 122227, mismatch: { count: 0, amount: 0 },
     })!
-    expect(gap.unexplained).toBeCloseTo(0, 2)
-    expect(gap.text).toContain("fatura geneline uygulanan iskontodur")
-    expect(gap.text).not.toContain("kayıtlı toplamı kalemleriyle uyuşmayan")
+    expect(gap.kurus).toBeCloseTo(0, 2)
+    expect(gap.text).toContain("₺122.227,00 belge yuvarlamasıdır")
+    expect(gap.text).not.toContain("uyuşmayan")
+    expect(gap.text).not.toContain("kuruş")
   })
 
-  it("iskontoyla açıklanamayan kalanı ayrıca söyler", () => {
-    // Ölçülen gerçek durum (Reypo Medya): fark 10.938,79 — 8.956,60'ı genel iskonto.
+  it("uyuşmayan belgeleri adediyle, kuruş kalanını ayrıca söyler", () => {
     const gap = describeLineTotalGap({
-      totalAmount: 827341.9, linesTotal: 838280.69, globalDiscountTotal: 8956.6,
+      totalAmount: 10500.03, linesTotal: 10000, roundingTotal: 0, mismatch: { count: 2, amount: 500 },
     })!
-    expect(gap.difference).toBeCloseTo(-10938.79, 2)
-    expect(gap.unexplained).toBeCloseTo(-1982.19, 2)
-    expect(gap.text).toContain("₺10.938,79")
-    expect(gap.text).toContain("₺8.956,60")
-    expect(gap.text).toContain("₺1.982,19")
+    expect(gap.text).toContain("₺500,00 kayıtlı toplamı kalemleriyle uyuşmayan 2 belgeden gelir")
+    expect(gap.kurus).toBeCloseTo(0.03, 2)
+    expect(gap.text).toContain("₺0,03 satır başı kuruş yuvarlamasıdır")
+  })
+
+  it("fatura altı iskonto artık fark sebebi olarak YAZILMAZ (kalemler belgedeki tutarla gelir)", () => {
+    const gap = describeLineTotalGap({ totalAmount: 944182.04, linesTotal: 944182, ...temiz })!
+    expect(gap.text).not.toContain("iskonto")
+    expect(gap.text).toContain("₺0,04 satır başı kuruş yuvarlamasıdır")
   })
 })
