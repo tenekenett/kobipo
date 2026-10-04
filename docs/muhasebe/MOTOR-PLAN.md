@@ -73,6 +73,44 @@ henüz ÇALIŞTIRILMADI.
    Bilanço ve Gelir Tablosu → Dönem kapanışı ön izlemesi. 390 px mobil görünüm bakılmadı.
 5. Satışa açmak: Paket & Fiyat Yönetimi'nde `module:accounting` fiyatını gir, aktif yap.
 
+**Neyin ÇALIŞTIRILDIĞI, neyin ÇALIŞTIRILMADIĞI (dürüst döküm):**
+
+| Parça | Durum |
+|---|---|
+| Kural dosyaları (`fis.ts`, `fis-kurallari`, `para-kurallari`, `acilis`, `mizan`, `mali-tablolar`, `kapanis`) | birim testli (58 test) |
+| Kaynak yükleyiciler (`kaynaklar.server.ts`, 11 tür, virman eşleştirmesi) | canlı veriyle ÇALIŞTI (salt okur tutarlılık testi) |
+| Modül/şube kuralı, yetki ve modül haritası, menü | birim testli (page-access, modules, write-guard nöbetçileri) |
+| Senkron YAZIMI (`senkron.server.ts`), alt hesap açma, plan kurulumu, açılış fişi yazımı, onay/öğrenme/yayılım, elle fiş, kapanış yazımı | yalnız tip kontrolü — veritabanına HİÇ yazılmadı |
+| Ham SQL: mizan, yevmiye (madde no penceresi), kebir, fiş listesi araması, kasa açılış bakiyesi, fiş numarası | yalnız tip kontrolü — HİÇ çalışmadı (SQL hatası çıkabilir) |
+| Bütün `/api/muhasebe/*` uçları ve 8 ekran | HİÇ çalışmadı, tarayıcıda açılmadı |
+| Belge/para yazma yollarına eklenen `muhasebeyeBildir` çağrıları | tip kontrolü; modül kapalıyken tek sorguyla döner |
+| `scripts/test-muhasebe.mjs` | yazıldı, HİÇ çalıştırılmadı — hata verirse betiğin kendisi de hatalı olabilir |
+
+**Açık kararlar / yapılmadı:**
+
+- **Eski model tam kaldırılmadı (§2.8):** `auto-entries.ts` silindi, yevmiye/kebir ekranları ve
+  muhasebeci dışa aktarımı yeni defterden okuyor; ama `accounting_entries` tablosu ve
+  Reypo Medya'daki 3 eski kayıt (000001–000003, 120/600/391) DURUYOR, artık hiçbir ekran
+  okumuyor. Taşımak (elle fişe) ya da tabloyu düşürmek kullanıcı kararı.
+- **Veri tutarsızlığı (canlı ölçüm):** Demo Firma A.Ş.'nin 720 TL'lik tahsilatı
+  (`transactions.id = cmsw0jy3q0025rrot6tjlewcu`, "Tahsilat — FS-SAT-2026-0002") Reypo
+  Medya'nın "ana" kasasına yazılmış. Tek kayıt, test verisi; düzeltilmedi. Motor bu
+  hareketin kasa satırını hesapsız bırakır.
+- **Gece mutabakatı** yok (aşağıda "Bilinen sınırlar").
+- Luca/Zirve aktarımı (müşavirden örnek dosya), e-Defter, modül fiyatı.
+
+**Plandan sapmalar (uygulanan hâl geçerlidir):**
+
+- §2.2 açılış: ters bakiyeli cari 340/159'a AYRILMAZ, kendi 120/320 alt hesabında ters
+  bakiyeyle kalır (mizan ↔ cari bakiyesi eşitliği için); ayrım bilançoda cari başına
+  yapılır (`mali-tablolar.ts`: 120 alacak → 340, 320 borç → 159, 335 borç → 135).
+  Personel masraf defteri bakiyesi de hep 335 alt hesabında.
+- §3 bordro: B 770 brüt · A 361 SGK · A 360 vergi · A **369** diğer kesinti · A **196**
+  avans mahsubu · A 335 net. Dönemin son günü tarihli.
+- §3 virman: kasa hareketleri ortak kimlik taşımadığı için iki bacak tutar + gün + referansla
+  eşleştirilir; eşleşen giriş bacağı ayrı fiş açmaz.
+- §2.7 fiş no: `2026/000123` (açılış sırası); yevmiye madde numarası yıl içinde tarih sırası.
+
 **1. faz — temel (yapıldı):**
 
 - `lib/muhasebe/tekduzen.ts` — Tekdüzen planı (sınıf/grup/defteri kebir, tür, ters hesap,
@@ -127,8 +165,8 @@ faturasında (`lib/invoice/auto-entries.ts`). Canlıda tek firmada 3 kayıt; ge�
    hesap korunur). Kasa/banka/kart hesapları (`FinancialAccount`) için alt hesaplar açılır:
    100.01.0001…, 102.01.0001…, kredi kartı 309.01.0001….
 3. **Açılış fişi (TASLAK)** başlangıç tarihindeki bilinen bakiyelerden: cari bakiyeleri
-   (`lib/cari/bakiye-asof.ts` — bilançoyla aynı kaynak, müşteri 120 / tedarikçi 320, ters
-   bakiye avans 340/159), kasa-banka (`cashBalanceBefore`), portföydeki çek/senet (101/121,
+   (`lib/cari/bakiye-asof.ts` — bilançoyla aynı kaynak, müşteri 120 / tedarikçi 320; ters
+   bakiye kendi alt hesabında kalır, 340/159 ayrımı bilançoda — bkz. "Plandan sapmalar"), kasa-banka (`cashBalanceBefore`), portföydeki çek/senet (101/121,
    103/321), personel masraf defteri (335/135). Stok, demirbaş, sermaye Kobipo'da yok →
    hesapsız satır olarak bırakılmaz; fark satırı **500 önerisiyle hesapsız** durur, kullanıcı
    (müşavir) dağıtır.
@@ -195,6 +233,7 @@ iç numarayı bozmaz. (e-Defter fazında dönem kapanışıyla kesinleşir.)
 `auto-entries.ts` çağrıları `syncBelgeFisi`ye döner; `AccountingEntry` okuyan yerler
 (yevmiye/kebir sayfaları, `app/api/export/accountant`) yeni modele geçer. Canlıdaki 3 eski
 kayıt bir kerelik betikle açılış/elle fişe taşınır, tablo sonra kaldırılır.
+**Durum (2026-10-04):** ilk iki adım yapıldı; tablo ve 3 kayıt duruyor (açık karar, yukarıda).
 
 ### 2.9 Şema ekleri (1. faz migrasyonuna katılır)
 
@@ -227,7 +266,7 @@ kayıt bir kerelik betikle açılış/elle fişe taşınır, tablo sonra kaldır
 | Bakiye kapama (WRITE_OFF) | satışta B 611 · A 120; alışta B 320 · A 649 |
 | Cari virman fişi | B 120/320.x · A 120/320.y |
 | Çalışan cebinden ödedi | B 320.cari · A 335.personel; iadesi B 335 · A kasa |
-| Bordro | B 770/720/740 (brüt) · A 335 (net), 360 (gelir + damga), 361 (SGK işçi) |
+| Bordro | B 770 (brüt, öğrenilir) · A 335 (net), 360 (gelir + damga), 361 (SGK işçi), 369 (diğer kesinti), 196 (avans) |
 
 Kural `fis-kurallari.ts`e yeni giriş tipleri olarak eklenir (aynı satır/öğrenme yapısı).
 İşveren SGK payı bordroda tutulmuyor — fişte eksik kalır, ekran yazar.

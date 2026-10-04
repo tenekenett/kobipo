@@ -71,10 +71,10 @@ muhasebe motoru. Rakip incelemesi ve karşılaştırma Claude Docs'ta:
 
 ## Sırada
 
-1. Muhasebe motoru 2. faz: taslak fişleri üret/kaydet + Taslak Fişler ekranı + onay
-   + mizan. Plan tamam (`docs/muhasebe/MOTOR-PLAN.md`); kararlar alındı (2026-10-02):
-   ayrı Muhasebe modülü, sıralı cari alt hesap (120.01.0001), seçilen başlangıç
-   tarihinden fiş üretimi. Kullanıcı "şimdilik işleme geçmeyelim" dedi — başlamadan sor.
+1. ~~Muhasebe motoru 2. faz~~ → **2., 3. ve 4. faz 2026-10-04'te yazıldı** (main e0ac9f2;
+   kapsam kullanıcı kararı: 2 + 3 + 4; şube kararı: modül yalnız ana firmada).
+   DEVAM NOTU: `docs/muhasebe/MOTOR-PLAN.md` → "▶ DEVAM" — migrasyonun deploy sonrası
+   tekrarı, hiç çalıştırılmamış parçaların dökümü, açık kararlar, plandan sapmalar.
 
 ## Ölçüm yolları
 
