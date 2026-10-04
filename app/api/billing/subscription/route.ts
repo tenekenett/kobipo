@@ -96,7 +96,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
     // kapattığı modül burada "açık" görünür — şikâyetin ta kendisi.
     const companyModules = await prisma.company.findUnique({
       where: { id: companyId },
-      select: { suppressedModules: true, grantedModules: true, freeModulesClaimedAt: true },
+      select: { suppressedModules: true, grantedModules: true, freeModulesClaimedAt: true, parentCompanyId: true },
     })
     const freeClaimed = companyModules?.freeModulesClaimedAt != null
 
@@ -161,6 +161,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
         free,
         freeClaimed,
         suppressed: companyModules?.suppressedModules ?? [],
+        isBranch: companyModules?.parentCompanyId != null,
       }),
       quotas,
       orders: orders.map((o) => ({

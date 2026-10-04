@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
@@ -111,6 +112,7 @@ export const DELETE = withApiErrors(async function DELETE(
           await db.invoicePayment.delete({ where: { id: resolvedParams.id } })
         }
       })
+      await muhasebeyeBildir(payment.companyId, [{ tip: "TRANSACTION", id: payment.transactionId }])
       revalidateDashboard(payment.companyId)
       return NextResponse.json({ success: true })
     }
@@ -137,6 +139,7 @@ export const DELETE = withApiErrors(async function DELETE(
     await prisma.invoicePayment.delete({
       where: { id: resolvedParams.id },
     })
+    await muhasebeyeBildir(payment.companyId, [{ tip: "PAYMENT", id: resolvedParams.id }])
 
     revalidateDashboard(payment.companyId)
 

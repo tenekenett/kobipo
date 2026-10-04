@@ -6,7 +6,7 @@ import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { ensureDefaultWarehouseId } from "@/lib/stock/warehouse"
 import { prepareInvoiceStockOps, writeInvoiceStockOps } from "@/lib/stock/invoice-stock"
-import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { invoiceTotalsFromStoredItems } from "@/lib/invoice/document-totals"
 import { isSectionLine } from "@/lib/teklif/quote-totals"
 
@@ -137,20 +137,6 @@ export const POST = withApiErrors(async function POST(
         createdBy: user.id,
       })
 
-      // Otomatik muhasebe fişi — doğrudan kesilen faturayla aynı (tek yazım yeri).
-      await syncInvoiceAutoEntries(tx, {
-        companyId: quote.companyId,
-        invoiceId: invoice.id,
-        invoiceNo,
-        date: invoice.date,
-        type: invoice.type,
-        isReceipt: false,
-        netAmount: invoice.netAmount,
-        vatAmount: invoice.vatAmount,
-        createdBy: user.id,
-        suffix: "(tekliften)",
-      })
-
       await tx.quote.update({
         where: { id: quote.id },
         data: { status: "CONVERTED", convertedInvoiceId: invoice.id },
@@ -183,6 +169,9 @@ export const POST = withApiErrors(async function POST(
       }
     }
   }
+
+  // Muhasebe modülü açıksa faturanın taslak fişi (transaction'dan sonra).
+  if (result) await muhasebeyeBildir(quote.companyId, [{ tip: "INVOICE", id: result.id }])
 
   return NextResponse.json(result, { status: 201 })
 })

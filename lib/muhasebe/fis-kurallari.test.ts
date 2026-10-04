@@ -160,15 +160,28 @@ describe("satış", () => {
     expect(hazir(t).satirlar.filter((s) => s.rol !== "CARI").every((s) => s.kaynak === "ogrenilen")).toBe(true)
   })
 
-  it("carisiz fiş: cari satırı hesapsız kalır, fiş toplu onaya girmez", () => {
+  it("carisiz fiş: cari satırı ortak perakende alt hesabına gider (çözümde açılır)", () => {
     const t = belgeFisTaslagi(
       belge({ isReceipt: true, cari: null, kalemGirdileri: [{ quantity: 1, unitPrice: 50, vatRate: 10 }] }),
       bos,
     )
     expect(ozet(t)).toEqual(["B ?120 55", "A 600 50", "A 391 5"])
     expect(hazir(t).satirlar[0].aciklama).toBe("Perakende (cari yok)")
-    expect(hazir(t).emin).toBe(false)
+    expect(hazir(t).satirlar[0].alt).toEqual({ tur: "musteri", id: null, ad: "Perakende Müşteriler" })
+    // Perakende alt hesabı kesin bir hesaptır; fiş tahmin içermiyor → toplu onaya girer.
+    expect(hazir(t).emin).toBe(true)
     dengeli(t)
+  })
+
+  it("cari satırı carinin alt hesap referansını taşır", () => {
+    const t = belgeFisTaslagi(belge({ kalemGirdileri: [{ quantity: 1, unitPrice: 100, vatRate: 20 }] }), {
+      ogrenilen: {},
+      cariHesaplari: {},
+    })
+    const cari = hazir(t).satirlar.find((s) => s.rol === "CARI")!
+    expect(cari.hesapKodu).toBeNull()
+    expect(cari.alt).toEqual({ tur: "musteri", id: "c1", ad: "Deneme Müşteri" })
+    expect(hazir(t).emin).toBe(true)
   })
 
   it("belge yuvarlaması lehimize 649'a", () => {

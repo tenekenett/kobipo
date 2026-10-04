@@ -14,6 +14,7 @@
 // kesmek, karşı tarafın defterini de ilgilendiren bir karardır.
 
 import { prisma } from "@/lib/db/prisma"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import {
   COMPANY_PROVIDER_SELECT,
   resolveCompanyEInvoiceProvider,
@@ -219,6 +220,7 @@ export async function voidSalesInvoiceForOrder(params: {
         createdBy: params.userId ?? null,
       })
     })
+    await muhasebeyeBildir(invoice.companyId, [{ tip: "INVOICE", id: invoice.id }])
 
     await prisma.systemLog.create({
       data: {

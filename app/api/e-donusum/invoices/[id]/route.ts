@@ -18,7 +18,7 @@ import { normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
 import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { assertOwnedByCompany } from "@/lib/company/owned"
-import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { computeLineTax } from "@/lib/invoice/line-tax"
 import {
   computeInvoiceTotals,
@@ -602,22 +602,11 @@ export const PUT = withApiErrors(async function PUT(
           createdBy: user.id,
         })
       }
-
-      // Otomatik muhasebe fişleri yeni tutar/tarihle hizalanır. Öncesinde PUT
-      // bunlara hiç dokunmuyordu: fatura 1.000'den 800'e inince yevmiye 1.000'de
-      // kalıyordu (bkz. lib/invoice/auto-entries.ts).
-      await syncInvoiceAutoEntries(tx, {
-        companyId: invoice.companyId,
-        invoiceId: resolvedParams.id,
-        invoiceNo: normalizedInvoiceNo || invoice.invoiceNo,
-        date: date ? new Date(date) : invoice.date,
-        type: invoice.type,
-        isReceipt: invoice.isReceipt,
-        netAmount,
-        vatAmount,
-        createdBy: user.id,
-      })
     }, { timeout: 20000 })
+
+    // Taslak yevmiye fişi yeni tutar/tarihle hizalanır (onaylı fiş "belge değişti" olur).
+    // Transaction'dan SONRA: senkron ayrı bağlantıyla okur, işlenmemiş veriyi görmez.
+    await muhasebeyeBildir(invoice.companyId, [{ tip: "INVOICE", id: resolvedParams.id }])
 
     // Pano "Son faturalar" ve sayaçları düzenlenmiş tutarla tazelensin (POST ile aynı).
     revalidateDashboard(invoice.companyId)
@@ -810,6 +799,9 @@ export const DELETE = withApiErrors(async function DELETE(
       }
       throw deleteError
     }
+
+    // Taslak fişi silinir; onaylı fiş "belge değişti" işaretlenir (lib/muhasebe/senkron.server.ts).
+    await muhasebeyeBildir(invoice.companyId, [{ tip: "INVOICE", id: invoiceId }])
 
     return NextResponse.json({ success: true, message: "Fatura ve stok hareketleri silindi/geri alındı." })
   } catch (error: any) {

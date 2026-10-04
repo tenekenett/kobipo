@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
@@ -54,6 +55,7 @@ export const POST = withApiErrors(async function POST(
       where: { id },
       data: { status: "SENT" },
     })
+    await muhasebeyeBildir(invoice.companyId, [{ tip: "INVOICE", id }])
 
     return NextResponse.json({ id: updated.id, status: updated.status })
   } catch (error: any) {

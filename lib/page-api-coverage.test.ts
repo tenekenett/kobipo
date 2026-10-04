@@ -85,8 +85,10 @@ const METHOD_RE = /export\s+(?:async\s+)?(?:function|const)\s+(GET|POST|PUT|PATC
 // `sessionWriteActor` / `sessionReadAuthorize` (lib/api/write-actor.ts) kapının
 // sarmalayıcılarıdır: iş mantığı lib'e taşınan uçlar (fiş, tahsilat, adisyon
 // kapanışı — ÖKC webhook'u oturumsuz çağırabilsin diye) kapıyı bunlarla verir.
+// `muhasebeGirisi` (lib/muhasebe/istek.server.ts) muhasebe uçlarının ortak girişidir ve
+// içinde ensureCompanyAccess/ensureCompanyWrite çağırır.
 const GATE_RE =
-  /ensureCompanyAccess|ensureCompanyWrite|ensureCompanyExport|assertPagePath|sessionWriteActor|sessionReadAuthorize/
+  /ensureCompanyAccess|ensureCompanyWrite|ensureCompanyExport|assertPagePath|sessionWriteActor|sessionReadAuthorize|muhasebeGirisi/
 
 /** Kapıyı çağıran uçlar — kapının gerçek yüzeyi budur. */
 function gatedRoutes(): Route[] {

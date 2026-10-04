@@ -80,7 +80,7 @@ const FINANSAL_LINKS: ReportHubLink[] = [
   },
   {
     title: "Muhasebe / Yevmiye",
-    description: "Muhasebe kayıt ekranına ve yevmiye görünümüne yönlendirir.",
+    description: "Muhasebe modülünün yevmiye defteri: onaylanmış fişler tarih sırasıyla.",
     href: "/muhasebe/yevmiye",
   },
   {

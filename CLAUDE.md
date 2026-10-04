@@ -445,6 +445,42 @@ Transaction, çek/senet, açılış bakiyesi ve **cari virman fişi** (`lib/cari
   günü kasaya geçer (`lib/raporlar/bilanco-kiymet.ts`). İade/protesto/ciro tarihi
   tutulmadığı için geçmiş tarihli bilançoda bugünkü durumla sayılır — ekran yazar.
 
+## Muhasebe defteri: fiş kaynağın karşılığıdır, senkron tek fonksiyon
+
+Muhasebe ayrı, ücretli modüldür (`accounting`, 2026-10-04). Belgeden ve para
+hareketinden kendiliğinden TASLAK yevmiye fişi doğar, kullanıcı eksik hesabı seçip
+onaylar. Plan ve durum: `docs/muhasebe/MOTOR-PLAN.md`; kod `lib/muhasebe/`.
+
+- **Defter tüzel kişidedir:** şube ana firmanın defterine yazar (`defterBaglami`,
+  fiş `sourceCompanyId` taşır). Modül şubeye AÇILMAZ (`ModuleDef.notForBranches` →
+  `resolveOpenModules({ isBranch })`, satın alma ucu, katalog, sistem-admin kartı) ve
+  ücretsiz yapılamaz (`sanitizeFreeModules`).
+- **Kaynaklar cari bakiyesinin kaynaklarıyla AYNIDIR** (yukarıdaki bölüm) + bordro ve
+  kasa açılışları. Yeni bir cari/kasa kaynağı eklerken `kaynaklar.server.ts`e yükleyici
+  ve kural dosyasına (`fis-kurallari.ts` / `para-kurallari.ts`) kural girer; yoksa
+  mizandaki 120/320 alt hesabı carinin bakiyesinden ayrışır. Ölçüm:
+  `npm run test:canli -- lib/muhasebe/defter-tutarlilik` (salt okur; cari alt hesabı =
+  cari bakiyesi, kasa alt hesabı = kasa bakiyesi, her fiş dengeli).
+- **Kaydı yazan yol `muhasebeyeBildir(companyId, [{ tip, id }])` çağırır** —
+  transaction'dan SONRA (senkron ayrı bağlantıyla okur). Fırlatmaz; modül kapalıysa tek
+  sorguyla döner. Unutulan yol fişi eksik bırakmaz: Fişler/Ayarlar ekranı açılınca
+  mutabakat (`senkronla`) bütün kaynakları karşılaştırır.
+- Başlangıç sınırı kaynağın HAM tarihiyle sorulur (açılış fişiyle aynı eksen, `date <
+  başlangıç`); fiş tarihi İstanbul günüdür (`istanbulGunu`), FATURA fişi UTC günüdür
+  (`utcGunu` — KDV raporu ayı UTC'yle süzüyor).
+- **Onaylı fiş kendiliğinden değişmez:** kaynak değişince `sourceChangedAt` işaretlenir
+  ("Belge değişti" sekmesi), kullanıcı "Yeniden üret"e basar. Taslak fiş kaynakla
+  birlikte yenilenir; elle seçilmiş hesap (USER) korunur.
+- **Öğrenme yalnız ONAYDA** (`account_mapping_rules`); öğrenilen eşleşme bekleyen
+  taslaklara hemen yayılır (`taslaklariYenidenCoz`). Fişe yalnız AKTİF ve YAPRAK hesap
+  yazılır; hesap planına alt hesap açmak üstüne düşen taslak satırları hesapsız bırakır.
+- Fiş DENGELİDİR (`fisKur` dengesiz fişte fırlatır). Cari satırı BELGE TOPLAMIDIR;
+  kuruş farkı gelir/gider satırına katılır, KDV'ye dokunulmaz.
+- Dönem kapanışı (`kapanis.ts`) fişleri onaylı yazar ve `lockedUntil`le kilitler;
+  kilitli döneme yeni fiş açılmaz, mutabakat bunu "kilitli döneme düşen" diye sayar.
+- Ölçüm (uçtan uca): `node scripts/test-muhasebe.mjs` (dev sunucu açık, Reypo Medya;
+  açtığı her şeyi siler).
+
 ## Alış faturası: ödeme durumu + "çalışan cebinden ödedi" defteri
 
 Alış editöründe (Paraşüt düzeni, `components/e-donusum/alis-odeme-stok.tsx`) üç seçenek:

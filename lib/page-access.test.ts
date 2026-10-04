@@ -661,23 +661,27 @@ describe("navHrefsForPath — gerçek route → menü öğesi", () => {
     )
   })
 
-  it("muhasebe defteri menüsüz ama kapıya TABİ", () => {
-    // Katalogda olmadıkları sürece kapı onlara hiç uygulanmıyordu: yalnız cari izni
-    // olan biri /muhasebe/kebir adresini elle yazıp defteri okuyabiliyordu.
+  it("muhasebe sayfaları kapıya TABİ; okuma muhasebe ekranından, yazma ekranına göre", () => {
     expect(navHrefsForPath("/muhasebe/kebir")).toEqual(["/muhasebe/kebir"])
     expect(canAccessRoute(restricted("ADMIN", ["/cari/musteri"]), "/muhasebe/kebir")).toBe(false)
     expect(canAccessRoute(restricted("ADMIN", ["/muhasebe/kebir"]), "/muhasebe/kebir")).toBe(true)
-    // Okuma mali tablo izniyle de gelir; yazma yalnız defter sayfasıyla.
+    // Muhasebe ayrı modül (2026-10-04): mali tablo izni defteri OKUTMAZ.
     const mali = restricted("ACCOUNTANT", ["/raporlar/vergi"])
-    expect(isApiPathAllowedForUser("/api/muhasebe/kebir", "GET", mali)).toBe(true)
-    expect(isApiPathAllowedForUser("/api/muhasebe/fisler", "POST", mali)).toBe(false)
-    expect(
-      isApiPathAllowedForUser(
-        "/api/muhasebe/fisler",
-        "POST",
-        restricted("ADMIN", ["/muhasebe/yevmiye"], ["/muhasebe/yevmiye"])
-      )
-    ).toBe(true)
+    expect(isApiPathAllowedForUser("/api/muhasebe/kebir", "GET", mali)).toBe(false)
+    // Herhangi bir muhasebe ekranı defteri okur (mizan, kebir, fiş seçicisi ortak).
+    const mizanci = restricted("ACCOUNTANT", ["/muhasebe/mizan"])
+    expect(isApiPathAllowedForUser("/api/muhasebe/kebir", "GET", mizanci)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/muhasebe/fisler", "GET", mizanci)).toBe(true)
+    // Fiş onayı/hesap seçimi yalnız "Fişler" yazma izniyle.
+    expect(isApiPathAllowedForUser("/api/muhasebe/fisler/x", "POST", mizanci)).toBe(false)
+    const fisci = restricted("ACCOUNTANT", ["/muhasebe/fisler"], ["/muhasebe/fisler"])
+    expect(isApiPathAllowedForUser("/api/muhasebe/fisler/x", "POST", fisci)).toBe(true)
+    // "Sıradaki alt hesabı aç" fiş ekranından da yazılır; kurulum yalnız Ayarlar'dan.
+    expect(isApiPathAllowedForUser("/api/muhasebe/hesap-plani", "POST", fisci)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/muhasebe/ayarlar", "PUT", fisci)).toBe(false)
+    // Defterler yalnız okur.
+    const yevmiyeci = restricted("ADMIN", ["/muhasebe/yevmiye"], ["/muhasebe/yevmiye"])
+    expect(isApiPathAllowedForUser("/api/muhasebe/fisler", "POST", yevmiyeci)).toBe(false)
   })
 
   it("adisyon detayı masa/adisyon ekranlarına ait", () => {

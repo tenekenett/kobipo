@@ -206,6 +206,7 @@ export async function PUT(
         free,
         freeClaimed,
         suppressed: freeClaimed ? suppressed : company.suppressedModules,
+        isBranch: company.parentCompanyId != null,
       })
       const off = MODULE_KEYS.filter((k) => !open.includes(k))
       moduleLog +=

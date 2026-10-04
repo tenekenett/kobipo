@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isBillingCycle } from "@/lib/billing/constants"
+import { BRANCH_EXCLUDED_MODULES } from "@/lib/modules"
 import { isPaidActive, isTrialActive, resolveAccountRootId } from "@/lib/billing/entitlements"
 import { checkQuotaOnlyOrder } from "@/lib/billing/quota-order"
 import { resolvePackageOrderAmount } from "@/lib/billing/order-amount"
@@ -94,6 +95,27 @@ export const POST = withApiErrors(async function POST(request: Request) {
         },
         { status: 400 },
       )
+    }
+
+    // ŞUBEYE AÇILMAYAN MODÜL (Muhasebe): defter tüzel kişiye aittir, şube ana firmanın
+    // defterine yazar. Şube satın alsaydı modül açılmaz (`resolveOpenModules`) ama ödeme
+    // alınmış olurdu — ekran kartı gizliyor, kapı burada.
+    const chosen: string[] = Array.isArray(body?.chosenModules) ? body.chosenModules.map(String) : []
+    if (chosen.some((k) => BRANCH_EXCLUDED_MODULES.includes(k))) {
+      const self = await prisma.company.findUnique({
+        where: { id: companyId },
+        select: { parentCompanyId: true },
+      })
+      if (self?.parentCompanyId) {
+        return NextResponse.json(
+          {
+            error:
+              "Muhasebe modülü şubeden satın alınmaz: şubenin belgeleri ana firmanın defterine " +
+              "yazılır. Modülü ana firmadan alın.",
+          },
+          { status: 400 },
+        )
+      }
     }
 
     // Fiyat SUNUCUDA çözülür; "kodu uygula" ucu da aynı fonksiyonu çağırır ki ekranda

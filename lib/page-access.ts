@@ -90,6 +90,7 @@ const ALL_NAV_HREFS = NAV_PAGES.map((p) => p.href)
 const REPORT_PAGES = ALL_NAV_HREFS.filter((h) => h.startsWith("/raporlar/"))
 const PERSONNEL_PAGES = ALL_NAV_HREFS.filter((h) => h === "/personel" || h.startsWith("/personel/"))
 const RESTAURANT_PAGES = ALL_NAV_HREFS.filter((h) => h.startsWith("/restoran/"))
+const MUHASEBE_PAGES = ALL_NAV_HREFS.filter((h) => h.startsWith("/muhasebe/"))
 /** Adisyon/masa üçlüsü: aynı veriyi üç ekran da okur (kroki, liste, adisyon listesi). */
 const TICKET_PAGES = ["/restoran/masalar", "/restoran/masa-listesi", "/restoran/adisyonlar"]
 /** Belge düzenleyen ekranlar müşteri/ürün listesini kalem seçici olarak okur. */
@@ -493,24 +494,22 @@ export const PAGE_API_RULES: PageApiRule[] = [
   { prefix: "/api/raporlar/harcamalar", pages: ["/raporlar/finansal", "/raporlar/nakit-banka", "/raporlar/vergi", "/raporlar/alis"], writePages: [] },
   { prefix: "/api/raporlar", pages: REPORT_PAGES, writePages: [] },
 
-  // Muhasebe defterleri (yevmiye, kebir, hesap planı). Ekranları menüde YOK —
-  // mali tablolardan link veriliyor — ve 2026-08-20'ye kadar hiç kuralları yoktu:
-  // "kuralsız uç" varsayılanına düşüp okumada herkese açık, yazmada herkese kapalı
-  // kalıyorlardı. Sessiz bir muafiyet yerine SÖZLEŞMEYİ AÇIK yazmak doğrusu:
-  // defteri okumak mali tabloları okumakla aynı yetkidir, YAZMA ise hiçbir sayfaya
-  // bağlı değildir (`writePages: []`) — fiş kesme arayüzden yapılmıyor.
+  // ---- Muhasebe (2026-10-04, modül `accounting`) ---------------------------
+  // Defteri OKUMAK muhasebe ekranlarından birini açabilmektir; YAZMA ekranına göre
+  // ayrışır: fiş onayı/hesap seçimi "Fişler"de, alt hesap açma "Hesap Planı"nda (ve
+  // fişteki "sıradaki alt hesabı aç"), kurulum/kapanış/dönem kilidi "Ayarlar"da.
+  // Defterler ve mali tablolar yalnız okur.
   //
-  // Muhasebe menüye alınırsa: `NAV_PAGES`'e sayfayı ekleyip `pages`/`writePages`'i
-  // ona bağlayın; kuralı silmeyin.
-  {
-    prefix: "/api/muhasebe",
-    // Defteri OKUMAK mali tabloları okumakla aynı yetkidir; defterin kendi katalog
-    // sayfaları da listede (menüde görünmeseler de role verilebiliyorlar).
-    pages: ["/muhasebe/yevmiye", "/muhasebe/kebir", "/raporlar/nakit-banka", "/raporlar/vergi"],
-    // YAZMA yalnız defter sayfalarına bağlı: "kâr-zararı gören yevmiye fişi keser"
-    // olmasın. Bugün arayüzden hiç POST yapılmıyor, ama sözleşme yazılı durur.
-    writePages: ["/muhasebe/yevmiye", "/muhasebe/kebir"],
-  },
+  // Eskiden (menüsüz dönemde) mali tablo sayfaları da defteri okuyabiliyordu; muhasebe
+  // ayrı, satın alınan bir modül olunca bu bağ kalktı — kapı zaten modülü soruyor.
+  { prefix: "/api/muhasebe", pages: MUHASEBE_PAGES, writePages: [] },
+  { prefix: "/api/muhasebe/fisler", pages: MUHASEBE_PAGES, writePages: ["/muhasebe/fisler"] },
+  // Senkron (belge → taslak fiş) YAZAR: Fişler açılırken ve kurulumda çalışır.
+  { prefix: "/api/muhasebe/mutabakat", pages: MUHASEBE_PAGES, writePages: ["/muhasebe/fisler", "/muhasebe/ayarlar"] },
+  { prefix: "/api/muhasebe/hesap-plani", pages: MUHASEBE_PAGES, writePages: ["/muhasebe/hesap-plani", "/muhasebe/fisler"] },
+  { prefix: "/api/muhasebe/ayarlar", pages: MUHASEBE_PAGES, writePages: ["/muhasebe/ayarlar"] },
+  // Dönem kapanışı defteri kilitler: yalnız Ayarlar yazar.
+  { prefix: "/api/muhasebe/kapanis", pages: ["/muhasebe/ayarlar", "/muhasebe/mali-tablolar"], writePages: ["/muhasebe/ayarlar"] },
 
   // ---- İşletme asistanı --------------------------------------------------
   // Asistan paneli menüde bir sayfa DEĞİL; her panel ekranının sağ alt köşesinde

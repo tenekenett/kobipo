@@ -29,6 +29,13 @@ export interface ModuleDef {
    * anlamsız; ayrıca reçete sayfası "Stok" nav grubunda yaşıyor.
    */
   requires?: string[]
+  /**
+   * Şubeye AÇILMAZ — yalnız tüzel kişide (ana firma / ek firma) satın alınır.
+   * Muhasebe: defter tüzel kişiye aittir; şube ana firmanın VKN'siyle belge keser ve
+   * belgeleri ana firmanın defterine fiş üretir (docs/muhasebe/MOTOR-PLAN.md, karar
+   * 2026-10-04). Şubede modül açık olsaydı menü ikinci, boş bir defter gösterirdi.
+   */
+  notForBranches?: true
 }
 
 export const MANAGEABLE_MODULES: ModuleDef[] = [
@@ -75,6 +82,13 @@ export const MANAGEABLE_MODULES: ModuleDef[] = [
     description: "Menü, reçeteli stok düşümü, kahveci satış ekranı, günlük karlılık",
     requires: ["stock"],
   },
+  {
+    key: "accounting",
+    group: "Muhasebe",
+    label: "Muhasebe",
+    description: "Belgeden otomatik yevmiye fişi, onay, mizan, kebir, mali tablolar",
+    notForBranches: true,
+  },
 ]
 
 export const MODULE_KEYS = MANAGEABLE_MODULES.map((m) => m.key)
@@ -117,6 +131,9 @@ export const MODULE_GROUP_TO_KEY: Record<string, string> = Object.fromEntries(
   MANAGEABLE_MODULES.map((m) => [m.group, m.key])
 )
 
+/** Şubeye açılmayan modüller (`notForBranches`). */
+export const BRANCH_EXCLUDED_MODULES = MANAGEABLE_MODULES.filter((m) => m.notForBranches).map((m) => m.key)
+
 /** Bilinmeyen anahtarları eler, benzersizleştirir. */
 export function sanitizeDisabledModules(input: unknown): string[] {
   if (!Array.isArray(input)) return []
@@ -140,7 +157,9 @@ export function isModuleEnabled(disabledModules: string[] | undefined | null, ke
  * (app/api/billing/pricing/route.ts); burası ikinci savunmadır.
  */
 export function sanitizeFreeModules(input: unknown): string[] {
-  const set = new Set(sanitizeDisabledModules(input))
+  // Şubeye açılmayan modül ücretsiz OLAMAZ: ücretsiz küme paketi almış HER firmada
+  // (şubeler dahil) açılır ve `syncFreeModuleGrants` şube ayrımı yapmaz.
+  const set = new Set(sanitizeDisabledModules(input).filter((k) => !BRANCH_EXCLUDED_MODULES.includes(k)))
   let changed = true
   while (changed) {
     changed = false
@@ -193,6 +212,11 @@ export function resolveOpenModules(input: {
   freeClaimed: boolean
   /** Elle kapatılan temel modüller (`Company.suppressedModules`). */
   suppressed?: string[]
+  /**
+   * Firma ŞUBE mi (`parentCompanyId` dolu). Şubede `notForBranches` modüller hiçbir
+   * kanaldan (satın alma, bedelsiz verme) açılmaz. Verilmezse süzme yapılmaz.
+   */
+  isBranch?: boolean
 }): string[] {
   const free = sanitizeFreeModules(input.free)
   const freeSet = new Set(free)
@@ -203,7 +227,7 @@ export function resolveOpenModules(input: {
     ...granted,
     ...sanitizeDisabledModules(input.gifted ?? []),
     ...(input.freeClaimed ? free : []),
-  ])
+  ]).filter((k) => !(input.isBranch && BRANCH_EXCLUDED_MODULES.includes(k)))
   return applySuppression(open, input.suppressed ?? [])
 }
 

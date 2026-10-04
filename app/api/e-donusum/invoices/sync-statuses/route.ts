@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
@@ -114,6 +115,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
               createdBy: user.id,
             })
           })
+          await muhasebeyeBildir(companyId, [{ tip: "INVOICE", id: inv.id }])
           voided++
         } else {
           // Ham durumu integrationStatus'e yaz (geçersiz kılmadan).

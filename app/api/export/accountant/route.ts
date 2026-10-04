@@ -6,6 +6,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyExport } from "@/lib/middleware/company"
+import { defterSahibiId } from "@/lib/muhasebe/defter.server"
 
 export const dynamic = "force-dynamic"
 
@@ -39,11 +40,22 @@ export const GET = withApiErrors(async function GET(request: Request) {
         }
       : undefined
 
-  const [entries, invoices, transactions, customers, suppliers] = await Promise.all([
-    prisma.accountingEntry.findMany({
-      where: { companyId, ...(dateWhere ? { date: dateWhere } : {}) },
-      include: { debitAccount: true, creditAccount: true },
-      orderBy: { date: "asc" },
+  // Yevmiye muhasebe modülünün ONAYLI fişlerinden (defter tüzel kişide: şubede ana firma).
+  const defterId = await defterSahibiId(companyId)
+  const [lines, invoices, transactions, customers, suppliers] = await Promise.all([
+    prisma.journalVoucherLine.findMany({
+      where: {
+        companyId: defterId,
+        voucher: { status: "POSTED", ...(dateWhere ? { date: dateWhere } : {}) },
+      },
+      select: {
+        side: true,
+        amount: true,
+        description: true,
+        account: { select: { code: true, name: true } },
+        voucher: { select: { voucherNo: true, date: true, description: true } },
+      },
+      orderBy: [{ voucher: { date: "asc" } }, { voucher: { voucherNo: "asc" } }, { order: "asc" }],
     }),
     prisma.invoice.findMany({
       // Dönüştürülmüş fişler hariç (yerine konsolide fatura gelir; çift kayıt olmaz).
@@ -62,15 +74,17 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
   const csv = {
     yevmiye: [
-      toCsvRow(["FisNo", "Tarih", "Aciklama", "BorcHesap", "AlacakHesap", "Tutar"]),
-      ...entries.map((entry) =>
+      toCsvRow(["FisNo", "Tarih", "FisAciklama", "HesapKodu", "HesapAdi", "Borc", "Alacak", "SatirAciklama"]),
+      ...lines.map((l) =>
         toCsvRow([
-          entry.entryNo,
-          entry.date.toISOString(),
-          entry.description,
-          `${entry.debitAccount.code} ${entry.debitAccount.name}`,
-          `${entry.creditAccount.code} ${entry.creditAccount.name}`,
-          Number(entry.amount),
+          l.voucher.voucherNo,
+          l.voucher.date.toISOString().slice(0, 10),
+          l.voucher.description,
+          l.account?.code ?? "",
+          l.account?.name ?? "",
+          l.side === "DEBIT" ? Number(l.amount) : 0,
+          l.side === "CREDIT" ? Number(l.amount) : 0,
+          l.description,
         ])
       ),
     ].join("\n"),

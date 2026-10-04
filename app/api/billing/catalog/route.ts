@@ -8,6 +8,8 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { isPaytrEnabled } from "@/lib/integrations/paytr/client"
 import { getSellablePlans, ensureDefaultPricingItems } from "@/lib/billing/catalog"
 import { freeModulesFromPricingItems } from "@/lib/billing/free-modules"
+import { modulePriceKey } from "@/lib/billing/constants"
+import { BRANCH_EXCLUDED_MODULES } from "@/lib/modules"
 import {
   getCompanySubscription,
   resolveAccountRootId,
@@ -67,7 +69,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
     // ekranın açık olduğu firmanın satırı okunur.
     prisma.company.findUnique({
       where: { id: companyId },
-      select: { suppressedModules: true, freeModulesClaimedAt: true },
+      select: { suppressedModules: true, freeModulesClaimedAt: true, parentCompanyId: true },
     }),
     // Kök firmanın adı: şubede "kotayı ana firmadan alın" cümlesi adıyla yazılır.
     prisma.company.findUnique({
@@ -99,7 +101,12 @@ export const GET = withApiErrors(async function GET(request: Request) {
     paytrEnabled: isPaytrEnabled(),
     currency: "TRY",
     plans,
-    pricing: pricing.filter((p) => p.isActive || p.isFree),
+    // Şubeye açılmayan modül (Muhasebe) şubenin ekranında hiç gösterilmez; sipariş ucu da reddeder.
+    pricing: pricing.filter(
+      (p) =>
+        (p.isActive || p.isFree) &&
+        !(company?.parentCompanyId && BRANCH_EXCLUDED_MODULES.some((k) => p.key === modulePriceKey(k))),
+    ),
     // TEMEL modüller: bedelsizdir ama firma ücretsiz paketi almadıkça açılmaz
     // (2026-09-25). Ekran bunları "Ücretsiz" olarak işaretler ve seçimden çıkarılamaz
     // yapar; tutar hesabı da bunları atlar (lib/billing/pricing.ts → computeOrder).

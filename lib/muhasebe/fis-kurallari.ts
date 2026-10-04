@@ -31,23 +31,16 @@
 
 import { kdvyeGirerMi } from "@/lib/raporlar/kdv-kural"
 import { belgedekiKalem, faturaAltiCarpani, type KayitliKalem } from "@/lib/raporlar/fatura-alti"
+import {
+  satirEminMi,
+  type FisSatiri,
+  type HazirFis,
+  type HesapEslesmeleri,
+  type SatirRolu,
+  type Taraf,
+} from "@/lib/muhasebe/fis"
 
-export type Taraf = "B" | "A"
-
-export type SatirRolu =
-  | "CARI"
-  | "SATIS"
-  | "SATIS_IADE"
-  | "ALIS"
-  | "KDV_HESAPLANAN"
-  | "KDV_INDIRILECEK"
-  | "TEVKIFAT"
-  | "OTV"
-  | "DIGER_VERGI"
-  | "YUVARLAMA"
-
-/** Satırın hesabı nereden geldi. */
-export type HesapKaynagi = "ogrenilen" | "cari" | "varsayilan" | "yok"
+export type { FisSatiri, HesapEslesmeleri, HesapKaynagi, SatirRolu, Taraf } from "@/lib/muhasebe/fis"
 
 export type FisKalemi = KayitliKalem & {
   productId?: string | null
@@ -72,50 +65,21 @@ export type FisBelgesi = {
   payableRoundingAmount?: unknown
   totalAmount: unknown
   /** Satışta müşteri, alışta tedarikçi; carisiz (perakende) belgede null. */
-  cari: { id: string; ad: string } | null
+  /**
+   * `tur` verilirse cari o türdür: karşı yönlü (mahsup) belgede — müşteriye kesilen alış,
+   * tedarikçiye kesilen satış — cari bakiyesi belgeyi DOLU olan carinin hesabına yazar
+   * (lib/cari/bakiye-asof.ts); fiş de oraya yazmalı.
+   */
+  cari: { id: string; ad: string; tur?: "musteri" | "tedarikci" } | null
   kalemler: FisKalemi[]
 }
 
-export type HesapEslesmeleri = {
-  /** Öğrenme anahtarı → hesap kodu (ör. "alis:urun:<id>" → "770.01.003"). */
-  ogrenilen: Readonly<Record<string, string>>
-  /** Cari id → cari alt hesap kodu (120.… / 320.…). */
-  cariHesaplari: Readonly<Record<string, string>>
-}
-
-export type FisSatiri = {
-  taraf: Taraf
-  /** TL, kuruşa yuvarlı, sıfırdan büyük. */
-  tutar: number
-  rol: SatirRolu
-  /** Fişe yazılacak hesap; bilinmiyorsa null (fiş onaylanamaz). */
-  hesapKodu: string | null
-  /** Hesap seçilirken önerilecek ana hesap. */
-  oneriKodu: string
-  kaynak: HesapKaynagi
-  /** Hesap değiştirilirse öğrenilecek anahtar(lar). */
-  anahtarlar: string[]
-  aciklama: string
-}
-
 export type FisTaslagi =
-  | {
-      durum: "hazir"
+  | (HazirFis & {
       belgeId: string
-      tarih: Date
-      aciklama: string
-      satirlar: FisSatiri[]
-      borcToplami: number
-      alacakToplami: number
-      /**
-       * Toplu onaya uygun mu: her satırın hesabı belli ve hiçbiri riskli bir
-       * tahmin değil (alış gider/stok varsayılanı risklidir; KDV, vergi ve satış
-       * varsayılanı değildir).
-       */
-      emin: boolean
       /** Cari satırı − belgenin TL toplamı (kuruş yuvarlaması; bilgi). */
       belgeFarki: number
-    }
+    })
   | { durum: "fise-girmez"; sebep: string }
   | { durum: "kur-yok"; sebep: string }
 
@@ -132,18 +96,6 @@ const VARSAYILAN = {
   yuvarlamaGelir: "649",
   yuvarlamaGider: "659",
 } as const
-
-/** Varsayılanı riskli OLMAYAN roller — `emin` hesabı. Alış (153/770) tahmindir. */
-const GUVENLI_VARSAYILAN = new Set<SatirRolu>([
-  "SATIS",
-  "SATIS_IADE",
-  "KDV_HESAPLANAN",
-  "KDV_INDIRILECEK",
-  "TEVKIFAT",
-  "OTV",
-  "DIGER_VERGI",
-  "YUVARLAMA",
-])
 
 const ROL_SIRASI: SatirRolu[] = [
   "CARI",
@@ -347,11 +299,28 @@ export function belgeFisTaslagi(belge: FisBelgesi, eslesme: HesapEslesmeleri): F
     satirlar.push({ ...s, tutar: Math.abs(tutar), taraf: iade ? ters(taraf) : taraf })
   }
 
-  // Cari satırı fişi dengeler.
+  // Cari satırı fişi dengeler ve BELGE TOPLAMIDIR: cari bakiyesi ve ödemeler o tutarı
+  // kapatır. Satırların kuruşa yuvarlanmış toplamı belgeden kuruş sapabilir (belge her
+  // kalemi ayrı yuvarlar; fiş KDV oranı bazında birleştirir): sapma en büyük gelir/gider
+  // satırına katılır, KDV'ye dokunulmaz — KDV raporuyla aynı kalsın. Canlı ölçüm
+  // (2026-10-04): 1.091 fişte 4 cari 1–3 kuruş sapıyordu.
   const toplam = (t: Taraf) => satirlar.filter((s) => s.taraf === t).reduce((a, s) => a + s.tutar, 0)
-  const fark = r2(toplam("A") - toplam("B"))
+  let fark = r2(toplam("A") - toplam("B"))
+  const belgeToplami = r2(num(belge.totalAmount) * kur)
+  const sapma = r2(belgeToplami - Math.abs(fark))
+  if (fark !== 0 && sapma !== 0 && Math.abs(sapma) <= Math.max(0.05, 0.01 * belge.kalemler.length)) {
+    const cariTaraf: Taraf = fark > 0 ? "B" : "A"
+    const hedef = satirlar
+      .filter((s) => s.taraf !== cariTaraf && (s.rol === "SATIS" || s.rol === "SATIS_IADE" || s.rol === "ALIS"))
+      .sort((a, b) => b.tutar - a.tutar)[0]
+    if (hedef && hedef.tutar + sapma > 0) {
+      hedef.tutar = r2(hedef.tutar + sapma)
+      fark = r2(toplam("A") - toplam("B"))
+    }
+  }
+  const cariTuru = belge.cari?.tur ?? (alis ? "tedarikci" : "musteri")
   const cariHesabi = belge.cari ? eslesme.cariHesaplari[belge.cari.id] ?? null : null
-  const cariOneri = alis ? VARSAYILAN.tedarikci : VARSAYILAN.musteri
+  const cariOneri = cariTuru === "tedarikci" ? VARSAYILAN.tedarikci : VARSAYILAN.musteri
   if (fark !== 0) {
     satirlar.push({
       taraf: fark > 0 ? "B" : "A",
@@ -362,6 +331,13 @@ export function belgeFisTaslagi(belge: FisBelgesi, eslesme: HesapEslesmeleri): F
       kaynak: cariHesabi ? "cari" : "yok",
       anahtarlar: [],
       aciklama: belge.cari ? belge.cari.ad : alis ? "Tedarikçi (cari yok)" : "Perakende (cari yok)",
+      // Çözüm katmanı cari alt hesabını buradan açar/bulur; carisiz belge ortak
+      // "perakende / diğer satıcılar" alt hesabına yazılır.
+      alt: {
+        tur: cariTuru,
+        id: belge.cari?.id ?? null,
+        ad: belge.cari?.ad ?? (alis ? "Diğer Satıcılar" : "Perakende Müşteriler"),
+      },
     })
   }
 
@@ -371,7 +347,6 @@ export function belgeFisTaslagi(belge: FisBelgesi, eslesme: HesapEslesmeleri): F
   )
 
   const cariSatiri = satirlar.find((s) => s.rol === "CARI")
-  const belgeToplami = r2(num(belge.totalAmount) * kur)
   const turAdi = iade ? (alis ? "alış iadesi" : "satış iadesi") : alis ? "alış" : belge.isReceipt ? "satış fişi" : "satış"
 
   return {
@@ -379,12 +354,13 @@ export function belgeFisTaslagi(belge: FisBelgesi, eslesme: HesapEslesmeleri): F
     belgeId: belge.id,
     tarih: new Date(belge.tarih),
     aciklama: [belge.no, turAdi, belge.cari?.ad].filter(Boolean).join(" · "),
+    tur: "MAHSUP",
     satirlar,
     borcToplami: r2(toplam("B")),
     alacakToplami: r2(toplam("A")),
-    emin: satirlar.every(
-      (s) => s.hesapKodu !== null && (s.kaynak !== "varsayilan" || GUVENLI_VARSAYILAN.has(s.rol)),
-    ),
+    // Cari satırı hesabı çözülmemişse (alt hesap henüz açılmadıysa) çözüm katmanı
+    // açar; burada yalnız hesabı belli olmayan ya da riskli varsayılan satır engeller.
+    emin: satirlar.every((s) => (s.rol === "CARI" && s.hesapKodu === null ? true : satirEminMi(s))),
     belgeFarki: r2((cariSatiri?.tutar ?? 0) - belgeToplami),
   }
 }

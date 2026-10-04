@@ -1,127 +1,51 @@
 import { NextResponse } from "next/server"
-import { resolveCompanyId } from "@/lib/company/resolve-company"
-import { getCurrentUser } from "@/lib/auth/session"
-import { prisma } from "@/lib/db/prisma"
-import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
-import { Decimal } from "@prisma/client/runtime/library"
-import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
-import { assertOwnedByCompany } from "@/lib/company/owned"
+import { gunParam, jsonGovde, kuruluDefter, muhasebeGirisi, muhasebeUcu } from "@/lib/muhasebe/istek.server"
+import { fisListesi, fisSekmesiMi, type FisSekmesi } from "@/lib/muhasebe/fis-liste.server"
+import { elleFisKaydet, elleSatirlariAyikla } from "@/lib/muhasebe/manuel.server"
+import { FisHatasi } from "@/lib/muhasebe/onay.server"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
-export const GET = withApiErrors(async function GET(request: Request) {
-  try {
-    const user = await getCurrentUser()
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+const SAYFA = 50
 
-    const { searchParams } = new URL(request.url)
-    const companyId = await resolveCompanyId(searchParams.get("companyId"))
-    const startDate = searchParams.get("startDate")
-    const endDate = searchParams.get("endDate")
-
-    if (!companyId) {
-      return NextResponse.json(
-        { error: "companyId is required" },
-        { status: 400 }
-      )
-    }
-
-    await ensureCompanyAccess(companyId)
-
-    const where: any = { companyId }
-    if (startDate && endDate) {
-      where.date = {
-        gte: new Date(startDate),
-        lte: new Date(endDate),
-      }
-    }
-
-    const entries = await prisma.accountingEntry.findMany({
-      where,
-      include: {
-        debitAccount: true,
-        creditAccount: true,
-      },
-      orderBy: { date: "desc" },
-    })
-
-    return NextResponse.json(entries)
-  } catch (error: any) {
-    if (error.message.includes("Access denied")) {
-      return accessDeniedResponse(error)
-    }
-    console.error("Error fetching entries:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
-  }
+/**
+ * Muhasebe fişleri.
+ *
+ * GET  ?companyId&sekme=emin|gozden|degisti|onayli|tum&bas&bit&tip&q&sayfa
+ *      → { fisler, toplam, sayilar } (sayılar her sekme için, aynı süzgeçle)
+ * POST { companyId, tarih, aciklama, satirlar: [{side, amount, accountId, description}] }
+ *      → elle (mahsup) fiş — taslak doğar
+ */
+export const GET = muhasebeUcu(async (request: Request) => {
+  const sp = new URL(request.url).searchParams
+  const { ctx } = await muhasebeGirisi(sp.get("companyId"))
+  const defter = kuruluDefter(ctx)
+  const hamSekme = sp.get("sekme")
+  const sekme: FisSekmesi = fisSekmesiMi(hamSekme) ? hamSekme : "emin"
+  const sayfa = Math.max(1, Number(sp.get("sayfa")) || 1)
+  const sonuc = await fisListesi(
+    defter.defterId,
+    {
+      sekme,
+      bas: gunParam(sp.get("bas"), "Başlangıç"),
+      bit: gunParam(sp.get("bit"), "Bitiş"),
+      kaynakTipi: sp.get("tip") || null,
+      arama: sp.get("q"),
+    },
+    { atla: (sayfa - 1) * SAYFA, al: SAYFA },
+  )
+  return NextResponse.json({ ...sonuc, sayfa, sayfaBoyu: SAYFA })
 })
 
-export const POST = withApiErrors(async function POST(request: Request) {
-  try {
-    const user = await getCurrentUser()
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const body = await request.json()
-    body.companyId = await resolveCompanyId(body.companyId)
-    const {
-      companyId,
-      entryNo,
-      date,
-      description,
-      debitAccountId,
-      creditAccountId,
-      amount,
-      reference,
-      referenceType,
-    } = body
-
-    if (!companyId || !entryNo || !debitAccountId || !creditAccountId || !amount) {
-      return NextResponse.json(
-        { error: "Required fields missing" },
-        { status: 400 }
-      )
-    }
-
-    await ensureCompanyWrite(companyId)
-
-    // Sahiplik: borç/alacak hesabı bu firmanın hesap planından olmalı.
-    await assertOwnedByCompany(companyId, { accountPlan: [debitAccountId, creditAccountId] })
-
-    const entry = await prisma.accountingEntry.create({
-      data: {
-        companyId,
-        entryNo,
-        date: date ? new Date(date) : new Date(),
-        description: description || null,
-        debitAccountId,
-        creditAccountId,
-        amount: new Decimal(amount),
-        reference: reference || null,
-        referenceType: referenceType || null,
-        createdBy: user.id,
-      },
-      include: {
-        debitAccount: true,
-        creditAccount: true,
-      },
-    })
-
-    return NextResponse.json(entry, { status: 201 })
-  } catch (error: any) {
-    if (error.message.includes("Access denied")) {
-      return accessDeniedResponse(error)
-    }
-    console.error("Error creating entry:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
-  }
+export const POST = muhasebeUcu(async (request: Request) => {
+  const body = await jsonGovde(request)
+  const { ctx, kullaniciId } = await muhasebeGirisi(body.companyId as string, { yazma: true })
+  const tarih = gunParam(body.tarih, "Tarih")
+  if (!tarih) throw new FisHatasi("Fiş tarihi seçin.")
+  const fis = await elleFisKaydet(
+    kuruluDefter(ctx),
+    { tarih, aciklama: String(body.aciklama ?? ""), satirlar: elleSatirlariAyikla(body.satirlar) },
+    kullaniciId,
+  )
+  return NextResponse.json(fis, { status: 201 })
 })
-

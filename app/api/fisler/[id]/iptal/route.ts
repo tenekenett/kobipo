@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { Prisma } from "@prisma/client"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -176,6 +177,12 @@ export const POST = withApiErrors(async function POST(
         data: { status: "CANCELLED" },
       })
     })
+
+    // Muhasebe: iptal edilen fişin ve silinen kasa hareketlerinin fişleri.
+    await muhasebeyeBildir(companyId, [
+      { tip: "INVOICE", id: receipt.id },
+      ...ownTransactionIds.map((id) => ({ tip: "TRANSACTION" as const, id })),
+    ])
 
     revalidateDashboard(companyId)
 

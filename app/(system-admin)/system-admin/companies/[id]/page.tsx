@@ -496,6 +496,7 @@ export default async function CompanyDetailPage({
           initialFreeClaimed={company.freeModulesClaimedAt != null}
           accountName={accountRootName}
           accountCompanyCount={accountCompanyCount}
+          isBranch={company.parentCompanyId != null}
         />
 
         {/* Şube + ek firma kotası. Kotalar hesap kökünde tutulur; bu firma bir şube ya da

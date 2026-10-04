@@ -5,6 +5,7 @@
 // lib/invoice/create-invoice.ts başlığı, lib/api/write-actor.ts, docs/okc/ASAMA1-KOBIPO.md A5.
 
 import { NextResponse } from "next/server"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
@@ -130,6 +131,7 @@ export async function createInvoicePayment(
           invoice: { select: { id: true, invoiceNo: true, totalAmount: true } },
         },
       })
+      await muhasebeyeBildir(companyId, [{ tip: "PAYMENT", id: writeOff.id }])
       revalidateDashboard(companyId)
       return NextResponse.json(
         { ...writeOff, account: null, accountDefaulted: false, accountCreated: false },
@@ -202,6 +204,7 @@ export async function createInvoicePayment(
         })
         return created
       })
+      await muhasebeyeBildir(companyId, [{ tip: "PAYMENT", id: employeePaid.id }])
       revalidateDashboard(companyId)
       return NextResponse.json(
         {
@@ -316,6 +319,9 @@ export async function createInvoicePayment(
         },
       })
     })
+
+    // Muhasebe: ödeme kasa hareketiyle fişlenir (tahsil/tediye fişi).
+    if (payment.transactionId) await muhasebeyeBildir(companyId, [{ tip: "TRANSACTION", id: payment.transactionId }])
 
     // Pano "satış yapıldığı anda" güncellensin: 20 sn'lik önbellek düşürülür.
     revalidateDashboard(companyId)

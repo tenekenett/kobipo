@@ -24,6 +24,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { trEqualsIds } from "@/lib/db/tr-search"
 import { trFold } from "@/lib/text/tr-fold"
 import {
@@ -593,6 +594,7 @@ export async function runFaturaImport(
     if (!isPurchase && data?.id) {
       try {
         await prisma.invoice.update({ where: { id: data.id }, data: { status: "SENT" } })
+        await muhasebeyeBildir(companyId, [{ tip: "INVOICE", id: data.id }])
       } catch (error: any) {
         warnings.push(
           `${plan.invoiceNo} yazıldı ama onaylanamadı (taslak kaldı): ${error?.message || "bilinmeyen hata"} — faturayı açıp Onayla'ya basın.`,

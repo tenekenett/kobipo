@@ -284,11 +284,19 @@ export default function AbonelikPage() {
     () => new Set(catalog?.suppressedModules ?? []),
     [catalog],
   )
-  /** Ekranda gösterilecek modüller (kapatılanlar hariç). */
-  const visibleModules = useMemo(
-    () => MANAGEABLE_MODULES.filter((m) => !suppressedModuleSet.has(m.key)),
-    [suppressedModuleSet],
-  )
+  /**
+   * Ekranda gösterilecek modüller: kapatılanlar hariç, katalogda SATILANLAR (aktif ya da
+   * ücretsiz fiyat kalemi — sunucu şubeye açılmayan modülü de oradan düşer) ve zaten
+   * alınmış olanlar. Fiyatı girilmemiş yeni modül (Muhasebe, kalemi pasif doğar) "—"
+   * etiketiyle seçilebilir görünüp siparişte reddedilmesin.
+   */
+  const visibleModules = useMemo(() => {
+    const satilan = new Set((catalog?.pricing ?? []).map((p) => p.key))
+    const alinmis = new Set(catalog?.subscription?.purchasedModules ?? [])
+    return MANAGEABLE_MODULES.filter(
+      (m) => !suppressedModuleSet.has(m.key) && (satilan.has(`module:${m.key}`) || alinmis.has(m.key)),
+    )
+  }, [suppressedModuleSet, catalog])
   /** Kullanıcının ödemeden sahip olduğu modüller: pakete dahil olanlar + ücretsizler. */
   const grantedModuleSet = useMemo(
     () => new Set([...includedModuleSet, ...freeModuleSet]),

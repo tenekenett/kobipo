@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { Prisma } from "@prisma/client"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -124,6 +125,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
     }
   }
 
+  await muhasebeyeBildir(companyId, [{ tip: "VIRMAN", id: virman.id }])
   revalidateDashboard(companyId)
 
   return NextResponse.json(

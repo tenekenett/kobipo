@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
@@ -130,6 +131,8 @@ export const POST = withApiErrors(async function POST(
         data: { integrationStatus, ...(eDocumentNo ? { eDocumentNo } : {}) },
       })
     }
+    // İptal/red belgeyi fişten çıkarır; e-belge no fiş açıklamasına girer.
+    await muhasebeyeBildir(invoice.companyId, [{ tip: "INVOICE", id: invoice.id }])
 
     return NextResponse.json({
       success: true,

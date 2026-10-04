@@ -1,4 +1,5 @@
 import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { parseYearParam, parseMonthParam } from "@/lib/http/query-params"
 
 import { NextResponse } from "next/server"
@@ -81,6 +82,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       },
       include: { employee: { select: { id: true, firstName: true, lastName: true, department: true } } },
     })
+    await muhasebeyeBildir(companyId, [{ tip: "PAYROLL", id: record.id }])
     return NextResponse.json(record, { status: 201 })
   } catch (error: any) {
     // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.

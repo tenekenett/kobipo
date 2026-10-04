@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { parseDateParam } from "@/lib/http/query-params"
 import { badRequestResponse } from "@/lib/api/errors"
 
@@ -332,6 +333,9 @@ export const POST = withApiErrors(async function POST(request: Request) {
 
       return created
     })
+
+    // Muhasebe: hareketin taslak fişi (virmanın giriş bacağı kaynak bacağın fişinde).
+    await muhasebeyeBildir(companyId, [{ tip: "TRANSACTION", id: transaction.id }])
 
     revalidateDashboard(companyId)
 

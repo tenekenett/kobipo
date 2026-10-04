@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { prisma } from "@/lib/db/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
 import { ensureCompanyWrite } from "@/lib/middleware/company";
@@ -75,6 +76,7 @@ export const GET = withApiErrors(async function GET(
         data: { integrationStatus },
       });
     }
+    await muhasebeyeBildir(invoice.companyId, [{ tip: "INVOICE", id: invoice.id }]);
 
     return NextResponse.json(statusResult);
   } catch (error: any) {

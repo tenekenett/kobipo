@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
 import { generateInvoiceNumber } from "@/lib/utils/invoice-number"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
-import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { invoiceTotalsFromStoredItems } from "@/lib/invoice/document-totals"
 
 export const dynamic = "force-dynamic"
@@ -195,26 +195,12 @@ export const POST = withApiErrors(async function POST(request: Request) {
       return created
     })
 
-    // Otomatik muhasebe fişi: yalnızca satış faturasında (fişler oluşturmamıştı).
-    // Tek yazım yeri lib/invoice/auto-entries.ts; tarih faturanın tarihidir.
-    if (isSales) {
-      try {
-        await syncInvoiceAutoEntries(prisma, {
-          companyId,
-          invoiceId: invoice.id,
-          invoiceNo: invoice.invoiceNo,
-          date: invoice.date,
-          type: "SALES",
-          isReceipt: false,
-          netAmount,
-          vatAmount,
-          createdBy: user.id,
-          suffix: "(fişten dönüştürme)",
-        })
-      } catch (e) {
-        console.error("[Fiş dönüştürme] muhasebe fişi oluşturulamadı:", e)
-      }
-    }
+    // Muhasebe: yeni faturanın fişi açılır, faturaya dönüşen (CONVERTED) fişlerin taslak
+    // fişleri silinir — aynı satış iki kez deftere girmesin.
+    await muhasebeyeBildir(companyId, [
+      { tip: "INVOICE", id: invoice.id },
+      ...receiptIds.map((id: string) => ({ tip: "INVOICE" as const, id })),
+    ])
 
     return NextResponse.json(
       { id: invoice.id, invoiceNo: invoice.invoiceNo, slug: invoice.slug, count: receipts.length },

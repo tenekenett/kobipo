@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { kiymetiBildir } from "@/lib/muhasebe/senkron.server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -227,6 +228,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       return created
       })
 
+      await kiymetiBildir(check.companyId, "CHECK", check.id)
       return NextResponse.json(check, { status: 201 })
     } else {
       const {
@@ -294,6 +296,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       return created
       })
 
+      await kiymetiBildir(note.companyId, "NOTE", note.id)
       return NextResponse.json(note, { status: 201 })
     }
   } catch (error: any) {

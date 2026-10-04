@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import {
   getSeriesTemplateOverride,
   getXsltNameForSeries,
@@ -765,6 +766,8 @@ export async function finalizeGibDraft(invoiceId: string): Promise<SendInvoiceRe
         ...(response.docNo ? { eDocumentNo: response.docNo } : {}),
       },
     })
+    // GİB'e giden e-belge KDV'ye ve deftere bu an girer: taslak yevmiye fişi açılır.
+    await muhasebeyeBildir(invoice.companyId, [{ tip: "INVOICE", id: invoice.id }])
     return { ok: true, uuid: invoice.uuid, providerName: ctx.provider.name }
   }
 

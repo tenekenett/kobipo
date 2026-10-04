@@ -22,6 +22,7 @@
 
 import { prisma } from "@/lib/db/prisma"
 import {
+  BRANCH_EXCLUDED_MODULES,
   MODULE_KEYS,
   resolveOpenModules,
   sanitizeDisabledModules,
@@ -249,7 +250,12 @@ export async function applyEntitlements(companyId: string, grantedModules: strin
 
   const company = await prisma.company.findUnique({
     where: { id: companyId },
-    select: { suppressedModules: true, grantedModules: true, freeModulesClaimedAt: true },
+    select: {
+      suppressedModules: true,
+      grantedModules: true,
+      freeModulesClaimedAt: true,
+      parentCompanyId: true,
+    },
   })
   if (!company) return
 
@@ -262,6 +268,8 @@ export async function applyEntitlements(companyId: string, grantedModules: strin
     gifted: company.grantedModules,
     free,
     freeClaimed: company.freeModulesClaimedAt != null,
+    // Şubeye açılmayan modüller (Muhasebe) hiçbir kanaldan açılmaz.
+    isBranch: company.parentCompanyId != null,
   }
 
   // Arşiv ölçüsüne ücretsizler girmez ama BEDELSİZ verilenler girer: sistem yöneticisi
@@ -349,7 +357,15 @@ export async function setCompanyModules(
   /** Aboneliğin kapsamadığı, bu firmaya BEDELSİZ verilen ücretli modüller. */
   gifted: string[]
 }> {
-  const granted = withModuleDependencies(sanitizeDisabledModules(grantedModules))
+  // Şubeye açılmayan modül (Muhasebe) şubenin kaydına HİÇ yazılmaz: `purchasedModules`a
+  // düşseydi abonelik açılamayan bir modülü faturalardı.
+  const branch = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { parentCompanyId: true },
+  })
+  const granted = withModuleDependencies(sanitizeDisabledModules(grantedModules)).filter(
+    (k) => !(branch?.parentCompanyId && BRANCH_EXCLUDED_MODULES.includes(k)),
+  )
 
   // ÜCRETSİZ modüller `purchasedModules`a YAZILMAZ: orası satın alınanın kaydıdır ve
   // ücretsizlik oradan değil `PricingItem.isFree`ten akar. Yazılsaydı, admin modülü

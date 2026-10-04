@@ -264,7 +264,7 @@ export async function reimburseEmployee(args: {
 export async function revertReimbursement(args: {
   companyId: string
   entryId: string
-}): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+}): Promise<{ ok: true; transactionId: string } | { ok: false; status: number; error: string }> {
   const entry = await prisma.employeeLedgerEntry.findFirst({
     where: { id: args.entryId, companyId: args.companyId },
     include: { transaction: { select: { id: true, amount: true, accountId: true } } },
@@ -286,5 +286,5 @@ export async function revertReimbursement(args: {
     // Hareketin silinmesi defter satırını da siler (onDelete: Cascade).
     await db.transaction.delete({ where: { id: trx.id } })
   })
-  return { ok: true }
+  return { ok: true, transactionId: trx.id }
 }

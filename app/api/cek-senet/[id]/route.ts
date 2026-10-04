@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { kiymetHareketleri, kiymetiBildir } from "@/lib/muhasebe/senkron.server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
@@ -131,6 +132,8 @@ export const PUT = withApiErrors(async function PUT(
       typeof data.settlementAccountId === "string" && data.settlementAccountId.trim()
         ? data.settlementAccountId.trim()
         : null
+    // Durum değişikliği tahsil hareketini silebilir: id'leri önceden alınır (muhasebe senkronu).
+    const eskiHareketler = await kiymetHareketleri(type === "CHECK" ? "CHECK" : "NOTE", resolvedParams.id)
 
     if (type === "CHECK") {
       const check = await prisma.check.findUnique({
@@ -205,6 +208,7 @@ export const PUT = withApiErrors(async function PUT(
       return row
       })
 
+      await kiymetiBildir(updated.companyId, "CHECK", updated.id, eskiHareketler)
       return NextResponse.json(updated)
     } else {
       const note = await prisma.promissoryNote.findUnique({
@@ -274,6 +278,7 @@ export const PUT = withApiErrors(async function PUT(
       return row
       })
 
+      await kiymetiBildir(updated.companyId, "NOTE", updated.id, eskiHareketler)
       return NextResponse.json(updated)
     }
   } catch (error: any) {
@@ -324,12 +329,14 @@ export const DELETE = withApiErrors(async function DELETE(
       }
 
       await ensureCompanyWrite(check.companyId)
+      const silinecekHareketler = await kiymetHareketleri("CHECK", check.id)
 
       await prisma.$transaction(async (tx) => {
         // Tahsil hareketi varsa kasadan geri sar (bkz. lib/cek-senet/tahsil.ts).
         await revertCheckSettlement(tx, "CHECK", check.companyId, check.id)
         await tx.check.delete({ where: { id: resolvedParams.id } })
       })
+      await kiymetiBildir(check.companyId, "CHECK", check.id, silinecekHareketler)
 
       return NextResponse.json({ success: true })
     } else {
@@ -345,11 +352,13 @@ export const DELETE = withApiErrors(async function DELETE(
       }
 
       await ensureCompanyWrite(note.companyId)
+      const silinecekHareketler = await kiymetHareketleri("NOTE", note.id)
 
       await prisma.$transaction(async (tx) => {
         await revertCheckSettlement(tx, "PROMISSORY_NOTE", note.companyId, note.id)
         await tx.promissoryNote.delete({ where: { id: resolvedParams.id } })
       })
+      await kiymetiBildir(note.companyId, "NOTE", note.id, silinecekHareketler)
 
       return NextResponse.json({ success: true })
     }

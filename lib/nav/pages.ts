@@ -132,16 +132,16 @@ export const NAV_PAGES: NavPageDef[] = [
   { href: "/personel/ik", label: "İnsan Kaynakları", roles: ["ADMIN", BM] },
   { href: "/personel/belge-sablonlari", label: "Belge Şablonları", roles: ["ADMIN", BM] },
 
-  // Muhasebe defterleri — KATALOGDA VAR, MENÜDE YOK.
-  //
-  // Ekranlar (`/muhasebe/yevmiye`, `/muhasebe/kebir`) mali tablolardan link ile
-  // açılıyor; sidebar'a öğe eklenmedi. Buraya yazılmalarının sebebi menü değil YETKİ:
-  // katalog dışında kaldıkları sürece sayfa kapısı onlara hiç uygulanmıyor,
-  // `/api/muhasebe/*` kuralı bir sahibe bağlanamıyor ve defter özel role
-  // verilemiyordu. Katalogda oldukları için rol seçicisinde "Genel" başlığı altında
-  // görünürler (bkz. page-permission-picker "loose" dalı) — /dashboard ile aynı desen.
+  // Muhasebe (2026-10-04) — ayrı, ücretli modül (`accounting`); şubeye açılmaz
+  // (defter tüzel kişide, bkz. docs/muhasebe/MOTOR-PLAN.md). Belgelerden kendiliğinden
+  // taslak fiş doğar; "Fişler" onay ekranı, defterler yalnız ONAYLI fişi basar.
+  { href: "/muhasebe/fisler", label: "Fişler", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/muhasebe/yevmiye", label: "Yevmiye Defteri", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/muhasebe/kebir", label: "Kebir Defteri", roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/muhasebe/mizan", label: "Mizan", roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/muhasebe/mali-tablolar", label: "Bilanço ve Gelir Tablosu", roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/muhasebe/hesap-plani", label: "Hesap Planı", roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/muhasebe/ayarlar", label: "Muhasebe Ayarları", roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
   // E-Dönüşüm
   { href: "/ayarlar/e-donusum", label: "E-Dönüşüm Ayarları", roles: ["ADMIN", BM, "ACCOUNTANT"] },
@@ -248,6 +248,18 @@ export const NAV_GROUPS: Array<{ title: string; hrefs: string[] }> = [
       "/raporlar/nakit-banka",
       "/raporlar/stok",
       "/raporlar/personel",
+    ],
+  },
+  {
+    title: "Muhasebe",
+    hrefs: [
+      "/muhasebe/fisler",
+      "/muhasebe/yevmiye",
+      "/muhasebe/kebir",
+      "/muhasebe/mizan",
+      "/muhasebe/mali-tablolar",
+      "/muhasebe/hesap-plani",
+      "/muhasebe/ayarlar",
     ],
   },
   {

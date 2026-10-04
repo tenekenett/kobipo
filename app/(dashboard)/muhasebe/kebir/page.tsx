@@ -1,139 +1,166 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useEffect, useMemo, useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { Loader2 } from "lucide-react"
+import { CompanyLink } from "@/components/dashboard/company-link"
+import { SearchSelect } from "@/components/ui/search-select"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Button } from "@/components/ui/button"
+  KurulumGerekli,
+  SayfaBasligi,
+  Uyari,
+  gunMetni,
+  muhasebeIstegi,
+  tutar,
+  tutarSifirli,
+  useMuhasebeDurumu,
+  type PlanHesabi,
+} from "@/components/muhasebe/ortak"
+import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
 
-interface AccountSummary {
-  accountCode: string
-  accountName: string
-  debitTotal: number
-  creditTotal: number
-  balance: number
-}
+/**
+ * Kebir (hesap dökümü) — bir hesabın ve alt hesaplarının onaylı hareketleri,
+ * devir ve yürüyen bakiyeyle (borç − alacak). Mizandan satıra tıklayınca açılır.
+ */
+
+type Satir = { fisId: string; voucherNo: string; tarih: string; aciklama: string | null; hesapKodu: string; borc: number; alacak: number; bakiye: number }
+type Yanit = { hesap: { kod: string; ad: string }; devir: number; satirlar: Satir[]; borc: number; alacak: number }
+
+const bakiyeMetni = (n: number) => (n === 0 ? "0,00" : `${tutarSifirli(Math.abs(n))} ${n > 0 ? "B" : "A"}`)
 
 export default function KebirPage() {
-  const searchParams = useSearchParams()
-  const companyId = searchParams.get("company")
-  const [summary, setSummary] = useState<AccountSummary[]>([])
-  const [startDate, setStartDate] = useState("")
-  const [endDate, setEndDate] = useState("")
+  const sp = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const companyId = sp.get("company")
+  const hesap = sp.get("hesap") ?? ""
+  const { bas, bit } = useDonem()
+  const { durum } = useMuhasebeDurumu(companyId)
+  const [hesaplar, setHesaplar] = useState<PlanHesabi[]>([])
+  const [veri, setVeri] = useState<Yanit | null>(null)
+  const [hata, setHata] = useState<string | null>(null)
+  const [yukleniyor, setYukleniyor] = useState(false)
 
   useEffect(() => {
-    if (companyId) {
-      fetchSummary()
-    }
-  }, [companyId, startDate, endDate])
+    if (!companyId || !durum?.kurulu) return
+    muhasebeIstegi<{ hesaplar: PlanHesabi[] }>(`/api/muhasebe/hesap-plani?companyId=${encodeURIComponent(companyId)}`)
+      .then((r) => setHesaplar(r.hesaplar))
+      .catch(() => {})
+  }, [companyId, durum?.kurulu])
 
-  const fetchSummary = async () => {
-    if (!companyId) return
-    try {
-      const params = new URLSearchParams({ companyId })
-      if (startDate) params.append("startDate", startDate)
-      if (endDate) params.append("endDate", endDate)
+  useEffect(() => {
+    if (!companyId || !durum?.kurulu || !hesap) return
+    setYukleniyor(true)
+    muhasebeIstegi<Yanit>(`/api/muhasebe/kebir?${new URLSearchParams({ companyId, hesap, bas, bit })}`)
+      .then((v) => {
+        setVeri(v)
+        setHata(null)
+      })
+      .catch((e) => {
+        setVeri(null)
+        setHata(e instanceof Error ? e.message : String(e))
+      })
+      .finally(() => setYukleniyor(false))
+  }, [companyId, durum?.kurulu, hesap, bas, bit])
 
-      const response = await fetch(`/api/muhasebe/kebir?${params}`)
-      if (response.ok) {
-        const data = await response.json()
-        setSummary(data)
-      }
-    } catch (error) {
-      console.error("Error fetching summary:", error)
-    }
-  }
+  // Seçici: kullanılan (en az bir satırı olan) ya da kebir düzeyindeki hesaplar.
+  const secenekler = useMemo(
+    () =>
+      hesaplar
+        .filter((h) => h.duzey >= 3 && (h.duzey === 3 || h.kullanim > 0 || !h.yaprak))
+        .map((h) => ({ id: h.kod, name: `${h.kod}  ${h.ad}` })),
+    [hesaplar],
+  )
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("tr-TR", {
-      style: "currency",
-      currency: "TRY",
-    }).format(amount)
-  }
+  if (!companyId) return <p className="p-6 text-sm text-kobipo-gray">Firma seçiniz.</p>
+  if (durum && !durum.kurulu) return <KurulumGerekli durum={durum} />
 
-  if (!companyId) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Kebir Defteri</CardTitle>
-          <CardDescription>Firma seçiniz</CardDescription>
-        </CardHeader>
-      </Card>
-    )
+  const hesapSec = (kod: string) => {
+    const q = new URLSearchParams(sp.toString())
+    if (kod) q.set("hesap", kod)
+    else q.delete("hesap")
+    router.replace(`${pathname}?${q}`, { scroll: false })
   }
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Kebir Defteri</CardTitle>
-          <CardDescription>Hesap bazlı özet görüntüleyin</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 flex flex-wrap items-end gap-4">
-            <div className="space-y-2">
-              <Label>Başlangıç Tarihi</Label>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Bitiş Tarihi</Label>
-              <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button onClick={fetchSummary}>Filtrele</Button>
-            </div>
+    <div className="mx-auto max-w-6xl space-y-4">
+      <SayfaBasligi baslik="Kebir Defteri" aciklama="Hesap dökümü: devir, onaylı hareketler ve yürüyen bakiye. Alt hesapların hareketleri de dahildir." />
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="w-full max-w-md">
+          <SearchSelect options={secenekler} value={hesap} onChange={hesapSec} placeholder="Hesap seçin (kod ya da ad)" emptyText="Eşleşen hesap yok" />
+        </div>
+        <DonemSecici />
+      </div>
+      {hata && <Uyari ton="kirmizi">{hata}</Uyari>}
+      {!hesap ? (
+        <p className="rounded-2xl border border-kobipo-border/90 bg-card p-8 text-center text-sm text-kobipo-gray">
+          Dökümünü görmek istediğiniz hesabı seçin.
+        </p>
+      ) : yukleniyor && !veri ? (
+        <p className="flex items-center gap-2 text-sm text-kobipo-gray">
+          <Loader2 className="h-4 w-4 animate-spin" /> Yükleniyor…
+        </p>
+      ) : veri ? (
+        <div className="overflow-x-auto rounded-2xl border border-kobipo-border/90 bg-card shadow-card">
+          <div className="border-b border-kobipo-border/60 px-4 py-3">
+            <p className="font-semibold text-kobipo-navy dark:text-foreground">
+              <span className="font-mono">{veri.hesap.kod}</span> {veri.hesap.ad}
+            </p>
           </div>
-
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Hesap Kodu</TableHead>
-                <TableHead>Hesap Adı</TableHead>
-                <TableHead>Borç Toplam</TableHead>
-                <TableHead>Alacak Toplam</TableHead>
-                <TableHead>Bakiye</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {summary.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    Henüz veri bulunmuyor
-                  </TableCell>
-                </TableRow>
-              ) : (
-                summary.map((item, index) => (
-                  <TableRow key={index}>
-                    <TableCell className="font-medium">{item.accountCode}</TableCell>
-                    <TableCell>{item.accountName}</TableCell>
-                    <TableCell>{formatCurrency(item.debitTotal)}</TableCell>
-                    <TableCell>{formatCurrency(item.creditTotal)}</TableCell>
-                    <TableCell>{formatCurrency(item.balance)}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+          <table className="w-full min-w-[760px] text-sm">
+            <thead className="bg-kobipo-offwhite text-left text-xs font-semibold uppercase tracking-wide text-kobipo-gray dark:bg-muted/40">
+              <tr>
+                <th className="px-3 py-2">Tarih</th>
+                <th className="px-3 py-2">Fiş</th>
+                <th className="px-3 py-2">Açıklama</th>
+                <th className="px-3 py-2 text-right">Borç</th>
+                <th className="px-3 py-2 text-right">Alacak</th>
+                <th className="px-3 py-2 text-right">Bakiye</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-t border-kobipo-border/60 bg-kobipo-offwhite/50 dark:bg-muted/20">
+                <td className="px-3 py-2 text-kobipo-gray" colSpan={5}>
+                  Devir ({gunMetni(bas)} öncesi)
+                </td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums">{bakiyeMetni(veri.devir)}</td>
+              </tr>
+              {veri.satirlar.map((s, i) => (
+                <tr key={`${s.fisId}-${i}`} className="border-t border-kobipo-border/60">
+                  <td className="whitespace-nowrap px-3 py-2">{gunMetni(s.tarih)}</td>
+                  <td className="whitespace-nowrap px-3 py-2">
+                    <CompanyLink href={`/muhasebe/fisler/${s.fisId}?sekme=onayli`} className="font-mono text-xs text-kobipo-blue hover:underline">
+                      {s.voucherNo}
+                    </CompanyLink>
+                  </td>
+                  <td className="px-3 py-2 text-kobipo-navy dark:text-foreground">
+                    {s.aciklama || "—"}
+                    {s.hesapKodu !== veri.hesap.kod && <span className="ml-2 font-mono text-xs text-kobipo-gray">{s.hesapKodu}</span>}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{tutar(s.borc)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{tutar(s.alacak)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{bakiyeMetni(s.bakiye)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-kobipo-border font-semibold tabular-nums text-kobipo-navy dark:text-foreground">
+                <td className="px-3 py-2" colSpan={3}>
+                  Dönem toplamı
+                </td>
+                <td className="px-3 py-2 text-right">{tutarSifirli(veri.borc)}</td>
+                <td className="px-3 py-2 text-right">{tutarSifirli(veri.alacak)}</td>
+                <td className="px-3 py-2 text-right">
+                  {bakiyeMetni(veri.satirlar.length ? veri.satirlar[veri.satirlar.length - 1].bakiye : veri.devir)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+          {veri.satirlar.length >= 5000 && (
+            <p className="px-4 py-2 text-xs text-amber-700">İlk 5.000 hareket gösteriliyor; dönemi daraltın.</p>
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }
-

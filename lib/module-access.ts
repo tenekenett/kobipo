@@ -79,6 +79,11 @@ export const API_MODULE_RULES: ApiModuleRule[] = [
   // ---- Restoran & Kafe ----------------------------------------------------
   { prefix: "/api/restoran", read: ["restaurant"] },
 
+  // ---- Muhasebe -----------------------------------------------------------
+  // Defter, fiş, hesap planı, mizan, mali tablolar, kurulum/kapanış.
+  { prefix: "/api/muhasebe", read: ["accounting"] },
+  { prefix: "/api/export/muhasebe-", read: ["accounting"] },
+
   // ---- Dışa/İçe aktarma ---------------------------------------------------
   // Dataset adı yolun bir parçası (`/api/export/rapor-satis`), o yüzden ön ek
   // eşleşmesi burada da çalışır. Kapalı modülün verisi export'tan sızmasın.

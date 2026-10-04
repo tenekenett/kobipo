@@ -13,11 +13,67 @@ seçer → onay**. Hesap seçimi ÖĞRENİLİR (satışta ürüne, alışta cari
 | Konum | **Ayrı modül: Muhasebe.** Kendi menü grubu ve modül anahtarı; abonelikte ayrı açılır, fiyatı sonra belirlenir. |
 | Cari alt hesap no | **Sıralı:** `120.01.0001`, `320.01.0001`. Cari adı ve VKN hesap adında durur. |
 | Geçmiş belgeler | **Seçilen başlangıç tarihinden:** sonrası toplu taslak fiş, öncesi açılış fişiyle girer. |
-| Bu oturumda | Yalnız plan; 2. faza geçilmedi. |
+| Şube (2026-10-04) | **Modül yalnız tüzel kişide (ana firma / ek firma) alınır.** Şubeye açılmaz (`ModuleDef.notForBranches`): satın alma ucu 400, katalogda gizli, sistem-admin kartında kilitli, `resolveOpenModules({ isBranch })` hiçbir kanaldan açmaz, ücretsiz yapılamaz. Şubenin belgeleri ana firmanın defterine fiş üretir (`sourceCompanyId`). |
+| Kapsam (2026-10-04) | 2 + 3 + 4. faz yapıldı. Luca/Zirve aktarımı (müşavirden örnek dosya ister) ve e-Defter kapsam dışı. |
 
-## Durum
+## Durum (2026-10-04)
 
-**1. faz — temel (yapıldı, commitlenmedi, migrasyon UYGULANMADI):**
+**2–4. faz yapıldı** (aşağıdaki bölümlerin hepsi koda girdi). Migrasyon
+`20261004000001_muhasebe_2faz.sql` — deploy'dan ÖNCE ve HEMEN SONRA birer kez
+uygulanır (yeni modül anahtarı `disabledModules` red listesine yazılıyor; eski kod
+`applyEntitlements` çalıştırırsa anahtar düşer). Fiyat kalemi `module:accounting`
+PASİF doğar; sistem yöneticisi fiyatı girip açar, o zamana kadar firmaya sistem-admin
+kartından bedelsiz verilir.
+
+| Parça | Dosya |
+|---|---|
+| Ortak fiş dili, `fisKur` (denge garantisi), İstanbul/UTC günü | `lib/muhasebe/fis.ts` |
+| Belge kuralları (+ karşı yönlü cari, kuruş farkı gelir/gider satırına) | `fis-kurallari.ts` |
+| Para hareketi, kasasız ödeme, çek/senet/ciro, virman, bordro, kart açılışları | `para-kurallari.ts` |
+| Kaynak yükleyiciler (11 tür) + hesaplar arası virman eşleştirmesi | `kaynaklar.server.ts` |
+| Senkron (aç / yenile / sil / "belge değişti"), fiş numarası | `senkron.server.ts` |
+| Hesap çözümü (USER → alt hesap → öğrenilmiş → varsayılan → yok), parmak izi | `hesap-cozumu.ts` |
+| Plan kurulumu, alt hesap açma (120.01.0001 …) | `hesap-plani.ts`, `hesap-plani.server.ts` |
+| Açılış fişi (başlangıçtaki bakiyeler, fark satırı) | `acilis.ts`, `acilis.server.ts` |
+| Onay, toplu onay, geri al, yeniden üret, öğrenme ve yayılım | `onay.server.ts` |
+| Elle fiş, açılış farkını dağıtma | `manuel.server.ts` |
+| Mizan, yevmiye (madde no), kebir | `mizan.ts`, `defter-sorgu.server.ts` |
+| Bilanço / gelir tablosu (mizandan) | `mali-tablolar.ts` |
+| Dönem kapanışı ve kilidi | `kapanis.ts`, `kapanis.server.ts` |
+| Uçlar | `app/api/muhasebe/*` |
+| Ekranlar | `app/(dashboard)/muhasebe/*`, `components/muhasebe/*` |
+
+Ölçüm: birim testleri `npx vitest run lib/muhasebe`; canlı (salt okur, ~3 dk)
+`npm run test:canli -- lib/muhasebe/defter-tutarlilik` — bütün defterlerin kaynaklarından
+fişleri bellekte kurar: her fiş dengeli, cari alt hesabı = cari bakiyesi, kasa alt
+hesabı = kasa bakiyesi (2026-10-04: 35 defter, 1.091 fiş, 155 cari, 37 kasa — geçti);
+uçtan uca `node scripts/test-muhasebe.mjs` (dev sunucu açık, Reypo Medya; açtığını siler).
+
+Canlı ölçümün bulduğu ve düzeltilen üç sapma: (1) müşteriye kesilen alış / tedarikçiye
+kesilen satış (karşı yönlü belge) perakende hesabına gidiyordu — cari bakiyesi belgeyi
+dolu olan cariye yazıyor; (2) cari satırı satır toplamından kuruluyordu, belge
+toplamından 1–3 kuruş sapıyordu; (3) bir kasa hareketi başka firmanın kasasına yazılmış
+(veri tutarsızlığı, tek kayıt: Demo Firma'nın 720 TL'lik tahsilatı Reypo Medya'nın "ana"
+kasasında) — fiş kasa satırını hesapsız bırakıp "Gözden geçir"e düşürür.
+
+### ▶ DEVAM — başka bilgisayarda (2026-10-04 devir notu)
+
+Migrasyon `20261004000001` canlıya uygulandı ve doğrulandı (tablo + kolonlar, 42/42 firmada
+`accounting` kapalı, fiyat kalemi pasif, RLS açık). Kod main'e gönderildi; uçtan uca test
+henüz ÇALIŞTIRILMADI.
+
+1. **Deploy bittikten hemen sonra migrasyonu bir kez daha uygula** (eski kodun
+   `applyEntitlements`i deploy penceresinde `accounting` anahtarını düşürmüş olabilir):
+   `node scripts/apply-migration.js supabase/migrations/20261004000001_muhasebe_2faz.sql`
+2. Uçtan uca: `npm run dev` + `TEST_BASE_URL=http://localhost:3000 node scripts/test-muhasebe.mjs`
+   (Reypo Medya; açtığı her şeyi siler, `MUHASEBE_BIRAK=1` ile bırakır — ekranda bakmak için).
+3. Canlı tutarlılık (salt okur): `npm run test:canli -- lib/muhasebe/defter-tutarlilik`.
+4. Ekranda deneme: sistem-admin modül kartından bir firmaya Muhasebe'yi bedelsiz ver →
+   Muhasebe Ayarları → kur → Fişler (açılışta mutabakat) → hesap seç/onayla → Mizan →
+   Bilanço ve Gelir Tablosu → Dönem kapanışı ön izlemesi. 390 px mobil görünüm bakılmadı.
+5. Satışa açmak: Paket & Fiyat Yönetimi'nde `module:accounting` fiyatını gir, aktif yap.
+
+**1. faz — temel (yapıldı):**
 
 - `lib/muhasebe/tekduzen.ts` — Tekdüzen planı (sınıf/grup/defteri kebir, tür, ters hesap,
   normal bakiye). 6. sınıfta "(-)" ters sayılmaz (610 borç bakiyelidir).
@@ -194,7 +250,21 @@ Kural `fis-kurallari.ts`e yeni giriş tipleri olarak eklenir (aynı satır/öğr
 
 ## Kalan sorular
 
-- Şubede muhasebe modülü: defter ana firmada tutulduğuna göre modül yalnız ana firmada mı
-  satın alınır, şubeler kapsanır mı? (Abonelik firma bazında; defter tüzel kişi bazında.)
+- ~~Şubede muhasebe modülü~~ → karar 2026-10-04: yalnız tüzel kişide (yukarıda).
 - Luca/Zirve aktarım formatı: müşavirden örnek dosya.
 - Modül fiyatı.
+
+## Bilinen sınırlar (2026-10-04)
+
+- **Gece mutabakatı yok:** fiş senkronu belge yazılırken ve Fişler / Ayarlar ekranı
+  açılırken çalışır. Cron dağıtımı bilinçli ertelendiği için (abonelik notu) gece işi
+  yazılmadı; seyrek yazma yolları (bordro toplu oluşturma, cari kartı açılış bakiyesi,
+  kasa hesabı açılışı, eski içe aktarım) ekran açılınca yakalanır.
+- **Çek/senet ciro, iade ve protesto tarihi tutulmuyor:** ciro fişi evrakın son
+  güncellenme günüyle açılır, tedarikçi müşavirce seçilir; iade/protesto evrakın alış
+  fişini kaldırır (cari bakiyesiyle aynı model). Başlangıçtan önce alınıp sonra ciro
+  edilen evrak fişlenmez (açılış portföyü bugünkü durumla kurulur — bilançoyla aynı).
+- **İşveren SGK payı bordroda yok:** tahakkuk fişine girmez, müşavir elle ekler.
+- **Satılan malın maliyeti aralıklı envanterle:** yıl sonu sayım tutarı kapanışta girilir.
+- **Kur:** kasa hareketinde kur tutulmuyor, TL dışı hareket fişe girmez (ekran sayar).
+- **Kapanış hedef hesapları yaprak olmalı:** 621/632/690/590 alt hesaplıysa kapanış durur.

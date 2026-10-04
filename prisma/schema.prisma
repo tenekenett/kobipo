@@ -400,6 +400,7 @@ model Company {
   journalVouchers         JournalVoucher[]
   journalVoucherLines     JournalVoucherLine[]
   accountMappingRules     AccountMappingRule[]
+  accountingSettings      AccountingSettings?
   waybills                Waybill[]
   bankStatements          BankStatement[]
   cashCounts              CashCount[]
@@ -1466,6 +1467,7 @@ model FinancialAccount {
   invoicePayments InvoicePayment[]
   bankStatements  BankStatement[]
   cashCounts      CashCount[]
+  ledgerAccount   AccountPlan?     @relation("AccountPlanFinancialAccount")
 
   @@unique([companyId, slug])
   @@index([companyId])
@@ -2190,6 +2192,12 @@ model AccountPlan {
   voucherLines JournalVoucherLine[]
   mappingRules AccountMappingRule[]
 
+  // 2. faz: personel alt hesabı (335.01.…) ve kasa/banka/kart alt hesabı (100/102/309.01.…).
+  employeeId         String?           @unique
+  financialAccountId String?           @unique
+  employee           Employee?         @relation("AccountPlanEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
+  financialAccount   FinancialAccount? @relation("AccountPlanFinancialAccount", fields: [financialAccountId], references: [id], onDelete: SetNull)
+
   @@unique([companyId, code])
   @@index([companyId])
   @@index([parentId])
@@ -2233,9 +2241,17 @@ model JournalVoucher {
   description     String?   @db.Text
   /// DRAFT (taslak) | POSTED (onaylı, deftere işlenmiş)
   status          String    @default("DRAFT")
-  /// Kaynak: INVOICE | PAYMENT | TRANSACTION | MANUAL. Belge başına tek fiş.
+  /// Kaynak: INVOICE | PAYMENT | TRANSACTION | CHECK | NOTE | VIRMAN | PAYROLL |
+  /// CARI_OPENING | ACCOUNT_OPENING | OPENING | CLOSING | MANUAL. Kaynak başına tek fiş.
   sourceType      String
   sourceId        String?
+  /// Kaynağın fişe giren alanlarının özeti (lib/muhasebe/senkron.ts → parmakIzi). Taslak
+  /// fiş iz değişince yeniden üretilir; onaylı fişte `sourceChangedAt` işaretlenir.
+  sourceHash      String?
+  /// Kaynak kaydın firması — şubenin belgesi ana firmanın defterine yazılır.
+  sourceCompanyId String?
+  /// ACILIS | MAHSUP | TAHSIL | TEDIYE | KAPANIS
+  kind            String    @default("MAHSUP")
   /// Motorun "emin" kararı: toplu onaya uygun.
   isConfident     Boolean   @default(false)
   /// Kaynak belge onaydan SONRA değişti — fiş yeniden üretilip gözden geçirilmeli.
@@ -2269,7 +2285,7 @@ model JournalVoucherLine {
   suggestedCode String
   /// Satırın rolü: CARI, SATIS, ALIS, KDV_HESAPLANAN … (fis-kurallari.ts SatirRolu)
   role          String
-  /// Hesap nereden geldi: LEARNED | CARI | DEFAULT | NONE
+  /// Hesap nereden geldi: LEARNED | CARI | DEFAULT | NONE | USER (taslakta elle seçildi)
   accountSource String
   /// Hesap değiştirilirse öğrenilecek anahtarlar (account_mapping_rules.key).
   learnKeys     String[] @default([])
@@ -2303,6 +2319,25 @@ model AccountMappingRule {
 
   @@unique([companyId, key])
   @@map("account_mapping_rules")
+}
+
+/// Muhasebe ayarı — defter sahibi firma başına tek satır (şubede ana firma).
+/// `companies`a kolon değil: select'siz firma okumaları taşımasın (kaşe tablosuyla aynı gerekçe).
+model AccountingSettings {
+  companyId        String    @id
+  /// Fiş üretiminin başladığı gün; öncesi açılış fişiyle girer.
+  startDate        DateTime
+  planInstalledAt  DateTime?
+  openingVoucherId String?
+  /// Bu tarih (dahil) ve öncesindeki fişler değiştirilemez — dönem kapanışı.
+  lockedUntil      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  updatedBy        String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("accounting_settings")
 }
 
 // Sistem logları - Super Admin için
@@ -3098,6 +3133,7 @@ model Employee {
   checklistEntries ChecklistEntry[]
   // Çalışanın firma adına cebinden ödedikleri ve geri ödemeleri (masraf defteri).
   ledgerEntries    EmployeeLedgerEntry[]
+  ledgerAccount    AccountPlan?           @relation("AccountPlanEmployee")
 
   // Bir hesap aynı firmada iki personel kartına bağlanamaz (kimin vardiyası, kimin
   // bordrosu sorusu belirsizleşirdi). Farklı firmalarda aynı hesap serbesttir.

@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
 import { LayoutGrid, Save, Loader2 } from "lucide-react"
 import {
+  BRANCH_EXCLUDED_MODULES,
   MANAGEABLE_MODULES,
   MODULE_KEYS,
   moduleLabel,
@@ -58,6 +59,7 @@ export function CompanyModulesCard({
   initialFreeClaimed = true,
   accountName,
   accountCompanyCount = 1,
+  isBranch = false,
 }: {
   companyId: string
   initialDisabled: string[]
@@ -88,6 +90,8 @@ export function CompanyModulesCard({
   accountName?: string
   /** Hesaptaki firma sayısı (kök + şubeler + ek firmalar). */
   accountCompanyCount?: number
+  /** Firma şube mi — şubeye açılmayan modüllerin (Muhasebe) anahtarı kilitlenir. */
+  isBranch?: boolean
 }) {
   const router = useRouter()
   const { toast } = useToast()
@@ -141,9 +145,10 @@ export function CompanyModulesCard({
           free: [...freeSet],
           freeClaimed,
           suppressed: [...off],
+          isBranch,
         }),
       ),
-    [off, freeSet, freeClaimed],
+    [off, freeSet, freeClaimed, isBranch],
   )
 
   /**
@@ -262,6 +267,7 @@ export function CompanyModulesCard({
           {MANAGEABLE_MODULES.map((m) => {
             const isFree = freeSet.has(m.key)
             const isEnabled = openSet.has(m.key)
+            const branchExcluded = isBranch && BRANCH_EXCLUDED_MODULES.includes(m.key)
             // Kapalı ama elle kapatılmamış → bir gereksinimi kapalı olduğu için kapalı.
             const blockedBy = !isEnabled && !off.has(m.key)
               ? (m.requires ?? []).filter((dep) => !openSet.has(dep))
@@ -300,9 +306,14 @@ export function CompanyModulesCard({
                     )}
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">{m.description}</p>
-                  {blockedBy.length > 0 && (
+                  {blockedBy.length > 0 && !branchExcluded && (
                     <p className="mt-1 text-xs text-amber-400/80">
                       {blockedBy.map(moduleLabel).join(", ")} kapalı olduğu için kapalı
+                    </p>
+                  )}
+                  {branchExcluded && (
+                    <p className="mt-1 text-xs text-slate-400">
+                      Şubeye açılmaz — şubenin belgeleri ana firmanın defterine yazılır.
                     </p>
                   )}
                 </div>
@@ -311,7 +322,7 @@ export function CompanyModulesCard({
                   onCheckedChange={(v) => toggle(m.key, v)}
                   // Paket alınmamışken temel modülün anahtarı kilitli: açmak paketi
                   // vermekle olur (yukarıdaki anahtar).
-                  disabled={isFree && !freeClaimed}
+                  disabled={(isFree && !freeClaimed) || branchExcluded}
                   className="shrink-0"
                 />
               </div>

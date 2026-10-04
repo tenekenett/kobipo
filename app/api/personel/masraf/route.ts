@@ -1,4 +1,5 @@
 import { withApiErrors } from "@/lib/api/errors"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -55,6 +56,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
 
+  await muhasebeyeBildir(companyId, [{ tip: "TRANSACTION", id: result.transactionId }])
   revalidateDashboard(companyId)
   return NextResponse.json(result, { status: 201 })
 })

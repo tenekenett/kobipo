@@ -1,4 +1,5 @@
 import { withApiErrors } from "@/lib/api/errors"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -82,6 +83,11 @@ export const PUT = withApiErrors(async function PUT(
     })
 
     if (!updated) return NextResponse.json({ error: "Seçilen hesap bulunamadı" }, { status: 404 })
+    // Ödeme kasa hareketi: B 335 personel · A kasa (tahakkuk bordro fişinde).
+    await muhasebeyeBildir(existing.companyId, [
+      { tip: "PAYROLL", id },
+      ...(updated.transactionId ? [{ tip: "TRANSACTION" as const, id: updated.transactionId }] : []),
+    ])
     return NextResponse.json(updated)
   }
 
@@ -109,6 +115,7 @@ export const PUT = withApiErrors(async function PUT(
     },
     include: { employee: { select: { id: true, firstName: true, lastName: true, department: true } } },
   })
+  await muhasebeyeBildir(existing.companyId, [{ tip: "PAYROLL", id }])
   return NextResponse.json(updated)
 })
 
@@ -129,5 +136,6 @@ export const DELETE = withApiErrors(async function DELETE(
   }
 
   await prisma.payrollRecord.delete({ where: { id } })
+  await muhasebeyeBildir(existing.companyId, [{ tip: "PAYROLL", id }])
   return NextResponse.json({ message: "Bordro silindi" })
 })

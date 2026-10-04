@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
@@ -71,6 +72,7 @@ export const DELETE = withApiErrors(async function DELETE(
   }
 
   await prisma.cariVirman.delete({ where: { id: virman.id } })
+  await muhasebeyeBildir(virman.companyId, [{ tip: "VIRMAN", id: virman.id }])
 
   revalidateDashboard(virman.companyId)
 

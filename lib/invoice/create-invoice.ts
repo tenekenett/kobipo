@@ -30,7 +30,7 @@ import { computeInvoiceTotals, documentColumnPrecision, resolveLineDiscount } fr
 import { amountExceedsLimit, discountLimitError, normalizeDiscountLimit } from "@/lib/restoran/discount-limit"
 import { accessDeniedResponse } from "@/lib/api/errors"
 import { assertOwnedByCompany } from "@/lib/company/owned"
-import { syncInvoiceAutoEntries } from "@/lib/invoice/auto-entries"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { createInvoicePayment } from "@/lib/finans/create-invoice-payment"
 import { accountPaymentMethod } from "@/lib/finans/account-types"
 import {
@@ -688,20 +688,9 @@ const company = await prisma.company.findUnique({
       }
     }
 
-    // Otomatik muhasebe fişi (120→600 matrah, 120→391 KDV). Fişlerde oluşturulmaz —
-    // muhasebe kaydı yalnızca resmî faturada (dönüştürmede) yapılır. Tek yazım yeri
-    // lib/invoice/auto-entries.ts: düzenleme ve dönüşümler de oradan geçer.
-    await syncInvoiceAutoEntries(prisma, {
-      companyId,
-      invoiceId: invoice.id,
-      invoiceNo: invoice.invoiceNo,
-      date: new Date(date),
-      type,
-      isReceipt,
-      netAmount,
-      vatAmount,
-      createdBy: actor.userId,
-    })
+    // Muhasebe modülü açıksa belgenin taslak yevmiye fişi (lib/muhasebe/senkron.server.ts).
+    // Fırlatmaz: fiş yazılamazsa belge yine kaydedilir, mutabakat yakalar.
+    await muhasebeyeBildir(companyId, [{ tip: "INVOICE", id: invoice.id }])
 
     // Send invoice if requested. Fişler asla GİB'e gönderilmez (resmî belge değil).
     if (

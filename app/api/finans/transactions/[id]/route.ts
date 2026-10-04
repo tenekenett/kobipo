@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess, ensureCompanyWrite } from "@/lib/middleware/company"
@@ -144,6 +145,9 @@ export const DELETE = withApiErrors(async function DELETE(
       // Bağlı InvoicePayment'lar Cascade ile silinir (fatura açık tutarı geri açılır).
       await db.transaction.delete({ where: { id: transaction.id } })
     })
+
+    // Taslak fişi silinir; onaylıysa "belge değişti" işaretlenir.
+    await muhasebeyeBildir(transaction.companyId, [{ tip: "TRANSACTION", id: transaction.id }])
 
     revalidateDashboard(transaction.companyId)
 

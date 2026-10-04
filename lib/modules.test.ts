@@ -280,7 +280,7 @@ describe("resolveOpenModules", () => {
   it("paket alınmamışken granted içinde gelen ücretsizler de açılmaz", () => {
     // Sistem-admin kartı ve elle süre verme tüm seçimi (ücretsizler dahil) geçiriyor.
     expect(
-      resolveOpenModules({ granted: [...MODULE_KEYS].filter((k) => k !== "restaurant"), free: FREE, freeClaimed: false }),
+      resolveOpenModules({ granted: [...FREE], free: FREE, freeClaimed: false }),
     ).toEqual([])
   })
 
@@ -310,5 +310,33 @@ describe("resolveOpenModules", () => {
 
   it("ücretsiz küme boşsa paket damgası bir şey açmaz", () => {
     expect(resolveOpenModules({ granted: [], free: [], freeClaimed: true })).toEqual([])
+  })
+})
+
+// Muhasebe (2026-10-04): defter tüzel kişide; şube ana firmanın defterine yazar.
+describe("şubeye açılmayan modül (Muhasebe)", () => {
+  const FREE = ["sales", "purchase", "stock", "finance", "reports", "hr"]
+
+  it("şubede hiçbir kanaldan açılmaz — satın alınmış ya da bedelsiz verilmiş olsa da", () => {
+    expect(
+      resolveOpenModules({ granted: ["accounting"], gifted: ["accounting"], free: FREE, freeClaimed: true, isBranch: true }),
+    ).not.toContain("accounting")
+  })
+
+  it("ana firmada (ve ek firmada) açılır", () => {
+    expect(resolveOpenModules({ granted: ["accounting"], free: FREE, freeClaimed: true })).toContain("accounting")
+    expect(resolveOpenModules({ granted: [], gifted: ["accounting"], free: FREE, freeClaimed: false })).toEqual([
+      "accounting",
+    ])
+  })
+
+  it("şube süzgeci diğer modüllere dokunmaz", () => {
+    expect(
+      [...resolveOpenModules({ granted: ["restaurant"], free: FREE, freeClaimed: true, isBranch: true })].sort(),
+    ).toEqual([...FREE, "restaurant"].sort())
+  })
+
+  it("ücretsiz yapılamaz: ücretsiz küme paketi almış HER firmada (şube dahil) açılır", () => {
+    expect(sanitizeFreeModules([...FREE, "accounting"])).toEqual(FREE)
   })
 })
