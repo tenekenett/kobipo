@@ -38,6 +38,7 @@ import {
   tutar,
   tutarSifirli,
   useMuhasebeDurumu,
+  DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { HesapSecici, useYaprakHesaplar } from "@/components/muhasebe/hesap-secici"
 import {
@@ -97,10 +98,11 @@ export default function FisDetayPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const sekme = searchParams.get("sekme")
-  const { durum } = useMuhasebeDurumu(companyId)
+  const { durum, hata: durumHata } = useMuhasebeDurumu(companyId)
 
   if (!companyId) return <p className="p-6 text-sm text-kobipo-gray">Firma seçiniz.</p>
   if (durum && !durum.kurulu) return <KurulumGerekli durum={durum} />
+  if (!durum) return <DurumBekleniyor hata={durumHata} />
   if (id === "yeni") return <ElleFisFormu companyId={companyId} />
   return <FisOdak key={id} id={id} companyId={companyId} sekme={sekme} />
 }
@@ -321,7 +323,9 @@ function FisOdak({ id, companyId, sekme }: { id: string; companyId: string; sekm
               bugünkü hâlinden kurar (onayladığınız hesaplar korunur) ve taslağa döndürür.
             </Uyari>
           )}
-          <div className="overflow-x-auto">
+          {/* Masaüstünde taşma serbest: overflow-x-auto dikeyi de kırpar ve hesap seçicinin
+              açılır listesi kutunun içinde kalırdı. Dar ekranda yatay kaydırma gerekir. */}
+          <div className="overflow-x-auto md:overflow-visible">
             <table className="w-full min-w-[640px] text-sm">
               <thead className="text-left text-xs font-semibold uppercase tracking-wide text-kobipo-gray">
                 <tr>

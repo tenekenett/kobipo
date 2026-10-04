@@ -6,6 +6,8 @@
  *   2) npm run dev            (ayrı terminalde)
  *   3) TEST_BASE_URL=http://localhost:3000 node scripts/test-muhasebe.mjs
  *      MUHASEBE_BIRAK=1 verilirse sonda temizlik YAPILMAZ (ekranda bakmak için).
+ *      MUHASEBE_SIFIRLA=1 verilirse önceki bir BIRAK koşusunun kurulumu başta silinir ve
+ *      modül kapalı duruma getirilir (yalnız Reypo Medya — test firması).
  *
  * Reypo Medya (test firması) üzerinde çalışır. Başta muhasebe kurulu ise ÇALIŞMAZ
  * (gerçek bir kurulumu ezmesin). Modülü firmaya bedelsiz verir, kurar, belgelerin
@@ -18,11 +20,17 @@ import "dotenv/config"
 import { config as loadEnv } from "dotenv"
 import { PrismaClient } from "@prisma/client"
 import { encode } from "next-auth/jwt"
+import { Agent, setGlobalDispatcher } from "undici"
+
+// Mutabakat/toplu onay uzak veritabanında dakikalar sürebilir; Node fetch'in 300 sn'lik
+// başlık zaman aşımı isteği kesip testi düşürüyor, sunucu ise yazmaya devam ediyordu.
+setGlobalDispatcher(new Agent({ headersTimeout: 15 * 60_000, bodyTimeout: 15 * 60_000 }))
 
 loadEnv({ path: ".env.local", override: true })
 
 const BASE = process.env.TEST_BASE_URL || "http://localhost:3000"
 const BIRAK = process.env.MUHASEBE_BIRAK === "1"
+const SIFIRLA = process.env.MUHASEBE_SIFIRLA === "1"
 const R = "cmojuwru30002my8i42blsjch" // Reypo Medya Ajansı
 const prisma = new PrismaClient()
 
@@ -41,6 +49,19 @@ function check(label, ok, detail) {
 }
 const r2 = (n) => Math.round(Number(n) * 100) / 100
 
+/** İstemci tarafı kopan bir istek sunucuda sürüyor olabilir: temizlikten önce yazma durulsun. */
+let kopanIstek = false
+async function sunucuDurulsun() {
+  let onceki = -1
+  for (let i = 0; i < 60; i++) {
+    const n = await prisma.journalVoucher.count({ where: { companyId: R } })
+    if (n === onceki) return
+    onceki = n
+    await new Promise((r) => setTimeout(r, 5000))
+  }
+  console.log("  ! sunucu 5 dk içinde durulmadı — temizlik yine de yapılıyor")
+}
+
 async function oturum(companyId) {
   const m = await prisma.userCompany.findFirst({
     where: { companyId, role: "ADMIN" },
@@ -53,11 +74,17 @@ async function oturum(companyId) {
   })
   const cookie = `next-auth.session-token=${token}`
   return async (method, path, body) => {
-    const res = await fetch(`${BASE}${path}`, {
-      method,
-      headers: { cookie, ...(body ? { "Content-Type": "application/json" } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-    })
+    let res
+    try {
+      res = await fetch(`${BASE}${path}`, {
+        method,
+        headers: { cookie, ...(body ? { "Content-Type": "application/json" } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      })
+    } catch (e) {
+      kopanIstek = true
+      throw e
+    }
     const text = await res.text()
     let json
     try {
@@ -70,6 +97,22 @@ async function oturum(companyId) {
 }
 
 async function main() {
+  if (SIFIRLA) {
+    // Önceki koşunun bıraktığı kurulum: fişler, öğrenmeler, ayar; modül kapalı (migrasyonun
+    // bütün firmalara yazdığı başlangıç durumu). Hesap planı satırları korunur.
+    await prisma.journalVoucher.deleteMany({ where: { companyId: R } })
+    await prisma.accountMappingRule.deleteMany({ where: { companyId: R } })
+    await prisma.accountingSettings.deleteMany({ where: { companyId: R } })
+    const f = await prisma.company.findUnique({ where: { id: R }, select: { disabledModules: true, grantedModules: true } })
+    await prisma.company.update({
+      where: { id: R },
+      data: {
+        grantedModules: (f.grantedModules ?? []).filter((m) => m !== "accounting"),
+        disabledModules: [...new Set([...(f.disabledModules ?? []), "accounting"])],
+      },
+    })
+    console.log("MUHASEBE_SIFIRLA=1 — önceki test kurulumu silindi, modül kapatıldı.\n")
+  }
   const firma = await prisma.company.findUnique({
     where: { id: R },
     select: { id: true, name: true, disabledModules: true, grantedModules: true, branches: { select: { id: true, name: true } } },
@@ -105,11 +148,16 @@ async function main() {
     check("ayarlar okunur, kurulu değil", once.status === 200 && once.body.kurulu === false, once.status)
     const fisYok = await api("GET", `/api/muhasebe/fisler?${q}`)
     check("kurulumsuz fiş listesi 409 KURULUM_YOK", fisYok.status === 409 && fisYok.body?.code === "KURULUM_YOK", fisYok.status)
-    const kur = await api("PUT", "/api/muhasebe/ayarlar", { companyId: R, startDate: "2026-01-01" })
+    const kur = await api("PUT", "/api/muhasebe/ayarlar", { companyId: R, startDate: "2026-07-01" })
     check("kuruldu", kur.status === 200, JSON.stringify(kur.body).slice(0, 120))
     const sonra = await api("GET", `/api/muhasebe/ayarlar?${q}`)
-    check("hesap planı yazıldı (≥ 400 hesap)", sonra.body.hesapSayisi >= 400, sonra.body.hesapSayisi)
-    check("açılış fişi taslak", sonra.body.acilis?.durum === "DRAFT", sonra.body.acilis?.durum)
+    check("hesap planı yazıldı (≥ 321 Tekdüzen hesabı)", sonra.body.hesapSayisi >= 321, sonra.body.hesapSayisi)
+    // Başlangıçta bakiye yoksa açılış fişi hiç açılmaz (satırsız taslak kapanışı kilitlerdi).
+    check(
+      "açılış fişi taslak (ya da bakiye yoksa hiç yok)",
+      sonra.body.acilis == null || sonra.body.acilis.durum === "DRAFT",
+      sonra.body.acilis?.durum ?? "yok",
+    )
 
     // ── 2. Mutabakat ─────────────────────────────────────────────────────────
     console.log("\n2) Mutabakat — geçmiş belgelerin taslak fişleri")
@@ -142,7 +190,8 @@ async function main() {
     const h770 = hesaplar.find((h) => h.kod === "770")
     // Önce "770.01 Test Gider" alt hesabı açılır → 770 yaprak olmaktan çıkar.
     const alt = await api("POST", "/api/muhasebe/hesap-plani", { companyId: R, ustKod: "770", ad: "TEST Muhasebe Gider" })
-    check("770 altına alt hesap açıldı", alt.status === 201 && alt.body.hesap.kod === "770.01", alt.body.hesap?.kod)
+    // Sıradaki numara: önceki koşudan 770.01 kalmışsa 770.02 doğrudur.
+    check("770 altına alt hesap açıldı", alt.status === 201 && /^770\.\d{2}$/.test(alt.body.hesap?.kod ?? ""), alt.body.hesap?.kod)
     // 770 varsayılanlı taslakta satır artık hesapsız olmalı.
     const tahminli = await prisma.journalVoucherLine.findFirst({
       where: { companyId: R, suggestedCode: "770", role: { in: ["ALIS", "GIDER"] }, learnKeys: { isEmpty: false }, voucher: { status: "DRAFT" } },
@@ -245,7 +294,13 @@ async function main() {
     check("mizan borç = alacak", mz.status === 200 && t3 && r2(t3.toplamBorc) === r2(t3.toplamAlacak), t3 ? `${t3.toplamBorc} / ${t3.toplamAlacak}` : mz.status)
     const mzT = await api("GET", `/api/muhasebe/mizan?${q}&bas=2026-01-01&bit=2026-12-31&taslak=1`)
     const t3T = mzT.body.toplamlar?.["3"]
-    check("taslaklar dahil mizan da dengeli", t3T && r2(t3T.toplamBorc) === r2(t3T.toplamAlacak), t3T?.toplamBorc)
+    // Hesabı seçilmemiş taslak satırlar mizana girmez; denge onlarla birlikte tutar.
+    const hz = mzT.body.hesapsiz ?? { borc: 0, alacak: 0, fisSayisi: 0 }
+    check(
+      "taslaklar dahil mizan + hesapsız satırlar dengeli",
+      t3T && r2(t3T.toplamBorc + hz.borc) === r2(t3T.toplamAlacak + hz.alacak),
+      `${t3T?.toplamBorc} + ${hz.borc} / ${t3T?.toplamAlacak} + ${hz.alacak} (${hz.fisSayisi} fiş)`,
+    )
     const yv = await api("GET", `/api/muhasebe/yevmiye?${q}&bas=2026-01-01&bit=2026-12-31`)
     check("yevmiye maddeleri", yv.status === 200 && yv.body.toplam > 0 && r2(yv.body.borc) === r2(yv.body.alacak), `${yv.body.toplam} madde`)
     const kb = await api("GET", `/api/muhasebe/kebir?${q}&hesap=120&bas=2026-01-01&bit=2026-12-31`)
@@ -280,6 +335,20 @@ async function main() {
     check("faturanın taslak fişi anında açıldı", fisi?.status === "DRAFT", fisi ? `${fisi.lines.length} satır` : "fiş yok")
     const cari = fisi?.lines.find((l) => l.role === "CARI")
     check("cari satırı belge toplamı (360)", cari && r2(cari.amount) === 360, cari?.amount)
+    // Kaynak değişince taslak fiş YENİLENİR (toplu yenileme yolu): tarih fişe taşınmalı.
+    await prisma.invoice.update({ where: { id: manuelFaturaId }, data: { date: new Date("2026-10-03T00:00:00Z") } })
+    const yen = await api("POST", "/api/muhasebe/mutabakat", { companyId: R })
+    const yenFis = await prisma.journalVoucher.findFirst({
+      where: { companyId: R, sourceType: "INVOICE", sourceId: manuelFaturaId },
+      select: { date: true, isConfident: true, lines: { select: { amount: true, side: true } } },
+    })
+    const yenBorc = r2((yenFis?.lines ?? []).filter((l) => l.side === "DEBIT").reduce((a, l) => a + Number(l.amount), 0))
+    const yenAlacak = r2((yenFis?.lines ?? []).filter((l) => l.side === "CREDIT").reduce((a, l) => a + Number(l.amount), 0))
+    check(
+      "kaynak değişti → taslak fiş yenilendi (yeni tarih, dengeli)",
+      yen.status === 200 && yen.body.yenilenen >= 1 && yenFis?.date.toISOString().startsWith("2026-10-03") && yenBorc === yenAlacak && yenBorc === 360,
+      `yenilenen ${yen.body.yenilenen} · ${yenFis?.date.toISOString().slice(0, 10)} · ${yenBorc}/${yenAlacak}`,
+    )
     const del = await api("DELETE", `/api/e-donusum/invoices/${manuelFaturaId}?${q}`)
     check("fatura silindi", del.status === 200, del.status)
     manuelFaturaId = null
@@ -309,6 +378,10 @@ async function main() {
       console.log("\nMUHASEBE_BIRAK=1 — temizlik yapılmadı.")
     } else {
       console.log("\nTemizlik…")
+      if (kopanIstek) {
+        console.log("  bir istek koptu — sunucunun yazmayı bitirmesi bekleniyor")
+        await sunucuDurulsun()
+      }
       await prisma.journalVoucher.deleteMany({ where: { companyId: R } })
       await prisma.accountMappingRule.deleteMany({ where: { companyId: R } })
       await prisma.accountingSettings.deleteMany({ where: { companyId: R } })

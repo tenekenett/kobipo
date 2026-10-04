@@ -15,6 +15,7 @@ import {
   tutar,
   tutarSifirli,
   useMuhasebeDurumu,
+  DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
 
@@ -41,7 +42,7 @@ export default function YevmiyePage() {
   const companyId = sp.get("company")
   const { bas, bit } = useDonem()
   const sayfa = Math.max(1, Number(sp.get("sayfa")) || 1)
-  const { durum } = useMuhasebeDurumu(companyId)
+  const { durum, hata: durumHata } = useMuhasebeDurumu(companyId)
   const [veri, setVeri] = useState<Yanit | null>(null)
   const [hata, setHata] = useState<string | null>(null)
 
@@ -58,6 +59,7 @@ export default function YevmiyePage() {
 
   if (!companyId) return <p className="p-6 text-sm text-kobipo-gray">Firma seçiniz.</p>
   if (durum && !durum.kurulu) return <KurulumGerekli durum={durum} />
+  if (!durum) return <DurumBekleniyor hata={durumHata} />
 
   const sayfaSayisi = veri ? Math.max(1, Math.ceil(veri.toplam / veri.sayfaBoyu)) : 1
   const sayfaya = (n: number) => {

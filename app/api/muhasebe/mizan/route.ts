@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { gunParam, kuruluDefter, muhasebeGirisi, muhasebeUcu } from "@/lib/muhasebe/istek.server"
-import { mizan } from "@/lib/muhasebe/defter-sorgu.server"
+import { mizan, mizanHesapsiz } from "@/lib/muhasebe/defter-sorgu.server"
 import { mizanToplami } from "@/lib/muhasebe/mizan"
 
 export const dynamic = "force-dynamic"
@@ -15,13 +15,19 @@ export const GET = muhasebeUcu(async (request: Request) => {
   const sp = new URL(request.url).searchParams
   const { ctx } = await muhasebeGirisi(sp.get("companyId"))
   const defter = kuruluDefter(ctx)
-  const satirlar = await mizan(defter.defterId, {
+  const donem = {
     bas: gunParam(sp.get("bas"), "Başlangıç"),
     bit: gunParam(sp.get("bit"), "Bitiş"),
     taslakDahil: sp.get("taslak") === "1",
-  })
+  }
+  const [satirlar, hesapsiz] = await Promise.all([
+    mizan(defter.defterId, donem),
+    donem.taslakDahil ? mizanHesapsiz(defter.defterId, donem) : null,
+  ])
   return NextResponse.json({
     satirlar,
+    // Taslakta hesabı seçilmemiş satırlar mizana girmez; denge bunlarla birlikte tutar.
+    hesapsiz,
     toplamlar: { 1: mizanToplami(satirlar, 1), 3: mizanToplami(satirlar, 3) },
   })
 })

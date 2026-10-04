@@ -124,12 +124,18 @@ export async function senkronla(
   const tipler = Object.keys(KAYNAK_TIPLERI) as KaynakTipi[]
   if (opts.kaynaklar) {
     for (const k of opts.kaynaklar) istenen.set(anahtar(k.tip, k.id), k)
-    for (const tip of tipler) {
-      const ids = opts.kaynaklar.filter((k) => k.tip === tip).map((k) => k.id)
-      if (ids.length) kaynakFisleri.push(...(await KAYNAK_TIPLERI[tip].yukle(yukCtx, { ids })))
-    }
+    const kaynaklar = opts.kaynaklar
+    const parcalar = await Promise.all(
+      tipler.map((tip) => {
+        const ids = kaynaklar.filter((k) => k.tip === tip).map((k) => k.id)
+        return ids.length ? KAYNAK_TIPLERI[tip].yukle(yukCtx, { ids }) : []
+      }),
+    )
+    for (const p of parcalar) kaynakFisleri.push(...p)
   } else {
-    for (const tip of tipler) kaynakFisleri.push(...(await KAYNAK_TIPLERI[tip].yukle(yukCtx, {})))
+    // Türler birbirinden bağımsız: paralel okunur (sırayla 11 tur gecikme ekran açılışını bekletiyordu).
+    const parcalar = await Promise.all(tipler.map((tip) => KAYNAK_TIPLERI[tip].yukle(yukCtx, {})))
+    for (const p of parcalar) kaynakFisleri.push(...p)
   }
   // Başka defterin kaydı (id elle verildiyse) işlenmez.
   const sirketSet = new Set(ctx.sirketIds)
@@ -165,7 +171,12 @@ export async function senkronla(
     const fis = kf.fis
     if (fis.durum === "kur-yok") ozet.kurYok.push({ tip: kf.tip, id: kf.id, sebep: fis.sebep })
     // Sınır HAM tarihle (açılış fişinin kaynaklarıyla aynı eksen) — bkz. kaynaklar.server.ts.
-    const girer = fis.durum === "hazir" && (kf.giris ?? fis.tarih).getTime() >= ctx.ayar.startDate.getTime()
+    // Satırsız fiş (0 TL'lik belge: ikram, tam iskonto) deftere girmez: onaylanamaz
+    // ("Fişte satır yok") ve taslak sayıldığı için yıl sonu kapanışını kilitlerdi.
+    const girer =
+      fis.durum === "hazir" &&
+      fis.satirlar.length > 0 &&
+      (kf.giris ?? fis.tarih).getTime() >= ctx.ayar.startDate.getTime()
     if (!girer) {
       if (m) kaynagiGitti(m)
       continue
@@ -223,35 +234,60 @@ export async function senkronla(
   )
   const numara = fisNumaratoru(ctx.defterId)
 
-  for (const e of uygulanacak) {
-    try {
-      if (e.tur === "ac") {
-        const { satirlar, emin } = satirlariCoz(e.fis.satirlar, { plan, alt })
-        await fisAc(ctx.defterId, e.kaynak, e.fis, e.iz, satirlar, emin, numara)
-      } else if (e.tur === "yenile") {
-        const { satirlar, emin } = satirlariCoz(e.fis.satirlar, {
-          plan,
-          alt,
-          kullanici: elleSecilen.get(e.mevcut.id),
-        })
-        await fisYenile(ctx.defterId, e.mevcut.id, e.kaynak, e.fis, e.iz, satirlar, emin)
-      } else if (e.tur === "sil") {
-        await prisma.journalVoucher.deleteMany({ where: { id: e.mevcut.id, status: "DRAFT" } })
-      } else if (e.tur === "isaretle") {
-        await prisma.journalVoucher.updateMany({
-          where: { id: e.mevcut.id, status: "POSTED", sourceChangedAt: null },
-          data: { sourceChangedAt: new Date() },
-        })
-      } else {
-        await prisma.journalVoucher.updateMany({ where: { id: e.mevcut.id }, data: { sourceChangedAt: null } })
-      }
-      sayac(ozet, e)
-    } catch (err) {
-      // Eşzamanlı ikinci senkron aynı kaynağın fişini açtıysa (tekil indeks) bu tur atlanır;
-      // bir sonraki mutabakat iki tarafı karşılaştırır.
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") continue
-      throw err
+  // Açılacak fişler TOPLU yazılır (parça başına tek transaction); fiş başına ayrı
+  // create uzak veritabanında saniyeler sürüyordu (200 fiş ≈ 5 dk). Parça çakışırsa
+  // (eşzamanlı senkron) tek tek yola düşülür.
+  const acilacak = uygulanacak.filter((e): e is Extract<Eylem, { tur: "ac" }> => e.tur === "ac")
+  for (let i = 0; i < acilacak.length; i += FIS_PARCASI) {
+    const parca = acilacak.slice(i, i + FIS_PARCASI)
+    const hazir = parca.map((e) => ({ e, ...satirlariCoz(e.fis.satirlar, { plan, alt }) }))
+    if (await fisleriTopluAc(ctx.defterId, hazir, numara)) {
+      ozet.acilan += parca.length
+      continue
     }
+    for (const { e, satirlar, emin } of hazir) {
+      try {
+        await fisAc(ctx.defterId, e.kaynak, e.fis, e.iz, satirlar, emin, numara)
+        sayac(ozet, e)
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") continue
+        throw err
+      }
+    }
+  }
+
+  // Silme ve işaretler tek sorguda (koşullar tek tek yoldakiyle aynı).
+  const idler = (tur: Eylem["tur"]) =>
+    uygulanacak.filter((e) => e.tur === tur).map((e) => (e as Extract<Eylem, { mevcut: MevcutFis }>).mevcut.id)
+  const silinecek = idler("sil")
+  if (silinecek.length) {
+    await prisma.journalVoucher.deleteMany({ where: { id: { in: silinecek }, status: "DRAFT" } })
+    ozet.silinen += silinecek.length
+  }
+  const isaretlenecek = idler("isaretle")
+  if (isaretlenecek.length) {
+    await prisma.journalVoucher.updateMany({
+      where: { id: { in: isaretlenecek }, status: "POSTED", sourceChangedAt: null },
+      data: { sourceChangedAt: new Date() },
+    })
+    ozet.isaretlenen += isaretlenecek.length
+  }
+  const kaldirilacak = idler("isaret-kaldir")
+  if (kaldirilacak.length) {
+    await prisma.journalVoucher.updateMany({ where: { id: { in: kaldirilacak } }, data: { sourceChangedAt: null } })
+    ozet.isaretlenen += kaldirilacak.length
+  }
+
+  // Yenilenecek fişler de parça başına tek transaction (fiş başına 5 tur yerine 4).
+  // Kural değişikliğinden sonra bütün fişlerin izi değişir; tek tek yol dakikalar sürerdi.
+  const yenilenecek = uygulanacak.filter((e): e is Extract<Eylem, { tur: "yenile" }> => e.tur === "yenile")
+  for (let i = 0; i < yenilenecek.length; i += FIS_PARCASI) {
+    const parca = yenilenecek.slice(i, i + FIS_PARCASI).map((e) => ({
+      e,
+      ...satirlariCoz(e.fis.satirlar, { plan, alt, kullanici: elleSecilen.get(e.mevcut.id) }),
+    }))
+    await fisleriTopluYenile(ctx.defterId, parca)
+    ozet.yenilenen += parca.length
   }
   return ozet
 }
@@ -387,33 +423,89 @@ async function fisAc(
   throw new Error("Fiş numarası alınamadı (4 deneme)")
 }
 
-async function fisYenile(
+const FIS_PARCASI = 100
+
+/**
+ * Bir parça fişi tek transaction'da açar: fişler `createManyAndReturn`, satırlar tek
+ * `createMany`. Çakışmada (numara ya da aynı kaynağın fişi) hiçbiri yazılmaz, numaralar
+ * tazelenir ve `false` döner — çağıran tek tek yola düşer.
+ */
+async function fisleriTopluAc(
   defterId: string,
-  fisId: string,
-  kaynak: KaynakFisi,
-  fis: HazirFis,
-  iz: string,
-  satirlar: CozulmusSatir[],
-  emin: boolean,
-) {
-  await prisma.$transaction([
-    prisma.journalVoucherLine.deleteMany({ where: { voucherId: fisId } }),
-    prisma.journalVoucher.update({
-      where: { id: fisId },
-      data: {
-        date: fis.tarih,
-        description: fis.aciklama,
-        kind: fis.tur,
-        sourceHash: iz,
-        sourceCompanyId: kaynak.sirketId,
-        sourceChangedAt: null,
-        isConfident: emin,
+  hazir: Array<{ e: Extract<Eylem, { tur: "ac" }>; satirlar: CozulmusSatir[]; emin: boolean }>,
+  numara: FisNumaratoru,
+): Promise<boolean> {
+  const fisler: Prisma.JournalVoucherCreateManyInput[] = []
+  for (const { e, emin } of hazir) {
+    fisler.push({
+      companyId: defterId,
+      voucherNo: await numara.sonraki(e.fis.tarih),
+      date: e.fis.tarih,
+      description: e.fis.aciklama,
+      status: "DRAFT" as const,
+      sourceType: e.kaynak.tip,
+      sourceId: e.kaynak.id,
+      sourceHash: e.iz,
+      sourceCompanyId: e.kaynak.sirketId,
+      kind: e.fis.tur,
+      isConfident: emin,
+    })
+  }
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        const yazilan = await tx.journalVoucher.createManyAndReturn({
+          data: fisler,
+          select: { id: true, sourceType: true, sourceId: true },
+        })
+        const idByKaynak = new Map(yazilan.map((v) => [anahtar(v.sourceType, v.sourceId), v.id]))
+        const satirlar = hazir.flatMap(({ e, satirlar }) => {
+          const voucherId = idByKaynak.get(anahtar(e.kaynak.tip, e.kaynak.id))!
+          return satirlar.map((s, i) => ({ ...satirVerisi(defterId, s, i), voucherId }))
+        })
+        await tx.journalVoucherLine.createMany({ data: satirlar })
       },
-    }),
-    prisma.journalVoucherLine.createMany({
-      data: satirlar.map((s, i) => ({ ...satirVerisi(defterId, s, i), voucherId: fisId })),
-    }),
-  ])
+      { timeout: 60_000, maxWait: 10_000 },
+    )
+    return true
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      for (const yil of new Set(fisler.map((f) => new Date(f.date).getUTCFullYear()))) {
+        await numara.tazele(new Date(Date.UTC(yil, 0, 1)))
+      }
+      return false
+    }
+    throw err
+  }
+}
+
+async function fisleriTopluYenile(
+  defterId: string,
+  parca: Array<{ e: Extract<Eylem, { tur: "yenile" }>; satirlar: CozulmusSatir[]; emin: boolean }>,
+) {
+  const ids = parca.map((p) => p.e.mevcut.id)
+  const basliklar = parca.map(
+    ({ e, emin }) =>
+      Prisma.sql`(${e.mevcut.id}, ${e.fis.tarih.toISOString()}, ${e.fis.aciklama ?? null}, ${e.fis.tur}, ${e.iz}, ${e.kaynak.sirketId}, ${emin})`,
+  )
+  const satirlar = parca.flatMap(({ e, satirlar }) =>
+    satirlar.map((s, i) => ({ ...satirVerisi(defterId, s, i), voucherId: e.mevcut.id })),
+  )
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.journalVoucherLine.deleteMany({ where: { voucherId: { in: ids } } })
+      await tx.$executeRaw`
+        UPDATE journal_vouchers AS j SET
+          date = v.d::timestamp(3), description = v.ac, kind = v.k, "sourceHash" = v.h,
+          "sourceCompanyId" = v.sc, "sourceChangedAt" = NULL, "isConfident" = v.e::boolean,
+          "updatedAt" = now()
+        FROM (VALUES ${Prisma.join(basliklar)}) AS v(id, d, ac, k, h, sc, e)
+        WHERE j.id = v.id AND j."companyId" = ${defterId}
+      `
+      await tx.journalVoucherLine.createMany({ data: satirlar })
+    },
+    { timeout: 60_000, maxWait: 10_000 },
+  )
 }
 
 /**

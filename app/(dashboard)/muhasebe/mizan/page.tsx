@@ -13,6 +13,7 @@ import {
   tutar,
   tutarSifirli,
   useMuhasebeDurumu,
+  DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
 
@@ -37,6 +38,7 @@ type MizanSatiri = {
   tersBakiye: boolean
 }
 type Toplam = Omit<MizanSatiri, "kod" | "ad" | "duzey" | "tersBakiye">
+type Hesapsiz = { borc: number; alacak: number; fisSayisi: number }
 
 const DUZEYLER = [
   { k: "3", ad: "Defteri kebir" },
@@ -50,10 +52,10 @@ export default function MizanPage() {
   const router = useRouter()
   const companyId = sp.get("company")
   const { bas, bit } = useDonem()
-  const { durum } = useMuhasebeDurumu(companyId)
+  const { durum, hata: durumHata } = useMuhasebeDurumu(companyId)
   const [duzey, setDuzey] = useState<(typeof DUZEYLER)[number]["k"]>("3")
   const [taslak, setTaslak] = useState(false)
-  const [veri, setVeri] = useState<{ satirlar: MizanSatiri[]; toplamlar: Record<string, Toplam> } | null>(null)
+  const [veri, setVeri] = useState<{ satirlar: MizanSatiri[]; toplamlar: Record<string, Toplam>; hesapsiz: Hesapsiz | null } | null>(null)
   const [hata, setHata] = useState<string | null>(null)
   const [yukleniyor, setYukleniyor] = useState(false)
 
@@ -61,7 +63,7 @@ export default function MizanPage() {
     if (!companyId || !durum?.kurulu) return
     setYukleniyor(true)
     const q = new URLSearchParams({ companyId, bas, bit, ...(taslak ? { taslak: "1" } : {}) })
-    muhasebeIstegi<{ satirlar: MizanSatiri[]; toplamlar: Record<string, Toplam> }>(`/api/muhasebe/mizan?${q}`)
+    muhasebeIstegi<{ satirlar: MizanSatiri[]; toplamlar: Record<string, Toplam>; hesapsiz: Hesapsiz | null }>(`/api/muhasebe/mizan?${q}`)
       .then((v) => {
         setVeri(v)
         setHata(null)
@@ -78,6 +80,7 @@ export default function MizanPage() {
 
   if (!companyId) return <p className="p-6 text-sm text-kobipo-gray">Firma seçiniz.</p>
   if (durum && !durum.kurulu) return <KurulumGerekli durum={durum} />
+  if (!durum) return <DurumBekleniyor hata={durumHata} />
 
   // Dip toplam gösterilen düzeyden (aynı düzeyin satırları çakışmaz); borç = alacak denetimi
   // her zaman defteri kebir düzeyinden — sunucunun hesapladığı.
@@ -90,7 +93,11 @@ export default function MizanPage() {
           {} as Toplam,
         )
   const kebirToplam = veri?.toplamlar["3"]
-  const dengeli = kebirToplam ? kebirToplam.toplamBorc === kebirToplam.toplamAlacak : true
+  // Taslakta hesabı seçilmemiş satırlar mizana girmez; denge onlarla birlikte ölçülür.
+  const hesapsiz = veri?.hesapsiz && (veri.hesapsiz.borc || veri.hesapsiz.alacak) ? veri.hesapsiz : null
+  const dengeli = kebirToplam
+    ? r2(kebirToplam.toplamBorc + (hesapsiz?.borc ?? 0)) === r2(kebirToplam.toplamAlacak + (hesapsiz?.alacak ?? 0))
+    : true
 
   return (
     <div className="mx-auto max-w-7xl space-y-4">
@@ -124,6 +131,12 @@ export default function MizanPage() {
       </div>
       {hata && <Uyari ton="kirmizi">{hata}</Uyari>}
       {taslak && <Uyari ton="mavi">Ön izleme: onaylanmamış taslak fişler de toplama giriyor. Resmî mizan yalnız onaylı fişlerdir.</Uyari>}
+      {hesapsiz && (
+        <Uyari ton="sari">
+          {hesapsiz.fisSayisi} taslak fişte hesabı seçilmemiş satırlar mizana girmedi (borç {tutarSifirli(hesapsiz.borc)}, alacak{" "}
+          {tutarSifirli(hesapsiz.alacak)}). Bu yüzden borç ve alacak toplamları farklı görünür; Fişler ekranında hesap seçince mizana girerler.
+        </Uyari>
+      )}
       {kebirToplam && !dengeli && (
         <Uyari ton="kirmizi">
           Borç toplamı alacak toplamına eşit değil ({tutarSifirli(kebirToplam.toplamBorc)} ≠ {tutarSifirli(kebirToplam.toplamAlacak)}). Bu bir

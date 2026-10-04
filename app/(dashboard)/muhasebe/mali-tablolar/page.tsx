@@ -13,6 +13,7 @@ import {
   muhasebeIstegi,
   tutarSifirli,
   useMuhasebeDurumu,
+  DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
 import type { Bilanco, GelirTablosuKalemi, TabloBolumu } from "@/lib/muhasebe/mali-tablolar"
@@ -30,7 +31,7 @@ const isaretli = (n: number) => (n < 0 ? `(${tutarSifirli(-n)})` : tutarSifirli(
 export default function MaliTablolarPage() {
   const companyId = useSearchParams().get("company")
   const { bas, bit } = useDonem()
-  const { durum } = useMuhasebeDurumu(companyId)
+  const { durum, hata: durumHata } = useMuhasebeDurumu(companyId)
   const [veri, setVeri] = useState<Yanit | null>(null)
   const [hata, setHata] = useState<string | null>(null)
   const [yukleniyor, setYukleniyor] = useState(false)
@@ -49,6 +50,7 @@ export default function MaliTablolarPage() {
 
   if (!companyId) return <p className="p-6 text-sm text-kobipo-gray">Firma seçiniz.</p>
   if (durum && !durum.kurulu) return <KurulumGerekli durum={durum} />
+  if (!durum) return <DurumBekleniyor hata={durumHata} />
 
   const b = veri?.bilanco
   const denk = b ? Math.abs(b.aktifToplam - b.pasifToplam) < 0.01 : true

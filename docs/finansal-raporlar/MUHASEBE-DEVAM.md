@@ -73,8 +73,12 @@ muhasebe motoru. Rakip incelemesi ve karşılaştırma Claude Docs'ta:
 
 1. ~~Muhasebe motoru 2. faz~~ → **2., 3. ve 4. faz 2026-10-04'te yazıldı** (main e0ac9f2;
    kapsam kullanıcı kararı: 2 + 3 + 4; şube kararı: modül yalnız ana firmada).
-   DEVAM NOTU: `docs/muhasebe/MOTOR-PLAN.md` → "▶ DEVAM" — migrasyonun deploy sonrası
-   tekrarı, hiç çalıştırılmamış parçaların dökümü, açık kararlar, plandan sapmalar.
+   DEVAM NOTU: `docs/muhasebe/MOTOR-PLAN.md` → "▶ DEVAM" — yeni bilgisayarda ilk adımlar,
+   sıradaki iş, açık kararlar, plandan sapmalar.
+2. **2026-10-04 gece:** uçtan uca koşuldu, hatalar düzeltildi (toplu yazma, satırsız fiş,
+   mizan taslak dengesi, ekran yükleme durumları). Modül satışta KAPALI; sırada veri modeli
+   eksikleri (işveren SGK, ciro tarihi, virman kimliği, kur — migrasyon, önce sor), sonra
+   toplu eşleme ekranı, mobil, pilot.
 
 ## Ölçüm yolları
 

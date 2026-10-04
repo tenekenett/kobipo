@@ -118,7 +118,7 @@ export async function acilisGirdisi(ctx: Ctx): Promise<AcilisGirdisi> {
  *   onaylı, iz değişti  → "belge değişti" işaretlenir (başlangıçtan önceki bir kayıt
  *                         sonradan değişmiş demektir)
  */
-export async function acilisSenkronla(ctx: Ctx): Promise<{ fisId: string; degisti: boolean }> {
+export async function acilisSenkronla(ctx: Ctx): Promise<{ fisId: string | null; degisti: boolean }> {
   const fis = acilisFisi(await acilisGirdisi(ctx))
   const iz = parmakIzi(fis)
   const mevcut = await prisma.journalVoucher.findFirst({
@@ -134,7 +134,8 @@ export async function acilisSenkronla(ctx: Ctx): Promise<{ fisId: string; degist
     }
     return { fisId: mevcut.id, degisti: mevcut.sourceHash !== iz }
   }
-  if (mevcut && mevcut.sourceHash === iz && mevcut.date.getTime() === fis.tarih.getTime()) {
+  // Boş açılış (başlangıçta bakiye yok) erken dönmez: aşağıda eski boş taslak temizlenir.
+  if (mevcut && fis.satirlar.length > 0 && mevcut.sourceHash === iz && mevcut.date.getTime() === fis.tarih.getTime()) {
     return { fisId: mevcut.id, degisti: false }
   }
   if (mevcut && kilitliMi(ctx.ayar, mevcut.date)) return { fisId: mevcut.id, degisti: false }
@@ -186,7 +187,19 @@ export async function acilisSenkronla(ctx: Ctx): Promise<{ fisId: string; degist
   const cozulecek: FisSatiri[] = farkSatiri ? [...otomatik, farkSatiri] : otomatik
   const { satirlar } = satirlariCoz(cozulecek, { plan, alt, kullanici })
   const tum = [...satirlar, ...elle].sort((a, b) => (a.taraf === b.taraf ? 0 : a.taraf === "B" ? -1 : 1))
-  const emin = tum.every((s) => s.accountId && !(s.accountSource === "DEFAULT" && s.rol === "ACILIS_FARK"))
+  const emin = tum.length > 0 && tum.every((s) => s.accountId && !(s.accountSource === "DEFAULT" && s.rol === "ACILIS_FARK"))
+
+  // Başlangıçta bakiye yok ve elle satır da yok → açılış fişi OLMAZ. Satırsız taslak
+  // onaylanamaz ("Fişte satır yok") ve taslak sayıldığı için yıl sonu kapanışını kilitlerdi.
+  if (tum.length === 0) {
+    if (mevcut) {
+      await prisma.$transaction([
+        prisma.journalVoucher.deleteMany({ where: { id: mevcut.id, status: "DRAFT" } }),
+        prisma.accountingSettings.update({ where: { companyId: ctx.defterId }, data: { openingVoucherId: null } }),
+      ])
+    }
+    return { fisId: null, degisti: !!mevcut }
+  }
 
   if (!mevcut) {
     const numara = fisNumaratoru(ctx.defterId)

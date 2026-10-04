@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState, type ReactNode } from "react"
-import { AlertTriangle, Settings2 } from "lucide-react"
+import { AlertTriangle, Loader2, Settings2 } from "lucide-react"
 import { CompanyLink } from "@/components/dashboard/company-link"
 import { toast } from "@/components/ui/use-toast"
 import { cn } from "@/lib/utils"
@@ -90,6 +90,20 @@ export function Kart({ children, className }: { children: ReactNode; className?:
     <section className={cn("rounded-2xl border border-kobipo-border/90 bg-card p-4 shadow-card sm:p-5", className)}>
       {children}
     </section>
+  )
+}
+
+/**
+ * Muhasebe durumu gelene kadar ekranın yerine: yükleniyor ya da durum hatası. Durum
+ * gelmeden sayfa hiçbir şey çizmiyordu (uzak veritabanında saniyelerce boş ekran) ve
+ * durum isteği düşerse hata hiç görünmüyordu.
+ */
+export function DurumBekleniyor({ hata }: { hata: string | null }) {
+  if (hata) return <Uyari ton="kirmizi">{hata}</Uyari>
+  return (
+    <p className="flex items-center gap-2 p-6 text-sm text-kobipo-gray">
+      <Loader2 className="h-4 w-4 animate-spin" /> Yükleniyor…
+    </p>
   )
 }
 

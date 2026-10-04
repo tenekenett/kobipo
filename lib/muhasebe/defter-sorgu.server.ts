@@ -63,6 +63,32 @@ export async function mizan(defterId: string, d: DonemSecimi): Promise<MizanSati
   )
 }
 
+/**
+ * Mizana GİRMEYEN hesapsız satırlar (yalnız taslakta olur; onaylı fişte hesap zorunlu).
+ * "Taslaklar dahil" ön izlemesinde bunlar olmadan borç ≠ alacak görünür — ekran farkı
+ * buradan açıklar, hata saymaz.
+ */
+export async function mizanHesapsiz(
+  defterId: string,
+  d: DonemSecimi,
+): Promise<{ borc: number; alacak: number; fisSayisi: number }> {
+  const bit = d.bit ?? new Date(Date.UTC(2999, 0, 1))
+  const rows = await prisma.$queryRaw<Array<{ b: unknown; a: unknown; n: number }>>`
+    SELECT
+      SUM(CASE WHEN l.side = 'DEBIT' THEN l.amount ELSE 0 END) AS b,
+      SUM(CASE WHEN l.side = 'CREDIT' THEN l.amount ELSE 0 END) AS a,
+      COUNT(DISTINCT v.id)::int AS n
+    FROM journal_voucher_lines l
+    JOIN journal_vouchers v ON v.id = l."voucherId"
+    WHERE v."companyId" = ${defterId}
+      AND ${durumSql(d.taslakDahil)}
+      AND v.date <= ${bit}
+      AND l."accountId" IS NULL
+      ${kapanisSql(d)}
+  `
+  return { borc: Number(rows[0]?.b ?? 0), alacak: Number(rows[0]?.a ?? 0), fisSayisi: Number(rows[0]?.n ?? 0) }
+}
+
 export type YevmiyeMaddesi = {
   maddeNo: number
   id: string

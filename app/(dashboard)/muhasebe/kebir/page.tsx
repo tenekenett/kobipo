@@ -15,6 +15,7 @@ import {
   tutarSifirli,
   useMuhasebeDurumu,
   type PlanHesabi,
+  DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
 
@@ -35,7 +36,7 @@ export default function KebirPage() {
   const companyId = sp.get("company")
   const hesap = sp.get("hesap") ?? ""
   const { bas, bit } = useDonem()
-  const { durum } = useMuhasebeDurumu(companyId)
+  const { durum, hata: durumHata } = useMuhasebeDurumu(companyId)
   const [hesaplar, setHesaplar] = useState<PlanHesabi[]>([])
   const [veri, setVeri] = useState<Yanit | null>(null)
   const [hata, setHata] = useState<string | null>(null)
@@ -74,6 +75,7 @@ export default function KebirPage() {
 
   if (!companyId) return <p className="p-6 text-sm text-kobipo-gray">Firma seçiniz.</p>
   if (durum && !durum.kurulu) return <KurulumGerekli durum={durum} />
+  if (!durum) return <DurumBekleniyor hata={durumHata} />
 
   const hesapSec = (kod: string) => {
     const q = new URLSearchParams(sp.toString())

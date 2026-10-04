@@ -474,12 +474,17 @@ onaylar. Plan ve durum: `docs/muhasebe/MOTOR-PLAN.md`; kod `lib/muhasebe/`.
 - **Öğrenme yalnız ONAYDA** (`account_mapping_rules`); öğrenilen eşleşme bekleyen
   taslaklara hemen yayılır (`taslaklariYenidenCoz`). Fişe yalnız AKTİF ve YAPRAK hesap
   yazılır; hesap planına alt hesap açmak üstüne düşen taslak satırları hesapsız bırakır.
+- **Satırsız fiş deftere GİRMEZ** (0 TL'lik belge, bakiyesiz açılış): onaylanamaz ve taslak
+  sayıldığı için yıl sonu kapanışını kilitler. Senkron ve açılış bunu ayıklar, eski boşları siler.
+- **Senkron/onay yolları TOPLU yazar** (parça başına tek transaction, `UPDATE … FROM (VALUES)`,
+  `createMany`). Kayıt başına sorgu, 2026-10-04 ölçümünde kurulumu 2,6 dk, mutabakat adımını
+  5 dk yaptı. Yeni bir döngüye `await prisma…` yazmadan önce toplu karşılığını düşünün.
 - Fiş DENGELİDİR (`fisKur` dengesiz fişte fırlatır). Cari satırı BELGE TOPLAMIDIR;
   kuruş farkı gelir/gider satırına katılır, KDV'ye dokunulmaz.
 - Dönem kapanışı (`kapanis.ts`) fişleri onaylı yazar ve `lockedUntil`le kilitler;
   kilitli döneme yeni fiş açılmaz, mutabakat bunu "kilitli döneme düşen" diye sayar.
 - Ölçüm (uçtan uca): `node scripts/test-muhasebe.mjs` (dev sunucu açık, Reypo Medya;
-  açtığı her şeyi siler).
+  açtığı her şeyi siler; önceki kurulum kaldıysa `MUHASEBE_SIFIRLA=1`).
 
 ## Alış faturası: ödeme durumu + "çalışan cebinden ödedi" defteri
 

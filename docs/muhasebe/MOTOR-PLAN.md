@@ -56,22 +56,78 @@ toplamından 1–3 kuruş sapıyordu; (3) bir kasa hareketi başka firmanın kas
 (veri tutarsızlığı, tek kayıt: Demo Firma'nın 720 TL'lik tahsilatı Reypo Medya'nın "ana"
 kasasında) — fiş kasa satırını hesapsız bırakıp "Gözden geçir"e düşürür.
 
-### ▶ DEVAM — başka bilgisayarda (2026-10-04 devir notu)
+### ▶ DEVAM — başka bilgisayarda (güncel: 2026-10-04 gece)
 
-Migrasyon `20261004000001` canlıya uygulandı ve doğrulandı (tablo + kolonlar, 42/42 firmada
-`accounting` kapalı, fiyat kalemi pasif, RLS açık). Kod main'e gönderildi; uçtan uca test
-henüz ÇALIŞTIRILMADI.
+**Durum:** modül kodda var, SATIŞTA KAPALI (fiyat kalemi `module:accounting` pasif, 42/42
+firmada `accounting` kapalı). Migrasyon `20261004000001` canlıda, deploy sonrası tekrarı da
+yapıldı. Uçtan uca koşuldu, bulunan hatalar düzeltildi ve main'e gönderildi (aşağıda
+"2026-10-04 akşam" bölümü). Kullanıcı kararı: önce zayıflıklar, sonra geliştirme; pilot
+bitmeden fiyat AÇILMAZ.
 
-1. **Deploy bittikten hemen sonra migrasyonu bir kez daha uygula** (eski kodun
-   `applyEntitlements`i deploy penceresinde `accounting` anahtarını düşürmüş olabilir):
-   `node scripts/apply-migration.js supabase/migrations/20261004000001_muhasebe_2faz.sql`
-2. Uçtan uca: `npm run dev` + `TEST_BASE_URL=http://localhost:3000 node scripts/test-muhasebe.mjs`
-   (Reypo Medya; açtığı her şeyi siler, `MUHASEBE_BIRAK=1` ile bırakır — ekranda bakmak için).
-3. Canlı tutarlılık (salt okur): `npm run test:canli -- lib/muhasebe/defter-tutarlilik`.
-4. Ekranda deneme: sistem-admin modül kartından bir firmaya Muhasebe'yi bedelsiz ver →
-   Muhasebe Ayarları → kur → Fişler (açılışta mutabakat) → hesap seç/onayla → Mizan →
-   Bilanço ve Gelir Tablosu → Dönem kapanışı ön izlemesi. 390 px mobil görünüm bakılmadı.
-5. Satışa açmak: Paket & Fiyat Yönetimi'nde `module:accounting` fiyatını gir, aktif yap.
+**Yeni bilgisayarda ilk adımlar:**
+
+1. `git pull` → `npx prisma generate` (eski client "journalVoucher yok" tip hataları verir)
+   → `.next` bayatsa sil (`.next/dev/types` silinmiş Ba-Bs sayfasını arıyor olabilir).
+2. Doğrula: `npx vitest run lib/muhasebe` (58 test) ve `npx tsc --noEmit`.
+3. Uçtan uca: `npm run dev` + `MUHASEBE_SIFIRLA=1 TEST_BASE_URL=http://localhost:3000 node scripts/test-muhasebe.mjs`
+   (Reypo Medya; `SIFIRLA` önceki kurulumu silip modülü kapatır, sonda açtığını siler;
+   `MUHASEBE_BIRAK=1` ekranda bakmak için bırakır). Yerelden DB turu ~420 ms: bir koşu
+   ~15–20 dk sürer, istek başına 5–40 sn normaldir (canlıda ms).
+4. Canlı tutarlılık (salt okur, ~4 dk): `npm run test:canli -- lib/muhasebe/defter-tutarlilik`.
+
+**Sıradaki iş (sırayla):**
+
+1. **Veri modeli eksikleri** — dördü de CANLI MİGRASYON ister, başlamadan kullanıcıya sor:
+   - İşveren SGK payı: `PayrollRecord`ta yalnız işçi payı (`sgkDeduction`) var → işveren payı
+     kolonu, hesap `lib/personel/bordro-hesap.ts`, fişte B 770 · A 361 (`para-kurallari.ts` bordro).
+   - Çek/senet ciro, iade, protesto tarihi: `Check`/`PromissoryNote`ta yalnız `status` +
+     `updatedAt` → durum değişim tarihi (+ ciroda tedarikçi); ciro fişi bugün `updatedAt`le açılıyor.
+   - Virman ortak kimliği: iki bacak tutar + gün + referansla eşleşiyor (`kaynaklar.server.ts`
+     virman bölümü) → ortak kimlik kolonu; eski kayıtlar bugünkü eşleştirmeyle doldurulur.
+   - Kasa hareketinde kur: `Transaction.currency` var, kur yok → TL dışı hareket fişe girmiyor.
+2. **Toplu eşleme ekranı** ("bu tedarikçi / bu satır türü → şu hesap", tek seferde) — pilotun
+   ön şartı; Reypo'da tek başlangıçta 57 fiş "gözden geçir"de kalıyor.
+3. **Mobil (390 px)** — hiç bakılmadı (bu ortamda Chrome penceresi küçülmedi). Fişler, fiş
+   detayı, mizan.
+4. **Pilot** (2–3 hafta, gerçek firma + müşaviri) → sonra Luca/Zirve aktarımı, sürekli
+   envanter (her satışta 621/153), kâr dağıtımı yardımcısı. Fiyat ancak pilottan sonra.
+
+Açık kullanıcı kararları (aşağıda): eski `accounting_entries` tablosu + 3 kayıt; Demo Firma'nın
+Reypo kasasına yazılmış 720 TL'lik tahsilatı. Reypo test hesabı TEMİZLENMEZ (kullanıcı kararı).
+
+**2026-10-04 akşam — uçtan uca koşuldu (aşağıdaki "HİÇ çalışmadı" satırları artık geçersiz):**
+deploy sonrası migrasyon tekrarı yapıldı; `scripts/test-muhasebe.mjs` 39/40 geçti (kalan tek madde:
+ilk yarım kalan koşu Reypo'da `accounting`ı açık bıraktı, betik başlangıç durumunu geri yüklediği
+için "modül kapalı → 403" denenemiyor — kod hatası değil). Ekranlar Chrome'da açıldı: Fişler,
+fiş detayı + hesap seçici, Mizan (taslaklar dahil), Bilanço/Gelir Tablosu, Ayarlar + kapanış ön
+izlemesi. 390 px mobil HÂLÂ bakılmadı (pencere küçültülemedi). Koşunun bulup düzelttikleri:
+
+- **Yazma yolları kayıt başına sorgu atıyordu** (yerelden DB turu ~420 ms): kurulum 2,6 dk,
+  200 fişlik mutabakat adımı 5 dk (istemci 300 sn'de kopuyordu), alt hesap açma 2,3 dk, toplu onay
+  5 dk. Toplu yazmaya çevrildi: `planKur` üst bağı tek `UPDATE … FROM (VALUES)`, alt hesaplar tek
+  `createMany` (çakışmada eski tek tek yol), fişler parça başına `createManyAndReturn` + satır
+  `createMany` (çakışmada tek tek), sil/işaretle tek sorgu, kaynak türleri paralel okunur,
+  `taslaklariYenidenCoz` tek UPDATE + toplu "emin" tazeleme, `topluOnayla` tek okuma + tek onay +
+  gruplanmış öğrenme. Sonra: kurulum 11 sn, mutabakat adımı 24–44 sn, toplu onay 6 sn (yerelden).
+- **Satırsız fiş:** 0 TL'lik belge (ikram/tam iskonto fişi) ve bakiyesiz başlangıç satırsız taslak
+  üretiyordu — "emin" görünür, onaylanamaz ("Fişte satır yok"), taslak sayıldığı için YIL SONU
+  KAPANIŞINI KİLİTLER. Artık açılmaz; eski boş taslaklar mutabakatta / açılış senkronunda silinir.
+- **Mizan "taslaklar dahil"** hesapsız taslak satırları INNER JOIN'le düşürüyor, borç ≠ alacak
+  görünüp "bu bir hatadır, desteğe bildirin" basıyordu. Uç `hesapsiz` toplamını döner, ekran
+  sarı notla yazar, denge onlarla birlikte ölçülür.
+- Betik: hesap planı beklentisi 400 → 321 (Tekdüzen satır sayısı); açılış fişi bakiye yoksa
+  "yok" da kabul; başlangıç 2026-07-01 (açılış fişi yolunu sınamak için — 1 Ocak'ta Reypo'nun
+  bakiyesi yok).
+
+Zayıflık turu (aynı gün, ikinci geçiş): taslak fiş YENİLEME de topluya alındı (parça başına tek
+transaction; betiğe "kaynak değişti → fiş yenilendi" adımı eklendi); fiş detayında hesap
+seçicinin listesi artık kırpılmıyor (masaüstünde `overflow-visible`); altı muhasebe ekranı
+durum gelene kadar boş durmuyor ve durum hatasını yazıyor (`DurumBekleniyor`). Betik:
+fetch zaman aşımı 15 dk, kopan istekte temizlik sunucunun durulmasını bekler,
+`MUHASEBE_SIFIRLA=1` önceki BIRAK kurulumunu silip modülü kapatır. Son koşu 40/41
+(`MUHASEBE_SIFIRLA=1`; tek kalan, betiğin 770.01 beklentisiydi — sistem doğru olarak 770.02 verdi; beklenti düzeltildi, betik ondan sonra yeniden koşulmadı).
+Son koşu temizlikle bitti: Reypo'da muhasebe KAPALI, fiş/ayar yok; önceki koşuların açtığı hesap
+planı satırları (≈350, 770.01 dahil) BİLEREK duruyor (test firması, kullanıcı kararı).
 
 **Neyin ÇALIŞTIRILDIĞI, neyin ÇALIŞTIRILMADIĞI (dürüst döküm):**
 
@@ -295,6 +351,12 @@ Kural `fis-kurallari.ts`e yeni giriş tipleri olarak eklenir (aynı satır/öğr
 
 ## Bilinen sınırlar (2026-10-04)
 
+- **Artımlı senkron BİLEREK yok (ölçüm 2026-10-04):** mutabakat her açılışta bütün kaynakları
+  okur. En büyük defter (Reypo, 332 fatura) ~350 fiş / ~330 KB; ~15 sorgu, türler paralel.
+  Yerelden 13–22 sn ölçülen sürenin tamamı ağ turu (~420 ms); canlıda Vercel `fra1` ↔ Supabase
+  `eu-central-1` (1–2 ms) bir saniyenin altında. Artımlı yol (son mutabakat damgası + değişen
+  kaynak) migrasyon ve "değişeni kaçırma" riski getirir; firma başına yılda birkaç bin belgeyi
+  geçen ilk müşteride ölç, o zaman yaz.
 - **Gece mutabakatı yok:** fiş senkronu belge yazılırken ve Fişler / Ayarlar ekranı
   açılırken çalışır. Cron dağıtımı bilinçli ertelendiği için (abonelik notu) gece işi
   yazılmadı; seyrek yazma yolları (bordro toplu oluşturma, cari kartı açılış bakiyesi,

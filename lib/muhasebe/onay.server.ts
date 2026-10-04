@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { kilitliMi, type DefterBaglami, type MuhasebeAyari } from "@/lib/muhasebe/defter.server"
 import { cozulmusEminMi, type HesapKaynagiDb, type PlanKaydi } from "@/lib/muhasebe/hesap-cozumu"
@@ -155,17 +156,49 @@ export async function topluOnayla(
   const atlanan: Array<{ id: string; sebep: string }> = fisIds
     .filter((id) => !adaySet.has(id))
     .map((id) => ({ id, sebep: "Emin değil ya da taslak değil" }))
-  let onaylanan = 0
-  let ogrenildi = false
-  for (const a of adaylar) {
-    try {
-      const r = await fisOnayla(ctx, a.id, kullaniciId)
-      onaylanan++
-      if (r.ogrenilen.length) ogrenildi = true
-    } catch (e) {
-      atlanan.push({ id: a.id, sebep: e instanceof Error ? e.message : String(e) })
+  // Toplu: adaylar satırlarıyla TEK okumada, onay tek UPDATE'te, öğrenme gruplanarak.
+  // Fiş başına fisOnayla (4+ sorgu) 300 fişte dakikalar sürüyordu. Kural aynı: onayEngeli.
+  const fisler = await prisma.journalVoucher.findMany({
+    where: { id: { in: [...adaySet] }, companyId: ctx.defterId },
+    select: { id: true, status: true, date: true, lines: { select: SATIR_SECIMI } },
+  })
+  const onaylanacak: typeof fisler = []
+  for (const f of fisler) {
+    const engel = onayEngeli({ ...f, kilitli: kilitliMi(ctx.ayar, f.date) })
+    if (engel) atlanan.push({ id: f.id, sebep: engel })
+    else onaylanacak.push(f)
+  }
+  if (onaylanacak.length === 0) return { onaylanan: 0, atlanan }
+  const { count: onaylanan } = await prisma.journalVoucher.updateMany({
+    where: { id: { in: onaylanacak.map((f) => f.id) }, status: "DRAFT" },
+    data: { status: "POSTED", approvedAt: new Date(), approvedBy: kullaniciId, isConfident: true },
+  })
+
+  const satirlar = onaylanacak.flatMap((f) => f.lines)
+  // Elle seçilmiş (USER) satırlar seyrek: tek tek öğrenilir (kural yazımı fisOnayla ile aynı).
+  const ogrenilen = await onaydanOgren(
+    ctx.defterId,
+    satirlar.filter((s) => s.accountSource === "USER"),
+    kullaniciId,
+  )
+  // Öğrenilmiş hesabı aynen onaylanan satırlar: (anahtar, hesap) başına tek artırım.
+  const teyit = new Map<string, { key: string; accountId: string; n: number }>()
+  for (const s of satirlar) {
+    if (s.accountSource !== "LEARNED" || !s.accountId) continue
+    for (const key of s.learnKeys) {
+      const k = `${key}\u0000${s.accountId}`
+      const t = teyit.get(k) ?? { key, accountId: s.accountId, n: 0 }
+      t.n++
+      teyit.set(k, t)
     }
   }
+  for (const t of teyit.values()) {
+    await prisma.accountMappingRule.updateMany({
+      where: { companyId: ctx.defterId, key: t.key, accountId: t.accountId },
+      data: { hits: { increment: t.n } },
+    })
+  }
+  const ogrenildi = ogrenilen.length > 0
   if (ogrenildi) await taslaklariYenidenCoz(ctx.defterId)
   return { onaylanan, atlanan }
 }
@@ -184,16 +217,31 @@ export async function fisGeriAl(ctx: Ctx, fisId: string): Promise<void> {
 
 /** Taslağın güveni satırlardan yeniden hesaplanır. */
 async function isaretiTazele(fisId: string) {
+  await isaretleriTazele([fisId])
+}
+
+/** Fişlerin "emin" işaretini satırlarından yeniden kurar — tek okuma, en çok iki yazma. */
+async function isaretleriTazele(fisIds: string[]) {
+  if (fisIds.length === 0) return
   const satirlar = await prisma.journalVoucherLine.findMany({
-    where: { voucherId: fisId },
-    select: { accountId: true, accountSource: true, role: true },
+    where: { voucherId: { in: fisIds } },
+    select: { voucherId: true, accountId: true, accountSource: true, role: true },
   })
-  const emin =
-    satirlar.length > 0 &&
-    satirlar.every((s) =>
-      cozulmusEminMi({ accountId: s.accountId, accountSource: s.accountSource as HesapKaynagiDb, rol: s.role as SatirRolu }),
-    )
-  await prisma.journalVoucher.update({ where: { id: fisId }, data: { isConfident: emin } })
+  const fisBasina = new Map<string, typeof satirlar>()
+  for (const s of satirlar) fisBasina.set(s.voucherId, [...(fisBasina.get(s.voucherId) ?? []), s])
+  const emin: string[] = []
+  const degil: string[] = []
+  for (const id of fisIds) {
+    const ss = fisBasina.get(id) ?? []
+    const ok =
+      ss.length > 0 &&
+      ss.every((s) =>
+        cozulmusEminMi({ accountId: s.accountId, accountSource: s.accountSource as HesapKaynagiDb, rol: s.role as SatirRolu }),
+      )
+    ;(ok ? emin : degil).push(id)
+  }
+  if (emin.length) await prisma.journalVoucher.updateMany({ where: { id: { in: emin } }, data: { isConfident: true } })
+  if (degil.length) await prisma.journalVoucher.updateMany({ where: { id: { in: degil } }, data: { isConfident: false } })
 }
 
 /**
@@ -307,18 +355,18 @@ export async function taslaklariYenidenCoz(defterId: string, fisIds?: string[]):
     }
     if (yeni.accountId !== s.accountId || yeni.accountSource !== s.accountSource) degisen.push({ id: s.id, ...yeni })
   }
-  for (let i = 0; i < degisen.length; i += 200) {
-    await prisma.$transaction(
-      degisen.slice(i, i + 200).map((d) =>
-        prisma.journalVoucherLine.update({
-          where: { id: d.id },
-          data: { accountId: d.accountId, accountSource: d.accountSource },
-        }),
-      ),
-    )
+  // Tek UPDATE … FROM (VALUES …) — satır başına UPDATE uzak veritabanında dakikalar sürüyordu.
+  for (let i = 0; i < degisen.length; i += 1000) {
+    const degerler = degisen.slice(i, i + 1000).map((d) => Prisma.sql`(${d.id}, ${d.accountId}, ${d.accountSource})`)
+    await prisma.$executeRaw`
+      UPDATE journal_voucher_lines AS l SET "accountId" = v.aid, "accountSource" = v.src
+      FROM (VALUES ${Prisma.join(degerler)}) AS v(id, aid, src)
+      WHERE l.id = v.id
+    `
   }
-  const etkilenen = [...new Set(satirlar.filter((s) => degisen.some((d) => d.id === s.id)).map((s) => s.voucherId))]
-  for (const id of etkilenen) await isaretiTazele(id)
+  const degisenIds = new Set(degisen.map((d) => d.id))
+  const etkilenen = [...new Set(satirlar.filter((s) => degisenIds.has(s.id)).map((s) => s.voucherId))]
+  await isaretleriTazele(etkilenen)
   return etkilenen.length
 }
 

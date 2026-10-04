@@ -20,6 +20,7 @@ import {
   muhasebeIstegi,
   useMuhasebeDurumu,
   type PlanHesabi,
+  DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 
 /**
@@ -45,7 +46,7 @@ type Hesap = PlanHesabi & { tur: string }
 
 export default function HesapPlaniPage() {
   const companyId = useSearchParams().get("company")
-  const { durum } = useMuhasebeDurumu(companyId)
+  const { durum, hata: durumHata } = useMuhasebeDurumu(companyId)
   const { prompt, confirm } = useConfirm()
   const [hesaplar, setHesaplar] = useState<Hesap[] | null>(null)
   const [hata, setHata] = useState<string | null>(null)
@@ -77,6 +78,7 @@ export default function HesapPlaniPage() {
 
   if (!companyId) return <p className="p-6 text-sm text-kobipo-gray">Firma seçiniz.</p>
   if (durum && !durum.kurulu) return <KurulumGerekli durum={durum} />
+  if (!durum) return <DurumBekleniyor hata={durumHata} />
 
   const altHesapAc = async (ust: Hesap) => {
     const ad = await prompt({

@@ -56,10 +56,14 @@ export async function planKur(defterId: string): Promise<{ eklenen: number }> {
     const ustId = ust ? idByKod.get(ust) : undefined
     if (ustId) bagla.push({ id: h.id, parentId: ustId })
   }
-  for (let i = 0; i < bagla.length; i += 200) {
-    await prisma.$transaction(
-      bagla.slice(i, i + 200).map((b) => prisma.accountPlan.update({ where: { id: b.id }, data: { parentId: b.parentId } })),
-    )
+  // Tek UPDATE … FROM (VALUES …): hesap başına ayrı UPDATE uzak veritabanında dakikalar sürüyordu.
+  for (let i = 0; i < bagla.length; i += 1000) {
+    const degerler = bagla.slice(i, i + 1000).map((b) => Prisma.sql`(${b.id}, ${b.parentId})`)
+    await prisma.$executeRaw`
+      UPDATE account_plans AS a SET "parentId" = v.pid
+      FROM (VALUES ${Prisma.join(degerler)}) AS v(id, pid)
+      WHERE a.id = v.id AND a."companyId" = ${defterId} AND a."parentId" IS NULL
+    `
   }
   return { eklenen: eksik.length }
 }
@@ -191,7 +195,49 @@ export async function altHesaplariHazirla(
   }
   const grupIds = new Map<string, string>()
 
+  // Önce TOPLU: gruplar ve kod sıraları tek sorguda, eksik alt hesaplar tek createMany'de.
+  // Çakışma (eşzamanlı senkron) çıkarsa hiçbiri yazılmaz ve aşağıdaki tek tek yola düşülür.
+  {
+    const gruplar = await prisma.accountPlan.findMany({
+      where: { companyId: defterId, code: { in: anaKodlar.map(grupKodu) } },
+      select: { id: true, code: true },
+    })
+    const grupByKod = new Map(gruplar.map((g) => [g.code, g.id]))
+    const kardesler = await prisma.accountPlan.findMany({
+      where: { companyId: defterId, OR: anaKodlar.map((ana) => ({ code: { startsWith: `${grupKodu(ana)}.` } })) },
+      select: { code: true },
+    })
+    const tumKodlar = new Set(kardesler.map((k) => k.code))
+    const satirlar: Prisma.AccountPlanCreateManyInput[] = []
+    for (const r of eksik) {
+      const ana = altHesapAnaKodu(r)
+      const grupId = grupByKod.get(grupKodu(ana))
+      if (!grupId) continue
+      const kod = r.id ? sonrakiAltKod(ana, tumKodlar) : ortakAltKod(ana)
+      if (tumKodlar.has(kod)) continue
+      tumKodlar.add(kod)
+      satirlar.push({
+        companyId: defterId,
+        code: kod,
+        name: altHesapAdi(r.ad, r.id ? vkn.get(altAnahtar(r)) : null),
+        type: hesapTuruKoddan(ana),
+        level: hesapDuzeyi(kod),
+        parentId: grupId,
+        ...(r.id ? { [BAG_ALANI[r.tur]]: r.id } : {}),
+      })
+    }
+    if (satirlar.length > 0) {
+      try {
+        await prisma.accountPlan.createMany({ data: satirlar })
+      } catch (e) {
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e
+      }
+    }
+    await bul()
+  }
+
   for (const r of eksik) {
+    if (sonuc.has(altAnahtar(r))) continue
     const ana = altHesapAnaKodu(r)
     if (!grupIds.has(ana)) {
       const grup = await prisma.accountPlan.findUnique({
