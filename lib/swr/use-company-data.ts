@@ -12,6 +12,7 @@ import {
   type ClassificationLabels,
 } from "@/lib/company/classification-labels"
 import { jsonFetcher } from "./fetcher"
+import { useCanCallApi } from "@/components/dashboard/write-guard"
 import {
   DEFAULT_RECEIPT_TEMPLATE,
   normalizeReceiptTemplate,
@@ -59,11 +60,20 @@ export type RefWarehouseStock = { warehouseId: string; productId: string; quanti
 /** Firma tanımı (sınıflandırma) — süzgeçlerde id ile eşleşir. */
 export type RefDefinition = { id: string; label: string }
 
-const companyKey = (companyId: string | null, path: string, extra = "") =>
-  companyId ? `${path}?companyId=${companyId}${extra}` : null
+/**
+ * SWR anahtarı. Kullanıcı bu listeyi OKUYAMIYORSA null — istek atılmaz, liste boş
+ * gelir. Ekranlar başka bir sayfanın listesini de ister (fatura editörü hem müşteri hem
+ * tedarikçi listesini çeker); yetkisi olmayan kullanıcıda bu istek 403 yiyor, yetki
+ * günlüğünü (PAGE_FORBIDDEN) beklenen retlerle dolduruyordu (2026-10-05 rol taraması).
+ * Karar sunucu kapısıyla aynı fonksiyondan gelir (`useCanCallApi`).
+ */
+function useCompanyKey(companyId: string | null, path: string, extra = ""): string | null {
+  const allowed = useCanCallApi(path)
+  return companyId && allowed ? `${path}?companyId=${companyId}${extra}` : null
+}
 
 export function useProducts(companyId: string | null, opts?: { isService?: boolean }) {
-  const key = companyKey(companyId, "/api/stok/products", opts?.isService === false ? "&isService=false" : "")
+  const key = useCompanyKey(companyId, "/api/stok/products", opts?.isService === false ? "&isService=false" : "")
   const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
   const products = useMemo<RefProduct[]>(
     () =>
@@ -95,7 +105,7 @@ export function useProducts(companyId: string | null, opts?: { isService?: boole
 
 // customers/suppliers aynı yanıt şeklini paylaşır (dizi veya { items }).
 function useCounterparties(companyId: string | null, path: string) {
-  const key = companyKey(companyId, path)
+  const key = useCompanyKey(companyId, path)
   const { data, error, isLoading, mutate } = useSWR<any>(key, jsonFetcher)
   const list = useMemo<RefCounterparty[]>(() => {
     const items = Array.isArray(data) ? data : data?.items ?? []
@@ -120,7 +130,7 @@ export function useSuppliers(companyId: string | null) {
 }
 
 export function useAccounts(companyId: string | null) {
-  const key = companyKey(companyId, "/api/finans/accounts")
+  const key = useCompanyKey(companyId, "/api/finans/accounts")
   const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
   const accounts = useMemo<RefAccount[]>(
     () => (Array.isArray(data) ? data : []).map((a) => ({ id: a.id, name: a.name, type: a.type, iban: a.iban ?? null })),
@@ -130,7 +140,7 @@ export function useAccounts(companyId: string | null) {
 }
 
 export function useWarehouses(companyId: string | null) {
-  const key = companyKey(companyId, "/api/depolar")
+  const key = useCompanyKey(companyId, "/api/depolar")
   const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
   const warehouses = useMemo<RefWarehouse[]>(
     () => (Array.isArray(data) ? data : []).map((w) => ({ id: w.id, name: w.name, isDefault: w.isDefault })),
@@ -148,7 +158,7 @@ export function useWarehouses(companyId: string | null) {
  * tutuyor: adisyonlar/[id]/route.ts).
  */
 export function useEmployees(companyId: string | null) {
-  const key = companyKey(companyId, "/api/personel/employees", "&status=ACTIVE")
+  const key = useCompanyKey(companyId, "/api/personel/employees", "&status=ACTIVE")
   const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
   const employees = useMemo<RefEmployee[]>(
     () =>
@@ -172,27 +182,27 @@ export function useEmployees(companyId: string | null) {
  * veri, SWR önbelleğine girmeleri iyimser güncellemeyi bozardı.
  */
 export function useShiftTemplates(companyId: string | null) {
-  const key = companyKey(companyId, "/api/personel/shift-templates")
+  const key = useCompanyKey(companyId, "/api/personel/shift-templates")
   const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
   const templates = useMemo(() => (Array.isArray(data) ? data : []), [data])
   return { templates, isLoading, error, mutate }
 }
 
 export function useCompanyHolidays(companyId: string | null) {
-  const key = companyKey(companyId, "/api/personel/holidays")
+  const key = useCompanyKey(companyId, "/api/personel/holidays")
   const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
   const holidays = useMemo(() => (Array.isArray(data) ? data : []), [data])
   return { holidays, isLoading, error, mutate }
 }
 
 export function useOpeningHours(companyId: string | null) {
-  const key = companyKey(companyId, "/api/personel/opening-hours")
+  const key = useCompanyKey(companyId, "/api/personel/opening-hours")
   const { data, error, isLoading, mutate } = useSWR<any>(key, jsonFetcher)
   return { openingHours: data?.openingHours ?? null, isLoading, error, mutate }
 }
 
 export function useProductCategories(companyId: string | null) {
-  const key = companyKey(companyId, "/api/company/definitions", "&type=PRODUCT_CATEGORY")
+  const key = useCompanyKey(companyId, "/api/company/definitions", "&type=PRODUCT_CATEGORY")
   const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
   const categories = useMemo<string[]>(
     () => (Array.isArray(data) ? data : []).map((d) => String(d.label)).filter(Boolean),
@@ -206,7 +216,7 @@ export function useProductCategories(companyId: string | null) {
  * burada ID'ler de lazım — süzgeçler tanımın id'siyle çalışır.
  */
 export function useCompanyDefinitions(companyId: string | null, type: "CLASS_1" | "CLASS_2") {
-  const key = companyKey(companyId, "/api/company/definitions", `&type=${type}`)
+  const key = useCompanyKey(companyId, "/api/company/definitions", `&type=${type}`)
   const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
   const definitions = useMemo<RefDefinition[]>(
     () =>
@@ -221,7 +231,7 @@ export function useCompanyDefinitions(companyId: string | null, type: "CLASS_1" 
  * başlıkları buradan gelir; firma ad vermediyse "Sınıflandırma 1/2"ye düşer.
  */
 export function useClassificationLabels(companyId: string | null) {
-  const key = companyKey(companyId, "/api/company/definitions/labels")
+  const key = useCompanyKey(companyId, "/api/company/definitions/labels")
   const { data, error, isLoading, mutate } = useSWR<ClassificationLabels>(key, jsonFetcher)
   const labels = useMemo<ClassificationLabels>(
     () => ({
@@ -234,7 +244,7 @@ export function useClassificationLabels(companyId: string | null) {
 }
 
 export function useWarehouseStocks(companyId: string | null) {
-  const key = companyKey(companyId, "/api/depolar/stok")
+  const key = useCompanyKey(companyId, "/api/depolar/stok")
   const { data, error, isLoading, mutate } = useSWR<any>(key, jsonFetcher)
   const stocks = useMemo<RefWarehouseStock[]>(
     () =>
@@ -259,7 +269,7 @@ export type RefRecipe = RecipeRecord & { id: string; note: string | null }
  * düşen miktarlar çelişemez.
  */
 export function useRecipes(companyId: string | null) {
-  const key = companyKey(companyId, "/api/restoran/recipes")
+  const key = useCompanyKey(companyId, "/api/restoran/recipes")
   const { data, error, isLoading, mutate } = useSWR<any[]>(key, jsonFetcher)
   const recipes = useMemo<RefRecipe[]>(
     () =>
@@ -303,7 +313,7 @@ export function useRecipes(companyId: string | null) {
  * yazdırma şablon yüzünden asla kırılmamalı.
  */
 export function useReceiptTemplate(companyId: string | null) {
-  const key = companyKey(companyId, "/api/fis-tasarim")
+  const key = useCompanyKey(companyId, "/api/fis-tasarim")
   const { data, error, isLoading, mutate } = useSWR<any>(key, jsonFetcher)
   const template = useMemo<ReceiptTemplate>(
     () => (data?.template ? normalizeReceiptTemplate(data.template) : DEFAULT_RECEIPT_TEMPLATE),

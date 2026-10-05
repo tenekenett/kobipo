@@ -26,6 +26,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { Plus, Send, FileText, Eye, Pencil, Inbox, Loader2, Download } from "lucide-react"
 import Link from "next/link"
 import { WriteAction } from "@/components/dashboard/write-guard"
+import { useCanEdit } from "@/components/dashboard/dashboard-company-provider"
 
 interface Invoice {
   id: string
@@ -167,6 +168,12 @@ export default function EDönüşümPage() {
     router.push(`/e-donusum/yeni?company=${encodeURIComponent(companyId)}`)
   }
 
+  // Sayfanın menü sahibi yok; düğmeler ayrı uçlara gider ve her biri KENDİ yetkisini
+  // ister (2026-10-05 rol taraması): gelen kutusu okuması, uç keşfi (E-Dönüşüm
+  // Ayarları), yeni fatura (satış ya da alış faturası düzenleme).
+  const canNewSales = useCanEdit("/satis/fatura")
+  const canNewPurchase = useCanEdit("/alis/fatura")
+
   const handleFetchInbox = async () => {
     if (!companyId) return
     setIsLoadingInbox(true)
@@ -256,7 +263,7 @@ export default function EDönüşümPage() {
           <p className="text-muted-foreground">E-Fatura ve E-Arşiv fatura yönetimi</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <WriteAction>
+          <WriteAction api="/api/e-donusum/inbox" method="GET">
           <Button
             variant="outline"
             onClick={handleFetchInbox}
@@ -270,6 +277,8 @@ export default function EDönüşümPage() {
             )}
             Gelen Faturaları Çek (Beta)
           </Button>
+          </WriteAction>
+          <WriteAction api="/api/e-donusum/discover-inbox">
           <Button
             variant="outline"
             onClick={handleDiscoverInbox}
@@ -283,11 +292,15 @@ export default function EDönüşümPage() {
             )}
             Endpoint Keşfi (Beta)
           </Button>
-          <Button onClick={goNewInvoice}>
-            <Plus className="mr-2 h-4 w-4" />
-            Yeni Fatura
-          </Button>
           </WriteAction>
+          {(canNewSales || canNewPurchase) && (
+            <WriteAction>
+              <Button onClick={goNewInvoice}>
+                <Plus className="mr-2 h-4 w-4" />
+                Yeni Fatura
+              </Button>
+            </WriteAction>
+          )}
         </div>
       </div>
 

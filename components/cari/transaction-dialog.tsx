@@ -13,6 +13,7 @@ import { Printer, Scale, Wallet } from "lucide-react"
 import { toDateInput } from "@/lib/format"
 import { BAKIYE_KAPAMA_LABEL, BAKIYE_KAPAMA_METHOD } from "@/lib/cari/bakiye-kapama"
 import { acikToplam, odemeDagit } from "@/lib/cari/odeme-dagit"
+import { useCanCallApi } from "@/components/dashboard/write-guard"
 
 type FinancialAccount = {
   id: string
@@ -31,6 +32,26 @@ type OpenInvoice = {
 // faturanın açık tutarı ve cari bakiye kapanır (lib/cari/bakiye-kapama.ts).
 // Faturaya bağlı olduğu için yalnız cari bağlamında (customerId/supplierId) sunulur.
 type Method = "CASH_BANK" | "CHECK" | "NOTE" | typeof BAKIYE_KAPAMA_METHOD
+
+/**
+ * Bu kullanıcıya açık yöntemler. Her yöntem AYRI bir uca yazar ve o uç ayrı bir
+ * sayfanın yetkisini ister (PAGE_API_RULES): Nakit/Banka → Finans Hareketleri/Kanalları,
+ * Çek/Senet → Çek/Senet Portföyü, Bakiye kapama → Müşteri/Tedarikçi. Cari kartı pencereyi
+ * cari yetkisiyle açıyordu; finans yetkisi olmayan çalışan kaydederken 403 alıyordu
+ * (2026-10-05 rol taraması). Boş liste = pencere açılmamalı.
+ */
+export function useTransactionMethods(hasParty: boolean): Method[] {
+  const cash = useCanCallApi("/api/finans/transactions", "POST")
+  const instrument = useCanCallApi("/api/cek-senet", "POST")
+  const writeOff = useCanCallApi("/api/cari/bakiye-kapama", "POST")
+  return useMemo(() => {
+    const methods: Method[] = []
+    if (cash) methods.push("CASH_BANK")
+    if (instrument) methods.push("CHECK", "NOTE")
+    if (hasParty && writeOff) methods.push(BAKIYE_KAPAMA_METHOD)
+    return methods
+  }, [cash, instrument, writeOff, hasParty])
+}
 
 const formatTRY = (value: number) =>
   new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(value)
@@ -140,6 +161,11 @@ export function TransactionDialog({
     setFormData((prev) => ({ ...prev, ...patch }))
   const isWriteOff = method === BAKIYE_KAPAMA_METHOD
   const hasParty = Boolean(customerId || supplierId)
+  const allowedMethods = useTransactionMethods(hasParty)
+  // Varsayılan (Nakit/Banka) bu kullanıcıya kapalıysa açık olan ilk yönteme geç.
+  useEffect(() => {
+    if (allowedMethods.length > 0 && !allowedMethods.includes(method)) setMethod(allowedMethods[0])
+  }, [allowedMethods, method])
   // Kapama açık faturaya işlenir; cari yoksa ya da açık faturası yoksa kaydedilemez.
   const writeOffBlocked = isWriteOff && (!hasParty || openInvoices.length === 0)
   const writeOffNeedsInvoice = isWriteOff && selectedInvoiceIds.length === 0
@@ -336,10 +362,12 @@ export function TransactionDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="CASH_BANK">Nakit / Banka</SelectItem>
-                <SelectItem value="CHECK">Çek</SelectItem>
-                <SelectItem value="NOTE">Senet</SelectItem>
-                {hasParty && <SelectItem value={BAKIYE_KAPAMA_METHOD}>{BAKIYE_KAPAMA_LABEL}</SelectItem>}
+                {allowedMethods.includes("CASH_BANK") && <SelectItem value="CASH_BANK">Nakit / Banka</SelectItem>}
+                {allowedMethods.includes("CHECK") && <SelectItem value="CHECK">Çek</SelectItem>}
+                {allowedMethods.includes("NOTE") && <SelectItem value="NOTE">Senet</SelectItem>}
+                {allowedMethods.includes(BAKIYE_KAPAMA_METHOD) && (
+                  <SelectItem value={BAKIYE_KAPAMA_METHOD}>{BAKIYE_KAPAMA_LABEL}</SelectItem>
+                )}
               </SelectContent>
             </Select>
           </div>

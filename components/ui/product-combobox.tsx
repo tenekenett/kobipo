@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { useAnchoredMenu } from "@/components/ui/use-anchored-menu"
 import { Loader2, Package, Plus, Type } from "lucide-react"
 import { trFold } from "@/lib/text/tr-fold"
+import { useCanCallApi } from "@/components/dashboard/write-guard"
 
 export type ProductOption = {
   id: string
@@ -48,11 +49,16 @@ export function ProductCombobox({
   value,
   onTextChange,
   onSelectProduct,
-  onCreateProduct,
+  onCreateProduct: onCreateProductProp,
   products,
   disabled,
   placeholder,
 }: ProductComboboxProps) {
+  // Ürün kartı açmak Ürün/Hizmet Listesi'nin ucudur (PAGE_API_RULES `/api/stok`); belge
+  // ekranının yetkisi yetmez. İzin yoksa "yeni ürün olarak ekle" seçeneği hiç çıkmaz —
+  // eskiden çıkıyor, tıklanınca 403 alınıyordu (2026-10-05 rol taraması).
+  const mayCreateProduct = useCanCallApi("/api/stok/products", "POST")
+  const onCreateProduct = mayCreateProduct ? onCreateProductProp : undefined
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(-1)
   const [creating, setCreating] = useState(false)

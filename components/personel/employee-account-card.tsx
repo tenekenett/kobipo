@@ -7,7 +7,8 @@ import { useToast } from "@/components/ui/use-toast"
 import { CompanyLink } from "@/components/dashboard/company-link"
 import { roleLabel } from "@/lib/auth/role-labels"
 import { KeyRound, Link2Off, ShieldCheck } from "lucide-react"
-import { WriteAction } from "@/components/dashboard/write-guard"
+import { WriteAction, useCanCallApi } from "@/components/dashboard/write-guard"
+import { useCanView } from "@/components/dashboard/dashboard-company-provider"
 
 /**
  * Personel kartının Kobipo hesabıyla bağı.
@@ -43,9 +44,14 @@ export function EmployeeAccountCard({
   const [members, setMembers] = useState<Member[]>([])
   const [selected, setSelected] = useState("")
   const [saving, setSaving] = useState(false)
+  // Ekip listesi Ekip Yönetimi'nin (ve cari kartı yetkili seçicisinin) ucudur; yalnız
+  // personel yetkisi olan çalışan onu okuyamaz — istek atılmaz, bağlama seçicisi yerine
+  // açıklama çıkar (2026-10-05 rol taraması).
+  const canListMembers = useCanCallApi("/api/company/users")
+  const canOpenTeam = useCanView("/ayarlar/ekip")
 
   useEffect(() => {
-    if (!companyId) return
+    if (!companyId || !canListMembers) return
     let cancelled = false
     fetch(`/api/company/users?companyId=${encodeURIComponent(companyId)}`)
       .then((r) => (r.ok ? r.json() : []))
@@ -56,7 +62,7 @@ export function EmployeeAccountCard({
     return () => {
       cancelled = true
     }
-  }, [companyId])
+  }, [companyId, canListMembers])
 
   const save = async (userId: string | null) => {
     setSaving(true)
@@ -113,13 +119,15 @@ export function EmployeeAccountCard({
               )}
             </div>
             <div className="flex flex-wrap gap-2">
-              <CompanyLink
-                href="/ayarlar/ekip"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-kobipo-blue px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
-              >
-                <ShieldCheck className="h-3.5 w-3.5" />
-                Yetkileri düzenle
-              </CompanyLink>
+              {canOpenTeam && (
+                <CompanyLink
+                  href="/ayarlar/ekip"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-kobipo-blue px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Yetkileri düzenle
+                </CompanyLink>
+              )}
               <WriteAction>
                 <Button variant="outline" size="sm" disabled={saving} onClick={() => save(null)}>
                   <Link2Off className="mr-1.5 h-3.5 w-3.5" />
@@ -134,6 +142,7 @@ export function EmployeeAccountCard({
               Bu personelin panele giriş yapan bir hesabı yok. Ekipteki bir hesabı bağlayın;
               yetkileri Ekip Yönetimi'nden sayfa sayfa sınırlayabilirsiniz.
             </p>
+            {canListMembers ? (
             <WriteAction>
             <div className="flex gap-2">
               <select
@@ -155,9 +164,16 @@ export function EmployeeAccountCard({
               </Button>
             </div>
             </WriteAction>
-            <CompanyLink href="/ayarlar/ekip" className="inline-block text-xs text-kobipo-blue hover:underline">
-              Listede yok mu? Ekip Yönetimi'nden davet edin →
-            </CompanyLink>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Hesap bağlamak için ekip listesini görme yetkisi gerekir (Ekip Yönetimi).
+              </p>
+            )}
+            {canOpenTeam && (
+              <CompanyLink href="/ayarlar/ekip" className="inline-block text-xs text-kobipo-blue hover:underline">
+                Listede yok mu? Ekip Yönetimi'nden davet edin →
+              </CompanyLink>
+            )}
           </>
         )}
       </CardContent>

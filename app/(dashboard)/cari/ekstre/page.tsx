@@ -26,6 +26,7 @@ import {
   type AgingBucket,
 } from "@/lib/raporlar/cari-yaslandirma-buckets"
 import { VIRMAN_SIDE_LABEL } from "@/lib/cari/virman"
+import { useCanCallApi } from "@/components/dashboard/write-guard"
 
 interface EkstreEntry {
   type: string
@@ -63,6 +64,8 @@ const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
 }
 
 export default function EkstrePage() {
+  const canReadCustomers = useCanCallApi("/api/cari/customers")
+  const canReadSuppliers = useCanCallApi("/api/cari/suppliers")
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
   const initialCustomerId = searchParams.get("customerId") || ""
@@ -128,14 +131,16 @@ export default function EkstrePage() {
 
   const fetchCariOptions = async () => {
     if (!companyId) return
+    // Ekstre iki cari sayfasından birinin yetkisiyle açılır; okunamayan taraf istenmez
+    // (403 yerine boş seçenek — 2026-10-05 rol taraması).
     const [customerResponse, supplierResponse] = await Promise.all([
-      fetch(`/api/cari/customers?companyId=${companyId}`),
-      fetch(`/api/cari/suppliers?companyId=${companyId}`),
+      canReadCustomers ? fetch(`/api/cari/customers?companyId=${companyId}`) : null,
+      canReadSuppliers ? fetch(`/api/cari/suppliers?companyId=${companyId}`) : null,
     ])
-    if (customerResponse.ok) {
+    if (customerResponse?.ok) {
       setCustomers(await customerResponse.json())
     }
-    if (supplierResponse.ok) {
+    if (supplierResponse?.ok) {
       setSuppliers(await supplierResponse.json())
     }
   }

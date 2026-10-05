@@ -299,8 +299,9 @@ export function DevamPuantaj({
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      {/* Aktarım BORDRO YAZAR (taslak); özeti okumak serbest. */}
-                      <WriteAction>
+                      {/* Aktarım BORDRO YAZAR (taslak); özeti okumak serbest. Bordro
+                          Maaş-Ödemeler'in ucudur: o yetki yoksa düğme çıkmaz. */}
+                      <WriteAction api="/api/personel/payroll">
                         <Button
                           variant="outline"
                           size="sm"

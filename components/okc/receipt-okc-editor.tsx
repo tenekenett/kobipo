@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react"
 import { Pencil } from "lucide-react"
-import { WriteAction } from "@/components/dashboard/write-guard"
+import { WriteAction, useCanCallApi } from "@/components/dashboard/write-guard"
 import { CompanyLink } from "@/components/dashboard/company-link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -75,9 +75,15 @@ export function ReceiptOkcEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // Cihaz listesi ilk açılışta bir kez gelir.
+  // Cihaz listesi ilk açılışta bir kez gelir. Liste Yazarkasa/Z raporu/satış fişi
+  // ekranlarının ucudur; okuyamayan (ör. yalnız alış fişi yetkisi) boş listeyle devam eder.
+  const canReadDevices = useCanCallApi("/api/okc/devices")
   useEffect(() => {
     if (!open || devices !== null) return
+    if (!canReadDevices) {
+      setDevices([])
+      return
+    }
     fetch(`/api/okc/devices?companyId=${encodeURIComponent(companyId)}`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : []))
       .then((list: OkcDeviceView[]) => {
@@ -89,7 +95,7 @@ export function ReceiptOkcEditor({
         }
       })
       .catch(() => setDevices([]))
-  }, [open, companyId, devices])
+  }, [open, companyId, devices, canReadDevices])
 
   const handleSave = async () => {
     setIsSaving(true)

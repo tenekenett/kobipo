@@ -8,7 +8,7 @@ import {
   useDashboardCompany,
   useOptionalDashboardCompany,
 } from "@/components/dashboard/dashboard-company-provider"
-import { canEditPage, isReadOnlyMembership, navHrefsForPath } from "@/lib/page-access"
+import { canEditPage, isApiPathAllowedForUser, isReadOnlyMembership, navHrefsForPath } from "@/lib/page-access"
 import { toast } from "@/components/ui/use-toast"
 import { isReadOnlyByNature, navPage, type PageAvailability } from "@/lib/nav/pages"
 
@@ -65,6 +65,24 @@ export function useCanEditHere(): boolean {
   if (owners.length === 0) return true
   // Cari gibi çok sahipli yollarda BİRİ yeterlidir — `visiblePages` ile aynı mantık.
   return owners.some((href) => canEditPage(pagePermissions, href))
+}
+
+/**
+ * Bu kullanıcı bu uca bu yöntemle gidebilir mi? Sunucu kapısıyla AYNI fonksiyon
+ * (`isApiPathAllowedForUser`, PAGE_API_RULES) — ekran ile uç ayrışamaz.
+ *
+ * NEDEN: `WriteAction` düğmeyi BULUNULAN sayfanın düzenleme yetkisine göre gösterir; ama
+ * bazı düğmeler BAŞKA bir sayfanın ucuna yazar — personel kartındaki "Bordro Ekle"
+ * Maaş-Ödemeler'in, cari kartındaki "Tahsilat Ekle" Finans Hareketleri'nin ucuna. O
+ * sayfanın yetkisi olmayan çalışan düğmeyi görüp 403 alıyordu; okuma tarafında da
+ * ekran, kullanıcının göremeyeceği listeyi isteyip ret yiyordu (2026-10-05 rol
+ * taraması). Firma bağlamı yoksa true (yanlış pozitif olmasın).
+ */
+export function useCanCallApi(path: string | null | undefined, method = "GET"): boolean {
+  const ctx = useOptionalDashboardCompany()
+  if (!path || !ctx?.selectedCompany) return true
+  if (ctx.selectedCompany.isArchived && method.toUpperCase() !== "GET") return false
+  return isApiPathAllowedForUser(path, method, ctx.pagePermissions)
 }
 
 /**
@@ -126,10 +144,22 @@ export function ExportAction({
  */
 export const WriteAction = forwardRef<
   HTMLElement,
-  HTMLAttributes<HTMLElement> & { children: ReactNode; fallback?: ReactNode }
->(function WriteAction({ children, fallback = null, ...rest }, ref) {
+  HTMLAttributes<HTMLElement> & {
+    children: ReactNode
+    fallback?: ReactNode
+    /**
+     * Düğme BAŞKA bir sayfanın ucuna yazıyorsa o uç (ör. "/api/personel/payroll"):
+     * sayfanın düzenleme yetkisine EK olarak bu uca yazma izni de sorulur
+     * (bkz. `useCanCallApi`).
+     */
+    api?: string
+    /** `api` için yöntem; varsayılan POST. */
+    method?: string
+  }
+>(function WriteAction({ children, fallback = null, api, method = "POST", ...rest }, ref) {
   const canEdit = useCanEditHere()
-  if (!canEdit) return <>{fallback}</>
+  const canCall = useCanCallApi(api, method)
+  if (!canEdit || !canCall) return <>{fallback}</>
   if ((ref || Object.keys(rest).length > 0) && isValidElement(children)) {
     return (
       <Slot ref={ref} {...rest}>

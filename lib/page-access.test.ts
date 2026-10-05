@@ -595,6 +595,94 @@ describe("paylaşımlı uçlar (bir uç, çok ekran)", () => {
   })
 })
 
+describe("rol taraması (2026-10-05) — her ekran kendi yetkisiyle çalışır", () => {
+  // scripts/uctan-uca/rol-taramasi.ts (tarayıcı) + rol-statik.ts (kod) bulguları.
+  // Hazır rollerde görünmüyorlardı: aynı grubun bütün sayfalarını birlikte veriyorlar.
+  const custom = (key: string): PagePermissions => {
+    const t = DEFAULT_ROLE_TEMPLATES.find((x) => x.key === key)!
+    return { role: "CUSTOM", allowedPaths: t.allowedPaths, writablePaths: t.writablePaths, custom: true }
+  }
+
+  it("her menü sayfası kendi sahibidir", () => {
+    // "/stok" gibi menüsüz sahip ön ekleri kendi alt menü öğelerini yutuyordu.
+    for (const p of NAV_PAGES) expect(navHrefsForPath(p.href), p.href).toContain(p.href)
+  })
+
+  it("alt menü öğesi yalnız kendi yetkisiyle açılır, komşusununkiyle açılmaz", () => {
+    for (const [own, neighbour] of [
+      ["/stok/hizmetler", "/stok/urunler"],
+      ["/stok/etiket", "/stok/urunler"],
+      ["/stok/transfer", "/stok/urunler"],
+      ["/finans/kanallar", "/finans/hareketler"],
+      ["/finans/mutabakat", "/finans/hareketler"],
+      ["/cek-senet/senet", "/cek-senet/cek"],
+    ]) {
+      expect(canAccessRoute(restricted("ADMIN", [own]), own), `${own} kendisiyle`).toBe(true)
+      expect(canAccessRoute(restricted("ADMIN", [neighbour]), own), `${own} ${neighbour} ile`).toBe(false)
+    }
+    // Menüsüz kök/detay yollar sahip tablosunda kalır.
+    expect(navHrefsForPath("/finans")).toEqual(["/finans/hareketler"])
+    expect(navHrefsForPath("/finans/kanallar/abc")).toEqual(["/finans/kanallar"])
+    expect(navHrefsForPath("/cek-senet")).toEqual(["/cek-senet/cek", "/cek-senet/senet"])
+  })
+
+  it("fatura editörü alış faturası yetkisiyle de açılır", () => {
+    const alisci = restricted("ADMIN", ["/alis/fatura"], ["/alis/fatura"])
+    expect(canAccessRoute(alisci, "/e-donusum/yeni", new URLSearchParams("type=PURCHASE"))).toBe(true)
+    expect(canAccessRoute(restricted("ADMIN", ["/cari/musteri"]), "/e-donusum/yeni")).toBe(false)
+  })
+
+  it("restoran tezgâhı satışı tamamlar: fiş + tahsilat", () => {
+    for (const key of ["kasiyer", "garson", "kasiyer-sef"]) {
+      expect(isApiPathAllowedForUser("/api/e-donusum/invoices", "POST", custom(key)), key).toBe(true)
+      expect(isApiPathAllowedForUser("/api/faturalar/odemeler", "POST", custom(key)), key).toBe(true)
+    }
+  })
+
+  it("menü ekranı menü ürününü açar ve günceller", () => {
+    const menucu = restricted("ADMIN", ["/restoran/menu"], ["/restoran/menu"])
+    expect(isApiPathAllowedForUser("/api/stok/products", "POST", menucu)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/stok/products/x", "PATCH", menucu)).toBe(true)
+    // Ürün yazmak belge editörüne hâlâ kapalı (bilinçli; ekran seçeneği gizler).
+    const faturaci = restricted("ADMIN", ["/satis/fatura"], ["/satis/fatura"])
+    expect(isApiPathAllowedForUser("/api/stok/products", "POST", faturaci)).toBe(false)
+  })
+
+  it("çek/senet tahsil hesabını okur, alış faturası bağlanacak irsaliyeyi okur", () => {
+    for (const page of ["/cek-senet/cek", "/cek-senet/senet"]) {
+      expect(isApiPathAllowedForUser("/api/finans/accounts", "GET", restricted("ADMIN", [page])), page).toBe(true)
+    }
+    const alisci = restricted("ADMIN", ["/alis/fatura"], ["/alis/fatura"])
+    expect(isApiPathAllowedForUser("/api/irsaliye", "GET", alisci)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/irsaliye", "POST", alisci)).toBe(false)
+  })
+
+  it("ekip yönetimi rol listesini okur ama rol tanımlayamaz", () => {
+    const ekipci = restricted("ADMIN", ["/ayarlar/ekip"], ["/ayarlar/ekip"])
+    expect(isApiPathAllowedForUser("/api/company/roles", "GET", ekipci)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/company/roles", "POST", ekipci)).toBe(false)
+  })
+
+  it("rapor süzgeçleri tanım listesini okur, yazamaz", () => {
+    for (const perms of [unrestricted("VIEWER"), custom("gozlemci")]) {
+      expect(isApiPathAllowedForUser("/api/company/definitions", "GET", perms)).toBe(true)
+      expect(isApiPathAllowedForUser("/api/company/definitions/labels", "GET", perms)).toBe(true)
+      expect(isApiPathAllowedForUser("/api/company/definitions", "POST", perms)).toBe(false)
+    }
+  })
+
+  it("takvim yetkisi çalışma düzenini yazar, personel kartını yazamaz", () => {
+    for (const key of ["kasiyer-sef"]) {
+      expect(isApiPathAllowedForUser("/api/personel/employees/x/calisma-duzeni", "PUT", custom(key))).toBe(true)
+      expect(isApiPathAllowedForUser("/api/personel/employees/x", "PUT", custom(key))).toBe(false)
+    }
+    const devamci = restricted("ADMIN", ["/personel/devam"], ["/personel/devam"])
+    expect(isApiPathAllowedForUser("/api/personel/employees/x/calisma-duzeni", "PUT", devamci)).toBe(true)
+    // Salt-okunur takvim yazamaz.
+    expect(isApiPathAllowedForUser("/api/personel/employees/x/calisma-duzeni", "PUT", restricted("ADMIN", ["/personel/devam"]))).toBe(false)
+  })
+})
+
 describe("firma kartı — fatura kesen okur, ayar ekranları yazar", () => {
   // 2026-10-05, EREN VİNÇ: kısıtlı ADMIN, satış + e-Dönüşüm ekranları tam yetkili,
   // "Firma Bilgileri" yok. Fatura editörü kartı okuyamayınca e-Dönüşüm'ü kapalı

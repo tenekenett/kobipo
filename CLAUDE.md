@@ -326,7 +326,10 @@ UYDURMAYAN taraftır.
   `app/(dashboard)/personel/layout.tsx` içinde bir kez sorulur. Personel bazlı istisna
   İKİ yerden yazılır: personel kartı (`calisma-duzeni-secici.tsx`) ve her iki takvimde
   personel adına tıklayınca açılan pencere (`personel-kip-dialog.tsx`) — soru takvime
-  bakarken doğuyor, cevabı da orada verilebilmeli.
+  bakarken doğuyor, cevabı da orada verilebilmeli. Pencere DAR uca yazar
+  (`PUT /api/personel/employees/[id]/calisma-duzeni`, yalnız `usesShifts`): genel kart
+  ucu maaş/IBAN da yazdığı için yalnız "Personeller"e açık ve takvim yetkisiyle 403
+  alıyordu (2026-10-05).
 - **Kişi menüde olmayan takvime atanamaz:** vardiyalı firmada birini sabit mesaiye
   alırken firma otomatik olarak MIXED'e geçer (pencere bunu kaydetmeden önce yazar).
   Geçilmeseydi o takvim menüde olmadığı için kişinin günleri hiçbir ekranda
@@ -765,6 +768,35 @@ değişti" sorusu ancak kestiği faturalardan geriye doğru tahminle cevaplanabi
   ya da firma adıyla (Türkçe duyarsız).
 - Kapı kuralının OKUMA listesi ucu okuyan HER ekranı sayar (`PAGE_API_RULES.pages`);
   yazma listesinin kopyası yazılırsa izinli ekran sessizce bozulur.
+
+## Bir ekran BAŞKA sayfanın ucunu çağırıyorsa yetki ona göre sorulur
+
+Sayfa kapısı monotondur: uç, kuralındaki sayfalardan BİRİNİN yetkisiyle açılır. Ekran
+kendi sayfasına ait olmayan bir uca dokunuyorsa (personel kartında "Bordro Ekle" →
+Maaş-Ödemeler, cari kartında "Tahsilat Ekle" → Finans Hareketleri, ürün seçicide "yeni
+ürün" → Ürün Listesi) iki yoldan biri seçilir:
+
+- Ekranın İŞİ o uçsa kurala eklenir (`PAGE_API_RULES`): Kahveci Satış/adisyon → fiş +
+  tahsilat, Menü → ürün, Çek/Senet → hesap listesi, raporlar → tanımlar.
+- Değilse düğme gizlenir: `<WriteAction api="/api/…">` ya da `useCanCallApi(path, method)`
+  (`components/dashboard/write-guard.tsx`) — sunucu kapısıyla AYNI fonksiyon. Ortak okuma
+  listeleri (`lib/swr/use-company-data.ts`) de oradan geçer: okuyamayan istek atmaz, yetki
+  günlüğü (PAGE_FORBIDDEN) beklenen retlerle dolmaz.
+- Menüsüz rotanın sahibi (`ROUTE_OWNERS`) menü öğeleriyle EN UZUN eşleşmede yarışır;
+  "/stok" ön eki kendi alt menü öğelerini yutuyordu (Etiket/Hizmet/Transfer).
+
+Hazır roller bir grubun bütün sayfalarını birlikte verdiği için bu kopukluklar görünmez;
+özel rolde ve kısıtlı üyelikte patlar (2026-10-05: Kasiyer/Garson kalıpları satış
+tamamlayamıyordu). Ölçüm:
+
+- `npx tsx scripts/uctan-uca/rol-statik.ts` — her sayfa YALNIZ kendi yetkisiyle; koddaki
+  çağrılar (butonla tetiklenenler dahil) ADAY listesidir, elle doğrulanır (gizlenen düğme
+  ve tasarım gereği dar kalan uç listede kalır).
+- `npx tsx scripts/uctan-uca/rol-taramasi.ts` (dev sunucusu `npx next dev -p 3005 -H
+  127.0.0.1`) — 20 rol profili, izinli her sayfa ve detay rotası gerçek tarayıcıda;
+  açılışta yazma kesilir, Reypo'ya veri yazılmaz, test kullanıcıları sonunda silinir.
+  Rapor `docs/denetim/<tarih>-ROL-TARAMASI.md`; `--profil`/`--sayfa` süzgeçli koşu
+  onu ezmez, `scripts/uctan-uca/rol-sonuc.md`ye yazar.
 
 ## Yeni tablo → RLS açılacak
 

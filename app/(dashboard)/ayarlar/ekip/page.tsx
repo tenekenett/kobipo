@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { roleLabel } from "@/lib/auth/role-labels"
 import { filterAvailablePages, pagesForRole } from "@/lib/nav/pages"
-import { usePageAvailability } from "@/components/dashboard/write-guard"
+import { useCanCallApi, usePageAvailability } from "@/components/dashboard/write-guard"
 import { useRoleTemplates } from "@/lib/swr/use-role-templates"
 import type { RoleTemplate } from "@/lib/nav/role-templates"
 import { MemberPermissionsDialog } from "@/components/dashboard/member-permissions-dialog"
@@ -65,12 +65,17 @@ export default function EkipPage() {
    * (2) firmanın modülleri kapalı olduğu için tek bir sayfası bile kullanılamayan
    * kalıp hiç teklif edilmez, seçilse boş bir rol üretirdi.
    */
+  // Rol TANIMLAMAK Rol Yetkileri ekranının ucudur (kalıptan oluşturmak da bir tanımdır);
+  // yalnız Ekip Yönetimi yetkisi olan yönetici mevcut rolleri atar, yenisini açamaz
+  // (2026-10-05 rol taraması).
+  const canDefineRoles = useCanCallApi("/api/company/roles", "POST")
   const offeredTemplates = useMemo<RoleTemplate[]>(() => {
+    if (!canDefineRoles) return []
     const used = new Set(companyRoles.map((r) => r.templateKey).filter(Boolean))
     return templates.filter(
       (t) => !used.has(t.key) && filterAvailablePages(t.allowedPaths, availability).length > 0
     )
-  }, [templates, companyRoles, availability])
+  }, [templates, companyRoles, availability, canDefineRoles])
 
   const fetchMembers = async () => {
     if (!companyId) return
@@ -300,6 +305,7 @@ export default function EkipPage() {
             </div>
             {/* Rol tanımlamak için sayfa değiştirmek gerekmesin: çalışan eklerken
                 aklına gelen rolü burada açıp aynı akışta seçebilmeli. */}
+            {canDefineRoles && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span>İstediğiniz yetki kümesi listede yok mu?</span>
               <Button
@@ -325,6 +331,7 @@ export default function EkipPage() {
                 </Button>
               )}
             </div>
+            )}
             {latestInviteUrl && (
               <div className="rounded border p-3">
                 <p className="mb-2 text-sm font-medium">Son oluşturulan davet linki</p>

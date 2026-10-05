@@ -36,6 +36,7 @@ import { INVOICE_NO_MAX_LENGTH, normalizeManualInvoiceNo } from "@/lib/utils/inv
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
 import { CariOzetPaneli } from "@/components/e-donusum/cari-ozet-paneli"
 import { useFaturaTaslagi } from "@/components/e-donusum/use-fatura-taslagi"
+import { useCanCallApi } from "@/components/dashboard/write-guard"
 import { WithholdingCombobox } from "@/components/e-donusum/withholding-combobox"
 import { TaxTypeCombobox } from "@/components/e-donusum/tax-type-combobox"
 import { KDV_EXEMPTION_CODES, kdvExemption } from "@/lib/integrations/e-invoice/gib-exemption-codes"
@@ -266,6 +267,15 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   // gidemiyordu (2026-10-05, "Firma Bilgileri" yetkisi olmayan çalışan). Bu yüzden
   // hata yutulmaz: satış/iade kaydı kart gelene kadar kapalıdır.
   const [companySettingsError, setCompanySettingsError] = useState<string | null>(null)
+  // Editör BAŞKA ekranların uçlarına da dokunur: cari listeleri (Müşteri/Tedarikçi),
+  // ürün kartı (Ürün Listesi), irsaliye listesi. Yetki yoksa istek atılmaz, düğme
+  // çıkmaz — karar sunucu kapısıyla aynı fonksiyondan (2026-10-05 rol taraması).
+  const canReadCustomers = useCanCallApi("/api/cari/customers")
+  const canReadSuppliers = useCanCallApi("/api/cari/suppliers")
+  const canCreateSupplier = useCanCallApi("/api/cari/suppliers", "POST")
+  const canCreateProduct = useCanCallApi("/api/stok/products", "POST")
+  const canEditProduct = useCanCallApi("/api/stok/products/x", "PATCH")
+  const canReadWaybills = useCanCallApi("/api/irsaliye")
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
   // Düzenlenen kayıt FİŞ mi? Fiş dip toplamı resmî belgeden farklı kuralla
   // hesaplanır (lib/invoice/document-totals.ts); ekran sunucunun kaydedeceği
@@ -636,7 +646,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         setLineExtras(keepIdx.map((i) => lineExtras[i] || []))
       }
     }
-    if (mode !== "create" || formData.type !== "PURCHASE" || !formData.supplierId || !companyId) {
+    if (mode !== "create" || formData.type !== "PURCHASE" || !formData.supplierId || !companyId || !canReadWaybills) {
       setAvailableWaybills([])
       return
     }
@@ -655,7 +665,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       active = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, formData.type, formData.supplierId, companyId])
+  }, [mode, formData.type, formData.supplierId, companyId, canReadWaybills])
 
   // İrsaliye listesinden "Faturaya dönüştür" ile gelindiğinde o irsaliyeyi baştan
   // işaretle: kalemleri faturaya dolar, kayıtta bağ kurulur. Bir kez çalışır ki
@@ -906,7 +916,8 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
         // Yalnızca gerçek kalem listesi geldiyse erken sor. Mysoft kalem detayı
         // döndürmediğinde tek satırlık "Mal/Hizmet" placeholder'ı için sormayız;
         // kullanıcı önce satırı düzenler, kayıtlı olmayan kalem kontrolü save'de yapılır.
-        const earlyDrafts = modelLines.length > 0 ? computeUnregisteredDrafts(newItems) : []
+        // Ürün kartı açamayan kullanıcıya sorulmaz: kalemler ürünsüz kalır (Ürün Listesi ucu).
+        const earlyDrafts = modelLines.length > 0 && canCreateProduct ? computeUnregisteredDrafts(newItems) : []
         if (earlyDrafts.length > 0) {
           setUnregDrafts(earlyDrafts)
           setUnregMode("prefill")
@@ -1127,7 +1138,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   ])
 
   const fetchCustomers = async () => {
-    if (!companyId) return
+    if (!companyId || !canReadCustomers) return
     try {
       const res = await fetch(`/api/cari/customers?companyId=${companyId}`)
       if (res.ok) setCustomers(await res.json())
@@ -1136,6 +1147,10 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   const fetchSuppliers = async () => {
     if (!companyId) return
+    if (!canReadSuppliers) {
+      setSuppliersLoaded(true)
+      return
+    }
     try {
       const res = await fetch(`/api/cari/suppliers?companyId=${companyId}`)
       if (res.ok) setSuppliers(await res.json())
@@ -1716,7 +1731,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const commitBarcodeDraft = (productId: string) => {
     const v = barcodeDrafts[productId]
     if (v !== undefined) {
-      persistBarcode(productId, v)
+      if (canEditProduct) persistBarcode(productId, v)
       setBarcodeDrafts((d) => { const n = { ...d }; delete n[productId]; return n })
     }
   }
@@ -2218,7 +2233,7 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     // Erken uyarı (içe aktarma anında) zaten gösterilip kullanıcı "ürünsüz devam et"
     // dediyse burada tekrar sormayız. Aksi halde kayıtlı olmayan kalemler varsa
     // kaydetmeden önce son kez sorulur.
-    if (formData.type === "PURCHASE" && !unregDismissedRef.current) {
+    if (formData.type === "PURCHASE" && !unregDismissedRef.current && canCreateProduct) {
       const drafts = computeUnregisteredDrafts(items)
       if (drafts.length > 0) {
         setUnregDrafts(drafts)
@@ -2617,13 +2632,17 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                     Tedarikçi VKN <span className="font-mono">{incomingSupplierCandidate.taxNumber || "-"}</span>
                     {" "}({incomingSupplierCandidate.name || "isimsiz"}) sistemde yok.
                   </span>
-                  <Button
-                    size="sm"
-                    onClick={handleCreateSupplierFromIncoming}
-                    disabled={isCreatingSupplier}
-                  >
-                    {isCreatingSupplier ? "Oluşturuluyor..." : "Tedarikçiyi oluştur ve seç"}
-                  </Button>
+                  {canCreateSupplier ? (
+                    <Button
+                      size="sm"
+                      onClick={handleCreateSupplierFromIncoming}
+                      disabled={isCreatingSupplier}
+                    >
+                      {isCreatingSupplier ? "Oluşturuluyor..." : "Tedarikçiyi oluştur ve seç"}
+                    </Button>
+                  ) : (
+                    <span className="text-xs">Tedarikçi kartı açmak için Tedarikçi yetkisi gerekir.</span>
+                  )}
                 </div>
               )}
             </div>
@@ -3265,7 +3284,12 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                                 className="min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold tracking-wide tabular-nums text-slate-700 outline-none placeholder:font-sans placeholder:font-normal placeholder:text-slate-300 dark:text-foreground dark:placeholder:text-muted-foreground"
                                 placeholder="Barkod"
                                 value={barcodeDrafts[item.productId] ?? (getLineBarcode(item.productId) ?? "")}
-                                title="Ürünün barkodunu düzenle — kaydedince ürün kartına işlenir"
+                                readOnly={!canEditProduct}
+                                title={
+                                  canEditProduct
+                                    ? "Ürünün barkodunu düzenle — kaydedince ürün kartına işlenir"
+                                    : "Barkod ürün kartında düzenlenir (Ürün Listesi yetkisi)"
+                                }
                                 onChange={(e) => {
                                   const pid = item.productId!
                                   const val = e.target.value

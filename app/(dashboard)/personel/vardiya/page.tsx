@@ -727,7 +727,8 @@ export default function VardiyaPage() {
     if (!companyId) return
     setIsSaving(true)
     try {
-      const res = await fetch(`/api/personel/employees/${employeeId}?companyId=${companyId}`, {
+      // Yalnız takvimi yazan dar uç: genel kart ucu (maaş/IBAN) takvim yetkisine kapalı.
+      const res = await fetch(`/api/personel/employees/${employeeId}/calisma-duzeni?companyId=${companyId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ usesShifts }),

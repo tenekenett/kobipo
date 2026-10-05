@@ -145,7 +145,8 @@ export function ChecklistDayList({
                   </p>
                 )}
               </div>
-              <WriteAction>
+              {/* Rapor ekranında da çizilir; işaret Kontrol Listesi ucuna yazar. */}
+              <WriteAction api="/api/restoran/kontrol-listesi/gun">
               <Button
                 size="sm"
                 variant={checked ? "ghost" : "default"}

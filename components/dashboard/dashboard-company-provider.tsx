@@ -76,7 +76,14 @@ export function DashboardCompanyProvider({
   const router = useRouter()
   const searchParams = useSearchParams()
   const [companies, setCompanies] = useState<DashboardCompany[]>(initialCompanies)
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
+  // İlk çizimde seçim ADRESTEN kurulur, aşağıdaki effect beklenmez. Beklenseydi ilk
+  // çizimde seçili firma boş olur, yetki kancaları (useCanEditHere, useCanCallApi) o an
+  // "izinli" der ve sayfanın açılış istekleri çıkar: kısıtlı çalışan göremeyeceği listeyi
+  // isteyip 403 alıyor, yetkisiz düğmeler bir an görünüyordu (2026-10-05 rol taraması).
+  // Effect aynı değeri yazar; localStorage yedeği (adreste firma yoksa) effect'te kalır.
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(
+    () => findCompanyByParam(initialCompanies, searchParams.get("company"))?.id ?? null
+  )
   const [fallbackRole, setFallbackRole] = useState(initialRole)
   const [isLoading, setIsLoading] = useState(initialCompanies.length === 0)
 

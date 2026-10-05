@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { trFold } from "@/lib/text/tr-fold"
+import { useCanCallApi } from "@/components/dashboard/write-guard"
 import { Loader2, Plus, X } from "lucide-react"
 
 const UNIT_OPTIONS = ["ADET", "KG", "MT", "M2", "M3", "LT", "SA", "GUN", "PAKET"] as const
@@ -229,9 +230,13 @@ export function ProductCombobox({
     return products.some((p) => normalizeName(p.name) === n)
   }, [products, query])
 
+  // Ürün kartı açmak Ürün/Hizmet Listesi'nin ucudur (bkz. PAGE_API_RULES `/api/stok`);
+  // belge editörünün yetkisi yetmez. Seçenek yetkisiz kullanıcıya hiç çıkmaz — eskiden
+  // çıkıyor, tıklanınca 403 alınıyordu (2026-10-05 rol taraması).
+  const mayCreateProduct = useCanCallApi("/api/stok/products", "POST")
   // Barkodu kayıtlı bir ürünle birebir tutuyorsa ürün ZATEN VARDIR: "yeni ürün"
   // seçeneği gösterilmez, Enter da diyaloğu açmaz.
-  const canCreate = query.trim().length > 0 && !exactMatch && !barcodeHit
+  const canCreate = mayCreateProduct && query.trim().length > 0 && !exactMatch && !barcodeHit
 
   const close = useCallback(() => {
     setOpen(false)

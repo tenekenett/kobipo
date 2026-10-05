@@ -178,7 +178,8 @@ export function CariFislerSection({
             {selectedRows.length > 0 && ` • ${selectedRows.length} seçili (${fmt(selectedTotal)})`}
           </span>
         </CardTitle>
-        <WriteAction>
+        {/* Dönüştürme Fişler ekranının ucudur; cari kartını düzenleyebilmek yetmez. */}
+        <WriteAction api="/api/fisler/faturaya-donustur">
           <Button onClick={convert} disabled={selectedRows.length === 0 || submitting} size="sm">
             {submitting ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

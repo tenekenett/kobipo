@@ -220,16 +220,21 @@ export const PAGE_API_RULES: PageApiRule[] = [
       ...TICKET_PAGES,
     ],
     // Tahsilat/ödeme KAYDEDEN ekranlar: fatura ödeme sayfası (sahibi satış/alış
-    // faturası) ve hızlı satış/alış. Restoran adisyonu kendi ucundan kapanır
-    // (/api/restoran/adisyonlar/[id]/kapat), finans hareketleri de buraya yazmaz —
-    // ikisi de yalnız okur. Fiş tarama YAZAR: fişi kestikten hemen sonra
-    // tahsilatı buraya işler.
+    // faturası), hızlı satış/alış ve restoran tezgâhı. Kahveci Satış ile adisyon
+    // ekranı satışı `submitReceiptSale` ile tamamlar (fiş → tahsilat → kapanış;
+    // lib/satis/submit-receipt-sale.ts); burada "restoran kendi ucundan kapanır"
+    // yazıyordu ve 2026-07-30'dan beri doğru değildi — hazır Kasiyer/Garson rolleri
+    // tahsilat alamıyordu (2026-10-05 rol taraması). Finans hareketleri buraya
+    // yazmaz, yalnız okur. Fiş tarama YAZAR: fişi kestikten hemen sonra tahsilatı
+    // buraya işler.
     writePages: [
       "/satis/fatura",
       "/alis/fatura",
       "/satis/hizli",
       "/alis/hizli",
       "/alis/fis-tarama",
+      "/restoran/satis",
+      ...TICKET_PAGES,
     ],
   },
   {
@@ -259,7 +264,8 @@ export const PAGE_API_RULES: PageApiRule[] = [
     prefix: "/api/irsaliye",
     // Belge tarama okunan irsaliyeyi BU uçtan kaydeder (alış + satış) ve
     // "Teslim alındı" için PUT atar; kendi yazma kapısı yok (plan §2).
-    pages: ["/satis/irsaliye", "/alis/irsaliye", "/alis/fis-tarama"],
+    // Alış faturası editörü bağlanacak irsaliyeleri OKUR (yazmaz, bağlar).
+    pages: ["/satis/irsaliye", "/alis/irsaliye", "/alis/fis-tarama", "/alis/fatura"],
     writePages: ["/satis/irsaliye", "/alis/irsaliye", "/alis/fis-tarama"],
   },
   {
@@ -346,7 +352,10 @@ export const PAGE_API_RULES: PageApiRule[] = [
       "/raporlar/stok",
       "/ayarlar/sube-bilgileri",
     ],
-    writePages: ["/stok/urunler", "/stok/hizmetler", "/restoran/menu-tarama"],
+    // Menü & Reçeteler de yazar: yeni menü ürünü önce ürün olarak açılır, görsel ve
+    // tür değişikliği ürünü günceller. Menü Tarama listedeydi, menünün kendisi
+    // unutulmuştu — yalnız menü yetkisiyle ürün eklenemiyordu (2026-10-05).
+    writePages: ["/stok/urunler", "/stok/hizmetler", "/restoran/menu-tarama", "/restoran/menu"],
   },
   {
     prefix: "/api/depolar/transfer",
@@ -408,6 +417,9 @@ export const PAGE_API_RULES: PageApiRule[] = [
       ...TICKET_PAGES,
       "/personel/maas",
       "/e-donusum/sablon",
+      // Çek/senet tahsil edilirken düşeceği hesap seçilir (2026-10-05 rol taraması).
+      "/cek-senet/cek",
+      "/cek-senet/senet",
     ],
     writePages: ["/finans/kanallar"],
   },
@@ -622,6 +634,15 @@ export const PAGE_API_RULES: PageApiRule[] = [
     writePages: ["/personel/maas"],
   },
   {
+    // Çalışanın takvimi (vardiyalı / sabit mesai) — YALNIZ bu alan. Vardiya ve devam
+    // takvimindeki "çalışma düzeni" penceresi yazar (CLAUDE.md "Çalışma düzeni":
+    // cevap takvimden verilebilmeli). Genel kart ucu maaş/IBAN da yazdığı için
+    // takvime açılmaz; bu dar uç açılır. `*` = çalışan id'si.
+    prefix: "/api/personel/employees/*/calisma-duzeni",
+    pages: ["/personel", "/personel/vardiya", "/personel/devam"],
+    writePages: ["/personel", "/personel/vardiya", "/personel/devam"],
+  },
+  {
     prefix: "/api/personel/employees",
     // Restoran tarafı personel listesini ikram/iskonto sorumlusu seçmek için okur.
     pages: [...PERSONNEL_PAGES, "/restoran/satis", ...TICKET_PAGES],
@@ -744,12 +765,16 @@ export const PAGE_API_RULES: PageApiRule[] = [
       // (`?type=PURCHASE`). Yalnız okuma: irsaliye ekranı fatura yazmaz, bağlar.
       "/alis/irsaliye",
     ],
+    // Restoran tezgâhı (Kahveci Satış + adisyon ekranları) fişini BU uçtan keser
+    // (`submitReceiptSale`); okuma listesinde vardı, yazmada unutulmuştu (2026-10-05).
     writePages: [
       "/satis/fatura",
       "/alis/fatura",
       "/satis/hizli",
       "/alis/hizli",
       "/alis/fis-tarama",
+      "/restoran/satis",
+      ...TICKET_PAGES,
     ],
   },
   // Şablonu tasarımcı ekranı yazar; seri numaratörlerini hem seri-no ekranı hem
@@ -844,6 +869,9 @@ export const PAGE_API_RULES: PageApiRule[] = [
       "/alis/fatura",
       "/satis/hizli",
       "/alis/hizli",
+      // Rapor süzgeçleri (kategori/etiket) tanım listesini okur: yalnız rapor yetkisi
+      // olan Görüntüleyici/Gözlemci süzgeçleri boş görüyordu (2026-10-05 rol taraması).
+      ...REPORT_PAGES,
     ],
     // Tanım listesi (ürün kategorisi gibi) ekranın KENDİ kavramıdır: ürün kartını
     // açan combobox ve kategori yöneticisi onu satır içinde üretir. Yazmayı yalnız
@@ -871,7 +899,10 @@ export const PAGE_API_RULES: PageApiRule[] = [
   // Rol tanımlama ucu. Route zaten enum ADMIN istiyor; buradaki kural ikinci kilittir
   // ve daha güçlüdür: "/ayarlar/roller" hiçbir özel role atanamadığı için (bkz.
   // ACCOUNT_ADMIN_PAGES) bu uç özel rol taşıyan bir üyelikte ASLA açılamaz.
-  { prefix: "/api/company/roles", pages: ["/ayarlar/roller"], writePages: ["/ayarlar/roller"] },
+  //
+  // Ekip Yönetimi rol LİSTESİNİ okur (üyeye özel rol atamak için); rol tanımlamak
+  // yine yalnız Rol Yetkileri ekranından.
+  { prefix: "/api/company/roles", pages: ["/ayarlar/roller", "/ayarlar/ekip"], writePages: ["/ayarlar/roller"] },
   {
     prefix: "/api/company/branch-managers",
     pages: ["/ayarlar/sube-mudurleri"],
@@ -1277,19 +1308,26 @@ export function navHrefsForPath(pathname: string, search?: URLSearchParams | nul
     return ["/cari/musteri", "/cari/tedarikci"]
   }
 
+  // En SPESİFİK (en uzun) eşleşme kazanır — menüsüz sahip tablosu (ROUTE_OWNERS) ile
+  // menü öğeleri BİRLİKTE yarışır (örn. /personel/123 → /personel, /personel/ik →
+  // kendisi). Eskiden önce tablo denenirdi ve "/stok" ön eki kendi alt MENÜ öğelerini
+  // yutuyordu: /stok/hizmetler, /stok/etiket, /stok/transfer "Ürün Listesi"ne;
+  // /finans/kanallar ve /finans/mutabakat "Finans Hareketleri"ne bağlanıyordu
+  // (aynısı /cek-senet). Yalnız Etiket Tasarımı verilen rol sayfasını açamıyor, yalnız
+  // Ürün Listesi verilen rol kendisine verilmemiş Etiket/Transfer'i açabiliyordu
+  // (2026-10-05 rol taraması — firmanın canlı "argon kaynakcısı" rolünde görüldü).
+  let best: { prefix: string; owners: string[] } | null = null
   for (const [prefix, owners] of Object.entries(ROUTE_OWNERS)) {
-    if (pathname === prefix || pathname.startsWith(prefix + "/")) return owners
-  }
-
-  // Menü öğesinin kendisi ya da alt yolu (örn. /personel/123 → /personel).
-  // En SPESİFİK (en uzun) eşleşme kazanır, aksi halde /personel tüm kardeşlerini yutar.
-  let best: string | null = null
-  for (const href of ALL_NAV_HREFS) {
-    if (pathname === href || pathname.startsWith(href + "/")) {
-      if (!best || href.length > best.length) best = href
+    if ((pathname === prefix || pathname.startsWith(prefix + "/")) && (!best || prefix.length > best.prefix.length)) {
+      best = { prefix, owners }
     }
   }
-  return best ? [best] : []
+  for (const href of ALL_NAV_HREFS) {
+    if ((pathname === href || pathname.startsWith(href + "/")) && (!best || href.length > best.prefix.length)) {
+      best = { prefix: href, owners: [href] }
+    }
+  }
+  return best ? best.owners : []
 }
 
 /**
@@ -1309,8 +1347,10 @@ const ROUTE_OWNERS: Record<string, string[]> = {
   "/kasa": ["/finans/kanallar"],
   "/cek-senet": ["/cek-senet/cek", "/cek-senet/senet"],
   "/e-irsaliye": ["/satis/irsaliye"],
-  // e-Fatura oluşturma/görüntüleme ekranı menüde yok; satış faturasından girilir.
-  "/e-donusum/yeni": ["/satis/fatura"],
+  // Fatura editörü menüde yok; satış VE alış faturası listesinden girilir (alış
+  // faturası da bu editörle kesilir). Yalnız "/satis/fatura"ya bağlıyken yalnız alış
+  // yetkisi olan çalışan "Yeni alış faturası"na basınca geri atılıyordu (2026-10-05).
+  "/e-donusum/yeni": ["/satis/fatura", "/alis/fatura"],
   "/faturalar": ["/satis/fatura", "/alis/fatura"],
   "/fisler": ["/satis/fisler", "/alis/fisler"],
   "/raporlar/nakit-akisi": ["/raporlar/nakit-banka", "/raporlar/finansal"],

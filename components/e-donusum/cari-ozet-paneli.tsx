@@ -5,6 +5,7 @@ import { ArrowUpRight, RefreshCw } from "lucide-react"
 import { format } from "date-fns"
 import { tr } from "date-fns/locale"
 import { CompanyLink } from "@/components/dashboard/company-link"
+import { useCanCallApi } from "@/components/dashboard/write-guard"
 import { describeFetchError, FetchError, jsonFetcher } from "@/lib/swr/fetcher"
 import { OVERDUE_BUCKETS, type AgingBucket } from "@/lib/raporlar/cari-yaslandirma-buckets"
 import { cn } from "@/lib/utils"
@@ -73,13 +74,16 @@ export function CariOzetPaneli({
   const kind: "customer" | "supplier" | null = customerId ? "customer" : supplierId ? "supplier" : null
   const partyParam = customerId ? `customerId=${encodeURIComponent(customerId)}` : supplierId ? `supplierId=${encodeURIComponent(supplierId)}` : ""
 
+  // Ekstre cari ekranlarının ucudur; yalnız fatura yetkisi olan çalışanda istek
+  // atılmaz (403 yerine panel hiç çıkmaz, yetki günlüğü dolmaz).
+  const canRead = useCanCallApi("/api/cari/ekstre")
   const { data, error, isLoading, mutate } = useSWR<Yanit>(
-    companyId && kind ? `/api/cari/ekstre?companyId=${encodeURIComponent(companyId)}&${partyParam}&last=${SON_HAREKET}` : null,
+    canRead && companyId && kind ? `/api/cari/ekstre?companyId=${encodeURIComponent(companyId)}&${partyParam}&last=${SON_HAREKET}` : null,
     jsonFetcher,
     { revalidateOnFocus: false, dedupingInterval: 30_000 }
   )
 
-  if (!kind || !companyId) return null
+  if (!canRead || !kind || !companyId) return null
   if (error instanceof FetchError && error.status === 403) return null
 
   const kutu = "rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-xs dark:border-border dark:bg-muted/20"

@@ -568,7 +568,7 @@ export default function PersonelDetayPage() {
         {/* BORDRO */}
         <TabsContent value="bordro">
           <Card>
-            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">Bordro</CardTitle><WriteAction><Button size="sm" onClick={openPayroll}><Plus className="mr-1 h-4 w-4" /> Bordro Ekle</Button></WriteAction></div></CardHeader>
+            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">Bordro</CardTitle><WriteAction api="/api/personel/payroll"><Button size="sm" onClick={openPayroll}><Plus className="mr-1 h-4 w-4" /> Bordro Ekle</Button></WriteAction></div></CardHeader>
             <CardContent>
             {emp.payrolls.length === 0 ? <div className="text-sm text-muted-foreground">Bordro kaydı yok.</div> : (
               <StyledTableContainer><Table>
@@ -604,7 +604,7 @@ export default function PersonelDetayPage() {
         {/* İZİN */}
         <TabsContent value="izin">
           <Card>
-            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">İzin</CardTitle><WriteAction><Button size="sm" onClick={() => { setLeaveForm({ type: "ANNUAL", startDate: today, endDate: today, reason: "" }); setLeaveOpen(true) }}><Plus className="mr-1 h-4 w-4" /> İzin Ekle</Button></WriteAction></div></CardHeader>
+            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">İzin</CardTitle><WriteAction api="/api/personel/leaves"><Button size="sm" onClick={() => { setLeaveForm({ type: "ANNUAL", startDate: today, endDate: today, reason: "" }); setLeaveOpen(true) }}><Plus className="mr-1 h-4 w-4" /> İzin Ekle</Button></WriteAction></div></CardHeader>
             <CardContent>
             {emp.leaves.length === 0 ? <div className="text-sm text-muted-foreground">İzin kaydı yok.</div> : (
               <StyledTableContainer><Table>
@@ -640,7 +640,7 @@ export default function PersonelDetayPage() {
         {/* ZİMMET */}
         <TabsContent value="zimmet">
           <Card>
-            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">Zimmet</CardTitle><WriteAction><Button size="sm" onClick={() => { setAssetForm({ assetName: "", category: "", serialNo: "", quantity: "1", assignedDate: today, notes: "" }); setAssetOpen(true) }}><Plus className="mr-1 h-4 w-4" /> Zimmet Ekle</Button></WriteAction></div></CardHeader>
+            <CardHeader><div className="flex items-center justify-between"><CardTitle className="text-base">Zimmet</CardTitle><WriteAction api="/api/personel/assets"><Button size="sm" onClick={() => { setAssetForm({ assetName: "", category: "", serialNo: "", quantity: "1", assignedDate: today, notes: "" }); setAssetOpen(true) }}><Plus className="mr-1 h-4 w-4" /> Zimmet Ekle</Button></WriteAction></div></CardHeader>
             <CardContent>
             {emp.assets.length === 0 ? <div className="text-sm text-muted-foreground">Zimmet kaydı yok.</div> : (
               <StyledTableContainer><Table>
@@ -681,7 +681,9 @@ export default function PersonelDetayPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Belgeler</CardTitle>
-                <WriteAction>
+                {/* Kart "Personeller"e ait; bordro/izin/zimmet/belge yazmaları kendi ekranlarının
+                    yetkisini ister (PAGE_API_RULES) — düğme o yetki yoksa çıkmaz. */}
+                <WriteAction api="/api/personel/documents">
                 <Button size="sm" onClick={() => { setDocForm({ title: "", category: "", notes: "" }); setDocFiles([]); setDocOpen(true) }}>
                   <Plus className="mr-1 h-4 w-4" /> Belge Ekle
                 </Button>
@@ -718,7 +720,7 @@ export default function PersonelDetayPage() {
                         ) : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="text-right">
-                        <WriteAction><Button size="sm" variant="ghost" onClick={() => removeDoc(d.id)} title="Sil"><Trash2 className="h-4 w-4 text-destructive" /></Button></WriteAction>
+                        <WriteAction api="/api/personel/documents/x" method="DELETE"><Button size="sm" variant="ghost" onClick={() => removeDoc(d.id)} title="Sil"><Trash2 className="h-4 w-4 text-destructive" /></Button></WriteAction>
                       </TableCell>
                     </StyledTableRow>
                   ))}

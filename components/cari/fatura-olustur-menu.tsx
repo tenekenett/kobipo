@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { ChevronDown, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useCanEdit } from "@/components/dashboard/dashboard-company-provider"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +38,11 @@ export type FaturaOlusturMenuProps = {
 export function FaturaOlusturMenu({ companyId, kind, cariId, linkedId, from }: FaturaOlusturMenuProps) {
   const customerId = kind === "customer" ? cariId : linkedId || null
   const supplierId = kind === "supplier" ? cariId : linkedId || null
+  // Menü cari kartında (cari yetkisiyle) durur ama fatura editörüne götürür: satış öğesi
+  // Satış Faturası, alış öğesi Alış Faturası düzenleme yetkisi ister. Yetkisiz öğe
+  // gösterilmez; editör onu zaten geri çevirirdi (2026-10-05 rol taraması).
+  const canSales = useCanEdit("/satis/fatura")
+  const canPurchase = useCanEdit("/alis/fatura")
 
   const editorHref = (type: "SALES" | "PURCHASE", counterparty: string) => {
     const query = new URLSearchParams({ company: companyId, type, from })
@@ -44,14 +50,16 @@ export function FaturaOlusturMenu({ companyId, kind, cariId, linkedId, from }: F
     return `/e-donusum/yeni?${query.toString()}`
   }
 
-  const items: Array<{
+  const allItems: Array<{
     key: string
     label: string
     href: string | null
     hint: string
+    allowed: boolean
   }> = [
     {
       key: "sales",
+      allowed: canSales,
       label: "Satış Faturası Oluştur",
       href: customerId ? editorHref("SALES", customerId) : null,
       hint: customerId
@@ -60,6 +68,7 @@ export function FaturaOlusturMenu({ companyId, kind, cariId, linkedId, from }: F
     },
     {
       key: "purchase",
+      allowed: canPurchase,
       label: "Alış Fiş / Faturası Oluştur",
       href: supplierId ? editorHref("PURCHASE", supplierId) : null,
       hint: supplierId
@@ -70,11 +79,15 @@ export function FaturaOlusturMenu({ companyId, kind, cariId, linkedId, from }: F
       // İhracat (IHRACAT profili + gümrük alanları) editörde henüz yok; pasif
       // öğe kullanıcıya bunu söyler, SALES editörüne yönlendirmez.
       key: "export",
+      allowed: canSales,
       label: "İhracat Faturası Oluştur",
       href: null,
       hint: "Henüz desteklenmiyor",
     },
   ]
+
+  const items = allItems.filter((item) => item.allowed)
+  if (items.length === 0) return null
 
   return (
     <DropdownMenu>

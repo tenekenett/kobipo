@@ -34,7 +34,7 @@ import { looksLikeCuid } from "@/lib/slug"
 import { buildInvoiceLabelItems } from "@/lib/labels/invoice-label-items"
 import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
 import { kdvExemption } from "@/lib/integrations/e-invoice/gib-exemption-codes"
-import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
+import { ExportAction, WriteAction, useCanCallApi } from "@/components/dashboard/write-guard"
 import { invoiceStatusLabel, kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
 
 const PROFILE_LABELS: Record<string, string> = {
@@ -231,8 +231,20 @@ export default function FaturaOnizlemePage() {
   // Fatura açıldığında, durumu HENÜZ KESİNLEŞMEMİŞ e-belgeler için sorguyu
   // sessizce (toast'sız) bir kez tetikliyoruz. Terminal durumdakiler (KABUL,
   // RED, İPTAL, HATA) yeniden sorgulanmaz — gereksiz Mysoft çağrısı olmasın.
+  //
+  // Sorgu YAZAR (durumu faturaya işler) ve uç yazma yetkisi ister: yalnız sunucunun
+  // kabul edeceği kullanıcıda koşar (`useCanCallApi`, kapıyla aynı fonksiyon). Salt
+  // okunur rolde (Gözlemci) her açılışta görünmez bir 403 alıp yetki günlüğüne
+  // PAGE_FORBIDDEN düşürüyordu (2026-10-05 rol taraması). Sayfanın düzenleme yetkisine
+  // BAĞLANMAZ: faturayı düzenleyemeyen ama ucu Hızlı Satış yetkisiyle yazabilen rol
+  // tazelemeyi kaybederdi.
+  const canAutoCheck = useCanCallApi(
+    invoice?.id ? `/api/e-donusum/invoices/${invoice.id}/check-status` : null,
+    "POST"
+  )
   const autoCheckedRef = useRef<string | null>(null)
   useEffect(() => {
+    if (!canAutoCheck) return
     if (!invoice?.id || !invoice.uuid) return
     if (invoice.status !== "SENT") return
     if (invoice.invoiceType !== "E_INVOICE" && invoice.invoiceType !== "E_ARCHIVE") return
@@ -253,7 +265,7 @@ export default function FaturaOnizlemePage() {
         /* otomatik sorgu — sessizce geç */
       }
     })()
-  }, [invoice?.id, invoice?.uuid, invoice?.status, invoice?.invoiceType, invoice?.integrationStatus])
+  }, [canAutoCheck, invoice?.id, invoice?.uuid, invoice?.status, invoice?.invoiceType, invoice?.integrationStatus])
 
   const handleDownloadPDF = async () => {
     if (!invoice) return

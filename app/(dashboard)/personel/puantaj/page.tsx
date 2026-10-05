@@ -368,8 +368,9 @@ export default function PuantajPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    {/* Aktarım BORDRO YAZAR (taslak); puantajı okumak serbest. */}
-                    <WriteAction>
+                    {/* Aktarım BORDRO YAZAR (taslak); puantajı okumak serbest. Bordro
+                        Maaş-Ödemeler'in ucudur: o yetki yoksa düğme çıkmaz. */}
+                    <WriteAction api="/api/personel/payroll">
                       <Button
                         variant="outline"
                         size="sm"

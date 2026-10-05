@@ -116,12 +116,14 @@ export const PUT = withApiErrors(async function PUT(
 
     const resolvedParams = await params
     resolvedParams.id = (await resolveCompanyId(resolvedParams.id)) ?? resolvedParams.id
-    const access = await ensureCompanyAccess(resolvedParams.id)
-    // Firma kimlik + e-Dönüşüm ayarları hassastır (resmi e-fatura kimliği). nav-config'te bu
-    // ekranlar ADMIN/BRANCH_MANAGER/ACCOUNTANT'a açıktır; SALES/STOCK/VIEWER düzenleyemez.
-    if (!["ADMIN", "BRANCH_MANAGER", "ACCOUNTANT"].includes(access.role)) {
-      return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 })
-    }
+    // Firma kimlik + e-Dönüşüm ayarları hassastır (resmi e-fatura kimliği). Kimin
+    // yazacağına SAYFA KAPISI karar verir: ensureCompanyAccess bu isteği PAGE_API_RULES →
+    // `/api/companies` yazma listesine (firma/şube ayarları, E-Dönüşüm Ayarları, Seri No)
+    // karşı sınar. Burada ayrıca sabit bir rol listesi (ADMIN/BRANCH_MANAGER/ACCOUNTANT)
+    // vardı: özel role bu ekranlarda "Düzenle" verilse bile kayıt 403 alıyordu
+    // (2026-10-05 rol taraması). SALES/STOCK/VIEWER bu sayfaları göremediği için kapı
+    // onları zaten durdurur.
+    await ensureCompanyAccess(resolvedParams.id)
 
     const body = await request.json()
 

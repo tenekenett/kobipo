@@ -24,7 +24,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { TransactionDialog } from "@/components/cari/transaction-dialog"
+import { TransactionDialog, useTransactionMethods } from "@/components/cari/transaction-dialog"
 import { VirmanDialog } from "@/components/cari/virman-dialog"
 import { downloadVirmanMakbuz } from "@/components/cari/virman-makbuz"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
@@ -134,6 +134,9 @@ export default function CustomerSupplierDetailPage() {
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isTransactionDialogOpen, setIsTransactionDialogOpen] = useState(false)
+  // Tahsilat/ödeme FİNANS ucuna (ya da çek/bakiye kapama uçlarına) yazar; cari kartını
+  // düzenleyebilmek yetmez. Hiçbir yöntem açık değilse düğme çıkmaz.
+  const transactionMethods = useTransactionMethods(true)
   const [isVirmanDialogOpen, setIsVirmanDialogOpen] = useState(false)
   const { confirm } = useConfirm()
   const [cariAction, setCariAction] = useState<"archive" | "delete" | null>(null)
@@ -371,10 +374,12 @@ export default function CustomerSupplierDetailPage() {
               linkedId={isCustomer ? data.linkedSupplierId : data.linkedCustomerId}
               from={`/cari/${type}/${id}`}
             />
-            <Button variant="outline" size="sm" onClick={() => setIsTransactionDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              {isCustomer ? "Tahsilat Ekle" : "Ödeme Ekle"}
-            </Button>
+            {transactionMethods.length > 0 && (
+              <Button variant="outline" size="sm" onClick={() => setIsTransactionDialogOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                {isCustomer ? "Tahsilat Ekle" : "Ödeme Ekle"}
+              </Button>
+            )}
             {/* Arşivdeki cariye virman girilmez (uç 400 döner) — düğme hiç çıkmaz. */}
             {!data.archivedAt && (
               <Button variant="outline" size="sm" onClick={() => setIsVirmanDialogOpen(true)}>
