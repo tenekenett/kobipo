@@ -257,6 +257,50 @@ export function nettenBrute(net: number, input: BordroInput = {}): BordroSonuc {
   return brutenNete(round2(high), input)
 }
 
+/**
+ * SGK İŞVEREN PAYI (işsizlik sigortası işveren payı dahil) — bordroya ÖNERİ ve eski
+ * bordronun (kolonsuz kayıt) muhasebe fişi için tek kaynak.
+ *
+ * Matrah SGK'ya tabi brüttür (brüt + prim), tavanla sınırlı — `brutenNete`deki
+ * `employerCost` ile aynı hesap. Oran TEŞVİKSİZ taban orandır: 5 puan (imalat) / 2 puan
+ * (diğer) hazine desteği ya da emekli (SGDP) oranı uygulanmaz; bordro ekranı öneriyi
+ * düzeltilebilir gösterir, gerçek tutar MUHSGK tahakkukundakidir.
+ */
+export function isverenSgkPayi(sgkyaTabiBrut: number, year?: number): number {
+  const p = bordroParam(year)
+  const matrah = Math.min(Math.max(0, Number(sgkyaTabiBrut) || 0), p.minGross * p.ceilingFactor)
+  return round2(matrah * (p.sgkEmployerRate + p.unemploymentEmployerRate))
+}
+
+/**
+ * Bordronun muhasebeye giren işveren payı. Kayıtta tutar varsa o (kullanıcı girdi —
+ * teşvik); yoksa (NULL) öneri — SGK kesintisi girilmemiş bordroda öneri de 0'dır (SGK'sız
+ * çalışan ya da kesintileri henüz hesaplanmamış bordro). `hesaplandi` fişe ve ekrana yazılır.
+ */
+export function bordroIsverenPayi(b: {
+  employerSgk: unknown
+  grossSalary: unknown
+  bonus: unknown
+  sgkDeduction: unknown
+  periodYear: number
+}): { tutar: number; hesaplandi: boolean } {
+  if (b.employerSgk != null && b.employerSgk !== "") return { tutar: round2(Number(b.employerSgk)), hesaplandi: false }
+  if (!(Number(b.sgkDeduction) > 0)) return { tutar: 0, hesaplandi: true }
+  return { tutar: isverenSgkPayi(Number(b.grossSalary || 0) + Number(b.bonus || 0), b.periodYear), hesaplandi: true }
+}
+
+/**
+ * İstek gövdesindeki işveren payı: `undefined` = alan gönderilmedi (dokunma), `null` = boş
+ * bırakıldı (otomatik), sayı = girilen tutar. Eksi ya da sayı olmayan değer hatadır.
+ */
+export function isverenPayiGirdisi(v: unknown): number | null | undefined {
+  if (v === undefined) return undefined
+  if (v === null || (typeof v === "string" && v.trim() === "")) return null
+  const n = Number(typeof v === "string" ? v.replace(",", ".") : v)
+  if (!Number.isFinite(n) || n < 0) throw new Error("İşveren SGK payı sıfır ya da pozitif bir tutar olmalı.")
+  return round2(n)
+}
+
 /** Günlük yevmiye: brüt / 30 (SGK gün sayısı). Bordro kesintilerinin böleni. */
 export const MONTHLY_PAYROLL_DAYS = 30
 

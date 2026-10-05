@@ -23,7 +23,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import Link from "next/link"
 import { Calculator, Plus, RefreshCcw, Trash2, Wallet, DollarSign, Users, FileText, Download, Pencil } from "lucide-react"
 import { toDateInput } from "@/lib/format"
-import { brutenNete } from "@/lib/personel/bordro-hesap"
+import { bordroIsverenPayi, brutenNete } from "@/lib/personel/bordro-hesap"
 import { odenenNettenFarkli, odenenTutar } from "@/lib/personel/bordro-odenen"
 
 type Employee = { id: string; firstName: string; lastName: string; grossSalary?: number | null; status: string }
@@ -40,6 +40,8 @@ type Payroll = {
   netSalary: number
   /** Fiilen ödenen; null = net kadar (bkz. lib/personel/bordro-odenen.ts). */
   paidAmount?: number | null
+  /** SGK işveren payı; null = otomatik (teşviksiz oranla hesaplanır). */
+  employerSgk?: number | string | null
   status: string
   paymentDate?: string | null
 }
@@ -56,6 +58,8 @@ const emptyForm = () => ({
   sgkDeduction: "",
   taxDeduction: "",
   otherDeduction: "",
+  // Boş = otomatik: muhasebe teşviksiz taban oranla hesaplar (bordro-hesap.ts → bordroIsverenPayi).
+  employerSgk: "",
   notes: "",
 })
 
@@ -120,6 +124,19 @@ export default function MaasOdemelerPage() {
     fetchRefData()
   }, [fetchRefData])
 
+  // Boş işveren payı alanında gösterilen öneri — muhasebe fişiyle aynı kural.
+  const isverenOnerisi = useMemo(
+    () =>
+      bordroIsverenPayi({
+        employerSgk: null,
+        grossSalary: form.grossSalary,
+        bonus: form.bonus,
+        sgkDeduction: form.sgkDeduction,
+        periodYear: year,
+      }).tutar,
+    [form.grossSalary, form.bonus, form.sgkDeduction, year],
+  )
+
   const liveNet = useMemo(() => {
     const n = (v: string) => Number(v || 0)
     return n(form.grossSalary) + n(form.bonus) - n(form.advance) - n(form.sgkDeduction) - n(form.taxDeduction) - n(form.otherDeduction)
@@ -169,6 +186,7 @@ export default function MaasOdemelerPage() {
       sgkDeduction: String(r.sgkDeduction),
       taxDeduction: String(r.taxDeduction),
       otherDeduction: String(r.otherDeduction),
+      employerSgk: r.employerSgk != null ? String(r.employerSgk) : "",
       notes: "",
     })
     setCreateOpen(true)
@@ -422,6 +440,21 @@ export default function MaasOdemelerPage() {
               <div><Label>SGK Kesintisi</Label><Input type="number" value={form.sgkDeduction} onChange={(e) => setForm((p) => ({ ...p, sgkDeduction: e.target.value }))} /></div>
               <div><Label>Gelir Vergisi</Label><Input type="number" value={form.taxDeduction} onChange={(e) => setForm((p) => ({ ...p, taxDeduction: e.target.value }))} /></div>
               <div><Label>Diğer Kesinti</Label><Input type="number" value={form.otherDeduction} onChange={(e) => setForm((p) => ({ ...p, otherDeduction: e.target.value }))} /></div>
+            </div>
+            {/* İşveren payı netten düşmez; işverenin maliyetidir ve muhasebe tahakkuk fişine
+                (B 770 · A 361) girer. Boş bırakılırsa teşviksiz oranla hesaplanır. */}
+            <div>
+              <Label>SGK İşveren Payı</Label>
+              <Input
+                type="number"
+                value={form.employerSgk}
+                placeholder={isverenOnerisi > 0 ? `Otomatik: ${fmt(isverenOnerisi)}` : "Otomatik"}
+                onChange={(e) => setForm((p) => ({ ...p, employerSgk: e.target.value }))}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Netten düşmez, işverenin maliyetidir. Boş bırakırsanız teşviksiz oranla hesaplanır
+                (işsizlik işveren payı dahil); teşvikten yararlanıyorsanız SGK tahakkukundaki tutarı girin.
+              </p>
             </div>
             {/* Kesintileri brütten türet. ÖNERİDİR, otomatik değil: teşvikli SGK
                 oranları, engelli indirimi ve AGİ benzeri özel durumlar hesabı

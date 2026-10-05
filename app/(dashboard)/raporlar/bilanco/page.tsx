@@ -221,8 +221,8 @@ export default function BilancoPage() {
                   ve neyin bugünkü durumdan okunduğunu görmeli (bkz. bilanco-kiymet.ts). */}
               <p className="text-xs text-muted-foreground md:col-span-2">
                 Alacak ve borçlar cari bakiyelerinden, cari başına kurulur: fazla ödeme karşı tarafta avans
-                olarak görünür. Çek/senet portföyünde tahsil tarihi kasa hareketinden okunur; iade, protesto
-                ve ciro edilen evrak geçmiş tarihli bilançoda da bugünkü durumuyla sayılır.
+                olarak görünür. Çek/senet portföyünde tahsil tarihi kasa hareketinden, ciro tarihi evrakın
+                durum tarihinden okunur; iade edilen ve protestolu evrak cari bakiyede olduğu gibi hiç sayılmaz.
               </p>
             </div>
           )}

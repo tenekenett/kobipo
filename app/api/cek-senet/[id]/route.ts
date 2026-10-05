@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { durumTarihi, durumTarihiGirdisi } from "@/lib/cek-senet/durum-tarihi"
 import { kiymetHareketleri, kiymetiBildir } from "@/lib/muhasebe/senkron.server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -126,6 +127,21 @@ export const PUT = withApiErrors(async function PUT(
     if (data.status !== undefined && !VALID_STATUSES.has(String(data.status))) {
       return NextResponse.json({ error: "Geçersiz durum" }, { status: 400 })
     }
+    // Durumun değiştiği gün (ciro/tahsil/iade/protesto) — bkz. lib/cek-senet/durum-tarihi.ts.
+    let istekTarihi: Date | null
+    try {
+      istekTarihi = durumTarihiGirdisi(data.statusDate)
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 400 })
+    }
+    const yeniDurumTarihi = (eski: { status: string; statusChangedAt: Date | null }) =>
+      durumTarihi({
+        eskiDurum: eski.status,
+        yeniDurum: data.status !== undefined ? String(data.status) : eski.status,
+        eskiTarih: eski.statusChangedAt,
+        istekTarihi,
+        simdi: new Date(),
+      })
     // Tahsil edilen kasa/banka — durum TAHSİL_EDİLDİ'ye geçerken zorunlu
     // (bkz. lib/cek-senet/tahsil.ts).
     const settlementAccountId =
@@ -168,6 +184,7 @@ export const PUT = withApiErrors(async function PUT(
       if (data.issueDate !== undefined) updateData.issueDate = new Date(data.issueDate)
       if (data.dueDate !== undefined) updateData.dueDate = new Date(data.dueDate)
       if (data.status !== undefined) updateData.status = data.status
+      updateData.statusChangedAt = yeniDurumTarihi(check)
       if (data.direction !== undefined) updateData.direction = data.direction || null
       if (data.customerId !== undefined) updateData.customerId = data.customerId || null
       if (data.supplierId !== undefined) updateData.supplierId = data.supplierId || null
@@ -203,6 +220,8 @@ export const PUT = withApiErrors(async function PUT(
         direction: row.direction,
         status: row.status,
         accountId: settlementAccountId,
+        // Tahsil hareketi durum tarihiyle yazılır; tarih düzeltilirse hareket de kayar.
+        date: row.statusChangedAt,
         createdBy: user.id,
       })
       return row
@@ -239,6 +258,7 @@ export const PUT = withApiErrors(async function PUT(
       if (data.issueDate !== undefined) updateData.issueDate = new Date(data.issueDate)
       if (data.dueDate !== undefined) updateData.dueDate = new Date(data.dueDate)
       if (data.status !== undefined) updateData.status = data.status
+      updateData.statusChangedAt = yeniDurumTarihi(note)
       if (data.direction !== undefined) updateData.direction = data.direction || null
       if (data.customerId !== undefined) updateData.customerId = data.customerId || null
       if (data.supplierId !== undefined) updateData.supplierId = data.supplierId || null
@@ -273,6 +293,8 @@ export const PUT = withApiErrors(async function PUT(
         direction: row.direction,
         status: row.status,
         accountId: settlementAccountId,
+        // Tahsil hareketi durum tarihiyle yazılır; tarih düzeltilirse hareket de kayar.
+        date: row.statusChangedAt,
         createdBy: user.id,
       })
       return row

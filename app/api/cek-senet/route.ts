@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { PORTFOY, durumTarihi, durumTarihiGirdisi } from "@/lib/cek-senet/durum-tarihi"
 import { kiymetiBildir } from "@/lib/muhasebe/senkron.server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
@@ -149,6 +150,20 @@ export const POST = withApiErrors(async function POST(request: Request) {
     if (data.status !== undefined && data.status !== "" && !VALID_STATUSES.has(String(data.status))) {
       return NextResponse.json({ error: "Geçersiz durum" }, { status: 400 })
     }
+    // Durumun değiştiği gün (ciro/tahsil/iade/protesto) — bkz. lib/cek-senet/durum-tarihi.ts.
+    let istekTarihi: Date | null
+    try {
+      istekTarihi = durumTarihiGirdisi(data.statusDate)
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 400 })
+    }
+    const statusChangedAt = durumTarihi({
+      eskiDurum: null,
+      yeniDurum: data.status || PORTFOY,
+      eskiTarih: null,
+      istekTarihi,
+      simdi: new Date(),
+    })
     // Tahsil edilen kasa/banka (durum TAHSİL_EDİLDİ ise zorunlu) — bkz. lib/cek-senet/tahsil.ts
     const settlementAccountId =
       typeof data.settlementAccountId === "string" && data.settlementAccountId.trim()
@@ -191,6 +206,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
           issueDate: new Date(issueDate),
           dueDate: new Date(dueDate),
           status: status || "PORTFÖYDE",
+          statusChangedAt,
           direction: direction || null,
           customerId: customerId || null,
           supplierId: supplierId || null,
@@ -223,6 +239,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
         direction: created.direction,
         status: created.status,
         accountId: settlementAccountId,
+        date: statusChangedAt,
         createdBy: user.id,
       })
       return created
@@ -260,6 +277,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
           issueDate: new Date(issueDate),
           dueDate: new Date(dueDate),
           status: status || "PORTFÖYDE",
+          statusChangedAt,
           direction: direction || null,
           customerId: customerId || null,
           supplierId: supplierId || null,
@@ -291,6 +309,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
         direction: created.direction,
         status: created.status,
         accountId: settlementAccountId,
+        date: statusChangedAt,
         createdBy: user.id,
       })
       return created

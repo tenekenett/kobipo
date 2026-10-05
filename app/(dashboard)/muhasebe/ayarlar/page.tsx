@@ -209,7 +209,17 @@ export default function MuhasebeAyarlariPage() {
                 </div>
               </>
             ) : (
-              <p className="text-sm text-kobipo-gray">Başlangıç tarihinde bakiye yok — açılış fişi gerekmiyor.</p>
+              <>
+                <p className="text-sm text-kobipo-gray">
+                  {gunMetni(durum.ayar?.baslangic)} tarihinde Kobipo&apos;da bakiye yok, bu yüzden açılış fişi açılmadı.
+                  Kobipo&apos;da tutulmayan açılış kalemleriniz (sermaye, demirbaş, stok, kredi…) varsa açılış fişini elle girin.
+                </p>
+                <WriteAction>
+                  <CompanyLink href="/muhasebe/fisler/acilis" className="text-sm font-semibold text-kobipo-blue hover:underline">
+                    Açılış fişini elle gir
+                  </CompanyLink>
+                </WriteAction>
+              </>
             )}
           </Kart>
 

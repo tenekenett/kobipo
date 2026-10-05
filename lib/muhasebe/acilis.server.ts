@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { cariBalancesAsOf } from "@/lib/cari/bakiye-asof"
 import { employeeBalances } from "@/lib/personel/masraf-defteri"
-import { kiymetPortfoyu, PORTFOY_DURUMU, TAHSIL_DURUMU } from "@/lib/raporlar/bilanco-kiymet"
+import { kiymetPortfoyu, portfoyDurumSuzgeci } from "@/lib/raporlar/bilanco-kiymet"
 import { settlementReference } from "@/lib/cek-senet/tahsil"
 import { CHECK_SETTLEMENT_PREFIXES } from "@/lib/finans/nakit-hareket"
 import { acilisFarki, acilisFisi, type AcilisGirdisi } from "@/lib/muhasebe/acilis"
@@ -10,6 +10,7 @@ import { kilitliMi, type DefterBaglami, type MuhasebeAyari } from "@/lib/muhaseb
 import { parmakIzi, satirAnahtari, satirlariCoz, type CozulmusSatir, type PlanKaydi } from "@/lib/muhasebe/hesap-cozumu"
 import { altHesaplariHazirla, planHaritasi } from "@/lib/muhasebe/hesap-plani.server"
 import { fisNumaratoru, satirVerisi } from "@/lib/muhasebe/senkron.server"
+import { kilitliYaz, taslaklariKilitle } from "@/lib/muhasebe/kilit.server"
 import type { AltHesapRef, FisSatiri, SatirRolu } from "@/lib/muhasebe/fis"
 
 type Ctx = DefterBaglami & { ayar: MuhasebeAyari }
@@ -43,12 +44,12 @@ export async function acilisGirdisi(ctx: Ctx): Promise<AcilisGirdisi> {
     `,
     Promise.all([
       prisma.check.findMany({
-        where: { companyId: { in: ids }, issueDate: { lt: sinir }, status: { in: [PORTFOY_DURUMU, TAHSIL_DURUMU] } },
-        select: { id: true, amount: true, status: true, issueDate: true, direction: true, supplierId: true },
+        where: { companyId: { in: ids }, issueDate: { lt: sinir }, ...portfoyDurumSuzgeci(sinir) },
+        select: { id: true, amount: true, status: true, issueDate: true, direction: true, supplierId: true, statusChangedAt: true },
       }),
       prisma.promissoryNote.findMany({
-        where: { companyId: { in: ids }, issueDate: { lt: sinir }, status: { in: [PORTFOY_DURUMU, TAHSIL_DURUMU] } },
-        select: { id: true, amount: true, status: true, issueDate: true, direction: true, supplierId: true },
+        where: { companyId: { in: ids }, issueDate: { lt: sinir }, ...portfoyDurumSuzgeci(sinir) },
+        select: { id: true, amount: true, status: true, issueDate: true, direction: true, supplierId: true, statusChangedAt: true },
       }),
     ]),
     prisma.transaction.findMany({
@@ -112,9 +113,12 @@ export async function acilisGirdisi(ctx: Ctx): Promise<AcilisGirdisi> {
 /**
  * Açılış fişini kaynak bakiyelerle aynı tutar (senkronun açılış karşılığı).
  *
- *   yok                → taslak açılır
+ *   yok                → taslak açılır — başlangıçta bakiye YOKSA açılmaz; Kobipo'da
+ *                         tutulmayan kalemler için fiş elle satırla birlikte açılır
+ *                         (manuel.server.ts → acilisFisiniElleAc)
  *   taslak, iz değişti  → otomatik satırlar yenilenir; ELLE eklenen satırlar ve elle
  *                         seçilen hesaplar korunur, fark satırı yeniden hesaplanır
+ *   taslak, satırsız    → silinir (onaylanamaz, yıl sonu kapanışını kilitlerdi)
  *   onaylı, iz değişti  → "belge değişti" işaretlenir (başlangıçtan önceki bir kayıt
  *                         sonradan değişmiş demektir)
  */
@@ -134,9 +138,14 @@ export async function acilisSenkronla(ctx: Ctx): Promise<{ fisId: string | null;
     }
     return { fisId: mevcut.id, degisti: mevcut.sourceHash !== iz }
   }
-  // Boş açılış (başlangıçta bakiye yok) erken dönmez: aşağıda eski boş taslak temizlenir.
-  if (mevcut && fis.satirlar.length > 0 && mevcut.sourceHash === iz && mevcut.date.getTime() === fis.tarih.getTime()) {
-    return { fisId: mevcut.id, degisti: false }
+  if (mevcut && mevcut.sourceHash === iz && mevcut.date.getTime() === fis.tarih.getTime()) {
+    // Değişmemiş fiş olduğu gibi kalır. Tek istisna SATIRSIZ taslak (eski kodun bakiyesiz
+    // başlangıçta açtığı): aşağıda silinir. Yalnız elle satırı olan fiş (bakiye yok, müşavir
+    // sermaye/demirbaş girdi) burada döner — her mutabakatta yeniden yazılsa satır id'leri
+    // değişir, açık fiş ekranındaki hesap seçimi "Satır bu fişe ait değil" alırdı.
+    const bos =
+      fis.satirlar.length === 0 && (await prisma.journalVoucherLine.count({ where: { voucherId: mevcut.id } })) === 0
+    if (!bos) return { fisId: mevcut.id, degisti: false }
   }
   if (mevcut && kilitliMi(ctx.ayar, mevcut.date)) return { fisId: mevcut.id, degisti: false }
 
@@ -192,13 +201,15 @@ export async function acilisSenkronla(ctx: Ctx): Promise<{ fisId: string | null;
   // Başlangıçta bakiye yok ve elle satır da yok → açılış fişi OLMAZ. Satırsız taslak
   // onaylanamaz ("Fişte satır yok") ve taslak sayıldığı için yıl sonu kapanışını kilitlerdi.
   if (tum.length === 0) {
-    if (mevcut) {
-      await prisma.$transaction([
-        prisma.journalVoucher.deleteMany({ where: { id: mevcut.id, status: "DRAFT" } }),
-        prisma.accountingSettings.update({ where: { companyId: ctx.defterId }, data: { openingVoucherId: null } }),
-      ])
-    }
-    return { fisId: null, degisti: !!mevcut }
+    if (!mevcut) return { fisId: null, degisti: false }
+    // Kilit altında: bu arada onaylandıysa silinmez ve ayardaki bağ da korunur.
+    const silindi = await kilitliYaz(async (tx) => {
+      if ((await taslaklariKilitle(tx, ctx.defterId, [mevcut.id])).size === 0) return false
+      await tx.journalVoucher.delete({ where: { id: mevcut.id } })
+      await tx.accountingSettings.update({ where: { companyId: ctx.defterId }, data: { openingVoucherId: null } })
+      return true
+    })
+    return silindi ? { fisId: null, degisti: true } : { fisId: mevcut.id, degisti: false }
   }
 
   if (!mevcut) {
@@ -225,15 +236,19 @@ export async function acilisSenkronla(ctx: Ctx): Promise<{ fisId: string | null;
     return { fisId: yeni.id, degisti: true }
   }
 
-  await prisma.$transaction([
-    prisma.journalVoucherLine.deleteMany({ where: { voucherId: mevcut.id } }),
-    prisma.journalVoucher.update({
+  // Kilit altında (kilit.server.ts): okumadan bu yana onaylandıysa fişe dokunulmaz; bir
+  // sonraki açılış senkronu onu "belge değişti" diye işaretler.
+  const yazildi = await kilitliYaz(async (tx) => {
+    if ((await taslaklariKilitle(tx, ctx.defterId, [mevcut.id])).size === 0) return false
+    await tx.journalVoucherLine.deleteMany({ where: { voucherId: mevcut.id } })
+    await tx.journalVoucher.update({
       where: { id: mevcut.id },
       data: { date: fis.tarih, sourceHash: iz, sourceChangedAt: null, isConfident: emin },
-    }),
-    prisma.journalVoucherLine.createMany({
+    })
+    await tx.journalVoucherLine.createMany({
       data: tum.map((s, i) => ({ ...satirVerisi(ctx.defterId, s, i), voucherId: mevcut.id })),
-    }),
-  ])
-  return { fisId: mevcut.id, degisti: true }
+    })
+    return true
+  })
+  return { fisId: mevcut.id, degisti: yazildi }
 }

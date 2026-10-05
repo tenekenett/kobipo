@@ -13,6 +13,9 @@ import { accountPaymentMethod } from "@/lib/finans/account-types"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
 import { odemeDagit } from "@/lib/cari/odeme-dagit"
+import { hareketKuru } from "@/lib/finans/doviz-hareket"
+import { getTcmbRates } from "@/lib/exchange/tcmb"
+import { randomUUID } from "node:crypto"
 
 export const dynamic = 'force-dynamic'
 
@@ -132,6 +135,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       invoiceIds,
       category,
       tags,
+      exchangeRate,
     } = body
 
     if (!companyId || !accountId || !type || !amount) {
@@ -184,7 +188,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
     const transactionDate = date ? new Date(date) : new Date()
 
     // Transfer hedefini işlemden önce doğrula (atomik blok içinde return edilemez).
-    let targetAccount: { id: string; balance: any } | null = null
+    let targetAccount: { id: string; balance: any; currency: string } | null = null
     if (type === "TRANSFER" && transferAccountId) {
       const found = await prisma.financialAccount.findUnique({
         where: { id: transferAccountId },
@@ -192,7 +196,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       if (!found || found.companyId !== companyId) {
         return NextResponse.json({ error: "Transfer account not found" }, { status: 404 })
       }
-      targetAccount = { id: found.id, balance: found.balance }
+      targetAccount = { id: found.id, balance: found.balance, currency: found.currency }
     }
 
     // Opsiyonel fatura eşleştirmesi (yalnızca INCOME/EXPENSE). Birden çok fatura
@@ -254,6 +258,31 @@ export const POST = withApiErrors(async function POST(request: Request) {
       }))
     }
 
+    // Para birimi HESABIN para birimidir; dövizli hesapta kur zorunlu, cari/fatura bağı ve
+    // farklı para birimli virman reddedilir (lib/finans/doviz-hareket.ts). İstemcinin
+    // gönderdiği `currency` okunmaz: formlar hep "TRY" gönderiyordu.
+    void currency
+    const hesapParaBirimi = (account.currency || "TRY").toUpperCase()
+    const kurIstegiVar = exchangeRate !== undefined && exchangeRate !== null && String(exchangeRate).trim() !== ""
+    const tcmb =
+      hesapParaBirimi !== "TRY" && !kurIstegiVar
+        ? await getTcmbRates()
+            .then((r) => ({ USD: r.USD, EUR: r.EUR }))
+            .catch(() => null)
+        : null
+    const doviz = hareketKuru({
+      hesapParaBirimi,
+      istekKuru: exchangeRate,
+      tarih: transactionDate,
+      simdi: new Date(),
+      tcmb,
+      cariBagli: Boolean(resolvedCustomerId || resolvedSupplierId || requestedInvoiceIds.length),
+      ...(type === "TRANSFER" && targetAccount ? { virmanHedefParaBirimi: targetAccount.currency } : {}),
+    })
+    if (!doviz.ok) return NextResponse.json({ error: doviz.hata }, { status: 400 })
+    // Virmanın iki bacağı ortak kimlik taşır (muhasebe eşleştirmesi: lib/muhasebe/virman-eslestir.ts).
+    const transferGroupId = type === "TRANSFER" ? randomUUID() : null
+
     // Ödeme yöntemi kanalın türünden okunur: kredi kartı/POS kanalı BANK_TRANSFER
     // ("Havale / EFT") olarak yazılmamalı.
     const paymentMethod = accountPaymentMethod(account.type)
@@ -265,7 +294,9 @@ export const POST = withApiErrors(async function POST(request: Request) {
           accountId,
           type,
           amount: numericAmount,
-          currency: currency || "TRY",
+          currency: doviz.paraBirimi,
+          exchangeRate: doviz.kur,
+          transferGroupId,
           description,
           date: transactionDate,
           reference: reference || (type === "TRANSFER" ? `TRANSFER:${transferAccountId}` : undefined),
@@ -303,7 +334,9 @@ export const POST = withApiErrors(async function POST(request: Request) {
             accountId: targetAccount.id,
             type: "INCOME",
             amount: numericAmount,
-            currency: currency || "TRY",
+            currency: doviz.paraBirimi,
+            exchangeRate: doviz.kur,
+            transferGroupId,
             description: description || "Hesaplar arası virman (giriş)",
             date: transactionDate,
             reference: `TRANSFER:${accountId}`,

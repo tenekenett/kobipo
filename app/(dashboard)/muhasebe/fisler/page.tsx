@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { CheckCheck, ChevronLeft, ChevronRight, FilePlus2, Loader2, RefreshCw, Search } from "lucide-react"
+import { CheckCheck, ChevronLeft, ChevronRight, FilePlus2, Link2, Loader2, RefreshCw, Search } from "lucide-react"
 import { CompanyLink } from "@/components/dashboard/company-link"
 import { ReadOnlyBanner, WriteAction, useWriteGuard } from "@/components/dashboard/write-guard"
 import { withCompanyHref } from "@/lib/company/href"
@@ -196,6 +196,14 @@ export default function MuhasebeFislerPage() {
         aciklama="Belgelerinizden üretilen taslak yevmiye fişleri. Hesabı belli olanları toplu onaylayın; hesap seçimi gerekenleri tek tek açın — seçtiğiniz hesap sonraki benzer belgelerde öğrenilir."
         sag={
           <>
+            {(liste?.sayilar.gozden ?? 0) > 0 && (
+              <Button variant="outline" asChild>
+                <CompanyLink href="/muhasebe/fisler/eslesme">
+                  <Link2 className="mr-2 h-4 w-4" />
+                  Toplu eşle
+                </CompanyLink>
+              </Button>
+            )}
             <WriteAction>
               <Button variant="outline" onClick={() => mutabakat.calistir({ acilis: true }).then(() => yukle())} disabled={mutabakat.calisiyor}>
                 <RefreshCw className={cn("mr-2 h-4 w-4", mutabakat.calisiyor && "animate-spin")} />
@@ -258,6 +266,16 @@ export default function MuhasebeFislerPage() {
           )
         })}
       </div>
+
+      {sekme === "gozden" && (liste?.sayilar.gozden ?? 0) > 1 && (
+        <Uyari ton="mavi">
+          Aynı tedarikçinin, aynı gider kategorisinin ya da aynı türün fişlerini tek tek açmak yerine{" "}
+          <CompanyLink href="/muhasebe/fisler/eslesme" className="font-semibold underline">
+            toplu eşleyebilirsiniz
+          </CompanyLink>
+          : her gruba bir hesap seçilir, gruptaki bütün fişler birlikte eşlenir.
+        </Uyari>
+      )}
 
       {/* Süzgeçler */}
       <div className="flex flex-wrap items-end gap-2">

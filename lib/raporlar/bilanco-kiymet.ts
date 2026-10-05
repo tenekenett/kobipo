@@ -13,12 +13,16 @@
  *     (lib/cari/bakiye-asof.ts), ikisi aynı gün yer değiştirir;
  *   - durumu PORTFÖYDE; ya da TAHSİL_EDİLDİ ama tahsil hareketi (kasadaki
  *     `CEK:`/`SENET:` referanslı işlem) sınırdan SONRA — o tarihte henüz
- *     portföydeydi.
+ *     portföydeydi;
+ *   - ya da ALINAN evrak CİRO_EDİLDİ ama ciro günü (`statusChangedAt`, 2026-10-05)
+ *     sınırdan SONRA. Verilen evrakın "ciro"su başkasının çekini devretmektir, bizim
+ *     borcumuz olmaz: portföye hiç girmez.
  *
- * BİLİNEN YAKLAŞIKLIK: İADE_EDİLDİ, PROTESTOLU ve CİRO_EDİLDİ durumlarının
- * değiştiği tarih TUTULMUYOR; geçmiş bir tarihin bilançosunda bu evrak bugünkü
- * durumuyla (portföy dışı) sayılır. Ekran bunu dipnotla söyler. Tahsil edilmiş
- * ama kasa hareketi olmayan eski kayıt (2026-09-15 öncesi) da portföy dışıdır.
+ * İADE_EDİLDİ ve PROTESTOLU evrak HİÇ sayılmaz — cari bakiyesi de onu hiç düşürmez
+ * (lib/cari/check-credit.ts): evrak hiç alınmamış/verilmemiş gibidir, iki taraf aynı
+ * modelde kalır. Ciro tarihi girilmemiş eski evrakta migrasyon son güncelleme gününü
+ * yazdı. Tahsil edilmiş ama kasa hareketi olmayan eski kayıt (2026-09-15 öncesi)
+ * portföy dışıdır.
  */
 
 import { resolveCekSenetDirection } from "@/lib/cek-senet/labels"
@@ -31,10 +35,13 @@ export type KiymetBilancoKaydi = {
   supplierId: string | null
   /** Tahsil/ödeme kasa hareketinin tarihi; yoksa null. */
   settledAt: Date | string | null
+  /** Durumun değiştiği gün (ciro tarihi); yoksa null. */
+  statusChangedAt?: Date | string | null
 }
 
 export const PORTFOY_DURUMU = "PORTFÖYDE"
 export const TAHSIL_DURUMU = "TAHSİL_EDİLDİ"
+export const CIRO_DURUMU = "CİRO_EDİLDİ"
 
 /** Evrak `end` anından hemen önce portföyde miydi? */
 export function portfoydeMi(kayit: KiymetBilancoKaydi, end: Date): boolean {
@@ -45,7 +52,24 @@ export function portfoydeMi(kayit: KiymetBilancoKaydi, end: Date): boolean {
     if (!kayit.settledAt) return false
     return new Date(kayit.settledAt).getTime() >= end.getTime()
   }
+  if (kayit.status === CIRO_DURUMU && resolveCekSenetDirection(kayit) === "RECEIVED") {
+    if (!kayit.statusChangedAt) return false
+    return new Date(kayit.statusChangedAt).getTime() >= end.getTime()
+  }
   return false
+}
+
+/**
+ * Tarih itibarıyla portföy sorgusunun durum süzgeci (Prisma `where` parçası): portföyde,
+ * tahsil edilmiş ve sınırdan sonra ciro edilmiş evrak. Son ayıklama `portfoydeMi`dedir.
+ */
+export function portfoyDurumSuzgeci(end: Date) {
+  return {
+    OR: [
+      { status: { in: [PORTFOY_DURUMU, TAHSIL_DURUMU] } },
+      { status: CIRO_DURUMU, statusChangedAt: { gte: end } },
+    ],
+  }
 }
 
 /** Portföydeki alınan (varlık) ve verilen (borç) evrak toplamı. */

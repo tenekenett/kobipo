@@ -125,6 +125,8 @@ async function main() {
   const api = await oturum(R)
   const q = `companyId=${R}`
   let manuelFaturaId = null
+  // 8b'nin gerçek modüllerde açtıkları — BIRAK olsa da silinir (test verisi Reypo'da kalmasın).
+  const temizlik = { bordrolar: [], cekler: [], virmanlar: [], hareketler: [], hesaplar: [] }
 
   console.log(`Firma : ${firma.name}\nSunucu: ${BASE}\n`)
   try {
@@ -148,6 +150,60 @@ async function main() {
     check("ayarlar okunur, kurulu değil", once.status === 200 && once.body.kurulu === false, once.status)
     const fisYok = await api("GET", `/api/muhasebe/fisler?${q}`)
     check("kurulumsuz fiş listesi 409 KURULUM_YOK", fisYok.status === 409 && fisYok.body?.code === "KURULUM_YOK", fisYok.status)
+
+    // ── 1a. Bakiyesiz başlangıç: açılış fişi elle satırlarla açılır ─────────
+    // 1 Ocak'ta Reypo'nun Kobipo'da bakiyesi yok → açılış fişi kendiliğinden açılmaz;
+    // müşavirin sermaye/demirbaş satırlarıyla açılır, mutabakat ona dokunmaz.
+    console.log("\n1a) Bakiyesiz başlangıç — açılış fişi elle açılır")
+    const kurOcak = await api("PUT", "/api/muhasebe/ayarlar", { companyId: R, startDate: "2026-01-01" })
+    check("1 Ocak başlangıcıyla kuruldu", kurOcak.status === 200, JSON.stringify(kurOcak.body).slice(0, 120))
+    const ocak = await api("GET", `/api/muhasebe/ayarlar?${q}`)
+    if (ocak.body.acilis != null) {
+      console.log("  ~ 1 Ocak'ta bakiye var (açılış fişi kendiliğinden açıldı) — bu adım atlandı")
+    } else {
+      const ocakHesaplar = (await api("GET", `/api/muhasebe/hesap-plani?${q}&yaprak=1`)).body.hesaplar
+      const h255 = ocakHesaplar.find((h) => h.kod === "255")
+      const h500 = ocakHesaplar.find((h) => h.kod === "500")
+      // Bilerek dengesiz: 1000 borç, 600 alacak → 400'lük fark satırı eklenmeli.
+      const elleSatirlar = [
+        { side: "DEBIT", amount: 1000, accountId: h255?.id ?? null, description: "TEST demirbaş" },
+        { side: "CREDIT", amount: 600, accountId: h500?.id ?? null, description: "TEST sermaye" },
+      ]
+      const ac = await api("POST", "/api/muhasebe/fisler", { companyId: R, acilis: true, elleSatirlar })
+      check("açılış fişi elle satırlarla açıldı", ac.status === 201 && typeof ac.body.id === "string", JSON.stringify(ac.body).slice(0, 120))
+      const acilisId = ac.body.id
+      const tekrar = await api("POST", "/api/muhasebe/fisler", { companyId: R, acilis: true, elleSatirlar })
+      check("ikinci kez açılmaz (409)", tekrar.status === 409, tekrar.status)
+      const ayarOcak = await api("GET", `/api/muhasebe/ayarlar?${q}`)
+      check("ayarlar açılış fişini gösterir", ayarOcak.body.acilis?.id === acilisId && ayarOcak.body.acilis?.durum === "DRAFT", ayarOcak.body.acilis?.id)
+      const satirlarOnce = await prisma.journalVoucherLine.findMany({
+        where: { voucherId: acilisId },
+        select: { id: true, role: true, side: true, amount: true },
+        orderBy: { order: "asc" },
+      })
+      const fark = satirlarOnce.find((s) => s.role === "ACILIS_FARK")
+      check(
+        "2 elle satır + 400'lük alacak fark satırı",
+        satirlarOnce.filter((s) => s.role === "MANUEL").length === 2 && fark?.side === "CREDIT" && r2(fark.amount) === 400,
+        satirlarOnce.map((s) => `${s.role}:${s.side}:${s.amount}`).join(" "),
+      )
+      // Fişler ekranının açılışta yaptığı: açılış senkronu + bir adım mutabakat.
+      const mOcak = await api("POST", "/api/muhasebe/mutabakat", { companyId: R, acilis: true, limit: 1 })
+      check("mutabakat adımı (açılış dahil)", mOcak.status === 200, mOcak.status)
+      const satirlarSonra = await prisma.journalVoucherLine.findMany({ where: { voucherId: acilisId }, select: { id: true }, orderBy: { order: "asc" } })
+      check(
+        "mutabakat elle açılış fişine dokunmaz (satır id'leri aynı)",
+        satirlarSonra.length === satirlarOnce.length && satirlarSonra.every((s, i) => s.id === satirlarOnce[i].id),
+        `${satirlarOnce.length} → ${satirlarSonra.length} satır`,
+      )
+      const bosalt = await api("PUT", `/api/muhasebe/fisler/${acilisId}`, { companyId: R, elleSatirlar: [] })
+      check("son elle satır silinince fiş kalkar", bosalt.status === 200 && bosalt.body.silindi === true, JSON.stringify(bosalt.body))
+      const kalan = await prisma.journalVoucher.findUnique({ where: { id: acilisId }, select: { id: true } })
+      const ayarBos = await prisma.accountingSettings.findUnique({ where: { companyId: R }, select: { openingVoucherId: true } })
+      check("fiş ve ayardaki bağ temizlendi", !kalan && ayarBos?.openingVoucherId == null, kalan ? "fiş duruyor" : ayarBos?.openingVoucherId)
+    }
+
+    // Başlangıç 1 Temmuz'a alınır (açılış fişinin otomatik yolunu sınamak için — o gün bakiye var).
     const kur = await api("PUT", "/api/muhasebe/ayarlar", { companyId: R, startDate: "2026-07-01" })
     check("kuruldu", kur.status === 200, JSON.stringify(kur.body).slice(0, 120))
     const sonra = await api("GET", `/api/muhasebe/ayarlar?${q}`)
@@ -222,6 +278,78 @@ async function main() {
       check("onay geri alındı", geriAl.status === 200, geriAl.status)
     }
     void h770
+
+    // ── 3b. Toplu eşleme ─────────────────────────────────────────────────────
+    console.log("\n3b) Toplu eşleme — grup başına bir hesap, öğrenme onayda")
+    const esl = await api("GET", `/api/muhasebe/fisler/eslesme?${q}`)
+    check("eşleme grupları okunur", esl.status === 200 && Array.isArray(esl.body.gruplar), `${esl.body.gruplar?.length} grup · ${esl.body.fisSayisi} fiş · ${esl.body.satirSayisi} satır`)
+    const yapraklar = (await api("GET", `/api/muhasebe/hesap-plani?${q}&yaprak=1`)).body.hesaplar
+    const hesapFor = (kod) => yapraklar.find((h) => h.kod.startsWith(`${kod}.`)) ?? yapraklar.find((h) => h.kod === kod)
+    const grup = (esl.body.gruplar ?? []).find((g) => g.ogrenmeAnahtarlari.length > 0 && hesapFor(g.oneriKodu))
+    if (!grup) {
+      console.log("  ~ öğrenme anahtarlı grup yok — adım atlandı")
+    } else {
+      const hedefHesap = hesapFor(grup.oneriKodu)
+      const uyg = await api("POST", "/api/muhasebe/fisler/eslesme", { companyId: R, atamalar: [{ anahtar: grup.anahtar, accountId: hedefHesap.id }] })
+      check(
+        `grup eşlendi (${grup.etiket} → ${hedefHesap.kod})`,
+        uyg.status === 200 && uyg.body.satir === grup.satirSayisi && uyg.body.fis === grup.fisSayisi,
+        JSON.stringify({ ...uyg.body, eminFisler: uyg.body.eminFisler?.length }),
+      )
+      const eslSonra = await api("GET", `/api/muhasebe/fisler/eslesme?${q}`)
+      check("eşlenen grup listeden kalktı", !eslSonra.body.gruplar.some((g) => g.anahtar === grup.anahtar), `${eslSonra.body.gruplar.length} grup`)
+      const userSatir = await prisma.journalVoucherLine.count({
+        where: { companyId: R, accountId: hedefHesap.id, accountSource: "USER", role: grup.rol, voucher: { status: "DRAFT" } },
+      })
+      check("satırlar elle seçilmiş (USER) yazıldı", userSatir >= grup.satirSayisi, userSatir)
+      const kuralOnce = await prisma.accountMappingRule.findFirst({ where: { companyId: R, key: grup.ogrenmeAnahtarlari[0] } })
+      check("kural onaydan ÖNCE yazılmadı", !kuralOnce || kuralOnce.accountId !== hedefHesap.id, kuralOnce?.accountId ?? "kural yok")
+      if (uyg.body.eminFisler?.length) {
+        const ids = uyg.body.eminFisler.slice(0, 500)
+        const ony = await api("POST", "/api/muhasebe/fisler/toplu-onay", { companyId: R, ids })
+        check("eşlenen emin fişler onaylandı", ony.status === 200 && ony.body.onaylanan === ids.length, `${ony.body.onaylanan}/${ids.length}`)
+        const kural = await prisma.accountMappingRule.findFirst({ where: { companyId: R, key: grup.ogrenmeAnahtarlari[0] } })
+        check("onayla kural öğrenildi", kural?.accountId === hedefHesap.id, grup.ogrenmeAnahtarlari[0])
+      } else {
+        console.log("  ~ eşlenen fişlerde başka bekleyen satır var — onay adımı atlandı")
+      }
+    }
+
+    // ── 3c. Onay kilidi ──────────────────────────────────────────────────────
+    // Betik bir taslağın kilidini tutarken onay isteği gelir; kilit bırakılmadan önce satır
+    // hesapsız yapılır. Onay kilidi beklemeli ve DEĞİŞMİŞ satırı sınamalı (eski kod satırları
+    // kilitsiz okuyup sınadığı için hesapsız satırlı fişi onaylardı).
+    console.log("\n3c) Onay kilidi — onay, satırı değiştiren yazmayı bekler")
+    const kilitFisi = await prisma.journalVoucher.findFirst({
+      where: { companyId: R, status: "DRAFT", isConfident: true },
+      select: { id: true, lines: { select: { id: true, accountId: true, accountSource: true }, orderBy: { order: "asc" } } },
+    })
+    if (!kilitFisi) {
+      console.log("  ~ emin taslak yok — adım atlandı")
+    } else {
+      const hedefSatir = kilitFisi.lines.find((l) => l.accountId)
+      let onayIstegi
+      await prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM journal_vouchers WHERE id = ${kilitFisi.id} FOR UPDATE`
+          onayIstegi = api("POST", `/api/muhasebe/fisler/${kilitFisi.id}`, { companyId: R, islem: "onayla" })
+          await new Promise((r) => setTimeout(r, 8000)) // istek satırları okuyup kilide varsın
+          await tx.journalVoucherLine.update({ where: { id: hedefSatir.id }, data: { accountId: null, accountSource: "NONE" } })
+        },
+        { timeout: 60_000, maxWait: 10_000 },
+      )
+      const kilitSonuc = await onayIstegi
+      const kilitDurum = await prisma.journalVoucher.findUnique({ where: { id: kilitFisi.id }, select: { status: true } })
+      check(
+        "onay değişen satırı gördü, hesapsız fişi onaylamadı",
+        kilitSonuc.status === 400 && kilitDurum?.status === "DRAFT",
+        `${kilitSonuc.status} ${kilitSonuc.body?.error ?? ""} · ${kilitDurum?.status}`,
+      )
+      await prisma.journalVoucherLine.update({
+        where: { id: hedefSatir.id },
+        data: { accountId: hedefSatir.accountId, accountSource: hedefSatir.accountSource },
+      })
+    }
 
     // ── 4. Toplu onay ────────────────────────────────────────────────────────
     console.log("\n4) Toplu onay (emin fişler)")
@@ -355,6 +483,109 @@ async function main() {
     const kalan = await prisma.journalVoucher.findFirst({ where: { companyId: R, sourceType: "INVOICE", sourceId: fat.body?.id } })
     check("taslak fiş de kalktı", !kalan, kalan ? "duruyor" : "yok")
 
+    // ── 8b. Veri modeli (migrasyon 20261005000001) ───────────────────────────
+    console.log("\n8b) Veri modeli — işveren SGK, ciro tarihi, virman kimliği, döviz kuru")
+    const fisOf = (tip, id) =>
+      prisma.journalVoucher.findFirst({
+        where: { companyId: R, sourceType: tip, sourceId: id },
+        select: { id: true, date: true, sourceHash: true, description: true, lines: { select: { side: true, amount: true, role: true, description: true } } },
+      })
+
+    // İşveren SGK: boş = otomatik (teşviksiz), girilen tutar aynen; B gider · A 361 çifti.
+    const personel = await prisma.employee.findFirst({ where: { companyId: R, status: "ACTIVE" }, select: { id: true } })
+    if (!personel) {
+      console.log("  ~ aktif personel yok — işveren SGK adımı atlandı")
+    } else {
+      const doluAylar = new Set(
+        (await prisma.payrollRecord.findMany({ where: { employeeId: personel.id, periodYear: 2026 }, select: { periodMonth: true } })).map((p) => p.periodMonth),
+      )
+      const ay = [8, 9, 10, 11, 12].find((m) => !doluAylar.has(m))
+      const pr = await api("POST", "/api/personel/payroll", {
+        companyId: R, employeeId: personel.id, periodYear: 2026, periodMonth: ay,
+        grossSalary: 40000, bonus: 0, sgkDeduction: 6000, taxDeduction: 3000, employerSgk: "",
+      })
+      check("bordro açıldı (işveren payı boş = otomatik)", pr.status === 201 && pr.body.employerSgk == null, pr.status)
+      if (pr.body?.id) temizlik.bordrolar.push(pr.body.id)
+      const bf = await fisOf("PAYROLL", pr.body?.id)
+      const isv = (bf?.lines ?? []).filter((l) => l.description?.startsWith("SGK işveren payı"))
+      check(
+        "bordro fişinde işveren payı çifti (40.000 × %23,75 = 9.500), 'hesaplandı' notuyla",
+        isv.length === 2 && isv.every((l) => r2(l.amount) === 9500 && l.description.includes("hesaplandı")),
+        isv.map((l) => `${l.side} ${l.amount}`).join(" · ") || "satır yok",
+      )
+      await api("PUT", `/api/personel/payroll/${pr.body.id}`, { employerSgk: "7000" })
+      const bf2 = await fisOf("PAYROLL", pr.body.id)
+      const isv2 = (bf2?.lines ?? []).filter((l) => l.description?.startsWith("SGK işveren payı"))
+      check(
+        "girilen işveren payı fişe aynen (7.000), not yok",
+        isv2.length === 2 && isv2.every((l) => r2(l.amount) === 7000 && !l.description.includes("hesaplandı")),
+        isv2.map((l) => `${l.side} ${l.amount}`).join(" · "),
+      )
+      const bozuk = await api("PUT", `/api/personel/payroll/${pr.body.id}`, { employerSgk: "-5" })
+      check("eksi işveren payı 400", bozuk.status === 400, bozuk.status)
+    }
+
+    // Ciro tarihi: fiş durum tarihiyle açılır; aynı günle yeniden kaydetmek fişi oynatmaz.
+    const cekMusteri = await prisma.customer.findFirst({ where: { companyId: R }, select: { id: true } })
+    const cek = await api("POST", "/api/cek-senet", {
+      type: "CHECK", companyId: R, checkNo: "TEST-CIRO-1", bankName: "TEST Bank", amount: 1234, issueDate: "2026-09-01",
+      dueDate: "2026-12-01", status: "CİRO_EDİLDİ", statusDate: "2026-09-15", direction: "RECEIVED", customerId: cekMusteri.id,
+    })
+    check("ciro edilmiş çek açıldı (durum tarihi 15 Eyl)", cek.status === 201 && String(cek.body.statusChangedAt).startsWith("2026-09-15"), cek.body?.statusChangedAt)
+    if (cek.body?.id) temizlik.cekler.push(cek.body.id)
+    const ciro1 = await fisOf("CHECK_ENDORSE", cek.body?.id)
+    check("ciro fişi durum tarihiyle", ciro1?.date.toISOString().startsWith("2026-09-15"), ciro1?.date.toISOString().slice(0, 10) ?? "fiş yok")
+    await api("PUT", `/api/cek-senet/${cek.body.id}`, { type: "CHECK", notes: "TEST not", status: "CİRO_EDİLDİ", statusDate: "2026-09-15" })
+    const ciro2 = await fisOf("CHECK_ENDORSE", cek.body.id)
+    check("not eklemek ciro fişini oynatmaz (tarih + iz aynı)", ciro2?.date.getTime() === ciro1?.date.getTime() && ciro2?.sourceHash === ciro1?.sourceHash, ciro2?.date.toISOString().slice(0, 10))
+    await api("PUT", `/api/cek-senet/${cek.body.id}`, { type: "CHECK", status: "CİRO_EDİLDİ", statusDate: "2026-09-20" })
+    const ciro3 = await fisOf("CHECK_ENDORSE", cek.body.id)
+    check("durum tarihi düzeltilince fiş o güne taşınır", ciro3?.date.toISOString().startsWith("2026-09-20"), ciro3?.date.toISOString().slice(0, 10))
+
+    // Virman: iki bacak ortak kimlik taşır, fiş karşı kasayı bulur.
+    const tlHesaplar = await prisma.financialAccount.findMany({ where: { companyId: R, currency: "TRY", isActive: true }, select: { id: true }, take: 2 })
+    if (tlHesaplar.length < 2) {
+      console.log("  ~ iki TL hesap yok — virman adımı atlandı")
+    } else {
+      const [kaynakHesap, hedefHesap] = tlHesaplar
+      const vir = await api("POST", "/api/finans/transactions", {
+        companyId: R, accountId: kaynakHesap.id, transferAccountId: hedefHesap.id, type: "TRANSFER", amount: 10, date: "2026-10-04", description: "TEST virman",
+      })
+      const bacaklar = await prisma.transaction.findMany({
+        where: { companyId: R, transferGroupId: vir.body?.transferGroupId ?? "-" },
+        select: { id: true, accountId: true, type: true },
+      })
+      temizlik.virmanlar.push({ ids: bacaklar.map((b) => b.id), kaynak: kaynakHesap.id, hedef: hedefHesap.id, tutar: 10 })
+      check("virmanın iki bacağı ortak kimlik taşır", vir.status === 201 && bacaklar.length === 2, `${vir.status} · ${bacaklar.length} bacak`)
+      const vf = await fisOf("TRANSACTION", vir.body?.id)
+      check(
+        "virman fişi karşı kasaya yazılır (PARA + PARA_KARSI)",
+        vf && vf.lines.some((l) => l.role === "PARA") && vf.lines.some((l) => l.role === "PARA_KARSI"),
+        (vf?.lines ?? []).map((l) => l.role).join(","),
+      )
+    }
+
+    // Döviz: hesabın para birimi geçer, kur fişi TL'ye çevirir; cari bağı ve kursuz geçmiş tarih reddedilir.
+    const usd = await api("POST", "/api/finans/accounts", { companyId: R, name: "TEST USD Hesabı", type: "BANK", currency: "USD" })
+    if (usd.body?.id) temizlik.hesaplar.push(usd.body.id)
+    const bugun = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date())
+    const dov = await api("POST", "/api/finans/transactions", {
+      companyId: R, accountId: usd.body.id, type: "INCOME", amount: 100, currency: "TRY", exchangeRate: "34.5", date: bugun, description: "TEST döviz girişi",
+    })
+    check("dövizli hareket hesabın para birimiyle (USD) ve kuruyla yazıldı", dov.status === 201 && dov.body.currency === "USD" && Number(dov.body.exchangeRate) === 34.5, `${dov.status} ${dov.body?.currency} ${dov.body?.exchangeRate}`)
+    if (dov.body?.id) temizlik.hareketler.push(dov.body.id)
+    const df = await fisOf("TRANSACTION", dov.body?.id)
+    const dPara = df?.lines.find((l) => l.role === "PARA")
+    check("fiş TL karşılığıyla (100 × 34,5 = 3.450)", dPara && r2(dPara.amount) === 3450, dPara?.amount ?? "fiş yok")
+    const dovCari = await api("POST", "/api/finans/transactions", {
+      companyId: R, accountId: usd.body.id, type: "INCOME", amount: 5, exchangeRate: "34.5", customerId: cekMusteri.id, date: bugun,
+    })
+    check("dövizli hesapta cariye bağlı hareket 400", dovCari.status === 400, `${dovCari.status} ${dovCari.body?.error ?? ""}`)
+    if (dovCari.body?.id) temizlik.hareketler.push(dovCari.body.id)
+    const dovEski = await api("POST", "/api/finans/transactions", { companyId: R, accountId: usd.body.id, type: "INCOME", amount: 5, date: "2026-09-01" })
+    check("kursuz geçmiş tarihli dövizli hareket 400", dovEski.status === 400, `${dovEski.status} ${dovEski.body?.error ?? ""}`)
+    if (dovEski.body?.id) temizlik.hareketler.push(dovEski.body.id)
+
     // ── 9. Şube ──────────────────────────────────────────────────────────────
     console.log("\n9) Şubede modül kapalı (defter ana firmada)")
     for (const sube of firma.branches.slice(0, 1)) {
@@ -374,6 +605,21 @@ async function main() {
     check("taslak varken kapanış engellenir", kp.body.taslak === 0 || kp.body.engeller?.some((e) => e.includes("taslak")), kp.body.engeller?.[0])
   } finally {
     if (manuelFaturaId) await api("DELETE", `/api/e-donusum/invoices/${manuelFaturaId}?${q}`).catch(() => {})
+    for (const id of temizlik.bordrolar) await prisma.payrollRecord.deleteMany({ where: { id } })
+    for (const id of temizlik.cekler) await prisma.check.deleteMany({ where: { id } })
+    for (const v of temizlik.virmanlar) {
+      // Virman uçtan silinemiyor: bacaklar silinir, iki kasanın bakiyesi geri alınır.
+      const { count } = await prisma.transaction.deleteMany({ where: { id: { in: v.ids } } })
+      if (count === 2) {
+        await prisma.financialAccount.update({ where: { id: v.kaynak }, data: { balance: { increment: v.tutar } } })
+        await prisma.financialAccount.update({ where: { id: v.hedef }, data: { balance: { decrement: v.tutar } } })
+      }
+    }
+    for (const id of temizlik.hareketler) await prisma.transaction.deleteMany({ where: { id } })
+    for (const id of temizlik.hesaplar) {
+      await prisma.transaction.deleteMany({ where: { accountId: id } })
+      await prisma.financialAccount.deleteMany({ where: { id } })
+    }
     if (BIRAK) {
       console.log("\nMUHASEBE_BIRAK=1 — temizlik yapılmadı.")
     } else {

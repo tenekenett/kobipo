@@ -6,6 +6,7 @@ import { planHaritasi } from "@/lib/muhasebe/hesap-plani.server"
 import { senkronla, type Kaynak } from "@/lib/muhasebe/senkron.server"
 import { ALT_ROLLERI, VARSAYILANSIZ_ROLLER, r2, type SatirRolu } from "@/lib/muhasebe/fis"
 import { kaynakTipiMi } from "@/lib/muhasebe/kaynaklar.server"
+import { fisleriKilitle, kilitliYaz, taslaklariKilitle } from "@/lib/muhasebe/kilit.server"
 
 /**
  * ONAY — taslak fişin deftere işlenmesi ve onaydan doğan ÖĞRENME (plan §2.5).
@@ -43,8 +44,8 @@ const SATIR_SECIMI = {
   account: { select: { id: true, code: true, isActive: true, _count: { select: { children: true } } } },
 } as const
 
-async function fisOku(ctx: Ctx, fisId: string) {
-  const fis = await prisma.journalVoucher.findFirst({
+async function fisOku(ctx: Ctx, fisId: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
+  const fis = await db.journalVoucher.findFirst({
     where: { id: fisId, companyId: ctx.defterId },
     select: {
       id: true,
@@ -90,17 +91,20 @@ export async function fisOnayla(
   fisId: string,
   kullaniciId: string,
 ): Promise<{ ogrenilen: string[] }> {
-  const fis = await fisOku(ctx, fisId)
-  const engel = onayEngeli({ ...fis, kilitli: kilitliMi(ctx.ayar, fis.date) })
-  if (engel) throw new FisHatasi(engel)
-
-  const guncellendi = await prisma.journalVoucher.updateMany({
-    where: { id: fisId, status: "DRAFT" },
-    data: { status: "POSTED", approvedAt: new Date(), approvedBy: kullaniciId, isConfident: true },
+  // Satırlar KİLİT ALTINDA okunur, sınanır ve onay yazılır (kilit.server.ts): okuma ile
+  // yazma arasında senkron fişi yeniden kursaydı yeni satırlar sınanmadan onaylanırdı.
+  const satirlar = await kilitliYaz(async (tx) => {
+    if ((await fisleriKilitle(tx, ctx.defterId, [fisId])).size === 0) throw new FisHatasi("Fiş bulunamadı", 404)
+    const fis = await fisOku(ctx, fisId, tx)
+    const engel = onayEngeli({ ...fis, kilitli: kilitliMi(ctx.ayar, fis.date) })
+    if (engel) throw new FisHatasi(engel)
+    await tx.journalVoucher.update({
+      where: { id: fisId },
+      data: { status: "POSTED", approvedAt: new Date(), approvedBy: kullaniciId, isConfident: true },
+    })
+    return fis.lines
   })
-  if (guncellendi.count === 0) throw new FisHatasi("Fiş başka bir oturumda onaylandı.", 409)
-
-  return { ogrenilen: await onaydanOgren(ctx.defterId, fis.lines, kullaniciId) }
+  return { ogrenilen: await onaydanOgren(ctx.defterId, satirlar, kullaniciId) }
 }
 
 /** Onaylanan satırlardan öğren. Döner: değişen/teyit edilen anahtarlar. */
@@ -158,21 +162,32 @@ export async function topluOnayla(
     .map((id) => ({ id, sebep: "Emin değil ya da taslak değil" }))
   // Toplu: adaylar satırlarıyla TEK okumada, onay tek UPDATE'te, öğrenme gruplanarak.
   // Fiş başına fisOnayla (4+ sorgu) 300 fişte dakikalar sürüyordu. Kural aynı: onayEngeli.
-  const fisler = await prisma.journalVoucher.findMany({
-    where: { id: { in: [...adaySet] }, companyId: ctx.defterId },
-    select: { id: true, status: true, date: true, lines: { select: SATIR_SECIMI } },
+  // Okuma, sınama ve yazma KİLİT ALTINDA (kilit.server.ts): durum ve satırlar kilitten sonra
+  // yeniden okunur — bu arada başka oturumun onayladığı fiş "zaten onaylı" diye atlanır ve
+  // ÖĞRETMEZ (onu onaylayan oturum öğretti), değişen satırlar da sınanmadan geçmez.
+  const onaylanacak = await kilitliYaz(async (tx) => {
+    const kilitli = await fisleriKilitle(tx, ctx.defterId, [...adaySet])
+    for (const id of adaySet) if (!kilitli.has(id)) atlanan.push({ id, sebep: "Fiş bu sırada silindi." })
+    const fisler = await tx.journalVoucher.findMany({
+      where: { id: { in: [...kilitli] }, companyId: ctx.defterId },
+      select: { id: true, status: true, date: true, isConfident: true, lines: { select: SATIR_SECIMI } },
+    })
+    const uygun: typeof fisler = []
+    for (const f of fisler) {
+      const engel =
+        onayEngeli({ ...f, kilitli: kilitliMi(ctx.ayar, f.date) }) ?? (f.isConfident ? null : "Emin değil ya da taslak değil")
+      if (engel) atlanan.push({ id: f.id, sebep: engel })
+      else uygun.push(f)
+    }
+    if (uygun.length === 0) return uygun
+    await tx.journalVoucher.updateMany({
+      where: { id: { in: uygun.map((f) => f.id) }, status: "DRAFT" },
+      data: { status: "POSTED", approvedAt: new Date(), approvedBy: kullaniciId, isConfident: true },
+    })
+    return uygun
   })
-  const onaylanacak: typeof fisler = []
-  for (const f of fisler) {
-    const engel = onayEngeli({ ...f, kilitli: kilitliMi(ctx.ayar, f.date) })
-    if (engel) atlanan.push({ id: f.id, sebep: engel })
-    else onaylanacak.push(f)
-  }
-  if (onaylanacak.length === 0) return { onaylanan: 0, atlanan }
-  const { count: onaylanan } = await prisma.journalVoucher.updateMany({
-    where: { id: { in: onaylanacak.map((f) => f.id) }, status: "DRAFT" },
-    data: { status: "POSTED", approvedAt: new Date(), approvedBy: kullaniciId, isConfident: true },
-  })
+  const onaylanan = onaylanacak.length
+  if (onaylanan === 0) return { onaylanan: 0, atlanan }
 
   const satirlar = onaylanacak.flatMap((f) => f.lines)
   // Elle seçilmiş (USER) satırlar seyrek: tek tek öğrenilir (kural yazımı fisOnayla ile aynı).
@@ -221,7 +236,7 @@ async function isaretiTazele(fisId: string) {
 }
 
 /** Fişlerin "emin" işaretini satırlarından yeniden kurar — tek okuma, en çok iki yazma. */
-async function isaretleriTazele(fisIds: string[]) {
+export async function isaretleriTazele(fisIds: string[]) {
   if (fisIds.length === 0) return
   const satirlar = await prisma.journalVoucherLine.findMany({
     where: { voucherId: { in: fisIds } },
@@ -301,14 +316,20 @@ export async function satirHesaplariniDegistir(
       if (h._count.children > 0) throw new FisHatasi(`${h.code} alt hesabı olan bir hesap — alt hesaplardan birini seçin.`)
     }
   }
-  await prisma.$transaction(
-    degisiklikler.map((d) =>
-      prisma.journalVoucherLine.update({
-        where: { id: d.satirId },
+  // Kilit altında (kilit.server.ts): bu arada onaylanan fişin satırı değişmez; senkron fişi
+  // yeniden kurduysa eski satır id'leri yoktur → kullanıcıya söylenir, sessizce geçilmez.
+  await kilitliYaz(async (tx) => {
+    if ((await taslaklariKilitle(tx, ctx.defterId, [fisId])).size === 0) {
+      throw new FisHatasi("Fiş bu sırada onaylandı ya da silindi; sayfayı yenileyin.", 409)
+    }
+    for (const d of degisiklikler) {
+      const { count } = await tx.journalVoucherLine.updateMany({
+        where: { id: d.satirId, voucherId: fisId },
         data: d.accountId ? { accountId: d.accountId, accountSource: "USER" } : { accountId: null, accountSource: "NONE" },
-      }),
-    ),
-  )
+      })
+      if (count === 0) throw new FisHatasi("Fiş bu sırada belgeden yeniden üretildi; sayfayı yenileyin.", 409)
+    }
+  })
   if (degisiklikler.some((d) => !d.accountId)) await taslaklariYenidenCoz(ctx.defterId, [fisId])
   await isaretiTazele(fisId)
 }
@@ -342,7 +363,7 @@ export async function taslaklariYenidenCoz(defterId: string, fisIds?: string[]):
     },
     select: { id: true, voucherId: true, accountId: true, accountSource: true, learnKeys: true, suggestedCode: true, role: true },
   })
-  const degisen: Array<{ id: string; accountId: string | null; accountSource: HesapKaynagiDb }> = []
+  const degisen: Array<{ id: string; voucherId: string; accountId: string | null; accountSource: HesapKaynagiDb }> = []
   for (const s of satirlar) {
     // Alt hesap satırı (cari/kasa/personel) kaydın kendi hesabına bağlıdır; ana koda düşmez.
     if (ALT_ROLLERI.has(s.role as SatirRolu)) continue
@@ -353,19 +374,32 @@ export async function taslaklariYenidenCoz(defterId: string, fisIds?: string[]):
       const v = uygun(plan.get(s.suggestedCode)?.id)
       if (v) yeni = { accountId: v.id, accountSource: "DEFAULT" }
     }
-    if (yeni.accountId !== s.accountId || yeni.accountSource !== s.accountSource) degisen.push({ id: s.id, ...yeni })
+    if (yeni.accountId !== s.accountId || yeni.accountSource !== s.accountSource) {
+      degisen.push({ id: s.id, voucherId: s.voucherId, ...yeni })
+    }
   }
   // Tek UPDATE … FROM (VALUES …) — satır başına UPDATE uzak veritabanında dakikalar sürüyordu.
+  // Fişler önce kilitlenir (kilit.server.ts): bu arada onaylanan fişin satırına dokunulmaz.
+  // Satırın kaynağı da YAZMA anında yeniden sorulur: okuma ile kilit arasında kullanıcı
+  // hesabı elle seçtiyse (USER) o seçim ezilmez.
+  const etkilenenSet = new Set<string>()
   for (let i = 0; i < degisen.length; i += 1000) {
-    const degerler = degisen.slice(i, i + 1000).map((d) => Prisma.sql`(${d.id}, ${d.accountId}, ${d.accountSource})`)
-    await prisma.$executeRaw`
-      UPDATE journal_voucher_lines AS l SET "accountId" = v.aid, "accountSource" = v.src
-      FROM (VALUES ${Prisma.join(degerler)}) AS v(id, aid, src)
-      WHERE l.id = v.id
-    `
+    const parca = degisen.slice(i, i + 1000)
+    await kilitliYaz(async (tx) => {
+      const taslak = await taslaklariKilitle(tx, defterId, parca.map((d) => d.voucherId))
+      const yazilacak = parca.filter((d) => taslak.has(d.voucherId))
+      if (yazilacak.length === 0) return
+      const degerler = yazilacak.map((d) => Prisma.sql`(${d.id}, ${d.accountId}, ${d.accountSource})`)
+      const yazilan = await tx.$queryRaw<Array<{ voucherId: string }>>`
+        UPDATE journal_voucher_lines AS l SET "accountId" = v.aid, "accountSource" = v.src
+        FROM (VALUES ${Prisma.join(degerler)}) AS v(id, aid, src)
+        WHERE l.id = v.id AND l."accountSource" IN ('LEARNED', 'DEFAULT', 'NONE')
+        RETURNING l."voucherId"
+      `
+      for (const r of yazilan) etkilenenSet.add(r.voucherId)
+    })
   }
-  const degisenIds = new Set(degisen.map((d) => d.id))
-  const etkilenen = [...new Set(satirlar.filter((s) => degisenIds.has(s.id)).map((s) => s.voucherId))]
+  const etkilenen = [...etkilenenSet]
   await isaretleriTazele(etkilenen)
   return etkilenen.length
 }

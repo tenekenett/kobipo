@@ -59,6 +59,8 @@ export type HareketGirdisi = {
   tip: string // INCOME | EXPENSE | TRANSFER
   tutar: unknown
   paraBirimi?: string | null
+  /** Dövizli hareketin kuru (1 birim = ? TL); TRY'de yok. */
+  kur?: unknown
   aciklama?: string | null
   kategori?: string | null
   hesap: FinansHesabi
@@ -88,8 +90,12 @@ export type HareketGirdisi = {
 
 export function hareketFisi(h: HareketGirdisi, eslesme: HesapEslesmeleri): FisSonucu {
   const paraBirimi = String(h.paraBirimi || "TRY").toUpperCase()
-  if (paraBirimi !== "TRY") return kurYok(paraBirimi)
-  const tutar = r2(num(h.tutar))
+  // Dövizli hareket TL karşılığıyla girer (kur hareketle yazılır — lib/finans/doviz-hareket.ts);
+  // kuru olmayan eski/dış kayıt "kur yok" olarak mutabakatta görünür, sessizce atlanmaz.
+  const kur = paraBirimi === "TRY" ? 1 : num(h.kur)
+  if (!(kur > 0)) return kurYok(paraBirimi)
+  const tutar = r2(num(h.tutar) * kur)
+  const dovizNotu = paraBirimi === "TRY" ? "" : ` (${num(h.tutar).toLocaleString("tr-TR")} ${paraBirimi} × ${kur.toLocaleString("tr-TR")})`
   if (tutar === 0) return { durum: "fise-girmez", sebep: "Tutarsız hareket." }
   if (h.virmanGirisBacagi) {
     return { durum: "fise-girmez", sebep: "Hesaplar arası virmanın giriş bacağı; virman kaynak bacağıyla tek fişte." }
@@ -213,7 +219,7 @@ export function hareketFisi(h: HareketGirdisi, eslesme: HesapEslesmeleri): FisSo
     aciklama ||= h.kategori?.trim() || (giris ? "Faturasız gelir" : "Faturasız gider")
   }
 
-  return fisKur({ tarih: istanbulGunu(h.tarih), aciklama, tur, satirlar })
+  return fisKur({ tarih: istanbulGunu(h.tarih), aciklama: `${aciklama}${dovizNotu}`, tur, satirlar })
 }
 
 // ── Kasaya bağlanmamış fatura ödemesi ────────────────────────────────────────
@@ -515,11 +521,16 @@ export type BordroGirdisi = {
   vergi: unknown
   diger: unknown
   net: unknown
+  /** SGK işveren payı (işsizlik işveren payı dahil); 0 → satır yok. */
+  isverenSgk?: unknown
+  /** Tutar bordroda girilmedi, teşviksiz oranla hesaplandı (bordroIsverenPayi) — açıklamaya yazılır. */
+  isverenSgkHesaplandi?: boolean
 }
 
 /**
- * Bordronun tahakkuk fişi — dönemin son günü. İşveren SGK payı bordroda TUTULMUYOR:
- * fişte yer almaz (müşavir elle ekler). Ödeme ayrıca kasa hareketiyle (B 335 · A kasa).
+ * Bordronun tahakkuk fişi — dönemin son günü. İşveren SGK payı ayrı satır çiftidir:
+ * B gider (öğrenilir, ayrı anahtar — müşavirlerin çoğu ayrı alt hesap kullanır) · A 361.
+ * Netten düşmez. Ödeme ayrıca kasa hareketiyle (B 335 · A kasa).
  */
 export function bordroFisi(b: BordroGirdisi, eslesme: HesapEslesmeleri): FisSonucu {
   const brut = r2(num(b.brut) + num(b.prim))
@@ -530,6 +541,8 @@ export function bordroFisi(b: BordroGirdisi, eslesme: HesapEslesmeleri): FisSonu
   const avans = r2(num(b.avans))
   // Net, kesintilerin tamamlayanı olarak kurulur: kayıtlı net kuruş sapıyorsa fiş yine dengeli kalır.
   const net = r2(brut - sgk - vergi - diger - avans)
+  const isveren = r2(num(b.isverenSgk))
+  const isverenNotu = b.isverenSgkHesaplandi ? " (bordroda girilmedi, teşviksiz oranla hesaplandı)" : ""
   const satir = (taraf: Taraf, tutar: number, rol: FisSatiri["rol"], kod: string, aciklama: string): FisSatiri => ({
     taraf,
     tutar,
@@ -550,7 +563,17 @@ export function bordroFisi(b: BordroGirdisi, eslesme: HesapEslesmeleri): FisSonu
       anahtarlar: ["bordro:gider"],
       aciklama: "Brüt ücret (prim dahil)",
     },
+    {
+      taraf: "B",
+      tutar: isveren,
+      rol: "BORDRO_GIDER",
+      ...hesapSec(eslesme, ["bordro:isveren-sgk"], "770"),
+      oneriKodu: "770",
+      anahtarlar: ["bordro:isveren-sgk"],
+      aciklama: `SGK işveren payı${isverenNotu}`,
+    },
     satir("A", sgk, "BORDRO_SGK", "361", "SGK işçi payı"),
+    satir("A", isveren, "BORDRO_SGK", "361", `SGK işveren payı${isverenNotu}`),
     satir("A", vergi, "BORDRO_VERGI", "360", "Gelir ve damga vergisi"),
     satir("A", diger, "BORDRO_DIGER", "369", "Diğer kesintiler"),
     satir("A", avans, "BORDRO_AVANS", "196", "Avans mahsubu"),

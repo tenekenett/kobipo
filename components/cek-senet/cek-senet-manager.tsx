@@ -60,6 +60,8 @@ interface Check {
   issueDate: string
   dueDate: string
   status: string
+  /** Durumun değiştiği gün (ciro/tahsil/iade/protesto); portföyde null. */
+  statusChangedAt?: string | null
   direction?: string | null
   customer?: { id: string; name: string }
   supplier?: { id: string; name: string }
@@ -72,6 +74,8 @@ interface PromissoryNote {
   issueDate: string
   dueDate: string
   status: string
+  /** Durumun değiştiği gün (ciro/tahsil/iade/protesto); portföyde null. */
+  statusChangedAt?: string | null
   direction?: string | null
   customer?: { id: string; name: string }
   supplier?: { id: string; name: string }
@@ -143,6 +147,8 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
     notes: "",
     // Tahsil edildiğinde paranın girdiği kasa/banka (bkz. lib/cek-senet/tahsil.ts).
     settlementAccountId: "",
+    // Durumun değiştiği gün (lib/cek-senet/durum-tarihi.ts) — portföy dışı durumlarda.
+    statusDate: toDateInput(new Date()),
   })
 
   const [noteForm, setNoteForm] = useState({
@@ -157,6 +163,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
     supplierId: "",
     notes: "",
     settlementAccountId: "",
+    statusDate: toDateInput(new Date()),
   })
 
   // Kasa/banka listesi — yalnız "Tahsil Edildi" seçilince gerekir.
@@ -314,6 +321,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
         supplierId: (item as Check).supplier?.id || "",
         notes: "",
         settlementAccountId: "",
+        statusDate: durumTarihiInput(item),
       })
     } else {
       setNoteForm({
@@ -328,6 +336,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
         supplierId: (item as PromissoryNote).supplier?.id || "",
         notes: "",
         settlementAccountId: "",
+        statusDate: durumTarihiInput(item),
       })
     }
     setIsModalOpen(true)
@@ -349,6 +358,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
       supplierId: "",
       notes: "",
       settlementAccountId: "",
+      statusDate: toDateInput(new Date()),
     })
     setNoteForm({
       noteNo: "",
@@ -362,6 +372,7 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
       supplierId: "",
       notes: "",
       settlementAccountId: "",
+      statusDate: toDateInput(new Date()),
     })
   }
 
@@ -722,6 +733,13 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                       </Select>
                     </div>
                   </div>
+                  {checkForm.status !== "PORTFÖYDE" && (
+                    <DurumTarihiField
+                      status={checkForm.status}
+                      value={checkForm.statusDate}
+                      onChange={(v) => setCheckForm({ ...checkForm, statusDate: v })}
+                    />
+                  )}
                   {checkForm.status === "TAHSİL_EDİLDİ" && (
                     <SettlementAccountField
                       accounts={accounts}
@@ -932,6 +950,13 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                       </Select>
                     </div>
                   </div>
+                  {noteForm.status !== "PORTFÖYDE" && (
+                    <DurumTarihiField
+                      status={noteForm.status}
+                      value={noteForm.statusDate}
+                      onChange={(v) => setNoteForm({ ...noteForm, statusDate: v })}
+                    />
+                  )}
                   {noteForm.status === "TAHSİL_EDİLDİ" && (
                     <SettlementAccountField
                       accounts={accounts}
@@ -1106,6 +1131,31 @@ function SettlementAccountField({
         çek/senet alındığında zaten düşmüştü, ikinci kez etkilenmez. Durum geri alınırsa
         hareket de silinir.
       </p>
+    </div>
+  )
+}
+
+/** Düzenlemede durum tarihi: kayıtlıysa o, yoksa bugün (portföyden çıkarken). */
+function durumTarihiInput(item: { statusChangedAt?: string | null }): string {
+  return toDateInput(item.statusChangedAt ? new Date(item.statusChangedAt) : new Date())
+}
+
+const DURUM_TARIHI_ETIKETI: Record<string, string> = {
+  "CİRO_EDİLDİ": "Ciro tarihi",
+  "TAHSİL_EDİLDİ": "Tahsil / ödeme tarihi",
+  "İADE_EDİLDİ": "İade tarihi",
+  PROTESTOLU: "Protesto tarihi",
+}
+
+/**
+ * Durumun değiştiği gün. Ciro fişinin ve tahsil hareketinin tarihi buradan gelir; geçmiş
+ * tarihli bilanço ciro edilmiş evrakı bu güne kadar portföyde sayar.
+ */
+function DurumTarihiField({ status, value, onChange }: { status: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="statusDate">{DURUM_TARIHI_ETIKETI[status] ?? "Durum tarihi"}</Label>
+      <Input id="statusDate" type="date" value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   )
 }

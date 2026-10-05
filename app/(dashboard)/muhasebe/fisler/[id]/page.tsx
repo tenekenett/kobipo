@@ -39,6 +39,7 @@ import {
   tutarSifirli,
   useMuhasebeDurumu,
   DurumBekleniyor,
+  type MuhasebeDurumu,
 } from "@/components/muhasebe/ortak"
 import { HesapSecici, useYaprakHesaplar } from "@/components/muhasebe/hesap-secici"
 import {
@@ -54,7 +55,8 @@ import {
  * Tek fiş — odak görünümü (plan §2.6). Taslakta her satırın hesabı seçilir (seçim
  * hemen kaydedilir), "Onayla ve sıradaki" aynı sekmedeki sonraki fişe geçer. Elle
  * fişte ve açılış fişinin fark satırında satır eklenir/düzenlenir.
- * `/muhasebe/fisler/yeni` yeni elle fiş açar.
+ * `/muhasebe/fisler/yeni` yeni elle fiş açar; `/muhasebe/fisler/acilis` başlangıçta
+ * bakiye olmadığı için hiç açılmamış açılış fişini elle satırlarıyla açar.
  */
 
 type FisSatiri = {
@@ -104,6 +106,7 @@ export default function FisDetayPage() {
   if (durum && !durum.kurulu) return <KurulumGerekli durum={durum} />
   if (!durum) return <DurumBekleniyor hata={durumHata} />
   if (id === "yeni") return <ElleFisFormu companyId={companyId} />
+  if (id === "acilis") return <AcilisElleFormu companyId={companyId} durum={durum} />
   return <FisOdak key={id} id={id} companyId={companyId} sekme={sekme} />
 }
 
@@ -488,6 +491,7 @@ function AcilisFarkiEditoru({
   onHesapAcildi: () => Promise<void>
   onKaydedildi: () => Promise<void>
 }) {
+  const router = useRouter()
   const ilk = useMemo(
     () =>
       veri.satirlar
@@ -507,7 +511,7 @@ function AcilisFarkiEditoru({
   const kaydet = async () => {
     setKaydediliyor(true)
     try {
-      await muhasebeIstegi(`/api/muhasebe/fisler/${veri.fis.id}`, {
+      const r = await muhasebeIstegi<{ silindi?: boolean }>(`/api/muhasebe/fisler/${veri.fis.id}`, {
         method: "PUT",
         body: JSON.stringify({
           companyId,
@@ -516,6 +520,12 @@ function AcilisFarkiEditoru({
             .map((s) => ({ side: s.side, amount: tutarOku(s.amount), accountId: s.accountId, description: s.description })),
         }),
       })
+      if (r.silindi) {
+        // Başlangıçta bakiye yok ve son elle satır da silindi: satırsız açılış fişi tutulmaz.
+        toast({ title: "Açılış fişi kaldırıldı", description: "Satırı kalmadı; gerekirse Muhasebe Ayarları'ndan yeniden açabilirsiniz." })
+        router.replace(withCompanyHref("/muhasebe/ayarlar", companyId))
+        return
+      }
       toast({ title: "Açılış satırları kaydedildi" })
       await onKaydedildi()
     } catch (e) {
@@ -552,6 +562,77 @@ function AcilisFarkiEditoru({
           </Button>
         </WriteAction>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Başlangıçta Kobipo'da bakiye yoksa açılış fişi kendiliğinden açılmaz (satırsız taslak
+ * kapanışı kilitlerdi). Müşavirin Kobipo'da tutulmayan açılış kalemleri için fiş burada,
+ * ilk satırlarıyla birlikte açılır. Fiş zaten varsa ona yönlenir — boş form mevcut elle
+ * satırların üstüne yazılmasın.
+ */
+function AcilisElleFormu({ companyId, durum }: { companyId: string; durum: MuhasebeDurumu }) {
+  const router = useRouter()
+  const { hesaplar, yenile } = useYaprakHesaplar(companyId)
+  const [satirlar, setSatirlar] = useState<ElleSatirTaslagi[]>(() => [yeniSatir("DEBIT"), yeniSatir("CREDIT")])
+  const [kaydediliyor, setKaydediliyor] = useState(false)
+  const { borc, alacak } = elleToplamlar(satirlar)
+  const mevcutId = durum.acilis?.id ?? null
+  useEffect(() => {
+    if (mevcutId) router.replace(withCompanyHref(`/muhasebe/fisler/${mevcutId}`, companyId))
+  }, [mevcutId, companyId, router])
+
+  const kaydet = async () => {
+    setKaydediliyor(true)
+    try {
+      const r = await muhasebeIstegi<{ id: string }>("/api/muhasebe/fisler", {
+        method: "POST",
+        body: JSON.stringify({
+          companyId,
+          acilis: true,
+          elleSatirlar: satirlar
+            .filter((s) => s.amount.trim())
+            .map((s) => ({ side: s.side, amount: tutarOku(s.amount), accountId: s.accountId, description: s.description })),
+        }),
+      })
+      toast({ title: "Açılış fişi açıldı", description: "Taslak olarak kaydedildi; onaylayınca açılış bakiyeleri mizana girer." })
+      router.replace(withCompanyHref(`/muhasebe/fisler/${r.id}`, companyId))
+    } catch (e) {
+      hataBildir(e, "Açılış fişi açılamadı")
+    } finally {
+      setKaydediliyor(false)
+    }
+  }
+
+  if (mevcutId) return <DurumBekleniyor hata={null} />
+  return (
+    <div className="mx-auto max-w-5xl space-y-4">
+      <CompanyLink
+        href="/muhasebe/ayarlar"
+        className="inline-flex items-center gap-1.5 text-sm font-semibold text-kobipo-blue hover:underline"
+      >
+        <ArrowLeft className="h-4 w-4" /> Muhasebe ayarları
+      </CompanyLink>
+      <ReadOnlyBanner />
+      <h1 className="text-2xl font-bold text-kobipo-navy dark:text-foreground">Açılış fişi</h1>
+      <p className="text-sm text-kobipo-gray">
+        {gunMetni(durum.ayar?.baslangic)} tarihinde Kobipo&apos;da bakiye yok, bu yüzden açılış fişi kendiliğinden açılmadı.
+        Kobipo&apos;da tutulmayan açılış kalemlerini (stok 153, demirbaş 255, birikmiş amortisman 257, sermaye 500, kredi
+        300…) girin; fiş bu satırlarla taslak olarak açılır. Borç ve alacak eşit değilse farkı ayrı bir satır olarak eklenir.
+      </p>
+      <Kart className="space-y-4">
+        <ElleSatirEditoru companyId={companyId} hesaplar={hesaplar} satirlar={satirlar} onDegis={setSatirlar} onHesapAcildi={yenile} disabled={kaydediliyor} />
+        <DengeSatiri borc={borc} alacak={alacak} />
+        <div className="flex justify-end">
+          <WriteAction>
+            <Button onClick={kaydet} disabled={kaydediliyor || borc + alacak === 0}>
+              {kaydediliyor ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Açılış fişini aç
+            </Button>
+          </WriteAction>
+        </div>
+      </Kart>
     </div>
   )
 }

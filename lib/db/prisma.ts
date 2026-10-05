@@ -51,6 +51,20 @@ function createPrismaClient() {
   })
 }
 
+/**
+ * Pool size the client runs with: the URL's connection_limit (forced to 1 on Vercel),
+ * or null when Prisma's default applies (num_cpus * 2 + 1). With a single connection
+ * Promise.all over heavy queries gains nothing — they queue — and a long enough queue
+ * exceeds pool_timeout (10 s) and fails with P2024, where running them in order would
+ * only be slow.
+ */
+export function dbConnectionLimit(): number | null {
+  const raw = process.env.DATABASE_URL
+  if (!raw) return null
+  const match = /[?&]connection_limit=(\d+)/i.exec(ensureConnectionLimit(normalizeSupabasePoolerUrl(raw)))
+  return match ? Number(match[1]) : null
+}
+
 export const prisma = globalForPrisma.prisma ?? createPrismaClient()
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma

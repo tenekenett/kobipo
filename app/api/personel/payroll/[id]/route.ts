@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyWrite } from "@/lib/middleware/company"
+import { isverenPayiGirdisi } from "@/lib/personel/bordro-hesap"
 
 export const dynamic = "force-dynamic"
 
@@ -105,12 +106,20 @@ export const PUT = withApiErrors(async function PUT(
     otherDeduction: body.otherDeduction !== undefined ? num(body.otherDeduction) : Number(existing.otherDeduction),
   }
   const netSalary = parts.grossSalary + parts.bonus - parts.advance - parts.sgkDeduction - parts.taxDeduction - parts.otherDeduction
+  // İşveren SGK payı: gönderilmediyse dokunulmaz; boş = otomatik, tutar = girilen.
+  let employerSgk: number | null | undefined
+  try {
+    employerSgk = isverenPayiGirdisi(body.employerSgk)
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 })
+  }
 
   const updated = await prisma.payrollRecord.update({
     where: { id },
     data: {
       ...parts,
       netSalary,
+      ...(employerSgk !== undefined ? { employerSgk } : {}),
       notes: body.notes !== undefined ? body.notes || null : existing.notes,
     },
     include: { employee: { select: { id: true, firstName: true, lastName: true, department: true } } },

@@ -107,8 +107,12 @@ describe("kasa/banka hareketi", () => {
     expect(ozet(giris)).toEqual(["B 102@finans:b1 500", "A 100@finans:k1 500"])
   })
 
-  it("dövizli hareket fişe girmez (kur tutulmuyor)", () => {
+  it("dövizli hareket kuruyla TL'ye çevrilir; kuru olmayan fişe girmez (kur-yok)", () => {
     expect(hareketFisi(hareket({ paraBirimi: "USD" }), BOS_ESLESME).durum).toBe("kur-yok")
+    const f = hareketFisi(hareket({ paraBirimi: "USD", kur: "34.125", tutar: 100 }), BOS_ESLESME)
+    expect(ozet(f)[0]).toBe("B 100@finans:k1 3412.5")
+    dengeli(f)
+    expect(hazir(f).aciklama).toContain("USD ×")
   })
 
   it("tarih İstanbul günü: 23:30 İstanbul (20:30 UTC) aynı güne düşer", () => {
@@ -251,6 +255,33 @@ describe("cari virman, bordro, açılış bakiyeleri", () => {
     expect(ozet(f)).toEqual(["B 770 32000", "A 361 4480", "A 360 3200", "A 369 300", "A 196 5000", "A 335@personel:e1 19020"])
     expect(hazir(f).tarih.toISOString().slice(0, 10)).toBe("2026-02-28")
     dengeli(f)
+  })
+
+  it("işveren SGK payı ayrı satır çifti (B gider · A 361), netten düşmez; hesaplandıysa açıklama söyler", () => {
+    const girdi = {
+      id: "pr1",
+      yil: 2026,
+      ay: 2,
+      personel: { id: "e1", ad: "Ayşe" },
+      brut: 30000,
+      prim: 2000,
+      avans: 0,
+      sgk: 4800,
+      vergi: 3200,
+      diger: 0,
+      net: 24000,
+      isverenSgk: 7600,
+    }
+    const f = bordroFisi({ ...girdi, isverenSgkHesaplandi: true }, BOS_ESLESME)
+    expect(ozet(f)).toEqual(["B 770 32000", "B 770 7600", "A 361 4800", "A 361 7600", "A 360 3200", "A 335@personel:e1 24000"])
+    dengeli(f)
+    const isveren = hazir(f).satirlar.filter((s) => s.aciklama.startsWith("SGK işveren payı"))
+    expect(isveren.every((s) => s.aciklama.includes("teşviksiz oranla hesaplandı"))).toBe(true)
+    // Gider satırı ayrı anahtarla öğrenilir (brüt ücretten farklı alt hesap seçilebilsin).
+    expect(isveren.find((s) => s.taraf === "B")?.anahtarlar).toEqual(["bordro:isveren-sgk"])
+    // Girilmiş tutarda açıklama notu yok; tutar 0 ise satır hiç doğmaz.
+    expect(hazir(bordroFisi(girdi, BOS_ESLESME)).satirlar.some((s) => s.aciklama.includes("hesaplandı"))).toBe(false)
+    expect(ozet(bordroFisi({ ...girdi, isverenSgk: 0 }, BOS_ESLESME))).not.toContain("B 770 7600")
   })
 
   it("cari kartın açılış bakiyesi: karşılığı bir kez seçilir, sonra öğrenilir", () => {

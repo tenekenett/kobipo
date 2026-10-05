@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { bordroParam, brutenNete, nettenBrute } from "@/lib/personel/bordro-hesap"
+import { bordroIsverenPayi, bordroParam, brutenNete, isverenPayiGirdisi, isverenSgkPayi, nettenBrute } from "@/lib/personel/bordro-hesap"
 
 const P = bordroParam(2025)
 
@@ -116,5 +116,33 @@ describe("nettenBrute", () => {
 
   it("sıfır net sıfır brüt döner", () => {
     expect(nettenBrute(0, { year: 2025 }).gross).toBe(0)
+  })
+})
+
+describe("işveren SGK payı", () => {
+  it("brutenNete'deki işveren maliyetiyle aynı hesap (teşviksiz taban oran + işsizlik)", () => {
+    const brut = 50_000
+    expect(isverenSgkPayi(brut, 2026)).toBeCloseTo(brutenNete(brut, { year: 2026 }).employerCost - brut, 2)
+    expect(isverenSgkPayi(brut, 2026)).toBe(11875) // 50.000 × (%21,75 + %2)
+  })
+  it("matrah SGK tavanıyla sınırlı", () => {
+    const P26 = bordroParam(2026)
+    const tavan = P26.minGross * P26.ceilingFactor
+    expect(isverenSgkPayi(tavan * 2, 2026)).toBe(isverenSgkPayi(tavan, 2026))
+  })
+  it("kayıtta tutar varsa o; yoksa brüt + primden öneri; SGK kesintisi yoksa 0", () => {
+    const b = { grossSalary: 40_000, bonus: 10_000, sgkDeduction: 7500, periodYear: 2026 }
+    expect(bordroIsverenPayi({ ...b, employerSgk: "8000.5" })).toEqual({ tutar: 8000.5, hesaplandi: false })
+    expect(bordroIsverenPayi({ ...b, employerSgk: 0 })).toEqual({ tutar: 0, hesaplandi: false })
+    expect(bordroIsverenPayi({ ...b, employerSgk: null })).toEqual({ tutar: 11875, hesaplandi: true })
+    expect(bordroIsverenPayi({ ...b, sgkDeduction: 0, employerSgk: null })).toEqual({ tutar: 0, hesaplandi: true })
+  })
+  it("istek girdisi: gönderilmedi / boş / tutar / hatalı", () => {
+    expect(isverenPayiGirdisi(undefined)).toBeUndefined()
+    expect(isverenPayiGirdisi("")).toBeNull()
+    expect(isverenPayiGirdisi(null)).toBeNull()
+    expect(isverenPayiGirdisi("1234,567")).toBe(1234.57)
+    expect(() => isverenPayiGirdisi(-1)).toThrow()
+    expect(() => isverenPayiGirdisi("abc")).toThrow()
   })
 })

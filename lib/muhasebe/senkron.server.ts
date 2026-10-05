@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client"
-import { prisma } from "@/lib/db/prisma"
+import { dbConnectionLimit, prisma } from "@/lib/db/prisma"
 import {
   MUHASEBE_MODULU,
   defterBaglami,
@@ -17,6 +17,7 @@ import {
   type PlanKaydi,
 } from "@/lib/muhasebe/hesap-cozumu"
 import { altHesaplariHazirla, planHaritasi } from "@/lib/muhasebe/hesap-plani.server"
+import { kilitliYaz, taslaklariKilitle } from "@/lib/muhasebe/kilit.server"
 import type { AltHesapRef, HazirFis, HesapEslesmeleri } from "@/lib/muhasebe/fis"
 
 /**
@@ -122,20 +123,21 @@ export async function senkronla(
   const istenen = new Map<string, Kaynak>()
   const kaynakFisleri: KaynakFisi[] = []
   const tipler = Object.keys(KAYNAK_TIPLERI) as KaynakTipi[]
-  if (opts.kaynaklar) {
-    for (const k of opts.kaynaklar) istenen.set(anahtar(k.tip, k.id), k)
-    const kaynaklar = opts.kaynaklar
-    const parcalar = await Promise.all(
-      tipler.map((tip) => {
-        const ids = kaynaklar.filter((k) => k.tip === tip).map((k) => k.id)
-        return ids.length ? KAYNAK_TIPLERI[tip].yukle(yukCtx, { ids }) : []
-      }),
-    )
-    for (const p of parcalar) kaynakFisleri.push(...p)
+  const kaynaklar = opts.kaynaklar
+  if (kaynaklar) for (const k of kaynaklar) istenen.set(anahtar(k.tip, k.id), k)
+  const turuOku = async (tip: KaynakTipi): Promise<KaynakFisi[]> => {
+    if (!kaynaklar) return KAYNAK_TIPLERI[tip].yukle(yukCtx, {})
+    const ids = kaynaklar.filter((k) => k.tip === tip).map((k) => k.id)
+    return ids.length ? KAYNAK_TIPLERI[tip].yukle(yukCtx, { ids }) : []
+  }
+  // Türler birbirinden bağımsız: havuzda birden çok bağlantı varsa paralel okunur (sırayla
+  // 11 tur gecikme yerelden ekran açılışını bekletiyordu). Tek bağlantıda (Vercel,
+  // connection_limit=1) SIRAYLA: paralel sorgular orada zaten kuyrukta bekler, büyük
+  // defterde kuyruk pool_timeout'u (10 sn) aşıp mutabakatı P2024 ile düşürürdü.
+  if ((dbConnectionLimit() ?? 2) > 1) {
+    for (const p of await Promise.all(tipler.map(turuOku))) kaynakFisleri.push(...p)
   } else {
-    // Türler birbirinden bağımsız: paralel okunur (sırayla 11 tur gecikme ekran açılışını bekletiyordu).
-    const parcalar = await Promise.all(tipler.map((tip) => KAYNAK_TIPLERI[tip].yukle(yukCtx, {})))
-    for (const p of parcalar) kaynakFisleri.push(...p)
+    for (const tip of tipler) kaynakFisleri.push(...(await turuOku(tip)))
   }
   // Başka defterin kaydı (id elle verildiyse) işlenmez.
   const sirketSet = new Set(ctx.sirketIds)
@@ -261,8 +263,14 @@ export async function senkronla(
     uygulanacak.filter((e) => e.tur === tur).map((e) => (e as Extract<Eylem, { mevcut: MevcutFis }>).mevcut.id)
   const silinecek = idler("sil")
   if (silinecek.length) {
-    await prisma.journalVoucher.deleteMany({ where: { id: { in: silinecek }, status: "DRAFT" } })
-    ozet.silinen += silinecek.length
+    // Kilit id sırasıyla (onayla aynı sıra): çok satırlı DELETE kilitleri rastgele sırayla
+    // alır, aynı anda toplu onaylanan fişlerle karşılıklı beklemeye düşebilirdi.
+    ozet.silinen += await kilitliYaz(async (tx) => {
+      const taslak = await taslaklariKilitle(tx, ctx.defterId, silinecek)
+      if (taslak.size === 0) return 0
+      const { count } = await tx.journalVoucher.deleteMany({ where: { id: { in: [...taslak] }, status: "DRAFT" } })
+      return count
+    })
   }
   const isaretlenecek = idler("isaretle")
   if (isaretlenecek.length) {
@@ -286,8 +294,7 @@ export async function senkronla(
       e,
       ...satirlariCoz(e.fis.satirlar, { plan, alt, kullanici: elleSecilen.get(e.mevcut.id) }),
     }))
-    await fisleriTopluYenile(ctx.defterId, parca)
-    ozet.yenilenen += parca.length
+    ozet.yenilenen += await fisleriTopluYenile(ctx.defterId, parca)
   }
   return ozet
 }
@@ -479,33 +486,42 @@ async function fisleriTopluAc(
   }
 }
 
+/**
+ * Bir parça taslak fişi tek transaction'da yeniden kurar. Döner: yenilenen fiş sayısı.
+ *
+ * Yalnız HÂLÂ TASLAK olan fişe yazılır: eylem okunduktan sonra kullanıcı fişi onaylamış
+ * olabilir (Fişler ekranı açılırken mutabakat arka planda koşar). Fişler önce kilitlenir
+ * (`kilit.server.ts`), başlık ve satırlar yalnız kilitlenen taslaklarda değişir — onaylı
+ * fiş kendiliğinden değişmez; atlanan fişi sonraki mutabakat "belge değişti" diye işaretler.
+ */
 async function fisleriTopluYenile(
   defterId: string,
   parca: Array<{ e: Extract<Eylem, { tur: "yenile" }>; satirlar: CozulmusSatir[]; emin: boolean }>,
-) {
-  const ids = parca.map((p) => p.e.mevcut.id)
-  const basliklar = parca.map(
-    ({ e, emin }) =>
-      Prisma.sql`(${e.mevcut.id}, ${e.fis.tarih.toISOString()}, ${e.fis.aciklama ?? null}, ${e.fis.tur}, ${e.iz}, ${e.kaynak.sirketId}, ${emin})`,
-  )
-  const satirlar = parca.flatMap(({ e, satirlar }) =>
-    satirlar.map((s, i) => ({ ...satirVerisi(defterId, s, i), voucherId: e.mevcut.id })),
-  )
-  await prisma.$transaction(
-    async (tx) => {
-      await tx.journalVoucherLine.deleteMany({ where: { voucherId: { in: ids } } })
-      await tx.$executeRaw`
-        UPDATE journal_vouchers AS j SET
-          date = v.d::timestamp(3), description = v.ac, kind = v.k, "sourceHash" = v.h,
-          "sourceCompanyId" = v.sc, "sourceChangedAt" = NULL, "isConfident" = v.e::boolean,
-          "updatedAt" = now()
-        FROM (VALUES ${Prisma.join(basliklar)}) AS v(id, d, ac, k, h, sc, e)
-        WHERE j.id = v.id AND j."companyId" = ${defterId}
-      `
-      await tx.journalVoucherLine.createMany({ data: satirlar })
-    },
-    { timeout: 60_000, maxWait: 10_000 },
-  )
+): Promise<number> {
+  return kilitliYaz(async (tx) => {
+    const taslak = await taslaklariKilitle(tx, defterId, parca.map((p) => p.e.mevcut.id))
+    const yazilacak = parca.filter(({ e }) => taslak.has(e.mevcut.id))
+    if (yazilacak.length === 0) return 0
+    const basliklar = yazilacak.map(
+      ({ e, emin }) =>
+        Prisma.sql`(${e.mevcut.id}, ${e.fis.tarih.toISOString()}, ${e.fis.aciklama ?? null}, ${e.fis.tur}, ${e.iz}, ${e.kaynak.sirketId}, ${emin})`,
+    )
+    await tx.$executeRaw`
+      UPDATE journal_vouchers AS j SET
+        date = v.d::timestamp(3), description = v.ac, kind = v.k, "sourceHash" = v.h,
+        "sourceCompanyId" = v.sc, "sourceChangedAt" = NULL, "isConfident" = v.e::boolean,
+        "updatedAt" = now()
+      FROM (VALUES ${Prisma.join(basliklar)}) AS v(id, d, ac, k, h, sc, e)
+      WHERE j.id = v.id AND j."companyId" = ${defterId} AND j.status = 'DRAFT'
+    `
+    await tx.journalVoucherLine.deleteMany({ where: { voucherId: { in: [...taslak] } } })
+    await tx.journalVoucherLine.createMany({
+      data: yazilacak.flatMap(({ e, satirlar }) =>
+        satirlar.map((s, i) => ({ ...satirVerisi(defterId, s, i), voucherId: e.mevcut.id })),
+      ),
+    })
+    return yazilacak.length
+  })
 }
 
 /**

@@ -26,6 +26,7 @@ type Params = { params: Promise<{ id: string }> }
  * GET    ?companyId&sekme       → fiş + satırlar + kaynak belge + sekmedeki komşular
  * PUT    { companyId, satirHesaplari: [{satirId, accountId}] }  → taslakta hesap seç
  *        { companyId, elleSatirlar: [...] }                       → açılış fişinin elle satırları
+ *                                                                   (→ { silindi }: satırsız kalan fiş kalkar)
  *        { companyId, tarih, aciklama, satirlar: [...] }          → elle fişi düzenle
  * POST   { companyId, islem: "onayla" | "geri-al" | "yeniden-uret" }
  * DELETE ?companyId             → elle fişi sil (yalnız taslak)
@@ -130,7 +131,8 @@ export const PUT = muhasebeUcu(async (request: Request, { params }: Params) => {
     }))
     await satirHesaplariniDegistir(defter, id, degisiklikler)
   } else if (Array.isArray(body.elleSatirlar)) {
-    await acilisElleSatirlariKaydet(defter, id, elleSatirlariAyikla(body.elleSatirlar))
+    // Otomatik satırı olmayan açılış fişinin son elle satırı silinince fiş kalkar.
+    return NextResponse.json({ ok: true, ...(await acilisElleSatirlariKaydet(defter, id, elleSatirlariAyikla(body.elleSatirlar))) })
   } else if (Array.isArray(body.satirlar)) {
     const tarih = gunParam(body.tarih, "Tarih")
     if (!tarih) throw new FisHatasi("Fiş tarihi seçin.")

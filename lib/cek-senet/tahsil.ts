@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client"
+import { ayniGun } from "@/lib/cek-senet/durum-tarihi"
 import { prisma } from "@/lib/db/prisma"
 import { CHECK_SETTLEMENT_PREFIXES } from "@/lib/finans/nakit-hareket"
 
@@ -88,7 +89,7 @@ export async function syncCheckSettlement(db: Db, src: SettlementSource): Promis
   const reference = settlementReference(src.kind, src.id)
   const existing = await db.transaction.findFirst({
     where: { companyId: src.companyId, reference },
-    select: { id: true, accountId: true, type: true, amount: true },
+    select: { id: true, accountId: true, type: true, amount: true, date: true },
   })
 
   const collected = src.status === COLLECTED_STATUS
@@ -106,7 +107,9 @@ export async function syncCheckSettlement(db: Db, src: SettlementSource): Promis
     existing &&
     existing.accountId === accountId &&
     existing.type === type &&
-    existing.amount.equals(amount)
+    existing.amount.equals(amount) &&
+    // Durum tarihi (tahsil günü) düzeltildiyse hareket o güne taşınır.
+    (!src.date || ayniGun(existing.date, src.date))
   ) {
     return // değişen bir şey yok
   }

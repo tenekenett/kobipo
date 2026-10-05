@@ -70,6 +70,7 @@ export default function FinansPage() {
   const companyId = searchParams.get("company")
   const { toast } = useToast()
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [tcmbKurlari, setTcmbKurlari] = useState<Record<string, number> | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [activeTab, setActiveTab] = useState<"accounts" | "transactions">("accounts")
   const [isAccountDialogOpen, setIsAccountDialogOpen] = useState(false)
@@ -90,6 +91,8 @@ export default function FinansPage() {
     type: "INCOME",
     amount: "",
     currency: "TRY",
+    // Dövizli hesapta kur (1 birim = ? TL) — lib/finans/doviz-hareket.ts.
+    exchangeRate: "",
     description: "",
     date: toDateInput(new Date()),
     reference: "",
@@ -217,6 +220,7 @@ export default function FinansPage() {
           type: "INCOME",
           amount: "",
           currency: "TRY",
+          exchangeRate: "",
           description: "",
           date: toDateInput(new Date()),
           reference: "",
@@ -227,18 +231,35 @@ export default function FinansPage() {
         fetchTransactions()
         fetchAccounts()
       } else {
-        throw new Error("Kaydedilemedi")
+        // Sunucunun mesajı (ör. "USD hareketin kurunu girin") kullanıcıya ulaşmalı.
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data?.error || "Kaydedilemedi")
       }
     } catch (error) {
       toast({
         title: "Hata",
-        description: "Bir hata oluştu",
+        description: error instanceof Error ? error.message : "Bir hata oluştu",
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
   }
+
+  // Seçili hesabın para birimi: dövizliyse formda kur istenir (TCMB'nin bugünkü kuru öneri).
+  const secilenHesapDovizi = (
+    accounts.find((a) => a.id === transactionFormData.accountId)?.currency || "TRY"
+  ).toUpperCase()
+  useEffect(() => {
+    if (secilenHesapDovizi === "TRY" || tcmbKurlari) return
+    fetch("/api/kur")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.success) setTcmbKurlari({ USD: Number(d.USD), EUR: Number(d.EUR) })
+      })
+      .catch(() => {})
+  }, [secilenHesapDovizi, tcmbKurlari])
+  const bugununKuru = tcmbKurlari?.[secilenHesapDovizi] ?? null
 
   const pagedTx = usePagedRows(transactions)
 
@@ -547,6 +568,27 @@ export default function FinansPage() {
                             disabled={isLoading}
                           />
                         </div>
+                        {secilenHesapDovizi !== "TRY" && (
+                          <div className="space-y-2">
+                            <Label htmlFor="exchangeRate">Kur (1 {secilenHesapDovizi} = ? TL)</Label>
+                            <Input
+                              id="exchangeRate"
+                              type="number"
+                              step="0.0001"
+                              value={transactionFormData.exchangeRate}
+                              placeholder={bugununKuru ? `Bugün TCMB: ${bugununKuru.toLocaleString("tr-TR")}` : "Kuru girin"}
+                              onChange={(e) =>
+                                setTransactionFormData({ ...transactionFormData, exchangeRate: e.target.value })
+                              }
+                              disabled={isLoading}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Muhasebe fişi TL karşılığını bu kurla kurar. Boş bırakırsanız bugünün hareketinde TCMB kuru
+                              kullanılır; geçmiş tarihli harekette kur girilmelidir. Dövizli hesapta cariye bağlı
+                              hareket henüz desteklenmiyor.
+                            </p>
+                          </div>
+                        )}
                         <div className="space-y-2">
                           <Label htmlFor="date">Tarih *</Label>
                           <Input

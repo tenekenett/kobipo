@@ -1,6 +1,7 @@
 import { accessDeniedResponse, isAccessDeniedError, withApiErrors } from "@/lib/api/errors"
 import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { parseYearParam, parseMonthParam } from "@/lib/http/query-params"
+import { isverenPayiGirdisi } from "@/lib/personel/bordro-hesap"
 
 import { NextResponse } from "next/server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
@@ -67,6 +68,13 @@ export const POST = withApiErrors(async function POST(request: Request) {
     otherDeduction: num(body.otherDeduction),
   }
   const netSalary = computeNet(parts)
+  // İşveren SGK payı: boş = otomatik (muhasebe teşviksiz oranla hesaplar), tutar = girilen.
+  let employerSgk: number | null | undefined
+  try {
+    employerSgk = isverenPayiGirdisi(body.employerSgk)
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 })
+  }
 
   try {
     const record = await prisma.payrollRecord.create({
@@ -77,6 +85,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
         periodMonth: Number(periodMonth),
         ...parts,
         netSalary,
+        employerSgk: employerSgk ?? null,
         notes: body.notes || null,
         createdBy: user.id,
       },

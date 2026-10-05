@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { belgeFisTaslagi, type FisBelgesi } from "@/lib/muhasebe/fis-kurallari"
-import { istanbulGunu, utcGunu, type FisSonucu, type HesapEslesmeleri } from "@/lib/muhasebe/fis"
+import { utcGunu, type FisSonucu, type HesapEslesmeleri } from "@/lib/muhasebe/fis"
 import {
   CIRO_DURUMU,
   bordroFisi,
@@ -15,6 +15,8 @@ import {
   type HareketGirdisi,
 } from "@/lib/muhasebe/para-kurallari"
 import { resolveCekSenetDirection } from "@/lib/cek-senet/labels"
+import { bordroIsverenPayi } from "@/lib/personel/bordro-hesap"
+import { virmanEslestir, type VirmanBacagi } from "@/lib/muhasebe/virman-eslestir"
 import {
   CHECK_SETTLEMENT_PREFIXES,
   EMPLOYEE_REIMBURSEMENT_PREFIX,
@@ -155,51 +157,6 @@ async function faturaFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Pro
 
 // ── Kasa / banka hareketi ────────────────────────────────────────────────────
 
-type HareketSatiri = {
-  id: string
-  companyId: string
-  accountId: string
-  date: Date
-  type: string
-  amount: Prisma.Decimal
-  reference: string | null
-}
-
-const gunAnahtari = (d: Date) => istanbulGunu(d).toISOString().slice(0, 10)
-
-/**
- * Hesaplar arası virmanın iki bacağını eşleştirir (saf). Kaynak bacak `TRANSFER`,
- * hedef bacak `INCOME` + `TRANSFER:<kaynak kasa>` referanslıdır; ortak bir kimlik
- * taşımazlar (app/api/finans/transactions). Eşleşme: aynı firma, aynı tutar, aynı
- * İstanbul günü, hedefin referansı kaynağın kasası (ve kaynak referansı hedefi
- * gösteriyorsa o kasa). Her bacak en çok bir kez eşleşir, sıra id'ye göre.
- */
-export function virmanEslestir(bacaklar: HareketSatiri[]): Map<string, string> {
-  const kaynaklar = bacaklar.filter((b) => b.type === "TRANSFER").sort((a, b) => a.id.localeCompare(b.id))
-  const hedefler = bacaklar
-    .filter((b) => b.type === "INCOME" && b.reference?.startsWith(TRANSFER_REFERENCE_PREFIX))
-    .sort((a, b) => a.id.localeCompare(b.id))
-  const kullanilan = new Set<string>()
-  const cift = new Map<string, string>() // her iki yönde: kaynak→hedef, hedef→kaynak
-  for (const k of kaynaklar) {
-    const hedefKasa = k.reference?.startsWith(TRANSFER_REFERENCE_PREFIX) ? k.reference.slice(TRANSFER_REFERENCE_PREFIX.length) : null
-    const h = hedefler.find(
-      (t) =>
-        !kullanilan.has(t.id) &&
-        t.companyId === k.companyId &&
-        t.reference === `${TRANSFER_REFERENCE_PREFIX}${k.accountId}` &&
-        t.amount.equals(k.amount) &&
-        gunAnahtari(t.date) === gunAnahtari(k.date) &&
-        (!hedefKasa || t.accountId === hedefKasa),
-    )
-    if (!h) continue
-    kullanilan.add(h.id)
-    cift.set(k.id, h.id)
-    cift.set(h.id, k.id)
-  }
-  return cift
-}
-
 async function hareketFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Promise<KaynakFisi[]> {
   const satirlar = await prisma.transaction.findMany({
     where: { companyId: { in: ctx.sirketIds }, ...kapsam("date", ctx, filtre) },
@@ -211,6 +168,8 @@ async function hareketFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Pr
       type: true,
       amount: true,
       currency: true,
+      exchangeRate: true,
+      transferGroupId: true,
       description: true,
       category: true,
       reference: true,
@@ -264,11 +223,18 @@ async function hareketFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Pr
   const eslesen = new Set<string>()
   if (virmanlar.length) {
     const tarihler = virmanlar.map((v) => v.date.getTime())
+    const gruplar = [...new Set(virmanlar.map((v) => v.transferGroupId).filter((g): g is string => !!g))]
     const adaylar = await prisma.transaction.findMany({
       where: {
         companyId: { in: ctx.sirketIds },
-        OR: [{ type: "TRANSFER" }, { reference: { startsWith: TRANSFER_REFERENCE_PREFIX } }],
-        date: { gte: new Date(Math.min(...tarihler) - 2 * 86_400_000), lte: new Date(Math.max(...tarihler) + 2 * 86_400_000) },
+        OR: [
+          // Ortak kimlikli bacağın eşi tarihten bağımsız gelir.
+          ...(gruplar.length ? [{ transferGroupId: { in: gruplar } }] : []),
+          {
+            OR: [{ type: "TRANSFER" }, { reference: { startsWith: TRANSFER_REFERENCE_PREFIX } }],
+            date: { gte: new Date(Math.min(...tarihler) - 2 * 86_400_000), lte: new Date(Math.max(...tarihler) + 2 * 86_400_000) },
+          },
+        ],
       },
       select: {
         id: true,
@@ -278,11 +244,12 @@ async function hareketFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Pr
         type: true,
         amount: true,
         reference: true,
+        transferGroupId: true,
         account: { select: { id: true, name: true, type: true } },
       },
     })
     for (const a of adaylar) kasaMap.set(a.account.id, a.account)
-    const tum = new Map<string, HareketSatiri>()
+    const tum = new Map<string, VirmanBacagi>()
     for (const a of adaylar) tum.set(a.id, a)
     for (const v of virmanlar) tum.set(v.id, v)
     const cift = virmanEslestir([...tum.values()])
@@ -338,6 +305,7 @@ async function hareketFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Pr
       tip: s.type,
       tutar: s.amount,
       paraBirimi: s.currency,
+      kur: s.exchangeRate,
       aciklama: s.description,
       kategori: s.category,
       hesap,
@@ -437,6 +405,8 @@ type KiymetSatiri = {
   amount: Prisma.Decimal
   issueDate: Date
   updatedAt: Date
+  /** Durumun değiştiği gün (ciro tarihi); eski evrakta migrasyon `updatedAt` yazdı. */
+  statusChangedAt: Date | null
   status: string
   direction: string | null
   supplierId: string | null
@@ -465,6 +435,8 @@ async function kiymetler(
   ctx: YukleyiciBaglami,
   filtre: KaynakFiltresi,
   tur: "CEK" | "SENET",
+  /** Ciro yükleyicisi: başlangıçtan önce alınıp SONRA ciro edilmiş evrak da okunur. */
+  ciro = false,
 ): Promise<KiymetSatiri[]> {
   const ortak = {
     id: true,
@@ -472,13 +444,21 @@ async function kiymetler(
     amount: true,
     issueDate: true,
     updatedAt: true,
+    statusChangedAt: true,
     status: true,
     direction: true,
     supplierId: true,
     customer: { select: { id: true, name: true } },
     supplier: { select: { id: true, name: true } },
   } as const
-  const where = { companyId: { in: ctx.sirketIds }, ...kapsam("issueDate", ctx, filtre) }
+  const where =
+    ciro && !filtre.ids
+      ? {
+          companyId: { in: ctx.sirketIds },
+          status: CIRO_DURUMU,
+          OR: [{ issueDate: { gte: ctx.baslangic } }, { statusChangedAt: { gte: ctx.baslangic } }],
+        }
+      : { companyId: { in: ctx.sirketIds }, ...kapsam("issueDate", ctx, filtre) }
   if (tur === "CEK") {
     const r = await prisma.check.findMany({ where, select: { ...ortak, checkNo: true, bankName: true } })
     return r.map(({ checkNo, ...k }) => ({ ...k, no: checkNo }))
@@ -502,22 +482,26 @@ function ciroYukleyici(tur: "CEK" | "SENET", tip: "CHECK_ENDORSE" | "NOTE_ENDORS
   return async (ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Promise<KaynakFisi[]> => {
     // Mutabakatta yalnız ciro edilmiş alınan evrak; tek kayıt yolunda hepsi (durum geri
     // alındıysa eski ciro fişi silinsin).
-    const liste = await kiymetler(ctx, filtre, tur)
+    const liste = await kiymetler(ctx, filtre, tur, true)
     return liste
       .filter((k) => filtre.ids || (k.status === CIRO_DURUMU && resolveCekSenetDirection(k) === "RECEIVED"))
-      .map((k) => ({
-        tip,
-        id: k.id,
-        sirketId: k.companyId,
-        // Ciro tarihi tutulmuyor: son güncelleme günü. Başlangıçtan önce alınmış evrak
-        // açılış portföyüne bugünkü durumuyla girdi (bilanco-kiymet.ts yaklaşıklığı);
-        // cirosu ayrıca fişlenirse 101 iki kez düşerdi.
-        giris: k.issueDate.getTime() < ctx.baslangic.getTime() ? k.issueDate : k.updatedAt,
-        fis:
-          k.issueDate.getTime() < ctx.baslangic.getTime()
-            ? { durum: "fise-girmez" as const, sebep: "Evrak başlangıçtan önce alınmış (açılış portföyünde)." }
-            : ciroFisi({ ...kiymetGirdisi(k, tur), ciroTarihi: k.updatedAt }),
-      }))
+      .map((k) => {
+        // Ciro günü: durum tarihi (2026-10-05); kolondan önceki evrakta migrasyon son
+        // güncelleme gününü yazdı. Başlangıçtan ÖNCE ciro edilmiş evrak açılış portföyünde
+        // yoktur (bilanco-kiymet.ts → portfoydeMi) ve fişlenmez; başlangıçtan önce alınıp
+        // SONRA ciro edilmiş evrak açılış portföyündedir, cirosu burada fişlenir.
+        const ciroTarihi = k.statusChangedAt ?? k.updatedAt
+        const oncedenCirolu = ciroTarihi.getTime() < ctx.baslangic.getTime()
+        return {
+          tip,
+          id: k.id,
+          sirketId: k.companyId,
+          giris: ciroTarihi,
+          fis: oncedenCirolu
+            ? { durum: "fise-girmez" as const, sebep: "Evrak başlangıçtan önce ciro edilmiş (açılış portföyünde değil)." }
+            : ciroFisi({ ...kiymetGirdisi(k, tur), ciroTarihi }),
+        }
+      })
   }
 }
 
@@ -581,10 +565,13 @@ async function bordroFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Pro
       taxDeduction: true,
       otherDeduction: true,
       netSalary: true,
+      employerSgk: true,
       employee: { select: { id: true, firstName: true, lastName: true } },
     },
   })
   return kayitlar.map((b) => {
+    // İşveren payı: girilmişse o, boşsa teşviksiz oranla (bordro ekranıyla aynı kural).
+    const isveren = bordroIsverenPayi(b)
     const fis = bordroFisi(
       {
         id: b.id,
@@ -598,6 +585,8 @@ async function bordroFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Pro
         vergi: b.taxDeduction,
         diger: b.otherDeduction,
         net: b.netSalary,
+        isverenSgk: isveren.tutar,
+        isverenSgkHesaplandi: isveren.hesaplandi,
       },
       ctx.eslesme,
     )

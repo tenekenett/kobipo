@@ -442,8 +442,10 @@ Transaction, çek/senet, açılış bakiyesi ve **cari virman fişi** (`lib/cari
   eşitliği ölçer). Ayrım CARİ BAŞINADIR: pozitif müşteri = alacak, negatif =
   alınan avans (tedarikçide aynası). Cariden düşen çek/senet "Alınan/Verilen çek ve
   senetler" satırına AYNI tarihle (`issueDate`) girer, tahsil kasa hareketinin
-  günü kasaya geçer (`lib/raporlar/bilanco-kiymet.ts`). İade/protesto/ciro tarihi
-  tutulmadığı için geçmiş tarihli bilançoda bugünkü durumla sayılır — ekran yazar.
+  günü kasaya geçer (`lib/raporlar/bilanco-kiymet.ts`). Alınan evrakın cirosu
+  `statusChangedAt` gününe kadar portföydedir (2026-10-05; durum tarihi kuralı
+  `lib/cek-senet/durum-tarihi.ts`). İade/protesto evrak cari bakiyesinde olduğu gibi HİÇ
+  sayılmaz — ikisini ayrı modele bağlamayın, açılış fişi farkla dengelenir.
 
 ## Muhasebe defteri: fiş kaynağın karşılığıdır, senkron tek fonksiyon
 
@@ -461,6 +463,14 @@ onaylar. Plan ve durum: `docs/muhasebe/MOTOR-PLAN.md`; kod `lib/muhasebe/`.
   mizandaki 120/320 alt hesabı carinin bakiyesinden ayrışır. Ölçüm:
   `npm run test:canli -- lib/muhasebe/defter-tutarlilik` (salt okur; cari alt hesabı =
   cari bakiyesi, kasa alt hesabı = kasa bakiyesi, her fiş dengeli).
+  Aynı sebeple ciro fişi tedarikçiyi BİLMEZ (karşı hesap müşavirce seçilir): Kobipo'da
+  ciro cari bakiyesine girmiyor, tedarikçiye ödeme ayrı "verilen evrak" kaydıdır.
+- **Veri modeli (2026-10-05, migrasyon `20261005000001`):** bordro `employerSgk` (boş =
+  teşviksiz oranla otomatik, `bordroIsverenPayi`; fişte B gider · A 361), çek/senet
+  `statusChangedAt` (ciro fişinin tarihi; not yazmak fişi oynatmaz), hareket
+  `transferGroupId` (virmanın iki bacağı; eski bacak eski kurala düşer — `virman-eslestir.ts`)
+  ve `exchangeRate` (dövizli hesapta kur; para birimi HESAPTAN gelir, dövizli hesapta cari/
+  fatura bağı ve farklı para birimli virman reddedilir — `lib/finans/doviz-hareket.ts`).
 - **Kaydı yazan yol `muhasebeyeBildir(companyId, [{ tip, id }])` çağırır** —
   transaction'dan SONRA (senkron ayrı bağlantıyla okur). Fırlatmaz; modül kapalıysa tek
   sorguyla döner. Unutulan yol fişi eksik bırakmaz: Fişler/Ayarlar ekranı açılınca
@@ -476,6 +486,21 @@ onaylar. Plan ve durum: `docs/muhasebe/MOTOR-PLAN.md`; kod `lib/muhasebe/`.
   yazılır; hesap planına alt hesap açmak üstüne düşen taslak satırları hesapsız bırakır.
 - **Satırsız fiş deftere GİRMEZ** (0 TL'lik belge, bakiyesiz açılış): onaylanamaz ve taslak
   sayıldığı için yıl sonu kapanışını kilitler. Senkron ve açılış bunu ayıklar, eski boşları siler.
+  Başlangıçta Kobipo'da bakiye yoksa açılış fişi KENDİLİĞİNDEN açılmaz; müşavirin sermaye/demirbaş
+  gibi kalemleri için fiş ilk elle satırlarıyla BİRLİKTE açılır (`acilisFisiniElleAc`, ekran
+  `/muhasebe/fisler/acilis`, Ayarlar'dan bağlantı) ve son elle satır silinince kalkar. Boş başlık
+  yazıp sonra doldurmayın: araya giren mutabakat onu siler.
+- **Taslağın satırına yazan her yol FİŞ KİLİDİNİ alır** (`lib/muhasebe/kilit.server.ts`):
+  transaction'ın başında `taslaklariKilitle` (`FOR UPDATE`, id sırasıyla) — satırlara yalnız
+  dönen, hâlâ TASLAK fişlerde dokunulur. Onay da `fisleriKilitle` ile kilidi alıp satırları
+  KİLİT ALTINDA okur ve sınar. Okuma ile yazma arasında fiş onaylanabilir (Fişler ekranı açılırken
+  mutabakat arka planda koşar) ya da satırları değişebilir; kilitsiz yol ya onaylı fişi ezer ya
+  da sınanmamış satırı onaylatır. Tek cümlelik koşullu silme (`deleteMany … status: "DRAFT"`)
+  kilide gerek duymaz; çok satırlı silme de kilitten geçer (kilit sırası, deadlock).
+- **Toplu eşleme kural YAZMAZ** (`esleme.ts` / `esleme.server.ts`, ekran
+  `/muhasebe/fisler/eslesme`): bekleyen satırlar öğrenme anahtarına göre gruplanır, seçilen hesap
+  satıra ELLE SEÇİLMİŞ (USER) yazılır; kural fiş ONAYLANINCA öğrenilir. Ekran eşlemeden sonra
+  "emin"e geçen fişleri onaylamayı önerir.
 - **Senkron/onay yolları TOPLU yazar** (parça başına tek transaction, `UPDATE … FROM (VALUES)`,
   `createMany`). Kayıt başına sorgu, 2026-10-04 ölçümünde kurulumu 2,6 dk, mutabakat adımını
   5 dk yaptı. Yeni bir döngüye `await prisma…` yazmadan önce toplu karşılığını düşünün.

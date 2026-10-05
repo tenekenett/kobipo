@@ -23,7 +23,7 @@ import { cariBalancesAsOf } from "@/lib/cari/bakiye-asof"
 import { settlementReference } from "@/lib/cek-senet/tahsil"
 import { CHECK_SETTLEMENT_PREFIXES, cashBalanceBefore } from "@/lib/finans/nakit-hareket"
 import { composeBalanceSheet, type BalanceSheetSummary } from "./bilanco-ozet"
-import { kiymetPortfoyu, PORTFOY_DURUMU, TAHSIL_DURUMU } from "./bilanco-kiymet"
+import { kiymetPortfoyu, portfoyDurumSuzgeci } from "./bilanco-kiymet"
 import { resolvePeriodBounds } from "./date-range"
 import { computeProfitLoss } from "./kar-zarar"
 import { employeeBalances } from "@/lib/personel/masraf-defteri"
@@ -70,12 +70,12 @@ export async function computeBalanceSheet(args: {
     // hareketinin günü kasaya geçer (lib/raporlar/bilanco-kiymet.ts).
     Promise.all([
       prisma.check.findMany({
-        where: { companyId, issueDate: { lt: end }, status: { in: [PORTFOY_DURUMU, TAHSIL_DURUMU] } },
-        select: { id: true, amount: true, status: true, issueDate: true, direction: true, supplierId: true },
+        where: { companyId, issueDate: { lt: end }, ...portfoyDurumSuzgeci(end) },
+        select: { id: true, amount: true, status: true, issueDate: true, direction: true, supplierId: true, statusChangedAt: true },
       }),
       prisma.promissoryNote.findMany({
-        where: { companyId, issueDate: { lt: end }, status: { in: [PORTFOY_DURUMU, TAHSIL_DURUMU] } },
-        select: { id: true, amount: true, status: true, issueDate: true, direction: true, supplierId: true },
+        where: { companyId, issueDate: { lt: end }, ...portfoyDurumSuzgeci(end) },
+        select: { id: true, amount: true, status: true, issueDate: true, direction: true, supplierId: true, statusChangedAt: true },
       }),
     ]),
     prisma.transaction.findMany({

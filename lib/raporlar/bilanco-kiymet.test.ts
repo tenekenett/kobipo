@@ -23,11 +23,22 @@ describe("portföyde mi — tarih itibarıyla", () => {
     expect(portfoydeMi(kayit({ status: "TAHSİL_EDİLDİ", settledAt: "2026-08-20" }), SINIR)).toBe(false)
   })
 
-  it("kasa hareketi olmayan eski tahsil, iade, protesto ve ciro portföy dışıdır", () => {
+  it("kasa hareketi olmayan eski tahsil, iade, protesto ve tarihsiz ciro portföy dışıdır", () => {
     expect(portfoydeMi(kayit({ status: "TAHSİL_EDİLDİ", settledAt: null }), SINIR)).toBe(false)
     for (const status of ["İADE_EDİLDİ", "PROTESTOLU", "CİRO_EDİLDİ"]) {
       expect(portfoydeMi(kayit({ status }), SINIR)).toBe(false)
     }
+    // İade/protesto durum tarihi taşısa da sayılmaz: cari de onu hiç düşürmez (aynı model).
+    expect(portfoydeMi(kayit({ status: "İADE_EDİLDİ", statusChangedAt: "2026-09-10" }), SINIR)).toBe(false)
+  })
+
+  it("alınan evrak, ciro günü sınırdan SONRAYSA o tarihte hâlâ portföydeydi", () => {
+    expect(portfoydeMi(kayit({ status: "CİRO_EDİLDİ", statusChangedAt: "2026-09-10" }), SINIR)).toBe(true)
+    expect(portfoydeMi(kayit({ status: "CİRO_EDİLDİ", statusChangedAt: "2026-08-20" }), SINIR)).toBe(false)
+  })
+
+  it("verilen evrakın cirosu (başkasının çekini devretmek) borç olarak portföye girmez", () => {
+    expect(portfoydeMi(kayit({ status: "CİRO_EDİLDİ", direction: "GIVEN", statusChangedAt: "2026-09-10" }), SINIR)).toBe(false)
   })
 })
 

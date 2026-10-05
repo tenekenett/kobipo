@@ -152,6 +152,7 @@ const STATIC_TITLES: Record<string, string> = {
 
   // Muhasebe
   "/muhasebe/fisler": "Muhasebe Fişleri",
+  "/muhasebe/fisler/eslesme": "Toplu Hesap Eşleme",
   "/muhasebe/kebir": "Kebir Defteri",
   "/muhasebe/yevmiye": "Yevmiye Defteri",
   "/muhasebe/mizan": "Mizan",
