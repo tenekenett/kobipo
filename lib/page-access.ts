@@ -925,20 +925,92 @@ export const PAGE_API_RULES: PageApiRule[] = [
   {
     prefix: "/api/companies",
     // Firma/şube kartını hem şube yönetimi hem firma bilgileri ekranı günceller.
+    //
+    // OKUYAN ekran ise çok daha fazla: kart, belge kesen ekranın da girdisidir.
+    // Okuma listesi yazma listesinin kopyasıydı (rol taraması `/api/companies/${id}`
+    // çağrılarını kapısız LİSTE ucu sanıp saymamıştı) ve "Firma Bilgileri" verilmemiş
+    // kısıtlı çalışanın fatura editörü kartı okuyamıyordu: e-Dönüşüm'ü kapalı sanıp
+    // faturayı MANUAL kaydediyor, önizlemede "Faturayı Gönder" hiç çıkmıyordu
+    // (2026-10-05, EREN VİNÇ).
+    //
+    // YAZAN ekranlar: firma/şube ayarları + kendi alanlarını bu uçla kaydeden iki
+    // e-Dönüşüm ekranı (bağlantı bilgisi; e-Fatura/e-Arşiv ve geçmiş tarih seri ön
+    // ekleri). Uç alan ayırmaz — bu iki ekranın yetkisi kartın kimlik alanlarını
+    // (unvan, VKN, adres) da yazdırabilir; bilerek kabul edildi (2026-10-05). Fatura,
+    // teklif ve İK ekranları yalnız OKUR.
+    //
+    // DİKKAT: bu ön ekin altındaki alt uçlar (kota, şube özeti) bu geniş okuma
+    // listesini DEVRALMASIN diye aşağıda kendi dar kurallarına sahip. Yeni bir alt uç
+    // eklerken kuralını da yazın (nöbetçi: lib/page-api-coverage.test.ts).
+    pages: [
+      "/ayarlar/subeler",
+      "/ayarlar/firma",
+      "/ayarlar/sube-bilgileri",
+      // Fatura editörü (satış ve alış aynı editör): e-Dönüşüm açık mı, firma
+      // VKN/vergi dairesi/adresi, geçmiş tarih serileri.
+      "/satis/fatura",
+      "/alis/fatura",
+      // Teklif detayı firma kartını belge başlığına basar (satış ve alış teklifi).
+      "/teklif",
+      "/alis/teklif",
+      // e-Dönüşüm ekranları: bağlantı ayarı, seri ön ekleri, şablon önizlemesi.
+      "/ayarlar/e-donusum",
+      "/e-donusum/seri-no",
+      "/e-donusum/sablon",
+      // İK belgesi firma unvanı ve adresiyle basılır.
+      "/personel/belge-sablonlari",
+    ],
+    writePages: [
+      "/ayarlar/subeler",
+      "/ayarlar/firma",
+      "/ayarlar/sube-bilgileri",
+      "/ayarlar/e-donusum",
+      "/e-donusum/seri-no",
+    ],
+  },
+  {
+    // Hesabın şube/firma kotası: yalnız şube yönetimi gösterir. Firma kartını okuyan
+    // ekranlara (fatura, teklif, İK belgesi) açılmaz.
+    prefix: "/api/companies/quota",
     pages: ["/ayarlar/subeler", "/ayarlar/firma", "/ayarlar/sube-bilgileri"],
-    writePages: ["/ayarlar/subeler", "/ayarlar/firma", "/ayarlar/sube-bilgileri"],
+    writePages: [],
+  },
+  {
+    // Şube özeti: satış TOPLAMI ve son belgeler (alış dahil). Firma kartını okuyabilen
+    // her ekrana açılsaydı yalnız İK belgesi basan bir özel rol firmanın cirosunu
+    // görürdü. `*` = firma id'si (bkz. `prefixMatches`).
+    prefix: "/api/companies/*/ozet",
+    pages: ["/ayarlar/subeler", "/ayarlar/firma", "/ayarlar/sube-bilgileri"],
+    writePages: [],
   },
 ]
 
 // En uzun ön ek kazansın: "/api/cari/customers" kuralı "/api/cari"den önce denenmeli.
 const RULES_BY_SPECIFICITY = [...PAGE_API_RULES].sort((a, b) => b.prefix.length - a.prefix.length)
 
+/**
+ * Ön ek bu yolu kapsıyor mu?
+ *
+ * `*` TEK bir dinamik segmenti karşılar: `/api/companies/*\/ozet` →
+ * `/api/companies/<id>/ozet`. Düz ön ek `/api/companies/<id>` ile onun ALTINDAKİ bir
+ * ucu ayıramaz; firma kartı geniş okunurken şube özeti dar kalsın diye gerekti.
+ */
+function prefixMatches(prefix: string, pathname: string): boolean {
+  if (prefix.includes("*")) {
+    const want = prefix.split("/")
+    const got = pathname.split("/")
+    if (got.length < want.length) return false
+    return want.every((segment, i) => (segment === "*" ? got[i] !== "" : segment === got[i]))
+  }
+  if (pathname === prefix || pathname.startsWith(prefix + "/")) return true
+  // "/api/export/rapor-" gibi segment ortasında biten ön ekler için düz startsWith.
+  return prefix.endsWith("-") && pathname.startsWith(prefix)
+}
+
 /** Yol bir sayfa kuralına giriyorsa onu döndürür, yoksa null (kapıya tabi değil). */
 export function pageRuleForApiPath(pathname: string): PageApiRule | null {
   for (const rule of RULES_BY_SPECIFICITY) {
-    if (pathname === rule.prefix || pathname.startsWith(rule.prefix + "/")) return rule
-    // "/api/export/rapor-" gibi segment ortasında biten ön ekler için düz startsWith.
-    if (rule.prefix.endsWith("-") && pathname.startsWith(rule.prefix)) return rule
+    if (prefixMatches(rule.prefix, pathname)) return rule
   }
   return null
 }

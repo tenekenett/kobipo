@@ -261,6 +261,11 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
   const waybillPreselectedRef = useRef(false)
   const [bootstrappingEdit, setBootstrappingEdit] = useState(mode === "edit")
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
+  // Firma kartı okunamadıysa sebebi. Kart belge TÜRÜNÜN girdisidir: okunamayınca
+  // e-Dönüşüm kapalı sanılıyor, fatura sessizce MANUAL kaydediliyor ve GİB'e hiç
+  // gidemiyordu (2026-10-05, "Firma Bilgileri" yetkisi olmayan çalışan). Bu yüzden
+  // hata yutulmaz: satış/iade kaydı kart gelene kadar kapalıdır.
+  const [companySettingsError, setCompanySettingsError] = useState<string | null>(null)
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
   // Düzenlenen kayıt FİŞ mi? Fiş dip toplamı resmî belgeden farklı kuralla
   // hesaplanır (lib/invoice/document-totals.ts); ekran sunucunun kaydedeceği
@@ -1006,6 +1011,20 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
       return
     }
 
+    // Firma kartı yok (yükleniyor ya da okunamadı): e-Dönüşüm'ün durumu BİLİNMİYOR.
+    // "Pasif" sayıp MANUAL'a çevirmek, kart hiç gelmezse faturayı kâğıt belgeye
+    // çeviriyordu. Kart gelince bu etki yeniden çalışır; gelmezse kayıt kapalıdır.
+    if (!companySettings) {
+      setVknCheck({
+        checking: false,
+        isEInvoiceTaxpayer: null,
+        suggestedInvoiceType: null,
+        accountName: null,
+        reason: null,
+      })
+      return
+    }
+
     // E-Dönüşüm kapalıysa direkt MANUAL.
     if (!isEDonusumEnabled) {
       setVknCheck({
@@ -1135,21 +1154,28 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
 
   const fetchCompanySettings = async () => {
     if (!companyId) return
+    setCompanySettingsError(null)
     try {
-     
       const res = await fetch(`/api/companies/${companyId}`)
-      
-      if (!res.ok) return
-      
-      // Artık listeden bulmamıza gerek yok, direkt o şirket geldi
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setCompanySettingsError(
+          res.status === 403
+            ? "Firma bilgilerini okuma yetkiniz yok."
+            : data.error || `Firma bilgileri okunamadı (${res.status}).`
+        )
+        return
+      }
+
       const current = await res.json()
-      
+
       setCompanySettings(current)
       if (current && !current.isEDonusumEnabled) {
         setFormData((prev) => ({ ...prev, invoiceType: "MANUAL" }))
       }
-    } catch (e) { 
-      console.error("Error fetching company settings:", e) 
+    } catch (e) {
+      console.error("Error fetching company settings:", e)
+      setCompanySettingsError("Firma bilgileri okunamadı (bağlantı hatası).")
     }
   }
 
@@ -2161,6 +2187,16 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
     if (isPurchaseDoc && !editingInvoiceId && paymentStatus === "EMPLOYEE" && !payEmployeeId) {
       return toast({ title: "Çalışan seçin", description: "Faturayı cebinden ödeyen çalışanı seçin", variant: "destructive" })
     }
+    // Firma kartı olmadan belge türü bilinmez: e-Dönüşüm açık firmada fatura MANUAL
+    // kaydedilir ve GİB'e gidemez. Alış e-belge değildir, kartsız da doğru kaydedilir.
+    // Düzenlemede tür zaten SABİTTİR (PUT `invoiceType` okumaz) — kapı yalnız yeni kayıtta.
+    if (!editingInvoiceId && !companySettings && formData.type !== "PURCHASE") {
+      return toast({
+        title: "Belge türü belirlenemedi",
+        description: companySettingsError ?? "Firma bilgileri henüz yüklenmedi, birkaç saniye sonra tekrar deneyin.",
+        variant: "destructive",
+      })
+    }
     if (isEDonusumActive && E_DOC_TYPES.has(effectiveInvoiceType) && eInvoiceMissingMessages.length > 0) return toast({ title: "E-fatura için eksik bilgi", description: eInvoiceMissingMessages.join(" · "), variant: "destructive" })
 
     // KDV %0 olan kalemlerde istisna sebebi zorunlu (Şematron kuralı)
@@ -2594,6 +2630,18 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
           )}
 
           {/* HATA MESAJLARI BÖLÜMÜ */}
+          {companySettingsError && !isEditMode && formData.type !== "PURCHASE" && (
+            <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-100">
+              <p className="font-semibold">Belge türü belirlenemedi</p>
+              <p className="mt-1">
+                {companySettingsError} Firma bilgisi olmadan faturanın e-Fatura mı, e-Arşiv mi
+                kesileceği bilinemez; yanlış türde kaydedilmesin diye kayıt kapalı.
+              </p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => void fetchCompanySettings()}>
+                Tekrar dene
+              </Button>
+            </div>
+          )}
           {isEDonusumActive && E_DOC_TYPES.has(effectiveInvoiceType) && eInvoiceMissingMessages.length > 0 && (
             <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
               <p className="font-semibold">E-fatura / E-arşiv için eksik alanlar</p>

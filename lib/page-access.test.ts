@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest"
 import {
   ACCOUNT_ADMIN_PAGES,
+  ALL_ROLES,
   ALWAYS_AVAILABLE_PAGES,
   E_DONUSUM_PAGES,
   NAV_PAGES,
@@ -594,6 +595,60 @@ describe("paylaşımlı uçlar (bir uç, çok ekran)", () => {
   })
 })
 
+describe("firma kartı — fatura kesen okur, ayar ekranları yazar", () => {
+  // 2026-10-05, EREN VİNÇ: kısıtlı ADMIN, satış + e-Dönüşüm ekranları tam yetkili,
+  // "Firma Bilgileri" yok. Fatura editörü kartı okuyamayınca e-Dönüşüm'ü kapalı
+  // sanıp faturayı MANUAL kaydediyordu — "Faturayı Gönder" hiç çıkmadı.
+  const pages = ["/satis/fatura", "/ayarlar/e-donusum", "/e-donusum/seri-no", "/e-donusum/sablon"]
+  const erenVinc = restricted("ADMIN", pages, pages)
+  const faturaci = restricted("ADMIN", ["/satis/fatura"], ["/satis/fatura"])
+
+  it("fatura kesebilen çalışan firma kartını OKUR", () => {
+    expect(isApiPathAllowedForUser("/api/companies/x", "GET", faturaci)).toBe(true)
+    expect(isApiPathAllowedForUser("/api/companies/x", "GET", erenVinc)).toBe(true)
+  })
+
+  it("fatura ekranı kartı YAZAMAZ", () => {
+    expect(isApiPathAllowedForUser("/api/companies/x", "PUT", faturaci)).toBe(false)
+    const firmaci = restricted("ADMIN", ["/ayarlar/firma"], ["/ayarlar/firma"])
+    expect(isApiPathAllowedForUser("/api/companies/x", "PUT", firmaci)).toBe(true)
+  })
+
+  it("e-Dönüşüm Ayarları ve Seri No kaydını karta yazar", () => {
+    // İkisi de kaydını bu uçla yapıyor (bağlantı bilgisi, seri ön ekleri): yazma izni
+    // yokken ekran açılıyor ama Kaydet 403 dönüyordu.
+    for (const page of ["/ayarlar/e-donusum", "/e-donusum/seri-no"]) {
+      expect(isApiPathAllowedForUser("/api/companies/x", "PUT", restricted("ADMIN", [page], [page])), page).toBe(true)
+      // Salt-okunur verilen ekran yazmaz.
+      expect(isApiPathAllowedForUser("/api/companies/x", "PUT", restricted("ADMIN", [page])), page).toBe(false)
+    }
+    expect(isApiPathAllowedForUser("/api/companies/x", "PUT", erenVinc)).toBe(true)
+    // Belge Şablonları yalnız OKUR (önizleme için firma kartı).
+    const sablon = restricted("ADMIN", ["/e-donusum/sablon"], ["/e-donusum/sablon"])
+    expect(isApiPathAllowedForUser("/api/companies/x", "PUT", sablon)).toBe(false)
+  })
+
+  it("kota ve şube özeti geniş okuma listesini DEVRALMAZ", () => {
+    // Özet satış toplamını ve son belgeleri döker; kartı okuyan her ekrana açılmamalı.
+    for (const perms of [erenVinc, restricted("ADMIN", ["/personel/belge-sablonlari"])]) {
+      expect(isApiPathAllowedForUser("/api/companies/x/ozet", "GET", perms)).toBe(false)
+      expect(isApiPathAllowedForUser("/api/companies/quota", "GET", perms)).toBe(false)
+    }
+    const subeci = restricted("ADMIN", ["/ayarlar/sube-bilgileri"])
+    expect(isApiPathAllowedForUser("/api/companies/x/ozet", "GET", subeci)).toBe(true)
+  })
+
+  it("rol matrisinde fatura yazabilen her rol kartı okur", () => {
+    for (const role of ALL_ROLES) {
+      const perms = unrestricted(role)
+      for (const page of ["/satis/fatura", "/alis/fatura"]) {
+        if (!canEditPage(perms, page)) continue
+        expect(isApiPathAllowedForUser("/api/companies/x", "GET", perms), `${role} (${page})`).toBe(true)
+      }
+    }
+  })
+})
+
 describe("en uzun ön ek kazanır", () => {
   it("/api/cari/customers kuralı /api/cari'yi ezer", () => {
     expect(pageRuleForApiPath("/api/cari/customers")?.prefix).toBe("/api/cari/customers")
@@ -614,6 +669,15 @@ describe("en uzun ön ek kazanır", () => {
   it("benzer isimli ama kural dışı ön ek eşleşmez", () => {
     expect(pageRuleForApiPath("/api/carinet")).toBeNull()
     expect(pageRuleForApiPath("/api/personeller")).toBeNull()
+  })
+
+  it("`*` tek bir dinamik segmenti karşılar", () => {
+    expect(pageRuleForApiPath("/api/companies/abc/ozet")?.prefix).toBe("/api/companies/*/ozet")
+    expect(pageRuleForApiPath("/api/companies/abc")?.prefix).toBe("/api/companies")
+    expect(pageRuleForApiPath("/api/companies/quota")?.prefix).toBe("/api/companies/quota")
+    // Boş segment `*` sayılmaz; iki segment de tek `*`a sığmaz.
+    expect(pageRuleForApiPath("/api/companies//ozet")?.prefix).toBe("/api/companies")
+    expect(pageRuleForApiPath("/api/companies/a/b/ozet")?.prefix).toBe("/api/companies")
   })
 })
 

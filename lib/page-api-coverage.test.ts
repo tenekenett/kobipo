@@ -174,6 +174,22 @@ describe("PAGE_API_RULES — kapsam nöbetçisi", () => {
     ).toEqual([])
   })
 
+  it("firma kartının altındaki her uç kendi dar kuralını taşır", () => {
+    // `/api/companies` okuması firma kartını okuyan her ekrana açık (fatura editörü,
+    // teklif, İK belgesi...). Bu ön ekin altına eklenen bir uç, kendi kuralı yoksa o
+    // geniş listeyi sessizce DEVRALIR — şube özeti (satış toplamı + son belgeler)
+    // böyle sızacaktı. Kartın kendisi (`/api/companies/[id]`) tek istisnadır.
+    const inherited = routes
+      .filter((r) => r.urlPath.startsWith("/api/companies/") && r.urlPath !== "/api/companies/x")
+      .filter((r) => pageRuleForApiPath(r.urlPath)?.prefix === "/api/companies")
+      .map((r) => `${r.urlPath}  (${r.file})`)
+    expect(
+      inherited,
+      `Şu uçlar firma kartının geniş okuma listesini devralıyor — PAGE_API_RULES'a\n` +
+        `kendi kurallarını yazın:\n${inherited.join("\n")}`
+    ).toEqual([])
+  })
+
   it("kapıyı çağıran her handler withApiErrors ile sarılıdır", () => {
     // Kapı hata FIRLATIR; sarılı olmayan handler'da bu hata Next'e kadar çıkar ve
     // kullanıcı boş gövdeli 500 alır (erişim yine engellenir, ama sebebi görünmez).
