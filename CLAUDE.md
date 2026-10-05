@@ -745,6 +745,27 @@ Z'dir (önceki Z → bu Z), takvim günü değil. Plan ve araştırma: `docs/okc
   kapıdan geçmez — test temizliği onu kullanır, ekranda fiş silme yok.
 Ölçüm: `node scripts/test-okc-asama1.mjs` (dev sunucu açık).
 
+## Yetki değişikliği ve yetki reddi günlüğe yazılır
+
+2026-10-05'e kadar Ekip Yönetimi'nden yapılan izin değişikliği hiçbir yere yazılmıyordu.
+Grup bazında daraltılan bir çalışanın (Ayarlar → Firma Bilgileri gitti) fatura editörü
+firma kartını okuyamadı, faturayı MANUAL kaydetti ve "yetkisi ne zaman, kim tarafından
+değişti" sorusu ancak kestiği faturalardan geriye doğru tahminle cevaplanabildi.
+
+- Üyelik (`userCompany`) ve özel rol (`companyRole`) yazan HER yol `system_logs`a önce/sonra
+  ETKİN sayfa listesiyle yazar: `withMembershipLog` (yazmayı sarar) ya da `logRoleChange`
+  (`lib/audit/permission-log.server.ts`; farkı kuran saf taraf `permission-log.ts`).
+  Eylemler `ADD_/UPDATE_/REMOVE_USER_COMPANY`, `CREATE_/UPDATE_/DELETE_COMPANY_ROLE`.
+  Nöbetçi: `lib/audit/permission-log-coverage.test.ts` — günlüğü çağırmayan yazan dosyada kırılır.
+- Sayfa kapısının reddi `PAGE_FORBIDDEN` olarak yazılır, kullanıcı × firma × kural başına
+  günde BİR kez (`lib/middleware/company.ts`). Arayüz yetkisiz düğmeyi gizlediği için ret
+  çoğu zaman bir hatanın izidir: yukarıdaki olayda editörün okuması böyle sessizce reddediliyordu.
+- Günlük FAIL-OPEN'dır: yazılamazsa işlem engellenmez, hata konsola düşer.
+- Okuma: Sistem Yönetimi → Loglar → "Yetki değişiklikleri" / "Yetki reddi"; arama e-posta
+  ya da firma adıyla (Türkçe duyarsız).
+- Kapı kuralının OKUMA listesi ucu okuyan HER ekranı sayar (`PAGE_API_RULES.pages`);
+  yazma listesinin kopyası yazılırsa izinli ekran sessizce bozulur.
+
 ## Yeni tablo → RLS açılacak
 
 `public` şemadaki her tablo RLS **açık ve policy'siz** (default deny) tutulur; veriye

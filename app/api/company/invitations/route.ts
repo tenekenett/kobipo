@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveBaseUrl } from "@/lib/utils/base-url"
+import { withMembershipLog } from "@/lib/audit/permission-log.server"
 
 export const dynamic = "force-dynamic"
 
@@ -60,25 +61,29 @@ export const POST = withApiErrors(async function POST(request: Request) {
   const normalizedEmail = String(email).trim().toLowerCase()
   const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } })
   if (existingUser) {
-    await prisma.userCompany.upsert({
-      where: { userId_companyId: { userId: existingUser.id, companyId } },
-      update: {
-        role: effectiveRole,
-        customRoleId: resolvedCustomRoleId,
-        // Özel rolde yetki rolde durur; eski kişisel kısıt hayalet gibi kalmasın.
-        ...(resolvedCustomRoleId ? { allowedPaths: [], writablePaths: [] } : {}),
-        invitedBy: user.id,
-        invitedAt: new Date(),
-      },
-      create: {
-        userId: existingUser.id,
-        companyId,
-        role: effectiveRole,
-        customRoleId: resolvedCustomRoleId,
-        invitedBy: user.id,
-        invitedAt: new Date(),
-      },
-    })
+    await withMembershipLog(
+      { actorUserId: user.id, companyId, memberUserId: existingUser.id, via: "Davet (kayıtlı kullanıcı)" },
+      () =>
+        prisma.userCompany.upsert({
+          where: { userId_companyId: { userId: existingUser.id, companyId } },
+          update: {
+            role: effectiveRole,
+            customRoleId: resolvedCustomRoleId,
+            // Özel rolde yetki rolde durur; eski kişisel kısıt hayalet gibi kalmasın.
+            ...(resolvedCustomRoleId ? { allowedPaths: [], writablePaths: [] } : {}),
+            invitedBy: user.id,
+            invitedAt: new Date(),
+          },
+          create: {
+            userId: existingUser.id,
+            companyId,
+            role: effectiveRole,
+            customRoleId: resolvedCustomRoleId,
+            invitedBy: user.id,
+            invitedAt: new Date(),
+          },
+        })
+    )
     return NextResponse.json({ status: "added", message: "Kullanıcı firmaya eklendi" }, { status: 201 })
   }
 

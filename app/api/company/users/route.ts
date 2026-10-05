@@ -4,6 +4,7 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { withMembershipLog } from "@/lib/audit/permission-log.server"
 
 export const dynamic = "force-dynamic"
 
@@ -61,23 +62,27 @@ export const POST = withApiErrors(async function POST(request: Request) {
     effectiveRole = "CUSTOM"
   }
 
-  const member = await prisma.userCompany.upsert({
-    where: { userId_companyId: { userId: targetUser.id, companyId } },
-    update: {
-      role: effectiveRole,
-      customRoleId: resolvedCustomRoleId,
-      ...(resolvedCustomRoleId ? { allowedPaths: [], writablePaths: [] } : {}),
-      invitedBy: user.id,
-      invitedAt: new Date(),
-    },
-    create: {
-      userId: targetUser.id,
-      companyId,
-      role: effectiveRole,
-      customRoleId: resolvedCustomRoleId,
-      invitedBy: user.id,
-      invitedAt: new Date(),
-    },
-  })
+  const member = await withMembershipLog(
+    { actorUserId: user.id, companyId, memberUserId: targetUser.id, via: "Ekip Yönetimi" },
+    () =>
+      prisma.userCompany.upsert({
+        where: { userId_companyId: { userId: targetUser.id, companyId } },
+        update: {
+          role: effectiveRole,
+          customRoleId: resolvedCustomRoleId,
+          ...(resolvedCustomRoleId ? { allowedPaths: [], writablePaths: [] } : {}),
+          invitedBy: user.id,
+          invitedAt: new Date(),
+        },
+        create: {
+          userId: targetUser.id,
+          companyId,
+          role: effectiveRole,
+          customRoleId: resolvedCustomRoleId,
+          invitedBy: user.id,
+          invitedAt: new Date(),
+        },
+      })
+  )
   return NextResponse.json(member, { status: 201 })
 })

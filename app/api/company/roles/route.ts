@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { sanitizePagePermissions } from "@/lib/page-access"
+import { logRoleChange } from "@/lib/audit/permission-log.server"
 
 export const dynamic = "force-dynamic"
 
@@ -70,6 +71,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
         createdBy: user.id,
       },
     })
+    await logRoleChange({ actorUserId: user.id, companyId, roleId: role.id }, null, role)
     return NextResponse.json(role, { status: 201 })
   } catch (error) {
     // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.

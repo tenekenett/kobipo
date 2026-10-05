@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { randomBytes } from "crypto"
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/db/prisma"
+import { withMembershipLog } from "@/lib/audit/permission-log.server"
 
 export const dynamic = "force-dynamic"
 
@@ -80,23 +81,33 @@ export async function POST(
 
   // Davet özel rol taşıyorsa üyelik ONUNLA açılır. Rol davet beklerken silinmişse
   // (FK SET NULL) enum rolüne düşülür — davet geçersiz olmaz, yetki daralır.
-  await prisma.userCompany.upsert({
-    where: { userId_companyId: { userId, companyId: invitation.companyId } },
-    update: {
-      role: invitation.role,
-      customRoleId: invitation.customRoleId,
-      invitedBy: invitation.invitedBy,
-      invitedAt: invitation.createdAt,
-    },
-    create: {
-      userId,
+  await withMembershipLog(
+    {
+      actorUserId: userId,
       companyId: invitation.companyId,
-      role: invitation.role,
-      customRoleId: invitation.customRoleId,
-      invitedBy: invitation.invitedBy,
-      invitedAt: invitation.createdAt,
+      memberUserId: userId,
+      via: "Davet kabulü",
+      invitedByUserId: invitation.invitedBy,
     },
-  })
+    () =>
+      prisma.userCompany.upsert({
+        where: { userId_companyId: { userId, companyId: invitation.companyId } },
+        update: {
+          role: invitation.role,
+          customRoleId: invitation.customRoleId,
+          invitedBy: invitation.invitedBy,
+          invitedAt: invitation.createdAt,
+        },
+        create: {
+          userId,
+          companyId: invitation.companyId,
+          role: invitation.role,
+          customRoleId: invitation.customRoleId,
+          invitedBy: invitation.invitedBy,
+          invitedAt: invitation.createdAt,
+        },
+      })
+  )
 
   await prisma.companyInvitation.update({
     where: { id: invitation.id },

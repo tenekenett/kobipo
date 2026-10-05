@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
 import { Role } from "@prisma/client"
+import { withMembershipLog } from "@/lib/audit/permission-log.server"
 
 export const dynamic = "force-dynamic"
 
@@ -39,27 +40,22 @@ export async function PATCH(
 
     const membership = await prisma.userCompany.findUnique({
       where: { userId_companyId: { userId, companyId } },
-      select: { id: true, user: { select: { email: true } }, company: { select: { name: true } } },
+      select: { id: true },
     })
     if (!membership) {
       return NextResponse.json({ error: "Üyelik bulunamadı" }, { status: 404 })
     }
 
-    await prisma.userCompany.update({
-      where: { userId_companyId: { userId, companyId } },
-      data: { role },
-    })
-
-    await prisma.systemLog.create({
-      data: {
-        userId: auth.currentUser.id,
-        action: "UPDATE_USER_COMPANY",
-        entity: "UserCompany",
-        entityId: userId,
-        details: `"${membership.user.email}" kullanıcısının "${membership.company.name}" firmasındaki rolü ${role} olarak güncellendi`,
-        level: "INFO",
-      },
-    })
+    // Kayıt (önce/sonra) yetki günlüğünden geçer: firma ekranlarındaki değişikliklerle
+    // aynı biçimde, aynı eylem adıyla (UPDATE_USER_COMPANY).
+    await withMembershipLog(
+      { actorUserId: auth.currentUser.id, companyId, memberUserId: userId, via: "Sistem yönetimi" },
+      () =>
+        prisma.userCompany.update({
+          where: { userId_companyId: { userId, companyId } },
+          data: { role },
+        })
+    )
 
     return NextResponse.json({ success: true })
   } catch (error) {
@@ -82,26 +78,19 @@ export async function DELETE(
 
     const membership = await prisma.userCompany.findUnique({
       where: { userId_companyId: { userId, companyId } },
-      select: { id: true, user: { select: { email: true } }, company: { select: { name: true } } },
+      select: { id: true },
     })
     if (!membership) {
       return NextResponse.json({ error: "Üyelik bulunamadı" }, { status: 404 })
     }
 
-    await prisma.userCompany.delete({
-      where: { userId_companyId: { userId, companyId } },
-    })
-
-    await prisma.systemLog.create({
-      data: {
-        userId: auth.currentUser.id,
-        action: "REMOVE_USER_COMPANY",
-        entity: "UserCompany",
-        entityId: userId,
-        details: `"${membership.user.email}" kullanıcısı "${membership.company.name}" firmasından çıkarıldı`,
-        level: "WARN",
-      },
-    })
+    await withMembershipLog(
+      { actorUserId: auth.currentUser.id, companyId, memberUserId: userId, via: "Sistem yönetimi" },
+      () =>
+        prisma.userCompany.delete({
+          where: { userId_companyId: { userId, companyId } },
+        })
+    )
 
     return NextResponse.json({ success: true })
   } catch (error) {

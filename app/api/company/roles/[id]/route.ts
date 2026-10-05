@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { sanitizePagePermissions } from "@/lib/page-access"
+import { logRoleChange, readRoleSnapshot } from "@/lib/audit/permission-log.server"
 
 export const dynamic = "force-dynamic"
 
@@ -57,7 +58,9 @@ export const PATCH = withApiErrors(async function PATCH(request: Request, { para
   }
 
   try {
+    const before = await readRoleSnapshot(id)
     const role = await prisma.companyRole.update({ where: { id }, data })
+    await logRoleChange({ actorUserId: user.id, companyId, roleId: id }, before, role)
     return NextResponse.json(role)
   } catch (error) {
     // Kapı reddi (modül/sayfa/rol) 403 döner; buradaki diğer dallar veri hatası içindir.
@@ -95,6 +98,8 @@ export const DELETE = withApiErrors(async function DELETE(request: Request, { pa
     )
   }
 
+  const before = await readRoleSnapshot(id)
   await prisma.companyRole.delete({ where: { id } })
+  await logRoleChange({ actorUserId: user.id, companyId, roleId: id }, before, null)
   return NextResponse.json({ success: true })
 })

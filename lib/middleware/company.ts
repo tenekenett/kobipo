@@ -19,6 +19,8 @@ import {
   requiredPagesForApiPath,
   type PagePermissions,
 } from "@/lib/page-access"
+import { membershipRoleText } from "@/lib/audit/permission-log"
+import { logPageForbidden } from "@/lib/audit/permission-log.server"
 import { cache } from "react"
 
 export async function getCurrentCompany(companyId: string) {
@@ -145,7 +147,8 @@ async function assertModuleAccess(
  */
 async function assertPageAccess(
   company: UserCompanyContext,
-  isSuperAdmin: boolean
+  isSuperAdmin: boolean,
+  userId: string
 ): Promise<void> {
   if (isSuperAdmin) return
   if (!isPageGateApplicable(pagePermissionsOf(company))) return
@@ -156,7 +159,32 @@ async function assertPageAccess(
 
   if (isApiPathAllowedForUser(pathname, method, pagePermissionsOf(company))) return
 
+  await recordPageForbidden(company, userId, pathname, method)
   throw new PageForbiddenError(requiredPagesForApiPath(pathname, method))
+}
+
+/**
+ * Reddi günlüğe yazar (günde bir kez, kullanıcı × firma × kural; FAIL-OPEN). Arayüz
+ * yetkisiz düğmeyi gizlediği için ret çoğu zaman bir hatanın izidir — bkz.
+ * lib/audit/permission-log.server.ts → logPageForbidden.
+ */
+async function recordPageForbidden(
+  company: UserCompanyContext,
+  userId: string,
+  pathname: string,
+  method: string
+): Promise<void> {
+  await logPageForbidden({
+    userId,
+    companyId: company.companyId,
+    companyLabel: company.companyBranchName
+      ? `${company.companyName} / ${company.companyBranchName}`
+      : company.companyName,
+    roleText: membershipRoleText(company.role, company.customRoleName),
+    method,
+    pathname,
+    permissions: pagePermissionsOf(company),
+  })
 }
 
 /** Üyelik bağlamından sayfa-izni görünümü. */
@@ -221,6 +249,7 @@ export async function assertPagePath(
   const permissions = pagePermissionsOf(company)
   if (!isPageGateApplicable(permissions)) return
   if (isApiPathAllowedForUser(pathname, method, permissions)) return
+  if (context) await recordPageForbidden(company, context.userId, pathname, method)
   throw new PageForbiddenError(requiredPagesForApiPath(pathname, method))
 }
 
@@ -240,7 +269,7 @@ export const ensureCompanyAccess = cache(async function ensureCompanyAccess(
       throw new Error("Access denied: company is inactive")
     }
     await assertModuleAccess(match, context.isSuperAdmin)
-    await assertPageAccess(match, context.isSuperAdmin)
+    await assertPageAccess(match, context.isSuperAdmin, context.userId)
     return match
   }
 

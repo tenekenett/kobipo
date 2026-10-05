@@ -24,6 +24,7 @@ import { prisma } from "@/lib/db/prisma"
 import { MODULE_KEYS } from "@/lib/modules"
 import { getAccountQuotas, isPaidActive, isTrialActive } from "@/lib/billing/entitlements"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
+import { logMembershipChange } from "@/lib/audit/permission-log.server"
 
 /**
  * Yeni firmanın doğacağı `disabledModules`: TÜM modüller kapalı — ücretsizler dahil.
@@ -346,7 +347,7 @@ export async function createCompany(args: {
   })
   const { inherited } = resolved
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     // Kotalı yerleşimlerde son söz burada, kilit altında verilir (yarış kapısı).
     // `new-account` kotasız olduğu için atlanır.
     if (placement.kind !== "new-account" && resolved.accountRootId) {
@@ -414,4 +415,15 @@ export async function createCompany(args: {
 
     return company
   })
+
+  // Kurucu üyeliğin yetki günlüğü kaydı commit'ten SONRA: geri alınan bir açılış
+  // günlükte "üyelik açıldı" diye kalmasın.
+  if (grantMembership) {
+    await logMembershipChange(
+      { actorUserId, companyId: created.id, memberUserId: actorUserId, via: "Firma açılışı" },
+      null,
+      { role: "ADMIN", allowedPaths: [], writablePaths: [], customRole: null }
+    )
+  }
+  return created
 }

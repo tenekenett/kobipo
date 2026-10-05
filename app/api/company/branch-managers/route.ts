@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma"
 import { getCurrentUser } from "@/lib/auth/session"
 import { resolveBaseUrl } from "@/lib/utils/base-url"
 import { canManageCompany } from "@/lib/auth/branch-access"
+import { withMembershipLog } from "@/lib/audit/permission-log.server"
 import { sendEmail } from "@/lib/email/resend"
 import {
   branchManagerInviteEmail,
@@ -151,17 +152,21 @@ export async function POST(request: Request) {
       )
     }
 
-    await prisma.userCompany.upsert({
-      where: { userId_companyId: { userId: existingUser.id, companyId: company.id } },
-      update: { role: "BRANCH_MANAGER", invitedBy: user.id, invitedAt: new Date() },
-      create: {
-        userId: existingUser.id,
-        companyId: company.id,
-        role: "BRANCH_MANAGER",
-        invitedBy: user.id,
-        invitedAt: new Date(),
-      },
-    })
+    await withMembershipLog(
+      { actorUserId: user.id, companyId: company.id, memberUserId: existingUser.id, via: "Şube müdürü ataması" },
+      () =>
+        prisma.userCompany.upsert({
+          where: { userId_companyId: { userId: existingUser.id, companyId: company.id } },
+          update: { role: "BRANCH_MANAGER", invitedBy: user.id, invitedAt: new Date() },
+          create: {
+            userId: existingUser.id,
+            companyId: company.id,
+            role: "BRANCH_MANAGER",
+            invitedBy: user.id,
+            invitedAt: new Date(),
+          },
+        })
+    )
 
     // Bildirim e-postası yan işlemdir; başarısız olsa da atama tamamlanmış sayılır.
     const { subject, html } = branchManagerAssignedEmail({
@@ -235,7 +240,7 @@ export async function DELETE(request: Request) {
 
   const membership = await prisma.userCompany.findUnique({
     where: { id: membershipId! },
-    select: { id: true, companyId: true, role: true },
+    select: { id: true, companyId: true, role: true, userId: true },
   })
   if (!membership) {
     return NextResponse.json({ error: "Kayıt bulunamadı" }, { status: 404 })
@@ -250,6 +255,14 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 })
   }
 
-  await prisma.userCompany.delete({ where: { id: membership.id } })
+  await withMembershipLog(
+    {
+      actorUserId: user.id,
+      companyId: membership.companyId,
+      memberUserId: membership.userId,
+      via: "Şube müdürü ataması",
+    },
+    () => prisma.userCompany.delete({ where: { id: membership.id } })
+  )
   return NextResponse.json({ ok: true })
 }

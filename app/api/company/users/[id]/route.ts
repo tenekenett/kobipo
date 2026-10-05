@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { sanitizePagePermissions } from "@/lib/page-access"
+import { withMembershipLog } from "@/lib/audit/permission-log.server"
 
 export const dynamic = "force-dynamic"
 
@@ -92,7 +93,10 @@ export const PATCH = withApiErrors(async function PATCH(request: Request, { para
     data.writablePaths = sanitized.writablePaths
   }
 
-  const updated = await prisma.userCompany.update({ where: { id }, data: data as never })
+  const updated = await withMembershipLog(
+    { actorUserId: user.id, companyId, memberUserId: membership.userId, via: "Ekip Yönetimi" },
+    () => prisma.userCompany.update({ where: { id }, data: data as never })
+  )
   return NextResponse.json(updated)
 })
 
@@ -107,6 +111,9 @@ export const DELETE = withApiErrors(async function DELETE(request: Request, { pa
   // IDOR koruması: hedef üyelik gerçekten bu firmaya ait olmalı (bkz. PATCH).
   const membership = await prisma.userCompany.findFirst({ where: { id, companyId } })
   if (!membership) return NextResponse.json({ error: "Üye bulunamadı" }, { status: 404 })
-  await prisma.userCompany.delete({ where: { id } })
+  await withMembershipLog(
+    { actorUserId: user.id, companyId, memberUserId: membership.userId, via: "Ekip Yönetimi" },
+    () => prisma.userCompany.delete({ where: { id } })
+  )
   return NextResponse.json({ success: true })
 })

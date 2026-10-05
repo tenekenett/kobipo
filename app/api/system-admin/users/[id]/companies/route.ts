@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/config"
 import { prisma } from "@/lib/db/prisma"
 import { Role } from "@prisma/client"
+import { withMembershipLog } from "@/lib/audit/permission-log.server"
 
 export const dynamic = "force-dynamic"
 
@@ -63,26 +64,19 @@ export async function POST(
       )
     }
 
-    await prisma.userCompany.create({
-      data: {
-        userId,
-        companyId,
-        role,
-        invitedBy: currentUser.id,
-        invitedAt: new Date(),
-      },
-    })
-
-    await prisma.systemLog.create({
-      data: {
-        userId: currentUser.id,
-        action: "ADD_USER_COMPANY",
-        entity: "UserCompany",
-        entityId: userId,
-        details: `"${user.email}" kullanıcısı "${company.name}" firmasına ${role} rolüyle eklendi`,
-        level: "INFO",
-      },
-    })
+    await withMembershipLog(
+      { actorUserId: currentUser.id, companyId, memberUserId: userId, via: "Sistem yönetimi" },
+      () =>
+        prisma.userCompany.create({
+          data: {
+            userId,
+            companyId,
+            role,
+            invitedBy: currentUser.id,
+            invitedAt: new Date(),
+          },
+        })
+    )
 
     return NextResponse.json({ success: true }, { status: 201 })
   } catch (error) {
