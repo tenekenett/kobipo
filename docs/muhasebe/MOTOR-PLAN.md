@@ -56,39 +56,141 @@ toplamından 1–3 kuruş sapıyordu; (3) bir kasa hareketi başka firmanın kas
 (veri tutarsızlığı, tek kayıt: Demo Firma'nın 720 TL'lik tahsilatı Reypo Medya'nın "ana"
 kasasında) — fiş kasa satırını hesapsız bırakıp "Gözden geçir"e düşürür.
 
-### ▶ DEVAM — başka bilgisayarda (güncel: 2026-10-04 gece)
+### ▶ DEVAM — başka bilgisayarda (güncel: 2026-10-05 akşam)
 
 **Durum:** modül kodda var, SATIŞTA KAPALI (fiyat kalemi `module:accounting` pasif, 42/42
-firmada `accounting` kapalı). Migrasyon `20261004000001` canlıda, deploy sonrası tekrarı da
-yapıldı. Uçtan uca koşuldu, bulunan hatalar düzeltildi ve main'e gönderildi (aşağıda
-"2026-10-04 akşam" bölümü). Kullanıcı kararı: önce zayıflıklar, sonra geliştirme; pilot
-bitmeden fiyat AÇILMAZ.
+firmada `accounting` kapalı). Kullanıcı kararı: önce zayıflıklar, sonra geliştirme; pilot
+bitmeden fiyat AÇILMAZ. 2026-10-05'te yapılanlar aşağıda (inceleme düzeltmeleri, fiş kilidi,
+toplu eşleme, veri modeli); hepsi main'de, tek commit.
+
+- **Migrasyon `20261005000001_muhasebe_veri_modeli.sql` CANLIDA** (kullanıcı uyguladı,
+  2026-10-05; kolonlar + indeks + 5 evrakın durum tarihi doğrulandı). Deploy güvenli —
+  migrasyon zaten önde. Tekrar çalıştırılabilir.
+- **Doğrulama:** `tsc` temiz, `npx vitest run lib` 1839 test, `lib/muhasebe` 80 test;
+  uçtan uca `scripts/test-muhasebe.mjs` iki kez **72/72** (yeni adımlar: 1a bakiyesiz açılış,
+  3b toplu eşleme, 3c onay kilidi yarışı, 8b veri modeli).
+- **Reypo Medya temiz bırakıldı:** muhasebe kapalı, fiş/ayar/öğrenme yok, test çeki/hesabı/
+  hareketi/bordrosu yok. Önceki koşuların hesap planı satırları BİLEREK duruyor (kullanıcı
+  kararı) — `MUHASEBE_SIFIRLA` gerekmez.
+
+**▶ SIRADAKİ İŞ (2026-10-05 mobil taramasının bulguları — kullanıcı "başka bilgisayarda
+düzelteceğim" dedi, ikisi de DÜZELTİLMEDİ):**
+
+1. **Fiş detayında onay düğmeleri 390 px'te kırpılıyor** (önemli — telefondan fiş
+   onaylanamıyor). `/muhasebe/fisler/[id]`: "Onayla", "Onayla ve sıradaki", "Onayı geri al"
+   sağ kenarı 494–673 px, görünür sınır 375 px; panel gövdesi `overflow-x-clip` olduğu için
+   kaydırılamaz. Kök sebep (bkz. hafıza "mobilde kırpılan kontroller", kök sebep 2): fiş kartı
+   (`Kart`, `section`) `div.grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]`in çocuğu ve
+   `min-w-0` taşımıyor → satır tablosunun `min-w-[640px]`i kartı 674 px'e itiyor; tablonun
+   kendi `overflow-x-auto`su da bu yüzden çalışmıyor. **Düzeltme (tek satır):**
+   `app/(dashboard)/muhasebe/fisler/[id]/page.tsx` → o grid'e `grid-cols-[minmax(0,1fr)]`
+   (masaüstü `lg:` sütunları aynen kalır). Sonra aynı yöntemle yeniden ölç (aşağıda).
+2. **Toplu eşlemede anahtarsız grup öğrenilmez, ekran bunu söylemiyor.** Reypo'da en büyük
+   grup "Gider / hizmet alışı" (8 fiş): carisiz alış satırları, `learnKeys` boş
+   (`fis-kurallari.ts` → `belge.cari` yoksa öğrenme anahtarı yok). Eşleme fişleri çözer ama
+   onayda kural öğrenilmez; sonraki carisiz alışlar yine "gözden geçir"e düşer. **Düzeltme:**
+   `app/(dashboard)/muhasebe/fisler/eslesme/page.tsx` → `g.ogrenmeAnahtarlari.length === 0`
+   olan grubun alt satırına "bu seçim öğrenilmez, yalnız bu fişlere yazılır" notu
+   (`Grup` tipine `ogrenmeAnahtarlari` eklenmeli; uç zaten döndürüyor).
+3. **Ölçülemeyen:** finans hareket formundaki kur alanı (yalnız dövizli hesap seçilince
+   görünür; Reypo'da dövizli hesap yok). Diğer alanlarla aynı yapı; dövizli test hesabıyla bak.
+
+**Mobil ölçüm yöntemi (2026-10-05'te çalıştı):** dev sunucusu + Chrome (localhost'ta oturum
+açık olmalı). `MUHASEBE_BIRAK=1` ile betiği koş (ekranlar veriyle dolsun), localhost'ta herhangi
+bir sayfayı (`/robots.txt`) aç, `javascript_tool` ile gövdeyi 390×844 bir `<iframe>` yap; her
+sayfayı iframe'e yükle, yerleşmeyi bekle (dönen `svg.animate-spin` ve "Yükleniyor" metni
+kalkana kadar), sonra `.overflow-x-clip` kabının sağını geçen ve kaydırılabilir atası olmayan
+her etkileşimli öğeyi listele. Her çağrıda 3 sayfa (~40 sn, CDP tavanı 45 sn). Temiz çıkanlar:
+Fişler (iki sekme), toplu eşleme (+ hesap seçici listesi), yeni elle fiş, açılış fişi, mizan,
+yevmiye, kebir, bilanço/gelir tablosu, hesap planı, ayarlar; bordro, çek ve finans hareketi
+diyalogları. İş bitince Reypo'yu temizle: `MUHASEBE_SIFIRLA` bloğundaki dört sorgu
+(`scripts/test-muhasebe.mjs` başı) ya da betiği `MUHASEBE_SIFIRLA=1` ile bir kez daha koş.
+
+**Sonra:** 4. Pilot (aşağıdaki listede). Açık kararlar: eski `accounting_entries` tablosu + 3
+kayıt; Demo Firma'nın Reypo kasasındaki 720 TL; ciroyu cari kaynağı yapmak (ciroda tedarikçi);
+cari döviz desteği; dövizli fatura ödemesinin kasa tutarı (bulundu, düzeltilmedi — aşağıda).
+
+**2026-10-05 — `8ecffe1` incelemesinin düzeltmeleri:**
+
+- **Bakiyesiz başlangıçta açılış fişi elle açılır.** `8ecffe1` satırsız açılış taslağını
+  kaldırınca müşavirin sermaye/demirbaş gireceği yer de kalkmıştı (elle satır yalnız VAR OLAN
+  açılış fişine yazılabiliyordu; elle fiş başlangıçtan önceye tarihlenemiyor). Artık fiş ilk
+  elle satırlarıyla birlikte açılır (`manuel.server.ts` → `acilisFisiniElleAc`; uç
+  `POST /api/muhasebe/fisler {acilis:true}`; ekran `/muhasebe/fisler/acilis`, Ayarlar'dan
+  bağlantı). Son elle satır silinince fiş kalkar (`PUT …/[id]` → `silindi`).
+- **Açılış senkronu yalnız elle satırı olan fişi her seferinde yeniden yazıyordu** (erken
+  dönüş otomatik satır şartına bağlanmıştı): satır id'leri her Fişler açılışında değişiyordu.
+  Artık yalnız gerçekten satırsız taslak düşer.
+- **Toplu yenileme onaylı fişe yazabiliyordu** (okuma ile yazma arasında onay — eskiden de
+  vardı). `UPDATE … AND status = 'DRAFT' RETURNING id`; satırlar yalnız dönen fişlerde
+  değişir. `taslaklariYenidenCoz` da yazma anında taslak + otomatik kaynak (USER değil) sorar.
+- **Toplu onay** yalnız gerçekten onayladığı fişlerden öğrenir (eşzamanlı onayda sayaç iki
+  kez artıyordu); diğerleri "başka oturumda onaylandı" diye atlanır.
+- **Kaynak türleri tek bağlantıda sırayla okunur** (`dbConnectionLimit()`); Vercel'de paralel
+  okuma kazanç getirmiyor, büyük defterde pool_timeout (P2024) riski taşıyordu.
+- `undici` devDependency olarak yazıldı (betik import ediyordu, yalnız Vercel CLI'nin alt
+  bağımlılığıydı). Betiğe "1a) bakiyesiz başlangıç" adımı eklendi.
+- **Fiş kilidi** (aynı gün, ikinci tur — yukarıdaki "dar pencere" kapandı): onay satırları
+  kilitsiz okuyup sınıyordu; arada senkron fişi yeniden kursa yeni satırlar sınanmadan
+  onaylanabilirdi. Artık taslağın satırına yazan HER yol (senkron yenileme ve silme, hesap
+  tazeleme, elle hesap seçimi, açılış senkronu ve elle satırları, elle fiş düzenleme, toplu
+  eşleme) `kilit.server.ts` → `taslaklariKilitle` ile başlar; onay `fisleriKilitle` ile kilidi
+  alıp satırları kilit altında okur ve sınar. Betikte "3c" adımı yarışı canlı canlandırır
+  (betik kilidi tutarken onay gelir, satır hesapsız yapılır → onay 400, fiş taslak kalır).
+  Yolda bulunan iki ufak: açılış senkronu boş taslağı silerken fiş bu arada onaylandıysa
+  silmiyor ama ayardaki `openingVoucherId`yi yine boşaltıyordu; elle fiş silme okumada taslak
+  görüp koşulsuz siliyordu — ikisi de düzeltildi.
+- **Toplu eşleme ekranı** (`/muhasebe/fisler/eslesme`, Fişler başlığında "Toplu eşle"; kural
+  `esleme.ts` testli, okuma/yazma `esleme.server.ts`, uç `/api/muhasebe/fisler/eslesme`):
+  bekleyen satırlar (hesapsız ya da tahmin olan varsayılan; alt hesap, elle ve açılış farkı
+  hariç) öğrenme anahtarına göre gruplanır — "ACME · KDV %20 alışları", "Faturasız gider ·
+  Kira", "Bordro gideri". Gruba seçilen hesap satıra USER olarak yazılır, kural YAZILMAZ
+  (öğrenme yalnız onayda); ekran "emin"e geçen fişleri onaylamayı önerir, onayla kural
+  öğrenilir. Kilitli döneme yazılmaz. Satır içinde alt hesap açılabilir (hesap seçici).
 
 **Yeni bilgisayarda ilk adımlar:**
 
 1. `git pull` → `npx prisma generate` (eski client "journalVoucher yok" tip hataları verir)
    → `.next` bayatsa sil (`.next/dev/types` silinmiş Ba-Bs sayfasını arıyor olabilir).
-2. Doğrula: `npx vitest run lib/muhasebe` (58 test) ve `npx tsc --noEmit`.
-3. Uçtan uca: `npm run dev` + `MUHASEBE_SIFIRLA=1 TEST_BASE_URL=http://localhost:3000 node scripts/test-muhasebe.mjs`
-   (Reypo Medya; `SIFIRLA` önceki kurulumu silip modülü kapatır, sonda açtığını siler;
-   `MUHASEBE_BIRAK=1` ekranda bakmak için bırakır). Yerelden DB turu ~420 ms: bir koşu
-   ~15–20 dk sürer, istek başına 5–40 sn normaldir (canlıda ms).
+2. Doğrula: `npx vitest run lib/muhasebe` (80 test) ve `npx tsc --noEmit`.
+3. Uçtan uca: `npm run dev` + `TEST_BASE_URL=http://localhost:3000 node scripts/test-muhasebe.mjs`
+   (Reypo Medya, 72 kontrol; sonda açtığını siler. Önceki bir `MUHASEBE_BIRAK=1` koşusu
+   kurulum bıraktıysa `MUHASEBE_SIFIRLA=1` ekle). Yerelden DB turu ~420 ms: bir koşu ~10 dk,
+   istek başına 5–40 sn normaldir (canlıda ms). Windows'ta dev sunucusu `TaskStop` ile
+   kapanmaz — port 3000'i dinleyen node'u ayrıca kapat.
 4. Canlı tutarlılık (salt okur, ~4 dk): `npm run test:canli -- lib/muhasebe/defter-tutarlilik`.
 
 **Sıradaki iş (sırayla):**
 
-1. **Veri modeli eksikleri** — dördü de CANLI MİGRASYON ister, başlamadan kullanıcıya sor:
-   - İşveren SGK payı: `PayrollRecord`ta yalnız işçi payı (`sgkDeduction`) var → işveren payı
-     kolonu, hesap `lib/personel/bordro-hesap.ts`, fişte B 770 · A 361 (`para-kurallari.ts` bordro).
-   - Çek/senet ciro, iade, protesto tarihi: `Check`/`PromissoryNote`ta yalnız `status` +
-     `updatedAt` → durum değişim tarihi (+ ciroda tedarikçi); ciro fişi bugün `updatedAt`le açılıyor.
-   - Virman ortak kimliği: iki bacak tutar + gün + referansla eşleşiyor (`kaynaklar.server.ts`
-     virman bölümü) → ortak kimlik kolonu; eski kayıtlar bugünkü eşleştirmeyle doldurulur.
-   - Kasa hareketinde kur: `Transaction.currency` var, kur yok → TL dışı hareket fişe girmiyor.
-2. **Toplu eşleme ekranı** ("bu tedarikçi / bu satır türü → şu hesap", tek seferde) — pilotun
-   ön şartı; Reypo'da tek başlangıçta 57 fiş "gözden geçir"de kalıyor.
-3. **Mobil (390 px)** — hiç bakılmadı (bu ortamda Chrome penceresi küçülmedi). Fişler, fiş
-   detayı, mizan.
+1. ~~**Veri modeli eksikleri**~~ → 2026-10-05 yazıldı, migrasyon `20261005000001_muhasebe_veri_modeli.sql`
+   (dört NULL'lanabilir kolon; deploy'dan ÖNCE uygulanır — yeni Prisma istemcisi kolonları seçer).
+   Canlı ölçüm önce: dövizli hesap/hareket 0, virman bacağı 0, ciro 1, bordro 14 (4 firma) —
+   geriye dönük doldurma yalnız çek/senet durum tarihinde (`updatedAt`).
+   - **İşveren SGK:** `PayrollRecord.employerSgk`; boş = otomatik (teşviksiz taban oran,
+     `bordroIsverenPayi` — ekran öneriyi yer tutucuda gösterir), girilen tutar aynen. Fiş:
+     B 770 (`bordro:isveren-sgk`, ayrı öğrenilir) · A 361. Bordro ekranında alan + açıklama.
+   - **Çek/senet durum tarihi:** `statusChangedAt` (`lib/cek-senet/durum-tarihi.ts`); form
+     portföy dışı durumda tarih sorar; tahsil hareketi aynı günle yazılır/taşınır. Ciro fişi
+     bu tarihle (not yazmak artık fişi oynatmaz); başlangıçtan önce alınıp SONRA ciro edilen
+     evrak açılış portföyünde ve cirosu fişlenir; bilanço da ciroyu o güne kadar portföyde sayar.
+     **Ciroda tedarikçi BİLEREK yok:** Kobipo'da ciro cari bakiyesine girmiyor (tedarikçiye
+     ödeme ayrı "verilen evrak" kaydı); fişe 320 yazmak cari ile mizanı ayırır ve çift sayardı.
+     Ciroyu cari kaynağı yapmak ayrı ürün kararı (cari bakiyesinin altı yeri).
+   - **Virman ortak kimliği:** `Transaction.transferGroupId`, eşleştirme saf modülde
+     (`virman-eslestir.ts`, testli); kimliksiz eski bacak eski kurala düşer.
+   - **Kur:** `Transaction.exchangeRate`; para birimi HESAPTAN gelir (formlar hep "TRY"
+     gönderiyordu), kur istekten ya da bugünün TCMB kurundan; geçmiş tarihte kur zorunlu.
+     Dövizli hesapta cari/fatura bağı ve farklı para birimli virman REDDEDİLİR (cari bakiyesi
+     TL tutulur). Finans sayfası hareket formunda kur alanı; form artık sunucunun hata
+     mesajını gösteriyor. Kalan: cari döviz desteği (ayrı iş). **Bulunan, düzeltilmeyen:**
+     dövizli FATURANIN ödemesi (`lib/finans/create-invoice-payment.ts`) kasaya faturanın para
+     birimi ve döviz tutarıyla yazılıyor — TL kasaya 100 USD ödeme kasadan 100 TL düşer, hareket
+     "USD" etiketli ve kursuz (muhasebede "kur yok" görünür). Canlıda dövizli fatura ve ödemesi
+     0 (2026-10-05); ödeme çekirdeğinde ayrı tasarım ister (kasa tutarı = döviz × fatura kuru).
+2. ~~**Toplu eşleme ekranı**~~ → 2026-10-05 yapıldı (yukarıda). Kalan: gerçek bir müşavirle
+   "grup adları anlaşılıyor mu" sınaması (pilot) + anahtarsız grup notu (yukarıda, madde 2).
+3. ~~**Mobil (390 px)**~~ → 2026-10-05 tarandı (iframe yöntemi); iki bulgu yukarıda
+   "SIRADAKİ İŞ"te, düzeltilmedi.
 4. **Pilot** (2–3 hafta, gerçek firma + müşaviri) → sonra Luca/Zirve aktarımı, sürekli
    envanter (her satışta 621/153), kâr dağıtımı yardımcısı. Fiyat ancak pilottan sonra.
 
@@ -352,7 +454,9 @@ Kural `fis-kurallari.ts`e yeni giriş tipleri olarak eklenir (aynı satır/öğr
 ## Bilinen sınırlar (2026-10-04)
 
 - **Artımlı senkron BİLEREK yok (ölçüm 2026-10-04):** mutabakat her açılışta bütün kaynakları
-  okur. En büyük defter (Reypo, 332 fatura) ~350 fiş / ~330 KB; ~15 sorgu, türler paralel.
+  okur. En büyük defter (Reypo, 332 fatura) ~350 fiş / ~330 KB; ~15 sorgu, türler paralel
+  (yalnız havuzda birden çok bağlantı varken — Vercel'de `connection_limit=1`, orada sırayla;
+  bkz. 2026-10-05).
   Yerelden 13–22 sn ölçülen sürenin tamamı ağ turu (~420 ms); canlıda Vercel `fra1` ↔ Supabase
   `eu-central-1` (1–2 ms) bir saniyenin altında. Artımlı yol (son mutabakat damgası + değişen
   kaynak) migrasyon ve "değişeni kaçırma" riski getirir; firma başına yılda birkaç bin belgeyi

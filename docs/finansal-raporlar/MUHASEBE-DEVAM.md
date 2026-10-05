@@ -79,6 +79,12 @@ muhasebe motoru. Rakip incelemesi ve karşılaştırma Claude Docs'ta:
    mizan taslak dengesi, ekran yükleme durumları). Modül satışta KAPALI; sırada veri modeli
    eksikleri (işveren SGK, ciro tarihi, virman kimliği, kur — migrasyon, önce sor), sonra
    toplu eşleme ekranı, mobil, pilot.
+3. **2026-10-05:** `8ecffe1` incelemesinin düzeltmeleri + fiş kilidi (onay yarışı kapandı) +
+   **toplu eşleme ekranı** (`/muhasebe/fisler/eslesme`) + **veri modeli eksikleri** (işveren SGK,
+   çek/senet durum tarihi, virman kimliği, döviz kuru — migrasyon `20261005000001` canlıda).
+   Uçtan uca 72/72. Mobil (390 px) tarandı: fiş detayında onay düğmeleri kırpılıyor + eşlemede
+   anahtarsız grup notu — DÜZELTİLMEDİ, ayrıntı ve tek satırlık düzeltme
+   `docs/muhasebe/MOTOR-PLAN.md` → "▶ DEVAM" → "SIRADAKİ İŞ". Sonra pilot.
 
 ## Ölçüm yolları
 
