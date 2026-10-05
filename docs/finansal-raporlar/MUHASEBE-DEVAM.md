@@ -83,8 +83,8 @@ muhasebe motoru. Rakip incelemesi ve karşılaştırma Claude Docs'ta:
    **toplu eşleme ekranı** (`/muhasebe/fisler/eslesme`) + **veri modeli eksikleri** (işveren SGK,
    çek/senet durum tarihi, virman kimliği, döviz kuru — migrasyon `20261005000001` canlıda).
    Uçtan uca 72/72. Mobil (390 px) tarandı: fiş detayında onay düğmeleri kırpılıyor + eşlemede
-   anahtarsız grup notu — DÜZELTİLMEDİ, ayrıntı ve tek satırlık düzeltme
-   `docs/muhasebe/MOTOR-PLAN.md` → "▶ DEVAM" → "SIRADAKİ İŞ". Sonra pilot.
+   anahtarsız grup notu — aynı akşam düzeltildi ve 390 px'te yeniden ölçüldü; ayrıntı
+   `docs/muhasebe/MOTOR-PLAN.md` → "▶ DEVAM". Sıradaki: pilot.
 
 ## Ölçüm yolları
 

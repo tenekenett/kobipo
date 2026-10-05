@@ -286,7 +286,7 @@ function FisOdak({ id, companyId, sekme }: { id: string; companyId: string; sekm
         </div>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
         {/* Kaynak */}
         <Kart className="space-y-3 self-start">
           <p className="text-xs font-semibold uppercase tracking-wide text-kobipo-gray">Kaynak</p>

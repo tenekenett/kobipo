@@ -73,8 +73,10 @@ toplu eşleme, veri modeli); hepsi main'de, tek commit.
   hareketi/bordrosu yok. Önceki koşuların hesap planı satırları BİLEREK duruyor (kullanıcı
   kararı) — `MUHASEBE_SIFIRLA` gerekmez.
 
-**▶ SIRADAKİ İŞ (2026-10-05 mobil taramasının bulguları — kullanıcı "başka bilgisayarda
-düzelteceğim" dedi, ikisi de DÜZELTİLMEDİ):**
+**▶ 2026-10-05 mobil taramasının bulguları — 1 ve 2 aynı gün akşam DÜZELTİLDİ ve 390 px'te
+yeniden ölçüldü** (taslak, gözden geçir ve iki onaylı fiş detayı + toplu eşleme: taşan
+etkileşimli öğe 0; not anahtarsız 6 grupta çıkıyor). `tsc` temiz, `npx vitest run lib` 1861
+test, uçtan uca iki koşu 72/72 (biri `MUHASEBE_BIRAK=1`, sonra `MUHASEBE_SIFIRLA=1` ile temizlik).
 
 1. **Fiş detayında onay düğmeleri 390 px'te kırpılıyor** (önemli — telefondan fiş
    onaylanamıyor). `/muhasebe/fisler/[id]`: "Onayla", "Onayla ve sıradaki", "Onayı geri al"
@@ -85,13 +87,14 @@ düzelteceğim" dedi, ikisi de DÜZELTİLMEDİ):**
    kendi `overflow-x-auto`su da bu yüzden çalışmıyor. **Düzeltme (tek satır):**
    `app/(dashboard)/muhasebe/fisler/[id]/page.tsx` → o grid'e `grid-cols-[minmax(0,1fr)]`
    (masaüstü `lg:` sütunları aynen kalır). Sonra aynı yöntemle yeniden ölç (aşağıda).
+   → **Yapıldı, ölçüldü:** onay düğmeleri ekranda, satır tablosu kartın içinde kayıyor.
 2. **Toplu eşlemede anahtarsız grup öğrenilmez, ekran bunu söylemiyor.** Reypo'da en büyük
    grup "Gider / hizmet alışı" (8 fiş): carisiz alış satırları, `learnKeys` boş
    (`fis-kurallari.ts` → `belge.cari` yoksa öğrenme anahtarı yok). Eşleme fişleri çözer ama
    onayda kural öğrenilmez; sonraki carisiz alışlar yine "gözden geçir"e düşer. **Düzeltme:**
    `app/(dashboard)/muhasebe/fisler/eslesme/page.tsx` → `g.ogrenmeAnahtarlari.length === 0`
    olan grubun alt satırına "bu seçim öğrenilmez, yalnız bu fişlere yazılır" notu
-   (`Grup` tipine `ogrenmeAnahtarlari` eklenmeli; uç zaten döndürüyor).
+   (`Grup` tipine `ogrenmeAnahtarlari` eklenmeli; uç zaten döndürüyor). → **Yapıldı** (sarı not).
 3. **Ölçülemeyen:** finans hareket formundaki kur alanı (yalnız dövizli hesap seçilince
    görünür; Reypo'da dövizli hesap yok). Diğer alanlarla aynı yapı; dövizli test hesabıyla bak.
 
@@ -109,6 +112,10 @@ diyalogları. İş bitince Reypo'yu temizle: `MUHASEBE_SIFIRLA` bloğundaki dör
 **Sonra:** 4. Pilot (aşağıdaki listede). Açık kararlar: eski `accounting_entries` tablosu + 3
 kayıt; Demo Firma'nın Reypo kasasındaki 720 TL; ciroyu cari kaynağı yapmak (ciroda tedarikçi);
 cari döviz desteği; dövizli fatura ödemesinin kasa tutarı (bulundu, düzeltilmedi — aşağıda).
+Not (2026-10-05 akşam): ödemedeki kasa tutarını TEK BAŞINA düzeltmek yetmez — cari bakiyesinin
+altı yeri de faturanın para birimine bakmıyor (100 USD fatura cariye 100 TL girer). Kasa
+tutarını kurla çevirmek kasa ile cariyi bu kez öbür yönden ayırır; ikisi "cari döviz desteği"
+kararıyla birlikte tasarlanır.
 
 **2026-10-05 — `8ecffe1` incelemesinin düzeltmeleri:**
 
@@ -189,8 +196,8 @@ cari döviz desteği; dövizli fatura ödemesinin kasa tutarı (bulundu, düzelt
      0 (2026-10-05); ödeme çekirdeğinde ayrı tasarım ister (kasa tutarı = döviz × fatura kuru).
 2. ~~**Toplu eşleme ekranı**~~ → 2026-10-05 yapıldı (yukarıda). Kalan: gerçek bir müşavirle
    "grup adları anlaşılıyor mu" sınaması (pilot) + anahtarsız grup notu (yukarıda, madde 2).
-3. ~~**Mobil (390 px)**~~ → 2026-10-05 tarandı (iframe yöntemi); iki bulgu yukarıda
-   "SIRADAKİ İŞ"te, düzeltilmedi.
+3. ~~**Mobil (390 px)**~~ → 2026-10-05 tarandı (iframe yöntemi); iki bulgu aynı gün
+   düzeltildi ve yeniden ölçüldü. Kalan tek ölçülmeyen: dövizli hesapta kur alanı.
 4. **Pilot** (2–3 hafta, gerçek firma + müşaviri) → sonra Luca/Zirve aktarımı, sürekli
    envanter (her satışta 621/153), kâr dağıtımı yardımcısı. Fiyat ancak pilottan sonra.
 

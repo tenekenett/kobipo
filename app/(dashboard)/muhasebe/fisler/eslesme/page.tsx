@@ -37,6 +37,7 @@ type Grup = {
   rol: string
   aciklama: string
   oneriKodu: string
+  ogrenmeAnahtarlari: string[]
   satirSayisi: number
   fisSayisi: number
   tutar: number
@@ -249,6 +250,11 @@ export default function TopluEslemePage() {
                       </>
                     )}
                   </p>
+                  {g.ogrenmeAnahtarlari.length === 0 && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      Bu seçim öğrenilmez, yalnız bu fişlere yazılır — sonraki benzer kayıtlar yine gözden geçire düşer.
+                    </p>
+                  )}
                 </div>
                 <div className="text-sm text-kobipo-navy dark:text-foreground">
                   {g.fisSayisi} fiş <span className="text-xs text-kobipo-gray">({g.satirSayisi} satır)</span>
