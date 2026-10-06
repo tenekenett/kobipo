@@ -113,6 +113,11 @@ Yapıldı:
   Mysoft'un deneme faturaları. Yayından sonra yeni gelenler Reypo kurucusuna bildirilir —
   test ortamını otomatik maillerden çıkarma sorusu kullanıcıya soruldu, cevap yok.
 
+**DURDURULDU (2026-10-06, kullanıcı kararı):** iş bu dalda bekliyor, main'e ALINMADI.
+Sebep: kullanıcı GitHub sırrını şu an ekleyemiyor. Sırsız birleştirilirse giden mail çalışır
+ama gelen bildirimi hiç çalışmaz ve workflow her 30 dakikada bir hata verir (GitHub her
+hatada mail atar) → önce sır, sonra birleştirme.
+
 Kalan:
 1. **GitHub sırrı (kullanıcı):** repo → Settings → Secrets and variables → Actions →
    `CRON_SECRET` = Vercel'deki `CRON_SECRET` değeri. Workflow yalnız main'den çalışır.
