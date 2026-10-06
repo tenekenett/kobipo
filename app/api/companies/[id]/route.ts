@@ -219,6 +219,12 @@ export const PUT = withApiErrors(async function PUT(
         : typeof v === "string" && v.trim()
           ? v.trim().toUpperCase().slice(0, 3)
           : null
+
+    // Kısmi gövde (Seri No ekranı yalnız tek bir ön ek yollar) GÖNDERİLMEYEN alanı silmemeli.
+    // 2026-10-06'ya kadar bu alanlar `x || null` ile yazılıyordu: her kısmi kayıt onboarding
+    // cevaplarını ve e-Dönüşüm sağlayıcısını null'a çekiyor, ana firmada sağlayıcı boşluğu
+    // şubelere de yayılıyordu (onboarding'li 31 firmanın 18'inde sektör boştu).
+    const optionalText = (v: unknown) => (v === undefined ? undefined : (v as string) || null)
     let tenantVknUpdate: string | null | undefined
     if (eDonusumTenantVkn !== undefined) {
       const c = cleanVknDigits(eDonusumTenantVkn)
@@ -258,14 +264,14 @@ export const PUT = withApiErrors(async function PUT(
         email,
         website,
         isEDonusumEnabled: isEDonusumEnabled !== undefined ? Boolean(isEDonusumEnabled) : undefined,
-        invoiceSeriesPrefix: invoiceSeriesPrefix || null,
+        invoiceSeriesPrefix: optionalText(invoiceSeriesPrefix),
         eFaturaPrefix: normalizeSeriesPrefix(eFaturaPrefix),
         eArchivePrefix: normalizeSeriesPrefix(eArchivePrefix),
         eFaturaBackdatePrefix: normalizeSeriesPrefix(eFaturaBackdatePrefix),
         eArchiveBackdatePrefix: normalizeSeriesPrefix(eArchiveBackdatePrefix),
         eDonusumTenantVkn: tenantVknUpdate,
         eDonusumIntegrator: eDonusumIntegrator || undefined,
-        eDonusumProvider: eDonusumProvider || null,
+        eDonusumProvider: optionalText(eDonusumProvider),
         // Username/URL/Alias: form'da bu alan gönderilmediyse (undefined) DB'deki değeri
         // ezmiyoruz. Yalnızca açıkça boş string gönderilirse temizliyoruz. Bu sayede
         // Firma Ayarları'nın başka bir sekmesinden kaydetmek E-Dönüşüm credentials'ını
@@ -293,13 +299,15 @@ export const PUT = withApiErrors(async function PUT(
         eDonusumLastTestedAt: eDonusumLastTestedAt ? new Date(eDonusumLastTestedAt) : undefined,
         eDonusumLastTestSuccess:
           typeof eDonusumLastTestSuccess === "boolean" ? eDonusumLastTestSuccess : undefined,
-        sector: sector || null,
-        businessModel: businessModel || null,
-        employeeRange: employeeRange || null,
-        monthlyInvoiceVolume: monthlyInvoiceVolume || null,
-        primaryBusinessNeed: primaryBusinessNeed || null,
+        sector: optionalText(sector),
+        businessModel: optionalText(businessModel),
+        employeeRange: optionalText(employeeRange),
+        monthlyInvoiceVolume: optionalText(monthlyInvoiceVolume),
+        primaryBusinessNeed: optionalText(primaryBusinessNeed),
         usesEDonusumBefore:
-          typeof usesEDonusumBefore === "boolean" ? usesEDonusumBefore : null,
+          usesEDonusumBefore === undefined
+            ? undefined
+            : typeof usesEDonusumBefore === "boolean" ? usesEDonusumBefore : null,
         onboardingCompletedAt: onboardingCompletedAt ? new Date(onboardingCompletedAt) : undefined,
     }
 
